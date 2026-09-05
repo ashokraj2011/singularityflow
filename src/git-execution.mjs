@@ -15,7 +15,9 @@ import { incrementCommandCounter } from './dx-timing-context.mjs';
 import { spawn } from 'node:child_process';
 import { statSync } from 'node:fs';
 import path from 'node:path';
-import { networkDisabled, run, signalProcessTree, SingularityFlowError } from './util.mjs';
+import {
+  networkDisabled, recordSubprocessTiming, run, signalProcessTree, SingularityFlowError
+} from './util.mjs';
 
 const positive = (value, fallback) => {
   const parsed = Number(value);
@@ -192,6 +194,7 @@ export async function runRemoteGitAsync(args, {
     });
   }
   recordRemoteGitInvocation(args, operation);
+  const probeStarted = process.env.SINGULARITY_FLOW_SUBPROCESS_PROBE ? performance.now() : 0;
   const result = signal?.aborted
     // Abort reasons are caller-owned values and may contain credentials, URLs, or UI text. The
     // closed-vocabulary cancellation classification below is the complete public diagnosis; never
@@ -369,6 +372,7 @@ export async function runRemoteGitAsync(args, {
     if (signal?.aborted) onAbort();
     else signal?.addEventListener('abort', onAbort, { once: true });
   });
+  if (probeStarted) recordSubprocessTiming('git', args, performance.now() - probeStarted);
   const classified = result.status === 0 && !result.outputOverflow
     ? null
     : {

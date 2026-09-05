@@ -1017,7 +1017,7 @@ test('Story and Initiative sync gate the exact pending commit before recovery pu
     const body = nextExport < 0 ? tail : tail.slice(0, fixture.start.length + nextExport);
     const verification = body.indexOf('verifyPendingPublicationCommit(');
     const refusal = body.indexOf('if (!verification.valid)', verification);
-    const push = body.indexOf('pushCommitToBranch(', refusal);
+    const push = body.indexOf('pushCommitToBranchAsync(', refusal);
     assert.ok(verification >= 0 && refusal > verification && push > refusal,
       `${fixture.file} can reach recovery push before exact pending-commit verification`);
     const pushCall = body.slice(push, body.indexOf(');', push) + 2);
@@ -1071,7 +1071,7 @@ test('capability sibling transport verifies the exact Candidate before its push'
   );
   assert.match(capabilityBody, /publishVerifiedSgosLifecycleCandidate\(/,
     'capability sibling publication bypasses the shared verified-Candidate transport');
-  assert.doesNotMatch(capabilityBody, /pushCommitToBranch\(/,
+  assert.doesNotMatch(capabilityBody, /pushCommitToBranch(?:Async)?\(/,
     'capability sibling publication retains a direct push path beside the Candidate adapter');
 
   const candidateSource = await readFile(
@@ -1084,7 +1084,7 @@ test('capability sibling transport verifies the exact Candidate before its push'
     adapterStart, candidateSource.indexOf('\nexport async function readSgosRetainedCandidate', adapterStart)
   );
   const verify = adapterBody.indexOf('verifySgosLifecycleCandidateBinding(');
-  const push = adapterBody.indexOf('pushCommitToBranch(');
+  const push = adapterBody.indexOf('pushCommitToBranchAsync(');
   assert.ok(verify >= 0 && push > verify,
     'the shared Candidate adapter can push before exact Candidate verification');
 });

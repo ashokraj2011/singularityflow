@@ -119,7 +119,7 @@ test('an exact reviewed WMB Plan requires an out-of-band one-time confirmation a
     readOnly: false,
     ...wired
   });
-  const planned = kernel.resolve({
+  const planned = await kernel.resolve({
     utterance: 'build and publish registered world model',
     arguments: {
       views: ['dev.impact'], depth: 'standard', consumer: 'developer',
@@ -181,7 +181,7 @@ test('an exact reviewed WMB Plan requires an out-of-band one-time confirmation a
   );
   assert.equal(replay.why[0].code, 'gateway.handle-consumed');
 
-  const approval = kernel.resolve({
+  const approval = await kernel.resolve({
     utterance: 'take me to the approval', arguments: { workId: 'WRK-1' }
   });
   assert.equal(approval.kind, 'ceremony');
@@ -200,7 +200,7 @@ test('confirmed WMB target and state CAS authority cannot be redirected or advan
   }).kernel;
 
   const redirected = newGateway('wmb-endpoint-drift');
-  const endpointPlan = redirected.resolve({
+  const endpointPlan = await redirected.resolve({
     utterance: 'build and publish registered world model',
     arguments: { views: ['dev.impact'], composer: 'deterministic' }
   });
@@ -227,7 +227,7 @@ test('confirmed WMB target and state CAS authority cannot be redirected or advan
 
   git(root, 'remote', 'set-url', '--push', 'origin', git(root, 'remote', 'get-url', 'origin').stdout.trim());
   const advanced = newGateway('wmb-cas-drift');
-  const casPlan = advanced.resolve({
+  const casPlan = await advanced.resolve({
     utterance: 'build and publish registered world model',
     arguments: { views: ['dev.impact'], composer: 'deterministic' }
   });
@@ -324,7 +324,7 @@ test('gateway planning refuses an unmaterialized remote view set and preserves i
     definition: { ledger: LEDGER }
   });
   assert.equal(refreshed.status, 'refreshed');
-  const planned = kernel.resolve({
+  const planned = await kernel.resolve({
     utterance: 'build and publish registered world model',
     arguments: { views: ['arch.contracts'], composer: 'deterministic' }
   });
@@ -361,7 +361,7 @@ test('source drift after confirmation refuses the Plan before execution', async 
   const { kernel } = createHostGateway({
     root, hostSessionId: 'wmb-drift-session', planners: gatewayPlanners(), readOnly: false, ...wired
   });
-  const planned = kernel.resolve({
+  const planned = await kernel.resolve({
     utterance: 'generate registered world model views',
     arguments: { views: ['dev.impact'], composer: 'deterministic' }
   });
@@ -400,7 +400,7 @@ test('model-backed WMB planning fails closed when gateway model routing is disab
     ],
     ...wired
   });
-  const refused = kernel.resolve({
+  const refused = await kernel.resolve({
     utterance: 'build and publish registered world model',
     arguments: { views: ['dev.impact'], composer: 'model' }
   });

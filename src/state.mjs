@@ -8,8 +8,8 @@ import {
   repoRelative, run, secureRepositoryPath, snapshot, stateFingerprint, truncate, writeJson, writeText
 } from './util.mjs';
 import {
-  branch, changedFiles, exactRemoteBranchHead, gitCommonDir, head, identity, pushBranch,
-  publicationPushOutcome, pushCommitToBranch, remoteContains, untrackedFiles
+  branch, changedFiles, exactRemoteBranchObservationAsync, gitCommonDir, head, identity,
+  publicationPushOutcome, pushCommitToBranchAsync, remoteContains, untrackedFiles
 } from './git.mjs';
 import {
   WORKFLOW_PATH, assertPlannedClaimsReady, loadDefinition, normalizeArtifactTemplateCompatibility, normalizeSequenceGates,
@@ -5738,7 +5738,9 @@ export async function syncPublication(root, config, workflow, { fault = null } =
     }
     let rootPushed = record.rootPublished === true;
     if (rootPushed) {
-      const remoteCommit = exactRemoteBranchHead(root, rootRemoteAuthority.url, record.branch);
+      const remoteCommit = (await exactRemoteBranchObservationAsync(
+        root, rootRemoteAuthority.url, record.branch
+      )).sha;
       if (remoteCommit !== record.commit) {
         throw new SingularityFlowError(
           `Story '${workflow.workItem.id}' pending marker says its root ref was published, but remote '${record.remote}' `
@@ -5761,7 +5763,7 @@ export async function syncPublication(root, config, workflow, { fault = null } =
         : 'not-attempted';
       record = { ...record, pushOutcome: 'transport-indeterminate' };
       await writePendingPublication(root, { ...subject, record });
-      const result = pushCommitToBranch(root, record.remote, record.commit, record.branch, {
+      const result = await pushCommitToBranchAsync(root, record.remote, record.commit, record.branch, {
         expectedRemoteSha: record.expectedRemoteSha,
         transportRemote: rootRemoteAuthority.url,
         upstreamRemote: rootRemoteAuthority.remote
@@ -5775,7 +5777,9 @@ export async function syncPublication(root, config, workflow, { fault = null } =
         // it. That is the only way a crash after a successful receive-pack can converge safely.
         const remoteCommit = priorPushOutcome === 'transport-indeterminate'
           || pushOutcome === 'transport-indeterminate'
-          ? exactRemoteBranchHead(root, rootRemoteAuthority.url, record.branch)
+          ? (await exactRemoteBranchObservationAsync(
+              root, rootRemoteAuthority.url, record.branch
+            )).sha
           : null;
         if (remoteCommit !== record.commit) {
           if (pushOutcome !== 'transport-indeterminate') {
@@ -5811,7 +5815,9 @@ export async function syncPublication(root, config, workflow, { fault = null } =
           continue;
         }
         if (pendingIdentities.has(capabilityPublicationEntrySha256(completed))) continue;
-        if (exactRemoteBranchHead(completed.root, completedAuthority.url, completed.branch) !== completed.commit) {
+        if ((await exactRemoteBranchObservationAsync(
+          completed.root, completedAuthority.url, completed.branch
+        )).sha !== completed.commit) {
           progressFailures.push(`completed capability publication '${completed.repository}' exact remote ref is not proven`);
         }
       }

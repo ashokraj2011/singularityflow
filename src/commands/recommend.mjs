@@ -87,7 +87,7 @@ export async function run(_argv, { options }) {
       }
     }
   });
-  const resolution = kernel.resolve({ utterance: 'what should I do next' });
+  const resolution = await kernel.resolve({ utterance: 'what should I do next' });
   const envelope = resolution.kind === 'read' && resolution.next.length === 1
     ? await kernel.read({ resolutionId: resolution.next[0].handle })
     : resolution;

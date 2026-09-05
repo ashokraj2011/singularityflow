@@ -6,7 +6,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 import {
   add, assertNotDefaultBranch, branch, changedFiles, commit, GITHUB_LOOKUP, head, identity, localBranches,
-  pushBranch, remoteBranches
+  pushCommitToBranchAsync, remoteBranches
 } from './git.mjs';
 import {
   DEFAULT_PLANNING_PROMPT,
@@ -1821,7 +1821,7 @@ export async function publishEditorConfiguration(root, message = 'Configure Sing
   const sha = commit(root, message.trim() || 'Configure Singularity Flow workflow', configurationChanges);
   if (!publishing) return { sha, pushed: false, files: configurationChanges };
   const remote = definition.git?.remote ?? 'origin';
-  const result = pushBranch(root, remote, branch(root));
+  const result = await pushCommitToBranchAsync(root, remote, sha, branch(root));
   if (result.status !== 0) throw new SingularityFlowError(`Commit ${sha.slice(0, 8)} was created but push failed: ${(result.stderr || result.stdout).trim()}`);
   return { sha, pushed: true, remote, files: configurationChanges };
 }

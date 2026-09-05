@@ -98,7 +98,7 @@ export async function releaseCancelledWorktree(root, config, workflow) {
     }
   }
   try {
-    checkout(root, plan.baseBranch, {
+    await checkout(root, plan.baseBranch, {
       base: plan.baseBranch, existingOnly: true, remote: plan.remote, fetch: false
     });
   } catch (error) {

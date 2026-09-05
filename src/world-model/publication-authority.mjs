@@ -2,7 +2,7 @@ import { normalizeLedgerConfig } from '../ledger-config.mjs';
 import {
   materializeStateBranchPublicationAuthority, stateBranchPublicationTargetIdentity
 } from '../ledger.mjs';
-import { exactRemoteBranchObservation, refHead } from '../git.mjs';
+import { exactRemoteBranchObservationAsync, refHead } from '../git.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { canonicalJson } from './canonicalize.mjs';
 
@@ -91,10 +91,12 @@ function publicEndpoint(endpoint) {
   });
 }
 
-function observePublicationAuthority(root, ledger, endpoint) {
+async function observePublicationAuthority(root, ledger, endpoint) {
   const localBase = refHead(root, `refs/heads/${ledger.branch}`) ?? undefined;
   if (!endpoint.configured) return Object.freeze({ baseRef: localBase, refreshRemote: false });
-  const observed = exactRemoteBranchObservation(root, endpoint.effectiveUrl, ledger.branch);
+  const observed = await exactRemoteBranchObservationAsync(
+    root, endpoint.effectiveUrl, ledger.branch
+  );
   if (!observed.reachable) {
     throw new SingularityFlowError(
       `The state publication target '${ledger.remote}/${ledger.branch}' could not be observed.`,
@@ -120,14 +122,14 @@ function observePublicationAuthority(root, ledger, endpoint) {
  * Runtime-only test seams (`publisher` and `env`) are deliberately absent. They are not authority
  * and cannot change the signed target, CAS base, guarded refs, or commit message.
  */
-export function captureWorldModelPublicationReview(root, {
+export async function captureWorldModelPublicationReview(root, {
   outputDir = 'singularity/world-model', ledgerConfig = {}, publicationOptions = {},
 } = {}) {
   const ledger = Object.freeze(normalizeLedgerConfig(ledgerConfig));
   const endpoint = stateBranchPublicationTargetIdentity(root, ledger);
   // Exact planning must remain effect-free. Observe the configured endpoint directly instead of
   // fetching into refs/remotes/* before the person has confirmed the Plan.
-  const authority = observePublicationAuthority(root, ledger, endpoint);
+  const authority = await observePublicationAuthority(root, ledger, endpoint);
   return Object.freeze({
     target: 'state-branch',
     remote: ledger.remote,
@@ -149,8 +151,8 @@ export function captureWorldModelPublicationReview(root, {
 }
 
 /** Re-observe and compare the complete signed publication authority. */
-export function assertWorldModelPublicationReview(root, expected, options = {}) {
-  const current = captureWorldModelPublicationReview(root, options);
+export async function assertWorldModelPublicationReview(root, expected, options = {}) {
+  const current = await captureWorldModelPublicationReview(root, options);
   if (canonicalJson(current) !== canonicalJson(expected)) {
     throw new SingularityFlowError(
       'The registered world-model publication target or CAS authority changed after confirmation.',
@@ -172,7 +174,7 @@ export function assertWorldModelPublicationReview(root, expected, options = {}) 
 export async function materializeWorldModelPublicationReview(root, review, {
   publicationOptions = {}
 } = {}) {
-  assertWorldModelPublicationReview(root, review, {
+  await assertWorldModelPublicationReview(root, review, {
     outputDir: review.outputDir,
     ledgerConfig: review.ledger,
     publicationOptions

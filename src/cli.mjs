@@ -502,7 +502,7 @@ async function initCommand(options) {
   if (workId) {
     validateId({ idPattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$' }, workId);
     assertClean(root);
-    checkout(root, workId, {
+    await checkout(root, workId, {
       base: optionString(options, 'base', 'main'),
       fetch: optionBoolean(options, 'fetch')
     });
@@ -890,17 +890,17 @@ export async function startCommand(positionals, options) {
   const explicitBase = optionString(options, 'base');
   const canonicalBranch = optionString(options, 'ref', id);
   const advertisedStoryRef = `refs/heads/${canonicalBranch}`;
-  const observeStoryDestination = (remoteName) => {
+  const observeStoryDestination = async (remoteName) => {
     const applicationRemote = run('git', ['remote', 'get-url', remoteName], {
       cwd: root, allowFailure: true
     }).stdout.trim();
     const session = applicationRemote ? new GitRemoteSession() : null;
-    const authority = session?.observe(applicationRemote, {
+    const authority = applicationRemote ? await session.observeAsync(applicationRemote, {
       includeHead: true, refs: [advertisedStoryRef]
-    }) ?? null;
+    }) : null;
     let defaultBranch = authority?.defaultBranch ?? null;
     if (applicationRemote && !defaultBranch && authority?.ok) {
-      const fallback = session.observe(applicationRemote, {
+      const fallback = await session.observeAsync(applicationRemote, {
         includeHead: true, includeAllHeads: true
       });
       defaultBranch = fallback.defaultBranch
@@ -941,7 +941,7 @@ export async function startCommand(positionals, options) {
     // for approved configuration first. That defeats the offline/idempotent path above precisely
     // when the local Story already carries every governed configuration byte it needs.
     if (branch(root) !== localStory.canonicalBranch) {
-      checkout(root, localStory.canonicalBranch, {
+      await checkout(root, localStory.canonicalBranch, {
         base: localStory.state?.workItem?.baseBranch ?? 'main',
         fetch: false,
         existingOnly: true,
@@ -974,13 +974,13 @@ export async function startCommand(positionals, options) {
   }
   validateId(config, id);
   remote = config.git?.remote ?? 'origin';
-  const destination = observeStoryDestination(remote);
+  const destination = await observeStoryDestination(remote);
   const applicationDefault = destination.defaultBranch;
   let remoteStoryRef = `refs/remotes/${remote}/${canonicalBranch}`;
   const approvedRemoteStoryExists = destination.authority?.ok === true
     && destination.authority.refs.has(advertisedStoryRef);
   if (approvedRemoteStoryExists) {
-    fetchRemote(root, remote);
+    await fetchRemote(root, remote);
     const remoteStory = await durableStoryAtRef(remoteStoryRef, canonicalBranch);
     if (remoteStory) {
       const requested = await externalSource();
@@ -1010,7 +1010,7 @@ export async function startCommand(positionals, options) {
   // refs before choosing a base or checking out a branch, then attach to the existing Story.
   const requestedExternalSource = await externalSource();
   if (requestedExternalSource?.stableId) {
-    fetchRemote(root, remote);
+    await fetchRemote(root, remote);
     const refs = [
       ...localBranches(root).map((branchName) => ({ branch: branchName, ref: branchName })),
       ...remoteBranches(root, remote).map((branchName) => ({ branch: branchName, ref: `${remote}/${branchName}` }))
@@ -1233,7 +1233,7 @@ export async function startCommand(positionals, options) {
         { code: 'STORY_REMOTE_UNREACHABLE' }
       );
     }
-    fetchRemote(root, remote, { transportRemote: fetchAuthority.url });
+    await fetchRemote(root, remote, { transportRemote: fetchAuthority.url });
     if (publishRequired) publicationAuthority = configuredRemoteAuthority(root, remote);
   }
   if (publishRequired && !publicationAuthority?.url) {
@@ -1262,7 +1262,7 @@ export async function startCommand(positionals, options) {
   // "unrecognized commit" loop.
   const recoveryBaseCommit = materializedSeed ? refHead(root, remoteStoryRef) : baseCommitAtStart;
   if (publishRequired && !capabilityPreflight) {
-    const dryRun = preflightPushBranch(
+    const dryRun = await preflightPushBranch(
       root, remote, materializedSeed ? remoteStoryRef : remoteBaseRef, canonicalBranch,
       { transportRemote: publicationAuthority.url }
     );
@@ -1311,7 +1311,7 @@ export async function startCommand(positionals, options) {
   let configurationSnapshot = null;
   let configurationRestorePoint = null;
   try {
-  const checkoutResult = checkout(root, canonicalBranch, materializedSeed
+  const checkoutResult = await checkout(root, canonicalBranch, materializedSeed
     ? { base: baseAtStart, fetch: true, existingOnly: true, remote }
     : { base: baseAtStart, fetch: false, remote, preferRemoteBase: true });
   createdBranch = checkoutResult.startsWith('created-from-');
@@ -1327,7 +1327,7 @@ export async function startCommand(positionals, options) {
    * the workspace has not cloned is named rather than silently left behind.
    */
   if (storyBase.scope === 'capability') {
-    capabilityRepositoriesPrepared = prepareCapabilityRepositories(
+    capabilityRepositoriesPrepared = await prepareCapabilityRepositories(
       storyBase.workspaceRoot, storyBase.plan, canonicalBranch, {
         remote, lifecycleRoot: managedStoryWorktree ? root : null,
         fetched: Boolean(capabilityPreflight)
@@ -1720,7 +1720,7 @@ async function choicesCommand(positionals, options) {
       let workflow = null;
       if (action === 'approve') {
         assertClean(root);
-        if (workId !== branch(root) || optionBoolean(options, 'fetch')) checkout(root, workId, {
+        if (workId !== branch(root) || optionBoolean(options, 'fetch')) await checkout(root, workId, {
           base: config.defaultBaseBranch,
           fetch: optionBoolean(options, 'fetch'),
           existingOnly: true,
@@ -1757,7 +1757,7 @@ async function resumeCommand(positionals, options) {
   const initialConfig = discovery.definition;
   const fetch = optionBoolean(options, 'fetch');
   const remote = discovery.remote;
-  if (fetch) fetchRemote(root, remote);
+  if (fetch) await fetchRemote(root, remote);
   const refs = [
     { branch: branch(root), ref: branch(root) },
     ...localBranches(root).map((branchName) => ({ branch: branchName, ref: branchName })),
@@ -1772,7 +1772,7 @@ async function resumeCommand(positionals, options) {
   if (branch(root) !== targetBranch && !optionBoolean(options, 'allow-dirty')) assertClean(root);
   // Discovery has already fetched every remote ref. Reuse that exact observation for the local
   // fast-forward; asking `checkout` to fetch again used to add a second fetch and then a pull.
-  checkout(root, targetBranch, {
+  await checkout(root, targetBranch, {
     base: initialConfig.defaultBaseBranch, fetch: false, fetched: fetch, existingOnly: true, remote
   });
   const config = await loadConfig(root);
@@ -1811,7 +1811,7 @@ async function returnCommand(positionals, options) {
   const initialConfig = discovery.definition;
   const remote = discovery.remote;
   const offline = optionBoolean(options, 'offline');
-  if (!offline) fetchRemote(root, remote);
+  if (!offline) await fetchRemote(root, remote);
   const refs = remoteBranches(root, remote).map((branchName) => ({
     branch: branchName, ref: `${remote}/${branchName}`
   }));
@@ -1914,7 +1914,7 @@ async function returnCommand(positionals, options) {
     );
   }
   assertClean(root);
-  checkout(root, targetBranch, {
+  await checkout(root, targetBranch, {
     base: initialConfig.defaultBaseBranch, existingOnly: true, remote, fetch: false
   });
   fastForwardTo(root, remoteRef);
@@ -4795,7 +4795,9 @@ async function regressionCommand(positionals, options) {
   const subcommand = positionals[1] ?? 'analyze';
   if (subcommand !== 'analyze') throw new SingularityFlowError(`Unknown regression subcommand: ${subcommand}`);
   const root = repoRoot();
-  if (optionBoolean(options, 'fetch')) fetchRemote(root, optionString(options, 'remote', 'origin'));
+  if (optionBoolean(options, 'fetch')) {
+    await fetchRemote(root, optionString(options, 'remote', 'origin'));
+  }
   const report = analyzeRegression(root, {
     base: optionString(options, 'base', 'main'),
     good: optionString(options, 'good'),
@@ -5308,7 +5310,7 @@ async function decisionWorkflow(positionals, options, action) {
   const { requestedId, requestedPhase, implicitLegacyWorkId } = decisionArguments(config, positionals, options, action);
   if (requestedId && (requestedId !== branch(root) || optionBoolean(options, 'fetch'))) {
     try {
-      checkout(root, requestedId, {
+      await checkout(root, requestedId, {
         base: config.defaultBaseBranch,
         fetch: optionBoolean(options, 'fetch'),
         existingOnly: true,
@@ -5585,7 +5587,7 @@ async function reopenCommand(positionals, options) {
   const requestedId = positionals[1];
   let config = await loadConfig(root);
   if (requestedId && (requestedId !== branch(root) || optionBoolean(options, 'fetch'))) {
-    checkout(root, requestedId, {
+    await checkout(root, requestedId, {
       base: config.defaultBaseBranch,
       fetch: optionBoolean(options, 'fetch'),
       existingOnly: true,
@@ -5691,7 +5693,7 @@ async function cancelCommand(positionals, options) {
   const requestedId = positionals[1];
   let config = await loadConfig(root);
   if (requestedId && (requestedId !== branch(root) || optionBoolean(options, 'fetch'))) {
-    checkout(root, requestedId, {
+    await checkout(root, requestedId, {
       base: config.defaultBaseBranch,
       fetch: optionBoolean(options, 'fetch'),
       existingOnly: true,
@@ -6744,7 +6746,11 @@ async function watchCommand(positionals, options) {
   const once = optionBoolean(options, 'once') || !output.isTTY; const interval = Math.max(2, optionNumber(options, 'interval', 15));
   let previous = '';
   do {
-    if (optionBoolean(options, 'fetch') && branch(root) === workflow.workItem.branch && hasUpstream(root) && !changes(root).trim()) { fetchOrigin(root); pullFastForward(root); }
+    if (optionBoolean(options, 'fetch') && branch(root) === workflow.workItem.branch
+        && hasUpstream(root) && !changes(root).trim()) {
+      await fetchOrigin(root);
+      await pullFastForward(root);
+    }
     const fresh = await loadStoryAggregate(root, config, workflow.workItem.id); const snapshot = watchSnapshot(fresh); const serialized = JSON.stringify(snapshot);
     if (serialized !== previous) {
       if (optionBoolean(options, 'json')) console.log(JSON.stringify(snapshot, null, 2)); else process.stdout.write(watchText(snapshot));
@@ -7646,7 +7652,7 @@ async function sessionCommand(positionals, options) {
   }
   if (subcommand === 'candidates') {
     const remote = discovery.remote;
-    fetchRemote(root, remote);
+    await fetchRemote(root, remote);
     const refs = remoteBranches(root, remote).map((branchName) => ({ branch: branchName, ref: `${remote}/${branchName}` }));
     const subjectIndex = await buildRepositorySubjectIndexFromRefs(root, { definition: config, refs });
     const candidates = [];
@@ -7671,7 +7677,7 @@ async function sessionCommand(positionals, options) {
     // branch impossible to select. We still require a clean tree before changing branches or
     // advancing HEAD; the sole exception below only binds local session metadata in place.
     const remote = discovery.remote;
-    fetchRemote(root, remote);
+    await fetchRemote(root, remote);
     const refs = remoteBranches(root, remote).map((branchName) => ({ branch: branchName, ref: `${remote}/${branchName}` }));
     const subjectIndex = await buildRepositorySubjectIndexFromRefs(root, { definition: config, refs });
     const subject = resolveContext(subjectIndex, { reference, kind: 'story' });
@@ -7714,7 +7720,7 @@ async function sessionCommand(positionals, options) {
     } else {
       materialization = managedWorktree
         ? 'reused-managed-story-worktree'
-        : checkout(attachmentRoot, targetBranch, { base: pinned.definition.defaultBaseBranch, existingOnly: true, remote });
+        : await checkout(attachmentRoot, targetBranch, { base: pinned.definition.defaultBaseBranch, existingOnly: true, remote });
       try { fastForwardTo(attachmentRoot, remoteName); }
       catch { throw new SingularityFlowError(`Local branch '${targetBranch}' cannot fast-forward to ${remote}/${targetBranch}. Resolve or preserve the local commits in another clone; Singularity Flow will not merge, rebase, reset, or discard them.`); }
     }
@@ -9026,7 +9032,7 @@ async function initiativeCommand(positionals, options) {
     validateInitiativeId(initiativeId);
     if (!optionBoolean(options, 'allow-dirty')) assertClean(root);
     const receiptToken = optionString(options, 'selection-receipt');
-    checkout(root, initiativeId, {
+    await checkout(root, initiativeId, {
       base: optionString(options, 'base', config.defaultBaseBranch),
       fetch: optionBoolean(options, 'fetch'),
       remote: config.git?.remote ?? 'origin'
@@ -9129,7 +9135,7 @@ async function initiativeCommand(positionals, options) {
     const reference = requirePositional(positionals, 2, 'initiative ID or branch alias');
     const fetch = optionBoolean(options, 'fetch');
     const remote = config.git?.remote ?? 'origin';
-    if (fetch) fetchRemote(root, remote);
+    if (fetch) await fetchRemote(root, remote);
     const refs = [
       { branch: branch(root), ref: branch(root) },
       ...localBranches(root).map((branchName) => ({ branch: branchName, ref: branchName })),
@@ -9142,7 +9148,7 @@ async function initiativeCommand(positionals, options) {
     const initiativeId = resolved.id;
     const targetBranch = resolved.selectedBranch;
     if (branch(root) !== targetBranch) assertClean(root);
-    checkout(root, targetBranch, { base: config.defaultBaseBranch, fetch, existingOnly: true, remote });
+    await checkout(root, targetBranch, { base: config.defaultBaseBranch, fetch, existingOnly: true, remote });
     const loaded = await loadInitiativeAggregate(root, initiativeId);
     const session = await activateInitiativeAgent(
       root, config, initiativeId, loaded.initiative.resolution.phases[loaded.initiative.currentPhase], optionString(options, 'agent') ?? null

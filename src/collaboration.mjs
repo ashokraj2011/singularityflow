@@ -178,7 +178,11 @@ export async function applyRecovery(root, config, workflow, plan, { confirm = nu
       completed.push({ id: action.id, result: await syncPublication(root, config, workflow) });
       continue;
     }
-    if (action.id === 'fast-forward') { fetchOrigin(root); pullFastForward(root); completed.push({ id: action.id, result: 'fast-forward complete' }); }
+    if (action.id === 'fast-forward') {
+      await fetchOrigin(root);
+      await pullFastForward(root);
+      completed.push({ id: action.id, result: 'fast-forward complete' });
+    }
   }
   const pending = await inspectPendingPublication(root, {
     kind: 'story', id: workflow.workItem.id, migrate: false,

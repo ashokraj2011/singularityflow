@@ -215,7 +215,7 @@ export function createGatewayKernel({
     return validateSflowResult(sealPlannerNavigation(produced, issuedAgainst));
   }
 
-  function issueResolvedPlan(result, issuedAgainst) {
+  async function issueResolvedPlan(result, issuedAgainst) {
     if (result.kind !== 'plan') return result;
     const operation = registry.operations.find((entry) => entry.id === result.operation.id);
     const builder = operation && planBuilders.get(operation.gateway.planner);
@@ -234,7 +234,7 @@ export function createGatewayKernel({
       : plannerContext;
     let descriptor;
     try {
-      descriptor = builder({
+      descriptor = await builder({
         operation, arguments: args, subject: result.subject, registry, policy, root,
         context: context ?? {}
       });
@@ -283,7 +283,7 @@ export function createGatewayKernel({
     registryHash: registry.contentHash,
 
     /** `sflow_resolve`: the only entry point that takes words. */
-    resolve(request = {}, { subject = null } = {}) {
+    async resolve(request = {}, { subject = null } = {}) {
       const issuedAgainst = currentBinding();
       const result = resolveIntent(request, {
         registry,

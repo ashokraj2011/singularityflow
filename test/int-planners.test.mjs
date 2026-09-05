@@ -158,7 +158,7 @@ test('the kernel validates and seals the handoff continuation target', async () 
     'work-handoff': () => workHandoffResult(workItem, { sourceCommit: 'c'.repeat(40) })
   });
   const kernel = createGatewayKernel({ binding, planners });
-  const resolved = kernel.resolve({
+  const resolved = await kernel.resolve({
     utterance: 'handoff packet',
     arguments: { workId: 'WRK-42', workKind: 'story' }
   });
@@ -166,7 +166,7 @@ test('the kernel validates and seals the handoff continuation target', async () 
   assert.match(handoff.next[0].handle, /^sel_/);
   assert.equal(plannerNavigationTarget(handoff.next[0]), null, 'hosts receive no reconstructable target');
 
-  const continuation = kernel.resolve({ selectionHandle: handoff.next[0].handle });
+  const continuation = await kernel.resolve({ selectionHandle: handoff.next[0].handle });
   assert.equal(continuation.operation.id, 'work.continue');
   assert.deepEqual(continuation.data.arguments, { workId: 'WRK-42', workKind: 'story' });
 });
@@ -346,9 +346,11 @@ test('the kernel routes a resolved read to the planner that now exists', async (
   const candidates = gatewayRegistry().operations
     .filter((entry) => entry.classification === 'read' && missing.includes(entry.gateway.planner));
   // One whose arguments are all optional, so resolution reaches a handle instead of asking a question.
-  const pick = candidates
-    .map((entry) => ({ entry, resolved: kernel.resolve({ utterance: entry.gateway.aliases.en.phrases[0] }) }))
-    .find(({ resolved }) => resolved.kind === 'read');
+  const resolvedCandidates = await Promise.all(candidates.map(async (entry) => ({
+    entry,
+    resolved: await kernel.resolve({ utterance: entry.gateway.aliases.en.phrases[0] })
+  })));
+  const pick = resolvedCandidates.find(({ resolved }) => resolved.kind === 'read');
   assert.ok(pick, 'no unimplemented read resolves without arguments');
   const operation = pick.entry;
   const read = await kernel.read({ resolutionId: pick.resolved.next[0].handle });
@@ -376,12 +378,12 @@ async function everyPlannerResult() {
     await workspaceList({ env }),
     workHandoffResult(workItem, { sourceCommit: 'd'.repeat(40) }),
     reviewPacketResult(workItem),
-    kernel.resolve({ utterance: 'explain approvals' }),
-    kernel.resolve({ utterance: 'zzzz not a phrase anyone would say' }),
+    await kernel.resolve({ utterance: 'explain approvals' }),
+    await kernel.resolve({ utterance: 'zzzz not a phrase anyone would say' }),
     kernel.next({}),
     // The two refusal paths every host will meet: a handle that died, and a planner this build
     // declares but does not have.
-    kernel.resolve({ selectionHandle: 'sel_never_issued' }),
+    await kernel.resolve({ selectionHandle: 'sel_never_issued' }),
     await kernel.read({ resolutionId: 'rea_never_issued' })
   ];
   return results.filter(Boolean);

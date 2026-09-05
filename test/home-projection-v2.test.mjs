@@ -41,7 +41,7 @@ test('the kernel emits one bounded HomeProjectionV2 with sealed nested actions',
       }
     }
   });
-  const resolution = kernel.resolve({ utterance: 'home' });
+  const resolution = await kernel.resolve({ utterance: 'home' });
   const result = await kernel.read({ resolutionId: resolution.next[0].handle });
   const projection = result.data.homeProjection;
   assert.equal(projection.schemaVersion, 2);

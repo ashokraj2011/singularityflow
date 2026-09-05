@@ -2,7 +2,7 @@ import path from 'node:path';
 import { rm } from 'node:fs/promises';
 import {
   admitGovernedPublication, branch, commitIsolated, head, publicationPushOutcome,
-  pushCommitToBranch
+  pushCommitToBranchAsync
 } from './git.mjs';
 import {
   appendLedgerIntent,
@@ -504,7 +504,7 @@ export class GitPublicationUnitOfWork {
         stage: 'publishing', pushOutcome: 'transport-indeterminate'
       }, { transactionId: journal.transactionId });
       let result = publicationAuthority?.url
-        ? pushCommitToBranch(
+        ? await pushCommitToBranchAsync(
           root,
           publicationRemote,
           sourceCommit,

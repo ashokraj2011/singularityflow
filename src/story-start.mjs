@@ -105,7 +105,7 @@ function assertSafeStoryId(id) {
 async function resumePinnedLocalStory(root, { id, agent = null } = {}) {
   const originalBranch = branch(root);
   assertClean(root);
-  const checkoutMode = checkout(root, id, { existingOnly: true, fetch: false });
+  const checkoutMode = await checkout(root, id, { existingOnly: true, fetch: false });
   let definition;
   let workflow;
   try {
@@ -131,7 +131,7 @@ async function resumePinnedLocalStory(root, { id, agent = null } = {}) {
     }
   } catch (error) {
     if (originalBranch !== id) {
-      try { checkout(root, originalBranch, { existingOnly: true, fetch: false }); }
+      try { await checkout(root, originalBranch, { existingOnly: true, fetch: false }); }
       catch (restoreError) {
         throw new SingularityFlowError(
           `Story '${id}' has an invalid immutable configuration pin: ${error.message} `
@@ -251,7 +251,7 @@ export async function startStory(root, {
       { code: 'STORY_REMOTE_UNREACHABLE' }
     );
   }
-  fetchRemote(root, remote, { transportRemote: initialFetchAuthority.url });
+  await fetchRemote(root, remote, { transportRemote: initialFetchAuthority.url });
   const remoteExisted = refExists(root, `refs/remotes/${remote}/${id}`);
   const existed = localExisted || remoteExisted;
   // Reject incomplete POC intake while the caller is still on its original branch. Validation
@@ -275,7 +275,7 @@ export async function startStory(root, {
   let checkoutMode;
   try {
   if (existed) {
-    checkoutMode = checkout(root, id, {
+    checkoutMode = await checkout(root, id, {
       base: initialDefinition.defaultBaseBranch,
       fetch: remoteExisted,
       existingOnly: true,
@@ -346,7 +346,7 @@ export async function startStory(root, {
           { code: 'STORY_REMOTE_UNREACHABLE' }
         );
       }
-      fetchRemote(root, remote, { transportRemote: fetchAuthority.url });
+      await fetchRemote(root, remote, { transportRemote: fetchAuthority.url });
       if (publishRequired) publicationAuthority = configuredRemoteAuthority(root, remote);
     }
     if (publishRequired && !publicationAuthority?.url) {
@@ -376,7 +376,7 @@ export async function startStory(root, {
       );
     }
     if (publishRequired && !capabilityPreflight) {
-      const dryRun = preflightPushBranch(root, remote, remoteBaseRef, id, {
+      const dryRun = await preflightPushBranch(root, remote, remoteBaseRef, id, {
         transportRemote: publicationAuthority.url
       });
       if (dryRun.status !== 0) {
@@ -412,7 +412,7 @@ export async function startStory(root, {
       originalCopilotSession: await loadCopilotSession(root),
       siblingRepositories: siblings
     });
-    checkoutMode = checkout(root, id, {
+    checkoutMode = await checkout(root, id, {
       base: storyBase.localBase,
       remote,
       preferRemoteBase: true
@@ -421,7 +421,7 @@ export async function startStory(root, {
       stage: 'root-checked-out', createdBranch: true, checkoutMode
     });
     if (storyBase.scope === 'capability') {
-      capabilityRepositoriesPrepared = prepareCapabilityRepositories(
+      capabilityRepositoriesPrepared = await prepareCapabilityRepositories(
         storyBase.workspaceRoot, storyBase.plan, id, { remote, fetched: Boolean(capabilityPreflight) }
       );
       await updateStoryStartJournal(root, id, startJournal.transactionId, {

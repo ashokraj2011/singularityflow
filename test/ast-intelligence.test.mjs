@@ -326,7 +326,7 @@ test('gateway and Copilot reads warm only derived cache without gaining lifecycl
     actorId: 'ast@example.com', hostSessionId: 'ast-gateway'
   };
   const kernel = createGatewayKernel({ root, binding, planners: gatewayPlanners() });
-  const resolved = kernel.resolve({ utterance: 'show bounded structural context' });
+  const resolved = await kernel.resolve({ utterance: 'show bounded structural context' });
   const context = await kernel.read({ resolutionId: resolved.next[0].handle });
   validateSflowResult(context);
   assert.equal(context.operation.id, 'wm.ast.context');

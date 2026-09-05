@@ -304,7 +304,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         : conversation.route && currentWork && workOperations.has(conversation.route.operationId)
           ? { workId: currentWork.id, ...(currentWork.kind ? { workKind: currentWork.kind } : {}) }
           : {};
-      const resolution = kernel.resolve({
+      const resolution = await kernel.resolve({
         utterance: request,
         ...(conversation.route ? { goalHint: conversation.route.operationId } : {}),
         arguments: argumentsForRequest
@@ -546,7 +546,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     try {
       const { kernel } = gatewaySession(active);
-      const resolution = kernel.resolve({
+      const resolution = await kernel.resolve({
         goalHint: 'impact.what-if',
         arguments: { proposal: `Change selected file ${relative}`, scope: relative }
       });

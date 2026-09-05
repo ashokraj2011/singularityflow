@@ -334,6 +334,17 @@ function recordSubprocessProbe(command, args, ms) {
 }
 
 /**
+ * Let bounded asynchronous process runners participate in the same opt-in diagnostic as `run`.
+ * Keeping the formatter here ensures sync and async commands have identical low-cardinality keys
+ * and prevents a migration away from `spawnSync` from making network latency invisible.
+ */
+export function recordSubprocessTiming(command, args, ms) {
+  if (process.env.SINGULARITY_FLOW_SUBPROCESS_PROBE) {
+    recordSubprocessProbe(command, args, ms);
+  }
+}
+
+/**
  * Commands that reach the network, and the longest this product will wait for one.
  *
  * `gh` had no timeout anywhere across ten call sites, which is fine until the network is slow or

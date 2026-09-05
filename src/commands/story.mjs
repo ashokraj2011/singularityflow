@@ -276,7 +276,7 @@ export async function storyFetchCommand(positionals, options) {
     values: optionStrings(options, 'from-branch'),
     interactive: !optionBoolean(options, 'json') && !optionBoolean(options, 'yes')
   });
-  checkout(target, storyKey, {
+  await checkout(target, storyKey, {
     base: capabilityBase?.localBase ?? repository.defaultBranch,
     fetch: true,
     existingOnly: true
@@ -296,7 +296,7 @@ export async function storyFetchCommand(positionals, options) {
     // Validate the seed and exact pinned capability catalog after fetching the delivery branch but
     // before moving any sibling repository. An unknown/stale workspace ID therefore cannot leave a
     // partially attached multi-repository Story behind.
-    const prepared = prepareCapabilityRepositories(
+    const prepared = await prepareCapabilityRepositories(
       capabilityBase.workspaceRoot, capabilityBase.plan, storyKey
     );
     if (!optionBoolean(options, 'json')) printCapabilityBase(capabilityBase.plan, prepared);

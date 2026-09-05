@@ -64,6 +64,7 @@ test('interactive onboarding, configuration, and recovery never use synchronous 
     'src/auto/auto-checkpoint.mjs',
     'src/auto/auto-plan.mjs',
     'src/bootstrap.mjs',
+    'src/capability-start.mjs',
     'src/change-flight-plan.mjs',
     'src/cli.mjs',
     'src/configuration-people.mjs',
@@ -71,22 +72,30 @@ test('interactive onboarding, configuration, and recovery never use synchronous 
     'src/commands/story.mjs',
     'src/doctor.mjs',
     'src/epic-review.mjs',
+    'src/editor.mjs',
     'src/grounding.mjs',
     'src/governance.mjs',
     'src/governed-goals.mjs',
     'src/initiative-repositories.mjs',
     'src/initiative-governance.mjs',
+    'src/initiative-state.mjs',
     'src/ledger.mjs',
     'src/ledger-deployment.mjs',
     'src/cli-entry.mjs',
+    'src/configuration-branch.mjs',
     'src/organisation.mjs',
+    'src/publication-unit-of-work.mjs',
+    'src/sgos/candidate-lifecycle.mjs',
     'src/sgos/authority-git-transport.mjs',
     'src/sgos/platform/authority.mjs',
     'src/story-stack.mjs',
+    'src/state.mjs',
     'src/workspace-bootstrap.mjs',
     'src/workspace-configuration-refresh.mjs',
     'src/world-model/authority-refresh.mjs',
-    'src/world-model/recovery.mjs'
+    'src/world-model/publication-authority.mjs',
+    'src/world-model/recovery.mjs',
+    'src/worldmodel.mjs'
   ]) {
     const source = await readFile(path.join(root, relative), 'utf8');
     assert.doesNotMatch(source, /\brunRemoteGit\(/,
@@ -98,6 +107,26 @@ test('interactive onboarding, configuration, and recovery never use synchronous 
   assert.match(ledger, /await pushLedgerAsync\(/);
   assert.doesNotMatch(ledger, /function pushLedger\(/,
     'state projection publication must not retain a synchronous remote push sibling');
+
+  const gitApi = await readFile(path.join(root, 'src/git.mjs'), 'utf8');
+  for (const helper of [
+    'fetchRemote', 'fetchOrigin', 'pullFastForward', 'preflightPushBranch',
+    'exactRemoteBranchObservationAsync', 'pushCommitToBranchAsync'
+  ]) {
+    assert.match(gitApi, new RegExp(`export async function ${helper}\\b`),
+      `${helper} must remain deadline-supervised and asynchronous`);
+  }
+
+  const legacyRemoteCall = /\b(?:pushBranch|pushCommitToBranch|exactRemoteBranchHead|exactRemoteBranchObservation)\(/;
+  const legacyCallers = [];
+  for (const file of await sourceFiles(path.join(root, 'src'))) {
+    if (path.basename(file) === 'git.mjs') continue;
+    if (legacyRemoteCall.test(await readFile(file, 'utf8'))) {
+      legacyCallers.push(path.relative(root, file));
+    }
+  }
+  assert.deepEqual(legacyCallers, [],
+    'product paths must not call legacy synchronous remote Git helpers');
 });
 
 test('post-clone Git diagnostics retain correlation without disclosing helper output', () => {

@@ -282,9 +282,9 @@ test('fetching repairs an existing single-branch workspace clone', async () => {
   run('git', ['clone', '--branch', 'main', '--single-branch', remote, clone], { cwd: base });
 
   assert.equal(refExists(clone, 'refs/remotes/origin/KAN-8'), false);
-  fetchRemote(clone);
+  await fetchRemote(clone);
   assert.equal(refExists(clone, 'refs/remotes/origin/KAN-8'), true);
-  assert.equal(checkout(clone, 'KAN-8', { fetch: true, existingOnly: true }), 'tracked-remote');
+  assert.equal(await checkout(clone, 'KAN-8', { fetch: true, existingOnly: true }), 'tracked-remote');
   assert.equal(hasUpstream(clone), true);
 });
 
@@ -311,7 +311,7 @@ test('a fetched new work branch starts from the refreshed remote base rather tha
   run('git', ['push', remote, 'main'], { cwd: source });
 
   assert.equal(refExists(clone, 'refs/heads/WORK-999'), false);
-  assert.equal(checkout(clone, 'WORK-999', { base: 'main', fetch: true }), 'created-from-origin/main');
+  assert.equal(await checkout(clone, 'WORK-999', { base: 'main', fetch: true }), 'created-from-origin/main');
   assert.equal(await readFile(path.join(clone, 'singularity/world-model/manifest.json'), 'utf8'),
     '{"schema_version":"2.0"}\n');
 });

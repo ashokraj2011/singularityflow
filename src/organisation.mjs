@@ -492,7 +492,7 @@ async function withCapabilityProposalCheckout(url, branch, operation, { expected
   const configurationObservation = await session.observeAsync(remote, {
     includeHead: false, refs: [`refs/heads/${CONFIGURATION_BRANCH}`]
   });
-  const configurationHead = configurationBranchHead(remote, {
+  const configurationHead = await configurationBranchHead(remote, {
     session, observation: configurationObservation
   });
   if (!configurationHead.reachable || !configurationHead.exists) {
@@ -638,7 +638,7 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
   const observedAuthority = authorityObservation ?? await operationSession.observeAsync(remote, {
     includeHead: true, refs: [`refs/heads/${CONFIGURATION_BRANCH}`]
   });
-  const approvedHead = configurationBranchHead(remote, {
+  const approvedHead = await configurationBranchHead(remote, {
     session: operationSession, observation: observedAuthority
   });
   if (!approvedHead.exists) {
@@ -1036,7 +1036,7 @@ export async function readOrganisation(url, { refresh = false } = {}) {
   const configurationObservation = await session.observeAsync(remote, {
     includeHead: false, refs: observedBranches.map((name) => `refs/heads/${name}`)
   });
-  const tip = configurationBranchHead(remote, {
+  const tip = await configurationBranchHead(remote, {
     session, observation: configurationObservation
   });
   if (!tip.reachable) {
@@ -1946,7 +1946,7 @@ export async function publishOrganisationCapabilityMap(url) {
   const configurationObservation = await session.observeAsync(remote, {
     includeHead: false, refs: [`refs/heads/${CONFIGURATION_BRANCH}`]
   });
-  const configurationHead = configurationBranchHead(remote, {
+  const configurationHead = await configurationBranchHead(remote, {
     session, observation: configurationObservation
   });
   if (!configurationHead.reachable || !configurationHead.exists) {

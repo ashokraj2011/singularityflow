@@ -4,8 +4,8 @@ import path from 'node:path';
 import { existsSync } from 'node:fs';
 import YAML from 'yaml';
 import {
-  branch, exactRemoteBranchHead, exactRemoteBranchObservation, fileAtRef, head, identity,
-  localBranches, publicationPushOutcome, pushCommitToBranch, remoteBranches
+  branch, exactRemoteBranchObservationAsync, fileAtRef, head, identity,
+  localBranches, publicationPushOutcome, pushCommitToBranchAsync, remoteBranches
 } from './git.mjs';
 import {
   loadPortfolio, resolveInitiativeProfile, snapshotInitiativeResolution,
@@ -1117,7 +1117,7 @@ export async function commitInitiativeChange(root, portfolio, initiative, event,
         { code: 'INITIATIVE_PUBLICATION_REMOTE_MISSING' }
       );
     }
-    const observation = exactRemoteBranchObservation(
+    const observation = await exactRemoteBranchObservationAsync(
       root, publicationAuthority.url, initiative.initiative.branch
     );
     if (!observation.reachable || observation.malformed) {
@@ -1365,9 +1365,9 @@ export async function syncInitiativePublication(root, portfolio, initiative, { f
 
     let rootPublished = currentRecord.rootPublished === true;
     if (rootPublished) {
-      const remoteCommit = exactRemoteBranchHead(
+      const remoteCommit = (await exactRemoteBranchObservationAsync(
         root, remoteAuthority.url, currentRecord.branch
-      );
+      )).sha;
       if (remoteCommit !== currentRecord.commit) {
         throw new SingularityFlowError(
           `Initiative '${initiative.initiative.id}' pending marker says its ref was published, but remote '${currentRecord.remote}' `
@@ -1397,7 +1397,7 @@ export async function syncInitiativePublication(root, portfolio, initiative, { f
         transportRemote: remoteAuthority.url,
         upstreamRemote: remoteAuthority.remote
       };
-      const result = pushCommitToBranch(
+      const result = await pushCommitToBranchAsync(
         root, currentRecord.remote, currentRecord.commit, currentRecord.branch, pushOptions
       );
       if (result.status !== 0) {
@@ -1408,7 +1408,9 @@ export async function syncInitiativePublication(root, portfolio, initiative, { f
         const mayReconcile = priorOutcome === 'transport-indeterminate'
           || pushOutcome === 'transport-indeterminate';
         const reconciled = mayReconcile
-          && exactRemoteBranchHead(root, remoteAuthority.url, currentRecord.branch) === currentRecord.commit;
+          && (await exactRemoteBranchObservationAsync(
+            root, remoteAuthority.url, currentRecord.branch
+          )).sha === currentRecord.commit;
         if (!reconciled) {
           const error = (result.stderr || result.stdout).trim();
           // The pre-attempt marker already records an ambiguous result. Only a definitive outcome

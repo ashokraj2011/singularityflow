@@ -58,7 +58,7 @@ async function readiness(question: string, getCurrentWork: () => CurrentWork): P
   if (conversation.route?.operationId !== 'work.readiness') return null;
   try {
     const { kernel } = gatewaySession(active);
-    const resolution = kernel.resolve({
+    const resolution = await kernel.resolve({
       goalHint: 'work.readiness',
       arguments: { workId: current.id, ...(current.kind ? { workKind: current.kind } : {}) }
     });

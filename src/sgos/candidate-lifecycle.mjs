@@ -14,8 +14,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
-  branch, exactRemoteBranchObservation, gitCommonDir, governedCommitIdentity, head, hasRemote,
-  publicationPushOutcome, pushCommitToBranch
+  branch, exactRemoteBranchObservationAsync, gitCommonDir, governedCommitIdentity, head, hasRemote,
+  publicationPushOutcome, pushCommitToBranchAsync
 } from '../git.mjs';
 import { configuredRemoteAuthority } from '../git-remote-diagnostics.mjs';
 import { configurationReadRoot } from '../configuration-read-scope.mjs';
@@ -906,7 +906,7 @@ export async function publishVerifiedSgosLifecycleCandidate(root, {
     }
   }
 
-  const result = pushCommitToBranch(root, remote, commit, targetBranch, {
+  const result = await pushCommitToBranchAsync(root, remote, commit, targetBranch, {
     ...(expectedRemoteSha !== undefined ? { expectedRemoteSha } : {}),
     ...(transportRemote !== undefined ? { transportRemote } : {}),
     ...(upstreamRemote !== undefined ? { upstreamRemote } : {})
@@ -1413,7 +1413,7 @@ export async function planSgosCandidatePublication(root, candidateId, {
     if (!authority.url || !authority.fingerprint) {
       fail(`Git remote '${remote}' has no exact push authority.`, 'SGOS_CANDIDATE_REMOTE_INVALID');
     }
-    const observed = exactRemoteBranchObservation(root, authority.url, targetBranch);
+    const observed = await exactRemoteBranchObservationAsync(root, authority.url, targetBranch);
     if (!observed.reachable || observed.malformed) {
       fail(`Git remote '${remote}' cannot provide one exact '${targetBranch}' tip.`,
         'SGOS_CANDIDATE_REMOTE_INVALID');
@@ -1574,7 +1574,7 @@ export async function publishSgosCandidate(root, candidateId, {
       }
       remoteObservation = remotePreflightFailure
         ? null
-        : exactRemoteBranchObservation(root, remoteAuthority.url, targetBranch);
+        : await exactRemoteBranchObservationAsync(root, remoteAuthority.url, targetBranch);
       if (!remotePreflightFailure && (!remoteObservation.reachable || remoteObservation.malformed)) {
         if (!branchAdvanced) {
           fail(`Git remote '${remote}' cannot provide one exact '${targetBranch}' tip.`,
@@ -1653,7 +1653,7 @@ export async function publishSgosCandidate(root, candidateId, {
       await writeCandidateTransportReceipt(
         root, plan, remoteAuthority.fingerprint, 'transport-indeterminate', publishedAt
       );
-      const pushed = pushCommitToBranch(root, remote, plan.candidateCommit, targetBranch, {
+      const pushed = await pushCommitToBranchAsync(root, remote, plan.candidateCommit, targetBranch, {
         expectedRemoteSha: plan.preconditions.remoteTargetCommit,
         transportRemote: remoteAuthority.url,
         upstreamRemote: remote

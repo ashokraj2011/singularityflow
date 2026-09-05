@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   assertNotDefaultBranch, branch, changedFiles, commitIsolated, fetchRemote, gitDir, hasRemote, head,
-  pushCommitToBranch, refExists, validBranch
+  pushCommitToBranchAsync, refExists, validBranch
 } from './git.mjs';
 import {
   ensureSecureRepositoryDirectory, SingularityFlowError, optionBoolean, optionNumber, optionString,
@@ -1487,7 +1487,7 @@ async function publishWorldModel(root, config, workflow, sourceHash, phase = 're
   // Publish the exact commit proven above. HEAD can advance after the source guard; pushing HEAD
   // would attach unrelated later bytes to this model's source receipt.
   const targetBranch = expectedRepositoryIdentity?.branch ?? branch(root);
-  const result = pushCommitToBranch(root, remote, commit, targetBranch);
+  const result = await pushCommitToBranchAsync(root, remote, commit, targetBranch);
   if (result.status !== 0) {
     // The exact application commit is durable and can be retried. Keep its installed projection;
     // rolling back only the worktree would make the retained commit look locally modified.
@@ -3619,9 +3619,9 @@ function checkedOutWorktree(root, branchName) {
   return null;
 }
 
-function synchronizeTargetBranch(root, branchName, remote) {
+async function synchronizeTargetBranch(root, branchName, remote) {
   if (!hasRemote(root, remote)) return;
-  fetchRemote(root, remote);
+  await fetchRemote(root, remote);
   const localRef = `refs/heads/${branchName}`;
   const remoteRef = `refs/remotes/${remote}/${branchName}`;
   if (!refExists(root, remoteRef)) return;
@@ -3664,7 +3664,7 @@ async function withTargetBranch(root, options, operation) {
       `Branch ${branchName} is already checked out at ${alreadyCheckedOut}. Run the command there or close that worktree first.`
     );
   }
-  synchronizeTargetBranch(root, branchName, remote);
+  await synchronizeTargetBranch(root, branchName, remote);
 
   const localRef = `refs/heads/${branchName}`;
   const remoteRef = `refs/remotes/${remote}/${branchName}`;

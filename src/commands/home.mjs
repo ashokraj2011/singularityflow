@@ -225,7 +225,7 @@ export async function run(_argv, { options }) {
       ?? homeEnvelope.next.find((entry) => entry.slots?.work)?.slots?.work
       ?? null;
     const workOperations = new Set(['work.continue', 'work.return', 'work.readiness']);
-    const routed = kernel.resolve({
+    const routed = await kernel.resolve({
       utterance: request,
       arguments: workOperations.has(conversation.route.operationId) && workId
         ? { workId, ...(selectedWork?.kind ? { workKind: selectedWork.kind } : {}) }

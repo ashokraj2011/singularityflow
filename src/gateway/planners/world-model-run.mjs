@@ -57,14 +57,14 @@ function normalizedOptions(root, args, defaults = {}, {
 }
 
 /** Build the exact review record a host displays before it asks for confirmation. */
-export function worldModelBuildPlanDescriptor({ root, arguments: args, defaults = {}, policy = null } = {}) {
+export async function worldModelBuildPlanDescriptor({ root, arguments: args, defaults = {}, policy = null } = {}) {
   if (!root) {
     throw new SingularityFlowError('A registered world-model Plan requires a selected repository.', {
       code: 'WMB_GATEWAY_REPOSITORY_REQUIRED'
     });
   }
   const requestedOptions = normalizedOptions(root, args, defaults);
-  const publication = captureWorldModelPublicationReview(root, requestedOptions);
+  const publication = await captureWorldModelPublicationReview(root, requestedOptions);
   let options;
   try {
     options = normalizedOptions(root, args, defaults, { forPlanning: true, publication });
@@ -128,7 +128,7 @@ export function worldModelBuildPlanDescriptor({ root, arguments: args, defaults 
 export async function executeWorldModelBuildPlan({
   root, arguments: args, plan, defaults = {}, policy = null
 } = {}) {
-  const current = worldModelBuildPlanDescriptor({ root, arguments: args, defaults, policy });
+  const current = await worldModelBuildPlanDescriptor({ root, arguments: args, defaults, policy });
   if (canonicalJson(current.review) !== canonicalJson(plan.review)) {
     throw new SingularityFlowError('The registered world-model Plan changed after confirmation.', {
       code: 'WMB_GATEWAY_PLAN_DRIFTED',

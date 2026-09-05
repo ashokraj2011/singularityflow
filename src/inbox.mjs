@@ -32,7 +32,7 @@ function submittedEvent(workflow, phaseId) {
 
 export async function approvalInbox(root, definition, { fetch = true, now = new Date() } = {}) {
   const remote = definition.git?.remote ?? 'origin';
-  if (fetch) fetchRemote(root, remote);
+  if (fetch) await fetchRemote(root, remote);
   const items = [];
   const refs = remoteBranches(root, remote).map((branch) => ({ branch, ref: `${remote}/${branch}` }));
   const index = await buildRepositorySubjectIndexFromRefs(root, { definition, refs });

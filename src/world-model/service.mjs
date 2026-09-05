@@ -175,10 +175,10 @@ function exactPreservationStore(root, review, outputDir) {
   }
 }
 
-function assertPreservationAuthority(root, review, expected, {
+async function assertPreservationAuthority(root, review, expected, {
   outputDir, ledgerConfig, publicationOptions
 }) {
-  const currentReview = assertWorldModelPublicationReview(root, review, {
+  const currentReview = await assertWorldModelPublicationReview(root, review, {
     outputDir, ledgerConfig, publicationOptions
   });
   const current = exactPreservationStore(root, currentReview, outputDir);
@@ -294,10 +294,10 @@ export async function buildAndPublishWorldModelV4(root, {
   let confirmedPublication = null;
   if (publish) {
     confirmedPublication = expectedPublication
-      ? assertWorldModelPublicationReview(root, expectedPublication, {
+      ? await assertWorldModelPublicationReview(root, expectedPublication, {
           outputDir, ledgerConfig, publicationOptions
         })
-      : captureWorldModelPublicationReview(root, {
+      : await captureWorldModelPublicationReview(root, {
           outputDir, ledgerConfig, publicationOptions
         });
     confirmedPublication = await materializeWorldModelPublicationReview(
@@ -365,7 +365,7 @@ export async function buildAndPublishWorldModelV4(root, {
   // A model-backed build can be long-running. Recheck the exact endpoint and CAS authority before
   // retaining any post-build receipt, recovery marker, or publication state.
   if (publish) {
-    confirmedPublication = assertPreservationAuthority(
+    confirmedPublication = await assertPreservationAuthority(
       root, confirmedPublication, boundPreservationAuthority,
       { outputDir, ledgerConfig, publicationOptions }
     );
@@ -432,7 +432,7 @@ export async function buildAndPublishWorldModelV4(root, {
     // Persist the exact, fully validated projection before the state-branch CAS. A provider result
     // must never be lost merely because Git transport failed after composition completed, and a
     // retry must not spend again or reconstruct a subtly different projection from mutable inputs.
-    const publicationReview = assertPreservationAuthority(
+    const publicationReview = await assertPreservationAuthority(
       root, confirmedPublication, boundPreservationAuthority,
       { outputDir, ledgerConfig, publicationOptions }
     );

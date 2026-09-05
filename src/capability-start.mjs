@@ -24,7 +24,7 @@ import {
   parseBaseSelection, parseRemoteHeads, resolveCapabilityBase
 } from './capability-branches.mjs';
 import {
-  assertClean, branch as currentBranch, checkout, exactRemoteBranchObservation, publicationPushOutcome,
+  assertClean, branch as currentBranch, checkout, exactRemoteBranchObservationAsync, publicationPushOutcome,
   gitCommonDir, refExists, refHead, repoRoot, validBranch
 } from './git.mjs';
 import { workspaceRepositoryPath } from './workspace.mjs';
@@ -37,7 +37,7 @@ import {
   resolveStoryConfigurationSnapshotCapability
 } from './configuration-branch.mjs';
 import { mapLimit, nowIso, run, SingularityFlowError } from './util.mjs';
-import { runRemoteGit, runRemoteGitAsync } from './git-execution.mjs';
+import { runRemoteGitAsync } from './git-execution.mjs';
 import { incrementCommandCounter } from './dx-command-timing.mjs';
 import {
   configuredRemoteAuthority, configuredRemoteIdentity, frozenRemoteTransport, sanitizeRemote
@@ -180,24 +180,6 @@ export function assertApprovedCapabilityRepositoryPlan(
  * this morning. A repository whose remote cannot be read is reported with no branches rather than
  * skipped, so it shows up in the refusal instead of quietly not participating.
  */
-export function publishedBranches(repositories, { timeoutMs = 20000 } = {}) {
-  const published = {};
-  const unreachable = [];
-  for (const repository of repositories) {
-    const transport = frozenRemoteTransport(repository.url);
-    const result = runRemoteGit(['ls-remote', '--heads', '--', transport.remote], {
-      operation: 'remote-probe', timeoutMs, env: transport.env
-    });
-    if (result.status !== 0) {
-      published[repository.id] = [];
-      unreachable.push({ repository: repository.id, url: repository.url, detail: (result.stderr || result.stdout || '').trim() });
-      continue;
-    }
-    published[repository.id] = parseRemoteHeads(result.stdout);
-  }
-  return { published, unreachable };
-}
-
 /** Bounded asynchronous inventory used by interactive/desktop planning across a capability. */
 export async function publishedBranchesAsync(repositories, {
   timeoutMs = 20000, workers = DEFAULT_REMOTE_WORKERS, runGit = runRemoteGitAsync
@@ -719,7 +701,7 @@ export async function publishCapabilityRepositories(entries = []) {
     }
     const priorOutcome = entry.pushOutcome ?? 'not-attempted';
     if (priorOutcome === 'transport-indeterminate') {
-      const observed = exactRemoteBranchObservation(
+      const observed = await exactRemoteBranchObservationAsync(
         entry.root, authority.url, entry.branch
       );
       if (!observed.reachable || observed.malformed) {
@@ -846,7 +828,7 @@ export function rollbackCapabilityRepositories(prepared, storyBranch) {
   return failures;
 }
 
-export function prepareCapabilityRepositories(workspaceRoot, plan, storyBranch, {
+export async function prepareCapabilityRepositories(workspaceRoot, plan, storyBranch, {
   remote = 'origin', lifecycleRoot = null, fetched = false
 } = {}) {
   const prepared = [];
@@ -871,7 +853,7 @@ export function prepareCapabilityRepositories(workspaceRoot, plan, storyBranch, 
       }
       assertClean(root);
       const already = currentBranch(root);
-      const checkoutMode = checkout(root, storyBranch, {
+      const checkoutMode = await checkout(root, storyBranch, {
         base: base.branch, fetch: !fetched, remote, preferRemoteBase: true
       });
       prepared.push({

@@ -445,8 +445,8 @@ async function clearScratchWorktree(root) {
   }
 }
 
-export function remoteHasConfigurationBranch(remote, options = {}) {
-  const head = configurationBranchHead(remote, options);
+export async function remoteHasConfigurationBranch(remote, options = {}) {
+  const head = await configurationBranchHead(remote, options);
   return head.reachable && head.exists;
 }
 
@@ -456,10 +456,10 @@ export function remoteHasConfigurationBranch(remote, options = {}) {
  * use the SHA as their durable cache validator and distinguish a missing branch from an offline
  * remote so stale data is never presented as an empty organisation.
  */
-export function configurationBranchHead(remote, {
+export async function configurationBranchHead(remote, {
   session = new GitRemoteSession(), refresh = false, observation = null
 } = {}) {
-  const observed = observation ?? session.observe(remote, {
+  const observed = observation ?? await session.observeAsync(remote, {
     refs: [`refs/heads/${CONFIGURATION_BRANCH}`], includeHead: false, refresh
   });
   const sha = observed.refs?.get(`refs/heads/${CONFIGURATION_BRANCH}`) ?? null;
@@ -546,7 +546,7 @@ export async function ensureConfigurationBranch(remote, {
   const configurationObservation = observedHead?.observation ?? await session.observeAsync(url, {
     refs: [`refs/heads/${CONFIGURATION_BRANCH}`], includeHead: false
   });
-  const configurationHead = observedHead ?? configurationBranchHead(url, {
+  const configurationHead = observedHead ?? await configurationBranchHead(url, {
     session, observation: configurationObservation
   });
   requireRemoteObservation(configurationHead.observation, 'configuration authority');
@@ -718,7 +718,7 @@ export async function ensureConfigurationBranch(remote, {
       const raced = await session.observeAsync(url, {
         refs: [`refs/heads/${CONFIGURATION_BRANCH}`], includeHead: false, refresh: true
       });
-      const racedHead = configurationBranchHead(url, { session, observation: raced });
+      const racedHead = await configurationBranchHead(url, { session, observation: raced });
       if (!racedHead.reachable || !racedHead.exists) {
         throw new SingularityFlowError(
           `Cannot create '${CONFIGURATION_BRANCH}' on '${sanitizeRemote(url)}'. ${push.failure?.advice ?? 'Git rejected the exact branch creation.'}`,
@@ -940,12 +940,12 @@ async function copyVerifiedStateConfiguration(remote, destination, branch = STAT
   }
 }
 
-function storyConfigurationAuthorityObservation(remote, {
+async function storyConfigurationAuthorityObservation(remote, {
   session = new GitRemoteSession()
 } = {}) {
   const url = String(remote ?? '').trim();
   if (!url) return { url, configurationCommit: null, stateCommit: null, observation: null };
-  const observed = session.observe(url, {
+  const observed = await session.observeAsync(url, {
     includeHead: false,
     refs: [
       `refs/heads/${CONFIGURATION_BRANCH}`,
@@ -962,7 +962,7 @@ function storyConfigurationAuthorityObservation(remote, {
 }
 
 export async function resolveRemoteStoryConfigurationAuthority(remote, options = {}) {
-  const selected = storyConfigurationAuthorityObservation(remote, options);
+  const selected = await storyConfigurationAuthorityObservation(remote, options);
   const { url, configurationCommit, stateCommit } = selected;
   if (!url) return null;
   if (configurationCommit) {
@@ -1360,19 +1360,19 @@ export async function resolveConfigurationRemote(root, remoteName = 'origin', {
   session = new GitRemoteSession()
 } = {}) {
   const workspace = await activeWorkspaceForRepository(root);
-  const resolveCandidate = (remote, label) => {
-    const selected = configurationBranchHead(remote, { session });
+  const resolveCandidate = async (remote, label) => {
+    const selected = await configurationBranchHead(remote, { session });
     requireRemoteObservation(selected.observation, label);
     return selected.exists ? remote : null;
   };
   const configuredAuthority = workspace?.capabilityAuthority?.url;
   if (configuredAuthority) {
-    return resolveCandidate(configuredAuthority, 'workspace capability authority');
+    return await resolveCandidate(configuredAuthority, 'workspace capability authority');
   }
 
   const own = run('git', ['remote', 'get-url', remoteName], { cwd: root, allowFailure: true }).stdout.trim();
   if (own) {
-    const selected = resolveCandidate(own, `repository remote '${remoteName}'`);
+    const selected = await resolveCandidate(own, `repository remote '${remoteName}'`);
     if (selected) return selected;
   }
 

@@ -91,7 +91,7 @@ export async function scanLocalIdentities(root, portfolio, {
   remote = portfolio.git?.remote ?? 'origin',
   fetch = false
 } = {}) {
-  if (fetch && hasRemote(root, remote)) fetchRemote(root, remote);
+  if (fetch && hasRemote(root, remote)) await fetchRemote(root, remote);
   const localRefs = run('git', ['for-each-ref', '--format=%(refname:short)', 'refs/heads'], { cwd: root }).stdout
     .split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
   const remotes = remoteBranches(root, remote);
@@ -149,7 +149,7 @@ export async function currentLocalEpicReservation(root, portfolio, {
   if (record?.id !== id || record?.kind !== 'epic' || record?.authority !== 'local') {
     throw new SingularityFlowError(`Local Epic reservation ${relative} does not match branch '${id}'.`);
   }
-  if (fetch && hasRemote(root, remote)) fetchRemote(root, remote);
+  if (fetch && hasRemote(root, remote)) await fetchRemote(root, remote);
   const reservationCommit = run(
     'git',
     ['log', '-1', '--format=%H', '--', relative],
@@ -221,7 +221,7 @@ export async function reserveLocalEpicBranch(root, portfolio, {
     // Allocation fetched the organisation remote to discover concurrent reservations. The new
     // Epic must also fork from that refreshed base; otherwise it can omit configuration and a
     // repository world model already published by another contributor.
-    checkout(root, id, { base, remote, preferRemoteBase: true });
+    await checkout(root, id, { base, remote, preferRemoteBase: true });
     const relative = posix(path.join('singularity', 'identity-reservations', `${id}.json`));
     const absolute = path.join(root, relative);
     const reservation = {
@@ -302,7 +302,7 @@ export async function reserveLocalEpicBranch(root, portfolio, {
         syncFailure = failure;
         if (failure?.code !== 'PUBLICATION_PUSH_FAILED') throw failure;
       }
-      fetchRemote(root, remote);
+      await fetchRemote(root, remote);
       const remoteRef = `refs/remotes/${remote}/${id}`;
       if (!refExists(root, remoteRef)) {
         discardUncommittedReservation();

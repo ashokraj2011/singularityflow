@@ -5,8 +5,10 @@ import {
   existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync
 } from 'node:fs';
 import { SingularityFlowError, invariant, run } from './util.mjs';
-import { runRemoteGit, runRemoteGitAsync } from './git-execution.mjs';
-import { classifyGitRemoteFailure, frozenRemoteTransport } from './git-remote-diagnostics.mjs';
+import { runRemoteGitAsync } from './git-execution.mjs';
+import {
+  classifyGitRemoteFailure, frozenRemoteTransport, safeGitDiagnosticReference
+} from './git-remote-diagnostics.mjs';
 import { scopedReadSync } from './read-scope.mjs';
 import { scannablePath, scanEntries, secretRefusal } from './secrets.mjs';
 
@@ -341,31 +343,45 @@ export function prepareRemoteBranchTracking(root, remote = 'origin', { env = pro
   return true;
 }
 
-export function fetchRemote(root, remote = 'origin', options = {}) {
+export async function fetchRemote(root, remote = 'origin', options = {}) {
   const transportRemote = options.transportRemote ?? remote;
   if (!prepareRemoteBranchTracking(root, remote)) return;
   const frozen = Object.hasOwn(options, 'transportRemote')
     ? frozenRemoteTransport(transportRemote)
     : null;
-  runRemoteGit([
+  const result = await runRemoteGitAsync([
     'fetch', '--prune', frozen?.remote ?? transportRemote,
     ...(frozen ? [`+refs/heads/*:refs/remotes/${remote}/*`] : [])
   ], {
     cwd: root, operation: 'remote-configuration', allowFailure: false,
     ...(frozen ? { env: frozen.env } : {})
   });
+  if (result.status !== 0) {
+    throw new SingularityFlowError(
+      `Git fetch from '${remote}' failed. ${safeGitDiagnosticReference(result, 'Remote fetch failed')}`,
+      { code: result.failure?.code ?? 'REMOTE_UNKNOWN' }
+    );
+  }
 }
 
-export function fetchOrigin(root) { return fetchRemote(root, 'origin'); }
+export async function fetchOrigin(root) { return fetchRemote(root, 'origin'); }
 
 export function hasUpstream(root) {
   return git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], { cwd: root, allowFailure: true }).status === 0;
 }
 
-export function pullFastForward(root) {
-  if (hasUpstream(root)) runRemoteGit(['pull', '--ff-only'], {
+export async function pullFastForward(root) {
+  if (hasUpstream(root)) {
+    const result = await runRemoteGitAsync(['pull', '--ff-only'], {
     cwd: root, operation: 'remote-configuration', allowFailure: false
-  });
+    });
+    if (result.status !== 0) {
+      throw new SingularityFlowError(
+        `Git fast-forward pull failed. ${safeGitDiagnosticReference(result, 'Remote pull failed')}`,
+        { code: result.failure?.code ?? 'REMOTE_UNKNOWN' }
+      );
+    }
+  }
 }
 
 function configureUpstream(root, name, remote) {
@@ -376,7 +392,7 @@ function configureUpstream(root, name, remote) {
   git(['config', '--local', `branch.${name}.merge`, `refs/heads/${name}`], { cwd: root });
 }
 
-export function checkout(root, name, {
+export async function checkout(root, name, {
   base = 'main',
   fetch = false,
   fetched = false,
@@ -385,7 +401,7 @@ export function checkout(root, name, {
   preferRemoteBase = fetch
 } = {}) {
   validBranch(root, name);
-  if (fetch) fetchRemote(root, remote);
+  if (fetch) await fetchRemote(root, remote);
   const synchronize = fetch || fetched;
   if (branch(root) === name) {
     if (synchronize && refExists(root, `refs/remotes/${remote}/${name}`)) {
@@ -900,15 +916,6 @@ export async function commitIsolated(root, message, paths, {
   }
 }
 
-export function pushBranch(root, remote = 'origin', branchName = branch(root)) {
-  // Capture stderr so desktop and recovery records contain Git's real rejection reason. Callers
-  // already surface their own success result, while an inherited child left error="" and reduced
-  // every failure to the unhelpful generic "fix remote access" message.
-  return runRemoteGit(['push', '-u', remote, `HEAD:refs/heads/${branchName}`], {
-    cwd: root, operation: 'remote-push'
-  });
-}
-
 /** Publish one previously proven commit as a Story branch without depending on current HEAD. */
 export function publicationPushOutcome(result) {
   if (result?.status === 0) return 'published';
@@ -921,28 +928,6 @@ export function publicationPushOutcome(result) {
     || Boolean(result?.signal)
     || failureClass === 'network-transient') return 'transport-indeterminate';
   return 'rejected';
-}
-
-/** Read one exact remote branch tip while preserving reachability for safe recovery decisions. */
-export function exactRemoteBranchObservation(root, remote, branchName) {
-  validBranch(root, branchName);
-  const expectedRef = `refs/heads/${branchName}`;
-  const frozen = frozenRemoteTransport(remote);
-  const observed = runRemoteGit([
-    'ls-remote', '--heads', '--', frozen.remote, expectedRef
-  ], { cwd: root, operation: 'remote-probe', env: frozen.env });
-  if (observed.status !== 0) {
-    return { reachable: false, sha: null, malformed: false, result: observed };
-  }
-  const advertised = observed.stdout.split(/\r?\n/)
-    .map((line) => line.match(/^([0-9a-f]{40,64})\s+(refs\/heads\/[^\s]+)$/i))
-    .filter((match) => match?.[2] === expectedRef);
-  return {
-    reachable: true,
-    sha: advertised.length === 1 ? advertised[0][1].toLowerCase() : null,
-    malformed: advertised.length > 1,
-    result: observed
-  };
 }
 
 /** Deadline-supervised async form for operator-facing recovery paths. */
@@ -967,12 +952,8 @@ export async function exactRemoteBranchObservationAsync(root, remote, branchName
   };
 }
 
-/** Read one exact remote branch tip; malformed or duplicate advertisements are refused as absent. */
-export function exactRemoteBranchHead(root, remote, branchName) {
-  return exactRemoteBranchObservation(root, remote, branchName).sha;
-}
-
-export function pushCommitToBranch(root, remote, commitSha, branchName, options = {}) {
+/** @deprecated Use pushCommitToBranchAsync; retained as an asynchronous compatibility alias. */
+export async function pushCommitToBranch(root, remote, commitSha, branchName, options = {}) {
   const expectedRemoteSha = options.expectedRemoteSha;
   const transportRemote = options.transportRemote ?? remote;
   const upstreamRemote = options.upstreamRemote ?? remote;
@@ -989,7 +970,7 @@ export function pushCommitToBranch(root, remote, commitSha, branchName, options 
   const frozen = Object.hasOwn(options, 'transportRemote')
     ? frozenRemoteTransport(transportRemote, { push: true })
     : null;
-  const result = runRemoteGit([
+  const result = await runRemoteGitAsync([
     'push', '--porcelain', ...lease, frozen?.remote ?? transportRemote,
     `${commit.stdout.trim()}:refs/heads/${branchName}`
   ], {
@@ -1100,13 +1081,13 @@ export async function pushCommitToBranchAsync(root, remote, commitSha, branchNam
  * exercises its authentication/authorization path without creating the destination branch. The
  * actual publication still uses HEAD after the governed commit exists.
  */
-export function preflightPushBranch(root, remote, sourceRef, branchName, options = {}) {
+export async function preflightPushBranch(root, remote, sourceRef, branchName, options = {}) {
   const transportRemote = options.transportRemote ?? remote;
   validBranch(root, branchName);
   const frozen = Object.hasOwn(options, 'transportRemote')
     ? frozenRemoteTransport(transportRemote, { push: true })
     : null;
-  return runRemoteGit([
+  return runRemoteGitAsync([
     'push', '--dry-run', '--porcelain', frozen?.remote ?? transportRemote,
     `${sourceRef}:refs/heads/${branchName}`
   ], {

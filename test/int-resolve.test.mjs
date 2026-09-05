@@ -206,7 +206,7 @@ test('the kernel takes every capability as an argument', () => {
 test('a read handle round-trips through the kernel to its planner', async () => {
   const planners = new Map([['work-list', readResult]]);
   const kernel = createGatewayKernel({ binding, planners });
-  const resolved = kernel.resolve({ utterance: 'what am I working on' });
+  const resolved = await kernel.resolve({ utterance: 'what am I working on' });
   const read = await kernel.read({ resolutionId: resolved.next[0].handle });
   assert.equal(read.kind, 'read');
   assert.equal(read.operation.id, 'work.list');
@@ -214,7 +214,7 @@ test('a read handle round-trips through the kernel to its planner', async () => 
 
 test('a declared planner this build does not have refuses, and says which', async () => {
   const kernel = createGatewayKernel({ binding });
-  const resolved = kernel.resolve({ utterance: 'what am I working on' });
+  const resolved = await kernel.resolve({ utterance: 'what am I working on' });
   const read = await kernel.read({ resolutionId: resolved.next[0].handle });
   assert.equal(read.kind, 'refusal');
   assert.equal(read.why[0].code, 'gateway.planner-unavailable');
@@ -224,7 +224,7 @@ test('a declared planner this build does not have refuses, and says which', asyn
 
 test('a planner that returns something off-contract does not reach the host', async () => {
   const kernel = createGatewayKernel({ binding, planners: new Map([['work-list', () => ({ ok: true })]]) });
-  const resolved = kernel.resolve({ utterance: 'what am I working on' });
+  const resolved = await kernel.resolve({ utterance: 'what am I working on' });
   await assert.rejects(() => kernel.read({ resolutionId: resolved.next[0].handle }), (error) => error.code === 'SFLOW_RESULT_INVALID');
 });
 
@@ -252,7 +252,7 @@ test('a legal-next navigation choice is authority-issued and reaches its planner
   const offered = kernel.next({ scope: 'home' }).next[0];
   assert.match(offered.handle, /^sel_/);
 
-  const selected = kernel.resolve({ selectionHandle: offered.handle });
+  const selected = await kernel.resolve({ selectionHandle: offered.handle });
   assert.equal(selected.operation.id, 'work.list');
   const read = await kernel.read({ resolutionId: selected.next[0].handle });
   assert.equal(read.operation.id, 'work.list');

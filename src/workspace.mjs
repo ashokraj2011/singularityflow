@@ -22,7 +22,7 @@ import {
 } from './git-remote-diagnostics.mjs';
 import { enterpriseGitEnvironment } from './git-enterprise-environment.mjs';
 import {
-  GitRemoteSession, requireRemoteObservation, runRemoteGit, runRemoteGitAsync
+  GitRemoteSession, requireRemoteObservation, runRemoteGitAsync
 } from './git-execution.mjs';
 import { worktreeFingerprint } from './worktree-fingerprint.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
@@ -964,12 +964,12 @@ export async function workspaceRepositoryDefaults(repository) {
  * right often enough to hide the times it is wrong — and a workspace cloned on the wrong branch is a
  * confusing thing to debug — so the branches that do exist are consulted first.
  */
-export function remoteDefaultBranch(remote, symrefOutput, { env = process.env } = {}) {
+export async function remoteDefaultBranch(remote, symrefOutput, { env = process.env } = {}) {
   const advertised = advertisedDefaultBranch(symrefOutput);
   if (advertised) return advertised;
 
   const transport = frozenRemoteTransport(remote, { env });
-  const heads = runRemoteGit(['ls-remote', '--heads', transport.remote], {
+  const heads = await runRemoteGitAsync(['ls-remote', '--heads', transport.remote], {
     operation: 'remote-probe', env: transport.env
   });
   const branches = heads.status === 0

@@ -6,7 +6,7 @@ import path from 'node:path';
 
 import {
   capabilityPublicationPlan, preflightStoryRepositories, publishCapabilityRepositories,
-  publishedBranches, publishedBranchesAsync, prepareCapabilityRepositories
+  publishedBranchesAsync, prepareCapabilityRepositories
 } from '../src/capability-start.mjs';
 import { parseBaseSelection, resolveCapabilityBase } from '../src/capability-branches.mjs';
 import { run } from '../src/util.mjs';
@@ -55,7 +55,7 @@ test('published branches come from the remote, and drive the resolution', async 
     await repository(base, 'audit-sink', ['main'])
   ];
 
-  const { published, unreachable } = publishedBranches(repositories);
+  const { published, unreachable } = await publishedBranchesAsync(repositories);
   assert.deepEqual(unreachable, []);
   assert.deepEqual(published['payments-api'], ['develop', 'main', 'release/24.3']);
   assert.deepEqual(published['audit-sink'], ['main']);
@@ -66,10 +66,10 @@ test('published branches come from the remote, and drive the resolution', async 
   assert.deepEqual(refused.missing.map((entry) => entry.repository), ['audit-sink']);
 });
 
-test('an unreachable remote is reported, never treated as a repository with no branches', () => {
+test('an unreachable remote is reported, never treated as a repository with no branches', async () => {
   // Silently reporting "no branches" would make a network failure look like an empty repository and
   // send the reader hunting for a branch that is there.
-  const { published, unreachable } = publishedBranches(
+  const { published, unreachable } = await publishedBranchesAsync(
     [{ id: 'ghost', url: path.join(tmpdir(), 'does-not-exist-sflow.git') }],
     { timeoutMs: 5000 }
   );
@@ -114,11 +114,11 @@ test('every repository in the capability lands on the Story branch cut from the 
     await repository(base, 'payments-api', ['main', 'release/24.3']),
     await repository(base, 'payments-web', ['main', 'release/24.3'])
   ];
-  const { published } = publishedBranches(repositories);
+  const { published } = await publishedBranchesAsync(repositories);
   const resolution = resolveCapabilityBase({ repositories: published, selection: parseBaseSelection(['release/24.3']) });
   assert.equal(resolution.usable, true);
 
-  const prepared = prepareCapabilityRepositories(base, { repositories, resolution }, 'S-42');
+  const prepared = await prepareCapabilityRepositories(base, { repositories, resolution }, 'S-42');
   assert.deepEqual(prepared.map((entry) => entry.action), ['switched', 'switched']);
   for (const repo of repositories) {
     const root = path.join(base, repo.path);
@@ -135,13 +135,13 @@ test('capability sibling Story branches are published for another machine', asyn
     await repository(base, 'payments-api', ['main']),
     await repository(base, 'payments-web', ['main'])
   ];
-  const { published } = publishedBranches(repositories);
+  const { published } = await publishedBranchesAsync(repositories);
   const resolution = resolveCapabilityBase({
     repositories: published, selection: parseBaseSelection(['main'])
   });
   const plan = { repositories, resolution };
   const checked = await preflightStoryRepositories(base, plan, 'S-REMOTE');
-  prepareCapabilityRepositories(base, plan, 'S-REMOTE');
+  await prepareCapabilityRepositories(base, plan, 'S-REMOTE');
 
   const leadRoot = path.join(base, repositories[0].path);
   const publicationPlan = await capabilityPublicationPlan(checked, leadRoot);
@@ -177,7 +177,7 @@ test('Story preflight refuses a reused sibling path before contacting its replac
     await repository(base, 'lead', ['main']),
     await repository(base, 'sibling', ['main'])
   ];
-  const { published } = publishedBranches(repositories);
+  const { published } = await publishedBranchesAsync(repositories);
   const resolution = resolveCapabilityBase({
     repositories: published, selection: parseBaseSelection(['main'])
   });
@@ -217,7 +217,7 @@ test('Story preflight refuses a sibling pushurl outside the approved repository 
     await repository(base, 'lead', ['main']),
     await repository(base, 'sibling', ['main'])
   ];
-  const { published } = publishedBranches(repositories);
+  const { published } = await publishedBranchesAsync(repositories);
   const resolution = resolveCapabilityBase({
     repositories: published, selection: parseBaseSelection(['main'])
   });
@@ -257,13 +257,13 @@ test('capability publication keeps the verified remote authority when a pre-push
   ];
   const alternate = path.join(base, 'alternate.git');
   git(base, 'init', '--bare', '--initial-branch=main', alternate);
-  const { published } = publishedBranches(repositories);
+  const { published } = await publishedBranchesAsync(repositories);
   const resolution = resolveCapabilityBase({
     repositories: published, selection: parseBaseSelection(['main'])
   });
   const plan = { repositories, resolution };
   const checked = await preflightStoryRepositories(base, plan, 'S-AUTHORITY-RACE');
-  prepareCapabilityRepositories(base, plan, 'S-AUTHORITY-RACE');
+  await prepareCapabilityRepositories(base, plan, 'S-AUTHORITY-RACE');
   const leadRoot = path.join(base, repositories[0].path);
   const entries = await capabilityPublicationPlan(checked, leadRoot);
   const sibling = path.join(base, repositories[1].path);
@@ -291,13 +291,13 @@ test('a post-preflight sibling publication failure returns an exact resumable re
     await repository(base, 'lead', ['main']),
     await repository(base, 'sibling', ['main'])
   ];
-  const { published } = publishedBranches(repositories);
+  const { published } = await publishedBranchesAsync(repositories);
   const resolution = resolveCapabilityBase({
     repositories: published, selection: parseBaseSelection(['main'])
   });
   const plan = { repositories, resolution };
   const checked = await preflightStoryRepositories(base, plan, 'S-RECOVER');
-  prepareCapabilityRepositories(base, plan, 'S-RECOVER');
+  await prepareCapabilityRepositories(base, plan, 'S-RECOVER');
   const entries = await capabilityPublicationPlan(checked, path.join(base, repositories[0].path));
   const sibling = path.join(base, repositories[1].path);
   const rejectHook = path.join(repositories[1].url, 'hooks', 'pre-receive');
@@ -329,13 +329,13 @@ test('an indeterminate sibling push reconciles only its exact remote Story ref',
     await repository(base, 'lead', ['main']),
     await repository(base, 'sibling', ['main'])
   ];
-  const { published } = publishedBranches(repositories);
+  const { published } = await publishedBranchesAsync(repositories);
   const resolution = resolveCapabilityBase({
     repositories: published, selection: parseBaseSelection(['main'])
   });
   const plan = { repositories, resolution };
   const checked = await preflightStoryRepositories(base, plan, 'S-INDETERMINATE');
-  prepareCapabilityRepositories(base, plan, 'S-INDETERMINATE');
+  await prepareCapabilityRepositories(base, plan, 'S-INDETERMINATE');
   const entries = await capabilityPublicationPlan(checked, path.join(base, repositories[0].path));
   const sibling = path.join(base, repositories[1].path);
   const hook = path.join(repositories[1].url, 'hooks/post-receive');
@@ -377,7 +377,7 @@ test('a repository the workspace has not cloned is named, not skipped in silence
     repositories: { 'payments-api': ['main'], 'not-cloned': ['main'] },
     selection: parseBaseSelection(['main'])
   });
-  const prepared = prepareCapabilityRepositories(base, { repositories: [present, absent], resolution }, 'S-7');
+  const prepared = await prepareCapabilityRepositories(base, { repositories: [present, absent], resolution }, 'S-7');
   assert.equal(prepared.find((entry) => entry.repository === 'not-cloned').action, 'absent');
   assert.equal(prepared.find((entry) => entry.repository === 'payments-api').action, 'switched');
 });
@@ -390,7 +390,7 @@ test('a dirty sibling refuses rather than having its work moved', async () => {
     repositories: { 'payments-api': ['main'] }, selection: parseBaseSelection(['main'])
   });
   // Uncommitted work in a sibling is not this command's to stash.
-  assert.throws(() => prepareCapabilityRepositories(base, { repositories, resolution }, 'S-9'),
+  await assert.rejects(() => prepareCapabilityRepositories(base, { repositories, resolution }, 'S-9'),
     /clean|uncommitted|dirty/i);
 });
 
@@ -406,7 +406,7 @@ test('a late sibling failure rolls earlier capability checkouts back atomically'
     selection: parseBaseSelection(['main'])
   });
 
-  assert.throws(
+  await assert.rejects(
     () => prepareCapabilityRepositories(base, { repositories, resolution }, 'S-RACE'),
     /clean|uncommitted|dirty/i
   );
@@ -423,7 +423,7 @@ test('publication preflight checks every required repository before any branch m
     await repository(base, 'payments-api', ['main']),
     await repository(base, 'payments-web', ['main'])
   ];
-  const { published } = publishedBranches(repositories);
+  const { published } = await publishedBranchesAsync(repositories);
   const resolution = resolveCapabilityBase({
     repositories: published, selection: parseBaseSelection(['main'])
   });

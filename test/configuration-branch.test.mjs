@@ -228,12 +228,12 @@ test('configuration bootstrap invalidates a reusable remote session after publis
   const fixture = await repositoryFixture();
   try {
     const session = new GitRemoteSession();
-    assert.equal(configurationBranchHead(fixture.remote, { session }).exists, false,
+    assert.equal((await configurationBranchHead(fixture.remote, { session })).exists, false,
       'the shared session begins with a cached absent-branch observation');
 
     const created = await ensureConfigurationBranch(fixture.remote, { remoteSession: session });
     assert.equal(created.created, true);
-    const observed = configurationBranchHead(fixture.remote, { session });
+    const observed = await configurationBranchHead(fixture.remote, { session });
     assert.equal(observed.exists, true,
       'a successful bootstrap invalidates the negative observation before returning');
     assert.equal(observed.sha, created.commit);
@@ -483,7 +483,7 @@ test('one verified Story snapshot validates and materializes without a second re
 test('remote authority discovery observes configuration and state together exactly once', async () => {
   const calls = [];
   const session = {
-    observe(remote, options) {
+    async observeAsync(remote, options) {
       calls.push({ remote, options });
       return {
         ok: true,
@@ -511,7 +511,7 @@ test('configuration remote resolution preserves probe failures instead of report
     run('git', ['remote', 'add', 'origin', fixture.remote], { cwd: fixture.source });
     const calls = [];
     const session = {
-      observe(remote, options) {
+      async observeAsync(remote, options) {
         calls.push({ remote, options });
         return {
           ok: false,

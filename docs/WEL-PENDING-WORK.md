@@ -178,6 +178,10 @@ Implemented in the current increment:
   counts and reports platform, parser latency, catalog bytes, and receipt bytes;
 - benchmark output explicitly excludes repository paths, origin URLs, Work IDs, Git identities,
   clause text, and test bodies;
+- benchmark v2 separately measures static catalog time, raw-report ingestion, receipt projection,
+  process CPU, raw/catalog/receipt bytes, and estimated durable bytes per execution;
+- the bounded synthetic fixture reports exact/inexact/false-exact counters without recording a
+  developer identity, repository, prompt, source body, or individual productivity;
 - the benchmark degrades to `unavailable` rather than treating a missing JDK as product failure.
 
 Still required before completion: reviewed real-repository corpus metrics, Context X-Ray and Story

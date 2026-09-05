@@ -20,6 +20,7 @@ const DEVICE_RECORD_VERSION = 1;
 const SANDBOX_CAS_DEVICE_ID = 'sandbox-cas';
 const SANDBOX_CAS_OPERATION = 'compare-and-swap-put';
 const SANDBOX_CAS_SCOPE_PREFIX = 'sandbox-cas:';
+const DEVICE_OPERATION_ID = /^device:([a-z][a-z0-9-]{1,63}):([a-z][a-z0-9-]{1,63})$/;
 export const SGOS_SANDBOX_CAS_ABSENT_SHA256 = sha256(null);
 
 function fail(message, code, details = null) {
@@ -820,6 +821,45 @@ async function assertNotRevoked(root, manifest) {
 
 export function installedDeviceManifests() {
   return Object.freeze([FILESYSTEM_READ_MANIFEST, SANDBOX_CAS_MANIFEST]);
+}
+
+/**
+ * Give an installed Device operation one globally unambiguous SGOS operation identity. The
+ * qualified value is what a reviewed Capability Pack and Meta-tool Candidate must both name.
+ */
+export function sgosDeviceOperationId(deviceId, operation) {
+  if (!ID.test(String(deviceId ?? '')) || !ID.test(String(operation ?? ''))) {
+    fail('Device operation identity requires canonical lower-case Device and operation IDs.',
+      'SGOS_DEVICE_OPERATION_ID_INVALID');
+  }
+  return `device:${deviceId}:${operation}`;
+}
+
+/**
+ * Resolve only code-installed, non-revoked Device operations. This establishes manifest
+ * availability, not approval: the caller must separately bind the returned qualified operation to
+ * current signed Capability Pack review and activation authority.
+ */
+export async function resolveInstalledSgosDeviceOperation(root, operationId) {
+  const matched = DEVICE_OPERATION_ID.exec(String(operationId ?? ''));
+  if (!matched) {
+    fail("Device operation must use 'device:<device-id>:<operation-id>'.",
+      'SGOS_DEVICE_OPERATION_ID_INVALID');
+  }
+  const [, deviceId, operation] = matched;
+  const device = installedDevice(root, deviceId);
+  if (!device) fail(`Device '${deviceId}' is not installed.`, 'SGOS_DEVICE_NOT_INSTALLED');
+  const manifest = validateDeviceManifest(device.descriptor());
+  await assertNotRevoked(root, manifest);
+  if (!manifest.operations.includes(operation)) {
+    fail(`Device '${deviceId}' does not supply operation '${operation}'.`,
+      'SGOS_DEVICE_OPERATION_UNKNOWN');
+  }
+  return freezeDeep({
+    kind: 'device-operation', operationId, deviceId, operation,
+    version: manifest.version, manifestSha256: manifest.manifestSha256,
+    conformanceReceiptSha256: manifest.tests.conformanceReceiptSha256
+  });
 }
 
 function installedDevice(root, deviceId) {

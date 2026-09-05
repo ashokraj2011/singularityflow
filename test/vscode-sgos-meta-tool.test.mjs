@@ -32,7 +32,7 @@ test('native Meta-tool review creates the same preview and confirmed activation 
     '--trace-trust', 'authority/trace-public-keys.json',
     '--evaluator-trust', 'authority/evaluator-public-keys.json',
     '--candidate-sha256', H('a'), '--evaluation-sha256', H('b'),
-    '--promotion-sha256', H('c'), '--domain', 'finance',
+    '--promotion-sha256', H('c'), '--target-kind', 'pack-operation', '--domain', 'finance',
     '--operation', 'finance.inspect', '--maximum-observations', '100',
     '--maximum-evidence-refs', '8', '--accepted-outcomes', 'failed,succeeded', '--json'
   ]);
@@ -40,6 +40,18 @@ test('native Meta-tool review creates the same preview and confirmed activation 
   assert.deepEqual(confirmed.slice(0, -3), preview.slice(0, -1));
   assert.deepEqual(confirmed.slice(-3), ['--confirm', H('d'), '--json']);
   assert.equal(confirmed.some((value) => /approval|manifest|authority-sha256/.test(value)), false);
+
+  const device = metaToolArguments({
+    ...selection, targetKind: 'device-operation', device: 'filesystem-read',
+    operation: 'read-file'
+  });
+  assert.deepEqual(device.slice(device.indexOf('--target-kind'), device.indexOf('--maximum-observations')), [
+    '--target-kind', 'device-operation', '--domain', 'finance',
+    '--device', 'filesystem-read', '--operation', 'read-file'
+  ]);
+  assert.throws(() => metaToolArguments({
+    ...selection, targetKind: 'device-operation', operation: 'read-file'
+  }), /Device ID is required/);
 });
 
 test('native Meta-tool review creates bounded observe, revoke, and rollback requests', () => {
@@ -68,12 +80,13 @@ test('native Meta-tool review renders exact plan authority without dumping trust
     operation: 'meta-tool.activate', actorId: 'principal-123', expectedRevision: 7,
     expectedStateSha256: H('a'), confirmationSha256: H('b'),
     input: { target: {
+      kind: 'pack-operation',
       operationId: 'finance.inspect', version: '1.0.0', manifestSha256: H('c'),
       approvalSha256: H('d')
     } }
   });
   assert.match(review, /Authority Store revision: 7/);
-  assert.match(review, /Pack operation: finance\.inspect/);
+  assert.match(review, /Target: pack-operation \/ finance\.inspect/);
   assert.match(review, new RegExp(H('b')));
   assert.doesNotMatch(review, /BEGIN PUBLIC KEY|traceTrust|evaluatorTrust/);
 });

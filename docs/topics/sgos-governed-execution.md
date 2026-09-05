@@ -26,7 +26,7 @@ related:
   - governed-execution
   - workflow-authoring
   - evidence-and-ledger
-version: 19
+version: 20
 ---
 SGOS compiles confirmed intent and a ratified workflow into a finite, content-addressed Governed VM
 Program. Its operational Process state never replaces Story, Initiative, configuration, ledger, or
@@ -450,9 +450,12 @@ use the portable v2 identifier contract; Windows does not open a nonportable leg
   while rollback can select only a retained nonrevoked activation through exact confirmation and
   Authority Store CAS. The public `meta-tool activate|observe|revoke|rollback` CLI applies those
   same API transitions through an exact preview/confirm plan. Pack targets are resolved from the
-  current signed Pack and approved trust; arbitrary target files and Device targets are refused.
-  The native VS Code review wizard displays that plan and sends the confirmation only after a modal
-  human decision; it does not reimplement mutation authority.
+  current signed Pack and approved trust. Device targets use the qualified identity
+  `device:<device-id>:<operation-id>` and additionally require the exact operation in an installed,
+  nonrevoked Device manifest; the current signed, independently reviewed Pack must export that same
+  identity. Arbitrary target files and caller-provided authority are refused. The native VS Code
+  review wizard explicitly selects Pack or Device, displays that plan, and sends the confirmation
+  only after a modal human decision; it does not reimplement mutation authority.
 - Process checkpoints live below the Git common directory and do not alter application or Story
   state. Existing Story transitions continue only through existing lifecycle commands.
 - Static fan-out is expanded by the compiler, joins are limited to `all-success` and `all-terminal`,

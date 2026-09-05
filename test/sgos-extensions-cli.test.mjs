@@ -994,7 +994,8 @@ test('Meta-tool CLI accepts only signed traces and evaluation before independent
   let current = state(flow(root, 'authority-store', 'init', '--store', storeId));
   const pack = createCapabilityPack({
     packId: 'meta-finance', version: '1.0.0', domain: 'finance',
-    operations: ['finance.inspect'], permissions: [], files: [], lessons: [],
+    operations: ['device:filesystem-read:read-file', 'finance.inspect'],
+    permissions: [], files: [], lessons: [],
     provenanceSha256: digest('meta-pack-provenance'),
     sbomSha256: digest('meta-pack-sbom'),
     publisherKeyId: 'meta-pack-publisher', createdAt: at
@@ -1150,4 +1151,81 @@ test('Meta-tool CLI accepts only signed traces and evaluation before independent
   const revoked = state(flowAs(root, 'Extension CLI Reviewer', ...revokeArguments,
     '--confirm', revokePreview.confirmationSha256));
   assert.equal(revoked.activationSha256, firstActivation.recordSha256);
+
+  const deviceCandidate = createMetaToolCandidate({
+    candidateId: 'meta-device-candidate',
+    operationId: 'device:filesystem-read:read-file',
+    traceRefs: traces.map((trace) => trace.traceSha256),
+    proposerId: cliActorId,
+    createdAt: at
+  });
+  await writeFile(path.join(root, 'meta-device-candidate.json'), JSON.stringify(deviceCandidate));
+  current = state(flow(root, 'authority-store', 'status', '--store', storeId));
+  flow(root, 'meta-tool', 'propose', '--store', storeId,
+    '--trace-trust', 'trace-trust.json', '--evaluator-trust', 'evaluator-trust.json',
+    '--candidate', 'meta-device-candidate.json', '--traces', 'signed-traces.json',
+    '--expected-revision', String(current.revision), '--expected-state-sha256', current.stateSha256);
+  const deviceEvaluation = createMetaToolEvaluation({
+    candidateSha256: deviceCandidate.recordSha256,
+    securityGate: 'passed', qualityGate: 'passed', costGate: 'passed',
+    holdoutSha256: digest('device-independent-holdout'),
+    evaluatorKeyId: 'evaluator-key', evaluatedAt: at
+  });
+  await writeFile(path.join(root, 'signed-device-evaluation.json'), JSON.stringify(
+    signPlatformRecord(deviceEvaluation, {
+      privateKeyPem: evaluatorPrivate, keyId: 'evaluator-key'
+    })
+  ));
+  current = state(flow(root, 'authority-store', 'status', '--store', storeId));
+  flow(root, 'meta-tool', 'evaluation', '--store', storeId,
+    '--trace-trust', 'trace-trust.json', '--evaluator-trust', 'evaluator-trust.json',
+    '--evaluation', 'signed-device-evaluation.json',
+    '--expected-revision', String(current.revision), '--expected-state-sha256', current.stateSha256);
+  current = state(flow(root, 'authority-store', 'status', '--store', storeId));
+  const devicePromotion = state(flowAs(
+    root, 'Extension CLI Reviewer', 'meta-tool', 'promote', '--store', storeId,
+    '--trace-trust', 'trace-trust.json', '--evaluator-trust', 'evaluator-trust.json',
+    '--candidate-sha256', deviceCandidate.recordSha256,
+    '--evaluation-sha256', deviceEvaluation.recordSha256,
+    '--confirm-candidate', deviceCandidate.recordSha256,
+    '--confirm-evaluation', deviceEvaluation.recordSha256,
+    '--decision', 'approved', '--reason', 'independent Device operation review',
+    '--expected-revision', String(current.revision), '--expected-state-sha256', current.stateSha256
+  ));
+  const deviceActivationArguments = [
+    'meta-tool', 'activate', '--store', storeId,
+    '--trace-trust', 'trace-trust.json', '--evaluator-trust', 'evaluator-trust.json',
+    '--candidate-sha256', deviceCandidate.recordSha256,
+    '--evaluation-sha256', deviceEvaluation.recordSha256,
+    '--promotion-sha256', devicePromotion.recordSha256,
+    '--target-kind', 'device-operation', '--domain', 'finance',
+    '--device', 'filesystem-read', '--operation', 'read-file',
+    '--maximum-observations', '2', '--maximum-evidence-refs', '1',
+    '--accepted-outcomes', 'failed,succeeded'
+  ];
+  const devicePreview = state(flowAs(
+    root, 'Extension CLI Reviewer', ...deviceActivationArguments
+  ));
+  assert.equal(devicePreview.input.target.kind, 'device-operation');
+  assert.equal(devicePreview.input.target.operationId, 'device:filesystem-read:read-file');
+  assert.equal(devicePreview.input.target.manifestSha256,
+    state(flow(root, 'device', 'list')).find((entry) => entry.id === 'filesystem-read').manifestSha256);
+  assert.equal(devicePreview.input.target.authoritySha256,
+    activationPreview.input.target.authoritySha256);
+  assert.equal(devicePreview.input.target.approvalSha256, packReview.recordSha256);
+  const deviceActivation = state(flowAs(
+    root, 'Extension CLI Reviewer', ...deviceActivationArguments,
+    '--confirm', devicePreview.confirmationSha256
+  ));
+  assert.equal(deviceActivation.target.kind, 'device-operation');
+
+  const unapprovedDeviceArguments = [...deviceActivationArguments];
+  unapprovedDeviceArguments[unapprovedDeviceArguments.indexOf('--device') + 1] = 'sandbox-cas';
+  unapprovedDeviceArguments[unapprovedDeviceArguments.indexOf('--operation') + 1] =
+    'compare-and-swap-put';
+  const unapprovedDevice = runAs(
+    root, 'Extension CLI Reviewer', ...unapprovedDeviceArguments, '--json'
+  );
+  assert.notEqual(unapprovedDevice.status, 0);
+  assert.match(unapprovedDevice.stderr, /No active approved Capability Pack supplies operation/);
 });

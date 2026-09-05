@@ -4,7 +4,8 @@ import * as vscode from 'vscode';
 
 import type { SingularityFlowClient } from './cli/client.ts';
 import {
-  META_TOOL_IDENTIFIER, META_TOOL_OUTCOMES, META_TOOL_SHA256, metaToolArguments,
+  META_TOOL_IDENTIFIER, META_TOOL_OUTCOMES, META_TOOL_SHA256, META_TOOL_TARGET_KINDS,
+  metaToolArguments,
   metaToolPlanReview, type MetaToolMutationPlan, type MetaToolSelection
 } from './sgos-meta-tool-review-model.ts';
 
@@ -95,9 +96,40 @@ async function collect(repository: string, action: Action): Promise<MetaToolSele
     if (!evaluationSha256) return null;
     const promotionSha256 = await input('Meta-tool · Promotion', 'Exact independently approved promotion digest.', { digest: true });
     if (!promotionSha256) return null;
-    const domain = await input('Meta-tool · Pack domain', 'Domain of the currently active signed Capability Pack.', { identifier: true });
+    const target = await vscode.window.showQuickPick(META_TOOL_TARGET_KINDS.map((targetKind) => ({
+      label: targetKind === 'pack-operation' ? 'Capability Pack operation' : 'Installed Device operation',
+      description: targetKind === 'pack-operation'
+        ? 'Operation supplied directly by the current reviewed Pack'
+        : 'Installed non-revoked Device operation also exported by the current reviewed Pack',
+      targetKind
+    })), {
+      title: 'Meta-tool · Target authority',
+      placeHolder: 'Choose the exact authority kind; nothing is preselected',
+      ignoreFocusOut: true
+    });
+    if (!target) return null;
+    const domain = await input(
+      'Meta-tool · Pack domain',
+      'Domain of the current signed Capability Pack that approves this operation.',
+      { identifier: true }
+    );
     if (!domain) return null;
-    const operation = await input('Meta-tool · Pack operation', 'Exact operation supplied by that active Pack.', { identifier: true });
+    const device = target.targetKind === 'device-operation'
+      ? await input(
+        'Meta-tool · Device',
+        'Exact installed Device ID, such as filesystem-read.',
+        { identifier: true }
+      )
+      : undefined;
+    if (target.targetKind === 'device-operation' && !device) return null;
+    const operation = await input(
+      target.targetKind === 'device-operation'
+        ? 'Meta-tool · Device operation' : 'Meta-tool · Pack operation',
+      target.targetKind === 'device-operation'
+        ? 'Exact operation in the installed Device manifest and current reviewed Pack.'
+        : 'Exact operation supplied by that active Pack.',
+      { identifier: true }
+    );
     if (!operation) return null;
     const maximumObservations = await input('Meta-tool · Observation limit', 'Maximum durable observations before review is required again.', { value: '100', integerMaximum: 10_000 });
     if (!maximumObservations) return null;
@@ -114,7 +146,8 @@ async function collect(repository: string, action: Action): Promise<MetaToolSele
     if (!outcomes?.length) return null;
     return {
       ...shared, action, candidateSha256, evaluationSha256, promotionSha256,
-      domain, operation, maximumObservations: Number(maximumObservations),
+      targetKind: target.targetKind, domain, ...(device ? { device } : {}), operation,
+      maximumObservations: Number(maximumObservations),
       maximumEvidenceRefs: Number(maximumEvidenceRefs),
       acceptedOutcomes: outcomes.map((entry) => entry.outcome)
     };
@@ -156,7 +189,7 @@ async function collect(repository: string, action: Action): Promise<MetaToolSele
 export async function showSgosMetaToolReview(client: SingularityFlowClient): Promise<void> {
   const repository = path.resolve(client.repository);
   const chosen = await vscode.window.showQuickPick([
-    { label: 'Activate reviewed candidate', description: 'Bind it to a current approved Pack operation', action: 'activate' as const },
+    { label: 'Activate reviewed candidate', description: 'Bind it to a current approved Pack or Device operation', action: 'activate' as const },
     { label: 'Record observation', description: 'Append bounded outcome evidence', action: 'observe' as const },
     { label: 'Revoke activation', description: 'Withdraw authority and its current selector', action: 'revoke' as const },
     { label: 'Roll back activation', description: 'Restore a retained non-revoked activation', action: 'rollback' as const }

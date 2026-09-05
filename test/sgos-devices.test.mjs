@@ -8,8 +8,9 @@ import test from 'node:test';
 import { sha256 } from '../src/sgos/contracts.mjs';
 import {
   doctorSgosDevice, installedDeviceManifests, invokeSgosDevice, readSgosToolIntent,
-  readSgosSandboxCasEffect, readSgosToolResult, recoverSgosToolIntent, revokeSgosDevice,
-  SGOS_SANDBOX_CAS_ABSENT_SHA256, verifySgosSandboxCasPostcondition
+  readSgosSandboxCasEffect, readSgosToolResult, recoverSgosToolIntent,
+  resolveInstalledSgosDeviceOperation, revokeSgosDevice, SGOS_SANDBOX_CAS_ABSENT_SHA256,
+  sgosDeviceOperationId, verifySgosSandboxCasPostcondition
 } from '../src/sgos/devices.mjs';
 import { resolveInstalledGvmAdapter } from '../src/sgos/gvm-adapters.mjs';
 
@@ -52,6 +53,26 @@ function sandboxCasRequest(overrides = {}) {
     ...overrides
   };
 }
+
+test('Device operation resolver returns only exact installed non-revoked operations', async (t) => {
+  const root = await repository(t);
+  const operationId = sgosDeviceOperationId('filesystem-read', 'read-file');
+  assert.equal(operationId, 'device:filesystem-read:read-file');
+  const resolved = await resolveInstalledSgosDeviceOperation(root, operationId);
+  assert.equal(resolved.kind, 'device-operation');
+  assert.equal(resolved.deviceId, 'filesystem-read');
+  assert.equal(resolved.operation, 'read-file');
+  assert.equal(resolved.manifestSha256,
+    installedDeviceManifests().find((entry) => entry.id === 'filesystem-read').manifestSha256);
+  await assert.rejects(
+    () => resolveInstalledSgosDeviceOperation(root, 'device:filesystem-read:write-file'),
+    (error) => error.code === 'SGOS_DEVICE_OPERATION_UNKNOWN'
+  );
+  await assert.rejects(
+    () => resolveInstalledSgosDeviceOperation(root, 'read-file'),
+    (error) => error.code === 'SGOS_DEVICE_OPERATION_ID_INVALID'
+  );
+});
 
 test('Device writes an exact Tool Intent before a host-observed Tool Result', async (t) => {
   const root = await repository(t);
@@ -156,6 +177,12 @@ test('Device revocation is confirmation-bound and blocks later invocation', asyn
   assert.equal(revoked.revoked, true);
   await assert.rejects(invokeSgosDevice(root, request()),
     (error) => error.code === 'SGOS_DEVICE_REVOKED');
+  await assert.rejects(
+    () => resolveInstalledSgosDeviceOperation(
+      root, sgosDeviceOperationId(manifest.id, manifest.operations[0])
+    ),
+    (error) => error.code === 'SGOS_DEVICE_REVOKED'
+  );
 });
 
 test('Sandbox CAS durably binds one consequential fixture effect to its prior Tool Intent', async (t) => {

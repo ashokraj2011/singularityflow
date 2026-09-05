@@ -20,7 +20,8 @@ import {
 } from '../sgos/candidate-lifecycle.mjs';
 import {
   doctorSgosDevice, installedDeviceManifests, invokeSgosDevice, readSgosToolIntent,
-  readSgosToolResult, recoverSgosToolIntent, revokeSgosDevice
+  readSgosToolResult, recoverSgosToolIntent, resolveInstalledSgosDeviceOperation,
+  revokeSgosDevice, sgosDeviceOperationId
 } from '../sgos/devices.mjs';
 import {
   installedExecutionUnit, installedExecutionUnitManifests
@@ -1042,18 +1043,33 @@ async function metaToolService(root, options, { targetAuthority = false } = {}) 
       repositoryRoot: root
     });
     resolveTargetAuthority = async (request) => {
-      if (request.kind !== 'pack-operation') {
-        fail('The public Meta-tool CLI currently activates only signed approved Capability Pack operations; Device targets remain unavailable until their canonical authority resolver lands.',
-          'SGOS_META_TOOL_DEVICE_TARGET_UNAVAILABLE');
+      if (request.kind === 'pack-operation') {
+        const selection = await registry.resolveActiveOperation(request.operationId, {
+          authoritySha256: request.authoritySha256
+        });
+        return {
+          kind: 'pack-operation',
+          operationId: request.operationId,
+          version: selection.pack.version,
+          manifestSha256: selection.pack.recordSha256,
+          authoritySha256: selection.activation.recordSha256,
+          approvalSha256: selection.review.recordSha256,
+          status: 'approved'
+        };
       }
+      if (request.kind !== 'device-operation') {
+        fail(`Unsupported Meta-tool target kind '${request.kind}'.`,
+          'SGOS_META_TOOL_TARGET_KIND_INVALID');
+      }
+      const installed = await resolveInstalledSgosDeviceOperation(root, request.operationId);
       const selection = await registry.resolveActiveOperation(request.operationId, {
         authoritySha256: request.authoritySha256
       });
       return {
-        kind: 'pack-operation',
+        kind: 'device-operation',
         operationId: request.operationId,
-        version: selection.pack.version,
-        manifestSha256: selection.pack.recordSha256,
+        version: installed.version,
+        manifestSha256: installed.manifestSha256,
         authoritySha256: selection.activation.recordSha256,
         approvalSha256: selection.review.recordSha256,
         status: 'approved'
@@ -1075,6 +1091,20 @@ async function metaToolService(root, options, { targetAuthority = false } = {}) 
         operationId,
         version: selection.pack.version,
         manifestSha256: selection.pack.recordSha256,
+        authoritySha256: selection.activation.recordSha256
+      };
+    },
+    async deviceTarget(domain, deviceId, operation) {
+      if (!registry) fail('Meta-tool target authority is unavailable.',
+        'SGOS_META_TOOL_TARGET_AUTHORITY_REQUIRED');
+      const operationId = sgosDeviceOperationId(deviceId, operation);
+      const installed = await resolveInstalledSgosDeviceOperation(root, operationId);
+      const selection = await registry.resolveActiveOperation(operationId, { domain });
+      return {
+        kind: 'device-operation',
+        operationId,
+        version: installed.version,
+        manifestSha256: installed.manifestSha256,
         authoritySha256: selection.activation.recordSha256
       };
     }
@@ -1124,16 +1154,27 @@ async function metaToolCommand(root, positionals, options) {
     { changed: true });
   }
   if (['activate', 'observe', 'revoke', 'rollback'].includes(action)) {
-    const { service: governed, packTarget } = await metaToolService(root, options, {
+    const { service: governed, packTarget, deviceTarget } = await metaToolService(root, options, {
       targetAuthority: true
     });
     if (action === 'activate') {
       const candidateSha256 = exactHash(options, 'candidate-sha256');
       const evaluationSha256 = exactHash(options, 'evaluation-sha256');
       const promotionSha256 = exactHash(options, 'promotion-sha256');
-      const target = await packTarget(
-        requiredString(options, 'domain'), requiredString(options, 'operation')
-      );
+      const targetKind = optionString(options, 'target-kind') ?? 'pack-operation';
+      if (!['pack-operation', 'device-operation'].includes(targetKind)) {
+        fail("--target-kind must be 'pack-operation' or 'device-operation'.",
+          'SGOS_META_TOOL_TARGET_KIND_INVALID');
+      }
+      const domain = requiredString(options, 'domain');
+      const operation = requiredString(options, 'operation');
+      if (targetKind === 'pack-operation' && optionString(options, 'device')) {
+        fail('--device is accepted only with --target-kind device-operation.',
+          'SGOS_META_TOOL_TARGET_KIND_INVALID');
+      }
+      const target = targetKind === 'device-operation'
+        ? await deviceTarget(domain, requiredString(options, 'device'), operation)
+        : await packTarget(domain, operation);
       const observationPolicy = {
         maximumObservations: boundedInteger(options, 'maximum-observations', {
           maximum: 10_000

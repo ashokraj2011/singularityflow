@@ -3,6 +3,9 @@
 export const META_TOOL_SHA256 = /^sha256:[a-f0-9]{64}$/;
 export const META_TOOL_IDENTIFIER = /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/;
 export const META_TOOL_OUTCOMES = Object.freeze(['degraded', 'failed', 'succeeded'] as const);
+export const META_TOOL_TARGET_KINDS = Object.freeze([
+  'pack-operation', 'device-operation'
+] as const);
 
 type CommonSelection = {
   readonly store: string;
@@ -15,7 +18,9 @@ export type MetaToolSelection = CommonSelection & ({
   readonly candidateSha256: string;
   readonly evaluationSha256: string;
   readonly promotionSha256: string;
+  readonly targetKind?: (typeof META_TOOL_TARGET_KINDS)[number];
   readonly domain: string;
+  readonly device?: string;
   readonly operation: string;
   readonly maximumObservations: number;
   readonly maximumEvidenceRefs: number;
@@ -66,6 +71,10 @@ export function metaToolArguments(
     '--evaluator-trust', required(selection.evaluatorTrust, 'Evaluator trust file')
   ];
   if (selection.action === 'activate') {
+    const targetKind = selection.targetKind ?? 'pack-operation';
+    if (!META_TOOL_TARGET_KINDS.includes(targetKind)) {
+      throw new Error('Meta-tool target kind is invalid.');
+    }
     const outcomes = [...new Set(selection.acceptedOutcomes)].sort();
     if (!outcomes.length || outcomes.some((value) => !META_TOOL_OUTCOMES.includes(value))) {
       throw new Error('At least one supported observation outcome is required.');
@@ -74,8 +83,13 @@ export function metaToolArguments(
       '--candidate-sha256', digest(selection.candidateSha256, 'Candidate'),
       '--evaluation-sha256', digest(selection.evaluationSha256, 'Evaluation'),
       '--promotion-sha256', digest(selection.promotionSha256, 'Promotion'),
+      '--target-kind', targetKind,
       '--domain', required(selection.domain, 'Pack domain'),
-      '--operation', required(selection.operation, 'Pack operation'),
+      ...(targetKind === 'device-operation'
+        ? ['--device', required(selection.device ?? '', 'Device ID')]
+        : []),
+      '--operation', required(selection.operation,
+        targetKind === 'device-operation' ? 'Device operation' : 'Pack operation'),
       '--maximum-observations', integer(selection.maximumObservations, 'Maximum observations', 10_000),
       '--maximum-evidence-refs', integer(selection.maximumEvidenceRefs, 'Maximum evidence references', 64),
       '--accepted-outcomes', outcomes.join(',')
@@ -129,10 +143,10 @@ export function metaToolPlanReview(plan: MetaToolMutationPlan): string {
   ];
   if (target) {
     lines.push(
-      `Pack operation: ${String(target.operationId ?? 'unknown')}`,
-      `Pack version: ${String(target.version ?? 'unknown')}`,
-      `Pack manifest: ${String(target.manifestSha256 ?? 'unknown')}`,
-      `Pack approval: ${String(target.approvalSha256 ?? 'unknown')}`
+      `Target: ${String(target.kind ?? 'unknown')} / ${String(target.operationId ?? 'unknown')}`,
+      `Target version: ${String(target.version ?? 'unknown')}`,
+      `Target manifest: ${String(target.manifestSha256 ?? 'unknown')}`,
+      `Approving Pack review: ${String(target.approvalSha256 ?? 'unknown')}`
     );
   }
   if (plan.input?.activationSha256) {

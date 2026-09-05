@@ -3038,7 +3038,8 @@ singularity-flow memory inspect|dependencies|register|promote ...
 singularity-flow meta-tool list|propose|evaluation|promote ...
 singularity-flow meta-tool activate --store ID --trace-trust FILE --evaluator-trust FILE \
   --candidate-sha256 SHA256 --evaluation-sha256 SHA256 --promotion-sha256 SHA256 \
-  --domain DOMAIN --operation OPERATION --maximum-observations N --maximum-evidence-refs N \
+  [--target-kind pack-operation|device-operation] --domain DOMAIN [--device DEVICE] \
+  --operation OPERATION --maximum-observations N --maximum-evidence-refs N \
   --accepted-outcomes degraded,failed,succeeded [--confirm PLAN-SHA256]
 singularity-flow meta-tool observe --store ID --trace-trust FILE --evaluator-trust FILE \
   --activation-sha256 SHA256 --outcome OUTCOME --evidence-refs SHA256[,SHA256] \
@@ -3049,8 +3050,10 @@ singularity-flow meta-tool rollback --store ID --trace-trust FILE --evaluator-tr
   --operation OPERATION --target-activation-sha256 SHA256 --reason TEXT \
   [--confirm PLAN-SHA256]
 # These four transitions preview without --confirm. Confirmation is bound to the exact Store CAS,
-# reviewed candidate/evaluation/promotion, current signed Pack authority, and requested policy.
-# Arbitrary target files and Device targets are refused by the public CLI.
+# reviewed candidate/evaluation/promotion, current signed authority, and requested policy.
+# A Device target must be installed, non-revoked, and exported as
+# device:<device>:<operation> by the current signed, independently reviewed Pack.
+# Arbitrary target files and caller-supplied Device manifests are refused by the public CLI.
 singularity-flow next [--task TEXT] [--fetch] [--yes] [--skip-checks]
 singularity-flow run [--task TEXT] [--yes]
 singularity-flow run --repair-on-fault [--max-attempts N] [--allow-path PATH]... -- <COMMAND> [ARGUMENTS...]

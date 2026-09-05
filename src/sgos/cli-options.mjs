@@ -178,7 +178,8 @@ export const SGOS_CLI_OPTIONS = Object.freeze({
     activate: optionSet(
       ...STORE, 'trace-trust', 'evaluator-trust',
       'candidate-sha256', 'evaluation-sha256', 'promotion-sha256',
-      'domain', 'operation', 'maximum-observations', 'maximum-evidence-refs',
+      'target-kind', 'domain', 'device', 'operation',
+      'maximum-observations', 'maximum-evidence-refs',
       'accepted-outcomes', 'confirm', ...PLATFORM_IDENTITY_CLAIMS
     ),
     observe: optionSet(

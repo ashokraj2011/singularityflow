@@ -352,13 +352,15 @@ authority still validate; historical observations and activations are retained.
 The platform API and public `meta-tool activate|observe|revoke|rollback` CLI expose the same guarded
 transitions. Each CLI mutation first returns a content-addressed plan; repeating the identical
 command with `--confirm <plan-sha256>` re-resolves approved configuration and exact Authority Store
-state before the CAS mutation. The activation target is derived from the one current signed Pack
-operation in approved `singularity/sgos/capability-pack-trust.json` authority. The caller cannot
-supply a target manifest, approval digest, or arbitrary local authority file. VS Code exposes the
-same two-step ceremony through **Singularity Flow: Review Meta-tool Authority...**; it displays the
-exact actor, Store revision/state, signed Pack target, approval, and confirmation before invoking
-the confirmed CLI mutation. Device activation remains explicitly unavailable until an equivalent
-canonical approved Device resolver is implemented.
+state before the CAS mutation. A Pack target is derived from the one current signed Pack operation
+in approved `singularity/sgos/capability-pack-trust.json` authority. A Device target is identified as
+`device:<device-id>:<operation-id>` and is admitted only when that exact operation exists in an
+installed, nonrevoked Device manifest and is exported by a current signed, independently reviewed
+Capability Pack. Its authority binds both the Device manifest/version and the Pack activation/review.
+The caller cannot supply a target manifest, approval digest, or arbitrary local authority file.
+VS Code exposes the same two-step ceremony through **Singularity Flow: Review Meta-tool Authority...**;
+it explicitly selects Pack or Device and displays the exact actor, Store revision/state, target,
+approval, and confirmation before invoking the confirmed CLI mutation.
 
 ## Portable Authority Store and Capability Packs
 

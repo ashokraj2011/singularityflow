@@ -7,7 +7,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import {
-  needsTypeStripping, parsePositiveInteger, parseShard, partitionTestFiles,
+  discoverTestSuite, needsTypeStripping, parsePositiveInteger, parseShard, partitionTestFiles,
   summarizeTestShardReceipts, testRunId, testSelectionSha256, testShardReceiptMatches
 } from '../scripts/test-suite-plan.mjs';
 
@@ -33,6 +33,22 @@ test('test shards are deterministic, disjoint, complete, and weight-balanced', (
     - Math.min(...first.map((entry) => entry.weight)) <= 100,
   'largest-first scheduling became less balanced than the largest indivisible file');
   assert.equal(first[0].sourceSha256, testSelectionSha256(first[0].files));
+});
+
+test('reviewed process-heavy integration files stay out of ordinary aggregate lanes', async () => {
+  const plan = await discoverTestSuite(root, 'all');
+  const shards = partitionTestFiles(plan.files, 8);
+  for (const relative of [
+    'test/auto-mode.test.mjs',
+    'test/sgos-runtime.test.mjs',
+    'test/workspace.test.mjs'
+  ]) {
+    const shard = shards.find((candidate) =>
+      candidate.files.some((entry) => entry.relative === relative));
+    assert.ok(shard, `${relative} was omitted from the aggregate`);
+    assert.deepEqual(shard.files.map((entry) => entry.relative), [relative],
+      `${relative} must not share a process-heavy lane`);
+  }
 });
 
 test('test shard and bound parsing refuses ambiguous or unbounded values', () => {

@@ -4,12 +4,17 @@ import path from 'node:path';
 
 export const TEST_SUITES = Object.freeze(['all', 'cli', 'vscode']);
 
-// This file performs dozens of full Story/worktree/remote/model-transport journeys and currently
-// takes about eighteen minutes by itself on the reference developer host. Source bytes radically
-// understate that cost. Giving it the weight of the complete source corpus keeps it in a dedicated
-// shard; the value affects scheduling only and can never change coverage or a receipt digest.
+// These files perform full Story/worktree/remote/model-transport or durable-runtime journeys.
+// Source bytes radically understate that cost. Reviewed scheduling weights keep them out of the
+// ordinary lanes; the values affect scheduling only and can never change coverage or a receipt
+// digest.
 const PROCESS_HEAVY_FILE_WEIGHTS = Object.freeze({
-  'test/auto-mode.test.mjs': 8_000_000
+  'test/auto-mode.test.mjs': 8_000_000,
+  // SGOS runtime exercises durable locks, subprocess cancellation, and hundreds of immutable
+  // transitions. Workspace exercises repeated local bare remotes and checkout recovery. Both are
+  // substantially more expensive and more latency-sensitive than their source byte counts imply.
+  'test/sgos-runtime.test.mjs': 8_000_000,
+  'test/workspace.test.mjs': 4_000_000
 });
 
 export function needsTypeStripping(source) {

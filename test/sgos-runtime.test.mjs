@@ -30,6 +30,7 @@ import {
   validateWorkObject
 } from '../src/sgos/contracts.mjs';
 import { withOperationContext } from '../src/operation-context.mjs';
+import { withSubjectLock } from '../src/subject-lock.mjs';
 import {
   compileSgosProgram, registrySnapshotDigest, SGOS_COMPILER_ID
 } from '../src/sgos/compiler.mjs';
@@ -3819,6 +3820,35 @@ test('process stop records pause before quiescence and prevents late handler suc
     }),
     (error) => error.code === 'SGOS_PROCESS_REVISION_STALE'
   );
+});
+
+test('process stop waits through bounded Process-lock contention before recording pause', async () => {
+  const fixture = await repository('SGOS-STORY-STOP-LOCK-CONTENTION');
+  const compiled = program([
+    task('00-kernel', 'KERNEL'),
+    task('90-end', 'END', ['00-kernel'])
+  ]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  let acquiredLock;
+  let releaseLock;
+  const acquired = new Promise((resolve) => { acquiredLock = resolve; });
+  const release = new Promise((resolve) => { releaseLock = resolve; });
+  const holder = withSubjectLock(
+    fixture.root,
+    { kind: 'sgos-process', id: started.process.processId },
+    async () => {
+      acquiredLock();
+      await release;
+    }
+  );
+  await acquired;
+  const stopping = stopSgosProcess(fixture.root, started.process.processId);
+  setTimeout(releaseLock, 2_200);
+  const stopped = await stopping;
+  await holder;
+  assert.equal(stopped.changed, true);
+  assert.equal(stopped.quiescent, true);
+  assert.equal(stopped.process.status, 'paused');
 });
 
 test('Action Evidence hashes unavailable observations and keeps gaps and contradictions visible', () => {

@@ -14,6 +14,7 @@ import {
 import { incrementCommandCounter } from './dx-timing-context.mjs';
 import { spawn } from 'node:child_process';
 import { statSync } from 'node:fs';
+import path from 'node:path';
 import { networkDisabled, run, signalProcessTree, SingularityFlowError } from './util.mjs';
 
 const positive = (value, fallback) => {
@@ -32,6 +33,23 @@ export function gitTimeouts(env = process.env) {
     configuration: positive(env.SINGULARITY_FLOW_GIT_CONFIGURATION_TIMEOUT_MS, 120_000),
     push: positive(env.SINGULARITY_FLOW_GIT_PUSH_TIMEOUT_MS, 180_000)
   });
+}
+
+/**
+ * A filesystem authority cannot be made faster by DNS/proxy recovery and must not be reported as
+ * an office-network outage merely because a busy host took longer than the interactive probe
+ * budget to schedule Git. Keep the operation bounded, but give local and file:// authorities the
+ * configuration-operation window. Explicit caller deadlines continue to win.
+ */
+export function gitRemoteProbeTimeout(remote, env = process.env) {
+  const value = String(remote ?? '').trim();
+  const local = /^file:/iu.test(value)
+    || path.isAbsolute(value)
+    || /^[A-Za-z]:[\\/]/u.test(value)
+    || /^\\\\/u.test(value)
+    || /^\.{1,2}[\\/]/u.test(value);
+  const timeouts = gitTimeouts(env);
+  return local ? timeouts.configuration : timeouts.probe;
 }
 
 /**
@@ -481,9 +499,10 @@ export class GitRemoteSession {
 
   observe(remote, {
     refs = [], includeHead = true, includeAllHeads = false, refresh = false,
-    timeoutMs = gitTimeouts(this.env).probe
+    timeoutMs = null
   } = {}) {
     const url = assertCredentialFreeRemote(remote);
+    const effectiveTimeoutMs = timeoutMs ?? gitRemoteProbeTimeout(url, this.env);
     const patterns = observationPatterns({ refs, includeHead, includeAllHeads });
     const key = JSON.stringify([url, patterns]);
     if (refresh) this.invalidate(url);
@@ -497,7 +516,7 @@ export class GitRemoteSession {
     const generation = this.nextObservationGeneration(key);
     const transport = frozenRemoteTransport(url, { env: this.env });
     const result = runRemoteGit(['ls-remote', '--symref', '--', transport.remote, ...patterns], {
-      operation: 'remote-probe', timeoutMs, env: transport.env,
+      operation: 'remote-probe', timeoutMs: effectiveTimeoutMs, env: transport.env,
       runCommand: this.runCommand, allowFailure: true
     });
     const observation = remoteObservation(url, patterns, result);
@@ -510,9 +529,10 @@ export class GitRemoteSession {
   /** Async equivalent for independent repository fan-out, sharing the exact same cache contract. */
   async observeAsync(remote, {
     refs = [], includeHead = true, includeAllHeads = false, refresh = false,
-    timeoutMs = gitTimeouts(this.env).probe, signal = null
+    timeoutMs = null, signal = null
   } = {}) {
     const url = assertCredentialFreeRemote(remote);
+    const effectiveTimeoutMs = timeoutMs ?? gitRemoteProbeTimeout(url, this.env);
     const patterns = observationPatterns({ refs, includeHead, includeAllHeads });
     const key = JSON.stringify([url, patterns]);
     if (refresh) this.invalidate(url);
@@ -537,7 +557,7 @@ export class GitRemoteSession {
       const result = await this.runAsyncCommand(
         ['ls-remote', '--symref', '--', transport.remote, ...patterns],
         {
-          operation: 'remote-probe', timeoutMs, env: transport.env,
+          operation: 'remote-probe', timeoutMs: effectiveTimeoutMs, env: transport.env,
           allowFailure: true, signal
         }
       );

@@ -3175,35 +3175,41 @@ async function stopSgosProcessWithinPolicy(root, processId, {
   await assertSgosProcessPolicyAuthority(root, {
     operation: 'process.stop', processId
   });
-  await settlePendingTransitionBeforeMutation(root, processId, 'stop');
-  const process = await readSgosProcess(root, processId);
-  await assertCurrentStoredProcessBinding(root, process);
-  if (PROCESS_TERMINAL.has(process.status)) {
-    fail(`Process is already ${process.status}.`, 'SGOS_PROCESS_TERMINAL');
-  }
-  if (expectedRevision != null && process.processRevision !== expectedRevision) {
-    fail(`SGOS process '${processId}' changed before stop could commit.`,
-      'SGOS_PROCESS_REVISION_STALE', {
-        expectedRevision,
-        actualRevision: process.processRevision
-      });
-  }
-  const alreadyPaused = process.status === 'paused';
-  const next = alreadyPaused ? process : await mutateSgosProcess(
-    root, processId, (draft) => { draft.status = 'paused'; }, {
-      expectedRevision: expectedRevision ?? process.processRevision,
-      expectedProcessSha256: process.processSha256,
-      updatedAt: instant(clock)
+  // A running executor owns only short Process CAS intervals. A stop request must wait through
+  // that bounded contention so it can durably record pause before waiting for quiescence. A busy
+  // lock proves this callback did not mutate state, so replay is safe; revision and digest checks
+  // still fail closed once the lock is acquired.
+  return retryRuntimeProcessContention(async () => {
+    await settlePendingTransitionBeforeMutation(root, processId, 'stop');
+    const process = await readSgosProcess(root, processId);
+    await assertCurrentStoredProcessBinding(root, process);
+    if (PROCESS_TERMINAL.has(process.status)) {
+      fail(`Process is already ${process.status}.`, 'SGOS_PROCESS_TERMINAL');
     }
-  );
-  const quiescent = next.activeExecutions.length === 0 && next.activeLeases.length === 0;
-  return Object.freeze({
-    status: quiescent ? 'quiescent' : 'stop-requested',
-    changed: !alreadyPaused,
-    quiescent,
-    activeAttemptIds: Object.freeze([...next.activeExecutions]),
-    activeLeaseIds: Object.freeze([...next.activeLeases]),
-    process: next
+    if (expectedRevision != null && process.processRevision !== expectedRevision) {
+      fail(`SGOS process '${processId}' changed before stop could commit.`,
+        'SGOS_PROCESS_REVISION_STALE', {
+          expectedRevision,
+          actualRevision: process.processRevision
+        });
+    }
+    const alreadyPaused = process.status === 'paused';
+    const next = alreadyPaused ? process : await mutateSgosProcess(
+      root, processId, (draft) => { draft.status = 'paused'; }, {
+        expectedRevision: expectedRevision ?? process.processRevision,
+        expectedProcessSha256: process.processSha256,
+        updatedAt: instant(clock)
+      }
+    );
+    const quiescent = next.activeExecutions.length === 0 && next.activeLeases.length === 0;
+    return Object.freeze({
+      status: quiescent ? 'quiescent' : 'stop-requested',
+      changed: !alreadyPaused,
+      quiescent,
+      activeAttemptIds: Object.freeze([...next.activeExecutions]),
+      activeLeaseIds: Object.freeze([...next.activeLeases]),
+      process: next
+    });
   });
 }
 

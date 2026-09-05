@@ -8,7 +8,7 @@ import { PassThrough } from 'node:stream';
 import { spawn } from 'node:child_process';
 
 import {
-  GitRemoteSession, gitTimeouts, nonInteractiveGitEnvironment, runRemoteGit,
+  GitRemoteSession, gitRemoteProbeTimeout, gitTimeouts, nonInteractiveGitEnvironment, runRemoteGit,
   runRemoteGitAsync, requireRemoteObservation
 } from '../src/git-execution.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
@@ -45,6 +45,29 @@ test('one remote session reuses an exact observation and parses the advertised a
 
   session.observe('https://example.com/acme/repository.git', { ...options, refresh: true });
   assert.equal(calls.length, 2);
+});
+
+test('local Git authorities retain a bounded configuration window instead of a network probe window', async () => {
+  const env = {
+    ...process.env,
+    SINGULARITY_FLOW_GIT_PREFLIGHT_TIMEOUT_MS: '101',
+    SINGULARITY_FLOW_GIT_CONFIGURATION_TIMEOUT_MS: '202'
+  };
+  assert.equal(gitRemoteProbeTimeout('https://example.com/repository.git', env), 101);
+  assert.equal(gitRemoteProbeTimeout('/tmp/repository.git', env), 202);
+  assert.equal(gitRemoteProbeTimeout('file:///tmp/repository.git', env), 202);
+  assert.equal(gitRemoteProbeTimeout('C:\\source\\repository.git', env), 202);
+
+  const calls = [];
+  const session = new GitRemoteSession({
+    env,
+    async runAsyncCommand(_args, options) {
+      calls.push(options);
+      return { status: 0, stdout: '', stderr: '', timedOut: false, failure: null };
+    }
+  });
+  await session.observeAsync('/tmp/repository.git');
+  assert.equal(calls[0].timeoutMs, 202);
 });
 
 test('an all-heads observation satisfies later head subsets without another remote process', () => {

@@ -33,7 +33,7 @@ import { readRecord } from './schema-migrations.mjs';
 import { verifyCodeDeliveryReceipt } from './delivery-evidence.mjs';
 import { applicationPathContext } from './application-paths.mjs';
 import { classifyStoryGateFailures } from './gate-recovery.mjs';
-import { runRemoteGit } from './git-execution.mjs';
+import { runRemoteGitAsync } from './git-execution.mjs';
 import { publishedGenerationCommit } from './generation-publication-store.mjs';
 
 function trackedFiles(root) { return run('git', ['ls-files', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean); }
@@ -443,7 +443,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
   }
 
   if (config.git?.publish === 'required' && terminal) {
-    const remote = config.git.remote ?? 'origin'; const publicationBranch = workflowPublicationBranch(root, workflow); const remoteHead = runRemoteGit(['ls-remote', remote, `refs/heads/${publicationBranch}`], { cwd: root, operation: 'remote-probe' }).stdout.trim().split(/\s+/)[0];
+    const remote = config.git.remote ?? 'origin'; const publicationBranch = workflowPublicationBranch(root, workflow); const remoteHead = (await runRemoteGitAsync(['ls-remote', remote, `refs/heads/${publicationBranch}`], { cwd: root, operation: 'remote-probe' })).stdout.trim().split(/\s+/)[0];
     const localHead = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
     if (remoteHead !== localHead) errors.push(`terminal: local HEAD is not published to ${remote}/${publicationBranch}`);
     else passes.push('remote publication');

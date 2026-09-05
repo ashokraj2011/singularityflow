@@ -514,6 +514,11 @@
         "icon": "$(add)"
       },
       {
+        "command": "singularityFlow.reviewSgosMetaTool",
+        "title": "Singularity Flow: Review Meta-tool Authority...",
+        "icon": "$(verified-filled)"
+      },
+      {
         "command": "singularityFlow.openReconciliation",
         "title": "Singularity Flow: Open Reconciliation",
         "icon": "$(git-compare)"

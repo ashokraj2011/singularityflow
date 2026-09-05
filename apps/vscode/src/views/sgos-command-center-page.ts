@@ -253,6 +253,7 @@ export function sgosCommandCenterBody(view: SgosCommandCenterView): string {
     <p class="meta">Exact SGOS Process projection with proposal-only Workflow authoring. The UI cannot bypass runtime authority.</p></header>
     <div class="sgos-toolbar"><p class="meta">${summary} Process record${summary === 1 ? '' : 's'} · ${escape(view.profileId ?? 'loading runtime profile')}</p>
       <div class="card-foot"><button type="button" data-create-workflow>${icon('add')}Create Workflow…</button>
+      <button type="button" class="secondary" data-review-meta-tool>${icon('approval')}Review Meta-tool…</button>
       <button type="button" class="secondary" data-refresh>${icon('refresh')}Refresh</button></div></div>
     <div aria-live="polite">${view.loading ? '<p>Refreshing Command Center…</p>' : ''}</div>${stale}${error}
     <section><h2>Processes</h2>${lanes}</section>
@@ -267,6 +268,7 @@ export const SGOS_COMMAND_CENTER_SCRIPT = `
     if (!target) return;
     if (target.hasAttribute('data-refresh')) window.__sfVscode.postMessage({ type:'refresh' });
     else if (target.hasAttribute('data-create-workflow')) window.__sfVscode.postMessage({ type:'createWorkflow' });
+    else if (target.hasAttribute('data-review-meta-tool')) window.__sfVscode.postMessage({ type:'reviewMetaTool' });
     else if (target.dataset.selectProcess) window.__sfVscode.postMessage({ type:'select', processId:target.dataset.selectProcess });
     else if (target.dataset.graph) window.__sfVscode.postMessage({ type:'graph', processId:target.dataset.graph });
     else if (target.dataset.integrity) window.__sfVscode.postMessage({ type:'integrity', processId:target.dataset.integrity });

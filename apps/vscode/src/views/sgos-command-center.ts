@@ -92,6 +92,7 @@ export class SgosCommandCenterPanel {
     const router = registerMessageRouter('singularityFlow.commandCenter', {
       refresh: () => void this.refresh(),
       createWorkflow: () => void vscode.commands.executeCommand('singularityFlow.createSgosWorkflow'),
+      reviewMetaTool: () => void vscode.commands.executeCommand('singularityFlow.reviewSgosMetaTool'),
       select: (message) => {
         const processId = stringField(message, 'processId');
         if (!processId || !this.currentProcess(processId)) return;

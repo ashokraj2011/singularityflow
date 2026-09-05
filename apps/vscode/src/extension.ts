@@ -788,7 +788,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.prepareStoryPhase', 'singularityFlow.publishStoryPhase',
     'singularityFlow.submitStoryPhase',
     'singularityFlow.approve', 'singularityFlow.openJourney', 'singularityFlow.openCommandCenter',
-    'singularityFlow.createSgosWorkflow', 'singularityFlow.openReconciliation',
+    'singularityFlow.createSgosWorkflow', 'singularityFlow.reviewSgosMetaTool',
+    'singularityFlow.openReconciliation',
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
     'singularityFlow.openDashboard', 'singularityFlow.openDesigner',
     'singularityFlow.publishConfiguration',
@@ -4718,6 +4719,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await reconcileActiveWorkspaceSelection();
       const { showSgosWorkflowCreator } = await import('./sgos-workflow-create.ts');
       return showSgosWorkflowCreator(client);
+    },
+    'singularityFlow.reviewSgosMetaTool': async () => {
+      await reconcileActiveWorkspaceSelection();
+      const { showSgosMetaToolReview } = await import('./sgos-meta-tool-review.ts');
+      return showSgosMetaToolReview(client);
     },
     'singularityFlow.openReconciliation': async () => {
       const { ReconciliationPanel } = await import('./views/reconciliation.ts');

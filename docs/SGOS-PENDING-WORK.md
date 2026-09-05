@@ -244,11 +244,13 @@ performing its CAS-protected mutation. Callers provide only a Pack domain and op
 activation authority, and approval digests are derived from signed active Pack lineage under
 approved configuration trust. Stale confirmations, self-activation, superseded targets, invalid
 outcomes, and policy limits fail closed. Help and the VS Code command classifier recognize preview
-as read-only and confirmed execution as mutation.
+as read-only and confirmed execution as mutation. The native **Review Meta-tool Authority...**
+wizard collects only bounded selectors, invokes the same preview, displays exact
+Store/Pack/approval facts, and sends the confirmation only after a modal human decision.
 
-This remains `[~]`: a canonical approved Device-operation target resolver and a native VS Code
-review form have not landed. The CLI explicitly refuses Device targets instead of accepting local
-Device manifests as authority.
+This remains `[~]`: a canonical approved Device-operation target resolver has not landed. The CLI
+and VS Code wizard explicitly refuse Device targets instead of accepting local Device manifests as
+authority.
 
 Implementation checkpoint: `5cc31bee` (canonical signed-Pack target resolution, deterministic
 mutation plans, public CLI, help, VS Code classification, and end-to-end authority tests).

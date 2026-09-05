@@ -26,7 +26,7 @@ related:
   - governed-execution
   - workflow-authoring
   - evidence-and-ledger
-version: 18
+version: 19
 ---
 SGOS compiles confirmed intent and a ratified workflow into a finite, content-addressed Governed VM
 Program. Its operational Process state never replaces Story, Initiative, configuration, ledger, or
@@ -92,7 +92,9 @@ SFlow never invents Candidate verification for them.
   help does not execute it for you.
 - **VS Code:** run **Singularity Flow: Create SGOS Workflow...** for the native version of the same
   guided creator. Use **Singularity Flow: Open Command Center** later for the projection-only Process
-  board, graph, evidence links, unavailable-Process diagnostics, and Human Request forms.
+  board, graph, evidence links, unavailable-Process diagnostics, and Human Request forms. Run
+  **Singularity Flow: Review Meta-tool Authority...** to preview and explicitly confirm signed-Pack
+  activation, observation, revocation, or rollback through the same CLI/API authority path.
 
 All three creator surfaces produce only an uncommitted, unratified declaration and Workflow IR.
 Creation is deterministic and invokes no model; it does not ratify, compile, approve, commit, or run
@@ -449,6 +451,8 @@ use the portable v2 identifier contract; Windows does not open a nonportable leg
   Authority Store CAS. The public `meta-tool activate|observe|revoke|rollback` CLI applies those
   same API transitions through an exact preview/confirm plan. Pack targets are resolved from the
   current signed Pack and approved trust; arbitrary target files and Device targets are refused.
+  The native VS Code review wizard displays that plan and sends the confirmation only after a modal
+  human decision; it does not reimplement mutation authority.
 - Process checkpoints live below the Git common directory and do not alter application or Story
   state. Existing Story transitions continue only through existing lifecycle commands.
 - Static fan-out is expanded by the compiler, joins are limited to `all-success` and `all-terminal`,

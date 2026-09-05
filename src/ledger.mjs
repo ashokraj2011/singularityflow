@@ -695,7 +695,7 @@ export async function ledgerDoctor(root, rawConfig = {}) {
   const remoteAvailable = hasRemote(root, config.remote);
   checks.push({ id: 'enabled', status: config.enabled ? 'pass' : 'warn', detail: config.enabled ? 'ledger enabled' : 'ledger disabled (no lifecycle dual-write)' });
   checks.push({ id: 'remote', status: remoteAvailable ? 'pass' : 'warn', detail: remoteAvailable ? `${config.remote} is configured` : `${config.remote} is not configured` });
-  ensureRemoteBranchFetched(root, config);
+  await ensureRemoteBranchFetchedAsync(root, config);
   const ref = ledgerHead(root, config);
   checks.push({ id: 'branch', status: ref ? 'pass' : 'fail', detail: ref ? `${config.branch} exists` : `${config.branch} is not initialized` });
   if (ref) {
@@ -739,13 +739,18 @@ export async function ledgerDoctor(root, rawConfig = {}) {
 
 export async function archiveLedger(root, rawConfig, output, { sign = false } = {}) {
   const config = normalizeLedgerConfig(rawConfig);
-  ensureRemoteBranchFetched(root, config);
+  await ensureRemoteBranchFetchedAsync(root, config);
   const ref = ledgerHead(root, config);
   if (!ref) throw new SingularityFlowError(`Ledger branch '${config.branch}' does not exist.`);
   if (config.pinTransport === 'refs' && hasRemote(root, config.remote)) {
-    git(root, ['fetch', '--no-tags', config.remote, '+refs/singularity/pins/*:refs/singularity/pins/*'], { allowFailure: true });
+    await runRemoteGitAsync([
+      'fetch', '--no-tags', config.remote, '+refs/singularity/pins/*:refs/singularity/pins/*'
+    ], { cwd: root, operation: 'remote-configuration' });
   } else if (config.pinTransport === 'branches' && hasRemote(root, config.remote)) {
-    git(root, ['fetch', '--no-tags', config.remote, `+refs/heads/singularity/pins/*:refs/remotes/${config.remote}/singularity/pins/*`], { allowFailure: true });
+    await runRemoteGitAsync([
+      'fetch', '--no-tags', config.remote,
+      `+refs/heads/singularity/pins/*:refs/remotes/${config.remote}/singularity/pins/*`
+    ], { cwd: root, operation: 'remote-configuration' });
   }
   const target = path.resolve(root, output);
   if (await exists(target)) {
@@ -1274,7 +1279,7 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
     return { branch: config.branch, commit: null, changed: false, published: [], removed: [] };
   }
 
-  if (refreshRemote) ensureRemoteBranchFetched(root, config, { env, transportRemote });
+  if (refreshRemote) await ensureRemoteBranchFetchedAsync(root, config, { env, transportRemote });
   let ref = ledgerHead(root, config, { env });
   let initializedCommit = null;
   if (!ref) {
@@ -1293,7 +1298,7 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
       throw error;
     }
     initializedCommit = initialized.created ? initialized.commit : null;
-    ensureRemoteBranchFetched(root, config, { env, transportRemote });
+    await ensureRemoteBranchFetchedAsync(root, config, { env, transportRemote });
     ref = ledgerHead(root, config, { env });
   }
   const expectedRemoteSha = suppliedExpectedRemoteSha !== undefined
@@ -1532,7 +1537,11 @@ export async function discoverLedgerIntents(root) {
  * warm clone gets the same answer for free. What it does not do is populate them.
  */
 async function remoteLedgerIntents(root, config, { offline = false } = {}) {
-  if (!offline) git(root, ['fetch', '--prune', config.remote], { allowFailure: true });
+  if (!offline) {
+    await runRemoteGitAsync(['fetch', '--prune', config.remote], {
+      cwd: root, operation: 'remote-configuration'
+    });
+  }
   const refs = git(root, [
     'for-each-ref',
     '--format=%(refname:short)',
@@ -1709,7 +1718,7 @@ function readRefFile(root, ref, file) {
  * Writers keep `temporaryWorktree`, which they genuinely need — they commit. Readers never did.
  */
 async function ledgerRefSnapshot(root, config, callback, { offline = false } = {}) {
-  ensureRemoteBranchFetched(root, config, { offline });
+  await ensureRemoteBranchFetchedAsync(root, config, { offline });
   const ref = ledgerHead(root, config);
   if (!ref) throw new SingularityFlowError(`Ledger branch '${config.branch}' does not exist. Run singularity-flow ledger init.`);
   const head = readRefFile(root, ref, HEAD_PATH);
@@ -2212,15 +2221,18 @@ async function ledgerStatusUncached(root, config, { offline }) {
    * are different facts, and a reader who cannot tell them apart is being handed the second when
    * they have the first.
    */
-  const remoteView = ensureRemoteBranchFetched(root, config, { offline });
+  const remoteView = await ensureRemoteBranchFetchedAsync(root, config, { offline });
   const ref = ledgerHead(root, config);
   const outbox = (await exists(localOutbox(root)))
     ? (await readdir(localOutbox(root))).filter((name) => name.endsWith('.json')).length
     : 0;
-  const intents = await allLedgerIntents(root, config, { offline });
+  // The one refresh above already established the remote view for this status snapshot. Every
+  // nested read is cache-only so status cannot multiply office-network latency by the number of
+  // projections it composes.
+  const intents = await allLedgerIntents(root, config, { offline: true });
   if (!ref) return { enabled: true, initialized: false, outbox, durableIntents: intents.length, remoteView, config };
-  const verification = await verifyLedger(root, config, { offline });
-  const log = await ledgerLog(root, config, { limit: 1000000, offline });
+  const verification = await verifyLedger(root, config, { offline: true });
+  const log = await ledgerLog(root, config, { limit: 1000000, offline: true });
   const recorded = new Set(log.map((entry) => entry.eventId));
   const pending = [];
   for (const candidate of intents) {

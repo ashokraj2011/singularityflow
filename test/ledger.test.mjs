@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { run } from '../src/util.mjs';
+import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 import { normalizeLedgerConfig } from '../src/ledger-config.mjs';
 import {
   appendLedgerIntent,
@@ -81,6 +82,18 @@ test('canonical ledger JSON is stable across object key order', () => {
   const right = canonicalJson({ a: { b: 3, y: 2 }, z: 1 });
   assert.equal(left, right);
   assert.equal(sha256(left), sha256(right));
+});
+
+test('ledger status performs one asynchronous remote refresh and keeps nested reads cache-only', async () => {
+  const { root } = await repository();
+  await initializeLedger(root, enabled);
+  const timer = commandTimer('ledger-status', { commandClass: 'read' });
+  const status = await withCommandTiming(timer, () => ledgerStatus(root, enabled));
+  assert.equal(status.initialized, true);
+  assert.equal(status.remoteView, 'refreshed');
+  const counters = timer.finish().counters;
+  assert.equal(counters['git.remote.command.fetch'], 1);
+  assert.equal(counters['git.remote.total'], 1);
 });
 
 test('capability ledger is an orphan branch and verifies its content-addressed chain', async () => {

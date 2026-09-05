@@ -66,7 +66,7 @@ import {
 } from '../state-stores.mjs';
 import { attachStoryBranch, createStoryBranch, promoteStoryBranch, storyBranchStatus } from '../story-lineage.mjs';
 import { SingularityFlowError, exists, nowIso, optionBoolean, optionNumber, optionString, optionStrings, posix, readJson, requirePositional, run, secureRepositoryPath, snapshot, table, writeBytes, writeJson, writeText } from '../util.mjs';
-import { runRemoteGit } from '../git-execution.mjs';
+import { runRemoteGitAsync } from '../git-execution.mjs';
 import { acknowledgeAmendment, createLocalCheckpoint, escalationPlan, reconcileWorkInterval } from '../work-intervals.mjs';
 import { existsSync } from 'node:fs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
@@ -247,7 +247,7 @@ export async function storyFetchCommand(positionals, options) {
   const target = path.resolve(explicitDirectory ?? leadRoot);
   if (!existsSync(target)) {
     await mkdir(path.dirname(target), { recursive: true });
-    const cloned = runRemoteGit(['clone', '--', repository.url, target], {
+    const cloned = await runRemoteGitAsync(['clone', '--', repository.url, target], {
       cwd: path.dirname(target), operation: 'remote-configuration'
     });
     if (cloned.status !== 0) throw new SingularityFlowError(`Unable to clone configured repository '${repositoryId}': ${(cloned.stderr || cloned.stdout).trim()}`);

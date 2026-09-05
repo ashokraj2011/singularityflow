@@ -17,7 +17,7 @@ import { chmod, lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { SingularityFlowError, exists, nowIso, optionBoolean, optionNumber, optionString, optionStrings, parseArgs, posix, readJson, requirePositional, run, secureRepositoryPath, snapshot, table, writeJson, writeText } from './util.mjs';
-import { add, assertClean, branch, changedFiles, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitCommonDir, gitDir, hasUpstream, head, identity, localBranches, preflightPushBranch, pullFastForward, refExists, refHead, remoteBranches, repoRoot } from './git.mjs';
+import { add, assertClean, branch, changedFiles, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitCommonDir, gitDir, hasUpstream, head, identity, localBranches, preflightPushBranch, prepareRemoteBranchTracking, pullFastForward, refExists, refHead, remoteBranches, repoRoot } from './git.mjs';
 import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow, commitAndPublish, CONFIG_PATH, createWorkflow, currentPhase, generationResultDigest, generationResultMatches, loadConfig, preparePhase, preparePhaseInputs, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, storyWelEnrollmentStatus, submitConfirmedConvergencePhase, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir, workDirRelative } from './state-stores.mjs';
@@ -111,7 +111,7 @@ import { verifyGroundingRecord } from './grounding.mjs';
 import { filterLogEntries, logFilePath, normalizeLogLevel, parseLogLines, redactCommandArgv, repositoryLogger, resolveLogging } from './logging.mjs';
 import { collectWorkspaceLogs } from './workspace-logs.mjs';
 import { doctorSnapshot, doctorText } from './doctor.mjs';
-import { GitRemoteSession, runRemoteGit } from './git-execution.mjs';
+import { GitRemoteSession, runRemoteGitAsync } from './git-execution.mjs';
 import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
 import { createReviewBundle, reviewHtml, reviewMarkdown, witnessMappingReview } from './review.mjs';
 import { readRecord } from './schema-migrations.mjs';
@@ -1705,14 +1705,16 @@ async function choicesCommand(positionals, options) {
       // retained portfolio snapshot to reject stale workspace repository URLs before ls-remote.
       receipt = await withApprovedConfigurationRead(root, async () => {
         const config = (await sessionDiscoveryConfiguration(
-          root, sessionRepositoryAuthority(root)
+          root, await sessionRepositoryAuthority(root)
         )).definition;
         validateId(config, workId);
         return beginSelectionReceipt(root, config, { action, workId, workflow: null });
       }, { preferAuthority: true });
     } else {
       let config = (await withApprovedConfigurationRead(
-        root, () => sessionDiscoveryConfiguration(root, sessionRepositoryAuthority(root))
+        root, async () => sessionDiscoveryConfiguration(
+          root, await sessionRepositoryAuthority(root)
+        )
       )).definition;
       validateId(config, workId);
       let workflow = null;
@@ -1748,7 +1750,9 @@ async function resumeCommand(positionals, options) {
   const root = repoRoot();
   const json = optionBoolean(options, 'json');
   const discovery = await withApprovedConfigurationRead(
-    root, () => sessionDiscoveryConfiguration(root, sessionRepositoryAuthority(root))
+    root, async () => sessionDiscoveryConfiguration(
+      root, await sessionRepositoryAuthority(root)
+    )
   );
   const initialConfig = discovery.definition;
   const fetch = optionBoolean(options, 'fetch');
@@ -1800,7 +1804,9 @@ async function returnCommand(positionals, options) {
   const reference = requirePositional(positionals, 1, 'work ID');
   const root = repoRoot();
   const discovery = await withApprovedConfigurationRead(
-    root, () => sessionDiscoveryConfiguration(root, sessionRepositoryAuthority(root))
+    root, async () => sessionDiscoveryConfiguration(
+      root, await sessionRepositoryAuthority(root)
+    )
   );
   const initialConfig = discovery.definition;
   const remote = discovery.remote;
@@ -7114,7 +7120,7 @@ async function hookCommand(positionals) {
     const candidate = typeof payload.cwd === 'string' && existsSync(payload.cwd) ? payload.cwd : process.cwd();
     const root = repoRoot(candidate);
     if (isWorldModelBuildContext(root, payload)) return console.log('{}');
-    const authority = sessionRepositoryAuthority(root);
+    const authority = await sessionRepositoryAuthority(root);
     if (!authority) return console.log('{}');
     if (event === 'turn-intent') {
       const { recordCopilotTurnIntent } = await import('./session.mjs');
@@ -7170,7 +7176,7 @@ function definitionAtRef(root, ref) {
  * proof that the checkout is governed; requiring a working-tree copy made every fresh clone look
  * uninitialised until somebody manually checked out the Story branch.
  */
-function sessionRepositoryAuthority(root) {
+async function sessionRepositoryAuthority(root) {
   if (!root) return null;
   if (existsSync(path.join(root, WORKFLOW_PATH))) return { source: 'working-tree', remote: null };
   for (const remote of sessionRepositoryRemotes(root)) {
@@ -7186,7 +7192,7 @@ function sessionRepositoryAuthority(root) {
   // A --single-branch clone may not have fetched the configuration namespace yet. The session
   // operation is remote-backed anyway, so prove the authority without changing the checkout.
   for (const remote of sessionRepositoryRemotes(root)) {
-    const available = runRemoteGit(['ls-remote', '--heads', remote, `refs/heads/${CONFIGURATION_BRANCH}`], {
+    const available = await runRemoteGitAsync(['ls-remote', '--heads', remote, `refs/heads/${CONFIGURATION_BRANCH}`], {
       cwd: root, operation: 'remote-probe'
     });
     if (available.status === 0 && available.stdout.trim()) {
@@ -7196,7 +7202,8 @@ function sessionRepositoryAuthority(root) {
   return null;
 }
 
-async function sessionDiscoveryConfiguration(root, authority = sessionRepositoryAuthority(root)) {
+async function sessionDiscoveryConfiguration(root, authority = null) {
+  authority ??= await sessionRepositoryAuthority(root);
   if (configurationReadAuthority(root)) {
     const definition = await loadConfig(root);
     return {
@@ -7227,7 +7234,11 @@ async function sessionDiscoveryConfiguration(root, authority = sessionRepository
       if (definition) return { definition, remote: authority.remote, source: ref };
     } catch { /* Try another local authority before requiring the network. */ }
   }
-  fetchRemote(root, authority.remote);
+  if (prepareRemoteBranchTracking(root, authority.remote)) {
+    await runRemoteGitAsync(['fetch', '--prune', authority.remote], {
+      cwd: root, operation: 'remote-configuration', allowFailure: false
+    });
+  }
   const remoteCandidates = [
     `${authority.remote}/${CONFIGURATION_BRANCH}`,
     ...remoteBranches(root, authority.remote).map((branchName) => `${authority.remote}/${branchName}`)
@@ -7264,7 +7275,7 @@ async function resolveSessionRepository() {
 
   let cwdRoot = null;
   try { cwdRoot = repoRoot(); } catch { /* Not inside a Git repository at all. */ }
-  const cwdAuthority = governed(cwdRoot);
+  const cwdAuthority = await governed(cwdRoot);
   if (cwdAuthority) {
     return { root: cwdRoot, resolvedFrom: 'working-directory', workspaceId: null, authority: cwdAuthority };
   }
@@ -7290,7 +7301,7 @@ async function resolveSessionRepository() {
         + `Run \`singularity-flow workspace repair ${context.workspacePath}\`.`
     };
   }
-  const workspaceAuthority = governed(context.repositoryPath);
+  const workspaceAuthority = await governed(context.repositoryPath);
   if (!workspaceAuthority) {
     return {
       root: null,
@@ -7343,7 +7354,7 @@ async function sessionCommand(positionals, options) {
     const hostAction = 'ready';
     const editorRooted = currentDirectory === repositoryPath;
     if (!requestedStoryId) {
-      const authority = sessionRepositoryAuthority(repositoryPath);
+      const authority = await sessionRepositoryAuthority(repositoryPath);
       const { definition } = await sessionDiscoveryConfiguration(repositoryPath, authority);
       let candidate = null;
       if (existsSync(path.join(repositoryPath, WORKFLOW_PATH))) {
@@ -7432,7 +7443,7 @@ async function sessionCommand(positionals, options) {
       };
     }
     const executionRoot = path.resolve(context.repositoryPath);
-    const authority = sessionRepositoryAuthority(executionRoot);
+    const authority = await sessionRepositoryAuthority(executionRoot);
     const { definition } = await sessionDiscoveryConfiguration(executionRoot, authority);
     let workflow = null;
     try { workflow = await loadStoryAggregate(executionRoot, definition); } catch { /* No Story is a valid workspace context. */ }

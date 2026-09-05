@@ -65,6 +65,7 @@ test('interactive onboarding, configuration, and recovery never use synchronous 
     'src/auto/auto-plan.mjs',
     'src/bootstrap.mjs',
     'src/change-flight-plan.mjs',
+    'src/cli.mjs',
     'src/configuration-people.mjs',
     'src/configuration-proposal.mjs',
     'src/commands/story.mjs',

@@ -6,7 +6,7 @@
 
 **Created:** 2026-08-30
 
-**Current reconciliation:** checked against `main@6fbcf3bf` on 2026-09-05. Commits `259b76f1`,
+**Current reconciliation:** checked against `main@d960e928` on 2026-09-05. Commits `259b76f1`,
 `58d9329d`, and `d55229c7` provide the bounded exact-static JUnit identity adapter, immutable
 proposal snapshot, human review through the existing phase approval, migration, safe command-shape
 fallbacks, and content-free benchmark v2. Commit `98750174` aligns the CAB architecture and threat
@@ -198,10 +198,13 @@ Implemented in the current increment:
 - `npm run test:platform:cmp-wel` provides one explicit, bounded matrix command for the reviewed WEL
   identity and fail-safe fallback corpus, deterministic CMP corpus, and no-model CMP command; the
   same suites are mandatory in the release gate rather than relying on the broad test suite to find
-  them indirectly.
+  them indirectly;
+- the full 12-sample `npm run benchmark:wel` measurement is a mandatory release-gate stage, so the
+  existing signed verification receipt binds its content-free platform, latency, CPU, byte, and
+  exact/inexact counters instead of relying on an optional developer run.
 
 Implementation checkpoints: `d55229c7` (content-free benchmark v2) and `6fbcf3bf` (isolated npm and
-VSIX engine proof).
+VSIX engine proof), followed by `d960e928` (portable deterministic corpus command).
 
 Still required before completion: reviewed real-repository corpus metrics, Context X-Ray and Story
 latency measurements, an approved Flow Impact design, office/offline/recovery exercises, execution

@@ -94,6 +94,12 @@ export function pocReleaseStages({ rootDir = root, nodeVersion = process.version
       timeoutMs: 15 * 60_000
     }),
     Object.freeze({
+      label: 'WEL content-free observe-only benchmark',
+      command: npm,
+      args: ['run', 'benchmark:wel'],
+      timeoutMs: 5 * 60_000
+    }),
+    Object.freeze({
       label: 'npm package inventory',
       command: npm,
       args: ['pack', '--dry-run'],

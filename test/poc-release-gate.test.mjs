@@ -25,6 +25,12 @@ test('POC release gate covers the installed CLI and guided SGOS behavior on its 
   assert.match(gate, /test\/install-staged-artifacts\.test\.mjs/,
     'the release gate must exercise exact staged-artifact validation');
   assert.match(gate, /test\/vscode-sgos-workflow-create\.test\.mjs/);
+  assert.match(gate, /test\/comprehension-contracts\.test\.mjs/,
+    'the release gate must exercise the deterministic CMP corpus');
+  assert.match(gate, /test\/comprehension-command\.test\.mjs/,
+    'the release gate must exercise the model-free CMP command');
+  assert.match(gate, /test\/wel-junit5\.test\.mjs/,
+    'the release gate must exercise the WEL identity corpus and optional fallback');
   assert.match(gate, /scripts\/packaged-cli-smoke\.mjs/);
   assert.match(gate, /scripts\/packaged-vsix-engine-smoke\.mjs/,
     'the generated VSIX must execute its own contained CLI engine');

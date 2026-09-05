@@ -161,6 +161,9 @@ Evidence on `main@3b5d79e6`:
 - npm dry-run packaging included the CMP command, contracts, roadmap, help topic, and inspect skill.
 - the current release-gate smokes import the CMP contract from the installed npm package and the
   extracted VSIX engine, execute a model-free resource projection, and verify no Git status change.
+- the reviewed corpus freezes a canonical manifest over added, deleted, modified, renamed,
+  mode-changed, symlink, binary, type-changed, and unsupported-extension resources; both the release
+  gate and `npm run test:platform:cmp-wel` execute it.
 
 This evidence proves the observe-only pilot and its packaging boundary. It does not satisfy the CMP
 v1 release criteria, any enforcement acceptance criterion, or a native VS Code Comprehension Center.
@@ -169,7 +172,7 @@ v1 release criteria, any enforcement acceptance criterion, or a native VS Code C
 
 | Backlog ID | Required work | Dependency/exit evidence |
 |---|---|---|
-| `CMP-P0-001` | Finish the read-only foundation. The code-local contract, registries, authority ADR, bounded inputs, mutation tripwires, corrected `--phase` recovery text, and isolated npm/VSIX loading proof are implemented. | Supported-platform deterministic corpus execution remains before P0 exit |
+| `CMP-P0-001` | Finish the read-only foundation. The code-local contract, registries, authority ADR, bounded inputs, mutation tripwires, corrected `--phase` recovery text, isolated npm/VSIX loading proof, and deterministic corpus/matrix command are implemented. | Signed execution of the unchanged matrix command on Windows and Linux remains before P0 exit |
 | `CMP-P1-001` | Decide storage, retention, privacy, metrics, and creation-pinned `off`/`record` rollout | Approved ADRs, migration prototype, measured budgets, and independent pilot review |
 | `CMP-P2-001` | Add governed cause proposals, confirmations, terminal dispositions, and narrow transformation authority | Durable schemas/migrations plus authority, staleness, recovery, ref-race, and adversarial-laundering tests |
 | `CMP-P3-001` | Implement the intent-indexed graph and `comprehension explain` reads | Bidirectional query parity, bounded exact handles, cache rebuild, gateway no-extra-tool, and unavailable-structure tests |

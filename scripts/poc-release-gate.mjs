@@ -54,7 +54,7 @@ export function pocReleaseStages({ rootDir = root, nodeVersion = process.version
       timeoutMs: 15 * 60_000
     }),
     Object.freeze({
-      label: 'POC workflows, installers, Windows launch policy, MCP readiness, and guided SGOS creation',
+      label: 'POC workflows, installers, Windows launch policy, MCP readiness, guided SGOS, CMP, and WEL',
       command: process.execPath,
       args: Object.freeze([
         ...typescriptTestFlags, ...releaseReporterFlags, '--test',
@@ -62,7 +62,8 @@ export function pocReleaseStages({ rootDir = root, nodeVersion = process.version
         'test/poc-hardening.test.mjs', 'test/mcp.test.mjs', 'test/mcp-auth-profile.test.mjs',
         'test/platform-process.test.mjs', 'test/quality-command-runner.test.mjs',
         'test/install-staged-artifacts.test.mjs', 'test/local-install-script.test.mjs',
-        'test/vscode-sgos-workflow-create.test.mjs',
+        'test/vscode-sgos-workflow-create.test.mjs', 'test/comprehension-contracts.test.mjs',
+        'test/comprehension-command.test.mjs', 'test/wel-junit5.test.mjs',
         // These files inspect the reporter and this stage manifest. Importing the gate is inert,
         // so including them proves the release authorities without recursively invoking this gate.
         'test/release-test-reporter.test.mjs', 'test/poc-release-gate.test.mjs'

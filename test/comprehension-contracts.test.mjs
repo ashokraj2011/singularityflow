@@ -249,10 +249,16 @@ test('every emitted CMP diagnostic uses the closed diagnostic registry', async (
   assert.deepEqual(unknown, []);
 });
 
-test('resource fallback projects every exact change kind in canonical order without claiming AST assurance', () => {
+test('the reviewed CMP corpus is byte-stable and projects every fallback resource without AST assurance', () => {
   const input = changeSet([
+    entry({ status: 'added', oldPath: null, newPath: 'src/new.js', oldObject: null }),
+    entry({ status: 'added', oldPath: null, newPath: 'legacy/config.xyz', oldObject: null }),
     entry({ status: 'renamed', oldPath: 'src/z.js', newPath: 'src/a.js', similarity: 92 }),
     entry({ status: 'deleted', oldPath: 'docs/old.md', newPath: null }),
+    entry({
+      status: 'modified', oldPath: 'scripts/run.sh', newPath: 'scripts/run.sh',
+      oldMode: '100644', newMode: '100755', oldObject: '1'.repeat(40), newObject: '1'.repeat(40)
+    }),
     entry({
       status: 'added', oldPath: null, newPath: 'bin/link', oldMode: '000000', newMode: '120000',
       oldObject: null, newObject: null,
@@ -275,8 +281,15 @@ test('resource fallback projects every exact change kind in canonical order with
   assert.equal(first.candidateSha256, input.digest);
   assert.equal(first.changeSetSha256, input.digest);
   assert.deepEqual(first.regions.map((region) => region.location.pathBefore ?? region.location.pathAfter), [
-    'bin/link', 'assets/binary.bin', 'assets/blob.dat', 'docs/old.md', 'src/z.js'
+    'bin/link', 'legacy/config.xyz', 'src/new.js', 'assets/binary.bin', 'assets/blob.dat',
+    'docs/old.md', 'scripts/run.sh', 'src/z.js'
   ]);
+  assert.deepEqual(new Set(first.regions.map((region) => region.operation)),
+    new Set(['added', 'deleted', 'modified', 'renamed', 'type-changed']));
+  assert.equal(
+    first.manifestSha256,
+    'sha256:68d26b593a0ad35ca6822f47d87b17464860baed99f38aa56b3ccff8c5642391'
+  );
   for (const region of first.regions) {
     assert.equal(region.schemaVersion, 1);
     assert.match(region.regionId, /^REG-[A-F0-9]{20}$/);

@@ -6,7 +6,7 @@
 
 **Created:** 2026-08-30
 
-**Current reconciliation:** checked against `main@c85952ad` on 2026-09-05. Commits `259b76f1`,
+**Current reconciliation:** checked against `main@6fbcf3bf` on 2026-09-05. Commits `259b76f1`,
 `58d9329d`, and `d55229c7` provide the bounded exact-static JUnit identity adapter, immutable
 proposal snapshot, human review through the existing phase approval, migration, safe command-shape
 fallbacks, and content-free benchmark v2. Commit `98750174` aligns the CAB architecture and threat
@@ -194,9 +194,14 @@ Implemented in the current increment:
 - the benchmark degrades to `unavailable` rather than treating a missing JDK as product failure;
 - the release gate installs the exact npm tarball into an isolated prefix and extracts the exact
   VSIX engine under a loader that refuses source-tree module access; both artifacts must contain the
-  Java parser helper, import the WEL adapter, and return the admitted Maven/Surefire command shape.
+  Java parser helper, import the WEL adapter, and return the admitted Maven/Surefire command shape;
+- `npm run test:platform:cmp-wel` provides one explicit, bounded matrix command for the reviewed WEL
+  identity and fail-safe fallback corpus, deterministic CMP corpus, and no-model CMP command; the
+  same suites are mandatory in the release gate rather than relying on the broad test suite to find
+  them indirectly.
 
-Implementation checkpoint: `d55229c7` (content-free benchmark v2).
+Implementation checkpoints: `d55229c7` (content-free benchmark v2) and `6fbcf3bf` (isolated npm and
+VSIX engine proof).
 
 Still required before completion: reviewed real-repository corpus metrics, Context X-Ray and Story
 latency measurements, an approved Flow Impact design, office/offline/recovery exercises, execution

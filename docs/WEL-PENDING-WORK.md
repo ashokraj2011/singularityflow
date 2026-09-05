@@ -6,11 +6,12 @@
 
 **Created:** 2026-08-30
 
-**Current reconciliation:** checked against `main@1eb40d12` on 2026-09-05. The current WEL P0
-working increment adds a bounded exact-static JUnit identity adapter, immutable proposal snapshot,
-human review in the existing phase approval, migration, and a content-free benchmark harness. It
-does not satisfy the authenticated-independent-runner, Candidate/Program/attempt, cross-platform,
-enforcement, or release-evidence gates below.
+**Current reconciliation:** checked against `main@8343f48a` on 2026-09-05. Commits `259b76f1`,
+`58d9329d`, and `d55229c7` provide the bounded exact-static JUnit identity adapter, immutable
+proposal snapshot, human review through the existing phase approval, migration, safe command-shape
+fallbacks, and content-free benchmark v2. Commit `98750174` aligns the CAB architecture and threat
+boundary. These increments do not satisfy the authenticated-independent-runner,
+Candidate/Program/attempt, cross-platform, enforcement, or release-evidence gates below.
 
 This document is the durable delivery tracker for Witnessed Engineering Loop work that was
 deliberately left out of the observe-only baseline. The governing design remains
@@ -95,6 +96,9 @@ Implemented in the current increment:
 - [CAB v0.2](CAB-V0.2.md), its trust/sandbox/rollout ADRs, closed architecture contract, and
   adversarial design tests now align WEL with the current SGOS owners without activating CAB.
 
+Implementation checkpoints: `259b76f1` (exact-static pilot) and `98750174` (CAB v0.2 authority
+architecture and adversarial contract).
+
 Still required before completion: independent CAB/SGOS design ratification, approved privacy and
 trust review, and the Windows/macOS/Linux release fixtures named below. The repository now supplies
 the exact review candidate but cannot self-approve these external decisions.
@@ -141,6 +145,9 @@ Implemented in the current increment:
 - missing Java/JDK/parser support is non-blocking and existing module Code Delivery evidence keeps
   its existing authority.
 
+Implementation checkpoints: `259b76f1` (pilot) and `58d9329d` (focused/filter/retry and
+non-Surefire fail-safe classification).
+
 Still required before completion: universal Candidate/Program/attempt binding, reviewed adversarial
 real-repository corpus measurements, durable attempt-lineage retry semantics, cross-platform
 packaging receipts, and the authenticated execution contract. Until then every exact-static outcome
@@ -183,6 +190,8 @@ Implemented in the current increment:
 - the bounded synthetic fixture reports exact/inexact/false-exact counters without recording a
   developer identity, repository, prompt, source body, or individual productivity;
 - the benchmark degrades to `unavailable` rather than treating a missing JDK as product failure.
+
+Implementation checkpoint: `d55229c7` (content-free benchmark v2).
 
 Still required before completion: reviewed real-repository corpus metrics, Context X-Ray and Story
 latency measurements, an approved Flow Impact design, office/offline/recovery exercises, and one

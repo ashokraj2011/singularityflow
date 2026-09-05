@@ -11,7 +11,7 @@ import { VERSION } from './version.mjs';
 import { versionLine } from './build-info.mjs';
 import { resolveModelMode, stripGlobalModelOptions } from './model-mode.mjs';
 import { withOperationContext } from './operation-context.mjs';
-import { runRemoteGit } from './git-execution.mjs';
+import { runRemoteGitAsync } from './git-execution.mjs';
 
 // These commands promise to remove machine-local Singularity state. Recording their own duration
 // after they finish would immediately recreate `.git/singularity-flow/` and make that promise false.
@@ -129,17 +129,19 @@ export function hasLocalGovernanceAuthority(root) {
  * local yet. Probe only the two exact governance branches, and only when a different active
  * workspace would otherwise replace the caller's current Git root.
  */
-export function hasRemoteGovernanceAuthority(root) {
+export async function hasRemoteGovernanceAuthority(root) {
   if (!root) return false;
   const remotes = run('git', ['remote'], { cwd: root, allowFailure: true }).stdout
     .split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
-  return remotes.some((remote) => {
-    const advertised = runRemoteGit([
+  for (const remote of remotes) {
+    const advertised = await runRemoteGitAsync([
       'ls-remote', '--heads', '--', remote,
       'refs/heads/sflow/config', 'refs/heads/state'
     ], { cwd: root, operation: 'remote-probe' });
-    return advertised.status === 0 && advertised.stdout.split(/\r?\n/).some((entry) => entry.trim());
-  });
+    if (advertised.status === 0
+        && advertised.stdout.split(/\r?\n/).some((entry) => entry.trim())) return true;
+  }
+  return false;
 }
 
 /**
@@ -294,7 +296,8 @@ export async function main(argv) {
   if (!routingExcluded && (!root || !hasLocalGovernanceAuthority(root))) {
     const selectedRoot = await activeWorkspaceRepositoryRoot(definition.name, { subcommand, options });
     const selectedDiffers = selectedRoot && (!root || path.resolve(selectedRoot) !== path.resolve(root));
-    const currentClaimsAuthority = selectedDiffers && root ? hasRemoteGovernanceAuthority(root) : false;
+    const currentClaimsAuthority = selectedDiffers && root
+      ? await hasRemoteGovernanceAuthority(root) : false;
     if (selectedRoot && !currentClaimsAuthority) {
       // All existing repository services resolve relative paths from process.cwd(). Moving this
       // short-lived CLI process is the compatibility bridge that makes the selected workspace

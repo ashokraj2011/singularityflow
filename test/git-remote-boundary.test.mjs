@@ -70,6 +70,7 @@ test('interactive onboarding, configuration, and recovery never use synchronous 
     'src/initiative-repositories.mjs',
     'src/initiative-governance.mjs',
     'src/ledger-deployment.mjs',
+    'src/cli-entry.mjs',
     'src/organisation.mjs',
     'src/story-stack.mjs',
     'src/workspace-bootstrap.mjs',

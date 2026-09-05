@@ -96,6 +96,33 @@ test('ledger status performs one asynchronous remote refresh and keeps nested re
   assert.equal(counters['git.remote.total'], 1);
 });
 
+test('ledger verification and repair batch multiple pin observations by authority', async () => {
+  const { root } = await repository();
+  await initializeLedger(root, enabled);
+  const publishedCommit = git(root, ['rev-parse', 'HEAD']).stdout.trim();
+  for (const workId of ['WORK-PIN-BATCH-A', 'WORK-PIN-BATCH-B']) {
+    await appendLedgerIntent(root, enabled, createLedgerIntent({
+      eventType: 'phase-approved',
+      capabilityId: `story-${workId}`,
+      subject: { workId, phase: 'specification', generation: 1 },
+      actor: { email: 'reviewer@example.com' }
+    }), publishedCommit);
+  }
+
+  for (const [operation, action] of [
+    ['ledger-verify-pin-batch', () => verifyLedger(root, enabled)],
+    ['ledger-repair-pin-batch', () => repairLedgerPins(root, enabled, { dryRun: true })]
+  ]) {
+    const timer = commandTimer(operation, { commandClass: 'read' });
+    const result = await withCommandTiming(timer, action);
+    assert.equal(result.valid, true);
+    const counters = timer.finish().counters;
+    assert.equal(counters['git.remote.command.fetch'], 1);
+    assert.equal(counters['git.remote.command.ls-remote'], 1);
+    assert.equal(counters['git.remote.total'], 2);
+  }
+});
+
 test('capability ledger is an orphan branch and verifies its content-addressed chain', async () => {
   const { root } = await repository();
   const initialized = await initializeLedger(root, enabled);

@@ -10,7 +10,7 @@ import { gitCommonDir } from '../git.mjs';
 import { safePrivateSidecarDirectory } from '../private-sidecar.mjs';
 import { canonicalJson } from '../records.mjs';
 import { scanText } from '../secrets.mjs';
-import { SingularityFlowError } from '../util.mjs';
+import { run, SingularityFlowError } from '../util.mjs';
 import {
   loadApprovedSgosCapabilityPackTransportTrust,
   SGOS_CAPABILITY_PACK_TRANSPORT_MODE_SIGNED
@@ -28,11 +28,13 @@ import {
 
 export const SGOS_AUTHORITY_TRANSPORT_MAXIMUM_BYTES = 64 * 1024 * 1024;
 export const SGOS_AUTHORITY_SIGNER_FORMAT = 'sflow.sgos.authority-transport-signer';
-export const SGOS_AUTHORITY_SIGNER_VERSION = 1;
+export const SGOS_AUTHORITY_SIGNER_VERSION = process.platform === 'win32' ? 2 : 1;
 
 const SIGNER_ID = /^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9_-])?$/;
 const WINDOWS_RESERVED = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/;
 const PRIVATE_KEY_LIMIT = 64 * 1024;
+const WINDOWS_DPAPI_PROTECTION = 'windows-dpapi-current-user';
+const WINDOWS_DPAPI_ENTROPY = 'singularity-flow:local-ed25519-signer:v1';
 
 function fail(message, code = 'SGOS_AUTHORITY_TRANSPORT_INVALID', details = null) {
   throw new SingularityFlowError(message, { code, details });
@@ -85,22 +87,80 @@ async function syncDirectory(directory) {
   }
 }
 
+function windowsDpapi(mode, bytes) {
+  const operation = mode === 'protect' ? 'Protect' : 'Unprotect';
+  const script = [
+    '$ErrorActionPreference = "Stop"',
+    '$encoded = [Console]::In.ReadToEnd().Trim()',
+    '$bytes = [Convert]::FromBase64String($encoded)',
+    `$entropy = [Text.Encoding]::UTF8.GetBytes("${WINDOWS_DPAPI_ENTROPY}")`,
+    `$result = [Security.Cryptography.ProtectedData]::${operation}($bytes, $entropy, [Security.Cryptography.DataProtectionScope]::CurrentUser)`,
+    '[Console]::Out.Write([Convert]::ToBase64String($result))'
+  ].join('; ');
+  const input = Buffer.from(bytes).toString('base64');
+  let result = null;
+  for (const executable of ['powershell.exe', 'pwsh.exe']) {
+    result = run(executable, [
+      '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script
+    ], { allowFailure: true, input, timeoutMs: 30_000, maxBuffer: PRIVATE_KEY_LIMIT * 2 });
+    if (result.status === 0 && result.stdout.trim()) break;
+  }
+  if (!result || result.status !== 0) {
+    fail(`Windows DPAPI could not ${mode} the local signing key.`,
+      'SGOS_AUTHORITY_TRANSPORT_SIGNER_PLATFORM_UNSUPPORTED');
+  }
+  const encoded = result.stdout.trim();
+  let output;
+  try { output = Buffer.from(encoded, 'base64'); } catch { output = Buffer.alloc(0); }
+  if (!output.length || output.toString('base64') !== encoded || output.length > PRIVATE_KEY_LIMIT) {
+    fail('Windows DPAPI returned invalid local signing material.',
+      'SGOS_AUTHORITY_TRANSPORT_SIGNER_INVALID');
+  }
+  return output;
+}
+
+function signerPrivateKey(value) {
+  if (value.signerVersion === 1) {
+    if (process.platform === 'win32') {
+      fail('A plaintext legacy signer cannot be loaded on Windows. Create a DPAPI-protected signer.',
+        'SGOS_AUTHORITY_TRANSPORT_SIGNER_INVALID');
+    }
+    return value.privateKeyPem;
+  }
+  if (process.platform !== 'win32' || value.signerVersion !== 2
+      || value.protection !== WINDOWS_DPAPI_PROTECTION
+      || typeof value.protectedPrivateKeyBase64 !== 'string') {
+    fail('Local Authority transport signer protection is not supported on this platform.',
+      'SGOS_AUTHORITY_TRANSPORT_SIGNER_INVALID');
+  }
+  const protectedBytes = Buffer.from(value.protectedPrivateKeyBase64, 'base64');
+  if (!protectedBytes.length
+      || protectedBytes.toString('base64') !== value.protectedPrivateKeyBase64) {
+    fail('Local Authority transport signer protected key is invalid.',
+      'SGOS_AUTHORITY_TRANSPORT_SIGNER_INVALID');
+  }
+  return windowsDpapi('unprotect', protectedBytes).toString('utf8');
+}
+
 function validateSignerRecord(value, expectedKeyId) {
+  const expectedFields = value?.signerVersion === 2
+    ? ['algorithm', 'keyId', 'protectedPrivateKeyBase64', 'protection', 'publicKeyPem',
+      'signerFormat', 'signerVersion']
+    : ['algorithm', 'keyId', 'privateKeyPem', 'publicKeyPem', 'signerFormat', 'signerVersion'];
   if (!value || typeof value !== 'object' || Array.isArray(value)
-      || Object.keys(value).sort().join(',') !== [
-        'algorithm', 'keyId', 'privateKeyPem', 'publicKeyPem', 'signerFormat', 'signerVersion'
-      ].sort().join(',')
+      || Object.keys(value).sort().join(',') !== expectedFields.sort().join(',')
       || value.signerFormat !== SGOS_AUTHORITY_SIGNER_FORMAT
-      || value.signerVersion !== SGOS_AUTHORITY_SIGNER_VERSION
+      || ![1, 2].includes(value.signerVersion)
       || value.algorithm !== 'ed25519'
       || value.keyId !== expectedKeyId) {
     fail('Local Authority transport signer record is invalid.',
       'SGOS_AUTHORITY_TRANSPORT_SIGNER_INVALID');
   }
+  const privateKeyPem = signerPrivateKey(value);
   let privateKey;
   let publicKey;
   try {
-    privateKey = createPrivateKey(value.privateKeyPem);
+    privateKey = createPrivateKey(privateKeyPem);
     publicKey = createPublicKey(value.publicKeyPem);
   } catch {
     fail('Local Authority transport signer material is invalid.',
@@ -117,23 +177,27 @@ function validateSignerRecord(value, expectedKeyId) {
   }
   return Object.freeze({
     keyId: value.keyId,
-    privateKeyPem: value.privateKeyPem,
+    privateKeyPem,
     publicKeyPem: value.publicKeyPem,
     publicKeySha256: platformSha256(publicKey.export({ type: 'spki', format: 'der' }))
   });
 }
 
 export async function createLocalAuthorityTransportSigner(root, keyId) {
-  if (process.platform === 'win32') {
-    fail('Local Authority transport signer creation is unavailable on Windows until an owner-only OS credential backend is configured. Import and inspection remain available.',
-      'SGOS_AUTHORITY_TRANSPORT_SIGNER_PLATFORM_UNSUPPORTED');
-  }
   const id = signerId(keyId);
   const directory = await secureSignerRoot(root);
   const pair = generateKeyPairSync('ed25519');
   const privateKeyPem = pair.privateKey.export({ type: 'pkcs8', format: 'pem' });
   const publicKeyPem = pair.publicKey.export({ type: 'spki', format: 'pem' });
-  const record = {
+  const record = process.platform === 'win32' ? {
+    signerFormat: SGOS_AUTHORITY_SIGNER_FORMAT,
+    signerVersion: 2,
+    algorithm: 'ed25519',
+    keyId: id,
+    protection: WINDOWS_DPAPI_PROTECTION,
+    protectedPrivateKeyBase64: windowsDpapi('protect', Buffer.from(privateKeyPem)).toString('base64'),
+    publicKeyPem
+  } : {
     signerFormat: SGOS_AUTHORITY_SIGNER_FORMAT,
     signerVersion: SGOS_AUTHORITY_SIGNER_VERSION,
     algorithm: 'ed25519',
@@ -184,10 +248,6 @@ export async function createLocalAuthorityTransportSigner(root, keyId) {
 }
 
 export async function loadLocalAuthorityTransportSigner(root, keyId) {
-  if (process.platform === 'win32') {
-    fail('Local Authority transport signing is unavailable on Windows until an owner-only OS credential backend is configured. Import and inspection remain available.',
-      'SGOS_AUTHORITY_TRANSPORT_SIGNER_PLATFORM_UNSUPPORTED');
-  }
   const id = signerId(keyId);
   const directory = await secureSignerRoot(root);
   const file = signerFile(directory, id);

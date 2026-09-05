@@ -11,7 +11,7 @@ const IMPLEMENTATION = Object.freeze([
   { milestone: 'GDP-M6', status: 'implemented', scope: 'feature-bugfix-workflow-projection' },
   { milestone: 'GDP-M7', status: 'implemented', scope: 'existing-sgos-execution-bridge' },
   { milestone: 'GDP-M8', status: 'implemented', scope: 'outcome-workflow-handoff-and-diagnostics' },
-  { milestone: 'GDP-M9', status: 'partial', scope: 'local-observe-no-runner-authority' },
+  { milestone: 'GDP-M9', status: 'partial', scope: 'local-observe-and-developer-local-signed-runner' },
   { milestone: 'GDP-M10', status: 'partial', scope: 'provider-contracts-no-installed-verifier' },
   { milestone: 'GDP-M11', status: 'partial', scope: 'readiness-reporting-no-ga-claim' }
 ]);
@@ -29,6 +29,7 @@ const SUPPORT = Object.freeze({
   assuranceProfiles: [
     { id: 'deterministic-observe', status: 'available-non-gating' },
     { id: 'local-hermetic-observe', status: 'available-non-gating-no-runner-authentication' },
+    { id: 'developer-local-signed', status: 'available-non-gating-same-user' },
     { id: 'high-assurance-enforce', status: 'unavailable' }
   ],
   adapters: [

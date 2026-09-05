@@ -57,6 +57,26 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `GDP GA readiness is ${slot(s.status)} with ${slot(s.blockers, '0')} blocker(s) (ready: ${slot(s.gaReady)}).`,
     preserves: true
   },
+  'delivery.local-runner-created': {
+    headline: (s) => `Developer-local signer ${slot(s.signer)} is ready (created: ${slot(s.created)}).`,
+    preserves: false
+  },
+  'delivery.local-runner-reported': {
+    headline: (s) => `Developer-local runner is ${slot(s.status)} (${slot(s.assurance)}).`,
+    preserves: true
+  },
+  'delivery.local-runner-plan-ready': {
+    headline: (s) => `Local runner plan for ${slot(s.workId)} / ${slot(s.phase)} / ${slot(s.command)} is ready for review.`,
+    preserves: true
+  },
+  'delivery.local-runner-completed': {
+    headline: (s) => `Developer-local signed runner completed with ${slot(s.outcome)} (repository changed: ${slot(s.changed)}).`,
+    preserves: false
+  },
+  'delivery.local-runner-verified': {
+    headline: (s) => `Developer-local runner receipt is cryptographically verified (${slot(s.outcome)}; ${slot(s.assurance)}).`,
+    preserves: true
+  },
   'precheck.reported': {
     headline: (s) => `Singularity Flow quick precheck is ${slot(s.status)} across ${slot(s.checks, '0')} check(s).`,
     preserves: true

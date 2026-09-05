@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "4b1a31cb55acf7eeb3d892308b41f030999bb8e5",
+  "sourceCommit": "59322a2b080a21f4667e93d91584712b9d1fe4c3",
   "topicCount": 61,
-  "contentSha256": "d88dd348629a3d4b128b44cc6f644a60c6f6b348a891fdc7ce38c04e38aee66a",
+  "contentSha256": "86bfce41a2aeda5e6e4a5a6163f116537bd8a6b4877940c0ca794de99da16333",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -112,8 +112,8 @@
     {
       "id": "delivery-and-proof",
       "title": "Governed Delivery and Proof",
-      "version": 1,
-      "sha256": "afbba468c8a009be451c4146315950002ec9d1f9713258d801d3496d6981756f",
+      "version": 2,
+      "sha256": "a95e2a6ef839620a3d494cb562871af3e326e4c10025c175616283857746492a",
       "routingSha256": "50fe51fde59f58a3a2685e84eb13987d273f1b70e6f4dd46f32df823e3d8f341",
       "file": "delivery-and-proof.md"
     },

@@ -411,6 +411,11 @@ Usage:
   singularity-flow delivery promotion-status <SESSION-ID> [--json]
   singularity-flow delivery assurance-evaluate --evidence-file FILE [--json]
   singularity-flow delivery provenance-status [--provider-file FILE] [--json]
+  singularity-flow delivery local-runner-create --signer ID [--json]
+  singularity-flow delivery local-runner-status --signer ID [--json]
+  singularity-flow delivery local-runner-plan --signer ID --work-id WORK-ID --phase PHASE --command ID --proof-subject SHA256 --candidate SHA256 [--json]
+  singularity-flow delivery local-runner-run --plan FILE --confirm-plan SHA256 [--json]
+  singularity-flow delivery local-runner-verify --attestation-file FILE --signer ID [--json]
   singularity-flow delivery readiness [--provider-file FILE] [--json]
   singularity-flow agents list
   singularity-flow agents mappings

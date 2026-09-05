@@ -33,3 +33,8 @@ authority.
 
 Production pilot, provider-outage, revocation, residency, legal-hold, and deletion exercises are
 still required. These contracts therefore do not make GDP-M10 complete or GA-ready.
+
+The [`developer-local signed runner`](GDP-LOCAL-SIGNED-RUNNER.md) is intentionally separate from
+these provider contracts. Its key authenticates a same-user local process; it does not satisfy the
+approved issuer, independent verifier, enterprise trust-root, revocation, or production controls
+required by GDP-M10.

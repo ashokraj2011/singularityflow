@@ -28,3 +28,8 @@ provider are bound in a later, separately reviewed increment.
 This is not evidence that arbitrary application code ran in a sandbox. It is a safe compatibility
 profile for local evaluation. Enforcement remains unavailable until runner isolation, signer
 identity, trust roots, revocation, recovery, and platform evidence have been approved.
+
+For a stronger local-only option, the
+[`developer-local signed runner`](GDP-LOCAL-SIGNED-RUNNER.md) can execute one approved argv-form,
+model-free phase quality command and retain a tamper-evident receipt. It still has no independent
+or enterprise authority and is never consumed by lifecycle gates.

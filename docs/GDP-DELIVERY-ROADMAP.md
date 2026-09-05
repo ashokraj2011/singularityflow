@@ -500,6 +500,8 @@ records.
 
 **Implementation guide:** [`GDP-M9-LOCAL-HERMETIC-OBSERVE.md`](GDP-M9-LOCAL-HERMETIC-OBSERVE.md)
 
+**Local signed-runner guide:** [`GDP-LOCAL-SIGNED-RUNNER.md`](GDP-LOCAL-SIGNED-RUNNER.md)
+
 Delivered without claiming enforcement readiness:
 
 - a path-free, digest-only evaluator for executable change maps, changed-region coverage, witness
@@ -509,6 +511,9 @@ Delivered without claiming enforcement readiness:
   lifecycle action, gate, or publisher;
 - permanent `authority: none`, `mode: observe`, and `RUNNER_AUTHENTICATION_UNAVAILABLE` results
   until an authenticated runner provider is configured and separately approved.
+- an opt-in, separate-process, Ed25519-signed developer-local runner for exact configured
+  argv-form/model-free quality commands, with digest-confirmed planning, stale-plan refusal,
+  content-free receipts, Windows DPAPI protection, and a hard non-gating assurance ceiling.
 
 Still required before M9 can be marked complete: authenticated runner isolation, signer/trust-root
 validation, controlled reruns and N-version adapters, enforce-mode enrollment, multi-platform
@@ -665,9 +670,9 @@ passing suite on one unsupported development runtime.
 
 ## Immediate next decision
 
-GDP-M0 through M8 are implemented. The M9 local observation profile is available for contract and
-integration exercises but cannot authorize a gate. M10 provider-neutral contracts are fail-closed
-until an external approved verifier is configured. M11 readiness reporting is implemented and
-continues to report not-ready. The next work is external evidence collection and explicit review;
-authenticated provider pilots, M9 enforcement, and GA evidence must not be inferred from local
-tests.
+GDP-M0 through M8 are implemented. The M9 local observation profile and developer-local signed
+runner are available for contract, replay, and integration exercises but cannot authorize a gate.
+M10 provider-neutral contracts are fail-closed until an external approved verifier is configured.
+M11 readiness reporting is implemented and continues to report not-ready. The next work is
+external evidence collection and explicit review; authenticated provider pilots, M9 enforcement,
+and GA evidence must not be inferred from local signed tests.

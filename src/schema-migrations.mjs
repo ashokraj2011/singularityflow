@@ -1784,6 +1784,12 @@ const families = [
     id: 'proof-gap-acceptance', currentVersion: 1, immutable: true,
     paths: [/^singularity\/work-items\/[^/]+\/gdp\/decisions\/proof-gap-acceptance\/[a-f0-9]{64}\.json$/]
   }),
+  // A developer-local signed runner makes one configured command result tamper-evident. It is
+  // intentionally not enterprise/provider authority and is never consumed by lifecycle gates.
+  family({
+    id: 'local-runner-attestation', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/gdp\/evidence\/local-runner-attestation\/[a-f0-9]{64}\.json$/]
+  }),
   // GDP-M10 provider-neutral attestation envelopes. Registration reserves exact immutable
   // identities only. The product contains no built-in trust root or signature verifier, so these
   // records remain unavailable to lifecycle authority until an approved provider is configured.

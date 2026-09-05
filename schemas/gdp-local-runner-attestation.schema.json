@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.dev/schemas/gdp-local-runner-attestation.schema.json",
+  "title": "GDP Developer-Local Signed Runner Attestation v1",
+  "type": "object",
+  "required": [
+    "schemaVersion", "kind", "providerId", "assurance", "authority", "gateEligible",
+    "consumedByLifecycle", "proofSubjectSha256", "candidateSha256", "repositorySha256",
+    "workIdSha256", "phaseIdSha256", "commandIdSha256", "commandSha256",
+    "environmentSha256", "resultSha256", "stdoutSha256", "stderrSha256",
+    "stdoutBytes", "stderrBytes", "stdoutTruncated", "stderrTruncated", "outcome",
+    "exitCode", "workingTreeStatusChanged", "startedAt", "completedAt", "nonceSha256",
+    "signature", "attestationSha256"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "local-runner-attestation" },
+    "providerId": { "const": "local-signed-runner" },
+    "assurance": { "const": "developer-local-signed" },
+    "authority": { "const": "developer-local" },
+    "gateEligible": { "const": false },
+    "consumedByLifecycle": { "const": false },
+    "proofSubjectSha256": { "$ref": "#/$defs/digest" },
+    "candidateSha256": { "$ref": "#/$defs/digest" },
+    "repositorySha256": { "$ref": "#/$defs/digest" },
+    "workIdSha256": { "$ref": "#/$defs/digest" },
+    "phaseIdSha256": { "$ref": "#/$defs/digest" },
+    "commandIdSha256": { "$ref": "#/$defs/digest" },
+    "commandSha256": { "$ref": "#/$defs/digest" },
+    "environmentSha256": { "$ref": "#/$defs/digest" },
+    "resultSha256": { "$ref": "#/$defs/digest" },
+    "stdoutSha256": { "$ref": "#/$defs/digest" },
+    "stderrSha256": { "$ref": "#/$defs/digest" },
+    "stdoutBytes": { "type": "integer", "minimum": 0 },
+    "stderrBytes": { "type": "integer", "minimum": 0 },
+    "stdoutTruncated": { "type": "boolean" },
+    "stderrTruncated": { "type": "boolean" },
+    "outcome": { "enum": ["passed", "failed", "timed-out", "unavailable"] },
+    "exitCode": { "type": ["integer", "null"] },
+    "workingTreeStatusChanged": { "type": "boolean" },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "completedAt": { "type": "string", "format": "date-time" },
+    "nonceSha256": { "$ref": "#/$defs/digest" },
+    "signature": {
+      "type": "object",
+      "required": ["algorithm", "keyId", "keySha256", "payloadSha256", "value"],
+      "properties": {
+        "algorithm": { "const": "ed25519" },
+        "keyId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._:-]{1,127}$" },
+        "keySha256": { "$ref": "#/$defs/digest" },
+        "payloadSha256": { "$ref": "#/$defs/digest" },
+        "value": { "type": "string", "pattern": "^[A-Za-z0-9+/]+={0,2}$", "maxLength": 8192 }
+      },
+      "additionalProperties": false
+    },
+    "attestationSha256": { "$ref": "#/$defs/digest" }
+  },
+  "additionalProperties": false,
+  "x-sflow-selfHash": "attestationSha256",
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  }
+}

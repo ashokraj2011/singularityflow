@@ -3008,6 +3008,9 @@ singularity-flow request respond <REQUEST-ID> --process <PROCESS-ID>
   --confirm <REQUEST-SHA256> --expected-revision <PROCESS-REVISION>
   --expected-process-sha256 <PROCESS-SHA256> [--json]
 singularity-flow candidate list|show|freeze|verify|publish|diff-argv ...
+singularity-flow change show [WORK-ID] --shadow [--proof-profile PROFILE] [--json]
+singularity-flow proof status|gaps|signals|explain [WORK-ID] [PREDICATE-ID] [--proof-profile PROFILE] [--json]
+singularity-flow delivery recommend|select|workflow-status|execution-status|promotion-preview|promotion-apply|promotion-status|assurance-evaluate|provenance-status|local-runner-create|local-runner-status|local-runner-plan|local-runner-run|local-runner-verify|readiness ...
 singularity-flow execution-unit list|doctor [UNIT-ID] [--json]
 singularity-flow device list|doctor|invoke|recover|intent|result|revoke ...
 singularity-flow authority-store init|status|verify|recover [--store ID] [--confirm RECOVERY-PLAN-SHA256] [--json]

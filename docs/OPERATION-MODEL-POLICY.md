@@ -129,6 +129,11 @@ Every public operation is classified before its implementation module is importe
 | copilot.preview | read | never | — | — |
 | delivery.assurance-evaluate | read | never | — | — |
 | delivery.execution-status | read | never | — | — |
+| delivery.local-runner-create | mutation | never | — | — |
+| delivery.local-runner-plan | read | never | — | — |
+| delivery.local-runner-run | mutation | never | — | — |
+| delivery.local-runner-status | read | never | — | — |
+| delivery.local-runner-verify | read | never | — | — |
 | delivery.promotion-apply | mutation | never | — | — |
 | delivery.promotion-preview | read | never | — | — |
 | delivery.promotion-status | read | never | — | — |

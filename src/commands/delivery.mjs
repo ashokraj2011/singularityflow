@@ -17,6 +17,11 @@ import {
   applyPromotionPlan, buildPromotionPlan, validateDeliveryModeTransition
 } from '../delivery-modes/promotion.mjs';
 import { evaluateLocalHermeticEvidence } from '../delivery-modes/high-assurance.mjs';
+import {
+  buildLocalRunnerPlan, createLocalRunnerSigner, localRunnerSignerStatus,
+  publishLocalRunnerAttestation, runLocalRunnerProcess, validateLocalRunnerPlan,
+  verifyLocalRunnerAttestationWithSigner
+} from '../delivery-modes/local-signed-runner.mjs';
 import { provenanceReadiness } from '../delivery-modes/provenance.mjs';
 import { buildGdpReadiness } from '../delivery-modes/readiness.mjs';
 import { resolveShadowPassportDiagnostic } from '../delivery-modes/shadow-passport-service.mjs';
@@ -76,11 +81,19 @@ function configurationIdentity(definition, policy) {
   });
 }
 
-function effects({ stateChanged = false } = {}) {
+function effects({ stateChanged = false, filesChanged = false } = {}) {
   return {
-    stateChanged, filesChanged: false, publicationCreated: false,
+    stateChanged, filesChanged, publicationCreated: false,
     externalSystemsChanged: false
   };
+}
+
+function requiredOption(options, key, label = `--${key}`) {
+  const value = optionString(options, key);
+  if (!value) throw new SingularityFlowError(`${label} is required.`, {
+    code: 'GDP_LOCAL_RUNNER_INPUT_REQUIRED'
+  });
+  return value;
 }
 
 async function workflowDeliveryFor(root, definition, policy, workId, proofProfile = 'standard') {
@@ -123,6 +136,107 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
   const root = repoRoot();
   const definition = await loadDefinition(root);
   const policy = deliveryPolicy(definition);
+  if (action === 'local-runner-create') {
+    const signer = await createLocalRunnerSigner(
+      root, requiredOption(options, 'signer')
+    );
+    return emitCommandResult(commandResult({
+      operation: suppliedOperation ?? { id: 'delivery.local-runner-create', classification: 'mutation' },
+      subject: { kind: 'repository', id: path.basename(root) },
+      outcome: succeeded('delivery.local-runner-created', {
+        signer: signer.keyId, created: signer.created
+      }),
+      effects: effects({ stateChanged: signer.created }), restState: 'informational',
+      data: {
+        schemaVersion: 1, kind: 'gdp-local-runner-signer', ...signer,
+        assurance: 'developer-local-signed', authority: 'developer-local',
+        gateEligible: false,
+        nextAction: `singularity-flow delivery local-runner-plan --signer ${signer.keyId} --work-id <WORK-ID> --phase <PHASE> --command <CONFIGURED-COMMAND-ID> --proof-subject <SHA256> --candidate <SHA256> --json`
+      }
+    }), { json: optionBoolean(options, 'json'), restStateWhenIdle: 'informational' });
+  }
+  if (action === 'local-runner-status') {
+    const status = await localRunnerSignerStatus(root, requiredOption(options, 'signer'));
+    return emitCommandResult(commandResult({
+      operation: suppliedOperation ?? { id: 'delivery.local-runner-status', classification: 'read' },
+      subject: { kind: 'repository', id: path.basename(root) },
+      outcome: succeeded('delivery.local-runner-reported', {
+        status: status.status, assurance: status.assurance
+      }),
+      effects: effects(), restState: 'informational', data: status
+    }), { json: optionBoolean(options, 'json'), restStateWhenIdle: 'informational' });
+  }
+  if (action === 'local-runner-plan') {
+    const plan = await buildLocalRunnerPlan(root, definition, {
+      signerId: requiredOption(options, 'signer'),
+      workId: requiredOption(options, 'work-id'),
+      phaseId: requiredOption(options, 'phase'),
+      commandId: requiredOption(options, 'command'),
+      proofSubjectSha256: requiredOption(options, 'proof-subject'),
+      candidateSha256: requiredOption(options, 'candidate')
+    });
+    return emitCommandResult(commandResult({
+      operation: suppliedOperation ?? { id: 'delivery.local-runner-plan', classification: 'read' },
+      subject: { kind: 'story', id: plan.workId },
+      outcome: succeeded('delivery.local-runner-plan-ready', {
+        workId: plan.workId, phase: plan.phaseId, command: plan.commandId
+      }),
+      effects: effects(), restState: 'informational',
+      data: {
+        plan,
+        warning: 'This same-user runner provides tamper-evident developer-local evidence, not independent enterprise approval.',
+        nextAction: `Save this JSON, review the exact plan, then run singularity-flow delivery local-runner-run --plan <FILE> --confirm-plan ${plan.planSha256} --json`
+      }
+    }), { json: optionBoolean(options, 'json'), restStateWhenIdle: 'informational' });
+  }
+  if (action === 'local-runner-run') {
+    const envelope = await jsonFile(
+      root, requiredOption(options, 'plan'), 'Local runner plan file'
+    );
+    const plan = validateLocalRunnerPlan(envelope?.data?.plan ?? envelope?.plan ?? envelope);
+    if (optionString(options, 'confirm-plan') !== plan.planSha256) {
+      throw new SingularityFlowError(
+        `Local runner execution requires --confirm-plan ${plan.planSha256}. Nothing ran.`,
+        { code: 'GDP_LOCAL_RUNNER_CONFIRMATION_INVALID' }
+      );
+    }
+    const attestation = await runLocalRunnerProcess(root, definition, plan);
+    const output = await publishLocalRunnerAttestation(root, plan.workId, attestation);
+    return emitCommandResult(commandResult({
+      operation: suppliedOperation ?? { id: 'delivery.local-runner-run', classification: 'mutation' },
+      subject: { kind: 'story', id: plan.workId },
+      outcome: succeeded('delivery.local-runner-completed', {
+        outcome: attestation.outcome, changed: attestation.workingTreeStatusChanged
+      }),
+      effects: effects({ filesChanged: true }), restState: 'informational',
+      data: {
+        attestation, output,
+        acceptedFor: ['developer-local-observation', 'tamper-detection', 'replay-diagnostics'],
+        refusedFor: ['independent-review', 'enterprise-provider-authority', 'lifecycle-gate-authority']
+      }
+    }), { json: optionBoolean(options, 'json'), restStateWhenIdle: 'informational' });
+  }
+  if (action === 'local-runner-verify') {
+    const envelope = await jsonFile(
+      root, requiredOption(options, 'attestation-file'), 'Local runner attestation file'
+    );
+    const attestation = envelope?.data?.attestation ?? envelope?.attestation ?? envelope;
+    const verified = await verifyLocalRunnerAttestationWithSigner(
+      root, attestation, requiredOption(options, 'signer')
+    );
+    return emitCommandResult(commandResult({
+      operation: suppliedOperation ?? { id: 'delivery.local-runner-verify', classification: 'read' },
+      subject: { kind: 'repository', id: path.basename(root) },
+      outcome: succeeded('delivery.local-runner-verified', {
+        outcome: verified.outcome, assurance: verified.assurance
+      }),
+      effects: effects(), restState: 'informational', data: {
+        status: 'verified', attestationSha256: verified.attestationSha256,
+        outcome: verified.outcome, assurance: verified.assurance,
+        authority: verified.authority, gateEligible: verified.gateEligible
+      }
+    }), { json: optionBoolean(options, 'json'), restStateWhenIdle: 'informational' });
+  }
   if (action === 'workflow-status') {
     const workId = positionals?.[2] ?? optionString(options, 'work-id') ?? branch(root);
     const { workflow, workflowProfile, projection } = await workflowDeliveryFor(
@@ -336,7 +450,8 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
     `Unknown delivery action '${action}'. Use: delivery recommend, delivery select, `
       + 'delivery workflow-status, delivery execution-status, delivery promotion-preview, '
       + 'delivery promotion-status, delivery assurance-evaluate, delivery provenance-status, '
-      + 'or delivery readiness.',
+      + 'delivery local-runner-create, delivery local-runner-status, delivery local-runner-plan, '
+      + 'delivery local-runner-run, delivery local-runner-verify, or delivery readiness.',
     { code: 'UNKNOWN_SUBCOMMAND' }
   );
   const envelope = await jsonFile(root, optionString(options, 'plan'), 'Delivery plan');

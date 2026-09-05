@@ -158,20 +158,16 @@ test('GDP M1 rejects unknown sources and malformed recovery instead of inventing
   assert.ok(unknownStatus.gaps.some((entry) => entry.code === 'GDP_LIFECYCLE_STATUS_UNAVAILABLE'));
 });
 
-test('GDP feature defaults remain off while M3 registers only admitted shadow and proof identities', async () => {
+test('GDP feature defaults remain off while MIG registers only catalog-admitted identities', async () => {
   assert.ok(Object.isFrozen(GDP_FEATURE_DEFAULTS));
   assert.ok(Object.values(GDP_FEATURE_DEFAULTS).every((value) => value === false));
   const inventory = await json('docs/contracts/gdp/compatibility-inventory.json');
   assert.deepEqual(inventory.featureDefaults, GDP_FEATURE_DEFAULTS);
-  const GDP_FAMILIES = (await json('docs/contracts/gdp/record-family-catalog.json')).families
-    .map((entry) => entry.id);
+  const catalog = await json('docs/contracts/gdp/record-family-catalog.json');
+  const GDP_FAMILIES = catalog.families.map((entry) => entry.id);
   const registered = new Set(migrationRegistrySnapshot().map((entry) => entry.id));
-  assert.deepEqual(GDP_FAMILIES.filter((family) => registered.has(family)).sort(), [
-    'change-passport', 'proof-evaluation-receipt', 'proof-evidence-invalidation',
-    'proof-gap-item', 'proof-gap-register', 'proof-predicate-result',
-    'proof-predicate-specification', 'proof-profile-selection', 'proof-signal-observation',
-    'proof-subject', 'proof-summary'
-  ]);
+  assert.deepEqual(GDP_FAMILIES.filter((family) => registered.has(family)).sort(),
+    [...catalog.runtimeRegisteredFamilies].sort());
 });
 
 test('GDP M1 inventory resolves every owner path and covers every projection adapter once', async () => {

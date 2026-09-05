@@ -39,6 +39,7 @@
     "witness-independence",
     "mutation-observation",
     "proof-gap-acceptance",
+    "local-runner-attestation",
     "build-attestation",
     "provider-environment-attestation",
     "deployment-attestation",
@@ -266,6 +267,15 @@
       "authorityOwner": "existing-human-approval-authority",
       "writer": "pfc-gap-decision-service",
       "storagePlane": "decision",
+      "firstMilestone": "GDP-M9",
+      "immutable": true
+    },
+    {
+      "id": "local-runner-attestation",
+      "classification": "operational-receipt",
+      "authorityOwner": "developer-local-signer",
+      "writer": "developer-local-signed-runner",
+      "storagePlane": "evidence",
       "firstMilestone": "GDP-M9",
       "immutable": true
     },

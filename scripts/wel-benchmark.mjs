@@ -1,15 +1,19 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
+import { fileURLToPath } from 'node:url';
+import YAML from 'yaml';
 
 import {
   buildTestExecutionReceipt, replayLocalJunitObservation
 } from '../src/code-delivery-tests.mjs';
+import { ensureConfigurationBranch } from '../src/configuration-branch.mjs';
 import { recordContextPacketTelemetry } from '../src/context-packet-telemetry.mjs';
 import { contextXray } from '../src/context-xray.mjs';
+import { manualStorySource, startStory } from '../src/story-start.mjs';
 import { observeJunit5SurefireIdentities } from '../src/wel-junit5.mjs';
 
 const sampleArgument = process.argv.find((argument) => argument.startsWith('--samples='));
@@ -17,6 +21,15 @@ const samples = Number(sampleArgument?.slice('--samples='.length) ?? 12);
 if (!Number.isInteger(samples) || samples < 1 || samples > 100) {
   throw new Error('--samples must be an integer from 1 to 100');
 }
+const storySampleArgument = process.argv.find((argument) => argument.startsWith('--story-samples='));
+const storySamples = Number(storySampleArgument?.slice('--story-samples='.length)
+  ?? Math.min(samples, 3));
+if (!Number.isInteger(storySamples) || storySamples < 1 || storySamples > 30) {
+  throw new Error('--story-samples must be an integer from 1 to 30');
+}
+
+const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const cli = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
 
 const command = {
   id: 'wel-benchmark-junit', kind: 'test', argv: ['mvn', 'test'], workingDirectory: '.',
@@ -89,6 +102,70 @@ function percentile(values, fraction) {
   return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * fraction) - 1)];
 }
 
+function git(root, ...arguments_) {
+  return execFileSync('git', arguments_, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+    .trim();
+}
+
+async function storyBenchmarkRepository() {
+  const storyRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-wel-story-benchmark-'));
+  const storyRemote = `${storyRoot}.git`;
+  git(storyRoot, 'init', '-q', '-b', 'main');
+  git(storyRoot, 'config', 'user.name', 'WEL Benchmark');
+  git(storyRoot, 'config', 'user.email', 'wel-benchmark@example.invalid');
+  await writeFile(path.join(storyRoot, 'README.md'), '# Local benchmark fixture\n');
+  execFileSync(process.execPath, [cli, 'init'], {
+    cwd: storyRoot, stdio: 'ignore',
+    env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'WEL Benchmark' }
+  });
+  const workflowPath = path.join(storyRoot, 'singularity', 'workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
+  workflow.git.publish = 'off';
+  workflow.worldModel.grounding = 'off';
+  await writeFile(workflowPath, YAML.stringify(workflow));
+  git(storyRoot, 'add', '.');
+  git(storyRoot, 'commit', '-qm', 'benchmark fixture');
+  execFileSync('git', ['init', '--bare', '-q', '-b', 'main', storyRemote], {
+    stdio: 'ignore'
+  });
+  git(storyRoot, 'remote', 'add', 'origin', storyRemote);
+  git(storyRoot, 'push', '-q', '-u', 'origin', 'main');
+  await ensureConfigurationBranch(storyRemote, { sourceBranch: 'main' });
+  return { storyRoot, storyRemote };
+}
+
+async function measureStoryStarts(count) {
+  const { storyRoot, storyRemote } = await storyBenchmarkRepository();
+  const durations = [];
+  let workflowBytes = 0;
+  try {
+    for (let index = 0; index < count; index += 1) {
+      if (index) git(storyRoot, 'switch', '-q', 'main');
+      const workId = `WEL-PERF-${String(index + 1).padStart(3, '0')}`;
+      const startedAt = performance.now();
+      const started = await startStory(storyRoot, {
+        id: workId,
+        source: manualStorySource(workId, {
+          title: 'Local latency fixture',
+          description: 'Measure the governed Story-start path without product content.',
+          desiredOutcome: 'Produce content-free local latency evidence.',
+          acceptanceCriteria: 'A governed Story branch is created.'
+        }),
+        workType: 'feature', agent: 'product-owner', baseBranch: 'main',
+        astWarmLauncher: () => ({ pid: 0 })
+      });
+      durations.push(performance.now() - startedAt);
+      workflowBytes = Buffer.byteLength(JSON.stringify(started.workflow), 'utf8');
+    }
+    return { durations, workflowBytes };
+  } finally {
+    await Promise.all([
+      rm(storyRoot, { recursive: true, force: true }),
+      rm(storyRemote, { recursive: true, force: true })
+    ]);
+  }
+}
+
 const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-wel-benchmark-'));
 try {
   const sourcePath = path.join(root, 'src/test/java/benchmark/WelBenchmarkTest.java');
@@ -129,6 +206,7 @@ try {
     contextProjectionDurations.push(performance.now() - contextStartedAt);
     contextXrayBytes = Buffer.byteLength(JSON.stringify(projection), 'utf8');
   }
+  const storyStart = await measureStoryStarts(storySamples);
   for (let index = 0; index < samples; index += 1) {
     const cpuStarted = process.cpuUsage();
     const reportStartedAt = performance.now();
@@ -213,6 +291,16 @@ try {
       p95: Number(percentile(contextProjectionDurations, 0.95).toFixed(3)),
       maximum: Number(Math.max(...contextProjectionDurations).toFixed(3))
     },
+    storyStartRequestedSamples: storySamples,
+    storyStartCompletedSamples: storyStart.durations.length,
+    storyStartMode: 'governed-local-publication-push-off',
+    storyStartMilliseconds: {
+      minimum: Number(Math.min(...storyStart.durations).toFixed(3)),
+      median: Number(percentile(storyStart.durations, 0.5).toFixed(3)),
+      p95: Number(percentile(storyStart.durations, 0.95).toFixed(3)),
+      maximum: Number(Math.max(...storyStart.durations).toFixed(3))
+    },
+    storyTimingInterpretation: 'synthetic local Story-start transaction including its governed local commits; configuration authority uses a local bare remote and application push is disabled',
     timingInterpretation: 'paired local observation; signed deltas may be negative from timer noise and are not an enforced budget',
     cpuMilliseconds: completed ? {
       median: Number(percentile(cpuDurations, 0.5).toFixed(3)),
@@ -223,6 +311,7 @@ try {
     receiptBytes,
     incrementalReceiptBytes: outcome === 'observed' ? receiptBytes - baselineReceiptBytes : 0,
     contextXrayBytes,
+    storyWorkflowBytes: storyStart.workflowBytes,
     rawReportBytes: rawReport.length,
     estimatedDurableBytesPerExecution: outcome === 'observed'
       ? receiptBytes + rawReport.length : 0,
@@ -236,7 +325,7 @@ try {
     },
     measurementCapabilities: [
       'source-catalog', 'report-ingestion', 'receipt-projection', 'durable-storage-estimate',
-      'baseline-comparison', 'context-xray-projection'
+      'baseline-comparison', 'context-xray-projection', 'story-start-latency'
     ],
     contentExcluded: ['repository-path', 'origin-url', 'work-id', 'git-identity', 'clause-text', 'test-body']
   };

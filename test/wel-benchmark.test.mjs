@@ -26,11 +26,17 @@ test('WEL benchmark emits only bounded content-free local measurements', () => {
   assert.ok(report.baselineReceiptBytes > 0);
   assert.ok(report.contextXrayBytes > 0);
   assert.ok(report.contextXrayProjectionMilliseconds.median >= 0);
+  assert.equal(report.storyStartRequestedSamples, 1);
+  assert.equal(report.storyStartCompletedSamples, 1);
+  assert.equal(report.storyStartMode, 'governed-local-publication-push-off');
+  assert.match(report.storyTimingInterpretation, /synthetic local Story-start transaction/);
+  assert.ok(report.storyStartMilliseconds.median >= 0);
+  assert.ok(report.storyWorkflowBytes > 0);
   assert.equal(report.incrementalReceiptBytes, report.receiptBytes - report.baselineReceiptBytes);
   assert.match(report.timingInterpretation, /signed deltas may be negative/);
   assert.deepEqual(report.measurementCapabilities, [
     'source-catalog', 'report-ingestion', 'receipt-projection', 'durable-storage-estimate',
-    'baseline-comparison', 'context-xray-projection'
+    'baseline-comparison', 'context-xray-projection', 'story-start-latency'
   ]);
   assert.equal(report.fixtureOutcomes.falseExact, 0);
   if (report.outcome === 'observed') {
@@ -48,5 +54,6 @@ test('WEL benchmark emits only bounded content-free local measurements', () => {
     'repository-path', 'origin-url', 'work-id', 'git-identity', 'clause-text', 'test-body'
   ]);
   assert.doesNotMatch(result.stdout, /sflow-wel-benchmark-[A-Za-z0-9_-]+/);
-  assert.doesNotMatch(result.stdout, /WEL-BENCH-LOCAL|ctx-welbenchmark|benchmark-structural-item/);
+  assert.doesNotMatch(result.stdout,
+    /WEL-BENCH-LOCAL|WEL-PERF-001|ctx-welbenchmark|benchmark-structural-item/);
 });

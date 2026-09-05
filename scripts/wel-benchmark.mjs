@@ -68,9 +68,11 @@ try {
 
   const durations = [];
   const reportDurations = [];
+  const baselineProjectionDurations = [];
   const projectionDurations = [];
   const cpuDurations = [];
   let catalogBytes = 0;
+  let baselineReceiptBytes = 0;
   let receiptBytes = 0;
   let outcome = 'unavailable';
   let unavailableCode = null;
@@ -80,6 +82,15 @@ try {
     const replay = replayLocalJunitObservation([{ contents: rawReport }]);
     reportDurations.push(performance.now() - reportStartedAt);
     const parsed = parsedReport(replay);
+    const check = {
+      status: 'passed', exitCode: 0, stderr: '', sourceCommit: 'b'.repeat(40),
+      sourceTreeSha256: 'c'.repeat(64), startedAt: new Date(0).toISOString(),
+      completedAt: new Date(1).toISOString()
+    };
+    const baselineProjectionStartedAt = performance.now();
+    const baselineReceipt = buildTestExecutionReceipt(command, check, parsed);
+    baselineProjectionDurations.push(performance.now() - baselineProjectionStartedAt);
+    baselineReceiptBytes = Buffer.byteLength(JSON.stringify(baselineReceipt), 'utf8');
     const startedAt = performance.now();
     const observation = await observeJunit5SurefireIdentities(root, command, parsed, policy);
     durations.push(performance.now() - startedAt);
@@ -90,17 +101,18 @@ try {
     outcome = 'observed';
     catalogBytes = Buffer.byteLength(JSON.stringify(observation.catalog), 'utf8');
     const projectionStartedAt = performance.now();
-    const receipt = buildTestExecutionReceipt(command, {
-      status: 'passed', exitCode: 0, stderr: '', sourceCommit: 'b'.repeat(40),
-      sourceTreeSha256: 'c'.repeat(64), startedAt: new Date(0).toISOString(),
-      completedAt: new Date(1).toISOString()
-    }, parsed, { testcasePolicy: policy, exactTestcaseObservation: observation });
+    const receipt = buildTestExecutionReceipt(command, check, parsed, {
+      testcasePolicy: policy, exactTestcaseObservation: observation
+    });
     projectionDurations.push(performance.now() - projectionStartedAt);
     receiptBytes = Buffer.byteLength(JSON.stringify(receipt), 'utf8');
     const cpu = process.cpuUsage(cpuStarted);
     cpuDurations.push((cpu.user + cpu.system) / 1_000);
   }
   const completed = outcome === 'observed' ? durations.length : 0;
+  const projectionDeltas = projectionDurations.map(
+    (duration, index) => duration - baselineProjectionDurations[index]
+  );
   const report = {
     schema: 'sflow-wel-benchmark/v2',
     assurance: 'content-free-local-measurement',
@@ -129,15 +141,33 @@ try {
       p95: Number(percentile(projectionDurations, 0.95).toFixed(3)),
       maximum: Number(Math.max(...projectionDurations).toFixed(3))
     } : null,
+    baselineReceiptProjectionMilliseconds: completed ? {
+      minimum: Number(Math.min(...baselineProjectionDurations).toFixed(3)),
+      median: Number(percentile(baselineProjectionDurations, 0.5).toFixed(3)),
+      p95: Number(percentile(baselineProjectionDurations, 0.95).toFixed(3)),
+      maximum: Number(Math.max(...baselineProjectionDurations).toFixed(3))
+    } : null,
+    incrementalReceiptProjectionMilliseconds: completed ? {
+      minimum: Number(Math.min(...projectionDeltas).toFixed(3)),
+      median: Number(percentile(projectionDeltas, 0.5).toFixed(3)),
+      p95: Number(percentile(projectionDeltas, 0.95).toFixed(3)),
+      maximum: Number(Math.max(...projectionDeltas).toFixed(3)),
+      method: 'witnessed-minus-unenrolled-same-process'
+    } : null,
+    timingInterpretation: 'paired local observation; signed deltas may be negative from timer noise and are not an enforced budget',
     cpuMilliseconds: completed ? {
       median: Number(percentile(cpuDurations, 0.5).toFixed(3)),
       p95: Number(percentile(cpuDurations, 0.95).toFixed(3))
     } : null,
     catalogBytes,
+    baselineReceiptBytes,
     receiptBytes,
+    incrementalReceiptBytes: outcome === 'observed' ? receiptBytes - baselineReceiptBytes : 0,
     rawReportBytes: rawReport.length,
     estimatedDurableBytesPerExecution: outcome === 'observed'
       ? receiptBytes + rawReport.length : 0,
+    estimatedDurableIncrementalBytesPerExecution: outcome === 'observed'
+      ? (receiptBytes - baselineReceiptBytes) + rawReport.length : 0,
     fixtureOutcomes: {
       cases: 1,
       exactStatic: outcome === 'observed' ? 1 : 0,
@@ -145,7 +175,8 @@ try {
       falseExact: 0
     },
     measurementCapabilities: [
-      'source-catalog', 'report-ingestion', 'receipt-projection', 'durable-storage-estimate'
+      'source-catalog', 'report-ingestion', 'receipt-projection', 'durable-storage-estimate',
+      'baseline-comparison'
     ],
     contentExcluded: ['repository-path', 'origin-url', 'work-id', 'git-identity', 'clause-text', 'test-body']
   };

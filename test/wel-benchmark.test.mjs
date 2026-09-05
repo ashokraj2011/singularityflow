@@ -22,13 +22,23 @@ test('WEL benchmark emits only bounded content-free local measurements', () => {
   assert.equal('workId' in report, false);
   assert.ok(report.rawReportBytes > 0);
   assert.ok(report.estimatedDurableBytesPerExecution >= 0);
+  assert.ok(report.estimatedDurableIncrementalBytesPerExecution >= 0);
+  assert.ok(report.baselineReceiptBytes > 0);
+  assert.equal(report.incrementalReceiptBytes, report.receiptBytes - report.baselineReceiptBytes);
+  assert.match(report.timingInterpretation, /signed deltas may be negative/);
   assert.deepEqual(report.measurementCapabilities, [
-    'source-catalog', 'report-ingestion', 'receipt-projection', 'durable-storage-estimate'
+    'source-catalog', 'report-ingestion', 'receipt-projection', 'durable-storage-estimate',
+    'baseline-comparison'
   ]);
   assert.equal(report.fixtureOutcomes.falseExact, 0);
   if (report.outcome === 'observed') {
     assert.ok(report.reportIngestionMilliseconds.median >= 0);
     assert.ok(report.receiptProjectionMilliseconds.median >= 0);
+    assert.ok(report.baselineReceiptProjectionMilliseconds.median >= 0);
+    assert.equal(
+      report.incrementalReceiptProjectionMilliseconds.method,
+      'witnessed-minus-unenrolled-same-process'
+    );
     assert.ok(report.cpuMilliseconds.median >= 0);
     assert.equal(report.fixtureOutcomes.exactStatic, 1);
   }

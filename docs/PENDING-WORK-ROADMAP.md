@@ -2,7 +2,7 @@
 
 **Status:** authoritative cross-product tracker; bounded exact-tree aggregate and the latest code-local asynchronous Git migration are complete, while platform release evidence remains active
 
-**Baseline:** `main@ed468842`
+**Baseline:** `main@f24e2db4`
 
 **Last reviewed:** 2026-09-06
 
@@ -35,12 +35,14 @@ behavior. Live Windows/POSIX descendant-cleanup and office credential-helper rec
 external release evidence.
 
 The same continuation exposed the first public meta-tool activation lifecycle at `main@5cc31bee`
-and its native VS Code review surface at `main@8ab16f79`.
-Pack-operation activation, observation, revocation, and rollback now use deterministic previews,
-exact confirmation, Authority Store CAS, and a canonical current signed-Pack resolver. This is a
-partial SGOS P2 increment, not a WEL completion: approved Device target resolution remains staged,
-and every open WEL item still depends on external review, authenticated execution, corpus
-measurement, or signed release evidence. The native VS Code review form now uses the same engine
+and its native VS Code review surface at `main@8ab16f79`. Canonical Device-operation resolution
+landed at `main@f24e2db4`.
+Pack and Device operation activation, observation, revocation, and rollback now use deterministic
+previews, exact confirmation, Authority Store CAS, and canonical current signed-authority resolvers.
+A Device target is admitted only when its installed, nonrevoked manifest operation is exported by a
+current signed, independently reviewed Capability Pack. This is a partial SGOS P2 increment, not a
+WEL completion: every open WEL item still depends on external review, authenticated execution,
+corpus measurement, or signed release evidence. The native VS Code review form uses the same engine
 preview and confirmed CLI mutation instead of creating a parallel authority path.
 
 The developer-local signed runner gained its native VS Code plan/review/run/verify journey at
@@ -55,11 +57,11 @@ This snapshot resolves conflicts between older domain roadmaps and the executabl
 shared primitive does not complete a higher-assurance track: for example, the developer-local
 signed runner is useful M9 evidence, but it is not an authenticated independent CAB/WEL verifier.
 
-| Area | Implemented boundary through `ed468842` | Still open |
+| Area | Implemented boundary through `f24e2db4` | Still open |
 |---|---|---|
 | Auto v2 | Dependency-free Story profile and its P0/P1 controls | Optional SGOS execution profile, interval runtime, direct Ad Hoc materialization, and registered comparative-quality evidence |
 | CMP | Model-free, read-only `comprehension regions` and `check` foundation plus a release-gated content-free synthetic benchmark | Reviewed real corpus and storage/privacy decision, durable cause authority, intent graph/replay, typed walkthroughs, lifecycle enforcement, Comprehension Center, and brownfield policy |
-| SGOS | Bounded runtime, Universal Candidate code path, Git-trusted authority transport, signed transport, Windows DPAPI-protected local signer, stop-aware bounded Process-lock contention recovery, checkpoint-bound working-set injection, guarded signed-Pack meta-tool activation CLI, and native preview/confirm review UI | Real external-adapter Secret Broker integration, signed platform release aggregate, end-to-end proof, additional adapters, orchestration, stores, learning, and approved Device meta-tool targets |
+| SGOS | Bounded runtime, Universal Candidate code path, Git-trusted authority transport, signed transport, Windows DPAPI-protected local signer, stop-aware bounded Process-lock contention recovery, checkpoint-bound working-set injection, guarded signed-Pack/Device meta-tool activation CLI, and native preview/confirm review UI | Real external-adapter Secret Broker integration, signed platform release aggregate, end-to-end proof, additional adapters, orchestration, stores, and learning |
 | WEL | Observe-only witnessed clauses plus an exact-static local JUnit/Surefire pilot, human mapping review, and same-process incremental cost measurement; results remain inconclusive | Candidate/Program/attempt join, reviewed corpus, authenticated hermetic execution, enforcement/recovery, additional adapters, and signed platform release proof |
 | CAB | CAB v0.2 code-local architecture, adversarial design contract, and observe-only exact-static JUnit pilot are active over existing SGOS/GDP/WEL primitives | Independent R0 ratification, authenticated isolation/trust roots, corpus/platform proof, opt-in enforcement, adequacy, provider adapters, and regulated deployment proof |
 | GDP | M0–M8 implemented; M9 local observe/developer-local signed runner, M10 contracts, and M11 readiness report implemented as partial milestones | Authenticated runner and verifier, provider pilots, enforce enrollment, migration/support-window exercises, signed package/platform receipts, and GA decision |
@@ -120,7 +122,7 @@ evidence, and selected npm/VSIX artifact binding remain governed by the platform
 |---|---|---|---|
 | Release baseline | `REL-P0-001` complete at `8387a9d8`: exact-tree verification is bounded, resumable, and green | Collect strict signed supported-platform/package receipts; do not treat the local Node 25 receipt as a release matrix | This document and [Verification](../VERIFICATION.md) |
 | Developer-experience performance | Hot paths and the office-Git code-local slice are implemented; interactive configuration, ledger, WMB, SGOS authority, Auto authority/recovery, workspace routing, lifecycle publication, and checkout use bounded asynchronous Git; pinned relative baseline and cross-platform host evidence are not established | Finish `DXP-P0-001`, keep the isolated compatibility transport under audit, then close each `[~]` platform gate | This document and [DX performance](DX-PERFORMANCE.md) |
-| SGOS | Universal Candidate publication, portable authority transport, proposal-only Agent working-set injection, and signed-Pack meta-tool CLI/native review are code-complete; signed cross-platform release proof, real Secret Broker adapter integration, and Device target resolution remain open | Finish the `SGOS-P0-001`/`003` signed platform matrices and the external-adapter portion of `SGOS-P0-002` before expanding P2 authority | [SGOS pending work](SGOS-PENDING-WORK.md) |
+| SGOS | Universal Candidate publication, portable authority transport, proposal-only Agent working-set injection, and signed-Pack/Device meta-tool CLI/native review are code-complete; signed cross-platform release proof and real Secret Broker adapter integration remain open | Finish the `SGOS-P0-001`/`003` signed platform matrices and the external-adapter portion of `SGOS-P0-002` before expanding P2 authority | [SGOS pending work](SGOS-PENDING-WORK.md) |
 | World Model Builder v4 | Release receipt generation and enforcement exist; no reviewed six-cell supported-platform aggregate is recorded | `WMB-REL-001` | [WMB v4](WORLD-MODEL-BUILDER-V4.md) |
 | Witnessed Engineering Loop | Exact-static local JUnit observation, immutable proposal binding, existing-approval review, migration, release-gated baseline/delta benchmark, isolated npm/VSIX proof, and a bounded platform-matrix command are active; authenticated testcase claims and enforcement remain unavailable | Execute and sign the external/cross-platform gates in `WEL-P0-001` through `WEL-P0-003` | [WEL pending work](WEL-PENDING-WORK.md) |
 | Code Assurance Bridge | CAB-R0 architecture and CAB-R1 observe pilot are active; enforcement remains unavailable | Independent CAB-R0 review plus authenticated CAB-R2 runner authority | [CAB roadmap](CAB-ROADMAP.md) |

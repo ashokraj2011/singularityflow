@@ -228,7 +228,7 @@ Acceptance gates:
 ### [~] SGOS-P2-002 — Meta-tool activation CLI
 
 Expose reviewed activation, observation, revocation, and rollback APIs through a public CLI only
-after a canonical approved Pack/Device target resolver exists.
+through canonical approved Pack and Device target resolvers.
 
 Acceptance gates:
 
@@ -237,24 +237,31 @@ Acceptance gates:
 - stale, revoked, superseded, self-evaluated, or self-promoted targets are refused;
 - CLI, API, VS Code, help, and schema behavior agree.
 
-The code-local Pack-operation path is implemented on `main`: the Pack registry resolves one current
-operation from a single verified Authority Store snapshot, the platform service exposes read-only
-activation/observation/revocation/rollback plans, and the CLI requires the exact plan digest before
-performing its CAS-protected mutation. Callers provide only a Pack domain and operation; manifest,
-activation authority, and approval digests are derived from signed active Pack lineage under
-approved configuration trust. Stale confirmations, self-activation, superseded targets, invalid
-outcomes, and policy limits fail closed. Help and the VS Code command classifier recognize preview
-as read-only and confirmed execution as mutation. The native **Review Meta-tool Authority...**
-wizard collects only bounded selectors, invokes the same preview, displays exact
-Store/Pack/approval facts, and sends the confirmation only after a modal human decision.
+The code-local Pack and Device operation paths are implemented on `main`: the Pack registry resolves
+one current operation from a single verified Authority Store snapshot, the platform service exposes
+read-only activation/observation/revocation/rollback plans, and the CLI requires the exact plan
+digest before performing its CAS-protected mutation. A Device target uses the canonical qualified
+identity `device:<device-id>:<operation-id>`. SFlow accepts it only when the exact operation exists
+in an installed, nonrevoked Device manifest and a current signed, independently reviewed Capability
+Pack exports that qualified operation. The resulting activation binds both the Device manifest and
+version and the Pack activation/review authority. Callers cannot provide a manifest, approval digest,
+or parallel trust store.
 
-This remains `[~]`: a canonical approved Device-operation target resolver has not landed. The CLI
-and VS Code wizard explicitly refuse Device targets instead of accepting local Device manifests as
-authority.
+Stale confirmations, self-activation, superseded or revoked targets, invalid outcomes, and policy
+limits fail closed. Help and the VS Code command classifier recognize preview as read-only and
+confirmed execution as mutation. The native **Review Meta-tool Authority...** wizard explicitly
+selects Pack versus Device, collects only bounded selectors, invokes the same preview, displays exact
+Store/target/approval facts, and sends the confirmation only after a modal human decision.
+
+This remains `[~]` under the roadmap completion rule until the supported npm/VSIX and platform
+release matrix supplies signed evidence for these public authority surfaces. The former code-local
+Device target-resolution gap is closed; external release proof is not inferred from local tests.
 
 Implementation checkpoints: `5cc31bee` (canonical signed-Pack target resolution, deterministic
 mutation plans, public CLI, help, VS Code classification, and end-to-end authority tests) and
-`8ab16f79` (native bounded preview/confirm review form in the Command Center).
+`8ab16f79` (native bounded preview/confirm review form in the Command Center), and `f24e2db4`
+(canonical installed/nonrevoked Device operation resolution, signed-Pack authorization, native
+target-kind selection, and end-to-end refusal tests).
 
 ### [ ] SGOS-P2-003 — External telemetry and measured read models
 

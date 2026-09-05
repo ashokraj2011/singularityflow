@@ -23,7 +23,7 @@ import { gitCommitIdentity } from './git.mjs';
 import {
   assertCredentialFreeRemote, classifyGitRemoteFailure, redactDiagnosticText, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
-import { GitRemoteSession, runRemoteGit } from './git-execution.mjs';
+import { GitRemoteSession, runRemoteGitAsync } from './git-execution.mjs';
 import { createAndPushTransportIntent } from './transport-intents.mjs';
 import { removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
 
@@ -156,7 +156,7 @@ async function withWorkflowProposalCheckout(root, requestedBranch, operation) {
   const remote = await proposalRemote(root);
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-workflow-review-'));
   try {
-    const cloned = runRemoteGit([
+    const cloned = await runRemoteGitAsync([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--filter=blob:none',
       '--branch', CONFIGURATION_BRANCH, remote, scratch
     ], { operation: 'remote-configuration' });
@@ -166,7 +166,7 @@ async function withWorkflowProposalCheckout(root, requestedBranch, operation) {
         { code: cloned.failure?.code ?? 'WORKFLOW_PROPOSAL_AUTHORITY_UNAVAILABLE' }
       );
     }
-    const fetched = runRemoteGit([
+    const fetched = await runRemoteGitAsync([
       'fetch', '--quiet', '--no-tags', '--filter=blob:none', 'origin',
       `+refs/heads/${branch}:refs/remotes/origin/${branch}`
     ], { cwd: scratch, operation: 'remote-configuration' });
@@ -187,7 +187,7 @@ export async function listWorkflowConfigurationProposals(root, {
   includeMerged = false, includeDiff = false
 } = {}) {
   const remote = await proposalRemote(root);
-  const advertised = runRemoteGit([
+  const advertised = await runRemoteGitAsync([
     'ls-remote', '--heads', '--', remote,
     `refs/heads/${CONFIGURATION_BRANCH}`, `refs/heads/${REVIEW_PREFIX}*`
   ], { operation: 'remote-probe' });
@@ -204,12 +204,12 @@ export async function listWorkflowConfigurationProposals(root, {
   if (!branches.length) return [];
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-workflow-proposals-'));
   try {
-    const cloned = runRemoteGit([
+    const cloned = await runRemoteGitAsync([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--filter=blob:none',
       '--branch', CONFIGURATION_BRANCH, remote, scratch
     ], { operation: 'remote-configuration' });
     if (cloned.status !== 0) throw new SingularityFlowError(cloned.failure?.advice ?? 'Workflow authority clone failed.');
-    const fetched = runRemoteGit([
+    const fetched = await runRemoteGitAsync([
       'fetch', '--quiet', '--no-tags', '--filter=blob:none', 'origin',
       `+refs/heads/${REVIEW_PREFIX}*:refs/remotes/origin/${REVIEW_PREFIX}*`
     ], { cwd: scratch, operation: 'remote-configuration' });
@@ -313,7 +313,7 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
         );
       }
       const targetRef = `refs/heads/${CONFIGURATION_BRANCH}`;
-      let pushed = runRemoteGit([
+      let pushed = await runRemoteGitAsync([
         'push', '--porcelain',
         `--force-with-lease=${targetRef}:${reviewed.targetCommit}`,
         'origin', `HEAD:${targetRef}`
@@ -329,7 +329,7 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
         // A successful no-op (`=`) is not proof that this invocation acquired the leased
         // transition. Re-read the exact authority: identical bytes mean a concurrent external
         // action installed the reviewed commit, while any other tip remains a recoverable refusal.
-        const authority = new GitRemoteSession().observe(remote, {
+        const authority = await new GitRemoteSession().observeAsync(remote, {
           includeHead: false, refs: [targetRef], refresh: true
         });
         if (authority.ok && authority.refs.get(targetRef) === targetCommit) {
@@ -450,8 +450,8 @@ function matchingRemote(root, remoteUrl) {
   return preferred;
 }
 
-function existingProposalCommit(root, remote, branch) {
-  const result = runRemoteGit(['ls-remote', '--heads', '--', remote, `refs/heads/${branch}`], {
+async function existingProposalCommit(root, remote, branch) {
+  const result = await runRemoteGitAsync(['ls-remote', '--heads', '--', remote, `refs/heads/${branch}`], {
     cwd: root, operation: 'remote-probe'
   });
   if (result.status !== 0) {
@@ -511,7 +511,7 @@ export async function proposeConfigurationChange(root, {
 
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-workflow-proposal-'));
   try {
-    const cloned = runRemoteGit([
+    const cloned = await runRemoteGitAsync([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
       '--filter=blob:none', '--branch', CONFIGURATION_BRANCH, remoteUrl, scratch
     ], { operation: 'remote-configuration' });
@@ -547,9 +547,9 @@ export async function proposeConfigurationChange(root, {
     const reviewBranch = `${REVIEW_PREFIX}${operationId}-${subjectId}-${baseCommit.slice(0, 8)}`;
     const nextAction = `Merge ${reviewBranch} into ${CONFIGURATION_BRANCH}, then run singularity-flow workspace refresh-configuration.`;
     const remote = matchingRemote(root, remoteUrl);
-    const existingCommit = existingProposalCommit(root, remote, reviewBranch);
+    const existingCommit = await existingProposalCommit(root, remote, reviewBranch);
     if (existingCommit) {
-      const fetched = runRemoteGit(['fetch', '--quiet', '--no-tags', 'origin', existingCommit], {
+      const fetched = await runRemoteGitAsync(['fetch', '--quiet', '--no-tags', 'origin', existingCommit], {
         cwd: scratch, operation: 'remote-configuration'
       });
       const existingTree = fetched.status === 0
@@ -593,7 +593,7 @@ export async function proposeConfigurationChange(root, {
     ], { cwd: scratch });
     const commit = run('git', ['rev-parse', 'HEAD'], { cwd: scratch }).stdout.trim();
 
-    const retained = runRemoteGit(['fetch', '--no-tags', '--', scratch, commit], {
+    const retained = await runRemoteGitAsync(['fetch', '--no-tags', '--', scratch, commit], {
       cwd: root, operation: 'remote-configuration'
     });
     if (retained.status !== 0) {

@@ -15,6 +15,14 @@ import { run } from '../src/util.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
+test('workflow proposal remote operations stay on the bounded asynchronous Git boundary', async () => {
+  const source = await readFile(new URL('../src/configuration-proposal.mjs', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /\brunRemoteGit\(/u);
+  assert.doesNotMatch(source, /\.observe\(/u);
+  assert.match(source, /\brunRemoteGitAsync\(/u);
+  assert.match(source, /\.observeAsync\(/u);
+});
+
 async function fixture({ remoteName = 'application.git' } = {}) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-workflow-proposal-'));
   const seed = path.join(base, 'seed');

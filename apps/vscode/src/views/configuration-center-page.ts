@@ -26,6 +26,7 @@ const CONFIGURATION_NAVIGATION: Array<{ label: string; items: ConfigurationNavig
     { label: 'AST intelligence', glyph: 'worldModel', action: 'ast-intelligence' }
   ] },
   { label: 'AI & automation', items: [
+    { label: 'Auto mode', glyph: 'start', tab: 'auto' },
     { label: 'Agents & delivery', glyph: 'agent', action: 'open-instruction-designer' },
     { label: 'Model routing', glyph: 'agent', tab: 'models' },
     { label: 'Templates & instructions', glyph: 'document', tab: 'templates' },
@@ -125,6 +126,38 @@ function overview(view: ConfigurationCenterView): string {
 
 function option(value: string, current: string, label: string): string {
   return `<option value="${escape(value)}"${value === current ? ' selected' : ''}>${escape(label)}</option>`;
+}
+
+/** The two upper Auto policy layers. Capability-specific ceilings remain on the capability page. */
+function autoMode(view: ConfigurationCenterView): string {
+  const eligibility = (current: string) => [
+    option('disabled', current, 'Disabled'),
+    option('plan-only', current, 'Plan only — create reviewed plans'),
+    option('bounded', current, 'Bounded execution — start confirmed plans')
+  ].join('');
+  return `<section class="plain">
+    <div class="section-heading"><div><h2>${icon('start')}Auto mode</h2>
+      <p class="muted">Enable Auto at the repository, then opt in only the work types that may use it. Capability policy may tighten these settings but can never widen them.</p></div>
+      <span class="pill ${view.auto.enabled ? 'ok' : ''}">${view.auto.enabled ? 'repository enabled' : 'repository disabled'}</span>
+    </div>
+    <form id="auto-form" class="editor-card">
+      <label class="field"><span>Repository Auto</span>
+        <select name="enabled">
+          ${option('false', String(view.auto.enabled), 'Off — manual governed workflow only')}
+          ${option('true', String(view.auto.enabled), 'On — allow opted-in work types')}
+        </select>
+        <small>This is the master switch. Turning it on does not start work and does not bypass confirmation, approvals, protected paths, or budgets.</small>
+      </label>
+      <h3>Work-type eligibility</h3>
+      ${view.auto.workTypes.length ? `<div class="form-grid">${view.auto.workTypes.map((workType) => `
+        <label class="field"><span>${escape(workType.label)}</span>
+          <select data-auto-work-type="${escape(workType.id)}">${eligibility(workType.eligibility)}</select>
+          <small><code>${escape(workType.id)}</code></small>
+        </label>`).join('')}</div>` : '<p class="empty">No Story work types are declared in this workflow.</p>'}
+      <div class="notice warning">Changes are saved as protected repository configuration. Use <strong>Review &amp; publish configuration</strong> after saving before they apply to new Auto plans.</div>
+      <p class="card-foot"><button type="submit">Save Auto policy</button><button type="button" class="secondary" data-action="capabilities">Review capability limits</button></p>
+    </form>
+  </section>`;
 }
 
 /**
@@ -431,7 +464,7 @@ export function configurationCenterHtml(view: ConfigurationCenterView, tab: Conf
     <div id="configuration-runtime-message" class="notice warning" role="status" aria-live="polite" hidden><span id="configuration-runtime-text"></span><span class="grow"></span><button class="secondary" id="configuration-reload" type="button">Reload newer configuration</button><button class="secondary" id="configuration-keep" type="button">Keep editing</button></div>
     <div class="configuration-shell">${navigation(tab)}<main class="configuration-content">
       ${notice ? `<div class="notice ok">${escape(notice)}</div>` : ''}${errors.length ? `<div class="notice error">${errors.map((entry) => `<p>${escape(entry)}</p>`).join('')}<button class="secondary" data-help-topic="configuration">Explain this error</button></div>` : ''}
-      ${tab === 'overview' ? overview(view) : tab === 'world-model' ? worldModel(view) : tab === 'models' ? modelRouting(view) : tab === 'templates' ? fileSets(view) : tab === 'people' ? people(view, selectedAuthority) : mcp(view, selectedMcp)}
+      ${tab === 'overview' ? overview(view) : tab === 'auto' ? autoMode(view) : tab === 'world-model' ? worldModel(view) : tab === 'models' ? modelRouting(view) : tab === 'templates' ? fileSets(view) : tab === 'people' ? people(view, selectedAuthority) : mcp(view, selectedMcp)}
     </main></div>`;
 }
 
@@ -487,6 +520,7 @@ export const CONFIGURATION_CENTER_SCRIPT = `
     if (form.id === 'current-identity-authority-form') vscode.postMessage({ type: 'add-current-identity', target: data.get('target'), allowSelfApproval: data.get('allowSelfApproval') === 'on', autoEnrollNewIdentities: data.get('autoEnrollNewIdentities') === 'on' });
     if (form.id === 'authority-form') vscode.postMessage({ type: 'save-authority', previousId: form.dataset.previousId, scope: data.get('scope'), id: data.get('id'), label: data.get('label'), allowAnyGitIdentity: data.get('allowAnyGitIdentity') === 'on', members: members(data.get('members')) });
     if (form.id === 'mcp-form') vscode.postMessage({ type: 'save-mcp', previousId: form.dataset.previousId, id: data.get('id'), label: data.get('label'), hostReference: data.get('hostReference'), agents: csv(data.get('agents')), phases: csv(data.get('phases')), tools: csv(data.get('tools')), approval: data.get('approval'), required: data.get('required') === 'on', captureToolCalls: data.get('captureToolCalls') === 'on', captureResults: data.get('captureResults') === 'on' });
+    if (form.id === 'auto-form') vscode.postMessage({ type: 'save-auto', enabled: data.get('enabled') === 'true', workTypes: Array.from(form.querySelectorAll('[data-auto-work-type]')).map((field) => ({ id: field.dataset.autoWorkType, eligibility: field.value })) });
     if (form.id === 'world-model-form') vscode.postMessage({ type: 'save-world-model', format: data.get('format'), v4: { composer: data.get('v4Composer'), consumer: data.get('v4Consumer'), cachePolicy: data.get('v4CachePolicy'), totalMaximumOutputTokens: Number(data.get('v4TotalMaximumOutputTokens')) }, views: csv(data.get('views')), sourceRoots: csv(data.get('sourceRoots')), sharedRoots: csv(data.get('sharedRoots')), outputDir: data.get('outputDir'), promptSource: data.get('promptSource'), stateFetchTimeoutMs: Number(data.get('stateFetchTimeoutMs')), generation: { parallel: data.get('generationParallel') === 'on', maxWorkers: Number(data.get('generationMaxWorkers')), strategy: 'view' }, materialization: { mode: data.get('materializationMode'), publish: data.get('materializationPublish'), lookahead: data.get('materializationLookahead'), depth: data.get('materializationDepth'), confirmation: data.get('materializationConfirmation') }, grounding: data.get('grounding'), staleness: data.get('staleness'), injection: { placeholder: data.get('injectionPlaceholder'), mode: data.get('injectionMode'), maxBytes: Number(data.get('injectionMaxBytes')) } });
   });
   document.addEventListener('change', (event) => {

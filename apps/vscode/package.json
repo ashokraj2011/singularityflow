@@ -329,6 +329,11 @@
         "icon": "$(settings-gear)"
       },
       {
+        "command": "singularityFlow.configureAuto",
+        "title": "Singularity Flow: Auto Mode Settings",
+        "icon": "$(run-all)"
+      },
+      {
         "command": "singularityFlow.configureWorldModel",
         "title": "Singularity Flow: World Model Settings",
         "icon": "$(globe)"

@@ -168,6 +168,7 @@ function autoPolicyEditor(detail: CapabilityDetail, managed = false): string {
       <p class="muted">Control whether this capability may use reviewed Auto plans. Capability policy can only tighten repository and workflow policy; it cannot turn Auto on above this level.</p></div>
       <span class="pill ${auto.effective.eligibility === 'disabled' ? '' : 'ok'}">applies: ${escape(auto.effective.eligibility)}</span>
     </div>
+    <p><button type="button" class="secondary" data-open-auto-settings>Repository &amp; work-type settings</button></p>
     ${auto.overridden ? '<p class="notice warning">An ancestor applies a stricter Auto policy. A wider value here will not weaken it.</p>' : ''}
     <div class="form-grid">
       <label class="field"><span>Capability eligibility</span>
@@ -444,11 +445,12 @@ export const SCRIPT = `
     if (event.target.dataset?.field === 'autoEligibility') synchronizeAuto();
   });
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-select],[data-add],[data-save],[data-managed-auto-save],[data-remove],[data-review-proposals],[data-metadata-add],[data-metadata-remove],[data-progressive-start],[data-progressive-add],[data-progressive-protect],[data-progressive-why]');
+    const target = event.target.closest('[data-select],[data-add],[data-save],[data-managed-auto-save],[data-remove],[data-review-proposals],[data-metadata-add],[data-metadata-remove],[data-progressive-start],[data-progressive-add],[data-progressive-protect],[data-progressive-why],[data-open-auto-settings]');
     if (!target) return;
     event.preventDefault();
     const data = target.dataset;
-    if (data.progressiveStart !== undefined) vscode.postMessage({ type: 'progressive-start' });
+    if (data.openAutoSettings !== undefined) vscode.postMessage({ type: 'open-auto-settings' });
+    else if (data.progressiveStart !== undefined) vscode.postMessage({ type: 'progressive-start' });
     else if (data.progressiveAdd !== undefined) vscode.postMessage({ type: 'progressive-add' });
     else if (data.progressiveProtect !== undefined) vscode.postMessage({ type: 'progressive-protect' });
     else if (data.progressiveWhy !== undefined) vscode.postMessage({ type: 'progressive-why' });

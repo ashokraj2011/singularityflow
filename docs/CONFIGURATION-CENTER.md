@@ -14,6 +14,7 @@ The installed tutorials are `sflow explain configuration`, `sflow explain workfl
 |---|---|---|
 | Capabilities and repository ownership | Capability Designer | `singularity/capabilities.yml` and the state branch |
 | Story workflows, phases, gates and artifacts | Workflow and Artifact Designers | `singularity/workflow.yml` and `singularity/templates/` |
+| Repository and work-type Auto enablement | Auto mode | `singularity/workflow.yml` |
 | Agents, mappings, remote Markdown, prompts, skills and prompt packs | Agent Delivery & Instruction Designer | `.github/agents/`, `singularity/agent-mappings.yml`, `singularity/agents.lock.yml`, `singularity/prompts/`, repository skills and packs |
 | People and Story approval groups | People & approvals | `singularity/workflow.yml` |
 | People and Initiative approval groups | People & approvals | `singularity/portfolio.yml` |
@@ -24,7 +25,12 @@ The installed tutorials are `sflow explain configuration`, `sflow explain workfl
 
 ## Capability Auto policy
 
-Open **Configuration → Capabilities**, select a capability, and use **Auto policy** to choose
+Auto has three policy layers. First open **Configuration Center → Auto mode**, turn on the
+repository master switch, and choose **Plan only** or **Bounded execution** for each eligible work
+type. Save, then use **Review & publish configuration**; the edit does not apply until the approved
+configuration is published and projected to the state branch.
+
+Then open **Configuration → Capabilities**, select a capability, and use **Auto policy** to choose
 **Inherit**, **Disabled**, **Plan only**, or **Bounded execution**. Bounded capability controls also
 set protected-scope handling, maximum touched paths, and maximum concurrent flights. Saving creates
 the normal reviewed capability proposal; the application branch is not edited, and the setting does
@@ -38,6 +44,10 @@ inherit|disabled|plan-only|bounded`, with optional protected-scope and numeric l
 Capability policy is monotonic: it may make Auto stricter but cannot enable Auto when repository
 policy is off or when the selected workflow type is ineligible. The screen shows declared and
 effective values side by side and calls out an ancestor override.
+
+The command palette entry **Singularity Flow: Auto Mode Settings** opens the two upper layers
+directly. A refused `auto` command links to the same screen and supplies read-only policy inspection
+commands; it never changes policy or retries automatically.
 
 ## Recovery from refused commands
 

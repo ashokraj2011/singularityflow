@@ -41,7 +41,7 @@ function optionValue(argv, name) {
 const KNOWN = Object.freeze({
   AUTO_DISABLED: (argv) => [
     step('review-auto-policy',
-      'Open VS Code → Singularity Flow → Capabilities → Auto policy; repository and work-type Auto must also be enabled.',
+      'Open VS Code → Singularity Flow → Configuration Center → Auto mode; enable the repository and one work type, then review capability limits.',
       'singularity-flow explain auto-mode', 'configuration'),
     step('inspect-repository-auto', 'Inspect the approved repository Auto policy.',
       'singularity-flow configuration explain --pointer /auto --json'),

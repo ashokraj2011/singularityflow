@@ -713,6 +713,10 @@ export interface RepositorySnapshot {
    * offer the lenses this repository declares, not a list this extension keeps.
    */
   definition?: {
+    auto?: {
+      enabled?: boolean;
+      [key: string]: unknown;
+    };
     approvalSecurity?: {
       profile?: 'poc' | 'team' | 'regulated';
       allowSelfApproval?: boolean;
@@ -731,6 +735,10 @@ export interface RepositorySnapshot {
     workTypes?: Record<string, {
       label?: string;
       phases?: string[];
+      auto?: {
+        eligibility?: 'disabled' | 'plan-only' | 'bounded';
+        [key: string]: unknown;
+      };
       intelligence?: { worldModel?: string };
       phaseOverrides?: Record<string, {
         worldModel?: { views?: string[]; depth?: string; evidence?: boolean };

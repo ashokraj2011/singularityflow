@@ -3356,6 +3356,8 @@ test('the capability screen shows declared beside effective, and names the overr
   assert.match(html, /<option value="bounded" selected>Bounded execution<\/option>/);
   assert.match(html, /applies: plan-only/);
   assert.match(html, /cannot turn Auto on above this level/);
+  assert.match(html, /data-open-auto-settings/);
+  assert.match(CAPABILITY_SCRIPT, /type: 'open-auto-settings'/);
   assert.match(html, /Nothing is activated until the proposal is reviewed and merged/);
 });
 

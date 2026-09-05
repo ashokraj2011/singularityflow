@@ -12,10 +12,12 @@ const {
   configurationCenterView,
   configurationRefreshDecision,
   updateApprovalSecurityProfileYaml,
+  updateAutoYaml,
   updateAuthorityYaml,
   updateMcpYaml,
   updateWorldModelYaml,
   validateAuthorityDraft,
+  validateAutoDraft,
   validateMcpDraft,
   validateWorldModelDraft,
   worldModelWorkflowUsage
@@ -127,6 +129,70 @@ test('solo developer mode changes only the approval security profile', () => {
   assert.match(output, /# retain me/);
   assert.equal(YAML.parse(output).approvalSecurity.profile, 'poc');
   assert.deepEqual(YAML.parse(output).phases, {});
+});
+
+test('Auto mode edits repository and work-type opt-ins while preserving every other ceiling', () => {
+  const input = `version: 2
+auto:
+  enabled: false
+  maximumModelCalls: 4
+workTypes:
+  feature:
+    label: Feature
+    auto:
+      eligibility: disabled
+      maximumAttempts: 2
+  bugfix:
+    label: Bug fix
+`;
+  const draft = {
+    enabled: true,
+    workTypes: [
+      { id: 'feature', eligibility: 'bounded' },
+      { id: 'bugfix', eligibility: 'plan-only' }
+    ]
+  };
+  assert.deepEqual(validateAutoDraft(draft, ['feature', 'bugfix']), []);
+  const parsed = YAML.parse(updateAutoYaml(input, draft));
+  assert.equal(parsed.auto.enabled, true);
+  assert.equal(parsed.auto.maximumModelCalls, 4);
+  assert.equal(parsed.workTypes.feature.auto.eligibility, 'bounded');
+  assert.equal(parsed.workTypes.feature.auto.maximumAttempts, 2);
+  assert.equal(parsed.workTypes.bugfix.auto.eligibility, 'plan-only');
+  assert.throws(
+    () => updateAutoYaml(input, { enabled: true, workTypes: [{ id: 'unknown', eligibility: 'bounded' }] }),
+    /Unknown work type 'unknown'.*Work type 'feature' is missing/
+  );
+});
+
+test('Configuration Center exposes the complete three-layer Auto policy path', async () => {
+  const view = configurationCenterView({
+    ...snapshot,
+    definition: {
+      ...snapshot.definition,
+      auto: { enabled: true },
+      workTypes: {
+        feature: { label: 'Feature', auto: { eligibility: 'bounded' } },
+        bugfix: { label: 'Bug fix' }
+      }
+    }
+  }, { name: 'Ashok', role: 'developer' });
+  assert.equal(view.auto.enabled, true);
+  assert.deepEqual(view.auto.workTypes.map(({ id, eligibility }) => [id, eligibility]), [
+    ['bugfix', 'disabled'], ['feature', 'bounded']
+  ]);
+  const html = configurationCenterHtml(view, 'auto', null, null, null, []);
+  assert.match(html, /Repository Auto/);
+  assert.match(html, /Work-type eligibility/);
+  assert.match(html, /Review capability limits/);
+  assert.match(html, /Review &amp; publish configuration/);
+  assert.match(CONFIGURATION_CENTER_SCRIPT, /type: 'save-auto'/);
+  assert.match(CONFIGURATION_CENTER_SCRIPT, /data-auto-work-type/);
+  assert.match(await readFile(source('configuration-center.ts'), 'utf8'), /updateAutoYaml/);
+  const extension = await readFile(path.join(root, 'apps', 'vscode', 'src', 'extension.ts'), 'utf8');
+  assert.match(extension, /'singularityFlow\.configureAuto': \(\) => openConfigurationCenter\('auto'\)/);
+  const manifest = JSON.parse(await readFile(path.join(root, 'apps', 'vscode', 'package.json'), 'utf8'));
+  assert.ok(manifest.contributes.commands.some((entry) => entry.command === 'singularityFlow.configureAuto'));
 });
 
 test('configuration center exposes guided world-model policy, generation, and injection settings', () => {

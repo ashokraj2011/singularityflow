@@ -6,10 +6,10 @@ import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.
 import { navigateTo } from './navigate.ts';
 import {
   configurationCenterView, configurationRefreshDecision,
-  updateAuthorityYaml, updateMcpYaml, updateWorldModelYaml,
-  validateAuthorityDraft, validateMcpDraft, validateWorldModelDraft,
+  updateAuthorityYaml, updateAutoYaml, updateMcpYaml, updateWorldModelYaml,
+  validateAuthorityDraft, validateAutoDraft, validateMcpDraft, validateWorldModelDraft,
   CONFIGURATION_TABS,
-  type AuthorityDraft, type AuthorityView, type ConfigurationTab, type McpDraft, type McpServerView,
+  type AutoDraft, type AuthorityDraft, type AuthorityView, type ConfigurationTab, type McpDraft, type McpServerView,
   type WorldModelDraft
 } from './configuration-center-model.ts';
 import { configurationCenterHtml, CONFIGURATION_CENTER_SCRIPT } from './configuration-center-page.ts';
@@ -274,6 +274,31 @@ export class ConfigurationCenterPanel {
         const error = await this.save(snapshot.definitionPath ?? 'singularity/workflow.yml', updateMcpYaml(text, draft), text);
         if (error) return this.showErrors([error]);
         this.dirty = false; this.notice = `Saved ${draft.label}.`; this.mcpId = draft.id; this.newMcp = false;
+      } catch (error) { return this.showErrors([(error as Error).message]); }
+      return this.render();
+    }
+    if (message.type === 'save-auto') {
+      const workTypes = Array.isArray(message.workTypes) ? message.workTypes : [];
+      const draft: AutoDraft = {
+        enabled: message.enabled === true,
+        workTypes: workTypes.map((value) => {
+          const entry = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+          return {
+            id: String(entry.id ?? ''),
+            eligibility: String(entry.eligibility ?? '') as AutoDraft['workTypes'][number]['eligibility']
+          };
+        })
+      };
+      const snapshot = this.store.current.snapshot!;
+      const knownWorkTypes = Object.keys(snapshot.definition?.workTypes ?? {});
+      this.errors = validateAutoDraft(draft, knownWorkTypes);
+      if (this.errors.length) return this.showErrors(this.errors);
+      try {
+        const text = this.renderedTexts.definitionText;
+        const error = await this.save(snapshot.definitionPath ?? 'singularity/workflow.yml', updateAutoYaml(text, draft), text);
+        if (error) return this.showErrors([error]);
+        this.dirty = false;
+        this.notice = 'Auto policy saved. Review and publish configuration before it applies.';
       } catch (error) { return this.showErrors([(error as Error).message]); }
       return this.render();
     }

@@ -21,6 +21,7 @@ test('an Auto policy refusal gives a capability-aware bounded plan without execu
   assert.equal(plan.steps.length, 3);
   assert.ok(plan.steps.every((entry) => entry.execution === 'user-reviewed'));
   assert.equal(plan.retry.automatic, false);
+  assert.match(plan.steps[0].label, /Configuration Center → Auto mode/);
   assert.deepEqual(plan.steps.map((entry) => entry.command), [
     'singularity-flow explain auto-mode',
     'singularity-flow configuration explain --pointer /auto --json',

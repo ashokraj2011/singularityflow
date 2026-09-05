@@ -797,7 +797,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.inspectCompositionCache', 'singularityFlow.checkLedgerDeployment',
     'singularityFlow.openCopilot', 'singularityFlow.openMeteredCopilot',
     'singularityFlow.openVisualAssurance',
-    'singularityFlow.openConfigurationCenter', 'singularityFlow.configureWorldModel',
+    'singularityFlow.openConfigurationCenter', 'singularityFlow.configureAuto', 'singularityFlow.configureWorldModel',
     'singularityFlow.buildWorldModel', 'singularityFlow.configureAstIntelligence',
     'singularityFlow.configurePeople', 'singularityFlow.configureMcp',
     'singularityFlow.configureTemplates', 'singularityFlow.configureModels',
@@ -4079,6 +4079,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const onCapabilitiesMessage = async (message: CapabilitiesMessage): Promise<void> => {
     const { CapabilitiesPanel } = await import('./views/capabilities.ts');
     const panel = await CapabilitiesPanel.show(context, store, (next) => { void onCapabilitiesMessage(next); });
+    if (message.type === 'open-auto-settings') {
+      await vscode.commands.executeCommand('singularityFlow.configureAuto');
+      return;
+    }
     if (message.type === 'progressive-start') {
       await vscode.commands.executeCommand('singularityFlow.startWork');
       return;
@@ -5045,6 +5049,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       });
     },
     'singularityFlow.openConfigurationCenter': () => openConfigurationCenter('overview'),
+    'singularityFlow.configureAuto': () => openConfigurationCenter('auto'),
     'singularityFlow.configureWorldModel': () => openConfigurationCenter('world-model'),
     'singularityFlow.buildWorldModel': async (request?: { capabilityId?: string }) => {
       const active = activeRepositoryContext();

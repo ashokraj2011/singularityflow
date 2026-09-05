@@ -16,7 +16,7 @@ import type { ModelRoutingProjection, RepositorySnapshot } from '../cli/snapshot
  * rendered tab whose own strip button was silently dropped. Deriving the type from the list makes
  * adding a tab and accepting it the same edit.
  */
-export const CONFIGURATION_TABS = ['overview', 'world-model', 'models', 'templates', 'people', 'mcp'] as const;
+export const CONFIGURATION_TABS = ['overview', 'auto', 'world-model', 'models', 'templates', 'people', 'mcp'] as const;
 
 export type ConfigurationTab = (typeof CONFIGURATION_TABS)[number];
 
@@ -92,6 +92,11 @@ export interface WorldModelSettingsView {
   staleness: 'warn' | 'fail' | 'ignore';
   injection: { placeholder: string; mode: 'replace' | 'append' | 'off'; maxBytes: number; rulesCount: number };
 }
+export type AutoEligibility = 'disabled' | 'plan-only' | 'bounded';
+export interface AutoSettingsView {
+  enabled: boolean;
+  workTypes: Array<{ id: string; label: string; eligibility: AutoEligibility }>;
+}
 export interface WorldModelPhaseUsage {
   id: string;
   label: string;
@@ -121,6 +126,8 @@ export interface ConfigurationCenterView {
   mcpErrors: string[];
   mcpWarnings: string[];
   worldModel: WorldModelSettingsView;
+  /** Repository master switch and work-type opt-ins. Capability policy can only tighten these. */
+  auto: AutoSettingsView;
   /**
    * Grounding state, as opposed to grounding policy: whether the world model has been built, what
    * views exist, and the engine's own reason for rebuilding. Absorbed from the sidebar, which was
@@ -172,6 +179,10 @@ export type WorldModelDraft = Omit<WorldModelSettingsView, 'format' | 'v4' | 'in
   v4?: Partial<WorldModelSettingsView['v4']>;
   injection: Omit<WorldModelSettingsView['injection'], 'rulesCount'>;
 };
+export interface AutoDraft {
+  enabled: boolean;
+  workTypes: Array<{ id: string; eligibility: AutoEligibility }>;
+}
 
 export interface ConfigurationTextRevision {
   definitionText: string;
@@ -197,6 +208,7 @@ const WORLD_MODEL_V4_CONSUMERS = new Set([
   'developer', 'architect', 'tester', 'business', 'operations', 'security', 'release'
 ]);
 const WORLD_MODEL_V4_CACHE_POLICIES = new Set(['reuse-valid', 'rebuild']);
+const AUTO_ELIGIBILITIES = new Set<AutoEligibility>(['disabled', 'plan-only', 'bounded']);
 const email = /^[^@\s]+@[^@\s]+$/;
 
 function member(value: unknown): AuthorityMemberView {
@@ -315,6 +327,7 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
   const materialization = worldModel.materialization ?? {};
   const injection = worldModel.injection ?? {};
   const phaseRows = definition.phases ?? {};
+  const workTypeRows = definition.workTypes ?? {};
   const agentLabels = new Map((snapshot.agents ?? []).map((entry) => [entry.id, entry.id]));
   const gitIdentity = snapshot.identities?.git;
   const gitEmail = String(gitIdentity?.email ?? '').trim().toLowerCase();
@@ -420,6 +433,16 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
     // Rendered exactly as the engine resolved it. Recomputing the join here would let the panel and
     // the kernel disagree about which model a task reaches.
     modelRouting: snapshot.modelRouting ?? null,
+    auto: {
+      enabled: definition.auto?.enabled === true,
+      workTypes: Object.entries(workTypeRows).map(([id, workType]) => ({
+        id,
+        label: workType.label ?? id,
+        eligibility: AUTO_ELIGIBILITIES.has(workType.auto?.eligibility as AutoEligibility)
+          ? workType.auto!.eligibility as AutoEligibility
+          : 'disabled'
+      })).sort((left, right) => left.label.localeCompare(right.label) || left.id.localeCompare(right.id))
+    },
     worldModel: {
       format: worldModel.format === 'registered-v4' ? 'registered-v4' : 'legacy-v3',
       views: worldModel.views ?? defaultWorldModelViews,
@@ -453,6 +476,27 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
       }
     }
   };
+}
+
+export function validateAutoDraft(draft: AutoDraft, knownWorkTypeIds?: Iterable<string>): string[] {
+  const errors: string[] = [];
+  if (typeof draft.enabled !== 'boolean') errors.push('Repository Auto must be enabled or disabled explicitly.');
+  if (!Array.isArray(draft.workTypes)) return [...errors, 'Work-type Auto settings must be a list.'];
+  const seen = new Set<string>();
+  for (const entry of draft.workTypes) {
+    if (!KEBAB_ID.test(entry.id)) errors.push(`Work type '${entry.id}' must be lower-case kebab-case.`);
+    if (seen.has(entry.id)) errors.push(`Work type '${entry.id}' appears more than once.`);
+    seen.add(entry.id);
+    if (!AUTO_ELIGIBILITIES.has(entry.eligibility)) {
+      errors.push(`Work type '${entry.id}' has unknown Auto eligibility '${entry.eligibility}'.`);
+    }
+  }
+  if (knownWorkTypeIds) {
+    const known = new Set(knownWorkTypeIds);
+    for (const id of seen) if (!known.has(id)) errors.push(`Unknown work type '${id}'. Reload configuration and try again.`);
+    for (const id of known) if (!seen.has(id)) errors.push(`Work type '${id}' is missing. Reload configuration and try again.`);
+  }
+  return errors;
 }
 
 function unsafeRelative(value: string): boolean {
@@ -640,6 +684,20 @@ export function authorityWithMember(
 export function updateApprovalSecurityProfileYaml(text: string, profile: 'poc' | 'team' | 'regulated'): string {
   const parsed = document(text, 'workflow.yml');
   parsed.setIn(['approvalSecurity', 'profile'], profile);
+  return String(parsed);
+}
+
+/** Update only the two Auto enablement layers represented by this form, preserving every ceiling. */
+export function updateAutoYaml(text: string, draft: AutoDraft): string {
+  const parsed = document(text, 'workflow.yml');
+  const source = parsed.toJS() as { workTypes?: Record<string, unknown> } | null;
+  const workTypeIds = Object.keys(source?.workTypes ?? {});
+  const errors = validateAutoDraft(draft, workTypeIds);
+  if (errors.length) throw new Error(errors.join(' '));
+  parsed.setIn(['auto', 'enabled'], draft.enabled);
+  for (const entry of draft.workTypes) {
+    parsed.setIn(['workTypes', entry.id, 'auto', 'eligibility'], entry.eligibility);
+  }
   return String(parsed);
 }
 

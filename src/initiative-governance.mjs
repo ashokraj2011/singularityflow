@@ -7,7 +7,7 @@ import { verifyEpicSources } from './epic-sources.mjs';
 import { verifyEpicTraceability } from './epic-traceability.mjs';
 import { run } from './util.mjs';
 import { classifyInitiativeGateFailures } from './gate-recovery.mjs';
-import { runRemoteGit } from './git-execution.mjs';
+import { runRemoteGitAsync } from './git-execution.mjs';
 
 export async function runInitiativeGate(root, initiativeId, { terminal = false } = {}) {
   const { portfolio, initiative } = await loadInitiative(root, initiativeId);
@@ -61,9 +61,9 @@ export async function runInitiativeGate(root, initiativeId, { terminal = false }
   }
   if ((portfolio.git?.publish ?? 'required') === 'required') {
     const remote = portfolio.git?.remote ?? 'origin';
-    const remoteHead = runRemoteGit(['ls-remote', remote, `refs/heads/${initiative.initiative.branch}`], {
+    const remoteHead = (await runRemoteGitAsync(['ls-remote', remote, `refs/heads/${initiative.initiative.branch}`], {
       cwd: root, operation: 'remote-probe'
-    }).stdout.trim().split(/\s+/)[0];
+    })).stdout.trim().split(/\s+/)[0];
     if (remoteHead !== head(root)) errors.push(`local initiative HEAD is not published to ${remote}/${initiative.initiative.branch}`);
     else passes.push('remote publication');
   }

@@ -8,7 +8,8 @@ import test from 'node:test';
 
 import { buildTestExecutionReceipt } from '../src/code-delivery-tests.mjs';
 import {
-  observeJunit5SurefireIdentities, verifyJunit5SurefireIdentityObservation
+  classifyJunit5SurefireCommandScope, observeJunit5SurefireIdentities,
+  verifyJunit5SurefireIdentityObservation
 } from '../src/wel-junit5.mjs';
 
 function git(root, args) {
@@ -164,6 +165,70 @@ test('missing JUnit source remains an unavailable non-blocking observation', asy
   assert.equal(observation.status, 'unavailable');
   assert.equal(observation.exact, false);
   assert.deepEqual(observation.gaps, ['JUNIT_TEST_SOURCES_UNAVAILABLE']);
+});
+
+test('focused, framework-retried, and non-Surefire commands cannot emit exact WEL mappings', async () => {
+  const source = [
+    'package example;',
+    'import org.junit.jupiter.api.Test;',
+    'import org.junit.jupiter.api.Tag;',
+    'class OrderTest {',
+    '  @Test @Tag("sflow-ac:WRK-1:AC-001") void calculatesInterest() {}',
+    '}',
+    ''
+  ].join('\n');
+  const { root } = await fixture(source);
+  const occurrence = {
+    suite: 'OrderTest', className: 'example.OrderTest', name: 'calculatesInterest',
+    outcome: 'passed', verdict: 'inconclusive', durationMs: 1, logicalTestId: null,
+    declarationSha256: null, exact: false, identityStatus: 'observed-name-only'
+  };
+  const cases = [
+    {
+      argv: ['mvn', 'test', '-Dtest=example.OrderTest#calculatesInterest'],
+      gap: 'FOCUSED_TEST_EXECUTION_UNSUPPORTED'
+    },
+    {
+      argv: ['./mvnw', 'test', '-Dsurefire.rerunFailingTestsCount=1'],
+      gap: 'FRAMEWORK_RETRY_UNSUPPORTED'
+    },
+    {
+      argv: ['./gradlew', 'test'],
+      gap: 'MAVEN_SUREFIRE_COMMAND_UNSUPPORTED'
+    },
+    {
+      argv: ['mvn.cmd', 'test', '-Dgroups=fast'],
+      gap: 'FOCUSED_TEST_EXECUTION_UNSUPPORTED'
+    }
+  ];
+  for (const entry of cases) {
+    const scoped = { ...command, argv: entry.argv };
+    const classification = classifyJunit5SurefireCommandScope(scoped);
+    assert.equal(classification.status, 'unsupported');
+    assert.ok(classification.gaps.includes(entry.gap));
+    const observation = await observeJunit5SurefireIdentities(
+      root, scoped, parsed([occurrence]), policy
+    );
+    assert.equal(observation.exact, false);
+    assert.deepEqual(observation.mappingProposals, []);
+    assert.deepEqual(observation.occurrences, []);
+    assert.ok(observation.gaps.includes(entry.gap));
+
+    const receipt = buildTestExecutionReceipt(scoped, {
+      status: 'passed', exitCode: 0, stderr: '', sourceCommit: 'b'.repeat(40),
+      sourceTreeSha256: 'c'.repeat(64), startedAt: new Date(0).toISOString(),
+      completedAt: new Date(1).toISOString()
+    }, parsed([occurrence]), { testcasePolicy: policy, exactTestcaseObservation: observation });
+    assert.equal(receipt.status, 'passed', 'ordinary module test evidence remains available');
+    assert.equal(receipt.testcaseObservation.exact, false);
+    assert.equal(receipt.testcaseExecutionProven, false);
+    assert.ok(receipt.testcaseObservation.bindingGaps.includes(
+      entry.gap.toLowerCase().replaceAll('_', '-')
+    ));
+  }
+  assert.deepEqual(classifyJunit5SurefireCommandScope(command), {
+    status: 'complete', gaps: []
+  });
 });
 
 test('the reviewed JUnit identity corpus produces zero false exact matches', async () => {

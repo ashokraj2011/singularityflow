@@ -202,7 +202,8 @@ The reviewed local corpus covers literal/named/fully qualified tags and rejects 
 decoys, wildcard imports, non-literal tags, parameterized/dynamic/repeated/nested tests, duplicate
 report identities, and class mismatches with zero false exact matches. The outcome remains
 `inconclusive` and non-blocking. Candidate/Program/attempt authentication, broader real-repository
-corpus evidence, retry/focus semantics, and supported-platform receipts remain open.
+corpus evidence, durable attempt-lineage retry semantics, and supported-platform receipts remain
+open. Explicit focus and framework-level reruns already refuse exact-static mapping.
 
 Exit gates:
 

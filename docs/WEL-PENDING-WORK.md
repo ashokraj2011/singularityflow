@@ -135,13 +135,16 @@ Implemented in the current increment:
 - a reviewed 12-case local corpus proves exact identity for the supported literal forms and zero
   false exact matches across decoy, dynamic, parameterized, repeated, nested, wildcard,
   non-literal, duplicate-report, and class-mismatch cases;
+- explicit Maven testcase/group/include/exclude/engine focus, Surefire rerun properties, and
+  non-Surefire JUnit producers now fail safely to an inexact observation without suppressing the
+  ordinary module test receipt;
 - missing Java/JDK/parser support is non-blocking and existing module Code Delivery evidence keeps
   its existing authority.
 
 Still required before completion: universal Candidate/Program/attempt binding, reviewed adversarial
-real-repository corpus measurements, retry/focus semantics, cross-platform packaging receipts, and
-the authenticated execution contract. Until then every exact-static outcome is still
-`inconclusive`.
+real-repository corpus measurements, durable attempt-lineage retry semantics, cross-platform
+packaging receipts, and the authenticated execution contract. Until then every exact-static outcome
+is still `inconclusive`.
 
 Replace the current name-only diagnostic projection with a reviewed, still non-blocking exact local
 identity experiment for one Maven module.

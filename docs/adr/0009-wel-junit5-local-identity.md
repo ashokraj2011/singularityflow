@@ -20,9 +20,15 @@ The initial exact subset is intentionally narrow:
   names; wildcard or ambiguous resolution is unsupported;
 - one unique Surefire occurrence matching the exact `package.class#method` identity.
 
-Parameterized, repeated, dynamic, template, factory, nested, overloaded, inherited, generated, and
-ambiguous tests remain inexact. Lifecycle methods are not test declarations. A display name is
-never sufficient identity.
+The exact-static subset also requires an ordinary Maven/Surefire invocation. Explicit testcase,
+group, include/exclude, or engine focus and Surefire rerun properties are recorded by the existing
+argv digest but classified as unsupported for exact WEL mapping. A non-Maven JUnit XML producer is
+not silently treated as Surefire. These conditions leave module-level test evidence intact and
+produce no exact occurrence or mapping proposal.
+
+Parameterized, repeated, dynamic, template, factory, nested, overloaded, inherited, generated,
+focused, framework-retried, and ambiguous tests remain inexact. Lifecycle methods are not test
+declarations. A display name is never sufficient identity.
 
 ## Identity and bounds
 
@@ -53,4 +59,3 @@ The helper uses Java 11-compatible source APIs. A JRE-only machine, missing comp
 JDK, timeout, parser failure, unsupported source, or missing origin produces an explicit diagnostic
 with `exact: false`. It cannot fail module-level Code Delivery publication and cannot enable WEL
 enforcement.
-

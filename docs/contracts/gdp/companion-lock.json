@@ -37,12 +37,12 @@
     {
       "id": "witnessed-engineering-delivery-status",
       "path": "docs/WEL-PENDING-WORK.md",
-      "sha256": "sha256:b480e592994a41edf03c377af3669fc781dc3254207920de53db099e5da4ac97"
+      "sha256": "sha256:d5903674f55b73e1d901ab22c9fbada24f69f07eca57e0b2f4fec3c119fea459"
     },
     {
       "id": "code-assurance-bridge",
       "path": "docs/CAB-ROADMAP.md",
-      "sha256": "sha256:f786cf57c24ee393784fbc267efc587035b81cff871e494d2084c94a81619a78"
+      "sha256": "sha256:2bde8058e87c4bb4ceadecb16ea60cec05927de0441f734a5eeb8f81af872235"
     },
     {
       "id": "code-assurance-bridge-v0-2",

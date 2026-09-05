@@ -24,6 +24,16 @@ const MAX_SOURCES = 256;
 const MAX_SOURCE_BYTES = 1024 * 1024;
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 const PARSER_TIMEOUT_MS = 30_000;
+const MAVEN_EXECUTABLES = new Set(['mvn', 'mvn.cmd', 'mvnw', 'mvnw.cmd']);
+const SUREFIRE_FOCUS_PROPERTIES = new Set([
+  'test', 'it.test', 'groups', 'excludedgroups', 'includes', 'excludes',
+  'surefire.includes', 'surefire.excludes', 'surefire.includegroups',
+  'surefire.excludegroups', 'surefire.includejunit5engines',
+  'surefire.excludejunit5engines'
+]);
+const SUREFIRE_RETRY_PROPERTIES = new Set([
+  'rerunfailingtestscount', 'surefire.rerunfailingtestscount'
+]);
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
@@ -34,12 +44,43 @@ function prefixed(value) {
 }
 
 function parserUnavailable(reason, details = null) {
+  const gaps = (Array.isArray(reason) ? reason : [reason])
+    .map(String).filter(Boolean).sort();
   return Object.freeze({
     status: 'unavailable', exact: false, catalog: null, mappingProposals: [], occurrences: [],
-    gaps: [reason],
+    gaps: [...new Set(gaps)],
     notice: details
       ? `exact JUnit source identity is unavailable: ${details}`
       : 'exact JUnit source identity is unavailable'
+  });
+}
+
+function mavenProperty(token) {
+  const match = String(token).match(/^-D([^=]+)(?:=.*)?$/u);
+  return match?.[1]?.toLowerCase() ?? null;
+}
+
+/**
+ * Freeze the observe-only pilot's command subset before source/report reconciliation.
+ *
+ * The full argv is already digest-bound by the test-execution receipt. This classifier decides
+ * whether that argv is eligible for an exact-static identity observation. It deliberately does
+ * not reject the ordinary module test: unsupported focus or retry controls only remove WEL's
+ * optional exact mapping proposal.
+ */
+export function classifyJunit5SurefireCommandScope(command) {
+  const argv = Array.isArray(command?.argv) ? command.argv.map(String) : [];
+  const executable = argv[0]?.replaceAll('\\', '/').split('/').at(-1)?.toLowerCase() ?? '';
+  const gaps = new Set();
+  if (!MAVEN_EXECUTABLES.has(executable)) gaps.add('MAVEN_SUREFIRE_COMMAND_UNSUPPORTED');
+  for (const token of argv.slice(1)) {
+    const property = mavenProperty(token);
+    if (SUREFIRE_FOCUS_PROPERTIES.has(property)) gaps.add('FOCUSED_TEST_EXECUTION_UNSUPPORTED');
+    if (SUREFIRE_RETRY_PROPERTIES.has(property)) gaps.add('FRAMEWORK_RETRY_UNSUPPORTED');
+  }
+  return Object.freeze({
+    status: gaps.size ? 'unsupported' : 'complete',
+    gaps: [...gaps].sort()
   });
 }
 
@@ -223,6 +264,13 @@ export async function observeJunit5SurefireIdentities(root, command, parsed, tes
   if (testcasePolicy?.mode !== 'observe' || testcasePolicy?.adapter !== 'junit5-surefire-v1'
       || parsed?.adapter !== 'junit-xml' || !parsed?.testcaseObservation) {
     return null;
+  }
+  const commandScope = classifyJunit5SurefireCommandScope(command);
+  if (commandScope.gaps.length) {
+    return parserUnavailable(
+      commandScope.gaps,
+      'the JUnit exact-static pilot does not admit focused, retried, or non-Maven/Surefire executions'
+    );
   }
   let sourceSet;
   try { sourceSet = await trackedJavaSources(root, command.workingDirectory); }

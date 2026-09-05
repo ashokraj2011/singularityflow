@@ -1,8 +1,8 @@
 # Singularity Flow pending-work roadmap
 
-**Status:** authoritative cross-product tracker; code-local remediation reconciled, aggregate and release evidence remain active
+**Status:** authoritative cross-product tracker; bounded exact-tree aggregate complete, platform release evidence remains active
 
-**Baseline:** `main@f7fbb1bc`
+**Baseline:** `main@8387a9d8`
 
 **Last reviewed:** 2026-09-05
 
@@ -15,8 +15,9 @@ Candidate publication and the next office-Git hardening slice landed on 2026-09-
 `main@cb278ca6`. GDP M0 through M8, the M9 observe surface, M10 provider-neutral contracts, M11
 readiness reporting, and the developer-local signed runner subsequently landed through
 `main@7935d2db`. The 2026-09-05 code-local release-regression reconciliation landed at
-`main@f7fbb1bc`. Items remain `[~]`, not complete, wherever their contract still requires a complete
-exact-tree aggregate, a pinned performance baseline, an authenticated independent authority, real
+`main@f7fbb1bc`; bounded resumable aggregate verification and its load-race hardening landed through
+`main@8387a9d8`. Items remain `[~]`, not complete, wherever their contract still requires a pinned
+performance baseline, an authenticated independent authority, real
 VS Code hosts, signed platform receipts, office-network proof, or live Windows/macOS process and
 credential-helper evidence.
 
@@ -26,7 +27,7 @@ This snapshot resolves conflicts between older domain roadmaps and the executabl
 shared primitive does not complete a higher-assurance track: for example, the developer-local
 signed runner is useful M9 evidence, but it is not an authenticated independent CAB/WEL verifier.
 
-| Area | Implemented boundary through `f7fbb1bc` | Still open |
+| Area | Implemented boundary through `8387a9d8` | Still open |
 |---|---|---|
 | Auto v2 | Dependency-free Story profile and its P0/P1 controls | Optional SGOS execution profile, interval runtime, direct Ad Hoc materialization, and registered comparative-quality evidence |
 | CMP | Model-free, read-only `comprehension regions` and `check` foundation | Durable cause authority, intent graph/replay, typed walkthroughs, lifecycle enforcement, Comprehension Center, and brownfield policy |
@@ -54,11 +55,24 @@ VS Code extension 256/256, and lazy startup 2/2. The SGOS contention, timeout, a
 regressions passed three repeated runs. Repository conformance passed 1,307 checks, and both VS Code
 build and typecheck passed.
 
-`REL-P0-001` nevertheless remains `[~]`: the exact-tree aggregate was stopped after 48 minutes while
-still progressing, and the isolated Auto fixture alone required 17.6 minutes. Completion requires a
-clean exact-tree aggregate receipt and a bounded/sharded aggregate runtime so release verification
-cannot be mistaken for a hung process. No roadmap item may cite the current tree as release-ready
-until that receipt is recorded.
+#### [x] REL-P0-001 — Bounded, resumable exact-tree aggregate
+
+`4ef33bd1` replaced the monolithic test command with deterministic exact-source shards, bounded
+process-tree termination, atomic machine-local receipts, exact commit/tree/runtime identity, and
+retry of incomplete shards only. `8387a9d8` then corrected the two load-sensitive defects exposed by
+the first aggregate: user stop now waits through bounded SGOS Process-lock contention, filesystem
+Git authorities retain the bounded configuration window instead of being misreported as network
+outages, and reviewed process-heavy fixtures occupy dedicated lanes.
+
+The clean `8387a9d8` aggregate completed all 444 selected test files under run
+`8a76f3ce7a3510ec99001b8e`: 4,565 tests, 4,564 passed, zero failed, zero cancelled, one platform skip,
+and zero todo. Its receipt binds commit `8387a9d8fd7741f77191a28657150feb0285e8cf`, tree
+`cab1d813329011102d3b5d645963f6f2cd78fd66`, test-source digest, Node 25.5.0/macOS arm64 identity,
+and all eight shard receipt digests. Repository conformance passed 1,310 checks.
+
+This closes the code-local aggregate blocker. It does **not** satisfy the strict no-skip supported-
+platform matrix: `test:release:aggregate`, Node 20/22 macOS/Linux/Windows receipts, real VS Code host
+evidence, and selected npm/VSIX artifact binding remain governed by the platform items below.
 
 ## Status rules
 
@@ -76,7 +90,7 @@ until that receipt is recorded.
 
 | Track | Current boundary | Next eligible increment | Detailed authority |
 |---|---|---|---|
-| Release baseline | All classified functional failures are repaired at `f7fbb1bc`; affected suites and conformance are green | `REL-P0-001`: bound/shard the slow aggregate and record one clean exact-tree completion receipt | This document and [Verification](../VERIFICATION.md) |
+| Release baseline | `REL-P0-001` complete at `8387a9d8`: exact-tree verification is bounded, resumable, and green | Collect strict signed supported-platform/package receipts; do not treat the local Node 25 receipt as a release matrix | This document and [Verification](../VERIFICATION.md) |
 | Developer-experience performance | Hot paths and the office-Git code-local slice are implemented; pinned relative baseline and cross-platform host evidence are not established | Finish `DXP-P0-001`, then close each `[~]` platform gate | This document and [DX performance](DX-PERFORMANCE.md) |
 | SGOS | Universal Candidate publication and portable authority transport are code-complete; signed cross-platform release proof remains open | Finish the `SGOS-P0-001` and `SGOS-P0-003` signed platform matrices | [SGOS pending work](SGOS-PENDING-WORK.md) |
 | World Model Builder v4 | Release receipt generation and enforcement exist; no reviewed six-cell supported-platform aggregate is recorded | `WMB-REL-001` | [WMB v4](WORLD-MODEL-BUILDER-V4.md) |
@@ -94,7 +108,7 @@ new responsiveness defect belongs in the DXP track below, not in that closed rem
 
 The remaining portfolio work should be completed in this order:
 
-1. complete and retain a trustworthy exact-tree aggregate receipt with bounded runtime (`REL-P0-001`);
+1. maintain the completed bounded aggregate contract (`REL-P0-001`) without weakening exact receipt identity;
 2. establish trustworthy measurements (`DXP-P0-001`);
 3. remove activation, refresh, and enterprise-Git correctness hazards (`DXP-P0-002` through
    `DXP-P0-006`);

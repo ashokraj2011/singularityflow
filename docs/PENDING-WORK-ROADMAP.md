@@ -1,10 +1,10 @@
 # Singularity Flow pending-work roadmap
 
-**Status:** master tracker; Candidate and office-Git implementation landed, release evidence remains active
+**Status:** authoritative cross-product tracker; implementation reconciled, release evidence remains active
 
-**Baseline:** `main@cb278ca6`
+**Baseline:** `main@7935d2db`
 
-**Last reviewed:** 2026-09-01
+**Last reviewed:** 2026-09-05
 
 This is the one-page control plane for deliberately deferred product work. It does not replace the
 detailed domain roadmaps and it does not authorize implementation. It names the current boundary,
@@ -12,10 +12,37 @@ the next eligible increment, and the source document that owns each acceptance c
 
 The first performance remediation checkpoint landed on 2026-08-30 at `main@96bb55f8`. Universal
 Candidate publication and the next office-Git hardening slice landed on 2026-09-01 at
-`main@cb278ca6`. Their local regressions, npm dry-run, and VSIX package are verified. Items remain
-`[~]`, not complete, wherever their contract still requires a pinned release baseline, real VS Code
-hosts, signed platform receipts, office-network proof, or live Windows/macOS process and
-credential-helper evidence.
+`main@cb278ca6`. GDP M0 through M8, the M9 observe surface, M10 provider-neutral contracts, M11
+readiness reporting, and the developer-local signed runner subsequently landed through
+`main@7935d2db`. Items remain `[~]`, not complete, wherever their contract still requires a pinned
+release baseline, an authenticated independent authority, real VS Code hosts, signed platform
+receipts, office-network proof, or live Windows/macOS process and credential-helper evidence.
+
+## 2026-09-05 reconciliation snapshot
+
+This snapshot resolves conflicts between older domain roadmaps and the executable baseline. A
+shared primitive does not complete a higher-assurance track: for example, the developer-local
+signed runner is useful M9 evidence, but it is not an authenticated independent CAB/WEL verifier.
+
+| Area | Implemented boundary at `7935d2db` | Still open |
+|---|---|---|
+| Auto v2 | Dependency-free Story profile and its P0/P1 controls | Optional SGOS execution profile, interval runtime, direct Ad Hoc materialization, and registered comparative-quality evidence |
+| CMP | Model-free, read-only `comprehension regions` and `check` foundation | Durable cause authority, intent graph/replay, typed walkthroughs, lifecycle enforcement, Comprehension Center, and brownfield policy |
+| SGOS | Bounded runtime, Universal Candidate code path, Git-trusted authority transport, signed transport, and Windows DPAPI-protected local signer | Live working-set/Secret Broker agent integration, signed platform release aggregate, end-to-end proof, additional adapters, orchestration, stores, and learning |
+| WEL | Observe-only witnessed-clause and bounded JUnit/Surefire diagnostics | Reviewed exact pilot, authenticated hermetic execution, enforcement/recovery, additional adapters, and release proof |
+| CAB | Corrected design plus reusable Candidate, proof, JUnit binder, and developer-local runner primitives delivered under SGOS/GDP/WEL | CAB design ratification, authenticated isolation/trust roots, opt-in enforcement, adequacy, provider adapters, and regulated deployment proof |
+| GDP | M0–M8 implemented; M9 local observe/developer-local signed runner, M10 contracts, and M11 readiness report implemented as partial milestones | Authenticated runner and verifier, provider pilots, enforce enrollment, migration/support-window exercises, signed package/platform receipts, and GA decision |
+| VS Code UI remediation | Multi-Story navigation, timeout recovery, responsive layout, and visual regression contract complete | New local-runner UX and future CMP Comprehension Center; these are new surfaces, not defects left in the closed remediation plan |
+| WMB v4 | Release receipt generator, merger, artifact binding, and refusal gate | Reviewed macOS/Linux/Windows by Node 20/22 aggregate bound to the selected npm/VSIX artifacts |
+
+### Release baseline health
+
+The latest broad local run on `main@7935d2db` did not establish a green release baseline: 4,444
+tests passed, 102 failed, and one was skipped. The local signed-runner focused suite passed; the
+remaining failures were concentrated in older initialization, VS Code, and World Model Builder
+fixtures. Treat repair and classification of that aggregate baseline as `REL-P0-001`; no roadmap
+item may cite the current tree as release-ready until the failures are fixed or proven to be an
+invalid test environment and rerun cleanly.
 
 ## Status rules
 
@@ -33,12 +60,15 @@ credential-helper evidence.
 
 | Track | Current boundary | Next eligible increment | Detailed authority |
 |---|---|---|---|
+| Release baseline | Focused local-runner evidence is green, but the latest aggregate suite is not | `REL-P0-001`: classify the 102 aggregate failures, repair valid defects, and record a clean exact-tree rerun | This document and [Verification](../VERIFICATION.md) |
 | Developer-experience performance | Hot paths and the office-Git code-local slice are implemented; pinned relative baseline and cross-platform host evidence are not established | Finish `DXP-P0-001`, then close each `[~]` platform gate | This document and [DX performance](DX-PERFORMANCE.md) |
 | SGOS | Universal Candidate publication and portable authority transport are code-complete; signed cross-platform release proof remains open | Finish the `SGOS-P0-001` and `SGOS-P0-003` signed platform matrices | [SGOS pending work](SGOS-PENDING-WORK.md) |
 | World Model Builder v4 | Release receipt generation and enforcement exist; no reviewed six-cell supported-platform aggregate is recorded | `WMB-REL-001` | [WMB v4](WORLD-MODEL-BUILDER-V4.md) |
 | Witnessed Engineering Loop | Observe-only baseline shipped; exact/authenticated testcase claims and enforcement are unavailable | `WEL-P0-001` | [WEL pending work](WEL-PENDING-WORK.md) |
-| Code Assurance Bridge | Corrected design only; implementation is not authorized | `CAB-R0` design alignment | [CAB roadmap](CAB-ROADMAP.md) |
-| Governed Delivery and Proof | M0 contract freeze landed at `cb46359c`; no GDP runtime or durable writer is enabled | `GDP-M1` compatibility inventory and pure projections | [GDP milestone roadmap](GDP-DELIVERY-ROADMAP.md) |
+| Code Assurance Bridge | Corrected design exists; related SGOS/GDP/WEL primitives do not constitute CAB activation | `CAB-R0` design ratification and ownership alignment | [CAB roadmap](CAB-ROADMAP.md) |
+| Governed comprehension | Read-only, non-authoritative P0 foundation exists | Finish `CMP-P0-001`; keep record/enforce unavailable | [CMP roadmap](CMP-ROADMAP.md) |
+| Governed Delivery and Proof | M0–M8 are implemented; M9–M11 have code-local partial surfaces and remain non-GA | Authenticated M9 runner/verifier and signed release evidence before provider pilots or enforcement | [GDP milestone roadmap](GDP-DELIVERY-ROADMAP.md) |
+| Auto v2 | Dependency-free Story P0/P1 is implemented and model/AST optionality is preserved | Optional SGOS profile only after its independent acceptance contract is ready | [Auto v2 roadmap](AUT-V2-IMPLEMENTATION-ROADMAP.md) |
 
 Completed work is not repeated in this tracker. In particular, the
 [VS Code UI remediation contract](UI-REMEDIATION-PLAN.md) is implemented and regression-backed; a
@@ -46,13 +76,17 @@ new responsiveness defect belongs in the DXP track below, not in that closed rem
 
 ## Dependency order
 
-The remaining performance acceptance work should be completed in this order:
+The remaining portfolio work should be completed in this order:
 
-1. establish trustworthy measurements (`DXP-P0-001`);
-2. remove activation, refresh, and enterprise-Git correctness hazards (`DXP-P0-002` through
+1. restore a trustworthy green aggregate baseline (`REL-P0-001`);
+2. establish trustworthy measurements (`DXP-P0-001`);
+3. remove activation, refresh, and enterprise-Git correctness hazards (`DXP-P0-002` through
    `DXP-P0-006`);
-3. reduce steady-state payload, process, and remote-operation cost (`DXP-P1-*`);
-4. improve diagnostics and packaging only after the critical paths are bounded (`DXP-P2-*`).
+4. collect the supported-platform and package receipts shared by SGOS, WMB, GDP, and DXP;
+5. ratify CAB/WEL trust architecture before authenticated execution or enforcement;
+6. reduce steady-state payload, process, and remote-operation cost (`DXP-P1-*`);
+7. add new CMP, Auto-SGOS, local-runner UI, and advanced SGOS capabilities only against that
+   verified baseline.
 
 Parallel work is allowed only where the detailed items do not share the same activation, Git
 transport, or benchmark contracts.
@@ -384,7 +418,8 @@ For each remaining performance acceptance gate:
 
 ## Master-roadmap maintenance
 
-- Review this file whenever `SGOS-PENDING-WORK.md`, `WEL-PENDING-WORK.md`, `CAB-ROADMAP.md`, or the
+- Review this file whenever `AUT-V2-IMPLEMENTATION-ROADMAP.md`, `CMP-ROADMAP.md`,
+  `GDP-DELIVERY-ROADMAP.md`, `SGOS-PENDING-WORK.md`, `WEL-PENDING-WORK.md`, `CAB-ROADMAP.md`, or the
   accepted DX baseline changes.
 - Keep the portfolio dashboard a summary; detailed domain acceptance gates remain authoritative in
   their linked documents.

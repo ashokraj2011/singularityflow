@@ -9,6 +9,11 @@ The universal Candidate implementation checkpoint is `main@cb278ca6` on 2026-09-
 full suite passed 3,974 tests and repository conformance passed 1,215 checks. Those results are not
 a substitute for the signed supported-platform release aggregate required below.
 
+This backlog was reconciled against `main@7935d2db` on 2026-09-05. That baseline adds a
+DPAPI-CurrentUser-protected Windows Ed25519 authority-transport signer and the separate GDP
+developer-local signed runner. Neither addition supplies independent enterprise authority or a
+signed supported-platform release aggregate.
+
 ## Status rules
 
 - `[ ]` means the capability remains unavailable or behind an explicit refusal boundary.
@@ -85,7 +90,8 @@ ambient local paths or rebuilding authority by hand.
 
 The implementation on `main` now provides key-free approved trust v3 with deterministic
 state-branch publish/sync on Windows, macOS, and Linux, plus approved trust v2 and a local
-non-exported Ed25519 signer on supported POSIX hosts, signed repository-bound canonical bundles,
+non-exported Ed25519 signer protected by owner-only filesystem permissions on POSIX and DPAPI
+CurrentUser on Windows, signed repository-bound canonical bundles,
 secret/path admission, exact
 Pack-graph replay, inspect/import plan-and-confirm, stable-lock and tamper-evident journaled
 cutover, strict lineage fast-forward, retained signed import proof, durable cutover receipts, and
@@ -110,11 +116,11 @@ Acceptance gates:
 
 Depends on: the experimental filesystem Authority Store and signed Pack authority records.
 
-The code-local and adversarial round-trip gates are implemented. Windows can inspect and import
-publicly trusted bundles, while signer creation and export remain explicitly unavailable pending an
-owner-only Windows credential backend. This item remains `[~]` until the same canonical fixture has
-signed macOS, Linux, and Windows release receipts proving identical active authority and cutover
-recovery on the supported Node matrix.
+The code-local and adversarial round-trip gates are implemented, including Windows signer creation
+and export through DPAPI-protected key material. This item remains `[~]` until the same canonical
+fixture has real signed macOS, Linux, and Windows release receipts proving identical active
+authority and cutover recovery on the supported Node matrix. Simulated Windows tests and the
+developer-local GDP runner are not substitutes for those receipts.
 
 ### [ ] SGOS-P0-004 — End-to-end release proof
 

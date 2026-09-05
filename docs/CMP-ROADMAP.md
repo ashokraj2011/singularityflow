@@ -9,6 +9,9 @@
 **Last implementation audit:** `main@3b5d79e6` on 2026-08-31; the observe-only foundation
 described below is the only implemented CMP tranche
 
+**Current reconciliation:** checked against `main@7935d2db` on 2026-09-05; later SGOS and GDP
+delivery did not implement CMP P1–P6 or turn CMP diagnostics into lifecycle authority
+
 **Current delivery boundary:** observe-only foundation; no publication gate, approval authority, or
 new publisher
 
@@ -53,7 +56,7 @@ truth about the current release.
 The first CMP increment is deliberately smaller than the submitted v1 scope. It provides a useful
 inspection boundary while preserving every existing lifecycle behavior.
 
-### Present in the working tree (P0 acceptance still in progress)
+### Present on main (P0 acceptance still in progress)
 
 - `singularity-flow comprehension regions [--base REVISION] [--json]` computes a deterministic,
   read-only region manifest from the existing exact repository change-set implementation.

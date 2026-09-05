@@ -24,6 +24,8 @@ is not part of the current product.
 | Use SGOS for normal Stories, explicit Programs, recovery, and cross-laptop Pack authority | [How to use SGOS](SGOS-USAGE-GUIDE.md) |
 | Track deliberately deferred work and the next eligible increment | [Pending-work roadmap](PENDING-WORK-ROADMAP.md) |
 | Plan Governed Delivery and Proof as reversible release milestones | [GDP milestone delivery roadmap](GDP-DELIVERY-ROADMAP.md) |
+| Track governed comprehension from its read-only pilot through future enforcement | [CMP roadmap](CMP-ROADMAP.md) |
+| Review the staged Code Assurance Bridge trust and rollout contract | [CAB roadmap](CAB-ROADMAP.md) |
 | Land bounded work that began without a Story | [Ad hoc work and governed landing](../README-AD-HOC-WORK.md) |
 | Understand the terms | [Glossary](GLOSSARY.md) |
 | Use the VS Code extension | [VS Code guide](VS-CODE.md) |

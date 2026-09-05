@@ -6,6 +6,10 @@
 
 **Created:** 2026-08-30
 
+**Current reconciliation:** checked against `main@7935d2db` on 2026-09-05. GDP added reusable
+proof-observation contracts and a same-user developer-local signed runner. They do not satisfy the
+WEL exact-mapping, authenticated-independent-runner, enforcement, or release-evidence gates below.
+
 This document is the durable delivery tracker for Witnessed Engineering Loop work that was
 deliberately left out of the observe-only baseline. The governing design remains
 [WEL v0.2](WEL-SPEC.md). Cross-cutting execution and assurance prerequisites remain owned by the
@@ -61,8 +65,8 @@ enforcement.
 | `WEL-P0-001` architecture and threat closure | parked | CAB-R0 alignment | none |
 | `WEL-P0-002` exact local JUnit pilot | parked | CAB-R1 contract alignment | observe only |
 | `WEL-P0-003` measurement and release proof | parked | Flow Impact and packaging | none |
-| `WEL-P1-001` hermetic authenticated execution | unavailable | CAB-R2 | required |
-| `WEL-P1-002` universal Candidate lifecycle bridge | unavailable | SGOS-P0-001 and CAB-R6 | required |
+| `WEL-P1-001` hermetic authenticated execution | unavailable; developer-local signing is not independent authority | CAB-R2 | required |
+| `WEL-P1-002` universal Candidate lifecycle bridge | Candidate code path delivered; WEL integration parked | SGOS-P0-001 release evidence and CAB-R6 | required |
 | `WEL-P1-003` opt-in enforcement and recovery | unavailable | all WEL P0/P1 predecessors | enables selected new Stories only |
 | `WEL-P2-001` additional adapters | parked | separate reviewed identity contract per adapter | none by default |
 | `WEL-P2-002` additional witness evidence | parked | CAB-R4 or a separately approved trust contract | none by default |

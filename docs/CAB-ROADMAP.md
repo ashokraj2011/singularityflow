@@ -6,6 +6,11 @@
 
 **Created:** 2026-08-30
 
+**Current reconciliation:** checked against `main@7935d2db` on 2026-09-05. Later SGOS, WEL, and GDP
+work delivered reusable Candidate, proof-observation, JUnit-binder, and developer-local signed-runner
+primitives. Those components remain non-gating and do not ratify CAB-R0, provide an authenticated
+independent verifier, or activate any CAB rollout milestone.
+
 **Source proposal:** `SFlow_Code_Assurance_Bridge_SPEC.md` draft v0.1
 
 This roadmap preserves the Code Assurance Bridge objective while correcting the draft's architecture,

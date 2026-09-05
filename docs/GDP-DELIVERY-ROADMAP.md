@@ -10,6 +10,8 @@ remain external readiness work
 
 **Roadmap baseline:** `main@0dd893c5`
 
+**Current reconciliation baseline:** `main@7935d2db` on 2026-09-05
+
 **Created:** 2026-09-04
 
 **Source proposal:** `SPEC-GDP-Governed-Delivery-and-Proof (1).md`
@@ -502,6 +504,8 @@ records.
 
 **Local signed-runner guide:** [`GDP-LOCAL-SIGNED-RUNNER.md`](GDP-LOCAL-SIGNED-RUNNER.md)
 
+**Developer-local signed-runner landing commit:** `7935d2db`
+
 Delivered without claiming enforcement readiness:
 
 - a path-free, digest-only evaluator for executable change maps, changed-region coverage, witness
@@ -515,9 +519,11 @@ Delivered without claiming enforcement readiness:
   argv-form/model-free quality commands, with digest-confirmed planning, stale-plan refusal,
   content-free receipts, Windows DPAPI protection, and a hard non-gating assurance ceiling.
 
-Still required before M9 can be marked complete: authenticated runner isolation, signer/trust-root
-validation, controlled reruns and N-version adapters, enforce-mode enrollment, multi-platform
-security exercises, and accepted performance/false-result budgets.
+Still required before M9 can be marked complete: authenticated independent runner isolation,
+enterprise signer/trust-root validation, controlled reruns and N-version adapters, enforce-mode
+enrollment, a dedicated VS Code runner experience, multi-platform security exercises, and accepted
+performance/false-result budgets. The developer-local signer is same-user, non-gating evidence and
+does not satisfy those authority requirements.
 
 **Planning range:** 6–12+ person-weeks  
 **Depends on:** CAB-R1–R3, WEL-P0/P1, GDP-M8, and an authenticated hermetic runner

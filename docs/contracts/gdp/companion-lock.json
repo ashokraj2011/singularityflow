@@ -22,7 +22,7 @@
     {
       "id": "sgos-delivery-status",
       "path": "docs/SGOS-PENDING-WORK.md",
-      "sha256": "sha256:e0b9568598f91e3a2caa4c304745e39444c47f555671231cb92d45208e672d39"
+      "sha256": "sha256:f97126690a6288b359d9cad000fcd2fa9822aad0f1456e91b8193d8943701984"
     },
     {
       "id": "world-model-v4",
@@ -37,12 +37,12 @@
     {
       "id": "witnessed-engineering-delivery-status",
       "path": "docs/WEL-PENDING-WORK.md",
-      "sha256": "sha256:3bd895296f04a3638959cf8cecf0087823591ba036ee109b781db65863242388"
+      "sha256": "sha256:abb5b11cfe456ae86842bd60d64c747d2a3f8fe396e8bfa526a8874825b35d9b"
     },
     {
       "id": "code-assurance-bridge",
       "path": "docs/CAB-ROADMAP.md",
-      "sha256": "sha256:8f096ae91e4be3a9c97a9543ff2421811b160076c6f84353c2de1bfbfd92bc36"
+      "sha256": "sha256:6274d051db230b1e30d2fe039cdbe8a85cc195c81364f8a4a98456f0afdd927f"
     },
     {
       "id": "sgos-record-contracts",

@@ -4,6 +4,11 @@ Status: the dependency-free Story profile implements and release-validates the A
 boundary described below at commit `64cf7ddaf5e5b1296f610509da3db44fdb93a32b`. The optional SGOS profile and enforcement of
 optional CMP policy are separate work and are not claimed complete here.
 
+Reconciled against `main@7935d2db` on 2026-09-05: subsequent SGOS and GDP delivery did not add the
+optional Auto SGOS profile, interval scheduling, direct Ad Hoc materialization, or a registered
+comparative-quality baseline. The implemented Story profile remains the default and complete
+boundary claimed by this document.
+
 ## Architecture decisions
 
 - Auto orchestrates the ordinary Story lifecycle. It cannot approve, waive policy, publish around a

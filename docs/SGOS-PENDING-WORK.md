@@ -69,10 +69,25 @@ The code-local gates above are implemented. Before `[x]`, the final clean commit
 repository's signed macOS/Linux/Windows by Node 20/22 verification aggregate and exact npm/VSIX
 artifact binding. Local macOS/Node 25 runs and simulated Windows process tests are not release cells.
 
-### [ ] SGOS-P0-002 — Live working-set and Secret Broker integration
+### [~] SGOS-P0-002 — Live working-set and Secret Broker integration
 
 Inject bounded working sets into live governed Agent execution and release secrets only through the
 typed Secret Broker to the exact authorized adapter.
+
+- **Owner:** Codex working-set integration
+- **Branch:** `main`
+- **Started:** 2026-09-05
+
+The code-local Agent path now composes a deterministic working set from the exact current Program,
+Process revision, checkpoint, and task before an execution attempt opens. The complete working set
+is content-hashed into the Agent Task Contract and the proposal-only Copilot invocation. Symbolic
+legacy inputs are not promoted, opaque Secret Broker handles are forced into the omission ledger
+instead of ordinary input payloads, and the Copilot contract cannot redeem them or use tools.
+Runtime tests inspect the actual provider prompt rather than only the composer API.
+
+This is not complete Secret Broker integration. No installed real external Agent or Device adapter
+receives an ephemeral broker release yet, and no external-adapter cancellation/leakage/restart
+matrix has been signed on the supported platforms.
 
 Acceptance gates:
 

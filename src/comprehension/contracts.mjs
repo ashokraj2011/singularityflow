@@ -58,6 +58,85 @@ export const CMP_PROPOSER_KINDS = Object.freeze([
   'deterministic-tool'
 ]);
 
+export const CMP_ASSURANCE_CLASSES = Object.freeze([
+  'diff-derived',
+  'structurally-derived',
+  'diff-verified',
+  'structurally-verified',
+  'evidence-supported',
+  'human-accepted',
+  'model-advisory',
+  'unavailable',
+  'contradicted',
+  'stale'
+]);
+
+export const CMP_AVAILABILITY_STATUSES = Object.freeze([
+  'available',
+  'unavailable',
+  'unsupported',
+  'degraded',
+  'stale'
+]);
+
+export const CMP_REFUSAL_CODES = Object.freeze([
+  'CMP_BINDING_CONFIRMATION_REQUIRED',
+  'CMP_CANDIDATE_BINDING_INVALID',
+  'CMP_CAUSE_AUTHORITY_INVALID',
+  'CMP_CAUSE_COVERAGE_INCOMPLETE',
+  'CMP_CAUSE_REFERENCE_MISSING',
+  'CMP_CAUSE_REFERENCE_STALE',
+  'CMP_CHANGE_SET_INVALID',
+  'CMP_DEVIATION_DECISION_REQUIRED',
+  'CMP_EVIDENCE_INVALID',
+  'CMP_EVIDENCE_LIMIT',
+  'CMP_PHASE_UNKNOWN',
+  'CMP_REGION_IDENTITY_AMBIGUOUS',
+  'CMP_SPLIT_TARGET_INVALID',
+  'CMP_STORY_CONTEXT_REQUIRED',
+  'CMP_TRANSFORMATION_RECEIPT_INVALID'
+]);
+
+export const CMP_DIAGNOSTIC_CODES = Object.freeze([
+  ...new Set([
+    ...CMP_REFUSAL_CODES,
+    'CMP_BINDING_INTEGRITY_INVALID',
+    'CMP_BINDING_INVALID',
+    'CMP_BINDING_RELATIONSHIP_INVALID',
+    'CMP_CAUSE_KIND_INVALID',
+    'CMP_CAUSE_REFERENCE_AMBIGUOUS',
+    'CMP_CAUSE_REFERENCE_INVALID',
+    'CMP_DECISION_EVIDENCE_INVALID',
+    'CMP_DISPOSITION_INVALID',
+    'CMP_DISPOSITION_MISSING',
+    'CMP_DISPOSITION_MULTIPLE',
+    'CMP_EVIDENCE_AMBIGUOUS',
+    'CMP_EVIDENCE_ORPHAN',
+    'CMP_EXCLUSION_PENDING',
+    'CMP_LEGACY_TOUCHED',
+    'CMP_MANIFEST_COUNT_INVALID',
+    'CMP_MANIFEST_INTEGRITY_INVALID',
+    'CMP_MANIFEST_INVALID',
+    'CMP_MANIFEST_ORDER_INVALID',
+    'CMP_MANIFEST_SOURCE_MISMATCH',
+    'CMP_REGION_FALLBACK_INVALID',
+    'CMP_REGION_IDENTITY_INVALID',
+    'CMP_REGION_REFERENCE_MISSING',
+    'CMP_REVERT_PENDING',
+    'CMP_SOURCE_CHANGE_SET_INVALID',
+    'CMP_SPLIT_PENDING'
+  ])
+].sort());
+
+export function assertComprehensionDiagnosticCode(code) {
+  if (!CMP_DIAGNOSTIC_CODES.includes(code)) {
+    throw new SingularityFlowError(`Unknown CMP diagnostic code '${code}'.`, {
+      code: 'CMP_EVIDENCE_INVALID'
+    });
+  }
+  return code;
+}
+
 const SHA256 = /^sha256:[a-f0-9]{64}$/;
 const TRANSPORT_SCHEMA = /^1$/;
 const CHANGE_SET_KINDS = new Set(['repository-change-set', 'repository-tree-change-set']);

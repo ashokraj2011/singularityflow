@@ -187,7 +187,10 @@ test('runtime composition binds the current checkpoint and incorporates exact de
   const predecessorId = 'TSK-PREDECESSOR';
   const task = {
     taskInstanceId: 'TSK-CURRENT', predecessorTaskInstanceIds: [predecessorId],
-    inputRefs: ['legacy-symbolic-input', H('source')]
+    inputRefs: [
+      'legacy-symbolic-input', H('source'),
+      `sfref:v1:secret-handle:${H('runtime-secret-handle')}`
+    ]
   };
   const process = {
     processId: checkpoint.processId, currentCheckpointSha256: checkpoint.checkpointSha256,
@@ -215,6 +218,14 @@ test('runtime composition binds the current checkpoint and incorporates exact de
   assert.match(JSON.stringify(workingSet), new RegExp(H('dependency').replace(':', '\\:')));
   assert.match(JSON.stringify(workingSet), new RegExp(H('guidance').replace(':', '\\:')));
   assert.doesNotMatch(JSON.stringify(workingSet), /legacy-symbolic-input/);
+  assert.equal(
+    workingSet.omissions.some((entry) => entry.reason === 'secret-isolated'),
+    true
+  );
+  assert.equal(
+    workingSet.entries.some((entry) => JSON.stringify(entry.payload).includes('secret-handle')),
+    false
+  );
   assert.deepEqual(SGOS_WORKING_SET_PRIORITIES.slice(0, 4), [
     'active-human-instruction', 'task-contract', 'pinned-law', 'objective-acceptance'
   ]);

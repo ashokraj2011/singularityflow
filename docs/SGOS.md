@@ -436,8 +436,9 @@ tracked in [SGOS-PENDING-WORK.md](SGOS-PENDING-WORK.md):
   non-genesis fork import, and consequential-effect task retry;
 - universal Candidate routing is implemented for the supported lifecycle surfaces; its
   cross-platform signed release promotion remains tracked as `SGOS-P0-001`;
-- automatic working-set injection into live Agent executions, Secret Broker integration with real
-  external adapters, and garbage-collection plans;
+- Secret Broker integration with real external adapters, the corresponding cancellation/leakage/
+  restart proof, and garbage-collection plans; bounded automatic working-set injection into the
+  proposal-only Copilot Agent path is implemented;
 - a general Authority Store SPI and an alternate Operational Store; the filesystem Authority Store
   remains explicitly experimental;
 - executable/disposable tutorial environments, portable learning progress and certification, a

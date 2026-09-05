@@ -17,12 +17,12 @@
     {
       "id": "sgos-contract",
       "path": "docs/SGOS.md",
-      "sha256": "sha256:cafc10d5b01a2a3f75d00ca46a9d60ebfc05c0704c465c42e5803d9aad5d81e6"
+      "sha256": "sha256:de8a878e1a1520379431a5be971f4fdbec4039d1694d27ebd23177885e9ad658"
     },
     {
       "id": "sgos-delivery-status",
       "path": "docs/SGOS-PENDING-WORK.md",
-      "sha256": "sha256:f97126690a6288b359d9cad000fcd2fa9822aad0f1456e91b8193d8943701984"
+      "sha256": "sha256:8a929c82aba29b21b738cabcba2b1301bf0b128803203efb4307b4dee9fb6d2c"
     },
     {
       "id": "world-model-v4",

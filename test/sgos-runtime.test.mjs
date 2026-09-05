@@ -457,7 +457,7 @@ function compilerProducedSandboxCasProgram() {
   return { compiled, deviceManifest, resource };
 }
 
-function compilerProducedCopilotProposalProgram() {
+function compilerProducedCopilotProposalProgram({ proposalInputs = [] } = {}) {
   const agentManifest = installedExecutionUnitManifests()
     .find((entry) => entry.id === 'copilot-cli');
   assert.ok(agentManifest);
@@ -513,7 +513,7 @@ function compilerProducedCopilotProposalProgram() {
           kind: 'task', opcode: 'AGENT', operation: 'agent.propose', dependsOn: [],
           resources: { reads: [], writes: [], devices: [], externalEffects: [] },
           evidence: { required: ['agent-proposal'] }, authority: {}, recovery: {},
-          intentClauseIds: [clauseId], inputs: [], outputs: [], retry: { maximumAttempts: 1 },
+          intentClauseIds: [clauseId], inputs: proposalInputs, outputs: [], retry: { maximumAttempts: 1 },
           policySnapshotSha256: HASH.policy, material: true,
           metadata: {
             executionUnitId: agentManifest.id,
@@ -3538,7 +3538,10 @@ test('registry-pinned sandbox CAS DEVICE executes one exact Git-common effect an
 
 test('Copilot proposal bytes are durable before downstream VERIFY and only its independent gate can consume them', async () => {
   const fixture = await repository('SGOS-STORY-COPILOT-PROPOSAL');
-  const { compiled, agentManifest } = compilerProducedCopilotProposalProgram();
+  const secretHandle = `sfref:v1:secret-handle:sha256:${'8'.repeat(64)}`;
+  const { compiled, agentManifest } = compilerProducedCopilotProposalProgram({
+    proposalInputs: [secretHandle]
+  });
   const started = await start(fixture.root, fixture.storyId, compiled);
   const proposalText = 'bounded proposal bytes\nwith an exact second line';
   const invocations = [];
@@ -3571,6 +3574,24 @@ test('Copilot proposal bytes are durable before downstream VERIFY and only its i
   assert.equal(invocations.length, 1);
   assert.equal(invocations[0].tools.mode, 'none');
   assert.equal(Object.hasOwn(invocations[0], 'model'), false);
+  const agentContract = JSON.parse(invocations[0].prompt.text.split('\n\n').at(-1));
+  assert.equal(agentContract.workingSet.processId, started.process.processId);
+  assert.equal(agentContract.workingSet.taskInstanceId, agentContract.taskId);
+  assert.equal(agentContract.workingSet.programSha256, started.process.programSha256);
+  assert.equal(
+    agentContract.workingSet.policySnapshotSha256,
+    started.process.policySnapshotSha256
+  );
+  assert.equal(
+    agentContract.workingSet.checkpointSha256,
+    started.process.currentCheckpointSha256
+  );
+  assert.equal(agentContract.workingSet.workingSetSha256.startsWith('sha256:'), true);
+  assert.deepEqual(agentContract.inputs, []);
+  assert.equal(
+    agentContract.workingSet.omissions.some((entry) => entry.reason === 'secret-isolated'),
+    true
+  );
   assert.equal(proposalStep.receipt.outputRefs.length, 1);
   const proposalSha256 = proposalStep.receipt.outputRefs[0];
   assert.ok(proposalStep.receipt.evidenceRefs.includes(proposalSha256));

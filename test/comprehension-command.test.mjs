@@ -16,7 +16,11 @@ function git(root, args) {
 }
 
 function command(root, args) {
-  return spawnSync(process.execPath, [bin, ...args], { cwd: root, encoding: 'utf8' });
+  return spawnSync(process.execPath, [bin, ...args], {
+    cwd: root,
+    encoding: 'utf8',
+    env: { ...process.env, SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1' }
+  });
 }
 
 async function repository(t) {
@@ -38,6 +42,11 @@ async function repository(t) {
 test('comprehension regions is a model-free, read-only exact change projection', async (t) => {
   const root = await repository(t);
   const before = git(root, ['status', '--porcelain=v1']);
+  const privateState = path.join(root, '.git', 'singularity-flow');
+  const privateStateExisted = await lstat(privateState).then(
+    () => true,
+    (error) => error?.code === 'ENOENT' ? false : Promise.reject(error)
+  );
   const result = command(root, ['--no-model', 'comprehension', 'regions', '--base', 'HEAD', '--json']);
   assert.equal(result.status, 0, result.stderr);
   const response = JSON.parse(result.stdout);
@@ -61,6 +70,10 @@ test('comprehension regions is a model-free, read-only exact change projection',
     () => true,
     (error) => error?.code === 'ENOENT' ? false : Promise.reject(error)
   ), false);
+  assert.equal(await lstat(privateState).then(
+    () => true,
+    (error) => error?.code === 'ENOENT' ? false : Promise.reject(error)
+  ), privateStateExisted);
   assert.equal(git(root, ['status', '--porcelain=v1']), before);
 });
 
@@ -88,6 +101,16 @@ test('an explicit base never bypasses a requested Story context', async (t) => {
   ]);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /DOES-NOT-EXIST/);
+});
+
+test('phase-scoped observation requires a Story and gives a repository-only recovery path', async (t) => {
+  const root = await repository(t);
+  const result = command(root, [
+    '--no-model', 'comprehension', 'regions', '--phase', 'implementation', '--base', 'HEAD', '--json'
+  ]);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /--phase requires --work-id or an attached Story/);
+  assert.match(result.stderr, /use --base without --phase/);
 });
 
 test('comprehension evidence files are bounded before JSON parsing', async (t) => {

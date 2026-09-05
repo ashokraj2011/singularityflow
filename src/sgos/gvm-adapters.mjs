@@ -8,6 +8,7 @@ import {
   createAgentTaskContract, installedExecutionUnit, installedExecutionUnitManifests
 } from './execution-units.mjs';
 import { installedDeviceManifests, invokeSgosDevice } from './devices.mjs';
+import { isSgosSecretHandleReference } from './memory.mjs';
 
 const DETERMINISTIC_AGENT = 'deterministic-translator';
 const COPILOT_PROPOSAL_AGENT = 'copilot-cli';
@@ -175,7 +176,8 @@ function agentContract(process, task, template, manifest, workingSet) {
     acceptanceClauses: stringArray(template.intentClauseIds ?? [], 'AGENT acceptance clauses'),
     policySnapshotSha256: process.policySnapshotSha256,
     programSha256: process.programSha256,
-    inputs: stringArray(task.inputRefs ?? [], 'AGENT inputs'),
+    inputs: stringArray(task.inputRefs ?? [], 'AGENT inputs')
+      .filter((reference) => !isSgosSecretHandleReference(reference)),
     readScope: stringArray(resources.reads ?? [], 'AGENT read scope'),
     writeScope: stringArray(resources.writes ?? [], 'AGENT write scope'),
     forbiddenScope: stringArray(parameters.forbiddenScope ?? ['.git'], 'AGENT forbidden scope'),

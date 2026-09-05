@@ -42,6 +42,11 @@ const AUTHORITIES = new Set([
   'external-observation', 'non-authoritative', 'secret-broker'
 ]);
 const SECRET_SHAPED_KEY = /(?:^|[-_.])(secret|password|passwd|credential|private[-_.]?key|access[-_.]?token|refresh[-_.]?token)(?:$|[-_.])/i;
+const SECRET_HANDLE_REFERENCE = /^sfref:v1:secret-handle:sha256:[a-f0-9]{64}$/;
+
+export function isSgosSecretHandleReference(value) {
+  return SECRET_HANDLE_REFERENCE.test(String(value ?? ''));
+}
 
 function fail(message, code = 'SGOS_MEMORY_CONTRACT_INVALID', details = null) {
   throw new SingularityFlowError(message, { code, details });
@@ -195,7 +200,7 @@ function memoryRefCore(value) {
   requireDigest(value.memoryRefSha256, 'memory-ref.memoryRefSha256');
   if (value.memoryClass === 'secret-handle') {
     if (value.authority !== 'secret-broker' || value.sensitivity !== 'restricted'
-        || value.object.bytes !== 0 || !/^sfref:v1:secret-handle:sha256:[a-f0-9]{64}$/.test(value.address)) {
+        || value.object.bytes !== 0 || !isSgosSecretHandleReference(value.address)) {
       fail('Secret memory may contain only a restricted, zero-byte opaque broker handle.',
         'SGOS_MEMORY_SECRET_HANDLE_INVALID');
     }
@@ -514,7 +519,9 @@ export function composeSgosRuntimeWorkingSet({ process, checkpoint, task, templa
   // Earlier Program contracts admitted symbolic input names. They remain valid Process material,
   // but they are not promoted into this exact-reference surface until a resolver supplies an
   // immutable sfref or digest.
-  const inputs = exactRefs(task.inputRefs, 'task inputs', { strict: false });
+  const exactInputs = exactRefs(task.inputRefs, 'task inputs', { strict: false });
+  const secretInputs = exactInputs.filter(isSgosSecretHandleReference);
+  const inputs = exactInputs.filter((reference) => !isSgosSecretHandleReference(reference));
   const activeInstructions = exactRefs(memory.activeHumanInstructionRefs ?? [], 'active Human instructions');
   const verificationGaps = exactRefs(memory.verificationGapRefs ?? [], 'verification gaps');
   const derived = exactRefs(memory.derivedRefs ?? [], 'derived memory');
@@ -527,6 +534,24 @@ export function composeSgosRuntimeWorkingSet({ process, checkpoint, task, templa
     content: refs,
     expansionHandle: `sfref:v1:process:${process.processId}:expand:${priority}`
   })] : [];
+  const secretHandleSlice = secretInputs.map((address) => {
+    const objectSha256 = address.slice('sfref:v1:secret-handle:'.length);
+    const expansionHandle = `secret-broker:withheld:${objectSha256}`;
+    return {
+      ref: createSgosMemoryRef({
+        address,
+        memoryClass: 'secret-handle',
+        object: { schema: 'secret-handle', revision: 1, sha256: objectSha256, bytes: 0 },
+        authority: 'secret-broker',
+        sensitivity: 'restricted',
+        storage: { storeId: 'secret-broker' },
+        dependencies: [],
+        expansionHandle
+      }),
+      payload: null,
+      expansionHandle
+    };
+  });
   const maximumBytes = memory.maximumBytes ?? program.budgets?.maximumWorkingSetBytes ?? 256 * 1024;
   return composeSgosWorkingSet({
     processId: process.processId,
@@ -564,9 +589,10 @@ export function composeSgosRuntimeWorkingSet({ process, checkpoint, task, templa
       'verification-gap': referenceSlice(
         'verification-gap', verificationGaps, 'evidence', 'authoritative-evidence'
       ),
-      'direct-source-context': referenceSlice(
-        'direct-source-context', inputs, 'input', 'immutable-input'
-      ),
+      'direct-source-context': [
+        ...referenceSlice('direct-source-context', inputs, 'input', 'immutable-input'),
+        ...secretHandleSlice
+      ],
       'dependency-output': referenceSlice(
         'dependency-output', predecessors, 'shared-artifact', 'verified-output'
       ),

@@ -1,12 +1,18 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import {
+  assertComprehensionDiagnosticCode,
   buildChangeRegionManifest,
+  CMP_ASSURANCE_CLASSES,
+  CMP_AVAILABILITY_STATUSES,
   CMP_CAUSE_KINDS,
+  CMP_DIAGNOSTIC_CODES,
   CMP_DISPOSITIONS,
   CMP_PROPOSER_KINDS,
+  CMP_REFUSAL_CODES,
   CMP_RELATIONSHIPS,
   evaluateComprehensionCoverage,
   validateChangeCauseBinding
@@ -195,8 +201,52 @@ test('CMP vocabularies are closed, exact, and immutable', () => {
     'human', 'agent', 'governed-agent', 'model', 'execution-unit', 'copilot',
     'copilot-cli', 'deterministic-tool'
   ]);
+  assert.deepEqual(CMP_ASSURANCE_CLASSES, [
+    'diff-derived', 'structurally-derived', 'diff-verified', 'structurally-verified',
+    'evidence-supported', 'human-accepted', 'model-advisory', 'unavailable',
+    'contradicted', 'stale'
+  ]);
+  assert.deepEqual(CMP_AVAILABILITY_STATUSES, [
+    'available', 'unavailable', 'unsupported', 'degraded', 'stale'
+  ]);
   assert.ok(Object.isFrozen(CMP_CAUSE_KINDS));
+  assert.ok(Object.isFrozen(CMP_ASSURANCE_CLASSES));
+  assert.ok(Object.isFrozen(CMP_AVAILABILITY_STATUSES));
+  assert.ok(Object.isFrozen(CMP_REFUSAL_CODES));
+  assert.ok(Object.isFrozen(CMP_DIAGNOSTIC_CODES));
+  assert.equal(new Set(CMP_DIAGNOSTIC_CODES).size, CMP_DIAGNOSTIC_CODES.length);
+  assert.ok(CMP_REFUSAL_CODES.every((code) => CMP_DIAGNOSTIC_CODES.includes(code)));
+  assert.equal(
+    assertComprehensionDiagnosticCode('CMP_CAUSE_COVERAGE_INCOMPLETE'),
+    'CMP_CAUSE_COVERAGE_INCOMPLETE'
+  );
+  assert.throws(
+    () => assertComprehensionDiagnosticCode('CMP_FREE_TEXT'),
+    /Unknown CMP diagnostic code/
+  );
   assert.throws(() => CMP_CAUSE_KINDS.push('free-text'));
+});
+
+test('every emitted CMP diagnostic uses the closed diagnostic registry', async () => {
+  const contracts = await readFile(
+    new URL('../src/comprehension/contracts.mjs', import.meta.url),
+    'utf8'
+  );
+  const commands = await readFile(
+    new URL('../src/commands/comprehension.mjs', import.meta.url),
+    'utf8'
+  );
+  const productionContracts = contracts.replace(
+    /export const CMP_REFUSAL_CODES[\s\S]*?const SHA256/,
+    'const SHA256'
+  );
+  const emitted = [...new Set(
+    [productionContracts, commands]
+      .flatMap((source) => [...source.matchAll(/['"](CMP_[A-Z0-9_]+)['"]/g)])
+      .map((match) => match[1])
+  )].sort();
+  const unknown = emitted.filter((code) => !CMP_DIAGNOSTIC_CODES.includes(code));
+  assert.deepEqual(unknown, []);
 });
 
 test('resource fallback projects every exact change kind in canonical order without claiming AST assurance', () => {

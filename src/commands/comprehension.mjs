@@ -70,7 +70,7 @@ async function resolveBaseline(root, options) {
   const selected = resolveContext(await buildRepositorySubjectIndex(root), {
     reference,
     kind: 'story',
-    required: Boolean(requestedWorkId || requestedPhase)
+    required: Boolean(requestedWorkId)
   });
   if (selected) {
     const selectedBaseline = activeBaseline(selected.state, requestedPhase);
@@ -90,9 +90,10 @@ async function resolveBaseline(root, options) {
     }
   }
   if (requestedPhase) {
-    throw new SingularityFlowError('--phase requires a resolvable Story or an explicit --base revision.', {
-      code: 'CMP_STORY_CONTEXT_REQUIRED'
-    });
+    throw new SingularityFlowError(
+      '--phase requires --work-id or an attached Story. For repository-only inspection, use --base without --phase.',
+      { code: 'CMP_STORY_CONTEXT_REQUIRED' }
+    );
   }
   return { base: 'HEAD', source: 'working-tree-head', workId: null, phase: null };
 }

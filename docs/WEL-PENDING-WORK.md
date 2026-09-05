@@ -6,10 +6,10 @@
 
 **Created:** 2026-08-30
 
-**Current reconciliation:** checked against `main@e3330e80` on 2026-09-06. Commits `259b76f1`,
+**Current reconciliation:** checked against `main@150b6326` on 2026-09-06. Commits `259b76f1`,
 `58d9329d`, and `d55229c7` provide the bounded exact-static JUnit identity adapter, immutable
 proposal snapshot, human review through the existing phase approval, migration, safe command-shape
-fallbacks, content-free benchmark v2, and same-process unenrolled delta measurement. Commit
+fallbacks, the evolving content-free benchmark, and same-process unenrolled delta measurement. Commit
 `98750174` aligns the CAB architecture and threat
 boundary. The current release increment also makes the isolated npm and VSIX engine smokes load the
 WEL adapter and require its packaged Java parser helper. These increments do not satisfy the
@@ -194,7 +194,7 @@ Implemented in the current increment:
   counts and reports platform, parser latency, catalog bytes, and receipt bytes;
 - benchmark output explicitly excludes repository paths, origin URLs, Work IDs, Git identities,
   clause text, and test bodies;
-- benchmark v2 separately measures static catalog time, raw-report ingestion, receipt projection,
+- benchmark v3 separately measures static catalog time, raw-report ingestion, receipt projection,
   process CPU, raw/catalog/receipt bytes, and estimated durable bytes per execution;
 - the same-process unenrolled receipt baseline is measured beside the witnessed receipt, exposing
   incremental projection latency, receipt bytes, and estimated durable bytes without presenting
@@ -202,6 +202,13 @@ Implemented in the current increment:
 - the bounded synthetic fixture reports exact/inexact/false-exact counters without recording a
   developer identity, repository, prompt, source body, or individual productivity;
 - the benchmark degrades to `unavailable` rather than treating a missing JDK as product failure;
+- benchmark v3 measures the real read-only Context X-Ray projection and its serialized byte size
+  from content-free machine-local telemetry; the measured projection performs no model or network
+  request and does not expose its fixture Work ID or repository path;
+- benchmark v3 also measures the real governed Story-start transaction against a disposable local
+  configuration authority. It includes the local publication commits, disables application push,
+  model grounding, and AST warming, defaults to three bounded samples, and emits only timing and
+  resulting workflow-byte counts. `--story-samples=1..30` permits a larger reviewed local run;
 - the release gate installs the exact npm tarball into an isolated prefix and extracts the exact
   VSIX engine under a loader that refuses source-tree module access; both artifacts must contain the
   Java parser helper, import the WEL adapter, and return the admitted Maven/Surefire command shape;
@@ -215,10 +222,12 @@ Implemented in the current increment:
 
 Implementation checkpoints: `d55229c7` (content-free benchmark v2), `6fbcf3bf` (isolated npm and
 VSIX engine proof), `d960e928` (portable deterministic corpus command), `396ccb73` (mandatory
-release-gate benchmark), and `e3330e80` (same-process incremental observation cost).
+release-gate benchmark), `e3330e80` (same-process incremental observation cost), and `723099fc`
+(content-free Context X-Ray projection latency and byte measurement), plus `150b6326` (bounded
+model-free governed Story-start transaction latency and workflow-byte measurement).
 
-Still required before completion: reviewed real-repository corpus metrics, Context X-Ray and Story
-latency measurements, an approved Flow Impact design, office/offline/recovery exercises, execution
+Still required before completion: reviewed real-repository corpus metrics, office-network remote
+Story publication latency measurements, an approved Flow Impact design, office/offline/recovery exercises, execution
 of the isolated artifact proof on Windows and Linux, and one signed release receipt binding npm,
 VSIX, schemas, source, and the full supported-platform matrix.
 

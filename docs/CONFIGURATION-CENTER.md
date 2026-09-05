@@ -41,6 +41,13 @@ creates a capability-change receipt and review branch; it never edits the approv
 The terminal equivalent is `singularity-flow capability auto <ID> --eligibility
 inherit|disabled|plan-only|bounded`, with optional protected-scope and numeric limits.
 
+The capability editor reuses the exact authority recorded in
+`singularity/configuration-source.json` when it creates the reviewed proposal. It asks you to choose
+a lead repository only when the current checkout has no valid pinned source and no unambiguous,
+credential-free `origin`. The editor never chooses whichever repository happened to be used most
+recently. The information icon beside each Auto field explains the effect of that value before it
+is saved.
+
 Capability policy is monotonic: it may make Auto stricter but cannot enable Auto when repository
 policy is off or when the selected workflow type is ineligible. The screen shows declared and
 effective values side by side and calls out an ancestor override.

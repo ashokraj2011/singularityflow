@@ -127,6 +127,8 @@ test('snapshot exposes configuration and visual workflow data', async () => {
   run(process.execPath, [bin, 'start', 'DESK-1', '--from-branch', 'main', '--ref', 'story/DESK-1-editor', '--title', 'Editor workflow'], root);
   snapshot = await repositorySnapshot(root);
   assert.equal(snapshot.selectedWorkId, 'DESK-1');
+  assert.equal(snapshot.capabilityMap.authorityRepository, `${root}.git`,
+    'a Story checkout reuses its exact pinned configuration authority');
   assert.equal(snapshot.progress.currentPhase, 'intake');
   assert.equal(snapshot.progress.percentage, 0);
   assert.equal(snapshot.workflow.workItem.workType, 'feature');
@@ -166,6 +168,8 @@ test('scoped snapshots construct only the requested schema-v2 slice', async () =
   assert.deepEqual(Object.keys(snapshot), ['repository', 'capabilities']);
   assert.equal(snapshot.repository.branch, 'main');
   assert.equal(snapshot.capabilities.path, 'singularity/capabilities.yml');
+  assert.equal(snapshot.capabilities.mode, 'implicit');
+  assert.equal(snapshot.capabilities.authorityRepository, `${root}.git`);
   assert.equal(Object.hasOwn(snapshot, 'configuration'), false);
   assert.equal(Object.hasOwn(snapshot, 'lifecycle'), false);
 

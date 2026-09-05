@@ -20,6 +20,11 @@ const FIELDS = [
   'autoMaximumTouchedPaths', 'autoMaximumConcurrentFlights'
 ] as const;
 
+function fieldInfo(label: string, explanation: string): string {
+  return `<span class="field-info" role="img" tabindex="0" title="${escape(explanation)}"
+    aria-label="${escape(`${label}: ${explanation}`)}" data-help="${escape(explanation)}">${icon('info', { size: 14 })}</span>`;
+}
+
 function metadataRow(key = '', value = ''): string {
   return `<div class="metadata-row" data-metadata-row data-original-key="${escape(key)}">
     <label class="field"><span>Key</span><input type="text" data-metadata-key value="${escape(key)}"
@@ -171,7 +176,7 @@ function autoPolicyEditor(detail: CapabilityDetail, managed = false): string {
     <p><button type="button" class="secondary" data-open-auto-settings>Repository &amp; work-type settings</button></p>
     ${auto.overridden ? '<p class="notice warning">An ancestor applies a stricter Auto policy. A wider value here will not weaken it.</p>' : ''}
     <div class="form-grid">
-      <label class="field"><span>Capability eligibility</span>
+      <label class="field"><span>Capability eligibility${fieldInfo('Capability eligibility', 'Inherit adds no capability restriction. Disabled blocks Auto. Plan only permits reviewed planning but cannot start a flight. Bounded execution permits an explicitly confirmed plan within every repository, work-type, and capability limit.')}</span>
         <select data-field="autoEligibility">
           ${[
             ['inherit', 'Inherit — do not restrict'],
@@ -182,18 +187,18 @@ function autoPolicyEditor(detail: CapabilityDetail, managed = false): string {
         </select>
         <small>Repository Auto must also be enabled and the selected work type must be plan-only or bounded.</small>
       </label>
-      <label class="field"><span>Protected-scope prediction</span>
+      <label class="field"><span>Protected-scope prediction${fieldInfo('Protected-scope prediction', 'Block Auto refuses before execution when the plan predicts changes to protected paths. Allow policy evaluation continues to the ordinary protected-path gates and approvals; it never bypasses them.')}</span>
         <select data-field="autoProtectedScope">
           <option value="block"${auto.declared.forbiddenWhenProtectedScopePredicted ? ' selected' : ''}>Block Auto</option>
           <option value="allow"${auto.declared.forbiddenWhenProtectedScopePredicted ? '' : ' selected'}>Allow policy evaluation</option>
         </select>
         <small>Protected-path gates still apply. Allowing evaluation never bypasses them.</small>
       </label>
-      <label class="field"><span>Maximum touched paths</span>
+      <label class="field"><span>Maximum touched paths${fieldInfo('Maximum touched paths', 'The greatest number of distinct repository paths one Auto flight may change for this capability. Leave it empty to inherit the stricter upper-layer limit.')}</span>
         <input type="number" min="1" step="1" data-field="autoMaximumTouchedPaths"
           value="${escape(auto.declared.maximumTouchedPaths ?? '')}" placeholder="inherit">
       </label>
-      <label class="field"><span>Maximum concurrent flights</span>
+      <label class="field"><span>Maximum concurrent flights${fieldInfo('Maximum concurrent flights', 'The greatest number of Auto flights that may run at the same time for this capability. Leave it empty to inherit the stricter upper-layer limit.')}</span>
         <input type="number" min="1" step="1" data-field="autoMaximumConcurrentFlights"
           value="${escape(auto.declared.maximumConcurrentFlights ?? '')}" placeholder="inherit">
       </label>

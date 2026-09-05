@@ -3354,6 +3354,10 @@ test('the capability screen shows declared beside effective, and names the overr
   assert.match(html, /Auto policy/);
   assert.match(html, /Capability eligibility/);
   assert.match(html, /<option value="bounded" selected>Bounded execution<\/option>/);
+  assert.match(html, /class="field-info"/);
+  assert.match(html, /aria-label="Protected-scope prediction:/);
+  assert.match(html, /Block Auto refuses before execution when the plan predicts changes to protected paths/);
+  assert.match(html, /Allow policy evaluation continues to the ordinary protected-path gates and approvals/);
   assert.match(html, /applies: plan-only/);
   assert.match(html, /cannot turn Auto on above this level/);
   assert.match(html, /data-open-auto-settings/);
@@ -3369,6 +3373,18 @@ test('receipt-managed capability maps expose Auto through a reviewed proposal ac
   assert.match(html, /data-managed-auto-save="payments"/);
   assert.match(html, /receipt-backed review proposal/);
   assert.match(CAPABILITY_SCRIPT, /type: 'managed-auto'/);
+});
+
+test('capability edits reuse verified map authority before offering repository recovery', async () => {
+  const extension = await readFile(source('extension.ts'), 'utf8');
+  const authority = extension.indexOf(
+    'const authorityRepository = store.current.snapshot?.capabilityMap?.authorityRepository?.trim()');
+  const fallback = extension.indexOf("['capability', 'leads', '--json']", authority);
+  assert.ok(authority >= 0, 'the selected capability snapshot must carry its verified authority');
+  assert.ok(fallback > authority, 'lead discovery remains available after the verified-authority path');
+  assert.match(extension.slice(authority, fallback), /let selected:[\s\S]*authorityRepository/);
+  assert.match(extension.slice(authority, fallback), /if \(!selected\)/,
+    'repository selection is recovery for missing provenance, not the normal save path');
 });
 
 test('the capability screen navigates both relationship directions and removes through reviewed history', () => {
@@ -3504,7 +3520,7 @@ test('every domain noun has an icon, so nothing falls back to a bare label', () 
     'git', 'branch', 'commit', 'merge', 'code', 'capability', 'directory', 'teams', 'policy',
     'gate', 'epic', 'tracker', 'document', 'impact', 'success', 'waiting', 'warning',
     'blocked', 'stale', 'ok', 'wait', 'bad', 'workspaceManage', 'workspaceAdd',
-    'configuration', 'inbox', 'help', 'start', 'visual', 'compare'
+    'configuration', 'inbox', 'help', 'info', 'start', 'visual', 'compare'
   ]) {
     assert.ok(ICON_NAMES.includes(name), `${name} is not registered`);
     assert.notEqual(icon(name), '', `${name} has no icon`);

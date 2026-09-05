@@ -4219,17 +4219,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (confirmed !== 'Remove') return;
     }
     try {
-      const leads = await client.run<Array<{ url?: string }>>(['capability', 'leads', '--json']);
-      const available = leads.filter((entry): entry is { url: string } =>
-        typeof entry.url === 'string' && entry.url.length > 0);
-      if (!available.length) {
-        throw new Error('No organisation lead repository is registered. Map the first capability before editing the organisation map.');
+      const authorityRepository = store.current.snapshot?.capabilityMap?.authorityRepository?.trim();
+      let selected: { url: string } | undefined = authorityRepository
+        ? { url: authorityRepository }
+        : undefined;
+      if (!selected) {
+        const leads = await client.run<Array<{ url?: string }>>(['capability', 'leads', '--json']);
+        const available = leads.filter((entry): entry is { url: string } =>
+          typeof entry.url === 'string' && entry.url.length > 0);
+        if (!available.length) {
+          throw new Error('No organisation lead repository is registered. Map the first capability before editing the organisation map.');
+        }
+        selected = available.length === 1 ? available[0] : await vscode.window.showQuickPick(
+          available.map((entry) => ({ label: entry.url, entry })), {
+            title: 'Choose capability-map authority',
+            placeHolder: 'The approved map has no verified source; choose the repository that owns it'
+          }).then((choice) => choice?.entry);
       }
-      const selected = available.length === 1 ? available[0] : await vscode.window.showQuickPick(
-        available.map((entry) => ({ label: entry.url, entry })), {
-          title: 'Edit the governed capability map',
-          placeHolder: 'Choose the lead repository whose sflow/config branch owns this map'
-        }).then((choice) => choice?.entry);
       if (!selected) return;
       const mode = message.type === 'remove' ? 'remove' : 'set';
       const argv = capabilityProposalArgv(mode, message.id, selected.url,

@@ -49,6 +49,8 @@ import {
   loadAgentMappings,
   validateAgentMappings
 } from './agents.mjs';
+import { readConfigurationSource } from './configuration-branch.mjs';
+import { configuredRemoteIdentity } from './git-remote-diagnostics.mjs';
 import {
   structuredWorldModelViewReferences, worldModelViewCatalog, worldModelWorkflowViewUsage
 } from './world-model-views.mjs';
@@ -749,12 +751,14 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
     // stored form is a flat map with parent pointers and every reader wants the hierarchy. Absent
     // until the lead repository describes itself, which is a normal state rather than a fault.
     capabilityMap: await (async () => {
+      const authorityRepository = await capabilityAuthorityRepository(root);
       const capabilityDefinition = await loadCapabilities(root);
       if (!capabilityDefinition) {
         const repositories = Object.keys(portfolio?.repositories ?? {});
         const repository = repositories.length === 1 ? repositories[0] : null;
         return {
           mode: 'implicit',
+          authorityRepository,
           capabilities: [{
             id: IMPLICIT_CAPABILITY_ID,
             name: 'This repository',
@@ -771,6 +775,7 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
         validateCapabilities(capabilityDefinition, portfolio);
         return {
           mode: capabilityMapMode(capabilityDefinition),
+          authorityRepository,
           capabilities: capabilityTree(capabilityDefinition)
         };
       } catch (error) {
@@ -1217,13 +1222,37 @@ async function configurationSlice(root) {
 async function capabilitySlice(root) {
   const portfolio = await loadPortfolio(root, { required: false });
   const definition = await loadCapabilities(root);
-  if (!definition) return { path: CAPABILITIES_PATH, capabilities: null };
+  const authorityRepository = await capabilityAuthorityRepository(root);
+  if (!definition) return {
+    path: CAPABILITIES_PATH, mode: 'implicit', authorityRepository, capabilities: null
+  };
   try {
     validateCapabilities(definition, portfolio);
-    return { path: CAPABILITIES_PATH, capabilities: capabilityTree(definition) };
+    return {
+      path: CAPABILITIES_PATH,
+      mode: capabilityMapMode(definition),
+      authorityRepository,
+      capabilities: capabilityTree(definition)
+    };
   } catch (error) {
-    return { path: CAPABILITIES_PATH, capabilities: null, error: error.message };
+    return {
+      path: CAPABILITIES_PATH, mode: capabilityMapMode(definition), authorityRepository,
+      capabilities: null, error: error.message
+    };
   }
+}
+
+/** Exact configuration provenance wins; a self-owned checkout falls back to its credential-free origin. */
+async function capabilityAuthorityRepository(root) {
+  try {
+    const source = await readConfigurationSource(root);
+    if (source?.repository) return source.repository;
+  } catch {
+    // Invalid provenance must not be guessed around. The editor will retain its explicit chooser.
+    return null;
+  }
+  try { return configuredRemoteIdentity(root, 'origin').url ?? null; }
+  catch { return null; }
 }
 
 async function integrationSlice(root) {

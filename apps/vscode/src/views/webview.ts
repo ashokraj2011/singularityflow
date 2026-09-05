@@ -443,6 +443,14 @@ export const STYLE = `
   }
   .field { display: grid; align-content: start; gap: .35rem; min-width: 0; }
   .field > span { font-size: .78rem; font-weight: 600; color: var(--vscode-foreground); }
+  .field-info { position: relative; display: inline-flex; margin-left: .25rem; color: var(--sf-link); cursor: help; vertical-align: middle; }
+  .field-info .ico { margin: 0; }
+  .field-info::after { content: attr(data-help); position: absolute; z-index: 20; left: 1.1rem; top: -.35rem;
+    width: min(22rem, 70vw); padding: .55rem .65rem; border: var(--sf-border); border-radius: var(--sf-radius);
+    color: var(--vscode-foreground); background: var(--vscode-editorHoverWidget-background, var(--sf-surface));
+    box-shadow: var(--sf-shadow); font-size: .76rem; font-weight: 400; line-height: 1.4; visibility: hidden; opacity: 0; pointer-events: none; }
+  .field-info:hover::after, .field-info:focus::after { visibility: visible; opacity: 1; }
+  .field-info:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
   .field > small { color: var(--sf-dim); font-size: .76rem; line-height: 1.4; }
   .field input[type="text"], .field select { width: 100%; min-height: 2.25rem; }
   .span-2 { grid-column: 1 / -1; }

@@ -703,6 +703,8 @@ export interface RepositorySnapshot {
    */
   capabilityMap?: {
     mode?: 'implicit' | 'explicit-legacy' | 'explicit-managed';
+    /** Credential-free repository recorded as the exact source of this approved map. */
+    authorityRepository?: string | null;
     capabilities?: CapabilityNode[];
     repositories?: string[];
     error?: string;

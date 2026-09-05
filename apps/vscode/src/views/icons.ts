@@ -39,6 +39,7 @@ const BASE_PATHS = {
   mcp: '<path d="M8 8V5a2 2 0 0 1 4 0v3M12 8V4a2 2 0 0 1 4 0v6M8 8V6a2 2 0 0 0-4 0v7c0 5 3 9 8 9s8-4 8-9v-2a2 2 0 0 0-4 0"/><path d="M8 12h8"/>',
   book: '<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H12v17H6.5A2.5 2.5 0 0 0 4 22.5zM20 5.5A2.5 2.5 0 0 0 17.5 3H12v17h5.5a2.5 2.5 0 0 1 2.5 2.5z"/>',
   help: '<circle cx="12" cy="12" r="9"/><path d="M9.7 9a2.5 2.5 0 1 1 3.7 2.2c-1 .6-1.4 1.1-1.4 2.3M12 17.5h.01"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 10v7M12 7h.01"/>',
   code: '<path d="m8 8-4 4 4 4M16 8l4 4-4 4M14 4l-4 16"/>',
 
   // Work and governance
@@ -145,7 +146,7 @@ export const TREE_ICONS = {
   agent: { id: 'hubot' }, prompt: { id: 'comment-discussion' }, skill: { id: 'sparkle' },
   pack: { id: 'package' }, approval: { id: 'verified' }, inbox: { id: 'inbox', color: 'charts.green' }, jira: { id: 'issues' },
   archive: { id: 'archive' },
-  help: { id: 'question', color: 'charts.green' }, start: { id: 'play-circle' },
+  help: { id: 'question', color: 'charts.green' }, info: { id: 'info' }, start: { id: 'play-circle' },
   favorite: { id: 'star-full', color: 'charts.yellow' },
   worldModel: { id: 'globe' }, story: { id: 'git-pull-request' }, initiative: { id: 'milestone' },
   mcp: { id: 'plug' },

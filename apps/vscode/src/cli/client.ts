@@ -27,7 +27,13 @@ interface SnapshotEnvelope {
   repository?: Record<string, unknown>;
   lifecycle?: Partial<RepositorySnapshot>;
   configuration?: Partial<RepositorySnapshot>;
-  capabilities?: { path?: string; capabilities?: unknown[] | null; error?: string };
+  capabilities?: {
+    path?: string;
+    mode?: 'implicit' | 'explicit-legacy' | 'explicit-managed';
+    authorityRepository?: string | null;
+    capabilities?: unknown[] | null;
+    error?: string;
+  };
   integrations?: Partial<RepositorySnapshot>;
   diagnostics?: RepositorySnapshot['diagnostics'];
   sgos?: RepositorySnapshot['sgos'];
@@ -60,7 +66,12 @@ function flattenSnapshot(envelope: SnapshotEnvelope): RepositorySnapshot {
       capabilityMapPath: capability.path,
       capabilityMap: capability.capabilities == null && !capability.error
         ? null
-        : { capabilities: capability.capabilities ?? [], ...(capability.error ? { error: capability.error } : {}) }
+        : {
+          mode: capability.mode,
+          authorityRepository: capability.authorityRepository ?? null,
+          capabilities: capability.capabilities ?? [],
+          ...(capability.error ? { error: capability.error } : {})
+        }
     } : {}),
     ...(envelope.diagnostics ? { diagnostics: envelope.diagnostics } : {}),
     ...(envelope.sgos ? { sgos: envelope.sgos } : {}),

@@ -377,6 +377,11 @@ Usage:
   singularity-flow learn list|show ... --role <ROLE> [--pack <PACK-ID>] --trust <PUBLIC-TRUST-JSON> [--json]
   singularity-flow learn start|inspect <LESSON-ID> --role <ROLE> --module <LEARNING-MODULE.json>
     [--pack <PACK-ID>] --trust <PUBLIC-TRUST-JSON> [--json]
+  singularity-flow learn materialize <LESSON-ID> --role <ROLE> --module <LEARNING-MODULE.json>
+    --fixture <LEARNING-FIXTURE.json> [--pack <PACK-ID>] --trust <PUBLIC-TRUST-JSON>
+    [--confirm <PLAN-SHA256>] [--json]
+  singularity-flow learn workspace <MISSION-SHA256> [--json]
+  singularity-flow learn reset <MISSION-SHA256> [--confirm <PLAN-SHA256>] [--json]
   singularity-flow learn explain-change <LESSON-ID> <STEP-ID> --role <ROLE> --module <LEARNING-MODULE.json>
     [--pack <PACK-ID>] --trust <PUBLIC-TRUST-JSON> [--json]
   singularity-flow learn quiz|teach-back <LESSON-ID> <CHECK-ID> --role <ROLE>

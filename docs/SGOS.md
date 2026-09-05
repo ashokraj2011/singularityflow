@@ -332,9 +332,12 @@ The installed `learn` surface now supports role- and Pack-filtered lesson discov
 digest-bound guided mission descriptors. A mission can explain its objectives, steps, evidence,
 failure/recovery drills and declared non-effects, then evaluate exact quizzes or deterministic
 teach-back concept presence. The lesson must still come from a signed active Pack and the module's
-self-hash must equal that lesson's content digest. No fixture is materialized or executed; no model,
-tool, Device, Git write, Process transition, employee score, certification, or durable progress is
-created. See `singularity-flow learn --help` and the SGOS governed-execution topic.
+self-hash must equal that lesson's content digest. An optional self-hashed fixture can materialize
+bounded, secret-scanned UTF-8 tutorial files only under Git-common private storage after an exact
+preview/confirmation. SFlow never executes those files. `learn workspace` verifies their bytes and
+`learn reset` preview-removes only that local tutorial. No model, tool, Device, application-tree or
+Git write, Process transition, employee score, certification, or durable progress is created. See
+`singularity-flow learn --help` and the SGOS governed-execution topic.
 
 ## Governed meta-tool activation
 

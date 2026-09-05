@@ -302,8 +302,8 @@ const SGOS_SUBCOMMANDS = Object.freeze({
   }),
   pack: Object.freeze({ read: ['list', 'active', 'show'], mutation: ['propose', 'review', 'activate', 'revoke'] }),
   learn: Object.freeze({
-    read: ['list', 'show', 'start', 'inspect', 'explain-change', 'quiz', 'teach-back'],
-    mutation: []
+    read: ['list', 'show', 'start', 'workspace', 'inspect', 'explain-change', 'quiz', 'teach-back'],
+    mutation: ['materialize', 'reset']
   }),
   memory: Object.freeze({ read: ['inspect', 'dependencies'], mutation: ['register', 'promote'] }),
   'meta-tool': Object.freeze({
@@ -990,6 +990,10 @@ function resolveSgosOperation(definition, positionals, options) {
       && optionString(options, 'confirm') == null) {
     return never(`authority-store.${subcommand}.plan`, definition, 'read');
   }
+  if (definition.name === 'learn' && ['materialize', 'reset'].includes(subcommand)
+      && optionString(options, 'confirm') == null) {
+    return never(`learn.${subcommand}.plan`, definition, 'read');
+  }
   return never(
     `${definition.name}.${subcommand}`,
     definition,
@@ -1178,6 +1182,8 @@ export function operationCatalog() {
   sgos.push(never('authority-store.rollback.plan', commandDefinition('authority-store'), 'read'));
   sgos.push(never('authority-store.publish.plan', commandDefinition('authority-store'), 'read'));
   sgos.push(never('authority-store.sync.plan', commandDefinition('authority-store'), 'read'));
+  sgos.push(never('learn.materialize.plan', commandDefinition('learn'), 'read'));
+  sgos.push(never('learn.reset.plan', commandDefinition('learn'), 'read'));
   const modelFreeMixed = [
     never('init.legacy', initDefinition, 'mutation'),
     never('init.smart-detect.preview', initDefinition, 'read'),

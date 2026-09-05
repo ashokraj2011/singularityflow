@@ -3032,6 +3032,9 @@ singularity-flow authority-store rollback --receipt CUTOVER-SHA256 [--store ID] 
 singularity-flow pack list|active|show|propose|review|activate|revoke ... --trust PUBLIC-TRUST.json
 singularity-flow learn list|show [LESSON-ID] --role ROLE [--pack PACK-ID] --trust PUBLIC-TRUST.json [--json]
 singularity-flow learn start|inspect LESSON-ID --role ROLE --module LEARNING-MODULE.json [--pack PACK-ID] --trust PUBLIC-TRUST.json [--json]
+singularity-flow learn materialize LESSON-ID --role ROLE --module LEARNING-MODULE.json --fixture LEARNING-FIXTURE.json [--pack PACK-ID] --trust PUBLIC-TRUST.json [--confirm PLAN-SHA256] [--json]
+singularity-flow learn workspace MISSION-SHA256 [--json]
+singularity-flow learn reset MISSION-SHA256 [--confirm PLAN-SHA256] [--json]
 singularity-flow learn explain-change LESSON-ID STEP-ID --role ROLE --module LEARNING-MODULE.json [--pack PACK-ID] --trust PUBLIC-TRUST.json [--json]
 singularity-flow learn quiz|teach-back LESSON-ID CHECK-ID --role ROLE --module LEARNING-MODULE.json --answers ANSWER.json [--pack PACK-ID] --trust PUBLIC-TRUST.json [--json]
 singularity-flow memory inspect|dependencies|register|promote ...

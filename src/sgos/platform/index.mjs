@@ -9,4 +9,5 @@ export * from './memory.mjs';
 export * from './secrets.mjs';
 export * from './packs.mjs';
 export * from './learn.mjs';
+export * from './learning-workspace.mjs';
 export * from './meta-tools.mjs';

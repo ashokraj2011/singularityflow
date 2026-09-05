@@ -1,8 +1,13 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
 import {
-  createLearningModule, createReadOnlyLessonCatalog, platformSha256, validateLearningModule
+  createLearningFixture, createLearningModule, createLearningWorkspaceService,
+  createReadOnlyLessonCatalog, platformSha256, validateLearningFixture, validateLearningModule
 } from '../src/sgos/platform/index.mjs';
 
 function learningModule(overrides = {}) {
@@ -92,6 +97,29 @@ function packFor(module, { packId = 'software-delivery', role = 'developer' } = 
   };
 }
 
+async function repository(t) {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-learning-workspace-'));
+  execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
+  execFileSync('git', ['config', 'user.name', 'Learning Tester'], { cwd: root });
+  execFileSync('git', ['config', 'user.email', 'learning@example.invalid'], { cwd: root });
+  await writeFile(path.join(root, 'README.md'), '# Learning host\n');
+  execFileSync('git', ['add', '.'], { cwd: root });
+  execFileSync('git', ['commit', '-qm', 'initial'], { cwd: root });
+  t.after(() => rm(root, { recursive: true, force: true }));
+  return root;
+}
+
+function learningFixture(overrides = {}) {
+  return createLearningFixture({
+    kind: 'learning-fixture', id: 'recovery-refusal-fixture', version: 1,
+    files: [{
+      path: 'README.md',
+      content: '# Disposable recovery exercise\n\nEdit this copy; it has no governance authority.\n'
+    }],
+    ...overrides
+  });
+}
+
 test('learning-module v1 is strict, bounded, content-addressed, and non-executable', () => {
   const module = learningModule();
   assert.equal(validateLearningModule(module).moduleSha256, module.moduleSha256);
@@ -122,6 +150,92 @@ test('learning-module v1 is strict, bounded, content-addressed, and non-executab
     ...excessive.steps[0], stepId: `step-${String(index).padStart(3, '0')}`
   }));
   assert.throws(() => createLearningModule(excessive), (error) => error.code === 'SGOS_LEARN_LIMIT');
+});
+
+test('learning fixtures are bounded text-only identities and refuse unsafe payloads', () => {
+  const fixture = learningFixture();
+  assert.equal(validateLearningFixture(fixture).fixtureSha256, fixture.fixtureSha256);
+
+  const traversal = structuredClone(fixture);
+  delete traversal.fixtureSha256;
+  traversal.files[0].path = '../outside.txt';
+  assert.throws(() => createLearningFixture(traversal),
+    (error) => error.code === 'SGOS_LEARN_FIXTURE_PATH_INVALID');
+
+  const executable = structuredClone(fixture);
+  delete executable.fixtureSha256;
+  executable.files[0].command = ['node', 'exercise.js'];
+  assert.throws(() => createLearningFixture(executable), /unknown field 'command'/);
+
+  const secret = structuredClone(fixture);
+  delete secret.fixtureSha256;
+  secret.files[0].content = '-----BEGIN PRIVATE KEY-----\nnot-a-real-key';
+  assert.throws(() => createLearningFixture(secret),
+    (error) => error.code === 'SGOS_LEARN_SECRET_REFUSED');
+});
+
+test('learning workspace materialization is confirmation-bound, disposable, and outside Git', async (t) => {
+  const root = await repository(t);
+  const fixture = learningFixture();
+  const module = learningModule({
+    sandboxFixture: {
+      kind: 'descriptor-only', fixtureId: fixture.id, fixtureSha256: fixture.fixtureSha256
+    }
+  });
+  const packRegistry = registry(packFor(module));
+  const catalog = createReadOnlyLessonCatalog({ packRegistry });
+  const service = createLearningWorkspaceService({ lessonCatalog: catalog, repositoryRoot: root });
+  const request = { role: 'developer', lessonId: module.id, module, fixture };
+  const plan = await service.plan(request);
+  assert.equal(plan.effects.machineLocalTutorial, 'create-or-verify');
+  await assert.rejects(() => service.materialize({ ...request, confirm: platformSha256('wrong') }),
+    (error) => error.code === 'SGOS_LEARN_CONFIRMATION_MISMATCH');
+
+  const before = execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' });
+  const materialized = await service.materialize({ ...request, confirm: plan.confirmationSha256 });
+  assert.equal(materialized.status, 'ready');
+  assert.equal(materialized.authority, false);
+  assert.equal(materialized.certification, false);
+  assert.equal(materialized.employeeScoring, false);
+  assert.equal(await readFile(path.join(materialized.workspacePath, 'README.md'), 'utf8'),
+    fixture.files[0].content);
+  assert.equal(execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }),
+    before);
+  assert.equal((await service.status(materialized.missionId)).status, 'ready');
+
+  await writeFile(path.join(materialized.workspacePath, 'README.md'), 'learner edit\n');
+  const changed = await service.status(materialized.missionId);
+  assert.equal(changed.status, 'changed');
+  assert.deepEqual(changed.files.changed, ['README.md']);
+
+  const resetPlan = await service.resetPlan(materialized.missionId);
+  await assert.rejects(() => service.reset(materialized.missionId, platformSha256('wrong')),
+    (error) => error.code === 'SGOS_LEARN_CONFIRMATION_MISMATCH');
+  const reset = await service.reset(materialized.missionId, resetPlan.confirmationSha256);
+  assert.equal(reset.status, 'reset');
+  assert.equal((await service.status(materialized.missionId)).status, 'not-materialized');
+  assert.equal(execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }),
+    before);
+});
+
+test('learning workspace confirmation cannot outlive signed Pack lesson authority', async (t) => {
+  const root = await repository(t);
+  const fixture = learningFixture();
+  const module = learningModule({
+    sandboxFixture: {
+      kind: 'descriptor-only', fixtureId: fixture.id, fixtureSha256: fixture.fixtureSha256
+    }
+  });
+  const packRegistry = registry(packFor(module));
+  const catalog = createReadOnlyLessonCatalog({ packRegistry });
+  const service = createLearningWorkspaceService({ lessonCatalog: catalog, repositoryRoot: root });
+  const request = { role: 'developer', lessonId: module.id, module, fixture };
+  const plan = await service.plan(request);
+  packRegistry.replace();
+  await assert.rejects(
+    () => service.materialize({ ...request, confirm: plan.confirmationSha256 }),
+    (error) => error.code === 'SGOS_LEARN_LESSON_UNAVAILABLE'
+  );
 });
 
 test('signed active Pack catalog filters by role and Pack and binds the exact module digest', async () => {

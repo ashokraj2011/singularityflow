@@ -38,9 +38,16 @@ test('the checked-in SGOS command index matches the public action families and r
     /process list\|status\|graph\|fsck\|step\|run\|pause\|stop\|resume\|recover\|replay\|fork/);
   assert.match(reference, /policy status\|fsck\|plan\|apply/);
   assert.match(reference, /task list\|show\|evidence\|retry/);
-  for (const line of reference.split('\n').filter((entry) =>
-    entry.startsWith('singularity-flow learn '))) {
+  const learningLines = reference.split('\n').filter((entry) =>
+    entry.startsWith('singularity-flow learn '));
+  for (const line of learningLines.filter((entry) =>
+    !/^singularity-flow learn (?:workspace|reset)\b/.test(entry))) {
     assert.match(line, /--trust PUBLIC-TRUST\.json/, `learning command is missing trust input: ${line}`);
+  }
+  for (const action of ['workspace', 'reset']) {
+    const line = learningLines.find((entry) => entry.startsWith(`singularity-flow learn ${action} `));
+    assert.ok(line, `learning command index is missing local ${action}`);
+    assert.doesNotMatch(line, /--trust/, `${action} must remain available without Pack credentials`);
   }
 });
 

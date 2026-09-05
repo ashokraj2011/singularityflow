@@ -259,10 +259,15 @@ Every public operation is classified before its implementation module is importe
 | learn.explain-change | read | never | — | — |
 | learn.inspect | read | never | — | — |
 | learn.list | read | never | — | — |
+| learn.materialize | mutation | never | — | — |
+| learn.materialize.plan | read | never | — | — |
 | learn.quiz | read | never | — | — |
+| learn.reset | mutation | never | — | — |
+| learn.reset.plan | read | never | — | — |
 | learn.show | read | never | — | — |
 | learn.start | read | never | — | — |
 | learn.teach-back | read | never | — | — |
+| learn.workspace | read | never | — | — |
 | ledger | mutation | never | — | — |
 | local-reset | mutation | never | — | — |
 | logs | read | never | — | — |

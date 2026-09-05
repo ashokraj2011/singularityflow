@@ -26,7 +26,7 @@ related:
   - governed-execution
   - workflow-authoring
   - evidence-and-ledger
-version: 20
+version: 21
 ---
 SGOS compiles confirmed intent and a ratified workflow into a finite, content-addressed Governed VM
 Program. Its operational Process state never replaces Story, Initiative, configuration, ledger, or
@@ -110,6 +110,11 @@ whose `moduleSha256` equals that lesson's `contentSha256`:
 singularity-flow learn list --role developer --trust publisher-trust.json
 singularity-flow learn start recovery-basics --role developer \
   --module learning/recovery-basics.json --trust publisher-trust.json
+singularity-flow learn materialize recovery-basics --role developer \
+  --module learning/recovery-basics.json --fixture learning/recovery-fixture.json \
+  --trust publisher-trust.json
+singularity-flow learn workspace sha256:<MISSION-DIGEST>
+singularity-flow learn reset sha256:<MISSION-DIGEST>
 singularity-flow learn inspect recovery-basics --role developer \
   --module learning/recovery-basics.json --trust publisher-trust.json
 singularity-flow learn explain-change recovery-basics inspect-refusal --role developer \
@@ -122,15 +127,19 @@ singularity-flow learn quiz recovery-basics safe-action --role developer \
 A v1 module is a strict self-hashed `learning-module` descriptor: role, title, bounded objectives,
 one `{ kind: "descriptor-only", fixtureId, fixtureSha256 }` sandbox reference, finite typed steps,
 expected evidence, failure/recovery exercises, and quiz or teach-back checks. There is deliberately
-no command, path, URL, callback, executable fixture, or raw-secret field. `start` returns a plan; it
-does not clone or materialize the fixture. `explain-change` proves the installed surface can affect
-neither Git, repository files, Devices, nor a governed Process. Quiz uses an exact option set;
-teach-back uses deterministic declared-concept presence and reports that limitation explicitly.
+no command, URL, callback, executable fixture, or raw-secret field. `start` returns a plan without
+materializing anything. A separate strict self-hashed `learning-fixture` can contain only bounded,
+secret-scanned UTF-8 text at portable relative paths. `materialize` previews the exact Pack, module,
+fixture, byte count, and confirmation digest, then writes those inert bytes under Git-common private
+storage only after confirmation. It never executes them and revalidates signed Pack authority while
+holding the mission lock. `workspace` detects missing or changed reviewed files without Pack trust;
+`reset` previews before removing that one machine-local tutorial. Neither operation changes the
+application tree, Git, Devices, nor a governed Process. Quiz uses an exact option set; teach-back
+uses deterministic declared-concept presence and reports that limitation explicitly.
 
-No progress is persisted in this bounded release. Results have no approval, Process, Pack,
+No learning progress is persisted in this bounded release. Workspace presence is local disposable
+state, not completion evidence. Results have no approval, Process, Pack,
 certification, or employee-performance authority; no model, tool, employee metric, ranking, or raw
-answer text is produced. Durable tutorial repositories, pack-author certification, semantic
-teach-back judgment, and signed portable learning completion remain staged.
 
 Command Center publishes one closed render descriptor for each canonical Work Object view:
 `overview`, `graph`, `board`, `timeline`, `table`, `document`, `form`, `evidence`, `diff`, `matrix`,

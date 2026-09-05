@@ -28,7 +28,8 @@ import {
 } from '../sgos/execution-units.mjs';
 import {
   createCapabilityPackRegistry, createMetaToolService, createPlatformMemoryService,
-  createAuthorityState, createReadOnlyLessonCatalog, openFilesystemAuthorityStore,
+  createAuthorityState, createLearningWorkspaceService, createReadOnlyLessonCatalog,
+  openFilesystemAuthorityStore,
   planPortableAuthorityImport, platformSha256, validatePlatformRecord,
   verifyPortableAuthorityTransport, verifySignedPlatformRecord
 } from '../sgos/platform/index.mjs';
@@ -71,6 +72,7 @@ const MUTATIONS = new Set([
   'authority-store.export', 'authority-store.import', 'authority-store.rollback',
   'authority-store.publish', 'authority-store.sync',
   'pack.propose', 'pack.review', 'pack.activate', 'pack.revoke',
+  'learn.materialize', 'learn.reset',
   'memory.register', 'memory.promote',
   'meta-tool.propose', 'meta-tool.evaluation', 'meta-tool.promote',
   'meta-tool.activate', 'meta-tool.observe', 'meta-tool.revoke', 'meta-tool.rollback'
@@ -946,6 +948,26 @@ async function packCommand(root, positionals, options) {
 
 async function learnCommand(root, positionals, options) {
   const action = positionals[1] ?? 'list';
+  if (action === 'workspace') {
+    const service = createLearningWorkspaceService({ repositoryRoot: root });
+    const result = await service.status(positionals[2]);
+    return emit(result, options, 'learn.workspace',
+      `Learning workspace ${result.missionId} is ${result.status}.`);
+  }
+  if (action === 'reset') {
+    const service = createLearningWorkspaceService({ repositoryRoot: root });
+    const missionId = positionals[2];
+    const plan = await service.resetPlan(missionId);
+    const confirm = optionString(options, 'confirm');
+    if (confirm == null) {
+      return emit(plan, options, 'learn.reset.plan',
+        `Review the machine-local tutorial reset, then repeat with --confirm ${plan.confirmationSha256}.`);
+    }
+    const result = await service.reset(missionId, confirm);
+    return emit(result, options, 'learn.reset',
+      `Reset machine-local learning workspace ${result.missionId}; Git and governed work were unchanged.`,
+    { changed: true });
+  }
   const { registry } = await packRegistry(root, options);
   const catalog = createReadOnlyLessonCatalog({ packRegistry: registry });
   const role = requiredString(options, 'role');
@@ -958,13 +980,28 @@ async function learnCommand(root, positionals, options) {
     const result = await catalog.show({ role, lessonId: positionals[2], packId });
     return emit(result, options, 'learn.show', `${result.lessonId} · ${result.title}.`);
   }
-  if (['start', 'inspect', 'explain-change', 'quiz', 'teach-back'].includes(action)) {
+  if (['start', 'materialize', 'inspect', 'explain-change', 'quiz', 'teach-back'].includes(action)) {
     const module = await jsonFile(root, optionString(options, 'module'), '--module');
     const request = { role, lessonId: positionals[2], packId, module };
     if (action === 'start') {
       const result = await catalog.start(request);
       return emit(result, options, 'learn.start',
         `Prepared read-only mission ${result.missionId}; no fixture was materialized or executed.`);
+    }
+    if (action === 'materialize') {
+      const fixture = await jsonFile(root, optionString(options, 'fixture'), '--fixture');
+      const service = createLearningWorkspaceService({ lessonCatalog: catalog, repositoryRoot: root });
+      const selected = { ...request, fixture };
+      const plan = await service.plan(selected);
+      const confirm = optionString(options, 'confirm');
+      if (confirm == null) {
+        return emit(plan, options, 'learn.materialize.plan',
+          `Review the exact disposable fixture, then repeat with --confirm ${plan.confirmationSha256}.`);
+      }
+      const result = await service.materialize({ ...selected, confirm });
+      return emit(result, options, 'learn.materialize',
+        `Materialized ${result.missionId} outside the application tree; nothing was executed.`,
+      { changed: true });
     }
     if (action === 'inspect') {
       const result = await catalog.inspect(request);

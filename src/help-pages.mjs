@@ -549,30 +549,37 @@ const PAGES = Object.freeze({
     seeAlso: ['process', 'task', 'request', 'receipt']
   },
   learn: {
-    summary: 'Inspect signed Pack lessons and rehearse bounded, descriptor-only guided missions.',
+    summary: 'Inspect signed Pack lessons and rehearse them in disposable local workspaces.',
     description: [
       'Learning is a model-free read surface over the exact lessons declared by signed active',
       'Capability Packs. `list` and `show` filter by role and optionally by Pack. Mission actions',
       'also require a strict v1 learning-module JSON file whose self-hash must equal the lesson',
       'content digest in that active Pack.',
       '',
-      'A mission describes objectives, one digest-only disposable fixture, finite steps, expected',
-      'evidence, refusal and recovery exercises, and deterministic quiz or teach-back checks. It',
-      'never materializes or executes the fixture, runs a command, invokes a model or tool, changes',
-      'Git, grants approval, or persists an employee score. Teach-back checks prove only that the',
-      'declared concepts occur in the answer; they are not semantic understanding or certification.'
+      'A mission describes objectives, one digest-bound disposable fixture, finite steps, expected',
+      'evidence, refusal and recovery exercises, and deterministic quiz or teach-back checks.',
+      '`materialize` previews first, then creates only reviewed inert UTF-8 fixture files under the',
+      'repository Git-common private directory after exact confirmation. It never executes content,',
+      'invokes a model or tool, changes the application tree or Git, grants approval, or persists an',
+      'employee score. `workspace` verifies local bytes; `reset` previews and removes only that local',
+      'tutorial. Teach-back is declared concept presence, not understanding or certification.'
     ],
     options: [
       ['--role ROLE', 'Select one lower-case kebab-case role declared by the signed lesson and module.'],
       ['--pack PACK-ID', 'Disambiguate or filter lessons to one active Pack.'],
       ['--module FILE', 'Read one repository-contained, digest-bound learning-module v1 JSON descriptor.'],
+      ['--fixture FILE', 'Read one strict self-hashed learning-fixture v1 containing bounded inert UTF-8 files.'],
       ['--answers FILE', 'Read a bounded quiz selection or teach-back answer; answer text is never echoed.'],
+      ['--confirm SHA256', 'Confirm the exact materialization or reset plan after reviewing it.'],
       ['--trust FILE', 'Use the explicit public publisher trust map required by the active Pack registry.'],
       ['--json', 'Emit the bounded mission, inspection, change explanation, or check result.']
     ],
     examples: [
       ['singularity-flow learn list --role developer --trust publisher-trust.json', 'List lessons visible to one role.'],
       ['singularity-flow learn start recovery-basics --role developer --module recovery.json --trust publisher-trust.json', 'Prepare a read-only mission plan without materializing its fixture.'],
+      ['singularity-flow learn materialize recovery-basics --role developer --module recovery.json --fixture recovery-fixture.json --trust publisher-trust.json', 'Preview a disposable, non-executable local fixture; repeat with its confirmation digest.'],
+      ['singularity-flow learn workspace sha256:<MISSION-DIGEST>', 'Verify the local tutorial files without Pack credentials.'],
+      ['singularity-flow learn reset sha256:<MISSION-DIGEST>', 'Preview removal of only the local tutorial workspace.'],
       ['singularity-flow learn explain-change recovery-basics inspect-refusal --role developer --module recovery.json --trust publisher-trust.json', 'Show the exact declared non-effects of one step.'],
       ['singularity-flow learn quiz recovery-basics recovery-choice --role developer --module recovery.json --answers answer.json --trust publisher-trust.json', 'Evaluate one exact option set without creating authority.']
     ],

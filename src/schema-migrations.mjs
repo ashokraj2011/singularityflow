@@ -1863,6 +1863,10 @@ const families = [
   family({ id: 'workflow-ir', currentVersion: 1, immutable: true }),
   family({ id: 'workflow-ratification', currentVersion: 1, immutable: true }),
   family({ id: 'policy-snapshot', currentVersion: 1, immutable: true }),
+  family({
+    id: 'learning-workspace', currentVersion: 1, immutable: true,
+    paths: [/^\$git\/sgos\/learning\/[a-f0-9]{64}\/workspace\.json$/]
+  }),
   // Approved policy inputs and the local, content-addressed amendment graph are deliberately
   // separate families.  The former are read only from the refreshed configuration authority;
   // the latter are receipts beneath the Git-common sidecar and never rewrite a live Process.

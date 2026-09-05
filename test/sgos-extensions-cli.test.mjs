@@ -18,7 +18,8 @@ import {
 } from '../src/sgos/authority-transport.mjs';
 import { SGOS_SANDBOX_CAS_ABSENT_SHA256 } from '../src/sgos/devices.mjs';
 import {
-  createAcceptedTrace, createCapabilityPack, createLearningModule, createMemoryCandidate, createMemoryRef,
+  createAcceptedTrace, createCapabilityPack, createLearningFixture, createLearningModule,
+  createMemoryCandidate, createMemoryRef,
   createMetaToolCandidate, createMetaToolEvaluation, createPackReview, createPlatformEnvelope,
   createPlatformMutationAuthorization, openFilesystemAuthorityStore, platformPrincipalId,
   platformSha256, signPlatformRecord
@@ -32,14 +33,24 @@ const digest = (value) => platformSha256(`cli-fixture:${value}`);
 const cliActorId = platformPrincipalId({ email: 'extension.cli.tester@example.com' });
 const cliReviewerId = platformPrincipalId({ email: 'extension.cli.reviewer@example.com' });
 
-function cliLearningModule() {
+function cliLearningFixture() {
+  return createLearningFixture({
+    kind: 'learning-fixture', id: 'finance-read-fixture', version: 1,
+    files: [{
+      path: 'README.md',
+      content: '# Disposable finance lesson\n\nThis file is inert tutorial text.\n'
+    }]
+  });
+}
+
+function cliLearningModule(fixture) {
   return createLearningModule({
     kind: 'learning-module', id: 'finance-basics', version: 1, role: 'developer',
     title: 'Finance basics',
     objectives: [{ objectiveId: 'inspect-safely', statement: 'Inspect a result without granting authority.' }],
     sandboxFixture: {
       kind: 'descriptor-only', fixtureId: 'finance-read-fixture',
-      fixtureSha256: digest('learning-fixture')
+      fixtureSha256: fixture.fixtureSha256
     },
     steps: [{
       stepId: 'inspect-result', title: 'Inspect the result', kind: 'evidence-exercise',
@@ -873,8 +884,10 @@ test('signed Pack, role lesson, and typed Memory CLI preserve exact CAS and revi
   const publicKeyPem = keys.publicKey.export({ type: 'spki', format: 'pem' });
   await writeFile(path.join(root, 'publisher-trust.json'), JSON.stringify({ 'publisher-key': publicKeyPem }));
 
-  const learningModule = cliLearningModule();
+  const learningFixture = cliLearningFixture();
+  const learningModule = cliLearningModule(learningFixture);
   await writeFile(path.join(root, 'learning-module.json'), JSON.stringify(learningModule));
+  await writeFile(path.join(root, 'learning-fixture.json'), JSON.stringify(learningFixture));
   const pack = createCapabilityPack({
     packId: 'finance-core', version: '1.0.0', domain: 'finance', operations: ['finance.inspect'],
     permissions: [], files: [], lessons: [{
@@ -927,6 +940,33 @@ test('signed Pack, role lesson, and typed Memory CLI preserve exact CAS and revi
   });
   assert.equal(mission.sandbox.materialization, 'not-performed');
   assert.equal(mission.boundary.modelInvocations, 0);
+  const materializeArguments = [
+    'learn', 'materialize', 'finance-basics', '--role', 'developer',
+    '--pack', 'finance-core', '--module', 'learning-module.json',
+    '--fixture', 'learning-fixture.json', '--store', storeId,
+    '--trust', 'publisher-trust.json'
+  ];
+  const materializePlanEnvelope = flow(root, ...materializeArguments);
+  const materializePlan = state(materializePlanEnvelope);
+  assert.equal(materializePlanEnvelope.operation.id, 'learn.materialize.plan');
+  assert.equal(materializePlanEnvelope.operation.classification, 'read');
+  assert.equal(materializePlan.effects.git, 'none');
+  const materializedEnvelope = flow(root, ...materializeArguments,
+    '--confirm', materializePlan.confirmationSha256);
+  const materialized = state(materializedEnvelope);
+  assert.equal(materializedEnvelope.operation.id, 'learn.materialize');
+  assert.equal(materialized.status, 'ready');
+  assert.equal(state(flow(root, 'learn', 'workspace', materialized.missionId)).status, 'ready');
+  const resetPlanEnvelope = flow(root, 'learn', 'reset', materialized.missionId);
+  const resetPlan = state(resetPlanEnvelope);
+  assert.equal(resetPlanEnvelope.operation.classification, 'read');
+  assert.equal(resetPlanEnvelope.operation.id, 'learn.reset.plan');
+  const resetEnvelope = flow(root, 'learn', 'reset', materialized.missionId,
+    '--confirm', resetPlan.confirmationSha256);
+  assert.equal(resetEnvelope.operation.id, 'learn.reset');
+  assert.equal(state(resetEnvelope).status, 'reset');
+  assert.equal(state(flow(root, 'learn', 'workspace', materialized.missionId)).status,
+    'not-materialized');
   assert.equal(state(flow(root, 'learn', 'inspect', 'finance-basics', '--role', 'developer',
     '--module', 'learning-module.json', '--store', storeId,
     '--trust', 'publisher-trust.json')).counts.steps, 1);

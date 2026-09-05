@@ -61,6 +61,7 @@ test('interactive onboarding, configuration, and recovery never use synchronous 
   for (const relative of [
     'src/approved-configuration-reader.mjs',
     'src/bootstrap.mjs',
+    'src/change-flight-plan.mjs',
     'src/configuration-people.mjs',
     'src/configuration-proposal.mjs',
     'src/commands/story.mjs',

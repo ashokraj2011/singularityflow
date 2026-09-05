@@ -29,7 +29,7 @@ import {
   assertCredentialFreeRemote, configuredRemoteIdentity, frozenRemoteTransport,
   remoteFingerprint
 } from './git-remote-diagnostics.mjs';
-import { runRemoteGit } from './git-execution.mjs';
+import { runRemoteGitAsync } from './git-execution.mjs';
 import {
   nowIso, posix, readJson, run, secureRepositoryPath, SingularityFlowError, writeAtomic, writeJson, writeText
 } from './util.mjs';
@@ -556,8 +556,8 @@ function autoRemoteAuthority(root, repository) {
   });
 }
 
-function remoteStoryHead(root, authority, workId) {
-  const result = runRemoteGit([
+async function remoteStoryHead(root, authority, workId) {
+  const result = await runRemoteGitAsync([
     'ls-remote', '--heads', '--', authority.transportRemote, `refs/heads/${workId}`
   ], {
     cwd: root, operation: 'remote-probe', env: authority.env
@@ -670,7 +670,7 @@ async function recoverExactAutoStart(root, id, cfpPlan, options, existing = null
   const publishRequired = (definition.git?.publish ?? 'required') !== 'off';
   const authority = autoRemoteAuthority(root, identity.repository);
   const publishedCommit = publishRequired || !localStoryCommit
-    ? remoteStoryHead(root, authority, identity.workId)
+    ? await remoteStoryHead(root, authority, identity.workId)
     : null;
 
   if (!worktreePresent && !localStoryCommit && !publishedCommit) {
@@ -689,7 +689,7 @@ async function recoverExactAutoStart(root, id, cfpPlan, options, existing = null
   }
   if (!localStoryCommit && publishedCommit) {
     const remoteRef = `refs/remotes/${authority.remoteName}/${identity.workId}`;
-    const fetched = runRemoteGit([
+    const fetched = await runRemoteGitAsync([
       'fetch', '--no-tags', '--quiet', authority.transportRemote,
       `refs/heads/${identity.workId}:${remoteRef}`
     ], { cwd: root, operation: 'remote-configuration', env: authority.env });

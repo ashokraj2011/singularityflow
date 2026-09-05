@@ -6,10 +6,11 @@
 
 **Created:** 2026-08-30
 
-**Current reconciliation:** checked against `main@396ccb73` on 2026-09-05. Commits `259b76f1`,
+**Current reconciliation:** checked against `main@e3330e80` on 2026-09-06. Commits `259b76f1`,
 `58d9329d`, and `d55229c7` provide the bounded exact-static JUnit identity adapter, immutable
 proposal snapshot, human review through the existing phase approval, migration, safe command-shape
-fallbacks, and content-free benchmark v2. Commit `98750174` aligns the CAB architecture and threat
+fallbacks, content-free benchmark v2, and same-process unenrolled delta measurement. Commit
+`98750174` aligns the CAB architecture and threat
 boundary. The current release increment also makes the isolated npm and VSIX engine smokes load the
 WEL adapter and require its packaged Java parser helper. These increments do not satisfy the
 authenticated-independent-runner, Candidate/Program/attempt, cross-platform, enforcement, or
@@ -206,9 +207,9 @@ Implemented in the current increment:
   existing signed verification receipt binds its content-free platform, latency, CPU, byte, and
   exact/inexact counters instead of relying on an optional developer run.
 
-Implementation checkpoints: `d55229c7` (content-free benchmark v2) and `6fbcf3bf` (isolated npm and
-VSIX engine proof), `d960e928` (portable deterministic corpus command), and `396ccb73` (mandatory
-release-gate benchmark).
+Implementation checkpoints: `d55229c7` (content-free benchmark v2), `6fbcf3bf` (isolated npm and
+VSIX engine proof), `d960e928` (portable deterministic corpus command), `396ccb73` (mandatory
+release-gate benchmark), and `e3330e80` (same-process incremental observation cost).
 
 Still required before completion: reviewed real-repository corpus metrics, Context X-Ray and Story
 latency measurements, an approved Flow Impact design, office/offline/recovery exercises, execution

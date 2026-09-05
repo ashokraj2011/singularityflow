@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
@@ -107,7 +107,7 @@ function git(root, ...arguments_) {
     .trim();
 }
 
-async function storyBenchmarkRepository() {
+async function storyBenchmarkRepository({ publish = 'off' } = {}) {
   const storyRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-wel-story-benchmark-'));
   const storyRemote = `${storyRoot}.git`;
   git(storyRoot, 'init', '-q', '-b', 'main');
@@ -120,7 +120,7 @@ async function storyBenchmarkRepository() {
   });
   const workflowPath = path.join(storyRoot, 'singularity', 'workflow.yml');
   const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
-  workflow.git.publish = 'off';
+  workflow.git.publish = publish;
   workflow.worldModel.grounding = 'off';
   await writeFile(workflowPath, YAML.stringify(workflow));
   git(storyRoot, 'add', '.');
@@ -134,6 +134,15 @@ async function storyBenchmarkRepository() {
   return { storyRoot, storyRemote };
 }
 
+function storySource(workId, description) {
+  return manualStorySource(workId, {
+    title: 'Local latency fixture',
+    description,
+    desiredOutcome: 'Produce content-free local latency evidence.',
+    acceptanceCriteria: 'A governed Story branch is created.'
+  });
+}
+
 async function measureStoryStarts(count) {
   const { storyRoot, storyRemote } = await storyBenchmarkRepository();
   const durations = [];
@@ -145,12 +154,8 @@ async function measureStoryStarts(count) {
       const startedAt = performance.now();
       const started = await startStory(storyRoot, {
         id: workId,
-        source: manualStorySource(workId, {
-          title: 'Local latency fixture',
-          description: 'Measure the governed Story-start path without product content.',
-          desiredOutcome: 'Produce content-free local latency evidence.',
-          acceptanceCriteria: 'A governed Story branch is created.'
-        }),
+        source: storySource(workId,
+          'Measure the governed Story-start path without product content.'),
         workType: 'feature', agent: 'product-owner', baseBranch: 'main',
         astWarmLauncher: () => ({ pid: 0 })
       });
@@ -159,6 +164,75 @@ async function measureStoryStarts(count) {
     }
     return { durations, workflowBytes };
   } finally {
+    await Promise.all([
+      rm(storyRoot, { recursive: true, force: true }),
+      rm(storyRemote, { recursive: true, force: true })
+    ]);
+  }
+}
+
+async function measureStoryPushRecovery() {
+  const { storyRoot, storyRemote } = await storyBenchmarkRepository({ publish: 'required' });
+  const rejectionHook = path.join(storyRemote, 'hooks', 'pre-receive');
+  let hookInstalled = false;
+  try {
+    const workId = 'WEL-RECOVERY-LOCAL';
+    const failureStartedAt = performance.now();
+    let failure = null;
+    try {
+      await startStory(storyRoot, {
+        id: workId,
+        source: storySource(workId,
+          'Measure exact recovery after a post-preflight local push failure.'),
+        workType: 'feature', agent: 'product-owner', baseBranch: 'main',
+        astWarmLauncher: () => ({ pid: 0 }),
+        afterPublicationAuthorityCapture: async () => {
+          await writeFile(rejectionHook,
+            '#!/bin/sh\necho wel-benchmark-post-preflight-rejection >&2\nexit 1\n');
+          await chmod(rejectionHook, 0o755);
+          hookInstalled = true;
+        }
+      });
+    } catch (error) {
+      failure = error;
+    }
+    const failureMilliseconds = performance.now() - failureStartedAt;
+    if (!failure || !hookInstalled) {
+      throw new Error('Story publication failure exercise did not reach the post-preflight boundary.');
+    }
+    await rm(rejectionHook, { force: true });
+    hookInstalled = false;
+    const recoveryStartedAt = performance.now();
+    try {
+      execFileSync(process.execPath, [cli, 'sync', '--json'], {
+        cwd: storyRoot, stdio: ['ignore', 'pipe', 'pipe'],
+        env: {
+          ...process.env, NODE_ENV: 'test',
+          SINGULARITY_FLOW_TEST_IDENTITY: 'WEL Benchmark'
+        }
+      });
+    } catch (error) {
+      const diagnostic = String(error?.stderr ?? '').trim().split(/\r?\n/).at(-1);
+      throw new Error(`Story publication recovery command failed${diagnostic ? `: ${diagnostic}` : '.'}`,
+        { cause: error });
+    }
+    const recoveryMilliseconds = performance.now() - recoveryStartedAt;
+    const localCommit = git(storyRoot, 'rev-parse', 'HEAD');
+    const remoteCommit = git(storyRoot, 'ls-remote', 'origin', `refs/heads/${workId}`)
+      .split(/\s+/)[0] ?? '';
+    if (!remoteCommit || remoteCommit !== localCommit) {
+      throw new Error('Story publication recovery did not publish the exact retained commit.');
+    }
+    return {
+      outcome: 'recovered',
+      failureCode: /^[A-Z][A-Z0-9_]{2,127}$/.test(failure.code ?? '')
+        ? failure.code : 'STORY_PUBLICATION_FAILED',
+      failureMilliseconds,
+      recoveryMilliseconds,
+      exactRetainedCommitPublished: true
+    };
+  } finally {
+    if (hookInstalled) await rm(rejectionHook, { force: true }).catch(() => {});
     await Promise.all([
       rm(storyRoot, { recursive: true, force: true }),
       rm(storyRemote, { recursive: true, force: true })
@@ -207,6 +281,7 @@ try {
     contextXrayBytes = Buffer.byteLength(JSON.stringify(projection), 'utf8');
   }
   const storyStart = await measureStoryStarts(storySamples);
+  const storyPushRecovery = await measureStoryPushRecovery();
   for (let index = 0; index < samples; index += 1) {
     const cpuStarted = process.cpuUsage();
     const reportStartedAt = performance.now();
@@ -245,7 +320,7 @@ try {
     (duration, index) => duration - baselineProjectionDurations[index]
   );
   const report = {
-    schema: 'sflow-wel-benchmark/v3',
+    schema: 'sflow-wel-benchmark/v4',
     assurance: 'content-free-local-measurement',
     platform: process.platform,
     architecture: process.arch,
@@ -301,6 +376,14 @@ try {
       maximum: Number(Math.max(...storyStart.durations).toFixed(3))
     },
     storyTimingInterpretation: 'synthetic local Story-start transaction including its governed local commits; configuration authority uses a local bare remote and application push is disabled',
+    storyPushRecovery: {
+      outcome: storyPushRecovery.outcome,
+      failureCode: storyPushRecovery.failureCode,
+      failureMilliseconds: Number(storyPushRecovery.failureMilliseconds.toFixed(3)),
+      recoveryMilliseconds: Number(storyPushRecovery.recoveryMilliseconds.toFixed(3)),
+      exactRetainedCommitPublished: storyPushRecovery.exactRetainedCommitPublished
+    },
+    storyRecoveryInterpretation: 'synthetic local post-preflight transport loss followed by the public exact pending-publication sync path; this is not office-network evidence',
     timingInterpretation: 'paired local observation; signed deltas may be negative from timer noise and are not an enforced budget',
     cpuMilliseconds: completed ? {
       median: Number(percentile(cpuDurations, 0.5).toFixed(3)),
@@ -325,7 +408,8 @@ try {
     },
     measurementCapabilities: [
       'source-catalog', 'report-ingestion', 'receipt-projection', 'durable-storage-estimate',
-      'baseline-comparison', 'context-xray-projection', 'story-start-latency'
+      'baseline-comparison', 'context-xray-projection', 'story-start-latency',
+      'story-push-recovery'
     ],
     contentExcluded: ['repository-path', 'origin-url', 'work-id', 'git-identity', 'clause-text', 'test-body']
   };

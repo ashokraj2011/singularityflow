@@ -14,7 +14,7 @@ test('WEL benchmark emits only bounded content-free local measurements', () => {
   });
   assert.equal(result.status, 0, result.stderr);
   const report = JSON.parse(result.stdout);
-  assert.equal(report.schema, 'sflow-wel-benchmark/v3');
+  assert.equal(report.schema, 'sflow-wel-benchmark/v4');
   assert.equal(report.assurance, 'content-free-local-measurement');
   assert.ok(['observed', 'unavailable'].includes(report.outcome));
   assert.equal('repositoryPath' in report, false);
@@ -32,11 +32,18 @@ test('WEL benchmark emits only bounded content-free local measurements', () => {
   assert.match(report.storyTimingInterpretation, /synthetic local Story-start transaction/);
   assert.ok(report.storyStartMilliseconds.median >= 0);
   assert.ok(report.storyWorkflowBytes > 0);
+  assert.equal(report.storyPushRecovery.outcome, 'recovered');
+  assert.match(report.storyPushRecovery.failureCode, /^[A-Z][A-Z0-9_]+$/);
+  assert.ok(report.storyPushRecovery.failureMilliseconds >= 0);
+  assert.ok(report.storyPushRecovery.recoveryMilliseconds >= 0);
+  assert.equal(report.storyPushRecovery.exactRetainedCommitPublished, true);
+  assert.match(report.storyRecoveryInterpretation, /not office-network evidence/);
   assert.equal(report.incrementalReceiptBytes, report.receiptBytes - report.baselineReceiptBytes);
   assert.match(report.timingInterpretation, /signed deltas may be negative/);
   assert.deepEqual(report.measurementCapabilities, [
     'source-catalog', 'report-ingestion', 'receipt-projection', 'durable-storage-estimate',
-    'baseline-comparison', 'context-xray-projection', 'story-start-latency'
+    'baseline-comparison', 'context-xray-projection', 'story-start-latency',
+    'story-push-recovery'
   ]);
   assert.equal(report.fixtureOutcomes.falseExact, 0);
   if (report.outcome === 'observed') {

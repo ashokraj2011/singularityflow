@@ -250,6 +250,9 @@ This remains `[~]`: a canonical approved Device-operation target resolver and a 
 review form have not landed. The CLI explicitly refuses Device targets instead of accepting local
 Device manifests as authority.
 
+Implementation checkpoint: `5cc31bee` (canonical signed-Pack target resolution, deterministic
+mutation plans, public CLI, help, VS Code classification, and end-to-end authority tests).
+
 ### [ ] SGOS-P2-003 — External telemetry and measured read models
 
 Add a consented external transport beyond the current local, content-free OpenTelemetry projection

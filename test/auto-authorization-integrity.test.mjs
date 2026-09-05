@@ -32,7 +32,9 @@ async function repository(t) {
   run('git', ['config', 'user.email', 'auto@example.com'], root);
   run(process.execPath, [cli, 'init'], root);
   const capabilitiesPath = path.join(root, 'singularity/capabilities.yml');
-  const capabilities = YAML.parse(await readFile(capabilitiesPath, 'utf8'));
+  // Smart init intentionally leaves single-repository projects capability-map free. This fixture
+  // exercises an explicitly mapped capability, so install the reviewed template before extending it.
+  const capabilities = YAML.parse(await readFile(new URL('../templates/capabilities.yml', import.meta.url), 'utf8'));
   capabilities.capabilities['auto-fixture'] = {
     kind: 'delivery', parent: 'product', repository: 'auto-fixture'
   };

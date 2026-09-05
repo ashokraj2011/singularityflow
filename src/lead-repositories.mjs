@@ -1,9 +1,22 @@
 import os from 'node:os';
 import path from 'node:path';
 
-import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { assertCredentialFreeRemote } from './git-remote-diagnostics.mjs';
-import { readJson, writeAtomic } from './util.mjs';
+
+let support = null;
+
+async function loadSupport() {
+  support ??= Promise.all([
+    import('./schema-migrations.mjs'),
+    import('./util.mjs')
+  ]).then(([migrations, util]) => ({
+    currentSchemaVersion: migrations.currentSchemaVersion,
+    readRecord: migrations.readRecord,
+    readJson: util.readJson,
+    writeAtomic: util.writeAtomic
+  }));
+  return support;
+}
 
 /** Where the machine-local lead pointers live. Overridable so tests stay isolated. */
 export function leadRegistryFile() {
@@ -13,6 +26,7 @@ export function leadRegistryFile() {
 
 /** The lead repositories this machine knows about, most recently used first. */
 export async function listLeadRepositoryRegistryRecords(file = leadRegistryFile()) {
+  const { readJson, readRecord } = await loadSupport();
   let stored;
   try { stored = readRecord('capability-lead-registry', await readJson(file)).record; }
   catch (error) {
@@ -35,6 +49,7 @@ export async function listLeadRepositories(file = leadRegistryFile()) {
 }
 
 async function writeLeads(file, leads) {
+  const { currentSchemaVersion, writeAtomic } = await loadSupport();
   await writeAtomic(file, `${JSON.stringify({
     schemaVersion: currentSchemaVersion('capability-lead-registry'), leads
   }, null, 2)}\n`, { mode: 0o600 });

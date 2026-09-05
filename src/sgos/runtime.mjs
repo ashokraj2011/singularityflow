@@ -138,6 +138,25 @@ function fail(message, code, details = null) {
   throw new SingularityFlowError(message, { code, details });
 }
 
+async function retryRuntimeProcessContention(operation) {
+  const maximumAttempts = SGOS_INSTALLED_LIMITS.maximumExecutionLeases + 2;
+  for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      // The Process lock is shared by the bounded parallel wave. A busy result proves the
+      // callback did not run, so retrying this exact content-addressed publication cannot repeat
+      // an execution handler or create a second record identity.
+      if (error?.code !== 'SUBJECT_LOCK_BUSY' || attempt === maximumAttempts - 1) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
+}
+
+function putRuntimeImmutableRecord(...args) {
+  return retryRuntimeProcessContention(() => putSgosImmutableRecord(...args));
+}
+
 function clone(value) {
   return structuredClone(value);
 }
@@ -352,7 +371,7 @@ export async function putSgosCandidateSnapshot(root, processId, value) {
       cause: error?.message ?? String(error)
     });
   }
-  return putSgosImmutableRecord(root, processId, 'candidate-snapshot', candidate);
+  return putRuntimeImmutableRecord(root, processId, 'candidate-snapshot', candidate);
 }
 
 /** Read and revalidate the exact immutable Candidate Snapshot bytes used by verification. */
@@ -783,8 +802,8 @@ async function startSgosProcessWithinPolicy(root, options = {}) {
     humanAuthorityRequirements: pinnedAuthorityRequirements,
     executionAdmission
   };
-  const programPublication = await putSgosImmutableRecord(root, id, 'gvm-program', program);
-  const bindingPublication = await putSgosImmutableRecord(
+  const programPublication = await putRuntimeImmutableRecord(root, id, 'gvm-program', program);
+  const bindingPublication = await putRuntimeImmutableRecord(
     root, id, 'process-binding', binding
   );
   const programRecord = programPublication.record;
@@ -843,12 +862,12 @@ async function startSgosProcessWithinPolicy(root, options = {}) {
       createdAt: existing.createdAt,
       priorCheckpointSha256: null
     });
-    const checkpointPublication = await putSgosImmutableRecord(
+    const checkpointPublication = await putRuntimeImmutableRecord(
       root, id, 'gvm-checkpoint', checkpoint, { reserveExisting: true }
     );
     const fanoutPublications = [];
     for (const receipt of fanoutExpansionReceipts(program, existing, existing.createdAt)) {
-      fanoutPublications.push(await putSgosImmutableRecord(
+      fanoutPublications.push(await putRuntimeImmutableRecord(
         root, id, 'fanout-expansion-receipt', receipt, { reserveExisting: true }
       ));
     }
@@ -870,12 +889,12 @@ async function startSgosProcessWithinPolicy(root, options = {}) {
   }
 
   const checkpoint = buildCheckpoint(created, program, { createdAt, priorCheckpointSha256: null });
-  const checkpointPublication = await putSgosImmutableRecord(
+  const checkpointPublication = await putRuntimeImmutableRecord(
     root, id, 'gvm-checkpoint', checkpoint
   );
   const fanoutPublications = [];
   for (const receipt of fanoutExpansionReceipts(program, created, createdAt)) {
-    fanoutPublications.push(await putSgosImmutableRecord(
+    fanoutPublications.push(await putRuntimeImmutableRecord(
       root, id, 'fanout-expansion-receipt', receipt
     ));
   }
@@ -1250,7 +1269,7 @@ function humanRequestFor(process, task, template, attemptId, createdAt) {
 async function finalizeHumanRequest(
   root, begun, task, request, program, clock, executionLease, recordReservations = []
 ) {
-  const requestPublication = await putSgosImmutableRecord(
+  const requestPublication = await putRuntimeImmutableRecord(
     root, begun.processId, 'human-request', request
   );
   const process = await mutateActiveAttemptWithRetry(root, {
@@ -1283,6 +1302,14 @@ async function mutateActiveAttemptWithRetry(root, context, mutate, options = {})
         expectedProcessSha256: current.processSha256
       });
     } catch (error) {
+      // Parallel terminal publication may legitimately own the Process lock longer than the
+      // lock helper's single acquisition window while it roots immutable evidence and receipts.
+      // No callback ran when acquisition returned busy, so a bounded retry is safe and cannot
+      // repeat a handler or a partial mutation.
+      if (error?.code === 'SUBJECT_LOCK_BUSY') {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        continue;
+      }
       if (error?.code !== 'SGOS_PROCESS_REVISION_STALE') throw error;
       current = await readSgosProcess(root, current.processId);
       const task = current.taskInstances[context.task.taskInstanceId];
@@ -1347,10 +1374,16 @@ function createTaskResourceLease(before, task, template, attemptId, acquiredAt) 
 }
 
 async function assertOwnedExecutionLease(root, context) {
-  if (context.heartbeatError?.()) {
+  const heartbeatError = context.heartbeatError?.();
+  // A heartbeat shares the Process lock with terminal CAS publication. On a busy host, an
+  // otherwise healthy owner can miss one heartbeat while a sibling publishes its transition.
+  // Lock contention is not evidence that ownership was lost: authenticate the durable lease
+  // below and let the terminal CAS serialize the completion. Every other heartbeat failure stays
+  // fail-closed because it may indicate an unreadable or unwritable owner record.
+  if (heartbeatError && heartbeatError.code !== 'SUBJECT_LOCK_BUSY') {
     const error = new SingularityFlowError('SGOS execution lease heartbeat could not be persisted.', {
       code: 'SGOS_EXECUTION_LEASE_LOST',
-      details: { cause: context.heartbeatError().message ?? String(context.heartbeatError()) }
+      details: { cause: heartbeatError.message ?? String(heartbeatError) }
     });
     error.uncertainEffect = true;
     throw error;
@@ -1430,7 +1463,7 @@ async function persistAttemptAndEvidence(root, {
   const attempt = existingAttempt ?? proposedAttempt;
   const recordReservations = [];
   if (existingAttempt == null) {
-    const publication = await putSgosImmutableRecord(
+    const publication = await putRuntimeImmutableRecord(
       root, begun.processId, 'gvm-task-attempt', attempt
     );
     if (publication.reservationToken != null) {
@@ -1467,7 +1500,7 @@ async function persistAttemptAndEvidence(root, {
     requiresDevice: template.opcode === 'DEVICE',
     createdAt: completedAt
   });
-  const evidencePublication = await putSgosImmutableRecord(
+  const evidencePublication = await putRuntimeImmutableRecord(
     root, begun.processId, 'action-evidence', evidence
   );
   if (evidencePublication.reservationToken != null) {
@@ -1624,7 +1657,7 @@ async function finalizeSuccess(root, context, outcome, program, clock, checkpoin
       });
       // The receipt and mutable success are now published under one Process lock. Record-delta
       // collection binds the immutable reservation to the same exact transition intent.
-      await putSgosImmutableRecord(
+      await putRuntimeImmutableRecord(
         root, context.begun.processId, 'gvm-task-receipt', receipt
       );
     const task = draft.taskInstances[context.task.taskInstanceId];
@@ -1831,8 +1864,8 @@ async function runNextSgosTaskWithinPolicy(root, processId, {
       // Lease, exact running-attempt intent, and active-state CAS share the Process lock. Competing
       // dispatchers therefore cannot publish divergent records for the same stable attemptId.
       await writeSgosExecutionLease(root, before.processId, executionLease);
-      await putSgosImmutableRecord(root, before.processId, 'gvm-task-attempt', runningAttempt);
-      await putSgosImmutableRecord(root, before.processId, 'resource-lease', resourceLease);
+      await putRuntimeImmutableRecord(root, before.processId, 'gvm-task-attempt', runningAttempt);
+      await putRuntimeImmutableRecord(root, before.processId, 'resource-lease', resourceLease);
       const target = draft.taskInstances[task.taskInstanceId];
       target.state = template.opcode === 'VERIFY' ? 'verifying' : 'running';
       target.attemptIds = [...target.attemptIds, attemptId];
@@ -1857,6 +1890,7 @@ async function runNextSgosTaskWithinPolicy(root, processId, {
     heartbeatPromise = heartbeatPromise.then(async () => {
       lastLease = { ...lastLease, heartbeatAt: operationalInstant() };
       await writeSgosExecutionLease(root, before.processId, lastLease);
+      if (heartbeatError?.code === 'SUBJECT_LOCK_BUSY') heartbeatError = null;
     }).catch((error) => { heartbeatError = error; });
   }, EXECUTION_LEASE_HEARTBEAT_MS);
   heartbeat.unref?.();
@@ -1883,7 +1917,16 @@ async function runNextSgosTaskWithinPolicy(root, processId, {
   let stopMonitorError = null;
   let stopMonitorPromise = Promise.resolve();
   const observeStop = async () => {
-    const observed = await readSgosProcess(root, before.processId);
+    let observed;
+    try {
+      observed = await readSgosProcess(root, before.processId);
+    } catch (error) {
+      // The monitor is observational and runs again every 250 ms. A sibling's bounded Process
+      // publication can hold the same lock beyond one read window; skipping that sample is normal
+      // coordination, not evidence that execution should be aborted.
+      if (error?.code === 'SUBJECT_LOCK_BUSY') return;
+      throw error;
+    }
     if (observed.status === 'paused' && observed.activeExecutions.includes(attemptId)
         && !executionController.signal.aborted) {
       executionController.abort(new SingularityFlowError(
@@ -1923,7 +1966,7 @@ async function runNextSgosTaskWithinPolicy(root, processId, {
         priorCheckpointSha256: before.currentCheckpointSha256,
         createdAt: instant(clock)
       });
-      const checkpointPublication = await putSgosImmutableRecord(
+      const checkpointPublication = await putRuntimeImmutableRecord(
         root, before.processId, 'gvm-checkpoint', checkpoint
       );
       if (checkpointPublication.reservationToken != null) {
@@ -1980,7 +2023,7 @@ async function runNextSgosTaskWithinPolicy(root, processId, {
         }),
         completedAt: instant(clock)
       });
-      const publication = await putSgosImmutableRecord(
+      const publication = await putRuntimeImmutableRecord(
         root, begun.processId, 'join-receipt', joinReceipt
       );
       if (publication.reservationToken != null) {
@@ -2016,7 +2059,7 @@ async function runNextSgosTaskWithinPolicy(root, processId, {
           ...adapted.proposalEvidence,
           createdAt: instant(clock)
         });
-        const publication = await putSgosImmutableRecord(
+        const publication = await putRuntimeImmutableRecord(
           root, begun.processId, 'agent-proposal', proposal
         );
         if (publication.reservationToken != null) {
@@ -2125,7 +2168,10 @@ async function dispatchOneParallelTask(root, processId, taskInstanceId, options)
       // A sibling may win the begin-transition CAS. Retrying is safe here because no handler can
       // run until that begin is durable. Terminal CAS retries happen inside runNextSgosTask and
       // never re-invoke a handler.
-      if (error?.code !== 'SGOS_PROCESS_REVISION_STALE') throw error;
+      if (!['SGOS_PROCESS_REVISION_STALE', 'SUBJECT_LOCK_BUSY'].includes(error?.code)) throw error;
+      if (error?.code === 'SUBJECT_LOCK_BUSY') {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
     }
   }
   fail(`Parallel dispatch of '${taskInstanceId}' exceeded its bounded begin-CAS retry limit.`,
@@ -2568,7 +2614,7 @@ async function respondToSgosHumanRequestWithinPolicy(root, processId, options = 
     if (target.state !== 'waiting-human' || !draft.openHumanRequests.includes(request.requestSha256)) {
       fail('Human Request changed before its response committed.', 'SGOS_HUMAN_REQUEST_STALE');
     }
-    await putSgosImmutableRecord(root, process.processId, 'human-response', response);
+    await putRuntimeImmutableRecord(root, process.processId, 'human-response', response);
     candidate = await createAndReloadCandidate(root, process, {
       resources: [],
       createdBy: {
@@ -2615,7 +2661,7 @@ async function respondToSgosHumanRequestWithinPolicy(root, processId, options = 
         verification,
         completedAt: respondedAt
       }) : null;
-    if (receipt) await putSgosImmutableRecord(root, process.processId, 'gvm-task-receipt', receipt);
+    if (receipt) await putRuntimeImmutableRecord(root, process.processId, 'gvm-task-receipt', receipt);
     target.state = taskOutcome;
     // A Human Response is durable evidence for every terminal decision, but it is a task output
     // only when the task succeeds.  Failed/cancelled transitions must preserve the empty output
@@ -2783,35 +2829,35 @@ async function recoveryLineage(root, processId, attemptId, { task = null, templa
 
 async function reassertRecoveryLineageReservations(root, processId, lineage) {
   for (const record of lineage.attempts ?? []) {
-    await putSgosImmutableRecord(
+    await putRuntimeImmutableRecord(
       root, processId, 'gvm-task-attempt', record, { reserveExisting: true }
     );
   }
   if (lineage.evidence) {
-    await putSgosImmutableRecord(
+    await putRuntimeImmutableRecord(
       root, processId, 'action-evidence', lineage.evidence, { reserveExisting: true }
     );
   }
   if (lineage.proposal) {
-    await putSgosImmutableRecord(
+    await putRuntimeImmutableRecord(
       root, processId, 'agent-proposal', lineage.proposal, { reserveExisting: true }
     );
   }
   if (lineage.receipt) {
-    await putSgosImmutableRecord(
+    await putRuntimeImmutableRecord(
       root, processId, 'gvm-task-receipt', lineage.receipt, { reserveExisting: true }
     );
     const { record: candidate } = await readSgosImmutableRecord(
       root, processId, 'candidate-snapshot', lineage.receipt.candidateSha256
     );
-    await putSgosImmutableRecord(
+    await putRuntimeImmutableRecord(
       root, processId, 'candidate-snapshot', candidate, { reserveExisting: true }
     );
     for (const responseSha256 of lineage.receipt.humanDecisionRefs ?? []) {
       const { record: response } = await readSgosImmutableRecord(
         root, processId, 'human-response', responseSha256
       );
-      await putSgosImmutableRecord(
+      await putRuntimeImmutableRecord(
         root, processId, 'human-response', response, { reserveExisting: true }
       );
     }
@@ -3057,7 +3103,7 @@ async function recoverInterruptedSgosExecutionWithinPolicy(root, processId, {
       evidence = lineage.evidence;
     } else {
       if (lineage.proposal) {
-        await putSgosImmutableRecord(
+        await putRuntimeImmutableRecord(
           root, processId, 'agent-proposal', lineage.proposal, { reserveExisting: true }
         );
       }

@@ -1,20 +1,13 @@
 import path from 'node:path';
 
-import { repoRoot } from '../git.mjs';
-import { configuredRemoteIdentity } from '../git-remote-diagnostics.mjs';
-import { resolveLifecycleCapability } from '../capability-context.mjs';
-import { loadDefinition } from '../config.mjs';
-import {
-  adoptManagedCapabilityMap, listLeadRepositories, proposeProgressiveCapabilityChange,
-  previewManagedCapabilityAdoption, rememberLeadRepository
-} from '../organisation.mjs';
-import { currentSchemaVersion } from '../schema-migrations.mjs';
-import { recordSha256 } from '../records.mjs';
+import { listLeadRepositories, rememberLeadRepository } from '../lead-repositories.mjs';
 import {
   optionBoolean, optionString, optionStrings, SingularityFlowError
 } from '../util.mjs';
 
 let legacy = null;
+let organisation = null;
+let explanationSupport = null;
 const DIRECT = new Set(['add', 'protect', 'depend', 'show', 'leads', 'adopt-managed']);
 
 function isDirect(context = {}) {
@@ -25,6 +18,28 @@ async function loadLegacy() {
   legacy ??= await import('./legacy.mjs');
   await legacy.load();
   return legacy;
+}
+
+async function loadOrganisation() {
+  organisation ??= await import('../organisation.mjs');
+  return organisation;
+}
+
+async function loadExplanationSupport() {
+  explanationSupport ??= Promise.all([
+    import('../git.mjs'),
+    import('../capability-context.mjs'),
+    import('../config.mjs'),
+    import('../schema-migrations.mjs'),
+    import('../records.mjs')
+  ]).then(([git, capabilities, config, migrations, records]) => ({
+    repoRoot: git.repoRoot,
+    resolveLifecycleCapability: capabilities.resolveLifecycleCapability,
+    loadDefinition: config.loadDefinition,
+    currentSchemaVersion: migrations.currentSchemaVersion,
+    recordSha256: records.recordSha256
+  }));
+  return explanationSupport;
 }
 
 /** Progressive commands avoid loading the legacy monolith; expert compatibility commands retain it. */
@@ -41,6 +56,7 @@ function required(positionals, index, label) {
 async function mutationLead(root, options) {
   const explicit = optionString(options, 'lead');
   if (explicit) return explicit;
+  const { configuredRemoteIdentity } = await import('../git-remote-diagnostics.mjs');
   const current = configuredRemoteIdentity(root, 'origin');
   if (current.url) return current.url;
   const [known] = await listLeadRepositories();
@@ -51,7 +67,7 @@ async function mutationLead(root, options) {
   );
 }
 
-function explanationRecord(capability, subject, config) {
+function explanationRecord(capability, subject, config, { currentSchemaVersion, recordSha256 }) {
   const scope = capability.sourceScope?.sourceRoots ?? [];
   const approvals = capability.policy?.requiredAuthorityGroups ?? [];
   const core = {
@@ -80,13 +96,14 @@ function explanationRecord(capability, subject, config) {
 }
 
 export async function showCapability(root, subject = '', { json = false, verbose = false } = {}) {
+  const support = await loadExplanationSupport();
   const relative = subject || path.relative(root, process.cwd()).replaceAll('\\', '/') || '.';
-  const capability = await resolveLifecycleCapability(root, {
+  const capability = await support.resolveLifecycleCapability(root, {
     subjectPath: relative === '.' ? '' : relative,
     required: true
   });
-  const config = await loadDefinition(root);
-  const record = explanationRecord(capability, relative, config);
+  const config = await support.loadDefinition(root);
+  const record = explanationRecord(capability, relative, config, support);
   if (json) {
     console.log(JSON.stringify(verbose ? { ...record, effectiveCapability: capability } : record, null, 2));
     return record;
@@ -151,9 +168,11 @@ function exactDependency(positionals, options) {
 }
 
 async function runMutation(subcommand, context) {
+  const { repoRoot } = await import('../git.mjs');
   const root = repoRoot();
   const lead = await mutationLead(root, context.options ?? {});
   const options = context.options ?? {};
+  const { proposeProgressiveCapabilityChange } = await loadOrganisation();
   const result = subcommand === 'add'
     ? await proposeProgressiveCapabilityChange(lead, {
         operation: 'add',
@@ -206,12 +225,14 @@ export async function run(argv, context = {}) {
     return;
   }
   if (subcommand === 'show') {
-    return showCapability(repoRoot(), context.positionals?.[2] ?? '', {
+    const support = await loadExplanationSupport();
+    return showCapability(support.repoRoot(), context.positionals?.[2] ?? '', {
       json: optionBoolean(context.options ?? {}, 'json'),
       verbose: optionBoolean(context.options ?? {}, 'verbose')
     });
   }
   if (subcommand === 'adopt-managed') {
+    const { repoRoot } = await import('../git.mjs');
     const root = repoRoot();
     const options = context.options ?? {};
     const lead = await mutationLead(root, options);
@@ -221,6 +242,7 @@ export async function run(argv, context = {}) {
         code: 'PCD_MANAGED_ADOPTION_CONFIRMATION_REQUIRED'
       });
     }
+    const { adoptManagedCapabilityMap, previewManagedCapabilityAdoption } = await loadOrganisation();
     const result = optionBoolean(options, 'preview')
       ? await previewManagedCapabilityAdoption(lead)
       : await adoptManagedCapabilityMap(lead, { confirm });

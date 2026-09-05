@@ -82,6 +82,7 @@ import { activeClauseCapsule } from './active-clause-capsule.mjs';
 import { compileWorldModelSynthesisPrompt } from './world-model-synthesis-budget.mjs';
 import {
   configuredWorldModelV4CapabilityId, configuredWorldModelV4ViewSelections,
+  explicitWorldModelV4CapabilityId,
   handleWorldModelV4Command, isWorldModelV4, resolveWorldModelV4Grounding,
   scopedWorldModelV4Command, WORLD_MODEL_V4_COMMANDS
 } from './world-model/commands.mjs';
@@ -532,7 +533,10 @@ export async function loadWorldModelConfig(root, {
       configuredDefinition,
       activeState?.resolution?.worldModelSourceScope
         ?? activeState?.resolution?.capability?.sourceScope
-        ?? repositoryCapability?.sourceScope
+        // The implicit repository-root boundary is the absence of a narrower capability policy;
+        // it must not replace explicit worldModel.sourceRoots from approved configuration with
+        // its broad `**` fallback. Reviewed mapped capabilities still narrow the shared model.
+        ?? (repositoryCapability?.mode === 'implicit' ? null : repositoryCapability?.sourceScope)
         ?? null
     );
     const stateAuthority = worldModelStateAuthority(definition);
@@ -1082,7 +1086,7 @@ export function workflowGroundingMaterializationPlan(readiness, {
       ? 'quick'
       : readiness.plan?.depth ?? readiness.config?.phases?.[phaseId]?.depth ?? 'standard';
     const extensionBase = automatic ? readiness.availability?.extensionBase ?? null : null;
-    const capabilityId = configuredWorldModelV4CapabilityId(readiness.config);
+    const capabilityId = explicitWorldModelV4CapabilityId(readiness.config);
     const capabilityArguments = capabilityId ? ['--capability', capabilityId] : [];
     const authorityArguments = extensionBase ? [
       '--expected-preservation-commit', extensionBase.commit,

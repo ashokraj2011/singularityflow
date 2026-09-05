@@ -41,6 +41,10 @@ async function repository(t, {
   run('git', ['config', 'user.email', 'worktree-story@example.com'], root);
   await writeFile(path.join(root, 'README.md'), '# isolated Story test\n');
   run(process.execPath, [cli, 'init'], root);
+  await writeFile(
+    path.join(root, 'singularity/capabilities.yml'),
+    await readFile(new URL('../templates/capabilities.yml', import.meta.url))
+  );
   const definitionFile = path.join(root, 'singularity/workflow.yml');
   const definition = YAML.parse(await readFile(definitionFile, 'utf8'));
   definition.git.publish = 'off';

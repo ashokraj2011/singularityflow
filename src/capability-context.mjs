@@ -187,15 +187,18 @@ async function implicitLifecycleCapability(root, source, {
   const config = await loadDefinition(root);
   const remote = configuredRemoteIdentity(root, 'origin');
   // A remote is the strongest repository identity, but local-only Git repositories are a supported
-  // first-Story path. Their exact HEAD is clone/path/user independent and is therefore a safe
-  // deterministic fallback; an unborn repository falls back to the approved workflow bytes.
-  const repositoryHead = run('git', ['rev-parse', '--verify', 'HEAD'], {
+  // first-Story path. Bind those repositories to their root history, not the moving HEAD: using
+  // HEAD made an unrelated configuration-only commit change the implicit capability identity and
+  // falsely invalidate an otherwise byte-identical World Model. Root commits remain clone/path/user
+  // independent and stable throughout ordinary history. An unborn repository still falls back to
+  // the approved workflow bytes.
+  const repositoryRoots = run('git', ['rev-list', '--max-parents=0', 'HEAD'], {
     cwd: root, allowFailure: true
-  }).stdout.trim();
+  }).stdout.split(/\r?\n/).map((value) => value.trim()).filter(Boolean).sort().join('\n');
   const workflowBytes = await readFile(path.join(configurationRoot, WORKFLOW_PATH));
   const repositoryIdentitySha256 = remote.fingerprint
     ? `sha256:${remote.fingerprint}`
-    : `sha256:${createHash('sha256').update(repositoryHead || workflowBytes).digest('hex')}`;
+    : `sha256:${createHash('sha256').update(repositoryRoots || workflowBytes).digest('hex')}`;
   const resolution = resolveImplicitCapability({
     repositoryId: implicitRepositoryId(source, remote.url),
     repositoryIdentitySha256,
@@ -754,9 +757,20 @@ export async function resolveCapabilityWorldModelCandidate(repositoryRoot, defin
     const declaredViews = unique(views).length
       ? unique(views)
       : unique(groundingDefinition.worldModel?.views ?? []);
+    // Reuse the same exact capability identity as a storyless WMB build. Falling back to the
+    // checkout basename here gave sibling composition a different scope-policy digest from the
+    // already published `repository-root` projection, so a fresh reusable model was rejected as
+    // stale. The offline resolver reads only approved local authority and performs no model or
+    // network work.
+    const repositoryCapability = await resolveLifecycleCapability(repositoryRoot, {
+      capabilityId,
+      required: Boolean(capabilityId),
+      offline: true,
+      refuseAmbiguous: true
+    });
     const config = {
       ...worldModelConfig,
-      ...(capabilityId ? { repositoryCapability: { id: capabilityId } } : {}),
+      ...(repositoryCapability ? { repositoryCapability } : {}),
       staleness: 'fail',
       phases: {
         [phase]: {

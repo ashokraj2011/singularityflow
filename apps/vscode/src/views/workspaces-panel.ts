@@ -16,6 +16,7 @@ import {
 } from './workspaces-page.ts';
 import {
   duplicateCommand, duplicateProblems, renameCommand, updateCommand, workspaceRows,
+  WORKSPACE_ACTION_CANCELLED,
   type WorkspaceConfigurationRefreshResult, type WorkspaceConfigurationResolution,
   type WorkspaceCapabilityAttachScope, type WorkspaceEntry, type WorkspaceRow, type WorkspaceStatus
 } from './workspaces-model.ts';
@@ -41,8 +42,6 @@ export type WorkspacesMessage =
       isCurrent: () => boolean;
     }
   | { type: 'run'; command: string[]; title: string };
-
-export const WORKSPACE_ACTION_CANCELLED = '__sflow_workspace_action_cancelled__';
 
 export class WorkspacesPanel {
   private static current: WorkspacesPanel | null = null;

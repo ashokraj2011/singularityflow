@@ -894,6 +894,25 @@ test('opt-in parallel wave launches one deterministic compatible ready set and q
       fixture.root, active.processId, 'resource-lease', 'attemptId', attemptId
     )));
   assert.equal(leases.every((entries) => entries.length === 1), true);
+  // Keep the Process lock across the first heartbeat and stop-monitor read windows. Ordinary
+  // sibling publication contention must not turn either still-authenticated execution into a
+  // recovery-required failure on a loaded host.
+  let stateLockEnteredResolve;
+  let releaseStateLockResolve;
+  const stateLockEntered = new Promise((resolve) => { stateLockEnteredResolve = resolve; });
+  const releaseStateLock = new Promise((resolve) => { releaseStateLockResolve = resolve; });
+  const lockMutation = mutateSgosProcess(fixture.root, active.processId, async () => {
+    stateLockEnteredResolve();
+    await releaseStateLock;
+  }, {
+    expectedRevision: active.processRevision,
+    expectedProcessSha256: active.processSha256,
+    updatedAt: T1
+  });
+  await stateLockEntered;
+  await new Promise((resolve) => setTimeout(resolve, 7_250));
+  releaseStateLockResolve();
+  await lockMutation;
   release();
   const wave = await running;
   assert.equal(wave.launched, 2);
@@ -903,7 +922,8 @@ test('opt-in parallel wave launches one deterministic compatible ready set and q
   assert.deepEqual(wave.process.activeExecutions, []);
   assert.equal(Object.values(wave.process.taskInstances)
     .filter((entry) => entry.taskTemplateId !== '90-end')
-    .every((entry) => entry.state === 'succeeded'), true);
+    .every((entry) => entry.state === 'succeeded'), true,
+    JSON.stringify(wave.results.map((entry) => ({ status: entry.status, error: entry.error }))));
   const ended = await runNextSgosTask(fixture.root, started.process.processId, { clock: T1 });
   assert.equal(ended.process.status, 'succeeded');
 });

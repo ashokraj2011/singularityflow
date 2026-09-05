@@ -11,6 +11,8 @@
  */
 
 /** One entry of `workspace list --json`. */
+export const WORKSPACE_ACTION_CANCELLED = '__sflow_workspace_action_cancelled__';
+
 export interface WorkspaceEntry {
   id: string;
   path: string;

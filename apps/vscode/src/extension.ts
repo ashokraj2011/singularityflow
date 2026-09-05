@@ -35,10 +35,11 @@ import type { DesignerMessage } from './views/designer.ts';
 import type { ConfigurationCenterMessage } from './views/configuration-center.ts';
 import type { ConfigurationTab } from './views/configuration-center-model.ts';
 import type { HelpDocument } from './views/help-page.ts';
-import { WORKSPACE_ACTION_CANCELLED, type WorkspacesMessage } from './views/workspaces-panel.ts';
+import type { WorkspacesMessage } from './views/workspaces-panel.ts';
 import type { Mapped } from './views/bootstrap-panel.ts';
 import {
   archiveCommand, capabilityChangeCommand, configurationRefreshCommand, restoreCommand, workspaceRows,
+  WORKSPACE_ACTION_CANCELLED,
   type WorkspaceCapabilityChangePreview, type WorkspaceCapabilityChangeResult,
   type WorkspaceCapabilityAttachScope,
   type WorkspaceConfigurationRefreshResult,

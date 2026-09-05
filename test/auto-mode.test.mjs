@@ -140,7 +140,9 @@ async function repository() {
   run('git', ['config', 'user.email', 'auto@example.com'], root);
   run(process.execPath, [cli, 'init'], root);
   const capabilitiesPath = path.join(root, 'singularity/capabilities.yml');
-  const capabilities = YAML.parse(await readFile(capabilitiesPath, 'utf8'));
+  // Smart init does not invent a capability map. Auto's mapped-capability fixture starts from the
+  // reviewed template explicitly so it tests Auto rather than obsolete init behavior.
+  const capabilities = YAML.parse(await readFile(new URL('../templates/capabilities.yml', import.meta.url), 'utf8'));
   capabilities.capabilities['auto-fixture'] = {
     kind: 'delivery', parent: 'product', repository: 'auto-fixture'
   };

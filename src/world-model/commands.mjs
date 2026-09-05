@@ -45,16 +45,30 @@ const CAPABILITY_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 /** Capability identity that must survive a storyless multi-capability recovery round trip. */
 export function configuredWorldModelV4CapabilityId(config) {
-  const candidate = config.workflow?.resolution?.capability?.id
+  const pinned = config.workflow?.resolution?.capability ?? null;
+  const repositoryCapability = config.repositoryCapability ?? null;
+  const candidate = pinned?.id
     ?? config.workflow?.resolution?.capabilityId
-    ?? config.repositoryCapability?.id
+    ?? repositoryCapability?.id
     ?? null;
   return typeof candidate === 'string' && CAPABILITY_ID.test(candidate) ? candidate : null;
 }
 
+/** Capability options are replayed only for a real approved selection, never for the implicit root. */
+export function explicitWorldModelV4CapabilityId(config) {
+  const pinned = config.workflow?.resolution?.capability ?? null;
+  const repositoryCapability = config.repositoryCapability ?? null;
+  const candidate = configuredWorldModelV4CapabilityId(config);
+  const effective = pinned?.effectiveResolution ?? repositoryCapability?.effectiveResolution ?? null;
+  // Keep the implicit ID in the reusable scope identity: switching from an implicit repository
+  // boundary to a reviewed capability is a material scope change. Omit it only from argv and
+  // gateway selections, where replaying the synthetic ID would fail once a real map is available.
+  return effective?.mode === 'implicit' ? null : candidate;
+}
+
 /** Append the selected capability to a copy/paste-safe registered-v4 CLI command. */
 export function scopedWorldModelV4Command(config, command) {
-  const capabilityId = configuredWorldModelV4CapabilityId(config);
+  const capabilityId = explicitWorldModelV4CapabilityId(config);
   return `${command}${capabilityId ? ` --capability ${capabilityId}` : ''}`;
 }
 
@@ -292,7 +306,7 @@ export function worldModelV4GatewayDefaults(root, config) {
     ledgerConfig: ledgerConfig(config),
     // This is deliberately distinct from the scope-manifest capability fallback. Only an approved
     // selected capability can be replayed as a CLI option after a gateway refusal.
-    selectedCapabilityId: configuredWorldModelV4CapabilityId(config),
+    selectedCapabilityId: explicitWorldModelV4CapabilityId(config),
     sharedCacheDirectory: process.env.SINGULARITY_FLOW_WMB_SHARED_CACHE ?? null,
     allowUnavailableOptionalViews: true
   });

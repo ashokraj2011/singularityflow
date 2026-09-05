@@ -105,8 +105,16 @@ async function worldModelSlice(root, workflow, phaseId, budget) {
       remaining -= bounded.bytes;
       selections.push({ ...metadata, content: bounded.text, bytes: bounded.bytes, truncated: bounded.truncated });
     }
+    const complete = selections.every((selection) => (
+      selection.content != null && selection.omission == null && selection.truncated !== true
+    ));
     return {
-      status: resolved.freshness?.fresh ? 'exact' : 'partial',
+      // `status` describes the bytes returned by this bounded slice. Freshness is a separate
+      // property of the reusable model: an immutable, digest-verified state-branch view does not
+      // become partial merely because the application repository moved after it was published.
+      status: complete ? 'exact' : 'partial',
+      fresh: resolved.freshness?.fresh === true,
+      freshnessReason: resolved.freshness?.reason ?? null,
       source: resolved.located?.source ?? null,
       commit: resolved.located?.commit ?? null,
       selections,

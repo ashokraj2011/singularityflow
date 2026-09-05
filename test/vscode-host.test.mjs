@@ -383,6 +383,13 @@ async function demoRepository({ registeredWorldModel = false } = {}) {
   run('git', ['config', 'user.email', EMAIL], { cwd: root });
   await writeFile(path.join(root, 'README.md'), '# Checkout\n');
   await initializeDefinition(root);
+  // The demo is an explicit multi-repository organisation fixture. Smart initialization correctly
+  // leaves ordinary single-repository projects on the implicit capability, so opt this fixture
+  // into the reviewed organisation template instead of depending on the removed init side effect.
+  await writeFile(
+    path.join(root, 'singularity/capabilities.yml'),
+    await readFile(path.join(packageRoot, 'templates/capabilities.yml'))
+  );
 
   const portfolioFile = path.join(root, 'singularity/portfolio.yml');
   const portfolio = YAML.parse(await readFile(portfolioFile, 'utf8'));
@@ -3240,12 +3247,17 @@ test('a capability preview expires when Manage is closed before confirmation ret
   if (!requireBundle(t)) return;
   const org = await organisation();
   const registry = path.join(org.base, 'registry.json');
+  const selection = path.join(org.base, 'active-workspace.json');
   const workspaces = path.join(org.base, 'workspaces');
   const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
   process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registry;
+  process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = selection;
   t.after(() => {
     if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
     else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+    if (previousSelection == null) delete process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+    else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection;
   });
   const created = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
     'workspace', 'create', '--local', '--json', '--id', 'lease', '--base', workspaces,
@@ -3351,12 +3363,17 @@ test('Manage can detach and safely drop an exact non-lead capability checkout', 
   if (!requireBundle(t)) return;
   const org = await organisation();
   const registry = path.join(org.base, 'registry.json');
+  const selection = path.join(org.base, 'active-workspace.json');
   const workspaces = path.join(org.base, 'workspaces');
   const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
   process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registry;
+  process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = selection;
   t.after(() => {
     if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
     else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+    if (previousSelection == null) delete process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+    else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection;
   });
   const created = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
     'workspace', 'create', '--local', '--json', '--id', 'drop-web', '--base', workspaces,

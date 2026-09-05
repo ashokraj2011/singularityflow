@@ -73,7 +73,8 @@ async function governedFixture(t, suffix) {
   run('git', ['config', 'user.email', 'auto-controls@example.com'], root);
   run(process.execPath, [cli, 'init'], root);
   const capabilitiesPath = path.join(root, 'singularity/capabilities.yml');
-  const capabilities = YAML.parse(await readFile(capabilitiesPath, 'utf8'));
+  // This is an explicitly mapped Auto fixture; smart init itself correctly creates no map.
+  const capabilities = YAML.parse(await readFile(new URL('../templates/capabilities.yml', import.meta.url), 'utf8'));
   capabilities.capabilities['auto-fixture'] = {
     kind: 'delivery', parent: 'product', repository: 'auto-fixture'
   };

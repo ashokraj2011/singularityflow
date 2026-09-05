@@ -25,7 +25,7 @@ import { probeModelPromptTransport } from './model-provider-capability.mjs';
 import { resolveWorldModelGenerationRouting } from './world-model-generation-routing.mjs';
 import { latestWorldModelBuildDiagnostics } from './world-model-build-diagnostics.mjs';
 import { listStoryStartJournals } from './story-start-journal.mjs';
-import { runRemoteGit } from './git-execution.mjs';
+import { runRemoteGitAsync } from './git-execution.mjs';
 
 function check(id, status, message, fix = null, details = {}) { return { id, status, message, fix, ...details }; }
 
@@ -446,7 +446,7 @@ export async function doctorSnapshot(root, {
     // which is what a bare repository created before its first push looks like — answers nothing for
     // HEAD, and probing for it reported a perfectly reachable remote as a network or authentication
     // failure, with a remedy about restoring credentials that had nothing to do with it.
-    const probe = runRemoteGit(['ls-remote', '--exit-code', remote], {
+    const probe = await runRemoteGitAsync(['ls-remote', '--exit-code', remote], {
       cwd: root, operation: 'remote-probe'
     });
     // Exit 2 is "reachable, but no refs at all" — a remote that exists and is empty, which is a

@@ -300,7 +300,7 @@ export async function buildAndPublishWorldModelV4(root, {
       : captureWorldModelPublicationReview(root, {
           outputDir, ledgerConfig, publicationOptions
         });
-    confirmedPublication = materializeWorldModelPublicationReview(
+    confirmedPublication = await materializeWorldModelPublicationReview(
       root, confirmedPublication, { publicationOptions }
     );
   }

@@ -169,7 +169,7 @@ export function assertWorldModelPublicationReview(root, expected, options = {}) 
 }
 
 /** Fetch the reviewed base only after confirmation, preserving every signed CAS field. */
-export function materializeWorldModelPublicationReview(root, review, {
+export async function materializeWorldModelPublicationReview(root, review, {
   publicationOptions = {}
 } = {}) {
   assertWorldModelPublicationReview(root, review, {
@@ -184,7 +184,7 @@ export function materializeWorldModelPublicationReview(root, review, {
       { code: 'WMB_GATEWAY_PLAN_DRIFTED' }
     );
   }
-  const materialized = materializeStateBranchPublicationAuthority(root, review.ledger, {
+  const materialized = await materializeStateBranchPublicationAuthority(root, review.ledger, {
     expectedRemoteSha: Object.hasOwn(review.options, 'expectedRemoteSha')
       ? review.options.expectedRemoteSha : undefined,
     env: publicationOptions.env,

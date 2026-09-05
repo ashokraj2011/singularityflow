@@ -402,7 +402,7 @@ test('state authority observation failures never expose remote diagnostics', asy
   git(root, ['remote', 'set-url', 'origin', unavailable]);
   let refusal;
   try {
-    materializeStateBranchPublicationAuthority(root, enabled, {
+    await materializeStateBranchPublicationAuthority(root, enabled, {
       expectedRemoteSha: '0'.repeat(40), transportRemote: unavailable
     });
   } catch (error) {

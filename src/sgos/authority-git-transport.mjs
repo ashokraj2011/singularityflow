@@ -434,7 +434,7 @@ export async function publishGitTrustedAuthority(root, {
   );
   context = await trustContext(repositoryRoot, { expectedStoreId });
   assertContextMatchesPreview(context, preview);
-  const materialized = materializeStateBranchPublicationAuthority(
+  const materialized = await materializeStateBranchPublicationAuthority(
     repositoryRoot, context.target.config, {
       expectedRemoteSha: preview.stateCommit,
       transportRemote: context.target.effectivePushUrl

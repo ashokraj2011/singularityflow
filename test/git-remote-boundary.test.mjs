@@ -76,6 +76,7 @@ test('interactive onboarding, configuration, and recovery never use synchronous 
     'src/governed-goals.mjs',
     'src/initiative-repositories.mjs',
     'src/initiative-governance.mjs',
+    'src/ledger.mjs',
     'src/ledger-deployment.mjs',
     'src/cli-entry.mjs',
     'src/organisation.mjs',
@@ -91,6 +92,12 @@ test('interactive onboarding, configuration, and recovery never use synchronous 
     assert.doesNotMatch(source, /\brunRemoteGit\(/,
       `${relative} can block the UI/CLI event loop and cannot supervise a descendant process tree`);
   }
+
+  const ledger = await readFile(path.join(root, 'src/ledger.mjs'), 'utf8');
+  assert.match(ledger, /async function observeRemoteBranch/);
+  assert.match(ledger, /await pushLedgerAsync\(/);
+  assert.doesNotMatch(ledger, /function pushLedger\(/,
+    'state projection publication must not retain a synchronous remote push sibling');
 });
 
 test('post-clone Git diagnostics retain correlation without disclosing helper output', () => {

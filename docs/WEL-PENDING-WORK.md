@@ -156,6 +156,12 @@ real-repository corpus measurements, durable attempt-lineage retry semantics, cr
 packaging receipts, and the authenticated execution contract. Until then every exact-static outcome
 is still `inconclusive`.
 
+An ordinary Story does not currently create an SGOS Program or task attempt. Its local
+test-execution receipt must therefore keep `candidate`, `program`, and `attempt` null and disclose
+the corresponding binding gaps. Adding plausible-looking identifiers at publication time would
+fabricate authority and is expressly out of scope. The join becomes implementable only when the
+Story is executed through the reviewed universal Candidate lifecycle named by `WEL-P1-002`.
+
 Replace the current name-only diagnostic projection with a reviewed, still non-blocking exact local
 identity experiment for one Maven module.
 
@@ -330,6 +336,11 @@ When this roadmap is resumed:
 3. collect the remaining `WEL-P0-003` Flow Impact and signed release evidence;
 4. wait for CAB-R2 and SGOS-P0-001/CAB-R6 before starting the P1 enforcement path;
 5. add P2 adapters only after the first ecosystem has stable production evidence.
+
+There is no additional code-local WEL increment that can honestly close a current `[~]` item on a
+single developer machine. Independent ratification, authenticated execution, reviewed real-repo
+measurements, and signed supported-platform/package receipts are evidence inputs, not values the
+product or its author may synthesize.
 
 ## Maintenance
 

@@ -2,7 +2,7 @@
 
 **Status:** authoritative cross-product tracker; bounded exact-tree aggregate and the latest code-local asynchronous Git migration are complete, while platform release evidence remains active
 
-**Baseline:** `main@76b26bd7`
+**Baseline:** `main@f165ce2c`
 
 **Last reviewed:** 2026-09-06
 
@@ -23,9 +23,12 @@ credential-helper evidence.
 
 The 2026-09-06 performance continuation moved branch refresh, ledger status/state publication,
 workflow configuration proposals, approval identity enrollment, approved-configuration fallback
-reads, and registered World-Model authority refresh/recovery onto the bounded asynchronous Git
-supervisor through `main@76b26bd7`. These code-local changes keep the event loop responsive and
-preserve existing exact-SHA and recovery behavior. Live Windows/POSIX descendant-cleanup and office
+reads, registered World-Model authority refresh/recovery, CLI workspace authority routing,
+ledger-deployment inspection, SGOS Git-trusted authority reads, Change Flight Plan recovery, Auto
+Plan validation, Auto checkpoint recovery, Auto Candidate authority, and terminal Story gate
+publication checks onto the bounded asynchronous Git supervisor through `main@f165ce2c`. These
+code-local changes keep the event loop responsive, consolidate repeated ref reads, and preserve
+existing exact-SHA and recovery behavior. Live Windows/POSIX descendant-cleanup and office
 credential-helper receipts remain external release evidence.
 
 ## 2026-09-05 reconciliation snapshot
@@ -98,7 +101,7 @@ evidence, and selected npm/VSIX artifact binding remain governed by the platform
 | Track | Current boundary | Next eligible increment | Detailed authority |
 |---|---|---|---|
 | Release baseline | `REL-P0-001` complete at `8387a9d8`: exact-tree verification is bounded, resumable, and green | Collect strict signed supported-platform/package receipts; do not treat the local Node 25 receipt as a release matrix | This document and [Verification](../VERIFICATION.md) |
-| Developer-experience performance | Hot paths and the office-Git code-local slice are implemented; configuration proposal, approval enrollment, approved-configuration, ledger, branch refresh, and WMB authority/recovery reads use bounded asynchronous Git; pinned relative baseline and cross-platform host evidence are not established | Finish `DXP-P0-001`, migrate the remaining synchronous pin/legacy mutation helpers, then close each `[~]` platform gate | This document and [DX performance](DX-PERFORMANCE.md) |
+| Developer-experience performance | Hot paths and the office-Git code-local slice are implemented; interactive configuration, ledger, WMB, SGOS authority, Auto authority/recovery, workspace routing, and terminal gate reads use bounded asynchronous Git; pinned relative baseline and cross-platform host evidence are not established | Finish `DXP-P0-001`, audit the deliberately retained atomic/legacy synchronous helpers, then close each `[~]` platform gate | This document and [DX performance](DX-PERFORMANCE.md) |
 | SGOS | Universal Candidate publication, portable authority transport, and proposal-only Agent working-set injection are code-complete; signed cross-platform release proof and real Secret Broker adapter integration remain open | Finish the `SGOS-P0-001`/`003` signed platform matrices and the external-adapter portion of `SGOS-P0-002` | [SGOS pending work](SGOS-PENDING-WORK.md) |
 | World Model Builder v4 | Release receipt generation and enforcement exist; no reviewed six-cell supported-platform aggregate is recorded | `WMB-REL-001` | [WMB v4](WORLD-MODEL-BUILDER-V4.md) |
 | Witnessed Engineering Loop | Exact-static local JUnit observation, immutable proposal binding, existing-approval review, migration, release-gated baseline/delta benchmark, isolated npm/VSIX proof, and a bounded platform-matrix command are active; authenticated testcase claims and enforcement remain unavailable | Execute and sign the external/cross-platform gates in `WEL-P0-001` through `WEL-P0-003` | [WEL pending work](WEL-PENDING-WORK.md) |
@@ -144,7 +147,7 @@ evidence is recorded.
 | Scope | Code-local outcome at `cb278ca6` | Remaining evidence before `[x]` |
 |---|---|---|
 | `DXP-P0-004` | One reusable sanitized enterprise Git environment preserves reviewed proxy, CA, TLS backend, and credential-helper behavior; endpoint binding and diagnostics remain credential-free | Live Windows GCM/Git Bash, macOS helper, and office proxy/CA exercises |
-| `DXP-P0-005` | Interactive onboarding, configuration refresh/proposals/identity enrollment, approved-configuration reads, branch refresh, ledger status/state publication, and registered World-Model authority refresh/recovery use the bounded async process-tree supervisor and stable failure taxonomy (`9d44c013` through `76b26bd7`) | Migrate the remaining synchronous ledger-pin and legacy mutation helpers; collect live POSIX and Windows descendant-cleanup receipts |
+| `DXP-P0-005` | Interactive onboarding, configuration refresh/proposals/identity enrollment, approved-configuration reads, branch refresh, ledger status/state publication, registered World-Model authority refresh/recovery, CLI routing, SGOS authority reads, Auto authority/recovery, and terminal gate publication checks use the bounded async process-tree supervisor and stable failure taxonomy (`9d44c013` through `f165ce2c`) | Audit the remaining deliberately synchronous atomic/legacy helpers; collect live POSIX and Windows descendant-cleanup receipts |
 | `DXP-P0-006` | One partial-clone classifier retries only explicit filter rejection, recognizes ignored filters, and prevents double clone | Live provider exercises for filter rejection and filter ignored, with stage and transfer evidence |
 | `SGOS-P0-001` | Supported lifecycle publishers route through exact retained Candidate verification, commit binding, and recoverable publication | Signed supported-platform aggregate and artifact binding for the final release commit |
 

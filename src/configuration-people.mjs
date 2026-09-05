@@ -14,7 +14,7 @@ import { identity } from './git.mjs';
 import { assertCredentialFreeRemote, sanitizeRemote } from './git-remote-diagnostics.mjs';
 import { createAndPushTransportIntent } from './transport-intents.mjs';
 import { removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
-import { runRemoteGit } from './git-execution.mjs';
+import { runRemoteGitAsync } from './git-execution.mjs';
 
 const TARGETS = new Set(['*', 'story:*', 'initiative:*']);
 const INDIVIDUAL_TARGET = /^(story|initiative):([a-z0-9]+(?:-[a-z0-9]+)*)$/;
@@ -153,7 +153,7 @@ export async function publishCurrentIdentityToConfiguration(root, {
 
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-configuration-people-'));
   try {
-    const clone = runRemoteGit([
+    const clone = await runRemoteGitAsync([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
       '--branch', CONFIGURATION_BRANCH, remoteUrl, scratch
     ], { operation: 'remote-configuration' });

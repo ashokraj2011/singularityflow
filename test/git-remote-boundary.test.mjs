@@ -60,6 +60,8 @@ test('the VS Code authority repair uses the same non-interactive office-safe con
 test('interactive onboarding and refresh never use the synchronous remote Git boundary', async () => {
   for (const relative of [
     'src/bootstrap.mjs',
+    'src/configuration-people.mjs',
+    'src/configuration-proposal.mjs',
     'src/organisation.mjs',
     'src/workspace-bootstrap.mjs',
     'src/workspace-configuration-refresh.mjs'

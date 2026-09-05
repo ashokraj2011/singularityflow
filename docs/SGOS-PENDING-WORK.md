@@ -213,10 +213,25 @@ Acceptance gates:
 
 ## P2 — operator and learning experience
 
-### [ ] SGOS-P2-001 — Executable guided learning
+### [~] SGOS-P2-001 — Executable guided learning
 
 Add disposable tutorial environments, portable progress, and certification beyond the current
 read-only mission descriptors.
+
+- **Owner:** Codex guided-learning continuation
+- **Branch:** `main`
+- **Started:** 2026-09-06
+- **Implementation commit:** `258ce110`
+- **Target:** staged P2 continuation after portable progress and independent certification design
+
+The first bounded environment slice is implemented. A signed active Pack still owns the exact
+lesson/module digest; a separate self-hashed fixture admits only secret-scanned UTF-8 text at
+portable relative paths. `learn materialize` previews the exact Pack, module, fixture, byte count,
+and plan digest, then rechecks Pack authority under a mission lock before writing inert files only
+inside Git-common private storage. `learn workspace` verifies those bytes without Pack credentials,
+and confirmation-bound `learn reset` removes only the selected machine-local tutorial. The surface
+executes no fixture content, changes no application or Git bytes, starts no Process, and grants no
+approval, certification, or employee score.
 
 Acceptance gates:
 
@@ -224,6 +239,11 @@ Acceptance gates:
 - progress is portable without becoming employee productivity telemetry;
 - certification is based on explicit evidence and independent criteria;
 - reset, interruption, offline use, accessibility, and version migration are covered.
+
+The isolation, bounds, Pack binding, preview/confirmation, byte-integrity, reset, no-model, and
+no-authority code-local gates are covered. Portable progress, interruption-resumable exercises,
+independently reviewed certification, accessibility validation, offline Pack/fixture distribution,
+and cross-version progress migration remain open; therefore this item is not complete.
 
 ### [~] SGOS-P2-002 — Meta-tool activation CLI
 

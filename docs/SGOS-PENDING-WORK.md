@@ -252,8 +252,9 @@ This remains `[~]`: a canonical approved Device-operation target resolver has no
 and VS Code wizard explicitly refuse Device targets instead of accepting local Device manifests as
 authority.
 
-Implementation checkpoint: `5cc31bee` (canonical signed-Pack target resolution, deterministic
-mutation plans, public CLI, help, VS Code classification, and end-to-end authority tests).
+Implementation checkpoints: `5cc31bee` (canonical signed-Pack target resolution, deterministic
+mutation plans, public CLI, help, VS Code classification, and end-to-end authority tests) and
+`8ab16f79` (native bounded preview/confirm review form in the Command Center).
 
 ### [ ] SGOS-P2-003 — External telemetry and measured read models
 

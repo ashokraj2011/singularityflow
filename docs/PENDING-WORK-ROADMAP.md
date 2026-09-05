@@ -2,7 +2,7 @@
 
 **Status:** authoritative cross-product tracker; bounded exact-tree aggregate and the latest code-local asynchronous Git migration are complete, while platform release evidence remains active
 
-**Baseline:** `main@5cc31bee`
+**Baseline:** `main@8ab16f79`
 
 **Last reviewed:** 2026-09-06
 
@@ -34,7 +34,8 @@ loop responsive, consolidate repeated ref reads, and preserve existing exact-SHA
 behavior. Live Windows/POSIX descendant-cleanup and office credential-helper receipts remain
 external release evidence.
 
-The same continuation exposed the first public meta-tool activation lifecycle at `main@5cc31bee`.
+The same continuation exposed the first public meta-tool activation lifecycle at `main@5cc31bee`
+and its native VS Code review surface at `main@8ab16f79`.
 Pack-operation activation, observation, revocation, and rollback now use deterministic previews,
 exact confirmation, Authority Store CAS, and a canonical current signed-Pack resolver. This is a
 partial SGOS P2 increment, not a WEL completion: approved Device target resolution remains staged,

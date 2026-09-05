@@ -8,12 +8,17 @@
 import {
   CAPABILITY_KINDS, capabilityDetail, flattenCapabilities, formatPolicyValue, parentChoices
 } from './capability-model.ts';
+import type { CapabilityDetail } from './capability-model.ts';
 import { escape, icon } from './webview.ts';
 import type { CapabilityNode } from '../cli/snapshot.ts';
 import type { CapabilityDashboard } from './capability-dashboard-model.ts';
 
 /** Editable fields, named once. The page cannot introduce a key that is not on this list. */
-const FIELDS = ['name', 'kind', 'parent', 'repository', 'sourceRoots', 'sharedRoots', 'metadata', 'jira.projectKey', 'jira.board', 'teams'] as const;
+const FIELDS = [
+  'name', 'kind', 'parent', 'repository', 'sourceRoots', 'sharedRoots', 'metadata',
+  'jira.projectKey', 'jira.board', 'teams', 'autoEligibility', 'autoProtectedScope',
+  'autoMaximumTouchedPaths', 'autoMaximumConcurrentFlights'
+] as const;
 
 function metadataRow(key = '', value = ''): string {
   return `<div class="metadata-row" data-metadata-row data-original-key="${escape(key)}">
@@ -97,7 +102,8 @@ function dashboardHtml(dashboard: CapabilityDashboard): string {
   </section>`;
 }
 
-function implicitCapabilityHtml(error: string | null): string {
+function implicitCapabilityHtml(tree: CapabilityNode[], error: string | null): string {
+  const detail = capabilityDetail(tree, tree[0]?.id ?? 'repository-root');
   return `<header>
     <h1>${icon('capability', { size: 20 })}Capability</h1>
     <p class="meta">Start with the repository as one capability. Add detail only when ownership or approval rules differ.</p>
@@ -120,13 +126,18 @@ function implicitCapabilityHtml(error: string | null): string {
       <button type="button" class="secondary" data-progressive-add>${icon('add')}Add a team-owned area</button>
       <button type="button" class="secondary" data-progressive-protect>${icon('approval')}Protect a path</button>
     </div>
-  </section>`;
+  </section>
+  ${detail ? `<section class="editor-card">
+    <div class="card-head"><div><p class="eyebrow">Optional capability policy</p><h3>${escape(detail.name)}</h3></div></div>
+    ${autoPolicyEditor(detail, true)}
+  </section>` : ''}`;
 }
 
 function managedCapabilityHtml(
   tree: CapabilityNode[], selected: string | null, error: string | null,
   dashboard?: CapabilityDashboard
 ): string {
+  const detail = selected ? capabilityDetail(tree, selected) : null;
   return `<header>
     <h1>${icon('capability', { size: 20 })}Capabilities</h1>
     <p class="meta">Approved ownership at a glance. Add detail only when a boundary or approval differs.</p>
@@ -141,7 +152,56 @@ function managedCapabilityHtml(
       <button type="button" class="secondary" data-progressive-protect>${icon('approval')}Protect a path</button>
       <button type="button" class="secondary" data-progressive-why>${icon('search')}Explain current ownership</button>
     </div>
+  </section>
+  <section class="editor-card">${detail
+    ? `<div class="card-head"><div><p class="eyebrow">Capability policy</p><h3>${escape(detail.name)}</h3></div>
+         <span class="grow"></span><span class="muted">${escape([...detail.ancestors, detail.id].join(' / '))}</span></div>
+       ${autoPolicyEditor(detail, true)}`
+    : '<p class="muted">Choose a capability to view or change its Auto eligibility and safety limits.</p>'}
   </section>`;
+}
+
+function autoPolicyEditor(detail: CapabilityDetail, managed = false): string {
+  const auto = detail.auto;
+  return `<div class="subsection">
+    <div class="card-head"><div><h2>${icon('start')}Auto policy</h2>
+      <p class="muted">Control whether this capability may use reviewed Auto plans. Capability policy can only tighten repository and workflow policy; it cannot turn Auto on above this level.</p></div>
+      <span class="pill ${auto.effective.eligibility === 'disabled' ? '' : 'ok'}">applies: ${escape(auto.effective.eligibility)}</span>
+    </div>
+    ${auto.overridden ? '<p class="notice warning">An ancestor applies a stricter Auto policy. A wider value here will not weaken it.</p>' : ''}
+    <div class="form-grid">
+      <label class="field"><span>Capability eligibility</span>
+        <select data-field="autoEligibility">
+          ${[
+            ['inherit', 'Inherit — do not restrict'],
+            ['disabled', 'Disabled'],
+            ['plan-only', 'Plan only'],
+            ['bounded', 'Bounded execution']
+          ].map(([value, label]) => `<option value="${value}"${auto.declared.eligibility === value ? ' selected' : ''}>${label}</option>`).join('')}
+        </select>
+        <small>Repository Auto must also be enabled and the selected work type must be plan-only or bounded.</small>
+      </label>
+      <label class="field"><span>Protected-scope prediction</span>
+        <select data-field="autoProtectedScope">
+          <option value="block"${auto.declared.forbiddenWhenProtectedScopePredicted ? ' selected' : ''}>Block Auto</option>
+          <option value="allow"${auto.declared.forbiddenWhenProtectedScopePredicted ? '' : ' selected'}>Allow policy evaluation</option>
+        </select>
+        <small>Protected-path gates still apply. Allowing evaluation never bypasses them.</small>
+      </label>
+      <label class="field"><span>Maximum touched paths</span>
+        <input type="number" min="1" step="1" data-field="autoMaximumTouchedPaths"
+          value="${escape(auto.declared.maximumTouchedPaths ?? '')}" placeholder="inherit">
+      </label>
+      <label class="field"><span>Maximum concurrent flights</span>
+        <input type="number" min="1" step="1" data-field="autoMaximumConcurrentFlights"
+          value="${escape(auto.declared.maximumConcurrentFlights ?? '')}" placeholder="inherit">
+      </label>
+    </div>
+    ${managed
+    ? `<p><button type="button" data-managed-auto-save="${escape(detail.id)}">Propose Auto policy</button></p>
+       <p class="remedy">This creates a receipt-backed review proposal. Nothing is activated until it is reviewed into <code>sflow/config</code> and projected to the state branch.</p>`
+    : '<p class="remedy">Save changes to create a reviewed capability proposal. Nothing is activated until the proposal is reviewed and merged into <code>sflow/config</code>, then projected to the state branch.</p>'}
+  </div>`;
 }
 
 function kindSelect(current = 'collection'): string {
@@ -291,6 +351,8 @@ function detailHtml(tree: CapabilityNode[], selected: string): string {
     : `<p class="muted">Nothing tightens governance at this capability, and no ancestor tightens it either.</p>
        <p class="remedy">Policy is written in <code>singularity/capabilities.yml</code>.</p>`}
 
+  ${autoPolicyEditor(detail)}
+
   ${detail.ships.length ? `
   <h2>${icon('repository')}Ships from</h2>
   <table>
@@ -308,7 +370,7 @@ export function bodyHtml(
   dashboard?: CapabilityDashboard,
   mode: 'implicit' | 'explicit-legacy' | 'explicit-managed' = 'explicit-legacy'
 ): string {
-  if (mode === 'implicit') return implicitCapabilityHtml(error);
+  if (mode === 'implicit') return implicitCapabilityHtml(tree, error);
   if (mode === 'explicit-managed') return managedCapabilityHtml(tree, selected, error, dashboard);
   return `
   <header>
@@ -366,12 +428,23 @@ export const SCRIPT = `
     repository.disabled = kind.value === 'collection';
     if (repository.disabled) repository.value = '';
   };
+  const synchronizeAuto = () => {
+    const eligibility = document.querySelector('[data-field="autoEligibility"]');
+    if (!eligibility) return;
+    const inherited = eligibility.value === 'inherit';
+    for (const name of ['autoProtectedScope', 'autoMaximumTouchedPaths', 'autoMaximumConcurrentFlights']) {
+      const field = document.querySelector('[data-field="' + name + '"]');
+      if (field) field.disabled = inherited;
+    }
+  };
   synchronizeKind();
+  synchronizeAuto();
   document.addEventListener('change', (event) => {
     if (event.target.dataset?.field === 'kind') synchronizeKind();
+    if (event.target.dataset?.field === 'autoEligibility') synchronizeAuto();
   });
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-select],[data-add],[data-save],[data-remove],[data-review-proposals],[data-metadata-add],[data-metadata-remove],[data-progressive-start],[data-progressive-add],[data-progressive-protect],[data-progressive-why]');
+    const target = event.target.closest('[data-select],[data-add],[data-save],[data-managed-auto-save],[data-remove],[data-review-proposals],[data-metadata-add],[data-metadata-remove],[data-progressive-start],[data-progressive-add],[data-progressive-protect],[data-progressive-why]');
     if (!target) return;
     event.preventDefault();
     const data = target.dataset;
@@ -379,6 +452,7 @@ export const SCRIPT = `
     else if (data.progressiveAdd !== undefined) vscode.postMessage({ type: 'progressive-add' });
     else if (data.progressiveProtect !== undefined) vscode.postMessage({ type: 'progressive-protect' });
     else if (data.progressiveWhy !== undefined) vscode.postMessage({ type: 'progressive-why' });
+    else if (data.managedAutoSave !== undefined) vscode.postMessage({ type: 'managed-auto', id: data.managedAutoSave, edits: read() });
     else if (data.metadataAdd !== undefined) {
       document.querySelector('[data-metadata-list]')?.insertAdjacentHTML('beforeend', ${JSON.stringify(METADATA_ROW_HTML)});
     } else if (data.metadataRemove !== undefined) {

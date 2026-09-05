@@ -2,11 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import {
   CAPABILITIES_PATH, editCapability,
   activeCapabilityLeases, capabilityDeliveries, capabilityForRepository, capabilityPath, capabilityTree, flattenCapabilityTree, foldCapabilityPolicy, resolveCapabilityPolicy, resolveCapabilitySourceScope, resolveEffectiveCapabilityPolicy, validateCapabilities
 } from '../src/capabilities.mjs';
+
+const cli = path.resolve('bin/singularity-flow.mjs');
 
 test('capability source scopes replace application roots and inherit shared roots', () => {
   const definition = {
@@ -509,6 +512,80 @@ test('an empty value clears a field, and an omitted one leaves it alone', async 
     const removed = await editCapability(root, 'payments-web', {}, { mode: 'remove', portfolio });
     assert.equal(removed.removed, true);
     assert.equal(removed.capabilities['payments-web'], undefined);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('the focused capability Auto policy edit persists bounded fields and can return to inheritance', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-auto-'));
+  try {
+    await mkdir(path.join(root, 'singularity'), { recursive: true });
+    await writeFile(path.join(root, CAPABILITIES_PATH), [
+      'version: 1',
+      'capabilities:',
+      '  rule-engine:',
+      '    kind: collection',
+      ''
+    ].join('\n'), 'utf8');
+    const changed = await editCapability(root, 'rule-engine', {
+      'policy.auto.eligibility': 'bounded',
+      'policy.auto.forbiddenWhenProtectedScopePredicted': true,
+      'policy.auto.maximumTouchedPaths': 12,
+      'policy.auto.maximumConcurrentFlights': 2
+    });
+    assert.deepEqual(changed.capabilities['rule-engine'].policy.auto, {
+      eligibility: 'bounded',
+      forbiddenWhenProtectedScopePredicted: true,
+      maximumTouchedPaths: 12,
+      maximumConcurrentFlights: 2
+    });
+
+    const inherited = await editCapability(root, 'rule-engine', { 'policy.auto': null });
+    assert.equal(inherited.capabilities['rule-engine'].policy?.auto, undefined,
+      'removing the focused override returns the capability to inherited policy');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('the CLI accepts only coherent capability Auto controls before writing the map', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-auto-cli-'));
+  try {
+    spawnSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
+    await mkdir(path.join(root, 'singularity'), { recursive: true });
+    const file = path.join(root, CAPABILITIES_PATH);
+    await writeFile(file, [
+      'version: 1',
+      'capabilities:',
+      '  rule-engine:',
+      '    kind: collection',
+      ''
+    ].join('\n'), 'utf8');
+    const environment = {
+      ...process.env,
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(root, 'machine', 'active-workspace.json'),
+      SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(root, 'machine', 'workspaces.json')
+    };
+
+    const changed = spawnSync(process.execPath, [
+      cli, 'capability', 'set', 'rule-engine',
+      '--auto-eligibility', 'bounded', '--auto-protected-scope', 'block',
+      '--auto-maximum-touched-paths', '12', '--auto-maximum-concurrent-flights', '2', '--json'
+    ], { cwd: root, encoding: 'utf8', env: environment });
+    assert.equal(changed.status, 0, changed.stderr);
+    const after = await readFile(file, 'utf8');
+    assert.match(after, /eligibility: bounded/);
+    assert.match(after, /maximumTouchedPaths: 12/);
+    assert.match(after, /maximumConcurrentFlights: 2/);
+
+    const refused = spawnSync(process.execPath, [
+      cli, 'capability', 'set', 'rule-engine',
+      '--auto-eligibility', 'inherit', '--auto-maximum-touched-paths', '99', '--json'
+    ], { cwd: root, encoding: 'utf8', env: environment });
+    assert.notEqual(refused.status, 0);
+    assert.equal(JSON.parse(refused.stderr).resultType, 'sflow-refusal-plan');
+    assert.equal(await readFile(file, 'utf8'), after, 'a refused combination leaves the map untouched');
   } finally {
     await rm(root, { recursive: true, force: true });
   }

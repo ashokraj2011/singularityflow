@@ -38,17 +38,18 @@ function shell() {
 
 const interpreter = shell();
 if (!interpreter) {
-  console.error([
-    'sflow-wm-minimal needs a POSIX shell, and none was found on this machine.',
-    '',
-    'It is a convenience wrapper. Run the command it wraps instead:',
-    '',
-    '  singularity-flow wm light --views development --local',
-    '',
-    'On Windows, installing Git for Windows also provides the shell this wrapper looks for.'
-  ].join('\n'));
-  process.exit(1);
+  const { SingularityFlowError } = await import('../src/util.mjs');
+  const { reportCliFailure } = await import('../src/cli-failure.mjs');
+  await reportCliFailure(new SingularityFlowError(
+    'sflow-wm-minimal needs a POSIX shell. Install Git for Windows, or run the portable command directly.',
+    {
+      code: 'SHELL_UNAVAILABLE',
+      details: { diagnosticAction: {
+        command: 'singularity-flow wm light --views development --local'
+      } }
+    }
+  ), ['wm', 'light', '--views', 'development', '--local', ...process.argv.slice(2)]);
+} else {
+  const result = spawnSync(interpreter, [script, ...process.argv.slice(2)], { stdio: 'inherit' });
+  process.exitCode = result.status ?? 1;
 }
-
-const result = spawnSync(interpreter, [script, ...process.argv.slice(2)], { stdio: 'inherit' });
-process.exit(result.status ?? 1);

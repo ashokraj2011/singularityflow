@@ -22,6 +22,32 @@ The installed tutorials are `sflow explain configuration`, `sflow explain workfl
 | Jira and Teams credentials | Secure integration actions | VS Code `SecretStorage` |
 | Prompt audit | Prompt audit | workspace-local audit records |
 
+## Capability Auto policy
+
+Open **Configuration → Capabilities**, select a capability, and use **Auto policy** to choose
+**Inherit**, **Disabled**, **Plan only**, or **Bounded execution**. Bounded capability controls also
+set protected-scope handling, maximum touched paths, and maximum concurrent flights. Saving creates
+the normal reviewed capability proposal; the application branch is not edited, and the setting does
+not apply until review/merge into `sflow/config` and projection to the state branch.
+
+Both legacy and receipt-managed maps expose this control. On a managed map, **Propose Auto policy**
+creates a capability-change receipt and review branch; it never edits the approved map in place.
+The terminal equivalent is `singularity-flow capability auto <ID> --eligibility
+inherit|disabled|plan-only|bounded`, with optional protected-scope and numeric limits.
+
+Capability policy is monotonic: it may make Auto stricter but cannot enable Auto when repository
+policy is off or when the selected workflow type is ineligible. The screen shows declared and
+effective values side by side and calls out an ancestor override.
+
+## Recovery from refused commands
+
+Every unstructured CLI refusal now includes a bounded **Recovery plan** with up to three
+deterministic steps. In VS Code the same plan opens as a result card. Action buttons place the exact
+command into a terminal for review without pressing Enter. They never bypass confirmation, execute
+automatically, or claim that files were preserved when the refusing operation supplied no effects
+record. Commands that already return the structured result contract retain their gate checklist,
+preservation evidence, and legal next actions.
+
 Every governed save goes through `singularity-flow configuration save`. The CLI validates the complete resulting file before writing it, so a visual edit cannot leave an unknown phase, authority, agent, or MCP policy behind. YAML comments and unrelated keys are retained.
 
 Saving is authoring, not publication. Once one or more files change, the

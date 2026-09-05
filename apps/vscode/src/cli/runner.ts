@@ -1324,10 +1324,15 @@ export function humanError(stderr: string): string {
       rendered?: { headline?: unknown };
       error?: { message?: unknown; diagnosticAction?: { command?: unknown } };
       next?: Array<{ command?: unknown }>;
+      remediationPlan?: { steps?: Array<{ command?: unknown }> };
     };
     const headline = String(structured.rendered?.headline ?? structured.error?.message ?? '').trim();
     const diagnostic = String(structured.error?.diagnosticAction?.command ?? '').trim();
-    const next = String(structured.next?.find((entry) => entry?.command)?.command ?? '').trim();
+    const next = String(
+      structured.next?.find((entry) => entry?.command)?.command
+      ?? structured.remediationPlan?.steps?.find((entry) => entry?.command)?.command
+      ?? ''
+    ).trim();
     if (headline) {
       const safeHeadline = safeDisplayDiagnosticText(headline);
       if (diagnostic) return `${safeHeadline}\nDiagnose: ${safeDisplayDiagnosticText(diagnostic)}`;

@@ -6,26 +6,28 @@
  * end the shell exists to remove: a red toast, no reason a reader can act on, no statement about
  * what survived, and nothing to do next but dismiss it.
  *
- * Three tiers, and which one applies is *reported*, never guessed at silently:
+ * Four tiers, and which one applies is *reported*, never guessed at silently:
  *
  *   1. **`sflow-result` v2** — the gateway contract. Rendered whole.
  *   2. **`command-result` v1** — what most CLI refusals already carry on stderr when `--json` was
  *      passed. Adapted here. It has `effects`, so its preservation statement is *derived* from a
  *      declared record rather than written next to a throw.
- *   3. **Prose only** — a plain error. Rendered as a card so the reader still gets a headline and a
+ *   3. **`sflow-refusal-plan` v1** — a plain CLI error plus deterministic recovery actions. It
+ *      deliberately has no effects record, so no preservation statement is inferred.
+ *   4. **Prose only** — a plain error. Rendered as a card so the reader still gets a headline and a
  *      way out, and **with no preservation claim at all**.
  *
- * That last point is the one worth being stubborn about. It is tempting to have tier 3 say "your
+ * That last point is the one worth being stubborn about. It is tempting to have tier 4 say "your
  * work is untouched", because it almost always is and it is the sentence a refused reader most wants
  * to read. But nothing in a bare error message says so, and a reassurance the product cannot back is
- * exactly what `[DHR:CON-060]` forbids — the one time it is wrong is the time it matters. Tier 3
+ * exactly what `[DHR:CON-060]` forbids — the one time it is wrong is the time it matters. Tier 4
  * says what it knows and stops.
  */
 import { buildResultCard, type ResultCardView } from './result-card-model.ts';
 import { message } from './result-messages.ts';
 
 /** Where a card's facts came from, so the panel can say so rather than implying full fidelity. */
-export type RefusalFidelity = 'sflow-result-v2' | 'command-result-v1' | 'message-only';
+export type RefusalFidelity = 'sflow-result-v2' | 'command-result-v1' | 'refusal-plan-v1' | 'message-only';
 
 export type Refusal = { readonly view: ResultCardView; readonly fidelity: RefusalFidelity };
 
@@ -42,10 +44,68 @@ function structuredResult(stderr: string): any | null {
   for (let end = stderr.lastIndexOf('}'); end > start; end = stderr.lastIndexOf('}', end - 1)) {
     try {
       const parsed = JSON.parse(stderr.slice(start, end + 1));
-      if (parsed?.resultType === 'sflow-result' || parsed?.resultType === 'command-result') return parsed;
+      if (['sflow-result', 'command-result', 'sflow-refusal-plan'].includes(parsed?.resultType)) return parsed;
     } catch { /* keep shrinking: a later brace may close a smaller, valid document */ }
   }
   return null;
+}
+
+const SAFE_RECOVERY_COMMAND = /^(?:singularity-flow|sflow)(?:\s|$)/;
+const SECRET_SHAPE = /(?:--(?:token|secret|password|credential|authorization|cookie|api[-_]?key|private[-_]?key|selection[-_]?receipt)\b|:\/\/[^\s/@:]+:[^\s/@]+@)/i;
+
+function safeRecoveryCommand(value: unknown): string | null {
+  const command = typeof value === 'string' ? value.trim() : '';
+  if (!command || command.length > 2_000 || /[\r\n\u0000-\u001f\u007f]/.test(command)
+      || !SAFE_RECOVERY_COMMAND.test(command) || SECRET_SHAPE.test(command)) return null;
+  return command;
+}
+
+/** Adapt bounded process-boundary guidance without claiming any effects or preservation. */
+function fromRefusalPlan(result: any, displayMessage: string): ResultCardView {
+  const planned = Array.isArray(result.remediationPlan?.steps)
+    ? result.remediationPlan.steps.slice(0, 3)
+    : [];
+  const actions = planned.flatMap((entry: any, index: number) => {
+    const command = safeRecoveryCommand(entry?.command);
+    if (!command) return [];
+    return [{
+      id: String(entry?.id ?? `recovery:${index}`),
+      handle: String(entry?.id ?? `recovery:${index}`),
+      label: String(entry?.label ?? 'Review recovery action'),
+      emphasis: index === 0 ? 'primary' as const : 'secondary' as const,
+      interaction: 'navigation',
+      executable: false,
+      detail: 'Prepared for review. Opening it never runs the command.',
+      command
+    }];
+  });
+  const code = String(result.error?.code ?? result.remediationPlan?.code ?? 'SINGULARITY_FLOW_ERROR');
+  return Object.freeze({
+    tone: 'refusal' as const,
+    headline: 'This command is blocked — here is a safe path forward',
+    replyName: null,
+    // The runner already redacts and bounds this text. Do not re-read the raw JSON message here.
+    why: [{ label: displayMessage.split('\nNext:')[0]?.trim() || 'The command did not complete.' }],
+    warnings: [],
+    checklist: [],
+    gates: null,
+    preserved: [],
+    actions: Object.freeze(actions),
+    rail: [],
+    receipt: null,
+    faults: [],
+    auto: [],
+    flightPlan: null,
+    guidance: null,
+    home: null,
+    since: null,
+    rest: 'blocked',
+    details: Object.freeze({
+      code,
+      source: 'deterministic recovery planner',
+      retry: String(result.remediationPlan?.retry?.label ?? 'Retry after resolving the blocking condition.')
+    })
+  });
 }
 
 /**
@@ -179,6 +239,9 @@ export function refusalFor(error: unknown, { headline }: { headline?: string } =
   if (structured?.resultType === 'command-result') {
     return { view: buildResultCard(fromCommandResultV1(structured)), fidelity: 'command-result-v1' };
   }
+  if (structured?.resultType === 'sflow-refusal-plan') {
+    return { view: fromRefusalPlan(structured, text), fidelity: 'refusal-plan-v1' };
+  }
   return {
     view: fromMessage(text, {
       exitCode: exitCode === null ? 'none' : String(exitCode),
@@ -200,6 +263,10 @@ export function fidelityNote(fidelity: RefusalFidelity): string | null {
   if (fidelity === 'command-result-v1') {
     return 'This command reports the older result contract, so there is no gate checklist. '
       + 'What it says about preserved work is derived from its declared effects.';
+  }
+  if (fidelity === 'refusal-plan-v1') {
+    return 'This command supplied a deterministic recovery plan. Its buttons prepare commands for '
+      + 'review and never run them automatically; no preservation claim is made without an effects record.';
   }
   return 'This command did not report a structured result, so there is no statement here about '
     + 'what was preserved. Check the command output before assuming anything changed.';

@@ -659,6 +659,8 @@ Usage:
   singularity-flow capability add <ID> --owns <DIRECTORY|DIRECTORY/**> [--name TEXT] [--team TEXT]... [--parent ID]
   singularity-flow capability protect <PATH> [--capability ID] [--approver GROUP] [--reason TEXT]
   singularity-flow capability depend <TARGET-CAPABILITY>@<REFERENCE> [--from ID] [--contract ID] [--json]
+  singularity-flow capability auto <CAPABILITY-ID> --eligibility inherit|disabled|plan-only|bounded
+    [--protected-scope block|allow] [--maximum-touched-paths N] [--maximum-concurrent-flights N]
   singularity-flow capability adopt-managed --preview [--lead URL]
   singularity-flow capability adopt-managed --confirm sha256:<PLAN> [--lead URL]
   singularity-flow capability of <REPOSITORY-ID> [--json]
@@ -684,6 +686,9 @@ Usage:
     [--type tech|business] [--parent ID] [--repositories A,B] [--lead-repository ID]
     [--source-roots DIR,...] [--shared-roots DIR,...]
     [--metadata KEY=VALUE]... [--doc KEY=VALUE]... [--resource KEY=VALUE]...
+    [--auto-eligibility inherit|disabled|plan-only|bounded]
+    [--auto-protected-scope block|allow]
+    [--auto-maximum-touched-paths N] [--auto-maximum-concurrent-flights N]
     [--json]   (no checkout needed)
   Capability parents are optional. Omit --parent to create a top-level capability; clear it in the
   VS Code capability designer to move an existing capability back to the top level.

@@ -68,6 +68,7 @@ import {
   forgetLeadRepository, leadRegistryFile, listLeadRepositories, listLeadRepositoryRegistryRecords,
   rememberLeadRepository
 } from './lead-repositories.mjs';
+import { normalizeCapabilityAutoPolicy } from './auto/auto-policy.mjs';
 
 export {
   forgetLeadRepository, leadRegistryFile, listLeadRepositories, rememberLeadRepository
@@ -3326,9 +3327,10 @@ export async function proposeProgressiveCapabilityChange(leadUrl, {
   subjectPath = null,
   approver = null,
   reason = null,
-  dependency = null
+  dependency = null,
+  auto = undefined
 } = {}) {
-  if (!['add', 'protect', 'depend'].includes(operation)) {
+  if (!['add', 'protect', 'depend', 'auto'].includes(operation)) {
     throw new SingularityFlowError(`Unsupported progressive capability operation '${operation}'.`);
   }
   const safeSubject = operation === 'add'
@@ -3437,7 +3439,7 @@ export async function proposeProgressiveCapabilityChange(leadUrl, {
           requiredAuthorityGroups: [...new Set([...(policy.requiredAuthorityGroups ?? []), authority])]
         };
         Object.assign(parameters, { capabilityId: selectedCapabilityId, path: safeSubject, approver: authority, reason: reason ?? null });
-      } else {
+      } else if (operation === 'depend') {
         if (!dependency || !dependency.capability || !dependency.contract?.id) {
           throw new SingularityFlowError('A complete immutable published-contract resolution is required.', {
             code: 'PCD_DEPENDENCY_CONTRACT_REQUIRED'
@@ -3450,6 +3452,33 @@ export async function proposeProgressiveCapabilityChange(leadUrl, {
         if (!node.dependencies.some((item) => item.contract?.sha256 === dependency.contract.sha256
           && item.capability === dependency.capability)) node.dependencies.push(dependency);
         Object.assign(parameters, { capabilityId: selectedCapabilityId, dependency });
+      } else {
+        if (!selectedCapabilityId || !definition.capabilities[selectedCapabilityId]) {
+          throw new SingularityFlowError(`Unknown capability '${selectedCapabilityId ?? ''}'.`, {
+            code: 'CAPABILITY_UNKNOWN'
+          });
+        }
+        const node = definition.capabilities[selectedCapabilityId];
+        const policy = node.policy ?? {};
+        if (auto == null) {
+          delete policy.auto;
+          node.policy = policy;
+          Object.assign(parameters, { capabilityId: selectedCapabilityId, auto: null });
+        } else {
+          const normalized = normalizeCapabilityAutoPolicy(auto, `Capability '${selectedCapabilityId}'.policy.auto`);
+          const stored = {
+            eligibility: normalized.eligibility,
+            forbiddenWhenProtectedScopePredicted: normalized.forbiddenWhenProtectedScopePredicted,
+            ...(normalized.maximumTouchedPaths == null ? {} : {
+              maximumTouchedPaths: normalized.maximumTouchedPaths
+            }),
+            ...(normalized.maximumConcurrentFlights == null ? {} : {
+              maximumConcurrentFlights: normalized.maximumConcurrentFlights
+            })
+          };
+          node.policy = { ...policy, auto: stored };
+          Object.assign(parameters, { capabilityId: selectedCapabilityId, auto: stored });
+        }
       }
 
       validateCapabilities(definition, existsSync(path.join(root, PORTFOLIO_PATH))

@@ -2739,10 +2739,20 @@ const capabilityFixture = [{
     id: 'payments', name: 'Payments', kind: 'collection', delivery: false, repository: null,
     metadata: { applicationId: 'APP-1001', costCenter: 'CC-42' },
     jira: { projectKey: 'PAY', board: 'Payments board' }, teams: ['Payments squad'], owns: [],
-    policy: { approvalMinimum: 1, protectedPaths: ['src/payments/**'] },
+    policy: {
+      approvalMinimum: 1, protectedPaths: ['src/payments/**'],
+      auto: {
+        eligibility: 'bounded', forbiddenWhenProtectedScopePredicted: true,
+        maximumTouchedPaths: 12, maximumConcurrentFlights: 2
+      }
+    },
     effectivePolicy: {
       gateSeverity: 'block', approvalMinimum: 2,
-      protectedPaths: ['singularity/workflow.yml', 'src/payments/**']
+      protectedPaths: ['singularity/workflow.yml', 'src/payments/**'],
+      auto: {
+        eligibility: 'plan-only', forbiddenWhenProtectedScopePredicted: true,
+        maximumTouchedPaths: 8, maximumConcurrentFlights: 1
+      }
     },
     children: [{
       id: 'payments-api', name: 'Payments API', kind: 'delivery', delivery: true, repository: 'api',
@@ -3224,6 +3234,15 @@ test('a declared policy value an ancestor overrides is shown as overridden, not 
 
   // Fields nobody set anywhere are omitted. Twenty empty rules would teach nothing.
   assert.equal(detail.policy.some((field) => field.key === 'tokenBudget'), false);
+  assert.deepEqual(detail.auto.declared, {
+    eligibility: 'bounded', forbiddenWhenProtectedScopePredicted: true,
+    maximumTouchedPaths: 12, maximumConcurrentFlights: 2
+  });
+  assert.deepEqual(detail.auto.effective, {
+    eligibility: 'plan-only', forbiddenWhenProtectedScopePredicted: true,
+    maximumTouchedPaths: 8, maximumConcurrentFlights: 1
+  });
+  assert.equal(detail.auto.overridden, true);
 });
 
 test('a capability reports what it ships, at any depth beneath it', () => {
@@ -3295,6 +3314,15 @@ test('an empty field is sent as a clearance, and an untouched one is not sent at
   assert.deepEqual(capabilityArgv('set', 'payments', {
     metadata: JSON.stringify([['costCenter', ''], ['ownerCode', 'PZN']])
   }), ['capability', 'set', 'payments', '--metadata', 'costCenter=', '--metadata', 'ownerCode=PZN']);
+  assert.deepEqual(capabilityArgv('set', 'payments', {
+    autoEligibility: 'bounded', autoProtectedScope: 'block',
+    autoMaximumTouchedPaths: '12', autoMaximumConcurrentFlights: '2'
+  }), ['capability', 'set', 'payments', '--auto-eligibility', 'bounded',
+    '--auto-protected-scope', 'block', '--auto-maximum-touched-paths', '12',
+    '--auto-maximum-concurrent-flights', '2']);
+  assert.deepEqual(capabilityArgv('set', 'payments', {
+    autoEligibility: 'inherit', autoProtectedScope: 'block', autoMaximumTouchedPaths: '12'
+  }), ['capability', 'set', 'payments', '--auto-eligibility', 'inherit']);
   assert.throws(() => capabilityArgv('set', 'payments', { metadata: '{bad' }),
     /metadata must be a JSON array/);
 });
@@ -3303,8 +3331,10 @@ test('the page cannot widen what an edit writes', () => {
   // Messages from a webview are claims, not instructions. Only the named fields survive.
   assert.deepEqual(
     readEdits({ name: 'Payments', metadata: '[["applicationId","APP-1001"]]',
-      policy: 'gateSeverity: off', __proto__: 'x', teams: 42 }),
-    { name: 'Payments', metadata: '[["applicationId","APP-1001"]]' });
+      policy: 'gateSeverity: off', __proto__: 'x', teams: 42,
+      autoEligibility: 'bounded', autoMaximumTouchedPaths: '8' }),
+    { name: 'Payments', metadata: '[["applicationId","APP-1001"]]',
+      autoEligibility: 'bounded', autoMaximumTouchedPaths: '8' });
   assert.deepEqual(readEdits(null), {});
 });
 
@@ -3321,6 +3351,22 @@ test('the capability screen shows declared beside effective, and names the overr
   // Policy is not editable here, and the screen says where it is edited rather than staying silent.
   assert.equal(/data-field="policy/.test(html), false);
   assert.match(html, /singularity\/capabilities\.yml/);
+  assert.match(html, /Auto policy/);
+  assert.match(html, /Capability eligibility/);
+  assert.match(html, /<option value="bounded" selected>Bounded execution<\/option>/);
+  assert.match(html, /applies: plan-only/);
+  assert.match(html, /cannot turn Auto on above this level/);
+  assert.match(html, /Nothing is activated until the proposal is reviewed and merged/);
+});
+
+test('receipt-managed capability maps expose Auto through a reviewed proposal action', () => {
+  const html = capabilitiesHtml(capabilityFixture, 'payments', null, undefined, 'explicit-managed');
+  assert.match(html, /Capability policy/);
+  assert.match(html, /Auto policy/);
+  assert.match(html, /<option value="bounded" selected>Bounded execution<\/option>/);
+  assert.match(html, /data-managed-auto-save="payments"/);
+  assert.match(html, /receipt-backed review proposal/);
+  assert.match(CAPABILITY_SCRIPT, /type: 'managed-auto'/);
 });
 
 test('the capability screen navigates both relationship directions and removes through reviewed history', () => {
@@ -3378,7 +3424,10 @@ test('a repository with no capability map offers to describe the first capabilit
 });
 
 test('the progressive capability page starts an implicit repository without setup ceremony', () => {
-  const html = capabilitiesHtml([], null, null, undefined, 'implicit');
+  const html = capabilitiesHtml([{
+    id: 'repository-root', name: 'This repository', kind: 'delivery', delivery: true,
+    repository: 'repo', policy: {}, effectivePolicy: {}, children: []
+  }], null, null, undefined, 'implicit');
   assert.match(html, /This repository is one capability|This repository/);
   assert.match(html, /You can start a Story now|Ready with no setup/);
   assert.match(html, /data-progressive-start/);
@@ -3387,6 +3436,8 @@ test('the progressive capability page starts an implicit repository without setu
   assert.match(html, /Show ownership/);
   assert.doesNotMatch(html, /Describe the first capability/);
   assert.match(CAPABILITY_SCRIPT, /type: 'progressive-start'/);
+  assert.match(html, /Optional capability policy/);
+  assert.match(html, /data-managed-auto-save="repository-root"/);
 });
 
 test('a delivery capability is rendered as shipping from its declared repository', () => {
@@ -3665,6 +3716,11 @@ test('a failure shows the sentence, not the log line that carries it', () => {
     rendered: { headline: 'Publication pending' },
     next: [{ command: 'singularity-flow sync' }]
   })), 'Publication pending\nNext: singularity-flow sync');
+  assert.equal(humanError(JSON.stringify({
+    resultType: 'sflow-refusal-plan',
+    error: { message: 'Auto mode is disabled.' },
+    remediationPlan: { steps: [{ command: 'singularity-flow explain auto-mode' }] }
+  })), 'Auto mode is disabled.\nNext: singularity-flow explain auto-mode');
   for (const unsafe of [
     'Singularity Flow error: {"password":"LEAKMARK"}',
     'Singularity Flow error: http.extraHeader="Authorization: Basic LEAKMARK"',

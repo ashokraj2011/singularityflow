@@ -8188,6 +8188,59 @@ function capabilityChanges(options) {
   put('owns', 'owns', list);
   put('description', 'description');
   put('owner', 'owner');
+
+  // Auto is the one capability policy slice exposed by the guided editor. It is deliberately
+  // narrower than a generic `--policy` escape hatch: capability policy can only tighten the
+  // repository/work-type decision, and every accepted value is validated here before a remote
+  // proposal can be created. `inherit` removes this capability's complete Auto override so the
+  // parent/repository answer applies again.
+  const autoEligibility = optionString(options, 'auto-eligibility');
+  const autoProtectedScope = optionString(options, 'auto-protected-scope');
+  const autoMaximumTouchedPaths = optionString(options, 'auto-maximum-touched-paths');
+  const autoMaximumConcurrentFlights = optionString(options, 'auto-maximum-concurrent-flights');
+  const autoOptions = [autoProtectedScope, autoMaximumTouchedPaths, autoMaximumConcurrentFlights]
+    .filter((value) => value != null);
+  if (autoEligibility != null) {
+    if (!['inherit', 'disabled', 'plan-only', 'bounded'].includes(autoEligibility)) {
+      throw new SingularityFlowError('--auto-eligibility must be inherit, disabled, plan-only, or bounded.');
+    }
+    if (autoEligibility === 'inherit') {
+      if (autoOptions.length) {
+        throw new SingularityFlowError('--auto-eligibility inherit cannot be combined with capability Auto limits.');
+      }
+      changes['policy.auto'] = null;
+    } else {
+      changes['policy.auto.eligibility'] = autoEligibility;
+    }
+  } else if (autoOptions.length) {
+    throw new SingularityFlowError('Capability Auto limits require --auto-eligibility.');
+  }
+  if (autoEligibility && autoEligibility !== 'inherit') {
+    if (autoProtectedScope != null) {
+      if (!['block', 'allow'].includes(autoProtectedScope)) {
+        throw new SingularityFlowError('--auto-protected-scope must be block or allow.');
+      }
+      changes['policy.auto.forbiddenWhenProtectedScopePredicted'] = autoProtectedScope === 'block';
+    }
+    const boundedInteger = (value, label) => {
+      if (value === '') return null;
+      const parsed = Number(value);
+      if (!Number.isSafeInteger(parsed) || parsed < 1) {
+        throw new SingularityFlowError(`${label} must be a positive integer or empty to inherit.`);
+      }
+      return parsed;
+    };
+    if (autoMaximumTouchedPaths != null) {
+      changes['policy.auto.maximumTouchedPaths'] = boundedInteger(
+        autoMaximumTouchedPaths, '--auto-maximum-touched-paths'
+      );
+    }
+    if (autoMaximumConcurrentFlights != null) {
+      changes['policy.auto.maximumConcurrentFlights'] = boundedInteger(
+        autoMaximumConcurrentFlights, '--auto-maximum-concurrent-flights'
+      );
+    }
+  }
   return changes;
 }
 
@@ -8210,9 +8263,9 @@ function capabilityRemovalDestination(options) {
  * that validates before it saves; it edits the YAML document rather than re-emitting it, so a map
  * that people also hand-edit stays readable afterwards.
  *
- * Policy is not editable here. It folds from the root down, so the value that applies is often not
- * the value written, and an option per field would make that easier to get wrong rather than easier
- * to see. `capability show --json` reports both.
+ * General policy is not editable here. It folds from the root down, so the value that applies is
+ * often not the value written. The focused Auto slice is editable because its bounded vocabulary
+ * can only tighten the repository/work-type decision. `capability show --json` reports both.
  */
 async function capabilityCommand(positionals, options) {
   const subcommandForWrite = positionals[1];

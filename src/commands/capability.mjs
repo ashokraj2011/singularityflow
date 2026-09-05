@@ -8,7 +8,7 @@ import {
 let legacy = null;
 let organisation = null;
 let explanationSupport = null;
-const DIRECT = new Set(['add', 'protect', 'depend', 'show', 'leads', 'adopt-managed']);
+const DIRECT = new Set(['add', 'protect', 'depend', 'auto', 'show', 'leads', 'adopt-managed']);
 
 function isDirect(context = {}) {
   return DIRECT.has(context.positionals?.[1] ?? 'show');
@@ -190,7 +190,13 @@ async function runMutation(subcommand, context) {
           approver: optionString(options, 'approver'),
           reason: optionString(options, 'reason')
         })
-      : await proposeProgressiveCapabilityChange(lead, {
+      : subcommand === 'auto'
+        ? await proposeProgressiveCapabilityChange(lead, {
+            operation: 'auto',
+            capabilityId: required(context.positionals, 2, '<CAPABILITY-ID>'),
+            auto: capabilityAutoOptions(options)
+          })
+        : await proposeProgressiveCapabilityChange(lead, {
           operation: 'depend',
           capabilityId: optionString(options, 'from'),
           dependency: exactDependency(context.positionals, options)
@@ -213,6 +219,49 @@ async function runMutation(subcommand, context) {
   console.log(`Review: singularity-flow capability proposal ${result.branch} --lead ${lead}`);
   console.log(`Activate after review: singularity-flow capability activate ${result.branch} --lead ${lead} --confirm ${result.commit}`);
   return result;
+}
+
+function positiveOrNull(value, label) {
+  if (value == null || value === '') return null;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) {
+    throw new SingularityFlowError(`${label} must be a positive integer or empty to inherit.`);
+  }
+  return parsed;
+}
+
+function capabilityAutoOptions(options) {
+  const eligibility = optionString(options, 'eligibility');
+  if (!['inherit', 'disabled', 'plan-only', 'bounded'].includes(eligibility ?? '')) {
+    throw new SingularityFlowError('--eligibility must be inherit, disabled, plan-only, or bounded.', {
+      code: 'AUTO_PLAN_INVALID'
+    });
+  }
+  const protectedScope = optionString(options, 'protected-scope');
+  if (eligibility === 'inherit') {
+    if ([protectedScope, optionString(options, 'maximum-touched-paths'),
+      optionString(options, 'maximum-concurrent-flights')].some((value) => value != null)) {
+      throw new SingularityFlowError('--eligibility inherit cannot be combined with capability Auto limits.', {
+        code: 'AUTO_PLAN_INVALID'
+      });
+    }
+    return null;
+  }
+  if (protectedScope != null && !['block', 'allow'].includes(protectedScope)) {
+    throw new SingularityFlowError('--protected-scope must be block or allow.', { code: 'AUTO_PLAN_INVALID' });
+  }
+  const maximumTouchedPaths = positiveOrNull(
+    optionString(options, 'maximum-touched-paths'), '--maximum-touched-paths'
+  );
+  const maximumConcurrentFlights = positiveOrNull(
+    optionString(options, 'maximum-concurrent-flights'), '--maximum-concurrent-flights'
+  );
+  return {
+    eligibility,
+    forbiddenWhenProtectedScopePredicted: protectedScope !== 'allow',
+    ...(maximumTouchedPaths == null ? {} : { maximumTouchedPaths }),
+    ...(maximumConcurrentFlights == null ? {} : { maximumConcurrentFlights })
+  };
 }
 
 export async function run(argv, context = {}) {
@@ -269,6 +318,6 @@ export async function run(argv, context = {}) {
     console.log('Nothing has been applied yet. Existing Stories keep their pinned capability rules.');
     return result;
   }
-  if (['add', 'protect', 'depend'].includes(subcommand)) return runMutation(subcommand, context);
+  if (['add', 'protect', 'depend', 'auto'].includes(subcommand)) return runMutation(subcommand, context);
   return (await loadLegacy()).run(argv);
 }

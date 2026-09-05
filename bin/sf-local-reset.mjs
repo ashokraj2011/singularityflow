@@ -1,8 +1,6 @@
 #!/usr/bin/env node
 import { main } from '../src/cli.mjs';
+import { reportCliFailure } from '../src/cli-failure.mjs';
 
-main(['local-reset', ...process.argv.slice(2)]).catch((error) => {
-  console.error(`\nSingularity Flow error: ${error?.message ?? String(error)}`);
-  if (process.env.SINGULARITY_FLOW_DEBUG === '1' && error?.stack) console.error(error.stack);
-  process.exitCode = Number.isInteger(error?.exitCode) ? error.exitCode : 1;
-});
+const argv = ['local-reset', ...process.argv.slice(2)];
+main(['local-reset', ...process.argv.slice(2)]).catch((error) => reportCliFailure(error, argv));

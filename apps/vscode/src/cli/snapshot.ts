@@ -22,7 +22,8 @@
  * because the real value is `not_started` and this file had guessed `pending`.
  */
 /** The value of any policy field; the vocabulary is wide, the shapes are these four. */
-export type CapabilityPolicyValue = string | number | boolean | string[] | null;
+export type CapabilityPolicyValue = string | number | boolean | string[] | null
+  | { readonly [key: string]: CapabilityPolicyValue };
 
 export interface CapabilityNode {
   id: string;

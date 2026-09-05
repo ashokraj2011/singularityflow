@@ -310,7 +310,7 @@ export function showRefusal(error: unknown, { headline }: { headline?: string } 
     return;
   }
   const helpTopic = helpTopicForError({
-    code: (error as { code?: string })?.code ?? null,
+    code: refusal.view.details.code ?? (error as { code?: string })?.code ?? null,
     messageId: refusal.view.details.message ?? null,
     operation: refusal.view.details.operation ?? null,
     message: (error as { message?: string })?.message ?? null

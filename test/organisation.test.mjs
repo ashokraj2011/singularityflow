@@ -207,6 +207,53 @@ test('the first progressive capability command materializes only a reviewed mana
   assert.equal(receipt.materialization.equivalent, true);
 });
 
+test('managed capability Auto policy changes remain receipt-backed proposals', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const first = await proposeProgressiveCapabilityChange(org.platform, {
+    operation: 'add', capabilityId: 'payments', name: 'Payments',
+    ownership: 'services/payments/**'
+  });
+  await mergeProposal(org.platform, first);
+
+  const proposal = await proposeProgressiveCapabilityChange(org.platform, {
+    operation: 'auto', capabilityId: 'payments',
+    auto: {
+      eligibility: 'bounded', forbiddenWhenProtectedScopePredicted: true,
+      maximumTouchedPaths: 6, maximumConcurrentFlights: 1
+    }
+  });
+  assert.equal(proposal.reviewRequired, true);
+  assert.equal(proposal.capabilityId, 'payments');
+  const approved = YAML.parse(run('git', [
+    'show', 'sflow/config:singularity/capabilities.yml'
+  ], { cwd: org.platform }).stdout);
+  assert.equal(approved.capabilities.payments.policy.auto, undefined,
+    'the approved authority is unchanged until review');
+  const proposed = YAML.parse(run('git', [
+    'show', `${proposal.commit}:singularity/capabilities.yml`
+  ], { cwd: org.platform }).stdout);
+  assert.deepEqual(proposed.capabilities.payments.policy.auto, {
+    eligibility: 'bounded', forbiddenWhenProtectedScopePredicted: true,
+    maximumTouchedPaths: 6, maximumConcurrentFlights: 1
+  });
+  const receipt = JSON.parse(run('git', [
+    'show', `${proposal.commit}:${proposal.receiptPath}`
+  ], { cwd: org.platform }).stdout);
+  assert.equal(receipt.operation, 'auto');
+  assert.deepEqual(receipt.parameters.auto, proposed.capabilities.payments.policy.auto);
+
+  await mergeProposal(org.platform, proposal);
+  const inherited = await proposeProgressiveCapabilityChange(org.platform, {
+    operation: 'auto', capabilityId: 'payments', auto: null
+  });
+  const cleared = YAML.parse(run('git', [
+    'show', `${inherited.commit}:singularity/capabilities.yml`
+  ], { cwd: org.platform }).stdout);
+  assert.equal(cleared.capabilities.payments.policy.auto, undefined);
+  assert.equal(inherited.receipt.parameters.auto, null);
+});
+
 test('the branch a capability is mapped on is not recorded as the repository default branch', async () => {
   /**
    * `withLeadCheckout` borrows the lead on the configuration authority branch, so the base branch it

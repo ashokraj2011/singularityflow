@@ -605,9 +605,9 @@ export async function loadCapabilities(root, { required = false } = {}) {
  *
  * Only the fields a caller names are touched; an empty string clears a field rather than setting it
  * to nothing. Changing a delivery to a collection is an explicit paired edit: change `kind` and clear
- * its repository declaration. Policy is deliberately not editable here — it folds, so the value that
- * applies is rarely the value written, and a field-by-field form would teach the wrong model. The
- * screen shows the fold and sends the reader to the file.
+ * its repository declaration. General policy remains deliberately read-only here because it folds.
+ * The focused `policy.auto` slice may be edited by callers because the validated capability-level
+ * values can only tighten the repository/work-type decision; the screen still shows the full fold.
  *
  * @param mode `add` refuses an identifier that exists, `set` refuses one that does not. A screen
  *   knows which it meant, and a typo that silently creates a sibling is the expensive mistake.

@@ -23,6 +23,7 @@ export type CapabilitiesMessage =
   | { type: 'progressive-start' }
   | { type: 'progressive-add' }
   | { type: 'progressive-protect' }
+  | { type: 'managed-auto'; id: string; edits: Record<string, string> }
   | { type: 'progressive-why' };
 
 export class CapabilitiesPanel {
@@ -98,6 +99,9 @@ export class CapabilitiesPanel {
       if (message?.type === 'progressive-start') return onMessage({ type: 'progressive-start' });
       if (message?.type === 'progressive-add') return onMessage({ type: 'progressive-add' });
       if (message?.type === 'progressive-protect') return onMessage({ type: 'progressive-protect' });
+      if (message?.type === 'managed-auto' && typeof message.id === 'string') {
+        return onMessage({ type: 'managed-auto', id: message.id, edits: readEdits(message.edits) });
+      }
       if (message?.type === 'progressive-why') return onMessage({ type: 'progressive-why' });
       if (message?.type === 'save' && typeof message.id === 'string') {
         return onMessage({ type: 'save', id: message.id, edits: readEdits(message.edits) });

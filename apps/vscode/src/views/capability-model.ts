@@ -48,6 +48,21 @@ export interface CapabilityDetail {
   teams: string[];
   owns: string[];
   policy: PolicyField[];
+  auto: {
+    declared: {
+      eligibility: 'inherit' | 'disabled' | 'plan-only' | 'bounded';
+      forbiddenWhenProtectedScopePredicted: boolean;
+      maximumTouchedPaths: number | null;
+      maximumConcurrentFlights: number | null;
+    };
+    effective: {
+      eligibility: 'unrestricted' | 'disabled' | 'plan-only' | 'bounded';
+      forbiddenWhenProtectedScopePredicted: boolean;
+      maximumTouchedPaths: number | null;
+      maximumConcurrentFlights: number | null;
+    };
+    overridden: boolean;
+  };
   /** Delivery capabilities beneath this one; a leaf ships itself. */
   ships: Array<{ id: string; repository: string }>;
 }
@@ -80,6 +95,18 @@ const POLICY_FIELDS: Array<{ key: string; label: string; rule: string }> = [
   { key: 'contextMaxBytes', label: 'Context maximum bytes', rule: 'the smallest set by any ancestor' }
 ];
 
+type AutoPolicy = {
+  eligibility?: 'disabled' | 'plan-only' | 'bounded';
+  forbiddenWhenProtectedScopePredicted?: boolean;
+  maximumTouchedPaths?: number | null;
+  maximumConcurrentFlights?: number | null;
+};
+
+function autoPolicy(value: PolicyValue | undefined): AutoPolicy | null {
+  if (!value || Array.isArray(value) || typeof value !== 'object') return null;
+  return value as AutoPolicy;
+}
+
 const same = (left: PolicyValue, right: PolicyValue): boolean => {
   if (Array.isArray(left) && Array.isArray(right)) {
     return left.length === right.length && left.every((item, index) => item === right[index]);
@@ -105,6 +132,8 @@ export function capabilityDetail(tree: CapabilityNode[], capabilityId: string): 
 
   const declaredPolicy = row.policy ?? {};
   const effectivePolicy = row.effectivePolicy ?? {};
+  const declaredAuto = autoPolicy(declaredPolicy.auto);
+  const effectiveAuto = autoPolicy(effectivePolicy.auto);
 
   const policy = POLICY_FIELDS
     .map((field) => {
@@ -155,6 +184,23 @@ export function capabilityDetail(tree: CapabilityNode[], capabilityId: string): 
     teams: row.teams ?? [],
     owns: row.owns ?? [],
     policy,
+    auto: {
+      declared: {
+        eligibility: declaredAuto?.eligibility ?? 'inherit',
+        forbiddenWhenProtectedScopePredicted:
+          declaredAuto?.forbiddenWhenProtectedScopePredicted !== false,
+        maximumTouchedPaths: declaredAuto?.maximumTouchedPaths ?? null,
+        maximumConcurrentFlights: declaredAuto?.maximumConcurrentFlights ?? null
+      },
+      effective: {
+        eligibility: effectiveAuto?.eligibility ?? 'unrestricted',
+        forbiddenWhenProtectedScopePredicted:
+          effectiveAuto?.forbiddenWhenProtectedScopePredicted !== false,
+        maximumTouchedPaths: effectiveAuto?.maximumTouchedPaths ?? null,
+        maximumConcurrentFlights: effectiveAuto?.maximumConcurrentFlights ?? null
+      },
+      overridden: declaredAuto != null && JSON.stringify(declaredAuto) !== JSON.stringify(effectiveAuto)
+    },
     ships
   };
 }
@@ -163,7 +209,10 @@ export function capabilityDetail(tree: CapabilityNode[], capabilityId: string): 
 const EDIT_FLAGS: Array<[string, string]> = [
   ['name', '--name'], ['kind', '--kind'], ['parent', '--parent'], ['repository', '--repository'],
   ['sourceRoots', '--source-roots'], ['sharedRoots', '--shared-roots'],
-  ['jira.projectKey', '--jira-project'], ['jira.board', '--jira-board'], ['teams', '--teams']
+  ['jira.projectKey', '--jira-project'], ['jira.board', '--jira-board'], ['teams', '--teams'],
+  ['autoEligibility', '--auto-eligibility'], ['autoProtectedScope', '--auto-protected-scope'],
+  ['autoMaximumTouchedPaths', '--auto-maximum-touched-paths'],
+  ['autoMaximumConcurrentFlights', '--auto-maximum-concurrent-flights']
 ];
 
 /**
@@ -187,6 +236,7 @@ export function capabilityArgv(
   }
   for (const [field, flag] of EDIT_FLAGS) {
     if (edits[field] === undefined) continue;
+    if (edits.autoEligibility === 'inherit' && field.startsWith('auto') && field !== 'autoEligibility') continue;
     argv.push(flag, edits[field].trim());
   }
   if (edits.metadata !== undefined) {

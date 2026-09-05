@@ -10,7 +10,7 @@ related:
   - story-lifecycle
   - impact-framework
   - checkpoints-pause-continue
-version: 5
+version: 6
 ---
 Auto mode turns a plain-language requirement into a reviewable, exact-hash Plan and derived ratification packet and—only after the packet hash is confirmed—creates an ordinary governed Story in a managed isolated worktree. It is repository policy, not a way around lifecycle policy.
 
@@ -26,7 +26,7 @@ The thin pilot requires one approved delivery capability, one repository, a publ
 
 **Copilot:** Run `/sf-auto plan <requirement>`, review the complete card, then run `/sf-auto start <PLAN-ID>`. The skill requires you to type the complete ratification-packet hash and never extracts or pre-fills it. `/sf-auto needs-you <FLIGHT-ID>` shows typed human requests, and `/sf-start` remains the guided manual Story route.
 
-**VS Code:** Open **My Work** or the Singularity Flow result view. Auto Plan cards show the reviewed requirement, inferred assumptions, Story/branch, phase rail, scope, evidence, Execution Unit, pacing, endpoint, ceilings, and human stops. Running cards show phase/attempt progress and remaining path, model-call, and token budgets. Report cards show the observed quality floor, content-free outcome counts, and separately assured tool-output token accounting. Buttons only prefill the existing `singularity-flow auto ...` kernel command for review; they never submit it or create a separate publication path.
+**VS Code:** Open **Configuration → Capabilities**, select a capability, and use **Auto policy** to choose Inherit, Disabled, Plan only, or Bounded execution plus its capability ceilings. Legacy maps use the ordinary reviewed editor; receipt-managed maps use **Propose Auto policy**, which records a capability-change receipt. Both create a review branch for `sflow/config` and leave approved configuration unchanged until review. A capability can only tighten policy: repository Auto and the selected work type must still permit it. Open **My Work** or the Singularity Flow result view for Auto Plan cards showing the reviewed requirement, inferred assumptions, Story/branch, phase rail, scope, evidence, Execution Unit, pacing, endpoint, ceilings, and human stops. Running cards show phase/attempt progress and remaining path, model-call, and token budgets. Report cards show the observed quality floor, content-free outcome counts, and separately assured tool-output token accounting. Buttons only prefill the existing `singularity-flow auto ...` kernel command for review; they never submit it or create a separate publication path. A refused command supplies a deterministic recovery-plan card; those buttons also prefill commands without executing them.
 
 ## Guided workflow
 

@@ -102,6 +102,33 @@ test('an error with no structured result claims nothing about preservation', () 
   assert.match(fidelityNote(fidelity), /no statement here about what was preserved/);
 });
 
+test('a deterministic refusal plan becomes safe reviewable VS Code actions', () => {
+  const planned = JSON.stringify({
+    schemaVersion: 1,
+    resultType: 'sflow-refusal-plan',
+    status: 'failed',
+    error: { code: 'AUTO_DISABLED', message: 'Auto mode is disabled by repository policy.' },
+    remediationPlan: {
+      schemaVersion: 1, status: 'blocked', code: 'AUTO_DISABLED',
+      steps: [
+        { id: 'explain', label: 'Understand Auto policy.', command: 'singularity-flow explain auto-mode' },
+        { id: 'unsafe', label: 'Never expose this.', command: 'singularity-flow retry --token office-secret' }
+      ],
+      retry: { label: 'Retry after policy is reviewed.', automatic: false }
+    }
+  });
+  const { view: card, fidelity } = refusalFor(cliError('blocked', planned));
+  assert.equal(fidelity, 'refusal-plan-v1');
+  assert.equal(card.tone, 'refusal');
+  assert.deepEqual(card.preserved, []);
+  assert.equal(card.actions.length, 1);
+  assert.equal(card.actions[0].command, 'singularity-flow explain auto-mode');
+  assert.equal(card.actions[0].executable, false);
+  assert.match(card.actions[0].detail, /never runs/);
+  assert.doesNotMatch(JSON.stringify(card), /office-secret/);
+  assert.match(fidelityNote(fidelity), /never run them automatically/);
+});
+
 test('a caller headline is used only when the result named nothing itself', () => {
   const plain = refusalFor(cliError('boom'), { headline: 'Could not switch workspace' });
   assert.equal(plain.view.headline, 'Could not switch workspace');
@@ -128,5 +155,6 @@ test('the fidelity of a card is stated, never implied', () => {
   // the last one, instead of concluding the product is inconsistent.
   assert.equal(fidelityNote('sflow-result-v2'), null);
   assert.match(fidelityNote('command-result-v1'), /older result contract/);
+  assert.match(fidelityNote('refusal-plan-v1'), /deterministic recovery plan/);
   assert.match(fidelityNote('message-only'), /did not report a structured result/);
 });

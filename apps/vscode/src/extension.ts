@@ -4100,7 +4100,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       return;
     }
-    if (message.type === 'progressive-add' || message.type === 'progressive-protect') {
+    if (message.type === 'progressive-add' || message.type === 'progressive-protect'
+        || message.type === 'managed-auto') {
       try {
         let argv: string[];
         if (message.type === 'progressive-add') {
@@ -4128,6 +4129,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           });
           if (name === undefined) return;
           argv = ['capability', 'add', id, '--owns', owns, '--name', name.trim() || id, '--json'];
+        } else if (message.type === 'managed-auto') {
+          const eligibility = message.edits.autoEligibility ?? 'inherit';
+          argv = ['capability', 'auto', message.id, '--eligibility', eligibility];
+          if (eligibility !== 'inherit') {
+            argv.push('--protected-scope', message.edits.autoProtectedScope ?? 'block');
+            if (message.edits.autoMaximumTouchedPaths) {
+              argv.push('--maximum-touched-paths', message.edits.autoMaximumTouchedPaths);
+            }
+            if (message.edits.autoMaximumConcurrentFlights) {
+              argv.push('--maximum-concurrent-flights', message.edits.autoMaximumConcurrentFlights);
+            }
+          }
+          argv.push('--json');
         } else {
           const protectedPath = await vscode.window.showInputBox({
             title: 'Protect a path',

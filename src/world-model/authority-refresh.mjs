@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { exactRemoteBranchObservation, hasRemote, refHead, validBranch } from '../git.mjs';
+import { exactRemoteBranchObservationAsync, hasRemote, refHead, validBranch } from '../git.mjs';
 import { runRemoteGitAsync } from '../git-execution.mjs';
 import { configuredRemoteAuthority, configuredRemoteIdentity } from '../git-remote-diagnostics.mjs';
 import { posix, run, SingularityFlowError } from '../util.mjs';
@@ -52,7 +52,7 @@ function refreshFailure(root, config, observed, { cached }) {
  * but they must never turn that read into `git fetch`. A stale result points to the separately
  * registered refresh mutation below.
  */
-export function inspectWorldModelV4Authority(root, config) {
+export async function inspectWorldModelV4Authority(root, config) {
   const { stateBranch, remote, remoteRef } = configuredAuthority(config);
   if (!stateBranch || !hasRemote(root, remote)) return { status: 'no-remote', configured: false };
   validBranch(root, stateBranch);
@@ -79,7 +79,7 @@ export function inspectWorldModelV4Authority(root, config) {
       }
     );
   }
-  const observed = exactRemoteBranchObservation(root, effective.url, stateBranch);
+  const observed = await exactRemoteBranchObservationAsync(root, effective.url, stateBranch);
   if (!observed.reachable) return refreshFailure(root, config, observed.result, { cached });
   if (observed.malformed) {
     throw new SingularityFlowError(

@@ -59,6 +59,7 @@ test('the VS Code authority repair uses the same non-interactive office-safe con
 
 test('interactive onboarding, configuration, and recovery never use synchronous remote Git', async () => {
   for (const relative of [
+    'src/approved-configuration-reader.mjs',
     'src/bootstrap.mjs',
     'src/configuration-people.mjs',
     'src/configuration-proposal.mjs',

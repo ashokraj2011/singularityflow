@@ -14,7 +14,7 @@ import {
   configuredRemoteIdentity, frozenRemoteTransport
 } from './git-remote-diagnostics.mjs';
 import { removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
-import { runRemoteGit } from './git-execution.mjs';
+import { runRemoteGitAsync } from './git-execution.mjs';
 
 const WORKFLOW_PATH = 'singularity/workflow.yml';
 const CONFIGURATION_BRANCH = 'sflow/config';
@@ -195,7 +195,7 @@ function approvedConfigurationAuthority(root, {
  * reviewed configuration authority; `state` is recovery-only and is accepted later only after its
  * complete manifest and every declared byte have been verified.
  */
-function refreshApprovedConfigurationAuthority(root, {
+async function refreshApprovedConfigurationAuthority(root, {
   allowLocalHeads = true,
   canonicalRemote = null
 } = {}) {
@@ -225,7 +225,7 @@ function refreshApprovedConfigurationAuthority(root, {
     // The checkout's remote-tracking namespace keeps its ordinary name, but mutable ambient
     // insteadOf/pushInsteadOf rules can never substitute configuration bytes behind that name.
     const transport = frozenRemoteTransport(identity.url);
-    const advertised = runRemoteGit([
+    const advertised = await runRemoteGitAsync([
       'ls-remote', '--heads', '--', transport.remote,
       `refs/heads/${CONFIGURATION_BRANCH}`, `refs/heads/${STATE_BRANCH}`
     ], { cwd: root, operation: 'remote-probe', env: transport.env });
@@ -245,7 +245,7 @@ function refreshApprovedConfigurationAuthority(root, {
         cwd: root, allowFailure: true
       }).stdout.trim();
       if (localCommit !== advertisedCommit) {
-        const fetched = runRemoteGit([
+        const fetched = await runRemoteGitAsync([
           'fetch', '--quiet', '--no-tags', '--force', '--', transport.remote,
           `+${source}:${destination}`
         ], { cwd: root, operation: 'remote-configuration', env: transport.env });
@@ -433,7 +433,7 @@ export async function withApprovedConfigurationRead(root, fn, {
   }
   const authority = preferAuthority
     ? (refreshAuthority
-      ? refreshApprovedConfigurationAuthority(root, { allowLocalHeads, canonicalRemote })
+      ? await refreshApprovedConfigurationAuthority(root, { allowLocalHeads, canonicalRemote })
         ?? (requireAuthorityRefresh
           ? null
           : approvedConfigurationAuthority(root, { allowLocalHeads, canonicalRemote }))
@@ -442,7 +442,7 @@ export async function withApprovedConfigurationRead(root, fn, {
       ? null
       : approvedConfigurationAuthority(root, { allowLocalHeads, canonicalRemote }))
       ?? (refreshAuthority
-        ? refreshApprovedConfigurationAuthority(root, { allowLocalHeads, canonicalRemote })
+        ? await refreshApprovedConfigurationAuthority(root, { allowLocalHeads, canonicalRemote })
         : null);
   if (!authority && workflow) return fn({ kind: 'working-tree', ref: null, commit: null });
   if (!authority) return fn(null);

@@ -896,7 +896,7 @@ export async function handleWorldModelV4Command(root, config, command, positiona
   }
   if (command === 'ensure') {
     const phase = positionals[2] ?? optionString(options, 'phase');
-    const authority = inspectWorldModelV4Authority(root, config);
+    const authority = await inspectWorldModelV4Authority(root, config);
     if (authority.status === 'stale') {
       throw new SingularityFlowError(
         'The cached registered World-Model authority is behind the configured remote state branch.',

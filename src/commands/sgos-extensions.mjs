@@ -71,7 +71,8 @@ const MUTATIONS = new Set([
   'authority-store.publish', 'authority-store.sync',
   'pack.propose', 'pack.review', 'pack.activate', 'pack.revoke',
   'memory.register', 'memory.promote',
-  'meta-tool.propose', 'meta-tool.evaluation', 'meta-tool.promote'
+  'meta-tool.propose', 'meta-tool.evaluation', 'meta-tool.promote',
+  'meta-tool.activate', 'meta-tool.observe', 'meta-tool.revoke', 'meta-tool.rollback'
 ]);
 
 function fail(message, code = 'SGOS_EXTENSION_CLI_INVALID', details = null) {
@@ -206,6 +207,40 @@ function cas(options) {
     expectedRevision,
     expectedStateSha256: exactHash(options, 'expected-state-sha256')
   };
+}
+
+function boundedInteger(options, key, { minimum = 1, maximum } = {}) {
+  const value = optionNumber(options, key);
+  if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
+    fail(`--${key} must be an integer from ${minimum} through ${maximum}.`,
+      'SGOS_OPTION_INVALID', { option: key, minimum, maximum });
+  }
+  return value;
+}
+
+function commaSeparated(options, key, { digests = false } = {}) {
+  const value = requiredString(options, key);
+  const values = [...new Set(value.split(',').map((entry) => entry.trim()).filter(Boolean))].sort();
+  if (!values.length || (digests && values.some((entry) => !HASH.test(entry)))) {
+    fail(`--${key} must contain ${digests ? 'exact sha256 digests' : 'one or more values'} separated by commas.`,
+      'SGOS_OPTION_INVALID', { option: key });
+  }
+  return values;
+}
+
+function confirmedPlan(options, plan) {
+  const confirmation = optionString(options, 'confirm');
+  if (confirmation == null) return false;
+  if (!HASH.test(confirmation) || confirmation !== plan.confirmationSha256) {
+    fail(`Confirmation must equal the current mutation plan ${plan.confirmationSha256}.`,
+      'SGOS_META_TOOL_PLAN_STALE', {
+        supplied: confirmation,
+        required: plan.confirmationSha256,
+        expectedRevision: plan.expectedRevision,
+        expectedStateSha256: plan.expectedStateSha256
+      });
+  }
+  return true;
 }
 
 function localStoreId(options) {
@@ -986,21 +1021,69 @@ async function memoryCommand(root, positionals, options) {
   fail(`Unknown memory action '${action}'.`, 'UNKNOWN_SUBCOMMAND');
 }
 
-async function metaToolService(root, options) {
+async function metaToolService(root, options, { targetAuthority = false } = {}) {
   const store = await authorityStore(root, options);
   const trustedTraceIssuers = await publicTrustMap(root, optionString(options, 'trace-trust'), '--trace-trust');
   const trustedEvaluators = await publicTrustMap(root, optionString(options, 'evaluator-trust'), '--evaluator-trust');
+  let registry = null;
+  let resolveTargetAuthority = null;
+  if (targetAuthority) {
+    const approved = await loadApprovedSgosCapabilityPackLocalTrust(root);
+    if (approved.storeId !== store.storeId) {
+      fail(`Meta-tool target authority uses approved Store '${approved.storeId}', not '${store.storeId}'.`,
+        'SGOS_META_TOOL_TARGET_AUTHORITY_MISMATCH', {
+          approvedStoreId: approved.storeId,
+          requestedStoreId: store.storeId
+        });
+    }
+    registry = createCapabilityPackRegistry({
+      authorityStore: store,
+      trustedPublishers: approved.publishers,
+      repositoryRoot: root
+    });
+    resolveTargetAuthority = async (request) => {
+      if (request.kind !== 'pack-operation') {
+        fail('The public Meta-tool CLI currently activates only signed approved Capability Pack operations; Device targets remain unavailable until their canonical authority resolver lands.',
+          'SGOS_META_TOOL_DEVICE_TARGET_UNAVAILABLE');
+      }
+      const selection = await registry.resolveActiveOperation(request.operationId, {
+        authoritySha256: request.authoritySha256
+      });
+      return {
+        kind: 'pack-operation',
+        operationId: request.operationId,
+        version: selection.pack.version,
+        manifestSha256: selection.pack.recordSha256,
+        authoritySha256: selection.activation.recordSha256,
+        approvalSha256: selection.review.recordSha256,
+        status: 'approved'
+      };
+    };
+  }
   return {
-    store,
+    store, registry,
     service: createMetaToolService({
-      authorityStore: store, trustedTraceIssuers, trustedEvaluators, repositoryRoot: root
-    })
+      authorityStore: store, trustedTraceIssuers, trustedEvaluators, repositoryRoot: root,
+      resolveTargetAuthority
+    }),
+    async packTarget(domain, operationId) {
+      if (!registry) fail('Meta-tool target authority is unavailable.',
+        'SGOS_META_TOOL_TARGET_AUTHORITY_REQUIRED');
+      const selection = await registry.resolveActiveOperation(operationId, { domain });
+      return {
+        kind: 'pack-operation',
+        operationId,
+        version: selection.pack.version,
+        manifestSha256: selection.pack.recordSha256,
+        authoritySha256: selection.activation.recordSha256
+      };
+    }
   };
 }
 
 async function metaToolCommand(root, positionals, options) {
   const action = positionals[1] ?? 'list';
-  if (['propose', 'evaluation', 'promote'].includes(action)) {
+  if (['propose', 'evaluation', 'promote', 'activate', 'observe', 'revoke', 'rollback'].includes(action)) {
     rejectCallerPlatformIdentity(options);
   }
   if (action === 'list') {
@@ -1013,7 +1096,9 @@ async function metaToolCommand(root, positionals, options) {
       .sort((left, right) => left.key.localeCompare(right.key));
     return emit(result, options, 'meta-tool.list', `${result.length} Meta-tool authority record(s).`);
   }
-  const { service } = await metaToolService(root, options);
+  const service = ['propose', 'evaluation', 'promote'].includes(action)
+    ? (await metaToolService(root, options)).service
+    : null;
   if (action === 'propose') {
     const candidate = await jsonFile(root, optionString(options, 'candidate'), '--candidate');
     const traces = await jsonFile(root, optionString(options, 'traces'), '--traces', { array: true });
@@ -1037,6 +1122,102 @@ async function metaToolCommand(root, positionals, options) {
     return emit(result, options, 'meta-tool.promote',
       `Created reviewed Meta-tool promotion packet ${result.recordSha256}; Pack review is still required.`,
     { changed: true });
+  }
+  if (['activate', 'observe', 'revoke', 'rollback'].includes(action)) {
+    const { service: governed, packTarget } = await metaToolService(root, options, {
+      targetAuthority: true
+    });
+    if (action === 'activate') {
+      const candidateSha256 = exactHash(options, 'candidate-sha256');
+      const evaluationSha256 = exactHash(options, 'evaluation-sha256');
+      const promotionSha256 = exactHash(options, 'promotion-sha256');
+      const target = await packTarget(
+        requiredString(options, 'domain'), requiredString(options, 'operation')
+      );
+      const observationPolicy = {
+        maximumObservations: boundedInteger(options, 'maximum-observations', {
+          maximum: 10_000
+        }),
+        maximumEvidenceRefs: boundedInteger(options, 'maximum-evidence-refs', {
+          maximum: 64
+        }),
+        acceptedOutcomes: commaSeparated(options, 'accepted-outcomes')
+      };
+      const plan = await governed.planActivation({
+        candidateSha256, evaluationSha256, promotionSha256, target, observationPolicy
+      });
+      if (!confirmedPlan(options, plan)) {
+        return emit(plan, options, 'meta-tool.activate.plan',
+          `Review the exact Pack target and observation policy, then repeat with --confirm ${plan.confirmationSha256}.`);
+      }
+      const result = await governed.activate({
+        candidateSha256,
+        evaluationSha256,
+        promotionSha256,
+        target,
+        observationPolicy,
+        confirmPromotionSha256: promotionSha256,
+        confirmTargetSha256: plan.input.target.targetSha256,
+        expectedRevision: plan.expectedRevision,
+        expectedStateSha256: plan.expectedStateSha256
+      });
+      return emit(result, options, 'meta-tool.activate',
+        `Activated reviewed Meta-tool ${result.recordSha256} for ${result.target.operationId}.`,
+      { changed: true });
+    }
+    if (action === 'observe') {
+      const activationSha256 = exactHash(options, 'activation-sha256');
+      const outcome = requiredString(options, 'outcome');
+      const evidenceRefs = commaSeparated(options, 'evidence-refs', { digests: true });
+      const plan = await governed.planObservation({ activationSha256, outcome, evidenceRefs });
+      if (!confirmedPlan(options, plan)) {
+        return emit(plan, options, 'meta-tool.observe.plan',
+          `Review observation ${plan.input.sequence}, then repeat with --confirm ${plan.confirmationSha256}.`);
+      }
+      const result = await governed.recordObservation({
+        activationSha256, outcome, evidenceRefs,
+        expectedRevision: plan.expectedRevision,
+        expectedStateSha256: plan.expectedStateSha256
+      });
+      return emit(result, options, 'meta-tool.observe',
+        `Recorded Meta-tool observation ${result.sequence} for ${result.activationSha256}.`,
+      { changed: true });
+    }
+    if (action === 'revoke') {
+      const activationSha256 = exactHash(options, 'activation-sha256');
+      const reason = requiredString(options, 'reason');
+      const plan = await governed.planRevocation({ activationSha256, reason });
+      if (!confirmedPlan(options, plan)) {
+        return emit(plan, options, 'meta-tool.revoke.plan',
+          `Review the exact revocation, then repeat with --confirm ${plan.confirmationSha256}.`);
+      }
+      const result = await governed.revoke({
+        activationSha256, reason,
+        expectedRevision: plan.expectedRevision,
+        expectedStateSha256: plan.expectedStateSha256
+      });
+      return emit(result, options, 'meta-tool.revoke',
+        `Revoked Meta-tool activation ${result.activationSha256}.`, { changed: true });
+    }
+    const operationId = requiredString(options, 'operation');
+    const targetActivationSha256 = exactHash(options, 'target-activation-sha256');
+    const reason = requiredString(options, 'reason');
+    const plan = await governed.planRollback({ operationId, targetActivationSha256, reason });
+    if (!confirmedPlan(options, plan)) {
+      return emit(plan, options, 'meta-tool.rollback.plan',
+        `Review the exact rollback, then repeat with --confirm ${plan.confirmationSha256}.`);
+    }
+    const result = await governed.rollback({
+      operationId,
+      targetActivationSha256,
+      confirmActiveActivationSha256: plan.input.activeActivationSha256,
+      confirmTargetActivationSha256: targetActivationSha256,
+      reason,
+      expectedRevision: plan.expectedRevision,
+      expectedStateSha256: plan.expectedStateSha256
+    });
+    return emit(result, options, 'meta-tool.rollback',
+      `Rolled ${operationId} back to ${result.toActivationSha256}.`, { changed: true });
   }
   fail(`Unknown meta-tool action '${action}'.`, 'UNKNOWN_SUBCOMMAND');
 }

@@ -384,6 +384,21 @@ Usage:
     [--pack <PACK-ID>] --trust <PUBLIC-TRUST-JSON> [--json]
   singularity-flow memory inspect|dependencies|register|promote ... [--store ID] [--json]
   singularity-flow meta-tool list|propose|evaluation|promote ... [--store ID] [--json]
+  singularity-flow meta-tool activate --store ID --trace-trust FILE --evaluator-trust FILE
+    --candidate-sha256 SHA256 --evaluation-sha256 SHA256 --promotion-sha256 SHA256
+    --domain DOMAIN --operation OPERATION --maximum-observations N --maximum-evidence-refs N
+    --accepted-outcomes degraded,failed,succeeded [--confirm PLAN-SHA256] [--json]
+  singularity-flow meta-tool observe --store ID --trace-trust FILE --evaluator-trust FILE
+    --activation-sha256 SHA256 --outcome OUTCOME --evidence-refs SHA256[,SHA256]
+    [--confirm PLAN-SHA256] [--json]
+  singularity-flow meta-tool revoke --store ID --trace-trust FILE --evaluator-trust FILE
+    --activation-sha256 SHA256 --reason TEXT [--confirm PLAN-SHA256] [--json]
+  singularity-flow meta-tool rollback --store ID --trace-trust FILE --evaluator-trust FILE
+    --operation OPERATION --target-activation-sha256 SHA256 --reason TEXT
+    [--confirm PLAN-SHA256] [--json]
+    activate/observe/revoke/rollback always preview without --confirm and bind confirmation to exact CAS state
+    activation resolves its target only from the current signed Pack in approved capability-pack-trust authority
+    arbitrary target files and Device targets are not accepted by this CLI
     private keys, secrets, credentials and tokens are never accepted in command arguments
   singularity-flow assign <PHASE> <ASSIGNEE>
   singularity-flow watch [WORK-ID] [--once] [--fetch] [--interval SECONDS] [--json]

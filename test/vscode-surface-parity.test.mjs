@@ -94,4 +94,8 @@ test('new CLI reads are classified as reads and mutations remain mutations', () 
   assert.equal(commandClass(['authority-store', 'publish', '--confirm', 'sha256:plan']), 'mutation');
   assert.equal(commandClass(['authority-store', 'sync']), 'read');
   assert.equal(commandClass(['authority-store', 'sync', '--confirm', 'sha256:plan']), 'mutation');
+  for (const action of ['activate', 'observe', 'revoke', 'rollback']) {
+    assert.equal(commandClass(['meta-tool', action]), 'read');
+    assert.equal(commandClass(['meta-tool', action, '--confirm', 'sha256:plan']), 'mutation');
+  }
 });

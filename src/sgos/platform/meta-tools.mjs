@@ -65,6 +65,21 @@ function trustMap(value, label) {
   return new Map(Object.entries(value));
 }
 
+function mutationPlan(operation, actorId, state, input) {
+  const body = {
+    profile: 'meta-tool-mutation-plan-v1',
+    operation,
+    actorId,
+    expectedRevision: state.revision,
+    expectedStateSha256: state.recordSha256,
+    input: clonePlatformJson(input)
+  };
+  return Object.freeze({
+    ...body,
+    confirmationSha256: platformSha256(body)
+  });
+}
+
 export function createMetaToolService({
   authorityStore,
   trustedTraceIssuers,
@@ -256,6 +271,148 @@ export function createMetaToolService({
 
   return Object.freeze({
     profile: 'governed-activation-local-v1',
+
+    async planActivation({
+      candidateSha256,
+      evaluationSha256,
+      promotionSha256,
+      target,
+      observationPolicy
+    }) {
+      const authorization = await loadApprovedPlatformMutationAuthority(
+        repositoryRoot, 'meta-tool.activate'
+      );
+      const resolvedTarget = await resolveApprovedTarget(target);
+      const policy = exactObservationPolicy(observationPolicy);
+      const state = await store.read();
+      const candidate = readCandidate(state.entries, candidateSha256);
+      const evaluation = readEvaluation(state.entries, evaluationSha256, candidateSha256);
+      readPromotion(state.entries, promotionSha256, candidate, evaluation);
+      if (candidate.operationId !== resolvedTarget.operationId) {
+        fail('Meta-tool target operation differs from its approved candidate.',
+          'SGOS_META_TOOL_TARGET_OPERATION_MISMATCH');
+      }
+      if (authorization.actorId === candidate.proposerId) {
+        fail('A meta-tool candidate cannot activate or deploy itself.',
+          'SGOS_META_TOOL_SELF_ACTIVATION_REFUSED');
+      }
+      const priorSelection = state.entries[activeKey(resolvedTarget.operationId)] ?? null;
+      if (priorSelection != null) {
+        exactObject(priorSelection, ['operationId', 'activationSha256'],
+          'Active meta-tool selection');
+        await validateActivationLineage(state.entries, priorSelection.activationSha256);
+      }
+      return mutationPlan('meta-tool.activate', authorization.actorId, state, {
+        candidateSha256,
+        evaluationSha256,
+        promotionSha256,
+        target: resolvedTarget,
+        observationPolicy: policy,
+        supersedesActivationSha256: priorSelection?.activationSha256 ?? null
+      });
+    },
+
+    async planObservation({ activationSha256, outcome, evidenceRefs }) {
+      const authorization = await loadApprovedPlatformMutationAuthority(
+        repositoryRoot, 'meta-tool.observe'
+      );
+      const state = await store.read();
+      const { activation } = await validateActivationLineage(state.entries, activationSha256);
+      const selected = state.entries[activeKey(activation.target.operationId)];
+      if (selected?.activationSha256 !== activationSha256) {
+        fail('Observations may be appended only to the current active meta-tool version.',
+          'SGOS_META_TOOL_ACTIVATION_SUPERSEDED');
+      }
+      const sequence = readObservations(state.entries, activationSha256).length + 1;
+      if (sequence > activation.observationPolicy.maximumObservations) {
+        fail('Meta-tool observation policy capacity is exhausted.',
+          'SGOS_META_TOOL_OBSERVATION_LIMIT');
+      }
+      if (!activation.observationPolicy.acceptedOutcomes.includes(outcome)) {
+        fail('Meta-tool observation outcome is not allowed by the activation policy.',
+          'SGOS_META_TOOL_OBSERVATION_OUTCOME_REFUSED');
+      }
+      if (!Array.isArray(evidenceRefs)
+          || evidenceRefs.length > activation.observationPolicy.maximumEvidenceRefs) {
+        fail('Meta-tool observation evidence exceeds the activation policy.',
+          'SGOS_META_TOOL_OBSERVATION_LIMIT');
+      }
+      // Validate the complete record vocabulary during preview without retaining timestamped bytes.
+      createMetaToolObservation({
+        activationSha256,
+        sequence,
+        outcome,
+        evidenceRefs: [...evidenceRefs].sort(),
+        observedBy: authorization.actorId,
+        observedAt: new Date().toISOString()
+      });
+      return mutationPlan('meta-tool.observe', authorization.actorId, state, {
+        activationSha256,
+        sequence,
+        outcome,
+        evidenceRefs: [...evidenceRefs].sort()
+      });
+    },
+
+    async planRevocation({ activationSha256, reason }) {
+      const authorization = await loadApprovedPlatformMutationAuthority(
+        repositoryRoot, 'meta-tool.revoke'
+      );
+      const state = await store.read();
+      const { activation } = await validateActivationLineage(state.entries, activationSha256, {
+        requireCurrentTarget: false
+      });
+      createMetaToolRevocation({
+        activationSha256,
+        revokedBy: authorization.actorId,
+        reason,
+        revokedAt: new Date().toISOString()
+      });
+      return mutationPlan('meta-tool.revoke', authorization.actorId, state, {
+        activationSha256,
+        operationId: activation.target.operationId,
+        reason,
+        removesCurrentSelection:
+          state.entries[activeKey(activation.target.operationId)]?.activationSha256
+            === activationSha256
+      });
+    },
+
+    async planRollback({ operationId, targetActivationSha256, reason }) {
+      const authorization = await loadApprovedPlatformMutationAuthority(
+        repositoryRoot, 'meta-tool.rollback'
+      );
+      const state = await store.read();
+      const selected = state.entries[activeKey(operationId)];
+      if (!selected) fail('Meta-tool operation has no active version.', 'SGOS_META_TOOL_NOT_ACTIVE');
+      exactObject(selected, ['operationId', 'activationSha256'], 'Active meta-tool selection');
+      if (selected.operationId !== operationId) {
+        fail('Active meta-tool selection operation is invalid.',
+          'SGOS_META_TOOL_ACTIVATION_TAMPERED');
+      }
+      const current = await validateActivationLineage(state.entries, selected.activationSha256);
+      const targetLineage = await validateActivationLineage(state.entries, targetActivationSha256);
+      if (current.activation.target.operationId !== operationId
+          || targetLineage.activation.target.operationId !== operationId
+          || targetActivationSha256 === selected.activationSha256) {
+        fail('Meta-tool rollback target is invalid for the selected operation.',
+          'SGOS_META_TOOL_ROLLBACK_TARGET_INVALID');
+      }
+      createMetaToolRollback({
+        operationId,
+        fromActivationSha256: selected.activationSha256,
+        toActivationSha256: targetActivationSha256,
+        rolledBackBy: authorization.actorId,
+        reason,
+        rolledBackAt: new Date().toISOString()
+      });
+      return mutationPlan('meta-tool.rollback', authorization.actorId, state, {
+        operationId,
+        activeActivationSha256: selected.activationSha256,
+        targetActivationSha256,
+        reason
+      });
+    },
 
     async propose(candidate, signedTraces, {
       expectedRevision,

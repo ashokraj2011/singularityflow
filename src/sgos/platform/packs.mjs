@@ -586,6 +586,58 @@ export function createCapabilityPackRegistry({ authorityStore, trustedPublishers
       });
     },
 
+    /**
+     * Resolve one operation through the current, reviewed Pack selector in a single verified Store
+     * snapshot. This is the canonical target resolver used by meta-tool activation: callers name
+     * an operation (and may narrow by domain or already-observed activation authority), but never
+     * supply a local manifest or approval record as authority.
+     */
+    async resolveActiveOperation(operationId, {
+      domain = null,
+      authoritySha256 = null,
+      minimumAuthority = null
+    } = {}) {
+      if (typeof operationId !== 'string' || !operationId.trim()) {
+        fail('Capability Pack operation ID is required.',
+          'SGOS_CAPABILITY_PACK_OPERATION_REQUIRED');
+      }
+      if (minimumAuthority !== null && typeof store.readAtMinimum !== 'function') {
+        fail('Capability Pack resolution requires an Authority Store that can verify the approved minimum checkpoint.',
+          'SGOS_AUTHORITY_PROFILE_UNSUPPORTED');
+      }
+      const state = minimumAuthority === null
+        ? await store.read()
+        : await store.readAtMinimum(minimumAuthority);
+      const matches = [];
+      for (const [key, selection] of Object.entries(state.entries)) {
+        if (!key.startsWith('pack-active:')) continue;
+        if (domain !== null && selection?.domain !== domain) continue;
+        const resolved = readActiveSelection(state.entries, selection.domain, selection.packSha256);
+        if (!resolved.pack.operations.includes(operationId)) continue;
+        if (authoritySha256 !== null
+            && resolved.activation.recordSha256 !== authoritySha256) continue;
+        matches.push(resolved);
+      }
+      if (!matches.length) {
+        fail(`No active approved Capability Pack supplies operation '${operationId}'.`,
+          'SGOS_CAPABILITY_PACK_OPERATION_NOT_ACTIVE');
+      }
+      if (matches.length !== 1) {
+        fail(`Operation '${operationId}' is supplied by more than one active Capability Pack; select an exact domain.`,
+          'SGOS_CAPABILITY_PACK_OPERATION_AMBIGUOUS');
+      }
+      const resolved = matches[0];
+      return Object.freeze({
+        profile: 'signed-declarative-local-v1',
+        authorityStoreId: store.storeId,
+        authorityStateSha256: state.recordSha256,
+        signedPack: clonePlatformJson(resolved.signed),
+        pack: clonePlatformJson(resolved.pack),
+        review: clonePlatformJson(resolved.review),
+        activation: clonePlatformJson(resolved.activation)
+      });
+    },
+
     async listActive() {
       const state = await store.read();
       const active = [];

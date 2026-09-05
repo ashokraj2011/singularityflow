@@ -225,7 +225,7 @@ Acceptance gates:
 - certification is based on explicit evidence and independent criteria;
 - reset, interruption, offline use, accessibility, and version migration are covered.
 
-### [ ] SGOS-P2-002 — Meta-tool activation CLI
+### [~] SGOS-P2-002 — Meta-tool activation CLI
 
 Expose reviewed activation, observation, revocation, and rollback APIs through a public CLI only
 after a canonical approved Pack/Device target resolver exists.
@@ -236,6 +236,19 @@ Acceptance gates:
 - every mutation is previewed, confirmation-bound, CAS-protected, and auditable;
 - stale, revoked, superseded, self-evaluated, or self-promoted targets are refused;
 - CLI, API, VS Code, help, and schema behavior agree.
+
+The code-local Pack-operation path is implemented on `main`: the Pack registry resolves one current
+operation from a single verified Authority Store snapshot, the platform service exposes read-only
+activation/observation/revocation/rollback plans, and the CLI requires the exact plan digest before
+performing its CAS-protected mutation. Callers provide only a Pack domain and operation; manifest,
+activation authority, and approval digests are derived from signed active Pack lineage under
+approved configuration trust. Stale confirmations, self-activation, superseded targets, invalid
+outcomes, and policy limits fail closed. Help and the VS Code command classifier recognize preview
+as read-only and confirmed execution as mutation.
+
+This remains `[~]`: a canonical approved Device-operation target resolver and a native VS Code
+review form have not landed. The CLI explicitly refuses Device targets instead of accepting local
+Device manifests as authority.
 
 ### [ ] SGOS-P2-003 — External telemetry and measured read models
 

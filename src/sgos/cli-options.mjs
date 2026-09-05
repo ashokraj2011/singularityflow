@@ -174,6 +174,25 @@ export const SGOS_CLI_OPTIONS = Object.freeze({
       ...STORE, 'trace-trust', 'evaluator-trust',
       'candidate-sha256', 'evaluation-sha256', 'confirm-candidate', 'confirm-evaluation',
       'decision', 'reason', ...PLATFORM_MUTATION
+    ),
+    activate: optionSet(
+      ...STORE, 'trace-trust', 'evaluator-trust',
+      'candidate-sha256', 'evaluation-sha256', 'promotion-sha256',
+      'domain', 'operation', 'maximum-observations', 'maximum-evidence-refs',
+      'accepted-outcomes', 'confirm', ...PLATFORM_IDENTITY_CLAIMS
+    ),
+    observe: optionSet(
+      ...STORE, 'trace-trust', 'evaluator-trust',
+      'activation-sha256', 'outcome', 'evidence-refs', 'confirm', ...PLATFORM_IDENTITY_CLAIMS
+    ),
+    revoke: optionSet(
+      ...STORE, 'trace-trust', 'evaluator-trust',
+      'activation-sha256', 'reason', 'confirm', ...PLATFORM_IDENTITY_CLAIMS
+    ),
+    rollback: optionSet(
+      ...STORE, 'trace-trust', 'evaluator-trust',
+      'operation', 'target-activation-sha256', 'reason', 'confirm',
+      ...PLATFORM_IDENTITY_CLAIMS
     )
   })
 });

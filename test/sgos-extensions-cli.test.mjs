@@ -79,12 +79,16 @@ function flow(root, ...args) {
   return envelope;
 }
 
-function flowAs(root, identity, ...args) {
-  const result = spawnSync(process.execPath, [bin, ...args, '--json'], {
+function runAs(root, identity, ...args) {
+  return spawnSync(process.execPath, [bin, ...args], {
     cwd: root,
     encoding: 'utf8',
     env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: identity }
   });
+}
+
+function flowAs(root, identity, ...args) {
+  const result = runAs(root, identity, ...args, '--json');
   if (result.status !== 0) throw new Error(`${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
   const envelope = JSON.parse(result.stdout);
   assert.equal(envelope.schemaVersion, 1);
@@ -971,7 +975,52 @@ test('signed Pack, role lesson, and typed Memory CLI preserve exact CAS and revi
 test('Meta-tool CLI accepts only signed traces and evaluation before independent promotion', async (t) => {
   const root = await repository(t);
   const storeId = 'meta-cli';
+  const publisherKeys = generateKeyPairSync('ed25519');
+  const publisherPrivate = publisherKeys.privateKey.export({ type: 'pkcs8', format: 'pem' });
+  const publisherPublic = publisherKeys.publicKey.export({ type: 'spki', format: 'pem' });
+  const approvedPackTrustPath = path.join(root, SGOS_CAPABILITY_PACK_TRUST_PATH);
+  await mkdir(path.dirname(approvedPackTrustPath), { recursive: true });
+  await writeFile(approvedPackTrustPath, `${JSON.stringify({
+    format: SGOS_CAPABILITY_PACK_TRUST_FORMAT,
+    storeId,
+    publishers: { 'meta-pack-publisher': publisherPublic }
+  })}\n`);
+  await writeFile(path.join(root, 'publisher-trust.json'), JSON.stringify({
+    'meta-pack-publisher': publisherPublic
+  }));
+  git(root, 'add', SGOS_CAPABILITY_PACK_TRUST_PATH);
+  git(root, 'commit', '-m', 'approve meta-tool Pack authority');
+  git(root, 'branch', '-f', 'sflow/config', 'HEAD');
   let current = state(flow(root, 'authority-store', 'init', '--store', storeId));
+  const pack = createCapabilityPack({
+    packId: 'meta-finance', version: '1.0.0', domain: 'finance',
+    operations: ['finance.inspect'], permissions: [], files: [], lessons: [],
+    provenanceSha256: digest('meta-pack-provenance'),
+    sbomSha256: digest('meta-pack-sbom'),
+    publisherKeyId: 'meta-pack-publisher', createdAt: at
+  });
+  const signedPack = signPlatformRecord(pack, {
+    privateKeyPem: publisherPrivate, keyId: 'meta-pack-publisher'
+  });
+  await writeFile(path.join(root, 'meta-pack.json'), JSON.stringify(signedPack));
+  flow(root, 'pack', 'propose', '--store', storeId, '--trust', 'publisher-trust.json',
+    '--signed-pack', 'meta-pack.json', '--expected-revision', String(current.revision),
+    '--expected-state-sha256', current.stateSha256);
+  current = state(flow(root, 'authority-store', 'status', '--store', storeId));
+  const packReview = createPackReview({
+    packSha256: pack.recordSha256, reviewerId: cliActorId, decision: 'approved',
+    reason: 'approved meta-tool target', reviewedAt: at
+  });
+  await writeFile(path.join(root, 'meta-pack-review.json'), JSON.stringify(packReview));
+  flow(root, 'pack', 'review', '--store', storeId, '--trust', 'publisher-trust.json',
+    '--review', 'meta-pack-review.json', '--expected-revision', String(current.revision),
+    '--expected-state-sha256', current.stateSha256);
+  current = state(flow(root, 'authority-store', 'status', '--store', storeId));
+  flow(root, 'pack', 'activate', '--store', storeId, '--trust', 'publisher-trust.json',
+    '--domain', pack.domain, '--pack', pack.recordSha256,
+    '--review-sha256', packReview.recordSha256, '--confirm', pack.recordSha256,
+    '--expected-revision', String(current.revision), '--expected-state-sha256', current.stateSha256);
+  current = state(flow(root, 'authority-store', 'status', '--store', storeId));
   const issuerKeys = generateKeyPairSync('ed25519');
   const evaluatorKeys = generateKeyPairSync('ed25519');
   const issuerPrivate = issuerKeys.privateKey.export({ type: 'pkcs8', format: 'pem' });
@@ -992,7 +1041,7 @@ test('Meta-tool CLI accepts only signed traces and evaluation before independent
     privateKeyPem: issuerPrivate, keyId: 'trace-issuer'
   }));
   const candidate = createMetaToolCandidate({
-    candidateId: 'meta-candidate-one', operationId: 'finance-inspect',
+    candidateId: 'meta-candidate-one', operationId: 'finance.inspect',
     traceRefs: traces.map((trace) => trace.traceSha256), proposerId: cliActorId, createdAt: at
   });
   await writeFile(path.join(root, 'meta-candidate.json'), JSON.stringify(candidate));
@@ -1027,4 +1076,78 @@ test('Meta-tool CLI accepts only signed traces and evaluation before independent
   assert.equal(promoted.status, 'pack-review-required');
   assert.equal(promoted.reviewerId, cliReviewerId);
   assert.equal(state(flow(root, 'meta-tool', 'list', '--store', storeId)).length, 3);
+
+  const activationArguments = [
+    'meta-tool', 'activate', '--store', storeId,
+    '--trace-trust', 'trace-trust.json', '--evaluator-trust', 'evaluator-trust.json',
+    '--candidate-sha256', candidate.recordSha256,
+    '--evaluation-sha256', evaluation.recordSha256,
+    '--promotion-sha256', promoted.recordSha256,
+    '--domain', 'finance', '--operation', 'finance.inspect',
+    '--maximum-observations', '3', '--maximum-evidence-refs', '2',
+    '--accepted-outcomes', 'failed,succeeded'
+  ];
+  const misspelled = run(root, ...activationArguments, '--accepted-outcome', 'degraded', '--json');
+  assert.notEqual(misspelled.status, 0);
+  assert.match(misspelled.stderr, /Unknown option '--accepted-outcome'/);
+
+  const activationPreviewEnvelope = flowAs(root, 'Extension CLI Reviewer', ...activationArguments);
+  const activationPreview = state(activationPreviewEnvelope);
+  assert.equal(activationPreviewEnvelope.operation.id, 'meta-tool.activate.plan');
+  assert.equal(activationPreviewEnvelope.operation.classification, 'read');
+  assert.equal(activationPreview.input.target.kind, 'pack-operation');
+  assert.equal(activationPreview.input.target.manifestSha256, pack.recordSha256);
+  assert.equal(activationPreview.input.target.approvalSha256, packReview.recordSha256);
+  const staleActivation = runAs(root, 'Extension CLI Reviewer', ...activationArguments,
+    '--confirm', digest('wrong-meta-tool-plan'), '--json');
+  assert.notEqual(staleActivation.status, 0);
+  assert.match(staleActivation.stderr, /Confirmation must equal the current mutation plan/);
+  const firstActivationEnvelope = flowAs(root, 'Extension CLI Reviewer', ...activationArguments,
+    '--confirm', activationPreview.confirmationSha256);
+  const firstActivation = state(firstActivationEnvelope);
+  assert.equal(firstActivationEnvelope.operation.classification, 'mutation');
+  assert.equal(firstActivation.target.operationId, 'finance.inspect');
+
+  const observationArguments = [
+    'meta-tool', 'observe', '--store', storeId,
+    '--trace-trust', 'trace-trust.json', '--evaluator-trust', 'evaluator-trust.json',
+    '--activation-sha256', firstActivation.recordSha256,
+    '--outcome', 'succeeded', '--evidence-refs', `${digest('runtime-one')},${digest('runtime-two')}`
+  ];
+  const observationPreviewEnvelope = flow(root, ...observationArguments);
+  const observationPreview = state(observationPreviewEnvelope);
+  assert.equal(observationPreviewEnvelope.operation.id, 'meta-tool.observe.plan');
+  assert.equal(observationPreview.input.sequence, 1);
+  const observation = state(flow(root, ...observationArguments,
+    '--confirm', observationPreview.confirmationSha256));
+  assert.equal(observation.sequence, 1);
+
+  const secondPreview = state(flowAs(root, 'Extension CLI Reviewer', ...activationArguments));
+  const secondActivation = state(flowAs(root, 'Extension CLI Reviewer', ...activationArguments,
+    '--confirm', secondPreview.confirmationSha256));
+  assert.equal(secondActivation.supersedesActivationSha256, firstActivation.recordSha256);
+
+  const rollbackArguments = [
+    'meta-tool', 'rollback', '--store', storeId,
+    '--trace-trust', 'trace-trust.json', '--evaluator-trust', 'evaluator-trust.json',
+    '--operation', 'finance.inspect',
+    '--target-activation-sha256', firstActivation.recordSha256,
+    '--reason', 'new activation regressed'
+  ];
+  const rollbackPreview = state(flowAs(root, 'Extension CLI Reviewer', ...rollbackArguments));
+  const rollback = state(flowAs(root, 'Extension CLI Reviewer', ...rollbackArguments,
+    '--confirm', rollbackPreview.confirmationSha256));
+  assert.equal(rollback.fromActivationSha256, secondActivation.recordSha256);
+  assert.equal(rollback.toActivationSha256, firstActivation.recordSha256);
+
+  const revokeArguments = [
+    'meta-tool', 'revoke', '--store', storeId,
+    '--trace-trust', 'trace-trust.json', '--evaluator-trust', 'evaluator-trust.json',
+    '--activation-sha256', firstActivation.recordSha256,
+    '--reason', 'withdraw reviewed activation'
+  ];
+  const revokePreview = state(flowAs(root, 'Extension CLI Reviewer', ...revokeArguments));
+  const revoked = state(flowAs(root, 'Extension CLI Reviewer', ...revokeArguments,
+    '--confirm', revokePreview.confirmationSha256));
+  assert.equal(revoked.activationSha256, firstActivation.recordSha256);
 });

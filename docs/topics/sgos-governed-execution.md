@@ -26,7 +26,7 @@ related:
   - governed-execution
   - workflow-authoring
   - evidence-and-ledger
-version: 17
+version: 18
 ---
 SGOS compiles confirmed intent and a ratified workflow into a finite, content-addressed Governed VM
 Program. Its operational Process state never replaces Story, Initiative, configuration, ledger, or
@@ -446,8 +446,9 @@ use the portable v2 identifier contract; Windows does not open a nonportable leg
   manifest and approval digest. Runtime lookup revalidates the lineage; superseded, revoked, stale,
   or counterfeit activations fail closed. Observation records carry bounded outcome evidence only,
   while rollback can select only a retained nonrevoked activation through exact confirmation and
-  Authority Store CAS. The activation/observation/revoke/rollback API is implemented, but its public
-  CLI remains intentionally staged.
+  Authority Store CAS. The public `meta-tool activate|observe|revoke|rollback` CLI applies those
+  same API transitions through an exact preview/confirm plan. Pack targets are resolved from the
+  current signed Pack and approved trust; arbitrary target files and Device targets are refused.
 - Process checkpoints live below the Git common directory and do not alter application or Story
   state. Existing Story transitions continue only through existing lifecycle commands.
 - Static fan-out is expanded by the compiler, joins are limited to `all-success` and `all-terminal`,

@@ -208,7 +208,13 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (args[0] === 'learn') return 'read';
   if (args[0] === 'pack') return ['list', 'active', 'show'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
   if (args[0] === 'memory') return ['inspect', 'dependencies'].includes(args[1] ?? 'inspect') ? 'read' : 'mutation';
-  if (args[0] === 'meta-tool') return (args[1] ?? 'list') === 'list' ? 'read' : 'mutation';
+  if (args[0] === 'meta-tool') {
+    const action = args[1] ?? 'list';
+    if (action === 'list') return 'read';
+    if (['activate', 'observe', 'revoke', 'rollback'].includes(action)
+        && !hasOption(args, 'confirm')) return 'read';
+    return 'mutation';
+  }
   return READ_ONLY_COMMANDS.has(args[0]) ? 'read' : 'mutation';
 }
 

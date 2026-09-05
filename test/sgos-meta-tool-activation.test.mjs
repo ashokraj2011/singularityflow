@@ -210,6 +210,30 @@ test('meta-tool activation is exact, versioned, observable, revocable, and rollb
     confirmTargetSha256: firstTarget.target.targetSha256,
     ...counterfeitTargetCas
   }), (error) => error.code === 'SGOS_META_TOOL_TARGET_AUTHORITY_MISMATCH');
+  const activationPlan = await service.planActivation({
+    candidateSha256: first.candidate.recordSha256,
+    evaluationSha256: first.evaluation.recordSha256,
+    promotionSha256: first.promotion.recordSha256,
+    target: firstTarget.request,
+    observationPolicy: {
+      maximumObservations: 3,
+      maximumEvidenceRefs: 2,
+      acceptedOutcomes: ['failed', 'succeeded']
+    }
+  });
+  assert.equal(activationPlan.operation, 'meta-tool.activate');
+  assert.equal(activationPlan.input.target.targetSha256, firstTarget.target.targetSha256);
+  assert.equal((await service.planActivation({
+    candidateSha256: first.candidate.recordSha256,
+    evaluationSha256: first.evaluation.recordSha256,
+    promotionSha256: first.promotion.recordSha256,
+    target: firstTarget.request,
+    observationPolicy: {
+      maximumObservations: 3,
+      maximumEvidenceRefs: 2,
+      acceptedOutcomes: ['failed', 'succeeded']
+    }
+  })).confirmationSha256, activationPlan.confirmationSha256);
   const firstActivation = await service.activate({
     candidateSha256: first.candidate.recordSha256,
     evaluationSha256: first.evaluation.recordSha256,
@@ -281,6 +305,13 @@ test('meta-tool activation is exact, versioned, observable, revocable, and rollb
     reason: 'stale confirmation must not mutate authority',
     ...staleRollbackCas
   }), (error) => error.code === 'SGOS_META_TOOL_CONFIRMATION_MISMATCH');
+  const rollbackPlan = await service.planRollback({
+    operationId: first.candidate.operationId,
+    targetActivationSha256: firstActivation.recordSha256,
+    reason: 'regression observed after version two'
+  });
+  assert.equal(rollbackPlan.input.activeActivationSha256, secondActivation.recordSha256);
+  assert.equal(rollbackPlan.input.targetActivationSha256, firstActivation.recordSha256);
   const rollback = await service.rollback({
     operationId: first.candidate.operationId,
     targetActivationSha256: firstActivation.recordSha256,

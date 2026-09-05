@@ -347,9 +347,16 @@ Activation does not execute the operation. It creates a versioned Authority Stor
 bounded observation policy. Observations append outcome evidence only and cannot contain an approval
 decision. Revocation removes a current selection immediately. Rollback is confirmation- and
 CAS-bound and may select only an existing, nonrevoked activation whose complete approval and target
-authority still validate; historical observations and activations are retained. The low-level API
-is available from `src/sgos/platform/meta-tools.mjs`; a public CLI for these additional transitions
-remains staged so callers cannot mistake a convenience command for a second authority path.
+authority still validate; historical observations and activations are retained.
+
+The platform API and public `meta-tool activate|observe|revoke|rollback` CLI expose the same guarded
+transitions. Each CLI mutation first returns a content-addressed plan; repeating the identical
+command with `--confirm <plan-sha256>` re-resolves approved configuration and exact Authority Store
+state before the CAS mutation. The activation target is derived from the one current signed Pack
+operation in approved `singularity/sgos/capability-pack-trust.json` authority. The caller cannot
+supply a target manifest, approval digest, or arbitrary local authority file. Device activation
+remains explicitly unavailable until an equivalent canonical approved Device resolver and native
+VS Code review surface are implemented.
 
 ## Portable Authority Store and Capability Packs
 

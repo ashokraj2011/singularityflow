@@ -289,10 +289,14 @@ Every public operation is classified before its implementation module is importe
 | memory.inspect | read | never | — | — |
 | memory.promote | mutation | never | — | — |
 | memory.register | mutation | never | — | — |
+| meta-tool.activate | mutation | never | — | — |
 | meta-tool.evaluation | mutation | never | — | — |
 | meta-tool.list | read | never | — | — |
+| meta-tool.observe | mutation | never | — | — |
 | meta-tool.promote | mutation | never | — | — |
 | meta-tool.propose | mutation | never | — | — |
+| meta-tool.revoke | mutation | never | — | — |
+| meta-tool.rollback | mutation | never | — | — |
 | next.model-free | mutation | never | — | — |
 | next.orchestrate | mutation | optional | next.model-free | copilot-cli |
 | nextsteps | read | never | — | — |

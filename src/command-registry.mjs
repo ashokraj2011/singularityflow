@@ -306,7 +306,10 @@ const SGOS_SUBCOMMANDS = Object.freeze({
     mutation: []
   }),
   memory: Object.freeze({ read: ['inspect', 'dependencies'], mutation: ['register', 'promote'] }),
-  'meta-tool': Object.freeze({ read: ['list'], mutation: ['propose', 'evaluation', 'promote'] })
+  'meta-tool': Object.freeze({
+    read: ['list'],
+    mutation: ['propose', 'evaluation', 'promote', 'activate', 'observe', 'revoke', 'rollback']
+  })
 });
 
 /** Every command whose subcommands a resolver owns, for the guard that keeps these honest. */

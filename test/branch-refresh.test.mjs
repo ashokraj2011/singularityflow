@@ -28,17 +28,17 @@ async function fixture() {
 
 test('refresh is fast-forward-only and reports up-to-date and ahead branches', async () => {
   const { local, peer } = await fixture();
-  assert.equal(refreshBranch(local).status, 'up-to-date');
+  assert.equal((await refreshBranch(local)).status, 'up-to-date');
 
   await writeFile(path.join(peer, 'remote.txt'), 'remote\n');
   git(peer, ['add', '.']); git(peer, ['commit', '-m', 'remote update']); git(peer, ['push']);
-  const advanced = refreshBranch(local);
+  const advanced = await refreshBranch(local);
   assert.equal(advanced.status, 'fast-forwarded');
   assert.equal(advanced.behind, 1);
 
   await writeFile(path.join(local, 'local.txt'), 'local\n');
   git(local, ['add', '.']); git(local, ['commit', '-m', 'local update']);
-  const ahead = refreshBranch(local);
+  const ahead = await refreshBranch(local);
   assert.equal(ahead.status, 'ahead');
   assert.equal(ahead.ahead, 1);
 });
@@ -46,7 +46,7 @@ test('refresh is fast-forward-only and reports up-to-date and ahead branches', a
 test('refresh refuses dirty and diverged work without changing HEAD', async () => {
   const { local, peer } = await fixture();
   await writeFile(path.join(local, 'dirty.txt'), 'dirty\n');
-  assert.throws(() => refreshBranch(local), /Working tree is not clean/);
+  await assert.rejects(refreshBranch(local), /Working tree is not clean/);
   git(local, ['clean', '-f']);
 
   await writeFile(path.join(local, 'local.txt'), 'local\n');
@@ -54,6 +54,31 @@ test('refresh refuses dirty and diverged work without changing HEAD', async () =
   const before = git(local, ['rev-parse', 'HEAD']).stdout.trim();
   await writeFile(path.join(peer, 'peer.txt'), 'peer\n');
   git(peer, ['add', '.']); git(peer, ['commit', '-m', 'peer']); git(peer, ['push']);
-  assert.throws(() => refreshBranch(local), /has diverged.*Nothing was changed/);
+  await assert.rejects(refreshBranch(local), /has diverged.*Nothing was changed/);
   assert.equal(git(local, ['rev-parse', 'HEAD']).stdout.trim(), before);
+});
+
+test('refresh uses the asynchronous bounded remote runner and preserves timeout diagnosis', async () => {
+  const { local } = await fixture();
+  let invoked = false;
+  await assert.rejects(refreshBranch(local, {
+    async runRemoteCommand(args, options) {
+      invoked = true;
+      assert.deepEqual(args, [
+        'fetch', '--prune', 'origin', '+refs/heads/main:refs/remotes/origin/main'
+      ]);
+      assert.equal(options.operation, 'remote-configuration');
+      return {
+        status: 1, stdout: '', stderr: '', timedOut: true,
+        failure: { code: 'GIT_REMOTE_TIMEOUT', advice: 'Git remote access timed out.', retryable: true }
+      };
+    }
+  }), (error) => {
+    assert.equal(error.code, 'GIT_REMOTE_TIMEOUT');
+    assert.equal(error.details.timedOut, true);
+    assert.equal(error.details.retryable, true);
+    assert.match(error.message, /Git remote access timed out/);
+    return true;
+  });
+  assert.equal(invoked, true);
 });

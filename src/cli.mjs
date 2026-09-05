@@ -4724,7 +4724,7 @@ async function pullRequestCommand(positionals, options) {
 
 async function refreshBranchCommand(options) {
   const root = repoRoot();
-  const result = refreshBranch(root, {
+  const result = await refreshBranch(root, {
     remote: optionString(options, 'remote', 'origin'),
     branchName: optionString(options, 'branch')
   });

@@ -1,15 +1,8 @@
 import { SingularityFlowError, run } from './util.mjs';
 import { assertClean, branch, hasRemote, head, validBranch } from './git.mjs';
-import { runRemoteGit } from './git-execution.mjs';
+import { runRemoteGitAsync } from './git-execution.mjs';
 
 function git(root, args, { allowFailure = false } = {}) {
-  if (['fetch', 'push', 'pull', 'ls-remote', 'clone'].includes(args[0])) {
-    return runRemoteGit(args, {
-      cwd: root,
-      operation: args[0] === 'push' ? 'remote-push' : args[0] === 'ls-remote' ? 'remote-probe' : 'remote-configuration',
-      allowFailure
-    });
-  }
   return run('git', args, { cwd: root, allowFailure });
 }
 
@@ -21,7 +14,9 @@ function count(root, range) {
  * Refresh the checked-out branch without rebasing, merging, resetting, or force-pushing.
  * A diverged branch is deliberately left untouched for a person to resolve.
  */
-export function refreshBranch(root, { remote = 'origin', branchName = null } = {}) {
+export async function refreshBranch(root, {
+  remote = 'origin', branchName = null, runRemoteCommand = runRemoteGitAsync
+} = {}) {
   assertClean(root);
   const current = branch(root);
   const target = branchName ?? current;
@@ -32,9 +27,20 @@ export function refreshBranch(root, { remote = 'origin', branchName = null } = {
   if (!hasRemote(root, remote)) throw new SingularityFlowError(`Git remote '${remote}' is not configured.`);
 
   const before = head(root);
-  const fetched = git(root, ['fetch', '--prune', remote, `+refs/heads/${target}:refs/remotes/${remote}/${target}`], { allowFailure: true });
+  const fetched = await runRemoteCommand([
+    'fetch', '--prune', remote, `+refs/heads/${target}:refs/remotes/${remote}/${target}`
+  ], { cwd: root, operation: 'remote-configuration', allowFailure: true });
   if (fetched.status !== 0) {
-    throw new SingularityFlowError(`Unable to fetch ${remote}/${target}: ${(fetched.stderr || fetched.stdout).trim()}`);
+    const detail = fetched.failure?.advice
+      ?? String(fetched.stderr || fetched.stdout || 'Git fetch failed.').trim();
+    throw new SingularityFlowError(`Unable to fetch ${remote}/${target}: ${detail}`, {
+      code: fetched.failure?.code ?? 'GIT_REMOTE_UNAVAILABLE',
+      details: {
+        operation: 'remote-configuration',
+        timedOut: fetched.timedOut === true,
+        retryable: fetched.failure?.retryable === true
+      }
+    });
   }
   const remoteRef = `${remote}/${target}`;
   const remoteHead = git(root, ['rev-parse', '--verify', remoteRef], { allowFailure: true });

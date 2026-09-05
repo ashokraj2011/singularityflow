@@ -9,7 +9,7 @@
 **Last implementation audit:** `main@3b5d79e6` on 2026-08-31; the observe-only foundation
 described below is the only implemented CMP tranche
 
-**Current reconciliation:** checked against `main@d55229c7` on 2026-09-05; later SGOS, GDP, WEL,
+**Current reconciliation:** checked against `main@c85952ad` on 2026-09-05; later SGOS, GDP, WEL,
 and CAB delivery did not implement CMP P1–P6 or turn CMP diagnostics into lifecycle authority
 
 **Current delivery boundary:** observe-only foundation; no publication gate, approval authority, or
@@ -97,9 +97,11 @@ inspection boundary while preserving every existing lifecycle behavior.
 
 The code-local P0 boundary now has bounded/escaped-input refusal, explicit zero-model/zero-AST/
 zero-write/zero-lifecycle tripwires, corrected Story/phase recovery guidance, and the accepted
-[authority-boundary ADR](adr/0014-cmp-observe-authority-boundary.md). Until the same deterministic
-corpus passes the supported platform matrix and isolated npm/VSIX loading, treat this as an
-in-progress implementation tranche, not a shipped product claim.
+[authority-boundary ADR](adr/0014-cmp-observe-authority-boundary.md). The release gate now installs
+the exact npm tarball and extracts the exact VSIX engine, imports the CMP contracts from each
+isolated artifact, and runs `comprehension regions` against a separate Git fixture while proving its
+status is unchanged. Until the same deterministic corpus passes the supported platform matrix,
+treat this as an in-progress implementation tranche, not a shipped product claim.
 
 ## Verified implementation status
 
@@ -117,7 +119,7 @@ as permission to submit, approve, publish, or merge.
 
 | Corrected phase | Verified status | Present now | Missing before the phase can exit |
 |---|---|---|---|
-| P0 — contracts and reads | **Partial** | Conservative resource regions; closed cause/relationship/disposition/assurance/availability/refusal/diagnostic registries; bounded diagnostic validation; `regions` and `check`; authority ADR; no-model/no-AST/no-write/no-lifecycle tripwires | Supported-platform deterministic corpus and isolated npm/VSIX proof |
+| P0 — contracts and reads | **Partial** | Conservative resource regions; closed cause/relationship/disposition/assurance/availability/refusal/diagnostic registries; bounded diagnostic validation; `regions` and `check`; authority ADR; no-model/no-AST/no-write/no-lifecycle tripwires; isolated npm/VSIX engine proof | Supported-platform deterministic corpus execution |
 | P1 — pilot and storage decision | **Not started** | No durable state; only caller-supplied diagnostic input | Measurements, content-free metrics, storage/retention/privacy decision, record-mode preview, migration prototype, and reviewed rollout decision |
 | P2 — governed cause recording | **Contract fragments only** | Cause, binding, disposition, and transformation-receipt validators over untrusted diagnostic input | Trusted authority lookup, durable versioned records, migrations, proposal/confirmation/supersession, recovery, and incorporation into the existing review transaction |
 | P3 — intent graph and replay | **Not implemented** | A future operation vocabulary and roadmap only | Typed graph/index, bounded bidirectional queries, CMP gateway planner, exact expansion, deterministic replay, and reverse-convergence provenance |
@@ -157,6 +159,8 @@ Evidence on `main@3b5d79e6`:
 - the product check passed 1,047 checks across 135 skills, two agents, and one extension, with only
   pre-existing vocabulary advisories;
 - npm dry-run packaging included the CMP command, contracts, roadmap, help topic, and inspect skill.
+- the current release-gate smokes import the CMP contract from the installed npm package and the
+  extracted VSIX engine, execute a model-free resource projection, and verify no Git status change.
 
 This evidence proves the observe-only pilot and its packaging boundary. It does not satisfy the CMP
 v1 release criteria, any enforcement acceptance criterion, or a native VS Code Comprehension Center.
@@ -165,7 +169,7 @@ v1 release criteria, any enforcement acceptance criterion, or a native VS Code C
 
 | Backlog ID | Required work | Dependency/exit evidence |
 |---|---|---|
-| `CMP-P0-001` | Finish the read-only foundation. The code-local contract, registries, authority ADR, bounded inputs, mutation tripwires, and corrected `--phase` recovery text are implemented. | Supported-platform deterministic corpus and isolated npm/VSIX loading remain before P0 exit |
+| `CMP-P0-001` | Finish the read-only foundation. The code-local contract, registries, authority ADR, bounded inputs, mutation tripwires, corrected `--phase` recovery text, and isolated npm/VSIX loading proof are implemented. | Supported-platform deterministic corpus execution remains before P0 exit |
 | `CMP-P1-001` | Decide storage, retention, privacy, metrics, and creation-pinned `off`/`record` rollout | Approved ADRs, migration prototype, measured budgets, and independent pilot review |
 | `CMP-P2-001` | Add governed cause proposals, confirmations, terminal dispositions, and narrow transformation authority | Durable schemas/migrations plus authority, staleness, recovery, ref-race, and adversarial-laundering tests |
 | `CMP-P3-001` | Implement the intent-indexed graph and `comprehension explain` reads | Bidirectional query parity, bounded exact handles, cache rebuild, gateway no-extra-tool, and unavailable-structure tests |

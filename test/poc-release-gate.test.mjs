@@ -98,6 +98,12 @@ test('the exact VSIX smoke extracts a bounded engine and enforces a source-modul
   assert.match(smoke, /NODE_PATH: path\.join\(sandbox, 'no-node-path'\)/);
   assert.match(smoke, /help', '--json'/,
     'the contained engine must execute a structured surface, not merely parse its manifest');
+  assert.match(smoke, /comprehension', 'regions'/,
+    'the contained engine must execute the CMP observe-only command');
+  assert.match(smoke, /src\/wel\/WelJunitCatalog\.java/,
+    'the contained engine must carry the WEL parser helper');
+  assert.match(smoke, /classifyJunit5SurefireCommandScope/,
+    'the contained engine must load the WEL adapter rather than checking a filename only');
   assert.match(smoke, /hostActivation: false/,
     'the code-level smoke must not claim real VS Code-host activation');
 });
@@ -109,6 +115,12 @@ test('packaged CLI smoke installs the tarball into an isolated prefix before exe
   assert.match(smoke, /node_modules', 'singularity-flow'/);
   assert.match(smoke, /installedCommand, \['--version'\]/,
     'the smoke must execute npm\'s installed command shim rather than bypassing it');
+  assert.match(smoke, /comprehension', 'regions'/,
+    'the installed command shim must execute the CMP observe-only command');
+  assert.match(smoke, /src\/wel\/WelJunitCatalog\.java/,
+    'the installed package must carry the WEL parser helper');
+  assert.match(smoke, /classifyJunit5SurefireCommandScope/,
+    'the installed package must load the WEL adapter rather than checking a filename only');
   assert.match(smoke, /await rm\(sandbox, \{ recursive: true, force: true \}\)/,
     'the isolated install must always be removed');
 });

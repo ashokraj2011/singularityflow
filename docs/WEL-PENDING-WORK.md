@@ -6,12 +6,14 @@
 
 **Created:** 2026-08-30
 
-**Current reconciliation:** checked against `main@8343f48a` on 2026-09-05. Commits `259b76f1`,
+**Current reconciliation:** checked against `main@c85952ad` on 2026-09-05. Commits `259b76f1`,
 `58d9329d`, and `d55229c7` provide the bounded exact-static JUnit identity adapter, immutable
 proposal snapshot, human review through the existing phase approval, migration, safe command-shape
 fallbacks, and content-free benchmark v2. Commit `98750174` aligns the CAB architecture and threat
-boundary. These increments do not satisfy the authenticated-independent-runner,
-Candidate/Program/attempt, cross-platform, enforcement, or release-evidence gates below.
+boundary. The current release increment also makes the isolated npm and VSIX engine smokes load the
+WEL adapter and require its packaged Java parser helper. These increments do not satisfy the
+authenticated-independent-runner, Candidate/Program/attempt, cross-platform, enforcement, or
+release-evidence gates below.
 
 This document is the durable delivery tracker for Witnessed Engineering Loop work that was
 deliberately left out of the observe-only baseline. The governing design remains
@@ -67,7 +69,7 @@ enforcement.
 |---|---|---|---|
 | `WEL-P0-001` architecture and threat closure | active, code-local boundary documented | CAB-R0 ratification and platform/privacy review | none |
 | `WEL-P0-002` exact local JUnit pilot | active, exact-static observation and human review implemented | Candidate/Program/attempt join, corpus and platform proof | observe only |
-| `WEL-P0-003` measurement and release proof | active, content-free local harness implemented | Flow Impact study and signed package/platform aggregate | none |
+| `WEL-P0-003` measurement and release proof | active, content-free harness and isolated npm/VSIX engine proof implemented | Flow Impact study and signed package/platform aggregate | none |
 | `WEL-P1-001` hermetic authenticated execution | unavailable; developer-local signing is not independent authority | CAB-R2 | required |
 | `WEL-P1-002` universal Candidate lifecycle bridge | Candidate code path delivered; WEL integration parked | SGOS-P0-001 release evidence and CAB-R6 | required |
 | `WEL-P1-003` opt-in enforcement and recovery | unavailable | all WEL P0/P1 predecessors | enables selected new Stories only |
@@ -189,13 +191,17 @@ Implemented in the current increment:
   process CPU, raw/catalog/receipt bytes, and estimated durable bytes per execution;
 - the bounded synthetic fixture reports exact/inexact/false-exact counters without recording a
   developer identity, repository, prompt, source body, or individual productivity;
-- the benchmark degrades to `unavailable` rather than treating a missing JDK as product failure.
+- the benchmark degrades to `unavailable` rather than treating a missing JDK as product failure;
+- the release gate installs the exact npm tarball into an isolated prefix and extracts the exact
+  VSIX engine under a loader that refuses source-tree module access; both artifacts must contain the
+  Java parser helper, import the WEL adapter, and return the admitted Maven/Surefire command shape.
 
 Implementation checkpoint: `d55229c7` (content-free benchmark v2).
 
 Still required before completion: reviewed real-repository corpus metrics, Context X-Ray and Story
-latency measurements, an approved Flow Impact design, office/offline/recovery exercises, and one
-signed release receipt binding npm, VSIX, schemas, source, and the full supported-platform matrix.
+latency measurements, an approved Flow Impact design, office/offline/recovery exercises, execution
+of the isolated artifact proof on Windows and Linux, and one signed release receipt binding npm,
+VSIX, schemas, source, and the full supported-platform matrix.
 
 Measure whether WEL improves traceability without creating unacceptable latency, noise, or false
 confidence.

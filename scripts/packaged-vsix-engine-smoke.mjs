@@ -270,6 +270,28 @@ function runIsolatedNode(args, { cwd, environment }) {
   return result.stdout ?? '';
 }
 
+function runGit(args, { cwd, environment }) {
+  const result = spawnSync('git', args, {
+    cwd,
+    env: environment,
+    encoding: 'utf8',
+    timeout: 30_000,
+    killSignal: 'SIGKILL',
+    maxBuffer: 8 * 1024 * 1024,
+    windowsHide: true
+  });
+  if (result.error || result.status !== 0) {
+    const detail = String(result.stderr || result.stdout || result.error?.message || 'unknown failure')
+      .trim().slice(-8_192);
+    throw new Error(`isolated VSIX Git fixture failed${detail ? `: ${detail}` : ''}`);
+  }
+  return result.stdout ?? '';
+}
+
+function requireCondition(condition, message) {
+  if (!condition) refuse(message);
+}
+
 export async function runVsixContainedEngineSmoke({ root = sourceRoot, tempRoot = os.tmpdir() } = {}) {
   const extensionManifest = JSON.parse(await readFile(
     path.join(root, 'apps', 'vscode', 'package.json'), 'utf8'
@@ -291,6 +313,20 @@ export async function runVsixContainedEngineSmoke({ root = sourceRoot, tempRoot 
     ));
     if (engineManifest.name !== 'singularity-flow' || engineManifest.version !== sourceManifest.version) {
       refuse('the VSIX-contained engine identity does not match the release package.');
+    }
+    for (const relative of [
+      'src/comprehension/contracts.mjs',
+      'src/commands/comprehension.mjs',
+      'src/wel-junit5.mjs',
+      'src/wel/WelJunitCatalog.java',
+      'docs/CMP-ROADMAP.md',
+      'docs/WEL-PENDING-WORK.md',
+      'docs/adr/0014-cmp-observe-authority-boundary.md'
+    ]) {
+      const info = await lstat(path.join(extracted.engineRoot, relative)).catch(() => null);
+      if (!info?.isFile() || info.isSymbolicLink()) {
+        refuse(`the VSIX-contained engine omits ${relative}.`);
+      }
     }
 
     const loader = path.join(sandbox, 'source-boundary-loader.mjs');
@@ -323,6 +359,7 @@ export async function runVsixContainedEngineSmoke({ root = sourceRoot, tempRoot 
       USERPROFILE: privateHome,
       NODE_PATH: path.join(sandbox, 'no-node-path'),
       NODE_NO_WARNINGS: '1',
+      SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1',
       SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(privateHome, 'workspaces.json'),
       SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(privateHome, 'active-workspace.json'),
       SINGULARITY_FLOW_LEAD_REGISTRY: path.join(privateHome, 'leads.json')
@@ -347,12 +384,64 @@ export async function runVsixContainedEngineSmoke({ root = sourceRoot, tempRoot 
         || !help.topics?.some((topic) => topic.id === 'governed-mcp-tools')) {
       refuse('the VSIX-contained engine Help catalog is incomplete.');
     }
+
+    const contractsUrl = pathToFileURL(path.join(
+      canonicalEngineRoot, 'src', 'comprehension', 'contracts.mjs'
+    )).href;
+    const welUrl = pathToFileURL(path.join(canonicalEngineRoot, 'src', 'wel-junit5.mjs')).href;
+    const moduleProbeText = runIsolatedNode([
+      ...loaderFlags, '--input-type=module', '--eval', [
+        `const cmp = await import(${JSON.stringify(contractsUrl)});`,
+        `const wel = await import(${JSON.stringify(welUrl)});`,
+        "const scope = wel.classifyJunit5SurefireCommandScope({ argv: ['mvn', 'test'] });",
+        'console.log(JSON.stringify({',
+        "  assurance: cmp.CMP_ASSURANCE_CLASSES.includes('unavailable'),",
+        "  availability: cmp.CMP_AVAILABILITY_STATUSES.includes('degraded'),",
+        "  refusal: cmp.CMP_REFUSAL_CODES.includes('CMP_STORY_CONTEXT_REQUIRED'),",
+        "  diagnostic: cmp.CMP_DIAGNOSTIC_CODES.includes('CMP_BINDING_INVALID'),",
+        "  wel: scope.status === 'complete' && scope.gaps.length === 0",
+        '}));'
+      ].join('\n')
+    ], { cwd: consumer, environment });
+    let moduleProbe;
+    try { moduleProbe = JSON.parse(moduleProbeText); }
+    catch { refuse('the VSIX-contained CMP/WEL modules did not return a structured probe.'); }
+    requireCondition(Object.values(moduleProbe).every(Boolean),
+      'the VSIX-contained CMP/WEL contract probe was incomplete.');
+
+    await mkdir(path.join(consumer, 'singularity'), { recursive: true });
+    runGit(['init', '-q', '-b', 'main'], { cwd: consumer, environment });
+    runGit(['config', 'user.name', 'VSIX CMP Tester'], { cwd: consumer, environment });
+    runGit(['config', 'user.email', 'vsix-cmp@example.invalid'], { cwd: consumer, environment });
+    await writeFile(path.join(consumer, 'singularity', 'workflow.yml'), '{}\n');
+    await writeFile(path.join(consumer, 'service.txt'), 'before\n');
+    runGit(['add', '-A'], { cwd: consumer, environment });
+    runGit(['commit', '-qm', 'baseline'], { cwd: consumer, environment });
+    await writeFile(path.join(consumer, 'service.txt'), 'after\n');
+    await writeFile(path.join(consumer, 'new.txt'), 'new\n');
+    const before = runGit(['status', '--porcelain=v1'], { cwd: consumer, environment });
+    const projectionText = runIsolatedNode([
+      ...loaderFlags, cli, '--no-model', 'comprehension', 'regions', '--base', 'HEAD', '--json'
+    ], { cwd: consumer, environment });
+    let projection;
+    try { projection = JSON.parse(projectionText); }
+    catch { refuse('the VSIX-contained CMP command did not return structured output.'); }
+    requireCondition(projection?.operation?.id === 'comprehension.regions'
+      && projection?.data?.mode === 'observe-only'
+      && projection?.data?.manifest?.structuralAssurance === 'unavailable'
+      && projection?.data?.manifest?.counts?.regions === 2,
+    'the VSIX-contained CMP command did not return the bounded observe-only projection.');
+    requireCondition(runGit(['status', '--porcelain=v1'], {
+      cwd: consumer, environment
+    }) === before, 'the VSIX-contained CMP read changed the isolated repository.');
     return Object.freeze({
       extension: `${extracted.manifest.publisher}.${extracted.manifest.name}@${extracted.manifest.version}`,
       engine: `${engineManifest.name}@${engineManifest.version}`,
       vsixSha256: extracted.vsixSha256,
       engineSha256: extracted.engineSha256,
       fileCount: extracted.fileCount,
+      cmpObserveOnly: true,
+      welParserPackaged: true,
       hostActivation: false
     });
   } finally {

@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { resolvePlatformProcess } from '../src/platform-process.mjs';
 
 const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -46,6 +46,10 @@ async function installedCommandShim(installRoot) {
   return command;
 }
 
+function requireCondition(condition, message) {
+  if (!condition) throw new Error(message);
+}
+
 export async function runPackagedCliSmoke({ root = sourceRoot, tempRoot = os.tmpdir() } = {}) {
   const sandbox = await mkdtemp(path.join(tempRoot, 'sflow-packaged-cli-smoke-'));
   const artifacts = path.join(sandbox, 'artifacts');
@@ -76,6 +80,18 @@ export async function runPackagedCliSmoke({ root = sourceRoot, tempRoot = os.tmp
     const installedCli = path.join(installedRoot, 'bin', 'singularity-flow.mjs');
     await regularFile(installedManifestFile, 'package manifest');
     await regularFile(installedCli, 'CLI entry point');
+    const requiredSurfaces = [
+      'src/comprehension/contracts.mjs',
+      'src/commands/comprehension.mjs',
+      'src/wel-junit5.mjs',
+      'src/wel/WelJunitCatalog.java',
+      'docs/CMP-ROADMAP.md',
+      'docs/WEL-PENDING-WORK.md',
+      'docs/adr/0014-cmp-observe-authority-boundary.md'
+    ];
+    for (const relative of requiredSurfaces) {
+      await regularFile(path.join(installedRoot, relative), relative);
+    }
     const [sourceManifest, installedManifest] = await Promise.all([
       readFile(path.join(root, 'package.json'), 'utf8').then(JSON.parse),
       readFile(installedManifestFile, 'utf8').then(JSON.parse)
@@ -87,18 +103,86 @@ export async function runPackagedCliSmoke({ root = sourceRoot, tempRoot = os.tmp
     // Windows. Loading the JS entry directly would miss precisely the packaging/argv defect this
     // release smoke is intended to catch.
     const installedCommand = await installedCommandShim(installRoot);
+    const privateHome = path.join(sandbox, 'home');
+    await mkdir(privateHome, { recursive: true });
+    const isolatedEnvironment = {
+      ...environment,
+      HOME: privateHome,
+      USERPROFILE: privateHome,
+      NODE_PATH: path.join(sandbox, 'no-node-path'),
+      SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1',
+      SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(privateHome, 'workspaces.json'),
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(privateHome, 'active-workspace.json'),
+      SINGULARITY_FLOW_LEAD_REGISTRY: path.join(privateHome, 'leads.json')
+    };
+    delete isolatedEnvironment.NODE_OPTIONS;
+    delete isolatedEnvironment.INIT_CWD;
     const version = run(installedCommand, ['--version'], {
       cwd: installRoot,
-      env: {
-        ...environment,
-        HOME: path.join(sandbox, 'home'),
-        USERPROFILE: path.join(sandbox, 'home')
-      }
+      env: isolatedEnvironment
     }).trim();
     if (version !== sourceManifest.version) {
       throw new Error(`Installed CLI reports '${version || 'no version'}', expected '${sourceManifest.version}'.`);
     }
-    return { package: `${installedManifest.name}@${installedManifest.version}`, version };
+
+    // Import the two feature surfaces from the installed package itself. This catches an omitted
+    // transitive module and proves the WEL helper selection remains model-free without requiring a
+    // JDK on the release host.
+    const contractsUrl = pathToFileURL(path.join(installedRoot, 'src', 'comprehension', 'contracts.mjs')).href;
+    const welUrl = pathToFileURL(path.join(installedRoot, 'src', 'wel-junit5.mjs')).href;
+    const moduleProbe = JSON.parse(run(process.execPath, [
+      '--input-type=module', '--eval', [
+        `const cmp = await import(${JSON.stringify(contractsUrl)});`,
+        `const wel = await import(${JSON.stringify(welUrl)});`,
+        "const scope = wel.classifyJunit5SurefireCommandScope({ argv: ['mvn', 'test'] });",
+        'console.log(JSON.stringify({',
+        "  assurance: cmp.CMP_ASSURANCE_CLASSES.includes('unavailable'),",
+        "  availability: cmp.CMP_AVAILABILITY_STATUSES.includes('degraded'),",
+        "  refusal: cmp.CMP_REFUSAL_CODES.includes('CMP_STORY_CONTEXT_REQUIRED'),",
+        "  diagnostic: cmp.CMP_DIAGNOSTIC_CODES.includes('CMP_BINDING_INVALID'),",
+        "  wel: scope.status === 'complete' && scope.gaps.length === 0",
+        '}));'
+      ].join('\n')
+    ], { cwd: installedRoot, env: isolatedEnvironment }).trim());
+    requireCondition(Object.values(moduleProbe).every(Boolean),
+      'the installed CMP/WEL contract probe was incomplete.');
+
+    // Run a real CMP observation against a repository outside both the source checkout and the
+    // installed package. Its before/after status proves the packaged command remains read-only.
+    const repository = path.join(sandbox, 'repository');
+    await mkdir(path.join(repository, 'singularity'), { recursive: true });
+    run('git', ['init', '-q', '-b', 'main'], { cwd: repository, env: isolatedEnvironment });
+    run('git', ['config', 'user.name', 'Packaged CMP Tester'], { cwd: repository, env: isolatedEnvironment });
+    run('git', ['config', 'user.email', 'packaged-cmp@example.invalid'], {
+      cwd: repository, env: isolatedEnvironment
+    });
+    await writeFile(path.join(repository, 'singularity', 'workflow.yml'), '{}\n');
+    await writeFile(path.join(repository, 'service.txt'), 'before\n');
+    run('git', ['add', '-A'], { cwd: repository, env: isolatedEnvironment });
+    run('git', ['commit', '-qm', 'baseline'], { cwd: repository, env: isolatedEnvironment });
+    await writeFile(path.join(repository, 'service.txt'), 'after\n');
+    await writeFile(path.join(repository, 'new.txt'), 'new\n');
+    const before = run('git', ['status', '--porcelain=v1'], {
+      cwd: repository, env: isolatedEnvironment
+    });
+    const projection = JSON.parse(run(installedCommand, [
+      '--no-model', 'comprehension', 'regions', '--base', 'HEAD', '--json'
+    ], { cwd: repository, env: isolatedEnvironment }));
+    requireCondition(projection?.operation?.id === 'comprehension.regions'
+      && projection?.data?.mode === 'observe-only'
+      && projection?.data?.manifest?.structuralAssurance === 'unavailable'
+      && projection?.data?.manifest?.counts?.regions === 2,
+    'the installed CMP command did not return the bounded observe-only projection.');
+    requireCondition(run('git', ['status', '--porcelain=v1'], {
+      cwd: repository, env: isolatedEnvironment
+    }) === before, 'the installed CMP read changed the isolated repository.');
+
+    return {
+      package: `${installedManifest.name}@${installedManifest.version}`,
+      version,
+      cmpObserveOnly: true,
+      welParserPackaged: true
+    };
   } finally {
     await rm(sandbox, { recursive: true, force: true });
   }

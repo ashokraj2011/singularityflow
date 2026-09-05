@@ -57,14 +57,15 @@ test('the VS Code authority repair uses the same non-interactive office-safe con
   assert.match(runner, /timeout:\s*120_000/);
 });
 
-test('interactive onboarding and refresh never use the synchronous remote Git boundary', async () => {
+test('interactive onboarding, configuration, and recovery never use synchronous remote Git', async () => {
   for (const relative of [
     'src/bootstrap.mjs',
     'src/configuration-people.mjs',
     'src/configuration-proposal.mjs',
     'src/organisation.mjs',
     'src/workspace-bootstrap.mjs',
-    'src/workspace-configuration-refresh.mjs'
+    'src/workspace-configuration-refresh.mjs',
+    'src/world-model/recovery.mjs'
   ]) {
     const source = await readFile(path.join(root, relative), 'utf8');
     assert.doesNotMatch(source, /\brunRemoteGit\(/,

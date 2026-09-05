@@ -2,7 +2,7 @@ import path from 'node:path';
 import { rm } from 'node:fs/promises';
 
 import { gitCommonDir } from '../git.mjs';
-import { runRemoteGit } from '../git-execution.mjs';
+import { runRemoteGitAsync } from '../git-execution.mjs';
 import { normalizeLedgerConfig } from '../ledger-config.mjs';
 import { stateBranchPublicationTargetIdentity } from '../ledger.mjs';
 import { frozenRemoteTransport } from '../git-remote-diagnostics.mjs';
@@ -22,15 +22,16 @@ const MAXIMUM_RECOVERY_BYTES = 128 * 1024 * 1024;
 const RECOVERY_ID = /^wmb4-[a-f0-9]{32}$/;
 
 function git(root, args, { allowFailure = false, env = process.env } = {}) {
-  if (['fetch', 'ls-remote'].includes(args[0])) {
-    return runRemoteGit(args, {
-      cwd: root,
-      operation: args[0] === 'ls-remote' ? 'remote-probe' : 'remote-configuration',
-      allowFailure,
-      env
-    });
-  }
   return run('git', args, { cwd: root, allowFailure, env });
+}
+
+function remoteGit(root, args, { allowFailure = false, env = process.env } = {}) {
+  return runRemoteGitAsync(args, {
+    cwd: root,
+    operation: args[0] === 'ls-remote' ? 'remote-probe' : 'remote-configuration',
+    allowFailure,
+    env
+  });
 }
 
 function canonicalTimestamp(value) {
@@ -357,8 +358,8 @@ function localCommit(root, ref, { env = process.env } = {}) {
     ? observed.stdout.trim().toLowerCase() : null;
 }
 
-function advertisedCommit(root, remote, ref, { env = process.env } = {}) {
-  const observed = git(root, ['ls-remote', '--heads', '--', remote, ref], {
+async function advertisedCommit(root, remote, ref, { env = process.env } = {}) {
+  const observed = await remoteGit(root, ['ls-remote', '--heads', '--', remote, ref], {
     allowFailure: true, env
   });
   if (observed.status !== 0) {
@@ -383,14 +384,14 @@ function advertisedCommit(root, remote, ref, { env = process.env } = {}) {
   return match[1].toLowerCase();
 }
 
-function fetchObservedCommit(root, recovery, observedCommit, {
+async function fetchObservedCommit(root, recovery, observedCommit, {
   env = process.env, transport = null
 } = {}) {
   const ref = `refs/heads/${recovery.ledger.branch}`;
   const inspectionRef = `refs/singularity/recovery-observations/${recovery.id}`;
   git(root, ['update-ref', '-d', inspectionRef], { allowFailure: true, env });
   try {
-    const fetched = git(root, [
+    const fetched = await remoteGit(root, [
       'fetch', '--no-tags', '--force', '--no-write-fetch-head',
       transport?.remote ?? recovery.ledger.remote,
       `${ref}:${inspectionRef}`
@@ -445,12 +446,12 @@ function commitHasExactProjection(root, commit, publication, { env = process.env
   return true;
 }
 
-function assertGuardedAuthority(root, recovery, {
+async function assertGuardedAuthority(root, recovery, {
   env = process.env, transport = null
 } = {}) {
   if (!transport && !remoteIsConfigured(root, recovery.ledger.remote, { env })) return;
   for (const [ref, expected] of Object.entries(recovery.publicationOptions.guardedRemoteRefs)) {
-    const observed = advertisedCommit(
+    const observed = await advertisedCommit(
       root, transport?.remote ?? recovery.ledger.remote, ref,
       { env: transport?.env ?? env }
     );
@@ -476,14 +477,14 @@ function assertGuardedAuthority(root, recovery, {
  * before recovery calls the writer again. It never accepts an ancestor or a matching projection at
  * a later unrelated tip.
  */
-function reconcileWorldModelPublicationRecovery(root, recovery, {
+async function reconcileWorldModelPublicationRecovery(root, recovery, {
   env = process.env
 } = {}) {
   const transport = recoveryTransport(root, recovery, { env });
   const remoteConfigured = transport !== null;
   const stateRef = `refs/heads/${recovery.ledger.branch}`;
   const observed = remoteConfigured
-    ? advertisedCommit(root, transport.remote, stateRef, { env: transport.env })
+    ? await advertisedCommit(root, transport.remote, stateRef, { env: transport.env })
     : localCommit(root, stateRef, { env });
   const expected = Object.hasOwn(recovery.publicationOptions, 'expectedRemoteSha')
     ? recovery.publicationOptions.expectedRemoteSha : recovery.publicationOptions.baseRef ?? null;
@@ -497,7 +498,7 @@ function reconcileWorldModelPublicationRecovery(root, recovery, {
     }
     return Object.freeze({ status: 'not-landed', commit: null, changed: null });
   }
-  if (remoteConfigured) fetchObservedCommit(root, recovery, observed, { env, transport });
+  if (remoteConfigured) await fetchObservedCommit(root, recovery, observed, { env, transport });
   const projectionMatches = commitHasExactProjection(
     root, observed, recovery.publication, { env }
   );
@@ -505,9 +506,9 @@ function reconcileWorldModelPublicationRecovery(root, recovery, {
     if (!projectionMatches) {
       return Object.freeze({ status: 'not-landed', commit: observed, changed: null });
     }
-    assertGuardedAuthority(root, recovery, { env, transport });
+    await assertGuardedAuthority(root, recovery, { env, transport });
     if (remoteConfigured
-        && advertisedCommit(root, transport.remote, stateRef, { env: transport.env }) !== observed) {
+        && await advertisedCommit(root, transport.remote, stateRef, { env: transport.env }) !== observed) {
       throw new SingularityFlowError(
         'The state branch advanced while its exact WMB v4 projection was being reconciled.',
         { code: 'WMB_PUBLICATION_RECOVERY_REMOTE_ADVANCED' }
@@ -539,9 +540,9 @@ function reconcileWorldModelPublicationRecovery(root, recovery, {
       }
     );
   }
-  assertGuardedAuthority(root, recovery, { env, transport });
+  await assertGuardedAuthority(root, recovery, { env, transport });
   if (remoteConfigured
-      && advertisedCommit(root, transport.remote, stateRef, { env: transport.env }) !== observed) {
+      && await advertisedCommit(root, transport.remote, stateRef, { env: transport.env }) !== observed) {
     throw new SingularityFlowError(
       'The state branch advanced while its exact WMB v4 candidate was being reconciled.',
       { code: 'WMB_PUBLICATION_RECOVERY_REMOTE_ADVANCED' }
@@ -576,7 +577,7 @@ export async function resumeWorldModelPublication(root, id, {
       );
     }
     if (endpoint.effectiveUrl) runtimeOverrides.transportRemote = endpoint.effectiveUrl;
-    const reconciled = reconcileWorldModelPublicationRecovery(root, inspected.record, {
+    const reconciled = await reconcileWorldModelPublicationRecovery(root, inspected.record, {
       env: runtimeOverrides.env ?? process.env
     });
     if (reconciled.status === 'landed') {

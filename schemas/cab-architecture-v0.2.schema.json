@@ -1,0 +1,239 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.dev/schemas/cab-architecture-v0.2.schema.json",
+  "title": "Code Assurance Bridge architecture v0.2",
+  "$comment": "Design-only contract. It is not a runtime record family and cannot authorize CAB enforcement.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "kind",
+    "status",
+    "authorityBindings",
+    "forbiddenParallelAuthorities",
+    "identityProjections",
+    "trustMatrix",
+    "outcomes",
+    "sandboxContract",
+    "waiverContract",
+    "rollout"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "cab-architecture" },
+    "status": { "const": "design-only-enforcement-unavailable" },
+    "authorityBindings": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 32,
+      "items": { "$ref": "#/$defs/authorityBinding" }
+    },
+    "forbiddenParallelAuthorities": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "candidate",
+          "scheduler",
+          "operation-registry",
+          "approval-quorum",
+          "publisher"
+        ]
+      }
+    },
+    "identityProjections": {
+      "type": "object",
+      "required": [
+        "checkerAttempt",
+        "assuranceBundle",
+        "approvalSnapshot",
+        "publicationReceipt"
+      ],
+      "properties": {
+        "checkerAttempt": { "$ref": "#/$defs/identityFields" },
+        "assuranceBundle": { "$ref": "#/$defs/identityFields" },
+        "approvalSnapshot": { "$ref": "#/$defs/identityFields" },
+        "publicationReceipt": { "$ref": "#/$defs/identityFields" }
+      },
+      "additionalProperties": false
+    },
+    "trustMatrix": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 16,
+      "items": { "$ref": "#/$defs/trustEntry" }
+    },
+    "outcomes": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "pass",
+          "fail",
+          "unavailable",
+          "inconclusive",
+          "not-run",
+          "stale",
+          "tampered",
+          "verified-with-exceptions"
+        ]
+      }
+    },
+    "sandboxContract": {
+      "type": "object",
+      "required": [
+        "requiredBeforeEnforce",
+        "candidateMount",
+        "resultMount",
+        "home",
+        "identity",
+        "hostSockets",
+        "gitCommonDirectory",
+        "network",
+        "resourceLimits"
+      ],
+      "properties": {
+        "requiredBeforeEnforce": { "const": true },
+        "candidateMount": { "const": "read-only" },
+        "resultMount": { "const": "separate-write-only" },
+        "home": { "const": "empty-private" },
+        "identity": { "const": "non-root" },
+        "hostSockets": { "const": "deny" },
+        "gitCommonDirectory": { "const": "deny" },
+        "network": { "const": "deny-by-default" },
+        "resourceLimits": {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 6,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "cpu",
+              "memory",
+              "disk",
+              "pids",
+              "wall-time",
+              "output-bytes"
+            ]
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "waiverContract": {
+      "type": "object",
+      "required": [
+        "decision",
+        "result",
+        "requiresHumanAuthority",
+        "requiresReason",
+        "requiresExpiry",
+        "requiresExactScope",
+        "modelMayDecide"
+      ],
+      "properties": {
+        "decision": { "const": "exception" },
+        "result": { "const": "verified-with-exceptions" },
+        "requiresHumanAuthority": { "const": true },
+        "requiresReason": { "const": true },
+        "requiresExpiry": { "const": true },
+        "requiresExactScope": { "const": true },
+        "modelMayDecide": { "const": false }
+      },
+      "additionalProperties": false
+    },
+    "rollout": {
+      "type": "object",
+      "required": [
+        "defaultMode",
+        "availableModes",
+        "enforceAvailable",
+        "legacyStoriesAutoEnroll",
+        "inFlightStoriesAutoEnroll",
+        "remoteEnforcementAvailable"
+      ],
+      "properties": {
+        "defaultMode": { "const": "disabled" },
+        "availableModes": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": { "enum": ["disabled", "observe"] }
+        },
+        "enforceAvailable": { "const": false },
+        "legacyStoriesAutoEnroll": { "const": false },
+        "inFlightStoriesAutoEnroll": { "const": false },
+        "remoteEnforcementAvailable": { "const": false }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 96,
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^src/[A-Za-z0-9._/-]+\\.mjs$"
+    },
+    "symbol": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 96,
+      "pattern": "^[A-Za-z][A-Za-z0-9]*$"
+    },
+    "authorityBinding": {
+      "type": "object",
+      "required": ["fact", "authority", "module", "symbol", "plane", "cabMayAuthorize"],
+      "properties": {
+        "fact": { "$ref": "#/$defs/identifier" },
+        "authority": { "$ref": "#/$defs/identifier" },
+        "module": { "$ref": "#/$defs/path" },
+        "symbol": { "$ref": "#/$defs/symbol" },
+        "plane": { "enum": ["candidate", "evidence", "authority"] },
+        "cabMayAuthorize": { "const": false }
+      },
+      "additionalProperties": false
+    },
+    "identityFields": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 96,
+        "pattern": "^[A-Za-z][A-Za-z0-9]*$"
+      }
+    },
+    "trustEntry": {
+      "type": "object",
+      "required": [
+        "claim",
+        "issuer",
+        "authentication",
+        "maySatisfyEnforcedObligation",
+        "mayPublish"
+      ],
+      "properties": {
+        "claim": { "$ref": "#/$defs/identifier" },
+        "issuer": { "$ref": "#/$defs/identifier" },
+        "authentication": { "$ref": "#/$defs/identifier" },
+        "maySatisfyEnforcedObligation": { "type": "boolean" },
+        "mayPublish": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

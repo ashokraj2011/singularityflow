@@ -25,7 +25,7 @@ is not part of the current product.
 | Track deliberately deferred work and the next eligible increment | [Pending-work roadmap](PENDING-WORK-ROADMAP.md) |
 | Plan Governed Delivery and Proof as reversible release milestones | [GDP milestone delivery roadmap](GDP-DELIVERY-ROADMAP.md) |
 | Track governed comprehension from its read-only pilot through future enforcement | [CMP roadmap](CMP-ROADMAP.md) |
-| Review the staged Code Assurance Bridge trust and rollout contract | [CAB roadmap](CAB-ROADMAP.md) |
+| Review the staged Code Assurance Bridge trust and rollout contract | [CAB v0.2](CAB-V0.2.md), [threat model](CAB-THREAT-MODEL.md), and [roadmap](CAB-ROADMAP.md) |
 | Land bounded work that began without a Story | [Ad hoc work and governed landing](../README-AD-HOC-WORK.md) |
 | Understand the terms | [Glossary](GLOSSARY.md) |
 | Use the VS Code extension | [VS Code guide](VS-CODE.md) |
@@ -54,6 +54,7 @@ is not part of the current product.
 | Approved clause-driven specification architecture | [Clause-driven specifications](CLAUSE-DRIVEN-SPECIFICATIONS.md) |
 | Witnessed clauses, bounded knowledge, and observe-only testcase evidence | [Witnessed Engineering Loop](WEL-SPEC.md) |
 | Understand WEL trust, privacy, parser, and two-plane storage boundaries | [WEL threat model](WEL-THREAT-MODEL.md), [authority ADR](adr/0008-wel-authority-and-storage.md), and [JUnit identity ADR](adr/0009-wel-junit5-local-identity.md) |
+| Review the CAB authority, trust, sandbox, risk, and rollout design | [CAB v0.2](CAB-V0.2.md), [CAB threat model](CAB-THREAT-MODEL.md), and [machine-readable contract](contracts/cab/architecture-v0.2.json) |
 | Review the corrected, non-runtime GDP contract baseline | [GDP contract vNext](GDP-CONTRACT-VNEXT.md) |
 | Govern Workflow and Outcome delivery through one Candidate and proof system | [Governed Delivery and Proof roadmap](GDP-DELIVERY-ROADMAP.md) |
 | Review the cross-product pending-work dashboard | [Pending-work roadmap](PENDING-WORK-ROADMAP.md) |

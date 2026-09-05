@@ -37,12 +37,32 @@
     {
       "id": "witnessed-engineering-delivery-status",
       "path": "docs/WEL-PENDING-WORK.md",
-      "sha256": "sha256:23d9b41ed5067ffd1fbe1df8adeaba3a2e700fd5cbf084abd4c12efd184513e6"
+      "sha256": "sha256:b480e592994a41edf03c377af3669fc781dc3254207920de53db099e5da4ac97"
     },
     {
       "id": "code-assurance-bridge",
       "path": "docs/CAB-ROADMAP.md",
-      "sha256": "sha256:6274d051db230b1e30d2fe039cdbe8a85cc195c81364f8a4a98456f0afdd927f"
+      "sha256": "sha256:f786cf57c24ee393784fbc267efc587035b81cff871e494d2084c94a81619a78"
+    },
+    {
+      "id": "code-assurance-bridge-v0-2",
+      "path": "docs/CAB-V0.2.md",
+      "sha256": "sha256:a05df0de80407548021dde8c1732eb87a9863b25ddd6e749cd27220187c5e03b"
+    },
+    {
+      "id": "code-assurance-bridge-threat-model",
+      "path": "docs/CAB-THREAT-MODEL.md",
+      "sha256": "sha256:b91194181ca58c3bf47cbdd60f818ddc115e7e4693e93c76ef62826ad0ac4655"
+    },
+    {
+      "id": "code-assurance-bridge-architecture-contract",
+      "path": "docs/contracts/cab/architecture-v0.2.json",
+      "sha256": "sha256:e71e748f53d7608e545cb19cc2472daf4c91553c4ad3561469df8252d0ad3731"
+    },
+    {
+      "id": "code-assurance-bridge-architecture-schema",
+      "path": "schemas/cab-architecture-v0.2.schema.json",
+      "sha256": "sha256:e66229dbc525d8896571246223214cad31c75c25a99599ec67e6d380d7cdf772"
     },
     {
       "id": "sgos-record-contracts",

@@ -1,0 +1,210 @@
+[
+  {
+    "id": "literal-qualified-tag",
+    "source": [
+      "package example;",
+      "import org.junit.jupiter.api.Test;",
+      "import org.junit.jupiter.api.Tag;",
+      "class OrderTest {",
+      "  @Test @Tag(\"sflow-ac:WRK-1:AC-001\") void observed() {}",
+      "}"
+    ],
+    "occurrences": [
+      { "className": "example.OrderTest", "name": "observed", "identityStatus": "observed-name-only" }
+    ],
+    "exact": true,
+    "proposalCount": 1
+  },
+  {
+    "id": "fully-qualified-annotations",
+    "source": [
+      "package example;",
+      "class OrderTest {",
+      "  @org.junit.jupiter.api.Test",
+      "  @org.junit.jupiter.api.Tag(\"sflow-ac:WRK-1:AC-002\")",
+      "  void observed() {}",
+      "}"
+    ],
+    "occurrences": [
+      { "className": "example.OrderTest", "name": "observed", "identityStatus": "observed-name-only" }
+    ],
+    "exact": true,
+    "proposalCount": 1
+  },
+  {
+    "id": "named-literal-tag-and-two-clauses",
+    "source": [
+      "package example;",
+      "import org.junit.jupiter.api.Test;",
+      "import org.junit.jupiter.api.Tag;",
+      "class OrderTest {",
+      "  @Test",
+      "  @Tag(value = \"sflow-ac:WRK-1:AC-001\")",
+      "  @Tag(\"sflow-ac:WRK-1:AC-002\")",
+      "  void observed() {}",
+      "}"
+    ],
+    "occurrences": [
+      { "className": "example.OrderTest", "name": "observed", "identityStatus": "observed-name-only" }
+    ],
+    "exact": true,
+    "proposalCount": 2
+  },
+  {
+    "id": "comment-and-string-decoys",
+    "source": [
+      "package example;",
+      "import org.junit.jupiter.api.Test;",
+      "class OrderTest {",
+      "  // @Tag(\"sflow-ac:WRK-1:AC-001\")",
+      "  @Test void observed() { String decoy = \"sflow-ac:WRK-1:AC-001\"; }",
+      "}"
+    ],
+    "occurrences": [
+      { "className": "example.OrderTest", "name": "observed", "identityStatus": "observed-name-only" }
+    ],
+    "exact": false,
+    "proposalCount": 0,
+    "gap": "TAGGED_TEST_DECLARATIONS_UNAVAILABLE"
+  },
+  {
+    "id": "parameterized-test",
+    "source": [
+      "package example;",
+      "import org.junit.jupiter.params.ParameterizedTest;",
+      "import org.junit.jupiter.api.Tag;",
+      "class OrderTest {",
+      "  @ParameterizedTest @Tag(\"sflow-ac:WRK-1:AC-001\") void observed(int value) {}",
+      "}"
+    ],
+    "occurrences": [
+      { "className": "example.OrderTest", "name": "observed", "identityStatus": "ambiguous-display-identity" }
+    ],
+    "exact": false,
+    "proposalCount": 0,
+    "gap": "UNSUPPORTED_JUNIT5_SOURCE_SHAPE"
+  },
+  {
+    "id": "dynamic-test-factory",
+    "source": [
+      "package example;",
+      "import org.junit.jupiter.api.TestFactory;",
+      "import org.junit.jupiter.api.Tag;",
+      "class OrderTest {",
+      "  @TestFactory @Tag(\"sflow-ac:WRK-1:AC-001\") Object observed() { return null; }",
+      "}"
+    ],
+    "occurrences": [
+      { "className": "example.OrderTest", "name": "observed", "identityStatus": "ambiguous-display-identity" }
+    ],
+    "exact": false,
+    "proposalCount": 0,
+    "gap": "UNSUPPORTED_JUNIT5_SOURCE_SHAPE"
+  },
+  {
+    "id": "repeated-test",
+    "source": [
+      "package example;",
+      "import org.junit.jupiter.api.RepeatedTest;",
+      "import org.junit.jupiter.api.Tag;",
+      "class OrderTest {",
+      "  @RepeatedTest(2) @Tag(\"sflow-ac:WRK-1:AC-001\") void observed() {}",
+      "}"
+    ],
+    "occurrences": [
+      { "className": "example.OrderTest", "name": "observed", "identityStatus": "ambiguous-display-identity" }
+    ],
+    "exact": false,
+    "proposalCount": 0,
+    "gap": "UNSUPPORTED_JUNIT5_SOURCE_SHAPE"
+  },
+  {
+    "id": "nested-test-class",
+    "source": [
+      "package example;",
+      "import org.junit.jupiter.api.Test;",
+      "import org.junit.jupiter.api.Tag;",
+      "import org.junit.jupiter.api.Nested;",
+      "class OrderTest {",
+      "  @Nested class Inner {",
+      "    @Test @Tag(\"sflow-ac:WRK-1:AC-001\") void observed() {}",
+      "  }",
+      "}"
+    ],
+    "occurrences": [
+      { "className": "example.OrderTest$Inner", "name": "observed", "identityStatus": "ambiguous-display-identity" }
+    ],
+    "exact": false,
+    "proposalCount": 0,
+    "gap": "UNSUPPORTED_JUNIT5_SOURCE_SHAPE"
+  },
+  {
+    "id": "wildcard-import",
+    "source": [
+      "package example;",
+      "import org.junit.jupiter.api.*;",
+      "class OrderTest {",
+      "  @Test @Tag(\"sflow-ac:WRK-1:AC-001\") void observed() {}",
+      "}"
+    ],
+    "occurrences": [
+      { "className": "example.OrderTest", "name": "observed", "identityStatus": "observed-name-only" }
+    ],
+    "exact": false,
+    "proposalCount": 0,
+    "gap": "UNSUPPORTED_JUNIT5_SOURCE_SHAPE"
+  },
+  {
+    "id": "non-literal-tag",
+    "source": [
+      "package example;",
+      "import org.junit.jupiter.api.Test;",
+      "import org.junit.jupiter.api.Tag;",
+      "class OrderTest {",
+      "  static final String CLAUSE = \"sflow-ac:WRK-1:AC-001\";",
+      "  @Test @Tag(CLAUSE) void observed() {}",
+      "}"
+    ],
+    "occurrences": [
+      { "className": "example.OrderTest", "name": "observed", "identityStatus": "observed-name-only" }
+    ],
+    "exact": false,
+    "proposalCount": 0,
+    "gap": "UNSUPPORTED_JUNIT5_SOURCE_SHAPE"
+  },
+  {
+    "id": "duplicate-report-identity",
+    "source": [
+      "package example;",
+      "import org.junit.jupiter.api.Test;",
+      "import org.junit.jupiter.api.Tag;",
+      "class OrderTest {",
+      "  @Test @Tag(\"sflow-ac:WRK-1:AC-001\") void observed() {}",
+      "}"
+    ],
+    "occurrences": [
+      { "className": "example.OrderTest", "name": "observed", "identityStatus": "observed-name-only" },
+      { "className": "example.OrderTest", "name": "observed", "identityStatus": "observed-name-only" }
+    ],
+    "exact": false,
+    "proposalCount": 0,
+    "gap": "REPORT_TEST_IDENTITY_AMBIGUOUS"
+  },
+  {
+    "id": "report-class-mismatch",
+    "source": [
+      "package example;",
+      "import org.junit.jupiter.api.Test;",
+      "import org.junit.jupiter.api.Tag;",
+      "class OrderTest {",
+      "  @Test @Tag(\"sflow-ac:WRK-1:AC-001\") void observed() {}",
+      "}"
+    ],
+    "occurrences": [
+      { "className": "example.DecoyTest", "name": "observed", "identityStatus": "observed-name-only" }
+    ],
+    "exact": false,
+    "proposalCount": 0,
+    "gap": "REPORT_SOURCE_DECLARATION_UNMATCHED"
+  }
+]

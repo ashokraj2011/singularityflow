@@ -1,0 +1,52 @@
+[
+  {
+    "id": "cab-cannot-own-publication",
+    "path": "authorityBindings.7.cabMayAuthorize",
+    "value": true
+  },
+  {
+    "id": "local-observation-cannot-enforce",
+    "path": "trustMatrix.0.maySatisfyEnforcedObligation",
+    "value": true
+  },
+  {
+    "id": "checker-cannot-publish",
+    "path": "trustMatrix.1.mayPublish",
+    "value": true
+  },
+  {
+    "id": "model-cannot-waive",
+    "path": "waiverContract.modelMayDecide",
+    "value": true
+  },
+  {
+    "id": "candidate-must-be-read-only",
+    "path": "sandboxContract.candidateMount",
+    "value": "read-write"
+  },
+  {
+    "id": "network-must-default-deny",
+    "path": "sandboxContract.network",
+    "value": "allow"
+  },
+  {
+    "id": "enforce-remains-unavailable",
+    "path": "rollout.enforceAvailable",
+    "value": true
+  },
+  {
+    "id": "legacy-cannot-auto-enroll",
+    "path": "rollout.legacyStoriesAutoEnroll",
+    "value": true
+  },
+  {
+    "id": "remote-enforcement-remains-unavailable",
+    "path": "rollout.remoteEnforcementAvailable",
+    "value": true
+  },
+  {
+    "id": "attempt-must-bind-candidate",
+    "path": "identityProjections.checkerAttempt.0",
+    "value": "repositorySha256"
+  }
+]

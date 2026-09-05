@@ -1,15 +1,16 @@
 # Code Assurance Bridge — corrected roadmap
 
-**Status:** design-only; implementation not authorized
+**Status:** CAB-R0 design and CAB-R1 observe-only pilot active; enforcement not authorized
 
 **Roadmap baseline:** `main@40d3f159`
 
 **Created:** 2026-08-30
 
-**Current reconciliation:** checked against `main@7935d2db` on 2026-09-05. Later SGOS, WEL, and GDP
-work delivered reusable Candidate, proof-observation, JUnit-binder, and developer-local signed-runner
-primitives. Those components remain non-gating and do not ratify CAB-R0, provide an authenticated
-independent verifier, or activate any CAB rollout milestone.
+**Current reconciliation:** checked against `main@259b76f1` on 2026-09-05. Later SGOS, WEL, and GDP
+work delivered reusable Candidate, proof-observation, exact-static JUnit identity, human mapping
+review, and developer-local signed-runner primitives. CAB v0.2 now has a machine-checked code-local
+architecture and adversarial design fixtures. Those components remain non-gating and do not provide
+an authenticated independent verifier or authorize enforcement.
 
 **Source proposal:** `SFlow_Code_Assurance_Bridge_SPEC.md` draft v0.1
 
@@ -121,7 +122,12 @@ Rules:
 
 ## Delivery roadmap
 
-### [ ] CAB-R0 — Rebase and security architecture
+### [~] CAB-R0 — Rebase and security architecture
+
+**Owner:** repository maintainers
+**Branch:** `main`
+**Started:** 2026-09-05
+**Target:** next observe-only release after independent security/privacy/ownership review
 
 **Planning range:** 2–4 person-weeks
 **Mutation:** documentation, ADRs, fixtures, and threat-model tests only
@@ -136,6 +142,23 @@ Deliver:
 - risk-profile and waiver matrix;
 - migration and rollout ADR.
 
+Implemented code-locally:
+
+- [CAB v0.2](CAB-V0.2.md) rebases the design onto the exact current SGOS and lifecycle owners;
+- [ADR 0010](adr/0010-cab-authority-and-two-plane-model.md) removes duplicate authority and
+  candidate/evidence circularity;
+- [ADR 0011](adr/0011-cab-attestation-and-trust.md) defines the signer and trust matrix;
+- [ADR 0012](adr/0012-cab-hermetic-checker-boundary.md) freezes the sandbox and supply-chain
+  boundary;
+- [ADR 0013](adr/0013-cab-risk-waiver-migration-and-rollout.md) freezes monotone profiles,
+  exceptions, migration, and rollout;
+- the [threat model](CAB-THREAT-MODEL.md), closed
+  [architecture contract](contracts/cab/architecture-v0.2.json), schema, and adversarial fixtures
+  prove that the design cannot enable enforcement or create a competing authority.
+
+Still required before completion: independent security, privacy, platform, and ownership approval.
+Repository maintainers cannot self-certify those organizational decisions.
+
 Exit gates:
 
 - every CAB record maps to one existing authority primitive or is justified as new evidence;
@@ -144,7 +167,13 @@ Exit gates:
 - the security threat model has adversarial test anchors;
 - R4 and remote enforcement are explicitly unavailable.
 
-### [ ] CAB-R1 — JUnit 5/Surefire shadow pilot
+### [~] CAB-R1 — JUnit 5/Surefire shadow pilot
+
+**Owner:** repository maintainers
+**Branch:** `main`
+**Started:** 2026-09-05
+**Implementation anchor:** `main@259b76f1`
+**Target:** next observe-only release after corpus and supported-platform evidence
 
 **Planning range:** 3–6 person-weeks
 **Rollout:** `observe` only
@@ -165,6 +194,15 @@ Explicitly excluded:
 
 - coverage, mutation, model verification, approval changes, SGOS material-task rules, remote checks,
   production evidence, and non-JUnit adapters.
+
+Implemented code-locally: the WEL adapter parses one Maven/JUnit subset without loading Candidate
+classes, joins literal qualified tags to exact static declarations and Surefire occurrences, binds
+proposals to immutable clause bytes, and collects explicit existing-authority review decisions.
+The reviewed local corpus covers literal/named/fully qualified tags and rejects comment/string
+decoys, wildcard imports, non-literal tags, parameterized/dynamic/repeated/nested tests, duplicate
+report identities, and class mismatches with zero false exact matches. The outcome remains
+`inconclusive` and non-blocking. Candidate/Program/attempt authentication, broader real-repository
+corpus evidence, retry/focus semantics, and supported-platform receipts remain open.
 
 Exit gates:
 

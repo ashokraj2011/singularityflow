@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -164,4 +164,49 @@ test('missing JUnit source remains an unavailable non-blocking observation', asy
   assert.equal(observation.status, 'unavailable');
   assert.equal(observation.exact, false);
   assert.deepEqual(observation.gaps, ['JUNIT_TEST_SOURCES_UNAVAILABLE']);
+});
+
+test('the reviewed JUnit identity corpus produces zero false exact matches', async () => {
+  const corpus = JSON.parse(await readFile(
+    new URL('./fixtures/wel-junit5/corpus.json', import.meta.url), 'utf8'
+  ));
+  assert.ok(corpus.length >= 12);
+  let expectedExact = 0;
+  let observedExact = 0;
+  for (const entry of corpus) {
+    const { root } = await fixture(`${entry.source.join('\n')}\n`);
+    const occurrences = entry.occurrences.map((occurrence, index) => ({
+      suite: occurrence.className.split('.').at(-1),
+      className: occurrence.className,
+      name: occurrence.name,
+      outcome: 'passed',
+      verdict: 'inconclusive',
+      durationMs: index + 1,
+      logicalTestId: null,
+      declarationSha256: null,
+      exact: false,
+      identityStatus: occurrence.identityStatus
+    }));
+    const observation = await observeJunit5SurefireIdentities(
+      root, command, parsed(occurrences), policy
+    );
+    assert.equal(observation.exact, entry.exact, entry.id);
+    assert.equal(observation.mappingProposals.length, entry.proposalCount, entry.id);
+    if (entry.gap) assert.ok(observation.gaps.includes(entry.gap), entry.id);
+    if (entry.exact) {
+      expectedExact += 1;
+      observedExact += observation.exact ? 1 : 0;
+      const receipt = buildTestExecutionReceipt(command, {
+        status: 'passed', exitCode: 0, stderr: '', sourceCommit: 'b'.repeat(40),
+        sourceTreeSha256: 'c'.repeat(64), startedAt: new Date(0).toISOString(),
+        completedAt: new Date(1).toISOString()
+      }, parsed(occurrences), { testcasePolicy: policy, exactTestcaseObservation: observation });
+      const replay = await verifyJunit5SurefireIdentityObservation(root, receipt.testcaseObservation);
+      assert.equal(replay.valid, true, `${entry.id}: ${replay.errors.join('; ')}`);
+    } else {
+      assert.equal(observation.occurrences.length, 0, `${entry.id}: false exact occurrence`);
+    }
+  }
+  assert.equal(observedExact, expectedExact);
+  assert.equal(corpus.filter((entry) => !entry.exact && entry.proposalCount !== 0).length, 0);
 });

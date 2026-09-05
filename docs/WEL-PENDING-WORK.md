@@ -78,7 +78,8 @@ enforcement.
 ### [~] WEL-P0-001 — Architecture, schema, privacy, and threat-model closure
 
 Owner: repository maintainers. Branch: `main`. Started: 2026-09-05. Target: next observe-only
-release. Dependencies: CAB-R0 ratification remains open; enforcement is unavailable.
+release. Dependencies: the CAB-R0 code-local design is present; independent ratification remains
+open and enforcement is unavailable.
 
 Implemented in the current increment:
 
@@ -91,9 +92,12 @@ Implemented in the current increment:
   surfaces and states the platform/release boundary;
 - `test-execution` v3 migration preserves old bytes and gives earlier records empty, inexact WEL
   fields rather than invented assurance.
+- [CAB v0.2](CAB-V0.2.md), its trust/sandbox/rollout ADRs, closed architecture contract, and
+  adversarial design tests now align WEL with the current SGOS owners without activating CAB.
 
 Still required before completion: independent CAB/SGOS design ratification, approved privacy and
-trust review, and the Windows/macOS/Linux release fixtures named below.
+trust review, and the Windows/macOS/Linux release fixtures named below. The repository now supplies
+the exact review candidate but cannot self-approve these external decisions.
 
 Close the design work that must precede any exact or authenticated testcase claim.
 
@@ -128,12 +132,16 @@ Implemented in the current increment:
 - the Story submission packet binds an unreviewed proposal to current clause bytes;
 - the existing CLI and VS Code phase approval require one explicit human decision per proposal,
   with reasons and future expiry for exceptions; no second approval authority is created;
+- a reviewed 12-case local corpus proves exact identity for the supported literal forms and zero
+  false exact matches across decoy, dynamic, parameterized, repeated, nested, wildcard,
+  non-literal, duplicate-report, and class-mismatch cases;
 - missing Java/JDK/parser support is non-blocking and existing module Code Delivery evidence keeps
   its existing authority.
 
 Still required before completion: universal Candidate/Program/attempt binding, reviewed adversarial
-corpus with zero false matches, retry/focus semantics, cross-platform packaging receipts, and the
-authenticated execution contract. Until then every exact-static outcome is still `inconclusive`.
+real-repository corpus measurements, retry/focus semantics, cross-platform packaging receipts, and
+the authenticated execution contract. Until then every exact-static outcome is still
+`inconclusive`.
 
 Replace the current name-only diagnostic projection with a reviewed, still non-blocking exact local
 identity experiment for one Maven module.

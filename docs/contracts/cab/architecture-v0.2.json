@@ -1,0 +1,192 @@
+{
+  "schemaVersion": 1,
+  "kind": "cab-architecture",
+  "status": "design-only-enforcement-unavailable",
+  "authorityBindings": [
+    {
+      "fact": "candidate",
+      "authority": "sgos-candidate-snapshot",
+      "module": "src/sgos/contracts.mjs",
+      "symbol": "createCandidateSnapshot",
+      "plane": "candidate",
+      "cabMayAuthorize": false
+    },
+    {
+      "fact": "execution-plan",
+      "authority": "gvm-program",
+      "module": "src/sgos/contracts.mjs",
+      "symbol": "createGvmProgram",
+      "plane": "candidate",
+      "cabMayAuthorize": false
+    },
+    {
+      "fact": "operation-registry",
+      "authority": "sgos-capability-pack",
+      "module": "src/sgos/capability-pack-authority.mjs",
+      "symbol": "verifySgosCapabilityPackAuthorities",
+      "plane": "authority",
+      "cabMayAuthorize": false
+    },
+    {
+      "fact": "task-attempt",
+      "authority": "sgos-task-attempt",
+      "module": "src/sgos/evidence.mjs",
+      "symbol": "buildSgosTaskAttempt",
+      "plane": "evidence",
+      "cabMayAuthorize": false
+    },
+    {
+      "fact": "task-receipt",
+      "authority": "sgos-task-receipt",
+      "module": "src/sgos/evidence.mjs",
+      "symbol": "buildSgosTaskReceipt",
+      "plane": "evidence",
+      "cabMayAuthorize": false
+    },
+    {
+      "fact": "test-execution",
+      "authority": "code-delivery-test-receipt",
+      "module": "src/code-delivery-tests.mjs",
+      "symbol": "buildTestExecutionReceipt",
+      "plane": "evidence",
+      "cabMayAuthorize": false
+    },
+    {
+      "fact": "human-decision",
+      "authority": "phase-approval",
+      "module": "src/state.mjs",
+      "symbol": "approvePhase",
+      "plane": "authority",
+      "cabMayAuthorize": false
+    },
+    {
+      "fact": "publication",
+      "authority": "lifecycle-publication-unit-of-work",
+      "module": "src/publication-unit-of-work.mjs",
+      "symbol": "publishLifecycleChange",
+      "plane": "authority",
+      "cabMayAuthorize": false
+    }
+  ],
+  "forbiddenParallelAuthorities": [
+    "candidate",
+    "scheduler",
+    "operation-registry",
+    "approval-quorum",
+    "publisher"
+  ],
+  "identityProjections": {
+    "checkerAttempt": [
+      "candidateSha256",
+      "programSha256",
+      "taskAttemptSha256",
+      "operationManifestSha256",
+      "verifierManifestSha256",
+      "toolchainSha256",
+      "effectiveConfigurationSha256",
+      "resultArtifactSha256",
+      "attemptNonceSha256"
+    ],
+    "assuranceBundle": [
+      "candidateSha256",
+      "programSha256",
+      "policySha256",
+      "checkerAttemptSha256s",
+      "findingSha256s",
+      "outcome"
+    ],
+    "approvalSnapshot": [
+      "candidateSha256",
+      "assuranceBundleSha256",
+      "workflowRevisionSha256",
+      "authorityEpochSha256",
+      "decisionScopeSha256"
+    ],
+    "publicationReceipt": [
+      "candidateSha256",
+      "assuranceBundleSha256",
+      "approvalSnapshotSha256",
+      "eventSha256",
+      "publishedCommit",
+      "publishedTree"
+    ]
+  },
+  "trustMatrix": [
+    {
+      "claim": "local-observation",
+      "issuer": "developer-machine",
+      "authentication": "none",
+      "maySatisfyEnforcedObligation": false,
+      "mayPublish": false
+    },
+    {
+      "claim": "checker-attestation",
+      "issuer": "approved-independent-runner",
+      "authentication": "external-trust-root",
+      "maySatisfyEnforcedObligation": true,
+      "mayPublish": false
+    },
+    {
+      "claim": "human-decision",
+      "issuer": "approved-existing-authority-group",
+      "authentication": "runtime-observed-git-identity",
+      "maySatisfyEnforcedObligation": true,
+      "mayPublish": false
+    },
+    {
+      "claim": "publication",
+      "issuer": "existing-lifecycle-kernel",
+      "authentication": "exact-git-cas",
+      "maySatisfyEnforcedObligation": false,
+      "mayPublish": true
+    }
+  ],
+  "outcomes": [
+    "pass",
+    "fail",
+    "unavailable",
+    "inconclusive",
+    "not-run",
+    "stale",
+    "tampered",
+    "verified-with-exceptions"
+  ],
+  "sandboxContract": {
+    "requiredBeforeEnforce": true,
+    "candidateMount": "read-only",
+    "resultMount": "separate-write-only",
+    "home": "empty-private",
+    "identity": "non-root",
+    "hostSockets": "deny",
+    "gitCommonDirectory": "deny",
+    "network": "deny-by-default",
+    "resourceLimits": [
+      "cpu",
+      "memory",
+      "disk",
+      "pids",
+      "wall-time",
+      "output-bytes"
+    ]
+  },
+  "waiverContract": {
+    "decision": "exception",
+    "result": "verified-with-exceptions",
+    "requiresHumanAuthority": true,
+    "requiresReason": true,
+    "requiresExpiry": true,
+    "requiresExactScope": true,
+    "modelMayDecide": false
+  },
+  "rollout": {
+    "defaultMode": "disabled",
+    "availableModes": [
+      "disabled",
+      "observe"
+    ],
+    "enforceAvailable": false,
+    "legacyStoriesAutoEnroll": false,
+    "inFlightStoriesAutoEnroll": false,
+    "remoteEnforcementAvailable": false
+  }
+}

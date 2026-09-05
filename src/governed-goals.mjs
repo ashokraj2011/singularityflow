@@ -20,7 +20,7 @@ import {
 } from './publication-pending.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { SingularityFlowError, run } from './util.mjs';
-import { runRemoteGit } from './git-execution.mjs';
+import { runRemoteGitAsync } from './git-execution.mjs';
 import { LIFECYCLE_EVENT, lifecycleEvent } from './lifecycle-event.mjs';
 import { publishLifecycleChange } from './publication-unit-of-work.mjs';
 
@@ -99,12 +99,22 @@ export function governedGoalRelative(id, suffix = '') {
 }
 
 function git(root, args, { allowFailure = false } = {}) {
-  const result = ['fetch', 'push', 'pull', 'ls-remote', 'clone'].includes(args[0])
-    ? runRemoteGit(args, {
-      cwd: root,
-      operation: args[0] === 'push' ? 'remote-push' : args[0] === 'ls-remote' ? 'remote-probe' : 'remote-configuration'
-    })
-    : run('git', args, { cwd: root, allowFailure: true });
+  const result = run('git', args, { cwd: root, allowFailure: true });
+  if (!allowFailure && result.status !== 0) {
+    throw new SingularityFlowError(
+      `Git could not ${args[0]} the governed Goal: ${(result.stderr || result.stdout).trim() || 'unknown error'}`,
+      { code: 'GOVERNED_GOAL_GIT_FAILED', details: { operation: args[0], status: result.status } }
+    );
+  }
+  return result;
+}
+
+async function remoteGit(root, args, { allowFailure = false } = {}) {
+  const result = await runRemoteGitAsync(args, {
+    cwd: root,
+    operation: args[0] === 'push'
+      ? 'remote-push' : args[0] === 'ls-remote' ? 'remote-probe' : 'remote-configuration'
+  });
   if (!allowFailure && result.status !== 0) {
     throw new SingularityFlowError(
       `Git could not ${args[0]} the governed Goal: ${(result.stderr || result.stdout).trim() || 'unknown error'}`,
@@ -130,10 +140,12 @@ function publicationPolicy(config = {}) {
   };
 }
 
-function fetchGoalBranch(root, id, policy, { required = false } = {}) {
+async function fetchGoalBranch(root, id, policy, { required = false } = {}) {
   if (policy.mode === 'off') return { fetched: false, error: null };
   const refspec = `+refs/heads/${id}:refs/remotes/${policy.remote}/${id}`;
-  const result = git(root, ['fetch', '--no-tags', policy.remote, refspec], { allowFailure: true });
+  const result = await remoteGit(
+    root, ['fetch', '--no-tags', policy.remote, refspec], { allowFailure: true }
+  );
   if (result.status !== 0 && required) {
     throw new SingularityFlowError(
       `Governed Goal '${id}' could not refresh ${policy.remote}/${id}: ${(result.stderr || result.stdout).trim()}. No files were changed.`,
@@ -143,8 +155,10 @@ function fetchGoalBranch(root, id, policy, { required = false } = {}) {
   return { fetched: result.status === 0, error: result.status === 0 ? null : (result.stderr || result.stdout).trim() };
 }
 
-function resolveGoalRevision(root, id, policy, { refresh = true, mutation = false } = {}) {
-  if (refresh) fetchGoalBranch(root, id, policy, { required: mutation && policy.mode === 'required' });
+async function resolveGoalRevision(root, id, policy, { refresh = true, mutation = false } = {}) {
+  if (refresh) await fetchGoalBranch(
+    root, id, policy, { required: mutation && policy.mode === 'required' }
+  );
   const localRef = `refs/heads/${id}`;
   const remoteRef = `refs/remotes/${policy.remote}/${id}`;
   const local = refSha(root, localRef);
@@ -654,7 +668,7 @@ export async function createGovernedGoal(context, personalGoal, {
   const root = context.leadRepositoryPath;
   const goalId = id ? assertGovernedGoalId(id) : createGovernedGoalId({ now });
   const policy = publicationPolicy(config);
-  fetchGoalBranch(root, goalId, policy, { required: false });
+  await fetchGoalBranch(root, goalId, policy, { required: false });
   if (refSha(root, `refs/heads/${goalId}`) || refSha(root, `refs/remotes/${policy.remote}/${goalId}`)) {
     throw new SingularityFlowError(`Governed Goal '${goalId}' already exists. Inspect it instead of overwriting it.`, {
       code: 'GOVERNED_GOAL_EXISTS'
@@ -678,11 +692,11 @@ export async function createGovernedGoal(context, personalGoal, {
   return { contract, state, publication };
 }
 
-export function loadGovernedGoal(context, id, { config = {}, refresh = true } = {}) {
+export async function loadGovernedGoal(context, id, { config = {}, refresh = true } = {}) {
   const goalId = assertGovernedGoalId(id);
   const root = context.leadRepositoryPath;
   const policy = publicationPolicy(config);
-  const revision = resolveGoalRevision(root, goalId, policy, { refresh });
+  const revision = await resolveGoalRevision(root, goalId, policy, { refresh });
   const contract = readJsonAtRef(root, revision.commit, governedGoalRelative(goalId, 'contract.json'), 'governed-goal-contract');
   const state = readJsonAtRef(root, revision.commit, governedGoalRelative(goalId, 'state.json'), 'governed-goal-state');
   validateContract(contract, goalId);
@@ -696,11 +710,11 @@ export function loadGovernedGoal(context, id, { config = {}, refresh = true } = 
   return { contract, state, plan, revision, policy };
 }
 
-export function listGovernedGoals(context, { config = {}, refresh = true } = {}) {
+export async function listGovernedGoals(context, { config = {}, refresh = true } = {}) {
   const root = context.leadRepositoryPath;
   const policy = publicationPolicy(config);
   if (refresh && policy.mode !== 'off') {
-    git(root, ['fetch', '--no-tags', policy.remote,
+    await remoteGit(root, ['fetch', '--no-tags', policy.remote,
       '+refs/heads/GEX-*:refs/remotes/' + policy.remote + '/GEX-*'], { allowFailure: true });
   }
   const result = git(root, ['for-each-ref', '--format=%(refname:short)',
@@ -711,7 +725,7 @@ export function listGovernedGoals(context, { config = {}, refresh = true } = {})
   const unreadable = [];
   for (const id of ids) {
     try {
-      const loaded = loadGovernedGoal(context, id, { config, refresh: false });
+      const loaded = await loadGovernedGoal(context, id, { config, refresh: false });
       goals.push({
         id,
         statement: loaded.contract.outcome.statement,
@@ -738,7 +752,7 @@ async function mutateGovernedGoal(context, id, config, message, mutate, { now = 
       { code: 'GOVERNED_GOAL_PUBLICATION_PENDING', details: { id, commit: pending.record.commit ?? null } }
     );
   }
-  const loaded = loadGovernedGoal(context, id, { config, refresh: true });
+  const loaded = await loadGovernedGoal(context, id, { config, refresh: true });
   const { contract } = loaded;
   const state = structuredClone(loaded.state);
   const additions = [];
@@ -781,7 +795,9 @@ export async function syncGovernedGoal(context, id, { config = {} } = {}) {
     pending = await readPendingPublication(recoveryRoot, { ...subject, migrate: false });
   }
   const local = refSha(root, `refs/heads/${goalId}`);
-  if (policy.mode !== 'off') fetchGoalBranch(root, goalId, policy, { required: false });
+  if (policy.mode !== 'off') await fetchGoalBranch(
+    root, goalId, policy, { required: false }
+  );
   const remote = policy.mode === 'off'
     ? null : refSha(root, `refs/remotes/${policy.remote}/${goalId}`);
   if (!pending) {

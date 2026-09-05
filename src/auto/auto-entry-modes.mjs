@@ -54,7 +54,7 @@ export async function resolveAutoGoalSeed(root, goalId, options = {}) {
   if (!id) fail('Goal-seeded Auto planning requires --goal <GOAL-ID>.', 'AUTO_GOAL_REQUIRED');
   const context = await goalContextFor(root, options);
   if (id.startsWith('GEX-')) {
-    const loaded = loadGovernedGoal(context, id, {
+    const loaded = await loadGovernedGoal(context, id, {
       config: options.definition ?? {}, refresh: options.refresh !== false
     });
     if (['achieved', 'abandoned', 'cancelled'].includes(loaded.state.status)) {

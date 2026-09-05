@@ -84,7 +84,7 @@ test('governed Goals publish on their own branch without switching the Story che
     }),
     (error) => error.code === 'GOVERNED_GOAL_PLAN_CONFIRMATION_REQUIRED'
   );
-  const afterRefusal = loadGovernedGoal(context, id, { config: policy });
+  const afterRefusal = await loadGovernedGoal(context, id, { config: policy });
   assert.equal(afterRefusal.state.revision, planned.state.revision);
 
   const approved = await approveGovernedGoalPlan(context, id, {
@@ -152,7 +152,7 @@ test('a fresh clone reconstructs a governed Goal from the lifecycle branch', asy
     leadRepositoryPath: fresh,
     repositoryPath: fresh
   };
-  const loaded = loadGovernedGoal(freshContext, id, { config: policy });
+  const loaded = await loadGovernedGoal(freshContext, id, { config: policy });
   assert.equal(loaded.contract.contractSha256, created.contract.contractSha256);
   assert.equal(loaded.revision.commit, created.publication.commit);
   assert.equal(git(fresh, 'branch', '--show-current'), 'main');

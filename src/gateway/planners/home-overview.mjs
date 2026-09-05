@@ -738,7 +738,9 @@ export async function homeOverview({ subject = null, root = null, context = {} }
         import('../../governed-goals.mjs'), import('../../state-stores.mjs')
       ]);
       const config = await loadConfig(goalRepository);
-      const listed = listGovernedGoals({ leadRepositoryPath: goalRepository }, { config, refresh: false });
+      const listed = await listGovernedGoals(
+        { leadRepositoryPath: goalRepository }, { config, refresh: false }
+      );
       governedGoal = listed.goals.find((goal) => !['achieved', 'abandoned', 'failed'].includes(goal.status)) ?? null;
     } catch {
       governedGoal = null;

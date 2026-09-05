@@ -73,6 +73,7 @@ test('interactive onboarding, configuration, and recovery never use synchronous 
     'src/epic-review.mjs',
     'src/grounding.mjs',
     'src/governance.mjs',
+    'src/governed-goals.mjs',
     'src/initiative-repositories.mjs',
     'src/initiative-governance.mjs',
     'src/ledger-deployment.mjs',

@@ -439,7 +439,7 @@ export async function run(_argv, { positionals, options, operation }) {
 
   if (subcommand === 'list' && optionString(options, 'mode') === 'governed') {
     const config = await loadConfig(context.leadRepositoryPath);
-    const listed = listGovernedGoals(context, { config });
+    const listed = await listGovernedGoals(context, { config });
     return emitCommandResult(commandResult({
       operation: { id: operation.id, classification: operation.classification },
       subject: { kind: 'workspace', id: context.workspace.id },
@@ -454,7 +454,7 @@ export async function run(_argv, { positionals, options, operation }) {
   if (governedId) {
     const config = await loadConfig(context.leadRepositoryPath);
     if (['inspect', 'show', 'status', 'next', 'impact', 'change', 'trace'].includes(subcommand)) {
-      const loaded = loadGovernedGoal(context, governedId, { config });
+      const loaded = await loadGovernedGoal(context, governedId, { config });
       const links = await resolveGovernedLinks(context, loaded.contract);
       if (subcommand === 'impact' || subcommand === 'change') {
         const impact = governedGoalImpact(loaded, links);
@@ -485,7 +485,7 @@ export async function run(_argv, { positionals, options, operation }) {
 
     if (subcommand === 'plan') {
       if (!nestedApproval) {
-        const current = loadGovernedGoal(context, governedId, { config });
+        const current = await loadGovernedGoal(context, governedId, { config });
         const resolved = await resolveGovernedLinks(context, current.contract);
         const missing = resolved.filter((item) => item.availability !== 'available');
         if (missing.length) {
@@ -518,7 +518,7 @@ export async function run(_argv, { positionals, options, operation }) {
     }
 
     if (subcommand === 'run-next') {
-      const current = loadGovernedGoal(context, governedId, { config });
+      const current = await loadGovernedGoal(context, governedId, { config });
       const links = await resolveGovernedLinks(context, current.contract);
       const changed = await runGovernedGoalNext(context, governedId, links, { config });
       const loaded = { ...changed, revision: { commit: changed.publication.commit } };
@@ -563,7 +563,7 @@ export async function run(_argv, { positionals, options, operation }) {
           }
         }), { json });
       }
-      const current = loadGovernedGoal(context, governedId, { config });
+      const current = await loadGovernedGoal(context, governedId, { config });
       const loaded = { ...current, publication };
       return emitCommandResult(governedResult(operation, context, loaded, {
         outcome: publication.changed
@@ -576,7 +576,7 @@ export async function run(_argv, { positionals, options, operation }) {
     }
 
     if (subcommand === 'verify') {
-      const current = loadGovernedGoal(context, governedId, { config });
+      const current = await loadGovernedGoal(context, governedId, { config });
       const links = await resolveGovernedLinks(context, current.contract);
       const changed = await verifyGovernedGoal(context, governedId, links, {
         config, criterionId: optionString(options, 'criterion')

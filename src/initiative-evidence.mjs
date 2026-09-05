@@ -713,7 +713,7 @@ async function verifyInitiativeImpactMap(root, portfolio, initiative, phaseId) {
           }
         }
       };
-      const authority = refreshWorldModelV4Authority(root, config, { refreshRemote: true });
+      const authority = await refreshWorldModelV4Authority(root, config, { refreshRemote: true });
       if (authority.status === 'remote-absent') {
         throw new SingularityFlowError(
           'The configured remote state branch has no registered World-Model projection.',

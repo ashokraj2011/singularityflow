@@ -832,7 +832,7 @@ export async function inspectConfiguredGrounding(root, config, phaseId, {
           kind: 'view', view, version, tier: 'registered-v4'
         }))
       };
-      authorityRefresh = refreshWorldModelV4Authority(root, config, { refreshRemote });
+      authorityRefresh = await refreshWorldModelV4Authority(root, config, { refreshRemote });
       if (authorityRefresh.status === 'refresh-required') {
         throw new SingularityFlowError(
           'The configured registered WMB v4 state authority has not been materialized locally. Refresh it explicitly before using repository grounding.',

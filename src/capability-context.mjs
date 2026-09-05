@@ -781,7 +781,7 @@ export async function resolveCapabilityWorldModelCandidate(repositoryRoot, defin
         }
       }
     };
-    const authority = refreshWorldModelV4Authority(repositoryRoot, config, {
+    const authority = await refreshWorldModelV4Authority(repositoryRoot, config, {
       refreshRemote: true
     });
     if (authority.status === 'remote-absent') {

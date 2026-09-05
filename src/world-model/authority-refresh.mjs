@@ -1,7 +1,7 @@
 import path from 'node:path';
 
 import { exactRemoteBranchObservation, hasRemote, refHead, validBranch } from '../git.mjs';
-import { runRemoteGit } from '../git-execution.mjs';
+import { runRemoteGitAsync } from '../git-execution.mjs';
 import { configuredRemoteAuthority, configuredRemoteIdentity } from '../git-remote-diagnostics.mjs';
 import { posix, run, SingularityFlowError } from '../util.mjs';
 import { worldModelStateAuthority } from './authority-config.mjs';
@@ -104,7 +104,7 @@ export function inspectWorldModelV4Authority(root, config) {
 }
 
 /** Explicitly materialize the one configured state authority tracking ref. */
-export function refreshWorldModelV4Authority(root, config, { refreshRemote = true } = {}) {
+export async function refreshWorldModelV4Authority(root, config, { refreshRemote = true } = {}) {
   const { stateBranch, remote, remoteRef } = configuredAuthority(config);
   if (!stateBranch || !hasRemote(root, remote)) return { status: 'no-remote', configured: false };
   if (!refreshRemote) {
@@ -121,7 +121,7 @@ export function refreshWorldModelV4Authority(root, config, { refreshRemote = tru
   const timeoutMs = config.stateFetchTimeoutMs
     ?? config.definition?.worldModel?.stateFetchTimeoutMs
     ?? 10_000;
-  const fetched = runRemoteGit([
+  const fetched = await runRemoteGitAsync([
     'fetch', '--no-tags', remote, `+refs/heads/${stateBranch}:${remoteRef}`
   ], { cwd: root, operation: 'remote-configuration', timeoutMs });
   if (fetched.status === 0) {

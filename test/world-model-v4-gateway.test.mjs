@@ -319,7 +319,7 @@ test('gateway planning refuses an unmaterialized remote view set and preserves i
     firstClone, 'for-each-ref', '--format=%(refname) %(objectname)'
   ).stdout, refsBefore, 'read-only planning must not fetch or mutate refs');
 
-  const refreshed = refreshWorldModelV4Authority(firstClone, {
+  const refreshed = await refreshWorldModelV4Authority(firstClone, {
     outputDir: 'singularity/world-model', stateBranch: 'state', remote: 'origin',
     definition: { ledger: LEDGER }
   });

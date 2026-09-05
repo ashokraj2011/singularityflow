@@ -868,7 +868,7 @@ export async function handleWorldModelV4Command(root, config, command, positiona
   if (command === 'build') return buildWorldModelV4Command(root, config, options);
   if (command === 'status' || command === 'availability') return statusWorldModelV4Command(root, config, options);
   if (command === 'refresh-authority') {
-    const refreshed = refreshWorldModelV4Authority(root, config);
+    const refreshed = await refreshWorldModelV4Authority(root, config);
     if (['offline-cached', 'timeout-cached', 'unavailable'].includes(refreshed.status)) {
       throw new SingularityFlowError(
         'The registered World-Model state authority was not refreshed. Restore remote access and retry the same command.',

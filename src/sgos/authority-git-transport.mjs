@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
-  exactRemoteBranchObservation, gitCommonDir
+  exactRemoteBranchObservationAsync, gitCommonDir
 } from '../git.mjs';
 import {
   materializeStateBranchPublicationAuthority, publishToStateBranch
@@ -13,7 +13,7 @@ import { canonicalJson } from '../records.mjs';
 import {
   configuredRemoteIdentity, frozenRemoteTransport
 } from '../git-remote-diagnostics.mjs';
-import { runRemoteGit } from '../git-execution.mjs';
+import { runRemoteGitAsync } from '../git-execution.mjs';
 import { safePrivateSidecarDirectory } from '../private-sidecar.mjs';
 import { run, SingularityFlowError } from '../util.mjs';
 import {
@@ -107,8 +107,8 @@ function safeTargetIdentity(root, trust) {
   });
 }
 
-function observeRemote(root, target) {
-  const observed = exactRemoteBranchObservation(
+async function observeRemote(root, target) {
+  const observed = await exactRemoteBranchObservationAsync(
     root, target.effectiveFetchUrl, target.branch
   );
   if (!observed.reachable) {
@@ -134,8 +134,8 @@ function observeRemote(root, target) {
   return observed.sha;
 }
 
-function assertSameObservation(root, target, expectedCommit) {
-  const current = observeRemote(root, target);
+async function assertSameObservation(root, target, expectedCommit) {
+  const current = await observeRemote(root, target);
   if (current !== expectedCommit) {
     fail('Git-trusted Authority Store state changed after it was reviewed.',
       'SGOS_AUTHORITY_GIT_PLAN_STALE', {
@@ -157,7 +157,7 @@ async function isolatedRemoteFile(root, target, stateCommit, relative, { optiona
         'SGOS_AUTHORITY_GIT_REMOTE_UNAVAILABLE');
     }
     const frozen = frozenRemoteTransport(target.effectiveFetchUrl);
-    const fetched = runRemoteGit([
+    const fetched = await runRemoteGitAsync([
       'fetch', '--no-tags', '--depth=1', '--', frozen.remote,
       `${target.targetRef}:${READ_REF}`
     ], {
@@ -208,7 +208,7 @@ async function isolatedRemoteFile(root, target, stateCommit, relative, { optiona
       fail('Git-trusted Authority Store projection could not be read completely.',
         'SGOS_AUTHORITY_GIT_PROJECTION_INVALID', { stateCommit, path: relative });
     }
-    assertSameObservation(root, target, stateCommit);
+    await assertSameObservation(root, target, stateCommit);
     return shown.stdout;
   } finally {
     await rm(temporary, { recursive: true, force: true });
@@ -348,7 +348,7 @@ export async function planGitTrustedAuthorityPublish(root, { expectedStoreId = n
     fail(`Authority Store '${context.trust.storeId}' is not initialized.`,
       'SGOS_AUTHORITY_STORE_NOT_INITIALIZED', { storeId: context.trust.storeId });
   }
-  const stateCommit = observeRemote(repositoryRoot, context.target);
+  const stateCommit = await observeRemote(repositoryRoot, context.target);
   const store = await openLocalStore(repositoryRoot, context.trust.storeId);
   const projection = await store.exportGitProjection({
     repositoryBindingSha256: context.trust.repositoryBindingSha256,
@@ -483,7 +483,7 @@ export async function publishGitTrustedAuthority(root, {
 }
 
 async function verifiedRemoteProjection(repositoryRoot, context) {
-  const stateCommit = observeRemote(repositoryRoot, context.target);
+  const stateCommit = await observeRemote(repositoryRoot, context.target);
   const bytes = await isolatedRemoteFile(
     repositoryRoot, context.target, stateCommit,
     gitTrustedAuthorityProjectionPath(context.trust.storeId)

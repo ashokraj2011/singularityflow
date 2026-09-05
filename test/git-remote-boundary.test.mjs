@@ -72,6 +72,8 @@ test('interactive onboarding, configuration, and recovery never use synchronous 
     'src/ledger-deployment.mjs',
     'src/cli-entry.mjs',
     'src/organisation.mjs',
+    'src/sgos/authority-git-transport.mjs',
+    'src/sgos/platform/authority.mjs',
     'src/story-stack.mjs',
     'src/workspace-bootstrap.mjs',
     'src/workspace-configuration-refresh.mjs',

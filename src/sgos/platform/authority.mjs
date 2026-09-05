@@ -14,7 +14,7 @@ import {
 } from '../../configuration-read-scope.mjs';
 import { stateConfigurationHistoryBranch } from '../../configuration-branch.mjs';
 import { identity } from '../../git.mjs';
-import { runRemoteGit } from '../../git-execution.mjs';
+import { runRemoteGitAsync } from '../../git-execution.mjs';
 import { frozenRemoteTransport } from '../../git-remote-diagnostics.mjs';
 import { SingularityFlowError, run } from '../../util.mjs';
 import { withTrustedSgosConfigurationRead } from '../authority-trust.mjs';
@@ -146,7 +146,7 @@ async function historicalAuthorityWorkflow(root, authority, sourceCommit, revisi
     // New state mirrors retain source history behind an immutable advertised branch. Existing v2
     // mirrors predate that receipt; retain their legacy raw-object lookup only for compatibility,
     // with a precise repair if the server refuses unadvertised wants or has collected the object.
-    const fetched = runRemoteGit(namedBranch ? [
+    const fetched = await runRemoteGitAsync(namedBranch ? [
       'fetch', '--quiet', '--no-tags', '--force', '--', transport.remote,
       `+refs/heads/${namedBranch}:refs/sgos-authority/source`
     ] : [

@@ -31,7 +31,7 @@ import {
   AUTO_PLAN_CONFIRMATION_PROTOCOL, buildAutoPlanPacket
 } from './auto-plan-packet.mjs';
 import { executionUnitDriverDoctor } from './execution-unit-driver.mjs';
-import { runRemoteGit } from '../git-execution.mjs';
+import { runRemoteGitAsync } from '../git-execution.mjs';
 import {
   assertCredentialFreeRemote, configuredRemoteIdentity, frozenRemoteTransport, remoteFingerprint
 } from '../git-remote-diagnostics.mjs';
@@ -258,9 +258,9 @@ function workIdFor(requirement, config, explicit = null, createdAt = nowIso()) {
   return { workId: `${storyId}-${fourWordSlug(requirement)}`, generated: true };
 }
 
-function remoteHead(root, remote, branchName) {
+async function remoteHead(root, remote, branchName) {
   const transport = frozenRemoteTransport(assertCredentialFreeRemote(remote));
-  const result = runRemoteGit([
+  const result = await runRemoteGitAsync([
     'ls-remote', '--heads', '--', transport.remote, `refs/heads/${branchName}`
   ], {
     cwd: root, operation: 'remote-probe', env: transport.env
@@ -485,10 +485,12 @@ async function createAutoPlanInScope(root, requirementValue, proposalValue, opti
     // make a reviewed Plan address a different or unusable transport.
     return [repository.id, { url: configured, fingerprint: remoteFingerprint(configured) }];
   }));
-  const baseHeads = Object.fromEntries(catalog.repositories.map((repository) => [
+  const baseHeads = Object.fromEntries(await Promise.all(catalog.repositories.map(async (repository) => [
     repository.id,
-    remoteHead(repository.path ?? root, repositoryAuthorities[repository.id].url, baseBranch)
-  ]));
+    await remoteHead(
+      repository.path ?? root, repositoryAuthorities[repository.id].url, baseBranch
+    )
+  ])));
   if (Object.values(baseHeads).some((value) => !value)) {
     throw new SingularityFlowError(`Auto Plan could not resolve every '${baseBranch}' head.`, { code: 'AUTO_BASE_INVALID' });
   }
@@ -761,7 +763,7 @@ async function revalidateAutoPlanInScope(root, plan) {
       changed.push(`${repository.id} remote identity changed`);
       continue;
     }
-    const published = remoteHead(root, remoteUrl, repository.baseBranch);
+    const published = await remoteHead(root, remoteUrl, repository.baseBranch);
     if (published !== repository.baseCommit) changed.push(`${repository.id} published base changed`);
   }
   const flightPlan = await readChangeFlightPlan(root, plan.bindings.flightPlanId);

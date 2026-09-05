@@ -8,6 +8,8 @@ import { performance } from 'node:perf_hooks';
 import {
   buildTestExecutionReceipt, replayLocalJunitObservation
 } from '../src/code-delivery-tests.mjs';
+import { recordContextPacketTelemetry } from '../src/context-packet-telemetry.mjs';
+import { contextXray } from '../src/context-xray.mjs';
 import { observeJunit5SurefireIdentities } from '../src/wel-junit5.mjs';
 
 const sampleArgument = process.argv.find((argument) => argument.startsWith('--samples='));
@@ -30,6 +32,48 @@ const rawReport = Buffer.from([
   '<testcase classname="benchmark.WelBenchmarkTest" name="observesExactIdentity" time="0.001"/>',
   '</testsuite>'
 ].join(''), 'utf8');
+
+const benchmarkWorkId = 'WEL-BENCH-LOCAL';
+
+function contextWorkflow() {
+  return {
+    workItem: { id: benchmarkWorkId, title: 'Local benchmark', workType: 'story' },
+    status: 'active', currentPhase: 'implementation', phaseOrder: ['implementation'],
+    phases: {
+      implementation: {
+        id: 'implementation', generation: 1, usage: [{
+          status: 'estimated', source: 'benchmark-fixture', provider: null,
+          requestedModel: null, resolvedModel: null, resolvedModelAssurance: 'unavailable',
+          inputTokens: null, outputTokens: null, cachedInputTokens: null,
+          cacheWriteInputTokens: null, providerCost: null
+        }]
+      }
+    }
+  };
+}
+
+function contextPacket() {
+  return {
+    packetId: 'ctx-welbenchmark00000001',
+    binding: {
+      workId: benchmarkWorkId, workType: 'story', phase: 'implementation', generation: 1,
+      sourceRevision: 'b'.repeat(40), flightPlanId: null
+    },
+    budget: {
+      includedContentBytes: 512, estimatedInputTokens: 128,
+      estimationMethod: 'utf8-bytes-divided-by-four'
+    },
+    omissions: [{ count: 1, omissionClasses: { budget: 1 } }],
+    unavailable: [],
+    observation: { rawBytes: 768, includedBytes: 512 },
+    contextManifest: { cacheKey: 'wel-benchmark-context', itemDigests: ['d'.repeat(64)] },
+    items: [{
+      itemId: 'benchmark-structural-item', bytes: 512, estimatedTokens: 128,
+      mandatory: true, cacheClass: 'stable'
+    }],
+    tokenEconomy: { mode: 'observe', profile: 'balanced', configurationDigest: 'e'.repeat(64) }
+  };
+}
 
 function parsedReport(replay) {
   return {
@@ -65,17 +109,26 @@ try {
   execFileSync('git', ['remote', 'add', 'origin', 'https://example.invalid/wel/benchmark.git'], { cwd: root, stdio: 'ignore' });
   execFileSync('git', ['add', '.'], { cwd: root, stdio: 'ignore' });
   execFileSync('git', ['commit', '-qm', 'benchmark fixture'], { cwd: root, stdio: 'ignore' });
+  await recordContextPacketTelemetry(root, contextPacket());
 
   const durations = [];
   const reportDurations = [];
   const baselineProjectionDurations = [];
   const projectionDurations = [];
+  const contextProjectionDurations = [];
   const cpuDurations = [];
   let catalogBytes = 0;
   let baselineReceiptBytes = 0;
   let receiptBytes = 0;
+  let contextXrayBytes = 0;
   let outcome = 'unavailable';
   let unavailableCode = null;
+  for (let index = 0; index < samples; index += 1) {
+    const contextStartedAt = performance.now();
+    const projection = await contextXray(root, contextWorkflow());
+    contextProjectionDurations.push(performance.now() - contextStartedAt);
+    contextXrayBytes = Buffer.byteLength(JSON.stringify(projection), 'utf8');
+  }
   for (let index = 0; index < samples; index += 1) {
     const cpuStarted = process.cpuUsage();
     const reportStartedAt = performance.now();
@@ -114,7 +167,7 @@ try {
     (duration, index) => duration - baselineProjectionDurations[index]
   );
   const report = {
-    schema: 'sflow-wel-benchmark/v2',
+    schema: 'sflow-wel-benchmark/v3',
     assurance: 'content-free-local-measurement',
     platform: process.platform,
     architecture: process.arch,
@@ -154,6 +207,12 @@ try {
       maximum: Number(Math.max(...projectionDeltas).toFixed(3)),
       method: 'witnessed-minus-unenrolled-same-process'
     } : null,
+    contextXrayProjectionMilliseconds: {
+      minimum: Number(Math.min(...contextProjectionDurations).toFixed(3)),
+      median: Number(percentile(contextProjectionDurations, 0.5).toFixed(3)),
+      p95: Number(percentile(contextProjectionDurations, 0.95).toFixed(3)),
+      maximum: Number(Math.max(...contextProjectionDurations).toFixed(3))
+    },
     timingInterpretation: 'paired local observation; signed deltas may be negative from timer noise and are not an enforced budget',
     cpuMilliseconds: completed ? {
       median: Number(percentile(cpuDurations, 0.5).toFixed(3)),
@@ -163,6 +222,7 @@ try {
     baselineReceiptBytes,
     receiptBytes,
     incrementalReceiptBytes: outcome === 'observed' ? receiptBytes - baselineReceiptBytes : 0,
+    contextXrayBytes,
     rawReportBytes: rawReport.length,
     estimatedDurableBytesPerExecution: outcome === 'observed'
       ? receiptBytes + rawReport.length : 0,
@@ -176,7 +236,7 @@ try {
     },
     measurementCapabilities: [
       'source-catalog', 'report-ingestion', 'receipt-projection', 'durable-storage-estimate',
-      'baseline-comparison'
+      'baseline-comparison', 'context-xray-projection'
     ],
     contentExcluded: ['repository-path', 'origin-url', 'work-id', 'git-identity', 'clause-text', 'test-body']
   };

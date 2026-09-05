@@ -3,7 +3,7 @@ import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { recordSha256 } from './records.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { nowIso, run, writeJson } from './util.mjs';
-import { runRemoteGit } from './git-execution.mjs';
+import { runRemoteGitAsync } from './git-execution.mjs';
 
 function redactRemote(value) {
   if (!value) return null;
@@ -18,12 +18,6 @@ function redactRemote(value) {
 }
 
 function git(root, args) {
-  if (['fetch', 'push', 'pull', 'ls-remote', 'clone'].includes(args[0])) {
-    return runRemoteGit(args, {
-      cwd: root,
-      operation: args[0] === 'push' ? 'remote-push' : args[0] === 'ls-remote' ? 'remote-probe' : 'remote-configuration'
-    });
-  }
   return run('git', args, { cwd: root, allowFailure: true });
 }
 
@@ -50,27 +44,33 @@ export async function validateLedgerDeployment(root, rawConfig = {}, {
   });
 
   if (remoteUrl && !offline) {
-    const remoteRefs = git(root, ['ls-remote', config.remote]);
+    const remoteRefs = await runRemoteGitAsync(['ls-remote', config.remote], {
+      cwd: root, operation: 'remote-probe'
+    });
+    const advertisedRefs = remoteRefs.status === 0
+      ? remoteRefs.stdout.split(/\r?\n/).map((line) => line.trim().split(/\s+/, 2)[1]).filter(Boolean)
+      : [];
     checks.push({
       id: 'remote-readable',
       status: remoteRefs.status === 0 ? 'pass' : 'fail',
       detail: remoteRefs.status === 0 ? 'remote refs are readable with the current Git credentials' : (remoteRefs.stderr || remoteRefs.stdout).trim()
     });
-    const branch = git(root, ['ls-remote', '--heads', config.remote, `refs/heads/${config.branch}`]);
+    const branchPresent = advertisedRefs.includes(`refs/heads/${config.branch}`);
     checks.push({
       id: 'ledger-branch',
-      status: branch.status === 0 && branch.stdout.trim() ? 'pass' : 'fail',
-      detail: branch.stdout.trim() ? `${config.branch} exists on ${config.remote}` : `${config.branch} is not published on ${config.remote}`
+      status: branchPresent ? 'pass' : 'fail',
+      detail: branchPresent ? `${config.branch} exists on ${config.remote}` : `${config.branch} is not published on ${config.remote}`
     });
     if (config.pinTransport !== 'none') {
-      const pattern = config.pinTransport === 'refs' ? 'refs/singularity/pins/*' : 'refs/heads/singularity/pins/*';
-      const pins = git(root, ['ls-remote', config.remote, pattern]);
+      const prefix = config.pinTransport === 'refs'
+        ? 'refs/singularity/pins/' : 'refs/heads/singularity/pins/';
+      const pinsPresent = advertisedRefs.some((ref) => ref.startsWith(prefix));
       checks.push({
         id: 'pin-transport-readable',
-        status: pins.status === 0 ? 'pass' : 'fail',
-        detail: pins.status === 0
-          ? `${config.pinTransport} pin namespace is readable${pins.stdout.trim() ? '' : ' (no pins published yet)'}`
-          : (pins.stderr || pins.stdout).trim()
+        status: remoteRefs.status === 0 ? 'pass' : 'fail',
+        detail: remoteRefs.status === 0
+          ? `${config.pinTransport} pin namespace is readable${pinsPresent ? '' : ' (no pins published yet)'}`
+          : (remoteRefs.stderr || remoteRefs.stdout).trim()
       });
     }
   } else if (offline) checks.push({ id: 'remote-readable', status: 'warn', detail: 'network checks skipped by --offline' });

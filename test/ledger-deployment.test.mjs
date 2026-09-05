@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { validateLedgerDeployment } from '../src/ledger-deployment.mjs';
+import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 import { initializeLedger } from '../src/ledger.mjs';
 import { run } from '../src/util.mjs';
 
@@ -29,8 +30,12 @@ const tier0 = { enabled: true, branch: 'state', remote: 'origin', trustTier: 'T0
 test('ledger deployment check verifies the published state branch without mutating it', async () => {
   const { root } = await repository();
   await initializeLedger(root, tier0);
-  const result = await validateLedgerDeployment(root, tier0);
+  const timer = commandTimer('ledger-deployment', { commandClass: 'read' });
+  const result = await withCommandTiming(timer, () => validateLedgerDeployment(root, tier0));
   assert.equal(result.valid, true);
+  const counters = timer.finish().counters;
+  assert.equal(counters['git.remote.command.ls-remote'], 1);
+  assert.equal(counters['git.remote.total'], 1);
   assert.equal(result.checks.find((check) => check.id === 'ledger-branch').status, 'pass');
   assert.equal(result.checks.find((check) => check.id === 'protected-branch-policy').status, 'warn');
 });

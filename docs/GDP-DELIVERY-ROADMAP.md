@@ -518,10 +518,13 @@ Delivered without claiming enforcement readiness:
 - an opt-in, separate-process, Ed25519-signed developer-local runner for exact configured
   argv-form/model-free quality commands, with digest-confirmed planning, stale-plan refusal,
   content-free receipts, Windows DPAPI protection, and a hard non-gating assurance ceiling.
+- a dedicated native VS Code runner journey that derives Candidate/Proof Subject identity from the
+  selected Story, lists only engine-admitted commands, previews the complete exact plan, requires a
+  modal confirmation, avoids temporary working-tree state, and opens the durable signed receipt.
 
 Still required before M9 can be marked complete: authenticated independent runner isolation,
 enterprise signer/trust-root validation, controlled reruns and N-version adapters, enforce-mode
-enrollment, a dedicated VS Code runner experience, multi-platform security exercises, and accepted
+enrollment, multi-platform security exercises, and accepted
 performance/false-result budgets. The developer-local signer is same-user, non-gating evidence and
 does not satisfy those authority requirements.
 

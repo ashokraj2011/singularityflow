@@ -65,6 +65,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Developer-local runner is ${slot(s.status)} (${slot(s.assurance)}).`,
     preserves: true
   },
+  'delivery.local-runner-options-reported': {
+    headline: (s) => `Developer-local runner offers ${slot(s.eligible, '0')} eligible command(s) and ${slot(s.excluded, '0')} excluded command(s) (Candidate: ${slot(s.identity)}).`,
+    preserves: true
+  },
   'delivery.local-runner-plan-ready': {
     headline: (s) => `Local runner plan for ${slot(s.workId)} / ${slot(s.phase)} / ${slot(s.command)} is ready for review.`,
     preserves: true

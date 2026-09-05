@@ -86,6 +86,24 @@ Run these commands from the governed repository.
      --json
    ```
 
+   A native client that already holds the reviewed selector values can replay them without staging
+   a plan file:
+
+   ```text
+   singularity-flow delivery local-runner-run \
+     --signer developer-local \
+     --work-id WRK-123 \
+     --phase implementation \
+     --command module-tests \
+     --proof-subject sha256:<64-lowercase-hex> \
+     --candidate sha256:<64-lowercase-hex> \
+     --confirm-plan sha256:<plan-digest> \
+     --json
+   ```
+
+   The engine reconstructs the plan from current repository state and requires its digest to equal
+   the reviewed digest. File-based and direct selector forms are mutually exclusive.
+
    SFlow refuses the run if HEAD, the Git tree, configured command, or signing key changed after
    planning. A successful operation writes the signed receipt to:
 
@@ -108,6 +126,25 @@ Run these commands from the governed repository.
 The verification succeeds only while the matching local signer is present. Sharing this receipt to
 another laptop preserves its bytes but does not transfer trust; enterprise sharing requires an
 approved public trust root and verifier integration.
+
+## Use it from VS Code
+
+Open **SGOS Command Center** and select **Local Runner…**, or run
+**Singularity Flow: Developer-local Signed Runner…** from the Command Palette.
+
+The native journey does not ask you to find or paste Candidate and Proof Subject hashes. It:
+
+1. resolves the selected Story through `delivery local-runner-options`;
+2. shows only configured shell-free quality commands whose `modelPolicy` is `never`;
+3. creates or reuses the repository-local signer after a separate confirmation;
+4. asks the engine to build an exact plan bound to the current commit, tree, Candidate, Proof
+   Subject, configured command, and signer key;
+5. displays those facts and the complete argv in a modal review;
+6. replays the same selectors with the exact plan confirmation—without writing a temporary plan
+   into the working tree—and opens the durable signed receipt on request.
+
+The UI calls the same CLI plan and execution operations. It cannot supply a different command,
+change the assurance label, make the receipt gate-eligible, or bypass stale-plan checks.
 
 ## Configured command example
 

@@ -93,6 +93,7 @@ export class SgosCommandCenterPanel {
       refresh: () => void this.refresh(),
       createWorkflow: () => void vscode.commands.executeCommand('singularityFlow.createSgosWorkflow'),
       reviewMetaTool: () => void vscode.commands.executeCommand('singularityFlow.reviewSgosMetaTool'),
+      localRunner: () => void vscode.commands.executeCommand('singularityFlow.reviewLocalRunner'),
       select: (message) => {
         const processId = stringField(message, 'processId');
         if (!processId || !this.currentProcess(processId)) return;

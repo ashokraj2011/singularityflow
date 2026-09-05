@@ -1,7 +1,7 @@
 ---
 id: evidence-and-ledger
 title: Evidence, the ledger, and traceability
-version: 9
+version: 10
 aliases:
   - ledger
   - worldline
@@ -14,6 +14,7 @@ commands:
   - comprehension
   - change
   - proof
+  - delivery
 related:
   - approvals
   - impact-framework
@@ -26,15 +27,17 @@ GDP-M2 adds an equally bounded shadow view: `sflow change show <WORK-ID> --shado
 
 GDP-M3 adds a deterministic proof observation over that Proof Subject. `sflow proof status <WORK-ID>` shows the complete bounded observation; `proof explain` explains one exact predicate; `proof gaps` and `proof signals` keep missing authority and non-authoritative observations visibly separate. Predicate results use the frozen total lattice `pass`, `fail`, `unavailable`, and `not-applicable`. Signals never satisfy a predicate or gate, and stale, missing, contradictory, malformed, timed-out, or oversized evidence cannot become pass. M3 is observe only: no result changes lifecycle, approval, publication, or Story duration.
 
+GDP-M9 also provides a developer-local signed observation path. `sflow delivery local-runner-options --work-id <WORK-ID>` derives the exact current Candidate and Proof Subject and lists only configured shell-free, model-free quality commands. Planning binds that identity, the repository commit/tree, command, and local signer before execution. The signed receipt is useful for tamper detection and replay but permanently remains `gateEligible: false` and `consumedByLifecycle: false`; the same-user signer is not independent authority. VS Code exposes the same plan/review/run/verify journey through **Developer-local Signed Runner…**.
+
 ## Purpose and prerequisites
 
 Use this topic when the current goal matches **evidence and ledger**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
-- **Shell:** `sflow ledger`, `sflow receipt show`, `sflow spec`, `sflow comprehension regions`, `sflow comprehension check`, `sflow change show <WORK-ID> --shadow`, or `sflow proof status <WORK-ID>`. Run the command with `--help` for the exact forms supported by this build.
+- **Shell:** `sflow ledger`, `sflow receipt show`, `sflow spec`, `sflow comprehension regions`, `sflow comprehension check`, `sflow change show <WORK-ID> --shadow`, `sflow proof status <WORK-ID>`, or `sflow delivery local-runner-options --work-id <WORK-ID>`. Run the command with `--help` for the exact forms supported by this build.
 - **Copilot:** `/sf-ledger` for durable evidence, `/sf-inspect comprehension` for the CMP pilot, `/sf-inspect <WORK-ID> passport` for M2, or `/sf-inspect <WORK-ID> proof` for M3. The skill must preserve the CLI result and ask before any governed mutation.
-- **VS Code:** open Diagnostics and select the final **Shadow Passport** tab. Its **Deterministic proof observation** section shows M3 results and gaps. It is intentionally secondary; existing Lifecycle views remain authoritative and unchanged.
+- **VS Code:** open Diagnostics and select the final **Shadow Passport** tab for M2/M3, or open **SGOS Command Center** and select **Local Runner…** for the non-gating M9 signed observation journey. Both remain secondary; existing Lifecycle views remain authoritative and unchanged.
 
 ## Guided workflow
 

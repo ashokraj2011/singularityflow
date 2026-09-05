@@ -235,6 +235,20 @@ test('GDP M2 CLI renders a structured shadow Passport without changing the check
   });
   assert.equal(git(repository, 'status', '--porcelain=v1'), before);
 
+  const runnerOptionsResult = spawnSync(process.execPath, [
+    bin, '--no-model', 'delivery', 'local-runner-options',
+    '--work-id', 'GDP-M2-CLI', '--json'
+  ], { cwd: repository, encoding: 'utf8' });
+  assert.equal(runnerOptionsResult.status, 0, runnerOptionsResult.stderr);
+  const runnerOptions = JSON.parse(runnerOptionsResult.stdout);
+  assert.equal(runnerOptions.operation.id, 'delivery.local-runner-options');
+  assert.equal(runnerOptions.operation.classification, 'read');
+  assert.equal(runnerOptions.data.identity.candidateSha256, candidateSha256);
+  assert.equal(runnerOptions.data.identity.proofSubjectSha256,
+    response.data.records.proofSubject.proofSubjectSha256);
+  assert.equal(runnerOptions.data.gateEligible, false);
+  assert.equal(git(repository, 'status', '--porcelain=v1'), before);
+
   const refused = spawnSync(process.execPath, [bin, 'change', 'show', 'GDP-M2-CLI'], {
     cwd: repository, encoding: 'utf8'
   });

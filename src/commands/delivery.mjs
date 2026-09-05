@@ -19,7 +19,8 @@ import {
 import { evaluateLocalHermeticEvidence } from '../delivery-modes/high-assurance.mjs';
 import {
   buildLocalRunnerPlan, createLocalRunnerSigner, localRunnerSignerStatus,
-  publishLocalRunnerAttestation, runLocalRunnerProcess, validateLocalRunnerPlan,
+  listLocalRunnerCommands, publishLocalRunnerAttestation, runLocalRunnerProcess,
+  validateLocalRunnerPlan,
   verifyLocalRunnerAttestationWithSigner
 } from '../delivery-modes/local-signed-runner.mjs';
 import { provenanceReadiness } from '../delivery-modes/provenance.mjs';
@@ -166,6 +167,42 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
       effects: effects(), restState: 'informational', data: status
     }), { json: optionBoolean(options, 'json'), restStateWhenIdle: 'informational' });
   }
+  if (action === 'local-runner-options') {
+    const workId = optionString(options, 'work-id');
+    const commands = listLocalRunnerCommands(definition);
+    let identity = null;
+    let gaps = [];
+    if (workId) {
+      const { workflow, diagnostic } = await resolveShadowPassportDiagnostic(
+        root, definition, workId, { proofProfile: 'standard' }
+      );
+      const proofSubject = diagnostic.records?.proofSubject ?? null;
+      identity = {
+        workId: workflow.workItem.id,
+        status: proofSubject ? 'ready' : 'unavailable',
+        candidateSha256: proofSubject?.candidateSha256 ?? null,
+        proofSubjectSha256: proofSubject?.proofSubjectSha256 ?? null
+      };
+      gaps = diagnostic.gaps.map((entry) => entry.code).sort();
+    }
+    return emitCommandResult(commandResult({
+      operation: suppliedOperation ?? { id: 'delivery.local-runner-options', classification: 'read' },
+      subject: { kind: workId ? 'story' : 'repository', id: workId ?? path.basename(root) },
+      outcome: succeeded('delivery.local-runner-options-reported', {
+        eligible: commands.eligible.length,
+        excluded: commands.excluded.length,
+        identity: identity?.status ?? 'not-requested'
+      }),
+      effects: effects(), restState: 'informational', data: {
+        schemaVersion: 1, // schema-transient: bounded read model, never durably stored
+        kind: 'gdp-local-runner-options',
+        assurance: 'developer-local-signed', authority: 'developer-local',
+        gateEligible: false, consumedByLifecycle: false,
+        identity, commands: commands.eligible, excluded: commands.excluded, gaps,
+        defaultSigner: 'developer-local'
+      }
+    }), { json: optionBoolean(options, 'json'), restStateWhenIdle: 'informational' });
+  }
   if (action === 'local-runner-plan') {
     const plan = await buildLocalRunnerPlan(root, definition, {
       signerId: requiredOption(options, 'signer'),
@@ -190,10 +227,31 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
     }), { json: optionBoolean(options, 'json'), restStateWhenIdle: 'informational' });
   }
   if (action === 'local-runner-run') {
-    const envelope = await jsonFile(
-      root, requiredOption(options, 'plan'), 'Local runner plan file'
-    );
-    const plan = validateLocalRunnerPlan(envelope?.data?.plan ?? envelope?.plan ?? envelope);
+    const planFile = optionString(options, 'plan');
+    const directSelectorNames = [
+      'signer', 'work-id', 'phase', 'command', 'proof-subject', 'candidate'
+    ];
+    const suppliedDirectSelectors = directSelectorNames.filter((name) => optionString(options, name));
+    if (planFile && suppliedDirectSelectors.length > 0) {
+      throw new SingularityFlowError(
+        'Choose either --plan FILE or the complete direct runner selectors; do not combine them. Nothing ran.',
+        { code: 'GDP_LOCAL_RUNNER_INPUT_CONFLICT' }
+      );
+    }
+    let plan;
+    if (planFile) {
+      const envelope = await jsonFile(root, planFile, 'Local runner plan file');
+      plan = validateLocalRunnerPlan(envelope?.data?.plan ?? envelope?.plan ?? envelope);
+    } else {
+      plan = await buildLocalRunnerPlan(root, definition, {
+        signerId: requiredOption(options, 'signer'),
+        workId: requiredOption(options, 'work-id'),
+        phaseId: requiredOption(options, 'phase'),
+        commandId: requiredOption(options, 'command'),
+        proofSubjectSha256: requiredOption(options, 'proof-subject'),
+        candidateSha256: requiredOption(options, 'candidate')
+      });
+    }
     if (optionString(options, 'confirm-plan') !== plan.planSha256) {
       throw new SingularityFlowError(
         `Local runner execution requires --confirm-plan ${plan.planSha256}. Nothing ran.`,
@@ -450,7 +508,7 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
     `Unknown delivery action '${action}'. Use: delivery recommend, delivery select, `
       + 'delivery workflow-status, delivery execution-status, delivery promotion-preview, '
       + 'delivery promotion-status, delivery assurance-evaluate, delivery provenance-status, '
-      + 'delivery local-runner-create, delivery local-runner-status, delivery local-runner-plan, '
+      + 'delivery local-runner-create, delivery local-runner-status, delivery local-runner-options, delivery local-runner-plan, '
       + 'delivery local-runner-run, delivery local-runner-verify, or delivery readiness.',
     { code: 'UNKNOWN_SUBCOMMAND' }
   );

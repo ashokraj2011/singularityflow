@@ -7,7 +7,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import {
-  LOCAL_RUNNER_ATTESTATION_FIELDS, resolveLocalRunnerCommand,
+  listLocalRunnerCommands, LOCAL_RUNNER_ATTESTATION_FIELDS, resolveLocalRunnerCommand,
   verifyLocalRunnerAttestationWithSigner
 } from '../src/delivery-modes/local-signed-runner.mjs';
 import { currentSchemaVersion, familyForStoredPath } from '../src/schema-migrations.mjs';
@@ -46,6 +46,22 @@ test('local runner accepts only one configured shell-free model-free command', (
   } } }, 'implementation', 'tests'), /modelPolicy: never/);
 });
 
+test('local runner discovery keeps eligible commands closed and unsafe entries visible', () => {
+  const commands = listLocalRunnerCommands({ phases: {
+    implementation: { qualityCommands: [
+      { id: 'module-tests', argv: ['npm', 'test'], modelPolicy: 'never', timeoutMs: 42_000 },
+      { id: 'shell-tests', command: 'npm test', modelPolicy: 'never' },
+      { id: 'model-tests', argv: ['npm', 'test'], modelPolicy: 'required' }
+    ] }
+  } });
+  assert.deepEqual(commands.eligible, [{
+    phaseId: 'implementation', commandId: 'module-tests', kind: 'quality',
+    requirement: 'required', modelPolicy: 'never', timeoutMs: 42_000
+  }]);
+  assert.deepEqual(commands.excluded.map((entry) => entry.commandId), ['shell-tests', 'model-tests']);
+  assert.ok(commands.excluded.every((entry) => entry.reasonCode === 'GDP_LOCAL_RUNNER_COMMAND_UNSAFE'));
+});
+
 test('local runner plans, executes in a child, signs, and verifies without gate authority', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-gdp-local-runner-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -55,6 +71,15 @@ test('local runner plans, executes in a child, signs, and verifies without gate 
   sflow(root, 'init');
   git(root, 'add', '.');
   git(root, 'commit', '-m', 'initialize local runner fixture');
+
+  const options = JSON.parse(sflow(
+    root, 'delivery', 'local-runner-options', '--json'
+  ).stdout);
+  assert.equal(options.data.kind, 'gdp-local-runner-options');
+  assert.equal(options.data.identity, null);
+  assert.equal(options.data.gateEligible, false);
+  assert.ok(options.data.commands.some((entry) =>
+    entry.phaseId === 'poc-test-generation' && entry.commandId === 'git-diff-check'));
 
   const created = JSON.parse(sflow(
     root, 'delivery', 'local-runner-create', '--signer', 'developer-local', '--json'
@@ -92,6 +117,31 @@ test('local runner plans, executes in a child, signs, and verifies without gate 
     JSON.parse(await readFile(path.join(root, executed.data.output.path), 'utf8')),
     attestation
   );
+
+  const directPlan = JSON.parse(sflow(
+    root, 'delivery', 'local-runner-plan', '--signer', 'developer-local',
+    '--work-id', 'GDP-DIRECT', '--phase', 'poc-test-generation',
+    '--command', 'git-diff-check', '--proof-subject', digest('c'),
+    '--candidate', digest('d'), '--json'
+  ).stdout);
+  const direct = JSON.parse(sflow(
+    root, 'delivery', 'local-runner-run', '--signer', 'developer-local',
+    '--work-id', 'GDP-DIRECT', '--phase', 'poc-test-generation',
+    '--command', 'git-diff-check', '--proof-subject', digest('c'),
+    '--candidate', digest('d'), '--confirm-plan', directPlan.data.plan.planSha256,
+    '--json'
+  ).stdout);
+  assert.equal(direct.data.attestation.outcome, 'passed');
+  assert.equal(direct.data.attestation.candidateSha256, digest('d'));
+  assert.match(direct.data.output.path,
+    /^singularity\/work-items\/GDP-DIRECT\/gdp\/evidence\/local-runner-attestation\/[a-f0-9]{64}\.json$/);
+
+  const conflicting = sflowFailure(
+    root, 'delivery', 'local-runner-run', '--plan', 'runner-plan.json',
+    '--signer', 'developer-local', '--confirm-plan', planned.data.plan.planSha256, '--json'
+  );
+  assert.equal(conflicting.status, 1);
+  assert.match(conflicting.stderr, /GDP_LOCAL_RUNNER_INPUT_CONFLICT/);
 
   const attestationFile = path.join(root, 'runner-attestation.json');
   await writeFile(attestationFile, `${JSON.stringify(executed, null, 2)}\n`);

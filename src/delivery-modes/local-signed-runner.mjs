@@ -143,6 +143,55 @@ export function resolveLocalRunnerCommand(definition, phaseId, commandId) {
   });
 }
 
+/**
+ * Project the closed set of configured commands that the local runner can plan. This is a
+ * read-only discovery view: it deliberately omits argv until the exact execution plan is built,
+ * and it keeps unsafe entries visible as exclusions rather than silently hiding configuration
+ * drift from the operator.
+ */
+export function listLocalRunnerCommands(definition, { maximumCommands = 256 } = {}) {
+  const eligible = [];
+  const excluded = [];
+  for (const phaseId of Object.keys(definition?.phases ?? {}).sort()) {
+    const configured = definition.phases?.[phaseId]?.qualityCommands ?? [];
+    for (const entry of configured) {
+      const commandId = typeof entry?.id === 'string' && entry.id.trim()
+        ? entry.id.trim() : null;
+      if (eligible.length + excluded.length >= maximumCommands) {
+        fail(`Local runner command discovery exceeds ${maximumCommands} configured entries.`,
+          'GDP_LOCAL_RUNNER_COMMAND_LIMIT');
+      }
+      if (!commandId) {
+        excluded.push(Object.freeze({
+          phaseId, commandId: null, reasonCode: 'GDP_LOCAL_RUNNER_COMMAND_ID_REQUIRED'
+        }));
+        continue;
+      }
+      try {
+        const command = resolveLocalRunnerCommand(definition, phaseId, commandId);
+        eligible.push(Object.freeze({
+          phaseId,
+          commandId,
+          kind: command.kind ?? 'quality',
+          requirement: command.requirement ?? 'required',
+          modelPolicy: command.modelPolicy,
+          timeoutMs: command.timeoutMs
+        }));
+      } catch (error) {
+        excluded.push(Object.freeze({
+          phaseId,
+          commandId,
+          reasonCode: error?.code ?? 'GDP_LOCAL_RUNNER_COMMAND_UNSAFE'
+        }));
+      }
+    }
+  }
+  return Object.freeze({
+    eligible: Object.freeze(eligible),
+    excluded: Object.freeze(excluded)
+  });
+}
+
 function commandIdentity(command) {
   return sha({
     id: command.id, argv: command.argv, modelPolicy: command.modelPolicy,

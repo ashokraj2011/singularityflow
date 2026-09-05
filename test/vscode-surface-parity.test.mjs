@@ -98,4 +98,7 @@ test('new CLI reads are classified as reads and mutations remain mutations', () 
     assert.equal(commandClass(['meta-tool', action]), 'read');
     assert.equal(commandClass(['meta-tool', action, '--confirm', 'sha256:plan']), 'mutation');
   }
+  assert.equal(commandClass(['delivery', 'local-runner-options', '--work-id', 'WRK-1']), 'read');
+  assert.equal(commandClass(['delivery', 'local-runner-plan']), 'read');
+  assert.equal(commandClass(['delivery', 'local-runner-run']), 'mutation');
 });

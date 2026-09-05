@@ -130,6 +130,7 @@ Every public operation is classified before its implementation module is importe
 | delivery.assurance-evaluate | read | never | — | — |
 | delivery.execution-status | read | never | — | — |
 | delivery.local-runner-create | mutation | never | — | — |
+| delivery.local-runner-options | read | never | — | — |
 | delivery.local-runner-plan | read | never | — | — |
 | delivery.local-runner-run | mutation | never | — | — |
 | delivery.local-runner-status | read | never | — | — |

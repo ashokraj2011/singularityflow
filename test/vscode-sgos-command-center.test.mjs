@@ -253,10 +253,12 @@ test('webview posts identifiers rather than commands and the command is fully wi
   const extension = await readFile(path.join(root, 'apps/vscode/src/extension.ts'), 'utf8');
   assert.match(extension, /'singularityFlow\.openCommandCenter': async/);
   assert.match(SGOS_COMMAND_CENTER_SCRIPT, /type:'reviewMetaTool'/);
+  assert.match(SGOS_COMMAND_CENTER_SCRIPT, /type:'localRunner'/);
   const sidebar = await readFile(path.join(root, 'apps/vscode/src/views/sidebar.ts'), 'utf8');
   assert.match(sidebar, /id: 'command-center'.*Command Center/);
   const panel = await readFile(path.join(root, 'apps/vscode/src/views/sgos-command-center.ts'), 'utf8');
   assert.match(panel, /reviewMetaTool: \(\) => void vscode\.commands\.executeCommand\('singularityFlow\.reviewSgosMetaTool'\)/);
+  assert.match(panel, /localRunner: \(\) => void vscode\.commands\.executeCommand\('singularityFlow\.reviewLocalRunner'\)/);
   assert.match(panel, /modal: true,[\s\S]*?'Stop Process'/);
   assert.match(panel, /'process', 'list', '--json'/,
     'mutations must reload the engine-owned exact action projection');

@@ -215,6 +215,15 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
         && !hasOption(args, 'confirm')) return 'read';
     return 'mutation';
   }
+  if (args[0] === 'delivery') {
+    const action = args[1] ?? 'recommend';
+    return [
+      'recommend', 'workflow-status', 'execution-status', 'promotion-preview',
+      'promotion-status', 'assurance-evaluate', 'provenance-status', 'readiness',
+      'local-runner-status', 'local-runner-options', 'local-runner-plan',
+      'local-runner-verify'
+    ].includes(action) ? 'read' : 'mutation';
+  }
   return READ_ONLY_COMMANDS.has(args[0]) ? 'read' : 'mutation';
 }
 

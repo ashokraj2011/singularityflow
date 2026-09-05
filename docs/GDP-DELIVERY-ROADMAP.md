@@ -506,6 +506,8 @@ records.
 
 **Developer-local signed-runner landing commit:** `7935d2db`
 
+**Native VS Code runner review commit:** `ed468842`
+
 Delivered without claiming enforcement readiness:
 
 - a path-free, digest-only evaluator for executable change maps, changed-region coverage, witness

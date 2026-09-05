@@ -2,7 +2,7 @@
 
 **Status:** authoritative cross-product tracker; bounded exact-tree aggregate and the latest code-local asynchronous Git migration are complete, while platform release evidence remains active
 
-**Baseline:** `main@8ab16f79`
+**Baseline:** `main@ed468842`
 
 **Last reviewed:** 2026-09-06
 
@@ -43,13 +43,19 @@ and every open WEL item still depends on external review, authenticated executio
 measurement, or signed release evidence. The native VS Code review form now uses the same engine
 preview and confirmed CLI mutation instead of creating a parallel authority path.
 
+The developer-local signed runner gained its native VS Code plan/review/run/verify journey at
+`main@ed468842`. It derives Candidate and Proof Subject identity from the engine, lists only
+configured shell-free/model-free commands, and replays exact selectors with the reviewed plan
+digest without leaving a temporary plan in the working tree. This remains non-gating same-user
+evidence; it does not close WEL's independent authority or reviewed-corpus requirements.
+
 ## 2026-09-05 reconciliation snapshot
 
 This snapshot resolves conflicts between older domain roadmaps and the executable baseline. A
 shared primitive does not complete a higher-assurance track: for example, the developer-local
 signed runner is useful M9 evidence, but it is not an authenticated independent CAB/WEL verifier.
 
-| Area | Implemented boundary through `8387a9d8` | Still open |
+| Area | Implemented boundary through `ed468842` | Still open |
 |---|---|---|
 | Auto v2 | Dependency-free Story profile and its P0/P1 controls | Optional SGOS execution profile, interval runtime, direct Ad Hoc materialization, and registered comparative-quality evidence |
 | CMP | Model-free, read-only `comprehension regions` and `check` foundation plus a release-gated content-free synthetic benchmark | Reviewed real corpus and storage/privacy decision, durable cause authority, intent graph/replay, typed walkthroughs, lifecycle enforcement, Comprehension Center, and brownfield policy |

@@ -9,7 +9,7 @@ import { branch, gitCommonDir, head } from '../git.mjs';
 import {
   assertCredentialFreeRemote, configuredRemoteIdentity, remoteFingerprint
 } from '../git-remote-diagnostics.mjs';
-import { runRemoteGit } from '../git-execution.mjs';
+import { runRemoteGitAsync } from '../git-execution.mjs';
 import { canonicalJson, recordSha256 } from '../records.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
@@ -619,7 +619,7 @@ async function ensureManagedRecoveryCheckout(controlRoot, storyRoot, pointer, ac
     repository.remoteUrl ?? configured.url
   );
   await mkdir(path.dirname(managed), { recursive: true });
-  const clone = runRemoteGit([
+  const clone = await runRemoteGitAsync([
     'clone', '--single-branch', '--no-tags', '--branch', acceptedPlan.story.branch,
     '--', remote, managed
   ], { cwd: controlRoot, operation: 'auto-recovery-clone', allowFailure: true });
@@ -657,7 +657,7 @@ async function bootstrapRecoveryCheckout(controlRoot, workId, flightId) {
     gitCommonDir(controlRoot), 'singularity-flow', 'auto-worktrees', flightId, 'recovery'
   );
   await mkdir(path.dirname(managed), { recursive: true });
-  const clone = runRemoteGit([
+  const clone = await runRemoteGitAsync([
     'clone', '--single-branch', '--no-tags', '--branch', workId, '--', remote, managed
   ], { cwd: controlRoot, operation: 'auto-recovery-clone', allowFailure: true });
   if (clone.status !== 0) {

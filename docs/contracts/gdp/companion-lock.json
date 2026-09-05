@@ -32,12 +32,12 @@
     {
       "id": "witnessed-engineering-loop",
       "path": "docs/WEL-SPEC.md",
-      "sha256": "sha256:289a781354b64c6b53e168e656939f661f6dae04ed5d66c71e7551dab4b124c8"
+      "sha256": "sha256:99a0f0b8fd66dd50cac401d345f1c55eb3abcc837b7ee4e6dbc7d657e4be9dbe"
     },
     {
       "id": "witnessed-engineering-delivery-status",
       "path": "docs/WEL-PENDING-WORK.md",
-      "sha256": "sha256:abb5b11cfe456ae86842bd60d64c747d2a3f8fe396e8bfa526a8874825b35d9b"
+      "sha256": "sha256:23d9b41ed5067ffd1fbe1df8adeaba3a2e700fd5cbf084abd4c12efd184513e6"
     },
     {
       "id": "code-assurance-bridge",
@@ -72,7 +72,7 @@
     {
       "id": "migration-registry",
       "path": "src/schema-migrations.mjs",
-      "sha256": "sha256:478e835586c8215894dca3949a63dffa338ed8167d7e1c99ef3249e263b0130b"
+      "sha256": "sha256:05122462b4610ab8454e6c719989c5d52f4a8aeb4cf8aa2cccaa98235556b7dd"
     },
     {
       "id": "smart-initialization-v1",

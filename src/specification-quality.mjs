@@ -253,6 +253,17 @@ function witnessedFields(body) {
   return { occurrences, malformed };
 }
 
+/** Exact authored field values for a human witness-mapping review; never used as a verdict. */
+export function witnessedClauseReviewFields(body) {
+  const parsed = witnessedFields(body);
+  return Object.freeze(Object.fromEntries(WITNESSED_FIELDS.map((field) => [
+    field,
+    parsed.occurrences[field].length === 1 && parsed.malformed[field].length === 0
+      ? parsed.occurrences[field][0].value
+      : null
+  ])));
+}
+
 function boundedDiagnosticValue(value, maximum = 80) {
   const compact = String(value).replace(/\s+/g, ' ').trim();
   return compact.length <= maximum ? compact : `${compact.slice(0, maximum)}…`;

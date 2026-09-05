@@ -1014,7 +1014,10 @@ export function testReceiptPassing(receipt, minimumDiscovered = 1, minimumPassed
     && number(receipt.tests?.failed) === 0;
 }
 
-export function buildTestExecutionReceipt(command, check, parsed, { testcasePolicy = null } = {}) {
+export function buildTestExecutionReceipt(command, check, parsed, {
+  testcasePolicy = null,
+  exactTestcaseObservation = null
+} = {}) {
   const countsValid = consistentTestCounts(parsed.tests);
   const status = check.status === 'passed'
     ? (!countsValid
@@ -1027,23 +1030,40 @@ export function buildTestExecutionReceipt(command, check, parsed, { testcasePoli
     && testcasePolicy?.adapter === 'junit5-surefire-v1'
     && parsed.adapter === 'junit-xml'
     && parsed.testcaseObservation != null;
+  const exactIdentityObserved = observationSupported
+    && exactTestcaseObservation?.status === 'observed'
+    && exactTestcaseObservation.exact === true;
+  const identityOccurrences = exactIdentityObserved
+    ? parsed.testcaseObservation.occurrences.map((occurrence) => {
+      const exact = exactTestcaseObservation.occurrences.find((candidate) =>
+        candidate.className === occurrence.className && candidate.name === occurrence.name);
+      return exact ?? occurrence;
+    })
+    : parsed.testcaseObservation?.occurrences ?? [];
   const testcaseObservation = observationSupported ? {
     status: 'observed',
     assurance: 'testcase-local-observed',
-    exact: false,
+    exact: exactIdentityObserved,
     verdict: 'inconclusive',
+    disposition: exactIdentityObserved ? 'unreviewed-witness-observed' : 'witness-inconclusive',
     profile: testcasePolicy.adapter,
-    parser: parsed.testcaseObservation.parser,
-    occurrences: parsed.testcaseObservation.occurrences,
+    parser: exactIdentityObserved
+      ? exactTestcaseObservation.catalog.parser : parsed.testcaseObservation.parser,
+    catalog: exactIdentityObserved ? exactTestcaseObservation.catalog : null,
+    mappingProposals: exactIdentityObserved ? exactTestcaseObservation.mappingProposals : [],
+    occurrences: identityOccurrences,
     rawReports: [],
     bindingGaps: [
       'sgos-candidate-unavailable',
       'gvm-program-unavailable',
       'durable-attempt-id-and-nonce-unavailable',
-      'exact-static-test-identity-unavailable',
+      ...(exactIdentityObserved ? [] : ['exact-static-test-identity-unavailable']),
+      ...(exactTestcaseObservation?.gaps ?? []).map((gap) => String(gap).toLowerCase().replaceAll('_', '-')),
       'reviewed-witness-mapping-unavailable'
     ],
-    notice: 'candidate-controlled JUnit report captured as a non-exact local observation; verdict is inconclusive because SGOS Candidate, GVM Program, durable attempt/nonce, exact declaration, and reviewed witness bindings are unavailable; no independent execution attestation'
+    notice: exactIdentityObserved
+      ? 'candidate-controlled JUnit report joined to exact static test declarations; verdict remains inconclusive because the mapping is unreviewed and SGOS Candidate, GVM Program, durable attempt/nonce, and independent execution attestation are unavailable'
+      : 'candidate-controlled JUnit report captured as a non-exact local observation; verdict is inconclusive because SGOS Candidate, GVM Program, durable attempt/nonce, exact declaration, and reviewed witness bindings are unavailable; no independent execution attestation'
   } : {
     status: observationEnabled ? 'unsupported' : 'unavailable',
     assurance: 'unavailable',
@@ -1051,6 +1071,8 @@ export function buildTestExecutionReceipt(command, check, parsed, { testcasePoli
     verdict: 'inconclusive',
     profile: observationEnabled ? testcasePolicy?.adapter ?? null : null,
     parser: null,
+    catalog: null,
+    mappingProposals: [],
     occurrences: [],
     rawReports: [],
     bindingGaps: [],
@@ -1084,7 +1106,9 @@ export function buildTestExecutionReceipt(command, check, parsed, { testcasePoli
     } : null,
     adapterIdentity: observationSupported ? {
       id: testcasePolicy.adapter,
-      parser: parsed.testcaseObservation.parser
+      parser: exactIdentityObserved
+        ? exactTestcaseObservation.catalog.parser : parsed.testcaseObservation.parser,
+      resultParser: parsed.testcaseObservation.parser
     } : null,
     testcaseObservation,
     assurance: 'module-executed',

@@ -7,7 +7,10 @@ import { documentCatalog } from './documents.mjs';
 import { assistedRecordRelative } from './assisted-quality.mjs';
 import { citedArticleIds, requiredArticles } from './constitution.mjs';
 import { markerSummary, priorChecklistExceptions, resolvedSpecificationQualityPolicy } from './specification-gate.mjs';
-import { STARTER_CHECKLIST, analyzeSpecification, policyHash } from './specification-quality.mjs';
+import {
+  STARTER_CHECKLIST, analyzeSpecification, policyHash, witnessedClauseReviewFields
+} from './specification-quality.mjs';
+import { extractClauses } from './specifications.mjs';
 import { exists, posix, run, snapshot } from './util.mjs';
 import { GOVERNED_ROOTS } from './config.mjs';
 
@@ -32,6 +35,48 @@ async function assistedCandidatesFor(root, config, workflow, phase, artifact) {
   return record.candidates ?? [];
 }
 function activeApprovals(phase) { return phase.approvals.filter((item) => !item.invalidatedAt); }
+
+export async function witnessMappingReview(root, config, workflow, phase) {
+  const submission = [...(workflow.lineage?.submissions ?? [])].reverse().find((entry) =>
+    entry.phase === phase.id && Number(entry.generation) === Number(phase.generation));
+  if (!submission) return null;
+  const { readStoryReviewPacket } = await import('./story-lineage.mjs');
+  const packet = await readStoryReviewPacket(root, config, workflow, submission.packetSha256);
+  const mappings = packet.witnessReview?.clauseMappings ?? [];
+  if (!mappings.length) return {
+    ...structuredClone(packet.witnessReview ?? {}), mappings: []
+  };
+  const clauses = new Map();
+  for (const producer of Object.values(workflow.phases ?? {})) {
+    for (const artifact of producer.artifacts ?? []) {
+      if (!['requirements', 'implementation-spec'].includes(artifact.kind)) continue;
+      try {
+        const historical = run('git', ['show', `${packet.evidenceCommit}:${artifact.path}`], {
+          cwd: root, allowFailure: true
+        });
+        if (historical.status !== 0) continue;
+        const content = historical.stdout;
+        for (const clause of extractClauses(content, { sourcePath: artifact.path })) {
+          clauses.set(clause.id, clause);
+        }
+      } catch { /* Missing or malformed clauses remain visibly unavailable below. */ }
+    }
+  }
+  return {
+    ...structuredClone(packet.witnessReview ?? {}),
+    mappings: mappings.slice(0, 1000).map((mapping) => {
+      const clause = clauses.get(mapping.clauseId);
+      const currentBodySha256 = clause?.bodySha256 ? `sha256:${clause.bodySha256}` : null;
+      return {
+        ...structuredClone(mapping),
+        clauseText: currentBodySha256 === mapping.clauseBodySha256 ? clause.body : null,
+        clauseFields: currentBodySha256 === mapping.clauseBodySha256
+          ? witnessedClauseReviewFields(clause.body) : null,
+        clauseStatus: currentBodySha256 === mapping.clauseBodySha256 ? 'current' : 'stale-or-unavailable'
+      };
+    })
+  };
+}
 
 /** The pinned articles in scope for this phase, plus the exceptions recorded against them. */
 function constitutionSection(workflow, phase, artifact) {
@@ -129,10 +174,11 @@ export async function createReviewBundle(root, config, workflow, requestedPhase 
   };
   const markers = markerSummary(phase);
   const priorExceptions = priorChecklistExceptions(phase);
+  const witnessReview = await witnessMappingReview(root, config, workflow, phase);
 
   return {
     schemaVersion: 1, generatedAt: new Date().toISOString(), workItem: workflow.workItem, branch: branch(root), workflowStatus: workflow.status,
-    specificationQuality, markers, priorExceptions,
+    specificationQuality, witnessReview, markers, priorExceptions,
     /**
      * The constitution articles this phase is bound by `[SPK:REQ-101]`, and every exception to them
      * `[SPK:REQ-104]`.
@@ -279,6 +325,26 @@ function specificationQualitySection(bundle) {
   return [...lines, ''];
 }
 
+function witnessMappingSection(bundle) {
+  const review = bundle.witnessReview;
+  if (!review?.mappings?.length) return [];
+  const lines = [
+    '## Witness mapping review — human decision required', '',
+    '> Exact static identity and a passing local report do not prove the requirement. Each mapping remains non-authoritative until this review is recorded.', ''
+  ];
+  for (const mapping of review.mappings) {
+    lines.push(`### \`${mapping.clauseId}\` → \`${mapping.logicalTestId}\``, '',
+      `- Mapping: \`${mapping.mappingSha256}\``,
+      `- Test: \`${mapping.sourcePath}\``,
+      `- Declaration: \`${mapping.sourceDeclarationSha256}\``,
+      `- Clause bytes: **${mapping.clauseStatus}** · \`${mapping.clauseBodySha256}\``,
+      `- Behavior: ${mapping.clauseFields?.behavior ?? '_unavailable_'}`,
+      `- Observable: ${mapping.clauseFields?.observable ?? '_unavailable_'}`,
+      '', mapping.clauseText ?? '_Exact clause text is stale or unavailable._', '');
+  }
+  return lines;
+}
+
 export function reviewMarkdown(bundle) {
   const lines = [`# Review bundle — ${bundle.workItem.id} / ${bundle.phase.label}`, '', `- Status: **${bundle.phase.status}**`, `- Generation: **${bundle.phase.generation}**`, `- Branch: \`${bundle.branch}\``, `- Generated: ${bundle.generatedAt}`, ''];
   if (bundle.selfApprovalWarning) lines.push('> ⚠ This phase contains self-approval. It is not independent review.', '');
@@ -297,7 +363,12 @@ export function reviewMarkdown(bundle) {
   }
   lines.push('## Approved input provenance', '', ...(bundle.inputs.length ? bundle.inputs.map((item) => `- ${item.phase}: ${item.status}${item.sha256 ? ` @ \`${item.sha256.slice(0, 12)}\`` : ''}${item.optional ? ' (optional)' : ''}`) : ['_No phase inputs._']), '');
   lines.push('## Checks and approvals', '', ...(bundle.checks.length ? bundle.checks.map((item) => `- ${item.status ?? 'recorded'} — ${item.command ?? item.name ?? JSON.stringify(item)}`) : ['- No quality-command results recorded.']), ...(bundle.approvals.length ? bundle.approvals.map((item) => `- ${item.decision} by ${item.actor} via ${item.authorityGroup ?? 'unrecorded authority'} (${item.identityAssurance ?? 'unknown assurance'}); governed agent ${item.agent ?? 'unavailable'}${item.selfApproval ? ' ⚠ self-approval' : ''}`) : ['- No decisions recorded.']), '');
-  lines.push(...constitutionRendering(bundle), ...artifactSetSection(bundle), ...specificationQualitySection(bundle));
+  lines.push(
+    ...constitutionRendering(bundle),
+    ...artifactSetSection(bundle),
+    ...specificationQualitySection(bundle),
+    ...witnessMappingSection(bundle)
+  );
   if (bundle.narrative) lines.push('## How this Story got here', '', '```text', bundle.narrative, '```', '');
   lines.push('## Source change summary', '', '```text', bundle.changeSummary || 'No source changes.', '```', '', '## Supporting evidence', '', ...(bundle.documents.length ? bundle.documents.map((item) => `- ${item.id} — ${item.label} (${item.path ?? item.url})`) : ['_No supporting evidence._']), '');
   return `${lines.join('\n')}\n`;

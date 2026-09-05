@@ -16,7 +16,9 @@ import type { SingularityFlowClient } from './cli/client.ts';
 import { CliError, formatCliArgsForDisplay } from './cli/runner.ts';
 import { commandPlaceholders, fillPlaceholders, placeholderPrompt } from './commands.ts';
 import { showRefusal } from './views/result-panel.ts';
-import type { ApprovalChecklistDecision } from './views/approval-review.ts';
+import type {
+  ApprovalChecklistDecision, WitnessMappingDecision
+} from './views/approval-review.ts';
 
 /** Arguments that must be answered by a human before the command is allowed to run. */
 export interface Confirmation {
@@ -71,6 +73,18 @@ interface StoryReviewBundle {
         enforceable?: boolean;
       }>;
     } | null;
+  } | null;
+  witnessReview?: {
+    mappings?: Array<{
+      mappingSha256: string;
+      clauseId: string;
+      clauseText?: string | null;
+      clauseFields?: { behavior?: string | null; observable?: string | null } | null;
+      clauseStatus?: string;
+      logicalTestId: string;
+      sourcePath: string;
+      sourceDeclarationSha256: string;
+    }>;
   } | null;
   priorExceptions?: Array<{
     article?: string; decision?: string; reason?: string;
@@ -387,6 +401,7 @@ export async function approveWithReceipt(
 
   let confirmed: string | null = null;
   let checklist: ApprovalChecklistDecision[] = [];
+  let witnessDecisions: WitnessMappingDecision[] = [];
   if (request.kind === 'story') {
     const { collectApprovalReview } = await import('./views/approval-review.ts');
     const actorLabel = (
@@ -408,6 +423,7 @@ export async function approveWithReceipt(
           Boolean(article.id && article.title && article.question)),
       findings: storyReview?.specificationQuality?.findings ?? [],
       witnessedClauses: storyReview?.specificationQuality?.witnessedClauses ?? null,
+      witnessMappings: storyReview?.witnessReview?.mappings ?? [],
       priorExceptions: (storyReview?.priorExceptions ?? []).map((entry) => ({
         article: entry.article,
         decision: entry.decision,
@@ -422,6 +438,7 @@ export async function approveWithReceipt(
     }
     confirmed = review.confirmation;
     checklist = review.decisions;
+    witnessDecisions = review.witnessDecisions;
   } else {
     confirmed = await askConfirmation({ expected: request.expected, summary: request.summary });
   }
@@ -447,6 +464,15 @@ export async function approveWithReceipt(
       argv.push('--article', `${entry.article}=${entry.decision}`);
       if (entry.decision !== 'satisfied' && entry.reason) {
         argv.push('--article-reason', entry.reason);
+      }
+    }
+    for (const entry of witnessDecisions) {
+      argv.push('--witness-mapping', `${entry.mappingSha256}=${entry.decision}`);
+      if (entry.decision !== 'satisfied' && entry.reason) {
+        argv.push('--witness-mapping-reason', entry.reason);
+      }
+      if (entry.decision === 'exception' && entry.expiresAt) {
+        argv.push('--witness-mapping-expires', entry.expiresAt);
       }
     }
   }

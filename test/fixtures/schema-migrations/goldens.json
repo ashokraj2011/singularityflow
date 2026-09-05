@@ -94,7 +94,7 @@
   "generation-publication": [{ "schemaVersion": 1 }],
   "generation-start": [{ "schemaVersion": 1 }],
   "repository-change-set": [{ "schemaVersion": 1 }],
-  "test-execution": [{ "schemaVersion": 1 }, { "schemaVersion": 2, "candidate": null, "program": null, "attempt": null, "adapterIdentity": null, "testcaseObservation": { "status": "unavailable", "assurance": "unavailable", "profile": null, "occurrences": [], "rawReports": [], "notice": "legacy module receipt; testcase execution was not observed" } }],
+  "test-execution": [{ "schemaVersion": 1 }, { "schemaVersion": 2, "candidate": null, "program": null, "attempt": null, "adapterIdentity": null, "testcaseObservation": { "status": "unavailable", "assurance": "unavailable", "profile": null, "occurrences": [], "rawReports": [], "notice": "legacy module receipt; testcase execution was not observed" } }, { "schemaVersion": 3, "candidate": null, "program": null, "attempt": null, "adapterIdentity": null, "testcaseObservation": { "status": "unavailable", "assurance": "unavailable", "profile": null, "occurrences": [], "rawReports": [], "notice": "legacy module receipt; testcase execution was not observed", "exact": false, "verdict": "inconclusive", "disposition": "witness-inconclusive", "catalog": null, "mappingProposals": [] } }],
   "code-delivery": [{ "schemaVersion": 1 }, { "schemaVersion": 2 }],
   "work-reconciliation": [{ "schemaVersion": 1 }],
   "work-checkpoint": [{ "schemaVersion": 1 }],

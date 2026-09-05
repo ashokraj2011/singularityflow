@@ -113,7 +113,7 @@ import { collectWorkspaceLogs } from './workspace-logs.mjs';
 import { doctorSnapshot, doctorText } from './doctor.mjs';
 import { GitRemoteSession, runRemoteGit } from './git-execution.mjs';
 import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
-import { createReviewBundle, reviewHtml, reviewMarkdown } from './review.mjs';
+import { createReviewBundle, reviewHtml, reviewMarkdown, witnessMappingReview } from './review.mjs';
 import { readRecord } from './schema-migrations.mjs';
 
 import { installWorkflow, simulateWorkflow, simulationText, validateWorkflowCatalog, workflowCatalog, workflowDiff } from './workflow-catalog.mjs';
@@ -4134,10 +4134,10 @@ async function phaseReview(root, config, workflow, phase) {
   }
   const localObservations = testcaseObservations.filter((entry) => entry.status === 'observed'
     && entry.assurance === 'testcase-local-observed'
-    && entry.exact === false
     && entry.verdict === 'inconclusive');
   const observedTestcases = localObservations
     .flatMap((entry) => entry.occurrences ?? []);
+  const witnessReview = await witnessMappingReview(root, config, workflow, phase);
   return {
     schemaVersion: 1,
     workId: workflow.workItem.id,
@@ -4156,15 +4156,20 @@ async function phaseReview(root, config, workflow, phase) {
           : ['unavailable', 'unsupported'].includes(testcaseObservations.at(-1)?.status)
             ? testcaseObservations.at(-1).status : 'inconclusive',
         assurance: localObservations.length ? 'testcase-local-observed' : 'unavailable',
-        exact: false,
+        exact: localObservations.length > 0 && localObservations.every((entry) => entry.exact === true),
         verdict: 'inconclusive',
         occurrences: observedTestcases.length,
+        mappingProposals: localObservations.reduce((total, entry) =>
+          total + (entry.mappingProposals?.length ?? 0), 0),
         notice: localObservations.length
-          ? 'candidate-controlled testcase results observed locally as non-exact diagnostics; verdict is inconclusive and there is no independent attestation or reviewed witness mapping'
+          ? localObservations.every((entry) => entry.exact === true)
+            ? 'exact static testcase identities observed locally; verdict is inconclusive until human mapping review and independent execution authority exist'
+            : 'candidate-controlled testcase results observed locally as non-exact diagnostics; verdict is inconclusive and there is no independent attestation or reviewed witness mapping'
           : testcaseObservations.at(-1)?.notice ?? 'exact testcase observation unavailable'
       },
       notice: 'module execution remains the authoritative delivery evidence; testcase observation is diagnostic and non-blocking'
     } : null,
+    witnessReview,
     documents
   };
 }
@@ -4186,6 +4191,20 @@ function printPhaseReview(review, { showArtifact = false } = {}) {
     console.log(`  ${review.testEvidence.notice}`);
     console.log(`  Testcase observation: ${review.testEvidence.testcaseObservation.status} · ${review.testEvidence.testcaseObservation.occurrences} occurrence(s) · ${review.testEvidence.testcaseObservation.assurance} · ${review.testEvidence.testcaseObservation.verdict}`);
     console.log(`  ${review.testEvidence.testcaseObservation.notice}`);
+    if (review.testEvidence.testcaseObservation.mappingProposals) {
+      console.log(`  Witness mapping proposals awaiting human review: ${review.testEvidence.testcaseObservation.mappingProposals}`);
+    }
+  }
+  for (const mapping of review.witnessReview?.mappings ?? []) {
+    const safe = (value) => String(value ?? 'unavailable')
+      .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/gu, '�');
+    console.log(`\n  Witness mapping ${safe(mapping.mappingSha256)}`);
+    console.log(`    Clause: ${safe(mapping.clauseId)} · ${safe(mapping.clauseStatus)}`);
+    console.log(`    Test: ${safe(mapping.sourcePath)} · ${safe(mapping.logicalTestId)}`);
+    console.log(`    Declaration: ${safe(mapping.sourceDeclarationSha256)}`);
+    console.log(`    Behavior: ${safe(mapping.clauseFields?.behavior)}`);
+    console.log(`    Observable: ${safe(mapping.clauseFields?.observable)}`);
+    console.log(`    Exact clause:\n${safe(mapping.clauseText).split('\n').map((line) => `      ${line}`).join('\n')}`);
   }
   if (!review.documents.length) {
     console.log('No generated documents are registered for this phase.');
@@ -5364,6 +5383,40 @@ async function checklistDecisions(options) {
   });
 }
 
+function witnessMappingDecisions(options) {
+  const mappings = optionStrings(options, 'witness-mapping');
+  const reasons = optionStrings(options, 'witness-mapping-reason');
+  const expiries = optionStrings(options, 'witness-mapping-expires');
+  let reasonIndex = 0;
+  let expiryIndex = 0;
+  const decisions = mappings.map((entry) => {
+    const separator = String(entry).indexOf('=');
+    const mappingSha256 = separator === -1 ? '' : String(entry).slice(0, separator).trim();
+    const decision = separator === -1 ? '' : String(entry).slice(separator + 1).trim();
+    if (!/^sha256:[a-f0-9]{64}$/.test(mappingSha256)
+        || !['satisfied', 'exception', 'not-applicable'].includes(decision)) {
+      throw new SingularityFlowError(
+        `--witness-mapping must be <sha256>=satisfied|exception|not-applicable; got '${entry}'.`
+      );
+    }
+    const needsReason = decision !== 'satisfied';
+    const needsExpiry = decision === 'exception';
+    return {
+      mappingSha256,
+      decision,
+      ...(needsReason ? { reason: reasons[reasonIndex++] ?? null } : {}),
+      ...(needsExpiry ? { expiresAt: expiries[expiryIndex++] ?? null } : {})
+    };
+  });
+  if (reasonIndex !== reasons.length) {
+    throw new SingularityFlowError('--witness-mapping-reason applies only to exception or not-applicable witness decisions.');
+  }
+  if (expiryIndex !== expiries.length) {
+    throw new SingularityFlowError('--witness-mapping-expires applies only to exception witness decisions.');
+  }
+  return decisions;
+}
+
 async function approveCommand(positionals, options) {
   if (optionString(options, 'selection-receipt') && optionBoolean(options, 'yes')) {
     throw new SingularityFlowError('Do not combine --selection-receipt with --yes; the receipt already carries the reviewer\'s exact phase confirmation.');
@@ -5387,6 +5440,7 @@ async function approveCommand(positionals, options) {
   if (selfApproval) console.warn('Warning: this identity generated the phase; approval will be recorded as self-approval.');
   if (!receipt && !optionBoolean(options, 'yes') && !(await confirm(phase))) throw new SingularityFlowError('Approval cancelled.');
   const checklist = await checklistDecisions(options);
+  const witnessMappings = witnessMappingDecisions(options);
   const convergenceApprovalWorkflow = phase.id === 'convergence' ? structuredClone(workflow) : null;
   const expectedConvergenceApprovalSnapshot = convergenceApprovalWorkflow
     ? (await assertConvergencePublicationReady(root, config, convergenceApprovalWorkflow, phase)).snapshotSha256
@@ -5423,6 +5477,7 @@ async function approveCommand(positionals, options) {
       channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : receipt ? 'copilot-selection-receipt' : 'terminal',
       actionContext: activeActionContext() ?? receipt?.approvalContext ?? null,
       checklist,
+      witnessMappings,
       persist: false
     }),
     {
@@ -5436,7 +5491,8 @@ async function approveCommand(positionals, options) {
           decision: transition.approval.decision,
           reviewPacketSha256: transition.approval.reviewPacketSha256,
           evidenceCommit: transition.approval.evidenceCommit,
-          artifactSetSha256: transition.approval.artifactSetSha256
+          artifactSetSha256: transition.approval.artifactSetSha256,
+          witnessMappingsSha256: transition.approval.witnessMappingsSha256 ?? null
         }
       }),
       ...(approvalStabilityGuard ? { worktreeGuard: approvalStabilityGuard } : {})

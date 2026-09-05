@@ -1586,6 +1586,27 @@ function testExecutionV1ToV2(source) {
   };
 }
 
+function testExecutionV2ToV3(source) {
+  const observation = source.testcaseObservation ?? {
+    status: 'unavailable', assurance: 'unavailable', profile: null,
+    occurrences: [], rawReports: [], notice: 'testcase execution was not observed'
+  };
+  return {
+    ...source,
+    schemaVersion: 3,
+    testcaseObservation: {
+      ...clone(observation),
+      // v2 observations were deliberately name-only. Migration must never upgrade those names to
+      // exact static identities or create reviewed witness mappings.
+      exact: false,
+      verdict: 'inconclusive',
+      disposition: 'witness-inconclusive',
+      catalog: null,
+      mappingProposals: []
+    }
+  };
+}
+
 function storySubmissionPacketV1ToV2(source) {
   return {
     ...source,
@@ -2166,8 +2187,8 @@ const families = [
     paths: [/^singularity\/work-items\/[^/]+\/context\/code-delivery\/[^/]+-gen\d+-changes\.json$/], immutable: true
   }),
   family({
-    id: 'test-execution', currentVersion: 2,
-    steps: [migration(1, 2, testExecutionV1ToV2)],
+    id: 'test-execution', currentVersion: 3,
+    steps: [migration(1, 2, testExecutionV1ToV2), migration(2, 3, testExecutionV2ToV3)],
     paths: [/^singularity\/work-items\/[^/]+\/context\/code-delivery\/tests\/[^/]+\.json$/], immutable: true
   }),
   family({

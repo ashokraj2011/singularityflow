@@ -48,6 +48,7 @@
     "scripts/replace-identities.mjs",
     "scripts/verification-receipt.mjs",
     "scripts/merge-verification-receipts.mjs",
+    "scripts/wel-benchmark.mjs",
     "LICENSE"
   ],
   "workspaces": [
@@ -93,6 +94,7 @@
     "smoke:golden": "node scripts/golden-journey-smoke.mjs",
     "benchmark:dx": "node scripts/dx-benchmark.mjs",
     "benchmark:dx:enforce": "node scripts/dx-benchmark.mjs --enforce",
+    "benchmark:wel": "node scripts/wel-benchmark.mjs",
     "verification:receipt": "node scripts/verification-receipt.mjs",
     "verification:receipt:merge": "node scripts/merge-verification-receipts.mjs"
   },

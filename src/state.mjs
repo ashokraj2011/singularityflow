@@ -138,6 +138,8 @@ import {
   buildTestExecutionReceipt, normalizeRequiredTestCommand, parseTestResult, readDurableTestObservation,
   resolveAffectedModule, testReceiptPassing
 } from './code-delivery-tests.mjs';
+import { observeJunit5SurefireIdentities } from './wel-junit5.mjs';
+import { evaluateWitnessMappingReview } from './wel-review.mjs';
 import {
   buildRepositoryChangeSet, buildRepositoryTreeChangeSet, repositoryCaseInsensitivePaths
 } from './repository-change-set.mjs';
@@ -3028,8 +3030,12 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
         throw new SingularityFlowError(`Required test command '${command.id}' failed before publication.`, { code: 'CODE_TEST_FAILED' });
       }
       const parsed = await parseTestResult(root, command, { startedAt: check.startedAt });
+      const exactTestcaseObservation = await observeJunit5SurefireIdentities(
+        root, command, parsed, workflow.resolution?.codeDelivery?.tests?.testcaseExact ?? null
+      );
       const receipt = buildTestExecutionReceipt(command, check, parsed, {
-        testcasePolicy: workflow.resolution?.codeDelivery?.tests?.testcaseExact ?? null
+        testcasePolicy: workflow.resolution?.codeDelivery?.tests?.testcaseExact ?? null,
+        exactTestcaseObservation
       });
       if (receipt.tests.discovered < parsed.minimumDiscovered) {
         throw new SingularityFlowError(`Required test command '${command.id}' discovered zero or too few tests before publication.`, { code: 'CODE_TEST_ZERO_DISCOVERED' });
@@ -3311,8 +3317,12 @@ async function submitPhaseTransition(root, config, workflow, {
           throw new SingularityFlowError(`Required test command '${command.id}' failed.`, { code: 'CODE_TEST_FAILED' });
         }
         const parsed = await parseTestResult(root, command, { startedAt: check.startedAt });
+        const exactTestcaseObservation = await observeJunit5SurefireIdentities(
+          root, command, parsed, workflow.resolution?.codeDelivery?.tests?.testcaseExact ?? null
+        );
         const receipt = buildTestExecutionReceipt(command, check, parsed, {
-          testcasePolicy: workflow.resolution?.codeDelivery?.tests?.testcaseExact ?? null
+          testcasePolicy: workflow.resolution?.codeDelivery?.tests?.testcaseExact ?? null,
+          exactTestcaseObservation
         });
         const minimumPassed = Math.max(
           parsed.minimumPassed,
@@ -3610,6 +3620,7 @@ export async function approvePhase(root, config, workflow, {
   channel = 'terminal',
   actionContext = null,
   checklist = [],
+  witnessMappings = [],
   persist = true
 } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'approve');
@@ -3806,6 +3817,41 @@ export async function approvePhase(root, config, workflow, {
       + `Record one decision for every article with singularity-flow approve ${phase.id} --article <id>=satisfied|exception|not-applicable [--article-reason TEXT], or --checklist <file.json>.`
     );
   }
+  const submittedWitnessMappings = submittedReview.witnessReview?.clauseMappings ?? [];
+  if (submittedWitnessMappings.length) {
+    const active = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
+    const currentClauses = new Map();
+    for (const clause of (active.indexes ?? []).flatMap((index) => index.clauses ?? [])) {
+      const digest = `sha256:${String(clause.bodySha256 ?? '').replace(/^sha256:/, '')}`;
+      if (currentClauses.has(clause.id) && currentClauses.get(clause.id) !== digest) {
+        throw new SingularityFlowError(
+          `Witness clause '${clause.id}' is ambiguous across active specification records.`,
+          { code: 'WEL_WITNESS_MAPPING_STALE' }
+        );
+      }
+      currentClauses.set(clause.id, digest);
+    }
+    const stale = submittedWitnessMappings.find((mapping) =>
+      currentClauses.get(mapping.clauseId) !== mapping.clauseBodySha256);
+    if (stale) {
+      throw new SingularityFlowError(
+        `Witness mapping '${stale.mappingSha256}' no longer matches the active bytes for clause '${stale.clauseId}'. Re-submit the phase after reconciling the specification evidence.`,
+        { code: 'WEL_WITNESS_MAPPING_STALE' }
+      );
+    }
+  }
+  const witnessReview = evaluateWitnessMappingReview({
+    mappings: submittedWitnessMappings,
+    decisions: witnessMappings
+  });
+  if (!witnessReview.valid) {
+    throw new SingularityFlowError(
+      `Phase ${phase.id} witness mapping review is incomplete:\n- ${witnessReview.errors.join('\n- ')}\n`
+      + `Record every mapping with --witness-mapping <sha256>=satisfied|exception|not-applicable; exceptions also require --witness-mapping-reason and --witness-mapping-expires.`,
+      { code: 'WEL_WITNESS_MAPPING_UNREVIEWED' }
+    );
+  }
+  const reviewedWitnessMappings = witnessReview.decisions;
   const decision = {
     decision: 'approved',
     phase: phase.id,
@@ -3830,6 +3876,10 @@ export async function approvePhase(root, config, workflow, {
     // and a second approver's exceptions are their own. The checklist hash travels with them so a
     // later reader knows which version of the articles was answered.
     ...(review.mode === 'off' ? {} : { checklist: review.decisions, checklistSha256: review.checklistSha256 }),
+    ...(reviewedWitnessMappings.length ? {
+      witnessMappings: reviewedWitnessMappings,
+      witnessMappingsSha256: `sha256:${createHash('sha256').update(canonicalJson(reviewedWitnessMappings)).digest('hex')}`
+    } : {}),
     ...(actionContext ? { actionContext } : {}),
     selfApproval: actorKey(phase.generatedBy ?? {}) === key
   };

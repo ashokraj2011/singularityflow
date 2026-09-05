@@ -53,6 +53,7 @@ is not part of the current product.
 | Which state plane owns each fact | [State authority](STATE-AUTHORITY.md) |
 | Approved clause-driven specification architecture | [Clause-driven specifications](CLAUSE-DRIVEN-SPECIFICATIONS.md) |
 | Witnessed clauses, bounded knowledge, and observe-only testcase evidence | [Witnessed Engineering Loop](WEL-SPEC.md) |
+| Understand WEL trust, privacy, parser, and two-plane storage boundaries | [WEL threat model](WEL-THREAT-MODEL.md), [authority ADR](adr/0008-wel-authority-and-storage.md), and [JUnit identity ADR](adr/0009-wel-junit5-local-identity.md) |
 | Review the corrected, non-runtime GDP contract baseline | [GDP contract vNext](GDP-CONTRACT-VNEXT.md) |
 | Govern Workflow and Outcome delivery through one Candidate and proof system | [Governed Delivery and Proof roadmap](GDP-DELIVERY-ROADMAP.md) |
 | Review the cross-product pending-work dashboard | [Pending-work roadmap](PENDING-WORK-ROADMAP.md) |

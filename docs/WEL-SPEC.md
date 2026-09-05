@@ -2,7 +2,8 @@
 
 **Status:** Observe-only implementation baseline; enforcement remains unavailable pending CAB and SGOS prerequisites
 
-**Baseline:** `main@b38a4621cff378f1e173be84a6552d2a71ca30cb`
+**Observe-only baseline:** `main@7f0581d5`; exact local JUnit pilot implementation is tracked in
+[`docs/WEL-PENDING-WORK.md`](WEL-PENDING-WORK.md)
 
 **Rewritten:** 2026-08-30
 
@@ -419,9 +420,11 @@ test identity, source location, declaration hash, and mapping digest.
 - `exception` — the mapping is accepted with a scoped, expiring reason; or
 - `not-applicable` — the clause does not require this witness, with a reason.
 
-[WEL:REQ-013] The exact proposal, review decision, scope, reason, and expiry are stored in the
-immutable `story-submission-packet` v2 review snapshot. The existing `phase-approval` decision
-references that packet. WEL MUST NOT create a second approval record or quorum.
+[WEL:REQ-013] The exact proposal and its clause, declaration, parser, and logical-test bindings are
+stored in the immutable `story-submission-packet` v2 review snapshot. After that immutable packet
+exists, the review decision, reason, and expiry are stored in the existing `phase-approval`
+decision, which references the packet. WEL MUST NOT mutate the submission packet to insert a later
+decision or create a second approval record or quorum.
 
 [WEL:REQ-014] Self-approval remains governed by the existing repository policy and MUST be visibly
 labeled. WEL does not silently convert self-approval into independent review.
@@ -845,10 +848,10 @@ phases:
           evidenceTier: testcase-local-observed
 ```
 
-These keys are not accepted by the current release. Before activation, every configuration
-normalizer MUST either retain and validate the complete WEL shape or reject it as unknown. Silently
-discarding `witnessedClauses`, `testcaseExact`, or any nested WEL key would create an unpinned policy
-downgrade and is forbidden.
+These keys are accepted for `disabled` and `observe`; `enforce` remains unavailable. Every
+configuration normalizer MUST retain and validate the complete WEL shape or reject it as unknown.
+Silently discarding `witnessedClauses`, `testcaseExact`, or any nested WEL key would create an
+unpinned policy downgrade and is forbidden.
 
 Defaults preserve current behavior:
 
@@ -903,12 +906,12 @@ Schema work is feature-atomic, not a version-first increment.
 
 | Family | Current | Planned change | Migration rule |
 |---|---:|---|---|
-| `specification-claim-map` | 1 | v2 only when typed witness mappings land | retain v1 claims and paths; add empty/null witness fields with review and assurance `unavailable`; old test paths are proposals only |
-| `test-execution` | 1 | CAB-owned v2 when normalized exact occurrences land | retain every v1 adapter, command, summary, and report field; add nullable Candidate/Program/attempt/adapter bindings, empty occurrences, and `testcaseAssurance: unavailable`; preserve module assurance |
-| `code-delivery` | 2 | v3 when it references exact evidence | verify the raw v2 digest before migration; add null exact-evidence references and retain original assurance |
+| `specification-claim-map` | 2 | no pilot bump | v1 claims remain readable and cannot gain typed witness authority |
+| `test-execution` | 3 | no further local-pilot bump | v1→v2 preserves module evidence with no exact authority; v2→v3 adds an empty exact catalog and proposal projection with `exact: false`; stored bytes are not rewritten |
+| `code-delivery` | 2 | v3 only when authenticated exact evidence becomes authoritative | verify the raw v2 digest before migration; add null exact-evidence references and retain original assurance |
 | `phase-approval` | 2 | remain v2 | mapping and observation identities belong in the immutable submission review snapshot referenced by approval |
-| `story-submission-packet` | 1 | v2 if its review snapshot gains mapping/observation identities | verify raw v1 `packetSha256` before additive semantic migration |
-| `story-workflow` | 2 | v3 only when explicit creation-time WEL enrollment lands | v2→v3 changes only top-level `schemaVersion`; it injects no resolution defaults and grants no enrollment |
+| `story-submission-packet` | 2 | no pilot bump | verify raw v1 `packetSha256` before additive migration; v1 packets gain empty review projections only |
+| `story-workflow` | 4 | no WEL pilot bump | earlier Stories are migrated in memory without gaining WEL enrollment; only explicit creation-time pins enroll new Stories |
 | `knowledge-record` | 2 | no pilot bump | seed importer uses existing types and scopes |
 | `ast-gate-receipt` | 3 | no WEL pilot bump | AST remains diagnostic-only |
 | Impact families | existing | extend only if current metric envelope cannot represent content-free fields | retain original assignment and generation |

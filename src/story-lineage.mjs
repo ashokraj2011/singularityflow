@@ -17,7 +17,7 @@ import { listVisualComparisons } from './visual-compare.mjs';
 import { referenceRevision, registerReference } from './harness-imports.mjs';
 import { createImpactReceipt } from './impact.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson, recordSha256 } from './records.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import {
   validateAutoCandidateBinding, validateAutoCandidateVerification
@@ -31,6 +31,7 @@ import {
 } from './publication-pending.mjs';
 import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
+import { loadActiveSpecRecords } from './specifications.mjs';
 
 function hash(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -90,6 +91,15 @@ function currentClaimMapBindings(root, config, workflow, phase) {
 async function witnessReviewSnapshot(root, config, workflow, phase) {
   const status = storyWelEnrollmentStatus(root, config, workflow.workItem.id);
   const testcaseObservations = [];
+  const clauseMappings = new Map();
+  let clauses = null;
+  const activeClauses = async () => {
+    if (clauses) return clauses;
+    const specRecords = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
+    clauses = new Map((specRecords.indexes ?? []).flatMap((index) => index.clauses ?? [])
+      .map((clause) => [clause.id, clause]));
+    return clauses;
+  };
   for (const execution of phase.deliveryEvidence?.testExecutions ?? []) {
     const stored = JSON.parse(await readFile(path.join(root, execution.receiptPath), 'utf8'));
     const storedSha256 = createHash('sha256').update(canonicalJson(stored)).digest('hex');
@@ -104,15 +114,58 @@ async function witnessReviewSnapshot(root, config, workflow, phase) {
     if (!observation) continue;
     const localDiagnostic = observation.status === 'observed'
       && observation.assurance === 'testcase-local-observed'
-      && observation.exact === false
       && observation.verdict === 'inconclusive'
       && receipt.testcaseExecutionProven === false
       && receipt.candidate == null && receipt.program == null && receipt.attempt == null;
     const outcomes = (observation.occurrences ?? []).reduce((summary, occurrence) => {
-      summary.inconclusive += 1;
-      if (occurrence.identityStatus !== 'observed-name-only') summary.ambiguous += 1;
+      if (observation.exact === true && ['passed', 'failed', 'skipped'].includes(occurrence.outcome)) {
+        summary[occurrence.outcome] += 1;
+      } else summary.inconclusive += 1;
+      if (!['observed-name-only', 'exact-static-identity'].includes(occurrence.identityStatus)) {
+        summary.ambiguous += 1;
+      }
       return summary;
     }, { passed: 0, failed: 0, skipped: 0, inconclusive: 0, ambiguous: 0 });
+    for (const proposal of localDiagnostic && observation.exact === true
+      ? observation.mappingProposals ?? [] : []) {
+      const { mappingSha256, reviewStatus, ...proposalCore } = proposal;
+      if (!/^sha256:[a-f0-9]{64}$/.test(mappingSha256 ?? '')
+          || reviewStatus !== 'unreviewed'
+          || mappingSha256 !== `sha256:${recordSha256(proposalCore)}`) {
+        throw new SingularityFlowError(
+          `Test execution '${execution.commandId}' contains an invalid WEL mapping proposal.`,
+          { code: 'STORY_REVIEW_EVIDENCE_INVALID' }
+        );
+      }
+      const clause = (await activeClauses()).get(proposal.clauseId);
+      if (!clause?.bodySha256) {
+        throw new SingularityFlowError(
+          `WEL mapping proposal '${mappingSha256}' references unavailable clause '${proposal.clauseId}'.`,
+          { code: 'WEL_WITNESS_MAPPING_STALE' }
+        );
+      }
+      const clauseBodySha256 = `sha256:${String(clause.bodySha256).replace(/^sha256:/, '')}`;
+      const reviewMappingCore = {
+        sourceProposalSha256: proposal.mappingSha256,
+        clauseId: proposal.clauseId,
+        witnessType: proposal.witnessType,
+        executionProfile: proposal.executionProfile,
+        logicalTestId: proposal.logicalTestId,
+        sourcePath: proposal.sourcePath,
+        sourceDeclarationSha256: proposal.sourceDeclarationSha256,
+        parserManifestSha256: proposal.parserManifestSha256,
+        clauseBodySha256
+      };
+      const reviewMappingSha256 = `sha256:${recordSha256(reviewMappingCore)}`;
+      clauseMappings.set(reviewMappingSha256, {
+        mappingSha256: reviewMappingSha256,
+        ...reviewMappingCore,
+        reviewStatus: 'unreviewed',
+        decision: null,
+        reason: null,
+        expiresAt: null
+      });
+    }
     testcaseObservations.push({
       commandId: execution.commandId,
       receiptSha256: storedSha256,
@@ -120,11 +173,15 @@ async function witnessReviewSnapshot(root, config, workflow, phase) {
         ? 'observed'
         : ['unavailable', 'unsupported'].includes(observation.status) ? observation.status : 'inconclusive',
       assurance: localDiagnostic ? 'testcase-local-observed' : 'unavailable',
-      exact: false,
+      exact: localDiagnostic && observation.exact === true,
       verdict: 'inconclusive',
+      disposition: localDiagnostic && observation.exact === true
+        ? 'unreviewed-witness-observed' : 'witness-inconclusive',
       profile: observation.profile ?? null,
       occurrences: (observation.occurrences ?? []).length,
       outcomes,
+      catalogSha256: observation.catalog?.catalogSha256 ?? null,
+      mappingProposalCount: (observation.mappingProposals ?? []).length,
       rawReports: (observation.rawReports ?? []).map(({ path: reportPath, sha256, bytes }) => ({
         path: reportPath, sha256, bytes
       })),
@@ -137,7 +194,8 @@ async function witnessReviewSnapshot(root, config, workflow, phase) {
     enrollment: status.classification === 'enrolled' ? status.enrollment : null,
     enrollmentClassification: status.classification,
     enrollmentReason: status.reason,
-    clauseMappings: [],
+    clauseMappings: [...clauseMappings.values()].sort((left, right) =>
+      left.mappingSha256.localeCompare(right.mappingSha256)),
     testcaseObservations
   };
 }

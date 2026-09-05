@@ -20,6 +20,7 @@ import { evaluateStoryProtectedPaths } from './configuration-materialization.mjs
 import { canonicalJson } from './records.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { readRecord } from './schema-migrations.mjs';
+import { verifyJunit5SurefireIdentityObservation } from './wel-junit5.mjs';
 import { loadActiveSpecRecords, predecessorSpecClauses } from './specifications.mjs';
 import { SingularityFlowError, posix, run, secureRepositoryPath, snapshot } from './util.mjs';
 import {
@@ -716,8 +717,8 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
       if (observation.assurance !== 'testcase-local-observed') {
         fail(`test receipt ${execution.commandId} overstates its local observation assurance`);
       }
-      if (observation.exact !== false || observation.verdict !== 'inconclusive') {
-        fail(`test receipt ${execution.commandId} presents a name-only local observation as exact or conclusive`);
+      if (![true, false].includes(observation.exact) || observation.verdict !== 'inconclusive') {
+        fail(`test receipt ${execution.commandId} presents a local observation with an invalid exactness or verdict`);
       }
       if (testReceipt.candidate != null || testReceipt.program != null || testReceipt.attempt != null) {
         fail(`test receipt ${execution.commandId} invents unavailable Candidate, Program, or attempt authority`);
@@ -726,7 +727,7 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
         'sgos-candidate-unavailable',
         'gvm-program-unavailable',
         'durable-attempt-id-and-nonce-unavailable',
-        'exact-static-test-identity-unavailable',
+        ...(observation.exact === true ? [] : ['exact-static-test-identity-unavailable']),
         'reviewed-witness-mapping-unavailable'
       ];
       if (!requiredBindingGaps.every((gap) => observation.bindingGaps?.includes(gap))) {
@@ -756,7 +757,13 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
           || !Number.isFinite(startedAt) || !Number.isFinite(completedAt) || completedAt < startedAt) {
         fail(`test receipt ${execution.commandId} local execution context is not bound to the retained generation`);
       }
-      if ((observation.occurrences ?? []).some((occurrence) => occurrence.exact !== false
+      let exactReplay = null;
+      if (observation.exact === true) {
+        exactReplay = await verifyJunit5SurefireIdentityObservation(root, observation, {
+          evidenceCommit
+        });
+        for (const error of exactReplay.errors) fail(`test receipt ${execution.commandId} ${error}`);
+      } else if ((observation.occurrences ?? []).some((occurrence) => occurrence.exact !== false
           || occurrence.verdict !== 'inconclusive'
           || occurrence.logicalTestId != null
           || occurrence.declarationSha256 != null)) {
@@ -817,9 +824,13 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
           if (canonicalJson(replay.tests) !== canonicalJson(testReceipt.tests)) {
             fail(`test receipt ${execution.commandId} module counts do not replay from its raw reports`);
           }
-          if (canonicalJson(replay.testcaseObservation.parser) !== canonicalJson(observation.parser)
+          const expectedRawOccurrences = exactReplay?.rawOccurrences ?? observation.occurrences ?? [];
+          const parserMatches = observation.exact === true
+            ? observation.parser?.id === 'jdk-compiler-tree-api'
+            : canonicalJson(replay.testcaseObservation.parser) === canonicalJson(observation.parser);
+          if (!parserMatches
               || canonicalJson(replay.testcaseObservation.occurrences)
-                !== canonicalJson(observation.occurrences ?? [])) {
+                !== canonicalJson(expectedRawOccurrences)) {
             fail(`test receipt ${execution.commandId} normalized testcase observation does not replay`);
           }
           if (replay.result.sha256 !== testReceipt.result?.sha256

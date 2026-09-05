@@ -8,7 +8,7 @@ import path from 'node:path';
 import { gitCommonDir } from '../git.mjs';
 import { isAllowedTestAutomationPath, parseTestResult } from '../code-delivery-tests.mjs';
 import { TEST_RESULT_ADAPTERS } from '../external-command-policy.mjs';
-import { runRemoteGit } from '../git-execution.mjs';
+import { runRemoteGitAsync } from '../git-execution.mjs';
 import { canonicalJson } from '../records.mjs';
 import {
   buildRepositoryTreeChangeSet, compareRepositoryIdentity
@@ -123,8 +123,8 @@ function recoveryCommitMessage(context, binding) {
   ].join('\n');
 }
 
-function remoteGit(root, args, { operation = 'remote-probe', allowFailure = true } = {}) {
-  return runRemoteGit(args, { cwd: root, operation, allowFailure });
+async function remoteGit(root, args, { operation = 'remote-probe', allowFailure = true } = {}) {
+  return runRemoteGitAsync(args, { cwd: root, operation, allowFailure });
 }
 
 function git(root, args, { env = process.env, input = null, allowFailure = false } = {}) {
@@ -500,8 +500,8 @@ function assertLocalCandidateRetention(root, binding) {
   return binding;
 }
 
-function remoteObjectAtRef(root, remote, ref) {
-  const result = remoteGit(root, ['ls-remote', '--refs', '--', remote, ref], {
+async function remoteObjectAtRef(root, remote, ref) {
+  const result = await remoteGit(root, ['ls-remote', '--refs', '--', remote, ref], {
     operation: 'remote-probe', allowFailure: true
   });
   if (result.status !== 0) {
@@ -563,13 +563,13 @@ export async function publishAutoCandidateRecoveryAuthority(root, binding, {
         'AUTO_CANDIDATE_RECOVERY_CONFLICT');
     }
   }
-  const observed = remoteObjectAtRef(root, remote, ref);
+  const observed = await remoteObjectAtRef(root, remote, ref);
   if (observed && observed !== commit) {
     fail('Auto Candidate remote recovery ref already names different immutable authority.',
       'AUTO_CANDIDATE_RECOVERY_CONFLICT');
   }
   if (!observed) {
-    const pushed = remoteGit(root, [
+    const pushed = await remoteGit(root, [
       'push', '--porcelain', '--', remote, `${commit}:${ref}`
     ], { operation: 'remote-push', allowFailure: true });
     if (pushed.status !== 0) {
@@ -577,7 +577,7 @@ export async function publishAutoCandidateRecoveryAuthority(root, binding, {
         'AUTO_CANDIDATE_REMOTE_PUBLICATION_FAILED');
     }
   }
-  if (remoteObjectAtRef(root, remote, ref) !== commit) {
+  if (await remoteObjectAtRef(root, remote, ref) !== commit) {
     fail('Auto Candidate recovery publication did not retain the exact journal commit.',
       'AUTO_CANDIDATE_REMOTE_PUBLICATION_FAILED');
   }
@@ -651,7 +651,7 @@ export async function discoverAutoCandidateRecoveryAuthority(root, {
     'refs/singularity-flow/auto-candidate-recovery', flightId, phase,
     baseCheckpointSha256.slice(7)
   ].join('/');
-  const advertised = remoteGit(root, [
+  const advertised = await remoteGit(root, [
     'ls-remote', '--refs', '--', remote, `${prefix}/*/*/*/*`
   ], { operation: 'remote-probe', allowFailure: true });
   if (advertised.status !== 0) {
@@ -679,7 +679,7 @@ export async function discoverAutoCandidateRecoveryAuthority(root, {
   }
   const recovered = [];
   for (const row of rows) {
-    const fetched = remoteGit(root, [
+    const fetched = await remoteGit(root, [
       'fetch', '--no-tags', '--quiet', '--', remote, row.parsed.ref
     ], { operation: 'remote-configuration', allowFailure: true });
     if (fetched.status !== 0) {
@@ -709,7 +709,7 @@ export async function discoverAutoCandidateRecoveryAuthority(root, {
   return selected;
 }
 
-function remoteCandidateObject(root, remote, retainedRef) {
+async function remoteCandidateObject(root, remote, retainedRef) {
   return remoteObjectAtRef(root, remote, retainedRef);
 }
 
@@ -732,13 +732,13 @@ export async function publishAutoCandidateAuthority(root, binding, { remote = 'o
     fail('Auto Candidate local retention no longer names the sealed commit.',
       'AUTO_CANDIDATE_RETENTION_LOST');
   }
-  const observed = remoteCandidateObject(root, remote, retained.repository.retainedRef);
+  const observed = await remoteCandidateObject(root, remote, retained.repository.retainedRef);
   if (observed && observed !== retained.repository.candidateCommit) {
     fail('Auto Candidate remote ref already names different immutable bytes.',
       'AUTO_CANDIDATE_REMOTE_CONFLICT');
   }
   if (!observed) {
-    const pushed = remoteGit(root, [
+    const pushed = await remoteGit(root, [
       'push', '--porcelain', '--', remote,
       `${retained.repository.candidateCommit}:${retained.repository.retainedRef}`
     ], { operation: 'remote-push', allowFailure: true });
@@ -747,7 +747,7 @@ export async function publishAutoCandidateAuthority(root, binding, { remote = 'o
         'AUTO_CANDIDATE_REMOTE_PUBLICATION_FAILED');
     }
   }
-  if (remoteCandidateObject(root, remote, retained.repository.retainedRef)
+  if (await remoteCandidateObject(root, remote, retained.repository.retainedRef)
       !== retained.repository.candidateCommit) {
     fail('Auto Candidate remote publication did not retain the sealed commit.',
       'AUTO_CANDIDATE_REMOTE_PUBLICATION_FAILED');
@@ -768,7 +768,7 @@ export async function restoreAutoCandidateAuthority(root, binding, verification 
     fail('Governed Candidate verification does not bind the restored Candidate.',
       'AUTO_CANDIDATE_VERIFICATION_CORRUPT');
   }
-  if (remoteCandidateObject(root, remote, retained.repository.retainedRef)
+  if (await remoteCandidateObject(root, remote, retained.repository.retainedRef)
       !== retained.repository.candidateCommit) {
     fail('The governed Auto Candidate is no longer reachable from its remote authority.',
       'AUTO_CANDIDATE_REMOTE_LOST');
@@ -783,7 +783,7 @@ export async function restoreAutoCandidateAuthority(root, binding, verification 
   if (!local || git(root, ['cat-file', '-e', `${retained.repository.candidateCommit}^{commit}`], {
     allowFailure: true
   }).status !== 0) {
-    const fetched = remoteGit(root, [
+    const fetched = await remoteGit(root, [
       'fetch', '--no-tags', '--quiet', '--', remote, retained.repository.retainedRef
     ], { operation: 'remote-configuration', allowFailure: true });
     if (fetched.status !== 0

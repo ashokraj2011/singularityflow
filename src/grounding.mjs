@@ -14,7 +14,7 @@ import {
   tierForView, viewPath
 } from './world-model-selection.mjs';
 import { worldModelStalenessDecision } from './world-model-policy.mjs';
-import { runRemoteGit } from './git-execution.mjs';
+import { runRemoteGitAsync } from './git-execution.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import { isWorldModelAvailabilityError } from './world-model-availability.mjs';
@@ -798,7 +798,7 @@ export async function resolveWorldModelSource(root, config, {
   let refresh = remoteConfigured ? (refreshRemote ? 'refreshed' : 'cached') : 'no-remote';
   let fetchSucceeded = false;
   if (remoteConfigured && refreshRemote) {
-    const fetched = runRemoteGit(['fetch', '--no-tags', remote, `+refs/heads/${branch}:${remoteRef}`], {
+    const fetched = await runRemoteGitAsync(['fetch', '--no-tags', remote, `+refs/heads/${branch}:${remoteRef}`], {
       cwd: root, operation: 'remote-configuration', timeoutMs: stateFetchTimeoutMs
     });
     const missingRemoteRef = fetched.status !== 0

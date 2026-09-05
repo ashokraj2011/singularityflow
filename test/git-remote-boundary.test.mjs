@@ -66,6 +66,7 @@ test('interactive onboarding, configuration, and recovery never use synchronous 
     'src/commands/story.mjs',
     'src/doctor.mjs',
     'src/epic-review.mjs',
+    'src/grounding.mjs',
     'src/initiative-repositories.mjs',
     'src/organisation.mjs',
     'src/story-stack.mjs',

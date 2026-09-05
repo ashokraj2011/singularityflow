@@ -2,7 +2,7 @@
 
 **Status:** authoritative cross-product tracker; bounded exact-tree aggregate complete, platform release evidence remains active
 
-**Baseline:** `main@8387a9d8`
+**Baseline:** `main@898cb4a0`
 
 **Last reviewed:** 2026-09-05
 
@@ -30,7 +30,7 @@ signed runner is useful M9 evidence, but it is not an authenticated independent 
 | Area | Implemented boundary through `8387a9d8` | Still open |
 |---|---|---|
 | Auto v2 | Dependency-free Story profile and its P0/P1 controls | Optional SGOS execution profile, interval runtime, direct Ad Hoc materialization, and registered comparative-quality evidence |
-| CMP | Model-free, read-only `comprehension regions` and `check` foundation | Durable cause authority, intent graph/replay, typed walkthroughs, lifecycle enforcement, Comprehension Center, and brownfield policy |
+| CMP | Model-free, read-only `comprehension regions` and `check` foundation plus a release-gated content-free synthetic benchmark | Reviewed real corpus and storage/privacy decision, durable cause authority, intent graph/replay, typed walkthroughs, lifecycle enforcement, Comprehension Center, and brownfield policy |
 | SGOS | Bounded runtime, Universal Candidate code path, Git-trusted authority transport, signed transport, Windows DPAPI-protected local signer, stop-aware bounded Process-lock contention recovery, and checkpoint-bound working-set injection into the proposal-only Copilot Agent | Real external-adapter Secret Broker integration, signed platform release aggregate, end-to-end proof, additional adapters, orchestration, stores, and learning |
 | WEL | Observe-only witnessed clauses plus an exact-static local JUnit/Surefire pilot with human mapping review; results remain inconclusive | Candidate/Program/attempt join, reviewed corpus, authenticated hermetic execution, enforcement/recovery, additional adapters, and signed platform release proof |
 | CAB | CAB v0.2 code-local architecture, adversarial design contract, and observe-only exact-static JUnit pilot are active over existing SGOS/GDP/WEL primitives | Independent R0 ratification, authenticated isolation/trust roots, corpus/platform proof, opt-in enforcement, adequacy, provider adapters, and regulated deployment proof |
@@ -96,7 +96,7 @@ evidence, and selected npm/VSIX artifact binding remain governed by the platform
 | World Model Builder v4 | Release receipt generation and enforcement exist; no reviewed six-cell supported-platform aggregate is recorded | `WMB-REL-001` | [WMB v4](WORLD-MODEL-BUILDER-V4.md) |
 | Witnessed Engineering Loop | Exact-static local JUnit observation, immutable proposal binding, existing-approval review, migration, release-gated baseline/delta benchmark, isolated npm/VSIX proof, and a bounded platform-matrix command are active; authenticated testcase claims and enforcement remain unavailable | Execute and sign the external/cross-platform gates in `WEL-P0-001` through `WEL-P0-003` | [WEL pending work](WEL-PENDING-WORK.md) |
 | Code Assurance Bridge | CAB-R0 architecture and CAB-R1 observe pilot are active; enforcement remains unavailable | Independent CAB-R0 review plus authenticated CAB-R2 runner authority | [CAB roadmap](CAB-ROADMAP.md) |
-| Governed comprehension | Read-only, non-authoritative P0 contract, closed registries, authority ADR, mutation tripwires, isolated npm/VSIX proof, and deterministic corpus/matrix command exist | Execute and sign the unchanged `CMP-P0-001` matrix on Windows and Linux; keep record/enforce unavailable | [CMP roadmap](CMP-ROADMAP.md) |
+| Governed comprehension | Read-only, non-authoritative P0 contract, closed registries, authority ADR, mutation tripwires, isolated npm/VSIX proof, deterministic corpus/matrix command, and content-free P1 benchmark exist | Execute and sign the unchanged `CMP-P0-001` matrix on Windows and Linux, then complete the reviewed P1 storage/privacy decision; keep record/enforce unavailable | [CMP roadmap](CMP-ROADMAP.md) |
 | Governed Delivery and Proof | M0–M8 are implemented; M9–M11 have code-local partial surfaces and remain non-GA | Authenticated M9 runner/verifier and signed release evidence before provider pilots or enforcement | [GDP milestone roadmap](GDP-DELIVERY-ROADMAP.md) |
 | Auto v2 | Dependency-free Story P0/P1 is implemented and model/AST optionality is preserved | Optional SGOS profile only after its independent acceptance contract is ready | [Auto v2 roadmap](AUT-V2-IMPLEMENTATION-ROADMAP.md) |
 

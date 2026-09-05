@@ -9,11 +9,11 @@
 **Last implementation audit:** `main@3b5d79e6` on 2026-08-31; the observe-only foundation
 described below is the only implemented CMP tranche
 
-**Current reconciliation:** checked against `main@c85952ad` on 2026-09-05; later SGOS, GDP, WEL,
-and CAB delivery did not implement CMP P1–P6 or turn CMP diagnostics into lifecycle authority
+**Current reconciliation:** checked against `main@898cb4a0` on 2026-09-05; the first content-free
+P1 measurement harness is release-gated, while P1 storage/retention authority and P2–P6 remain open
 
-**Current delivery boundary:** observe-only foundation; no publication gate, approval authority, or
-new publisher
+**Current delivery boundary:** observe-only foundation plus a synthetic content-free P1 benchmark;
+no publication gate, approval authority, durable CMP store, or new publisher
 
 **Related roadmaps:** [SGOS pending work](SGOS-PENDING-WORK.md) and
 [Witnessed Engineering Loop pending work](WEL-PENDING-WORK.md)
@@ -103,6 +103,13 @@ isolated artifact, and runs `comprehension regions` against a separate Git fixtu
 status is unchanged. Until the same deterministic corpus passes the supported platform matrix,
 treat this as an in-progress implementation tranche, not a shipped product claim.
 
+The first P1 measurement checkpoint landed at `main@898cb4a0`. `npm run benchmark:cmp` creates a
+private mixed-change fixture, exercises the exact repository-change-set and CMP coverage paths, and
+reports aggregate latency, CPU, region/unresolved-code counts, availability, and storage sizes. The
+report excludes paths, content and content digests, causes, identities, work IDs, prompts, and
+transcripts. It remains synthetic, local, non-authoritative evidence; the release gate runs it, but
+it does not satisfy the reviewed-real-corpus or supported-platform exit criteria.
+
 ## Verified implementation status
 
 The 2026-08-31 audit compared the complete 2,952-line CMP v1 specification with the executable
@@ -120,7 +127,7 @@ as permission to submit, approve, publish, or merge.
 | Corrected phase | Verified status | Present now | Missing before the phase can exit |
 |---|---|---|---|
 | P0 — contracts and reads | **Partial** | Conservative resource regions; closed cause/relationship/disposition/assurance/availability/refusal/diagnostic registries; bounded diagnostic validation; `regions` and `check`; authority ADR; no-model/no-AST/no-write/no-lifecycle tripwires; isolated npm/VSIX engine proof | Supported-platform deterministic corpus execution |
-| P1 — pilot and storage decision | **Not started** | No durable state; only caller-supplied diagnostic input | Measurements, content-free metrics, storage/retention/privacy decision, record-mode preview, migration prototype, and reviewed rollout decision |
+| P1 — pilot and storage decision | **Partial** | Release-gated content-free synthetic benchmark for latency, CPU, counts, availability, and storage-size preview; no durable state | Reviewed real corpus, supported-platform measurements, storage/retention/privacy decision, record-mode preview, migration prototype, and independent rollout decision |
 | P2 — governed cause recording | **Contract fragments only** | Cause, binding, disposition, and transformation-receipt validators over untrusted diagnostic input | Trusted authority lookup, durable versioned records, migrations, proposal/confirmation/supersession, recovery, and incorporation into the existing review transaction |
 | P3 — intent graph and replay | **Not implemented** | A future operation vocabulary and roadmap only | Typed graph/index, bounded bidirectional queries, CMP gateway planner, exact expansion, deterministic replay, and reverse-convergence provenance |
 | P4 — walkthroughs | **Not implemented** | None | Typed claims, deterministic validators, model-draft boundary, dual hashes, evidence validation, staleness, and revalidation receipts |
@@ -173,7 +180,7 @@ v1 release criteria, any enforcement acceptance criterion, or a native VS Code C
 | Backlog ID | Required work | Dependency/exit evidence |
 |---|---|---|
 | `CMP-P0-001` | Finish the read-only foundation. The code-local contract, registries, authority ADR, bounded inputs, mutation tripwires, corrected `--phase` recovery text, isolated npm/VSIX loading proof, and deterministic corpus/matrix command are implemented. | Signed execution of the unchanged matrix command on Windows and Linux remains before P0 exit |
-| `CMP-P1-001` | Decide storage, retention, privacy, metrics, and creation-pinned `off`/`record` rollout | Approved ADRs, migration prototype, measured budgets, and independent pilot review |
+| `CMP-P1-001` | The content-free local benchmark is implemented and release-gated at `898cb4a0`; decide storage, retention, privacy, measured budgets, and creation-pinned `off`/`record` rollout | Approved ADRs, real-corpus and supported-platform evidence, migration prototype, and independent pilot review |
 | `CMP-P2-001` | Add governed cause proposals, confirmations, terminal dispositions, and narrow transformation authority | Durable schemas/migrations plus authority, staleness, recovery, ref-race, and adversarial-laundering tests |
 | `CMP-P3-001` | Implement the intent-indexed graph and `comprehension explain` reads | Bidirectional query parity, bounded exact handles, cache rebuild, gateway no-extra-tool, and unavailable-structure tests |
 | `CMP-P3-002` | Implement deterministic comprehension replay without colliding with SGOS Process replay | Fresh-export hash stability, ordering, refusal/repair, reverse-convergence, recovery, and transcript-exclusion tests |

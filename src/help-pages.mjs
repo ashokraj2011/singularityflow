@@ -189,13 +189,15 @@ const PAGES = Object.freeze({
       ['--bindings FILE', 'For check, load bounded, untrusted diagnostic binding JSON from inside the repository.'],
       ['--dispositions FILE', 'For check, load bounded, untrusted diagnostic disposition JSON from inside the repository.'],
       ['clause|file|symbol|change|refusal|generation|test SUBJECT', 'For explain, select one exact subject. Sources not represented by the current observe-only graph report unavailable.'],
+      ['replay all|phase PHASE|kind EVENT-KIND', 'Project bounded, content-free Story lifecycle events. This is read-only and distinct from SGOS Process replay.'],
       ['--json', 'Emit the complete manifest or computed coverage result.']
     ],
     examples: [
       ['singularity-flow comprehension regions --base HEAD~1 --json', 'Inspect exact conservative regions without writing anything.'],
       ['singularity-flow comprehension check --bindings review/bindings.json --json', 'Diagnose supplied bindings against the exact repository change-set subject; this cannot authorize publication.'],
       ['singularity-flow comprehension graph --bindings review/bindings.json --json', 'Build the deterministic bidirectional cause/region graph from validated diagnostic bindings.'],
-      ['singularity-flow comprehension explain clause AC-001 --bindings review/bindings.json --json', 'Trace one exact cause to related changed resources without invoking a model or creating authority.']
+      ['singularity-flow comprehension explain clause AC-001 --bindings review/bindings.json --json', 'Trace one exact cause to related changed resources without invoking a model or creating authority.'],
+      ['singularity-flow comprehension replay phase implementation --work-id WRK-123 --json', 'Project the exact normalized Implementation history without operational detail, prompts, transcripts, or model summaries.']
     ],
     seeAlso: ['spec', 'receipt', 'review', 'explain']
   },

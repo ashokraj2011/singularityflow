@@ -3202,6 +3202,8 @@ singularity-flow comprehension graph [--work-id WORK-ID] [--phase PHASE] [--base
 singularity-flow comprehension explain clause|file|symbol|change|refusal|generation|test <SUBJECT>
   [--work-id WORK-ID] [--phase PHASE] [--base REVISION] [--bindings REPOSITORY-FILE] [--json]
   graph and explain are deterministic, read-only projections; unavailable sources never become claims
+singularity-flow comprehension replay [all|phase <PHASE>|kind <EVENT-KIND>] --work-id WORK-ID [--json]
+  projects bounded, content-free Story history; this never invokes or mutates SGOS Process replay
 singularity-flow ledger init|doctor|status|log|show|verify|repair|reconcile|archive|deployment-check ...
 singularity-flow capabilities list|show|doctor|lease ...
 singularity-flow validate [--strict]

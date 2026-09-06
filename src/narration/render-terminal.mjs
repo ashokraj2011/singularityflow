@@ -122,7 +122,8 @@ function journalLines(result) {
 
 function comprehensionText(result) {
   const {
-    context = {}, manifest = null, coverage = null, graph = null, explanation = null
+    context = {}, manifest = null, coverage = null, graph = null, explanation = null,
+    replay = null
   } = result.data ?? {};
   const common = [
     style.heading(headline(result)),
@@ -130,6 +131,30 @@ function comprehensionText(result) {
     `Repository change-set subject: ${manifest?.compatibilityCandidateSha256 ?? coverage?.candidateSha256 ?? graph?.candidateSha256 ?? result.data?.candidateSha256 ?? 'unavailable'}`,
     `Baseline: ${context.base ?? 'unavailable'} (${context.source ?? 'unknown'})`
   ];
+  if (result.operation.id === 'comprehension.replay' && replay) {
+    const rows = replay.events.map((event) => ({
+      at: event.at,
+      kind: event.kind,
+      phase: event.phase ?? '—',
+      provenance: event.provenance
+    }));
+    return [
+      style.heading(headline(result)),
+      `Repository: ${context.repository ?? 'unavailable'}`,
+      `Story: ${replay.workId}`,
+      `Replay: ${replay.replaySha256}`,
+      `Focus: ${replay.focus.type}${replay.focus.value ? ` ${replay.focus.value}` : ''}`,
+      ...(rows.length ? ['', table(rows, [
+        { key: 'at', label: 'AT' },
+        { key: 'kind', label: 'KIND' },
+        { key: 'phase', label: 'PHASE' },
+        { key: 'provenance', label: 'PROVENANCE' }
+      ])] : ['', 'No matching replay events.']),
+      replay.truncated ? style.detail('Replay truncated at the 1,000-event read ceiling.') : null,
+      '', style.detail('Observe only: this Story projection is not SGOS Process replay and changes no state.'),
+      style.detail(preservationLine(result))
+    ].filter(Boolean).join('\n');
+  }
   if (result.operation.id === 'comprehension.regions' && manifest) {
     const rows = manifest.regions.map((region) => ({
       region: region.regionId,

@@ -116,6 +116,7 @@ Every public operation is classified before its implementation module is importe
 | comprehension.explain | read | never | — | — |
 | comprehension.graph | read | never | — | — |
 | comprehension.regions | read | never | — | — |
+| comprehension.replay | read | never | — | — |
 | configuration.edit | mutation | never | — | — |
 | configuration.explain | read | never | — | — |
 | constitution.check | read | never | — | — |

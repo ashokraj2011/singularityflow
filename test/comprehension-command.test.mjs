@@ -31,6 +31,38 @@ async function repository(t) {
   git(root, ['config', 'user.email', 'cmp@example.test']);
   await mkdir(path.join(root, 'singularity'), { recursive: true });
   await writeFile(path.join(root, 'singularity', 'workflow.yml'), '{}\n');
+  const storyDirectory = path.join(root, 'singularity', 'work-items', 'CMP-STORY');
+  await mkdir(storyDirectory, { recursive: true });
+  await writeFile(path.join(storyDirectory, 'workflow.json'), `${JSON.stringify({
+    schemaVersion: 2,
+    workItem: { id: 'CMP-STORY', title: 'Replay test', workType: 'feature', branch: 'CMP-STORY' },
+    status: 'in_progress',
+    currentPhase: 'implementation',
+    phaseOrder: ['intake', 'implementation'],
+    phases: {
+      intake: { id: 'intake', label: 'Intake', status: 'approved', generation: 1 },
+      implementation: {
+        id: 'implementation', label: 'Implementation', status: 'in_progress', generation: 1
+      }
+    },
+    history: [
+      {
+        at: '2026-09-01T00:00:01.000Z', actor: 'private@example.test',
+        event: 'phase_generated', phase: 'implementation', detail: 'private model summary'
+      },
+      {
+        at: '2026-09-01T00:00:02.000Z', actor: 'private@example.test',
+        event: 'workflow_reopened', phase: 'intake', detail: 'private reason'
+      }
+    ],
+    publicationProjections: [{
+      commit: 'a'.repeat(40),
+      event: {
+        type: 'artifact-generated', eventId: 'EV-001', sourceCommit: 'a'.repeat(40),
+        createdAt: '2026-09-01T00:00:01.000Z', phaseId: 'implementation', generation: 1
+      }
+    }]
+  }, null, 2)}\n`);
   await writeFile(path.join(root, 'service.txt'), 'before\n');
   git(root, ['add', '-A']);
   git(root, ['commit', '-qm', 'baseline']);
@@ -126,6 +158,55 @@ test('comprehension graph and explain are model-free bidirectional read projecti
   assert.equal(symbol.data.explanation.status, 'unavailable');
   assert.equal(symbol.data.explanation.reasonCode, 'CMP_STRUCTURE_UNAVAILABLE');
   assert.equal(git(root, ['status', '--porcelain=v1']), before);
+});
+
+test('comprehension replay projects existing Story history without reading the working diff', async (t) => {
+  const root = await repository(t);
+  const before = git(root, ['status', '--porcelain=v1']);
+  const result = command(root, [
+    '--no-model', 'comprehension', 'replay', 'phase', 'implementation',
+    '--work-id', 'CMP-STORY', '--json'
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  const response = JSON.parse(result.stdout);
+  assert.equal(response.operation.id, 'comprehension.replay');
+  assert.equal(response.data.replay.workId, 'CMP-STORY');
+  assert.equal(response.data.replay.focus.type, 'phase');
+  assert.equal(response.data.replay.events.length, 1);
+  assert.equal(response.data.replay.events[0].provenance, 'attested-lifecycle');
+  assert.equal(response.data.replay.mutatesProcess, false);
+  assert.doesNotMatch(JSON.stringify(response.data.replay), /private|model summary/);
+  assert.deepEqual(response.effects, {
+    stateChanged: false,
+    filesChanged: false,
+    publicationCreated: false,
+    externalSystemsChanged: false
+  });
+  const human = command(root, [
+    '--no-model', 'comprehension', 'replay', 'kind', 'story.reopened',
+    '--work-id', 'CMP-STORY'
+  ]);
+  assert.equal(human.status, 0, human.stderr);
+  assert.match(human.stdout, /operational-history/);
+  assert.match(human.stdout, /not SGOS Process replay and changes no state/);
+  assert.doesNotMatch(human.stdout, /private@example|private reason/);
+  assert.equal(git(root, ['status', '--porcelain=v1']), before);
+});
+
+test('comprehension replay refuses missing Story context and options it would otherwise ignore', async (t) => {
+  const root = await repository(t);
+  const missing = command(root, [
+    '--no-model', 'comprehension', 'replay', '--work-id', 'MISSING-STORY', '--json'
+  ]);
+  assert.notEqual(missing.status, 0);
+  assert.match(missing.stderr, /No governed Story matches 'MISSING-STORY'/);
+  const ignored = command(root, [
+    '--no-model', 'comprehension', 'replay', '--work-id', 'CMP-STORY',
+    '--phase', 'implementation', '--json'
+  ]);
+  assert.notEqual(ignored.status, 0);
+  assert.match(ignored.stderr, /does not accept --phase/);
+  assert.match(ignored.stderr, /replay phase <PHASE>/);
 });
 
 test('an explicit base never bypasses a requested Story context', async (t) => {

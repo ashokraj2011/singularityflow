@@ -439,6 +439,8 @@ Usage:
     [--bindings REPOSITORY-FILE] [--dispositions REPOSITORY-FILE] [--json]
   singularity-flow comprehension explain clause|file|symbol|change|refusal|generation|test <SUBJECT>
     [--work-id WORK-ID] [--phase PHASE] [--base REVISION] [--bindings REPOSITORY-FILE] [--json]
+  singularity-flow comprehension replay [all|phase <PHASE>|kind <EVENT-KIND>]
+    --work-id WORK-ID [--json]
   singularity-flow change show [WORK-ID] --shadow [--proof-profile standard|high-assurance|regulated|custom-registered] [--json]
   singularity-flow proof status|gaps|signals [WORK-ID] [--proof-profile standard|high-assurance|regulated|custom-registered] [--json]
   singularity-flow proof explain [WORK-ID] <PREDICATE-ID> [--proof-profile standard|high-assurance|regulated|custom-registered] [--json]

@@ -244,6 +244,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Comprehension explanation for ${slot(s.type)} '${slot(s.subject)}' is ${slot(s.status)} with ${slot(s.nodes, '0')} related node(s).`,
     preserves: true
   },
+  'comprehension.replay-reported': {
+    headline: (s) => `Projected ${slot(s.events, '0')} comprehension replay event(s) for ${slot(s.workId)}${s.truncated ? ' (truncated)' : ''}.`,
+    preserves: true
+  },
   'change.shadow-reported': {
     headline: (s) => `Shadow Change Passport for ${slot(s.workId)} is ${slot(s.status)} with ${slot(s.gaps, '0')} explicit gap(s).`,
     preserves: true

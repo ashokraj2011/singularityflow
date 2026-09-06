@@ -19,6 +19,7 @@ import {
 import {
   buildComprehensionGraph, explainComprehensionGraph
 } from '../comprehension/graph.mjs';
+import { buildComprehensionReplay } from '../comprehension/replay.mjs';
 import {
   commandResult, noEffects, succeeded
 } from '../narration/command-result.mjs';
@@ -99,6 +100,25 @@ async function resolveBaseline(root, options) {
     );
   }
   return { base: 'HEAD', source: 'working-tree-head', workId: null, phase: null };
+}
+
+async function resolveReplayStory(root, options) {
+  const requestedWorkId = optionString(options, 'work-id');
+  const reference = requestedWorkId ?? branch(root);
+  const selected = resolveContext(await buildRepositorySubjectIndex(root), {
+    reference,
+    kind: 'story',
+    required: false
+  });
+  if (!selected) {
+    throw new SingularityFlowError(
+      requestedWorkId
+        ? `No governed Story matches '${requestedWorkId}'.`
+        : 'No active Story matches the current branch. Provide --work-id WORK-ID.',
+      { code: 'CMP_STORY_CONTEXT_REQUIRED' }
+    );
+  }
+  return selected.state;
 }
 
 async function repositoryJson(root, value, label) {
@@ -205,6 +225,36 @@ async function evidenceInputs(root, options) {
 export async function run(_argv, { positionals, options, operation: suppliedOperation = null }) {
   const root = repoRoot();
   const subcommand = positionals[1] ?? 'check';
+  const json = optionBoolean(options, 'json');
+  if (subcommand === 'replay') {
+    const ignored = ['phase', 'base', 'bindings', 'dispositions']
+      .find((name) => options[name] !== undefined);
+    if (ignored) {
+      throw new SingularityFlowError(
+        `Comprehension replay does not accept --${ignored}. Use replay phase <PHASE> for a phase focus.`,
+        { code: 'CMP_REPLAY_QUERY_INVALID' }
+      );
+    }
+    const workflow = await resolveReplayStory(root, options);
+    const focusType = positionals[2] ?? 'all';
+    const focusValue = positionals.slice(3).join(' ').trim() || null;
+    const replay = buildComprehensionReplay(workflow, { focusType, focusValue });
+    return emitCommandResult(commandResult({
+      operation: suppliedOperation ?? { id: 'comprehension.replay', classification: 'read' },
+      outcome: succeeded('comprehension.replay-reported', {
+        workId: replay.workId,
+        events: replay.counts.returned,
+        truncated: replay.truncated
+      }),
+      effects: noEffects(),
+      restState: 'informational',
+      data: {
+        mode: 'observe-only',
+        context: { repository: root, workId: replay.workId },
+        replay
+      }
+    }), { json, restStateWhenIdle: 'informational' });
+  }
   const context = { ...await resolveBaseline(root, options), repository: root };
   const changeSet = await buildRepositoryChangeSet(root, {
     baseCommit: context.base,
@@ -215,7 +265,6 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
     }
   });
   const manifest = buildChangeRegionManifest(changeSet);
-  const json = optionBoolean(options, 'json');
   if (subcommand === 'regions') {
     return emitCommandResult(commandResult({
       operation: suppliedOperation ?? { id: 'comprehension.regions', classification: 'read' },

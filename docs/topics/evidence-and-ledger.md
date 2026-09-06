@@ -1,7 +1,7 @@
 ---
 id: evidence-and-ledger
 title: Evidence, the ledger, and traceability
-version: 11
+version: 12
 aliases:
   - ledger
   - worldline
@@ -21,7 +21,7 @@ related:
 ---
 Everything consequential is hash-linked: artifacts, inputs, approvals, checks, receipts. The append-only capability ledger mirrors lifecycle events as a tamper-evident chain; `sflow ledger verify` validates it from a bare clone, offline. `sflow spec index/coverage/trace` gives requirements stable clause identities and walks requirement → claim → commit → test evidence → approval. Mechanical coverage never claims semantic correctness — judgment and evidence are both retained and never confused. For auditors, fieldwork starts with `git clone`.
 
-The first comprehension pilot is deliberately read-only. `sflow comprehension regions` derives conservative, material resource regions from the existing exact repository change set; `sflow comprehension check` evaluates bounded caller-supplied cause bindings and dispositions as untrusted diagnostics without writing, approving, publishing, or invoking a model. `sflow comprehension graph` includes only bindings that passed the same exact validation, and `sflow comprehension explain clause|file|change` traverses that graph in both directions. Symbol, refusal, generation, and test queries report unavailable until their authoritative sources exist; missing AST is never a failure. The compatibility subject is not the universal Candidate, and this pilot cannot mint authority or authorize publication. A result at resource granularity is observational evidence, not semantic proof. Enforcement remains unavailable until ordinary Story delivery and SGOS share one universal Candidate authority.
+The first comprehension pilot is deliberately read-only. `sflow comprehension regions` derives conservative, material resource regions from the existing exact repository change set; `sflow comprehension check` evaluates bounded caller-supplied cause bindings and dispositions as untrusted diagnostics without writing, approving, publishing, or invoking a model. `sflow comprehension graph` includes only bindings that passed the same exact validation, and `sflow comprehension explain clause|file|change` traverses that graph in both directions. `sflow comprehension replay` projects the existing normalized Story lifecycle history with explicit attested-lifecycle versus operational-history provenance while excluding actors, operational detail, prompts, transcripts, model summaries, and SGOS Process state. Causal provenance, including post-hoc and reverse-converged labels, remains unavailable until a governed source records it; the replay never infers those labels from ordinary lifecycle events. It is not the mutating SGOS Process replay. Symbol, refusal, generation, and test queries report unavailable until their authoritative sources exist; missing AST is never a failure. The compatibility subject is not the universal Candidate, and this pilot cannot mint authority or authorize publication. A result at resource granularity is observational evidence, not semantic proof. Enforcement remains unavailable until ordinary Story delivery and SGOS share one universal Candidate authority.
 
 GDP-M2 adds an equally bounded shadow view: `sflow change show <WORK-ID> --shadow`. It derives an in-memory Proof Subject and Change Passport only when an existing exact Candidate is available. The view shows legacy policy projections, evidence availability, World Model status, known gaps, provenance hashes, and a privacy-safe lifecycle comparison. It never writes the records or allows a gate, approval, publisher, or lifecycle decision to consume them. Missing World Model or AST remains visible and non-blocking.
 
@@ -35,7 +35,7 @@ Use this topic when the current goal matches **evidence and ledger**. Start in a
 
 ## Use it from each surface
 
-- **Shell:** `sflow ledger`, `sflow receipt show`, `sflow spec`, `sflow comprehension regions|check|graph`, `sflow comprehension explain clause AC-001`, `sflow change show <WORK-ID> --shadow`, `sflow proof status <WORK-ID>`, or `sflow delivery local-runner-options --work-id <WORK-ID>`. Run the command with `--help` for the exact forms supported by this build.
+- **Shell:** `sflow ledger`, `sflow receipt show`, `sflow spec`, `sflow comprehension regions|check|graph`, `sflow comprehension explain clause AC-001`, `sflow comprehension replay --work-id <WORK-ID>`, `sflow change show <WORK-ID> --shadow`, `sflow proof status <WORK-ID>`, or `sflow delivery local-runner-options --work-id <WORK-ID>`. Run the command with `--help` for the exact forms supported by this build.
 - **Copilot:** `/sf-ledger` for durable evidence, `/sf-inspect comprehension` for the CMP pilot, `/sf-inspect <WORK-ID> passport` for M2, or `/sf-inspect <WORK-ID> proof` for M3. The skill must preserve the CLI result and ask before any governed mutation.
 - **VS Code:** open Diagnostics and select the final **Shadow Passport** tab for M2/M3, or open **SGOS Command Center** and select **Local Runner…** for the non-gating M9 signed observation journey. Both remain secondary; existing Lifecycle views remain authoritative and unchanged.
 

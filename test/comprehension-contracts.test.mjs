@@ -243,12 +243,16 @@ test('every emitted CMP diagnostic uses the closed diagnostic registry', async (
     new URL('../src/comprehension/graph.mjs', import.meta.url),
     'utf8'
   );
+  const replay = await readFile(
+    new URL('../src/comprehension/replay.mjs', import.meta.url),
+    'utf8'
+  );
   const productionContracts = contracts.replace(
     /export const CMP_REFUSAL_CODES[\s\S]*?const SHA256/,
     'const SHA256'
   );
   const emitted = [...new Set(
-    [productionContracts, commands, graph]
+    [productionContracts, commands, graph, replay]
       .flatMap((source) => [...source.matchAll(/['"](CMP_[A-Z0-9_]+)['"]/g)])
       .map((match) => match[1])
   )].sort();

@@ -2,7 +2,7 @@
 
 **Status:** authoritative cross-product tracker; bounded exact-tree aggregate and the latest code-local asynchronous Git migration are complete, while platform release evidence remains active
 
-**Baseline:** `main@db61bb90`
+**Baseline:** `main@10b8bcd6`
 
 **Last reviewed:** 2026-09-07
 
@@ -126,8 +126,9 @@ ephemeral, content-addressed cause-to-resource graph from only validated observe
 bindings, and `comprehension explain` traverses exact clause, file, and change-region subjects in
 either direction. Symbol, refusal, generation, and test sources report explicit unavailability
 rather than invoking AST or a model. The projection is bounded, tamper-checked, never persisted, and cannot
-authorize or block a lifecycle action. Durable P2 cause authority, an incremental cache, gateway
-planning, structural expansion, and replay remain open.
+authorize or block a lifecycle action. Replay and the resource-level gateway fallback landed later;
+durable P2 cause authority, an incremental cache, structural expansion, and cause-backed gateway
+queries remain open.
 
 The first CMP Story replay projection landed at `main@db61bb90`. `comprehension replay` reuses the
 normalized lifecycle/operational beat vocabulary and returns an exact all/phase/event-kind focus
@@ -136,6 +137,14 @@ summaries, and SGOS Process state, performs no mutation, and refuses malformed s
 It explicitly leaves causal provenance unavailable rather than calling a reopen reverse convergence
 or an operational record post-hoc. P2 cause authority, SGOS/cause joins, fresh-export evidence, and
 governed causal replay remain open.
+
+The first CMP gateway projection landed at `main@10b8bcd6`. The already-declared `intent.trace`
+operation now resolves in both the core and explicit VS Code host planner registries without adding
+a sixth gateway tool. It returns exact current resource-level change identities, excludes source
+bodies, and performs no mutation, AST request, or model request. Because P2 cause authority does
+not exist, it reports cause and line assurance as unavailable rather than inventing an explanation.
+The portable CMP/WEL matrix passes 42/42 on the landing tree; durable cause-backed trace remains
+open.
 
 The strict local Node 22/macOS release aggregate is green at `main@60e37936`. Run
 `ef2adfc807f1380ad2a1c85f` selected 457 files across eight exact-tree shards and passed all 4,645
@@ -191,10 +200,10 @@ This snapshot resolves conflicts between older domain roadmaps and the executabl
 shared primitive does not complete a higher-assurance track: for example, the developer-local
 signed runner is useful M9 evidence, but it is not an authenticated independent CAB/WEL verifier.
 
-| Area | Implemented boundary through `30b13291` | Still open |
+| Area | Implemented boundary through `10b8bcd6` | Still open |
 |---|---|---|
 | Auto v2 | Dependency-free Story profile, P0/P1 controls, interval pacing, and provenance-preserving direct Ad Hoc Candidate adoption | Optional SGOS execution profile and registered comparative-quality evidence |
-| CMP | Model-free, read-only `comprehension regions`, `check`, ephemeral intent graph, exact clause/file/change explanation, content-free normalized Story replay, and release-gated synthetic benchmark | Reviewed real corpus and storage/privacy decision, durable cause authority/index, gateway planner, structural expansion, SGOS/cause replay joins, governed causal provenance, typed walkthroughs, lifecycle enforcement, Comprehension Center, and brownfield policy |
+| CMP | Model-free, read-only `comprehension regions`, `check`, ephemeral intent graph, exact clause/file/change explanation, content-free normalized Story replay, resource-level `intent.trace` through the existing five gateway tools, and release-gated synthetic benchmark | Reviewed real corpus and storage/privacy decision, durable cause authority/index, cause-backed gateway query, structural expansion, SGOS/cause replay joins, governed causal provenance, typed walkthroughs, lifecycle enforcement, Comprehension Center, and brownfield policy |
 | SGOS | Bounded runtime, Universal Candidate code path, Git-trusted authority transport, signed transport, Windows DPAPI-protected local signer, stop-aware bounded Process-lock contention recovery, checkpoint-bound working-set injection, guarded signed-Pack/Device meta-tool activation CLI, native preview/confirm review UI, isolated interruption-resumable learning workspaces, identity-free monotonic portable learning progress with v1-to-v2 migration, and exact-active-Pack-bound offline learning bundles | Real external-adapter Secret Broker integration, signed platform release aggregate, end-to-end proof, additional adapters, orchestration, stores, independent certification, and accessibility validation |
 | WEL | Observe-only witnessed clauses; exact-static local JUnit/Surefire and bounded top-level literal Jest/Vitest adapters; human mapping review; a durable 14-case synthetic JavaScript adversarial corpus; same-process incremental cost; content-free Context X-Ray projection; model-free local Story-start transaction measurement; cancellable Java parser execution; synthetic push/offline/fresh-clone/interrupted-write recovery; strict benchmark binding in signed release receipts; clean Linux Node 20/22 portable matrices; and a complete unsigned Linux Node 22 package/VSIX release gate. Results remain inconclusive | Candidate/Program/attempt join, independently reviewed real corpora, physical Windows and office-network recovery receipts, authenticated hermetic execution, enforcement recovery, further adapter shapes, and signed platform release proof |
 | CAB | CAB v0.2 code-local architecture, adversarial design contract, and observe-only exact-static JUnit pilot are active over existing SGOS/GDP/WEL primitives | Independent R0 ratification, authenticated isolation/trust roots, corpus/platform proof, opt-in enforcement, adequacy, provider adapters, and regulated deployment proof |
@@ -267,7 +276,7 @@ npm/VSIX artifact binding remain governed by the platform items below.
 | World Model Builder v4 | Release receipt generation and enforcement exist; no reviewed six-cell supported-platform aggregate is recorded | `WMB-REL-001` | [WMB v4](WORLD-MODEL-BUILDER-V4.md) |
 | Witnessed Engineering Loop | Exact-static local JUnit and bounded literal Jest/Vitest observations, immutable proposal binding, existing-approval review, migration, release-gated baseline/delta/Context-X-Ray/Story-start/recovery benchmark, cancellable Java parser boundary, isolated npm/VSIX proof, strict signed benchmark-report binding, and a bounded platform-matrix command are active; the portable matrix passes 32/32 on clean Linux Node 20 and 22 containers, the full unsigned Linux Node 22 package gate passes, Node 20 selection reporting is normalized without accepting real skips, and the exact Linux evidence is reconciled through `main@b6d4fdff`; authenticated testcase claims and enforcement remain unavailable | Execute and sign the physical-host/office-network P0 gates, independently review and corpus-test the JavaScript profiles, then satisfy Candidate/Program/attempt and authenticated-runner dependencies | [WEL pending work](WEL-PENDING-WORK.md) |
 | Code Assurance Bridge | CAB-R0 architecture and CAB-R1 observe pilot are active; enforcement remains unavailable | Independent CAB-R0 review plus authenticated CAB-R2 runner authority | [CAB roadmap](CAB-ROADMAP.md) |
-| Governed comprehension | Read-only, non-authoritative P0 contract, closed registries, authority ADR, mutation tripwires, isolated npm/VSIX proof, deterministic corpus/matrix command, content-free P1 benchmark, bounded ephemeral P3 graph/exact explanation reads, and normalized Story replay exist | Execute and sign the unchanged `CMP-P0-001` matrix on Windows and Linux, complete the reviewed P1 storage/privacy decision, and add P2-backed durable graph/causal authority plus SGOS joins before enforcement | [CMP roadmap](CMP-ROADMAP.md) |
+| Governed comprehension | Read-only, non-authoritative P0 contract, closed registries, authority ADR, mutation tripwires, isolated npm/VSIX proof, deterministic corpus/matrix command, content-free P1 benchmark, bounded ephemeral P3 graph/exact explanation reads, normalized Story replay, and an existing-five-tool resource-level gateway trace exist | Execute and sign the unchanged `CMP-P0-001` matrix on Windows and Linux, complete the reviewed P1 storage/privacy decision, and add P2-backed durable graph/causal authority plus SGOS joins before enforcement | [CMP roadmap](CMP-ROADMAP.md) |
 | Governed Delivery and Proof | M0–M8 are implemented; M9–M11 have code-local partial surfaces and remain non-GA | Authenticated M9 runner/verifier and signed release evidence before provider pilots or enforcement | [GDP milestone roadmap](GDP-DELIVERY-ROADMAP.md) |
 | Auto v2 | Story P0/P1, model/AST optionality, and direct Ad Hoc Candidate adoption are implemented | Optional SGOS profile after its independent acceptance contract, plus registered comparative-quality evidence | [Auto v2 roadmap](AUT-V2-IMPLEMENTATION-ROADMAP.md) |
 

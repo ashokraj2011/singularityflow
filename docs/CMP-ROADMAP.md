@@ -6,18 +6,19 @@
 
 **Original design baseline:** `main@1cc36d6e`
 
-**Last implementation audit:** `main@3b5d79e6` on 2026-08-31; the observe-only foundation
-described below is the only implemented CMP tranche
+**Last formal specification audit:** `main@3b5d79e6` on 2026-08-31; subsequent bounded increments
+are reconciled individually below and do not change that audit's authority/enforcement verdict
 
-**Current reconciliation:** checked through `main@db61bb90` on 2026-09-07; the first content-free
-P1 measurement harness and read-only P3 graph/query/Story-replay projections are active, while P1
-storage/retention authority, P2 authority, the P3 durable index and SGOS/cause replay joins, and
-P4–P6 remain open
+**Current reconciliation:** checked through `main@10b8bcd6` on 2026-09-07; the first content-free
+P1 measurement harness and read-only P3 graph/query/Story-replay projections are active, and the
+existing five-tool gateway now serves a conservative resource-level `intent.trace`; P1
+storage/retention authority, P2 authority, the P3 durable index and cause-backed gateway/SGOS joins,
+and P4–P6 remain open
 
-**Current delivery boundary:** observe-only foundation, a synthetic content-free P1 benchmark, and
-deterministic ephemeral P3 graph/query and normalized Story-history replay projections; no
-publication gate, approval authority, durable CMP store or index, SGOS Process join, causal replay,
-or new publisher
+**Current delivery boundary:** observe-only foundation, a synthetic content-free P1 benchmark,
+deterministic ephemeral P3 graph/query and normalized Story-history replay projections, and a
+model-free resource-change gateway fallback; no publication gate, approval authority, durable CMP
+store or index, governed gateway cause, SGOS Process join, causal replay, or new publisher
 
 **Related roadmaps:** [SGOS pending work](SGOS-PENDING-WORK.md) and
 [Witnessed Engineering Loop pending work](WEL-PENDING-WORK.md)
@@ -76,6 +77,11 @@ inspection boundary while preserving every existing lifecycle behavior.
   projects the existing normalized Story lifecycle chronology. It excludes actors, operational
   detail, prompts, transcripts, model summaries, and SGOS Process state, and never mutates replay
   state.
+- The already-registered gateway operation `intent.trace` now resolves through the existing five
+  gateway tools in the CLI and VS Code hosts. It can report exact current resource-level change
+  regions for one normalized repository path, but reports governed cause as unavailable until P2
+  authority exists. It invokes neither a model nor AST, includes no source body, and performs no
+  mutation.
 - Baseline precedence is explicit `--base`, generation intent, current work interval, delivery
   evidence, Story base, then `HEAD`; the selected source is reported. When `--base` is combined
   with Story/phase selection, that context must still resolve and is not silently discarded.
@@ -127,8 +133,8 @@ The first P3 graph projection landed at `main@bd79630b`. It is model-free, AST-o
 5,000 nodes/edges and 500 query results, rejects tampered manifests, assessments, graphs, and
 non-normalized paths, and exposes opaque exact node handles. It deliberately creates no cache or
 durable authority and cannot affect a lifecycle gate. The combined portable CMP/WEL matrix passes
-34/34 on the landing tree. Replay, gateway planning, a rebuildable index, structural expansion,
-and P2-backed durable causes remain open.
+34/34 on the landing tree. Replay and the resource-level gateway fallback landed later; a
+rebuildable index, structural expansion, and P2-backed durable causes remain open.
 
 The first P3 Story replay projection landed at `main@db61bb90`. It reuses the one normalized Story
 beat vocabulary, applies deterministic ordering/deduplication and an exact phase/event-kind focus,
@@ -137,6 +143,14 @@ operational provenance remain distinct. Causal provenance is explicitly unavaila
 reopen is not called reverse convergence, and an operational record is not called post-hoc without
 a governed causal source. This command is read-only and intentionally separate from the mutating
 SGOS Process replay. The combined portable CMP/WEL matrix passes 40/40 on the landing tree.
+
+The first P3 gateway projection landed at `main@10b8bcd6`. It implements the existing
+`intent.trace` planner in both the core gateway and the explicit VS Code host registry without
+adding a sixth tool. The planner reads the exact current repository change set, returns bounded
+resource identities only, and refuses a mismatched repository. It does not return source bodies or
+infer why a change exists: cause and line-level assurance remain explicitly unavailable. The
+portable CMP/WEL matrix passes 42/42 on the landing tree; a P2-authority-backed cause query remains
+open.
 
 ## Verified implementation status
 
@@ -157,7 +171,7 @@ as permission to submit, approve, publish, or merge.
 | P0 — contracts and reads | **Partial** | Conservative resource regions; closed cause/relationship/disposition/assurance/availability/refusal/diagnostic registries; bounded diagnostic validation; `regions` and `check`; authority ADR; no-model/no-AST/no-write/no-lifecycle tripwires; isolated npm/VSIX engine proof | Supported-platform deterministic corpus execution |
 | P1 — pilot and storage decision | **Partial** | Release-gated content-free synthetic benchmark for latency, CPU, counts, availability, and storage-size preview; no durable state | Reviewed real corpus, supported-platform measurements, storage/retention/privacy decision, record-mode preview, migration prototype, and independent rollout decision |
 | P2 — governed cause recording | **Contract fragments only** | Cause, binding, disposition, and transformation-receipt validators over untrusted diagnostic input | Trusted authority lookup, durable versioned records, migrations, proposal/confirmation/supersession, recovery, and incorporation into the existing review transaction |
-| P3 — intent graph and replay | **Partial read projection** | Deterministic ephemeral graph over validated diagnostic bindings; bounded exact clause/file/change reads; opaque handles; explicit unavailable structure; content-free normalized Story chronology with exact focus and source provenance; no model, AST requirement, write, or gate | Durable typed index over P2 authority, cache rebuild, gateway planner, structural expansion, SGOS/cause joins, causal replay, and governed reverse-convergence/post-hoc provenance |
+| P3 — intent graph and replay | **Partial read projection** | Deterministic ephemeral graph over validated diagnostic bindings; bounded exact clause/file/change reads; opaque handles; content-free normalized Story chronology; existing five-tool gateway resource fallback; explicit unavailable cause/structure; no model, AST requirement, write, or gate | Durable typed index over P2 authority, cache rebuild, cause-backed gateway query, structural expansion, SGOS/cause joins, causal replay, and governed reverse-convergence/post-hoc provenance |
 | P4 — walkthroughs | **Not implemented** | None | Typed claims, deterministic validators, model-draft boundary, dual hashes, evidence validation, staleness, and revalidation receipts |
 | P5 — enforcement | **Blocked by prerequisites** | None; ordinary publication is deliberately unchanged | Universal lifecycle Candidate, existing-review-subject binding, existing approval/publication integration, projected receipt, recovery, and opt-in creation-pinned enforcement |
 | P6 — VS Code, learning, brownfield | **Not implemented** | Help content and generic `/sf-inspect comprehension` routing only | Leased snapshot slice, Comprehension Center, navigation, replay/walkthrough/staleness views, lessons, touched-area policy, backfill, accessibility, and large-repository hardening |
@@ -165,10 +179,12 @@ as permission to submit, approve, publish, or merge.
 ### Explain-change and intent-trace boundary
 
 The registered `intent.trace` phrase family (`why does this code exist`, `trace the intent`, and
-`which decision produced this`) is not itself proof that CMP authority exists. The code-local pilot
-now has a bounded ephemeral CMP graph and exact cause-to-resource/resource-to-cause projection, but
-it reads caller-supplied observe-only evidence and has no durable P2 cause authority or CMP gateway
-planner. The public surface remains namespaced:
+`which decision produced this`) is not itself proof that CMP authority exists. Its model-free
+gateway planner can now report exact current resource-level change regions through the existing
+five tools, but it must return cause as unavailable. The code-local pilot also has a bounded
+ephemeral CMP graph and exact cause-to-resource/resource-to-cause projection, but that graph reads
+caller-supplied observe-only evidence and there is still no durable P2 cause authority. The public
+CLI surface remains namespaced:
 
 ```text
 singularity-flow comprehension explain clause <CLAUSE-ID>
@@ -211,7 +227,7 @@ v1 release criteria, any enforcement acceptance criterion, or a native VS Code C
 | `CMP-P0-001` | Finish the read-only foundation. The code-local contract, registries, authority ADR, bounded inputs, mutation tripwires, corrected `--phase` recovery text, isolated npm/VSIX loading proof, and deterministic corpus/matrix command are implemented. The unchanged matrix also passes 32/32 on Linux x64 under Node 20.20.2 and 22.23.2 at `main@780da007`. | Signed physical-host execution of the unchanged matrix command on Windows and Linux remains before P0 exit; emulated unsigned containers are portability evidence only |
 | `CMP-P1-001` | The content-free local benchmark is implemented and release-gated at `898cb4a0`; decide storage, retention, privacy, measured budgets, and creation-pinned `off`/`record` rollout | Approved ADRs, real-corpus and supported-platform evidence, migration prototype, and independent pilot review |
 | `CMP-P2-001` | Add governed cause proposals, confirmations, terminal dispositions, and narrow transformation authority | Durable schemas/migrations plus authority, staleness, recovery, ref-race, and adversarial-laundering tests |
-| `CMP-P3-001` | The ephemeral graph and exact `comprehension explain` reads landed at `bd79630b`; add the P2-authority-backed incremental index, cache rebuild, structural expansion, and gateway planner | Current bidirectional clause/file/change parity, bounded exact handles, unavailable-structure, tamper, no-model, no-write, and no-lifecycle tests are green; cache rebuild and gateway no-extra-tool evidence remain |
+| `CMP-P3-001` | The ephemeral graph and exact `comprehension explain` reads landed at `bd79630b`; the model-free resource-level `intent.trace` gateway fallback landed at `10b8bcd6`; add the P2-authority-backed incremental index, cache rebuild, structural expansion, and cause-backed gateway query | Current bidirectional clause/file/change parity, bounded exact handles, unavailable-cause/structure, tamper, no-model, no-write, no-lifecycle, existing-five-tool, CLI-host, and VS Code-host tests are green; P2 cause authority and cache rebuild remain |
 | `CMP-P3-002` | The content-free normalized Story replay landed at `db61bb90`; add P2 cause records, SGOS lineage joins, refusal/repair subjects, and governed reverse-convergence/post-hoc provenance without colliding with SGOS Process replay | Current ordering, exact focus, source validation, privacy/transcript exclusion, ceiling, no-model, no-write, and command-collision tests are green; fresh-export, SGOS/cause join, recovery, and causal-provenance evidence remain |
 | `CMP-P4-001` | Implement typed walkthroughs, validators, exact expansion, and selective/conservative staleness | Counterfeit-model, prompt-injection, malformed/overflow, Candidate/evidence/structure drift, and zero-model tests |
 | `CMP-P5-001` | Integrate CMP into the single existing Candidate/review/approval/publication transaction | `SGOS-P0-001`, every-workflow lifecycle matrix, remote rejection/push recovery, crash/retry, and fresh-export receipt verification |

@@ -8,7 +8,7 @@ import {
 import { enumField, registerMessageRouter, stringField } from './messages.ts';
 import { contentSecurityPolicy, escape, icon, nonce, page } from './webview.ts';
 
-type Tab = 'regions' | 'diff' | 'causes' | 'walkthrough' | 'replay' | 'unknowns';
+type Tab = 'regions' | 'diff' | 'evidence' | 'causes' | 'walkthrough' | 'replay' | 'unknowns';
 
 function shortDigest(value: unknown): string {
   const digest = String(value ?? '');
@@ -53,6 +53,29 @@ function diff(snapshot: ComprehensionIdeSnapshot): string {
   return `<section><h2>Exact bounded diff</h2><p class="meta">Git patch · ${preview.bytes} bytes · <code>${escape(shortDigest(preview.patchSha256))}</code>. This transient payload is evicted when the panel is hidden or closed and is never restored from the snapshot cache.</p><pre class="source-preview" tabindex="0">${escape(preview.patch)}</pre>${omitted}<p class="callout"><strong>Authority boundary:</strong> this is the exact local Git patch for inspection, not semantic evidence or approval.</p></section>`;
 }
 
+function evidence(snapshot: ComprehensionIdeSnapshot): string {
+  const value = snapshot.evidence;
+  if (value.status !== 'available') {
+    return `<section><h2>Recorded delivery evidence</h2><div class="empty"><p>Delivery evidence is ${escape(value.status)}: <code>${escape(value.reason ?? 'CMP_EVIDENCE_UNAVAILABLE')}</code>.</p><p>This view never creates evidence or blocks ordinary work.</p></div></section>`;
+  }
+  const linked = new Map(value.regions.map((entry) => [entry.regionSha256, entry]));
+  const rows = snapshot.manifest.regions.filter((region) => linked.has(region.regionSha256))
+    .map((region) => {
+      const record = linked.get(region.regionSha256)!;
+      const file = regionPath(region);
+      return `<tr><td><button class="link" type="button" data-open-file="${escape(file)}">${escape(file)}</button></td><td>${record.roles.map((role) => `<span class="badge">${escape(role)}</span>`).join(' ')}</td><td>${record.testCommandIds.length ? record.testCommandIds.map((id) => `<code>${escape(id)}</code>`).join(' ') : '—'}</td></tr>`;
+    }).join('');
+  const receipts = value.testExecutions.length
+    ? `<div class="table-wrap"><table><thead><tr><th>Test command</th><th>Status</th><th>Receipt</th></tr></thead><tbody>${value.testExecutions.map((entry) => `<tr><td><code>${escape(entry.commandId)}</code></td><td>${escape(entry.status)}</td><td><code>${escape(shortDigest(entry.receiptSha256))}</code></td></tr>`).join('')}</tbody></table></div>`
+    : '<p>No test-execution receipt is recorded for this phase generation.</p>';
+  return `<section><h2>Recorded delivery evidence</h2><p class="meta">Phase ${escape(value.phase ?? 'unknown')} · generation ${escape(value.generation ?? 'unknown')} · delivery ${escape(value.deliveryStatus ?? 'unavailable')} · projection <code>${escape(shortDigest(value.evidenceProjectionSha256))}</code></p>
+    <div class="summary-grid"><div class="summary-card"><strong>${value.counts.acceptanceTagged}/${value.counts.acceptanceRequired}</strong><span>acceptance clauses tagged</span></div><div class="summary-card ${value.counts.acceptanceMissing ? 'important' : ''}"><strong>${value.counts.acceptanceMissing}</strong><span>acceptance gaps</span></div><div class="summary-card"><strong>${value.counts.testExecutions}</strong><span>test receipts</span></div><div class="summary-card"><strong>${value.counts.linkedRegions}</strong><span>evidence-linked regions</span></div></div>
+    <h3>Region roles and test coverage</h3>${rows ? `<div class="table-wrap"><table><thead><tr><th>Exact region path</th><th>Recorded role</th><th>Covering command</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p>No current change region is named by the phase delivery record.</p>'}
+    <h3>Test receipts</h3>${receipts}
+    ${value.truncated ? '<p class="warning">The bounded evidence projection omitted records beyond its reviewed ceiling.</p>' : ''}
+    <p class="callout"><strong>Authority boundary:</strong> these are references already recorded in workflow state. This read-only view does not reopen receipts, upgrade assurance, or authorize lifecycle progress.</p></section>`;
+}
+
 function walkthrough(snapshot: ComprehensionIdeSnapshot): string {
   const draft = snapshot.walkthrough.draft;
   if (!draft) return `<div class="empty"><p>No deterministic walkthrough draft is available: <code>${escape(snapshot.walkthrough.unavailableReason ?? 'CMP_WALKTHROUGH_UNAVAILABLE')}</code>.</p></div>`;
@@ -86,14 +109,15 @@ export function comprehensionCenterBody(
   error: string | null
 ): string {
   const tabs: Array<[Tab, string]> = [
-    ['regions', 'Regions'], ['diff', 'Diff'], ['causes', 'Cause map'], ['walkthrough', 'Walkthrough'],
+    ['regions', 'Regions'], ['diff', 'Diff'], ['evidence', 'Evidence'], ['causes', 'Cause map'], ['walkthrough', 'Walkthrough'],
     ['replay', 'Replay'], ['unknowns', 'Unknowns']
   ];
   const content = !snapshot
     ? '<div class="empty"><p>The comprehension projection is not available yet.</p></div>'
     : tab === 'regions' ? regions(snapshot)
       : tab === 'diff' ? diff(snapshot)
-        : tab === 'causes' ? causeMap(snapshot)
+        : tab === 'evidence' ? evidence(snapshot)
+          : tab === 'causes' ? causeMap(snapshot)
           : tab === 'walkthrough' ? walkthrough(snapshot)
             : tab === 'replay' ? replay(snapshot) : unknowns(snapshot);
   return `<header><p class="eyebrow">Comprehension</p><h1>${icon('code', { size: 24 })} Comprehension Center</h1><p class="meta">Trace the exact repository interval, what is known, and what remains unavailable. This surface is read-only and model-free.</p></header>
@@ -153,7 +177,7 @@ export class ComprehensionCenterPanel {
     this.store = store;
     const router = registerMessageRouter('singularityFlow.comprehensionCenter', {
       tab: (message) => {
-        const tab = enumField(message, 'tab', ['regions', 'diff', 'causes', 'walkthrough', 'replay', 'unknowns'] as const);
+        const tab = enumField(message, 'tab', ['regions', 'diff', 'evidence', 'causes', 'walkthrough', 'replay', 'unknowns'] as const);
         if (tab) { this.tab = tab; this.render(); }
       },
       refresh: () => void this.refresh(),

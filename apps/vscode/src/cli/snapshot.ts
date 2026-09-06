@@ -958,6 +958,32 @@ export interface ComprehensionIdeSnapshot {
     trackedRegions: number;
     omittedUntrackedRegions: number;
   };
+  evidence: {
+    schemaVersion: 1;
+    kind: 'comprehension-recorded-evidence';
+    authoritative: false;
+    lifecycleGate: false;
+    candidateSha256: string;
+    evidenceProjectionSha256: string;
+    status: 'available' | 'unavailable' | 'not-applicable';
+    reason: string | null;
+    phase: string | null;
+    generation: number | null;
+    deliveryStatus: string | null;
+    deliveryReceiptSha256: string | null;
+    acceptance: { required: string[]; tagged: string[]; missing: string[]; omitted: number };
+    testExecutions: Array<{
+      commandId: string; status: string; receiptSha256: string | null; affectedRoots: string[];
+    }>;
+    regions: Array<{
+      regionSha256: string; path: string | null; roles: string[]; testCommandIds: string[];
+    }>;
+    counts: {
+      acceptanceRequired: number; acceptanceTagged: number; acceptanceMissing: number;
+      testExecutions: number; linkedRegions: number;
+    };
+    truncated: boolean;
+  };
   coverage: {
     resultSha256: string;
     verdict: string;
@@ -1017,7 +1043,7 @@ export interface ComprehensionIdeSnapshot {
   };
   availability: {
     structure: string; causeGraph: string; durableAuthority: string;
-    walkthrough: string; replay: string; diff: string;
+    walkthrough: string; replay: string; diff: string; evidence: string;
   };
 }
 

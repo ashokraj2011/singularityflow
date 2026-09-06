@@ -5211,6 +5211,8 @@ test('Comprehension Center is a lazy leased read-only surface with explicit unkn
     'the first Center release is observation only');
   assert.match(panel, /No governed cause bindings are available/);
   assert.match(panel, /Exact bounded diff/);
+  assert.match(panel, /Recorded delivery evidence/,
+    'the Center exposes only the delivery references already recorded for the current phase');
   assert.match(panel, /untracked file\(s\) omitted/,
     'new untracked bodies are not copied into the in-memory webview snapshot');
   assert.match(panel, /Explicit unknowns/);
@@ -5218,7 +5220,7 @@ test('Comprehension Center is a lazy leased read-only surface with explicit unkn
   assert.match(panel, /role="tab"[\s\S]*aria-selected/);
   assert.match(panel, /role="tabpanel"[\s\S]*aria-labelledby/);
   assert.match(panel, /ArrowLeft[\s\S]*ArrowRight[\s\S]*Home[\s\S]*End/,
-    'the six views are operable without a pointing device');
+    'the seven views are operable without a pointing device');
   assert.match(panel, /role="alert"/,
     'a failed optional projection is announced without becoming lifecycle authority');
   assert.match(panel, /allowedPath\(file/,

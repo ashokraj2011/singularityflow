@@ -5,6 +5,7 @@ import { buildRepositoryChangeSet } from '../repository-change-set.mjs';
 import { buildChangeRegionManifest, evaluateComprehensionCoverage } from './contracts.mjs';
 import { resolveComprehensionBaseline } from './context.mjs';
 import { buildComprehensionDiffPreview } from './diff-preview.mjs';
+import { buildComprehensionEvidenceProjection } from './evidence-projection.mjs';
 import { buildComprehensionGraph } from './graph.mjs';
 import { buildComprehensionReplay } from './replay.mjs';
 import { buildComprehensionWalkthroughDraft } from './walkthrough.mjs';
@@ -45,14 +46,19 @@ export async function loadComprehensionIdeSlice(root) {
   }
 
   let replay = null;
+  let selectedWorkflow = null;
   if (context.workId) {
     const selected = resolveContext(subjectIndex, {
       reference: context.workId,
       kind: 'story',
       required: true
     });
-    replay = buildComprehensionReplay(selected.state);
+    selectedWorkflow = selected.state;
+    replay = buildComprehensionReplay(selectedWorkflow);
   }
+  const evidence = buildComprehensionEvidenceProjection({
+    workflow: selectedWorkflow, phaseId: context.phase, manifest
+  });
 
   return {
     schemaVersion: 1, // schema-transient: leased, read-only IDE projection; never persisted
@@ -65,6 +71,7 @@ export async function loadComprehensionIdeSlice(root) {
     diff,
     coverage,
     graph,
+    evidence,
     walkthrough: {
       draft,
       unavailableReason: draft ? null : draftUnavailableReason
@@ -85,7 +92,8 @@ export async function loadComprehensionIdeSlice(root) {
       durableAuthority: graph.availability.durableAuthority,
       diff: diff.status,
       walkthrough: draft ? 'available' : 'unavailable',
-      replay: replay ? 'available' : 'unavailable'
+      replay: replay ? 'available' : 'unavailable',
+      evidence: evidence.status
     }
   };
 }

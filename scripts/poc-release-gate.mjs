@@ -55,6 +55,7 @@ export function pocReleaseStages({ rootDir = root, nodeVersion = process.version
         'test/install-staged-artifacts.test.mjs', 'test/local-install-script.test.mjs',
         'test/vscode-sgos-workflow-create.test.mjs', 'test/comprehension-contracts.test.mjs',
         'test/comprehension-command.test.mjs', 'test/comprehension-diff-preview.test.mjs',
+        'test/comprehension-evidence-projection.test.mjs',
         'test/wel-junit5.test.mjs',
         'test/wel-javascript.test.mjs',
         // These files inspect the reporter and this stage manifest. Importing the gate is inert,

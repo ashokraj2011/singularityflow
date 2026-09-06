@@ -6,6 +6,7 @@ const TEST_FILES = Object.freeze([
   'test/comprehension-contracts.test.mjs',
   'test/comprehension-command.test.mjs',
   'test/comprehension-diff-preview.test.mjs',
+  'test/comprehension-evidence-projection.test.mjs',
   'test/comprehension-gateway.test.mjs',
   'test/comprehension-replay.test.mjs',
   'test/wel-junit5.test.mjs',

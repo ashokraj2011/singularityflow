@@ -13,7 +13,8 @@ budgets or authorize implementation.
 ## Budgets
 
 On the pinned CI runtime and reference fixture, warm-command p50 must be at most 150 ms for all
-four commands. Repository-only snapshot p95 must be at most 250 ms. A comparable accepted
+four commands. Every measured interactive read has an explicit p50 and p95 ceiling; repository-only
+snapshot p95 must be at most 250 ms. A comparable accepted
 baseline also rejects a p50 or p95 regression greater than 20 percent, even when the absolute
 budget still passes.
 
@@ -62,6 +63,24 @@ untracked files before repeatedly running the exact VS Code snapshot. Its p50, p
 reported so release runs expose tail behavior. Its enforced contract is machine-independent: the
 subprocess count may grow by at most 1.2× from the clean reference, so a save or watcher burst cannot
 turn refresh into one subprocess per changed path.
+
+## Independent topology-tail fixtures
+
+Three repository shapes are measured independently because averaging them into the reference fixture
+would make a slow result impossible to diagnose:
+
+- `ignoredBuildTree` creates 4,096 real ignored outputs under 64 directories and verifies Git exposes
+  them as one ignored directory entry;
+- `cleanSubmodule` adds one real, clean local Git submodule without using the network;
+- `linkedWorktree` runs from a linked checkout (where `.git` is an indirection file), with 64 modified,
+  64 renamed, and 128 untracked paths nested five directories deep.
+
+Each tier records its own p50, p95, maximum, subprocess count, and growth from the clean reference.
+The report maps the pre-existing scale and working-tree tiers to the many-Story/ref and rename/untracked
+requirements, so coverage is explicit rather than inferred. Reports identify Node, Git, OS,
+architecture, temporary-filesystem case behavior, and the absence of a VS Code host separately. No
+repository path is retained. Pass `--skip-tail-fixtures` for a quick local run; accepted release
+baseline candidates must include all three.
 
 ## Run the benchmark
 

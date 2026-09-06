@@ -18,6 +18,7 @@ const enforce = process.argv.includes('--enforce');
 const json = process.argv.includes('--json');
 const writeBaseline = process.argv.includes('--write-baseline');
 const skipConnected = process.argv.includes('--skip-connected');
+const skipTailFixtures = process.argv.includes('--skip-tail-fixtures');
 const acceptedReportPath = option('accept-report');
 
 function assertBaselineCandidate(report) {
@@ -38,6 +39,9 @@ function assertBaselineCandidate(report) {
     if (report.topology?.[key] !== expected) throw new Error(`Baseline candidate topology.${key} does not match the reference fixture.`);
   }
   if (report.passed !== true || (report.failures?.length ?? 0) !== 0) throw new Error('A failing benchmark report cannot become the accepted baseline.');
+  if (!report.tailFixtures || Object.keys(report.tailFixtures.results ?? {}).length !== 3) {
+    throw new Error('Baseline candidate is missing the complete tail-fixture report.');
+  }
   for (const command of Object.keys(commands)) {
     if (!report.commands?.[command] || report.commands[command].samples !== fixtureManifest.protocol.samples) {
       throw new Error(`Baseline candidate is missing the complete ${command} sample summary.`);
@@ -219,6 +223,114 @@ async function applyWorkingTreePressure(root, topology) {
   }
   await forEachConcurrent(topology.untrackedFiles - existingUntracked, (index) =>
     writeFile(path.join(root, `working-tree-untracked-${index}.txt`), 'untracked pressure\n', 'utf8'));
+}
+
+/**
+ * An ignored tree should be one bounded status entry, not thousands of files handed to JavaScript.
+ * The files are intentionally real: a fixture that merely writes a .gitignore rule cannot detect a
+ * later implementation which walks the filesystem before consulting Git.
+ */
+async function createIgnoredBuildFixture(declared) {
+  const root = await createFixture();
+  try {
+    await writeFile(path.join(root, '.gitignore'), 'build/\n', 'utf8');
+    git(root, ['add', '.gitignore']);
+    git(root, ['commit', '-q', '-m', 'Ignore generated build tree']);
+    await forEachConcurrent(declared.directories, (directory) =>
+      mkdir(path.join(root, 'build', String(directory), 'classes'), { recursive: true }));
+    await forEachConcurrent(declared.ignoredFiles, (index) => writeFile(path.join(root, 'build',
+      String(index % declared.directories), 'classes', `Generated${index}.class`), 'ignored fixture\n', 'utf8'));
+    const ignored = git(root, ['status', '--porcelain=v1', '--ignored=matching', '--', 'build'])
+      .split('\n').filter(Boolean);
+    if (ignored.length !== 1 || ignored[0] !== '!! build/') {
+      throw new Error(`Ignored-build fixture exposed ${ignored.length} status entries; expected one ignored directory.`);
+    }
+    return { root, topology: { ignoredFiles: declared.ignoredFiles, directories: declared.directories,
+      ignoredStatusEntries: ignored.length } };
+  } catch (error) {
+    await rm(root, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+/** A clean local submodule keeps this deterministic and offline while exercising a real gitlink. */
+async function createSubmoduleFixture(declared) {
+  const module = await mkdtemp(path.join(os.tmpdir(), 'sflow-dx-module-'));
+  let root = null;
+  try {
+    git(module, ['init', '-q', '-b', 'main']);
+    git(module, ['config', 'user.name', 'DX Benchmark']);
+    git(module, ['config', 'user.email', 'dx@example.invalid']);
+    await writeFile(path.join(module, 'README.md'), '# deterministic local submodule\n', 'utf8');
+    git(module, ['add', 'README.md']);
+    git(module, ['commit', '-q', '-m', 'Submodule fixture']);
+    root = await createFixture();
+    git(root, ['-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', module, 'vendor/dependency']);
+    git(root, ['commit', '-q', '-m', 'Add clean submodule']);
+    const rows = execFileSync('git', ['submodule', 'status', '--recursive'], {
+      cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']
+    }).split('\n').filter(Boolean);
+    if (rows.length !== declared.submodules || rows.some((row) => !row.startsWith(' '))) {
+      throw new Error(`Submodule fixture has ${rows.length} entries or a dirty pointer; expected ${declared.submodules} clean submodule.`);
+    }
+    return { root, module, topology: { submodules: rows.length, clean: true } };
+  } catch (error) {
+    if (root) await rm(root, { recursive: true, force: true });
+    await rm(module, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+/**
+ * Exercise the `.git` indirection used by linked worktrees and nest every changed path deeply.
+ * This catches cache keys and repository discovery code which accidentally assume `.git/` is a
+ * directory or make one Git call per directory level.
+ */
+async function createLinkedWorktreeFixture(declared) {
+  const root = await createFixture();
+  const container = await mkdtemp(path.join(os.tmpdir(), 'sflow-dx-linked-'));
+  const linked = path.join(container, 'checkout');
+  let added = false;
+  try {
+    git(root, ['worktree', 'add', '-q', '-b', 'dx-tail-linked', linked, 'HEAD']);
+    added = true;
+    const renamed = [];
+    for (let index = 0; index < declared.renamedFiles; index += 1) {
+      const source = `src/${Math.floor(index / 100)}/file-${index}.txt`;
+      const nested = Array.from({ length: declared.nestingDepth }, (_, depth) => `level-${depth}`).join('/');
+      const destination = `src/${nested}/renamed-${index}.txt`;
+      await mkdir(path.dirname(path.join(linked, destination)), { recursive: true });
+      await rename(path.join(linked, source), path.join(linked, destination));
+      renamed.push(source, destination);
+    }
+    git(linked, ['add', '-A', '--', ...renamed]);
+    const modifiedStart = declared.renamedFiles;
+    await forEachConcurrent(declared.modifiedFiles, (offset) => {
+      const index = modifiedStart + offset;
+      return writeFile(path.join(linked, `src/${Math.floor(index / 100)}/file-${index}.txt`),
+        `nested worktree modification ${index}\n`, 'utf8');
+    });
+    const scratch = path.join(linked, ...Array.from({ length: declared.nestingDepth }, (_, depth) => `scratch-${depth}`));
+    await mkdir(scratch, { recursive: true });
+    await forEachConcurrent(declared.untrackedFiles, (index) =>
+      writeFile(path.join(scratch, `untracked-${index}.txt`), 'nested untracked fixture\n', 'utf8'));
+    const dirty = verifyWorkingTreeTopology(linked, {
+      modifiedFiles: declared.modifiedFiles,
+      renamedFiles: declared.renamedFiles,
+      untrackedFiles: declared.untrackedFiles
+    });
+    const absoluteGit = git(linked, ['rev-parse', '--absolute-git-dir']);
+    const commonGit = git(linked, ['rev-parse', '--git-common-dir']);
+    const gitIndirection = existsSync(path.join(linked, '.git')) && absoluteGit !== path.resolve(linked, commonGit);
+    if (!gitIndirection) throw new Error('Linked-worktree fixture did not produce distinct administrative and common Git directories.');
+    return { root, linked, container, topology: { ...dirty, nestingDepth: declared.nestingDepth,
+      linkedWorktree: true, gitIndirection: true } };
+  } catch (error) {
+    if (added) spawnSync('git', ['worktree', 'remove', '--force', linked], { cwd: root, encoding: 'utf8' });
+    await rm(container, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 /** Count logical porcelain-v2 records, consuming the extra source-path token after a rename. */
@@ -648,6 +760,62 @@ try {
   }
 
   /**
+   * Topology tails which are not interchangeable with repository scale or an ordinary dirty tree.
+   * Each scenario is created from the same reference commit, measured separately, and removed
+   * before the next one. The report therefore says which Git shape caused a tail instead of
+   * averaging unlike repositories into a number nobody can diagnose.
+   */
+  const tail = fixtureManifest.tailFixtures;
+  let tailFixtureResults = null;
+  if (tail && !skipTailFixtures) {
+    const results = {};
+    const measure = (name, root, topology) => {
+      const declaration = tail[name];
+      const args = commands[tail.command];
+      timed(root, args);
+      const values = Array.from({ length: Math.min(samples, tail.samples) }, () => timed(root, args));
+      const subprocesses = countSubprocesses(invoke(root, args, { probe: true }).stderr);
+      const reference = referenceSubprocesses[tail.command];
+      const growth = reference ? subprocesses / reference : null;
+      const measured = {
+        topology, command: tail.command, ...summarizeSamples(values), subprocesses,
+        referenceSubprocesses: reference, subprocessGrowth: growth
+      };
+      if (growth !== null && growth > declaration.subprocessGrowth) {
+        failures.push(`tailFixtures.${name}.${tail.command} ran ${subprocesses} subprocesses against`
+          + ` ${reference} on the reference fixture (${growth.toFixed(2)}x, allowed`
+          + ` ${declaration.subprocessGrowth}x).`);
+      }
+      results[name] = measured;
+    };
+
+    const ignored = await createIgnoredBuildFixture(tail.ignoredBuildTree);
+    try {
+      measure('ignoredBuildTree', ignored.root, ignored.topology);
+    } finally {
+      await rm(ignored.root, { recursive: true, force: true });
+    }
+
+    const submodule = await createSubmoduleFixture(tail.cleanSubmodule);
+    try {
+      measure('cleanSubmodule', submodule.root, submodule.topology);
+    } finally {
+      await rm(submodule.root, { recursive: true, force: true });
+      await rm(submodule.module, { recursive: true, force: true });
+    }
+
+    const linked = await createLinkedWorktreeFixture(tail.linkedWorktree);
+    try {
+      measure('linkedWorktree', linked.linked, linked.topology);
+    } finally {
+      git(linked.root, ['worktree', 'remove', '--force', linked.linked]);
+      await rm(linked.container, { recursive: true, force: true });
+      await rm(linked.root, { recursive: true, force: true });
+    }
+    tailFixtureResults = { command: tail.command, coverage: { ...tail.coverage }, results };
+  }
+
+  /**
    * Dirty-tree refresh tail: the exact UI snapshot under modified, renamed and untracked pressure.
    *
    * Wall-clock percentiles are reported so a release benchmark can see the tail, but the enforced
@@ -733,9 +901,18 @@ try {
     schemaVersion: 1,
     recordedAt: new Date().toISOString(),
     connected: connectedResults,
+    tailFixtures: tailFixtureResults,
     workingTree: workingTreeResults,
     scale: scaleResults,
-    runtime: { node: process.version, nodeMajor: Number(process.versions.node.split('.')[0]), platform: process.platform, architecture: process.arch },
+    runtime: {
+      node: process.version,
+      nodeMajor: Number(process.versions.node.split('.')[0]),
+      git: git(fixture, ['--version']),
+      platform: process.platform,
+      architecture: process.arch,
+      filesystem: { temporaryStorage: 'system', caseSensitive: !existsSync(path.join(fixture, 'SINGULARITY', 'workflow.yml')) },
+      vscode: null
+    },
     protocol: { ...fixtureManifest.protocol, samples }, topology,
     commands: commandResults,
     baselineComparison: comparableBaseline ? 'applied' : 'not-comparable',
@@ -766,6 +943,15 @@ try {
         + ` · subprocesses ${workingTreeResults.subprocesses} vs`
         + ` ${workingTreeResults.referenceSubprocesses}`
         + ` (${workingTreeResults.subprocessGrowth === null ? 'n/a' : `${workingTreeResults.subprocessGrowth.toFixed(2)}x`})`);
+    }
+    if (tailFixtureResults) {
+      console.log('\ntail fixtures · independently measured Git/filesystem shapes');
+      for (const [name, result] of Object.entries(tailFixtureResults.results)) {
+        console.log(`${name.padEnd(18)} p50 ${result.p50Ms.toFixed(1)}ms · p95 ${result.p95Ms.toFixed(1)}ms`
+          + ` · max ${result.maxMs.toFixed(1)}ms · subprocesses ${result.subprocesses} vs`
+          + ` ${result.referenceSubprocesses}`
+          + ` (${result.subprocessGrowth === null ? 'n/a' : `${result.subprocessGrowth.toFixed(2)}x`})`);
+      }
     }
     if (scaleResults) {
       const { topology: scaleTopology, commands: scaled } = scaleResults;

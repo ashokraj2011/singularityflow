@@ -21,6 +21,11 @@ test('DX benchmark protocol is reproducible and carries the release budgets', ()
   assert.equal(manifest.protocol.modelCalls, 'disabled');
   assert.deepEqual(manifest.budgets.snapshot, { p50Ms: 150, p95Ms: 250 });
   assert.deepEqual(manifest.budgets.snapshotUi, { p50Ms: 400, p95Ms: 650 });
+  for (const [name, budget] of Object.entries(manifest.budgets)) {
+    if (name.endsWith('Note')) continue;
+    assert.ok(budget.p50Ms > 0, `${name} has no reviewed p50 budget`);
+    assert.ok(budget.p95Ms >= budget.p50Ms, `${name} has no reviewed p95 budget`);
+  }
   /**
    * A ceiling, not a target — and deliberately pinned so it can only be lowered on purpose.
    *
@@ -36,6 +41,13 @@ test('DX benchmark protocol is reproducible and carries the release budgets', ()
     'the 10k-file tier must measure the snapshot VS Code actually requests');
   assert.deepEqual(manifest.workingTree.topology,
     { modifiedFiles: 64, renamedFiles: 64, untrackedFiles: 128 });
+  assert.equal(manifest.tailFixtures.ignoredBuildTree.ignoredFiles, 4096);
+  assert.equal(manifest.tailFixtures.cleanSubmodule.submodules, 1);
+  assert.equal(manifest.tailFixtures.linkedWorktree.nestingDepth, 5);
+  assert.deepEqual(Object.keys(manifest.tailFixtures.coverage), [
+    'largeIgnoredBuildTree', 'cleanSubmodule', 'linkedWorktreeAndNestedChanges',
+    'manyStoriesAndRefs', 'renameBurstAndManyUntrackedFiles'
+  ]);
 });
 
 test('latency summaries and the 20-percent baseline gate are deterministic', () => {
@@ -55,7 +67,7 @@ test('latency-budgets-on-fixture', { timeout: 30_000 }, () => {
   // `--skip-scale`: the growth tier builds a ten-thousand-file repository and is measured by the
   // test below, which budgets for it. This one is about the reference fixture and its harness.
   const run = spawnSync(process.execPath,
-    ['scripts/dx-benchmark.mjs', '--samples=3', '--json', '--skip-scale'], {
+    ['scripts/dx-benchmark.mjs', '--samples=3', '--json', '--skip-scale', '--skip-tail-fixtures'], {
     cwd: root,
     encoding: 'utf8',
     env: { ...process.env, SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1' }
@@ -110,6 +122,8 @@ test('every command the benchmark runs carries a budget, including the ones nobo
   assert.ok(measured.length > 6, 'the command table never grew past the four commands already made fast');
   for (const name of measured) {
     assert.ok(manifest.budgets[name]?.p50Ms > 0, `${name} is measured with no budget to judge it by`);
+    assert.ok(manifest.budgets[name]?.p95Ms >= manifest.budgets[name]?.p50Ms,
+      `${name} is measured with no p95 tail budget`);
   }
   for (const legacyRead of ['help', 'inbox', 'guide', 'logs']) {
     assert.ok(measured.includes(legacyRead), `${legacyRead} is a read on the legacy dispatcher and is unmeasured`);
@@ -136,7 +150,7 @@ test('the growth tier measures what follows the repository', { timeout: 600_000 
     'Stories are one of the two factors the read path multiplies; the tier must vary them');
 
   const run = spawnSync(process.execPath,
-    ['scripts/dx-benchmark.mjs', '--samples=1', '--json', '--skip-connected'], {
+    ['scripts/dx-benchmark.mjs', '--samples=1', '--json', '--skip-connected', '--skip-tail-fixtures'], {
     cwd: root, encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1' }
   });
   assert.equal(run.status, 0, run.stderr);
@@ -167,6 +181,39 @@ test('the growth tier measures what follows the repository', { timeout: 600_000 
       `${name} spawned ${scale.commands[name].subprocesses} subprocesses against`
       + ` ${scale.commands[name].referenceSubprocesses} on a repository it answers identically`);
   }
+});
+
+test('tail fixtures independently cover ignored output, submodules, and linked worktrees', {
+  timeout: 300_000
+}, () => {
+  const run = spawnSync(process.execPath, [
+    'scripts/dx-benchmark.mjs', '--samples=1', '--json', '--skip-scale', '--skip-connected'
+  ], {
+    cwd: root, encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1' }
+  });
+  assert.equal(run.status, 0, run.stderr || run.stdout);
+  const report = JSON.parse(run.stdout);
+  const tail = report.tailFixtures;
+  assert.equal(tail.command, 'snapshotUi');
+  assert.deepEqual(tail.coverage, manifest.tailFixtures.coverage);
+  assert.equal(tail.results.ignoredBuildTree.topology.ignoredFiles,
+    manifest.tailFixtures.ignoredBuildTree.ignoredFiles);
+  assert.equal(tail.results.ignoredBuildTree.topology.ignoredStatusEntries, 1,
+    'the ignored tree leaked individual files into Git status');
+  assert.deepEqual(tail.results.cleanSubmodule.topology, { submodules: 1, clean: true });
+  assert.equal(tail.results.linkedWorktree.topology.linkedWorktree, true);
+  assert.equal(tail.results.linkedWorktree.topology.gitIndirection, true);
+  assert.equal(tail.results.linkedWorktree.topology.nestingDepth,
+    manifest.tailFixtures.linkedWorktree.nestingDepth);
+  for (const [name, result] of Object.entries(tail.results)) {
+    assert.ok(result.p50Ms > 0, `${name} has no latency measurement`);
+    assert.ok(result.subprocesses > 0, `${name} has no subprocess measurement`);
+    assert.ok(result.subprocessGrowth <= manifest.tailFixtures[name].subprocessGrowth,
+      `${name} exceeds its subprocess-growth budget`);
+  }
+  const serialized = JSON.stringify(tail);
+  assert.doesNotMatch(serialized, /sflow-dx-|[/\\]var[/\\]|[/\\]tmp[/\\]/,
+    'the portable tail report retained a disposable repository path');
 });
 
 test('doctor performance measures the invoking checkout even when it has no workflow', async () => {
@@ -472,7 +519,8 @@ test('the report counts every topology dimension the fixture declares', { timeou
    * One sample: the property under test is what the report says it measured, not how fast it was.
    */
   const run = spawnSync(process.execPath,
-    ['scripts/dx-benchmark.mjs', '--json', '--samples=1', '--skip-scale', '--skip-connected'], {
+    ['scripts/dx-benchmark.mjs', '--json', '--samples=1', '--skip-scale', '--skip-connected',
+      '--skip-tail-fixtures'], {
     cwd: root, encoding: 'utf8'
   });
   assert.equal(run.status, 0, run.stderr);

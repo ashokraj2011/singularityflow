@@ -235,7 +235,7 @@ All `[~]` DXP entries below share this tracked delivery metadata:
 | `DXP-P1-001`–`002` | leased heavy slices, linear bounded output, JSON stdout isolation, and lazy workspace/capability startup readers | accepted peak-RSS and module-load release budgets on the pinned hosts |
 | `DXP-P1-003`, `DXP-P2-001` | one operation-scoped remote session, broad inventory reuse, mutation invalidation, exact revalidation, and asynchronous configuration/ledger/WMB/lifecycle authority reads; no product workflow calls the retained synchronous compatibility transport | collect pinned host measurements and remove the compatibility API only in a separately reviewed breaking release |
 | `DXP-P1-004` | async/batched local validation, origin-first streaming remote pool, canonical cache identity, repository epochs, and immediate A→B cancellation | live high-ref and A→B→A extension-host runs on Windows plus both supported VS Code versions |
-| `DXP-P1-005` | 10,000-file `snapshotUi` subprocess growth and heavily dirty working-tree tiers | ignored build tree, submodule, many-Story, rename-storm, and nested-worktree platform reports |
+| `DXP-P1-005` | 10,000-file/40-Story/12-ref scale, dirty tree, ignored-build, clean-submodule, and nested linked-worktree tiers; every measured interactive read has p50/p95 ceilings and 20% accepted-baseline regression checks | establish the reviewed Node 22/Linux relative baseline and collect Windows/macOS platform reports |
 | `DXP-P2-002`–`003` | privacy-safe enterprise source diagnostics, lazy gateway imports, SFlow-only activation markers, npm and VSIX packaging | reviewed bundle/module budgets and complete event-loop/peak-memory stage reporting |
 
 Local verification attached to the checkpoint:
@@ -453,6 +453,14 @@ Acceptance gates:
 - a high-ref-count fixture keeps extension-host event-loop stalls below 50 ms.
 
 #### [~] DXP-P1-005 — Complete performance fixtures and tail budgets
+
+Code-local checkpoint: the benchmark now builds three independent offline tail fixtures for 4,096
+ignored build outputs, a clean real submodule, and a linked worktree with five-level nested changes.
+Together with the existing 10,000-file/40-Story/12-ref scale tier and 64-rename/128-untracked dirty
+tier, the report explicitly maps every declared topology, measures p50/p95/max, enforces bounded
+subprocess growth, distinguishes Node/Git/OS/filesystem/VS Code fields, and retains no checkout path.
+Accepted platform reports and reviewed tail budgets remain release evidence, not something a source
+change can manufacture.
 
 Acceptance gates:
 

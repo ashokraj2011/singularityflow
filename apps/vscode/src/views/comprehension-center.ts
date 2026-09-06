@@ -50,7 +50,17 @@ function diff(snapshot: ComprehensionIdeSnapshot): string {
   if (preview.status !== 'available' || !preview.patch) {
     return `<section><h2>Exact bounded diff</h2><div class="empty"><p>The patch preview is ${escape(preview.status)}: <code>${escape(preview.reason ?? 'CMP_DIFF_UNAVAILABLE')}</code>.</p><p>Changed paths remain available under Regions. This optional view never blocks lifecycle work.</p></div>${omitted}</section>`;
   }
-  return `<section><h2>Exact bounded diff</h2><p class="meta">Git patch · ${preview.bytes} bytes · <code>${escape(shortDigest(preview.patchSha256))}</code>. This transient payload is evicted when the panel is hidden or closed and is never restored from the snapshot cache.</p><pre class="source-preview" tabindex="0">${escape(preview.patch)}</pre>${omitted}<p class="callout"><strong>Authority boundary:</strong> this is the exact local Git patch for inspection, not semantic evidence or approval.</p></section>`;
+  const sections = preview.fileProjectionStatus === 'available'
+    ? preview.files.map((file, index) => {
+      const name = file.pathAfter ?? file.pathBefore ?? `changed file ${index + 1}`;
+      const exact = preview.patch!.slice(file.patchStart, file.patchEnd);
+      const ranges = file.hunks.length
+        ? file.hunks.map((hunk) => `<code>-${hunk.beforeStart},${hunk.beforeLines} +${hunk.afterStart},${hunk.afterLines}</code>`).join(' ')
+        : '<span class="muted">metadata or binary change; no textual hunk</span>';
+      return `<details class="card" ${index === 0 ? 'open' : ''}><summary>${escape(name)} <span class="badge">${escape(file.operation)}</span></summary><p class="meta">${file.bytes} bytes · ${file.hunks.length} hunk(s) · <code>${escape(shortDigest(file.patchSha256))}</code></p><p>${ranges}</p><pre class="source-preview" tabindex="0">${escape(exact)}</pre></details>`;
+    }).join('')
+    : `<p class="warning">Per-region sections are unavailable: <code>${escape(preview.fileProjectionReason ?? 'CMP_DIFF_FILE_PROJECTION_UNAVAILABLE')}</code>. The exact aggregate patch remains below.</p><pre class="source-preview" tabindex="0">${escape(preview.patch)}</pre>`;
+  return `<section><h2>Exact bounded diff</h2><p class="meta">Git patch · ${preview.bytes} bytes · ${preview.files.length} tracked file section(s) · <code>${escape(shortDigest(preview.patchSha256))}</code>. The section index references the single patch; it does not duplicate source bytes. This transient payload is evicted when the panel is hidden or closed and is never restored from the snapshot cache.</p>${sections}${omitted}<p class="callout"><strong>Authority boundary:</strong> this is the exact local Git patch for inspection, not semantic evidence or approval.</p></section>`;
 }
 
 function evidence(snapshot: ComprehensionIdeSnapshot): string {

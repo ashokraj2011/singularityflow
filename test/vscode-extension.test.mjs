@@ -5211,6 +5211,8 @@ test('Comprehension Center is a lazy leased read-only surface with explicit unkn
     'the first Center release is observation only');
   assert.match(panel, /No governed cause bindings are available/);
   assert.match(panel, /Exact bounded diff/);
+  assert.match(panel, /section index references the single patch/,
+    'per-region inspection reuses offsets into one bounded patch instead of copying source bytes');
   assert.match(panel, /Recorded delivery evidence/,
     'the Center exposes only the delivery references already recorded for the current phase');
   assert.match(panel, /untracked file\(s\) omitted/,

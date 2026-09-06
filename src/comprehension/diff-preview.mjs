@@ -24,6 +24,46 @@ function result(changeSet, values) {
   });
 }
 
+function patchSections(patch, changeSet) {
+  const starts = [...patch.matchAll(/^diff --git /gmu)].map((match) => match.index);
+  const entries = changeSet.entries.filter((entry) => !entry.untracked);
+  if (!starts.length || starts[0] !== 0 || starts.length !== entries.length) {
+    return { status: 'unavailable', reason: 'file-section-count-mismatch', files: [] };
+  }
+  const files = [];
+  for (const [index, entry] of entries.entries()) {
+    const patchStart = starts[index];
+    const patchEnd = starts[index + 1] ?? patch.length;
+    const block = patch.slice(patchStart, patchEnd);
+    const before = entry.oldPath ?? entry.newPath;
+    const after = entry.newPath ?? entry.oldPath;
+    const expectedHeader = `diff --git a/${before} b/${after}`;
+    if (block.slice(0, block.indexOf('\n') < 0 ? block.length : block.indexOf('\n')) !== expectedHeader) {
+      return { status: 'unavailable', reason: 'file-section-identity-mismatch', files: [] };
+    }
+    const hunks = [...block.matchAll(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@.*$/gmu)]
+      .map((match) => ({
+        header: match[0],
+        beforeStart: Number(match[1]),
+        beforeLines: match[2] == null ? 1 : Number(match[2]),
+        afterStart: Number(match[3]),
+        afterLines: match[4] == null ? 1 : Number(match[4])
+      }));
+    files.push({
+      sourceChangeId: entry.changeId,
+      operation: entry.status,
+      pathBefore: entry.oldPath ?? null,
+      pathAfter: entry.newPath ?? null,
+      patchStart,
+      patchEnd,
+      bytes: Buffer.byteLength(block, 'utf8'),
+      patchSha256: sha256(Buffer.from(block, 'utf8')),
+      hunks
+    });
+  }
+  return { status: 'available', reason: null, files };
+}
+
 /**
  * Read one exact Git patch for the selected baseline-to-worktree interval.
  *
@@ -40,7 +80,8 @@ export function buildComprehensionDiffPreview(root, changeSet, {
   if (!integrity.valid) {
     return result(changeSet ?? { digest: null }, {
       status: 'unavailable', reason: 'change-set-integrity-invalid', patch: null,
-      patchSha256: null, bytes: 0, trackedRegions: 0, omittedUntrackedRegions: 0
+      patchSha256: null, bytes: 0, trackedRegions: 0, omittedUntrackedRegions: 0,
+      fileProjectionStatus: 'unavailable', fileProjectionReason: 'change-set-integrity-invalid', files: []
     });
   }
   const trackedRegions = changeSet.entries.filter((entry) => !entry.untracked).length;
@@ -49,18 +90,20 @@ export function buildComprehensionDiffPreview(root, changeSet, {
     return result(changeSet, {
       status: changeSet.entries.length ? 'unavailable' : 'not-applicable',
       reason: changeSet.entries.length ? 'untracked-content-not-projected' : 'no-change-regions',
-      patch: null, patchSha256: null, bytes: 0, trackedRegions, omittedUntrackedRegions
+      patch: null, patchSha256: null, bytes: 0, trackedRegions, omittedUntrackedRegions,
+      fileProjectionStatus: 'not-applicable', fileProjectionReason: 'no-tracked-regions', files: []
     });
   }
   if (!Number.isInteger(maximumBytes) || maximumBytes < 1
       || !Number.isInteger(contextLines) || contextLines < 0 || contextLines > 20) {
     return result(changeSet, {
       status: 'unavailable', reason: 'preview-limits-invalid', patch: null,
-      patchSha256: null, bytes: 0, trackedRegions, omittedUntrackedRegions
+      patchSha256: null, bytes: 0, trackedRegions, omittedUntrackedRegions,
+      fileProjectionStatus: 'unavailable', fileProjectionReason: 'preview-limits-invalid', files: []
     });
   }
   const response = run('git', [
-    'diff', '--patch', '--no-color', '--no-ext-diff', '--no-textconv',
+    '-c', 'core.quotePath=false', 'diff', '--patch', '--no-color', '--no-ext-diff', '--no-textconv',
     `--unified=${contextLines}`, '--find-renames', '--find-copies',
     '--src-prefix=a/', '--dst-prefix=b/', changeSet.base.commit, '--'
   ], { cwd: root, allowFailure: true, maxBuffer: maximumBytes + 1 });
@@ -68,7 +111,8 @@ export function buildComprehensionDiffPreview(root, changeSet, {
     return result(changeSet, {
       status: 'unavailable',
       reason: response.error?.code === 'ENOBUFS' ? 'preview-output-limit' : 'git-diff-unavailable',
-      patch: null, patchSha256: null, bytes: 0, trackedRegions, omittedUntrackedRegions
+      patch: null, patchSha256: null, bytes: 0, trackedRegions, omittedUntrackedRegions,
+      fileProjectionStatus: 'unavailable', fileProjectionReason: 'patch-unavailable', files: []
     });
   }
   const patch = String(response.stdout ?? '');
@@ -76,9 +120,13 @@ export function buildComprehensionDiffPreview(root, changeSet, {
   if (bytes > maximumBytes) {
     return result(changeSet, {
       status: 'unavailable', reason: 'preview-output-limit', patch: null,
-      patchSha256: null, bytes: 0, trackedRegions, omittedUntrackedRegions
+      patchSha256: null, bytes: 0, trackedRegions, omittedUntrackedRegions,
+      fileProjectionStatus: 'unavailable', fileProjectionReason: 'preview-output-limit', files: []
     });
   }
+  const sections = patch ? patchSections(patch, changeSet) : {
+    status: 'unavailable', reason: 'git-diff-empty', files: []
+  };
   return result(changeSet, {
     status: patch ? 'available' : 'unavailable',
     reason: patch ? null : 'git-diff-empty',
@@ -86,6 +134,9 @@ export function buildComprehensionDiffPreview(root, changeSet, {
     patchSha256: patch ? sha256(Buffer.from(patch, 'utf8')) : null,
     bytes,
     trackedRegions,
-    omittedUntrackedRegions
+    omittedUntrackedRegions,
+    fileProjectionStatus: sections.status,
+    fileProjectionReason: sections.reason,
+    files: sections.files
   });
 }

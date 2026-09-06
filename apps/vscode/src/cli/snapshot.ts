@@ -957,6 +957,22 @@ export interface ComprehensionIdeSnapshot {
     bytes: number;
     trackedRegions: number;
     omittedUntrackedRegions: number;
+    fileProjectionStatus: 'available' | 'unavailable' | 'not-applicable';
+    fileProjectionReason: string | null;
+    files: Array<{
+      sourceChangeId: string;
+      operation: string;
+      pathBefore: string | null;
+      pathAfter: string | null;
+      patchStart: number;
+      patchEnd: number;
+      bytes: number;
+      patchSha256: string;
+      hunks: Array<{
+        header: string; beforeStart: number; beforeLines: number;
+        afterStart: number; afterLines: number;
+      }>;
+    }>;
   };
   evidence: {
     schemaVersion: 1;

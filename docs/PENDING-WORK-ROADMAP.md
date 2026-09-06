@@ -2,7 +2,7 @@
 
 **Status:** authoritative cross-product tracker; bounded exact-tree aggregate and the latest code-local asynchronous Git migration are complete, while platform release evidence remains active
 
-**Baseline:** `main@b6d4fdff`
+**Baseline:** `main@30b13291`
 
 **Last reviewed:** 2026-09-07
 
@@ -107,7 +107,7 @@ with zero projected skips. Real authored skips, todo, and cancellation remain re
 This is unsigned Linux arm64 container evidence, not a signed platform cell or physical
 Windows/office-network proof.
 
-The unchanged portable CMP/WEL matrix was additionally exercised at `main@780da007` in clean
+The unchanged portable CMP/WEL matrix was most recently exercised at `main@30b13291` in clean
 Linux x64 containers under Node 20.20.2 and Node 22.23.2 with OpenJDK 17. Both runs passed 32/32
 with zero failures, skips, cancellations, or todo. This strengthens architecture portability but
 remains unsigned emulated-container evidence; it does not replace a physical Linux/Windows host,
@@ -175,7 +175,7 @@ This snapshot resolves conflicts between older domain roadmaps and the executabl
 shared primitive does not complete a higher-assurance track: for example, the developer-local
 signed runner is useful M9 evidence, but it is not an authenticated independent CAB/WEL verifier.
 
-| Area | Implemented boundary through `cd577e0b` | Still open |
+| Area | Implemented boundary through `30b13291` | Still open |
 |---|---|---|
 | Auto v2 | Dependency-free Story profile, P0/P1 controls, interval pacing, and provenance-preserving direct Ad Hoc Candidate adoption | Optional SGOS execution profile and registered comparative-quality evidence |
 | CMP | Model-free, read-only `comprehension regions` and `check` foundation plus a release-gated content-free synthetic benchmark | Reviewed real corpus and storage/privacy decision, durable cause authority, intent graph/replay, typed walkthroughs, lifecycle enforcement, Comprehension Center, and brownfield policy |

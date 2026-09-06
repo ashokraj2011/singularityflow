@@ -6,7 +6,7 @@
 
 **Created:** 2026-08-30
 
-**Current reconciliation:** checked against `main@b6d4fdff` on 2026-09-07. Commits `259b76f1`,
+**Current reconciliation:** checked against `main@30b13291` on 2026-09-07. Commits `259b76f1`,
 `58d9329d`, and `d55229c7` provide the bounded exact-static JUnit identity adapter, immutable
 proposal snapshot, human review through the existing phase approval, migration, safe command-shape
 fallbacks, the evolving content-free benchmark, and same-process unenrolled delta measurement. Commit
@@ -327,13 +327,15 @@ Linux portable-matrix checkpoint on `main@3b998d05`:
   but are unsigned, containerized, and do not replace physical installed-host, office-network,
   Windows, authenticated-runner, independent-review, or package-binding evidence.
 
-Linux x64 compatibility checkpoint on `main@780da007`:
+Linux x64 compatibility checkpoint on `main@30b13291`:
 
 - clean, read-only source clones ran inside `linux/amd64` Docker containers under emulation, with
   OpenJDK 17 installed and `jdk.compiler` available;
 - Node 20.20.2 and Node 22.23.2 each passed the unchanged `test:platform:cmp-wel` matrix 32/32;
 - both executions reported zero failures, skips, cancellations, or todo, including the bounded
   Java parser, JavaScript identity corpus, CMP exact-resource corpus, and cancellation boundary;
+- this revalidates the unchanged matrix after the daily Token Ledger schema migration and roadmap
+  reconciliation; neither runtime acquired a model or network authority during the matrix;
 - this adds unsigned Linux x64 portability evidence. Because the containers were emulated and did
   not exercise a physical installed VS Code host, office network, credential helper, authenticated
   runner, or reviewer signature, it fills no governed release-matrix cell.

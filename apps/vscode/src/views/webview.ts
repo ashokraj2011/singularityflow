@@ -165,6 +165,9 @@ export const STYLE = `
   .approval-empty { margin-bottom: .2rem; }
   .analytics-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(25rem, 1fr)); gap: 1rem; align-items: start; }
   .table-wrap { width: 100%; overflow-x: auto; }
+  .source-preview { max-height: 32rem; overflow: auto; padding: .85rem; border: var(--sf-border);
+    border-radius: var(--sf-radius); background: var(--vscode-textCodeBlock-background);
+    white-space: pre; tab-size: 2; user-select: text; }
   .analytics-table { min-width: 42rem; }
   .analytics-table td:first-child { min-width: 8rem; }
   .analytics-table td strong, .analytics-table td small { display: block; }

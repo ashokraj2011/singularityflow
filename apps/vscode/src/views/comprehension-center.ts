@@ -8,7 +8,7 @@ import {
 import { enumField, registerMessageRouter, stringField } from './messages.ts';
 import { contentSecurityPolicy, escape, icon, nonce, page } from './webview.ts';
 
-type Tab = 'regions' | 'causes' | 'walkthrough' | 'replay' | 'unknowns';
+type Tab = 'regions' | 'diff' | 'causes' | 'walkthrough' | 'replay' | 'unknowns';
 
 function shortDigest(value: unknown): string {
   const digest = String(value ?? '');
@@ -40,6 +40,17 @@ function causeMap(snapshot: ComprehensionIdeSnapshot): string {
       return `<article class="card"><h3>${escape(cause.causeId ?? cause.id)} <span class="badge">${escape(cause.causeKind ?? 'cause')}</span></h3><p>${escape(cause.statement ?? 'No statement text is exposed.')}</p>${targets.length ? `<ul>${targets.map((target) => `<li><button class="link" type="button" data-open-file="${escape(target?.pathAfter ?? target?.pathBefore ?? '')}">${escape(target?.pathAfter ?? target?.pathBefore ?? target?.id ?? 'change')}</button></li>`).join('')}</ul>` : '<p class="muted">No exact changed resource is linked.</p>'}</article>`;
     }).join('') : '<div class="empty"><p>No governed cause bindings are available for this Candidate. The changed paths remain visible under Regions.</p></div>'}
     <p class="callout"><strong>Authority boundary:</strong> this graph is observe-only and cannot approve, publish, gate, or change lifecycle state.</p></section>`;
+}
+
+function diff(snapshot: ComprehensionIdeSnapshot): string {
+  const preview = snapshot.diff;
+  const omitted = preview.omittedUntrackedRegions
+    ? `<p class="callout"><strong>${preview.omittedUntrackedRegions} untracked file(s) omitted:</strong> newly created file bodies are not copied into the snapshot. Open them explicitly from Regions.</p>`
+    : '';
+  if (preview.status !== 'available' || !preview.patch) {
+    return `<section><h2>Exact bounded diff</h2><div class="empty"><p>The patch preview is ${escape(preview.status)}: <code>${escape(preview.reason ?? 'CMP_DIFF_UNAVAILABLE')}</code>.</p><p>Changed paths remain available under Regions. This optional view never blocks lifecycle work.</p></div>${omitted}</section>`;
+  }
+  return `<section><h2>Exact bounded diff</h2><p class="meta">Git patch · ${preview.bytes} bytes · <code>${escape(shortDigest(preview.patchSha256))}</code>. This transient payload is evicted when the panel is hidden or closed and is never restored from the snapshot cache.</p><pre class="source-preview" tabindex="0">${escape(preview.patch)}</pre>${omitted}<p class="callout"><strong>Authority boundary:</strong> this is the exact local Git patch for inspection, not semantic evidence or approval.</p></section>`;
 }
 
 function walkthrough(snapshot: ComprehensionIdeSnapshot): string {
@@ -75,15 +86,16 @@ export function comprehensionCenterBody(
   error: string | null
 ): string {
   const tabs: Array<[Tab, string]> = [
-    ['regions', 'Regions'], ['causes', 'Cause map'], ['walkthrough', 'Walkthrough'],
+    ['regions', 'Regions'], ['diff', 'Diff'], ['causes', 'Cause map'], ['walkthrough', 'Walkthrough'],
     ['replay', 'Replay'], ['unknowns', 'Unknowns']
   ];
   const content = !snapshot
     ? '<div class="empty"><p>The comprehension projection is not available yet.</p></div>'
     : tab === 'regions' ? regions(snapshot)
-      : tab === 'causes' ? causeMap(snapshot)
-        : tab === 'walkthrough' ? walkthrough(snapshot)
-          : tab === 'replay' ? replay(snapshot) : unknowns(snapshot);
+      : tab === 'diff' ? diff(snapshot)
+        : tab === 'causes' ? causeMap(snapshot)
+          : tab === 'walkthrough' ? walkthrough(snapshot)
+            : tab === 'replay' ? replay(snapshot) : unknowns(snapshot);
   return `<header><p class="eyebrow">Comprehension</p><h1>${icon('code', { size: 24 })} Comprehension Center</h1><p class="meta">Trace the exact repository interval, what is known, and what remains unavailable. This surface is read-only and model-free.</p></header>
     ${snapshot ? `<section class="plain"><div class="context-banner"><div><span>Subject</span><strong>${escape(snapshot.context.workId ?? 'Repository changes')}</strong></div><div><span>Phase</span><strong>${escape(snapshot.context.phase ?? 'No active Story')}</strong></div><div><span>Baseline</span><code>${escape(snapshot.context.base)}</code></div><div><span>Source</span><strong>${escape(snapshot.context.source)}</strong></div></div><div class="summary-grid"><div class="summary-card"><strong>${snapshot.summary.regions}</strong><span>change regions</span></div><div class="summary-card"><strong>${snapshot.summary.explained}</strong><span>exactly explained</span></div><div class="summary-card ${snapshot.summary.unresolved ? 'important' : ''}"><strong>${snapshot.summary.unresolved}</strong><span>unresolved</span></div><div class="summary-card"><strong>${snapshot.summary.replayEvents}</strong><span>replay events</span></div></div></section>` : ''}
     <nav class="tabs" aria-label="Comprehension views">${tabs.map(([id, label]) => `<button class="${id === tab ? 'active' : ''}" type="button" data-message="tab" data-tab="${id}" aria-pressed="${id === tab}">${label}</button>`).join('')}</nav>
@@ -123,7 +135,7 @@ export class ComprehensionCenterPanel {
     this.store = store;
     const router = registerMessageRouter('singularityFlow.comprehensionCenter', {
       tab: (message) => {
-        const tab = enumField(message, 'tab', ['regions', 'causes', 'walkthrough', 'replay', 'unknowns'] as const);
+        const tab = enumField(message, 'tab', ['regions', 'diff', 'causes', 'walkthrough', 'replay', 'unknowns'] as const);
         if (tab) { this.tab = tab; this.render(); }
       },
       refresh: () => void this.refresh(),

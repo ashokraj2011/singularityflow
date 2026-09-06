@@ -5210,6 +5210,9 @@ test('Comprehension Center is a lazy leased read-only surface with explicit unkn
   assert.doesNotMatch(panel, /client\.run|request\.model|phase publish|submit/,
     'the first Center release is observation only');
   assert.match(panel, /No governed cause bindings are available/);
+  assert.match(panel, /Exact bounded diff/);
+  assert.match(panel, /untracked file\(s\) omitted/,
+    'new untracked bodies are not copied into the in-memory webview snapshot');
   assert.match(panel, /Explicit unknowns/);
   assert.match(panel, /aria-pressed/);
   assert.match(panel, /allowedPath\(file/,

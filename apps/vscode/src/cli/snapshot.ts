@@ -944,6 +944,20 @@ export interface ComprehensionIdeSnapshot {
     counts: { regions: number };
     regions: ComprehensionRegion[];
   };
+  diff: {
+    schemaVersion: 1;
+    kind: 'comprehension-diff-preview';
+    authoritative: false;
+    lifecycleGate: false;
+    changeSetSha256: string;
+    status: 'available' | 'unavailable' | 'not-applicable';
+    reason: string | null;
+    patch: string | null;
+    patchSha256: string | null;
+    bytes: number;
+    trackedRegions: number;
+    omittedUntrackedRegions: number;
+  };
   coverage: {
     resultSha256: string;
     verdict: string;
@@ -1003,7 +1017,7 @@ export interface ComprehensionIdeSnapshot {
   };
   availability: {
     structure: string; causeGraph: string; durableAuthority: string;
-    walkthrough: string; replay: string;
+    walkthrough: string; replay: string; diff: string;
   };
 }
 

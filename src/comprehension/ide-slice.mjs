@@ -4,6 +4,7 @@ import { buildRepositorySubjectIndex, resolveContext } from '../repository-subje
 import { buildRepositoryChangeSet } from '../repository-change-set.mjs';
 import { buildChangeRegionManifest, evaluateComprehensionCoverage } from './contracts.mjs';
 import { resolveComprehensionBaseline } from './context.mjs';
+import { buildComprehensionDiffPreview } from './diff-preview.mjs';
 import { buildComprehensionGraph } from './graph.mjs';
 import { buildComprehensionReplay } from './replay.mjs';
 import { buildComprehensionWalkthroughDraft } from './walkthrough.mjs';
@@ -27,6 +28,7 @@ export async function loadComprehensionIdeSlice(root) {
     }
   });
   const manifest = buildChangeRegionManifest(changeSet);
+  const diff = buildComprehensionDiffPreview(root, changeSet);
   const emptyEvidence = {
     bindings: [], dispositions: [], causes: [], decisions: [], transformationReceipts: []
   };
@@ -60,6 +62,7 @@ export async function loadComprehensionIdeSlice(root) {
     lifecycleGate: false,
     context,
     manifest,
+    diff,
     coverage,
     graph,
     walkthrough: {
@@ -80,6 +83,7 @@ export async function loadComprehensionIdeSlice(root) {
       structure: graph.availability.structure,
       causeGraph: graph.availability.causeGraph,
       durableAuthority: graph.availability.durableAuthority,
+      diff: diff.status,
       walkthrough: draft ? 'available' : 'unavailable',
       replay: replay ? 'available' : 'unavailable'
     }

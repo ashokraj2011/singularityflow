@@ -233,6 +233,9 @@ test('Comprehension Center is a lazy model-free snapshot slice with explicit unk
   assert.equal(scoped.comprehension.summary.unresolved, 1);
   assert.equal(scoped.comprehension.availability.structure, 'unavailable');
   assert.equal(scoped.comprehension.manifest.regions[0].location.pathAfter, 'src-observation.js');
+  assert.equal(scoped.comprehension.diff.status, 'unavailable');
+  assert.equal(scoped.comprehension.diff.reason, 'untracked-content-not-projected');
+  assert.equal(scoped.comprehension.diff.omittedUntrackedRegions, 1);
   assert.equal(scoped.comprehension.walkthrough.draft.claims[0].assertionType, 'file-changed');
   assert.equal(scoped.comprehension.replay, null);
   assert.equal(Object.hasOwn(scoped, 'lifecycle'), false);

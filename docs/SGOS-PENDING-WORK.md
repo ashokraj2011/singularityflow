@@ -188,7 +188,13 @@ Acceptance gates:
 - migration, partial failure, backup, restore, and rollback are proven;
 - store selection cannot weaken Program or policy authority.
 
-### [x] SGOS-P1-004 — Fresh-authority evidence reconstruction
+### [~] SGOS-P1-004 — Fresh-authority evidence reconstruction
+
+- **Owner:** repository maintainers
+- **Branch:** `main`
+- **Started:** 2026-09-05
+- **Code-local implementation:** `0b39863e`
+- **Target:** next signed supported-platform release
 
 Reconstruct evidence from fresh authority rather than trusting historical projections.
 
@@ -204,6 +210,9 @@ historical evidence keeps its original limited assurance. `evidence reconstruct`
 the exact content-addressed local trace, then refreshes Program/Capability Pack authority and
 revalidates exact Story-baseline and pinned-policy sources. Claims cite immutable Process records
 or approved Git blobs; missing, stale, unconfigured, and contradictory authority remains explicit.
+The code-local deterministic, bounded, missing/stale-authority, command-contract, no-model, and
+counterfeit-trace tests pass. This item remains `[~]` until the unchanged command and packaged
+engine receive signed Windows/macOS/Linux release-matrix evidence; local tests are not that proof.
 
 ### [ ] SGOS-P1-005 — Multi-domain proof packs
 

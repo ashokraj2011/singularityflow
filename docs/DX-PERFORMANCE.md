@@ -159,10 +159,11 @@ small machine selection record and invokes `workspace current` only when those b
 record cannot be observed safely. Stub-host contract tests retain the awaited path so their
 assertions do not race fire-and-forget work.
 
-The code-local current-VS-Code smoke at `main@7e41855e` measured three cold/warm pairs (six host
-samples): activation p95 176 ms, cached first paint p95 166 ms, confirmed first paint p95 652 ms,
-unchanged refresh p95 380 ms, changed refresh p95 511 ms, Help webview opening p95 263 ms, and cache
-persistence p95 4.6 ms. A 100-event watcher burst used one CLI child and one sidebar render in every
+The code-local current-VS-Code smoke at `main@a745a505` measured three cold/warm pairs (six host
+samples): load plus activation p95 235 ms, activation p95 192 ms, cached first paint p95 195 ms,
+confirmed first paint p95 659 ms, unchanged refresh p95 398 ms, changed refresh p95 513 ms, Help
+webview opening p95 260 ms, and cache persistence p95 13.9 ms. A 100-event watcher burst used one
+CLI child and one sidebar render in every
 sample, and every measured CLI child exited successfully. Moving status derivation to a bounded
 off-host worker, keeping the planner and panel graphs in explicit lazy bundles, and writing the
 retained snapshot through the atomic machine-local cache reduced activation event-loop p95 to
@@ -174,12 +175,37 @@ surface probes; the aggregate no longer hides a pause merely because a stage-loc
 reset. Content-free transition attribution localized the previous 55.3 ms diagnostic tail to the
 turn immediately after Help. Help had loaded the complete multi-panel graph, so the first request
 paid delayed garbage collection for unrelated configuration, organisation, SGOS, and lifecycle
-panels. A dedicated Help runtime lowered the aggregate event-loop p95 to 43.4 ms and the continuous
-steady-state p95 to 43.4 ms without raising the 50 ms ceiling.
+panels. A dedicated Help runtime loaded in 25.5 ms p95 and lowered the latest aggregate and
+continuous steady-state event-loop p95 to 40.5 ms without raising the 50 ms ceiling.
+
+The same report now records this process's peak RSS independently for activation, unchanged and
+changed refresh, watcher storm, Help, and cache persistence. The latest p95 values were 166 MB,
+171 MB, 177 MB, 182 MB, 204 MB, and 214 MB respectively; the per-process peak is judged once per
+host sample rather than flattening six stages and allowing a common high stage to hide below p95.
+Child-process RSS remains a separate Linux `/proc` measurement and stays explicitly unavailable on
+macOS and Windows.
 
 This local macOS/Node 25/current-VS-Code run is diagnostic evidence only: it does not replace either
 accepted 30-pair editor profile or the pinned Node 22/Linux baseline. It closes the reproduced
 code-local tail; the accepted profile, platform, duration, and package receipts remain open.
+
+### Bundle and module-closure budget
+
+Every emitted CommonJS entry has a reviewed byte and source-module ceiling in
+`benchmarks/dx/vscode-bundle-budgets.json`. The gate builds the extension, reads only `.cjs` sizes
+and unique source counts from its source maps, refuses a missing or unbudgeted entry, and emits no
+path or source content. The total JavaScript ceiling is separate from per-entry ceilings so adding a
+new lazy bundle cannot evade the package cost contract by keeping each individual file small.
+
+```bash
+npm run vscode:bundle-budget
+node scripts/vscode-bundle-budget.mjs --json --out=/tmp/sflow-vscode-bundles.json
+```
+
+At `main@a745a505`, eight entries contain 27,901,673 JavaScript bytes and all byte/module ceilings
+pass. The release script runs this gate even when local tests are skipped in favor of an exact
+signed verification receipt. Bundle and module ceilings may be lowered after accepted evidence;
+they must not be raised merely to admit a regression.
 
 ## Bounded aggregate verification
 

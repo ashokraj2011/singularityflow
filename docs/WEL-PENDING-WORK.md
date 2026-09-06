@@ -6,7 +6,7 @@
 
 **Created:** 2026-08-30
 
-**Current reconciliation:** checked against `main@30b13291` on 2026-09-07. Commits `259b76f1`,
+**Current reconciliation:** checked against `main@a2baa584` on 2026-09-07. Commits `259b76f1`,
 `58d9329d`, and `d55229c7` provide the bounded exact-static JUnit identity adapter, immutable
 proposal snapshot, human review through the existing phase approval, migration, safe command-shape
 fallbacks, the evolving content-free benchmark, and same-process unenrolled delta measurement. Commit
@@ -385,6 +385,12 @@ Acceptance gates:
 - office, offline, cancellation, push-failure, interrupted-write, and fresh-clone exercises pass;
 - a release receipt binds source, packages, schemas, tests, platform results, and the observe-only
   assurance ceiling.
+
+The unchanged portable CMP/WEL matrix was re-run on macOS arm64 with Node 25.5.0 at
+`main@a2baa584`: 43/43 tests passed with zero failures, skips, cancellations, or todo. This proves
+the current code-local adapter, cancellation, replay, and integration boundaries still compose.
+It is unsupported-runtime local evidence only; it does not fill an independent-review, supported
+Node, physical Windows/Linux, office-network, authenticated-runner, or signed-package matrix cell.
 
 Depends on: `WEL-P0-001` and `WEL-P0-002`.
 

@@ -236,6 +236,14 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Comprehension assessment: ${slot(s.verdict)} with ${slot(s.unresolved, '0')} unresolved material region(s).`,
     preserves: true
   },
+  'comprehension.graph-reported': {
+    headline: (s) => `Comprehension graph contains ${slot(s.nodes, '0')} node(s) and ${slot(s.edges, '0')} validated edge(s).`,
+    preserves: true
+  },
+  'comprehension.explanation-reported': {
+    headline: (s) => `Comprehension explanation for ${slot(s.type)} '${slot(s.subject)}' is ${slot(s.status)} with ${slot(s.nodes, '0')} related node(s).`,
+    preserves: true
+  },
   'change.shadow-reported': {
     headline: (s) => `Shadow Change Passport for ${slot(s.workId)} is ${slot(s.status)} with ${slot(s.gaps, '0')} explicit gap(s).`,
     preserves: true

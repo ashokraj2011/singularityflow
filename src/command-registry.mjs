@@ -246,7 +246,7 @@ const CONSTITUTION_SUBCOMMANDS = Object.freeze([...CONSTITUTION_READ_SUBCOMMANDS
 const SPEC_READ_SUBCOMMANDS = Object.freeze(['coverage', 'trace']);
 const SPEC_INDEX_SUBCOMMANDS = Object.freeze(['index', 'acceptance', 'tasks']);
 const SPEC_SUBCOMMANDS = Object.freeze(['analyze', 'claims', ...SPEC_READ_SUBCOMMANDS, ...SPEC_INDEX_SUBCOMMANDS]);
-const COMPREHENSION_SUBCOMMANDS = Object.freeze(['regions', 'check']);
+const COMPREHENSION_SUBCOMMANDS = Object.freeze(['regions', 'check', 'graph', 'explain']);
 const DELIVERY_SUBCOMMANDS = Object.freeze([
   'recommend', 'select', 'workflow-status', 'execution-status',
   'promotion-preview', 'promotion-apply', 'promotion-status', 'assurance-evaluate',

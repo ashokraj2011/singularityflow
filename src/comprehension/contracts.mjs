@@ -113,6 +113,11 @@ export const CMP_DIAGNOSTIC_CODES = Object.freeze([
     'CMP_EVIDENCE_AMBIGUOUS',
     'CMP_EVIDENCE_ORPHAN',
     'CMP_EXCLUSION_PENDING',
+    'CMP_EXPLANATION_QUERY_INVALID',
+    'CMP_EXPLANATION_SOURCE_UNAVAILABLE',
+    'CMP_EXPLANATION_SUBJECT_UNAVAILABLE',
+    'CMP_GRAPH_INTEGRITY_INVALID',
+    'CMP_GRAPH_LIMIT',
     'CMP_LEGACY_TOUCHED',
     'CMP_MANIFEST_COUNT_INVALID',
     'CMP_MANIFEST_INTEGRITY_INVALID',
@@ -124,7 +129,8 @@ export const CMP_DIAGNOSTIC_CODES = Object.freeze([
     'CMP_REGION_REFERENCE_MISSING',
     'CMP_REVERT_PENDING',
     'CMP_SOURCE_CHANGE_SET_INVALID',
-    'CMP_SPLIT_PENDING'
+    'CMP_SPLIT_PENDING',
+    'CMP_STRUCTURE_UNAVAILABLE'
   ])
 ].sort());
 
@@ -428,6 +434,17 @@ function validateManifest(manifest) {
     previous = region;
   }
   return { valid: failures.length === 0, failures };
+}
+
+/** Validate an externally supplied read-only region projection without granting it authority. */
+export function validateChangeRegionManifest(manifest) {
+  const result = validateManifest(manifest);
+  return freezeDeep({
+    valid: result.valid,
+    authoritative: false,
+    lifecycleGate: false,
+    failures: result.failures
+  });
 }
 
 function normalizedWords(value) {

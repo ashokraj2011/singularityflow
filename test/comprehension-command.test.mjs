@@ -94,6 +94,40 @@ test('comprehension check reports incomplete coverage without turning observatio
   assert.equal(await readFile(path.join(root, 'service.txt'), 'utf8'), 'after\n');
 });
 
+test('comprehension graph and explain are model-free bidirectional read projections', async (t) => {
+  const root = await repository(t);
+  const before = git(root, ['status', '--porcelain=v1']);
+  const graphResult = command(root, [
+    '--no-model', 'comprehension', 'graph', '--base', 'HEAD', '--json'
+  ]);
+  assert.equal(graphResult.status, 0, graphResult.stderr);
+  const graph = JSON.parse(graphResult.stdout);
+  assert.equal(graph.operation.id, 'comprehension.graph');
+  assert.equal(graph.data.graph.authoritative, false);
+  assert.equal(graph.data.graph.counts.regions, 2);
+  assert.equal(graph.data.graph.counts.edges, 0);
+  assert.equal(graph.data.graph.availability.structure, 'unavailable');
+
+  const fileResult = command(root, [
+    '--no-model', 'comprehension', 'explain', 'file', 'new.txt', '--base', 'HEAD', '--json'
+  ]);
+  assert.equal(fileResult.status, 0, fileResult.stderr);
+  const file = JSON.parse(fileResult.stdout);
+  assert.equal(file.operation.id, 'comprehension.explain');
+  assert.equal(file.data.explanation.status, 'available');
+  assert.equal(file.data.explanation.nodes.length, 1);
+  assert.equal(file.data.explanation.nodes[0].pathAfter, 'new.txt');
+
+  const symbolResult = command(root, [
+    '--no-model', 'comprehension', 'explain', 'symbol', 'service.main', '--base', 'HEAD', '--json'
+  ]);
+  assert.equal(symbolResult.status, 0, symbolResult.stderr);
+  const symbol = JSON.parse(symbolResult.stdout);
+  assert.equal(symbol.data.explanation.status, 'unavailable');
+  assert.equal(symbol.data.explanation.reasonCode, 'CMP_STRUCTURE_UNAVAILABLE');
+  assert.equal(git(root, ['status', '--porcelain=v1']), before);
+});
+
 test('an explicit base never bypasses a requested Story context', async (t) => {
   const root = await repository(t);
   const result = command(root, [

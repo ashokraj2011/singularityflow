@@ -17,6 +17,9 @@ import {
   buildChangeRegionManifest, evaluateComprehensionCoverage
 } from '../comprehension/contracts.mjs';
 import {
+  buildComprehensionGraph, explainComprehensionGraph
+} from '../comprehension/graph.mjs';
+import {
   commandResult, noEffects, succeeded
 } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
@@ -225,7 +228,7 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
       data: { mode: 'observe-only', context, manifest }
     }), { json, restStateWhenIdle: 'informational' });
   }
-  if (subcommand !== 'check') {
+  if (!['check', 'graph', 'explain'].includes(subcommand)) {
     // The command registry rejects this before loading the module. Keep the handler closed when it
     // is imported directly as well.
     throw new SingularityFlowError(`Unknown comprehension subcommand '${subcommand}'.`, {
@@ -234,6 +237,40 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
   }
   const evidence = await evidenceInputs(root, options);
   const coverage = evaluateComprehensionCoverage({ changeSet, manifest, ...evidence });
+  if (subcommand === 'graph' || subcommand === 'explain') {
+    const graph = buildComprehensionGraph({ manifest, coverage, ...evidence });
+    if (subcommand === 'graph') {
+      return emitCommandResult(commandResult({
+        operation: suppliedOperation ?? { id: 'comprehension.graph', classification: 'read' },
+        outcome: succeeded('comprehension.graph-reported', {
+          nodes: graph.counts.nodes,
+          edges: graph.counts.edges
+        }),
+        effects: noEffects(),
+        restState: 'informational',
+        data: { mode: 'observe-only', context, manifestSha256: manifest.manifestSha256, graph }
+      }), { json, restStateWhenIdle: 'informational' });
+    }
+    const subjectType = positionals[2] ?? null;
+    const subject = positionals.slice(3).join(' ').trim();
+    const explanation = explainComprehensionGraph(graph, { type: subjectType, value: subject });
+    return emitCommandResult(commandResult({
+      operation: suppliedOperation ?? { id: 'comprehension.explain', classification: 'read' },
+      outcome: succeeded('comprehension.explanation-reported', {
+        type: explanation.query.type,
+        subject: explanation.query.value,
+        status: explanation.status,
+        nodes: explanation.counts.nodes
+      }),
+      effects: noEffects(),
+      restState: 'informational',
+      data: {
+        mode: 'observe-only', context, manifestSha256: manifest.manifestSha256,
+        candidateSha256: manifest.compatibilityCandidateSha256,
+        graphSha256: graph.graphSha256, explanation
+      }
+    }), { json, restStateWhenIdle: 'informational' });
+  }
   return emitCommandResult(commandResult({
     operation: suppliedOperation ?? { id: 'comprehension.check', classification: 'read' },
     outcome: succeeded('comprehension.coverage-reported', {

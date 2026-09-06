@@ -3197,6 +3197,11 @@ singularity-flow comprehension regions [--work-id WORK-ID] [--phase PHASE] [--ba
 singularity-flow comprehension check [--work-id WORK-ID] [--phase PHASE] [--base REVISION] [--json]
   check also accepts bounded, untrusted --bindings and --dispositions repository JSON files;
   this pilot is read-only and cannot authorize publication
+singularity-flow comprehension graph [--work-id WORK-ID] [--phase PHASE] [--base REVISION]
+  [--bindings REPOSITORY-FILE] [--dispositions REPOSITORY-FILE] [--json]
+singularity-flow comprehension explain clause|file|symbol|change|refusal|generation|test <SUBJECT>
+  [--work-id WORK-ID] [--phase PHASE] [--base REVISION] [--bindings REPOSITORY-FILE] [--json]
+  graph and explain are deterministic, read-only projections; unavailable sources never become claims
 singularity-flow ledger init|doctor|status|log|show|verify|repair|reconcile|archive|deployment-check ...
 singularity-flow capabilities list|show|doctor|lease ...
 singularity-flow validate [--strict]

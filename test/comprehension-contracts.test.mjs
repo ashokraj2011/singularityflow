@@ -17,6 +17,9 @@ import {
   evaluateComprehensionCoverage,
   validateChangeCauseBinding
 } from '../src/comprehension/contracts.mjs';
+import {
+  buildComprehensionGraph, CMP_EXPLANATION_SUBJECTS, explainComprehensionGraph
+} from '../src/comprehension/graph.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import { repositoryChangeSetDigest } from '../src/repository-change-set.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
@@ -236,17 +239,110 @@ test('every emitted CMP diagnostic uses the closed diagnostic registry', async (
     new URL('../src/commands/comprehension.mjs', import.meta.url),
     'utf8'
   );
+  const graph = await readFile(
+    new URL('../src/comprehension/graph.mjs', import.meta.url),
+    'utf8'
+  );
   const productionContracts = contracts.replace(
     /export const CMP_REFUSAL_CODES[\s\S]*?const SHA256/,
     'const SHA256'
   );
   const emitted = [...new Set(
-    [productionContracts, commands]
+    [productionContracts, commands, graph]
       .flatMap((source) => [...source.matchAll(/['"](CMP_[A-Z0-9_]+)['"]/g)])
       .map((match) => match[1])
   )].sort();
   const unknown = emitted.filter((code) => !CMP_DIAGNOSTIC_CODES.includes(code));
   assert.deepEqual(unknown, []);
+});
+
+test('the observe-only comprehension graph traverses exact clauses and files in both directions', () => {
+  const source = changeSet([
+    entry({ status: 'modified', oldPath: 'src/a.js', newPath: 'src/a.js' }),
+    entry({ status: 'added', oldPath: null, newPath: 'src/b.js', oldObject: null })
+  ]);
+  const manifest = buildChangeRegionManifest(source);
+  const regionA = manifest.regions.find((region) => region.location.pathAfter === 'src/a.js');
+  const regionB = manifest.regions.find((region) => region.location.pathAfter === 'src/b.js');
+  const causeA = causeFor(manifest);
+  const causeB = causeFor(manifest, {
+    causeId: 'REQ-008', causeKind: 'requirement',
+    statement: 'The service records one bounded audit outcome.'
+  });
+  const bindingA = bindingFor(manifest, causeA, { regionSha256: regionA.regionSha256 });
+  const bindingB = bindingFor(manifest, causeB, {
+    bindingId: 'CCB-018', regionSha256: regionB.regionSha256,
+    causeRefs: [{
+      causeKind: causeB.causeKind, causeId: causeB.causeId,
+      recordSha256: causeB.authority.recordSha256
+    }]
+  });
+  const coverage = evaluateComprehensionCoverage({
+    changeSet: source, manifest, bindings: [bindingA, bindingB], causes: [causeA, causeB],
+    decisions: [SHA('5')],
+    dispositions: [
+      disposition(manifest, 'explained', { regionSha256: regionA.regionSha256 }),
+      disposition(manifest, 'explained', { regionSha256: regionB.regionSha256 })
+    ]
+  });
+  assert.equal(coverage.verdict, 'complete');
+  const graph = buildComprehensionGraph({
+    manifest, coverage, bindings: [bindingA, bindingB], causes: [causeA, causeB]
+  });
+  assert.equal(graph.authoritative, false);
+  assert.equal(graph.lifecycleGate, false);
+  assert.deepEqual(graph.counts, { nodes: 4, causes: 2, regions: 2, edges: 2 });
+  assert.equal(graph.availability.structure, 'unavailable');
+  assert.ok(Object.isFrozen(graph));
+
+  const fromClause = explainComprehensionGraph(graph, { type: 'clause', value: 'AC-003' });
+  assert.equal(fromClause.status, 'available');
+  assert.deepEqual(fromClause.nodes.map((node) => node.type).sort(), ['cause', 'change-region']);
+  assert.ok(fromClause.nodes.every((node) => /^cmp_[a-f0-9]{24}$/.test(node.handle)));
+
+  const fromFile = explainComprehensionGraph(graph, { type: 'file', value: 'src/b.js' });
+  assert.equal(fromFile.status, 'available');
+  assert.equal(fromFile.nodes.find((node) => node.type === 'cause').causeId, 'REQ-008');
+  assert.equal(fromFile.edges[0].relationship, 'implements');
+
+  const symbol = explainComprehensionGraph(graph, { type: 'symbol', value: 'Payments.calculate' });
+  assert.equal(symbol.status, 'unavailable');
+  assert.equal(symbol.reasonCode, 'CMP_STRUCTURE_UNAVAILABLE');
+  assert.deepEqual(CMP_EXPLANATION_SUBJECTS, [
+    'clause', 'file', 'symbol', 'change', 'refusal', 'generation', 'test'
+  ]);
+  assert.throws(
+    () => explainComprehensionGraph(graph, { type: 'file', value: '../../outside' }),
+    (error) => error.code === 'CMP_EXPLANATION_QUERY_INVALID'
+  );
+  assert.throws(
+    () => explainComprehensionGraph(graph, { type: 'file', value: 'src/../outside.js' }),
+    (error) => error.code === 'CMP_EXPLANATION_QUERY_INVALID'
+  );
+  assert.throws(
+    () => explainComprehensionGraph({ ...graph, counts: { ...graph.counts, edges: 99 } }, {
+      type: 'clause', value: 'AC-003'
+    }),
+    (error) => error.code === 'CMP_GRAPH_INTEGRITY_INVALID'
+  );
+  assert.throws(
+    () => buildComprehensionGraph({
+      manifest: { ...manifest, counts: { ...manifest.counts, regions: 99 } },
+      coverage,
+      bindings: [bindingA, bindingB],
+      causes: [causeA, causeB]
+    }),
+    (error) => error.code === 'CMP_GRAPH_INTEGRITY_INVALID'
+  );
+  assert.throws(
+    () => buildComprehensionGraph({
+      manifest,
+      coverage: { ...coverage, verdict: 'complete' === coverage.verdict ? 'incomplete' : 'complete' },
+      bindings: [bindingA, bindingB],
+      causes: [causeA, causeB]
+    }),
+    (error) => error.code === 'CMP_GRAPH_INTEGRITY_INVALID'
+  );
 });
 
 test('the reviewed CMP corpus is byte-stable and projects every fallback resource without AST assurance', () => {

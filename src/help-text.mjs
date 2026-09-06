@@ -435,6 +435,10 @@ Usage:
   singularity-flow comprehension regions [--work-id WORK-ID] [--phase PHASE] [--base REVISION] [--json]
   singularity-flow comprehension check [--work-id WORK-ID] [--phase PHASE] [--base REVISION]
     [--bindings REPOSITORY-FILE] [--dispositions REPOSITORY-FILE] [--json]
+  singularity-flow comprehension graph [--work-id WORK-ID] [--phase PHASE] [--base REVISION]
+    [--bindings REPOSITORY-FILE] [--dispositions REPOSITORY-FILE] [--json]
+  singularity-flow comprehension explain clause|file|symbol|change|refusal|generation|test <SUBJECT>
+    [--work-id WORK-ID] [--phase PHASE] [--base REVISION] [--bindings REPOSITORY-FILE] [--json]
   singularity-flow change show [WORK-ID] --shadow [--proof-profile standard|high-assurance|regulated|custom-registered] [--json]
   singularity-flow proof status|gaps|signals [WORK-ID] [--proof-profile standard|high-assurance|regulated|custom-registered] [--json]
   singularity-flow proof explain [WORK-ID] <PREDICATE-ID> [--proof-profile standard|high-assurance|regulated|custom-registered] [--json]

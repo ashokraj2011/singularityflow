@@ -121,11 +121,13 @@ function journalLines(result) {
 }
 
 function comprehensionText(result) {
-  const { context = {}, manifest = null, coverage = null } = result.data ?? {};
+  const {
+    context = {}, manifest = null, coverage = null, graph = null, explanation = null
+  } = result.data ?? {};
   const common = [
     style.heading(headline(result)),
     `Repository: ${context.repository ?? 'unavailable'}`,
-    `Repository change-set subject: ${manifest?.compatibilityCandidateSha256 ?? coverage?.candidateSha256 ?? 'unavailable'}`,
+    `Repository change-set subject: ${manifest?.compatibilityCandidateSha256 ?? coverage?.candidateSha256 ?? graph?.candidateSha256 ?? result.data?.candidateSha256 ?? 'unavailable'}`,
     `Baseline: ${context.base ?? 'unavailable'} (${context.source ?? 'unknown'})`
   ];
   if (result.operation.id === 'comprehension.regions' && manifest) {
@@ -164,6 +166,36 @@ function comprehensionText(result) {
         { key: 'reason', label: 'REASON' }
       ])] : []),
       '', style.detail('Observe only and non-authoritative: this assessment neither authorizes nor blocks publication.'),
+      style.detail(preservationLine(result))
+    ].filter(Boolean).join('\n');
+  }
+  if (result.operation.id === 'comprehension.graph' && graph) {
+    return [
+      ...common,
+      `Graph: ${graph.graphSha256}`,
+      `Nodes: ${graph.counts.nodes} · causes: ${graph.counts.causes} · regions: ${graph.counts.regions} · edges: ${graph.counts.edges}`,
+      `Structure: ${graph.availability.structure} (${graph.availability.structureReason})`,
+      '', style.detail('Observe only and non-authoritative: only validated diagnostic bindings become graph edges.'),
+      style.detail(preservationLine(result))
+    ].filter(Boolean).join('\n');
+  }
+  if (result.operation.id === 'comprehension.explain' && explanation) {
+    const rows = explanation.nodes.map((node) => ({
+      type: node.type,
+      subject: node.type === 'cause' ? `${node.causeKind}:${node.causeId}` : node.regionId,
+      detail: node.type === 'cause' ? node.statement : node.pathAfter ?? node.pathBefore ?? '(unknown)'
+    }));
+    return [
+      ...common,
+      `Status: ${explanation.status}${explanation.reasonCode ? ` (${explanation.reasonCode})` : ''}`,
+      `Graph: ${explanation.graphSha256}`,
+      ...(rows.length ? ['', table(rows, [
+        { key: 'type', label: 'TYPE' },
+        { key: 'subject', label: 'SUBJECT' },
+        { key: 'detail', label: 'DETAIL' }
+      ])] : []),
+      explanation.truncated ? style.detail('Result truncated at the bounded query ceiling.') : null,
+      '', style.detail('Observe only and non-authoritative: this explanation neither authorizes nor blocks publication.'),
       style.detail(preservationLine(result))
     ].filter(Boolean).join('\n');
   }

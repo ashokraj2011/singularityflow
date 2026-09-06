@@ -188,11 +188,14 @@ const PAGES = Object.freeze({
       ['--base REVISION', 'Override Story baseline discovery with an explicit Git revision.'],
       ['--bindings FILE', 'For check, load bounded, untrusted diagnostic binding JSON from inside the repository.'],
       ['--dispositions FILE', 'For check, load bounded, untrusted diagnostic disposition JSON from inside the repository.'],
+      ['clause|file|symbol|change|refusal|generation|test SUBJECT', 'For explain, select one exact subject. Sources not represented by the current observe-only graph report unavailable.'],
       ['--json', 'Emit the complete manifest or computed coverage result.']
     ],
     examples: [
       ['singularity-flow comprehension regions --base HEAD~1 --json', 'Inspect exact conservative regions without writing anything.'],
-      ['singularity-flow comprehension check --bindings review/bindings.json --json', 'Diagnose supplied bindings against the exact repository change-set subject; this cannot authorize publication.']
+      ['singularity-flow comprehension check --bindings review/bindings.json --json', 'Diagnose supplied bindings against the exact repository change-set subject; this cannot authorize publication.'],
+      ['singularity-flow comprehension graph --bindings review/bindings.json --json', 'Build the deterministic bidirectional cause/region graph from validated diagnostic bindings.'],
+      ['singularity-flow comprehension explain clause AC-001 --bindings review/bindings.json --json', 'Trace one exact cause to related changed resources without invoking a model or creating authority.']
     ],
     seeAlso: ['spec', 'receipt', 'review', 'explain']
   },

@@ -9,11 +9,12 @@
 **Last formal specification audit:** `main@3b5d79e6` on 2026-08-31; subsequent bounded increments
 are reconciled individually below and do not change that audit's authority/enforcement verdict
 
-**Current reconciliation:** checked through `main@10b8bcd6` on 2026-09-07; the first content-free
+**Current reconciliation:** checked through `main@3fcaffea` on 2026-09-07; the first content-free
 P1 measurement harness and read-only P3 graph/query/Story-replay projections are active, and the
-existing five-tool gateway now serves a conservative resource-level `intent.trace`; P1
+existing five-tool gateway now serves a conservative resource-level `intent.trace`. P4 now has a
+bounded observe-only typed walkthrough validator for exact resource-level diff facts. P1
 storage/retention authority, P2 authority, the P3 durable index and cause-backed gateway/SGOS joins,
-and P4–P6 remain open
+authoritative P4 drafting/validation/receipts, and P5–P6 remain open
 
 **Current delivery boundary:** observe-only foundation, a synthetic content-free P1 benchmark,
 deterministic ephemeral P3 graph/query and normalized Story-history replay projections, and a
@@ -77,6 +78,12 @@ inspection boundary while preserving every existing lifecycle behavior.
   projects the existing normalized Story lifecycle chronology. It excludes actors, operational
   detail, prompts, transcripts, model summaries, and SGOS Process state, and never mutates replay
   state.
+- `singularity-flow comprehension walkthrough validate <REPOSITORY-FILE>` checks a bounded,
+  untrusted, typed draft against the exact current Candidate compatibility subject, region
+  manifest, and cause graph. It can validate only exact resource-level `file-changed` facts today;
+  structural, evidence-backed, and human claims remain unavailable and model advice remains
+  advisory. The draft must be in an ignored repository-local evidence path so it cannot become a
+  circular part of the Candidate it describes.
 - The already-registered gateway operation `intent.trace` now resolves through the existing five
   gateway tools in the CLI and VS Code hosts. It can report exact current resource-level change
   regions for one normalized repository path, but reports governed cause as unavailable until P2
@@ -109,8 +116,8 @@ inspection boundary while preserving every existing lifecycle behavior.
 - no `bind`, `deviate`, `split`, `packet`, or CMP-specific `approve` mutation exists;
 - no region is classified as a deterministic transformation without a reviewed receipt protocol;
 - no symbol-level, hunk-level, semantic, dependency-edge, or AST-derived completeness is claimed;
-- no durable or authoritative cause-to-code graph, canonical Story replay, model walkthrough,
-  selective invalidation, or comprehension receipt exists;
+- no durable or authoritative cause-to-code graph, canonical Story replay, model-draft transport,
+  authoritative walkthrough, selective invalidation, or comprehension receipt exists;
 - no legacy repository is backfilled and no existing Story is enrolled;
 - no failure from this foundation can block ordinary file-based work or governed publication.
 
@@ -152,6 +159,14 @@ infer why a change exists: cause and line-level assurance remain explicitly unav
 portable CMP/WEL matrix passes 42/42 on the landing tree; a P2-authority-backed cause query remains
 open.
 
+The first P4 walkthrough-validation slice landed at `main@3fcaffea`. It freezes the typed claim and
+assertion vocabularies, validates exact resource-level `file-changed` facts, separates narrative
+and dependency hashes, rejects self-awarded assurance and Candidate drift, and keeps missing
+structure, evidence authority, and human decisions explicitly unavailable. It accepts no model
+output as authority, invokes neither a model nor AST, writes nothing, and cannot participate in a
+lifecycle gate. Model drafting, authoritative resolvers, precise dependency invalidation,
+revalidation receipts, structural/source expansion, and durable review remain open.
+
 ## Verified implementation status
 
 The 2026-08-31 audit compared the complete 2,952-line CMP v1 specification with the executable
@@ -172,7 +187,7 @@ as permission to submit, approve, publish, or merge.
 | P1 — pilot and storage decision | **Partial** | Release-gated content-free synthetic benchmark for latency, CPU, counts, availability, and storage-size preview; no durable state | Reviewed real corpus, supported-platform measurements, storage/retention/privacy decision, record-mode preview, migration prototype, and independent rollout decision |
 | P2 — governed cause recording | **Contract fragments only** | Cause, binding, disposition, and transformation-receipt validators over untrusted diagnostic input | Trusted authority lookup, durable versioned records, migrations, proposal/confirmation/supersession, recovery, and incorporation into the existing review transaction |
 | P3 — intent graph and replay | **Partial read projection** | Deterministic ephemeral graph over validated diagnostic bindings; bounded exact clause/file/change reads; opaque handles; content-free normalized Story chronology; existing five-tool gateway resource fallback; explicit unavailable cause/structure; no model, AST requirement, write, or gate | Durable typed index over P2 authority, cache rebuild, cause-backed gateway query, structural expansion, SGOS/cause joins, causal replay, and governed reverse-convergence/post-hoc provenance |
-| P4 — walkthroughs | **Not implemented** | None | Typed claims, deterministic validators, model-draft boundary, dual hashes, evidence validation, staleness, and revalidation receipts |
+| P4 — walkthroughs | **Partial read validation** | Bounded untrusted typed draft; exact resource-level `file-changed` validator; explicit unavailable structure/evidence/human authority; advisory-only model claims; dual hashes; Candidate/dependency integrity; circular-input refusal; no model, AST, write, or gate | Model-draft transport, authoritative structural/evidence/human validators, exact source expansion beyond resource diff, selective/conservative dependency invalidation, revalidation receipts, persistence, and governed review |
 | P5 — enforcement | **Blocked by prerequisites** | None; ordinary publication is deliberately unchanged | Universal lifecycle Candidate, existing-review-subject binding, existing approval/publication integration, projected receipt, recovery, and opt-in creation-pinned enforcement |
 | P6 — VS Code, learning, brownfield | **Not implemented** | Help content and generic `/sf-inspect comprehension` routing only | Leased snapshot slice, Comprehension Center, navigation, replay/walkthrough/staleness views, lessons, touched-area policy, backfill, accessibility, and large-repository hardening |
 
@@ -229,7 +244,7 @@ v1 release criteria, any enforcement acceptance criterion, or a native VS Code C
 | `CMP-P2-001` | Add governed cause proposals, confirmations, terminal dispositions, and narrow transformation authority | Durable schemas/migrations plus authority, staleness, recovery, ref-race, and adversarial-laundering tests |
 | `CMP-P3-001` | The ephemeral graph and exact `comprehension explain` reads landed at `bd79630b`; the model-free resource-level `intent.trace` gateway fallback landed at `10b8bcd6`; add the P2-authority-backed incremental index, cache rebuild, structural expansion, and cause-backed gateway query | Current bidirectional clause/file/change parity, bounded exact handles, unavailable-cause/structure, tamper, no-model, no-write, no-lifecycle, existing-five-tool, CLI-host, and VS Code-host tests are green; P2 cause authority and cache rebuild remain |
 | `CMP-P3-002` | The content-free normalized Story replay landed at `db61bb90`; add P2 cause records, SGOS lineage joins, refusal/repair subjects, and governed reverse-convergence/post-hoc provenance without colliding with SGOS Process replay | Current ordering, exact focus, source validation, privacy/transcript exclusion, ceiling, no-model, no-write, and command-collision tests are green; fresh-export, SGOS/cause join, recovery, and causal-provenance evidence remain |
-| `CMP-P4-001` | Implement typed walkthroughs, validators, exact expansion, and selective/conservative staleness | Counterfeit-model, prompt-injection, malformed/overflow, Candidate/evidence/structure drift, and zero-model tests |
+| `CMP-P4-001` | The bounded observe-only typed draft and exact resource-level `file-changed` validator landed at `3fcaffea`; add the model-draft transport, authoritative structural/evidence/human resolvers, exact source expansion, selective/conservative staleness, and revalidation receipts | Current self-awarded-assurance, malformed/oversized input, Candidate/dependency drift, dual-hash, circular-input, no-model, no-AST, no-write, and no-gate tests are green; counterfeit-model, prompt-injection, cancellation/timeout, evidence/structure drift, and revalidation evidence remain |
 | `CMP-P5-001` | Integrate CMP into the single existing Candidate/review/approval/publication transaction | `SGOS-P0-001`, every-workflow lifecycle matrix, remote rejection/push recovery, crash/retry, and fresh-export receipt verification |
 | `CMP-P6-001` | Add the leased VS Code Comprehension Center and learning experience | Slice lease/disposal, stale-response, multi-root, keyboard/screen-reader, offline/office-proxy, and large-tree tests |
 | `CMP-P6-002` | Add touched-area brownfield policy and labelled historical backfill | No-full-backfill compatibility, rename/move/touch fixtures, and no-fabricated-history tests |

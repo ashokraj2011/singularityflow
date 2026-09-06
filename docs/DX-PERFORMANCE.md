@@ -159,21 +159,27 @@ small machine selection record and invokes `workspace current` only when those b
 record cannot be observed safely. Stub-host contract tests retain the awaited path so their
 assertions do not race fire-and-forget work.
 
-The code-local current-VS-Code smoke at `main@e8edf155` measured three cold/warm pairs (six host
-samples): activation p95 198 ms, cached first paint p95 197 ms, confirmed first paint p95 679 ms,
-unchanged refresh p95 427 ms, changed refresh p95 613 ms, and Help webview opening p95 320 ms. A
-100-event watcher burst used one CLI child and one sidebar render in every sample, and every measured
-CLI child exited successfully. Moving status derivation to a bounded off-host worker, keeping the
-planner and panel graphs in explicit lazy bundles, and writing the retained snapshot through the
-atomic machine-local cache reduced activation event-loop p95 to 26.7 ms and steady-state p95 to
-12.1 ms. The explicit shared context entry also ensures lazy panels cannot erase or inherit the
+The code-local current-VS-Code smoke at `main@7e41855e` measured three cold/warm pairs (six host
+samples): activation p95 176 ms, cached first paint p95 166 ms, confirmed first paint p95 652 ms,
+unchanged refresh p95 380 ms, changed refresh p95 511 ms, Help webview opening p95 263 ms, and cache
+persistence p95 4.6 ms. A 100-event watcher burst used one CLI child and one sidebar render in every
+sample, and every measured CLI child exited successfully. Moving status derivation to a bounded
+off-host worker, keeping the planner and panel graphs in explicit lazy bundles, and writing the
+retained snapshot through the atomic machine-local cache reduced activation event-loop p95 to
+28.0 ms. The explicit shared context entry also ensures lazy panels cannot erase or inherit the
 wrong repository selection.
 
+A continuous steady-state observer now spans preflights and the transitions between narrower
+surface probes; the aggregate no longer hides a pause merely because a stage-local observer was
+reset. Content-free transition attribution localized the previous 55.3 ms diagnostic tail to the
+turn immediately after Help. Help had loaded the complete multi-panel graph, so the first request
+paid delayed garbage collection for unrelated configuration, organisation, SGOS, and lifecycle
+panels. A dedicated Help runtime lowered the aggregate event-loop p95 to 43.4 ms and the continuous
+steady-state p95 to 43.4 ms without raising the 50 ms ceiling.
+
 This local macOS/Node 25/current-VS-Code run is diagnostic evidence only: it does not replace either
-accepted 30-pair editor profile or the pinned Node 22/Linux baseline. Its host-wide diagnostic tail
-was 57.3 ms p95, still above the 50 ms release ceiling even though every enforced short-run surface
-budget passed. That remaining tail must be attributed and reduced rather than hidden or budgeted
-away.
+accepted 30-pair editor profile or the pinned Node 22/Linux baseline. It closes the reproduced
+code-local tail; the accepted profile, platform, duration, and package receipts remain open.
 
 ## Bounded aggregate verification
 

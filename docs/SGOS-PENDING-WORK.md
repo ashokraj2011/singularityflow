@@ -221,8 +221,8 @@ read-only mission descriptors.
 - **Owner:** Codex guided-learning continuation
 - **Branch:** `main`
 - **Started:** 2026-09-06
-- **Implementation commit:** `258ce110`
-- **Target:** staged P2 continuation after portable progress and independent certification design
+- **Implementation commits:** `258ce110`, `6768e191`
+- **Target:** staged P2 continuation after independent certification design
 
 The first bounded environment slice is implemented. A signed active Pack still owns the exact
 lesson/module digest; a separate self-hashed fixture admits only secret-scanned UTF-8 text at
@@ -233,6 +233,14 @@ and confirmation-bound `learn reset` removes only the selected machine-local tut
 executes no fixture content, changes no application or Git bytes, starts no Process, and grants no
 approval, certification, or employee score.
 
+The portable-progress slice is also implemented. `learn check` persists only successful check IDs
+in private Git-common storage after revalidating the same signed Pack mission before and after
+deterministic evaluation. `progress-export` creates an explicit canonical content-addressed copy
+token; `progress-import` accepts it only for an exact matching materialized workspace, previews the
+merge, requires its exact confirmation digest, and can only add completed checks. Records and
+transfers exclude failed attempts, answers, identity, timing, paths, scores, approval, and
+certification.
+
 Acceptance gates:
 
 - tutorial repositories are isolated, disposable, bounded, and cannot affect governed work;
@@ -240,10 +248,11 @@ Acceptance gates:
 - certification is based on explicit evidence and independent criteria;
 - reset, interruption, offline use, accessibility, and version migration are covered.
 
-The isolation, bounds, Pack binding, preview/confirmation, byte-integrity, reset, no-model, and
-no-authority code-local gates are covered. Portable progress, interruption-resumable exercises,
-independently reviewed certification, accessibility validation, offline Pack/fixture distribution,
-and cross-version progress migration remain open; therefore this item is not complete.
+The isolation, bounds, Pack binding, preview/confirmation, byte-integrity, reset, no-model,
+no-authority, identity-free portable-progress, and monotonic-import code-local gates are covered.
+Interruption-resumable exercises, independently reviewed certification, accessibility validation,
+offline Pack/fixture distribution, and cross-version progress migration remain open; therefore this
+item is not complete.
 
 ### [~] SGOS-P2-002 — Meta-tool activation CLI
 

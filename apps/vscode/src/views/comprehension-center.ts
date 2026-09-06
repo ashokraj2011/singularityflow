@@ -98,13 +98,19 @@ export function comprehensionCenterBody(
             : tab === 'replay' ? replay(snapshot) : unknowns(snapshot);
   return `<header><p class="eyebrow">Comprehension</p><h1>${icon('code', { size: 24 })} Comprehension Center</h1><p class="meta">Trace the exact repository interval, what is known, and what remains unavailable. This surface is read-only and model-free.</p></header>
     ${snapshot ? `<section class="plain"><div class="context-banner"><div><span>Subject</span><strong>${escape(snapshot.context.workId ?? 'Repository changes')}</strong></div><div><span>Phase</span><strong>${escape(snapshot.context.phase ?? 'No active Story')}</strong></div><div><span>Baseline</span><code>${escape(snapshot.context.base)}</code></div><div><span>Source</span><strong>${escape(snapshot.context.source)}</strong></div></div><div class="summary-grid"><div class="summary-card"><strong>${snapshot.summary.regions}</strong><span>change regions</span></div><div class="summary-card"><strong>${snapshot.summary.explained}</strong><span>exactly explained</span></div><div class="summary-card ${snapshot.summary.unresolved ? 'important' : ''}"><strong>${snapshot.summary.unresolved}</strong><span>unresolved</span></div><div class="summary-card"><strong>${snapshot.summary.replayEvents}</strong><span>replay events</span></div></div></section>` : ''}
-    <nav class="tabs" aria-label="Comprehension views">${tabs.map(([id, label]) => `<button class="${id === tab ? 'active' : ''}" type="button" data-message="tab" data-tab="${id}" aria-pressed="${id === tab}">${label}</button>`).join('')}</nav>
+    <nav class="tabs" role="tablist" aria-label="Comprehension views">${tabs.map(([id, label]) => `<button id="cmp-tab-${id}" class="${id === tab ? 'active' : ''}" type="button" role="tab" data-message="tab" data-tab="${id}" aria-selected="${id === tab}" aria-controls="cmp-panel-${id}" tabindex="${id === tab ? '0' : '-1'}">${label}</button>`).join('')}</nav>
     <p class="card-foot"><button class="secondary" type="button" data-message="refresh">Refresh exact snapshot</button>${loading ? ' <span role="status">Reading repository…</span>' : ''}</p>
-    ${error ? `<section class="warning"><strong>Comprehension unavailable</strong><p>${escape(error)}</p></section>` : ''}${content}`;
+    ${error ? `<section class="warning" role="alert"><strong>Comprehension unavailable</strong><p>${escape(error)}</p></section>` : ''}<div id="cmp-panel-${tab}" role="tabpanel" aria-labelledby="cmp-tab-${tab}" tabindex="0">${content}</div>`;
 }
 
 const SCRIPT = `
   const vscode = window.__sfVscode;
+  const tabs = () => Array.from(document.querySelectorAll('[role="tab"]'));
+  const remembered = sessionStorage.getItem('sf-comprehension-focus-tab');
+  if (remembered) {
+    sessionStorage.removeItem('sf-comprehension-focus-tab');
+    document.querySelector('[data-tab="' + CSS.escape(remembered) + '"]')?.focus();
+  }
   document.addEventListener('click', (event) => {
     const tab = event.target.closest('[data-message="tab"]');
     if (tab) return vscode.postMessage({ type:'tab', tab:tab.dataset.tab });
@@ -112,6 +118,18 @@ const SCRIPT = `
     if (refresh) return vscode.postMessage({ type:'refresh' });
     const file = event.target.closest('[data-open-file]');
     if (file) vscode.postMessage({ type:'open-file', path:file.dataset.openFile });
+  });
+  document.addEventListener('keydown', (event) => {
+    const current = event.target.closest('[role="tab"]');
+    if (!current || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    const items = tabs();
+    const index = items.indexOf(current);
+    const next = event.key === 'Home' ? items[0]
+      : event.key === 'End' ? items[items.length - 1]
+        : items[(index + (event.key === 'ArrowRight' ? 1 : -1) + items.length) % items.length];
+    event.preventDefault();
+    sessionStorage.setItem('sf-comprehension-focus-tab', next.dataset.tab);
+    next.click();
   });
 `;
 

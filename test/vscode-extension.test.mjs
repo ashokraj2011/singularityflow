@@ -5214,7 +5214,13 @@ test('Comprehension Center is a lazy leased read-only surface with explicit unkn
   assert.match(panel, /untracked file\(s\) omitted/,
     'new untracked bodies are not copied into the in-memory webview snapshot');
   assert.match(panel, /Explicit unknowns/);
-  assert.match(panel, /aria-pressed/);
+  assert.match(panel, /role="tablist"/);
+  assert.match(panel, /role="tab"[\s\S]*aria-selected/);
+  assert.match(panel, /role="tabpanel"[\s\S]*aria-labelledby/);
+  assert.match(panel, /ArrowLeft[\s\S]*ArrowRight[\s\S]*Home[\s\S]*End/,
+    'the six views are operable without a pointing device');
+  assert.match(panel, /role="alert"/,
+    'a failed optional projection is announced without becoming lifecycle authority');
   assert.match(panel, /allowedPath\(file/,
     'a webview message cannot open a path absent from the current engine slice');
 

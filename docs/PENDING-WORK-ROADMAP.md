@@ -107,6 +107,12 @@ with zero projected skips. Real authored skips, todo, and cancellation remain re
 This is unsigned Linux arm64 container evidence, not a signed platform cell or physical
 Windows/office-network proof.
 
+The unchanged portable CMP/WEL matrix was additionally exercised at `main@780da007` in clean
+Linux x64 containers under Node 20.20.2 and Node 22.23.2 with OpenJDK 17. Both runs passed 32/32
+with zero failures, skips, cancellations, or todo. This strengthens architecture portability but
+remains unsigned emulated-container evidence; it does not replace a physical Linux/Windows host,
+installed VS Code, office-network, authenticated-runner, or independent-review receipt.
+
 The strict local Node 22/macOS release aggregate is green at `main@60e37936`. Run
 `ef2adfc807f1380ad2a1c85f` selected 457 files across eight exact-tree shards and passed all 4,645
 tests with zero failures, cancellations, skips, or todo. Its machine-local receipt binds commit

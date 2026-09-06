@@ -21,6 +21,13 @@ const skipConnected = process.argv.includes('--skip-connected');
 const skipTailFixtures = process.argv.includes('--skip-tail-fixtures');
 const acceptedReportPath = option('accept-report');
 
+function runnerIdentity() {
+  const declared = process.env.SINGULARITY_FLOW_DX_RUNNER_LABEL;
+  const githubHosted = process.env.GITHUB_ACTIONS === 'true'
+    && process.env.RUNNER_ENVIRONMENT === 'github-hosted';
+  return githubHosted && declared ? declared : 'local';
+}
+
 function assertBaselineCandidate(report) {
   const expectedRuntime = fixtureManifest.runtime;
   const actualRuntime = report.runtime ?? {};
@@ -28,6 +35,9 @@ function assertBaselineCandidate(report) {
     if (actualRuntime[key] !== expectedRuntime[key]) {
       throw new Error(`Baseline candidate ${key} is ${actualRuntime[key] ?? 'missing'}; expected ${expectedRuntime[key]}.`);
     }
+  }
+  if (actualRuntime.runner !== expectedRuntime.runner) {
+    throw new Error(`Baseline candidate runner is ${actualRuntime.runner ?? 'missing'}; expected ${expectedRuntime.runner}.`);
   }
   if (report.protocol?.samples !== fixtureManifest.protocol.samples) {
     throw new Error(`Baseline candidate must contain ${fixtureManifest.protocol.samples} measured runs per command.`);
@@ -690,11 +700,12 @@ if (writeBaseline) {
   const local = {
     nodeMajor: Number(process.versions.node.split('.')[0]),
     platform: process.platform,
-    architecture: process.arch
+    architecture: process.arch,
+    runner: runnerIdentity()
   };
-  for (const key of ['nodeMajor', 'platform', 'architecture']) {
+  for (const key of ['nodeMajor', 'platform', 'architecture', 'runner']) {
     if (local[key] !== fixtureManifest.runtime[key]) {
-      throw new Error(`--write-baseline is restricted to ${fixtureManifest.runtime.nodeMajor ? `Node ${fixtureManifest.runtime.nodeMajor}` : 'the pinned Node runtime'} on ${fixtureManifest.runtime.platform}/${fixtureManifest.runtime.architecture}; this host is Node ${local.nodeMajor} on ${local.platform}/${local.architecture}. Run the benchmark on the pinned runner and import its JSON with --accept-report=<path>.`);
+      throw new Error(`--write-baseline is restricted to ${fixtureManifest.runtime.nodeMajor ? `Node ${fixtureManifest.runtime.nodeMajor}` : 'the pinned Node runtime'} on ${fixtureManifest.runtime.platform}/${fixtureManifest.runtime.architecture}, runner ${fixtureManifest.runtime.runner}; this host is Node ${local.nodeMajor} on ${local.platform}/${local.architecture}, runner ${local.runner}. Run the benchmark on the pinned runner and import its JSON with --accept-report=<path>.`);
     }
   }
 }
@@ -707,7 +718,8 @@ try {
   const comparableBaseline = acceptedBaseline.status === 'accepted'
     && acceptedBaseline.runtime.nodeMajor === Number(process.versions.node.split('.')[0])
     && acceptedBaseline.runtime.platform === process.platform
-    && acceptedBaseline.runtime.architecture === process.arch;
+    && acceptedBaseline.runtime.architecture === process.arch
+    && acceptedBaseline.runtime.runner === runnerIdentity();
   const referenceSubprocesses = {};
   for (const [name, args] of Object.entries(commands)) {
     timed(fixture, args); // discarded warm-up
@@ -910,6 +922,7 @@ try {
       git: git(fixture, ['--version']),
       platform: process.platform,
       architecture: process.arch,
+      runner: runnerIdentity(),
       filesystem: { temporaryStorage: 'system', caseSensitive: !existsSync(path.join(fixture, 'SINGULARITY', 'workflow.yml')) },
       vscode: null
     },

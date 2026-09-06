@@ -495,7 +495,8 @@ test('machine-local timing logs rotate and use private permissions', async () =>
 test('an accepted baseline cannot be written from the wrong runtime', () => {
   const target = manifest.runtime;
   const matches = target.nodeMajor === Number(process.versions.node.split('.')[0])
-    && target.platform === process.platform && target.architecture === process.arch;
+    && target.platform === process.platform && target.architecture === process.arch
+    && target.runner === 'local';
   if (matches) return;
   const run = spawnSync(process.execPath, ['scripts/dx-benchmark.mjs', '--write-baseline'], {
     cwd: root, encoding: 'utf8'
@@ -526,6 +527,8 @@ test('the report counts every topology dimension the fixture declares', { timeou
   assert.equal(run.status, 0, run.stderr);
   const report = JSON.parse(run.stdout);
 
+  assert.equal(report.runtime.runner, 'local');
+
   for (const [key, expected] of Object.entries(manifest.topology)) {
     assert.notEqual(report.topology?.[key], undefined,
       `the manifest declares topology.${key} and the report does not carry it`);
@@ -550,6 +553,34 @@ test('baseline report import validates runtime, protocol, topology, and outcome'
     });
     assert.notEqual(run.status, 0);
     assert.match(run.stderr, /nodeMajor is 99/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('baseline report import refuses an unbound or local runner identity', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-baseline-runner-'));
+  try {
+    for (const runner of [undefined, 'local']) {
+      const candidate = path.join(directory, `candidate-${runner ?? 'missing'}.json`);
+      await writeFile(candidate, JSON.stringify({
+        runtime: {
+          nodeMajor: manifest.runtime.nodeMajor,
+          platform: manifest.runtime.platform,
+          architecture: manifest.runtime.architecture,
+          ...(runner ? { runner } : {})
+        },
+        protocol: manifest.protocol,
+        topology: manifest.topology,
+        commands: {}, failures: [], passed: true
+      }));
+      const run = spawnSync(process.execPath, [
+        'scripts/dx-benchmark.mjs', `--accept-report=${candidate}`
+      ], { cwd: root, encoding: 'utf8' });
+      assert.notEqual(run.status, 0);
+      assert.match(run.stderr, new RegExp(`runner is ${runner ?? 'missing'}`));
+      assert.match(run.stderr, new RegExp(`expected ${manifest.runtime.runner}`));
+    }
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

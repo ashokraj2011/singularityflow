@@ -27,7 +27,8 @@ import {
 } from '../util.mjs';
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
 import {
-  buildAdhocAutoHandoff, buildAutoContinuationProposal, resolveAutoGoalSeed
+  adhocAutoRequirementSource, buildAdhocAutoHandoff,
+  buildAutoContinuationProposal, resolveAutoGoalSeed
 } from '../auto/auto-entry-modes.mjs';
 
 const SUBCOMMANDS = new Set([
@@ -157,17 +158,18 @@ function continuationCard(value) {
 
 function adoptionCard(value) {
   const handoff = value.handoff;
-  return [
+  const plan = value.plan;
+  const lines = [
     `Auto Ad Hoc handoff ${handoff.proposalSha256}`,
     `Session: ${handoff.source.sessionId}`,
     `Origin: ${handoff.source.origin} · intent ${handoff.source.intentProvenance}`,
     `Effect set: ${handoff.source.changeSetSha256}`,
     `Resources: ${handoff.preserved.resources.length}`,
-    `Startable: ${handoff.safety.startable ? 'yes' : 'no'}`,
-    ...handoff.safety.reasons.map((reason) => `- ${reason}`),
-    '', `Reviewed handoff action: ${handoff.nextAction}`,
-    'No effects were relabelled, copied, committed, or started.'
-  ].join('\n');
+    'The confirmed bytes remain pre-auto-adhoc and have not been copied or relabelled.'
+  ];
+  if (plan) lines.push('', planCard(plan));
+  else lines.push('', `Reviewed handoff action: ${handoff.nextAction}`);
+  return lines.join('\n');
 }
 
 function repairCard(value) {
@@ -395,10 +397,46 @@ export async function run(_argv, { positionals, options }) {
     if (!sessionId) throw new SingularityFlowError(
       'Auto adopt requires --from-adhoc <AHS-ID>.', { code: 'AUTO_ARGUMENT_REQUIRED' }
     );
-    const result = await buildAdhocAutoHandoff(root, sessionId);
-    return emitAuto(result, {
-      operation: 'auto.adopt', card: adoptionCard(result), json
-    });
+    return withApprovedConfigurationRead(root, async (authority) => {
+      if (!authority) throw new SingularityFlowError(
+        'Auto adoption requires approved Singularity Flow configuration.', {
+          code: 'APPROVED_CONFIGURATION_UNAVAILABLE'
+        }
+      );
+      const definition = await loadDefinition(root);
+      const result = await buildAdhocAutoHandoff(root, sessionId);
+      const plan = await createAutoPlan(
+        root,
+        result.handoff.requirement.text,
+        {
+          title: result.handoff.requirement.text,
+          assumptions: [], unresolvedDecisions: [],
+          predictedPaths: result.handoff.preserved.resources
+            .flatMap((resource) => [resource.oldPath, resource.newPath, resource.resourceId])
+            .filter(Boolean),
+          acceptanceCriteria: result.handoff.requirement.acceptanceCriteria,
+          workType: optionString(options, 'work-type')
+        },
+        {
+          definition,
+          workType: optionString(options, 'work-type'),
+          capabilityId: optionString(options, 'capability'),
+          workId: optionString(options, 'work-id'),
+          fromBranch: optionString(options, 'from-branch'),
+          profile: optionString(options, 'profile'),
+          pace: autoPlanPace(options), until: optionString(options, 'until'),
+          requirementSource: adhocAutoRequirementSource(result.handoff),
+          synthesis: {
+            invocationId: null, provider: null, model: null,
+            usage: { status: 'not-invoked', totalTokens: 0 }
+          }
+        }
+      );
+      const value = { ...result, plan: planPresentation(plan) };
+      return emitAuto(value, {
+        operation: 'auto.adopt', card: adoptionCard(value), json
+      });
+    }, { preferAuthority: true });
   }
 
   if (subcommand === 'recover') {

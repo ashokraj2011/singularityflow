@@ -2657,6 +2657,13 @@ commands are:
 /sf-resume ENG-142
 ```
 
+`/sf-auto adopt --from-adhoc <AHS-ID>` verifies one confirmed Ad Hoc effect set and creates a
+model-free, exact-hash Auto Plan. It does not move the working bytes during planning. After the
+operator separately reviews and confirms `auto start`, SFlow freezes those bytes as an immutable
+Candidate with `pre-auto-adhoc` / `discovered-at-landing` provenance. The managed Story remains
+clean until its first code-delivery generation opens; that generation materializes and verifies the
+same Candidate while the authoring model is restricted to the phase artifact.
+
 AUT v2 implementation status and remaining release gates are tracked in
 [`docs/AUT-V2-IMPLEMENTATION-ROADMAP.md`](docs/AUT-V2-IMPLEMENTATION-ROADMAP.md).
 

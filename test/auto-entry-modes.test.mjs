@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
+import YAML from 'yaml';
 
 import {
   assertAutoRequirementSourceCurrent, autoContinuationProjection,
@@ -14,11 +15,11 @@ import { resolveOperation } from '../src/command-registry.mjs';
 
 const cli = path.resolve('bin/singularity-flow.mjs');
 
-function execute(command, args, cwd, { allowFailure = false } = {}) {
+function execute(command, args, cwd, { allowFailure = false, env = {} } = {}) {
   const result = spawnSync(command, args, {
     cwd, encoding: 'utf8', env: {
       ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Auto Entry Tester',
-      SINGULARITY_FLOW_NO_NETWORK: '1'
+      SINGULARITY_FLOW_NO_NETWORK: '1', ...env
     }
   });
   if (!allowFailure && result.status !== 0) {
@@ -112,12 +113,40 @@ test('existing-Story continuation is an exact read proposal and generic continue
   assert.equal(manual.proposal.command, null);
 });
 
-test('Ad Hoc adoption verifies exact confirmed effects and renders a non-startable provenance-preserving handoff', async (t) => {
+test('Ad Hoc adoption creates an exact provenance-preserving Auto Plan without relabelling source bytes', async (t) => {
   const root = await repository(t, 'adhoc');
   sflow(root, 'init');
+  const capabilitiesPath = path.join(root, 'singularity/capabilities.yml');
+  const capabilities = YAML.parse(await readFile(
+    new URL('../templates/capabilities.yml', import.meta.url), 'utf8'
+  ));
+  capabilities.capabilities['auto-fixture'] = {
+    kind: 'delivery', parent: 'product', repository: 'auto-fixture'
+  };
+  await writeFile(capabilitiesPath, YAML.stringify(capabilities));
+  const workflowPath = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
+  workflow.git.publish = 'off';
+  workflow.auto.enabled = true;
+  workflow.auto.ceilings = {
+    tokenBudget: { maximum: 30000, assurance: 'best-available' }
+  };
+  workflow.models.providers['copilot-cli'] = {
+    type: 'copilot-cli', executable: process.execPath,
+    promptTransport: 'acp-stdio', arguments: []
+  };
+  workflow.workTypes.feature.auto = {
+    eligibility: 'bounded', allowedPaces: ['phase'],
+    defaultUntil: 'first-human-boundary'
+  };
+  await writeFile(workflowPath, YAML.stringify(workflow));
   await writeFile(path.join(root, 'app.mjs'), 'export const value = 1;\n');
   git(root, 'add', '.');
   git(root, 'commit', '-m', 'fixture');
+  const remote = `${root}.git`;
+  git(root, 'init', '--bare', '-b', 'main', remote);
+  git(root, 'remote', 'add', 'origin', remote);
+  git(root, 'push', '-u', 'origin', 'main');
   git(root, 'switch', '-c', 'feature/adhoc');
   await writeFile(path.join(root, 'app.mjs'), 'export const value = 2;\n');
   const landing = JSON.parse(sflow(root, 'land', '--json'));
@@ -131,19 +160,24 @@ test('Ad Hoc adoption verifies exact confirmed effects and renders a non-startab
   assert.equal(result.handoff.source.origin, 'pre-auto-adhoc');
   assert.equal(result.handoff.source.intentProvenance, 'discovered-at-landing');
   assert.equal(result.handoff.source.changeSetSha256, landing.changeSetSha256);
-  assert.equal(result.handoff.safety.startable, false);
+  assert.equal(result.handoff.safety.startable, true);
   assert.deepEqual(result.handoff.effects, {
     approvals: 0, stories: 0, flights: 0, repositoryWrites: 0
   });
   assert.match(result.handoff.proposalSha256, /^sha256:[a-f0-9]{64}$/);
   assert.equal(git(root, 'status', '--porcelain'), before);
-  const cliResult = JSON.parse(sflow(
-    root, 'auto', 'adopt', '--from-adhoc', landing.sessionId, '--json'
-  ));
+  const cliResult = JSON.parse(execute(process.execPath, [
+    cli, 'auto', 'adopt', '--from-adhoc', landing.sessionId,
+    '--work-type', 'feature', '--capability', 'auto-fixture', '--json'
+  ], root, { env: { SINGULARITY_FLOW_NO_NETWORK: '' } }).stdout);
   assert.equal(cliResult.operation.id, 'auto.adopt');
   assert.equal(cliResult.operation.classification, 'read');
   assert.equal(cliResult.effects.stateChanged, false);
   assert.equal(cliResult.data.value.handoff.proposalSha256, result.handoff.proposalSha256);
+  assert.equal(cliResult.data.value.plan.requirement.source.kind, 'adhoc');
+  assert.equal(cliResult.data.value.plan.requirement.source.origin, 'pre-auto-adhoc');
+  assert.equal(cliResult.data.value.plan.synthesis.usage.status, 'not-invoked');
+  assert.match(cliResult.data.value.plan.planId, /^APL-[A-F0-9]{26}$/);
   assert.equal(git(root, 'status', '--porcelain'), before);
 
   await writeFile(path.join(root, 'app.mjs'), 'export const value = 3;\n');
@@ -152,6 +186,7 @@ test('Ad Hoc adoption verifies exact confirmed effects and renders a non-startab
     (error) => error.code === 'AUTO_ADHOC_CHANGE_SET_STALE'
   );
   assert.match(await readFile(path.join(root, 'app.mjs'), 'utf8'), /value = 3/);
+
 });
 
 test('entry modes have closed read/model policy classification', () => {

@@ -290,7 +290,8 @@ export function validateAutoCandidateBinding(record) {
   exactObject(record.origin, ['mode', 'executionUnitId', 'attemptKind'], 'Auto Candidate origin');
   if (record.origin.mode !== 'auto'
       || typeof record.origin.executionUnitId !== 'string' || !record.origin.executionUnitId.trim()
-      || !['phase-authoring', 'repair-authoring'].includes(record.origin.attemptKind)) {
+      || !['phase-authoring', 'repair-authoring', 'manual-adoption']
+        .includes(record.origin.attemptKind)) {
     fail('Auto Candidate origin is invalid.');
   }
   exactObject(record.repository, [

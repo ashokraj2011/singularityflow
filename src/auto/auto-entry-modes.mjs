@@ -1,7 +1,8 @@
 /** AUT v2 read-first entry modes that bind existing authority without inventing it. */
 import path from 'node:path';
 
-import { adhocStatus } from '../adhoc/session.mjs';
+import { adhocStatus, updateAdhocSession } from '../adhoc/session.mjs';
+import { clearActiveSession } from '../adhoc/session-store.mjs';
 import { branch, gitCommonDir } from '../git.mjs';
 import { activeGoalWorkspace, findGoal, readGoalState } from '../goals.mjs';
 import { loadGovernedGoal } from '../governed-goals.mjs';
@@ -89,7 +90,67 @@ export async function resolveAutoGoalSeed(root, goalId, options = {}) {
 
 /** Re-read Goal authority before ratification so a stale Goal can never authorize a flight. */
 export async function assertAutoRequirementSourceCurrent(root, source, options = {}) {
-  if (!source || source.kind !== 'goal') return { valid: true };
+  if (!source) return { valid: true };
+  if (source.kind === 'adhoc') {
+    const snapshot = await adhocStatus(root, source.sessionId).catch((error) => {
+      throw new SingularityFlowError(
+        `Auto Plan Ad Hoc source '${source.sessionId}' is no longer available in its confirmed state.`,
+        { code: 'AUTO_ADHOC_SOURCE_STALE', details: { sessionId: source.sessionId }, cause: error }
+      );
+    });
+    if (snapshot.session.status === 'promoted') {
+      const promotion = snapshot.session.promotion;
+      if (promotion?.mode !== 'auto'
+          || promotion.sourceSha256 !== digest(source)
+          || promotion.candidateSourceSha256 !== source.repositoryChangeSetSha256
+          || promotion.origin !== 'pre-auto-adhoc'
+          || promotion.intentProvenance !== 'discovered-at-landing') {
+        fail(`Auto Plan Ad Hoc source '${source.sessionId}' was promoted by different authority.`,
+          'AUTO_ADHOC_SOURCE_STALE', {
+            sessionId: source.sessionId,
+            nextAction: 'Recover the already-started Auto flight or create a new Ad Hoc session.'
+          });
+      }
+      return {
+        valid: true, promoted: true, sessionId: source.sessionId,
+        repositoryChangeSetSha256: source.repositoryChangeSetSha256
+      };
+    }
+    let current;
+    try {
+      current = await buildAdhocAutoHandoff(root, source.sessionId);
+    } catch (error) {
+      throw new SingularityFlowError(
+        `Auto Plan Ad Hoc source '${source.sessionId}' is no longer available in its confirmed state.`,
+        { code: 'AUTO_ADHOC_SOURCE_STALE', details: { sessionId: source.sessionId }, cause: error }
+      );
+    }
+    const expected = current.handoff;
+    const changed = [
+      expected.source.sessionSha256 !== source.sessionSha256 ? 'session changed' : null,
+      expected.source.baselineSha256 !== source.baselineSha256 ? 'baseline changed' : null,
+      expected.source.changeSetSha256 !== source.changeSetSha256 ? 'effect set changed' : null,
+      expected.source.repositoryChangeSetSha256 !== source.repositoryChangeSetSha256
+        ? 'repository bytes changed' : null,
+      expected.source.intentSha256 !== source.intentSha256 ? 'confirmed intent changed' : null,
+      expected.preserved.branch !== source.branch ? 'source branch changed' : null,
+      expected.preserved.baselineCommit !== source.baselineCommit ? 'base commit changed' : null,
+      digest(expected.preserved.resources) !== source.resourcesSha256 ? 'resource set changed' : null
+    ].filter(Boolean);
+    if (changed.length) fail(
+      `Auto Plan Ad Hoc source '${source.sessionId}' is stale: ${changed.join(', ')}.`,
+      'AUTO_ADHOC_SOURCE_STALE',
+      {
+        sessionId: source.sessionId, changed,
+        nextAction: 'Review the current Ad Hoc effects and create a new adoption Plan.'
+      }
+    );
+    return {
+      valid: true, sessionId: source.sessionId,
+      repositoryChangeSetSha256: source.repositoryChangeSetSha256
+    };
+  }
+  if (source.kind !== 'goal') return { valid: true };
   let current;
   try {
     current = await resolveAutoGoalSeed(root, source.goalId, options);
@@ -199,13 +260,19 @@ export function autoContinuationProjection(workflow, flight = null) {
 }
 
 /**
- * Build a byte-exact Ad Hoc promotion handoff. The current Story profile cannot safely copy dirty
- * effects into a managed Story worktree, so this is explicitly non-startable rather than relabeling
- * those effects as model-authored Auto work.
+ * Build a byte-exact Ad Hoc promotion handoff. Starting remains a separate, exactly ratified action;
+ * the handoff never copies or relabels the confirmed effects.
  */
 export async function buildAdhocAutoHandoff(root, sessionId) {
   const status = await adhocStatus(root, sessionId);
   const { session, baseline, changeSet, intent, disposition } = status;
+  if (['landed', 'promoted', 'split', 'local-only', 'discarded', 'cancelled']
+    .includes(session.status)) {
+    fail(`Ad Hoc session '${session.sessionId}' is already ${session.status}.`,
+      'AUTO_ADHOC_SOURCE_STALE', {
+        nextAction: 'Create or select an active confirmed Ad Hoc session.'
+      });
+  }
   if (!changeSet || !intent) fail(
     `Ad Hoc session '${session.sessionId}' needs an observed effect set and confirmed intent before Auto promotion.`,
     'AUTO_ADHOC_CONFIRMATION_REQUIRED',
@@ -250,7 +317,9 @@ export async function buildAdhocAutoHandoff(root, sessionId) {
       baselineCommit: baseline.revision.gitCommit,
       resources: changeSet.resources.map((resource) => ({
         resourceId: resource.resourceId, operation: resource.operation,
-        resourceSha256: resource.resourceSha256
+        resourceSha256: resource.resourceSha256,
+        oldPath: resource.oldPath ?? null,
+        newPath: resource.newPath ?? null
       }))
     },
     requirement: {
@@ -258,14 +327,55 @@ export async function buildAdhocAutoHandoff(root, sessionId) {
       acceptanceCriteria: intent.successCriteria.map((criterion) => criterion.text)
     },
     safety: {
-      startable: false,
+      startable: true,
       reasons: [
-        'Story-profile Auto cannot yet materialize confirmed dirty Ad Hoc effects in its managed worktree without changing their provenance.',
-        'The handoff must remain pre-auto-adhoc; it cannot be relabelled as Auto-generated.'
+        'Starting still requires an exact Auto Plan ratification packet.',
+        'The confirmed bytes retain pre-auto-adhoc provenance and are immutable during adoption.'
       ]
     },
-    nextAction: `singularity-flow adhoc promote ${session.sessionId}`,
+    nextAction: `singularity-flow auto adopt --from-adhoc ${session.sessionId}`,
     effects: { approvals: 0, stories: 0, flights: 0, repositoryWrites: 0 }
   });
   return { handoff, status };
+}
+
+/** Closed requirement authority copied into an Auto Plan after an exact Ad Hoc preview. */
+export function adhocAutoRequirementSource(handoff) {
+  if (handoff?.kind !== 'auto-adoption-handoff'
+      || handoff.source?.origin !== 'pre-auto-adhoc'
+      || handoff.source?.intentProvenance !== 'discovered-at-landing') {
+    fail('Auto adoption handoff has invalid provenance.', 'AUTO_ADHOC_PROVENANCE_INVALID');
+  }
+  return Object.freeze({
+    kind: 'adhoc', authority: 'confirmed-adhoc-intent',
+    sessionId: handoff.source.sessionId,
+    sessionSha256: handoff.source.sessionSha256,
+    baselineSha256: handoff.source.baselineSha256,
+    changeSetSha256: handoff.source.changeSetSha256,
+    repositoryChangeSetSha256: handoff.source.repositoryChangeSetSha256,
+    intentSha256: handoff.source.intentSha256,
+    dispositionSha256: handoff.source.dispositionSha256,
+    origin: handoff.source.origin,
+    intentProvenance: handoff.source.intentProvenance,
+    branch: handoff.preserved.branch,
+    baselineCommit: handoff.preserved.baselineCommit,
+    resourcesSha256: digest(handoff.preserved.resources)
+  });
+}
+
+/** Close only the source Ad Hoc session after its exact Candidate is governed by a Story flight. */
+export async function completeAdhocAutoPromotion(root, source, { flightId, workId } = {}) {
+  const current = await assertAutoRequirementSourceCurrent(root, source);
+  if (current.promoted) return (await adhocStatus(root, source.sessionId)).session;
+  const session = await updateAdhocSession(root, source.sessionId, {
+    status: 'promoted',
+    promotion: {
+      mode: 'auto', flightId, workId,
+      origin: 'pre-auto-adhoc', intentProvenance: 'discovered-at-landing',
+      candidateSourceSha256: source.repositoryChangeSetSha256,
+      sourceSha256: digest(source)
+    }
+  });
+  await clearActiveSession(root, source.sessionId);
+  return session;
 }

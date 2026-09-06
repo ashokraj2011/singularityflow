@@ -16,7 +16,11 @@ import {
 import {
   readAutoCandidateBinding, readAutoCandidateVerification
 } from '../src/auto/auto-candidate.mjs';
+import {
+  adhocAutoRequirementSource, buildAdhocAutoHandoff
+} from '../src/auto/auto-entry-modes.mjs';
 import { startAutoFlight } from '../src/auto/auto-flight.mjs';
+import { adhocStatus } from '../src/adhoc/session.mjs';
 import { executeAutoFlightStep, mutateAutoExecutorState } from '../src/auto/auto-executor.mjs';
 import { listAutoContractRecords } from '../src/auto/auto-contract-records.mjs';
 import { authorizeAutoRepair, planAutoRepair } from '../src/auto/auto-p1-control.mjs';
@@ -701,6 +705,143 @@ test('Auto start reuses the governed Story transaction in a managed worktree and
   assert.notEqual(localAuthorization.recordSha256, ratification.recordSha256);
   assert.equal((await readAutoFlightState(root, started.flight.flightId)).recordSha256, started.flight.recordSha256);
   await assert.rejects(() => startAutoFlight(root, plan.planId, confirmation(plan)), (error) => error.code === 'AUTO_AUTHORIZATION_CONSUMED');
+});
+
+test('Auto adoption seals exact Ad Hoc bytes without materializing or relabelling them before a code phase', async () => {
+  const root = await repository();
+  run('git', ['switch', '-c', 'feature/adhoc-adoption'], root);
+  await writeFile(path.join(root, 'app.mjs'), 'export const value = 2;\n');
+  const landing = JSON.parse(run(process.execPath, [cli, 'land', '--json'], root).stdout);
+  run(process.execPath, [
+    cli, 'adhoc', 'intent', 'confirm', landing.sessionId,
+    '--objective', 'Change the exported value',
+    '--success', 'The module exports value 2',
+    '--confirm', landing.changeSetSha256, '--json'
+  ], root);
+
+  const { handoff } = await buildAdhocAutoHandoff(root, landing.sessionId);
+  const definition = await loadDefinition(root);
+  const plan = await createAutoPlan(root, handoff.requirement.text, {
+    title: handoff.requirement.text,
+    assumptions: [], unresolvedDecisions: [],
+    predictedPaths: handoff.preserved.resources.flatMap((resource) => (
+      [resource.oldPath, resource.newPath, resource.resourceId].filter(Boolean)
+    )),
+    acceptanceCriteria: handoff.requirement.acceptanceCriteria,
+    workType: 'feature'
+  }, {
+    definition, workId: 'AUT-ADOPT-1', workType: 'feature',
+    capabilityId: 'auto-fixture', fromBranch: 'main',
+    requirementSource: adhocAutoRequirementSource(handoff),
+    synthesis: {
+      invocationId: null, provider: null, model: null,
+      usage: { status: 'not-invoked', totalTokens: 0 }
+    }
+  });
+
+  const started = await startAutoFlight(root, plan.planId, confirmation(plan));
+  assert.equal(started.flight.evidence.adoption.status, 'pending');
+  assert.equal(started.flight.evidence.adoption.origin, 'pre-auto-adhoc');
+  assert.equal(started.flight.evidence.adoption.intentProvenance, 'discovered-at-landing');
+  assert.equal(started.flight.candidate.candidateId, started.flight.evidence.adoption.candidateId);
+  const candidate = await readAutoCandidateBinding(started.story.worktree, {
+    flightId: started.flight.flightId,
+    candidateId: started.flight.candidate.candidateId
+  });
+  assert.equal(candidate.origin.executionUnitId, 'pre-auto-adhoc');
+  assert.equal(candidate.origin.attemptKind, 'manual-adoption');
+  assert.deepEqual(candidate.resourceManifest.entries.map((entry) => entry.newPath), ['app.mjs']);
+  assert.match(await readFile(path.join(root, 'app.mjs'), 'utf8'), /value = 2/);
+  assert.match(await readFile(path.join(started.story.worktree, 'app.mjs'), 'utf8'), /value = 1/,
+    'confirmed application bytes must remain sealed until the first code-delivery phase');
+  assert.equal((await adhocStatus(root, landing.sessionId)).session.status, 'promoted');
+  const retained = run('git', [
+    'ls-remote', 'origin', candidate.repository.retainedRef
+  ], root).stdout.trim();
+  assert.match(retained, new RegExp(`^${candidate.repository.candidateCommit}\\s`));
+  await assert.rejects(
+    () => startAutoFlight(root, plan.planId, confirmation(plan)),
+    (error) => error.code === 'AUTO_AUTHORIZATION_CONSUMED',
+    'a promoted source must remain revalidatable while its Plan stays single-use'
+  );
+});
+
+test('Auto adoption materializes and publishes the exact Candidate at the first code phase', async () => {
+  const root = await executableRepository();
+  run('git', ['switch', '-c', 'feature/adhoc-code'], root);
+  await writeFile(path.join(root, 'app.mjs'), 'export const value = 2;\n');
+  await mkdir(path.join(root, 'test'), { recursive: true });
+  await writeFile(path.join(root, 'test/app.test.mjs'), [
+    "import assert from 'node:assert/strict';",
+    "import { value } from '../app.mjs';",
+    'assert.equal(value, 2);', ''
+  ].join('\n'));
+  const landing = JSON.parse(run(process.execPath, [cli, 'land', '--json'], root).stdout);
+  run(process.execPath, [
+    cli, 'adhoc', 'intent', 'confirm', landing.sessionId,
+    '--objective', 'Change the exported value',
+    '--success', 'The module exports value 2 and its test passes',
+    '--confirm', landing.changeSetSha256, '--json'
+  ], root);
+
+  const { handoff } = await buildAdhocAutoHandoff(root, landing.sessionId);
+  const definition = await loadDefinition(root);
+  const plan = await createAutoPlan(root, handoff.requirement.text, {
+    title: handoff.requirement.text,
+    assumptions: [], unresolvedDecisions: [],
+    predictedPaths: handoff.preserved.resources.flatMap((resource) => (
+      [resource.oldPath, resource.newPath, resource.resourceId].filter(Boolean)
+    )),
+    acceptanceCriteria: handoff.requirement.acceptanceCriteria,
+    workType: 'quick-fix', suggestedUntil: 'phase-complete:implement'
+  }, {
+    definition, workId: 'AUT-ADOPT-CODE', workType: 'quick-fix',
+    capabilityId: 'auto-fixture', fromBranch: 'main',
+    requirementSource: adhocAutoRequirementSource(handoff),
+    synthesis: {
+      invocationId: null, provider: null, model: null,
+      usage: { status: 'not-invoked', totalTokens: 0 }
+    }
+  });
+
+  const started = await startAutoFlight(root, plan.planId, confirmation(plan));
+  const originalCandidate = started.flight.candidate;
+  const final = await runFlightStep(root, started.flight, {
+    invokeModel: async () => ({
+      invocationId: 'INV-ADHOC-ARTIFACT-ONLY',
+      output: 'Reviewed the immutable adopted Candidate.',
+      usage: { totalTokens: 7, inputTokens: 5, outputTokens: 2 }
+    })
+  });
+  if (final.status === 'halted') {
+    assert.fail(`${final.stopReason}: ${final.lastError?.message ?? final.nextAction}`);
+  }
+  assert.equal(final.position, 'submitted');
+  assert.equal(final.evidence.adoption.status, 'published');
+  assert.equal(final.evidence.adoption.materializedPhase, 'implement');
+  assert.equal(final.evidence.adoption.publishedPhase, 'implement');
+  assert.equal(final.candidate.candidateId, originalCandidate.candidateId,
+    'the executor must verify the pre-Auto Candidate instead of relabelling it');
+  assert.match(await readFile(path.join(final.worktree, 'app.mjs'), 'utf8'), /value = 2/);
+  assert.match(await readFile(path.join(final.worktree, 'test/app.test.mjs'), 'utf8'), /equal\(value, 2\)/);
+  assert.deepEqual(final.operations.map((entry) => entry.operation), [
+    'candidate-adopt', 'author', 'candidate-verify', 'publish', 'submit'
+  ]);
+  const contract = Object.values(final.phaseContracts)[0];
+  assert.deepEqual(contract.taskContract.writeScope, [
+    'singularity/work-items/AUT-ADOPT-CODE/artifacts/implement/implementation-summary.md'
+  ]);
+  assert.deepEqual(contract.taskContract.readScope, [
+    'app.mjs',
+    'singularity/work-items/AUT-ADOPT-CODE/artifacts/implement/implementation-summary.md',
+    'test/app.test.mjs'
+  ]);
+  const candidate = await readAutoCandidateBinding(final.worktree, {
+    flightId: final.flightId, candidateId: final.candidate.candidateId
+  });
+  assert.deepEqual(candidate.origin, {
+    mode: 'auto', executionUnitId: 'pre-auto-adhoc', attemptKind: 'manual-adoption'
+  });
 });
 
 test('resume trusts the governed accepted Plan rather than reapplying mutable start-time remote checks', async () => {

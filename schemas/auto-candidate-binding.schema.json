@@ -21,7 +21,7 @@
       "properties": {
         "mode": { "const": "auto" },
         "executionUnitId": { "type": "string", "minLength": 1 },
-        "attemptKind": { "enum": ["phase-authoring", "repair-authoring"] }
+        "attemptKind": { "enum": ["phase-authoring", "repair-authoring", "manual-adoption"] }
       },
       "additionalProperties": false
     },

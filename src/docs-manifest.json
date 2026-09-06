@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "c3bd07e381aaf9e0bed59733743486b3f0e6a057",
+  "sourceCommit": "77b374cddd64bd70076453433f2c345533ed899d",
   "topicCount": 61,
-  "contentSha256": "95918144259718d9ad59e119b70d3b68e18ff61d323c9e1d7f87499028159de6",
+  "contentSha256": "f0aa1e102249ebd6147e9e75186c3e3d3da4184fee3e76a5b3534fc98f5fa8f2",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -64,8 +64,8 @@
     {
       "id": "auto-mode",
       "title": "Bounded Auto mode",
-      "version": 8,
-      "sha256": "b3ba4f60a4b137e58ac61df7072b97d83fb3381b95ce73619762fbcf70068189",
+      "version": 9,
+      "sha256": "4639bbcec7164a1cdb6ab8dab611a66eef868d91d715bcd2699862e9c67eb405",
       "routingSha256": "5e13fc1070186507fd232923db25b8e09b8e47b869690d71ee880dc9b95eed1f",
       "file": "auto-mode.md"
     },

@@ -81,6 +81,7 @@ export function renderAutoAuthoringPrompt({
   composed, flightId, attemptId, plan, state, deterministic = false
 }) {
   const repair = state.activeRepair;
+  const adopted = state.evidence?.adoption?.status === 'materialized';
   const priorAttempts = Number(state.counters?.authoringAttempts?.[state.story?.phase] ?? 0);
   const attemptKind = repair ? 'repair' : priorAttempts > 0 ? 'resume' : 'initial';
   return [
@@ -97,9 +98,16 @@ export function renderAutoAuthoringPrompt({
       `- Required repair evidence: ${(repair.requiredEvidence ?? []).join('; ') || 'none'}`,
       '- This is the only authorized repair attempt. Do not expand scope or repeat prior work.'
     ] : []),
+    ...(adopted ? [
+      `- Application bytes are an immutable confirmed Ad Hoc Candidate (${state.evidence.adoption.candidateSha256}).`,
+      '- Read those application paths as context, but do not edit them. Author only the configured phase artifact; the kernel will verify the original Candidate separately.',
+      '- Their origin remains pre-auto-adhoc and their intent provenance remains discovered-at-landing.'
+    ] : []),
     '- Work only in this managed worktree. Do not commit, push, approve, waive policy, answer clarification, change lifecycle state, or run Singularity Flow commands.',
     deterministic
       ? '- Implement and test the requirement. Do not edit the phase artifact; the kernel will regenerate its deterministic summary from your changes.'
+      : adopted
+        ? '- Completely author the configured phase artifact without changing the adopted application Candidate. Do not leave placeholders.'
       : '- Implement and test the requirement, and completely author the configured phase artifact. Do not leave placeholders.'
   ].join('\n');
 }
@@ -123,8 +131,11 @@ export async function buildAutoPhaseContract(root, {
   const repairWriteScope = state.activeRepair?.writeScope?.length
     ? unique(state.activeRepair.writeScope.map(normalizeScope)) : null;
   const artifactPath = relativeArtifactPath(definition, state, phase);
+  const adopted = state.evidence?.adoption?.status === 'materialized';
   const readScope = unique([...(repairReadScope ?? predictedScope), artifactPath]);
-  const writeScope = unique([...(repairWriteScope ?? predictedScope), artifactPath]);
+  const writeScope = unique([
+    ...(adopted ? [] : (repairWriteScope ?? predictedScope)), artifactPath
+  ]);
   if (!readScope.length || !writeScope.length) {
     throw new SingularityFlowError('Auto Task Contract resolved to an empty repository scope.', {
       code: 'AUTO_TASK_SCOPE_EMPTY'

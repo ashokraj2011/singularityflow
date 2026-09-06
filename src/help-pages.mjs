@@ -558,6 +558,7 @@ const PAGES = Object.freeze({
       '',
       'A mission describes objectives, one digest-bound disposable fixture, finite steps, expected',
       'evidence, refusal and recovery exercises, and deterministic quiz or teach-back checks.',
+      '`start` prepares a read-only mission and never materializes or executes the fixture.',
       '`materialize` previews first, then creates only reviewed inert UTF-8 fixture files under the',
       'repository Git-common private directory after exact confirmation. It never executes content,',
       'invokes a model or tool, changes the application tree or Git, grants approval, or persists an',
@@ -574,7 +575,7 @@ const PAGES = Object.freeze({
       'uses `bundle-materialize`, which still requires the exact matching active Pack and an exact',
       'confirmation; the bundle itself grants no activation, authority, or certification.',
       'Teach-back is declared concept presence,',
-      'not understanding or certification.'
+      'not semantic understanding or certification.'
     ],
     options: [
       ['--role ROLE', 'Select one lower-case kebab-case role declared by the signed lesson and module.'],
@@ -620,7 +621,7 @@ const PAGES = Object.freeze({
     options: [
       ['--work-type ID', 'Select an Auto-eligible Story work type.'],
       ['--goal ID', 'Seed a Plan from one exact active personal or governed Goal record.'],
-      ['--from-adhoc ID', 'With auto adopt, verify and render a non-startable provenance-preserving Ad Hoc handoff.'],
+      ['--from-adhoc ID', 'With auto adopt, verify confirmed effects and create a model-free, provenance-preserving Auto Plan.'],
       ['--from-branch BRANCH', 'Pin one branch that is currently published by every selected repository.'],
       ['--pace MODE', 'continuous, phase, or interval:DURATION; policy may only restrict it.'],
       ['--until SELECTOR', 'first-human-boundary, story-complete, or a phase publication/submission/completion boundary.'],
@@ -631,7 +632,7 @@ const PAGES = Object.freeze({
       ['singularity-flow auto plan "Add bounded retry telemetry" --work-type feature --from-branch main', 'Creates only a machine-local Plan.'],
       ['singularity-flow auto --goal GOL-20260901-001 --work-type feature --from-branch main', 'Creates a Goal-bound Plan; changing the Goal makes it stale.'],
       ['singularity-flow auto continue ENG-142', 'Reports one exact Story/flight continuation without resuming or approving.'],
-      ['singularity-flow auto adopt --from-adhoc AHS-...', 'Verifies confirmed effects and renders a non-startable handoff without relabelling them.'],
+      ['singularity-flow auto adopt --from-adhoc AHS-... --work-type quick-fix', 'Creates a reviewable exact Plan; start later seals the confirmed bytes and preserves their pre-Auto provenance.'],
       ['singularity-flow auto start APL-... --confirm sha256:...', 'Creates the Story only after exact Plan ratification.']
     ],
     seeAlso: ['start', 'impact', 'status', 'goal']

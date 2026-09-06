@@ -40,7 +40,7 @@ import {
   assertAutoCandidateMatches, autoAttemptId, autoCandidateEnvironment,
   discoverAutoCandidateRecoveryAuthority, freezeAutoCandidate,
   observeAutoCandidateWorktree, readAutoCandidateBinding,
-  readAutoCandidateVerification, verifyAutoCandidate
+  readAutoCandidateVerification, restoreAutoCandidateWorktree, verifyAutoCandidate
 } from './auto-candidate.mjs';
 import {
   beginAutoAttemptLineage, ensureAutoClarificationRequest, recordAutoAttemptAuthored,
@@ -129,6 +129,20 @@ function candidateTouchedPaths(binding) {
   return [...new Set(binding.resourceManifest.entries.flatMap((entry) => (
     [entry.oldPath, entry.newPath].filter(Boolean)
   )))].sort();
+}
+
+function pendingAdhocAdoption(state) {
+  const adoption = state.evidence?.adoption;
+  return adoption?.kind === 'auto-adhoc-adoption'
+    && adoption.status === 'pending'
+    && adoption.origin === 'pre-auto-adhoc'
+    && adoption.intentProvenance === 'discovered-at-landing';
+}
+
+function materializedAdhocAdoption(state) {
+  const adoption = state.evidence?.adoption;
+  return adoption?.kind === 'auto-adhoc-adoption'
+    && adoption.status === 'materialized';
 }
 
 async function appendAutoExecutionEvents(root, state, records, { stopping = false } = {}) {
@@ -809,7 +823,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
       draft.story.phase = transition.to;
       draft.story.revision = draft.lastSuccessfulStoryRevision;
       draft.position = 'story-created';
-      draft.candidate = null;
+      if (!pendingAdhocAdoption(draft)) draft.candidate = null;
       draft.worldModelReference = null;
       draft.comprehensionReference = null;
       draft.activePhaseRunId = null;
@@ -1119,6 +1133,66 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
         workflow = await loadStoryAggregate(worktree, definition, state.story.workId);
         phase = workflow.phases[phase.id];
       }
+      // Confirmed Ad Hoc application bytes are not model output. Materialize the immutable
+      // Candidate only when the rail first reaches a code-delivery phase, after its normal
+      // generation boundary is open. The model may author the phase document but receives no
+      // write authority over these application paths.
+      if (!repairAttempt && phaseRequiresCodeDelivery(phase)
+          && pendingAdhocAdoption(state)) {
+        if (!state.candidate?.candidateId
+            || state.candidate.candidateId !== state.evidence.adoption.candidateId
+            || state.candidate.bindingSha256 !== state.evidence.adoption.bindingSha256) {
+          throw new SingularityFlowError(
+            'The pending Ad Hoc adoption has no matching immutable Candidate authority.', {
+              code: 'AUTO_ADHOC_CANDIDATE_MISMATCH'
+            }
+          );
+        }
+        const adoptedCandidate = await readAutoCandidateBinding(worktree, {
+          flightId, candidateId: state.candidate.candidateId
+        });
+        if (adoptedCandidate.origin.attemptKind !== 'manual-adoption'
+            || adoptedCandidate.origin.executionUnitId !== 'pre-auto-adhoc') {
+          throw new SingularityFlowError(
+            'The pending Candidate does not preserve Ad Hoc adoption provenance.', {
+              code: 'AUTO_ADHOC_PROVENANCE_INVALID'
+            }
+          );
+        }
+        await restoreAutoCandidateWorktree(
+          worktree, adoptedCandidate, applicationPathContext(definition, workflow)
+        );
+        const adoptedObservation = await observeAutoCandidateWorktree(
+          worktree, adoptedCandidate, applicationPathContext(definition, workflow)
+        );
+        assertAutoCandidateMatches(adoptedCandidate, adoptedObservation);
+        const adoptedPaths = candidateTouchedPaths(adoptedCandidate);
+        state = await mutateAutoExecutorState(root, flightId, (draft) => {
+          draft.evidence = {
+            ...(draft.evidence ?? {}),
+            adoption: {
+              ...draft.evidence.adoption,
+              status: 'materialized', materializedPhase: phase.id
+            },
+            changeSetDigest: adoptedCandidate.applicationChangeSetDigest,
+            candidateSha256: adoptedCandidate.candidateSha256,
+            candidateBindingSha256: adoptedCandidate.bindingSha256
+          };
+          draft.observedPaths = adoptedPaths;
+          draft.counters.touchedPaths = adoptedPaths.length;
+          draft.counters.touchedChanges = adoptedCandidate.resourceManifest.entries.length;
+          draft.operations = [...(draft.operations ?? []), {
+            operation: 'candidate-adopt', phase: phase.id,
+            outcome: 'materialized', origin: 'pre-auto-adhoc',
+            intentProvenance: 'discovered-at-landing',
+            candidateId: adoptedCandidate.candidateId,
+            candidateSha256: adoptedCandidate.candidateSha256,
+            bindingSha256: adoptedCandidate.bindingSha256
+          }];
+          draft.stopReason = 'adhoc-candidate-materialized';
+          draft.nextAction = 'Author the phase artifact without modifying the adopted Candidate.';
+        }, { expectedCheckpoint: state.checkpointSha256 });
+      }
       const task = generationTaskForPhase(definition, phase.id);
       // Kernel-authored phases do not consume an authoring prompt. Composing one here performed
       // needless World-Model checks, created misleading prompt-audit rows, and could stop a fully
@@ -1149,7 +1223,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
           draft.position = 'authored';
           draft.worldModelReference = structuredClone(worldModelReference);
           draft.comprehensionReference = null;
-          draft.candidate = null;
+          if (!pendingAdhocAdoption(draft)) draft.candidate = null;
           draft.stopReason = 'deterministic-authoring-complete';
           draft.nextAction = `Publish kernel-authored phase '${phase.id}' through the normal lifecycle operation.`;
           draft.operations = [...(draft.operations ?? []), {
@@ -1437,15 +1511,31 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
       });
       const candidateBaselineCommit = phase.generationIntent?.baseline?.commit
         ?? plan.repositories[0].baseCommit;
-      const candidate = phaseRequiresCodeDelivery(phase) ? await freezeAutoCandidate(worktree, {
-        flightId,
-        attemptId: candidateAttemptId,
-        baselineCommit: candidateBaselineCommit,
-        pathContext,
-        executionUnitId: state.executionUnit?.id ?? provider.provider,
-        attemptKind: activeAttempt?.attemptKind === 'repair' ? 'repair-authoring' : 'phase-authoring',
-        recoveryAuthority: candidateRecoveryAuthority(state, phase, 'authored')
-      }) : null;
+      let candidate = null;
+      let candidateFrozen = false;
+      if (phaseRequiresCodeDelivery(phase)) {
+        if (materializedAdhocAdoption(state)) {
+          candidate = await readAutoCandidateBinding(worktree, {
+            flightId, candidateId: state.candidate?.candidateId
+          });
+          const observation = await observeAutoCandidateWorktree(
+            worktree, candidate, pathContext
+          );
+          assertAutoCandidateMatches(candidate, observation);
+        } else {
+          candidate = await freezeAutoCandidate(worktree, {
+            flightId,
+            attemptId: candidateAttemptId,
+            baselineCommit: candidateBaselineCommit,
+            pathContext,
+            executionUnitId: state.executionUnit?.id ?? provider.provider,
+            attemptKind: activeAttempt?.attemptKind === 'repair'
+              ? 'repair-authoring' : 'phase-authoring',
+            recoveryAuthority: candidateRecoveryAuthority(state, phase, 'authored')
+          });
+          candidateFrozen = true;
+        }
+      }
       await assertActive(root, flightId, authoringCheckpoint);
       const authoringActiveMilliseconds = Date.now() - activeAccountedAt;
       activeAccountedAt = Date.now();
@@ -1455,6 +1545,8 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
         draft.counters.touchedChanges = applicationEntries.length;
         draft.observedPaths = files;
         draft.lastInvocationId = invocation.invocationId;
+        const preservedAdoptionCandidate = !candidate && pendingAdhocAdoption(draft)
+          ? draft.candidate : null;
         draft.candidate = candidate ? {
           candidateId: candidate.candidateId,
           candidateSha256: candidate.candidateSha256,
@@ -1462,17 +1554,19 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
           attemptId: candidate.attemptId,
           applicationChangeSetDigest: candidate.applicationChangeSetDigest,
           applicationResourceDigest: candidate.applicationResourceDigest
-        } : null;
+        } : preservedAdoptionCandidate;
         draft.evidence = {
           ...(draft.evidence ?? {}),
           changeSetDigest: applicationChangeSet.digest,
-          candidateSha256: candidate?.candidateSha256 ?? null,
-          candidateBindingSha256: candidate?.bindingSha256 ?? null
+          candidateSha256: candidate?.candidateSha256
+            ?? preservedAdoptionCandidate?.candidateSha256 ?? null,
+          candidateBindingSha256: candidate?.bindingSha256
+            ?? preservedAdoptionCandidate?.bindingSha256 ?? null
         };
         draft.operations = [...(draft.operations ?? []), {
           operation: 'author', phase: phase.id, outcome: 'succeeded',
           invocationId: invocation.invocationId, changeSetDigest: applicationChangeSet.digest
-        }, ...(candidate ? [{
+        }, ...(candidateFrozen ? [{
           operation: 'candidate-freeze', phase: phase.id, outcome: 'succeeded',
           candidateId: candidate.candidateId, candidateSha256: candidate.candidateSha256,
           bindingSha256: candidate.bindingSha256
@@ -1645,6 +1739,12 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
       activeAccountedAt = Date.now();
       state = await mutateAutoExecutorState(root, flightId, (draft) => {
         draft.position = 'published'; draft.stopReason = 'generation-published';
+        if (draft.evidence?.adoption?.status === 'materialized') {
+          draft.evidence.adoption = {
+            ...draft.evidence.adoption,
+            status: 'published', publishedPhase: phase.id
+          };
+        }
         draft.counters.activeMilliseconds = (draft.counters.activeMilliseconds ?? 0) + publicationActiveMilliseconds;
         draft.commits = { ...(draft.commits ?? {}), generation: head(worktree) };
         draft.lastSuccessfulStoryRevision = head(worktree);
@@ -1905,7 +2005,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
         draft.story.phase = next.phaseTransition.to;
         draft.story.revision = draft.lastSuccessfulStoryRevision;
         draft.position = 'story-created';
-        draft.candidate = null;
+        if (!pendingAdhocAdoption(draft)) draft.candidate = null;
         draft.worldModelReference = null;
         draft.comprehensionReference = null;
         draft.activeAttemptId = null;

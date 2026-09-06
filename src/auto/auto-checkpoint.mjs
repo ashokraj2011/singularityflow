@@ -734,7 +734,10 @@ export async function rebuildAutoFlightState(controlRoot, {
     // preserved Candidate intentionally remains at story-created/repair-authorized so it cannot
     // be mistaken for publishable work, yet fresh-clone recovery must still reconstruct its exact
     // application bytes for human review and bounded repair.
-    if (['story-created', 'repair-authorized', 'authored'].includes(record.position)) {
+    const pendingAdoption = record.evidence?.adoption?.kind === 'auto-adhoc-adoption'
+      && record.evidence.adoption.status === 'pending';
+    if (!pendingAdoption
+        && ['story-created', 'repair-authorized', 'authored'].includes(record.position)) {
       await restoreAutoCandidateWorktree(
         managed, record.candidateBinding, applicationPathContext(definition, workflow)
       );

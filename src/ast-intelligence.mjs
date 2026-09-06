@@ -626,9 +626,13 @@ async function persistCacheRecords(records, { required, failures }) {
   await Promise.all(workers);
 }
 
-async function cachedSkeleton(root, file, key, { required = true, failures = [] } = {}) {
+async function cachedSkeleton(root, file, key, {
+  required = true, failures = [], extractor = BUILTIN_EXTRACTOR
+} = {}) {
   try {
-    return validateSkeleton(await readFile(blobPath(root, key)), file, key);
+    return validateSkeleton(
+      await readFile(blobPath(root, key, extractor)), file, key, extractor
+    );
   } catch (error) {
     if (error?.code === 'ENOENT' || error?.code === 'AST_CACHE_INVALID') return null;
     if (!required) {
@@ -1428,6 +1432,134 @@ async function buildOrContext(root, options, operation, workBinding = null) {
 /** Kernel-owned AST cache build used by the CLI and the optional Story-start warmer. */
 export async function buildAstCache(root, options = {}) {
   return buildOrContext(root, options, 'build');
+}
+
+const CACHED_SYMBOL_LIMITS = Object.freeze({ maximumPaths: 500, maximumSymbols: 1000 });
+
+function cachedSymbolResult(values) {
+  const core = {
+    schemaVersion: 1, // schema-transient: optional IDE read projection; never persisted or authorized
+    kind: 'ast-cached-symbol-projection',
+    authoritative: false,
+    lifecycleGate: false,
+    ...values
+  };
+  const result = { ...core, projectionSha256: `sha256:${recordSha256(core)}` };
+  const freeze = (value) => {
+    if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
+    Object.freeze(value);
+    for (const child of Object.values(value)) freeze(child);
+    return value;
+  };
+  return freeze(result);
+}
+
+/**
+ * Read symbols only from the current content-addressed AST cache.
+ *
+ * This is deliberately not `astContext`: a normal context read may derive a missing skeleton and
+ * execute a configured syntax adapter. The Comprehension Center needs a stricter promise—opening a
+ * read-only view must never warm, repair, or rebuild AST. Current Git/worktree identities are still
+ * enumerated so stale cache entries cannot be relabelled as facts about new bytes.
+ */
+export async function readCachedAstSymbols(root, {
+  paths = [], maximumSymbols = 500
+} = {}) {
+  const requested = normalizeSourceRoots(paths, 'Cached AST symbol paths');
+  if (!Number.isInteger(maximumSymbols) || maximumSymbols < 1
+      || maximumSymbols > CACHED_SYMBOL_LIMITS.maximumSymbols) {
+    throw new SingularityFlowError(
+      `Cached AST symbols require maximumSymbols from 1 through ${CACHED_SYMBOL_LIMITS.maximumSymbols}.`,
+      { code: 'AST_REQUEST_INVALID' }
+    );
+  }
+  if (!requested.length) return cachedSymbolResult({
+    status: 'not-applicable', reason: 'no-paths', assurance: 'unavailable', symbols: [],
+    counts: { requestedPaths: 0, selectedPaths: 0, cacheHits: 0, cacheMisses: 0, symbols: 0 },
+    truncated: false
+  });
+  if (requested.length > CACHED_SYMBOL_LIMITS.maximumPaths) return cachedSymbolResult({
+    status: 'unavailable', reason: 'path-limit', assurance: 'unavailable', symbols: [],
+    counts: {
+      requestedPaths: requested.length, selectedPaths: 0, cacheHits: 0,
+      cacheMisses: 0, symbols: 0
+    },
+    truncated: true
+  });
+
+  const runtime = await loadRuntime(root);
+  const mode = await effectiveAstMode(runtime.policy);
+  if (mode.mode === 'off') return cachedSymbolResult({
+    status: 'disabled', reason: 'ast-disabled', assurance: 'unavailable', symbols: [],
+    counts: {
+      requestedPaths: requested.length, selectedPaths: 0, cacheHits: 0,
+      cacheMisses: 0, symbols: 0
+    },
+    truncated: false
+  });
+  const selection = await enumerateScope(root, runtime, { paths: requested });
+  const facts = [];
+  let cacheHits = 0;
+  let cacheMisses = 0;
+  for (const file of selection.candidates) {
+    if (file.skipReason) continue;
+    const key = blobKey(file);
+    const builtin = await cachedSkeleton(root, file, key, { required: false });
+    if (!builtin) { cacheMisses += 1; continue; }
+    cacheHits += 1;
+    const entry = entryFor(file, builtin);
+    facts.push(...materializeFacts(entry, builtin, { includeFile: false })
+      .filter((fact) => fact.kind === 'symbol'));
+
+    if (runtime.policy.fallback === 'text-only') continue;
+    const diagnostics = [];
+    const languagePolicy = runtime.policy.languages[entry.language] ?? {
+      mode: 'auto', minimumAssurance: 'text', syntaxProvider: null
+    };
+    const adapter = providerFor(
+      entry, 'syntax', runtime.adapterDiscovery?.adapters ?? [], languagePolicy, diagnostics
+    );
+    if (!adapter) continue;
+    const extractor = adapterExtractor(adapter, entry.language);
+    const adapterKey = blobKey(entry, extractor);
+    const syntax = await cachedSkeleton(root, entry, adapterKey, { required: false, extractor });
+    if (!syntax) continue;
+    facts.push(...materializeFacts(entry, syntax, { includeFile: false })
+      .filter((fact) => fact.kind === 'symbol'));
+  }
+  const unique = [...new Map(facts.map((fact) => [
+    `${fact.path}\0${fact.extractor?.id ?? ''}\0${fact.id ?? fact.qualifiedName ?? fact.name}\0${fact.line ?? fact.span?.startLine ?? ''}`,
+    fact
+  ])).values()].sort((left, right) => left.path.localeCompare(right.path)
+    || Number(left.line ?? left.span?.startLine ?? 0) - Number(right.line ?? right.span?.startLine ?? 0)
+    || String(left.name).localeCompare(String(right.name)));
+  const selected = unique.slice(0, maximumSymbols).map((fact) => ({
+    id: String(fact.id ?? fact.qualifiedName ?? `${fact.path}:${fact.name}:${fact.line ?? fact.span?.startLine}`),
+    name: String(fact.name),
+    qualifiedName: fact.qualifiedName ? String(fact.qualifiedName) : null,
+    declarationKind: String(fact.declarationKind ?? 'symbol'),
+    signature: fact.signature ? String(fact.signature).slice(0, 500) : null,
+    path: fact.path,
+    line: Number(fact.line ?? fact.span?.startLine),
+    assurance: fact.assurance,
+    extractor: String(fact.extractor?.id ?? 'unknown')
+  }));
+  const strongest = selected.reduce((current, fact) =>
+    assuranceRank(fact.assurance) > assuranceRank(current) ? fact.assurance : current, 'text');
+  return cachedSymbolResult({
+    status: selected.length ? 'available' : 'unavailable',
+    reason: selected.length ? null : cacheHits ? 'cache-has-no-symbols' : 'cache-miss',
+    assurance: selected.length ? strongest : 'unavailable',
+    symbols: selected,
+    counts: {
+      requestedPaths: requested.length,
+      selectedPaths: selection.candidates.length,
+      cacheHits,
+      cacheMisses,
+      symbols: selected.length
+    },
+    truncated: unique.length > selected.length
+  });
 }
 
 async function resumeBuild(root, handle, options) {

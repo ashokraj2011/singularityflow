@@ -1000,6 +1000,25 @@ export interface ComprehensionIdeSnapshot {
     };
     truncated: boolean;
   };
+  structure: {
+    schemaVersion: 1;
+    kind: 'ast-cached-symbol-projection';
+    authoritative: false;
+    lifecycleGate: false;
+    projectionSha256: string | null;
+    status: 'available' | 'unavailable' | 'not-applicable' | 'disabled';
+    reason: string | null;
+    assurance: string;
+    symbols: Array<{
+      id: string; name: string; qualifiedName: string | null; declarationKind: string;
+      signature: string | null; path: string; line: number; assurance: string; extractor: string;
+    }>;
+    counts: {
+      requestedPaths: number; selectedPaths: number; cacheHits: number;
+      cacheMisses: number; symbols: number;
+    };
+    truncated: boolean;
+  };
   coverage: {
     resultSha256: string;
     verdict: string;
@@ -1055,7 +1074,7 @@ export interface ComprehensionIdeSnapshot {
   };
   summary: {
     regions: number; materialRegions: number; explained: number; unresolved: number;
-    causes: number; edges: number; replayEvents: number;
+    causes: number; edges: number; symbols: number; replayEvents: number;
   };
   availability: {
     structure: string; causeGraph: string; durableAuthority: string;

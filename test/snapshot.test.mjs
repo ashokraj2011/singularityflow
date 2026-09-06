@@ -230,8 +230,10 @@ test('Comprehension Center is a lazy model-free snapshot slice with explicit unk
   assert.equal(scoped.comprehension.authoritative, false);
   assert.equal(scoped.comprehension.lifecycleGate, false);
   assert.equal(scoped.comprehension.summary.regions, 1);
+  assert.equal(scoped.comprehension.summary.symbols, 0);
   assert.equal(scoped.comprehension.summary.unresolved, 1);
   assert.equal(scoped.comprehension.availability.structure, 'unavailable');
+  assert.equal(scoped.comprehension.structure.reason, 'cache-miss');
   assert.equal(scoped.comprehension.manifest.regions[0].location.pathAfter, 'src-observation.js');
   assert.equal(scoped.comprehension.diff.status, 'unavailable');
   assert.equal(scoped.comprehension.diff.reason, 'untracked-content-not-projected');

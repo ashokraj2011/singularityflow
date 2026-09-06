@@ -5,7 +5,7 @@ import type { ComprehensionIdeSnapshot, ComprehensionRegion } from '../cli/snaps
 import {
   DEFAULT_COMPREHENSION_SLICE_LEASE_MS, type SliceLease, type WorkspaceStore
 } from '../state.ts';
-import { enumField, registerMessageRouter, stringField } from './messages.ts';
+import { enumField, integerField, registerMessageRouter, stringField } from './messages.ts';
 import { contentSecurityPolicy, escape, icon, nonce, page } from './webview.ts';
 
 type Tab = 'regions' | 'diff' | 'evidence' | 'causes' | 'walkthrough' | 'replay' | 'unknowns';
@@ -23,10 +23,14 @@ function regions(snapshot: ComprehensionIdeSnapshot): string {
   if (!snapshot.manifest.regions.length) {
     return '<div class="empty"><p>No repository changes exist in the selected interval.</p></div>';
   }
-  return `<section><h2>Exact change regions</h2><p class="meta">One conservative resource region per changed path. Symbol boundaries remain unavailable until an authoritative structural source is registered.</p>
-    <div class="table-wrap"><table><thead><tr><th>Path</th><th>Operation</th><th>Material</th><th>Assurance</th><th>Identity</th></tr></thead><tbody>${snapshot.manifest.regions.map((region) => {
+  return `<section><h2>Exact change regions</h2><p class="meta">One conservative resource region per changed path. Existing cached symbols are optional navigation aids at their stated assurance; they are never rebuilt here or treated as authoritative boundaries.</p>
+    <div class="table-wrap"><table><thead><tr><th>Path</th><th>Operation</th><th>Available cached symbols</th><th>Material</th><th>Assurance</th><th>Identity</th></tr></thead><tbody>${snapshot.manifest.regions.map((region) => {
       const file = regionPath(region);
-      return `<tr><td><button class="link" type="button" data-open-file="${escape(file)}">${escape(file)}</button></td><td>${escape(region.operation ?? 'changed')}</td><td>${region.classification?.material === false ? 'No' : 'Yes'}</td><td>${escape(region.classification?.assurance ?? 'diff-derived')}</td><td><code>${escape(shortDigest(region.regionSha256))}</code></td></tr>`;
+      const symbols = snapshot.structure.symbols.filter((symbol) => symbol.path === file);
+      const symbolLinks = symbols.length
+        ? symbols.map((symbol) => `<button class="link" type="button" data-open-file="${escape(file)}" data-open-line="${symbol.line}" title="${escape(`${symbol.declarationKind} · ${symbol.assurance} · ${symbol.extractor}`)}">${escape(symbol.name)}:${symbol.line}</button>`).join(' ')
+        : '—';
+      return `<tr><td><button class="link" type="button" data-open-file="${escape(file)}">${escape(file)}</button></td><td>${escape(region.operation ?? 'changed')}</td><td>${symbolLinks}</td><td>${region.classification?.material === false ? 'No' : 'Yes'}</td><td>${escape(region.classification?.assurance ?? 'diff-derived')}</td><td><code>${escape(shortDigest(region.regionSha256))}</code></td></tr>`;
     }).join('')}</tbody></table></div></section>`;
 }
 
@@ -151,7 +155,7 @@ const SCRIPT = `
     const refresh = event.target.closest('[data-message="refresh"]');
     if (refresh) return vscode.postMessage({ type:'refresh' });
     const file = event.target.closest('[data-open-file]');
-    if (file) vscode.postMessage({ type:'open-file', path:file.dataset.openFile });
+    if (file) vscode.postMessage({ type:'open-file', path:file.dataset.openFile, line:Number(file.dataset.openLine || 0) });
   });
   document.addEventListener('keydown', (event) => {
     const current = event.target.closest('[role="tab"]');
@@ -193,7 +197,8 @@ export class ComprehensionCenterPanel {
       refresh: () => void this.refresh(),
       'open-file': (message) => {
         const file = stringField(message, 'path');
-        if (file) void this.openFile(file);
+        const line = integerField(message, 'line');
+        if (file) void this.openFile(file, line && line > 0 ? line : null);
       }
     });
     panel.webview.onDidReceiveMessage((message) => router.route(message), null, this.subscriptions);
@@ -288,7 +293,7 @@ export class ComprehensionCenterPanel {
       region.location.pathAfter === file || region.location.pathBefore === file));
   }
 
-  private async openFile(file: string): Promise<void> {
+  private async openFile(file: string, line: number | null = null): Promise<void> {
     if (!this.allowedPath(file)) {
       this.error = 'That path is not present in the current comprehension snapshot. Refresh and try again.';
       this.render();
@@ -307,7 +312,10 @@ export class ComprehensionCenterPanel {
       this.render();
       return;
     }
-    try { await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(target)); }
+    try {
+      const options = line ? { selection: new vscode.Range(line - 1, 0, line - 1, 0) } : undefined;
+      await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(target), options);
+    }
     catch (error) {
       this.error = `The file could not be opened: ${error instanceof Error ? error.message : String(error)}`;
       this.render();

@@ -171,6 +171,7 @@ skills:
   sflow-jira-update: { class: mutation, executionBoundary: repository }
   sflow-jira-work: { class: echo, executionBoundary: repository }
   sflow-knowledge: { class: mutation, executionBoundary: repository }
+  sflow-learn: { class: interactive, executionBoundary: repository }
   sflow-ledger: { class: mutation, executionBoundary: repository }
   sflow-logs: { class: echo, executionBoundary: repository }
   sflow-mcp: { class: mutation, executionBoundary: repository }

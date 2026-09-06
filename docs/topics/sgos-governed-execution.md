@@ -26,7 +26,7 @@ related:
   - governed-execution
   - workflow-authoring
   - evidence-and-ledger
-version: 23
+version: 24
 ---
 SGOS compiles confirmed intent and a ratified workflow into a finite, content-addressed Governed VM
 Program. Its operational Process state never replaces Story, Initiative, configuration, ledger, or
@@ -105,6 +105,10 @@ the Workflow and grants no authority.
 `singularity-flow learn` is a deterministic tutor over lesson entries in signed active Capability
 Packs. List by role, optionally narrow to one Pack, then supply the repository-contained JSON module
 whose `moduleSha256` equals that lesson's `contentSha256`:
+
+From Copilot, use `/sf-learn`. It gathers the same explicit role, Pack, lesson, module, fixture,
+trust, and mission choices and stops on preview before any machine-local materialization or reset.
+It does not execute lesson fixtures or grant authority.
 
 ```sh
 singularity-flow learn list --role developer --trust publisher-trust.json

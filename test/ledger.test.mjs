@@ -178,6 +178,26 @@ test('capability ledger is an orphan branch and verifies its content-addressed c
   );
 });
 
+test('ledger bootstrap stays compatible with the supported pre-worktree-orphan Git floor', async () => {
+  const source = await readFile(new URL('../src/ledger.mjs', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /worktree', 'add', '--orphan'/u);
+  assert.match(source, /worktree', 'add', '--detach', '--no-checkout'/u);
+  assert.match(source, /'symbolic-ref', 'HEAD'/u);
+  assert.match(source, /'read-tree', '--empty'/u);
+});
+
+test('ledger bootstrap refuses and preserves a pre-existing reserved branch', async () => {
+  const { root } = await repository();
+  git(root, ['branch', '__sflow_ledger_bootstrap__', 'HEAD']);
+  const before = git(root, ['rev-parse', '__sflow_ledger_bootstrap__']).stdout.trim();
+  await assert.rejects(
+    initializeLedger(root, enabled),
+    (error) => error?.code === 'state_branch.worktree_unavailable'
+      && /previous ledger bootstrap branch still exists/.test(error.message)
+  );
+  assert.equal(git(root, ['rev-parse', '__sflow_ledger_bootstrap__']).stdout.trim(), before);
+});
+
 test('a fresh clone self-heals its local custom pin cache from the exact recorded remote ref', async () => {
   const { parent, remote, root } = await repository();
   await initializeLedger(root, enabled);

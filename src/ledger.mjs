@@ -433,9 +433,24 @@ function pinRefspecStatus(root, config) {
 async function temporaryWorktree(root, ref, callback, { env = process.env } = {}) {
   const parent = await mkdtemp(path.join(os.tmpdir(), 'sflow-ledger-'));
   const worktree = path.join(parent, 'worktree');
-  const args = ref
-    ? ['worktree', 'add', '--detach', worktree, ref]
-    : ['worktree', 'add', '--orphan', '-b', '__sflow_ledger_bootstrap__', worktree];
+  const bootstrapBranch = '__sflow_ledger_bootstrap__';
+  const bootstrap = !ref;
+  if (bootstrap && git(root, [
+    'show-ref', '--verify', '--quiet', `refs/heads/${bootstrapBranch}`
+  ], { allowFailure: true, env }).status === 0) {
+    await rm(parent, { recursive: true, force: true });
+    throw new SingularityFlowError(
+      'Unable to create the isolated ledger worktree. A previous ledger bootstrap branch still exists; run ledger doctor before retrying.',
+      { code: 'state_branch.worktree_unavailable' }
+    );
+  }
+  // `git worktree add --orphan` was introduced after the supported enterprise Git floor. Build the
+  // same unborn, empty branch from plumbing available in older Git: attach a no-checkout worktree,
+  // point its worktree-local HEAD at the reserved unborn ref, and clear its index. No application
+  // bytes are checked out and the first callback commit remains a true root commit.
+  const args = bootstrap
+    ? ['worktree', 'add', '--detach', '--no-checkout', worktree, 'HEAD']
+    : ['worktree', 'add', '--detach', worktree, ref];
   const added = git(root, args, { allowFailure: true, env });
   if (added.status !== 0) {
     await rm(parent, { recursive: true, force: true });
@@ -447,10 +462,14 @@ async function temporaryWorktree(root, ref, callback, { env = process.env } = {}
     );
   }
   try {
+    if (bootstrap) {
+      git(worktree, ['symbolic-ref', 'HEAD', `refs/heads/${bootstrapBranch}`], { env });
+      git(worktree, ['read-tree', '--empty'], { env });
+    }
     return await callback(worktree);
   } finally {
     git(root, ['worktree', 'remove', '--force', worktree], { allowFailure: true, env });
-    git(root, ['branch', '-D', '__sflow_ledger_bootstrap__'], { allowFailure: true, env });
+    if (bootstrap) git(root, ['branch', '-D', bootstrapBranch], { allowFailure: true, env });
     await rm(parent, { recursive: true, force: true });
   }
 }

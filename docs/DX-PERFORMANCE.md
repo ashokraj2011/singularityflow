@@ -117,6 +117,12 @@ process also reports a GitHub-hosted Actions environment. Local and container re
 Do not update the baseline merely to make a regression pass. Review topology, runner load,
 dependency changes, and the lazy import graph first.
 
+The connected-ledger fixture and production ledger initialization do not require the newer
+`git worktree add --orphan` option. They construct the same isolated empty root through a detached
+`--no-checkout` worktree, worktree-local symbolic `HEAD`, and an empty index, preserving compatibility
+with the enterprise Git floor while still proving that the state branch shares no application
+history.
+
 ## Real VS Code extension-host benchmark
 
 The CLI benchmark cannot prove that VS Code remains responsive. The repository therefore also

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { execFileSync } from 'node:child_process';
-import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { chmod, mkdtemp, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
@@ -186,7 +186,7 @@ async function measureStoryPushRecovery() {
           'Measure exact recovery after a post-preflight local push failure.'),
         workType: 'feature', agent: 'product-owner', baseBranch: 'main',
         astWarmLauncher: () => ({ pid: 0 }),
-        afterPublicationAuthorityCapture: async () => {
+        afterPublicationPreflight: async () => {
           await writeFile(rejectionHook,
             '#!/bin/sh\necho wel-benchmark-post-preflight-rejection >&2\nexit 1\n');
           await chmod(rejectionHook, 0o755);
@@ -240,6 +240,145 @@ async function measureStoryPushRecovery() {
   }
 }
 
+async function measureStoryOfflineRecovery() {
+  const { storyRoot, storyRemote } = await storyBenchmarkRepository({ publish: 'required' });
+  const unavailableRemote = `${storyRemote}.unavailable`;
+  let remoteUnavailable = false;
+  let cloneRoot = null;
+  try {
+    const workId = 'WEL-OFFLINE-LOCAL';
+    const failureStartedAt = performance.now();
+    let failure = null;
+    try {
+      await startStory(storyRoot, {
+        id: workId,
+        source: storySource(workId,
+          'Measure exact recovery after the publication authority becomes unavailable.'),
+        workType: 'feature', agent: 'product-owner', baseBranch: 'main',
+        astWarmLauncher: () => ({ pid: 0 }),
+        afterPublicationPreflight: async () => {
+          await rename(storyRemote, unavailableRemote);
+          remoteUnavailable = true;
+        }
+      });
+    } catch (error) {
+      failure = error;
+    }
+    const failureMilliseconds = performance.now() - failureStartedAt;
+    if (!failure || !remoteUnavailable) {
+      throw new Error('Offline Story publication exercise did not reach the post-preflight boundary.');
+    }
+    await rename(unavailableRemote, storyRemote);
+    remoteUnavailable = false;
+    const retainedCommit = git(storyRoot, 'rev-parse', 'HEAD');
+    const recoveryStartedAt = performance.now();
+    execFileSync(process.execPath, [cli, 'sync', workId, '--json'], {
+      cwd: storyRoot, stdio: ['ignore', 'pipe', 'pipe'],
+      env: {
+        ...process.env, NODE_ENV: 'test',
+        SINGULARITY_FLOW_TEST_IDENTITY: 'WEL Benchmark'
+      }
+    });
+    const recoveryMilliseconds = performance.now() - recoveryStartedAt;
+    const remoteCommit = git(storyRoot, 'ls-remote', 'origin', `refs/heads/${workId}`)
+      .split(/\s+/)[0] ?? '';
+    if (!remoteCommit || remoteCommit !== retainedCommit) {
+      throw new Error('Offline Story recovery did not publish the exact retained commit.');
+    }
+    cloneRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-wel-fresh-clone-'));
+    const cloneStartedAt = performance.now();
+    execFileSync('git', [
+      'clone', '-q', '--single-branch', '--branch', workId, storyRemote, cloneRoot
+    ], { stdio: 'ignore' });
+    const cloneMilliseconds = performance.now() - cloneStartedAt;
+    const cloneCommit = git(cloneRoot, 'rev-parse', 'HEAD');
+    if (cloneCommit !== retainedCommit || git(cloneRoot, 'status', '--porcelain')) {
+      throw new Error('Fresh clone did not reproduce the exact recovered Story commit cleanly.');
+    }
+    return {
+      outcome: 'recovered',
+      failureCode: /^[A-Z][A-Z0-9_]{2,127}$/.test(failure.code ?? '')
+        ? failure.code : 'STORY_PUBLICATION_FAILED',
+      failureMilliseconds,
+      recoveryMilliseconds,
+      exactRetainedCommitPublished: true,
+      freshCloneMilliseconds: cloneMilliseconds,
+      freshCloneExact: true,
+      freshCloneClean: true
+    };
+  } finally {
+    if (remoteUnavailable) await rename(unavailableRemote, storyRemote).catch(() => {});
+    await Promise.all([
+      cloneRoot ? rm(cloneRoot, { recursive: true, force: true }) : Promise.resolve(),
+      rm(storyRoot, { recursive: true, force: true }),
+      rm(storyRemote, { recursive: true, force: true }),
+      rm(unavailableRemote, { recursive: true, force: true })
+    ]);
+  }
+}
+
+async function measureInterruptedWriteRecovery() {
+  const { storyRoot, storyRemote } = await storyBenchmarkRepository();
+  try {
+    const workId = 'WEL-INTERRUPT-LOCAL';
+    const target = 'wel-interrupted-state.json';
+    const original = '{"status":"stable"}\n';
+    await writeFile(path.join(storyRoot, target), original);
+    git(storyRoot, 'add', target);
+    git(storyRoot, 'commit', '-qm', 'add interrupted-write fixture');
+    const originalCommit = git(storyRoot, 'rev-parse', 'HEAD');
+    const publicationModule = new URL('../src/publication-unit-of-work.mjs', import.meta.url).href;
+    const eventModule = new URL('../src/lifecycle-event.mjs', import.meta.url).href;
+    const subject = { kind: 'story', id: workId, branch: 'main' };
+    const childScript = [
+      `import { writeFile } from 'node:fs/promises';`,
+      `import { GitPublicationUnitOfWork } from ${JSON.stringify(publicationModule)};`,
+      `import { lifecycleEvent } from ${JSON.stringify(eventModule)};`,
+      `const root = ${JSON.stringify(storyRoot)};`,
+      `const subject = ${JSON.stringify(subject)};`,
+      `await new GitPublicationUnitOfWork(root).execute({`,
+      `  subject, allowedPaths: [${JSON.stringify(target)}],`,
+      `  event: lifecycleEvent({ type: 'artifact-generated', subject, phaseId: 'intake', generation: 1 }),`,
+      `  commit: { message: '[WEL] interrupted-write benchmark' },`,
+      `  publication: { mode: 'off', branch: 'main' },`,
+      `  state: { write: () => writeFile(root + '/' + ${JSON.stringify(target)}, '{"status":"partial"}\\n') },`,
+      `  fault: (stage) => { if (stage === 'after-state-write') process.exit(73); }`,
+      `});`
+    ].join('\n');
+    const failureStartedAt = performance.now();
+    const child = spawnSync(process.execPath, ['--input-type=module', '--eval', childScript], {
+      cwd: packageRoot, encoding: 'utf8', timeout: 30_000
+    });
+    const failureMilliseconds = performance.now() - failureStartedAt;
+    if (child.status !== 73) {
+      throw new Error('Interrupted-write exercise did not stop at its injected process boundary.');
+    }
+    const recoveryStartedAt = performance.now();
+    execFileSync(process.execPath, [cli, 'sync', workId], {
+      cwd: storyRoot, stdio: ['ignore', 'pipe', 'pipe'],
+      env: {
+        ...process.env, NODE_ENV: 'test',
+        SINGULARITY_FLOW_TEST_IDENTITY: 'WEL Benchmark'
+      }
+    });
+    const recoveryMilliseconds = performance.now() - recoveryStartedAt;
+    if (git(storyRoot, 'rev-parse', 'HEAD') !== originalCommit
+        || await readFile(path.join(storyRoot, target), 'utf8') !== original
+        || git(storyRoot, 'status', '--porcelain')) {
+      throw new Error('Interrupted-write recovery did not restore the exact stable state.');
+    }
+    return {
+      outcome: 'recovered', failureCode: 'ABRUPT_PROCESS_EXIT',
+      failureMilliseconds, recoveryMilliseconds, exactStableStateRestored: true
+    };
+  } finally {
+    await Promise.all([
+      rm(storyRoot, { recursive: true, force: true }),
+      rm(storyRemote, { recursive: true, force: true })
+    ]);
+  }
+}
+
 const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-wel-benchmark-'));
 try {
   const sourcePath = path.join(root, 'src/test/java/benchmark/WelBenchmarkTest.java');
@@ -282,6 +421,21 @@ try {
   }
   const storyStart = await measureStoryStarts(storySamples);
   const storyPushRecovery = await measureStoryPushRecovery();
+  const storyOfflineRecovery = await measureStoryOfflineRecovery();
+  const interruptedWriteRecovery = await measureInterruptedWriteRecovery();
+  const cancellationStartedAt = performance.now();
+  const cancellationController = new AbortController();
+  cancellationController.abort();
+  const cancelledObservation = await observeJunit5SurefireIdentities(
+    root, command, parsedReport(replayLocalJunitObservation([{ contents: rawReport }])), policy,
+    { signal: cancellationController.signal }
+  );
+  const cancellationMilliseconds = performance.now() - cancellationStartedAt;
+  if (cancelledObservation?.exact !== false
+      || !cancelledObservation?.gaps?.includes('JUNIT_SOURCE_PARSER_CANCELLED')
+      || cancelledObservation?.mappingProposals?.length) {
+    throw new Error('Cancelled WEL observation did not fail safely without an exact mapping.');
+  }
   for (let index = 0; index < samples; index += 1) {
     const cpuStarted = process.cpuUsage();
     const reportStartedAt = performance.now();
@@ -320,7 +474,7 @@ try {
     (duration, index) => duration - baselineProjectionDurations[index]
   );
   const report = {
-    schema: 'sflow-wel-benchmark/v4',
+    schema: 'sflow-wel-benchmark/v5',
     assurance: 'content-free-local-measurement',
     platform: process.platform,
     architecture: process.arch,
@@ -384,6 +538,32 @@ try {
       exactRetainedCommitPublished: storyPushRecovery.exactRetainedCommitPublished
     },
     storyRecoveryInterpretation: 'synthetic local post-preflight transport loss followed by the public exact pending-publication sync path; this is not office-network evidence',
+    storyOfflineRecovery: {
+      outcome: storyOfflineRecovery.outcome,
+      failureCode: storyOfflineRecovery.failureCode,
+      failureMilliseconds: Number(storyOfflineRecovery.failureMilliseconds.toFixed(3)),
+      recoveryMilliseconds: Number(storyOfflineRecovery.recoveryMilliseconds.toFixed(3)),
+      exactRetainedCommitPublished: storyOfflineRecovery.exactRetainedCommitPublished,
+      freshCloneMilliseconds: Number(storyOfflineRecovery.freshCloneMilliseconds.toFixed(3)),
+      freshCloneExact: storyOfflineRecovery.freshCloneExact,
+      freshCloneClean: storyOfflineRecovery.freshCloneClean
+    },
+    storyOfflineRecoveryInterpretation: 'synthetic local authority loss after publication preflight, exact public sync recovery, and clean fresh-clone verification; this is not office-network evidence',
+    interruptedWriteRecovery: {
+      outcome: interruptedWriteRecovery.outcome,
+      failureCode: interruptedWriteRecovery.failureCode,
+      failureMilliseconds: Number(interruptedWriteRecovery.failureMilliseconds.toFixed(3)),
+      recoveryMilliseconds: Number(interruptedWriteRecovery.recoveryMilliseconds.toFixed(3)),
+      exactStableStateRestored: interruptedWriteRecovery.exactStableStateRestored
+    },
+    interruptedWriteInterpretation: 'synthetic abrupt process exit after state write and before ref advancement, recovered through the public sync surface',
+    adapterCancellation: {
+      outcome: 'cancelled-safe',
+      milliseconds: Number(cancellationMilliseconds.toFixed(3)),
+      exact: false,
+      mappingProposals: 0
+    },
+    adapterCancellationInterpretation: 'pre-cancelled exact-static observation returns unavailable evidence and creates no mapping proposal',
     timingInterpretation: 'paired local observation; signed deltas may be negative from timer noise and are not an enforced budget',
     cpuMilliseconds: completed ? {
       median: Number(percentile(cpuDurations, 0.5).toFixed(3)),
@@ -409,7 +589,8 @@ try {
     measurementCapabilities: [
       'source-catalog', 'report-ingestion', 'receipt-projection', 'durable-storage-estimate',
       'baseline-comparison', 'context-xray-projection', 'story-start-latency',
-      'story-push-recovery'
+      'story-push-recovery', 'story-offline-recovery', 'fresh-clone-verification',
+      'interrupted-write-recovery', 'adapter-cancellation'
     ],
     contentExcluded: ['repository-path', 'origin-url', 'work-id', 'git-identity', 'clause-text', 'test-body']
   };

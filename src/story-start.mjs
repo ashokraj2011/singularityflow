@@ -211,7 +211,8 @@ export async function startStory(root, {
   flightPlan = null,
   auto = null,
   astWarmLauncher = undefined,
-  afterPublicationAuthorityCapture = null
+  afterPublicationAuthorityCapture = null,
+  afterPublicationPreflight = null
 } = {}) {
   assertSafeStoryId(id);
   await recoverStoryStart(root, id);
@@ -386,6 +387,9 @@ export async function startStory(root, {
           { code: 'STORY_PUBLICATION_PREFLIGHT_FAILED' }
         );
       }
+    }
+    if (afterPublicationPreflight) {
+      await afterPublicationPreflight({ authority: publicationAuthority });
     }
     const siblings = storyBase.scope === 'capability'
       ? storyBase.plan.repositories.map((repository) => {

@@ -14,7 +14,7 @@ test('WEL benchmark emits only bounded content-free local measurements', () => {
   });
   assert.equal(result.status, 0, result.stderr);
   const report = JSON.parse(result.stdout);
-  assert.equal(report.schema, 'sflow-wel-benchmark/v4');
+  assert.equal(report.schema, 'sflow-wel-benchmark/v5');
   assert.equal(report.assurance, 'content-free-local-measurement');
   assert.ok(['observed', 'unavailable'].includes(report.outcome));
   assert.equal('repositoryPath' in report, false);
@@ -38,12 +38,36 @@ test('WEL benchmark emits only bounded content-free local measurements', () => {
   assert.ok(report.storyPushRecovery.recoveryMilliseconds >= 0);
   assert.equal(report.storyPushRecovery.exactRetainedCommitPublished, true);
   assert.match(report.storyRecoveryInterpretation, /not office-network evidence/);
+  assert.equal(report.storyOfflineRecovery.outcome, 'recovered');
+  assert.match(report.storyOfflineRecovery.failureCode, /^[A-Z][A-Z0-9_]+$/);
+  assert.ok(report.storyOfflineRecovery.failureMilliseconds >= 0);
+  assert.ok(report.storyOfflineRecovery.recoveryMilliseconds >= 0);
+  assert.equal(report.storyOfflineRecovery.exactRetainedCommitPublished, true);
+  assert.ok(report.storyOfflineRecovery.freshCloneMilliseconds >= 0);
+  assert.equal(report.storyOfflineRecovery.freshCloneExact, true);
+  assert.equal(report.storyOfflineRecovery.freshCloneClean, true);
+  assert.match(report.storyOfflineRecoveryInterpretation, /not office-network evidence/);
+  assert.equal(report.interruptedWriteRecovery.outcome, 'recovered');
+  assert.equal(report.interruptedWriteRecovery.failureCode, 'ABRUPT_PROCESS_EXIT');
+  assert.ok(report.interruptedWriteRecovery.failureMilliseconds >= 0);
+  assert.ok(report.interruptedWriteRecovery.recoveryMilliseconds >= 0);
+  assert.equal(report.interruptedWriteRecovery.exactStableStateRestored, true);
+  assert.match(report.interruptedWriteInterpretation, /public sync surface/);
+  assert.deepEqual(report.adapterCancellation, {
+    outcome: 'cancelled-safe',
+    milliseconds: report.adapterCancellation.milliseconds,
+    exact: false,
+    mappingProposals: 0
+  });
+  assert.ok(report.adapterCancellation.milliseconds >= 0);
+  assert.match(report.adapterCancellationInterpretation, /unavailable evidence/);
   assert.equal(report.incrementalReceiptBytes, report.receiptBytes - report.baselineReceiptBytes);
   assert.match(report.timingInterpretation, /signed deltas may be negative/);
   assert.deepEqual(report.measurementCapabilities, [
     'source-catalog', 'report-ingestion', 'receipt-projection', 'durable-storage-estimate',
     'baseline-comparison', 'context-xray-projection', 'story-start-latency',
-    'story-push-recovery'
+    'story-push-recovery', 'story-offline-recovery', 'fresh-clone-verification',
+    'interrupted-write-recovery', 'adapter-cancellation'
   ]);
   assert.equal(report.fixtureOutcomes.falseExact, 0);
   if (report.outcome === 'observed') {

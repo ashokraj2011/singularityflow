@@ -7,7 +7,6 @@
  * enforce-grade pass.
  */
 import { createHash } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
 import { constants as fsConstants } from 'node:fs';
 import { lstat, mkdir, mkdtemp, open, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -16,6 +15,7 @@ import path from 'node:path';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { assertCredentialFreeRemote, remoteFingerprint } from './git-remote-diagnostics.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
+import { runQualityCommand } from './quality-command-runner.mjs';
 import { posix, run, secureRepositoryPath } from './util.mjs';
 
 const HELPER = path.join(PACKAGE_ROOT, 'src', 'wel', 'WelJunitCatalog.java');
@@ -89,13 +89,15 @@ function moduleTestSource(relative, moduleRoot) {
   return relative.startsWith(`${root}src/test/java/`) && relative.endsWith('.java');
 }
 
-async function trackedJavaSources(root, moduleRoot) {
+async function trackedJavaSources(root, moduleRoot, { signal = null } = {}) {
+  if (signal?.aborted) return { paths: [], gap: 'JUNIT_SOURCE_PARSER_CANCELLED' };
   const listing = run('git', ['ls-files', '-z', '--', moduleRoot === '.' ? '.' : moduleRoot], {
     cwd: root, maxBuffer: 8 * 1024 * 1024
   }).stdout.split('\0').filter(Boolean).map(posix).filter((entry) => moduleTestSource(entry, moduleRoot));
   if (listing.length > MAX_SOURCES) return { paths: [], gap: 'TEST_SOURCE_LIMIT_EXCEEDED' };
   const sources = [];
   for (const relative of listing) {
+    if (signal?.aborted) return { sources: [], gap: 'JUNIT_SOURCE_PARSER_CANCELLED' };
     if (/[\\\u0000-\u001f\u007f]/u.test(relative)) {
       return { paths: [], gap: 'SOURCE_PATH_INVALID' };
     }
@@ -143,7 +145,10 @@ function parseHelperOutput(output) {
   return records;
 }
 
-async function sourceDeclarations(root, sources) {
+async function sourceDeclarations(root, sources, {
+  signal = null,
+  runParser = runQualityCommand
+} = {}) {
   const helperBytes = await readFile(HELPER);
   const parser = {
     id: 'jdk-compiler-tree-api',
@@ -160,13 +165,13 @@ async function sourceDeclarations(root, sources) {
     }
     const paths = sources.map((source) => source.path);
     const input = `${staging}\n${paths.join('\n')}${paths.length ? '\n' : ''}`;
-    const invocation = spawnSync('java', [HELPER], {
+    const invocation = await runParser('java', [HELPER], {
       cwd: staging,
       input,
-      encoding: 'utf8',
-      timeout: PARSER_TIMEOUT_MS,
-      maxBuffer: MAX_OUTPUT_BYTES,
-      windowsHide: true,
+      timeoutMs: PARSER_TIMEOUT_MS,
+      captureBytes: MAX_OUTPUT_BYTES,
+      signal,
+      killTree: true,
       env: {
         PATH: process.env.PATH,
         SystemRoot: process.env.SystemRoot,
@@ -176,8 +181,14 @@ async function sourceDeclarations(root, sources) {
         LC_ALL: 'C.UTF-8'
       }
     });
+    if (invocation.aborted) {
+      return { parser, declarations: [], gaps: ['JUNIT_SOURCE_PARSER_CANCELLED'] };
+    }
+    if (invocation.stdoutTruncated || invocation.stderrTruncated) {
+      return { parser, declarations: [], gaps: ['JUNIT_SOURCE_PARSER_OUTPUT_LIMIT'] };
+    }
     if (invocation.error || invocation.status !== 0 || invocation.signal) {
-      const reason = invocation.error?.code === 'ETIMEDOUT' || invocation.signal
+      const reason = invocation.timedOut || invocation.error?.code === 'ETIMEDOUT' || invocation.signal
         ? 'JUNIT_SOURCE_PARSER_TIMEOUT' : 'JUNIT_SOURCE_PARSER_UNAVAILABLE';
       return { parser, declarations: [], gaps: [reason] };
     }
@@ -260,11 +271,15 @@ function exactProposal(declaration, clauseId, parser) {
  * Any parser/toolchain/source ambiguity returns an inconclusive observation. It never throws a
  * lifecycle blocker merely because exact WEL evidence is unavailable.
  */
-export async function observeJunit5SurefireIdentities(root, command, parsed, testcasePolicy) {
+export async function observeJunit5SurefireIdentities(root, command, parsed, testcasePolicy, {
+  signal = null,
+  runParser = runQualityCommand
+} = {}) {
   if (testcasePolicy?.mode !== 'observe' || testcasePolicy?.adapter !== 'junit5-surefire-v1'
       || parsed?.adapter !== 'junit-xml' || !parsed?.testcaseObservation) {
     return null;
   }
+  if (signal?.aborted) return parserUnavailable('JUNIT_SOURCE_PARSER_CANCELLED');
   const commandScope = classifyJunit5SurefireCommandScope(command);
   if (commandScope.gaps.length) {
     return parserUnavailable(
@@ -273,11 +288,11 @@ export async function observeJunit5SurefireIdentities(root, command, parsed, tes
     );
   }
   let sourceSet;
-  try { sourceSet = await trackedJavaSources(root, command.workingDirectory); }
+  try { sourceSet = await trackedJavaSources(root, command.workingDirectory, { signal }); }
   catch (error) { return parserUnavailable('JUNIT_SOURCE_CATALOG_UNAVAILABLE', error.message); }
   if (sourceSet.gap) return parserUnavailable(sourceSet.gap);
   if (!sourceSet.sources.length) return parserUnavailable('JUNIT_TEST_SOURCES_UNAVAILABLE');
-  const catalog = await sourceDeclarations(root, sourceSet.sources);
+  const catalog = await sourceDeclarations(root, sourceSet.sources, { signal, runParser });
   if (catalog.gaps.length) return parserUnavailable(catalog.gaps.sort()[0]);
   const repositoryIdentity = repositorySha256(root);
   if (!repositoryIdentity) return parserUnavailable('REPOSITORY_IDENTITY_UNAVAILABLE');

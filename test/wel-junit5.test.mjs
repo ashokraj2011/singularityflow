@@ -167,6 +167,45 @@ test('missing JUnit source remains an unavailable non-blocking observation', asy
   assert.deepEqual(observation.gaps, ['JUNIT_TEST_SOURCES_UNAVAILABLE']);
 });
 
+test('parser cancellation is bounded, non-blocking, and can never emit an exact mapping', async () => {
+  const source = [
+    'package example;',
+    'import org.junit.jupiter.api.Test;',
+    'import org.junit.jupiter.api.Tag;',
+    'class OrderTest {',
+    '  @Test @Tag("sflow-ac:WRK-1:AC-001") void calculatesInterest() {}',
+    '}',
+    ''
+  ].join('\n');
+  const { root } = await fixture(source);
+  const occurrence = {
+    suite: 'OrderTest', className: 'example.OrderTest', name: 'calculatesInterest',
+    outcome: 'passed', verdict: 'inconclusive', durationMs: 1, logicalTestId: null,
+    declarationSha256: null, exact: false, identityStatus: 'observed-name-only'
+  };
+  const controller = new AbortController();
+  let parserStarted = false;
+  const runParser = async (_command, _arguments, options) => {
+    parserStarted = true;
+    assert.equal(options.signal, controller.signal);
+    controller.abort('caller-owned reason that must not be retained');
+    return {
+      status: 1, signal: null, error: null, timedOut: false, aborted: true,
+      stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false
+    };
+  };
+  const observation = await observeJunit5SurefireIdentities(
+    root, command, parsed([occurrence]), policy, { signal: controller.signal, runParser }
+  );
+  assert.equal(parserStarted, true);
+  assert.equal(observation.status, 'unavailable');
+  assert.equal(observation.exact, false);
+  assert.deepEqual(observation.gaps, ['JUNIT_SOURCE_PARSER_CANCELLED']);
+  assert.deepEqual(observation.mappingProposals, []);
+  assert.deepEqual(observation.occurrences, []);
+  assert.doesNotMatch(JSON.stringify(observation), /caller-owned reason/);
+});
+
 test('focused, framework-retried, and non-Surefire commands cannot emit exact WEL mappings', async () => {
   const source = [
     'package example;',

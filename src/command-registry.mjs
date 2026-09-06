@@ -246,7 +246,9 @@ const CONSTITUTION_SUBCOMMANDS = Object.freeze([...CONSTITUTION_READ_SUBCOMMANDS
 const SPEC_READ_SUBCOMMANDS = Object.freeze(['coverage', 'trace']);
 const SPEC_INDEX_SUBCOMMANDS = Object.freeze(['index', 'acceptance', 'tasks']);
 const SPEC_SUBCOMMANDS = Object.freeze(['analyze', 'claims', ...SPEC_READ_SUBCOMMANDS, ...SPEC_INDEX_SUBCOMMANDS]);
-const COMPREHENSION_SUBCOMMANDS = Object.freeze(['regions', 'check', 'graph', 'explain', 'replay']);
+const COMPREHENSION_SUBCOMMANDS = Object.freeze([
+  'regions', 'check', 'graph', 'explain', 'replay', 'walkthrough'
+]);
 const DELIVERY_SUBCOMMANDS = Object.freeze([
   'recommend', 'select', 'workflow-status', 'execution-status',
   'promotion-preview', 'promotion-apply', 'promotion-status', 'assurance-evaluate',
@@ -462,6 +464,13 @@ function resolveComprehensionOperation(definition, positionals) {
   const subcommand = positionals[1] ?? 'check';
   if (!COMPREHENSION_SUBCOMMANDS.includes(subcommand)) {
     return unknownSubcommand('comprehension', subcommand, COMPREHENSION_SUBCOMMANDS);
+  }
+  if (subcommand === 'walkthrough') {
+    const action = positionals[2] ?? 'validate';
+    if (action !== 'validate') {
+      return unknownSubcommand('comprehension walkthrough', action, ['validate'], 'action');
+    }
+    return never('comprehension.walkthrough.validate', definition, 'read');
   }
   return never(`comprehension.${subcommand}`, definition, 'read');
 }
@@ -1241,7 +1250,9 @@ export function operationCatalog() {
     never('spec.tasks', specDefinition, 'mutation'),
     never('spec.tasks.dry-run', specDefinition, 'read'),
     never('spec.trace', specDefinition, 'read'),
-    ...COMPREHENSION_SUBCOMMANDS.map((name) => never(`comprehension.${name}`, comprehensionDefinition, 'read')),
+    ...COMPREHENSION_SUBCOMMANDS.filter((name) => name !== 'walkthrough')
+      .map((name) => never(`comprehension.${name}`, comprehensionDefinition, 'read')),
+    never('comprehension.walkthrough.validate', comprehensionDefinition, 'read'),
     never('change.show.shadow', changeDefinition, 'read'),
     ...['status', 'explain', 'gaps', 'signals'].map((name) => never(`proof.${name}`, proofDefinition, 'read')),
     never('delivery.recommend', deliveryDefinition, 'read'),

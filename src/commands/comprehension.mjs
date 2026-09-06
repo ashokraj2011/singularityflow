@@ -20,6 +20,7 @@ import {
   buildComprehensionGraph, explainComprehensionGraph
 } from '../comprehension/graph.mjs';
 import { buildComprehensionReplay } from '../comprehension/replay.mjs';
+import { validateComprehensionWalkthroughDraft } from '../comprehension/walkthrough.mjs';
 import {
   commandResult, noEffects, succeeded
 } from '../narration/command-result.mjs';
@@ -253,6 +254,53 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
         context: { repository: root, workId: replay.workId },
         replay
       }
+    }), { json, restStateWhenIdle: 'informational' });
+  }
+  if (subcommand === 'walkthrough') {
+    const action = positionals[2] ?? 'validate';
+    if (action !== 'validate' || positionals.length !== 4) {
+      throw new SingularityFlowError(
+        'Usage: singularity-flow comprehension walkthrough validate <REPOSITORY-FILE> [--base REVISION] [--bindings FILE] [--dispositions FILE] [--json]',
+        { code: 'CMP_WALKTHROUGH_SCHEMA_INVALID' }
+      );
+    }
+    const draftLocation = await secureRepositoryPath(root, positionals[3], {
+      label: 'Comprehension walkthrough draft', mustExist: true, type: 'file'
+    });
+    const context = { ...await resolveBaseline(root, options), repository: root };
+    const changeSet = await buildRepositoryChangeSet(root, {
+      baseCommit: context.base,
+      subject: {
+        kind: 'comprehension-observation', workId: context.workId, phase: context.phase
+      }
+    });
+    const manifest = buildChangeRegionManifest(changeSet);
+    if (manifest.regions.some((region) => [
+      region.location.pathBefore, region.location.pathAfter
+    ].includes(draftLocation.relative))) {
+      throw new SingularityFlowError(
+        `Walkthrough draft '${draftLocation.relative}' is part of the Candidate it describes. Move it to an ignored repository-local evidence path and retry.`,
+        { code: 'CMP_WALKTHROUGH_DRAFT_IN_CANDIDATE' }
+      );
+    }
+    const evidence = await evidenceInputs(root, options);
+    const coverage = evaluateComprehensionCoverage({ changeSet, manifest, ...evidence });
+    const graph = buildComprehensionGraph({ manifest, coverage, ...evidence });
+    const draft = await repositoryJson(
+      root, draftLocation.relative, 'Comprehension walkthrough draft'
+    );
+    const validation = validateComprehensionWalkthroughDraft(draft, { manifest, graph });
+    return emitCommandResult(commandResult({
+      operation: suppliedOperation
+        ?? { id: 'comprehension.walkthrough.validate', classification: 'read' },
+      outcome: succeeded('comprehension.walkthrough-validated', {
+        status: validation.status,
+        claims: validation.counts.claims,
+        unavailable: validation.counts.unavailable
+      }),
+      effects: noEffects(),
+      restState: 'informational',
+      data: { mode: 'observe-only', context, validation }
     }), { json, restStateWhenIdle: 'informational' });
   }
   const context = { ...await resolveBaseline(root, options), repository: root };

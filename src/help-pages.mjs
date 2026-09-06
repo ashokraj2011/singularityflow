@@ -180,7 +180,14 @@ const PAGES = Object.freeze({
       'Repository binding follows the normal CLI rule: a governed current checkout wins; otherwise',
       'the explicitly selected workspace repository is used. The resolved repository is always',
       'printed and returned in JSON. Baseline precedence is explicit --base, generation intent,',
-      'current work interval, delivery evidence, Story base, then HEAD.'
+      'current work interval, delivery evidence, Story base, then HEAD.',
+      '',
+      '`comprehension walkthrough validate` checks one bounded untrusted draft against the exact',
+      'current change regions and cause graph. The initial deterministic validator can prove only',
+      'resource-level `file-changed` diff facts. Structural, evidence-supported, and human-judgment',
+      'claims stay explicitly unavailable until their approved authority exists; model advice stays',
+      'advisory. Narrative and dependency hashes are separate, and the result remains read-only,',
+      'observe-only, and unable to approve or block publication.'
     ],
     options: [
       ['--work-id WORK-ID', 'Select and validate a Story context; its baseline follows the documented generation/work-interval/delivery/Story precedence.'],
@@ -190,6 +197,7 @@ const PAGES = Object.freeze({
       ['--dispositions FILE', 'For check, load bounded, untrusted diagnostic disposition JSON from inside the repository.'],
       ['clause|file|symbol|change|refusal|generation|test SUBJECT', 'For explain, select one exact subject. Sources not represented by the current observe-only graph report unavailable.'],
       ['replay all|phase PHASE|kind EVENT-KIND', 'Project bounded, content-free Story lifecycle events. This is read-only and distinct from SGOS Process replay.'],
+      ['walkthrough validate FILE', 'Validate one repository-contained untrusted walkthrough draft without invoking a model or creating authority.'],
       ['--json', 'Emit the complete manifest or computed coverage result.']
     ],
     examples: [
@@ -197,7 +205,8 @@ const PAGES = Object.freeze({
       ['singularity-flow comprehension check --bindings review/bindings.json --json', 'Diagnose supplied bindings against the exact repository change-set subject; this cannot authorize publication.'],
       ['singularity-flow comprehension graph --bindings review/bindings.json --json', 'Build the deterministic bidirectional cause/region graph from validated diagnostic bindings.'],
       ['singularity-flow comprehension explain clause AC-001 --bindings review/bindings.json --json', 'Trace one exact cause to related changed resources without invoking a model or creating authority.'],
-      ['singularity-flow comprehension replay phase implementation --work-id WRK-123 --json', 'Project the exact normalized Implementation history without operational detail, prompts, transcripts, or model summaries.']
+      ['singularity-flow comprehension replay phase implementation --work-id WRK-123 --json', 'Project the exact normalized Implementation history without operational detail, prompts, transcripts, or model summaries.'],
+      ['singularity-flow comprehension walkthrough validate .sflow/comprehension/walkthrough.json --base HEAD --json', 'Validate an ignored repository-local draft; a draft inside its own Candidate is refused as circular.']
     ],
     seeAlso: ['spec', 'receipt', 'review', 'explain']
   },

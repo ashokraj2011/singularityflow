@@ -248,6 +248,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Projected ${slot(s.events, '0')} comprehension replay event(s) for ${slot(s.workId)}${s.truncated ? ' (truncated)' : ''}.`,
     preserves: true
   },
+  'comprehension.walkthrough-validated': {
+    headline: (s) => `Walkthrough validation is ${slot(s.status)} across ${slot(s.claims, '0')} typed claim(s), with ${slot(s.unavailable, '0')} unavailable.`,
+    preserves: true
+  },
   'change.shadow-reported': {
     headline: (s) => `Shadow Change Passport for ${slot(s.workId)} is ${slot(s.status)} with ${slot(s.gaps, '0')} explicit gap(s).`,
     preserves: true

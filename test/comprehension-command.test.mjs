@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { lstat, mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+
+import { recordSha256 } from '../src/records.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -31,6 +34,7 @@ async function repository(t) {
   git(root, ['config', 'user.email', 'cmp@example.test']);
   await mkdir(path.join(root, 'singularity'), { recursive: true });
   await writeFile(path.join(root, 'singularity', 'workflow.yml'), '{}\n');
+  await writeFile(path.join(root, '.gitignore'), 'review/\n');
   const storyDirectory = path.join(root, 'singularity', 'work-items', 'CMP-STORY');
   await mkdir(storyDirectory, { recursive: true });
   await writeFile(path.join(storyDirectory, 'workflow.json'), `${JSON.stringify({
@@ -158,6 +162,78 @@ test('comprehension graph and explain are model-free bidirectional read projecti
   assert.equal(symbol.data.explanation.status, 'unavailable');
   assert.equal(symbol.data.explanation.reasonCode, 'CMP_STRUCTURE_UNAVAILABLE');
   assert.equal(git(root, ['status', '--porcelain=v1']), before);
+});
+
+test('comprehension walkthrough validates typed claims without model, AST, writes, or authority', async (t) => {
+  const root = await repository(t);
+  const graphResult = command(root, [
+    '--no-model', 'comprehension', 'graph', '--base', 'HEAD', '--json'
+  ]);
+  assert.equal(graphResult.status, 0, graphResult.stderr);
+  const graphEnvelope = JSON.parse(graphResult.stdout);
+  const graph = graphEnvelope.data.graph;
+  const region = graph.nodes.find((node) =>
+    node.type === 'change-region' && node.pathAfter === 'service.txt');
+  const hash = (value) => `sha256:${recordSha256(value)}`;
+  const textHash = (value) => `sha256:${createHash('sha256').update(value, 'utf8').digest('hex')}`;
+  const claimText = 'The service resource changed in this Candidate.';
+  const claimCore = {
+    schemaVersion: 1, kind: 'walkthrough-claim', claimId: 'WCL-001',
+    text: claimText, textSha256: textHash(claimText), claimClass: 'diff-fact',
+    assertionType: 'file-changed', subjectRefs: ['file:service.txt'],
+    regionRefs: [region.regionId], causeRefs: [], evidenceRefs: [],
+    verification: { status: 'proposed', verifier: null, resultSha256: null },
+    assurance: 'unavailable'
+  };
+  const dependencyManifest = {
+    causeGraphSha256: graph.graphSha256,
+    changeRegionManifestSha256: graph.manifestSha256,
+    structuralViewManifestSha256: null, evidenceManifestSha256: null,
+    policySha256: null, extractorVersionsSha256: null
+  };
+  const narrative = 'This walkthrough describes only the exact changed service resource.';
+  const draftCore = {
+    schemaVersion: 1, kind: 'comprehension-walkthrough-draft',
+    walkthroughId: 'WLK-COMMAND-001',
+    subject: { candidateSha256: graph.candidateSha256, sourceTreeSha256: null },
+    audience: 'maintainer', mode: 'change-walkthrough',
+    narrative: { content: narrative, contentSha256: textHash(narrative) },
+    claims: [{ ...claimCore, claimSha256: hash(claimCore) }],
+    dependencyManifest, dependencyManifestSha256: hash(dependencyManifest)
+  };
+  const draft = { ...draftCore, draftSha256: hash(draftCore) };
+  await mkdir(path.join(root, 'review'), { recursive: true });
+  await writeFile(path.join(root, 'review', 'walkthrough.json'), JSON.stringify(draft));
+  const before = git(root, ['status', '--porcelain=v1']);
+  const result = command(root, [
+    '--no-model', 'comprehension', 'walkthrough', 'validate', 'review/walkthrough.json',
+    '--base', 'HEAD', '--json'
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  const response = JSON.parse(result.stdout);
+  assert.equal(response.operation.id, 'comprehension.walkthrough.validate');
+  assert.equal(response.operation.classification, 'read');
+  assert.equal(response.data.validation.status, 'validated');
+  assert.equal(response.data.validation.modelInvoked, false);
+  assert.equal(response.data.validation.claims[0].assurance, 'diff-verified');
+  assert.equal(Object.hasOwn(response.data.validation, 'narrative'), false);
+  assert.deepEqual(response.effects, {
+    stateChanged: false, filesChanged: false, publicationCreated: false,
+    externalSystemsChanged: false
+  });
+  assert.equal(git(root, ['status', '--porcelain=v1']), before);
+  assert.equal(await lstat(path.join(root, '.git', 'singularity-flow', 'ast')).then(
+    () => true, (error) => error?.code === 'ENOENT' ? false : Promise.reject(error)
+  ), false);
+
+  await writeFile(path.join(root, 'walkthrough-unignored.json'), JSON.stringify(draft));
+  const circular = command(root, [
+    '--no-model', 'comprehension', 'walkthrough', 'validate', 'walkthrough-unignored.json',
+    '--base', 'HEAD', '--json'
+  ]);
+  assert.notEqual(circular.status, 0);
+  assert.match(circular.stderr, /part of the Candidate it describes/);
+  assert.match(circular.stderr, /ignored repository-local evidence path/);
 });
 
 test('comprehension replay projects existing Story history without reading the working diff', async (t) => {

@@ -1,12 +1,12 @@
 # Witnessed Engineering Loop pending work
 
-**Status:** P0 observe-only implementation active; P1/P2 remain parked or unavailable
+**Status:** P0/P2 observe-only implementation active; P1 remains parked or unavailable
 
 **Observe-only baseline:** `main@7f0581d5`
 
 **Created:** 2026-08-30
 
-**Current reconciliation:** checked against `main@b138ce06` on 2026-09-06. Commits `259b76f1`,
+**Current reconciliation:** checked against `main@676c591e` on 2026-09-06. Commits `259b76f1`,
 `58d9329d`, and `d55229c7` provide the bounded exact-static JUnit identity adapter, immutable
 proposal snapshot, human review through the existing phase approval, migration, safe command-shape
 fallbacks, the evolving content-free benchmark, and same-process unenrolled delta measurement. Commit
@@ -15,10 +15,12 @@ boundary. The current release increment also makes the isolated npm and VSIX eng
 WEL adapter and require its packaged Java parser helper. These increments do not satisfy the
 authenticated-independent-runner, Candidate/Program/attempt, cross-platform, enforcement, or
 release-evidence gates below. Commit `b138ce06` adds the first separately bounded P2 adapter
-increment for top-level literal Jest and Vitest tests; those observations inherit the same local,
-inconclusive authority ceiling.
+increment for top-level literal Jest and Vitest tests; commit `676c591e` adds a durable 14-case
+synthetic adversarial corpus that proves those closed profiles produce no false exact match for the
+enumerated source and report shapes. Those observations inherit the same local, inconclusive
+authority ceiling.
 
-The code-local WEL boundary and signed-evidence contract were revalidated at `main@b138ce06`: all 85
+The code-local WEL boundary and signed-evidence contract were revalidated at `main@676c591e`: all 86
 focused WEL policy, review, Java/JUnit, JavaScript/Jest/Vitest, Code Delivery, release-integrity, and
 receipt tests passed. The benchmark's exact content-free report is retained privately during the
 release gate, validated against the invoking host/runtime, and embedded with its canonical digest in
@@ -362,7 +364,7 @@ Owner: repository maintainers. Branch: `main`. Started: 2026-09-06. Target: next
 release. Dependencies: the existing local-observation authority and approval review are reused;
 independent identity-contract review and supported-platform evidence remain open.
 
-Implemented in `b138ce06`:
+Implemented in `b138ce06` and `676c591e`:
 
 - closed `jest-static-v1` and `vitest-static-v1` profiles use the matching structured JSON result
   adapter and one shared registry rather than adding framework branches throughout the lifecycle;
@@ -377,12 +379,16 @@ Implemented in `b138ce06`:
   attempt, nonce, and independent attestation remain explicitly unavailable;
 - the portable CMP/WEL matrix, release gate, isolated npm install, and VSIX-contained engine smoke
   load and exercise the packaged JavaScript adapter registry.
+- a checked-in 14-case synthetic adversarial corpus covers exact Jest/Vitest literals, multiple
+  qualified clauses, dynamic and non-literal titles, focus, suites, conditional declarations,
+  source/report collisions, report/source mismatch, comment ambiguity, and unqualified tags. Its
+  executable assertion requires zero false exact matches while preserving safe degradation.
 
 Verification at landing:
 
-- 85 focused WEL, Code Delivery, policy, review, benchmark, receipt, and release-contract tests
+- 86 focused WEL, Code Delivery, policy, review, benchmark, receipt, and release-contract tests
   passed;
-- the 31-test portable CMP/WEL matrix passed with zero failures, skips, cancellations, or todo;
+- the 32-test portable CMP/WEL matrix passed with zero failures, skips, cancellations, or todo;
 - repository conformance passed 1,337 checks;
 - isolated npm installation and VSIX-contained engine smokes loaded the new packaged modules.
 

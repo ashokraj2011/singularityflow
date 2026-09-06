@@ -16,6 +16,12 @@ WEL adapter and require its packaged Java parser helper. These increments do not
 authenticated-independent-runner, Candidate/Program/attempt, cross-platform, enforcement, or
 release-evidence gates below.
 
+The code-local WEL boundary was revalidated after `main@724cb85e`: all 24 focused WEL policy,
+review, JUnit identity, knowledge-projection, and content-free benchmark tests passed. No WEL item
+is marked complete by that run. Independent ratification, authenticated execution, reviewed real
+corpus evidence, office-network/cross-platform receipts, and signed release proof remain external
+acceptance gates and are not fabricated by repository-local tests.
+
 This document is the durable delivery tracker for Witnessed Engineering Loop work that was
 deliberately left out of the observe-only baseline. The governing design remains
 [WEL v0.2](WEL-SPEC.md). Cross-cutting execution and assurance prerequisites remain owned by the

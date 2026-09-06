@@ -1,13 +1,13 @@
 # AUT v2 implementation roadmap
 
 Status: the dependency-free Story profile implements and release-validates the AUT v2 P0/P1
-boundary described below at commit `64cf7ddaf5e5b1296f610509da3db44fdb93a32b`. The optional SGOS profile and enforcement of
-optional CMP policy are separate work and are not claimed complete here.
+boundary described below. Provenance-preserving direct Ad Hoc Candidate adoption landed at
+`main@724cb85e`. The optional SGOS profile and enforcement of optional CMP policy are separate work
+and are not claimed complete here.
 
-Reconciled against `main@c3bd07e3` on 2026-09-06: subsequent SGOS and GDP delivery did not add the
-optional Auto SGOS profile, direct Ad Hoc materialization, or a registered
-comparative-quality baseline. The implemented Story profile remains the default and complete
-boundary claimed by this document.
+Reconciled against `main@724cb85e` on 2026-09-06: direct Ad Hoc adoption is now part of the Story
+profile. The optional Auto SGOS profile and registered comparative-quality baseline remain open.
+The implemented Story profile remains the default boundary claimed by this document.
 
 ## Architecture decisions
 
@@ -25,6 +25,10 @@ boundary claimed by this document.
 - `auto plan --story <STORY-ID>` is a read-only, model-free projection of the next existing-Story
   segment. It does not create a Plan, mutate the Story, or start a flight. `auto continue` remains the
   compatible continuation spelling.
+- `auto adopt --from-adhoc <AHS-ID>` verifies one confirmed effect set and creates a model-free Plan.
+  A separately ratified start freezes the exact bytes as an immutable Candidate, preserves
+  `pre-auto-adhoc` / `discovered-at-landing` provenance, and restores them only after the first
+  code-delivery generation opens. The phase model has artifact-only write authority.
 - Operators may use a phase ID directly with `--until`, for example `--until verification`. The
   kernel validates it against the selected Story rail and normalizes it to the closed
   `phase-complete:<phase>` selector. Existing explicit endpoint syntax remains compatible.
@@ -124,6 +128,7 @@ checkpoints, and reconstructible after clone or loss of disposable sidecars.
 | --- | --- | --- |
 | Plan authority, capability, identity | `src/auto/auto-plan.mjs`, `src/capability-context.mjs` | `test/auto-plan-security.test.mjs`, `test/auto-authorization-integrity.test.mjs` |
 | Existing-Story plan and endpoints | `src/commands/auto.mjs`, `src/auto/auto-policy.mjs`, `src/command-registry.mjs` | `test/auto-cli-usability.test.mjs`, `test/auto-v2-policy.test.mjs` |
+| Ad Hoc Candidate adoption | `src/auto/auto-entry-modes.mjs`, `src/auto/auto-flight.mjs`, `src/auto/auto-executor.mjs`, `src/auto/auto-phase-contract.mjs` | `test/auto-entry-modes.test.mjs`, `test/auto-mode.test.mjs` |
 | Candidate authority | `src/auto/auto-candidate.mjs`, `src/state.mjs`, `src/delivery-evidence.mjs` | `test/auto-candidate.test.mjs`, `test/auto-candidate-crash-recovery.test.mjs` |
 | Context/task/selection/event records | `src/auto/auto-contract-records.mjs`, `src/auto/auto-phase-contract.mjs`, `src/auto/auto-executor.mjs`, `src/schema-migrations.mjs` | Auto phase-contract and v2 control tests, schema-migration checks |
 | Checkpoints and recovery | `src/auto/auto-checkpoint.mjs`, `src/auto/auto-flight-store.mjs`, `src/auto/auto-private-store.mjs` | `test/auto-v2-controls.test.mjs`, `test/auto-private-store.test.mjs` |
@@ -139,8 +144,6 @@ checkpoints, and reconstructible after clone or loss of disposable sidecars.
 - **CMP enforcement:** make configured cause bindings and walkthrough freshness authoritative only
   after CMP has its own complete validator, migration, and recovery coverage. Current bounded CMP
   references must not be presented as that enforcement.
-- **Optional runtime modes:** provenance-preserving direct Ad Hoc byte materialization. It is not
-  emulated by copying unratified working-tree bytes into a Story.
 - **Comparative quality evidence:** register a baseline before claiming token savings preserve or
   improve first-pass verification, review-return, or rework outcomes.
 
@@ -157,3 +160,10 @@ Evidence below was collected from the exact implementation tree at
   the 128-iteration portable pause/halt lock-race test
 - Operation-model catalog check passed
 - Package dry run passed with 1,043 entries and the new runtime schemas/modules included
+
+The direct Ad Hoc adoption increment at `main@724cb85e` additionally passed:
+
+- 59/59 end-to-end Auto tests, including pre-code sealing and first-code-phase adoption;
+- 139/139 remaining Auto contract, Candidate, authorization, recovery, and surface tests;
+- 24/24 WEL boundary tests and 91/91 Help/plugin tests;
+- 1,333 repository conformance checks.

@@ -2,7 +2,7 @@
 
 **Status:** authoritative cross-product tracker; bounded exact-tree aggregate and the latest code-local asynchronous Git migration are complete, while platform release evidence remains active
 
-**Baseline:** `main@a745a505`
+**Baseline:** `main@724cb85e`
 
 **Last reviewed:** 2026-09-06
 
@@ -20,6 +20,12 @@ readiness reporting, and the developer-local signed runner subsequently landed t
 performance baseline, an authenticated independent authority, real
 VS Code hosts, signed platform receipts, office-network proof, or live Windows/macOS process and
 credential-helper evidence.
+
+Direct Ad Hoc-to-Auto adoption landed at `main@724cb85e`. The model-free adoption command now
+creates an exact Plan; ratified start seals the confirmed source as an immutable Candidate; and the
+first code-delivery phase materializes and verifies that Candidate without relabelling its original
+provenance. The remaining Auto work is the optional SGOS execution profile and registered
+comparative-quality evidence.
 
 The 2026-09-06 performance continuation moved branch refresh, ledger status/state publication,
 workflow configuration proposals, approval identity enrollment, approved-configuration fallback
@@ -103,15 +109,15 @@ total JavaScript bytes and refuses missing, oversized, over-broad, or unreviewed
 Accepted 30-pair minimum/current platform reports remain external evidence; this is therefore a
 code-local checkpoint, not completion.
 
-## 2026-09-05 reconciliation snapshot
+## 2026-09-06 reconciliation snapshot
 
 This snapshot resolves conflicts between older domain roadmaps and the executable baseline. A
 shared primitive does not complete a higher-assurance track: for example, the developer-local
 signed runner is useful M9 evidence, but it is not an authenticated independent CAB/WEL verifier.
 
-| Area | Implemented boundary through `9ea94aac` | Still open |
+| Area | Implemented boundary through `724cb85e` | Still open |
 |---|---|---|
-| Auto v2 | Dependency-free Story profile, its P0/P1 controls, and supervised durable interval pacing | Optional SGOS execution profile, direct Ad Hoc materialization, and registered comparative-quality evidence |
+| Auto v2 | Dependency-free Story profile, P0/P1 controls, interval pacing, and provenance-preserving direct Ad Hoc Candidate adoption | Optional SGOS execution profile and registered comparative-quality evidence |
 | CMP | Model-free, read-only `comprehension regions` and `check` foundation plus a release-gated content-free synthetic benchmark | Reviewed real corpus and storage/privacy decision, durable cause authority, intent graph/replay, typed walkthroughs, lifecycle enforcement, Comprehension Center, and brownfield policy |
 | SGOS | Bounded runtime, Universal Candidate code path, Git-trusted authority transport, signed transport, Windows DPAPI-protected local signer, stop-aware bounded Process-lock contention recovery, checkpoint-bound working-set injection, guarded signed-Pack/Device meta-tool activation CLI, native preview/confirm review UI, isolated interruption-resumable learning workspaces, identity-free monotonic portable learning progress with v1-to-v2 migration, and exact-active-Pack-bound offline learning bundles | Real external-adapter Secret Broker integration, signed platform release aggregate, end-to-end proof, additional adapters, orchestration, stores, independent certification, and accessibility validation |
 | WEL | Observe-only witnessed clauses plus an exact-static local JUnit/Surefire pilot, human mapping review, same-process incremental cost, content-free Context X-Ray projection, model-free local Story-start transaction measurement, cancellable parser execution, and synthetic push/offline/fresh-clone/interrupted-write recovery; results remain inconclusive | Candidate/Program/attempt join, reviewed corpus, live office-network and cross-platform recovery receipts, authenticated hermetic execution, enforcement recovery, additional adapters, and signed platform release proof |
@@ -180,7 +186,7 @@ evidence, and selected npm/VSIX artifact binding remain governed by the platform
 | Code Assurance Bridge | CAB-R0 architecture and CAB-R1 observe pilot are active; enforcement remains unavailable | Independent CAB-R0 review plus authenticated CAB-R2 runner authority | [CAB roadmap](CAB-ROADMAP.md) |
 | Governed comprehension | Read-only, non-authoritative P0 contract, closed registries, authority ADR, mutation tripwires, isolated npm/VSIX proof, deterministic corpus/matrix command, and content-free P1 benchmark exist | Execute and sign the unchanged `CMP-P0-001` matrix on Windows and Linux, then complete the reviewed P1 storage/privacy decision; keep record/enforce unavailable | [CMP roadmap](CMP-ROADMAP.md) |
 | Governed Delivery and Proof | M0–M8 are implemented; M9–M11 have code-local partial surfaces and remain non-GA | Authenticated M9 runner/verifier and signed release evidence before provider pilots or enforcement | [GDP milestone roadmap](GDP-DELIVERY-ROADMAP.md) |
-| Auto v2 | Dependency-free Story P0/P1 is implemented and model/AST optionality is preserved | Optional SGOS profile only after its independent acceptance contract is ready | [Auto v2 roadmap](AUT-V2-IMPLEMENTATION-ROADMAP.md) |
+| Auto v2 | Story P0/P1, model/AST optionality, and direct Ad Hoc Candidate adoption are implemented | Optional SGOS profile after its independent acceptance contract, plus registered comparative-quality evidence | [Auto v2 roadmap](AUT-V2-IMPLEMENTATION-ROADMAP.md) |
 
 Completed work is not repeated in this tracker. In particular, the
 [VS Code UI remediation contract](UI-REMEDIATION-PLAN.md) is implemented and regression-backed; a

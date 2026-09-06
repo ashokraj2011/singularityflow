@@ -247,7 +247,8 @@ Implemented in the current increment:
 - the release gate installs the exact npm tarball into an isolated prefix and extracts the exact
   VSIX engine under a loader that refuses source-tree module access; both artifacts must contain the
   Java parser helper, import the WEL adapter, and return the admitted Maven/Surefire command shape;
-- `npm run test:platform:cmp-wel` provides one explicit, bounded matrix command for the reviewed WEL
+- `npm run test:platform:cmp-wel` preflights a full JDK with the `jdk.compiler` module before it
+  provides one explicit, bounded matrix command for the reviewed WEL
   identity and fail-safe fallback corpus, deterministic CMP corpus, and no-model CMP command; the
   same suites are mandatory in the release gate rather than relying on the broad test suite to find
   them indirectly;
@@ -309,6 +310,18 @@ Strict Node 20 compatibility checkpoint on `main@d3bebeb0`:
 - this second local receipt remains unsigned. It proves the local Node 20 runtime cell but does not
   satisfy Linux/Windows, npm/VSIX artifact-signing, office-network, independent-review, or
   authenticated-runner gates.
+
+Linux portable-matrix checkpoint on `main@3b998d05`:
+
+- clean Docker clones on Linux arm64 ran the unchanged portable CMP/WEL matrix with the JDK compiler
+  module available;
+- Node 20.20.2 (`node:20-bookworm` digest
+  `sha256:8f693eaa7e0a8e71560c9a82b55fd54c2ae920a2ba5d2cde28bac7d1c01c9ba5`) passed 32/32;
+- Node 22.23.2 (`node:22-bookworm` digest
+  `sha256:8a34c4ab3ea2c5cd194f07e317b2a8f09461d3c8b05c4e34c8ccd56d56024c4d`) passed 32/32;
+- both runs had zero failures, skips, cancellations, or todo. These are real Linux runtime exercises,
+  but are unsigned, containerized, and do not replace physical installed-host, office-network,
+  Windows, authenticated-runner, independent-review, or package-binding evidence.
 
 Still required before completion: reviewed real-repository corpus metrics, office-network remote
 Story publication latency measurements, an approved Flow Impact design, live office/offline and

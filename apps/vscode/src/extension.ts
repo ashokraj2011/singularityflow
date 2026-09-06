@@ -829,6 +829,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.prepareStoryPhase', 'singularityFlow.publishStoryPhase',
     'singularityFlow.submitStoryPhase',
     'singularityFlow.approve', 'singularityFlow.openJourney', 'singularityFlow.openCommandCenter',
+    'singularityFlow.openComprehensionCenter',
     'singularityFlow.createSgosWorkflow', 'singularityFlow.reviewSgosMetaTool',
     'singularityFlow.reviewLocalRunner',
     'singularityFlow.openReconciliation',
@@ -4824,6 +4825,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await reconcileActiveWorkspaceSelection();
       const { SgosCommandCenterPanel } = lazyPanels();
       return SgosCommandCenterPanel.show(context, store, client);
+    },
+    'singularityFlow.openComprehensionCenter': async () => {
+      await reconcileActiveWorkspaceSelection();
+      const { ComprehensionCenterPanel } = lazyPanels();
+      return ComprehensionCenterPanel.show(context, store);
     },
     'singularityFlow.createSgosWorkflow': async () => {
       await reconcileActiveWorkspaceSelection();

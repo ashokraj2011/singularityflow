@@ -5183,3 +5183,37 @@ test('configuration recovery stays inside VS Code for conflicting MCP host entri
   assert.match(extension, /Other MCP servers and inputs are preserved/,
     'the confirmation explains the bounded write scope');
 });
+
+test('Comprehension Center is a lazy leased read-only surface with explicit unknowns', async () => {
+  assert.equal(commandClass(['comprehension', 'graph', '--json']), 'read');
+  const packageJson = JSON.parse(await readFile(
+    path.join(packageRoot, 'apps', 'vscode', 'package.json'), 'utf8'));
+  assert.ok(packageJson.contributes.commands.some(
+    (entry) => entry.command === 'singularityFlow.openComprehensionCenter'));
+
+  const extension = await readFile(source('extension.ts'), 'utf8');
+  assert.match(extension, /'singularityFlow\.openComprehensionCenter'/);
+  assert.match(extension, /ComprehensionCenterPanel\.show\(context, store\)/);
+  const lazy = await readFile(source('lazy-panels-runtime.ts'), 'utf8');
+  assert.match(lazy, /ComprehensionCenterPanel/,
+    'the Center stays outside activation until a person opens it');
+
+  const panel = await readFile(source('views/comprehension-center.ts'), 'utf8');
+  assert.match(panel, /acquireSlices\([\s\S]*'comprehension-center'[\s\S]*\['comprehension'\]/,
+    'opening the Center acquires only its dedicated heavy slice');
+  assert.match(panel, /this\.lease\?\.dispose\(\)/,
+    'closing the Center releases the comprehension projection');
+  assert.match(panel, /DEFAULT_COMPREHENSION_SLICE_LEASE_MS/,
+    'a lost webview cannot pin the projection forever');
+  assert.doesNotMatch(panel, /client\.run|request\.model|phase publish|submit/,
+    'the first Center release is observation only');
+  assert.match(panel, /No governed cause bindings are available/);
+  assert.match(panel, /Explicit unknowns/);
+  assert.match(panel, /aria-pressed/);
+  assert.match(panel, /allowedPath\(file/,
+    'a webview message cannot open a path absent from the current engine slice');
+
+  const sidebar = await readFile(source('views/sidebar.ts'), 'utf8');
+  assert.match(sidebar, /comprehension-center[^\n]*Comprehension Center/,
+    'the Center is discoverable from the visible Help surface and Favorites');
+});

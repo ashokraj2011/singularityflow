@@ -218,6 +218,34 @@ test('SGOS Command Center is a lazy isolated snapshot slice', async () => {
   assert.equal(envelope.sgos.contentSha256, scoped.sgos.contentSha256);
 });
 
+test('Comprehension Center is a lazy model-free snapshot slice with explicit unknowns', async () => {
+  const root = await repository();
+  await writeFile(path.join(root, 'src-observation.js'), 'export const observed = true;\n');
+  const before = run('git', ['status', '--porcelain=v1'], root).stdout;
+
+  const scoped = await repositorySnapshot(root, null, null, { included: ['comprehension'] });
+  assert.deepEqual(Object.keys(scoped), ['comprehension']);
+  assert.equal(scoped.comprehension.kind, 'comprehension-ide-slice');
+  assert.equal(scoped.comprehension.mode, 'observe-only');
+  assert.equal(scoped.comprehension.authoritative, false);
+  assert.equal(scoped.comprehension.lifecycleGate, false);
+  assert.equal(scoped.comprehension.summary.regions, 1);
+  assert.equal(scoped.comprehension.summary.unresolved, 1);
+  assert.equal(scoped.comprehension.availability.structure, 'unavailable');
+  assert.equal(scoped.comprehension.manifest.regions[0].location.pathAfter, 'src-observation.js');
+  assert.equal(scoped.comprehension.walkthrough.draft.claims[0].assertionType, 'file-changed');
+  assert.equal(scoped.comprehension.replay, null);
+  assert.equal(Object.hasOwn(scoped, 'lifecycle'), false);
+  assert.equal(Object.hasOwn(scoped, 'worldModel'), false);
+  assert.equal(run('git', ['status', '--porcelain=v1'], root).stdout, before);
+
+  const cli = run(process.execPath, [bin, 'snapshot', '--include', 'comprehension', '--json'], root);
+  const envelope = JSON.parse(cli.stdout);
+  assert.deepEqual(envelope.included, ['comprehension']);
+  assert.equal(envelope.comprehension.manifest.manifestSha256,
+    scoped.comprehension.manifest.manifestSha256);
+});
+
 test('read-only snapshots load approved configuration without copying it onto the application branch', async () => {
   const root = await repository();
   run('git', ['push', 'origin', 'main:refs/heads/sflow/config'], root);

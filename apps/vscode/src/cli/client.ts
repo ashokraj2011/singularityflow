@@ -38,6 +38,7 @@ interface SnapshotEnvelope {
   diagnostics?: RepositorySnapshot['diagnostics'];
   sgos?: RepositorySnapshot['sgos'];
   worldModel?: RepositorySnapshot['worldModel'];
+  comprehension?: RepositorySnapshot['comprehension'];
 }
 
 function snapshotArgs(slices: readonly SnapshotSlice[], ifRevision?: string | null): string[] {
@@ -78,6 +79,7 @@ function flattenSnapshot(envelope: SnapshotEnvelope): RepositorySnapshot {
     // A separately leased WMB v4 projection wins over the legacy compatibility value embedded in
     // Configuration. It is bounded and carries no complete Fact/Evidence catalogs.
     ...(envelope.worldModel ? { worldModel: envelope.worldModel } : {}),
+    ...(envelope.comprehension ? { comprehension: envelope.comprehension } : {}),
     included: [...(envelope.included ?? [])],
     ...(envelope.notModified ? { notModified: true } : {}),
     ...(envelope.revision ? { revision: envelope.revision } : {})
@@ -86,7 +88,8 @@ function flattenSnapshot(envelope: SnapshotEnvelope): RepositorySnapshot {
 
 const READ_ONLY_COMMANDS = new Set([
   'about', 'help', 'show', 'choices', 'inbox', 'home', 'recommend', 'status', 'progress',
-  'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'precheck', 'change', 'proof'
+  'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'precheck', 'change', 'proof',
+  'comprehension'
 ]);
 const READ_ONLY_CONFIGURATION_COMMANDS = new Set([
   'snapshot', 'validate', 'read', 'export-bundle', 'initiative-materialize-preview', 'explain'

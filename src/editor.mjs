@@ -885,7 +885,8 @@ const SNAPSHOT_SLICES = new Set([
   'integrations',
   'diagnostics',
   'sgos',
-  'worldModel'
+  'worldModel',
+  'comprehension'
 ]);
 
 async function repositorySlice(root) {
@@ -1325,6 +1326,12 @@ async function worldModelSlice(root) {
   };
 }
 
+/** CMP is paid for only while its read-only Center is open. */
+async function comprehensionSlice(root) {
+  const { loadComprehensionIdeSlice } = await import('./comprehension/ide-slice.mjs');
+  return loadComprehensionIdeSlice(root);
+}
+
 /**
  * Build either the compatibility snapshot consumed by the extension, or explicit schema-v2
  * slices for callers that request them. Scoped calls do not construct unrelated read models.
@@ -1385,6 +1392,7 @@ async function repositorySnapshotInScope(root, requestedWorkId, requestedInitiat
     });
     else if (slice === 'sgos') result.sgos = await sgosSlice(root);
     else if (slice === 'worldModel') result.worldModel = await worldModelSlice(root);
+    else if (slice === 'comprehension') result.comprehension = await comprehensionSlice(root);
   }
   return result;
 }

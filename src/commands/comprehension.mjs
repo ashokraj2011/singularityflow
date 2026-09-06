@@ -13,6 +13,7 @@ import { open } from 'node:fs/promises';
 import { branch, repoRoot } from '../git.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from '../repository-subject-index.mjs';
 import { buildRepositoryChangeSet } from '../repository-change-set.mjs';
+import { resolveComprehensionBaseline } from '../comprehension/context.mjs';
 import {
   buildChangeRegionManifest, evaluateComprehensionCoverage
 } from '../comprehension/contracts.mjs';
@@ -35,75 +36,12 @@ import {
 const MAXIMUM_EVIDENCE_BYTES = 1024 * 1024;
 const MAXIMUM_EVIDENCE_RECORDS = 2000;
 
-function activeBaseline(workflow, requestedPhase = null) {
-  const phaseId = requestedPhase ?? workflow.currentPhase ?? null;
-  if (!phaseId) return {
-    base: workflow.workItem?.baseCommit ?? null,
-    phase: null,
-    source: workflow.workItem?.baseCommit ? 'story-base' : null
-  };
-  const phase = workflow.phases?.[phaseId];
-  if (!phase) {
-    throw new SingularityFlowError(`Story '${workflow.workItem?.id ?? 'unknown'}' has no phase '${phaseId}'.`, {
-      code: 'CMP_PHASE_UNKNOWN'
-    });
-  }
-  if (phase.generationIntent?.baseline?.commit) {
-    return { base: phase.generationIntent.baseline.commit, phase: phaseId, source: 'generation-intent' };
-  }
-  const interval = workflow.workIntervals?.current;
-  if (interval?.phaseId === phaseId && interval.sourceBaseCommit) {
-    return { base: interval.sourceBaseCommit, phase: phaseId, source: 'work-interval' };
-  }
-  const deliveryBase = phase.deliveryEvidence?.baselineCommit
-    ?? phase.deliveryEvidence?.changeSet?.base?.commit
-    ?? phase.deliveryEvidence?.tree?.baselineCommit
-    ?? null;
-  if (deliveryBase) return { base: deliveryBase, phase: phaseId, source: 'delivery-evidence' };
-  return {
-    base: workflow.workItem?.baseCommit ?? null,
-    phase: phaseId,
-    source: workflow.workItem?.baseCommit ? 'story-base' : null
-  };
-}
-
 async function resolveBaseline(root, options) {
-  const explicit = optionString(options, 'base');
-  const requestedWorkId = optionString(options, 'work-id');
-  const requestedPhase = optionString(options, 'phase');
-  if (explicit && !requestedWorkId && !requestedPhase) {
-    return { base: explicit, source: 'explicit', workId: null, phase: null };
-  }
-  const reference = requestedWorkId ?? branch(root);
-  const selected = resolveContext(await buildRepositorySubjectIndex(root), {
-    reference,
-    kind: 'story',
-    required: Boolean(requestedWorkId)
+  return resolveComprehensionBaseline(root, {
+    base: optionString(options, 'base'),
+    workId: optionString(options, 'work-id'),
+    phase: optionString(options, 'phase')
   });
-  if (selected) {
-    const selectedBaseline = activeBaseline(selected.state, requestedPhase);
-    if (explicit) {
-      return {
-        base: explicit,
-        source: 'explicit',
-        workId: selected.state.workItem.id,
-        phase: selectedBaseline.phase
-      };
-    }
-    if (selectedBaseline.base) {
-      return {
-        ...selectedBaseline,
-        workId: selected.state.workItem.id
-      };
-    }
-  }
-  if (requestedPhase) {
-    throw new SingularityFlowError(
-      '--phase requires --work-id or an attached Story. For repository-only inspection, use --base without --phase.',
-      { code: 'CMP_STORY_CONTEXT_REQUIRED' }
-    );
-  }
-  return { base: 'HEAD', source: 'working-tree-head', workId: null, phase: null };
 }
 
 async function resolveReplayStory(root, options) {

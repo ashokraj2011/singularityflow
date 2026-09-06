@@ -137,6 +137,7 @@ const SECTION_META: Record<SidebarSection, {
       { id: 'help-open', label: 'Open Help Center', icon: 'search' },
       { id: 'journal', label: 'Local Journal', icon: 'book' },
       { id: 'diagnostics', label: 'Diagnostics & Schema Health', icon: 'statusCurrent' },
+      { id: 'comprehension-center', label: 'Comprehension Center', icon: 'code' },
       // "What did it actually do, and what was sent to the model" is a Help question, not a
       // Configuration one. The prompt audit was reachable only from Configuration, where nobody
       // asking that question would look, and the activity log was not reachable at all.
@@ -204,7 +205,8 @@ const ACTION_COMMANDS: Record<string, string> = {
   'approvals-open': 'singularityFlow.openApprovals',
   'capability-proposals': 'singularityFlow.reviewCapabilityProposals',
   'flow-impact': 'singularityFlow.openFlowImpact',
-  'command-center': 'singularityFlow.openCommandCenter'
+  'command-center': 'singularityFlow.openCommandCenter',
+  'comprehension-center': 'singularityFlow.openComprehensionCenter'
 };
 
 interface FavoriteMenu {
@@ -225,6 +227,7 @@ interface FavoriteMenu {
 export const FAVORITE_MENUS: readonly FavoriteMenu[] = Object.freeze([
   { id: 'my-work', label: 'My Work', description: 'current work and next actions', icon: 'home', command: ACTION_COMMANDS['my-work']! },
   { id: 'command-center', label: 'Command Center', description: 'governed execution processes and requests', icon: 'workflow', command: ACTION_COMMANDS['command-center']! },
+  { id: 'comprehension-center', label: 'Comprehension Center', description: 'exact change regions, causes, unknowns, and replay', icon: 'code', command: ACTION_COMMANDS['comprehension-center']! },
   { id: 'work-start', label: 'Start intake', description: 'begin governed work', icon: 'start', command: ACTION_COMMANDS['work-start']! },
   { id: 'adhoc-work', label: 'Ad hoc work', description: 'land bounded work without a Story', icon: 'commit', command: ACTION_COMMANDS['adhoc-work']! },
   { id: 'inbox-open', label: 'Inbox', description: 'work waiting on you', icon: 'inbox', command: ACTION_COMMANDS['inbox-open']! },

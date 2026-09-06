@@ -271,6 +271,57 @@ test('a leased SGOS slice loads lazily and is released when Command Center close
   assert.equal(value.afterRelease.includes('sgos'), false);
 });
 
+test('a leased comprehension slice is isolated, evicted, and never restored from an old cache', () => {
+  const source = `
+    import { WorkspaceStore } from ${JSON.stringify(storeModule)};
+    const calls = [];
+    const cached = {
+      workItems: [], initiatives: [], included: ['repository', 'comprehension'],
+      repository: { root:'/fixture' },
+      comprehension: { kind:'comprehension-ide-slice', summary:{ regions:99 } },
+      revision: { subjectRevision:'cached-all', slices:{ repository:'repo-cache', comprehension:'cmp-cache' } }
+    };
+    const client = {
+      async snapshot(_signal, slices) {
+        calls.push([...slices]);
+        const has = slices.includes('comprehension');
+        return {
+          workItems: [], initiatives: [], included:[...slices], repository:{ root:'/fixture' },
+          ...(has ? { comprehension:{ kind:'comprehension-ide-slice', summary:{ regions:1 } } } : {}),
+          revision:{ subjectRevision:'revision-' + calls.length,
+            slices:Object.fromEntries(slices.map((slice) => [slice, slice + '-' + calls.length])) }
+        };
+      },
+      async configurationSnapshot() { throw new Error('unexpected'); }
+    };
+    const store = new WorkspaceStore(client, { read:() => cached, write(){} });
+    store.primeFromCache();
+    const cacheStripped = !store.current.snapshot?.comprehension
+      && !store.current.snapshot?.included?.includes('comprehension');
+    await store.refresh();
+    const beforeLease = calls.at(-1);
+    const lease = await store.acquireSlices('comprehension-center', ['comprehension'], { ttlMs:1000 });
+    const duringLease = calls.at(-1);
+    const loaded = store.current.snapshot?.comprehension?.summary?.regions === 1;
+    lease.dispose();
+    const released = !store.current.snapshot?.comprehension;
+    await store.refresh();
+    process.stdout.write(JSON.stringify({ cacheStripped, beforeLease, duringLease,
+      afterRelease:calls.at(-1), loaded, released }));
+  `;
+  const result = spawnSync(process.execPath, [...nodeTypeScriptFlags(packageRoot), '--input-type=module', '-e', source], {
+    encoding: 'utf8', cwd: packageRoot, timeout: 60_000
+  });
+  assert.equal(result.status, 0, `child failed: ${result.stderr}`);
+  const value = JSON.parse(result.stdout);
+  assert.equal(value.cacheStripped, true);
+  assert.equal(value.beforeLease.includes('comprehension'), false);
+  assert.equal(value.duringLease.includes('comprehension'), true);
+  assert.equal(value.loaded, true);
+  assert.equal(value.released, true);
+  assert.equal(value.afterRelease.includes('comprehension'), false);
+});
+
 test('shared panel slice leases stop heavyweight polling only after the final panel closes', () => {
   const source = `
     import { WorkspaceStore } from ${JSON.stringify(storeModule)};

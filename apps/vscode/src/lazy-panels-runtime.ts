@@ -11,6 +11,7 @@ export { CapabilityProposalPanel } from './views/capability-proposal.ts';
 export { CapabilityProposalsPanel } from './views/capability-proposals.ts';
 export { WorkspacesPanel } from './views/workspaces-panel.ts';
 export { DiagnosticsPanel } from './views/diagnostics.ts';
+export { ComprehensionCenterPanel } from './views/comprehension-center.ts';
 export { LocalResetPanel } from './views/local-reset.ts';
 export { GoalsPanel } from './views/goals.ts';
 export { FaultRepairsPanel } from './views/fault-repairs.ts';

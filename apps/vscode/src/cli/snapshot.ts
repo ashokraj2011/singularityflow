@@ -684,6 +684,11 @@ export interface RepositorySnapshot {
     files?: Array<{ path: string; content?: string }>;
   };
   /**
+   * A separately leased CMP projection. It is diagnostic only: no field authorizes a lifecycle
+   * transition, approves a cause, warms AST, invokes a model, or writes a repository file.
+   */
+  comprehension?: ComprehensionIdeSnapshot;
+  /**
    * The portfolio, of which only the approval authorities are read: an Epic cannot start until at
    * least one is populated, and finding that out after asking five questions is a poor greeting.
    */
@@ -894,7 +899,113 @@ export interface RepositorySnapshot {
   [key: string]: unknown;
 }
 
-export type SnapshotSlice = 'repository' | 'lifecycle' | 'configuration' | 'capabilities' | 'integrations' | 'diagnostics' | 'sgos' | 'worldModel';
+export type SnapshotSlice = 'repository' | 'lifecycle' | 'configuration' | 'capabilities' | 'integrations' | 'diagnostics' | 'sgos' | 'worldModel' | 'comprehension';
+
+export interface ComprehensionRegion {
+  regionId: string;
+  regionSha256: string;
+  kind: string;
+  operation?: string;
+  location: { pathBefore?: string | null; pathAfter?: string | null };
+  classification?: { material?: boolean; changeKind?: string; assurance?: string; granularity?: string };
+}
+
+export interface ComprehensionGraphNode {
+  id: string;
+  type: 'cause' | 'change-region' | string;
+  causeKind?: string;
+  causeId?: string;
+  statement?: string;
+  regionId?: string;
+  regionSha256?: string;
+  pathBefore?: string | null;
+  pathAfter?: string | null;
+  changeType?: string;
+}
+
+export interface ComprehensionIdeSnapshot {
+  schemaVersion: number;
+  kind: 'comprehension-ide-slice';
+  mode: 'observe-only';
+  authoritative: false;
+  lifecycleGate: false;
+  context: {
+    repository: string;
+    base: string;
+    source: string;
+    workId: string | null;
+    phase: string | null;
+  };
+  manifest: {
+    manifestSha256: string;
+    compatibilityCandidateSha256: string;
+    granularity: string;
+    structuralAssurance: string;
+    counts: { regions: number };
+    regions: ComprehensionRegion[];
+  };
+  coverage: {
+    resultSha256: string;
+    verdict: string;
+    authoritative: false;
+    lifecycleGate: false;
+    counts: {
+      regions: number; materialRegions: number; nonmaterialRegions: number;
+      explained: number; unresolved: number; diagnostics: number;
+    };
+    unresolved: Array<{
+      regionId?: string; regionSha256?: string; path?: string; reason?: string; code?: string;
+    }>;
+    diagnostics: Array<{ code?: string; message?: string }>;
+  };
+  graph: {
+    graphSha256: string;
+    authoritative: false;
+    lifecycleGate: false;
+    nodes: ComprehensionGraphNode[];
+    edges: Array<{
+      id: string; type: string; from: string; to: string; relationship?: string;
+    }>;
+    counts: { nodes: number; causes: number; regions: number; edges: number };
+    availability: {
+      causeGraph: string; structure: string; structureReason?: string; durableAuthority: string;
+    };
+    diagnosticCodes: string[];
+  };
+  walkthrough: {
+    unavailableReason: string | null;
+    draft: null | {
+      walkthroughId: string;
+      draftSha256: string;
+      narrative: { content: string; contentSha256: string };
+      claims: Array<{
+        claimId: string; text: string; assertionType: string; assurance: string;
+        subjectRefs: string[]; regionRefs: string[];
+      }>;
+    };
+  };
+  replay: null | {
+    replaySha256: string;
+    workId: string;
+    focus: { type: string; value: string | null };
+    events: Array<{
+      kind: string; phase?: string | null; generation?: number | null;
+      transition?: string; causalProvenance?: string; provenance?: string; at?: string | null;
+      eventSha256?: string;
+      source?: { stream?: string; eventId?: string | null; commit?: string | null };
+    }>;
+    counts: { matched: number; returned: number; lifecycle?: number; operational?: number };
+    truncated: boolean;
+  };
+  summary: {
+    regions: number; materialRegions: number; explained: number; unresolved: number;
+    causes: number; edges: number; replayEvents: number;
+  };
+  availability: {
+    structure: string; causeGraph: string; durableAuthority: string;
+    walkthrough: string; replay: string;
+  };
+}
 
 export interface VisualEvidenceRecord {
   id: string;

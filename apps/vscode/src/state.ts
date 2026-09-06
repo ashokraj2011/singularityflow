@@ -77,19 +77,24 @@ export interface SnapshotCache {
 }
 
 const SNAPSHOT_SLICES: readonly SnapshotSlice[] = Object.freeze([
-  'repository', 'lifecycle', 'configuration', 'capabilities', 'integrations', 'diagnostics', 'sgos', 'worldModel'
+  'repository', 'lifecycle', 'configuration', 'capabilities', 'integrations', 'diagnostics', 'sgos', 'worldModel', 'comprehension'
 ]);
 
-/** Never restore an unleased WMB payload after a process/window disappeared before panel dispose. */
-function withoutWorldModelSlice(snapshot: RepositorySnapshot): RepositorySnapshot {
-  if (!Object.hasOwn(snapshot, 'worldModel')) return snapshot;
+/** Never restore an unleased heavyweight payload after a process disappeared before panel dispose. */
+function withoutEphemeralSlices(
+  snapshot: RepositorySnapshot,
+  retained: ReadonlySet<SnapshotSlice> = new Set()
+): RepositorySnapshot {
+  const ephemeral: SnapshotSlice[] = ['worldModel', 'comprehension'];
+  const removed = ephemeral.filter((slice) => !retained.has(slice) && Object.hasOwn(snapshot, slice));
+  if (!removed.length) return snapshot;
   const reduced = { ...snapshot } as RepositorySnapshot;
-  delete (reduced as Record<string, unknown>).worldModel;
+  for (const slice of removed) delete (reduced as Record<string, unknown>)[slice];
   const slices = { ...(reduced.revision?.slices ?? {}) };
-  delete slices.worldModel;
+  for (const slice of removed) delete slices[slice];
   return {
     ...reduced,
-    included: reduced.included?.filter((slice) => slice !== 'worldModel'),
+    included: reduced.included?.filter((slice) => !removed.includes(slice)),
     ...(reduced.revision ? {
       // The aggregate revision included bytes that were intentionally dropped. A live core read
       // must confirm the repository instead of accepting a not-modified receipt for that aggregate.
@@ -99,6 +104,7 @@ function withoutWorldModelSlice(snapshot: RepositorySnapshot): RepositorySnapsho
 }
 
 export const DEFAULT_WORLD_MODEL_SLICE_LEASE_MS = 5 * 60 * 1_000;
+export const DEFAULT_COMPREHENSION_SLICE_LEASE_MS = 5 * 60 * 1_000;
 export const MAX_SLICE_LEASE_MS = 60 * 60 * 1_000;
 
 export interface SliceLeaseOptions { ttlMs?: number | null }
@@ -178,7 +184,7 @@ export class WorkspaceStore {
     if (!found) return false;
     // A crashed extension host may not deliver panel disposal. Never let that turn yesterday's
     // Explorer lease into today's activation snapshot; the content cache survives independently.
-    const cached = withoutWorldModelSlice(found);
+    const cached = withoutEphemeralSlices(found);
     this.publish({ snapshot: cached, error: null, stale: true }, {
       kind: 'cache', revisionChanged: true, changedSlices: changedSnapshotSlices(null, cached)
     });
@@ -208,7 +214,11 @@ export class WorkspaceStore {
     let cached: RepositorySnapshot | null = null;
     try { cached = this.cache?.read() ?? null; } catch { /* A broken cache is simply empty. */ }
     if (cached) {
-      if (!(this.sliceLeases.get('worldModel') ?? 0)) cached = withoutWorldModelSlice(cached);
+      const retained = new Set<SnapshotSlice>();
+      for (const slice of ['worldModel', 'comprehension'] as SnapshotSlice[]) {
+        if ((this.sliceLeases.get(slice) ?? 0) > 0) retained.add(slice);
+      }
+      cached = withoutEphemeralSlices(cached, retained);
       this.publish({ snapshot: cached, error: null, loading: this.inFlight !== null, stale: true }, {
         kind: 'cache', revisionChanged: true, changedSlices: changedSnapshotSlices(null, cached)
       });
@@ -341,7 +351,7 @@ export class WorkspaceStore {
     this.sliceLeases.delete(slice);
     if (CORE_SNAPSHOT_SLICES.includes(slice)) return;
     this.loadedSlices.delete(slice);
-    const dedicated = slice === 'sgos' || slice === 'worldModel';
+    const dedicated = slice === 'sgos' || slice === 'worldModel' || slice === 'comprehension';
     if (!dedicated || !this.state.snapshot || !Object.hasOwn(this.state.snapshot, slice)) return;
     const releasedPayload = { ...this.state.snapshot } as RepositorySnapshot;
     delete (releasedPayload as Record<string, unknown>)[slice];

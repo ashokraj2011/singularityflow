@@ -602,6 +602,11 @@
         "icon": "$(pulse)"
       },
       {
+        "command": "singularityFlow.openComprehensionCenter",
+        "title": "Singularity Flow: Comprehension Center",
+        "icon": "$(references)"
+      },
+      {
         "command": "singularityFlow.openLocalReset",
         "title": "Singularity Flow: Local Data & Reset",
         "icon": "$(trash)"

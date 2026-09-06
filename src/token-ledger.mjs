@@ -179,12 +179,123 @@ export function tokenLedgerProjection(workflow, packetRecords = [], { phase = nu
   });
 }
 
+function offsetLabel(offsetMinutes) {
+  const sign = offsetMinutes >= 0 ? '+' : '-';
+  const absolute = Math.abs(offsetMinutes);
+  return `${sign}${String(Math.floor(absolute / 60)).padStart(2, '0')}:${String(absolute % 60).padStart(2, '0')}`;
+}
+
+/** Resolve one local calendar day to an exact half-open UTC interval. */
+export function dailyTokenLedgerPeriod({ now = new Date(), offsetMinutes = null } = {}) {
+  const instant = now instanceof Date ? new Date(now.getTime()) : new Date(now);
+  if (!Number.isFinite(instant.getTime())) throw new TypeError('Daily Token Ledger requires a valid date.');
+  const effectiveOffset = offsetMinutes == null ? -instant.getTimezoneOffset() : Number(offsetMinutes);
+  if (!Number.isInteger(effectiveOffset) || effectiveOffset < -14 * 60 || effectiveOffset > 14 * 60) {
+    throw new TypeError('Daily Token Ledger offset must be an integer from -840 through 840 minutes.');
+  }
+  const shifted = new Date(instant.getTime() + effectiveOffset * 60 * 1000);
+  const year = shifted.getUTCFullYear();
+  const month = shifted.getUTCMonth();
+  const day = shifted.getUTCDate();
+  const start = Date.UTC(year, month, day) - effectiveOffset * 60 * 1000;
+  const end = Date.UTC(year, month, day + 1) - effectiveOffset * 60 * 1000;
+  return Object.freeze({
+    date: `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+    timezone: `utc-offset:${offsetLabel(effectiveOffset)}`,
+    offsetMinutes: effectiveOffset,
+    startAt: new Date(start).toISOString(),
+    endAt: new Date(end).toISOString()
+  });
+}
+
+function withinPeriod(value, period) {
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp)
+    && timestamp >= Date.parse(period.startAt)
+    && timestamp < Date.parse(period.endAt);
+}
+
+function auditUsageRecord(record) {
+  return {
+    ...(record.usage ?? {}),
+    source: 'model-invocation-audit',
+    provider: record.provider ?? null,
+    requestedModel: record.requestedModel ?? record.modelSelection?.requestedModel ?? null,
+    resolvedModel: record.model ?? record.routing?.resolvedModel ?? null,
+    resolvedModelAssurance: record.modelSelection?.assurance ?? 'host-observed',
+    generation: record.subject?.generation ?? null
+  };
+}
+
+/**
+ * Aggregate one machine-local day without exposing Story IDs, packet IDs, paths, prompts, model
+ * names, or per-person observations. Failed invocations remain counted because they may cost tokens.
+ */
+export function dailyTokenLedgerProjection(modelRecords = [], packetRecords = [], {
+  period = dailyTokenLedgerPeriod()
+} = {}) {
+  const models = modelRecords.filter((record) => withinPeriod(record.startedAt, period));
+  const packets = packetRecords.filter((record) => withinPeriod(record.recordedAt, period));
+  const ledger = tokenLedgerProjection({
+    workItem: { id: 'machine-local-day' },
+    phaseOrder: ['daily'],
+    phases: { daily: { usage: models.map(auditUsageRecord) } }
+  }, packets);
+  const statusCounts = { completed: 0, failed: 0, interrupted: 0, started: 0, other: 0 };
+  for (const record of models) {
+    const status = Object.hasOwn(statusCounts, record.status) ? record.status : 'other';
+    statusCounts[status] += 1;
+  }
+  return Object.freeze({
+    schemaVersion: 1, // schema-transient: read-only daily Token Ledger projection
+    kind: 'daily-token-ledger',
+    period: Object.freeze({ ...period }),
+    activity: Object.freeze({
+      modelInvocations: models.length,
+      contextPackets: packets.length,
+      undatedInvocationsExcluded: modelRecords.filter((record) => !Number.isFinite(Date.parse(record.startedAt))).length,
+      legacyPacketsExcluded: packetRecords.filter((record) => !record.recordedAt).length,
+      invocationStatuses: Object.freeze(statusCounts)
+    }),
+    coverage: ledger.coverage,
+    totals: ledger.totals,
+    privacy: Object.freeze({
+      contentFree: true,
+      excludes: Object.freeze([
+        'prompts', 'responses', 'paths', 'work-ids', 'packet-ids', 'git-identities', 'model-names'
+      ])
+    })
+  });
+}
+
 function metricText(metric, suffix = 'tokens') {
   if (!metric || metric.status === 'unavailable') return 'unavailable';
   return `${metric.value.toLocaleString('en-US')} ${suffix} · ${metric.status} · ${metric.assurance}`;
 }
 
 export function tokenLedgerText(ledger) {
+  if (ledger.kind === 'daily-token-ledger') {
+    return [
+      `TOKEN LEDGER · ${ledger.period.date} · ${ledger.period.timezone}`,
+      '',
+      `Provider input       ${metricText(ledger.totals.inputTokens)}`,
+      `Provider output      ${metricText(ledger.totals.outputTokens)}`,
+      `Provider cached      ${metricText(ledger.totals.cachedInputTokens)}`,
+      `Provider total       ${metricText(ledger.totals.totalProviderTokens)}`,
+      `SFlow packet context ${metricText(ledger.totals.sflowEstimatedTokens, 'estimated tokens')}`,
+      `Delivered context    ${metricText(ledger.totals.deliveredContextTokens, 'estimated tokens')}`,
+      `Unique context       ${metricText(ledger.totals.uniqueContextTokens, 'estimated tokens')}`,
+      '',
+      `Invocations: ${ledger.activity.modelInvocations} · Packets: ${ledger.activity.contextPackets}`,
+      `Invocation outcomes: completed ${ledger.activity.invocationStatuses.completed} · failed ${ledger.activity.invocationStatuses.failed} · interrupted ${ledger.activity.invocationStatuses.interrupted} · active ${ledger.activity.invocationStatuses.started}`,
+      `Coverage: exact ${ledger.coverage.exact} · partial ${ledger.coverage.partial} · estimated ${ledger.coverage.estimated} · unavailable ${ledger.coverage.unavailable}`,
+      ...(ledger.activity.legacyPacketsExcluded
+        ? [`Historical packets without timestamps excluded: ${ledger.activity.legacyPacketsExcluded}`] : []),
+      ...(ledger.activity.undatedInvocationsExcluded
+        ? [`Historical invocations without timestamps excluded: ${ledger.activity.undatedInvocationsExcluded}`] : []),
+      'Content-free machine-local aggregate; no prompts, paths, Story IDs, identities, or model names.'
+    ].join('\n');
+  }
   const lines = [
     `TOKEN LEDGER · ${ledger.workId}${ledger.phase ? ` · ${ledger.phase}` : ''}`,
     '',

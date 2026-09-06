@@ -1,7 +1,7 @@
 ---
 id: telemetry-and-cost
 title: Telemetry, tokens, and cost
-version: 6
+version: 7
 aliases:
   - tokens
   - cost
@@ -35,7 +35,7 @@ Use this topic when the current goal matches **telemetry and cost**. Start in a 
 3. Start the agent with `sflow copilot` or the VS Code **Continue with Copilot CLI** action. Each process gets an opaque launch ID and separate raw stream under the Git common directory.
 4. Run `sflow telemetry status`. A configured launch is only `captured` after at least one valid event is observed.
 5. At a lifecycle boundary, run `sflow telemetry reconcile [PHASE]` when automatic reconciliation reports a pending generation.
-6. Run `sflow context xray [WORK-ID]` to inspect the current phase, or `sflow tokens report [WORK-ID]` for whole-Story totals. Add `--phase PHASE` to narrow either projection and `--json` to retain every metric envelope. Use `sflow context doctor` to inspect the observe/assist/enforce policy and selected budget profile.
+6. Run `sflow context xray [WORK-ID]` to inspect the current phase, or `sflow tokens report [WORK-ID]` for whole-Story totals. Use `sflow tokens report --today` for a repository-wide, content-free local-day aggregate that excludes prompts, paths, Story IDs, identities, packet IDs, and model names. Add `--phase PHASE` to narrow a Story projection and `--json` to retain every metric envelope. Use `sflow context doctor` to inspect the observe/assist/enforce policy and selected budget profile.
 7. For a pre-registered IMP study, run `sflow tokens compare --study STUDY-ID`. A token reduction with a regressed quality floor is `cheaper-but-worse`, never an improvement.
 
 ## State and safety

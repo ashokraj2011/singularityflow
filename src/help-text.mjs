@@ -171,6 +171,7 @@ Usage:
   singularity-flow context doctor [--json]
   singularity-flow tokens status [WORK-ID] [--work-id WORK-ID] [--phase PHASE] [--json]
   singularity-flow tokens report [WORK-ID] [--work-id WORK-ID] [--phase PHASE] [--packet CTX-ID] [--json]
+  singularity-flow tokens report --today [--json]
   singularity-flow tokens compare --study STUDY-ID [--filter DIMENSION=VALUE]... [--json]
   singularity-flow copilot [--mode interactive|plan] [--repository ID] [--story ID]
     [--host cli|vscode-terminal|intellij-terminal] [--dry-run]

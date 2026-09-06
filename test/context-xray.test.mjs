@@ -126,13 +126,17 @@ test('Context X-Ray projects content-free packet, expansion, model, and metric p
   const root = await repository();
   const recorded = await recordContextPacketTelemetry(root, packet());
   assert.equal(recorded.schemaVersion, currentSchemaVersion('context-packet-telemetry'));
+  assert.match(recorded.recordedAt, /^\d{4}-\d{2}-\d{2}T/);
+  assert.equal(recorded.updatedAt, recorded.recordedAt);
   assert.equal(recorded.omittedItems, 5);
   assert.deepEqual(recorded.omissionClasses, { budget: 3, policy: 2 });
-  await recordContextExpansionRequest(root, recorded.packetId, {
+  const expanded = await recordContextExpansionRequest(root, recorded.packetId, {
     handleKind: 'repository-symbol', itemId: 'secret/internal-symbol',
     includedBytes: 120, estimatedTokens: 30,
     expandedAt: '2026-08-22T10:00:00.000Z'
   });
+  assert.equal(expanded.recordedAt, recorded.recordedAt);
+  assert.equal(expanded.updatedAt, '2026-08-22T10:00:00.000Z');
 
   const telemetryFile = path.join(
     gitCommonDir(root), 'singularity-flow', 'evidence-packets', 'telemetry', `${recorded.packetId}.json`

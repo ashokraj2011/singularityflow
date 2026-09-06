@@ -220,6 +220,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Token Ledger for ${slot(s.workId)} covers ${slot(s.phase)}.`,
     preserves: true
   },
+  'tokens.daily-reported': {
+    headline: (s) => `Token Ledger for ${slot(s.date)} covers ${slot(s.modelInvocations, '0')} model invocation(s) and ${slot(s.contextPackets, '0')} context packet(s).`,
+    preserves: true
+  },
   'approvals.reported': {
     headline: (s) => `${slot(s.workId)} has ${slot(s.received)}/${slot(s.required)} required approval(s) across ${slot(s.phases)} phase(s).`,
     preserves: true

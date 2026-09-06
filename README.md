@@ -1839,6 +1839,7 @@ singularity-flow context compile WORK-123 --slice evidence --json
 singularity-flow context expand 'sfref:...'
 singularity-flow tokens status WORK-123
 singularity-flow tokens report WORK-123 --json
+singularity-flow tokens report --today
 singularity-flow tokens compare --study context-packet-pilot
 ```
 

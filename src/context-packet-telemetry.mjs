@@ -19,7 +19,7 @@ const ALLOWED = new Set([
   'providerInputTokens', 'providerCachedInputTokens', 'provider', 'requestedModel',
   'resolvedModel', 'modelResolutionAssurance', 'captureCoverage', 'correlation',
   'tokenEconomyMode', 'tokenEconomyProfile', 'tokenEconomyConfigurationDigest',
-  'cacheManifestId', 'itemUsage', 'knowledge', 'outcome'
+  'cacheManifestId', 'itemUsage', 'knowledge', 'outcome', 'recordedAt', 'updatedAt'
 ]);
 
 function contentFree(record) {
@@ -136,6 +136,7 @@ export async function recordContextPacketTelemetry(root, packet, { providerTelem
   const prior = await readFile(telemetryFile(root, packet.packetId))
     .then((bytes) => readRecord('context-packet-telemetry', bytes).record)
     .catch(() => null);
+  const observedAt = nowIso();
   const record = contentFree({
     schemaVersion: currentSchemaVersion('context-packet-telemetry'),
     packetId: packet.packetId,
@@ -196,7 +197,9 @@ export async function recordContextPacketTelemetry(root, packet, { providerTelem
     outcome: packet.outcome ? {
       ...structuredClone(packet.outcome),
       contextExpansions: Number(prior?.outcome?.contextExpansions ?? packet.outcome.contextExpansions ?? 0)
-    } : prior?.outcome ?? null
+    } : prior?.outcome ?? null,
+    recordedAt: prior?.recordedAt ?? observedAt,
+    updatedAt: observedAt
   });
   await writeAtomic(telemetryFile(root, packet.packetId), `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
   return record;
@@ -230,7 +233,8 @@ export async function recordContextExpansionRequest(root, packetId, {
     outcome: record.outcome ? {
       ...record.outcome,
       contextExpansions: Number(record.outcome.contextExpansions ?? 0) + 1
-    } : null
+    } : null,
+    updatedAt: expandedAt
   });
   await writeAtomic(telemetryFile(root, packetId), `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
   return next;

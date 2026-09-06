@@ -723,11 +723,13 @@ const PAGES = Object.freeze({
       ['--work-id ID', 'Read a governed Story other than the one active on this branch.'],
       ['--phase ID', 'Limit provider and packet totals to one phase.'],
       ['--packet CTX-ID', 'Limit packet context to one retained observation.'],
+      ['--today', 'Show one content-free repository-wide aggregate for the current local calendar day; it cannot be combined with Story, phase, or packet selectors.'],
       ['--json', 'Emit per-model and aggregate metric envelopes.']
     ],
     examples: [
       ['singularity-flow tokens status PAY-1187', 'Show provider, cache, and SFlow context coverage.'],
       ['singularity-flow tokens report --work-id PAY-1187 --phase implementation --json', 'Emit per-model observations without zero-filling unavailable fields.'],
+      ['singularity-flow tokens report --today', 'Show today’s completed, failed, and interrupted model activity plus packet totals without identifiers or content.'],
       ['singularity-flow tokens compare --study context-packet-pilot', 'Classify a quality-gated IMP comparison without turning lower quality into savings.']
     ],
     seeAlso: ['context', 'telemetry', 'progress', 'report']

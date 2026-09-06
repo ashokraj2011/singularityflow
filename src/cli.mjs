@@ -63,7 +63,13 @@ import {
 } from './world-model-materialization.mjs';
 import { launchHostSession } from './host-session-launcher.mjs';
 import { operationContext, runOperation } from './operation-context.mjs';
-import { invokeModel, listModelInvocations, resolveModelProvider } from './model-runner.mjs';
+import {
+  invokeModel, listModelInvocationAudits, listModelInvocations, resolveModelProvider
+} from './model-runner.mjs';
+import { contextPacketTelemetryRecords } from './context-packet-telemetry.mjs';
+import {
+  dailyTokenLedgerPeriod, dailyTokenLedgerProjection
+} from './token-ledger.mjs';
 import {
   assertProducerAllowed, buildGenerationAuthorship, effectivePhasePublicationProducer,
   importManualArtifact, inspectDeterministicInPlaceArtifact, inspectInPlaceArtifact,
@@ -5284,10 +5290,35 @@ async function tokensCommand(positionals, options) {
     return;
   }
   if (optionBoolean(options, 'today')) {
-    throw new SingularityFlowError(
-      'The machine-local daily Token Ledger summary is not implemented yet. Use tokens report --work-id WORK-ID.',
-      { code: 'CXR_USAGE_UNAVAILABLE' }
-    );
+    const incompatible = [
+      optionString(options, 'work-id'), optionString(options, 'phase'), optionString(options, 'packet'),
+      positionals[2]
+    ].filter((value) => value != null && String(value).trim());
+    if (incompatible.length) {
+      throw new SingularityFlowError(
+        '--today is a repository-wide content-free aggregate and cannot be combined with a Story, phase, or packet selector.',
+        { code: 'CXR_ARGUMENT_CONFLICT' }
+      );
+    }
+    const root = repoRoot();
+    const period = dailyTokenLedgerPeriod();
+    const [models, packets] = await Promise.all([
+      listModelInvocationAudits(root),
+      contextPacketTelemetryRecords(root)
+    ]);
+    const ledger = dailyTokenLedgerProjection(models, packets, { period });
+    return emitCommandResult(commandResult({
+      operation: { id: 'tokens', classification: 'read' },
+      subject: null,
+      outcome: succeeded('tokens.daily-reported', {
+        date: ledger.period.date,
+        modelInvocations: ledger.activity.modelInvocations,
+        contextPackets: ledger.activity.contextPackets
+      }),
+      effects: noEffects(),
+      restState: 'informational',
+      data: { ledger }
+    }), { json: optionBoolean(options, 'json') });
   }
   const projection = await xrayProjection(positionals, options, { defaultToCurrentPhase: false });
   return emitCommandResult(commandResult({

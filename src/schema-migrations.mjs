@@ -1606,6 +1606,17 @@ function contextPacketTelemetryV3ToV4(source) {
   };
 }
 
+function contextPacketTelemetryV4ToV5(source) {
+  return {
+    ...source,
+    schemaVersion: 5,
+    // Historical packet telemetry did not retain a trustworthy observation time. Leaving these
+    // null keeps daily projections honest instead of assigning migrated records to migration day.
+    recordedAt: source.recordedAt ?? null,
+    updatedAt: source.updatedAt ?? null
+  };
+}
+
 function codeDeliveryV1ToV2(source) {
   return {
     ...source,
@@ -2734,11 +2745,12 @@ const families = [
     paths: [/^\$git\/evidence-packets\/observations\/(?:v2\/)?summaries\/[a-f0-9]{64}\.json$/]
   }),
   family({
-    id: 'context-packet-telemetry', currentVersion: 4,
+    id: 'context-packet-telemetry', currentVersion: 5,
     steps: [
       migration(1, 2, contextPacketTelemetryV1ToV2),
       migration(2, 3, contextPacketTelemetryV2ToV3),
-      migration(3, 4, contextPacketTelemetryV3ToV4)
+      migration(3, 4, contextPacketTelemetryV3ToV4),
+      migration(4, 5, contextPacketTelemetryV4ToV5)
     ],
     paths: [/^\$git\/evidence-packets\/telemetry\/ctx-[a-f0-9]{20}\.json$/]
   }),

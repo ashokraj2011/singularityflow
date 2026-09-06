@@ -356,14 +356,7 @@ export function resolveModelProvider(definition) {
  * kernel model demonstrably ran — and that constant was then sealed into the immutable review
  * packet. This is the reader that closes the loop.
  */
-export async function listModelInvocations(root, {
-  subjectId = null,
-  phase = null,
-  generationIntentId = null,
-  generation = null,
-  task = null,
-  startedAfter = null
-} = {}) {
+async function readModelInvocationAudits(root) {
   const directory = path.join(gitDir(root), 'singularity-flow', 'model-invocations');
   const names = await readdir(directory).catch(() => []);
   const records = [];
@@ -377,13 +370,6 @@ export async function listModelInvocations(root, {
       if (String(error?.code ?? '').startsWith('SCHEMA_')) throw error;
       continue;
     }
-    if (record?.status !== 'completed') continue;
-    if (subjectId && record.subject?.id !== subjectId) continue;
-    if (phase && record.subject?.phase !== phase) continue;
-    if (generationIntentId && record.subject?.generationIntentId !== generationIntentId) continue;
-    if (generation != null && Number(record.subject?.generation) !== Number(generation)) continue;
-    if (task && record.routing?.task !== task) continue;
-    if (startedAfter && (!record.startedAt || Date.parse(record.startedAt) < Date.parse(startedAfter))) continue;
     records.push({
       ...record,
       // This detects accidental/local-file tampering, but the key is machine-local and readable by
@@ -392,6 +378,45 @@ export async function listModelInvocations(root, {
     });
   }
   return records.sort((a, b) => String(a.completedAt).localeCompare(String(b.completedAt)));
+}
+
+/**
+ * Content-free machine-local invocation observations, including failed or interrupted requests.
+ * This read is used for accounting: a failed request may still consume provider tokens and must
+ * not disappear merely because it did not produce an authored result.
+ */
+export async function listModelInvocationAudits(root, {
+  startedAtOrAfter = null, startedBefore = null
+} = {}) {
+  const lower = startedAtOrAfter == null ? null : Date.parse(startedAtOrAfter);
+  const upper = startedBefore == null ? null : Date.parse(startedBefore);
+  return (await readModelInvocationAudits(root)).filter((record) => {
+    const started = Date.parse(record.startedAt);
+    if (!Number.isFinite(started)) return lower == null && upper == null;
+    if (Number.isFinite(lower) && started < lower) return false;
+    if (Number.isFinite(upper) && started >= upper) return false;
+    return true;
+  });
+}
+
+export async function listModelInvocations(root, {
+  subjectId = null,
+  phase = null,
+  generationIntentId = null,
+  generation = null,
+  task = null,
+  startedAfter = null
+} = {}) {
+  return (await readModelInvocationAudits(root)).filter((record) => {
+    if (record?.status !== 'completed') return false;
+    if (subjectId && record.subject?.id !== subjectId) return false;
+    if (phase && record.subject?.phase !== phase) return false;
+    if (generationIntentId && record.subject?.generationIntentId !== generationIntentId) return false;
+    if (generation != null && Number(record.subject?.generation) !== Number(generation)) return false;
+    if (task && record.routing?.task !== task) return false;
+    if (startedAfter && (!record.startedAt || Date.parse(record.startedAt) < Date.parse(startedAfter))) return false;
+    return true;
+  });
 }
 
 /**

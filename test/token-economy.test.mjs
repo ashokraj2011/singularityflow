@@ -3,7 +3,10 @@ import test from 'node:test';
 
 import { compileContextManifest } from '../src/context-manifest.mjs';
 import { selectContextCandidates } from '../src/context-ranking.mjs';
-import { tokenLedgerProjection } from '../src/token-ledger.mjs';
+import {
+  dailyTokenLedgerPeriod, dailyTokenLedgerProjection, tokenLedgerProjection,
+  tokenLedgerText
+} from '../src/token-ledger.mjs';
 import {
   classifyTokenOptimization, normalizeTokenEconomy, selectedTokenEconomyProfile
 } from '../src/token-economy.mjs';
@@ -74,6 +77,52 @@ test('[TKN:REQ-082] ledger distinguishes delivered from digest-deduplicated uniq
   assert.equal(ledger.totals.uniqueContextTokens.value, 100);
   assert.equal(ledger.outcomes.length, 2);
   assert.equal(ledger.coverage.estimated, 2);
+});
+
+test('daily Token Ledger uses an exact local-day interval and excludes identifying detail', () => {
+  const period = dailyTokenLedgerPeriod({
+    now: new Date('2026-09-07T06:00:00.000Z'), offsetMinutes: 330
+  });
+  assert.deepEqual(period, {
+    date: '2026-09-07', timezone: 'utc-offset:+05:30', offsetMinutes: 330,
+    startAt: '2026-09-06T18:30:00.000Z', endAt: '2026-09-07T18:30:00.000Z'
+  });
+  const models = [{
+    id: 'private-invocation', status: 'completed', startedAt: '2026-09-06T18:31:00.000Z',
+    provider: 'private-provider', model: 'private-model', requestedModel: 'private-request',
+    subject: { id: 'PRIVATE-STORY', generation: 2 },
+    usage: { inputTokens: 100, outputTokens: 20, cachedInputTokens: 25 }
+  }, {
+    id: 'outside', status: 'completed', startedAt: '2026-09-06T18:29:59.999Z',
+    usage: { inputTokens: 900, outputTokens: 100 }
+  }, {
+    id: 'failed', status: 'failed', startedAt: '2026-09-07T10:00:00.000Z',
+    usage: { inputTokens: null, outputTokens: null }
+  }];
+  const packets = [{
+    packetId: 'ctx-private', workId: 'PRIVATE-STORY', recordedAt: '2026-09-07T01:00:00.000Z',
+    includedBytes: 400, estimatedTokens: 100, expandedBytes: 0,
+    expandedEstimatedTokens: 0, expansions: [], itemUsage: [], captureCoverage: 'estimated'
+  }, {
+    packetId: 'legacy-private', workId: 'OLD-STORY', recordedAt: null,
+    includedBytes: 800, estimatedTokens: 200
+  }];
+  const ledger = dailyTokenLedgerProjection(models, packets, { period });
+  assert.equal(ledger.activity.modelInvocations, 2);
+  assert.equal(ledger.activity.contextPackets, 1);
+  assert.equal(ledger.activity.undatedInvocationsExcluded, 0);
+  assert.equal(ledger.activity.legacyPacketsExcluded, 1);
+  assert.equal(ledger.activity.invocationStatuses.completed, 1);
+  assert.equal(ledger.activity.invocationStatuses.failed, 1);
+  assert.equal(ledger.totals.inputTokens.value, 100);
+  assert.equal(ledger.totals.sflowEstimatedTokens.value, 100);
+  const serialized = JSON.stringify(ledger);
+  for (const secret of [
+    'private-invocation', 'private-provider', 'private-model', 'private-request',
+    'PRIVATE-STORY', 'ctx-private', 'legacy-private', 'OLD-STORY'
+  ]) assert.equal(serialized.includes(secret), false, secret);
+  assert.match(tokenLedgerText(ledger), /2026-09-07/);
+  assert.match(tokenLedgerText(ledger), /Historical packets without timestamps excluded: 1/);
 });
 
 test('[TKN:AC-010] lower tokens with a regressed quality floor is cheaper-but-worse', () => {

@@ -148,6 +148,11 @@ budgets declare their applicability in the reviewed budget file; an enforced rep
 host platform and every not-applicable metric. An unavailable Linux-only child-RSS measurement is
 therefore accepted on macOS and Windows, but remains a hard failure on Linux.
 
+On macOS the launcher resolves the real extension-host executable from the app bundle's
+`CFBundleExecutable`, with bounded `Code`/`Electron` compatibility fallbacks. This is required
+because VS Code 1.90.x used `Electron` while current releases use `Code`; the CLI path alone does
+not reveal that difference.
+
 A non-enforcing run reports `incomplete` when any required cell is absent or any measured CLI child
 fails. Fast process failure is never accepted as good latency. The warm projection is retained in a
 bounded, repository-hashed, atomic file below VS Code's machine-local global storage, with Memento

@@ -46,7 +46,19 @@ function resolveCode() {
         let hostExecutable = candidate;
         if (process.platform === 'darwin' && path.isAbsolute(candidate)) {
           const application = candidate.match(/^(.*\.app)\/Contents\/Resources\/app\/bin\/code$/)?.[1];
-          if (application) hostExecutable = path.join(application, 'Contents', 'MacOS', 'Code');
+          if (application) {
+            let bundleExecutable = null;
+            try {
+              bundleExecutable = execFileSync('/usr/libexec/PlistBuddy', [
+                '-c', 'Print :CFBundleExecutable', path.join(application, 'Contents', 'Info.plist')
+              ], {
+                encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 10_000
+              }).trim();
+            } catch { /* fall through to known VS Code bundle names */ }
+            const hostCandidates = [bundleExecutable, 'Code', 'Electron'].filter(Boolean)
+              .map((name) => path.join(application, 'Contents', 'MacOS', name));
+            hostExecutable = hostCandidates.find(existsSync) ?? hostCandidates[0];
+          }
         } else if (process.platform === 'win32' && path.isAbsolute(candidate) && /\.cmd$/i.test(candidate)) {
           const desktop = path.resolve(path.dirname(candidate), '..', 'Code.exe');
           if (existsSync(desktop)) hostExecutable = desktop;

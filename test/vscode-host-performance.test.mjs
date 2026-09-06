@@ -173,6 +173,9 @@ test('the benchmark launcher uses VS Code extensionTestsPath and fails closed wi
   assert.match(launcher, /--extensionTestsPath=/);
   assert.match(launcher, /singularityFlow\.cliPath/);
   assert.match(launcher, /A real VS Code CLI was not found/);
+  assert.match(launcher, /CFBundleExecutable/);
+  assert.match(launcher, /PlistBuddy/);
+  assert.match(launcher, /'Code', 'Electron'/);
   assert.doesNotMatch(launcher, /stubVscode|simulated-extension-host/);
   assert.match(runner, /workbench\.view\.extension\.singularityFlowNavigator/);
   assert.match(runner, /monitorEventLoopDelay/);

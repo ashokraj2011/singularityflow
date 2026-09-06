@@ -9,13 +9,15 @@
 **Last implementation audit:** `main@3b5d79e6` on 2026-08-31; the observe-only foundation
 described below is the only implemented CMP tranche
 
-**Current reconciliation:** checked through `main@bd79630b` on 2026-09-07; the first content-free
-P1 measurement harness and the read-only P3 graph/query projection are active, while P1
-storage/retention authority, P2 authority, P3 replay, and P4–P6 remain open
+**Current reconciliation:** checked through `main@db61bb90` on 2026-09-07; the first content-free
+P1 measurement harness and read-only P3 graph/query/Story-replay projections are active, while P1
+storage/retention authority, P2 authority, the P3 durable index and SGOS/cause replay joins, and
+P4–P6 remain open
 
 **Current delivery boundary:** observe-only foundation, a synthetic content-free P1 benchmark, and
-a deterministic ephemeral P3 graph/query projection; no publication gate, approval authority,
-durable CMP store or index, replay, or new publisher
+deterministic ephemeral P3 graph/query and normalized Story-history replay projections; no
+publication gate, approval authority, durable CMP store or index, SGOS Process join, causal replay,
+or new publisher
 
 **Related roadmaps:** [SGOS pending work](SGOS-PENDING-WORK.md) and
 [Witnessed Engineering Loop pending work](WEL-PENDING-WORK.md)
@@ -70,6 +72,10 @@ inspection boundary while preserving every existing lifecycle behavior.
   graph in either direction for an exact clause, file, or change-region subject. Unsupported
   symbol, refusal, generation, and test sources report explicit unavailability rather than
   guessing.
+- `singularity-flow comprehension replay [all|phase <PHASE>|kind <EVENT-KIND>] --work-id <ID>`
+  projects the existing normalized Story lifecycle chronology. It excludes actors, operational
+  detail, prompts, transcripts, model summaries, and SGOS Process state, and never mutates replay
+  state.
 - Baseline precedence is explicit `--base`, generation intent, current work interval, delivery
   evidence, Story base, then `HEAD`; the selected source is reported. When `--base` is combined
   with Story/phase selection, that context must still resolve and is not silently discarded.
@@ -117,12 +123,20 @@ report excludes paths, content and content digests, causes, identities, work IDs
 transcripts. It remains synthetic, local, non-authoritative evidence; the release gate runs it, but
 it does not satisfy the reviewed-real-corpus or supported-platform exit criteria.
 
-The first P3 read projection landed at `main@bd79630b`. It is model-free, AST-optional, bounded to
+The first P3 graph projection landed at `main@bd79630b`. It is model-free, AST-optional, bounded to
 5,000 nodes/edges and 500 query results, rejects tampered manifests, assessments, graphs, and
 non-normalized paths, and exposes opaque exact node handles. It deliberately creates no cache or
 durable authority and cannot affect a lifecycle gate. The combined portable CMP/WEL matrix passes
 34/34 on the landing tree. Replay, gateway planning, a rebuildable index, structural expansion,
 and P2-backed durable causes remain open.
+
+The first P3 Story replay projection landed at `main@db61bb90`. It reuses the one normalized Story
+beat vocabulary, applies deterministic ordering/deduplication and an exact phase/event-kind focus,
+and emits at most 1,000 content-free events with immutable source references. Lifecycle and
+operational provenance remain distinct. Causal provenance is explicitly unavailable: an ordinary
+reopen is not called reverse convergence, and an operational record is not called post-hoc without
+a governed causal source. This command is read-only and intentionally separate from the mutating
+SGOS Process replay. The combined portable CMP/WEL matrix passes 40/40 on the landing tree.
 
 ## Verified implementation status
 
@@ -143,7 +157,7 @@ as permission to submit, approve, publish, or merge.
 | P0 — contracts and reads | **Partial** | Conservative resource regions; closed cause/relationship/disposition/assurance/availability/refusal/diagnostic registries; bounded diagnostic validation; `regions` and `check`; authority ADR; no-model/no-AST/no-write/no-lifecycle tripwires; isolated npm/VSIX engine proof | Supported-platform deterministic corpus execution |
 | P1 — pilot and storage decision | **Partial** | Release-gated content-free synthetic benchmark for latency, CPU, counts, availability, and storage-size preview; no durable state | Reviewed real corpus, supported-platform measurements, storage/retention/privacy decision, record-mode preview, migration prototype, and independent rollout decision |
 | P2 — governed cause recording | **Contract fragments only** | Cause, binding, disposition, and transformation-receipt validators over untrusted diagnostic input | Trusted authority lookup, durable versioned records, migrations, proposal/confirmation/supersession, recovery, and incorporation into the existing review transaction |
-| P3 — intent graph and replay | **Partial read projection** | Deterministic ephemeral graph over validated diagnostic bindings; bounded exact clause/file/change reads; opaque handles; explicit unavailable structure; no model, AST requirement, write, or gate | Durable typed index over P2 authority, cache rebuild, gateway planner, structural expansion, deterministic replay, and reverse-convergence provenance |
+| P3 — intent graph and replay | **Partial read projection** | Deterministic ephemeral graph over validated diagnostic bindings; bounded exact clause/file/change reads; opaque handles; explicit unavailable structure; content-free normalized Story chronology with exact focus and source provenance; no model, AST requirement, write, or gate | Durable typed index over P2 authority, cache rebuild, gateway planner, structural expansion, SGOS/cause joins, causal replay, and governed reverse-convergence/post-hoc provenance |
 | P4 — walkthroughs | **Not implemented** | None | Typed claims, deterministic validators, model-draft boundary, dual hashes, evidence validation, staleness, and revalidation receipts |
 | P5 — enforcement | **Blocked by prerequisites** | None; ordinary publication is deliberately unchanged | Universal lifecycle Candidate, existing-review-subject binding, existing approval/publication integration, projected receipt, recovery, and opt-in creation-pinned enforcement |
 | P6 — VS Code, learning, brownfield | **Not implemented** | Help content and generic `/sf-inspect comprehension` routing only | Leased snapshot slice, Comprehension Center, navigation, replay/walkthrough/staleness views, lessons, touched-area policy, backfill, accessibility, and large-repository hardening |
@@ -198,7 +212,7 @@ v1 release criteria, any enforcement acceptance criterion, or a native VS Code C
 | `CMP-P1-001` | The content-free local benchmark is implemented and release-gated at `898cb4a0`; decide storage, retention, privacy, measured budgets, and creation-pinned `off`/`record` rollout | Approved ADRs, real-corpus and supported-platform evidence, migration prototype, and independent pilot review |
 | `CMP-P2-001` | Add governed cause proposals, confirmations, terminal dispositions, and narrow transformation authority | Durable schemas/migrations plus authority, staleness, recovery, ref-race, and adversarial-laundering tests |
 | `CMP-P3-001` | The ephemeral graph and exact `comprehension explain` reads landed at `bd79630b`; add the P2-authority-backed incremental index, cache rebuild, structural expansion, and gateway planner | Current bidirectional clause/file/change parity, bounded exact handles, unavailable-structure, tamper, no-model, no-write, and no-lifecycle tests are green; cache rebuild and gateway no-extra-tool evidence remain |
-| `CMP-P3-002` | Implement deterministic comprehension replay without colliding with SGOS Process replay | Fresh-export hash stability, ordering, refusal/repair, reverse-convergence, recovery, and transcript-exclusion tests |
+| `CMP-P3-002` | The content-free normalized Story replay landed at `db61bb90`; add P2 cause records, SGOS lineage joins, refusal/repair subjects, and governed reverse-convergence/post-hoc provenance without colliding with SGOS Process replay | Current ordering, exact focus, source validation, privacy/transcript exclusion, ceiling, no-model, no-write, and command-collision tests are green; fresh-export, SGOS/cause join, recovery, and causal-provenance evidence remain |
 | `CMP-P4-001` | Implement typed walkthroughs, validators, exact expansion, and selective/conservative staleness | Counterfeit-model, prompt-injection, malformed/overflow, Candidate/evidence/structure drift, and zero-model tests |
 | `CMP-P5-001` | Integrate CMP into the single existing Candidate/review/approval/publication transaction | `SGOS-P0-001`, every-workflow lifecycle matrix, remote rejection/push recovery, crash/retry, and fresh-export receipt verification |
 | `CMP-P6-001` | Add the leased VS Code Comprehension Center and learning experience | Slice lease/disposal, stale-response, multi-root, keyboard/screen-reader, offline/office-proxy, and large-tree tests |
@@ -545,6 +559,11 @@ Required tests:
 ### P3 — intent graph and deterministic comprehension replay
 
 **Goal:** answer bounded cause-to-code and code-to-cause questions from existing records.
+
+**Current boundary:** `bd79630b` implements the ephemeral graph/exact-read slice and `db61bb90`
+implements content-free normalized Story chronology. Neither has a durable index or P2 cause
+authority, and the Story replay deliberately excludes SGOS Process state and does not infer causal
+provenance from chronology.
 
 Deliverables:
 

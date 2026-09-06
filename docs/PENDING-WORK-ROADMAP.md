@@ -2,7 +2,7 @@
 
 **Status:** authoritative cross-product tracker; bounded exact-tree aggregate and the latest code-local asynchronous Git migration are complete, while platform release evidence remains active
 
-**Baseline:** `main@82339499`
+**Baseline:** `main@a76a8922`
 
 **Last reviewed:** 2026-09-07
 

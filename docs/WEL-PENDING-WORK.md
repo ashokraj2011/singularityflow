@@ -6,7 +6,7 @@
 
 **Created:** 2026-08-30
 
-**Current reconciliation:** checked against `main@a2baa584` on 2026-09-07. Commits `259b76f1`,
+**Current reconciliation:** checked against `main@a76a8922` on 2026-09-07. Commits `259b76f1`,
 `58d9329d`, and `d55229c7` provide the bounded exact-static JUnit identity adapter, immutable
 proposal snapshot, human review through the existing phase approval, migration, safe command-shape
 fallbacks, the evolving content-free benchmark, and same-process unenrolled delta measurement. Commit
@@ -391,6 +391,15 @@ The unchanged portable CMP/WEL matrix was re-run on macOS arm64 with Node 25.5.0
 the current code-local adapter, cancellation, replay, and integration boundaries still compose.
 It is unsupported-runtime local evidence only; it does not fill an independent-review, supported
 Node, physical Windows/Linux, office-network, authenticated-runner, or signed-package matrix cell.
+
+The expanded portable CMP/WEL matrix was re-run on macOS arm64 with Node 25.5.0 at
+`main@a76a8922`: 55/55 tests passed with zero failures, skips, cancellations, or todo. The WEL v5
+benchmark also completed all 12 exact-static samples and all three model-free local Story-start
+samples, with zero false exact matches, exact retained-commit recovery for synthetic push and
+offline failures, exact clean fresh-clone equality, exact interrupted-write restoration, and safe
+adapter cancellation with zero mapping proposals. This refresh proves that the current WEL
+observe-only boundary still composes with the newer CMP projections. It remains unsigned,
+unsupported-runtime, same-developer local evidence and fills none of the external gates below.
 
 Depends on: `WEL-P0-001` and `WEL-P0-002`.
 

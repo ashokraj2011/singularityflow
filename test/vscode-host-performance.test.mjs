@@ -8,6 +8,11 @@ import { buildHostPerformanceReport, summarizeHostMetric } from '../src/vscode-h
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 function sample(scenario, overrides = {}) {
+  const successfulCounters = {
+    cliProcessesStarted: 1, cliProcessesCompleted: 1, cliProcessesSucceeded: 1,
+    cliProcessesFailed: 0, cliProcessesConcurrent: 0, cliProcessesMaximumConcurrent: 1,
+    storeEvents: 0, snapshotEvents: 0, sidebarRenders: 0
+  };
   return {
     schemaVersion: 1,
     kind: 'sflow-vscode-extension-host-sample',
@@ -22,13 +27,16 @@ function sample(scenario, overrides = {}) {
         confirmedFirstPaint: 80,
         ...(scenario === 'warm' ? { cachedFirstPaint: 20 } : {})
       },
-      counters: { cliProcessesStarted: 1, cliProcessesCompleted: 1, cliProcessesConcurrent: 0, cliProcessesMaximumConcurrent: 1, storeEvents: 2, snapshotEvents: 1, sidebarRenders: 2 },
+      counters: { ...successfulCounters, storeEvents: 2, snapshotEvents: 1, sidebarRenders: 2 },
       childMemory: { status: 'measured-linux-proc', peakRssBytes: 10_000 }
     },
-    unchangedRefresh: { durationMs: 30, counters: {}, childMemory: { status: 'measured-linux-proc', peakRssBytes: 9_000 } },
-    changedRefresh: { durationMs: 40, counters: {}, childMemory: { status: 'measured-linux-proc', peakRssBytes: 11_000 } },
-    watcherStorm: { durationMs: 900, eventsWritten: 100, counters: { cliProcessesStarted: 2, sidebarRenders: 2 }, childMemory: { status: 'measured-linux-proc', peakRssBytes: 12_000 } },
-    webviewOpening: { durationMs: 25, counters: {}, childMemory: { status: 'measured-linux-proc', peakRssBytes: 8_000 } },
+    unchangedRefresh: { durationMs: 30, counters: { ...successfulCounters }, childMemory: { status: 'measured-linux-proc', peakRssBytes: 9_000 } },
+    changedRefresh: { durationMs: 40, counters: { ...successfulCounters }, childMemory: { status: 'measured-linux-proc', peakRssBytes: 11_000 } },
+    watcherStorm: { durationMs: 900, eventsWritten: 100, counters: {
+      ...successfulCounters, cliProcessesStarted: 2, cliProcessesCompleted: 2,
+      cliProcessesSucceeded: 2, sidebarRenders: 2
+    }, childMemory: { status: 'measured-linux-proc', peakRssBytes: 12_000 } },
+    webviewOpening: { durationMs: 25, counters: { ...successfulCounters }, childMemory: { status: 'measured-linux-proc', peakRssBytes: 8_000 } },
     eventLoop: { maxDelayMs: 12, meanDelayMs: 10, p95DelayMs: 11 },
     final: { extensionHostRssBytes: 100_000, cliProcessesConcurrent: 0 },
     ...overrides
@@ -83,6 +91,17 @@ test('host benchmark refuses a false warm-cache claim and a synthetic tail regre
   assert.ok(report.failures.includes('cachedFirstPaintMs:unavailable'));
 });
 
+test('host benchmark refuses fast failed CLI samples', () => {
+  const warm = sample('warm');
+  warm.unchangedRefresh.counters.cliProcessesSucceeded = 0;
+  warm.unchangedRefresh.counters.cliProcessesFailed = 1;
+  const report = buildHostPerformanceReport({
+    profile: 'minimum', pairs: [{ cold: sample('cold'), warm }], budgets, enforce: false
+  });
+  assert.equal(report.status, 'incomplete');
+  assert.ok(report.failures.includes('pair-1:warm-unchangedRefresh-cli-failed'));
+});
+
 test('the benchmark launcher uses VS Code extensionTestsPath and fails closed without a real host', async () => {
   const [launcher, runner, probe] = await Promise.all([
     readFile(path.join(root, 'scripts/vscode-host-benchmark.mjs'), 'utf8'),
@@ -90,10 +109,12 @@ test('the benchmark launcher uses VS Code extensionTestsPath and fails closed wi
     readFile(path.join(root, 'apps/vscode/src/host-performance.ts'), 'utf8')
   ]);
   assert.match(launcher, /--extensionTestsPath=/);
+  assert.match(launcher, /singularityFlow\.cliPath/);
   assert.match(launcher, /A real VS Code CLI was not found/);
   assert.doesNotMatch(launcher, /stubVscode|simulated-extension-host/);
   assert.match(runner, /workbench\.view\.extension\.singularityFlowNavigator/);
   assert.match(runner, /monitorEventLoopDelay/);
   assert.match(probe, /process\.platform === 'linux'/);
+  assert.match(probe, /cliProcessesFailed/);
   assert.match(probe, /\/proc\/\$\{pid\}\/status/);
 });

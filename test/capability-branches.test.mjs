@@ -177,7 +177,7 @@ test('every clone path that had a hard-coded default branch now accepts the capa
   assert.match(story, /capabilityBaseForRepository\(target, \{/, 'story fetch does not resolve a capability base');
   assert.match(story, /base: capabilityBase\?\.localBase \?\? repository\.defaultBranch/, 'story fetch ignores it');
   const capabilityPreflight = story.indexOf('const capabilityPreflight = await preflightFetchedStoryCapability');
-  const siblingPreparation = story.indexOf('const prepared = prepareCapabilityRepositories');
+  const siblingPreparation = story.indexOf('const prepared = await prepareCapabilityRepositories');
   assert.ok(capabilityPreflight >= 0 && siblingPreparation > capabilityPreflight,
     'story fetch moves sibling repositories before validating the fetched capability catalog');
   assert.match(story, /capabilityId: capabilityPreflight\.capabilityId[\s\S]*capabilityMapSha256: capabilityPreflight\.capabilityMapSha256/,

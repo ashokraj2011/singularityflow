@@ -86,13 +86,40 @@ test('structured CLI payloads are buffered linearly and hidden from the Output c
 
 test('snapshot cache identity is resolved from the currently selected repository', async () => {
   const extension = codeOnly(await readFile(path.join(root, 'apps/vscode/src/extension.ts'), 'utf8'));
-  assert.match(extension, /const snapshotCacheKey = \(\): string => `snapshot:\$\{repository\}`/);
+  assert.match(extension, /const snapshotCacheKey = \(\): string => `singularityFlow\.snapshotCache\.v2\.\$\{createHash\('sha256'\)/,
+    'the durable cache key is not a hash of the current repository');
+  assert.match(extension, /context\.globalState\.get<RepositorySnapshot>\(snapshotCacheKey\(\)\)/,
+    'the snapshot cache does not survive a new VS Code window');
+  assert.match(extension, /legacySnapshotCacheKey/,
+    'workspace-state caches from the previous build are not migrated');
   const useRepository = extension.indexOf('client.useRepository(canonicalTarget)');
   const activeContext = extension.indexOf('setActiveRepositoryContext({', useRepository);
   const reset = extension.indexOf('store.repositoryChanged()', useRepository);
   const refresh = extension.indexOf('await store.refresh()', reset);
   assert.ok(useRepository >= 0 && activeContext > useRepository && reset > activeContext && refresh > reset,
     'repository switching leaves the previous snapshot/cache identity active or publishes before context is rebound');
+});
+
+test('steady-state Refresh does not rediscover an unchanged machine selection', async () => {
+  const extension = codeOnly(await readFile(path.join(root, 'apps/vscode/src/extension.ts'), 'utf8'));
+  assert.match(extension, /activeSelectionRevision = await machineSelectionRevision\(activeSelectionFile\)/,
+    'activation does not seed the exact active-selection revision');
+  assert.match(extension,
+    /observedSelectionRevision === activeSelectionRevision\) return false/,
+    'an unchanged selector still launches workspace current before every repository refresh');
+  assert.match(extension,
+    /if \(observedSelectionRevision !== undefined\) activeSelectionRevision = observedSelectionRevision/,
+    'the selection fence is updated without an authoritative CLI reconciliation');
+});
+
+test('capability readiness stays lazy when the confirmed repository has no capability map', async () => {
+  const extension = codeOnly(await readFile(path.join(root, 'apps/vscode/src/extension.ts'), 'utf8'));
+  const readiness = extension.slice(extension.indexOf('const refreshReadiness'),
+    extension.indexOf('new ConfigurationValidator'));
+  assert.match(readiness, /if \(!store\.current\.snapshot\?\.capabilityMap\)/,
+    'an unmapped repository still spawns capability discovery during activation and Refresh');
+  assert.ok(readiness.indexOf('snapshot?.capabilityMap') < readiness.indexOf("['capability', 'leads', '--json']"),
+    'the local capability-map gate runs after the remote discovery it is meant to avoid');
 });
 
 test('nothing on the activation path stops the extension host with a synchronous subprocess', async () => {

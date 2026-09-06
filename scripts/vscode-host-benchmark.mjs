@@ -159,7 +159,14 @@ async function runScenario(editor, repository, stateRoot, scenario, reportPath) 
   // bytes, so these internal directory names are intentionally short even when TMPDIR is long.
   const userData = path.join(stateRoot, 'u');
   const extensions = path.join(stateRoot, 'e');
-  await Promise.all([mkdir(userData, { recursive: true }), mkdir(extensions, { recursive: true })]);
+  const userSettings = path.join(userData, 'User');
+  await Promise.all([mkdir(userSettings, { recursive: true }), mkdir(extensions, { recursive: true })]);
+  // Pin the source-tree CLI for this development-extension run. A concurrent VSIX build stages and
+  // removes `<extension>/cli`; without an explicit setting the cold and warm processes can resolve
+  // different engines, and the warm timing can become a measurement of fast MODULE_NOT_FOUND errors.
+  await writeFile(path.join(userSettings, 'settings.json'), `${JSON.stringify({
+    'singularityFlow.cliPath': path.join(root, 'bin', 'singularity-flow.mjs')
+  }, null, 2)}\n`, 'utf8');
   const machine = path.join(stateRoot, 'm');
   await mkdir(machine, { recursive: true });
   const env = {

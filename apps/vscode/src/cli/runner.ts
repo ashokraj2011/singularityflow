@@ -1495,7 +1495,7 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
         windowsHide: true
       });
       recordHostCliProcessStarted(child.pid);
-      child.once('close', () => recordHostCliProcessCompleted(child?.pid));
+      child.once('close', (code) => recordHostCliProcessCompleted(child?.pid, code));
     } catch (error) {
       return fail(error);
     }

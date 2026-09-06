@@ -65,6 +65,19 @@ export function buildHostPerformanceReport({ profile, pairs, budgets, enforce = 
       if (sample.scenario !== scenario) failures.push(`pair-${index + 1}:${scenario}-scenario-mismatch`);
       if (sample.extension.activeBeforeRequest) failures.push(`pair-${index + 1}:${scenario}-activated-before-view-request`);
       if (sample.final.cliProcessesConcurrent !== 0) failures.push(`pair-${index + 1}:${scenario}-child-not-quiescent`);
+      for (const [surface, measurement] of Object.entries({
+        activation: sample.activation,
+        unchangedRefresh: sample.unchangedRefresh,
+        changedRefresh: sample.changedRefresh,
+        watcherStorm: sample.watcherStorm,
+        webviewOpening: sample.webviewOpening
+      })) {
+        if (!Number.isSafeInteger(measurement?.counters?.cliProcessesFailed)) {
+          failures.push(`pair-${index + 1}:${scenario}-${surface}-cli-outcome-missing`);
+        } else if (measurement.counters.cliProcessesFailed !== 0) {
+          failures.push(`pair-${index + 1}:${scenario}-${surface}-cli-failed`);
+        }
+      }
       if (sample.cachePersisted !== true) failures.push(`pair-${index + 1}:${scenario}-cache-not-persisted`);
       if (!Number.isFinite(sample.activation.marksMs.confirmedFirstPaint)) {
         failures.push(`pair-${index + 1}:${scenario}-confirmed-paint-missing`);

@@ -8,6 +8,7 @@
 import * as vscode from 'vscode';
 import path from 'node:path';
 import os from 'node:os';
+import { createHash } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -19,6 +20,7 @@ import {
   validatedRepositoryGitCommonDirectory
 } from './cli/runner.ts';
 import { WorkspaceStore } from './state.ts';
+import { RepositorySnapshotFileCache } from './snapshot-file-cache.ts';
 import type { RepositorySnapshot } from './cli/snapshot.ts';
 import { ConfigurationValidator } from './validation.ts';
 import { approveWithReceipt, resolvePlaceholders, runGovernedAction, runPlannedAction } from './actions.ts';
@@ -83,6 +85,7 @@ import { storyCheckoutIssue, unsavedRepositoryPaths } from './generation-guards.
 import { renderReworkRollForwardPreview } from './views/rework-roll-forward-preview.ts';
 import { RepositoryEpochGuard, type RepositoryEpochToken } from './repository-epoch.ts';
 import { RevisionSliceWatcherFence } from './watcher-refresh-fence.ts';
+import { machineSelectionRevision } from './machine-selection-revision.ts';
 import {
   beginHostPerformanceActivation, hostPerformanceSnapshot, markHostPerformance,
   recordHostSidebarRender, recordHostStoreEvent, resetHostPerformanceInterval
@@ -2330,11 +2333,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // This is intentionally bounded and local: six probes, no repository scan and no network. It is
   // run once per health-contract version in a real extension host, then retained only as a small
-  // machine-local status record. Governed Git data and credentials are never copied into it.
+  // machine-local status record. Governed Git data and credentials are never copied into it. The
+  // function is invoked after the first confirmed paint: a healthy one-time diagnostic must not
+  // make every fresh profile wait before commands, providers, or cached content can render.
   const firstRunHealthKey = 'singularityFlow.firstRunHealth.v1';
   const existingFirstRunHealth = context.globalState.get<{ status?: string } | null>(firstRunHealthKey, null);
   let firstRunBlocked = existingFirstRunHealth?.status === 'blocked';
-  if (vscode.env?.appHost && (!existingFirstRunHealth || firstRunBlocked)) {
+  let firstRunHealthStarted = false;
+  const runFirstRunHealth = async (): Promise<void> => {
+    if (firstRunHealthStarted || !vscode.env?.appHost || (existingFirstRunHealth && !firstRunBlocked)) return;
+    firstRunHealthStarted = true;
     const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? null;
     const checks = await firstRunChecks(context.extensionPath, surfaceLocation, folder);
     const blocked = checks.filter((entry) => entry.status === 'blocked');
@@ -2352,7 +2360,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         { headline: 'First-run health check needs attention' }
       );
     }
-  }
+  };
   const diagnosticClient = new SingularityFlowClient({
     location: surfaceLocation, repository: os.tmpdir(), environment: cliEnvironment,
     onOutput: (text) => output.append(text)
@@ -2834,7 +2842,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    *
    * Keyed by repository root: one window may be pointed at several governed repositories over its
    * life, and opening repository B on repository A's lifecycle would be worse than a blank panel.
-   * `workspaceState` rather than `globalState` for the same reason.
+   * The primary copy is a bounded atomic file beneath VS Code's machine-local `globalStorageUri`;
+   * the Memento copy is a compatibility fallback. Neither is synced. A repository hash prevents
+   * path disclosure in storage names and makes A -> B -> A cache identity exact. Older workspace-
+   * state entries are read once and migrated so an upgrade does not throw away a useful first paint.
    *
    * A read that throws — a payload written by an older build, a shape that no longer parses — is
    * treated as no cache at all. A stale-cache bug must degrade to today's behaviour, never to a
@@ -2842,14 +2853,31 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    */
   // `repository` is deliberately rebound by workspace selection. Resolve the key at each access so
   // a window that moves A -> B -> A never reads or overwrites another repository's last snapshot.
-  const snapshotCacheKey = (): string => `snapshot:${repository}`;
+  const legacySnapshotCacheKey = (): string => `snapshot:${repository}`;
+  const snapshotCacheKey = (): string => `singularityFlow.snapshotCache.v2.${createHash('sha256')
+    .update(repository).digest('hex')}`;
+  const snapshotFileCache = context.globalStorageUri?.fsPath
+    ? new RepositorySnapshotFileCache<RepositorySnapshot>(context.globalStorageUri.fsPath) : null;
   const snapshotCache = {
     read: (): RepositorySnapshot | null => {
-      try { return context.workspaceState.get<RepositorySnapshot>(snapshotCacheKey()) ?? null; }
+      try {
+        const stored = snapshotFileCache?.read(repository);
+        if (stored) return stored;
+        const current = context.globalState.get<RepositorySnapshot>(snapshotCacheKey());
+        if (current) return current;
+        const legacy = context.workspaceState?.get<RepositorySnapshot>(legacySnapshotCacheKey()) ?? null;
+        if (legacy) {
+          void context.globalState.update(snapshotCacheKey(), legacy);
+          void context.workspaceState?.update(legacySnapshotCacheKey(), undefined);
+        }
+        return legacy;
+      }
       catch { return null; }
     },
     write: (snapshot: RepositorySnapshot): void => {
-      void context.workspaceState.update(snapshotCacheKey(), snapshot);
+      snapshotFileCache?.write(repository, snapshot);
+      void context.globalState.update(snapshotCacheKey(), snapshot);
+      void context.workspaceState?.update(legacySnapshotCacheKey(), undefined);
     }
   };
 
@@ -2857,8 +2885,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   if (hostBenchmarkEnabled) {
     persistHostBenchmarkCache = async () => {
       if (!store.current.snapshot || store.current.stale || store.current.error) return false;
-      await context.workspaceState.update(snapshotCacheKey(), store.current.snapshot);
-      return true;
+      const filePersisted = snapshotFileCache
+        ? await snapshotFileCache.persist(repository, store.current.snapshot) : true;
+      await context.globalState.update(snapshotCacheKey(), store.current.snapshot);
+      return filePersisted;
     };
   }
   currentHelpWork = () => {
@@ -2896,6 +2926,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     warnings: string[];
   }
   const refreshWorkspaceLogsTree = async (): Promise<void> => {
+    if (!activeRepositoryContext()?.workspaceId) {
+      logsTree.replace([{
+        kind: 'action', id: 'logs:workspace-required', label: 'Workspace logs',
+        description: 'select a workspace to enable', icon: 'info',
+        runCommand: 'singularityFlow.openWorkspaces'
+      }]);
+      return;
+    }
     const scope = repositoryEpoch.capture();
     try {
       const report = await client.run<WorkspaceLogsSummary>(['logs', 'workspace', '--limit', '500', '--json']);
@@ -3051,6 +3089,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let readiness: CapabilityReadiness = {};
   let configurationTree: LifecycleTreeProvider | null = null;
   const refreshReadiness = async (force = false): Promise<void> => {
+    // Readiness is a remote projection of an approved capability map. A plain governed repository
+    // with no map has no lead to inspect, so launching `capability leads` can only return the same
+    // empty answer and delays every explicit Refresh. The confirmed snapshot is the exact local
+    // authority for whether this slice exists; map creation changes its slice revision and the next
+    // refresh naturally enables the remote read.
+    if (!store.current.snapshot?.capabilityMap) {
+      readiness = {};
+      return;
+    }
     const scope = repositoryEpoch.capture();
     try {
       const leads = await client.run<{ url?: string }[]>(['capability', 'leads', '--json']);
@@ -3344,16 +3391,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * previous checkout until VS Code was reloaded. Read the authoritative CLI projection again and
    * reuse the one rebind path above; no surface gets to maintain its own idea of the active Story.
    */
+  const ACTIVE_SELECTION_REFRESH_DEBOUNCE_MS = 250;
+  const activeSelectionFile = path.resolve(process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE
+    || path.join(os.homedir(), '.singularity-flow', 'active-workspace.json'));
+  // Repository resolution has already consumed this exact selector. Keep its content revision so
+  // steady-state Refresh can go directly to the repository snapshot. If the file cannot be read,
+  // `undefined` deliberately preserves the existing CLI check on every request.
+  let activeSelectionRevision = await machineSelectionRevision(activeSelectionFile);
   let selectionReconciliation: Promise<boolean> | null = null;
   const reconcileActiveWorkspaceSelection = async (): Promise<boolean> => {
     if (selectionReconciliation) return selectionReconciliation;
     const reconciliation = (async (): Promise<boolean> => {
+      const observedSelectionRevision = await machineSelectionRevision(activeSelectionFile);
+      if (observedSelectionRevision !== undefined
+        && observedSelectionRevision === activeSelectionRevision) return false;
       try {
         const current = await activeSelectionClient.run<{
           active?: boolean; workspaceId?: string; workspaceName?: string; workspacePath?: string;
           repositoryId?: string; repositoryPath?: string; repositoryState?: string;
           selectionStatus?: string; storyId?: string | null;
         }>(['workspace', 'current', '--json']);
+        // The CLI completed an authoritative read, so this exact file revision is now reconciled
+        // even when it describes no active workspace or retains the current repository.
+        if (observedSelectionRevision !== undefined) activeSelectionRevision = observedSelectionRevision;
         if (current.active === false || current.repositoryState && current.repositoryState !== 'ready'
           || current.selectionStatus && current.selectionStatus !== 'ready') return false;
         if (!current.repositoryPath || !current.workspacePath) return false;
@@ -3387,9 +3447,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
 
-  const ACTIVE_SELECTION_REFRESH_DEBOUNCE_MS = 250;
-  const activeSelectionFile = path.resolve(process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE
-    || path.join(os.homedir(), '.singularity-flow', 'active-workspace.json'));
   const activeSelectionWatcher = vscode.workspace.createFileSystemWatcher(
     new vscode.RelativePattern(vscode.Uri.file(path.dirname(activeSelectionFile)), path.basename(activeSelectionFile))
   );
@@ -5338,6 +5395,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (store.current.snapshot && !store.current.error && !store.current.stale) {
       markHostPerformance('confirmedSnapshotPublished');
     }
+    await runFirstRunHealth().catch((error) => {
+      firstRunBlocked = true;
+      output.appendLine(`First-run health check failed: ${(error as Error).message}`);
+    });
     initialRefreshCompleted = true;
     startAuxiliaryReadsAfterConfirmedSnapshot();
     const pendingStartWizard = context.globalState.get<PendingStartWizard | null>(START_WIZARD_KEY, null);

@@ -68,8 +68,8 @@ export interface WorkspaceState {
  * Somewhere to keep the last snapshot between sessions.
  *
  * Injected rather than reached for, because this module deliberately does not import `vscode` — the
- * store is the piece worth testing without an extension host. The real implementation is backed by
- * `workspaceState` and keyed by repository root.
+ * store is the piece worth testing without an extension host. The real implementation uses a
+ * bounded machine-local file cache with Memento compatibility fallback, keyed by repository root.
  */
 export interface SnapshotCache {
   read(): RepositorySnapshot | null;

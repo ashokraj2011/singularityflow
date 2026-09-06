@@ -28,6 +28,8 @@ export interface HostPerformanceSnapshot {
   readonly counters: {
     readonly cliProcessesStarted: number;
     readonly cliProcessesCompleted: number;
+    readonly cliProcessesSucceeded: number;
+    readonly cliProcessesFailed: number;
     readonly cliProcessesConcurrent: number;
     readonly cliProcessesMaximumConcurrent: number;
     readonly storeEvents: number;
@@ -53,6 +55,8 @@ let marks: Partial<Record<HostPerformanceMark, number>> = {};
 let counters = {
   cliProcessesStarted: 0,
   cliProcessesCompleted: 0,
+  cliProcessesSucceeded: 0,
+  cliProcessesFailed: 0,
   cliProcessesConcurrent: 0,
   cliProcessesMaximumConcurrent: 0,
   storeEvents: 0,
@@ -96,6 +100,8 @@ export function beginHostPerformanceActivation(): boolean {
   counters = {
     cliProcessesStarted: 0,
     cliProcessesCompleted: 0,
+    cliProcessesSucceeded: 0,
+    cliProcessesFailed: 0,
     cliProcessesConcurrent: 0,
     cliProcessesMaximumConcurrent: 0,
     storeEvents: 0,
@@ -123,9 +129,11 @@ export function recordHostCliProcessStarted(pid?: number): void {
   updateChildSampler();
 }
 
-export function recordHostCliProcessCompleted(pid?: number): void {
+export function recordHostCliProcessCompleted(pid?: number, exitCode: number | null = null): void {
   if (!enabled) return;
   counters.cliProcessesCompleted += 1;
+  if (exitCode === 0) counters.cliProcessesSucceeded += 1;
+  else counters.cliProcessesFailed += 1;
   counters.cliProcessesConcurrent = Math.max(0, counters.cliProcessesConcurrent - 1);
   if (pid) activeChildPids.delete(pid);
   updateChildSampler();
@@ -151,6 +159,8 @@ export function resetHostPerformanceInterval(): HostPerformanceSnapshot {
   counters = {
     cliProcessesStarted: 0,
     cliProcessesCompleted: 0,
+    cliProcessesSucceeded: 0,
+    cliProcessesFailed: 0,
     cliProcessesConcurrent: counters.cliProcessesConcurrent,
     cliProcessesMaximumConcurrent: counters.cliProcessesConcurrent,
     storeEvents: 0,

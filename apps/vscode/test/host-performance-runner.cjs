@@ -111,6 +111,10 @@ async function run() {
 
   const webviewOpening = await measuredCommand('singularityFlow.openHelp');
   const cachePersisted = await probe('persist-cache');
+  // `Memento.update()` resolves after the extension-host/Main-thread request, while the disposable
+  // extension-test process exits as soon as this function returns. Give VS Code one bounded flush
+  // turn so the second real process can observe the same persisted state a normal window would.
+  await delay(1_000);
   loop.disable();
   const finalProbe = await probe();
   const report = {

@@ -188,7 +188,7 @@ Acceptance gates:
 - migration, partial failure, backup, restore, and rollback are proven;
 - store selection cannot weaken Program or policy authority.
 
-### [ ] SGOS-P1-004 — Fresh-authority evidence reconstruction
+### [x] SGOS-P1-004 — Fresh-authority evidence reconstruction
 
 Reconstruct evidence from fresh authority rather than trusting historical projections.
 
@@ -198,6 +198,12 @@ Acceptance gates:
 - omissions, contradictions, stale authority, and unavailable evidence remain visible;
 - reconstruction is deterministic and bounded;
 - counterfeit or reordered trace material is refused.
+
+Implemented on 2026-09-05 as a separate read-only, model-free reconstruction report. Portable
+historical evidence keeps its original limited assurance. `evidence reconstruct` first validates
+the exact content-addressed local trace, then refreshes Program/Capability Pack authority and
+revalidates exact Story-baseline and pinned-policy sources. Claims cite immutable Process records
+or approved Git blobs; missing, stale, unconfigured, and contradictory authority remains explicit.
 
 ### [ ] SGOS-P1-005 — Multi-domain proof packs
 

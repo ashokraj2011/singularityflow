@@ -26,7 +26,7 @@ related:
   - governed-execution
   - workflow-authoring
   - evidence-and-ledger
-version: 22
+version: 23
 ---
 SGOS compiles confirmed intent and a ratified workflow into a finite, content-addressed Governed VM
 Program. Its operational Process state never replaces Story, Initiative, configuration, ledger, or
@@ -294,6 +294,19 @@ content-addressed local-export integrity: it does not claim a signature, an Auth
 fresh authority verification, or approval. Missing task-contract bytes, approved authority bytes,
 raw Device evidence, transient agent events, and non-durable stop/quiescence receipts remain
 explicit gaps rather than being upgraded into proof.
+
+From the source repository, reconstruct the verified trace against freshly resolved authority:
+
+```sh
+singularity-flow evidence reconstruct PROC-... --json
+```
+
+This read-only, model-free operation first verifies the local content-addressed trace, refusing
+counterfeit or reordered material. It then refreshes and compares the approved Program and
+Capability Pack authority, the exact Git Story baseline, and pinned-policy authority. Each claim
+links its exact immutable Process record or approved Git blob. Missing, stale, contradictory, and
+unconfigured authority stays explicit. The reconstruction is a separate bounded report: it does
+not rewrite the portable bundle, mutate Process state, or grant authority.
 
 ## Move Authority Store and Capability Packs to another laptop
 

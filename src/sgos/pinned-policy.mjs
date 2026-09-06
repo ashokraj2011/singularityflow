@@ -1126,11 +1126,11 @@ async function evaluateSgosProcessPolicyAuthority(root, {
   processId = null,
   process: suppliedProcess = null,
   policySnapshotSha256 = null,
-  quarantineTreeSha256 = null
-} = {}) {
-  const configuration = await approvedPolicyConfiguration(root, {
-    refreshAuthority: false,
-    requireCandidate: false
+  quarantineTreeSha256 = null,
+  refreshAuthority = false
+} = {}, approvedConfiguration = null) {
+  const configuration = approvedConfiguration ?? await approvedPolicyConfiguration(root, {
+    refreshAuthority, requireCandidate: false
   });
   if (operation === 'process.quarantine' && quarantineTreeSha256 != null) {
     digest(quarantineTreeSha256, 'quarantineTreeSha256');
@@ -1315,6 +1315,33 @@ export async function assertSgosProcessPolicyAuthority(root, options = {}) {
   const scoped = await reuseScopedPolicyAuthority(root, { ...options, operation });
   if (scoped !== null) return scoped;
   return evaluateSgosProcessPolicyAuthority(root, { ...options, operation });
+}
+
+/**
+ * Resolve the same fail-closed Process policy gate from freshly refreshed authority and expose only
+ * its exact immutable source references. This is a read-model input, never an execution witness.
+ */
+export async function inspectFreshSgosProcessPolicyAuthority(root, options = {}) {
+  const approvedConfiguration = await approvedPolicyConfiguration(root, {
+    refreshAuthority: true, requireCandidate: false
+  });
+  const authority = await evaluateSgosProcessPolicyAuthority(root, {
+    ...options,
+    operation: options.operation ?? 'evidence.reconstruct',
+    refreshAuthority: false
+  }, approvedConfiguration);
+  const project = (entry, path) => entry == null ? null : Object.freeze({
+    path,
+    bundleSha256: entry.bundleSha256,
+    policySnapshotSha256: entry.snapshot.snapshotSha256
+  });
+  return Object.freeze({
+    authority,
+    configurationAuthority: approvedConfiguration.authority == null
+      ? null : Object.freeze(structuredClone(approvedConfiguration.authority)),
+    current: project(approvedConfiguration.current, SGOS_POLICY_CURRENT_PATH),
+    candidate: project(approvedConfiguration.candidate, SGOS_POLICY_CANDIDATE_PATH)
+  });
 }
 
 /**

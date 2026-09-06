@@ -6,6 +6,7 @@ export * from './compiler.mjs';
 export * from './capability-pack-authority.mjs';
 export * from './evidence.mjs';
 export * from './process-evidence.mjs';
+export * from './fresh-authority-evidence.mjs';
 export * from './evaluation.mjs';
 export * from './limits.mjs';
 export * from './memory.mjs';

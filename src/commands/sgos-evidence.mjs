@@ -11,6 +11,7 @@ import {
   compileSgosProcessEvidence, parseSgosProcessEvidence, serializeSgosProcessEvidence,
   SGOS_PROCESS_EVIDENCE_MAXIMUM_BYTES
 } from '../sgos/process-evidence.mjs';
+import { reconstructSgosProcessEvidence } from '../sgos/fresh-authority-evidence.mjs';
 import { validateSgosCliOptions } from '../sgos/cli-options.mjs';
 import {
   ensureSecureRepositoryDirectory, optionBoolean, optionString, secureRepositoryPath,
@@ -204,10 +205,22 @@ async function verifyEvidence(positionals, options) {
       + 'Authority and signature assurance remain exactly as declared by the bundle.');
 }
 
+async function reconstructEvidence(positionals, options) {
+  exactPositionals(positionals, 3,
+    'singularity-flow evidence reconstruct <PROCESS-ID> [--json]');
+  const root = repoRoot();
+  const result = await reconstructSgosProcessEvidence(root, positionals[2]);
+  return emit('evidence.reconstruct', result, options,
+    `Reconstructed ${result.processId} against fresh authority. `
+      + `Authority: ${result.freshAuthorityVerification}; ${result.gaps.length} explicit gap(s), `
+      + `${result.contradictions.length} contradiction(s). No authority or Process state changed.`);
+}
+
 export async function run(_argv, { positionals, options }) {
   const action = positionals[1] ?? 'verify';
   validateSgosCliOptions('evidence', action, options);
   if (action === 'export') return exportEvidence(positionals, options);
   if (action === 'verify') return verifyEvidence(positionals, options);
+  if (action === 'reconstruct') return reconstructEvidence(positionals, options);
   fail(`Unknown evidence action '${action}'.`, 'UNKNOWN_SUBCOMMAND');
 }

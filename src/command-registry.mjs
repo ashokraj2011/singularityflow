@@ -292,7 +292,7 @@ const SGOS_SUBCOMMANDS = Object.freeze({
   policy: Object.freeze({ read: ['status', 'fsck', 'plan'], mutation: ['apply'] }),
   task: Object.freeze({ read: ['list', 'show', 'evidence'], mutation: ['retry'] }),
   request: Object.freeze({ read: ['list', 'show'], mutation: ['respond'] }),
-  evidence: Object.freeze({ read: ['verify'], mutation: ['export'] }),
+  evidence: Object.freeze({ read: ['verify', 'reconstruct'], mutation: ['export'] }),
   candidate: Object.freeze({ read: ['list', 'show', 'diff-argv'], mutation: ['freeze', 'verify', 'publish'] }),
   'execution-unit': Object.freeze({ read: ['list', 'doctor'], mutation: [] }),
   device: Object.freeze({ read: ['list', 'doctor', 'intent', 'result'], mutation: ['invoke', 'recover', 'revoke'] }),

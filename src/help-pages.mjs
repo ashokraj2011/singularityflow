@@ -527,7 +527,7 @@ const PAGES = Object.freeze({
     seeAlso: ['process', 'task', 'approve']
   },
   evidence: {
-    summary: 'Export and independently verify portable SGOS Process Evidence.',
+    summary: 'Export, verify, and reconstruct SGOS Process Evidence against fresh authority.',
     description: [
       '`evidence export` compiles the exact current Process, Program, Process Binding, immutable',
       'record index, checkpoints, control lineage, attempts, receipts, Candidates, Action Evidence,',
@@ -541,7 +541,14 @@ const PAGES = Object.freeze({
       'records. Missing task-contract bytes, approved authority bundles, raw Device evidence, or',
       'non-durable execution events remain explicit gaps. Verification proves content-addressed',
       'local-export integrity only; it never claims a signature, fresh Authority Store check, or',
-      'governance approval, and it never invokes a model.'
+      'governance approval, and it never invokes a model.',
+      '',
+      '`evidence reconstruct` stays in the source repository. It first refuses counterfeit or',
+      'non-canonical local trace material, then refreshes and compares the approved Program,',
+      'Capability Pack, Story-baseline, and pinned-policy authority. Every claim cites exact',
+      'content-addressed Process records or Git authority blobs. Missing, stale, contradictory,',
+      'and unconfigured authority remains visible. Reconstruction is deterministic, bounded,',
+      'read-only, and model-free; it never upgrades the portable bundle or grants authority.'
     ],
     options: [
       ['--out FILE', 'For export, create one new repository-contained bundle; existing files are never replaced.'],
@@ -549,7 +556,8 @@ const PAGES = Object.freeze({
     ],
     examples: [
       ['singularity-flow evidence export PROC-... --out .sflow/evidence/process.json --json', 'Create one canonical portable bundle without changing Process state.'],
-      ['singularity-flow evidence verify process.json --json', 'Verify copied evidence using only the bundle bytes.']
+      ['singularity-flow evidence verify process.json --json', 'Verify copied evidence using only the bundle bytes.'],
+      ['singularity-flow evidence reconstruct PROC-... --json', 'Reconstruct source-linked claims against freshly resolved repository authority.']
     ],
     seeAlso: ['process', 'task', 'request', 'receipt']
   },

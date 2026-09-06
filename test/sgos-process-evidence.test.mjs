@@ -16,6 +16,9 @@ import {
   compileSgosProcessEvidence, parseSgosProcessEvidence, serializeSgosProcessEvidence,
   SGOS_PROCESS_EVIDENCE_MAXIMUM_BYTES, verifySgosProcessEvidence
 } from '../src/sgos/process-evidence.mjs';
+import {
+  reconstructSgosProcessEvidence
+} from '../src/sgos/fresh-authority-evidence.mjs';
 import { runNextSgosTask, startSgosProcess } from '../src/sgos/runtime.mjs';
 import { resolveOperation } from '../src/command-registry.mjs';
 import { publishSgosProgramAuthority } from './helpers/sgos-authority.mjs';
@@ -272,6 +275,90 @@ test('Process Evidence detects omission, reordering, duplication, tampering, orp
     entry.code === 'indexed-record-unreferenced' && entry.subject === 'human-response'));
 });
 
+test('fresh-authority reconstruction is deterministic, source-linked, and exposes stale authority', async (t) => {
+  const fixture = await processFixture();
+  t.after(() => rm(fixture.root, { recursive: true, force: true }));
+
+  const first = await reconstructSgosProcessEvidence(fixture.root, fixture.process.processId);
+  const second = await reconstructSgosProcessEvidence(fixture.root, fixture.process.processId);
+  assert.deepEqual(second, first);
+  assert.equal(first.reconstructionSha256, sgosSha256((({ reconstructionSha256, ...core }) => core)(first)));
+  assert.equal(first.status, 'incomplete');
+  assert.equal(first.freshAuthorityVerification, 'incomplete');
+  assert.equal(first.contradictions.length, 0);
+  assert.ok(first.gaps.some((entry) => entry.code === 'fresh-policy-authority-unconfigured'));
+
+  const claims = new Map(first.claims.map((claim) => [claim.id, claim]));
+  assert.equal(claims.get('process-trace').status, 'verified');
+  assert.equal(claims.get('program-authority').status, 'verified');
+  assert.equal(claims.get('capability-pack-authority').status, 'verified');
+  assert.equal(claims.get('story-authority').status, 'verified');
+  assert.equal(claims.get('policy-authority').status, 'unconfigured');
+  for (const claim of claims.values()) {
+    assert.ok(claim.sources.length > 0, `${claim.id} must cite exact source records`);
+  }
+  assert.ok(claims.get('process-trace').sources.some((source) =>
+    source.kind === 'immutable-process-record' && source.family === 'action-evidence'));
+  assert.ok(claims.get('program-authority').sources.some((source) =>
+    source.kind === 'approved-configuration-blob'
+      && source.sha256 == null
+      && /^sha256:[a-f0-9]{64}$/u.test(source.blobSha256)));
+  assert.ok(claims.get('story-authority').sources.some((source) =>
+    source.kind === 'governed-story-blob'
+      && /^sha256:[a-f0-9]{64}$/u.test(source.blobSha256)));
+
+  await publishSgosProgramAuthority(fixture.root, fixture.program, {
+    workflowBytes: 'version: 1\nmetadata:\n  authorityRevision: changed-after-process-start\n'
+  });
+  const stale = await reconstructSgosProcessEvidence(fixture.root, fixture.process.processId);
+  assert.equal(stale.status, 'failed');
+  assert.equal(stale.freshAuthorityVerification, 'contradictory');
+  assert.equal(new Map(stale.claims.map((claim) => [claim.id, claim]))
+    .get('program-authority').status, 'stale');
+  assert.ok(stale.contradictions.some((entry) =>
+    entry.code === 'fresh-program-authority-stale'));
+
+  git(fixture.root, [
+    'update-ref', 'refs/heads/sflow/config', git(fixture.root, ['rev-parse', 'HEAD'])
+  ]);
+  const unavailable = await reconstructSgosProcessEvidence(
+    fixture.root, fixture.process.processId
+  );
+  const unavailableClaims = new Map(unavailable.claims.map((claim) => [claim.id, claim]));
+  assert.equal(unavailableClaims.get('program-authority').status, 'unavailable');
+  assert.ok(unavailableClaims.get('program-authority').sources.length > 0);
+  assert.ok(unavailable.gaps.some((entry) =>
+    entry.code === 'fresh-authority-unavailable' && entry.subject === 'program-authority'));
+  await assert.rejects(
+    () => reconstructSgosProcessEvidence(fixture.root, fixture.process.processId, {
+      maximumBytes: 1
+    }),
+    (error) => error.code === 'SGOS_FRESH_AUTHORITY_EVIDENCE_LIMIT'
+  );
+});
+
+test('fresh-authority reconstruction refuses counterfeit local trace material', async (t) => {
+  const fixture = await processFixture();
+  t.after(() => rm(fixture.root, { recursive: true, force: true }));
+  const evidenceDirectory = path.join(
+    fixture.root, '.git', 'singularity-flow', 'sgos', 'processes',
+    encodeURIComponent(fixture.process.processId), 'evidence'
+  );
+  const [name] = await readdir(evidenceDirectory);
+  const target = path.join(evidenceDirectory, name);
+  const counterfeit = JSON.parse(await readFile(target, 'utf8'));
+  counterfeit.latencyMs += 1;
+  await writeFile(target, JSON.stringify(counterfeit));
+
+  await assert.rejects(
+    () => reconstructSgosProcessEvidence(fixture.root, fixture.process.processId),
+    (error) => [
+      'SGOS_IMMUTABLE_RECORD_CORRUPT', 'SGOS_RECORD_CORRUPT',
+      'SGOS_FRESH_AUTHORITY_TRACE_INVALID'
+    ].includes(error.code)
+  );
+});
+
 test('Process Evidence CLI exports atomically and verifies model-free from a fresh directory', async (t) => {
   const fixture = await processFixture();
   const fresh = await mkdtemp(path.join(os.tmpdir(), 'sflow-process-evidence-cli-fresh-'));
@@ -282,7 +369,9 @@ test('Process Evidence CLI exports atomically and verifies model-free from a fre
     await rm(outside, { recursive: true, force: true });
   });
 
-  for (const [action, classification] of [['export', 'mutation'], ['verify', 'read']]) {
+  for (const [action, classification] of [
+    ['export', 'mutation'], ['verify', 'read'], ['reconstruct', 'read']
+  ]) {
     const operation = resolveOperation({
       requestedCommand: 'evidence', positionals: ['evidence', action], options: {}
     });
@@ -365,4 +454,16 @@ test('Process Evidence CLI exports atomically and verifies model-free from a fre
   );
   assert.equal(verifyUnknown.status, 1);
   assert.match(verifyUnknown.stderr, /Unknown option '--trust-me'/);
+
+  const reconstructed = flowResult(
+    fixture.root, 'evidence', 'reconstruct', fixture.process.processId, '--json', '--no-model'
+  );
+  assert.equal(reconstructed.status, 0, reconstructed.stderr);
+  const reconstructedEnvelope = JSON.parse(reconstructed.stdout);
+  assert.equal(reconstructedEnvelope.operation.id, 'evidence.reconstruct');
+  assert.equal(reconstructedEnvelope.operation.classification, 'read');
+  assert.equal(reconstructedEnvelope.effects.filesChanged, false);
+  assert.equal(reconstructedEnvelope.effects.stateChanged, false);
+  assert.equal(reconstructedEnvelope.data.result.claims.some((claim) =>
+    claim.id === 'program-authority' && claim.status === 'verified'), true);
 });

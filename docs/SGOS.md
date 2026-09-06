@@ -476,8 +476,9 @@ tracked in [SGOS-PENDING-WORK.md](SGOS-PENDING-WORK.md):
   remains explicitly experimental;
 - executable tutorial environments, independent learning certification, a
   public meta-tool activation/rollback CLI, and multi-domain proof packs;
-- fresh-authority trace-to-evidence reconstruction, external telemetry transport beyond the
-  content-free read-only OpenTelemetry projection, and measured semantic read-model latency targets;
+- external telemetry transport beyond the content-free read-only OpenTelemetry projection, and
+  measured semantic read-model latency targets; fresh-authority trace-to-evidence reconstruction
+  is available through `singularity-flow evidence reconstruct PROC-... --json`;
 - full software-conversion and hypothesis-analysis end-to-end proofs, the supported OS/Node matrix,
   and an exact signed release receipt for this change.
 

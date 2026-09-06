@@ -99,7 +99,8 @@ export const SGOS_CLI_OPTIONS = Object.freeze({
   }),
   evidence: Object.freeze({
     export: optionSet('out'),
-    verify: optionSet()
+    verify: optionSet(),
+    reconstruct: optionSet()
   }),
   candidate: Object.freeze({
     list: optionSet(),

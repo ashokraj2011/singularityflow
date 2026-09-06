@@ -159,6 +159,7 @@ Every public operation is classified before its implementation module is importe
 | documents | mutation | never | — | — |
 | epic | mutation | never | — | — |
 | evidence.export | mutation | never | — | — |
+| evidence.reconstruct | read | never | — | — |
 | evidence.verify | read | never | — | — |
 | execution-unit.doctor | read | never | — | — |
 | execution-unit.list | read | never | — | — |

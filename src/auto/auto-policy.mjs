@@ -62,7 +62,15 @@ function unique(value, fallback, label) {
 
 export function parseAutoPace(value, label = 'Auto pace') {
   const pace = String(value ?? 'phase').trim();
-  if (AUTO_PACES.includes(pace)) return { mode: pace, intervalMs: null, source: pace };
+  if (['step', 'continuous', 'phase'].includes(pace)) {
+    return { mode: pace, intervalMs: null, source: pace };
+  }
+  if (pace === 'interval') {
+    throw new SingularityFlowError(
+      `${label} interval requires a duration, for example interval:30m or --pace interval --interval 30m.`,
+      { code: 'AUTO_INTERVAL_REQUIRED' }
+    );
+  }
   const match = /^interval:(\d+)(m|h)$/.exec(pace);
   if (!match) {
     throw new SingularityFlowError(`${label} must be step, continuous, phase, or interval:<duration> such as interval:30m.`, {

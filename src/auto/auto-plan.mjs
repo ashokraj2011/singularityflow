@@ -507,7 +507,10 @@ async function createAutoPlanInScope(root, requirementValue, proposalValue, opti
     || (resolution.phases.some((phase) => phase.id === until.phase)
       && ['published', 'submitted', 'phase-complete'].includes(until.kind))
     || until.kind === 'story-complete';
-  const pilotWindow = ['step', 'continuous', 'phase'].includes(pace.mode) && selectorWithinPilot;
+  const pilotWindow = (
+    ['step', 'continuous', 'phase'].includes(pace.mode)
+      || (pace.mode === 'interval' && Number.isSafeInteger(pace.intervalMs))
+  ) && selectorWithinPilot;
   const endpointPhaseIndex = until.kind === 'story-complete'
     ? resolution.phases.length - 1
     : until.kind === 'first-human-boundary'
@@ -631,7 +634,9 @@ async function createAutoPlanInScope(root, requirementValue, proposalValue, opti
         ...(driver.status !== 'available'
           ? driver.checks.filter((entry) => entry.status === 'fail').map((entry) => `execution driver ${entry.id}: ${entry.detail}`)
           : []),
-        ...(!pilotWindow ? ['Story Auto requires step, phase, or continuous pace and an endpoint on the pinned Story rail'] : []),
+        ...(!pilotWindow ? [
+          'Story Auto requires step, phase, continuous, or a duration-bound interval pace and an endpoint on the pinned Story rail'
+        ] : []),
         ...(!phaseCapacityReady
           ? [`endpoint requires ${minimumPhaseExecutions} phase execution(s), above maximumPhases ${policy.ceilings.maximumPhases}`]
           : []),

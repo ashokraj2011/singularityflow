@@ -4,8 +4,8 @@ Status: the dependency-free Story profile implements and release-validates the A
 boundary described below at commit `64cf7ddaf5e5b1296f610509da3db44fdb93a32b`. The optional SGOS profile and enforcement of
 optional CMP policy are separate work and are not claimed complete here.
 
-Reconciled against `main@7935d2db` on 2026-09-05: subsequent SGOS and GDP delivery did not add the
-optional Auto SGOS profile, interval scheduling, direct Ad Hoc materialization, or a registered
+Reconciled against `main@c3bd07e3` on 2026-09-06: subsequent SGOS and GDP delivery did not add the
+optional Auto SGOS profile, direct Ad Hoc materialization, or a registered
 comparative-quality baseline. The implemented Story profile remains the default and complete
 boundary claimed by this document.
 
@@ -28,8 +28,9 @@ boundary claimed by this document.
 - Operators may use a phase ID directly with `--until`, for example `--until verification`. The
   kernel validates it against the selected Story rail and normalizes it to the closed
   `phase-complete:<phase>` selector. Existing explicit endpoint syntax remains compatible.
-- Core execution stays sequential and single-repository. Multi-repository coordination, parallel
-  SGOS Processes, and interval/background execution remain optional follow-on work.
+- Core execution stays sequential and single-repository. Multi-repository coordination and parallel
+  SGOS Processes remain optional follow-on work. Interval pacing is supervised and durable; it
+  never creates a hidden timer, daemon, or background promise.
 - Plans and checkpoints retain existing identifier shapes and exact-hash authorization. Historical
   schema-v1 Plan bytes remain readable but cannot authorize a new flight without the current packet.
 
@@ -41,8 +42,12 @@ boundary claimed by this document.
   refused before an Auto Plan is persisted.
 - Start and resume revalidate the exact accepted Plan and authority receipts. A started Story does
   not incorrectly reapply intake TTL, caller-branch, or moving-base checks.
-- Real `step`, `phase`, and `continuous` pacing. Step checkpoints authoring and publication without
-  rerunning a completed model attempt.
+- Real `step`, `phase`, `continuous`, and duration-bound `interval` pacing. Step and interval
+  checkpoints cover authoring and publication without rerunning a completed model attempt.
+- Interval mode records its next eligible timestamp in sealed local state and anchors it to a
+  governed Story checkpoint. An early resume refuses with `AUTO_INTERVAL_NOT_DUE`, the remaining
+  duration, current checkpoint, and exact retry command. A later explicit resume runs one bounded
+  operation; no process remains hidden after the command returns.
 - Stop-first pause, halt, and takeover coordination. If quiescence cannot be proved, the durable
   status is `recovery-required`, never a false paused or halted state.
 - Candidate records bind the exact add/delete/rename/mode/symlink set. Isolated verification,
@@ -134,8 +139,8 @@ checkpoints, and reconstructible after clone or loss of disposable sidecars.
 - **CMP enforcement:** make configured cause bindings and walkthrough freshness authoritative only
   after CMP has its own complete validator, migration, and recovery coverage. Current bounded CMP
   references must not be presented as that enforcement.
-- **Optional runtime modes:** real interval scheduling and provenance-preserving direct Ad Hoc byte
-  materialization. Neither is emulated by a hidden background process.
+- **Optional runtime modes:** provenance-preserving direct Ad Hoc byte materialization. It is not
+  emulated by copying unratified working-tree bytes into a Story.
 - **Comparative quality evidence:** register a baseline before claiming token savings preserve or
   improve first-pass verification, review-return, or rework outcomes.
 

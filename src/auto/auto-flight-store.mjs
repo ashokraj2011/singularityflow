@@ -30,7 +30,7 @@ const AUTO_FLIGHT_FIELDS = new Set([
   'status', 'story', 'worktree', 'scopePrediction', 'configuration', 'repositories',
   'operations', 'evidence', 'candidate', 'phaseContracts', 'boundaryCheckpoints',
   'worldModelReference', 'comprehensionReference',
-  'boundaryCheckpoint', 'lastSuccessfulStoryRevision', 'position', 'execution', 'counters',
+  'boundaryCheckpoint', 'lastSuccessfulStoryRevision', 'position', 'execution', 'schedule', 'counters',
   'stopRequested', 'checkpointSequence', 'checkpointSha256', 'stopReason', 'nextAction',
   'createdAt', 'updatedAt', 'recordSha256', 'lastInvocationId', 'token', 'observedPaths',
   'touchedPaths', 'ceiling', 'commits', 'quality', 'approvals', 'lastError',
@@ -98,8 +98,76 @@ function checkpointHash(state) {
     comprehensionReference: state.comprehensionReference ?? null,
     phaseContracts: state.phaseContracts ?? {},
     boundaryCheckpoints: state.boundaryCheckpoints ?? [],
-    boundaryCheckpoint: state.boundaryCheckpoint ?? null
+    boundaryCheckpoint: state.boundaryCheckpoint ?? null,
+    schedule: state.schedule ?? null
   })}`;
+}
+
+function initialAutoSchedule(execution) {
+  if (execution?.pace?.mode !== 'interval') return null;
+  return {
+    mode: 'interval', intervalMs: execution.pace.intervalMs,
+    sequence: 0, lastBoundaryAt: null, nextEligibleAt: null, lastResumedAt: null
+  };
+}
+
+function validAutoSchedule(schedule, execution) {
+  if (execution?.pace?.mode !== 'interval') return schedule == null;
+  if (!schedule || typeof schedule !== 'object' || Array.isArray(schedule)
+      || Object.keys(schedule).length !== 6
+      || !['mode', 'intervalMs', 'sequence', 'lastBoundaryAt', 'nextEligibleAt', 'lastResumedAt']
+        .every((key) => Object.hasOwn(schedule, key))) return false;
+  const validTime = (value) => value == null || !Number.isNaN(Date.parse(value));
+  return schedule.mode === 'interval'
+    && Number.isSafeInteger(schedule.intervalMs)
+    && schedule.intervalMs === execution.pace.intervalMs
+    && schedule.intervalMs >= 60_000
+    && schedule.intervalMs <= 7 * 24 * 60 * 60 * 1000
+    && Number.isSafeInteger(schedule.sequence) && schedule.sequence >= 0
+    && validTime(schedule.lastBoundaryAt)
+    && validTime(schedule.nextEligibleAt)
+    && validTime(schedule.lastResumedAt);
+}
+
+/** Arm one durable supervised interval. This never creates a timer or background process. */
+export function armAutoIntervalBoundary(state, { phase, boundary, at = nowIso() } = {}) {
+  if (state.execution?.pace?.mode !== 'interval') return false;
+  const atMs = Date.parse(at);
+  const intervalMs = state.execution.pace.intervalMs;
+  if (Number.isNaN(atMs) || !Number.isSafeInteger(intervalMs)
+      || intervalMs < 60_000 || intervalMs > 7 * 24 * 60 * 60 * 1000) {
+    throw new SingularityFlowError('Auto interval authority is invalid.', {
+      code: 'AUTO_INTERVAL_INVALID'
+    });
+  }
+  const nextEligibleAt = new Date(atMs + intervalMs).toISOString();
+  state.schedule = {
+    mode: 'interval', intervalMs,
+    sequence: (state.schedule?.sequence ?? 0) + 1,
+    lastBoundaryAt: new Date(atMs).toISOString(), nextEligibleAt,
+    lastResumedAt: state.schedule?.lastResumedAt ?? null
+  };
+  state.status = 'paused';
+  state.stopReason = 'interval-boundary-reached';
+  state.stopRequested = null;
+  state.nextAction = `At or after ${nextEligibleAt}, resume the interval flight with this checkpoint hash`
+    + `${phase ? ` for phase '${phase}'` : ''}${boundary ? ` after '${boundary}'` : ''}.`;
+  return true;
+}
+
+/** Re-anchor a previously armed interval to the timestamp of its governed checkpoint. */
+export function alignAutoIntervalBoundary(state, at) {
+  if (state.execution?.pace?.mode !== 'interval' || !state.schedule) return false;
+  const atMs = Date.parse(at);
+  if (Number.isNaN(atMs)) throw new SingularityFlowError(
+    'Auto interval checkpoint timestamp is invalid.', { code: 'AUTO_INTERVAL_INVALID' }
+  );
+  state.schedule = {
+    ...state.schedule,
+    lastBoundaryAt: new Date(atMs).toISOString(),
+    nextEligibleAt: new Date(atMs + state.schedule.intervalMs).toISOString()
+  };
+  return true;
 }
 
 function seal(state) {
@@ -140,6 +208,7 @@ export async function createAutoFlightState(root, value) {
       lastSuccessfulStoryRevision: value.story?.revision ?? null,
       position: value.position ?? 'story-created',
       execution: structuredClone(value.execution),
+      schedule: structuredClone(value.schedule ?? initialAutoSchedule(value.execution)),
       counters: {
         modelInvocations: 0, authoringAttempts: {}, phasesCompleted: 0,
         touchedPaths: 0, touchedChanges: 0, totalTokens: 0, activeMilliseconds: 0
@@ -171,6 +240,7 @@ export async function readAutoFlightState(root, value) {
       || state.flightId !== id || !PLAN_ID.test(String(state.planId ?? ''))
       || !CHECKPOINT.test(String(state.planSha256 ?? ''))
       || unknown.length
+      || !validAutoSchedule(state.schedule, state.execution)
       || state.recordSha256 !== stateHash(state)
       || state.checkpointSha256 !== checkpointHash(state)) {
     throw new SingularityFlowError(`Auto flight '${id}' failed its integrity check.`, {
@@ -495,7 +565,7 @@ export async function pauseAutoFlight(root, id, options = {}) {
   });
 }
 
-export async function resumeAutoFlight(root, id, confirmation) {
+export async function resumeAutoFlight(root, id, confirmation, options = {}) {
   if (!CHECKPOINT.test(String(confirmation ?? ''))) {
     throw new SingularityFlowError('Auto resume requires --confirm <CHECKPOINT-SHA256>.', { code: 'AUTO_CHECKPOINT_REQUIRED' });
   }
@@ -540,6 +610,22 @@ export async function resumeAutoFlight(root, id, confirmation) {
       `Auto flight '${id}' gained an unanswered Human Request before resume.`, {
         code: 'AUTO_HUMAN_REQUEST_REQUIRED',
         details: { requestIds: current.openHumanRequestIds }
+      }
+    );
+  }
+  const now = options.now?.() ?? Date.now();
+  const nextEligibleAt = current.schedule?.nextEligibleAt;
+  if (current.execution?.pace?.mode === 'interval' && nextEligibleAt
+      && now < Date.parse(nextEligibleAt)) {
+    const remainingMs = Math.max(1, Date.parse(nextEligibleAt) - now);
+    throw new SingularityFlowError(
+      `Auto interval flight '${id}' is not eligible to resume until ${nextEligibleAt}.`, {
+        code: 'AUTO_INTERVAL_NOT_DUE',
+        details: {
+          flightId: id, nextEligibleAt, remainingMs,
+          checkpointSha256: current.checkpointSha256,
+          nextAction: `singularity-flow auto resume ${id} --confirm ${current.checkpointSha256}`
+        }
       }
     );
   }
@@ -625,7 +711,7 @@ export async function resumeAutoFlight(root, id, confirmation) {
         operationalRoot: root
       }
     );
-    return mutateAutoFlightState(root, id, (state) => {
+    const reconciled = await mutateAutoFlightState(root, id, (state) => {
       if (state.story.phase !== transition.from) {
         throw new SingularityFlowError(`Auto flight '${id}' changed before phase reconciliation.`, {
           code: 'AUTO_CHECKPOINT_STALE'
@@ -660,12 +746,39 @@ export async function resumeAutoFlight(root, id, confirmation) {
         state.status = 'paused';
         state.stopReason = 'phase-boundary-reached';
         state.nextAction = `Phase '${transition.from}' is complete. Review it, then resume '${transition.to}' with the exact checkpoint hash.`;
+      } else if (state.execution?.pace?.mode === 'interval') {
+        armAutoIntervalBoundary(state, {
+          phase: transition.to, boundary: `phase-complete:${transition.from}`,
+          at: new Date(now).toISOString()
+        });
       } else {
         state.status = 'running';
         state.stopReason = 'phase-continuation-authorized';
         state.nextAction = `Run the next bounded Auto step for phase '${transition.to}'.`;
       }
     }, { expectedCheckpoint: current.checkpointSha256 });
+    if (reconciled.execution?.pace?.mode !== 'interval') return reconciled;
+    const scheduled = await publishAutoBoundaryCheckpoint(
+      reconciled.worktree, reconciled, 'human-boundary', {
+        definition: continuation.definition, workflow: continuation.workflow,
+        operationalRoot: root
+      }
+    );
+    return mutateAutoFlightState(root, id, (state) => {
+      const localPointer = {
+        checkpointClass: scheduled.checkpointClass, path: scheduled.path,
+        checkpointSha256: scheduled.checkpointSha256, commit: scheduled.commit,
+        eventId: scheduled.eventId, phase: scheduled.phase, position: scheduled.position,
+        createdAt: scheduled.createdAt
+      };
+      state.boundaryCheckpoints = [...(state.boundaryCheckpoints ?? []), localPointer];
+      state.boundaryCheckpoint = localPointer;
+      state.lastSuccessfulStoryRevision = scheduled.commit;
+      state.story.revision = scheduled.commit;
+      state.commits = { ...(state.commits ?? {}), intervalCheckpoint: scheduled.commit };
+      alignAutoIntervalBoundary(state, scheduled.createdAt);
+      state.nextAction = `At or after ${state.schedule.nextEligibleAt}, resume the interval flight with this checkpoint hash.`;
+    }, { expectedCheckpoint: reconciled.checkpointSha256 });
   }
   return mutateAutoFlightState(root, id, (state) => {
     if (!['paused', 'waiting-human', 'manual-takeover'].includes(state.status)) {
@@ -674,6 +787,11 @@ export async function resumeAutoFlight(root, id, confirmation) {
       });
     }
     state.status = 'running'; state.stopReason = 'human-resumed'; state.stopRequested = null;
+    if (state.execution?.pace?.mode === 'interval') {
+      state.schedule = {
+        ...state.schedule, nextEligibleAt: null, lastResumedAt: new Date(now).toISOString()
+      };
+    }
     state.nextAction = 'Run the next bounded Auto step; the next model attempt remains single-shot.';
   }, { expectedCheckpoint: current.checkpointSha256 });
 }

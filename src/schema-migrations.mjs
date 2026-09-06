@@ -127,7 +127,7 @@ function autoFlightCheckpointSha256V1(source) {
   })}`;
 }
 
-function autoFlightCheckpointSha256(source) {
+function autoFlightCheckpointSha256V2(source) {
   return `sha256:${recordSha256({
     flightId: source.flightId,
     planSha256: source.planSha256,
@@ -145,6 +145,28 @@ function autoFlightCheckpointSha256(source) {
     phaseContracts: source.phaseContracts ?? {},
     boundaryCheckpoints: source.boundaryCheckpoints ?? [],
     boundaryCheckpoint: source.boundaryCheckpoint ?? null
+  })}`;
+}
+
+function autoFlightCheckpointSha256(source) {
+  return `sha256:${recordSha256({
+    flightId: source.flightId,
+    planSha256: source.planSha256,
+    status: source.status,
+    workId: source.story?.workId,
+    phase: source.story?.phase,
+    position: source.position,
+    counters: source.counters,
+    checkpointSequence: source.checkpointSequence,
+    stopReason: source.stopReason,
+    stopRequested: source.stopRequested ?? null,
+    candidate: source.candidate ?? null,
+    worldModelReference: source.worldModelReference ?? null,
+    comprehensionReference: source.comprehensionReference ?? null,
+    phaseContracts: source.phaseContracts ?? {},
+    boundaryCheckpoints: source.boundaryCheckpoints ?? [],
+    boundaryCheckpoint: source.boundaryCheckpoint ?? null,
+    schedule: source.schedule ?? null
   })}`;
 }
 
@@ -174,6 +196,28 @@ function autoFlightStateV1ToV2(source) {
     boundaryCheckpoints: [],
     boundaryCheckpoint: null,
     lastSuccessfulStoryRevision: source.story?.revision ?? null
+  };
+  migrated.checkpointSha256 = autoFlightCheckpointSha256V2(migrated);
+  migrated.recordSha256 = autoFlightRecordSha256(migrated);
+  return migrated;
+}
+
+function autoFlightStateV2ToV3(source) {
+  if (source.checkpointSha256 !== autoFlightCheckpointSha256V2(source)
+      || source.recordSha256 !== autoFlightRecordSha256(source)) {
+    throw new SingularityFlowError(
+      'Auto flight state v2 failed its integrity check and cannot be migrated.',
+      { code: 'SCHEMA_MIGRATION_SOURCE_CORRUPT', details: { family: 'auto-flight-state', storedVersion: 2 } }
+    );
+  }
+  const intervalMs = source.execution?.pace?.mode === 'interval'
+    ? source.execution?.pace?.intervalMs : null;
+  const migrated = {
+    ...clone(source), schemaVersion: 3,
+    schedule: intervalMs == null ? null : {
+      mode: 'interval', intervalMs, sequence: 0,
+      lastBoundaryAt: null, nextEligibleAt: null, lastResumedAt: null
+    }
   };
   migrated.checkpointSha256 = autoFlightCheckpointSha256(migrated);
   migrated.recordSha256 = autoFlightRecordSha256(migrated);
@@ -2545,9 +2589,12 @@ const families = [
     paths: [/^\$git\/auto-authorizations\/APL-[A-F0-9]{26}\.json$/]
   }),
   family({
-    // v2 adds takeover/recovery statuses. Every v1 status keeps the same meaning on read.
-    id: 'auto-flight-state', currentVersion: 2,
-    steps: [migration(1, 2, autoFlightStateV1ToV2)],
+    // v2 adds takeover/recovery statuses. v3 adds durable, supervised interval eligibility.
+    id: 'auto-flight-state', currentVersion: 3,
+    steps: [
+      migration(1, 2, autoFlightStateV1ToV2),
+      migration(2, 3, autoFlightStateV2ToV3)
+    ],
     paths: [/^\$git\/auto-flights\/AFL-[A-F0-9]{26}\/state\.json$/]
   }),
   family({ id: 'auto-origin', currentVersion: 1 }),

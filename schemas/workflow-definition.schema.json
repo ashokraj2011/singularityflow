@@ -608,7 +608,7 @@
           },
           "additionalProperties": false
         },
-        "defaultPace": { "type": "string", "pattern": "^(step|continuous|phase|interval|interval:[1-9][0-9]*(m|h))$" },
+        "defaultPace": { "type": "string", "pattern": "^(step|continuous|phase|interval:[1-9][0-9]*(m|h))$" },
         "defaultUntil": { "type": "string", "minLength": 1 },
         "workIdAllocator": { "enum": ["require-explicit", "workspace-sequence", "ulid", "jira-or-workspace"] },
         "planTtlMinutes": { "type": "integer", "minimum": 1 },

@@ -108,7 +108,7 @@ Usage:
   singularity-flow goal trace <GEX-ID> [--criterion CLAUSE-ID] [--json]
   singularity-flow auto plan "<REQUIREMENT>" [--capability ID] [--work-type ID] [--work-id ID]
     [--from-branch BRANCH] [--profile story|auto-select|sgos]
-    [--pace step|continuous|phase|interval:DURATION] [--until SELECTOR] [--json]
+    [--pace step|continuous|phase|interval:DURATION] [--interval DURATION] [--until SELECTOR] [--json]
   singularity-flow auto plan --story <STORY-ID> [--json]  (read-only next-segment proposal)
   singularity-flow auto "<REQUIREMENT>" [the same planning options; creates a Plan only]
   singularity-flow auto --goal <GOL-ID|GEX-ID> [the same planning options; creates a Goal-bound Plan only]

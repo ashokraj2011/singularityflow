@@ -31,6 +31,16 @@ test('step is a real bounded pacing mode', () => {
   assert.deepEqual(parseAutoPace('step'), { mode: 'step', intervalMs: null, source: 'step' });
 });
 
+test('interval pace requires and closes a supervised duration', () => {
+  assert.deepEqual(parseAutoPace('interval:30m'), {
+    mode: 'interval', intervalMs: 30 * 60 * 1000, source: 'interval:30m'
+  });
+  assert.throws(
+    () => parseAutoPace('interval'),
+    (error) => error.code === 'AUTO_INTERVAL_REQUIRED' && /--interval 30m/.test(error.message)
+  );
+});
+
 test('a bare phase endpoint is normalized only against the selected Story rail', () => {
   assert.deepEqual(parseAutoStopSelector('verification', [
     'specification', 'implementation', 'verification'

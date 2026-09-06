@@ -81,7 +81,8 @@ function flightCheckpointSha256(state) {
     comprehensionReference: state.comprehensionReference ?? null,
     phaseContracts: state.phaseContracts ?? {},
     boundaryCheckpoints: state.boundaryCheckpoints ?? [],
-    boundaryCheckpoint: state.boundaryCheckpoint ?? null
+    boundaryCheckpoint: state.boundaryCheckpoint ?? null,
+    schedule: state.schedule ?? null
   })}`;
 }
 
@@ -296,21 +297,22 @@ test('an already-active packet-v1 flight resumes only with its exact no-repair b
   );
 });
 
-test('every legacy Auto flight status migrates to v2 without changing its meaning', async () => {
+test('every legacy Auto flight status migrates to v3 without changing its meaning', async () => {
   const registry = new Map(migrationRegistrySnapshot().map((entry) => [entry.id, entry]));
   const family = registry.get('auto-flight-state');
-  assert.equal(family?.currentVersion, 2);
+  assert.equal(family?.currentVersion, 3);
   assert.equal(family?.minimumReadableVersion, 1);
-  assert.equal((await schema('auto-flight-state')).properties.schemaVersion.const, 2);
+  assert.equal((await schema('auto-flight-state')).properties.schemaVersion.const, 3);
 
   for (const status of ['running', 'paused', 'waiting-human', 'halted', 'completed', 'discarded']) {
     const source = sealedLegacyFlight(status);
     const before = structuredClone(source);
     const migrated = readRecord('auto-flight-state', source);
     assert.equal(migrated.storedVersion, 1);
-    assert.deepEqual(migrated.migratedThrough, [{ from: 1, to: 2 }]);
-    assert.equal(migrated.record.schemaVersion, 2);
+    assert.deepEqual(migrated.migratedThrough, [{ from: 1, to: 2 }, { from: 2, to: 3 }]);
+    assert.equal(migrated.record.schemaVersion, 3);
     assert.equal(migrated.record.status, status);
+    assert.equal(migrated.record.schedule, null);
     assert.equal(migrated.record.checkpointSha256, flightCheckpointSha256(migrated.record));
     const resealed = structuredClone(migrated.record);
     delete resealed.recordSha256;
@@ -326,8 +328,8 @@ test('every legacy Auto flight status migrates to v2 without changing its meanin
   );
 
   for (const status of ['manual-takeover', 'recovery-required']) {
-    const current = readRecord('auto-flight-state', { schemaVersion: 2, status });
-    assert.equal(current.storedVersion, 2);
+    const current = readRecord('auto-flight-state', { schemaVersion: 3, status });
+    assert.equal(current.storedVersion, 3);
     assert.deepEqual(current.migratedThrough, []);
     assert.equal(current.record.status, status);
   }

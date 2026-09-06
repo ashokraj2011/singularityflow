@@ -10,7 +10,7 @@ related:
   - story-lifecycle
   - impact-framework
   - checkpoints-pause-continue
-version: 7
+version: 8
 ---
 Auto mode turns a plain-language requirement into a reviewable, exact-hash Plan and derived ratification packet and—only after the packet hash is confirmed—creates an ordinary governed Story in a managed isolated worktree. It is repository policy, not a way around lifecycle policy.
 
@@ -49,7 +49,9 @@ Plans, authorizations, flight checkpoints, and reports are private mode-0600 rec
 
 Auto never approves or rejects, invents an answer to a Human Request, waives policy, changes sequence, expands scope, merges, or deploys. The authoring host receives only the closed file read/search/create/edit set—never a terminal or generic command tool—while tests and lifecycle mutations stay in registered kernel operations. Each phase gets one initial attempt and at most one policy-authorized repair. Protected-path contact, scope expansion, unavailable required token assurance, stale law, or a second failure halts and retains the managed worktree. Typed phase-run, attempt, refusal, Candidate, Human Request, token-economics, context/task/selection, and execution-event records preserve report lineage. Outcome metrics contain only task/flight counts, states, timing, and assurance; they contain no prompt text or person ranking. A clean observed quality floor is separate from the token-saving comparison, which stays `not-evaluated` until a registered baseline exists.
 
-The pilot deliberately stops short of multi-repository flights, automatic Goal coordination, interval/background resume, and direct Ad Hoc byte adoption. Goal seeding is input only, and Ad Hoc promotion is a non-startable exact handoff until provenance-preserving materialization exists. The CLI shorthand is only a more natural spelling of `auto plan`; it adds no confirmation or autonomous authority. `/sf-auto` is a guarded Copilot guide over the same planning and exact `auto start --confirm` operations.
+The Story profile deliberately stops short of multi-repository flights, automatic Goal coordination, hidden background resume, and direct Ad Hoc byte adoption. Goal seeding is input only, and Ad Hoc promotion is a non-startable exact handoff until provenance-preserving materialization exists. The CLI shorthand is only a more natural spelling of `auto plan`; it adds no confirmation or autonomous authority. `/sf-auto` is a guarded Copilot guide over the same planning and exact `auto start --confirm` operations.
+
+Interval pacing is an explicit supervised mode: use `--pace interval --interval 30m` (or `--pace interval:30m`). Auto runs the first bounded operation, seals a checkpoint with the next eligible timestamp, and returns. It never leaves a hidden timer or Copilot process running. At or after the displayed timestamp, resume with `singularity-flow auto resume <FLIGHT-ID> --confirm <CHECKPOINT-SHA256>`. An early attempt is read-safe and returns the same exact retry command.
 
 ## Troubleshooting
 

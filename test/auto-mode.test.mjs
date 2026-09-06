@@ -1645,6 +1645,67 @@ test('step pacing checkpoints authored and published boundaries without repeatin
   assert.equal(flight.counters.modelInvocations, 1);
 });
 
+test('interval pacing durably gates each bounded operation without a background promise', async () => {
+  const root = await executableRepository();
+  const workflowPath = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
+  workflow.workTypes['quick-fix'].auto.allowedPaces = ['phase', 'interval'];
+  await writeFile(workflowPath, YAML.stringify(workflow));
+  run('git', ['add', 'singularity/workflow.yml'], root);
+  run('git', ['commit', '-m', 'allow supervised interval pacing'], root);
+  run('git', ['push', 'origin', 'main'], root);
+  const workId = 'AUT-INTERVAL-1';
+  const plan = await createAutoPlan(root, 'Change the value at supervised intervals.', {
+    ...proposal, workType: 'quick-fix', predictedPaths: ['app.mjs', 'test/app.test.mjs'],
+    suggestedUntil: 'phase-complete:implement'
+  }, {
+    workId, workType: 'quick-fix', fromBranch: 'main', pace: 'interval:1m'
+  });
+  assert.equal(plan.safety.startable, true, plan.safety.reasons.join('; '));
+  let { flight } = await startAutoFlight(root, plan.planId, confirmation(plan));
+
+  flight = await runFlightStep(root, flight);
+  assert.equal(flight.status, 'paused');
+  assert.equal(flight.position, 'authored');
+  assert.equal(flight.stopReason, 'interval-boundary-reached');
+  assert.equal(flight.schedule.mode, 'interval');
+  assert.equal(flight.schedule.intervalMs, 60_000);
+  assert.equal(flight.schedule.sequence, 1);
+  assert.ok(Date.parse(flight.schedule.nextEligibleAt) > Date.parse(flight.schedule.lastBoundaryAt));
+  await assert.rejects(
+    () => resumeAutoFlight(root, flight.flightId, flight.checkpointSha256, {
+      now: () => Date.parse(flight.schedule.nextEligibleAt) - 1
+    }),
+    (error) => error.code === 'AUTO_INTERVAL_NOT_DUE'
+      && error.details.nextAction.includes(flight.checkpointSha256)
+  );
+
+  flight = await resumeAutoFlight(root, flight.flightId, flight.checkpointSha256, {
+    now: () => Date.parse(flight.schedule.nextEligibleAt)
+  });
+  assert.equal(flight.status, 'running');
+  assert.equal(flight.schedule.nextEligibleAt, null);
+  flight = await runFlightStep(root, flight);
+  assert.equal(flight.status, 'paused');
+  assert.equal(flight.position, 'published');
+  assert.equal(flight.schedule.sequence, 2);
+  assert.equal(flight.counters.modelInvocations, 1);
+  run('git', ['push', 'origin', flight.story.branch], flight.worktree);
+
+  const recoveryRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-auto-interval-recovery-'));
+  const remote = run('git', ['remote', 'get-url', 'origin'], root).stdout.trim();
+  run('git', ['clone', '--branch', 'main', '--', remote, recoveryRoot], root);
+  run('git', ['config', 'user.name', 'Auto Recovery Tester'], recoveryRoot);
+  run('git', ['config', 'user.email', 'auto-recovery@example.com'], recoveryRoot);
+  const rebuilt = await rebuildAutoFlightState(recoveryRoot, {
+    storyRoot: recoveryRoot, workId, flightId: flight.flightId
+  });
+  assert.equal(rebuilt.stopReason, 'interval-boundary-reached');
+  assert.equal(rebuilt.schedule.nextEligibleAt,
+    new Date(Date.parse(rebuilt.boundaryCheckpoint.createdAt) + 60_000).toISOString());
+  await rm(recoveryRoot, { recursive: true, force: true });
+});
+
 test('fresh-clone recovery after Candidate freeze restores authority without another model call', async (t) => {
   const root = await executableRepository();
   const workflowPath = path.join(root, 'singularity/workflow.yml');

@@ -220,6 +220,19 @@ function required(positionals, index, label) {
   return value;
 }
 
+function autoPlanPace(options) {
+  const pace = optionString(options, 'pace');
+  const interval = optionString(options, 'interval');
+  if (interval == null) return pace;
+  if (pace != null && pace !== 'interval') {
+    throw new SingularityFlowError(
+      '--interval is valid only with --pace interval.',
+      { code: 'AUTO_ARGUMENT_CONFLICT' }
+    );
+  }
+  return `interval:${interval}`;
+}
+
 function executeInRegisteredChild(root, state) {
   const result = runProcess(process.execPath, [
     BIN, 'auto', 'flight-step', state.flightId, '--confirm', state.checkpointSha256, '--json'
@@ -260,6 +273,9 @@ export async function run(_argv, { positionals, options }) {
   if (options['from-adhoc'] != null && subcommand !== 'adopt') throw new SingularityFlowError(
     '--from-adhoc is valid only with auto adopt.', { code: 'AUTO_ARGUMENT_CONFLICT' }
   );
+  if (options.interval != null && subcommand !== 'plan') throw new SingularityFlowError(
+    '--interval is valid only with auto plan.', { code: 'AUTO_ARGUMENT_CONFLICT' }
+  );
 
   if (subcommand === 'plan') {
     // The shorthand is planning only. It deliberately reaches the same exact Plan path and never
@@ -272,7 +288,7 @@ export async function run(_argv, { positionals, options }) {
       if (storyId) {
         const suppliedRequirement = String(positionals[shorthand ? 1 : 2] ?? '').trim();
         const conflictingOptions = [
-          'capability', 'work-type', 'work-id', 'from-branch', 'profile', 'pace', 'until'
+          'capability', 'work-type', 'work-id', 'from-branch', 'profile', 'pace', 'interval', 'until'
         ].filter((name) => optionString(options, name) != null);
         if (suppliedRequirement || conflictingOptions.length) {
           throw new SingularityFlowError(
@@ -310,7 +326,7 @@ export async function run(_argv, { positionals, options }) {
         definition,
         workType: optionString(options, 'work-type'), capabilityId: optionString(options, 'capability'),
         workId: optionString(options, 'work-id'), fromBranch: optionString(options, 'from-branch'),
-        profile: optionString(options, 'profile'), pace: optionString(options, 'pace'),
+        profile: optionString(options, 'profile'), pace: autoPlanPace(options),
         until: optionString(options, 'until'),
         requirementSource: goalSeed?.source ?? null,
         synthesis: {

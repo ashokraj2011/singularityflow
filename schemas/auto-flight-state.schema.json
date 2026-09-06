@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/singularity-flow/auto-flight-state.schema.json",
-  "title": "Singularity Flow local Auto flight state v2",
+  "title": "Singularity Flow local Auto flight state v3",
   "type": "object",
   "required": [
     "schemaVersion", "kind", "mode", "flightId", "planId", "planSha256",
@@ -9,12 +9,12 @@
     "configuration", "repositories", "operations", "evidence", "candidate",
     "worldModelReference", "comprehensionReference",
     "phaseContracts", "boundaryCheckpoints", "boundaryCheckpoint",
-    "lastSuccessfulStoryRevision", "position", "execution", "counters",
+    "lastSuccessfulStoryRevision", "position", "execution", "schedule", "counters",
     "stopRequested", "checkpointSequence", "checkpointSha256", "stopReason",
     "nextAction", "createdAt", "updatedAt", "recordSha256"
   ],
   "properties": {
-    "schemaVersion": { "const": 2 },
+    "schemaVersion": { "const": 3 },
     "kind": { "const": "auto-flight-state" },
     "mode": { "const": "auto" },
     "flightId": { "$ref": "#/$defs/flightId" },
@@ -48,6 +48,24 @@
     "lastSuccessfulStoryRevision": { "type": ["string", "null"] },
     "position": { "type": "string", "minLength": 1 },
     "execution": { "type": "object" },
+    "schedule": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["mode", "intervalMs", "sequence", "lastBoundaryAt", "nextEligibleAt", "lastResumedAt"],
+          "properties": {
+            "mode": { "const": "interval" },
+            "intervalMs": { "type": "integer", "minimum": 60000, "maximum": 604800000 },
+            "sequence": { "type": "integer", "minimum": 0 },
+            "lastBoundaryAt": { "type": ["string", "null"], "format": "date-time" },
+            "nextEligibleAt": { "type": ["string", "null"], "format": "date-time" },
+            "lastResumedAt": { "type": ["string", "null"], "format": "date-time" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
     "counters": { "type": "object" },
     "stopRequested": { "type": ["object", "null"] },
     "checkpointSequence": { "type": "integer", "minimum": 1 },

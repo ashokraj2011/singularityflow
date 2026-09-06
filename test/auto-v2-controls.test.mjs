@@ -269,7 +269,8 @@ test('the runtime reader migrates and reseals a genuine v1 flight with current c
   await writeFile(path.join(directory, 'state.json'), `${JSON.stringify(legacy)}\n`);
 
   const migrated = await readAutoFlightState(root, legacy.flightId);
-  assert.equal(migrated.schemaVersion, 2);
+  assert.equal(migrated.schemaVersion, 3);
+  assert.equal(migrated.schedule, null);
   assert.equal(migrated.candidate, null);
   assert.equal(migrated.worldModelReference, null);
   assert.equal(migrated.comprehensionReference, null);

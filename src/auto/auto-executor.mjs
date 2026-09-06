@@ -50,7 +50,8 @@ import {
   authorizeAutomaticAutoRepair, planAutoRepair
 } from './auto-p1-control.mjs';
 import {
-  authorizeAutoAuthoringAttempt, mutateAutoFlightState, persistAutoFlightReport, readAutoFlightState
+  alignAutoIntervalBoundary, armAutoIntervalBoundary, authorizeAutoAuthoringAttempt, mutateAutoFlightState,
+  persistAutoFlightReport, readAutoFlightState
 } from './auto-flight-store.mjs';
 
 const BIN = fileURLToPath(new URL('../../bin/singularity-flow.mjs', import.meta.url));
@@ -572,6 +573,10 @@ async function persistGovernedBoundary(root, state, checkpointClass, options = {
     draft.boundaryCheckpoint = localPointer;
     draft.lastSuccessfulStoryRevision = pointer.commit;
     draft.commits = { ...(draft.commits ?? {}), [`${checkpointClass}Checkpoint`]: pointer.commit };
+    if (draft.stopReason === 'interval-boundary-reached') {
+      alignAutoIntervalBoundary(draft, pointer.createdAt);
+      draft.nextAction = `At or after ${draft.schedule.nextEligibleAt}, resume the interval flight with this checkpoint hash.`;
+    }
   }, {
     expectedCheckpoint: state.checkpointSha256,
     expectedStatuses: [state.status],
@@ -593,13 +598,19 @@ async function attachFinalReport(root, state) {
 }
 
 async function pauseAtStepBoundary(root, flightId, state, phaseId, boundary) {
-  if (state.execution?.pace?.mode !== 'step') return null;
-  return mutateAutoExecutorState(root, flightId, (draft) => {
-    draft.status = 'paused';
-    draft.stopReason = 'step-boundary-reached';
-    draft.stopRequested = null;
-    draft.nextAction = `Review '${boundary}' for phase '${phaseId}', then resume with the exact checkpoint hash.`;
+  if (!['step', 'interval'].includes(state.execution?.pace?.mode)) return null;
+  const paused = await mutateAutoExecutorState(root, flightId, (draft) => {
+    if (!armAutoIntervalBoundary(draft, { phase: phaseId, boundary })) {
+      draft.status = 'paused';
+      draft.stopReason = 'step-boundary-reached';
+      draft.stopRequested = null;
+      draft.nextAction = `Review '${boundary}' for phase '${phaseId}', then resume with the exact checkpoint hash.`;
+    }
   }, { expectedCheckpoint: state.checkpointSha256 });
+  // Interval eligibility is runtime authority, not a disposable timer. Publish the armed schedule
+  // so a fresh clone resumes the same deadline without executing early or repeating authoring.
+  return paused.execution?.pace?.mode === 'interval'
+    ? persistGovernedBoundary(root, paused, 'human-boundary') : paused;
 }
 
 function protectedPathEvaluation(definition, workflow, changeSet) {
@@ -807,17 +818,24 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
       draft.activeRepairPlanId = null;
       draft.activeRepair = null;
       draft.finalReportSha256 = null;
-      const pause = ['phase', 'step'].includes(draft.execution?.pace?.mode);
+      const pause = ['phase', 'step', 'interval'].includes(draft.execution?.pace?.mode);
       draft.status = pause ? 'paused' : 'running';
       draft.stopReason = draft.execution?.pace?.mode === 'phase'
         ? 'phase-boundary-reached'
         : draft.execution?.pace?.mode === 'step'
           ? 'step-boundary-reached' : 'phase-continuation-authorized';
-      draft.nextAction = pause
-        ? `Review completed phase '${transition.from}', then resume '${transition.to}' with the exact checkpoint hash.`
-        : `Continue the ratified rail at phase '${transition.to}'.`;
+      if (!armAutoIntervalBoundary(draft, {
+        phase: transition.to, boundary: `phase-complete:${transition.from}`
+      })) {
+        draft.nextAction = pause
+          ? `Review completed phase '${transition.from}', then resume '${transition.to}' with the exact checkpoint hash.`
+          : `Continue the ratified rail at phase '${transition.to}'.`;
+      }
     }, { expectedCheckpoint: state.checkpointSha256 });
-    if (state.status !== 'running') return state;
+    if (state.status !== 'running') {
+      return state.execution?.pace?.mode === 'interval'
+        ? persistGovernedBoundary(root, state, 'human-boundary') : state;
+    }
     continuation = await verifyAutoFlightContinuation(root, state);
     ({ plan } = continuation);
   }
@@ -1894,16 +1912,27 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
         draft.activeRepair = null;
         const pauseForPhase = draft.execution?.pace?.mode === 'phase';
         const pauseForStep = draft.execution?.pace?.mode === 'step';
-        draft.status = pauseForPhase || pauseForStep ? 'paused' : 'running';
+        const pauseForInterval = draft.execution?.pace?.mode === 'interval';
+        draft.status = pauseForPhase || pauseForStep || pauseForInterval ? 'paused' : 'running';
         draft.stopReason = pauseForPhase ? 'phase-boundary-reached'
           : pauseForStep ? 'step-boundary-reached' : 'phase-continuation-authorized';
-        draft.nextAction = draft.status === 'running'
-          ? `Continue the ratified rail at phase '${next.phaseTransition.to}'.`
-          : `Review completed phase '${next.phaseTransition.from}', then resume '${next.phaseTransition.to}' with the exact checkpoint hash.`;
+        if (!armAutoIntervalBoundary(draft, {
+          phase: next.phaseTransition.to,
+          boundary: `phase-complete:${next.phaseTransition.from}`
+        })) {
+          draft.nextAction = draft.status === 'running'
+            ? `Continue the ratified rail at phase '${next.phaseTransition.to}'.`
+            : `Review completed phase '${next.phaseTransition.from}', then resume '${next.phaseTransition.to}' with the exact checkpoint hash.`;
+        }
       }, {
         expectedCheckpoint: checkpointed.checkpointSha256,
         expectedStatuses: ['running']
       });
+      if (checkpointed.execution?.pace?.mode === 'interval') {
+        return persistGovernedBoundary(root, checkpointed, 'human-boundary', {
+          definition: next.definition, workflow: next.workflow
+        });
+      }
       if (checkpointed.status === 'running'
           && checkpointed.execution?.pace?.mode === 'continuous') {
         return executeAutoFlightStepLocked(

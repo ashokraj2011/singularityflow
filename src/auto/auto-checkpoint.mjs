@@ -25,7 +25,8 @@ import {
 } from './auto-candidate.mjs';
 import { verifyAutoFlightContinuation } from './auto-continuation.mjs';
 import {
-  createAutoFlightState, mutateAutoFlightState, readAutoFlightReport, readAutoFlightState,
+  armAutoIntervalBoundary, createAutoFlightState, mutateAutoFlightState,
+  readAutoFlightReport, readAutoFlightState,
   restoreAutoFlightReport, validateAutoFlightReportRecord
 } from './auto-flight-store.mjs';
 import { restoreAutoP1Records, snapshotAutoP1Records } from './auto-p1-records.mjs';
@@ -827,6 +828,13 @@ export async function rebuildAutoFlightState(controlRoot, {
     state.boundaryCheckpoint = state.boundaryCheckpoints[0];
     state.status = record.status;
     state.stopRequested = null;
+    if (record.status === 'paused' && record.stopReason === 'interval-boundary-reached'
+        && state.execution?.pace?.mode === 'interval') {
+      armAutoIntervalBoundary(state, {
+        phase: record.story.phase, boundary: 'governed-checkpoint-rebuilt',
+        at: record.createdAt
+      });
+    }
     if (freezeRecovery) {
       const binding = freezeRecovery.binding;
       const paths = [...new Set(binding.resourceManifest.entries.flatMap((entry) => (

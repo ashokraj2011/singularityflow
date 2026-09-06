@@ -586,6 +586,27 @@ test('baseline report import refuses an unbound or local runner identity', async
   }
 });
 
+test('DX reports never retain an unreviewed runner label from the environment', () => {
+  const run = spawnSync(process.execPath, [
+    'scripts/dx-benchmark.mjs', '--json', '--samples=1', '--skip-scale', '--skip-connected',
+    '--skip-tail-fixtures'
+  ], {
+    cwd: root,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      GITHUB_ACTIONS: 'true',
+      RUNNER_ENVIRONMENT: 'github-hosted',
+      RUNNER_OS: manifest.runtime.platform,
+      RUNNER_ARCH: manifest.runtime.architecture,
+      SINGULARITY_FLOW_DX_RUNNER_LABEL: 'unreviewed-secret-bearing-label'
+    }
+  });
+  assert.equal(run.status, 0, run.stderr);
+  assert.equal(JSON.parse(run.stdout).runtime.runner, 'local');
+  assert.doesNotMatch(run.stdout, /unreviewed-secret-bearing-label/);
+});
+
 test('the read model does not shell out to the network, or ask git the same question twice', async () => {
   /**
    * The full compatibility snapshot once drove every VS Code refresh and took **1.8 s**: 80

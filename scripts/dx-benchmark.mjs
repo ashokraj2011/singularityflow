@@ -24,8 +24,10 @@ const acceptedReportPath = option('accept-report');
 function runnerIdentity() {
   const declared = process.env.SINGULARITY_FLOW_DX_RUNNER_LABEL;
   const githubHosted = process.env.GITHUB_ACTIONS === 'true'
-    && process.env.RUNNER_ENVIRONMENT === 'github-hosted';
-  return githubHosted && declared ? declared : 'local';
+    && process.env.RUNNER_ENVIRONMENT === 'github-hosted'
+    && process.env.RUNNER_OS?.toLowerCase() === fixtureManifest.runtime.platform
+    && process.env.RUNNER_ARCH?.toLowerCase() === fixtureManifest.runtime.architecture;
+  return githubHosted && declared === fixtureManifest.runtime.runner ? declared : 'local';
 }
 
 function assertBaselineCandidate(report) {

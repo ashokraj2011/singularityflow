@@ -111,8 +111,9 @@ node scripts/dx-benchmark.mjs --accept-report=/tmp/sflow-dx-report.json
 Both paths validate the exact Node major, platform, architecture, sample count, disabled-network
 protocol, fixture topology, reviewed runner label, and passing outcome. The pinned hosted runner
 must set `SINGULARITY_FLOW_DX_RUNNER_LABEL=ubuntu-latest`; that label is admitted only when the
-process also reports a GitHub-hosted Actions environment. Local and container reports record
-`runner: local` and cannot replace the Linux/Node-22 accepted baseline.
+process also reports a GitHub-hosted Actions environment with the reviewed Linux/x64 runner OS and
+architecture. Any other label is reduced to `runner: local` rather than retained. Local and
+container reports cannot replace the Linux/Node-22 accepted baseline.
 
 Do not update the baseline merely to make a regression pass. Review topology, runner load,
 dependency changes, and the lazy import graph first.

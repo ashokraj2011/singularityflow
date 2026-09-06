@@ -17,27 +17,27 @@
     {
       "id": "sgos-contract",
       "path": "docs/SGOS.md",
-      "sha256": "sha256:de8a878e1a1520379431a5be971f4fdbec4039d1694d27ebd23177885e9ad658"
+      "sha256": "sha256:cf6fd9ed38fe6c99b9fc09682abb24b91a4ea1d31bb90965eb3b05f61400a8a8"
     },
     {
       "id": "sgos-delivery-status",
       "path": "docs/SGOS-PENDING-WORK.md",
-      "sha256": "sha256:8a929c82aba29b21b738cabcba2b1301bf0b128803203efb4307b4dee9fb6d2c"
+      "sha256": "sha256:cecb7d3f4659668a465452dde4d58960e46157ef52c2ef704071899e71dd4ed6"
     },
     {
       "id": "world-model-v4",
       "path": "docs/WORLD-MODEL-BUILDER-V4.md",
-      "sha256": "sha256:7b858a8d5a2db09c5fd80df84d321489ecbb20d3026d4adec031f6a48a0e5f8d"
+      "sha256": "sha256:6f8436a30a7a89642d3119b82138036ac02a79d93da0ab36ca4fe2933e919149"
     },
     {
       "id": "witnessed-engineering-loop",
       "path": "docs/WEL-SPEC.md",
-      "sha256": "sha256:99a0f0b8fd66dd50cac401d345f1c55eb3abcc837b7ee4e6dbc7d657e4be9dbe"
+      "sha256": "sha256:386d3dab9b68e268069f489a0db97ecce67bfb49e16f76273192941778c863ef"
     },
     {
       "id": "witnessed-engineering-delivery-status",
       "path": "docs/WEL-PENDING-WORK.md",
-      "sha256": "sha256:a288da1e5693498a69f8a67ef5e9c6d2af1c2ba05ad35b4049f31c5b0e8644e5"
+      "sha256": "sha256:2ebcf59f2deefc3e2943013c26af90291ca18e56902a783952d9b5a6ba3570ce"
     },
     {
       "id": "code-assurance-bridge",
@@ -77,12 +77,12 @@
     {
       "id": "candidate-custody",
       "path": "src/auto/auto-candidate.mjs",
-      "sha256": "sha256:967f5348dfcb6481b205135f26fa75f7261e3d6be526daeb78eae26d29cbe1c7"
+      "sha256": "sha256:9d3ad8dabf927f3841162620db9a94b992681db1dbcd94a8f9f92f1c536b93b0"
     },
     {
       "id": "publication-unit-of-work",
       "path": "src/publication-unit-of-work.mjs",
-      "sha256": "sha256:e78ab7b77d5bfe8f071adf0c2999ebb4369e26e0643e7f60bf92c80ac48507bc"
+      "sha256": "sha256:3e3c92b78ea9012fb7b4c2bdff3162ca0840e95820934040a2aaf16bf3acb58b"
     },
     {
       "id": "action-authorization",
@@ -92,7 +92,7 @@
     {
       "id": "migration-registry",
       "path": "src/schema-migrations.mjs",
-      "sha256": "sha256:05122462b4610ab8454e6c719989c5d52f4a8aeb4cf8aa2cccaa98235556b7dd"
+      "sha256": "sha256:d92f9676fe645dc0a69793790e8c1a045d9f1d3d4718ca63327df799fffd8a2a"
     },
     {
       "id": "smart-initialization-v1",

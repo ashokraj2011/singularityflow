@@ -6,7 +6,7 @@
 
 **Created:** 2026-08-30
 
-**Current reconciliation:** checked against `main@d3bebeb0` on 2026-09-06. Commits `259b76f1`,
+**Current reconciliation:** checked against `main@e2e90e59` on 2026-09-06. Commits `259b76f1`,
 `58d9329d`, and `d55229c7` provide the bounded exact-static JUnit identity adapter, immutable
 proposal snapshot, human review through the existing phase approval, migration, safe command-shape
 fallbacks, the evolving content-free benchmark, and same-process unenrolled delta measurement. Commit
@@ -19,7 +19,11 @@ increment for top-level literal Jest and Vitest tests; commit `676c591e` adds a 
 synthetic adversarial corpus that proves those closed profiles produce no false exact match for the
 enumerated source and report shapes. Those observations inherit the same local, inconclusive
 authority ceiling. Commit `d3bebeb0` closes the code-local Node 20 compatibility defects exposed by
-the strict aggregate without changing the observe-only authority ceiling.
+the strict aggregate. Commits `ecefa2aa` through `dbff2b86` add the JDK preflight, clean Linux
+portable-matrix evidence, real minimum/current VS Code host evidence, enterprise-Git ledger
+compatibility, and runner-bound DX baselines. Commit `e2e90e59` normalizes Node 20's synthetic
+name-pattern exclusions without permitting a real skip, todo, or cancellation. None changes the
+observe-only authority ceiling.
 
 The code-local WEL boundary and signed-evidence contract were revalidated on both supported Node
 runtimes on macOS arm64. A clean strict Node 22 aggregate at `main@60e37936` completed all 457
@@ -323,11 +327,34 @@ Linux portable-matrix checkpoint on `main@3b998d05`:
   but are unsigned, containerized, and do not replace physical installed-host, office-network,
   Windows, authenticated-runner, independent-review, or package-binding evidence.
 
+Linux packaged-release checkpoint through `main@e2e90e59`:
+
+- a clean Node 22.23.2/JDK 17/Git 2.39.5 Docker clone at `main@dbff2b86` completed all ten
+  `poc:release-gate` stages, including 148/148 strict POC/CMP/WEL tests, the isolated npm install,
+  the VSIX-contained engine, and the 12-sample WEL benchmark;
+- that WEL run produced one exact-static case, zero false exact matches, safe parser cancellation,
+  exact retained-commit push/offline recovery, fresh-clone equality, and interrupted-write
+  restoration. The content-free release log digest was
+  `sha256:2db3c0bd70ec1660ddf6aa7da28b0410a277b88beaac6ab4f83ae751254fb8e0`;
+- the contained engine digest was
+  `sha256:8c9e9bf7e5da922204a87bad4810e141651435052d61ca7d222b6853ebca3e90`; the generated VSIX digest
+  was `sha256:baf18f8fc8dbdfd7debe216e203c4140cf0e77d18169fb3e4d52de2eccc5f9e6`;
+- Node 20.20.2 exposed a runtime-only reporting difference: 93 tests excluded by the release
+  stage's exact name pattern were labeled as skips. `e2e90e59` now recognizes only Node's exact
+  selection reason under an active matching pattern, removes those synthetic events from the
+  release projection, and still refuses authored skips, todo, and cancellation. The real packaged
+  POC journey then passed 1/1 with zero projected skips after a clean container rebuilt the
+  2,244-file VSIX; its machine-local log digest was
+  `sha256:aae977583d22d92042ae43b02be8e8a7aad440ffe29ba770a835ba7907b6c44b`;
+- these runs are unsigned Linux arm64 container evidence. They close the code-local Linux artifact
+  exercise, not the physical-host, office-network, Windows, independent-review, or signed-matrix
+  gates.
+
 Still required before completion: reviewed real-repository corpus metrics, office-network remote
 Story publication latency measurements, an approved Flow Impact design, live office/offline and
-cross-platform cancellation/process-tree exercises, execution of the isolated artifact proof on
-Windows and Linux, and one signed release receipt binding npm, VSIX, schemas, source, and the full
-supported-platform matrix. The new synthetic local matrix is code evidence for those paths, not a
+cross-platform cancellation/process-tree exercises, execution of the isolated artifact proof on a
+physical Windows host, and one signed release receipt binding npm, VSIX, schemas, source, and the
+full supported-platform matrix. The container evidence is code evidence for those paths, not a
 substitute for the external host receipts.
 
 Measure whether WEL improves traceability without creating unacceptable latency, noise, or false

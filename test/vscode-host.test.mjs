@@ -325,6 +325,8 @@ function stubVscode() {
     // The handler is kept, not discarded: a panel that is only ever rendered is half-tested. Driving
     // a real message through it is what proves the button on the page reaches the engine.
     let handler = null;
+    const viewState = new EventEmitter();
+    const disposal = new EventEmitter();
     const panel = {
       id, title, options, visible: true,
       webview: {
@@ -332,8 +334,19 @@ function stubVscode() {
         onDidReceiveMessage: (listener) => { handler = listener; return { dispose() { handler = null; } }; }
       },
       post: async (message) => { await handler?.(message); },
-      reveal() { this.visible = true; }, onDidDispose: () => ({ dispose() {} }),
-      dispose() { this.visible = false; }
+      onDidChangeViewState: viewState.event,
+      onDidDispose: disposal.event,
+      setVisible(value) {
+        this.visible = value;
+        viewState.fire({ webviewPanel: this });
+      },
+      reveal() { this.setVisible(true); },
+      dispose() {
+        this.visible = false;
+        disposal.fire(undefined);
+        viewState.dispose();
+        disposal.dispose();
+      }
     };
     registered.panels.push(panel);
     return panel;
@@ -1276,6 +1289,37 @@ async function activated(options = {}) {
   await extension.activate(context());
   return { root, api, registered, extension };
 }
+
+test('the built extension leases, evicts, and reacquires exact comprehension data', async (t) => {
+  if (!requireBundle(t)) return;
+  const { root, registered } = await activated();
+  const readme = path.join(root, 'README.md');
+  await writeFile(readme, `${await readFile(readme, 'utf8')}\nComprehension host observation.\n`);
+
+  await registered.commands.get('singularityFlow.openComprehensionCenter')();
+  const panel = await until(() => registered.panels.find((entry) =>
+    entry.id === 'singularityFlow.comprehensionCenter'));
+  await until(() => panel.webview.html.includes('Exact change regions')
+    && panel.webview.html.includes('README.md') ? panel.webview.html : null);
+  await panel.post({ type: 'tab', tab: 'diff' });
+  await until(() => panel.webview.html.includes('Comprehension host observation')
+    ? panel.webview.html : null);
+  assert.match(panel.webview.html, /Exact bounded diff/);
+  assert.match(panel.webview.html, /role="tablist"/);
+  assert.match(panel.webview.html, /role="tabpanel"/);
+
+  panel.setVisible(false);
+  await until(() => panel.webview.html.includes('comprehension projection is not available yet')
+    ? panel.webview.html : null);
+  assert.doesNotMatch(panel.webview.html, /Comprehension host observation/,
+    'hidden panels cannot retain source-bearing snapshot content');
+
+  panel.setVisible(true);
+  await until(() => panel.webview.html.includes('Comprehension host observation')
+    ? panel.webview.html : null);
+  assert.match(panel.webview.html, /Exact bounded diff/);
+  assert.deepEqual(registered.errors, []);
+});
 
 test('Auto card controls only prefill the exact selected command and never execute it', async (t) => {
   if (!requireBundle(t)) return;

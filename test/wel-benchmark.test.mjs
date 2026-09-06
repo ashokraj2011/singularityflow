@@ -1,19 +1,33 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { validateWelBenchmarkEvidence } from '../src/wel-benchmark-evidence.mjs';
 
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-test('WEL benchmark emits only bounded content-free local measurements', () => {
+test('WEL benchmark emits and privately retains bounded content-free local measurements', async (t) => {
+  const evidenceDirectory = await mkdtemp(path.join(os.tmpdir(), 'sflow-wel-benchmark-test-'));
+  t.after(() => rm(evidenceDirectory, { recursive: true, force: true }));
+  const evidencePath = path.join(evidenceDirectory, 'report.json');
   const result = spawnSync(process.execPath, ['scripts/wel-benchmark.mjs', '--samples=1'], {
     cwd: repository,
     encoding: 'utf8',
-    timeout: 60_000
+    timeout: 60_000,
+    env: { ...process.env, SINGULARITY_FLOW_WEL_BENCHMARK_OUT: evidencePath }
   });
   assert.equal(result.status, 0, result.stderr);
   const report = JSON.parse(result.stdout);
+  const retained = JSON.parse(await readFile(evidencePath, 'utf8'));
+  assert.deepEqual(retained, report);
+  assert.match(validateWelBenchmarkEvidence(retained, {
+    platform: process.platform,
+    nodeMajor: Number(process.versions.node.split('.')[0]),
+    requireObserved: report.outcome === 'observed'
+  }).evidenceSha256, /^sha256:[a-f0-9]{64}$/);
   assert.equal(report.schema, 'sflow-wel-benchmark/v5');
   assert.equal(report.assurance, 'content-free-local-measurement');
   assert.ok(['observed', 'unavailable'].includes(report.outcome));

@@ -107,6 +107,12 @@ test('release and receipt scripts recheck the exact checkout around packaging an
     'a signed receipt must require separately reviewed physical platform evidence');
   assert.ok((receipt.match(/validateReleasePlatformEvidence\(/g) ?? []).length >= 2,
     'physical evidence must be checked before execution and rebound to the produced artifact digests');
+  assert.match(receipt, /SINGULARITY_FLOW_WEL_BENCHMARK_OUT/,
+    'the signed receipt must retain the exact WEL benchmark produced inside the release gate');
+  assert.match(receipt, /validateWelBenchmarkEvidence\(/,
+    'the retained WEL benchmark must be validated before it enters signed evidence');
+  assert.match(receipt, /welBenchmarkSha256/,
+    'the signed receipt must bind the canonical WEL benchmark digest');
   assert.doesNotMatch(receipt, /(?:failed|skipped|cancelled|todo): count\([^\n]+\) \?\? 0/,
     'missing output counters must never be rewritten as observed zeroes');
 });

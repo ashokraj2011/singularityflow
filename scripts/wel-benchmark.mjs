@@ -15,6 +15,10 @@ import { recordContextPacketTelemetry } from '../src/context-packet-telemetry.mj
 import { contextXray } from '../src/context-xray.mjs';
 import { manualStorySource, startStory } from '../src/story-start.mjs';
 import { observeJunit5SurefireIdentities } from '../src/wel-junit5.mjs';
+import {
+  validateWelBenchmarkEvidence, WEL_BENCHMARK_ASSURANCE, WEL_BENCHMARK_CAPABILITIES,
+  WEL_BENCHMARK_EXCLUDED_CONTENT, WEL_BENCHMARK_SCHEMA
+} from '../src/wel-benchmark-evidence.mjs';
 
 const sampleArgument = process.argv.find((argument) => argument.startsWith('--samples='));
 const samples = Number(sampleArgument?.slice('--samples='.length) ?? 12);
@@ -26,6 +30,13 @@ const storySamples = Number(storySampleArgument?.slice('--story-samples='.length
   ?? Math.min(samples, 3));
 if (!Number.isInteger(storySamples) || storySamples < 1 || storySamples > 30) {
   throw new Error('--story-samples must be an integer from 1 to 30');
+}
+const outputArgument = process.argv.find((argument) => argument.startsWith('--out='));
+const outputPath = outputArgument?.slice('--out='.length)
+  || process.env.SINGULARITY_FLOW_WEL_BENCHMARK_OUT
+  || null;
+if (outputPath != null && (!path.isAbsolute(outputPath) || outputPath.includes('\0'))) {
+  throw new Error('WEL benchmark output must be an absolute path.');
 }
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -474,8 +485,8 @@ try {
     (duration, index) => duration - baselineProjectionDurations[index]
   );
   const report = {
-    schema: 'sflow-wel-benchmark/v5',
-    assurance: 'content-free-local-measurement',
+    schema: WEL_BENCHMARK_SCHEMA,
+    assurance: WEL_BENCHMARK_ASSURANCE,
     platform: process.platform,
     architecture: process.arch,
     nodeMajor: Number(process.versions.node.split('.')[0]),
@@ -586,15 +597,26 @@ try {
       inexact: outcome === 'observed' ? 0 : 1,
       falseExact: 0
     },
-    measurementCapabilities: [
-      'source-catalog', 'report-ingestion', 'receipt-projection', 'durable-storage-estimate',
-      'baseline-comparison', 'context-xray-projection', 'story-start-latency',
-      'story-push-recovery', 'story-offline-recovery', 'fresh-clone-verification',
-      'interrupted-write-recovery', 'adapter-cancellation'
-    ],
-    contentExcluded: ['repository-path', 'origin-url', 'work-id', 'git-identity', 'clause-text', 'test-body']
+    measurementCapabilities: [...WEL_BENCHMARK_CAPABILITIES],
+    contentExcluded: [...WEL_BENCHMARK_EXCLUDED_CONTENT]
   };
-  process.stdout.write(`${JSON.stringify(report)}\n`);
+  const validated = validateWelBenchmarkEvidence(report, {
+    platform: process.platform,
+    nodeMajor: Number(process.versions.node.split('.')[0]),
+    requireObserved: false
+  }).evidence;
+  const serialized = `${JSON.stringify(validated)}\n`;
+  if (outputPath) {
+    const temporaryOutput = `${outputPath}.${process.pid}.tmp`;
+    await mkdir(path.dirname(outputPath), { recursive: true, mode: 0o700 });
+    try {
+      await writeFile(temporaryOutput, serialized, { flag: 'wx', mode: 0o600 });
+      await rename(temporaryOutput, outputPath);
+    } finally {
+      await rm(temporaryOutput, { force: true });
+    }
+  }
+  process.stdout.write(serialized);
 } finally {
   await rm(root, { recursive: true, force: true });
 }

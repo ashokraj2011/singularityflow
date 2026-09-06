@@ -138,10 +138,14 @@ the closed reason `non-windows-platform` everywhere else.
 
 Only check outcomes, lower-kebab mechanism names, and SHA-256 references to externally retained raw
 evidence enter the receipt. Raw logs, commands, paths, host names, URLs, and credentials are rejected
-as unknown fields. Single-host receipt schema v4 and aggregate schema v5 carry the platform evidence
-and its canonical digest in every matrix cell. Merge and promotion reject older schemas, missing
-evidence, a mismatched artifact subject, or a selected artifact receipt that is not one of the
-reviewed cells. The local suite deliberately does not manufacture this physical evidence.
+as unknown fields. Single-host receipt schema v5 and aggregate schema v6 carry both the physical
+platform evidence and the exact content-free WEL benchmark report plus its canonical digest in every
+matrix cell. The report binds parser, ingestion, receipt and Context X-Ray timing, byte growth,
+exact/inexact counts, Story-start timing, exact publication recovery, offline/fresh-clone recovery,
+interrupted-write restoration, and cancellation behavior. A non-observed, incomplete, host-mismatched,
+content-bearing, or digest-mismatched benchmark cannot authorize a receipt. Merge and promotion reject
+older schemas, missing evidence, a mismatched artifact subject, or a selected artifact receipt that
+is not one of the reviewed cells. The local suite deliberately does not manufacture physical evidence.
 
 The journey uses deterministic light grounding for its Copilot handoff so this gate never invokes a
 model or spends tokens. `test/poc-workflow.test.mjs` separately holds the shipped POC workflow's

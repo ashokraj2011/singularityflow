@@ -13,7 +13,8 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -22,6 +23,7 @@ import {
   validateReleasePlatformEvidence
 } from '../src/verification-receipt.mjs';
 import { resolvePlatformProcess } from '../src/platform-process.mjs';
+import { validateWelBenchmarkEvidence } from '../src/wel-benchmark-evidence.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -39,24 +41,49 @@ const output = path.resolve(root, option('--out') ?? defaultOutput);
 const identity = option('--identity')
   ?? spawnSync('git', ['config', 'user.email'], { cwd: root, encoding: 'utf8' }).stdout.trim();
 
-function run(command, commandArgs, { releaseTests = false } = {}) {
+function run(command, commandArgs, { releaseTests = false, environment = {} } = {}) {
   console.log(`\n• ${command} ${commandArgs.join(' ')}`);
-  const environment = releaseTests ? {
+  const effectiveEnvironment = releaseTests ? {
     ...process.env,
+    ...environment,
     SINGULARITY_FLOW_RELEASE_FAIL_ON_SKIPPED_TEST_FILES: '1'
-  } : process.env;
-  const launch = resolvePlatformProcess(command, commandArgs, { environment });
+  } : { ...process.env, ...environment };
+  const launch = resolvePlatformProcess(command, commandArgs, { environment: effectiveEnvironment });
   const result = spawnSync(launch.executable, launch.arguments, {
     cwd: root,
     encoding: 'utf8',
     maxBuffer: 128 * 1024 * 1024,
-    env: environment,
+    env: effectiveEnvironment,
     ...launch.spawnOptions
   });
   process.stdout.write(result.stdout ?? '');
   process.stderr.write(result.stderr ?? '');
   if (result.status !== 0) throw new Error(`${command} ${commandArgs.join(' ')} failed with status ${result.status}.`);
   return result.stdout ?? '';
+}
+
+async function runReleaseGateAndCollectWelBenchmark() {
+  const evidenceDirectory = await mkdtemp(path.join(os.tmpdir(), 'sflow-wel-release-evidence-'));
+  const benchmarkPath = path.join(evidenceDirectory, 'wel-benchmark.json');
+  try {
+    run('npm', ['run', 'poc:release-gate'], {
+      releaseTests: true,
+      environment: { SINGULARITY_FLOW_WEL_BENCHMARK_OUT: benchmarkPath }
+    });
+    let report;
+    try {
+      report = JSON.parse(await readFile(benchmarkPath, 'utf8'));
+    } catch (error) {
+      throw new Error(`POC release gate did not retain valid WEL benchmark evidence: ${error.message}`);
+    }
+    return validateWelBenchmarkEvidence(report, {
+      platform: process.platform,
+      nodeMajor: Number(process.versions.node.split('.')[0]),
+      requireObserved: true
+    });
+  } finally {
+    await rm(evidenceDirectory, { recursive: true, force: true });
+  }
 }
 
 function digest(file) { return readFile(file).then((bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`); }
@@ -94,7 +121,7 @@ async function main() {
   const checkOutput = run('npm', ['run', 'check']);
   const testOutput = run('npm', ['test'], { releaseTests: true });
   const npmTest = parseReleaseTestSummary(testOutput);
-  run('npm', ['run', 'poc:release-gate'], { releaseTests: true });
+  const welBenchmark = await runReleaseGateAndCollectWelBenchmark();
   run('npm', ['run', 'vscode:package']);
   assertReleaseCheckoutClean(root, {
     expectedCommit: commit, expectedTree: tree, label: 'Verification pre-pack check'
@@ -125,7 +152,7 @@ async function main() {
     reviewerIdentity: identity
   });
   const receipt = signVerificationReceipt({
-    schemaVersion: 4, // schema-transient: externally signed release receipt, not a migration-registry record
+    schemaVersion: 5, // schema-transient: externally signed release receipt, not a migration-registry record
     generatedAt: new Date().toISOString(),
     commit,
     tree,
@@ -139,6 +166,8 @@ async function main() {
     vscodeBuild: 'passed',
     packageSha256,
     vsixSha256,
+    welBenchmark: welBenchmark.evidence,
+    welBenchmarkSha256: welBenchmark.evidenceSha256,
     platformEvidence: platformEvidence.evidence,
     platformEvidenceSha256: platformEvidence.evidenceSha256
   }, await readFile(signingKey), identity);

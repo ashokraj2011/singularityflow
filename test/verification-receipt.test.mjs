@@ -6,6 +6,10 @@ import {
   mergeSignedVerificationReceipts, REQUIRED_RELEASE_PLATFORM_MATRIX,
   signVerificationReceipt, validateReleasePlatformEvidence, verifyVerificationReceipt
 } from '../src/verification-receipt.mjs';
+import {
+  validateWelBenchmarkEvidence, WEL_BENCHMARK_ASSURANCE, WEL_BENCHMARK_CAPABILITIES,
+  WEL_BENCHMARK_EXCLUDED_CONTENT, WEL_BENCHMARK_SCHEMA
+} from '../src/wel-benchmark-evidence.mjs';
 
 function keys() {
   const pair = generateKeyPairSync('ed25519');
@@ -50,11 +54,83 @@ function reviewedPlatformEvidence({
   };
 }
 
+function timing(minimum = 1) {
+  return { minimum, median: minimum + 1, p95: minimum + 2, maximum: minimum + 3 };
+}
+
+function welBenchmark({ platform = 'darwin', nodeMajor = 22 } = {}) {
+  return {
+    schema: WEL_BENCHMARK_SCHEMA,
+    assurance: WEL_BENCHMARK_ASSURANCE,
+    platform,
+    architecture: platform === 'darwin' ? 'arm64' : 'x64',
+    nodeMajor,
+    requestedSamples: 12,
+    completedSamples: 12,
+    outcome: 'observed',
+    unavailableCode: null,
+    parserMilliseconds: timing(1),
+    reportIngestionMilliseconds: timing(2),
+    receiptProjectionMilliseconds: timing(3),
+    baselineReceiptProjectionMilliseconds: timing(2),
+    incrementalReceiptProjectionMilliseconds: {
+      minimum: -1, median: 0, p95: 1, maximum: 2,
+      method: 'witnessed-minus-unenrolled-same-process'
+    },
+    contextXrayProjectionMilliseconds: timing(4),
+    storyStartRequestedSamples: 3,
+    storyStartCompletedSamples: 3,
+    storyStartMode: 'governed-local-publication-push-off',
+    storyStartMilliseconds: timing(5),
+    storyTimingInterpretation: 'synthetic local Story-start transaction including its governed local commits; configuration authority uses a local bare remote and application push is disabled',
+    storyPushRecovery: {
+      outcome: 'recovered', failureCode: 'STORY_PUBLICATION_FAILED',
+      failureMilliseconds: 10, recoveryMilliseconds: 11, exactRetainedCommitPublished: true
+    },
+    storyRecoveryInterpretation: 'synthetic local post-preflight transport loss followed by the public exact pending-publication sync path; this is not office-network evidence',
+    storyOfflineRecovery: {
+      outcome: 'recovered', failureCode: 'STORY_PUBLICATION_FAILED',
+      failureMilliseconds: 12, recoveryMilliseconds: 13,
+      exactRetainedCommitPublished: true, freshCloneMilliseconds: 14,
+      freshCloneExact: true, freshCloneClean: true
+    },
+    storyOfflineRecoveryInterpretation: 'synthetic local authority loss after publication preflight, exact public sync recovery, and clean fresh-clone verification; this is not office-network evidence',
+    interruptedWriteRecovery: {
+      outcome: 'recovered', failureCode: 'ABRUPT_PROCESS_EXIT',
+      failureMilliseconds: 15, recoveryMilliseconds: 16, exactStableStateRestored: true
+    },
+    interruptedWriteInterpretation: 'synthetic abrupt process exit after state write and before ref advancement, recovered through the public sync surface',
+    adapterCancellation: {
+      outcome: 'cancelled-safe', milliseconds: 1, exact: false, mappingProposals: 0
+    },
+    adapterCancellationInterpretation: 'pre-cancelled exact-static observation returns unavailable evidence and creates no mapping proposal',
+    timingInterpretation: 'paired local observation; signed deltas may be negative from timer noise and are not an enforced budget',
+    cpuMilliseconds: { median: 2, p95: 3 },
+    catalogBytes: 100,
+    baselineReceiptBytes: 200,
+    receiptBytes: 300,
+    incrementalReceiptBytes: 100,
+    contextXrayBytes: 400,
+    storyWorkflowBytes: 500,
+    rawReportBytes: 600,
+    estimatedDurableBytesPerExecution: 900,
+    estimatedDurableIncrementalBytesPerExecution: 700,
+    fixtureOutcomes: { cases: 1, exactStatic: 1, inexact: 0, falseExact: 0 },
+    measurementCapabilities: [...WEL_BENCHMARK_CAPABILITIES],
+    contentExcluded: [...WEL_BENCHMARK_EXCLUDED_CONTENT]
+  };
+}
+
 function evidence(options = {}) {
   const platformEvidence = reviewedPlatformEvidence(options);
   const validated = validateReleasePlatformEvidence(platformEvidence);
+  const benchmark = welBenchmark({
+    platform: platformEvidence.platform,
+    nodeMajor: Number(platformEvidence.nodeVersion.split('.')[0])
+  });
+  const validatedBenchmark = validateWelBenchmarkEvidence(benchmark);
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     commit: 'a'.repeat(40), tree: 'b'.repeat(40), cleanCheckout: true,
     npmCi: 'passed', npmRunCheck: { passed: true, checks: 880 },
     npmTest: { passed: 2654, failed: 0, skipped: 0, cancelled: 0, todo: 0 },
@@ -62,6 +138,8 @@ function evidence(options = {}) {
     platforms: [platformEvidence.platform], nodeVersions: [platformEvidence.nodeVersion],
     vscodeBuild: 'passed', packageSha256: platformEvidence.packageSha256,
     vsixSha256: platformEvidence.vsixSha256,
+    welBenchmark: benchmark,
+    welBenchmarkSha256: validatedBenchmark.evidenceSha256,
     platformEvidence,
     platformEvidenceSha256: validated.evidenceSha256
   };
@@ -108,13 +186,15 @@ test('release promotion accepts only a reviewed signed aggregate covering the ex
   assert.deepEqual(aggregate.platforms, ['darwin', 'linux', 'win32']);
   assert.equal(aggregate.packageSha256, cells[0].packageSha256);
   assert.equal(aggregate.artifactEvidence.payloadSha256, cells[0].signature.payloadSha256);
-  assert.equal(aggregate.schemaVersion, 5);
+  assert.equal(aggregate.schemaVersion, 6);
   assert.equal(
     aggregate.platformMatrix[0].platformEvidenceSha256,
     validateReleasePlatformEvidence(aggregate.platformMatrix[0].platformEvidence).evidenceSha256
   );
   assert.equal(aggregate.platformMatrix.find((cell) => cell.platform === 'win32')
     .platformEvidence.checks.windowsNpmNpxRoundTrip.outcome, 'passed');
+  assert.equal(aggregate.platformMatrix.find((cell) => cell.platform === 'linux')
+    .welBenchmark.platform, 'linux');
 
   const matrixWithChangedNestedEvidence = structuredClone(aggregate);
   delete matrixWithChangedNestedEvidence.signature;
@@ -128,6 +208,18 @@ test('release promotion accepts only a reviewed signed aggregate covering the ex
     requiredPlatformMatrix: REQUIRED_RELEASE_PLATFORM_MATRIX
   }), (error) => error.code === 'VERIFICATION_RECEIPT_REJECTED'
     && error.details.failures.some((failure) => failure.includes('platform evidence digest is invalid')));
+
+  const matrixWithChangedBenchmark = structuredClone(aggregate);
+  delete matrixWithChangedBenchmark.signature;
+  matrixWithChangedBenchmark.platformMatrix[0].welBenchmark.fixtureOutcomes.falseExact = 1;
+  const resignedChangedBenchmark = signVerificationReceipt(
+    matrixWithChangedBenchmark, release.privateKey, 'release-matrix@example.test'
+  );
+  assert.throws(() => verifyVerificationReceipt(resignedChangedBenchmark, {
+    trustedPublicKeyPem: release.publicKey,
+    requiredPlatformMatrix: REQUIRED_RELEASE_PLATFORM_MATRIX
+  }), (error) => error.code === 'VERIFICATION_RECEIPT_REJECTED'
+    && error.details.failures.some((failure) => failure.includes('fixtureOutcomes')));
 
   const partial = mergeSignedVerificationReceipts(
     cells.slice(0, 2), release.privateKey, 'release-matrix@example.test'
@@ -211,17 +303,43 @@ test('physical platform evidence is strict, digest-only, and platform-aware', ()
       && error.details.failures.some((failure) => failure.includes('supported release matrix')));
 });
 
+test('WEL benchmark evidence is strict, content-free, host-bound, and digest-bound', () => {
+  const valid = welBenchmark();
+  assert.match(validateWelBenchmarkEvidence(valid, {
+    platform: 'darwin', nodeMajor: 22
+  }).evidenceSha256, /^sha256:[a-f0-9]{64}$/);
+
+  const rawPath = structuredClone(valid);
+  rawPath.repositoryPath = '/private/repository';
+  assert.throws(() => validateWelBenchmarkEvidence(rawPath),
+    (error) => error.code === 'WEL_BENCHMARK_EVIDENCE_INVALID'
+      && error.details.failures.includes('WEL benchmark fields are invalid'));
+
+  const falseExact = structuredClone(valid);
+  falseExact.fixtureOutcomes.falseExact = 1;
+  assert.throws(() => validateWelBenchmarkEvidence(falseExact),
+    (error) => error.code === 'WEL_BENCHMARK_EVIDENCE_INVALID'
+      && error.details.failures.includes('fixtureOutcomes is invalid'));
+
+  assert.throws(() => validateWelBenchmarkEvidence(valid, { platform: 'linux' }),
+    (error) => error.code === 'WEL_BENCHMARK_EVIDENCE_INVALID'
+      && error.details.failures.includes('platform does not match the verified host'));
+});
+
 test('old or missing physical evidence cannot authorize merge or promotion', () => {
   const pair = keys();
   const old = evidence();
-  old.schemaVersion = 3;
+  old.schemaVersion = 4;
   delete old.platformEvidence;
   delete old.platformEvidenceSha256;
+  delete old.welBenchmark;
+  delete old.welBenchmarkSha256;
   const signedOld = signVerificationReceipt(old, pair.privateKey, 'release@example.test');
   assert.throws(() => verifyVerificationReceipt(signedOld, { trustedPublicKeyPem: pair.publicKey }),
     (error) => error.code === 'VERIFICATION_RECEIPT_REJECTED'
-      && error.details.failures.some((failure) => failure.includes('schemaVersion must be 4'))
-      && error.details.failures.some((failure) => failure.includes('platform evidence')));
+      && error.details.failures.some((failure) => failure.includes('schemaVersion must be 5'))
+      && error.details.failures.some((failure) => failure.includes('platform evidence'))
+      && error.details.failures.some((failure) => failure.includes('WEL benchmark evidence')));
   assert.throws(() => mergeSignedVerificationReceipts(
     [signedOld], pair.privateKey, 'matrix@example.test'
   ), (error) => error.code === 'VERIFICATION_RECEIPT_REJECTED');
@@ -233,6 +351,16 @@ test('old or missing physical evidence cannot authorize merge or promotion', () 
     trustedPublicKeyPem: pair.publicKey
   }), (error) => error.code === 'VERIFICATION_RECEIPT_REJECTED'
     && error.details.failures.includes('platformEvidenceSha256 does not match platformEvidence'));
+
+  const badBenchmarkDigest = evidence();
+  badBenchmarkDigest.welBenchmarkSha256 = `sha256:${'0'.repeat(64)}`;
+  const signedBadBenchmarkDigest = signVerificationReceipt(
+    badBenchmarkDigest, pair.privateKey, 'release@example.test'
+  );
+  assert.throws(() => verifyVerificationReceipt(signedBadBenchmarkDigest, {
+    trustedPublicKeyPem: pair.publicKey
+  }), (error) => error.code === 'VERIFICATION_RECEIPT_REJECTED'
+    && error.details.failures.includes('welBenchmarkSha256 does not match welBenchmark'));
 });
 
 test('receipt tampering, an untrusted signer, and missing checks fail closed', () => {

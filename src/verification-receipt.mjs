@@ -7,13 +7,16 @@ import { spawnSync } from 'node:child_process';
 import { canonicalJson } from './records.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { MCP_SCAFFOLD_VERSIONS } from './mcp-host.mjs';
+import {
+  isWelBenchmarkEvidenceSha256, validateWelBenchmarkEvidence
+} from './wel-benchmark-evidence.mjs';
 
 function sha256(value) { return createHash('sha256').update(value).digest('hex'); }
 
 const SUPPORTED_RELEASE_PLATFORMS = Object.freeze(['darwin', 'linux', 'win32']);
 const SUPPORTED_RELEASE_NODE_MAJORS = Object.freeze([20, 22]);
-const SINGLE_RECEIPT_VERSION = 4; // schema-transient: externally signed release receipt
-const MATRIX_RECEIPT_VERSION = 5; // schema-transient: externally signed release receipt
+const SINGLE_RECEIPT_VERSION = 5; // schema-transient: externally signed release receipt
+const MATRIX_RECEIPT_VERSION = 6; // schema-transient: externally signed release receipt
 const PLATFORM_EVIDENCE_VERSION = 1; // schema-transient: reviewed external evidence input
 const SHA256 = /^sha256:[a-f0-9]{64}$/;
 const GIT_OBJECT_ID = /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/;
@@ -281,7 +284,8 @@ function validatePlatformMatrix(receipt, required = null) {
     const exactFields = entry && typeof entry === 'object' && !Array.isArray(entry)
       && JSON.stringify(Object.keys(entry).sort()) === JSON.stringify([
         'evidencePayloadSha256', 'evidenceSignerKeySha256', 'evidenceVerifierIdentity',
-        'nodeMajor', 'nodeVersion', 'platform', 'platformEvidence', 'platformEvidenceSha256'
+        'nodeMajor', 'nodeVersion', 'platform', 'platformEvidence', 'platformEvidenceSha256',
+        'welBenchmark', 'welBenchmarkSha256'
       ]);
     const valid = entry && typeof entry === 'object' && !Array.isArray(entry)
       && exactFields
@@ -292,6 +296,7 @@ function validatePlatformMatrix(receipt, required = null) {
       && SHA256.test(String(entry.evidencePayloadSha256 ?? ''))
       && SHA256.test(String(entry.evidenceSignerKeySha256 ?? ''))
       && SHA256.test(String(entry.platformEvidenceSha256 ?? ''))
+      && isWelBenchmarkEvidenceSha256(entry.welBenchmarkSha256)
       && validIdentity(entry.evidenceVerifierIdentity);
     if (!valid) {
       failures.push('platformMatrix contains an invalid evidence cell');
@@ -316,6 +321,18 @@ function validatePlatformMatrix(receipt, required = null) {
         failures.push(`platformMatrix ${entry.platform}/node-${entry.nodeMajor}: platform evidence digest is invalid`);
       }
     }
+    try {
+      const benchmark = validateWelBenchmarkEvidence(entry.welBenchmark, {
+        platform: entry.platform,
+        nodeMajor: entry.nodeMajor,
+        requireObserved: true
+      });
+      if (entry.welBenchmarkSha256 !== benchmark.evidenceSha256) {
+        failures.push(`platformMatrix ${entry.platform}/node-${entry.nodeMajor}: WEL benchmark digest is invalid`);
+      }
+    } catch (error) {
+      failures.push(`platformMatrix ${entry?.platform ?? 'unknown'}/node-${entry?.nodeMajor ?? 'unknown'}: ${error.message}`);
+    }
     const cell = {
       platform: entry.platform,
       nodeVersion: entry.nodeVersion,
@@ -324,7 +341,9 @@ function validatePlatformMatrix(receipt, required = null) {
       evidenceSignerKeySha256: entry.evidenceSignerKeySha256,
       evidenceVerifierIdentity: entry.evidenceVerifierIdentity,
       platformEvidence: structuredClone(entry.platformEvidence),
-      platformEvidenceSha256: entry.platformEvidenceSha256
+      platformEvidenceSha256: entry.platformEvidenceSha256,
+      welBenchmark: structuredClone(entry.welBenchmark),
+      welBenchmarkSha256: entry.welBenchmarkSha256
     };
     const key = matrixKey(cell);
     if (seen.has(key)) failures.push(`platformMatrix repeats ${key}`);
@@ -466,9 +485,22 @@ export function verifyVerificationReceipt(receipt, {
         }
       }
     }
+    try {
+      const benchmark = validateWelBenchmarkEvidence(receipt.welBenchmark, {
+        platform: receipt.platforms?.[0],
+        nodeMajor: nodeMajor(receipt.nodeVersions?.[0]),
+        requireObserved: true
+      });
+      if (receipt.welBenchmarkSha256 !== benchmark.evidenceSha256) {
+        failures.push('welBenchmarkSha256 does not match welBenchmark');
+      }
+    } catch (error) {
+      failures.push(error.message);
+    }
     if (receipt.artifactEvidence != null) failures.push('single-platform receipt must not contain artifactEvidence');
-  } else if (receipt.platformEvidence != null || receipt.platformEvidenceSha256 != null) {
-    failures.push('platform-matrix receipt must keep platform evidence inside each matrix cell');
+  } else if (receipt.platformEvidence != null || receipt.platformEvidenceSha256 != null
+      || receipt.welBenchmark != null || receipt.welBenchmarkSha256 != null) {
+    failures.push('platform-matrix receipt must keep platform and WEL benchmark evidence inside each matrix cell');
   }
   failures.push(...validatePlatformMatrix(receipt, requiredPlatformMatrix).failures);
   if (!SHA256.test(String(receipt.packageSha256 ?? ''))) failures.push('packageSha256 is invalid');
@@ -574,7 +606,9 @@ export function mergeSignedVerificationReceipts(receipts, privateKeyPem, verifie
       evidenceSignerKeySha256: receipt.signature.publicKeySha256,
       evidenceVerifierIdentity: receipt.verifierIdentity,
       platformEvidence: structuredClone(receipt.platformEvidence),
-      platformEvidenceSha256: receipt.platformEvidenceSha256
+      platformEvidenceSha256: receipt.platformEvidenceSha256,
+      welBenchmark: structuredClone(receipt.welBenchmark),
+      welBenchmarkSha256: receipt.welBenchmarkSha256
     };
     if (!SUPPORTED_RELEASE_PLATFORMS.includes(cell.platform)
         || !Number.isInteger(cell.nodeMajor)) {

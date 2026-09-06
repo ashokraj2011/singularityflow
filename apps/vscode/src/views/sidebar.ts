@@ -291,7 +291,8 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
 
   constructor(
     private readonly state: Pick<vscode.Memento, 'get' | 'update'>,
-    private readonly profile: () => { name?: string; role?: string } = () => ({})
+    private readonly profile: () => { name?: string; role?: string } = () => ({}),
+    private readonly onRender: () => void = () => {}
   ) {
     // A missing preference is a first visit; an empty array is an intentional choice. Keeping those
     // distinct lets the sidebar be useful immediately without resurrecting favorites somebody
@@ -743,6 +744,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
         });
         document.addEventListener('keydown',(event)=>{if((event.key==='Enter'||event.key===' ')&&event.target.matches('[data-node]')){event.preventDefault();markLastOpened(event.target);vscode.postMessage({type:'node',key:event.target.dataset.node});}});
       </script></body></html>`;
+    this.onRender();
   }
 
   dispose(): void {

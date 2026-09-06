@@ -229,8 +229,8 @@ All `[~]` DXP entries below share this tracked delivery metadata:
 
 | Scope | Landed in `96bb55f8` | Remaining evidence before `[x]` |
 |---|---|---|
-| `DXP-P0-001` | `doctor --performance` measures its explicit invoking checkout; scale and dirty-tree fixtures cover the VS Code snapshot | 30 samples on pinned Node 22/Linux x64; minimum/current VS Code host p50/p95, event-loop and RSS; office-network arm |
-| `DXP-P0-002`–`003` | cache-first activation, confirmed-snapshot auxiliary reads, latest-only refresh/validation, one sidebar paint, hidden-panel deferral | 10-second real extension-host storms with CPU/RSS/process budgets on minimum and current VS Code |
+| `DXP-P0-001` | `doctor --performance` measures its explicit invoking checkout; scale and dirty-tree fixtures cover the VS Code snapshot; a real-editor runner now has version-bound minimum/current budgets, cold/warm processes, actual paint markers, event-loop delay, CPU, process counts, and RSS without retaining workspace content | Accepted 30-pair reports on pinned Node 22/Linux x64 and minimum/current VS Code; current extension-test hosts that do not persist `workspaceState` remain explicitly incomplete; office-network arm |
+| `DXP-P0-002`–`003` | real-host activation now returns after providers/commands and cache publication instead of awaiting workspace inventory or the fresh snapshot; confirmed-snapshot auxiliary reads, latest-only refresh/validation, one sidebar paint, hidden-panel deferral, and a real 100-event watcher exercise are measured | Accepted 10-second real extension-host storms with CPU/RSS/process budgets on minimum and current VS Code; lower unchanged-refresh and event-loop tails without raising budgets |
 | `DXP-P0-004`–`006` | reviewed enterprise proxy/CA/helper parity, bounded process-tree supervisor, and centralized partial-clone fallback | live Windows GCM, Git Bash, macOS helper, office proxy/CA, provider filter, and descendant-cleanup exercises |
 | `DXP-P1-001`–`002` | leased heavy slices, linear bounded output, JSON stdout isolation, and lazy workspace/capability startup readers | accepted peak-RSS and module-load release budgets on the pinned hosts |
 | `DXP-P1-003`, `DXP-P2-001` | one operation-scoped remote session, broad inventory reuse, mutation invalidation, exact revalidation, and asynchronous configuration/ledger/WMB/lifecycle authority reads; no product workflow calls the retained synchronous compatibility transport | collect pinned host measurements and remove the compatibility API only in a separately reviewed breaking release |
@@ -299,8 +299,9 @@ Acceptance gates:
 - record and review at least 30 samples on the pinned Node 22/Linux x64 fixture;
 - change the accepted baseline from `unestablished` only through the existing reviewed import path;
 - prove a synthetic regression greater than 20 percent fails the local release gate;
-- add a real VS Code extension-host benchmark for activation, cached first paint, confirmed first
-  paint, unchanged refresh, changed refresh, webview opening, event-loop delay, and peak child RSS;
+- accept 30-pair reports from the implemented real VS Code extension-host benchmark for activation,
+  cached first paint, confirmed first paint, unchanged refresh, changed refresh, webview opening,
+  event-loop delay, and peak child RSS on both supported editor profiles;
 - bind p50 and p95 budgets to both the minimum and current supported VS Code versions;
 - keep model and network access disabled in the deterministic tier and add a separate office-network
   exercise for proxy-dependent Git behavior;
@@ -316,7 +317,8 @@ confirmation.
 
 Acceptance gates:
 
-- cached sidebar content becomes interactive without awaiting fresh workspace enumeration;
+- keep the implemented background workspace inventory and repository confirmation path green in
+  accepted real-host reports, with cached sidebar content interactive first;
 - at most one foreground CLI child runs during activation;
 - capability readiness and workspace-log reads start only after the first confirmed snapshot, or are
   consolidated into a bounded read;

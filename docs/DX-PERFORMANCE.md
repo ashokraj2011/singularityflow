@@ -96,6 +96,47 @@ Linux/Node-22 accepted baseline.
 Do not update the baseline merely to make a regression pass. Review topology, runner load,
 dependency changes, and the lazy import graph first.
 
+## Real VS Code extension-host benchmark
+
+The CLI benchmark cannot prove that VS Code remains responsive. The repository therefore also
+ships a runner that launches the supplied VS Code application itself through
+`--extensionDevelopmentPath` and `--extensionTestsPath`. It measures a cold and warm host process,
+activation, cached and confirmed sidebar paints, unchanged and changed refreshes, a 100-event
+governed-file storm, a heavyweight Help webview open, event-loop delay, CLI process concurrency,
+CPU, extension-host RSS, and Linux `/proc` child RSS. It never substitutes the Node stub host.
+
+```bash
+# Fast, non-enforcing smoke run against the current `code` installation.
+npm run vscode:host-benchmark -- --profile=current --samples=1
+
+# Accepted current-host exercise.
+npm run vscode:host-benchmark -- --profile=current --samples=30 --enforce \
+  --out=/tmp/sflow-vscode-current.json
+
+# Run separately with an exact VS Code 1.90.x installation.
+npm run vscode:host-benchmark -- --profile=minimum --samples=30 --enforce \
+  --vscode=/absolute/path/to/code --out=/tmp/sflow-vscode-minimum.json
+```
+
+The reviewed limits live in `benchmarks/dx/vscode-host-budgets.json`. `minimum` refuses anything
+other than VS Code 1.90.x; `current` refuses versions older than 1.90. Network and model access are
+disabled, every fixture is disposable, and reports contain no repository path, Work ID, identity,
+question, artifact, command output, or source bytes. Linux records peak child RSS from `/proc`;
+other platforms report that measurement as unavailable instead of inventing it.
+
+A non-enforcing run may report `incomplete`. In particular, some VS Code extension-test hosts do
+not persist `workspaceState` between their disposable processes; that makes the warm cached-paint
+cell unavailable even though the extension explicitly flushed it. Such a run remains useful for
+activation, confirmed paint, refresh, storm, event-loop, and RSS diagnostics, but it is not accepted
+release evidence. `--enforce` requires all cells, at least 30 cold/warm pairs, and every profile
+budget. Do not relabel a projection-ready timestamp as a paint or a stub-host result as VS Code.
+
+In a real editor host, activation no longer awaits the machine-wide workspace inventory or the
+fresh repository snapshot. All commands and providers are registered first; a retained cache can
+paint when VS Code resolves the view, then one background read confirms it. Capability readiness
+and workspace logs remain behind that confirmed snapshot. Stub-host contract tests retain the
+awaited path so their assertions do not race fire-and-forget work.
+
 ## Bounded aggregate verification
 
 `npm test` no longer starts one unbounded all-files process. It creates eight deterministic,

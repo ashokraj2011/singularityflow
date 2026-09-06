@@ -15,6 +15,7 @@ import { createHash } from 'node:crypto';
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
+import { recordHostCliProcessCompleted, recordHostCliProcessStarted } from '../host-performance.ts';
 
 /** Lifecycle snapshots include branch cataloguing and deterministic governance checks. */
 export const CLI_TIMEOUT_MS = 120_000;
@@ -1493,6 +1494,8 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true
       });
+      recordHostCliProcessStarted(child.pid);
+      child.once('close', () => recordHostCliProcessCompleted(child?.pid));
     } catch (error) {
       return fail(error);
     }

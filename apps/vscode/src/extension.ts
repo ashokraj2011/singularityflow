@@ -83,6 +83,10 @@ import { storyCheckoutIssue, unsavedRepositoryPaths } from './generation-guards.
 import { renderReworkRollForwardPreview } from './views/rework-roll-forward-preview.ts';
 import { RepositoryEpochGuard, type RepositoryEpochToken } from './repository-epoch.ts';
 import { RevisionSliceWatcherFence } from './watcher-refresh-fence.ts';
+import {
+  beginHostPerformanceActivation, hostPerformanceSnapshot, markHostPerformance,
+  recordHostSidebarRender, recordHostStoreEvent, resetHostPerformanceInterval
+} from './host-performance.ts';
 
 let extensionLifetime = new AbortController();
 
@@ -220,13 +224,25 @@ async function firstRunChecks(extensionPath: string, location: { executable: str
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  const hostBenchmarkEnabled = beginHostPerformanceActivation();
+  let persistHostBenchmarkCache: () => Promise<boolean> = async () => false;
   extensionLifetime.abort();
   extensionLifetime = new AbortController();
+  const activationSignal = extensionLifetime.signal;
   // Module state can survive a deactivate/reactivate cycle in the same extension host. Until this
   // activation validates a workspace or folder, no command may inherit the previous routing choice.
   setActiveRepositoryContext(null);
   const output = vscode.window.createOutputChannel('Singularity Flow');
   context.subscriptions.push(output);
+  if (hostBenchmarkEnabled) {
+    context.subscriptions.push(vscode.commands.registerCommand(
+      'singularityFlow.__hostPerformance',
+      async (action: 'snapshot' | 'reset-interval' | 'persist-cache' = 'snapshot') => {
+        if (action === 'persist-cache') return persistHostBenchmarkCache();
+        return action === 'reset-interval' ? resetHostPerformanceInterval() : hostPerformanceSnapshot();
+      }
+    ));
+  }
   // First line in the channel, so "which build is actually loaded" is one look rather than a guess.
   // The version does not change between development reinstalls, so it cannot answer this.
   output.appendLine(`Singularity Flow — build ${typeof __SFLOW_BUILD__ === 'string' ? __SFLOW_BUILD__ : 'unstamped'}`);
@@ -900,10 +916,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // One continuous navigation surface replaces five independently-sized native panes. The hidden
   // native TreeViews remain compatibility adapters for their mature, tested read models and context
   // commands; the webview binds to the exact same providers so it cannot tell a different story.
+  let hostSidebarProjection: 'initial' | 'loading' | 'cache' | 'confirmed' = 'initial';
   const sidebar = new SidebarViewProvider(context.globalState, () => {
     const settings = vscode.workspace.getConfiguration('singularityFlow');
     return { name: settings.get<string>('userName') ?? '', role: settings.get<string>('role') ?? '' };
-  });
+  }, () => recordHostSidebarRender(hostSidebarProjection));
   refreshPersonaMenus = () => sidebar.profileChanged();
   sidebar.bind('workspaces', workspaceTree);
   sidebar.bind('logs', logsTree);
@@ -2259,10 +2276,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   }));
 
-  // The workspace list is part of the activation read model, not a background decoration. Await it
-  // so a selected-but-unmaterialized workspace cannot briefly render as "No workspaces yet" (and
-  // so commands/context menus are derived from the same registry revision as Lifecycle).
-  await refreshWorkspaceTree();
+  // A real editor can paint retained workspace rows and confirm its selected repository without
+  // waiting for a second, machine-wide inventory. `workspace current` below still binds every
+  // repository-scoped action. Stub-host tests await the list so their assertions stay deterministic;
+  // production publishes it as soon as its independent read completes.
+  const initialWorkspaceRefresh = refreshWorkspaceTree();
 
   // A new VSIX can carry a newer workflow/agent contract while every saved workspace still points
   // at its older approved configuration. Offer one visible route per installed build; do not start
@@ -2270,14 +2288,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // reinstalls intentionally keep the same extension version.
   const loadedBuild = typeof __SFLOW_BUILD__ === 'string' ? __SFLOW_BUILD__ : 'unstamped';
   const upgradeOfferKey = 'singularityFlow.workspaceUpgradeOfferedBuild';
-  if (loadedBuild !== 'unstamped' && workspaceEntries.some((entry) => !entry.archivedAt)
-    && context.globalState.get<string>(upgradeOfferKey) !== loadedBuild) {
+  const offerWorkspaceUpgrade = async (): Promise<void> => {
+    if (loadedBuild === 'unstamped' || !workspaceEntries.some((entry) => !entry.archivedAt)
+      || context.globalState.get<string>(upgradeOfferKey) === loadedBuild) return;
     await context.globalState.update(upgradeOfferKey, loadedBuild);
     void vscode.window.showInformationMessage(
       'A new Singularity Flow build is installed. Review capability, workspace, and governed-agent updates?',
       'Review upgrades'
     ).then((choice) => choice === 'Review upgrades'
       ? vscode.commands.executeCommand('singularityFlow.upgradeWorkspaces') : undefined);
+  };
+  if (vscode.env?.appHost) {
+    void initialWorkspaceRefresh.then(offerWorkspaceUpgrade).catch((error) => {
+      output.appendLine(`Workspace upgrade offer could not be prepared: ${(error as Error).message}`);
+    });
+  } else {
+    await initialWorkspaceRefresh;
+    await offerWorkspaceUpgrade();
   }
 
   /**
@@ -2672,6 +2699,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   if ('reason' in resolved) {
     return unavailable(resolved.label, resolved.reason, resolved.contextValue, resolved.lead);
   }
+  markHostPerformance('repositoryResolved');
   // `repository` is rebound when a different workspace is chosen. Every closure below captures the
   // binding rather than the value, so they all follow — which is the point: choosing a workspace
   // used to require a window reload precisely because this was a constant.
@@ -2826,11 +2854,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   const store = new WorkspaceStore(client, snapshotCache);
+  if (hostBenchmarkEnabled) {
+    persistHostBenchmarkCache = async () => {
+      if (!store.current.snapshot || store.current.stale || store.current.error) return false;
+      await context.workspaceState.update(snapshotCacheKey(), store.current.snapshot);
+      return true;
+    };
+  }
   currentHelpWork = () => {
     const item = store.current.snapshot?.workflow?.workItem;
     return item?.id ? { id: item.id, kind: item.workType ?? null } : null;
   };
   context.subscriptions.push(store);
+  // Registered before the tree-model listeners, so the benchmark labels the render they queue
+  // with the exact projection that caused it. This is inert outside the explicit host benchmark.
+  context.subscriptions.push(store.onDidChange((state, change) => {
+    hostSidebarProjection = change.kind === 'cache' ? 'cache'
+      : change.kind === 'loading' ? 'loading'
+        : state.snapshot && !state.stale && !state.loading ? 'confirmed' : hostSidebarProjection;
+  }));
   // Only two states are worth a line of UI. `stale` is the one that matters — content restored from
   // the last session and not yet confirmed. A plain refresh over content already known to be current
   // says nothing: the tree is right, it is simply being re-checked.
@@ -2844,6 +2886,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
      * and the sections were filling that gap with their "nothing to do" sentences.
      */
     sidebar.setAwaitingFirstRead(state.loading && !state.snapshot);
+  }));
+  context.subscriptions.push(store.onDidChange((_state, change) => {
+    recordHostStoreEvent(change.kind);
   }));
   interface WorkspaceLogsSummary {
     entries: Array<{ timestamp: string | null; severity: string }>;
@@ -5287,57 +5332,79 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Content first, confirmation second. Every view is subscribed by now, so the previous session's
   // snapshot paints immediately; the refresh below replaces it a second later. Without this the
   // sidebar is empty for the whole of that second, on every single open.
-  store.primeFromCache();
-  await store.refresh();
-  initialRefreshCompleted = true;
-  startAuxiliaryReadsAfterConfirmedSnapshot();
-  const pendingStartWizard = context.globalState.get<PendingStartWizard | null>(START_WIZARD_KEY, null);
-  if (pendingStartWizard?.step === 'work' && pendingStartWizard.resumeOnActivation) {
-    // Clear only the auto-resume bit before opening the form. A second reload must not repeatedly
-    // take over the editor, while the remaining marker lets the explicit Guided start command
-    // resume this final step if the person closes the form.
-    await context.globalState.update(START_WIZARD_KEY, {
-      ...pendingStartWizard,
-      resumeOnActivation: false
-    });
-    if (pendingStartWizard.workspaceId && pendingStartWizard.workspaceId !== resolved.workspaceId) {
-      void vscode.window.showWarningMessage(
-        `Guided Start paused because the active workspace changed from ${pendingStartWizard.workspaceName ?? pendingStartWizard.workspaceId}. Run Guided Start again to continue in the current workspace.`
-      );
-    } else {
-      await vscode.commands.executeCommand('singularityFlow.startWork', {
-        guidedStart: true,
-        workspaceName: pendingStartWizard.workspaceName ?? workspaceLabel
+  const completeInitialRepositoryRead = async (): Promise<void> => {
+    await store.refresh();
+    if (activationSignal.aborted) return;
+    if (store.current.snapshot && !store.current.error && !store.current.stale) {
+      markHostPerformance('confirmedSnapshotPublished');
+    }
+    initialRefreshCompleted = true;
+    startAuxiliaryReadsAfterConfirmedSnapshot();
+    const pendingStartWizard = context.globalState.get<PendingStartWizard | null>(START_WIZARD_KEY, null);
+    if (pendingStartWizard?.step === 'work' && pendingStartWizard.resumeOnActivation) {
+      // Clear only the auto-resume bit before opening the form. A second reload must not repeatedly
+      // take over the editor, while the remaining marker lets the explicit Guided start command
+      // resume this final step if the person closes the form.
+      await context.globalState.update(START_WIZARD_KEY, {
+        ...pendingStartWizard,
+        resumeOnActivation: false
       });
-    }
-  }
-  const pendingHandoff = context.globalState.get<PendingCopilotHandoff | null>(COPILOT_HANDOFF_KEY, null);
-  const openFolders = vscode.workspace.workspaceFolders ?? [];
-  if (pendingHandoff && openFolders.some(
-    (folder) => path.resolve(folder.uri.fsPath) === path.resolve(pendingHandoff.repository)
-  )) {
-    // Clear before opening chat. If prompt composition fails, reloading the window must not create
-    // an endless retry loop; the visible error leaves the person in the correct repository.
-    await context.globalState.update(COPILOT_HANDOFF_KEY, undefined);
-    try {
-      // The discriminator is intentional: legacy handoffs without it fail closed to workspace
-      // selection instead of inferring a Story from mutable repository state after the reload.
-      if (pendingHandoff.kind === 'story' && pendingHandoff.workId) {
-        await openGovernedCopilot(pendingHandoff.workId);
+      if (pendingStartWizard.workspaceId && pendingStartWizard.workspaceId !== resolved.workspaceId) {
+        void vscode.window.showWarningMessage(
+          `Guided Start paused because the active workspace changed from ${pendingStartWizard.workspaceName ?? pendingStartWizard.workspaceId}. Run Guided Start again to continue in the current workspace.`
+        );
       } else {
-        await openWorkspaceCopilot(pendingHandoff.workspaceName);
+        await vscode.commands.executeCommand('singularityFlow.startWork', {
+          guidedStart: true,
+          workspaceName: pendingStartWizard.workspaceName ?? workspaceLabel
+        });
       }
-    } catch (error) {
-      showRefusal(error, { headline: 'Could not resume governed Copilot handoff' });
     }
-  }
-  const firstHomeKey = 'singularityFlow.firstHealthyHome.v1';
-  if (vscode.env?.appHost && !firstRunBlocked && !pendingStartWizard && !pendingHandoff
-      && !context.globalState.get(firstHomeKey)) {
-    // Home, not the walkthrough or a configuration form, is the successful first screen. The
-    // walkthrough remains available from its one-time offer and the Help section.
-    await context.globalState.update(firstHomeKey, true);
-    await vscode.commands.executeCommand('singularityFlow.myWork');
+    const pendingHandoff = context.globalState.get<PendingCopilotHandoff | null>(COPILOT_HANDOFF_KEY, null);
+    const openFolders = vscode.workspace.workspaceFolders ?? [];
+    if (pendingHandoff && openFolders.some(
+      (folder) => path.resolve(folder.uri.fsPath) === path.resolve(pendingHandoff.repository)
+    )) {
+      // Clear before opening chat. If prompt composition fails, reloading the window must not create
+      // an endless retry loop; the visible error leaves the person in the correct repository.
+      await context.globalState.update(COPILOT_HANDOFF_KEY, undefined);
+      try {
+        // The discriminator is intentional: legacy handoffs without it fail closed to workspace
+        // selection instead of inferring a Story from mutable repository state after the reload.
+        if (pendingHandoff.kind === 'story' && pendingHandoff.workId) {
+          await openGovernedCopilot(pendingHandoff.workId);
+        } else {
+          await openWorkspaceCopilot(pendingHandoff.workspaceName);
+        }
+      } catch (error) {
+        showRefusal(error, { headline: 'Could not resume governed Copilot handoff' });
+      }
+    }
+    const firstHomeKey = 'singularityFlow.firstHealthyHome.v1';
+    if (vscode.env?.appHost && !firstRunBlocked && !pendingStartWizard && !pendingHandoff
+        && !context.globalState.get(firstHomeKey)) {
+      // Home, not the walkthrough or a configuration form, is the successful first screen. The
+      // walkthrough remains available from its one-time offer and the Help section.
+      await context.globalState.update(firstHomeKey, true);
+      await vscode.commands.executeCommand('singularityFlow.myWork');
+    }
+  };
+
+  if (store.primeFromCache()) markHostPerformance('cachePublished');
+  if (vscode.env?.appHost) {
+    // VS Code resolves a contributed view only after activate() returns. Awaiting the fresh CLI
+    // snapshot here made the cache-first path impossible: the bytes existed, but the host could not
+    // paint them. Return after registering every command/provider, then confirm in the next turn.
+    markHostPerformance('activationComplete');
+    setTimeout(() => {
+      if (activationSignal.aborted) return;
+      void completeInitialRepositoryRead().catch((error) => {
+        output.appendLine(`Initial repository refresh failed: ${(error as Error).message}`);
+      });
+    }, 0);
+  } else {
+    await completeInitialRepositoryRead();
+    markHostPerformance('activationComplete');
   }
 }
 

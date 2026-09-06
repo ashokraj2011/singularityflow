@@ -56,11 +56,15 @@ test('VS Code CLI diagnostics use the versioned privacy-safe timing envelope', a
 
 test('activation defers auxiliary CLI reads until the initial snapshot is confirmed', async () => {
   const source = codeOnly(await readFile(path.join(root, 'apps/vscode/src/extension.ts'), 'utf8'));
-  const prime = source.indexOf('store.primeFromCache()');
-  const refresh = source.indexOf('await store.refresh()', prime);
+  const completion = source.indexOf('const completeInitialRepositoryRead');
+  const refresh = source.indexOf('await store.refresh()', completion);
   const confirmed = source.indexOf('initialRefreshCompleted = true', refresh);
   const auxiliary = source.indexOf('startAuxiliaryReadsAfterConfirmedSnapshot()', confirmed);
-  assert.ok(prime >= 0 && refresh > prime && confirmed > refresh && auxiliary > confirmed,
+  const prime = source.indexOf('store.primeFromCache()', auxiliary);
+  const deferred = source.indexOf('setTimeout(() => {', prime);
+  const deferredRefresh = source.indexOf('completeInitialRepositoryRead()', deferred);
+  assert.ok(completion >= 0 && refresh > completion && confirmed > refresh && auxiliary > confirmed
+    && prime > auxiliary && deferred > prime && deferredRefresh > deferred,
     'readiness or logs can start before the initial confirmed store refresh');
   assert.match(source, /if \(!initialRefreshCompleted \|\| state\.stale \|\| state\.error \|\| !state\.snapshot\) return/,
     'the auxiliary-read gate accepts an unconfirmed or failed snapshot');

@@ -2,7 +2,7 @@
 
 **Status:** authoritative cross-product tracker; bounded exact-tree aggregate and the latest code-local asynchronous Git migration are complete, while platform release evidence remains active
 
-**Baseline:** `main@921bc790`
+**Baseline:** `main@60e37936`
 
 **Last reviewed:** 2026-09-06
 
@@ -97,6 +97,15 @@ content-bearing, false-exact, host-mismatched, or digest-mismatched reports fail
 the earlier pass-only receipt gap; it does not manufacture or replace the six external platform
 receipts, independent ratification, authenticated execution, or office-network evidence.
 
+The strict local Node 22/macOS release aggregate is green at `main@60e37936`. Run
+`ef2adfc807f1380ad2a1c85f` selected 457 files across eight exact-tree shards and passed all 4,645
+tests with zero failures, cancellations, skips, or todo. Its machine-local receipt binds commit
+`60e379365bfd2674d7f43b307f54ea396f91b67f`, tree
+`d9471c4545524bec57f641b7f5e68d15cf699317`, source digest, Node 22.14.0/macOS arm64 identity, and
+all shard receipt digests. This proves one strict local supported-runtime cell only; it is unsigned
+and does not replace signed package binding, Node 20, Linux/Windows, office-network, or independent
+authority evidence.
+
 The real VS Code host contract was corrected through `main@a745a505`. Cold and warm runs now pin
 the exact development CLI, persist the last confirmed snapshot in a bounded atomic machine-local
 cache, and reject any measured surface whose CLI child failed. First-run health runs after the first
@@ -123,7 +132,7 @@ This snapshot resolves conflicts between older domain roadmaps and the executabl
 shared primitive does not complete a higher-assurance track: for example, the developer-local
 signed runner is useful M9 evidence, but it is not an authenticated independent CAB/WEL verifier.
 
-| Area | Implemented boundary through `676c591e` | Still open |
+| Area | Implemented boundary through `60e37936` | Still open |
 |---|---|---|
 | Auto v2 | Dependency-free Story profile, P0/P1 controls, interval pacing, and provenance-preserving direct Ad Hoc Candidate adoption | Optional SGOS execution profile and registered comparative-quality evidence |
 | CMP | Model-free, read-only `comprehension regions` and `check` foundation plus a release-gated content-free synthetic benchmark | Reviewed real corpus and storage/privacy decision, durable cause authority, intent graph/replay, typed walkthroughs, lifecycle enforcement, Comprehension Center, and brownfield policy |
@@ -160,15 +169,17 @@ the first aggregate: user stop now waits through bounded SGOS Process-lock conte
 Git authorities retain the bounded configuration window instead of being misreported as network
 outages, and reviewed process-heavy fixtures occupy dedicated lanes.
 
-The clean `8387a9d8` aggregate completed all 444 selected test files under run
-`8a76f3ce7a3510ec99001b8e`: 4,565 tests, 4,564 passed, zero failed, zero cancelled, one platform skip,
-and zero todo. Its receipt binds commit `8387a9d8fd7741f77191a28657150feb0285e8cf`, tree
-`cab1d813329011102d3b5d645963f6f2cd78fd66`, test-source digest, Node 25.5.0/macOS arm64 identity,
-and all eight shard receipt digests. Repository conformance passed 1,310 checks.
+The current strict clean aggregate completed all 457 selected test files at `main@60e37936` under
+run `ef2adfc807f1380ad2a1c85f`: 4,645 tests passed with zero failures, cancellations, skips, or todo.
+Its receipt binds commit `60e379365bfd2674d7f43b307f54ea396f91b67f`, tree
+`d9471c4545524bec57f641b7f5e68d15cf699317`, test-source digest, Node 22.14.0/macOS arm64 identity,
+and all eight shard receipt digests. The baseline also makes migration-golden completeness a
+repository conformance invariant.
 
-This closes the code-local aggregate blocker. It does **not** satisfy the strict no-skip supported-
-platform matrix: `test:release:aggregate`, Node 20/22 macOS/Linux/Windows receipts, real VS Code host
-evidence, and selected npm/VSIX artifact binding remain governed by the platform items below.
+This closes the code-local aggregate blocker and proves one unsigned strict Node 22/macOS cell. It
+does **not** satisfy the supported-platform release matrix: signed Node 20/22 macOS/Linux/Windows
+receipts, real VS Code host evidence, and selected npm/VSIX artifact binding remain governed by the
+platform items below.
 
 ## Status rules
 
@@ -186,7 +197,7 @@ evidence, and selected npm/VSIX artifact binding remain governed by the platform
 
 | Track | Current boundary | Next eligible increment | Detailed authority |
 |---|---|---|---|
-| Release baseline | `REL-P0-001` complete at `8387a9d8`: exact-tree verification is bounded, resumable, and green | Collect strict signed supported-platform/package receipts; do not treat the local Node 25 receipt as a release matrix | This document and [Verification](../VERIFICATION.md) |
+| Release baseline | `REL-P0-001` is bounded and resumable; strict local Node 22/macOS aggregate `ef2adfc807f1380ad2a1c85f` is 4,645/4,645 with no skips at `60e37936` | Collect signed Node 20/22 macOS/Linux/Windows and npm/VSIX receipts; one unsigned local cell is not the release matrix | This document and [Verification](../VERIFICATION.md) |
 | Developer-experience performance | Hot paths and the office-Git code-local slice are implemented; real-host samples attest child success, warm cache survives disposable host processes, and the reproduced event-loop tail is below its unchanged ceiling; pinned relative baseline and cross-platform host evidence are not established | Accept 30-pair reports on both editor profiles, keep the isolated compatibility transport under audit, then close each `[~]` platform gate | This document and [DX performance](DX-PERFORMANCE.md) |
 | SGOS | Universal Candidate publication, portable authority transport, proposal-only Agent working-set injection, signed-Pack/Device meta-tool CLI/native review, and non-authoritative portable learning progress are code-complete; signed cross-platform release proof and real Secret Broker adapter integration remain open | Finish the `SGOS-P0-001`/`003` signed platform matrices and the external-adapter portion of `SGOS-P0-002` before expanding P2 authority | [SGOS pending work](SGOS-PENDING-WORK.md) |
 | World Model Builder v4 | Release receipt generation and enforcement exist; no reviewed six-cell supported-platform aggregate is recorded | `WMB-REL-001` | [WMB v4](WORLD-MODEL-BUILDER-V4.md) |

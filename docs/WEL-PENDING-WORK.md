@@ -6,7 +6,7 @@
 
 **Created:** 2026-08-30
 
-**Current reconciliation:** checked against `main@676c591e` on 2026-09-06. Commits `259b76f1`,
+**Current reconciliation:** checked against `main@60e37936` on 2026-09-06. Commits `259b76f1`,
 `58d9329d`, and `d55229c7` provide the bounded exact-static JUnit identity adapter, immutable
 proposal snapshot, human review through the existing phase approval, migration, safe command-shape
 fallbacks, the evolving content-free benchmark, and same-process unenrolled delta measurement. Commit
@@ -20,13 +20,17 @@ synthetic adversarial corpus that proves those closed profiles produce no false 
 enumerated source and report shapes. Those observations inherit the same local, inconclusive
 authority ceiling.
 
-The code-local WEL boundary and signed-evidence contract were revalidated at `main@676c591e`: all 86
-focused WEL policy, review, Java/JUnit, JavaScript/Jest/Vitest, Code Delivery, release-integrity, and
-receipt tests passed. The benchmark's exact content-free report is retained privately during the
-release gate, validated against the invoking host/runtime, and embedded with its canonical digest in
-each signed release-matrix cell. No WEL item is marked complete by that run. Independent ratification,
-authenticated execution, reviewed real-corpus evidence, office-network/cross-platform receipts, and
-signed release proof remain external acceptance gates and are not fabricated by repository-local tests.
+The code-local WEL boundary and signed-evidence contract were revalidated at `main@60e37936`. A
+clean strict Node 22/macOS arm64 release aggregate completed all 457 selected files under run
+`ef2adfc807f1380ad2a1c85f`: 4,645 tests passed with zero failures, cancellations, skips, or todo.
+Its machine-local receipt binds commit `60e379365bfd2674d7f43b307f54ea396f91b67f`, tree
+`d9471c4545524bec57f641b7f5e68d15cf699317`, source digest, runtime identity, and all eight shard
+receipt digests. The benchmark's exact content-free report is retained privately during the release
+gate, validated against the invoking host/runtime, and embedded with its canonical digest in each
+signed release-matrix cell. This unsigned local receipt fills no signed release-matrix cell. No WEL
+item is marked complete by that run. Independent ratification, authenticated execution, reviewed
+real-corpus evidence, office-network/cross-platform receipts, and signed package proof remain
+external acceptance gates and are not fabricated by repository-local tests.
 
 This document is the durable delivery tracker for Witnessed Engineering Loop work that was
 deliberately left out of the observe-only baseline. The governing design remains
@@ -272,6 +276,17 @@ Signed-evidence regression checkpoint on `main@921bc790`:
   canonical-digest-bound with `falseExact: 0`; this unsupported release runtime is local diagnostic
   evidence only and fills no Node 20/22 matrix cell;
 - repository conformance passed 1,334 checks and the npm package dry run included the new validator.
+
+Strict local release-aggregate checkpoint on `main@60e37936`:
+
+- `npm run test:release:aggregate` completed run `ef2adfc807f1380ad2a1c85f` across 457 files and
+  eight exact-tree shards: 4,645 passed with zero failures, cancellations, skips, or todo;
+- the aggregate receipt binds Node 22.14.0, macOS arm64, exact commit/tree/source identities, and
+  every shard receipt digest, with `failOnSkipped: true` and a clean checkout;
+- the same baseline includes the guarded migration-golden completeness check, so every registered
+  durable family and readable version must have a frozen golden before conformance can pass;
+- this receipt is unsigned, local development evidence. It does not satisfy Windows/Linux, Node 20,
+  npm/VSIX artifact-signing, office-network, independent-review, or authenticated-runner gates.
 
 Still required before completion: reviewed real-repository corpus metrics, office-network remote
 Story publication latency measurements, an approved Flow Impact design, live office/offline and

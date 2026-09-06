@@ -3695,6 +3695,8 @@ test('Lifecycle follows a Story or workspace selection changed outside VS Code',
       '--default-branch', 'lead=INIT-CHECKOUT', '--confirm', id
     ])));
   }
+  const alpha = created.get('alpha');
+  const alphaRoot = path.join(alpha.workspace.path, alpha.workspace.repositories.lead.path);
   const beta = created.get('beta');
   const betaRoot = path.join(beta.workspace.path, beta.workspace.repositories.lead.path);
   const portfolio = YAML.parse(await readFile(path.join(betaRoot, 'singularity/portfolio.yml'), 'utf8'));
@@ -3705,6 +3707,10 @@ test('Lifecycle follows a Story or workspace selection changed outside VS Code',
   run('git', ['add', '.'], { cwd: betaRoot });
   run('git', ['-c', `user.email=${EMAIL}`, '-c', 'user.name=Initiative Owner',
     'commit', '-m', 'Distinguish the second workspace'], { cwd: betaRoot });
+  const alphaReadme = path.join(alphaRoot, 'README.md');
+  const betaReadme = path.join(betaRoot, 'README.md');
+  await writeFile(alphaReadme, `${await readFile(alphaReadme, 'utf8')}\nAlpha-only comprehension marker.\n`);
+  await writeFile(betaReadme, `${await readFile(betaReadme, 'utf8')}\nBeta-only comprehension marker.\n`);
 
   cli(['workspace', 'use', 'alpha', '--json']);
   const { api, registered } = stubVscode();
@@ -3719,6 +3725,14 @@ test('Lifecycle follows a Story or workspace selection changed outside VS Code',
       && watcher.pattern.pattern === path.basename(selection));
   assert.ok(selectionWatcher, 'the extension watches the machine-wide active selection');
 
+  await registered.commands.get('singularityFlow.openComprehensionCenter')();
+  const comprehension = await until(() => registered.panels.find((entry) =>
+    entry.id === 'singularityFlow.comprehensionCenter'));
+  await until(() => comprehension.webview.html.includes('README.md') ? true : null);
+  await comprehension.post({ type: 'tab', tab: 'diff' });
+  await until(() => comprehension.webview.html.includes('Alpha-only comprehension marker') ? true : null);
+  assert.doesNotMatch(comprehension.webview.html, /Beta-only comprehension marker/);
+
   // Reproduce Copilot `/sf-session` or a terminal `session attach`: the CLI changes the durable
   // selection without invoking the extension's Workspaces callback.
   cli(['workspace', 'use', 'beta', '--json']);
@@ -3732,6 +3746,10 @@ test('Lifecycle follows a Story or workspace selection changed outside VS Code',
   }, { what: 'Lifecycle to refresh from the externally selected repository' });
   assert.ok(registered.output.some((line) => line.includes(`Governed repository: ${path.resolve(betaRoot)}`)),
     'all repository-bound screens were re-pointed through the shared selection callback');
+  await until(() => comprehension.webview.html.includes('Beta-only comprehension marker') ? true : null,
+    { what: 'the leased Comprehension Center to follow the selected repository' });
+  assert.doesNotMatch(comprehension.webview.html, /Alpha-only comprehension marker/,
+    'a prior repository patch cannot survive the shared store revision fence');
 });
 
 /** Every command package.json contributes. The palette offers all of them, always. */

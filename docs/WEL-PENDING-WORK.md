@@ -6,7 +6,7 @@
 
 **Created:** 2026-08-30
 
-**Current reconciliation:** checked against `main@e8edf155` on 2026-09-06. Commits `259b76f1`,
+**Current reconciliation:** checked against `main@921bc790` on 2026-09-06. Commits `259b76f1`,
 `58d9329d`, and `d55229c7` provide the bounded exact-static JUnit identity adapter, immutable
 proposal snapshot, human review through the existing phase approval, migration, safe command-shape
 fallbacks, the evolving content-free benchmark, and same-process unenrolled delta measurement. Commit
@@ -16,11 +16,13 @@ WEL adapter and require its packaged Java parser helper. These increments do not
 authenticated-independent-runner, Candidate/Program/attempt, cross-platform, enforcement, or
 release-evidence gates below.
 
-The code-local WEL boundary was revalidated after `main@724cb85e`: all 24 focused WEL policy,
-review, JUnit identity, knowledge-projection, and content-free benchmark tests passed. No WEL item
-is marked complete by that run. Independent ratification, authenticated execution, reviewed real
-corpus evidence, office-network/cross-platform receipts, and signed release proof remain external
-acceptance gates and are not fabricated by repository-local tests.
+The code-local WEL boundary and signed-evidence contract were revalidated at `main@921bc790`: all 39
+focused WEL policy, review, JUnit identity, knowledge-projection, benchmark, release-integrity, and
+receipt tests passed. The benchmark's exact content-free report is now retained privately during the
+release gate, validated against the invoking host/runtime, and embedded with its canonical digest in
+each signed release-matrix cell. No WEL item is marked complete by that run. Independent ratification,
+authenticated execution, reviewed real-corpus evidence, office-network/cross-platform receipts, and
+signed release proof remain external acceptance gates and are not fabricated by repository-local tests.
 
 This document is the durable delivery tracker for Witnessed Engineering Loop work that was
 deliberately left out of the observe-only baseline. The governing design remains
@@ -233,9 +235,12 @@ Implemented in the current increment:
   identity and fail-safe fallback corpus, deterministic CMP corpus, and no-model CMP command; the
   same suites are mandatory in the release gate rather than relying on the broad test suite to find
   them indirectly;
-- the full 12-sample `npm run benchmark:wel` measurement is a mandatory release-gate stage, so the
-  existing signed verification receipt binds its content-free platform, latency, CPU, byte, and
-  exact/inexact counters instead of relying on an optional developer run.
+- the full 12-sample `npm run benchmark:wel` measurement is a mandatory release-gate stage. The
+  benchmark writes its exact report only to a private runner-owned temporary location; receipt schema
+  v5 validates and embeds the content-free report plus its canonical digest, and aggregate schema v6
+  retains that independently signed report in every platform/Node matrix cell. A missing, unavailable,
+  incomplete, host-mismatched, content-bearing, false-exact, or digest-mismatched report refuses the
+  receipt rather than relying on an optional developer run or a pass-only stage label.
 
 Implementation checkpoints: `d55229c7` (content-free benchmark v2), `6fbcf3bf` (isolated npm and
 VSIX engine proof), `d960e928` (portable deterministic corpus command), `396ccb73` (mandatory
@@ -243,7 +248,8 @@ release-gate benchmark), `e3330e80` (same-process incremental observation cost),
 (content-free Context X-Ray projection latency and byte measurement), `150b6326` (bounded
 model-free governed Story-start transaction latency and workflow-byte measurement), and `116d6f43`
 (content-free post-preflight push-failure and exact-sync recovery measurement), and `9ea94aac`
-(offline/fresh-clone/interrupted-write recovery plus cancellable parser boundary).
+(offline/fresh-clone/interrupted-write recovery plus cancellable parser boundary), and `921bc790`
+(strict private benchmark retention and signed single-host/matrix evidence binding).
 
 Local verification checkpoint on `main@e8edf155`:
 
@@ -254,6 +260,14 @@ Local verification checkpoint on `main@e8edf155`:
 - all results remain local macOS arm64/Node 25 observe-only evidence. They do not replace the
   independent review, authenticated runner, real-repository corpus, office-network, Windows/Linux,
   or signed package/platform receipts required below.
+
+Signed-evidence regression checkpoint on `main@921bc790`:
+
+- 39 focused WEL and release-evidence tests passed with zero failures, skips, cancellations, or todo;
+- a real one-sample macOS arm64/Node 25 benchmark was privately retained, replay-validated, and
+  canonical-digest-bound with `falseExact: 0`; this unsupported release runtime is local diagnostic
+  evidence only and fills no Node 20/22 matrix cell;
+- repository conformance passed 1,334 checks and the npm package dry run included the new validator.
 
 Still required before completion: reviewed real-repository corpus metrics, office-network remote
 Story publication latency measurements, an approved Flow Impact design, live office/offline and

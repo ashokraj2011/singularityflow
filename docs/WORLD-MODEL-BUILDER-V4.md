@@ -389,7 +389,10 @@ commit. Local Node 25 validation and simulated platform tests satisfy none of th
 20/22 cells.
 
 ```bash
-npm run verification:receipt -- --signing-key runner.pem --out darwin-node20.json
+npm run verification:receipt -- \
+  --signing-key runner.pem \
+  --platform-evidence reviewed-darwin-node20.json \
+  --out darwin-node20.json
 # Repeat on each required host/runtime, then on the release verifier machine:
 npm run verification:receipt:merge -- \
   --receipt darwin-node20.json --receipt darwin-node22.json \

@@ -249,6 +249,13 @@ explicit identity-free monotonic profile. Canonical v1 records and copy tokens a
 migrated in memory, remain importable, and upgrade durably only on the next successful monotonic
 write.
 
+The offline-distribution slice is implemented in the current increment. `bundle-create` publishes
+one new bounded canonical module/fixture bundle only after the exact local active Pack validates all
+bindings. `bundle-inspect` is authority-free; `bundle-materialize` still requires that exact active
+Pack and the normal confirmation digest. Existing Git-trusted or signed Authority Store transport
+carries Pack authority separately. The learning bundle grants no activation, authority,
+certification, model, tool, repository, Git, or network capability.
+
 Acceptance gates:
 
 - tutorial repositories are isolated, disposable, bounded, and cannot affect governed work;
@@ -257,9 +264,9 @@ Acceptance gates:
 - reset, interruption, offline use, accessibility, and version migration are covered.
 
 The isolation, bounds, Pack binding, preview/confirmation, byte-integrity, interruption resume,
-reset, no-model, no-authority, identity-free portable-progress, monotonic import, and cross-version
-migration code-local gates are covered. Independently reviewed certification, accessibility
-validation, and offline Pack/fixture distribution remain open; therefore this item is not complete.
+reset, no-model, no-authority, identity-free portable-progress, monotonic import, cross-version
+migration, and offline-distribution code-local gates are covered. Independently reviewed
+certification and accessibility validation remain open; therefore this item is not complete.
 
 ### [~] SGOS-P2-002 — Meta-tool activation CLI
 

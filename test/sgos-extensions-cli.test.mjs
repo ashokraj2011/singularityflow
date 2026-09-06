@@ -927,6 +927,33 @@ test('signed Pack, role lesson, and typed Memory CLI preserve exact CAS and revi
     '--trust', 'publisher-trust.json'))[0].recordSha256, pack.recordSha256);
   assert.equal(state(flow(root, 'learn', 'show', 'finance-basics', '--role', 'developer',
     '--store', storeId, '--trust', 'publisher-trust.json')).packSha256, pack.recordSha256);
+  const bundleCreate = flow(root, 'learn', 'bundle-create', 'finance-basics',
+    '--role', 'developer', '--pack', 'finance-core', '--module', 'learning-module.json',
+    '--fixture', 'learning-fixture.json', '--out', 'learning-offline-bundle.json',
+    '--store', storeId, '--trust', 'publisher-trust.json');
+  assert.equal(bundleCreate.operation.id, 'learn.bundle-create');
+  assert.equal(bundleCreate.operation.classification, 'mutation');
+  assert.equal(bundleCreate.effects.filesChanged, true);
+  const bundlePublication = state(bundleCreate);
+  assert.equal(bundlePublication.authority, false);
+  assert.equal(bundlePublication.certification, false);
+  const inspectedBundle = state(flow(root, 'learn', 'bundle-inspect',
+    '--bundle', 'learning-offline-bundle.json'));
+  assert.equal(inspectedBundle.bundleSha256, bundlePublication.bundleSha256);
+  assert.equal(inspectedBundle.networkRequired, false);
+  assert.equal(inspectedBundle.authorityRequirement, 'matching-active-pack');
+  const bundleMaterializeArguments = [
+    'learn', 'bundle-materialize', '--bundle', 'learning-offline-bundle.json',
+    '--store', storeId, '--trust', 'publisher-trust.json'
+  ];
+  const bundlePlanEnvelope = flow(root, ...bundleMaterializeArguments);
+  assert.equal(bundlePlanEnvelope.operation.id, 'learn.bundle-materialize.plan');
+  assert.equal(bundlePlanEnvelope.operation.classification, 'read');
+  const bundleMaterializedEnvelope = flow(root, ...bundleMaterializeArguments,
+    '--confirm', state(bundlePlanEnvelope).confirmationSha256);
+  assert.equal(bundleMaterializedEnvelope.operation.id, 'learn.bundle-materialize');
+  assert.equal(bundleMaterializedEnvelope.effects.filesChanged, false);
+  assert.equal(state(bundleMaterializedEnvelope).status, 'ready');
   const beforeLearning = new Set(git(root, 'status', '--porcelain').split('\n').filter(Boolean));
   const beforeLearningHead = git(root, 'rev-parse', 'HEAD');
   const missionEnvelope = flow(root, 'learn', 'start', 'finance-basics', '--role', 'developer',

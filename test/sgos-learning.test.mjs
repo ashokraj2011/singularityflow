@@ -8,7 +8,8 @@ import test from 'node:test';
 import { canonicalJson } from '../src/records.mjs';
 import {
   createLearningFixture, createLearningModule, createLearningWorkspaceService,
-  createReadOnlyLessonCatalog, platformSha256, validateLearningFixture, validateLearningModule
+  createReadOnlyLessonCatalog, platformSha256, validateLearningFixture,
+  validateLearningModule, validateLearningOfflineBundle
 } from '../src/sgos/platform/index.mjs';
 
 function learningModule(overrides = {}) {
@@ -173,6 +174,56 @@ test('learning fixtures are bounded text-only identities and refuse unsafe paylo
   secret.files[0].content = '-----BEGIN PRIVATE KEY-----\nnot-a-real-key';
   assert.throws(() => createLearningFixture(secret),
     (error) => error.code === 'SGOS_LEARN_SECRET_REFUSED');
+});
+
+test('offline learning bundles carry exact inert content but never Pack authority', async (t) => {
+  const firstRoot = await repository(t);
+  const secondRoot = await repository(t);
+  const fixture = learningFixture();
+  const module = learningModule({
+    sandboxFixture: {
+      kind: 'descriptor-only', fixtureId: fixture.id, fixtureSha256: fixture.fixtureSha256
+    }
+  });
+  const pack = packFor(module);
+  const request = { role: 'developer', lessonId: module.id, module, fixture };
+  const first = createLearningWorkspaceService({
+    lessonCatalog: createReadOnlyLessonCatalog({ packRegistry: registry(pack) }),
+    repositoryRoot: firstRoot
+  });
+  const bundle = await first.offlineBundle(request);
+  assert.equal(validateLearningOfflineBundle(bundle).bundleSha256, bundle.bundleSha256);
+  assert.equal(bundle.networkRequired, false);
+  assert.equal(bundle.authority, false);
+  assert.equal(bundle.activation, false);
+  assert.equal(bundle.certification, false);
+  assert.equal(bundle.authorityRequirement, 'matching-active-pack');
+
+  const second = createLearningWorkspaceService({
+    lessonCatalog: createReadOnlyLessonCatalog({ packRegistry: registry(pack) }),
+    repositoryRoot: secondRoot
+  });
+  const plan = await second.bundlePlan(bundle);
+  const materialized = await second.materializeBundle(bundle, plan.confirmationSha256);
+  assert.equal(materialized.status, 'ready');
+  assert.equal(await readFile(path.join(materialized.workspacePath, 'README.md'), 'utf8'),
+    fixture.files[0].content);
+
+  const tampered = structuredClone(bundle);
+  tampered.fixture.files[0].content = 'changed after export\n';
+  assert.throws(() => validateLearningOfflineBundle(tampered),
+    (error) => ['SGOS_LEARN_FIXTURE_TAMPERED', 'SGOS_LEARN_BUNDLE_TAMPERED'].includes(error.code));
+
+  const replacementPack = { ...pack, recordSha256: platformSha256('replacement-pack') };
+  const stale = createLearningWorkspaceService({
+    lessonCatalog: createReadOnlyLessonCatalog({ packRegistry: registry(replacementPack) }),
+    repositoryRoot: secondRoot
+  });
+  await assert.rejects(() => stale.bundlePlan(bundle),
+    (error) => error.code === 'SGOS_LEARN_BUNDLE_PACK_MISMATCH');
+  assert.equal(execFileSync('git', ['status', '--porcelain'], {
+    cwd: secondRoot, encoding: 'utf8'
+  }), '');
 });
 
 test('learning workspace materialization is confirmation-bound, disposable, and outside Git', async (t) => {

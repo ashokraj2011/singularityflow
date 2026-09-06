@@ -380,6 +380,12 @@ Usage:
   singularity-flow learn materialize <LESSON-ID> --role <ROLE> --module <LEARNING-MODULE.json>
     --fixture <LEARNING-FIXTURE.json> [--pack <PACK-ID>] --trust <PUBLIC-TRUST-JSON>
     [--confirm <PLAN-SHA256>] [--json]
+  singularity-flow learn bundle-create <LESSON-ID> --role <ROLE> --module <LEARNING-MODULE.json>
+    --fixture <LEARNING-FIXTURE.json> [--pack <PACK-ID>] --trust <PUBLIC-TRUST-JSON>
+    --out <NEW-BUNDLE.json> [--json]
+  singularity-flow learn bundle-inspect --bundle <BUNDLE.json> [--json]
+  singularity-flow learn bundle-materialize --bundle <BUNDLE.json> --trust <PUBLIC-TRUST-JSON>
+    [--confirm <PLAN-SHA256>] [--json]
   singularity-flow learn workspace <MISSION-SHA256> [--json]
   singularity-flow learn progress|progress-export <MISSION-SHA256> [--json]
   singularity-flow learn check <LESSON-ID> <CHECK-ID> --role <ROLE>

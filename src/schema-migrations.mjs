@@ -1890,6 +1890,7 @@ const families = [
     id: 'learning-workspace', currentVersion: 1, immutable: true,
     paths: [/^\$git\/sgos\/learning\/[a-f0-9]{64}\/workspace\.json$/]
   }),
+  family({ id: 'learning-offline-bundle', currentVersion: 1, immutable: true }),
   family({
     id: 'learning-progress', currentVersion: 2, immutable: false,
     steps: [migration(1, 2, learningProgressV1ToV2)],

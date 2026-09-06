@@ -18,17 +18,20 @@ import { scanText } from '../../secrets.mjs';
 import { withSubjectLock } from '../../subject-lock.mjs';
 import { SingularityFlowError } from '../../util.mjs';
 import { clonePlatformJson, isPlainPlatformObject, platformSha256 } from './contracts.mjs';
+import { validateLearningModule } from './learn.mjs';
 
 const FIXTURE_KIND = 'learning-fixture';
 const FIXTURE_VERSION = 1;
 const WORKSPACE_FAMILY = 'learning-workspace';
 const PROGRESS_FAMILY = 'learning-progress';
+const BUNDLE_FAMILY = 'learning-offline-bundle';
 const MAX_FIXTURE_BYTES = 1024 * 1024;
 const MAX_FILE_BYTES = 64 * 1024;
 const MAX_FILES = 64;
 const MAX_MANIFEST_BYTES = 256 * 1024;
 const MAX_PROGRESS_BYTES = 64 * 1024;
 const MAX_TRANSFER_BYTES = 96 * 1024;
+const MAX_BUNDLE_BYTES = 2 * 1024 * 1024;
 const TRANSFER_PREFIXES = Object.freeze(new Map([
   [1, 'sflow-learning-progress-v1.'],
   [2, 'sflow-learning-progress-v2.']
@@ -129,6 +132,70 @@ export function createLearningFixture(input) {
   const fixture = { ...clonePlatformJson(input, '$learningFixture'), fixtureSha256: null };
   fixture.fixtureSha256 = fixtureDigest(fixture);
   return validateLearningFixture(fixture);
+}
+
+function offlineBundleRecord(mission, fixture) {
+  const core = {
+    schemaVersion: currentSchemaVersion(BUNDLE_FAMILY),
+    kind: 'learning-offline-bundle',
+    packId: mission.lesson.packId,
+    packSha256: mission.lesson.packSha256,
+    lessonId: mission.lesson.lessonId,
+    role: mission.lesson.role,
+    module: mission.module,
+    fixture,
+    authorityRequirement: 'matching-active-pack',
+    networkRequired: false,
+    authority: false,
+    activation: false,
+    certification: false
+  };
+  return Object.freeze({ ...core, bundleSha256: platformSha256(core) });
+}
+
+export function validateLearningOfflineBundle(input) {
+  const record = readRecord(BUNDLE_FAMILY, input).record;
+  exactKeys(record, [
+    'schemaVersion', 'kind', 'packId', 'packSha256', 'lessonId', 'role', 'module',
+    'fixture', 'authorityRequirement', 'networkRequired', 'authority', 'activation',
+    'certification', 'bundleSha256'
+  ], 'learning offline bundle');
+  if (record.kind !== 'learning-offline-bundle') {
+    fail('Learning offline bundle uses an unsupported kind.', 'SGOS_LEARN_BUNDLE_INVALID');
+  }
+  if (typeof record.packId !== 'string' || !ID.test(record.packId)
+      || typeof record.lessonId !== 'string' || !ID.test(record.lessonId)
+      || typeof record.role !== 'string' || !/^[a-z0-9][a-z0-9-]{1,63}$/.test(record.role)
+      || !SHA256.test(String(record.packSha256 ?? ''))) {
+    fail('Learning offline bundle identity is invalid.', 'SGOS_LEARN_BUNDLE_INVALID');
+  }
+  const module = validateLearningModule(record.module);
+  const fixture = validateLearningFixture(record.fixture);
+  if (module.id !== record.lessonId || module.role !== record.role
+      || module.sandboxFixture.fixtureId !== fixture.id
+      || module.sandboxFixture.fixtureSha256 !== fixture.fixtureSha256) {
+    fail('Learning offline bundle module, role, lesson, and fixture bindings do not match.',
+      'SGOS_LEARN_BUNDLE_BINDING_MISMATCH');
+  }
+  if (record.authorityRequirement !== 'matching-active-pack' || record.networkRequired !== false
+      || record.authority !== false || record.activation !== false
+      || record.certification !== false) {
+    fail('Learning offline bundle cannot grant authority, activation, or certification.',
+      'SGOS_LEARN_BUNDLE_AUTHORITY_REFUSED');
+  }
+  const core = clonePlatformJson(record, '$learningOfflineBundle');
+  delete core.bundleSha256;
+  if (!SHA256.test(String(record.bundleSha256 ?? ''))
+      || record.bundleSha256 !== platformSha256(core)) {
+    fail('Learning offline bundle failed integrity verification.',
+      'SGOS_LEARN_BUNDLE_TAMPERED');
+  }
+  const bytes = Buffer.byteLength(canonicalJson(record), 'utf8');
+  if (bytes > MAX_BUNDLE_BYTES) {
+    fail(`Learning offline bundle exceeds the ${MAX_BUNDLE_BYTES}-byte limit.`,
+      'SGOS_LEARN_LIMIT');
+  }
+  return Object.freeze(clonePlatformJson(record, '$learningOfflineBundle'));
 }
 
 function missionSegment(missionId) {
@@ -400,7 +467,30 @@ export function createLearningWorkspaceService({ lessonCatalog = null, repositor
       fail('Learning fixture does not match the exact module fixture ID and digest.',
         'SGOS_LEARN_FIXTURE_BINDING_MISMATCH');
     }
+    if (request.expectedPackSha256 != null
+        && mission.lesson.packSha256 !== request.expectedPackSha256) {
+      fail('Learning offline bundle no longer matches the exact active Pack.',
+        'SGOS_LEARN_BUNDLE_PACK_MISMATCH', {
+          expectedPackSha256: request.expectedPackSha256,
+          activePackSha256: mission.lesson.packSha256
+        });
+    }
     return { mission, fixture, plan: materializationPlan(mission, fixture) };
+  }
+
+  function requestFromBundle(input) {
+    const bundle = validateLearningOfflineBundle(input);
+    return {
+      bundle,
+      request: {
+        role: bundle.role,
+        lessonId: bundle.lessonId,
+        packId: bundle.packId,
+        module: bundle.module,
+        fixture: bundle.fixture,
+        expectedPackSha256: bundle.packSha256
+      }
+    };
   }
 
   async function checkedWorkspace(mission) {
@@ -473,6 +563,41 @@ export function createLearningWorkspaceService({ lessonCatalog = null, repositor
     return Object.freeze({ ...core, confirmationSha256: platformSha256(core) });
   }
 
+  async function materializeRequest(request) {
+    const selected = await resolve(request);
+    if (request.confirm !== selected.plan.confirmationSha256) {
+      fail(`Learning workspace confirmation must equal ${selected.plan.confirmationSha256}.`,
+        'SGOS_LEARN_CONFIRMATION_MISMATCH');
+    }
+    return withSubjectLock(root, {
+      kind: 'sgos-learning', id: missionSegment(selected.mission.missionId)
+    }, async () => {
+      // Resolve again while holding the mission lock so Pack revocation or replacement between
+      // preview and mutation cannot materialize stale tutorial bytes.
+      const current = await resolve(request);
+      if (current.plan.confirmationSha256 !== request.confirm) {
+        fail(`Learning workspace plan changed; review ${current.plan.confirmationSha256}.`,
+          'SGOS_LEARN_CONFIRMATION_MISMATCH');
+      }
+      const target = workspacePath(root, current.mission.missionId);
+      await safePrivateSidecarDirectory(root, target, { create: true });
+      for (const file of current.fixture.files) {
+        await writeImmutablePrivateSidecar(root, path.join(target, ...file.path.split('/')),
+          Buffer.from(file.content, 'utf8'), { maximumBytes: MAX_FILE_BYTES });
+      }
+      const manifest = workspaceRecord(current.mission, current.fixture);
+      await writeImmutablePrivateSidecar(root, manifestPath(root, current.mission.missionId),
+        `${canonicalJson(manifest)}\n`, { maximumBytes: MAX_MANIFEST_BYTES });
+      return Object.freeze({
+        ...manifest, status: 'ready', workspacePath: target,
+        boundary: {
+          applicationRepository: false, gitChanges: false, processAuthority: false,
+          certification: false, employeeScoring: false
+        }
+      });
+    });
+  }
+
   return Object.freeze({
     profile: 'disposable-learning-workspace-v1',
 
@@ -480,39 +605,23 @@ export function createLearningWorkspaceService({ lessonCatalog = null, repositor
       return (await resolve(request)).plan;
     },
 
-    async materialize(request) {
+    async offlineBundle(request) {
       const selected = await resolve(request);
-      if (request.confirm !== selected.plan.confirmationSha256) {
-        fail(`Learning workspace confirmation must equal ${selected.plan.confirmationSha256}.`,
-          'SGOS_LEARN_CONFIRMATION_MISMATCH');
-      }
-      return withSubjectLock(root, {
-        kind: 'sgos-learning', id: missionSegment(selected.mission.missionId)
-      }, async () => {
-        // Resolve again while holding the mission lock so Pack revocation or replacement between
-        // preview and mutation cannot materialize stale tutorial bytes.
-        const current = await resolve(request);
-        if (current.plan.confirmationSha256 !== request.confirm) {
-          fail(`Learning workspace plan changed; review ${current.plan.confirmationSha256}.`,
-            'SGOS_LEARN_CONFIRMATION_MISMATCH');
-        }
-        const target = workspacePath(root, current.mission.missionId);
-        await safePrivateSidecarDirectory(root, target, { create: true });
-        for (const file of current.fixture.files) {
-          await writeImmutablePrivateSidecar(root, path.join(target, ...file.path.split('/')),
-            Buffer.from(file.content, 'utf8'), { maximumBytes: MAX_FILE_BYTES });
-        }
-        const manifest = workspaceRecord(current.mission, current.fixture);
-        await writeImmutablePrivateSidecar(root, manifestPath(root, current.mission.missionId),
-          `${canonicalJson(manifest)}\n`, { maximumBytes: MAX_MANIFEST_BYTES });
-        return Object.freeze({
-          ...manifest, status: 'ready', workspacePath: target,
-          boundary: {
-            applicationRepository: false, gitChanges: false, processAuthority: false,
-            certification: false, employeeScoring: false
-          }
-        });
-      });
+      return offlineBundleRecord(selected.mission, selected.fixture);
+    },
+
+    async bundlePlan(input) {
+      const { request } = requestFromBundle(input);
+      return (await resolve(request)).plan;
+    },
+
+    async materializeBundle(input, confirm) {
+      const { request } = requestFromBundle(input);
+      return materializeRequest({ ...request, confirm });
+    },
+
+    async materialize(request) {
+      return materializeRequest(request);
     },
 
     async status(missionId) {

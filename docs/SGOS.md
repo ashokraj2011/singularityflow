@@ -350,6 +350,14 @@ and completes the manifest. Conflicting learner bytes are never overwritten. Lea
 also reads canonical v1 local records and copy tokens through the migration registry, recomputes the
 identity-free content seal, and writes v2 only on a later successful monotonic mutation.
 
+For disconnected learning, `learn bundle-create` writes a new, bounded, canonical module/fixture
+bundle only after the local active Pack validates the exact lesson, role, module, and fixture.
+`learn bundle-inspect` verifies copied bytes without Pack credentials. `learn bundle-materialize`
+then rechecks that the destination has the same exact active Pack and requires the ordinary
+materialization confirmation. Pack authority travels separately through the existing approved
+Git-trusted or signed Authority Store transport; the learning bundle contains no key, signature,
+activation, approval, certification, identity, machine-local path, or network capability.
+
 ## Governed meta-tool activation
 
 The platform API deliberately separates finding a recurring pattern from deploying it. Verified

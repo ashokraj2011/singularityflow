@@ -31,7 +31,7 @@ import {
   createAuthorityState, createLearningWorkspaceService, createReadOnlyLessonCatalog,
   openFilesystemAuthorityStore,
   planPortableAuthorityImport, platformSha256, validatePlatformRecord,
-  verifyPortableAuthorityTransport, verifySignedPlatformRecord
+  validateLearningOfflineBundle, verifyPortableAuthorityTransport, verifySignedPlatformRecord
 } from '../sgos/platform/index.mjs';
 import {
   authorityTransportContext, createLocalAuthorityTransportSigner, parseAuthorityTransport,
@@ -72,7 +72,8 @@ const MUTATIONS = new Set([
   'authority-store.export', 'authority-store.import', 'authority-store.rollback',
   'authority-store.publish', 'authority-store.sync',
   'pack.propose', 'pack.review', 'pack.activate', 'pack.revoke',
-  'learn.materialize', 'learn.check', 'learn.progress-import', 'learn.reset',
+  'learn.materialize', 'learn.bundle-create', 'learn.bundle-materialize', 'learn.check',
+  'learn.progress-import', 'learn.reset',
   'memory.register', 'memory.promote',
   'meta-tool.propose', 'meta-tool.evaluation', 'meta-tool.promote',
   'meta-tool.activate', 'meta-tool.observe', 'meta-tool.revoke', 'meta-tool.rollback'
@@ -353,6 +354,96 @@ async function publishAuthorityTransport(root, candidate, bytes) {
     await rm(temporary, { force: true }).catch(() => {});
     await syncDirectory(directory.absolute);
   }
+}
+
+async function publishLearningBundle(root, candidate, bundle) {
+  if (!candidate) {
+    fail('Learning bundle creation requires --out <REPOSITORY-FILE>.',
+      'SGOS_LEARN_BUNDLE_OUTPUT_REQUIRED');
+  }
+  let target = await secureRepositoryPath(root, String(candidate), {
+    label: 'Learning bundle output', mustExist: false, type: 'file'
+  });
+  if (target.exists) {
+    fail('Learning bundle output already exists.', 'SGOS_LEARN_BUNDLE_OUTPUT_EXISTS', {
+      path: target.relative
+    });
+  }
+  const directory = await ensureSecureRepositoryDirectory(root, path.dirname(target.relative), {
+    label: 'Learning bundle output directory'
+  });
+  target = await secureRepositoryPath(root, target.relative, {
+    label: 'Learning bundle output', mustExist: false, type: 'file'
+  });
+  if (target.exists) {
+    fail('Learning bundle output already exists.', 'SGOS_LEARN_BUNDLE_OUTPUT_EXISTS', {
+      path: target.relative
+    });
+  }
+  const bytes = canonicalJson(bundle);
+  const temporary = path.join(directory.absolute,
+    `.${path.basename(target.absolute)}.pending-${process.pid}-${randomUUID()}`);
+  let handle;
+  try {
+    handle = await open(temporary,
+      fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL
+        | (fsConstants.O_NOFOLLOW ?? 0), 0o600);
+    await handle.writeFile(bytes, 'utf8');
+    await handle.sync();
+    await handle.close();
+    handle = null;
+    try { await link(temporary, target.absolute); } catch (error) {
+      if (error?.code !== 'EEXIST') throw error;
+      fail('Learning bundle output already exists.', 'SGOS_LEARN_BUNDLE_OUTPUT_EXISTS', {
+        path: target.relative
+      });
+    }
+    await syncDirectory(directory.absolute);
+    const observed = await readFile(target.absolute, 'utf8');
+    if (observed !== bytes) {
+      fail('Learning bundle output changed during publication.',
+        'SGOS_LEARN_BUNDLE_FILE_CHANGED');
+    }
+    return Object.freeze({
+      path: target.relative,
+      bytes: Buffer.byteLength(bytes, 'utf8'),
+      bundleSha256: bundle.bundleSha256,
+      moduleSha256: bundle.module.moduleSha256,
+      fixtureSha256: bundle.fixture.fixtureSha256,
+      packSha256: bundle.packSha256,
+      authority: false,
+      activation: false,
+      certification: false
+    });
+  } finally {
+    await handle?.close().catch(() => {});
+    await rm(temporary, { force: true }).catch(() => {});
+    await syncDirectory(directory.absolute);
+  }
+}
+
+function learningBundleSummary(bundle) {
+  return Object.freeze({
+    kind: bundle.kind,
+    schemaVersion: bundle.schemaVersion,
+    bundleSha256: bundle.bundleSha256,
+    packId: bundle.packId,
+    packSha256: bundle.packSha256,
+    lessonId: bundle.lessonId,
+    role: bundle.role,
+    moduleSha256: bundle.module.moduleSha256,
+    fixtureId: bundle.fixture.id,
+    fixtureSha256: bundle.fixture.fixtureSha256,
+    fileCount: bundle.fixture.files.length,
+    totalFixtureBytes: bundle.fixture.files.reduce(
+      (total, file) => total + Buffer.byteLength(file.content, 'utf8'), 0
+    ),
+    authorityRequirement: bundle.authorityRequirement,
+    networkRequired: false,
+    authority: false,
+    activation: false,
+    certification: false
+  });
 }
 
 async function authorityStore(root, options, { initialize = false } = {}) {
@@ -948,6 +1039,14 @@ async function packCommand(root, positionals, options) {
 
 async function learnCommand(root, positionals, options) {
   const action = positionals[1] ?? 'list';
+  if (action === 'bundle-inspect') {
+    const bundle = validateLearningOfflineBundle(
+      await jsonFile(root, optionString(options, 'bundle'), '--bundle')
+    );
+    const result = learningBundleSummary(bundle);
+    return emit(result, options, 'learn.bundle-inspect',
+      `Verified offline learning bundle ${result.bundleSha256}; it grants no Pack authority or certification.`);
+  }
   if (action === 'workspace') {
     const service = createLearningWorkspaceService({ repositoryRoot: root });
     const result = await service.status(positionals[2]);
@@ -998,6 +1097,22 @@ async function learnCommand(root, positionals, options) {
   }
   const { registry } = await packRegistry(root, options);
   const catalog = createReadOnlyLessonCatalog({ packRegistry: registry });
+  if (action === 'bundle-materialize') {
+    const bundle = validateLearningOfflineBundle(
+      await jsonFile(root, optionString(options, 'bundle'), '--bundle')
+    );
+    const service = createLearningWorkspaceService({ lessonCatalog: catalog, repositoryRoot: root });
+    const plan = await service.bundlePlan(bundle);
+    const confirm = optionString(options, 'confirm');
+    if (confirm == null) {
+      return emit(plan, options, 'learn.bundle-materialize.plan',
+        `Review the offline bundle and local active-Pack binding, then repeat with --confirm ${plan.confirmationSha256}.`);
+    }
+    const result = await service.materializeBundle(bundle, confirm);
+    return emit(result, options, 'learn.bundle-materialize',
+      `Materialized offline learning bundle ${bundle.bundleSha256}; authority and certification were unchanged.`,
+    { changed: true, filesChanged: false });
+  }
   const role = requiredString(options, 'role');
   const packId = optionString(options, 'pack') ?? null;
   if (action === 'list') {
@@ -1060,6 +1175,18 @@ async function learnCommand(root, positionals, options) {
     const result = await catalog.teachBack({ ...request, checkId: positionals[3], answer });
     return emit(result, options, 'learn.teach-back',
       `Teach-back ${result.checkId}: ${result.status}; concept presence is not employee scoring.`);
+  }
+  if (action === 'bundle-create') {
+    const module = await jsonFile(root, optionString(options, 'module'), '--module');
+    const fixture = await jsonFile(root, optionString(options, 'fixture'), '--fixture');
+    const service = createLearningWorkspaceService({ lessonCatalog: catalog, repositoryRoot: root });
+    const bundle = await service.offlineBundle({
+      role, lessonId: positionals[2], packId, module, fixture
+    });
+    const result = await publishLearningBundle(root, optionString(options, 'out'), bundle);
+    return emit(result, options, 'learn.bundle-create',
+      `Created offline learning bundle ${result.bundleSha256} at ${result.path}; it grants no Pack authority or certification.`,
+    { changed: true, stateChanged: false, filesChanged: true });
   }
   fail(`Unknown learn action '${action}'.`, 'UNKNOWN_SUBCOMMAND');
 }

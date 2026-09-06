@@ -256,6 +256,10 @@ Every public operation is classified before its implementation module is importe
 | journal.today | read | never | — | — |
 | knowledge | mutation | never | — | — |
 | land | mutation | never | — | — |
+| learn.bundle-create | mutation | never | — | — |
+| learn.bundle-inspect | read | never | — | — |
+| learn.bundle-materialize | mutation | never | — | — |
+| learn.bundle-materialize.plan | read | never | — | — |
 | learn.check | mutation | never | — | — |
 | learn.explain-change | read | never | — | — |
 | learn.inspect | read | never | — | — |

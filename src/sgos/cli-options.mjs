@@ -152,6 +152,9 @@ export const SGOS_CLI_OPTIONS = Object.freeze({
     show: optionSet(...PACK_READ, 'role', 'pack'),
     start: optionSet(...PACK_READ, 'role', 'pack', 'module'),
     materialize: optionSet(...PACK_READ, 'role', 'pack', 'module', 'fixture', 'confirm'),
+    'bundle-create': optionSet(...PACK_READ, 'role', 'pack', 'module', 'fixture', 'out'),
+    'bundle-inspect': optionSet('bundle'),
+    'bundle-materialize': optionSet(...PACK_READ, 'bundle', 'confirm'),
     workspace: optionSet(),
     progress: optionSet(),
     'progress-export': optionSet(),
@@ -223,10 +226,11 @@ export function validateSgosCliOptions(command, action, options = {}) {
     'capture', 'packet', 'confirm', 'workflow', 'workflow-create',
     'ratification-packet', 'ratify', 'compile'
   ].includes(action)) || (command === 'evidence' && action === 'export')
-    || (command === 'authority-store' && action === 'export');
+    || (command === 'authority-store' && action === 'export')
+    || (command === 'learn' && action === 'bundle-create');
   if (Object.hasOwn(options, 'out') && !supportsOutput) {
     throw new SingularityFlowError(
-      `--out is not supported by ${command}.${action}; it is available only for Intent record authoring, Process Evidence export, and signed Authority Store export.`,
+      `--out is not supported by ${command}.${action}; it is available only for Intent record authoring, Process Evidence export, signed Authority Store export, and offline learning bundle creation.`,
       { code: 'SGOS_OUTPUT_NOT_SUPPORTED', details: { operation: `${command}.${action}` } }
     );
   }

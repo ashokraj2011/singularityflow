@@ -304,9 +304,11 @@ const SGOS_SUBCOMMANDS = Object.freeze({
   learn: Object.freeze({
     read: [
       'list', 'show', 'start', 'workspace', 'progress', 'progress-export',
-      'inspect', 'explain-change', 'quiz', 'teach-back'
+      'inspect', 'explain-change', 'quiz', 'teach-back', 'bundle-inspect'
     ],
-    mutation: ['materialize', 'check', 'progress-import', 'reset']
+    mutation: [
+      'materialize', 'bundle-create', 'bundle-materialize', 'check', 'progress-import', 'reset'
+    ]
   }),
   memory: Object.freeze({ read: ['inspect', 'dependencies'], mutation: ['register', 'promote'] }),
   'meta-tool': Object.freeze({
@@ -993,7 +995,8 @@ function resolveSgosOperation(definition, positionals, options) {
       && optionString(options, 'confirm') == null) {
     return never(`authority-store.${subcommand}.plan`, definition, 'read');
   }
-  if (definition.name === 'learn' && ['materialize', 'progress-import', 'reset'].includes(subcommand)
+  if (definition.name === 'learn'
+      && ['materialize', 'bundle-materialize', 'progress-import', 'reset'].includes(subcommand)
       && optionString(options, 'confirm') == null) {
     return never(`learn.${subcommand}.plan`, definition, 'read');
   }
@@ -1186,6 +1189,7 @@ export function operationCatalog() {
   sgos.push(never('authority-store.publish.plan', commandDefinition('authority-store'), 'read'));
   sgos.push(never('authority-store.sync.plan', commandDefinition('authority-store'), 'read'));
   sgos.push(never('learn.materialize.plan', commandDefinition('learn'), 'read'));
+  sgos.push(never('learn.bundle-materialize.plan', commandDefinition('learn'), 'read'));
   sgos.push(never('learn.progress-import.plan', commandDefinition('learn'), 'read'));
   sgos.push(never('learn.reset.plan', commandDefinition('learn'), 'read'));
   const modelFreeMixed = [

@@ -143,18 +143,29 @@ disabled, every fixture is disposable, and reports contain no repository path, W
 question, artifact, command output, or source bytes. Linux records peak child RSS from `/proc`;
 other platforms report that measurement as unavailable instead of inventing it.
 
-A non-enforcing run may report `incomplete`. In particular, some VS Code extension-test hosts do
-not persist `workspaceState` between their disposable processes; that makes the warm cached-paint
-cell unavailable even though the extension explicitly flushed it. Such a run remains useful for
-activation, confirmed paint, refresh, storm, event-loop, and RSS diagnostics, but it is not accepted
-release evidence. `--enforce` requires all cells, at least 30 cold/warm pairs, and every profile
+A non-enforcing run reports `incomplete` when any required cell is absent or any measured CLI child
+fails. Fast process failure is never accepted as good latency. The warm projection is retained in a
+bounded, repository-hashed, atomic file below VS Code's machine-local global storage, with Memento
+only as an upgrade fallback; this survives disposable cold/warm host processes without syncing
+repository content. `--enforce` requires every cell, at least 30 cold/warm pairs, and every profile
 budget. Do not relabel a projection-ready timestamp as a paint or a stub-host result as VS Code.
 
 In a real editor host, activation no longer awaits the machine-wide workspace inventory or the
 fresh repository snapshot. All commands and providers are registered first; a retained cache can
 paint when VS Code resolves the view, then one background read confirms it. Capability readiness
-and workspace logs remain behind that confirmed snapshot. Stub-host contract tests retain the
-awaited path so their assertions do not race fire-and-forget work.
+and workspace logs remain behind that confirmed snapshot and are skipped when their approved scope
+does not exist. First-run health also waits until after confirmed paint. Explicit Refresh hashes the
+small machine selection record and invokes `workspace current` only when those bytes changed or the
+record cannot be observed safely. Stub-host contract tests retain the awaited path so their
+assertions do not race fire-and-forget work.
+
+The code-local current-VS-Code smoke at `main@2eda5b75` measured cached first paint at 155 ms,
+unchanged refresh at 529–586 ms, changed refresh at 508–511 ms, and a 100-event watcher burst at one
+CLI child and one sidebar render. All measured CLI children exited successfully. This one-pair local
+macOS/Node 25 result is diagnostic evidence only: it does not replace either accepted 30-pair editor
+profile or the pinned Node 22/Linux baseline. Its 147–149 ms host-wide event-loop maximum still
+exceeds the 50 ms release ceiling and must be attributed and reduced rather than hidden or budgeted
+away.
 
 ## Bounded aggregate verification
 

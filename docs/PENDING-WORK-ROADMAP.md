@@ -2,7 +2,7 @@
 
 **Status:** authoritative cross-product tracker; bounded exact-tree aggregate and the latest code-local asynchronous Git migration are complete, while platform release evidence remains active
 
-**Baseline:** `main@9ea94aac`
+**Baseline:** `main@2eda5b75`
 
 **Last reviewed:** 2026-09-06
 
@@ -81,6 +81,17 @@ a synchronous child to the bounded asynchronous process-tree runner; cancellatio
 unavailable evidence and zero mapping proposals. These remain synthetic local proofs, not signed
 Windows/Linux, office-network, or independent-verifier evidence.
 
+The real VS Code host contract was corrected through `main@2eda5b75`. Cold and warm runs now pin
+the exact development CLI, persist the last confirmed snapshot in a bounded atomic machine-local
+cache, and reject any measured surface whose CLI child failed. First-run health runs after the first
+confirmed paint, workspace logs do not launch without an active workspace, capability readiness
+does not probe a repository with no approved capability map, and an unchanged machine selection no
+longer repeats `workspace current`. A local current-VS-Code cold/warm pair measured cached first
+paint at 155 ms and unchanged refresh at 529–586 ms against the unchanged 250 ms and 650 ms limits.
+The host-wide event-loop tail remains above its 50 ms release ceiling, and accepted 30-pair
+minimum/current platform reports remain external evidence; this is therefore a code-local
+checkpoint, not completion.
+
 ## 2026-09-05 reconciliation snapshot
 
 This snapshot resolves conflicts between older domain roadmaps and the executable baseline. A
@@ -151,7 +162,7 @@ evidence, and selected npm/VSIX artifact binding remain governed by the platform
 | Track | Current boundary | Next eligible increment | Detailed authority |
 |---|---|---|---|
 | Release baseline | `REL-P0-001` complete at `8387a9d8`: exact-tree verification is bounded, resumable, and green | Collect strict signed supported-platform/package receipts; do not treat the local Node 25 receipt as a release matrix | This document and [Verification](../VERIFICATION.md) |
-| Developer-experience performance | Hot paths and the office-Git code-local slice are implemented; interactive configuration, ledger, WMB, SGOS authority, Auto authority/recovery, workspace routing, lifecycle publication, and checkout use bounded asynchronous Git; pinned relative baseline and cross-platform host evidence are not established | Finish `DXP-P0-001`, keep the isolated compatibility transport under audit, then close each `[~]` platform gate | This document and [DX performance](DX-PERFORMANCE.md) |
+| Developer-experience performance | Hot paths and the office-Git code-local slice are implemented; real-host samples attest child success, warm cache survives disposable host processes, and the local unchanged-refresh sample is inside its existing ceiling; pinned relative baseline and cross-platform host evidence are not established | Attribute and reduce the real-host event-loop tail, accept 30-pair reports on both editor profiles, keep the isolated compatibility transport under audit, then close each `[~]` platform gate | This document and [DX performance](DX-PERFORMANCE.md) |
 | SGOS | Universal Candidate publication, portable authority transport, proposal-only Agent working-set injection, signed-Pack/Device meta-tool CLI/native review, and non-authoritative portable learning progress are code-complete; signed cross-platform release proof and real Secret Broker adapter integration remain open | Finish the `SGOS-P0-001`/`003` signed platform matrices and the external-adapter portion of `SGOS-P0-002` before expanding P2 authority | [SGOS pending work](SGOS-PENDING-WORK.md) |
 | World Model Builder v4 | Release receipt generation and enforcement exist; no reviewed six-cell supported-platform aggregate is recorded | `WMB-REL-001` | [WMB v4](WORLD-MODEL-BUILDER-V4.md) |
 | Witnessed Engineering Loop | Exact-static local JUnit observation, immutable proposal binding, existing-approval review, migration, release-gated baseline/delta/Context-X-Ray/Story-start/recovery benchmark, cancellable parser boundary, isolated npm/VSIX proof, and a bounded platform-matrix command are active; authenticated testcase claims and enforcement remain unavailable | Execute and sign the external/cross-platform and office-network gates in `WEL-P0-001` through `WEL-P0-003` | [WEL pending work](WEL-PENDING-WORK.md) |
@@ -229,8 +240,8 @@ All `[~]` DXP entries below share this tracked delivery metadata:
 
 | Scope | Landed in `96bb55f8` | Remaining evidence before `[x]` |
 |---|---|---|
-| `DXP-P0-001` | `doctor --performance` measures its explicit invoking checkout; scale and dirty-tree fixtures cover the VS Code snapshot; a real-editor runner now has version-bound minimum/current budgets, cold/warm processes, actual paint markers, event-loop delay, CPU, process counts, and RSS without retaining workspace content | Accepted 30-pair reports on pinned Node 22/Linux x64 and minimum/current VS Code; current extension-test hosts that do not persist `workspaceState` remain explicitly incomplete; office-network arm |
-| `DXP-P0-002`–`003` | real-host activation now returns after providers/commands and cache publication instead of awaiting workspace inventory or the fresh snapshot; confirmed-snapshot auxiliary reads, latest-only refresh/validation, one sidebar paint, hidden-panel deferral, and a real 100-event watcher exercise are measured | Accepted 10-second real extension-host storms with CPU/RSS/process budgets on minimum and current VS Code; lower unchanged-refresh and event-loop tails without raising budgets |
+| `DXP-P0-001` | `doctor --performance` measures its explicit invoking checkout; scale and dirty-tree fixtures cover the VS Code snapshot; a real-editor runner has version-bound minimum/current budgets, cold/warm processes, actual paint markers, event-loop delay, CPU, process counts, RSS, durable cache proof, and successful-child attestation without retaining workspace content | Accepted 30-pair reports on pinned Node 22/Linux x64 and minimum/current VS Code; office-network arm |
+| `DXP-P0-002`–`003` | real-host activation returns after providers/commands and cache publication instead of awaiting workspace inventory or the fresh snapshot; confirmed-snapshot auxiliary reads, latest-only refresh/validation, one sidebar paint, hidden-panel deferral, and a real 100-event watcher exercise are measured; unchanged selection and absent capability/log scopes no longer launch redundant children | Accepted 10-second real extension-host storms with CPU/RSS/process budgets on minimum and current VS Code; attribute and lower the event-loop tail without raising budgets |
 | `DXP-P0-004`–`006` | reviewed enterprise proxy/CA/helper parity, bounded process-tree supervisor, and centralized partial-clone fallback | live Windows GCM, Git Bash, macOS helper, office proxy/CA, provider filter, and descendant-cleanup exercises |
 | `DXP-P1-001`–`002` | leased heavy slices, linear bounded output, JSON stdout isolation, and lazy workspace/capability startup readers | accepted peak-RSS and module-load release budgets on the pinned hosts |
 | `DXP-P1-003`, `DXP-P2-001` | one operation-scoped remote session, broad inventory reuse, mutation invalidation, exact revalidation, and asynchronous configuration/ledger/WMB/lifecycle authority reads; no product workflow calls the retained synchronous compatibility transport | collect pinned host measurements and remove the compatibility API only in a separately reviewed breaking release |

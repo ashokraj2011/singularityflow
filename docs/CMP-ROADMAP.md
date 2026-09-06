@@ -9,13 +9,14 @@
 **Last formal specification audit:** `main@3b5d79e6` on 2026-08-31; subsequent bounded increments
 are reconciled individually below and do not change that audit's authority/enforcement verdict
 
-**Current reconciliation:** checked through `main@daf6cba0` on 2026-09-07; the first content-free
+**Current reconciliation:** checked through `main@b0e61c7c` on 2026-09-07; the first content-free
 P1 measurement harness and read-only P3 graph/query/Story-replay projections are active, and the
 existing five-tool gateway now serves a conservative resource-level `intent.trace`. P4 now has a
 bounded observe-only typed walkthrough validator for exact resource-level diff facts. P6 now has
-an initial leased, read-only VS Code Comprehension Center over those same projections plus a bounded,
-hash-bound exact Git patch view. A guarded `/sf-learn` entry now reuses the existing inert SGOS
-learning workspace without granting authority. P1
+an initial leased, read-only VS Code Comprehension Center over those same projections, a bounded,
+hash-bound exact Git patch view, and an exact-region join to already-recorded phase delivery/test
+references. A guarded `/sf-learn` entry now reuses the existing inert SGOS learning workspace
+without granting authority. P1
 storage/retention authority, P2 authority, the P3 durable index and cause-backed gateway/SGOS joins,
 authoritative P4 drafting/validation/receipts, structural/evidence validators, P5, and the remaining
 P6 learning/brownfield/production evidence remain open
@@ -218,7 +219,7 @@ as permission to submit, approve, publish, or merge.
 | P3 — intent graph and replay | **Partial read projection** | Deterministic ephemeral graph over validated diagnostic bindings; bounded exact clause/file/change reads; opaque handles; content-free normalized Story chronology; existing five-tool gateway resource fallback; explicit unavailable cause/structure; no model, AST requirement, write, or gate | Durable typed index over P2 authority, cache rebuild, cause-backed gateway query, structural expansion, SGOS/cause joins, causal replay, and governed reverse-convergence/post-hoc provenance |
 | P4 — walkthroughs | **Partial read validation** | Deterministic zero-model resource draft; bounded untrusted typed draft; exact resource-level `file-changed` validator; explicit unavailable structure/evidence/human authority; advisory-only model claims; dual hashes; Candidate/dependency integrity; circular-input refusal; selective observe-only revalidation; narrative/fact separation; bounded sources; no model, AST, write, or gate | Optional untrusted model-draft transport, authoritative structural/evidence/human validators, exact source expansion beyond resource diff, authoritative dependency resolution, durable revalidation receipts, persistence, and governed review |
 | P5 — enforcement | **Blocked by prerequisites** | None; ordinary publication is deliberately unchanged | Universal lifecycle Candidate, existing-review-subject binding, existing approval/publication integration, projected receipt, recovery, and opt-in creation-pinned enforcement |
-| P6 — VS Code, learning, brownfield | **Partial read projection** | Dedicated leased/evicted `comprehension` snapshot slice; Help/Favorites/palette entry points; exact resource navigation; bounded hash-bound tracked Git patch with untracked-body exclusion and overflow degradation; explicit unavailable-cause view; deterministic walkthrough; content-free replay; explicit unknowns; guarded `/sf-learn` routing to inert signed-Pack lessons; no model, AST requirement, write, or lifecycle authority | Rich per-region source expansion; available-symbol/evidence navigation; durable stale-claim and repair-plan views; reviewed CMP lesson modules/fixtures; touched-area policy; labelled backfill; extension-host accessibility/localization/offline/office/large-repository evidence |
+| P6 — VS Code, learning, brownfield | **Partial read projection** | Dedicated leased/evicted `comprehension` snapshot slice; Help/Favorites/palette entry points; exact resource navigation; bounded hash-bound tracked Git patch with untracked-body exclusion and overflow degradation; exact-region roles joined only to already-recorded phase delivery/test references; explicit unavailable-cause view; deterministic walkthrough; content-free replay; explicit unknowns; guarded `/sf-learn` routing to inert signed-Pack lessons; no model, AST requirement, write, or lifecycle authority | Rich per-region hunk/source expansion; available-symbol and authoritative evidence navigation; durable stale-claim and repair-plan views; reviewed CMP lesson modules/fixtures; touched-area policy; labelled backfill; physical extension-host accessibility/localization/offline/office/large-repository evidence |
 
 ### Explain-change and intent-trace boundary
 
@@ -277,7 +278,7 @@ earlier evidence satisfies the CMP v1 release criteria or any enforcement accept
 | `CMP-P3-002` | The content-free normalized Story replay landed at `db61bb90`; add P2 cause records, SGOS lineage joins, refusal/repair subjects, and governed reverse-convergence/post-hoc provenance without colliding with SGOS Process replay | Current ordering, exact focus, source validation, privacy/transcript exclusion, ceiling, no-model, no-write, and command-collision tests are green; fresh-export, SGOS/cause join, recovery, and causal-provenance evidence remain |
 | `CMP-P4-001` | The bounded observe-only typed validator landed at `3fcaffea`; selective current-validator revalidation landed at `67a30f12`; deterministic zero-model resource drafting landed at `6f0227d9`. Add the optional model-draft transport, authoritative structural/evidence/human resolvers, exact source expansion, authority-backed dependency resolution, and durable revalidation receipts | Current deterministic-draft, self-awarded-assurance, malformed/oversized input/output, Candidate/dependency drift, counterfeit-prior-result, selective graph invalidation, dual-hash, circular-input, no-model, no-AST, no-write, and no-gate tests are green; counterfeit-model, prompt-injection, cancellation/timeout, authority-backed evidence/structure drift, and durable receipt evidence remain |
 | `CMP-P5-001` | Integrate CMP into the single existing Candidate/review/approval/publication transaction | `SGOS-P0-001`, every-workflow lifecycle matrix, remote rejection/push recovery, crash/retry, and fresh-export receipt verification |
-| `CMP-P6-001` | The initial leased, read-only VS Code Comprehension Center landed at `eb88b989`; the bounded exact tracked-diff projection and portable release-gate coverage landed through `34e9b7c1`; guarded `/sf-learn` routing to the existing inert SGOS learning workspace landed at `daf6cba0`. The slice has engine-owned region/coverage/graph/walkthrough/replay facts, shared snapshot revision fencing, bounded renewable lease, hide/close/expiry/cache eviction, Help/Favorites/palette discovery, explicit unknowns, current-slice-only file navigation, untracked-body privacy, and safe output-limit degradation. Add rich per-region source and available-symbol/evidence expansion, durable stale-claim/repair views, reviewed CMP lessons, and production hardening. | Current code-local snapshot parity, no-model, lease/cache, repository switch, path boundary, exact-patch digest/limit/privacy, learning boundary/no-authority, accessibility-markup, lazy-load, VS Code source, build, type, and 46-test portable CMP/WEL matrix evidence are green. Real minimum/current extension-host cancellation, rapid-switch, keyboard/screen-reader, multi-root, offline/office-proxy, memory, and large-tree evidence remains before exit. |
+| `CMP-P6-001` | The initial leased, read-only VS Code Comprehension Center landed at `eb88b989`; the bounded exact tracked-diff projection and portable release-gate coverage landed through `34e9b7c1`; guarded `/sf-learn` routing landed at `daf6cba0`; keyboard semantics, built-host lease exercise, repository-switch fencing, and the bounded exact-region delivery/test evidence join landed through `b0e61c7c`. The slice has engine-owned region/coverage/graph/walkthrough/replay/evidence facts, shared snapshot revision fencing, bounded renewable lease, hide/close/expiry/cache eviction, Help/Favorites/palette discovery, explicit unknowns, current-slice-only file navigation, untracked-body privacy, and safe output/record-limit degradation. Add rich per-region hunk/source and available-symbol/authoritative-evidence expansion, durable stale-claim/repair views, reviewed CMP lessons, and production hardening. | Current code-local snapshot parity, no-model, lease/cache, external workspace switch, path boundary, exact-patch digest/limit/privacy, exact-region evidence joins, learning boundary/no-authority, accessibility-markup, lazy-load, VS Code source, build, type, and 49-test portable CMP/WEL matrix evidence are green. Physical minimum/current extension-host cancellation, keyboard/screen-reader, multi-root, offline/office-proxy, memory, and large-tree evidence remains before exit. |
 | `CMP-P6-002` | Add touched-area brownfield policy and labelled historical backfill | No-full-backfill compatibility, rename/move/touch fixtures, and no-fabricated-history tests |
 
 ## Validated reuse map
@@ -722,7 +723,7 @@ Required tests:
 
 **Goal:** make the proven contracts understandable and usable without changing their authority.
 
-**Current checkpoint (`main@daf6cba0`):** the first deliverable is active as a read-only slice and
+**Current checkpoint (`main@b0e61c7c`):** the first deliverable is active as a read-only slice and
 Center. It intentionally exposes only the P3/P4 facts that exist today. Shared `WorkspaceStore`
 revision fencing prevents an older repository response from replacing a newer selection; a named
 renewable lease is bounded to five minutes, reacquired through a single flight after expiry, and
@@ -730,8 +731,10 @@ released when the panel is hidden or disposed. Normal activation snapshots omit 
 cached payloads are stripped before first paint. The exact Diff tab is capped at 192 KiB, digest
 bound, excludes untracked bodies, and is now part of the portable/release test contract. This is not
 completion of P6. `/sf-learn` now provides the guarded Copilot route into existing signed-Pack,
-disposable learning workspaces; reviewed CMP-specific lesson bytes and the remaining physical host
-evidence below are still required.
+disposable learning workspaces. The Evidence tab joins only paths present in the current exact
+region manifest to the active phase's already-recorded delivery/test references; it neither opens
+the receipt bytes nor upgrades their assurance. Reviewed CMP-specific lesson bytes and the
+remaining physical host evidence below are still required.
 
 Deliverables:
 

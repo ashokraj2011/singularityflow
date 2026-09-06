@@ -2,7 +2,7 @@
 
 **Status:** authoritative cross-product tracker; bounded exact-tree aggregate and the latest code-local asynchronous Git migration are complete, while platform release evidence remains active
 
-**Baseline:** `main@daf6cba0`
+**Baseline:** `main@b0e61c7c`
 
 **Last reviewed:** 2026-09-07
 
@@ -172,6 +172,14 @@ authority, secret-scanned inert fixtures, private Git-common tutorial storage, p
 and identity-free progress. It never executes lesson content or changes the live checkout. Reviewed
 CMP-specific lesson modules and fixtures remain open; the routing surface does not invent them.
 
+The Comprehension Center production-hardening continuation landed through `main@b0e61c7c`.
+Keyboard tab semantics, real built-host lease eviction/reacquisition, and durable A-to-B repository
+selection fencing now protect the optional source-bearing slice. A new Evidence tab performs a
+bounded exact-region join to the active phase's already-recorded delivery and test references. It
+does not open receipt files, ingest unrelated paths, invoke AST or a model, upgrade assurance, or
+participate in a lifecycle gate. Rich hunk/symbol/authoritative-evidence views and physical-host
+evidence remain open.
+
 The strict local Node 22/macOS release aggregate is green at `main@60e37936`. Run
 `ef2adfc807f1380ad2a1c85f` selected 457 files across eight exact-tree shards and passed all 4,645
 tests with zero failures, cancellations, skips, or todo. Its machine-local receipt binds commit
@@ -229,7 +237,7 @@ signed runner is useful M9 evidence, but it is not an authenticated independent 
 | Area | Implemented boundary through `10b8bcd6` | Still open |
 |---|---|---|
 | Auto v2 | Dependency-free Story profile, P0/P1 controls, interval pacing, and provenance-preserving direct Ad Hoc Candidate adoption | Optional SGOS execution profile and registered comparative-quality evidence |
-| CMP | Model-free, read-only `comprehension regions`, `check`, ephemeral intent graph, exact clause/file/change explanation, content-free normalized Story replay, resource-level `intent.trace` through the existing five gateway tools, release-gated synthetic benchmark, deterministic resource walkthrough drafts, typed validation, selective observe-only revalidation, a leased read-only VS Code Comprehension Center with bounded exact tracked-diff inspection, and guarded `/sf-learn` routing to inert signed-Pack lessons | Reviewed real corpus and storage/privacy decision, durable cause authority/index, cause-backed gateway query, rich structural/source/evidence expansion, SGOS/cause replay joins, governed causal provenance, optional model drafting, authoritative walkthrough validators/receipts, lifecycle enforcement, production-hardened Center and reviewed CMP lesson evidence, and brownfield policy |
+| CMP | Model-free, read-only `comprehension regions`, `check`, ephemeral intent graph, exact clause/file/change explanation, content-free normalized Story replay, resource-level `intent.trace` through the existing five gateway tools, release-gated synthetic benchmark, deterministic resource walkthrough drafts, typed validation, selective observe-only revalidation, and a leased read-only VS Code Comprehension Center with bounded exact tracked-diff inspection, keyboard semantics, built-host/repository-switch fencing, an exact-region join to recorded delivery/test references, and guarded `/sf-learn` routing | Reviewed real corpus and storage/privacy decision, durable cause authority/index, cause-backed gateway query, rich hunk/symbol/authoritative-evidence expansion, SGOS/cause replay joins, governed causal provenance, optional model drafting, authoritative walkthrough validators/receipts, lifecycle enforcement, remaining physical production evidence, reviewed CMP lessons, and brownfield policy |
 | SGOS | Bounded runtime, Universal Candidate code path, Git-trusted authority transport, signed transport, Windows DPAPI-protected local signer, stop-aware bounded Process-lock contention recovery, checkpoint-bound working-set injection, guarded signed-Pack/Device meta-tool activation CLI, native preview/confirm review UI, isolated interruption-resumable learning workspaces, identity-free monotonic portable learning progress with v1-to-v2 migration, and exact-active-Pack-bound offline learning bundles | Real external-adapter Secret Broker integration, signed platform release aggregate, end-to-end proof, additional adapters, orchestration, stores, independent certification, and accessibility validation |
 | WEL | Observe-only witnessed clauses; exact-static local JUnit/Surefire and bounded top-level literal Jest/Vitest adapters; human mapping review; a durable 14-case synthetic JavaScript adversarial corpus; same-process incremental cost; content-free Context X-Ray projection; model-free local Story-start transaction measurement; cancellable Java parser execution; synthetic push/offline/fresh-clone/interrupted-write recovery; strict benchmark binding in signed release receipts; clean Linux Node 20/22 portable matrices; and a complete unsigned Linux Node 22 package/VSIX release gate. Results remain inconclusive | Candidate/Program/attempt join, independently reviewed real corpora, physical Windows and office-network recovery receipts, authenticated hermetic execution, enforcement recovery, further adapter shapes, and signed platform release proof |
 | CAB | CAB v0.2 code-local architecture, adversarial design contract, and observe-only exact-static JUnit pilot are active over existing SGOS/GDP/WEL primitives | Independent R0 ratification, authenticated isolation/trust roots, corpus/platform proof, opt-in enforcement, adequacy, provider adapters, and regulated deployment proof |

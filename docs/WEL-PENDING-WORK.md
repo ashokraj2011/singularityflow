@@ -6,7 +6,7 @@
 
 **Created:** 2026-08-30
 
-**Current reconciliation:** checked against `main@60e37936` on 2026-09-06. Commits `259b76f1`,
+**Current reconciliation:** checked against `main@d3bebeb0` on 2026-09-06. Commits `259b76f1`,
 `58d9329d`, and `d55229c7` provide the bounded exact-static JUnit identity adapter, immutable
 proposal snapshot, human review through the existing phase approval, migration, safe command-shape
 fallbacks, the evolving content-free benchmark, and same-process unenrolled delta measurement. Commit
@@ -18,19 +18,27 @@ release-evidence gates below. Commit `b138ce06` adds the first separately bounde
 increment for top-level literal Jest and Vitest tests; commit `676c591e` adds a durable 14-case
 synthetic adversarial corpus that proves those closed profiles produce no false exact match for the
 enumerated source and report shapes. Those observations inherit the same local, inconclusive
-authority ceiling.
+authority ceiling. Commit `d3bebeb0` closes the code-local Node 20 compatibility defects exposed by
+the strict aggregate without changing the observe-only authority ceiling.
 
-The code-local WEL boundary and signed-evidence contract were revalidated at `main@60e37936`. A
-clean strict Node 22/macOS arm64 release aggregate completed all 457 selected files under run
+The code-local WEL boundary and signed-evidence contract were revalidated on both supported Node
+runtimes on macOS arm64. A clean strict Node 22 aggregate at `main@60e37936` completed all 457
+selected files under run
 `ef2adfc807f1380ad2a1c85f`: 4,645 tests passed with zero failures, cancellations, skips, or todo.
 Its machine-local receipt binds commit `60e379365bfd2674d7f43b307f54ea396f91b67f`, tree
 `d9471c4545524bec57f641b7f5e68d15cf699317`, source digest, runtime identity, and all eight shard
-receipt digests. The benchmark's exact content-free report is retained privately during the release
-gate, validated against the invoking host/runtime, and embedded with its canonical digest in each
-signed release-matrix cell. This unsigned local receipt fills no signed release-matrix cell. No WEL
-item is marked complete by that run. Independent ratification, authenticated execution, reviewed
-real-corpus evidence, office-network/cross-platform receipts, and signed package proof remain
-external acceptance gates and are not fabricated by repository-local tests.
+receipt digests. A second clean strict aggregate at `main@d3bebeb0`, run
+`b3e0136ed4c8a03598192402`, completed all 458 selected files under Node 20.20.2: 4,648 tests passed
+with the same zero-outcome counters. Its receipt binds commit
+`d3bebeb0f4919dc9bfd262d524af97c682a1f91d`, tree
+`f90b332e5dd5362e34825505f6d96caf46108cb5`, source digest, macOS arm64 runtime identity, and all
+eight shard receipt digests. The benchmark's exact content-free report is retained privately during
+the release gate, validated against the invoking host/runtime, and embedded with its canonical
+digest in each signed release-matrix cell. These unsigned local receipts fill no signed
+release-matrix cell. No WEL item is marked complete by either run. Independent ratification,
+authenticated execution, reviewed real-corpus evidence, office-network/cross-platform receipts,
+and signed package proof remain external acceptance gates and are not fabricated by
+repository-local tests.
 
 This document is the durable delivery tracker for Witnessed Engineering Loop work that was
 deliberately left out of the observe-only baseline. The governing design remains
@@ -287,6 +295,20 @@ Strict local release-aggregate checkpoint on `main@60e37936`:
   durable family and readable version must have a frozen golden before conformance can pass;
 - this receipt is unsigned, local development evidence. It does not satisfy Windows/Linux, Node 20,
   npm/VSIX artifact-signing, office-network, independent-review, or authenticated-runner gates.
+
+Strict Node 20 compatibility checkpoint on `main@d3bebeb0`:
+
+- the runtime boundary now selects native type stripping on Node 22 and the bounded repository
+  TypeScript loader on Node 20, including nested CLI, VS Code, and visual-fixture child processes;
+- `npx --yes node@20 scripts/run-test-aggregate.mjs all --require-clean --fail-on-skipped`
+  completed run `b3e0136ed4c8a03598192402` across 458 files and eight exact-tree shards;
+- Node 20.20.2/macOS arm64 passed all 4,648 tests with zero failures, cancellations, skips, or todo;
+- the receipt binds commit `d3bebeb0f4919dc9bfd262d524af97c682a1f91d`, tree
+  `f90b332e5dd5362e34825505f6d96caf46108cb5`, source digest, clean-checkout status, runtime, and
+  every shard receipt digest;
+- this second local receipt remains unsigned. It proves the local Node 20 runtime cell but does not
+  satisfy Linux/Windows, npm/VSIX artifact-signing, office-network, independent-review, or
+  authenticated-runner gates.
 
 Still required before completion: reviewed real-repository corpus metrics, office-network remote
 Story publication latency measurements, an approved Flow Impact design, live office/offline and

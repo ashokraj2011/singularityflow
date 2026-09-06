@@ -33,6 +33,7 @@ import {
 import { homeOverview } from '../../../src/gateway/planners/home-overview.mjs';
 import { impactQuick } from '../../../src/gateway/planners/impact-quick.mjs';
 import { impactWhatIf, impactWhatIfAssisted } from '../../../src/gateway/planners/impact-what-if.mjs';
+import { intentTracePlanner } from '../../../src/gateway/planners/intent-trace.mjs';
 import {
   problemInvestigate, problemInvestigateAssisted
 } from '../../../src/gateway/planners/problem-investigate.mjs';
@@ -91,6 +92,7 @@ export function editorPlanners(): Map<string, unknown> {
     ['impact-quick', impactQuick],
     ['impact-what-if', impactWhatIf],
     ['impact-what-if-assisted', impactWhatIfAssisted],
+    ['intent-trace', intentTracePlanner],
     ['problem-investigate', problemInvestigate],
     ['problem-investigate-assisted', problemInvestigateAssisted],
     ['repository-explore', repositoryExplore],

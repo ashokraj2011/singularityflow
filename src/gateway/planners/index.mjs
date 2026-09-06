@@ -24,6 +24,7 @@ import {
 import { homeOverview } from './home-overview.mjs';
 import { impactQuick } from './impact-quick.mjs';
 import { impactWhatIf, impactWhatIfAssisted } from './impact-what-if.mjs';
+import { intentTracePlanner } from './intent-trace.mjs';
 import { problemInvestigate, problemInvestigateAssisted } from './problem-investigate.mjs';
 import { repositoryExplore } from './repository-explore.mjs';
 import { reviewPacket } from './review-packet.mjs';
@@ -74,6 +75,7 @@ export function gatewayPlanners(overrides = {}) {
     'impact-quick': impactQuick,
     'impact-what-if': impactWhatIf,
     'impact-what-if-assisted': impactWhatIfAssisted,
+    'intent-trace': intentTracePlanner,
     'problem-investigate': problemInvestigate,
     'problem-investigate-assisted': problemInvestigateAssisted,
     'repository-explore': repositoryExplore,
@@ -104,7 +106,7 @@ export {
   autoFlightRead,
   contextBrief, developerNext, governedGoalImpactPlanner, governedGoalInspectPlanner, governedGoalNextPlanner,
   governedGoalTracePlanner, helpExplain, homeOverview, impactQuick, impactWhatIf, impactWhatIfAssisted, problemInvestigate,
-  problemInvestigateAssisted, repositoryExplore, reviewPacket, workContinue, workHandoff,
+  intentTracePlanner, problemInvestigateAssisted, repositoryExplore, reviewPacket, workContinue, workHandoff,
   workList, workReadiness, workReturn, workStartIntake, workspaceList,
   repositoryOpenGuide, workspaceBootstrapStatus, workspaceDoctorGuide, workspaceExploreGuide,
   workspacePrepareGuide

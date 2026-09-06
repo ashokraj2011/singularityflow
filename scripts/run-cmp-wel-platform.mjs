@@ -5,6 +5,7 @@ import process from 'node:process';
 const TEST_FILES = Object.freeze([
   'test/comprehension-contracts.test.mjs',
   'test/comprehension-command.test.mjs',
+  'test/comprehension-gateway.test.mjs',
   'test/comprehension-replay.test.mjs',
   'test/wel-junit5.test.mjs',
   'test/wel-javascript.test.mjs'

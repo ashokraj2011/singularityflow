@@ -278,6 +278,11 @@ export const GOLDEN_JOURNEY_CODES = Object.freeze([
   'repository.explore.empty-scope',
   'repository.explore.wrong-repository',
   'repository.explore.nothing-was-carried-out',
+  'intent.trace.resource-observation',
+  'intent.trace.cause-unavailable',
+  'intent.trace.path-not-changed',
+  'intent.trace.wrong-repository',
+  'intent.trace.nothing-was-carried-out',
   'investigation.deterministic-triage',
   'investigation.assistance-not-invoked',
   'investigation.wrong-repository',
@@ -365,6 +370,8 @@ export const WARNING_CODES = Object.freeze([
   'impact.evidence-gap',
   /** A requested repository path selected no source files. */
   'repository.explore.empty-scope',
+  'intent.trace.cause-unavailable',
+  'intent.trace.path-not-changed',
   /** Assisted triage was requested but this host returned the deterministic fallback. */
   'investigation.assistance-not-invoked',
   /** A bounded context page omitted a named source because it was unavailable or over budget. */

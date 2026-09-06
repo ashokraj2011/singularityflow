@@ -244,6 +244,20 @@ export const RESULT_MESSAGES = Object.freeze({
   'repository.explore.empty-scope': M('No tracked source was found under {path}'),
   'repository.explore.wrong-repository': M('That repository is not the active repository'),
   'repository.explore.nothing-was-carried-out': M('Nothing was carried out', 'Repository exploration is read-only.'),
+  'intent.trace.resource-observation': M(
+    'Observed {regions} exact changed resource region(s) for {path}',
+    'This resource-level observation is not a governed cause or semantic explanation.'
+  ),
+  'intent.trace.cause-unavailable': M(
+    'Governed cause authority is unavailable for {path}',
+    'The read does not infer intent from proximity, commit prose, or a model summary.'
+  ),
+  'intent.trace.path-not-changed': M(
+    '{path} is not present in the exact current change set',
+    'No cause relationship was inferred.'
+  ),
+  'intent.trace.wrong-repository': M('That repository is not the active repository'),
+  'intent.trace.nothing-was-carried-out': M('Nothing was carried out', 'Intent trace is read-only.'),
   'investigation.deterministic-triage': M(
     'Deterministic bug triage found {matches} bounded text match(es)',
     'The observations narrow investigation; they do not claim a cause.'

@@ -106,6 +106,13 @@ async function main() {
   step('Enforcing developer-experience latency budgets');
   must('npm', ['run', 'benchmark:dx:enforce']);
 
+  // Every explicit CommonJS entry is a separate parse/evaluation closure on first use. A new lazy
+  // entry or accidental import can therefore regress both package size and interactive memory even
+  // when activation remains fast. Keep the reviewed byte and source-module ceilings in the release
+  // path, including releases that reuse an exact signed test receipt.
+  step('Enforcing VS Code bundle and module-closure budgets');
+  must('npm', ['run', 'vscode:bundle-budget']);
+
   if (skipTests) console.warn('  Local tests skipped; the exact-commit signed verification receipt remains the release authority.');
   else {
     step('Running the test suite');

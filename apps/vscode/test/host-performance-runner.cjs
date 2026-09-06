@@ -37,6 +37,29 @@ function eventLoopStats(loop) {
   };
 }
 
+/** Sample this extension-host process without retaining heap profiles, paths, or object contents. */
+function hostMemoryTracker(resolutionMs = 5) {
+  const beforeBytes = process.memoryUsage().rss;
+  let peakBytes = beforeBytes;
+  const sample = () => { peakBytes = Math.max(peakBytes, process.memoryUsage().rss); };
+  const timer = setInterval(sample, resolutionMs);
+  timer.unref?.();
+  return {
+    finish() {
+      sample();
+      clearInterval(timer);
+      const afterBytes = process.memoryUsage().rss;
+      return {
+        status: 'measured-process-rss',
+        beforeBytes,
+        afterBytes,
+        peakBytes: Math.max(peakBytes, afterBytes),
+        maximumIncreaseBytes: Math.max(0, Math.max(peakBytes, afterBytes) - beforeBytes)
+      };
+    }
+  };
+}
+
 async function quiescent() {
   return until(async () => {
     const current = await probe();
@@ -48,6 +71,7 @@ async function quiescent() {
 async function measuredCommand(command, {
   prepare = null, args = [], transitions = null, nextTransition = null
 } = {}) {
+  const hostMemory = hostMemoryTracker();
   const loop = monitorEventLoopDelay({ resolution: 10 });
   loop.enable();
   transitions?.enterStage();
@@ -68,6 +92,8 @@ async function measuredCommand(command, {
     cpuSystemMs: cpu.system / 1_000,
     rssBeforeBytes: rssBefore,
     rssAfterBytes: process.memoryUsage().rss,
+    hostMemory: hostMemory.finish(),
+    runtimeLoadsMs: settled.runtimeLoadsMs,
     counters: settled.counters,
     childMemory: settled.childMemory,
     eventLoop: eventLoopStats(loop)
@@ -138,6 +164,7 @@ async function run() {
   const loop = monitorEventLoopDelay({ resolution: 10 });
   loop.enable();
   const activeBeforeRequest = extension.isActive;
+  const activationMemory = hostMemoryTracker();
   const openStarted = performance.now();
   await vscode.commands.executeCommand('workbench.view.extension.singularityFlowNavigator');
   await until(() => extension.isActive, 'the Singularity Flow extension to activate');
@@ -157,7 +184,8 @@ async function run() {
   const activation = {
     ...confirmedActivation,
     counters: settledActivation.counters,
-    childMemory: settledActivation.childMemory
+    childMemory: settledActivation.childMemory,
+    hostMemory: activationMemory.finish()
   };
   const activationEventLoop = eventLoopStats(loop);
   // One continuous steady-state monitor covers command preflights and the small transitions
@@ -188,6 +216,7 @@ async function run() {
   await nextHostTurn();
 
   eventLoopAttribution.phase('watcher-storm');
+  const stormMemory = hostMemoryTracker();
   const stormLoop = monitorEventLoopDelay({ resolution: 10 });
   stormLoop.enable();
   transitions.enterStage();
@@ -211,6 +240,7 @@ async function run() {
     eventsWritten: 100,
     counters: storm.counters,
     childMemory: storm.childMemory,
+    hostMemory: stormMemory.finish(),
     eventLoop: eventLoopStats(stormLoop)
   };
   eventLoopAttribution.phase('storm-to-help');
@@ -223,6 +253,7 @@ async function run() {
   eventLoopAttribution.phase('help-to-cache');
   await nextHostTurn();
   eventLoopAttribution.phase('cache-persistence');
+  const cacheMemory = hostMemoryTracker();
   const cacheLoop = monitorEventLoopDelay({ resolution: 10 });
   cacheLoop.enable();
   transitions.enterStage();
@@ -237,6 +268,7 @@ async function run() {
     durationMs: performance.now() - cacheStarted,
     counters: cacheSettled.counters,
     childMemory: cacheSettled.childMemory,
+    hostMemory: cacheMemory.finish(),
     eventLoop: eventLoopStats(cacheLoop)
   };
   eventLoopAttribution.phase('cache-to-finish');
@@ -247,7 +279,7 @@ async function run() {
   loop.disable();
   const finalProbe = await probe();
   const report = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: 'sflow-vscode-extension-host-sample',
     scenario,
     vscode: { version: vscode.version, appHost: vscode.env.appHost || null },
@@ -258,6 +290,7 @@ async function run() {
       marksMs: activation.marksMs,
       counters: activation.counters,
       childMemory: activation.childMemory,
+      hostMemory: activation.hostMemory,
       eventLoop: activationEventLoop
     },
     unchangedRefresh,

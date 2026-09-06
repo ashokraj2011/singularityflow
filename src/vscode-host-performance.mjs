@@ -26,15 +26,31 @@ function metricValues(pairs) {
   const steadyEventLoop = (sample) => Number.isFinite(sample.steadyStateEventLoop?.maxDelayMs)
     ? sample.steadyStateEventLoop.maxDelayMs
     : legacySteadyEventLoop(sample);
-  const childPeaks = all.flatMap((sample) => [
+  const maximumFinite = (values) => {
+    const finite = values.filter(Number.isFinite);
+    return finite.length ? Math.max(...finite) : null;
+  };
+  // A peak budget is one maximum per host sample. Flattening six stages would let up to five
+  // expensive stages hide below a nearest-rank p95 even though every affected editor process saw
+  // the same peak.
+  const childPeaks = all.map((sample) => maximumFinite([
     sample.activation.childMemory?.peakRssBytes,
     sample.unchangedRefresh.childMemory?.peakRssBytes,
     sample.changedRefresh.childMemory?.peakRssBytes,
     sample.watcherStorm.childMemory?.peakRssBytes,
     sample.webviewOpening.childMemory?.peakRssBytes,
     sample.cachePersistence?.childMemory?.peakRssBytes
-  ]).filter(Number.isFinite);
+  ])).filter(Number.isFinite);
+  const hostPeaks = all.map((sample) => maximumFinite([
+    sample.activation.hostMemory?.peakBytes,
+    sample.unchangedRefresh.hostMemory?.peakBytes,
+    sample.changedRefresh.hostMemory?.peakBytes,
+    sample.watcherStorm.hostMemory?.peakBytes,
+    sample.webviewOpening.hostMemory?.peakBytes,
+    sample.cachePersistence?.hostMemory?.peakBytes
+  ])).filter(Number.isFinite);
   return {
+    extensionLoadAndActivateMs: all.map((sample) => sample.activation.viewOpenAndActivationMs),
     coldActivationCompleteMs: pairs.map(({ cold }) => cold.activation.marksMs.activationComplete),
     activationCompleteMs: all.map((sample) => sample.activation.marksMs.activationComplete),
     cachedFirstPaintMs: pairs.map(({ warm }) => warm.activation.marksMs.cachedFirstPaint),
@@ -42,11 +58,19 @@ function metricValues(pairs) {
     unchangedRefreshMs: all.map((sample) => sample.unchangedRefresh.durationMs),
     changedRefreshMs: all.map((sample) => sample.changedRefresh.durationMs),
     webviewOpeningMs: all.map((sample) => sample.webviewOpening.durationMs),
+    helpRuntimeLoadMs: all.map((sample) => sample.webviewOpening.runtimeLoadsMs?.help),
     cachePersistenceMs: all.map((sample) => sample.cachePersistence?.durationMs),
     eventLoopMaxDelayMs: all.map((sample) => sample.eventLoop.maxDelayMs),
     activationEventLoopMaxDelayMs: all.map((sample) => sample.activation.eventLoop?.maxDelayMs),
     steadyStateEventLoopMaxDelayMs: all.map(steadyEventLoop),
     extensionHostRssBytes: all.map((sample) => sample.final.extensionHostRssBytes),
+    peakExtensionHostRssBytes: hostPeaks,
+    activationExtensionHostPeakRssBytes: all.map((sample) => sample.activation.hostMemory?.peakBytes),
+    unchangedRefreshExtensionHostPeakRssBytes: all.map((sample) => sample.unchangedRefresh.hostMemory?.peakBytes),
+    changedRefreshExtensionHostPeakRssBytes: all.map((sample) => sample.changedRefresh.hostMemory?.peakBytes),
+    watcherStormExtensionHostPeakRssBytes: all.map((sample) => sample.watcherStorm.hostMemory?.peakBytes),
+    webviewOpeningExtensionHostPeakRssBytes: all.map((sample) => sample.webviewOpening.hostMemory?.peakBytes),
+    cachePersistenceExtensionHostPeakRssBytes: all.map((sample) => sample.cachePersistence?.hostMemory?.peakBytes),
     peakChildRssBytes: childPeaks,
     watcherStormCliProcesses: all.map((sample) => sample.watcherStorm.counters.cliProcessesStarted),
     watcherStormSidebarRenders: all.map((sample) => sample.watcherStorm.counters.sidebarRenders)
@@ -93,10 +117,16 @@ export function buildHostPerformanceReport({ profile, pairs, budgets, enforce = 
         } else if (measurement.counters.cliProcessesFailed !== 0) {
           failures.push(`pair-${index + 1}:${scenario}-${surface}-cli-failed`);
         }
+        if (!Number.isFinite(measurement?.hostMemory?.peakBytes)) {
+          failures.push(`pair-${index + 1}:${scenario}-${surface}-host-rss-missing`);
+        }
       }
       if (sample.cachePersisted !== true) failures.push(`pair-${index + 1}:${scenario}-cache-not-persisted`);
       if (!Number.isFinite(sample.activation.marksMs.confirmedFirstPaint)) {
         failures.push(`pair-${index + 1}:${scenario}-confirmed-paint-missing`);
+      }
+      if (!Number.isFinite(sample.webviewOpening.runtimeLoadsMs?.help)) {
+        failures.push(`pair-${index + 1}:${scenario}-help-runtime-load-missing`);
       }
     }
     if (!Number.isFinite(pair.warm.activation.marksMs.cachedFirstPaint)) {
@@ -123,7 +153,7 @@ export function buildHostPerformanceReport({ profile, pairs, budgets, enforce = 
   }
   const status = failures.length ? (enforce ? 'failed' : 'incomplete') : enforce ? 'passed' : 'measured';
   return Object.freeze({
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: 'sflow-vscode-extension-host-performance-report',
     status,
     profile,

@@ -19,12 +19,15 @@ export type HostPerformanceMark =
   | 'confirmedFirstPaint'
   | 'activationComplete';
 
+export type HostRuntimeLoad = 'help' | 'panels' | 'support' | 'world-model';
+
 export interface HostPerformanceSnapshot {
   readonly schemaVersion: 1;
   readonly kind: 'sflow-vscode-extension-host-performance';
   readonly enabled: boolean;
   readonly elapsedMs: number;
   readonly marksMs: Readonly<Partial<Record<HostPerformanceMark, number>>>;
+  readonly runtimeLoadsMs: Readonly<Partial<Record<HostRuntimeLoad, number>>>;
   readonly counters: {
     readonly cliProcessesStarted: number;
     readonly cliProcessesCompleted: number;
@@ -56,6 +59,7 @@ export interface HostPerformanceSnapshot {
 const enabled = process.env.SINGULARITY_FLOW_VSCODE_HOST_BENCHMARK === '1';
 let startedAt = performance.now();
 let marks: Partial<Record<HostPerformanceMark, number>> = {};
+let runtimeLoadsMs: Partial<Record<HostRuntimeLoad, number>> = {};
 let counters = {
   cliProcessesStarted: 0,
   cliProcessesCompleted: 0,
@@ -105,6 +109,7 @@ export function beginHostPerformanceActivation(): boolean {
   if (!enabled) return false;
   startedAt = performance.now();
   marks = {};
+  runtimeLoadsMs = {};
   counters = {
     cliProcessesStarted: 0,
     cliProcessesCompleted: 0,
@@ -127,6 +132,12 @@ export function beginHostPerformanceActivation(): boolean {
 export function markHostPerformance(mark: HostPerformanceMark): void {
   if (!enabled || marks[mark] !== undefined) return;
   marks[mark] = performance.now() - startedAt;
+}
+
+/** Record only the stable runtime category and elapsed load time, never a module or machine path. */
+export function recordHostRuntimeLoad(runtime: HostRuntimeLoad, durationMs: number): void {
+  if (!enabled || runtimeLoadsMs[runtime] !== undefined || !Number.isFinite(durationMs)) return;
+  runtimeLoadsMs[runtime] = Math.max(0, durationMs);
 }
 
 export function recordHostCliProcessStarted(pid?: number): void {
@@ -213,6 +224,7 @@ export function resetHostPerformanceInterval(): HostPerformanceSnapshot {
     sidebarRenders: 0
   };
   peakChildRssBytes = 0;
+  runtimeLoadsMs = {};
   return snapshot;
 }
 
@@ -223,6 +235,7 @@ export function hostPerformanceSnapshot(): HostPerformanceSnapshot {
     enabled,
     elapsedMs: performance.now() - startedAt,
     marksMs: Object.freeze({ ...marks }),
+    runtimeLoadsMs: Object.freeze({ ...runtimeLoadsMs }),
     counters: Object.freeze({ ...counters }),
     childMemory: Object.freeze({
       status: process.platform === 'linux' ? 'measured-linux-proc' : 'unavailable-on-platform',

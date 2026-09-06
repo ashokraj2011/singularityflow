@@ -87,7 +87,7 @@ import { RevisionSliceWatcherFence } from './watcher-refresh-fence.ts';
 import { machineSelectionRevision } from './machine-selection-revision.ts';
 import {
   beginHostPerformanceActivation, hostPerformanceSnapshot, markHostPerformance,
-  recordHostSidebarRender, recordHostStoreEvent, resetHostPerformanceInterval,
+  recordHostRuntimeLoad, recordHostSidebarRender, recordHostStoreEvent, resetHostPerformanceInterval,
   trackHostBackgroundTask
 } from './host-performance.ts';
 import { GatewayStatusWorker } from './gateway-status-worker-client.ts';
@@ -103,13 +103,21 @@ const START_WIZARD_KEY = 'singularityFlow.pendingStartWizard.v1';
 type LazyPanelsRuntime = typeof import('./lazy-panels-runtime.ts');
 let lazyPanelsRuntime: LazyPanelsRuntime | null = null;
 function lazyPanels(): LazyPanelsRuntime {
-  return lazyPanelsRuntime ??= require(path.join(__dirname, 'lazy-panels-runtime.cjs')) as LazyPanelsRuntime;
+  if (lazyPanelsRuntime) return lazyPanelsRuntime;
+  const started = performance.now();
+  lazyPanelsRuntime = require(path.join(__dirname, 'lazy-panels-runtime.cjs')) as LazyPanelsRuntime;
+  recordHostRuntimeLoad('panels', performance.now() - started);
+  return lazyPanelsRuntime;
 }
 
 type HelpRuntime = typeof import('./help-runtime.ts');
 let helpRuntimeValue: HelpRuntime | null = null;
 function helpRuntime(): HelpRuntime {
-  return helpRuntimeValue ??= require(path.join(__dirname, 'help-runtime.cjs')) as HelpRuntime;
+  if (helpRuntimeValue) return helpRuntimeValue;
+  const started = performance.now();
+  helpRuntimeValue = require(path.join(__dirname, 'help-runtime.cjs')) as HelpRuntime;
+  recordHostRuntimeLoad('help', performance.now() - started);
+  return helpRuntimeValue;
 }
 
 interface PendingCopilotHandoff {

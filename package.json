@@ -92,6 +92,7 @@
     "vscode:package": "node scripts/vscode-dev.mjs --package",
     "vscode:visual-fixtures": "node --experimental-strip-types scripts/render-vscode-visual-fixtures.mjs",
     "vscode:host-benchmark": "node scripts/vscode-host-benchmark.mjs",
+    "vscode:bundle-budget": "node scripts/vscode-bundle-budget.mjs",
     "release": "node scripts/release.mjs",
     "release:dry": "node scripts/release.mjs --dry-run",
     "smoke:golden": "node scripts/golden-journey-smoke.mjs",

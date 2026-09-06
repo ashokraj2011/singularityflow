@@ -15,8 +15,12 @@ function sample(scenario, overrides = {}) {
     backgroundTasksConcurrent: 0, backgroundTasksMaximumConcurrent: 0,
     storeEvents: 0, snapshotEvents: 0, sidebarRenders: 0
   };
+  const hostMemory = (peakBytes) => ({
+    status: 'measured-process-rss', beforeBytes: 50_000, afterBytes: peakBytes,
+    peakBytes, maximumIncreaseBytes: Math.max(0, peakBytes - 50_000)
+  });
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: 'sflow-vscode-extension-host-sample',
     scenario,
     vscode: { version: '1.90.3', appHost: 'desktop' },
@@ -31,16 +35,17 @@ function sample(scenario, overrides = {}) {
       },
       counters: { ...successfulCounters, storeEvents: 2, snapshotEvents: 1, sidebarRenders: 2 },
       childMemory: { status: 'measured-linux-proc', peakRssBytes: 10_000 },
+      hostMemory: hostMemory(110_000),
       eventLoop: { maxDelayMs: 12, meanDelayMs: 10, p95DelayMs: 11 }
     },
-    unchangedRefresh: { durationMs: 30, counters: { ...successfulCounters }, childMemory: { status: 'measured-linux-proc', peakRssBytes: 9_000 }, eventLoop: { maxDelayMs: 13, meanDelayMs: 10, p95DelayMs: 11 } },
-    changedRefresh: { durationMs: 40, counters: { ...successfulCounters }, childMemory: { status: 'measured-linux-proc', peakRssBytes: 11_000 }, eventLoop: { maxDelayMs: 14, meanDelayMs: 10, p95DelayMs: 11 } },
+    unchangedRefresh: { durationMs: 30, counters: { ...successfulCounters }, childMemory: { status: 'measured-linux-proc', peakRssBytes: 9_000 }, hostMemory: hostMemory(120_000), eventLoop: { maxDelayMs: 13, meanDelayMs: 10, p95DelayMs: 11 } },
+    changedRefresh: { durationMs: 40, counters: { ...successfulCounters }, childMemory: { status: 'measured-linux-proc', peakRssBytes: 11_000 }, hostMemory: hostMemory(130_000), eventLoop: { maxDelayMs: 14, meanDelayMs: 10, p95DelayMs: 11 } },
     watcherStorm: { durationMs: 900, eventsWritten: 100, counters: {
       ...successfulCounters, cliProcessesStarted: 2, cliProcessesCompleted: 2,
       cliProcessesSucceeded: 2, sidebarRenders: 2
-    }, childMemory: { status: 'measured-linux-proc', peakRssBytes: 12_000 }, eventLoop: { maxDelayMs: 15, meanDelayMs: 10, p95DelayMs: 11 } },
-    webviewOpening: { durationMs: 25, counters: { ...successfulCounters }, childMemory: { status: 'measured-linux-proc', peakRssBytes: 8_000 }, eventLoop: { maxDelayMs: 16, meanDelayMs: 10, p95DelayMs: 11 } },
-    cachePersistence: { durationMs: 8, counters: { ...successfulCounters }, childMemory: { status: 'measured-linux-proc', peakRssBytes: 7_000 }, eventLoop: { maxDelayMs: 9, meanDelayMs: 8, p95DelayMs: 9 } },
+    }, childMemory: { status: 'measured-linux-proc', peakRssBytes: 12_000 }, hostMemory: hostMemory(140_000), eventLoop: { maxDelayMs: 15, meanDelayMs: 10, p95DelayMs: 11 } },
+    webviewOpening: { durationMs: 25, counters: { ...successfulCounters }, childMemory: { status: 'measured-linux-proc', peakRssBytes: 8_000 }, hostMemory: hostMemory(150_000), runtimeLoadsMs: { help: 17 }, eventLoop: { maxDelayMs: 16, meanDelayMs: 10, p95DelayMs: 11 } },
+    cachePersistence: { durationMs: 8, counters: { ...successfulCounters }, childMemory: { status: 'measured-linux-proc', peakRssBytes: 7_000 }, hostMemory: hostMemory(160_000), eventLoop: { maxDelayMs: 9, meanDelayMs: 8, p95DelayMs: 9 } },
     steadyStateEventLoop: { maxDelayMs: 18, meanDelayMs: 10, p95DelayMs: 11 },
     eventLoop: { maxDelayMs: 12, meanDelayMs: 10, p95DelayMs: 11 },
     final: { extensionHostRssBytes: 100_000, cliProcessesConcurrent: 0, backgroundTasksConcurrent: 0 },
@@ -74,9 +79,15 @@ test('real-host cold/warm samples produce bounded aggregate metrics without reta
   assert.equal(report.status, 'passed');
   assert.equal(report.protocol.host, 'real-vscode-extension-host');
   assert.equal(report.metrics.cachedFirstPaintMs.p95, 20);
+  assert.equal(report.metrics.extensionLoadAndActivateMs.p95, 120);
+  assert.equal(report.metrics.helpRuntimeLoadMs.p95, 17);
   assert.equal(report.metrics.coldActivationCompleteMs.samples, 1);
   assert.equal(report.metrics.activationCompleteMs.samples, 2);
   assert.equal(report.metrics.peakChildRssBytes.maximum, 12_000);
+  assert.equal(report.metrics.peakExtensionHostRssBytes.maximum, 160_000);
+  assert.equal(report.metrics.peakExtensionHostRssBytes.samples, 2,
+    'one per-process maximum is judged rather than six independently flattened stage values');
+  assert.equal(report.metrics.webviewOpeningExtensionHostPeakRssBytes.maximum, 150_000);
   assert.equal(report.metrics.activationEventLoopMaxDelayMs.maximum, 12);
   assert.equal(report.metrics.steadyStateEventLoopMaxDelayMs.maximum, 18,
     'the continuous steady-state envelope includes gaps between narrower surface probes');

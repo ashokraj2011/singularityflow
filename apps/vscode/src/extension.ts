@@ -69,18 +69,17 @@ import {
   onAutoResultAction, onHomeRequest, onResultAction, resultPanelRepositoryChanged,
   resultPanelIsHome, showRefusal, showResultCard
 } from './views/result-panel.ts';
-import { buildResultCard, gateSummary } from './views/result-card-model.ts';
+import { buildResultCard } from './views/result-card-model.ts';
 import {
   ACKNOWLEDGE_ACTION_ID, acknowledgementKey, homeAcknowledgementFor, type HomeAcknowledgement
 } from './views/home-acknowledgement.ts';
 import {
   activeRepositoryContext, gatewaySession, provideAcknowledgedAt, provideHomeLens,
-  resetGatewaySession, setActiveRepositoryContext, type ActiveRepositoryContext, type GatewayRepositoryContext
-} from './gateway-session.ts';
-import { latestWorkspaceBootstrap } from '../../../src/workspace-bootstrap.mjs';
-import { readRecord } from '../../../src/schema-migrations.mjs';
+  latestWorkspaceBootstrap, resetGatewaySession, setActiveRepositoryContext,
+  type ActiveRepositoryContext, type GatewayRepositoryContext
+} from './gateway-runtime-client.ts';
 import { registerSflowChat } from './sflow-chat.ts';
-import { recordHelpMetric } from '../../../src/help-metrics.mjs';
+import { readRecord, recordHelpMetric } from './support-runtime-client.ts';
 import { storyCheckoutIssue, unsavedRepositoryPaths } from './generation-guards.ts';
 import { renderReworkRollForwardPreview } from './views/rework-roll-forward-preview.ts';
 import { RepositoryEpochGuard, type RepositoryEpochToken } from './repository-epoch.ts';
@@ -88,8 +87,10 @@ import { RevisionSliceWatcherFence } from './watcher-refresh-fence.ts';
 import { machineSelectionRevision } from './machine-selection-revision.ts';
 import {
   beginHostPerformanceActivation, hostPerformanceSnapshot, markHostPerformance,
-  recordHostSidebarRender, recordHostStoreEvent, resetHostPerformanceInterval
+  recordHostSidebarRender, recordHostStoreEvent, resetHostPerformanceInterval,
+  trackHostBackgroundTask
 } from './host-performance.ts';
+import { GatewayStatusWorker } from './gateway-status-worker-client.ts';
 
 let extensionLifetime = new AbortController();
 
@@ -98,6 +99,12 @@ declare const __SFLOW_BUILD__: string;
 
 const COPILOT_HANDOFF_KEY = 'singularityFlow.pendingCopilotHandoff';
 const START_WIZARD_KEY = 'singularityFlow.pendingStartWizard.v1';
+
+type LazyPanelsRuntime = typeof import('./lazy-panels-runtime.ts');
+let lazyPanelsRuntime: LazyPanelsRuntime | null = null;
+function lazyPanels(): LazyPanelsRuntime {
+  return lazyPanelsRuntime ??= require(path.join(__dirname, 'lazy-panels-runtime.cjs')) as LazyPanelsRuntime;
+}
 
 interface PendingCopilotHandoff {
   /** Workspace handoffs must never infer a Story from the repository's checked-out branch. */
@@ -303,10 +310,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!lastHome) return null;
     return context.globalState.get<HomeAcknowledgement>(lastHome.key)?.at ?? null;
   });
-  provideHomeLens(() => {
+  const currentHomeLens = (): string => {
     const role = vscode.workspace.getConfiguration('singularityFlow').get<string>('role', 'developer');
     return ['developer', 'qa', 'architect', 'product-owner', 'admin'].includes(role) ? role : 'developer';
-  });
+  };
+  provideHomeLens(currentHomeLens);
 
   onHomeRequest(async ({ request }) => {
     if (!lastHome) return;
@@ -942,7 +950,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }).run<HelpDocument>(['help', '--json']);
       const topic = node?.id.startsWith('help:') && !['help:start', 'help:reference', 'help:all'].includes(node.id)
         ? node.id.slice('help:'.length) : null;
-      const { HelpPanel } = await import('./views/help.ts');
+      const { HelpPanel } = lazyPanels();
       HelpPanel.show(context, manual, topic, path.resolve(path.dirname(location.cli), '..'));
     } catch (error) {
       showRefusal(error, { headline: 'Could not open Singularity Flow Help' });
@@ -982,7 +990,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         topics: [topic, ...manual.topics.filter((entry) => entry.id !== topic.id)],
         selectedTopic: topic.id
       };
-      const { HelpPanel } = await import('./views/help.ts');
+      const { HelpPanel } = lazyPanels();
       HelpPanel.show(context, document, topic.id, path.resolve(path.dirname(location.cli), '..'));
     } catch (error) {
       showRefusal(error, { headline: `Could not read topic ${id}` });
@@ -1194,7 +1202,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return showRefusal(error);
     }
 
-    const { WorkspacePanel } = await import('./views/workspace-panel.ts');
+    const { WorkspacePanel } = lazyPanels();
     const guidedStart = request?.guidedStart === true;
     const journey = guidedStart ? {
       step: 'workspace' as const,
@@ -1479,14 +1487,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       .run<Array<{ url: string }>>(['capability', 'leads', '--json'])
       .catch(() => []);
 
-    const { BootstrapPanel } = await import('./views/bootstrap-panel.ts');
+    const { BootstrapPanel } = lazyPanels();
     BootstrapPanel.show(context, leads.map((lead) => lead.url), run, async (mapped: Mapped) => {
       if (!mapped.reviewRequired || !mapped.branch) {
         void vscode.window.showInformationMessage(`${mapped.capabilityId} is already active on ${mapped.baseBranch}.`);
         if (typeof returnToWorkspace === 'function') await returnToWorkspace(mapped);
         return;
       }
-      const { CapabilityProposalPanel } = await import('./views/capability-proposal.ts');
+      const { CapabilityProposalPanel } = lazyPanels();
       CapabilityProposalPanel.show(context, mapped.lead, mapped.branch, run, async () => {
         // A retained workspace form contains the user's unsaved directory and identity choices.
         // Refresh that form only after activation, when the capability is genuinely selectable.
@@ -1513,9 +1521,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         try { return { result: await registry.run<unknown>(argv), error: null }; }
         catch (error) { return { result: null, error: (error as Error).message }; }
       };
-      const { CapabilityProposalsPanel } = await import('./views/capability-proposals.ts');
+      const { CapabilityProposalsPanel } = lazyPanels();
       CapabilityProposalsPanel.show(context, run, (lead, branch) => {
-        void import('./views/capability-proposal.ts').then(({ CapabilityProposalPanel }) => {
+        void Promise.resolve(lazyPanels()).then(({ CapabilityProposalPanel }) => {
           CapabilityProposalPanel.show(context, lead, branch, run);
         });
       });
@@ -1908,7 +1916,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     };
 
-    const { WorkspacesPanel } = await import('./views/workspaces-panel.ts');
+    const { WorkspacesPanel } = lazyPanels();
     if (!requestIsCurrent()) return;
     const refreshConfiguration = async (
       workspacePath: string | null,
@@ -2029,7 +2037,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // The Workspaces page is retained when hidden and owns its own row snapshot. Refresh it from
       // the same machine-wide registry before any other screen follows the new repository, so the
       // old workspace cannot remain labelled active beside a Navigator that already moved on.
-      const { WorkspacesPanel } = await import('./views/workspaces-panel.ts');
+      const { WorkspacesPanel } = lazyPanels();
       await WorkspacesPanel.activeWorkspaceChanged(target);
       // When activation began without a selected workspace, Lifecycle and Configuration were
       // registered with their honest empty-state providers and the repository services below were
@@ -2372,7 +2380,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       diagnosticHasRepository = !('reason' in target);
       if (diagnosticHasRepository && 'repository' in target) diagnosticClient.useRepository(target.repository);
       else diagnosticClient.useRepository(os.tmpdir());
-      const { DiagnosticsPanel } = await import('./views/diagnostics.ts');
+      const { DiagnosticsPanel } = lazyPanels();
       DiagnosticsPanel.show(context, diagnosticClient, () => diagnosticHasRepository);
     } catch (error) {
       showRefusal(error, { headline: 'Could not open Diagnostics' });
@@ -2387,7 +2395,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.openLocalReset', async () => {
     try {
-      const { LocalResetPanel } = await import('./views/local-reset.ts');
+      const { LocalResetPanel } = lazyPanels();
       LocalResetPanel.show(context, resetClient);
     } catch (error) { showRefusal(error, { headline: 'Could not open Local Data & Reset' }); }
   }));
@@ -2843,7 +2851,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * Keyed by repository root: one window may be pointed at several governed repositories over its
    * life, and opening repository B on repository A's lifecycle would be worse than a blank panel.
    * The primary copy is a bounded atomic file beneath VS Code's machine-local `globalStorageUri`;
-   * the Memento copy is a compatibility fallback. Neither is synced. A repository hash prevents
+   * an older Memento copy is only a one-time compatibility fallback. Neither is synced. A repository hash prevents
    * path disclosure in storage names and makes A -> B -> A cache identity exact. Older workspace-
    * state entries are read once and migrated so an upgrade does not throw away a useful first paint.
    *
@@ -2864,10 +2872,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const stored = snapshotFileCache?.read(repository);
         if (stored) return stored;
         const current = context.globalState.get<RepositorySnapshot>(snapshotCacheKey());
-        if (current) return current;
+        if (current) {
+          snapshotFileCache?.write(repository, current);
+          if (snapshotFileCache) void context.globalState.update(snapshotCacheKey(), undefined);
+          return current;
+        }
         const legacy = context.workspaceState?.get<RepositorySnapshot>(legacySnapshotCacheKey()) ?? null;
         if (legacy) {
-          void context.globalState.update(snapshotCacheKey(), legacy);
+          if (snapshotFileCache) snapshotFileCache.write(repository, legacy);
+          else void context.globalState.update(snapshotCacheKey(), legacy);
           void context.workspaceState?.update(legacySnapshotCacheKey(), undefined);
         }
         return legacy;
@@ -2875,8 +2888,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       catch { return null; }
     },
     write: (snapshot: RepositorySnapshot): void => {
-      snapshotFileCache?.write(repository, snapshot);
-      void context.globalState.update(snapshotCacheKey(), snapshot);
+      if (snapshotFileCache) snapshotFileCache.write(repository, snapshot);
+      else void context.globalState.update(snapshotCacheKey(), snapshot);
       void context.workspaceState?.update(legacySnapshotCacheKey(), undefined);
     }
   };
@@ -2885,10 +2898,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   if (hostBenchmarkEnabled) {
     persistHostBenchmarkCache = async () => {
       if (!store.current.snapshot || store.current.stale || store.current.error) return false;
-      const filePersisted = snapshotFileCache
-        ? await snapshotFileCache.persist(repository, store.current.snapshot) : true;
+      if (snapshotFileCache) return snapshotFileCache.persist(repository, store.current.snapshot);
       await context.globalState.update(snapshotCacheKey(), store.current.snapshot);
-      return filePersisted;
+      return true;
     };
   }
   currentHelpWork = () => {
@@ -2900,8 +2912,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // with the exact projection that caused it. This is inert outside the explicit host benchmark.
   context.subscriptions.push(store.onDidChange((state, change) => {
     hostSidebarProjection = change.kind === 'cache' ? 'cache'
-      : change.kind === 'loading' ? 'loading'
-        : state.snapshot && !state.stale && !state.loading ? 'confirmed' : hostSidebarProjection;
+      : state.snapshot && !state.stale && !state.loading ? 'confirmed'
+        // Starting validation does not remove the cached projection already on screen. Preserve
+        // that attribution until a confirmed snapshot replaces it; only a true empty first read
+        // is a loading projection.
+        : change.kind === 'loading' && !state.snapshot ? 'loading' : hostSidebarProjection;
   }));
   // Only two states are worth a line of UI. `stale` is the one that matters — content restored from
   // the last session and not yet confirmed. A plain refresh over content already known to be current
@@ -3148,30 +3163,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }));
 
   /**
-   * The readiness gates for one work item, or null when they cannot be read.
-   *
-   * Null rather than zeros: "no gates" and "we could not ask" are different facts, and a status bar
-   * that renders `gates 0/0` on a failed read is asserting the first while meaning the second.
-   */
-  const gateCountFor = async (workId: string, scope: RepositoryEpochToken) => {
-    if (!repositoryEpoch.isCurrent(scope)) return null;
-    const active = activeRepositoryContext();
-    if (!active || path.resolve(active.root) !== scope.repository) return null;
-    try {
-      const { kernel } = gatewaySession(active);
-      // The registered phrase, not a word that looks like the operation's name.
-      const resolution = await kernel.resolve({ utterance: 'am I ready', arguments: { workId } });
-      if (!repositoryEpoch.isCurrent(scope)) return null;
-      if (resolution.kind !== 'read' || resolution.next.length !== 1) return null;
-      const gates = gateSummary(await kernel.read({ resolutionId: resolution.next[0].handle }));
-      if (!repositoryEpoch.isCurrent(scope)) return null;
-      return gates;
-    } catch {
-      return null;
-    }
-  };
-
-  /**
    * What the home says, for the chrome that is always on screen. `[UXH:AC-002]` `[DHR:REQ-070]`
    *
    * The gate count already comes from the card's own derivation, which is half of AC-002. The other
@@ -3189,33 +3180,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * surfaces that each decide what is most important will eventually disagree about it, and the one
    * that is always visible is the one a reader trusts.
    */
-  const homeChromeFor = async (scope: RepositoryEpochToken) => {
+  const statusChromeWorker = new GatewayStatusWorker(context.extensionPath);
+  context.subscriptions.push(statusChromeWorker);
+  const statusChromeFor = async (workId: string | null, scope: RepositoryEpochToken) => {
     if (!repositoryEpoch.isCurrent(scope)) return null;
     const active = activeRepositoryContext();
     if (!active || path.resolve(active.root) !== scope.repository) return null;
-    try {
-      const { kernel } = gatewaySession(active);
-      const resolution = await kernel.resolve({ utterance: 'home' });
-      if (!repositoryEpoch.isCurrent(scope)) return null;
-      if (resolution.kind !== 'read' || resolution.next.length !== 1) return null;
-      const envelope = await kernel.read({ resolutionId: resolution.next[0].handle });
-      if (!repositoryEpoch.isCurrent(scope)) return null;
-      const recovery = (envelope.why ?? []).find((entry: { code: string }) => entry.code === 'home.recovery-required');
-      const { primaryAction } = await import('../../../src/gateway/result.mjs');
-      if (!repositoryEpoch.isCurrent(scope)) return null;
-      return {
-        recoveryWorkId: recovery?.slots?.work ?? null,
-        decisions: Number(envelope.data?.needsYourDecision ?? 0),
-        /** The one filled button on the card, so the chrome names the same next step. */
-        leads: primaryAction(envelope)?.label ?? null
-      };
-    } catch {
-      return null;
-    }
+    const chrome = await statusChromeWorker.read(active, workId, currentHomeLens());
+    return repositoryEpoch.isCurrent(scope) ? chrome : null;
   };
 
   /** Which Story the status bar is currently about, so a late gate count can be discarded. */
   let statusWorkId: string | null = null;
+  let statusChromeCache: {
+    repository: string;
+    workId: string | null;
+    value: NonNullable<Awaited<ReturnType<typeof statusChromeFor>>>;
+  } | null = null;
 
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   /**
@@ -3228,7 +3209,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    */
   status.command = 'singularityFlow.myWork';
   context.subscriptions.push(status);
-  context.subscriptions.push(store.onDidChange((state) => {
+  context.subscriptions.push(store.onDidChange((state, change) => {
     if (state.loading) { status.text = '$(loading~spin) Singularity Flow'; status.show(); return; }
     if (state.error) { status.text = '$(error) Singularity Flow'; status.tooltip = state.error.message; status.show(); return; }
     const initiative = state.snapshot?.initiative;
@@ -3259,26 +3240,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const renderedFor = workflow.workItem.id;
       const renderedScope = repositoryEpoch.capture();
       statusWorkId = renderedFor;
-      void gateCountFor(renderedFor, renderedScope).then((gates) => {
-        // Discard a count that arrived after the reader moved on: a gate total from the previous
-        // Story rendered beside the current one is worse than no count at all.
-        if (!gates || statusWorkId !== renderedFor || !repositoryEpoch.isCurrent(renderedScope)) return;
-        status.text = `$(git-pull-request) ${workflow.workItem.id} · ${phase} · gates ${gates.met}/${gates.total}`;
-        status.tooltip = `${where}${workflow.workItem.title ?? 'Governed Story workflow'}`
-          + `\n${gates.unmet} unmet, ${gates.outstanding - gates.unmet} not evaluated`;
-      });
-      /**
-       * The home's two obligations, layered over the Story line. `[UXH:AC-002]` `[DHR:REQ-070]`
-       *
-       * Same fire-and-forget discipline as the gate count, and the same staleness guard: a fact
-       * about the previous Story rendered beside the current one is worse than none.
-       *
-       * Recovery replaces the text rather than appending to it. Rule 1 exists because a
-       * half-finished publication is the state where doing anything else first can lose work, and
-       * appending it to "WRK-1978 · implement" would put it at the same weight as the phase name.
-       */
-      void homeChromeFor(renderedScope).then((home) => {
-        if (!home || !repositoryEpoch.isCurrent(renderedScope) || statusWorkId !== renderedFor) return;
+      const renderStatusChrome = (home: NonNullable<Awaited<ReturnType<typeof statusChromeFor>>>) => {
+        const gates = home.gates;
+        if (gates) {
+          status.text = `$(git-pull-request) ${workflow.workItem.id} · ${phase} · gates ${gates.met}/${gates.total}`;
+          status.tooltip = `${where}${workflow.workItem.title ?? 'Governed Story workflow'}`
+            + `\n${gates.unmet} unmet, ${gates.outstanding - gates.unmet} not evaluated`;
+        }
         if (home.recoveryWorkId) {
           status.text = `$(warning) ${home.recoveryWorkId} · finish publishing`;
           status.tooltip = `${where}A publication was interrupted and is not finished.`
@@ -3292,6 +3260,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           status.tooltip = `${status.tooltip}`
             + `\n${home.decisions} decision(s) are waiting on you.`;
         }
+      };
+      const cached = statusChromeCache?.repository === renderedScope.repository
+        && statusChromeCache.workId === renderedFor ? statusChromeCache.value : null;
+      if (change.kind === 'snapshot' && !change.revisionChanged && cached) {
+        renderStatusChrome(cached);
+        return;
+      }
+      void trackHostBackgroundTask(statusChromeFor(renderedFor, renderedScope)).then((home) => {
+        // Discard a count that arrived after the reader moved on: a gate total from the previous
+        // Story rendered beside the current one is worse than no count at all.
+        if (!home || !repositoryEpoch.isCurrent(renderedScope) || statusWorkId !== renderedFor) return;
+        statusChromeCache = { repository: renderedScope.repository, workId: renderedFor, value: home };
+        renderStatusChrome(home);
       });
       return;
     }
@@ -3311,8 +3292,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       statusWorkId = null;
       if (state.stale) return;
       const renderedScope = repositoryEpoch.capture();
-      void homeChromeFor(renderedScope).then((home) => {
-        if (!home?.decisions || !repositoryEpoch.isCurrent(renderedScope) || statusWorkId !== null) return;
+      const cached = statusChromeCache?.repository === renderedScope.repository
+        && statusChromeCache.workId === null ? statusChromeCache.value : null;
+      if (change.kind === 'snapshot' && !change.revisionChanged && cached) {
+        if (cached.decisions) {
+          status.text = `$(person) ${where}${cached.decisions} waiting on you`;
+          status.tooltip = `${cached.decisions} decision(s) are waiting on you.`
+            + '\nNothing governed is checked out on this branch.';
+        }
+        return;
+      }
+      void trackHostBackgroundTask(statusChromeFor(null, renderedScope)).then((home) => {
+        if (!home || !repositoryEpoch.isCurrent(renderedScope) || statusWorkId !== null) return;
+        statusChromeCache = { repository: renderedScope.repository, workId: null, value: home };
+        if (!home.decisions) return;
         status.text = `$(person) ${where}${home.decisions} waiting on you`;
         status.tooltip = `${home.decisions} decision(s) are waiting on you.`
           + '\nNothing governed is checked out on this branch.';
@@ -3374,9 +3367,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     await store.refresh();
     diagnosticHasRepository = true;
     diagnosticClient.useRepository(canonicalTarget);
-    const [{ GoalsPanel }, { FaultRepairsPanel }, { JournalPanel }, { DiagnosticsPanel }, { AstIntelligencePanel }] = await Promise.all([
-      import('./views/goals.ts'), import('./views/fault-repairs.ts'), import('./views/journal.ts'), import('./views/diagnostics.ts'), import('./views/ast-intelligence.ts')
-    ]);
+    const {
+      GoalsPanel, FaultRepairsPanel, JournalPanel, DiagnosticsPanel, AstIntelligencePanel
+    } = lazyPanels();
     GoalsPanel.repositoryChanged(); FaultRepairsPanel.repositoryChanged(); JournalPanel.repositoryChanged(); DiagnosticsPanel.refreshCurrent(); AstIntelligencePanel.repositoryChanged();
     startAuxiliaryReadsAfterConfirmedSnapshot();
     output.appendLine(`Governed repository: ${repository} (the selected repository of your active workspace, ${selected.workspaceName})`);
@@ -3428,7 +3421,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         };
         output.appendLine(`Active selection changed outside VS Code${current.storyId ? ` to Story ${current.storyId}` : ''}; following ${target}.`);
         await refreshWorkspaceTree();
-        const { WorkspacesPanel } = await import('./views/workspaces-panel.ts');
+        const { WorkspacesPanel } = lazyPanels();
         await WorkspacesPanel.activeWorkspaceChanged(current.workspacePath);
         for (const follow of workspaceSelected) await follow(selected);
         return path.resolve(repository) === target;
@@ -3750,7 +3743,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // One screen for six paths. An Initiative, an Epic or a Story, each with or without a tracker,
     // used to be six commands you had to already know the names of — which meant the product's front
     // door was documentation rather than a screen.
-    const { IntakePanel, intakeInFlight } = await import('./views/intake-panel.ts');
+    const { IntakePanel, intakeInFlight } = lazyPanels();
     IntakePanel.show(context, client, output, async (started) => {
       if (defaults.guidedStart) await context.globalState.update(START_WIZARD_KEY, undefined);
       if (started.shape === 'story' && started.repositoryPath
@@ -4029,7 +4022,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   const manageEvidence = async (): Promise<void> => {
-    const { EvidenceManagerPanel } = await import('./views/evidence-manager.ts');
+    const { EvidenceManagerPanel } = lazyPanels();
     EvidenceManagerPanel.show(store, {
       attach: collectEvidence,
       open: openEvidence,
@@ -4181,7 +4174,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * notification the reader has to hold in their head while fixing the form.
    */
   const onCapabilitiesMessage = async (message: CapabilitiesMessage): Promise<void> => {
-    const { CapabilitiesPanel } = await import('./views/capabilities.ts');
+    const { CapabilitiesPanel } = lazyPanels();
     const panel = await CapabilitiesPanel.show(context, store, (next) => { void onCapabilitiesMessage(next); });
     if (message.type === 'open-auto-settings') {
       await vscode.commands.executeCommand('singularityFlow.configureAuto');
@@ -4291,7 +4284,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           try { return { result: await client.run<unknown>(command), error: null }; }
           catch (error) { return { result: null, error: (error as Error).message }; }
         };
-        const { CapabilityProposalPanel } = await import('./views/capability-proposal.ts');
+        const { CapabilityProposalPanel } = lazyPanels();
         CapabilityProposalPanel.show(context, proposed.lead, proposed.branch, run, async () => {
           await refreshAfterKnownMutation();
           panel.settled(proposed.capabilityId ?? 'repository-root');
@@ -4364,7 +4357,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           return { result: null, error: (error as Error).message };
         }
       };
-      const { CapabilityProposalPanel } = await import('./views/capability-proposal.ts');
+      const { CapabilityProposalPanel } = lazyPanels();
       CapabilityProposalPanel.show(context, selected.url, proposed.branch, run, async () => {
         await refreshAfterKnownMutation();
         panel.settled(message.type === 'remove' ? '' : message.id);
@@ -4660,7 +4653,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   const openConfigurationCenter = async (tab: ConfigurationTab = 'overview'): Promise<void> => {
-    const { ConfigurationCenterPanel } = await import('./views/configuration-center.ts');
+    const { ConfigurationCenterPanel } = lazyPanels();
     await ConfigurationCenterPanel.show(context, store, () => {
       const settings = vscode.workspace.getConfiguration('singularityFlow');
       return {
@@ -4682,30 +4675,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const registered: Record<string, (...args: never[]) => unknown> = {
     'singularityFlow.openCapabilities':
       async () => {
-        const { CapabilitiesPanel } = await import('./views/capabilities.ts');
+        const { CapabilitiesPanel } = lazyPanels();
         return CapabilitiesPanel.show(context, store, (message) => { void onCapabilitiesMessage(message); });
       },
     'singularityFlow.openImpact': async () => {
-      const { ImpactPanel } = await import('./views/impact.ts');
+      const { ImpactPanel } = lazyPanels();
       return ImpactPanel.show(context, store, client);
     },
     'singularityFlow.openFlowImpact': async () => {
-      const { FlowImpactPanel } = await import('./views/flow-impact.ts');
+      const { FlowImpactPanel } = lazyPanels();
       return FlowImpactPanel.show(context, store, client);
     },
     'singularityFlow.openStories':
       async () => {
-        const { StoriesPanel } = await import('./views/stories.ts');
+        const { StoriesPanel } = lazyPanels();
         return StoriesPanel.show(context, store, (message) => { void onStoriesMessage(message); });
       },
     'singularityFlow.openApprovals':
       async () => {
-        const { ApprovalsPanel } = await import('./views/approvals.ts');
+        const { ApprovalsPanel } = lazyPanels();
         return ApprovalsPanel.show(context, store, (message) => { void onApprovalsMessage(message); });
       },
     'singularityFlow.openInbox':
       async () => {
-        const { InboxPanel } = await import('./views/inbox.ts');
+        const { InboxPanel } = lazyPanels();
         return InboxPanel.show(context, store, (message) => { void onInboxMessage(message); });
       },
     // Backward-compatible command ID for old keybindings and links; it never opens a second home.
@@ -4810,36 +4803,36 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.approve': runNode as never,
     'singularityFlow.openJourney': async () => {
       await reconcileActiveWorkspaceSelection();
-      const { JourneyPanel } = await import('./views/journey.ts');
+      const { JourneyPanel } = lazyPanels();
       return JourneyPanel.show(context, store, onJourneyMessage);
     },
     'singularityFlow.openCommandCenter': async () => {
       await reconcileActiveWorkspaceSelection();
-      const { SgosCommandCenterPanel } = await import('./views/sgos-command-center.ts');
+      const { SgosCommandCenterPanel } = lazyPanels();
       return SgosCommandCenterPanel.show(context, store, client);
     },
     'singularityFlow.createSgosWorkflow': async () => {
       await reconcileActiveWorkspaceSelection();
-      const { showSgosWorkflowCreator } = await import('./sgos-workflow-create.ts');
+      const { showSgosWorkflowCreator } = lazyPanels();
       return showSgosWorkflowCreator(client);
     },
     'singularityFlow.reviewSgosMetaTool': async () => {
       await reconcileActiveWorkspaceSelection();
-      const { showSgosMetaToolReview } = await import('./sgos-meta-tool-review.ts');
+      const { showSgosMetaToolReview } = lazyPanels();
       return showSgosMetaToolReview(client);
     },
     'singularityFlow.reviewLocalRunner': async () => {
       await reconcileActiveWorkspaceSelection();
-      const { showGdpLocalRunnerReview } = await import('./gdp-local-runner-review.ts');
+      const { showGdpLocalRunnerReview } = lazyPanels();
       return showGdpLocalRunnerReview(client);
     },
     'singularityFlow.openReconciliation': async () => {
-      const { ReconciliationPanel } = await import('./views/reconciliation.ts');
+      const { ReconciliationPanel } = lazyPanels();
       return ReconciliationPanel.show(context, store, client);
     },
     'singularityFlow.showImpact': () => showImpact(client, output),
     'singularityFlow.openDashboard': async () => {
-      const { DashboardPanel } = await import('./views/dashboard.ts');
+      const { DashboardPanel } = lazyPanels();
       return DashboardPanel.show(context, store);
     },
     'singularityFlow.cancelWork': async () => {
@@ -4974,7 +4967,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     },
     'singularityFlow.openDesigner': async () => {
-      const { DesignerPanel } = await import('./views/designer.ts');
+      const { DesignerPanel } = lazyPanels();
       const reviewAndActivateWorkflowProposal = async (branch: string): Promise<string | null> => {
         try {
           const inspected = await client.run<{
@@ -5119,7 +5112,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }[]>(['workflow', 'proposals', '--json']));
     },
     'singularityFlow.openInstructionDesigner': async () => {
-      const { InstructionDesignerPanel } = await import('./views/instruction-designer.ts');
+      const { InstructionDesignerPanel } = lazyPanels();
       return InstructionDesignerPanel.show(context, store, async (message) => {
       if (message.type === 'agent-action') {
         if (message.action === 'refresh') {
@@ -5180,9 +5173,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
       try {
+        // The model builder brings the full writable gateway and World Model graph. Keep that
+        // separate from activation and load it only after the person selects this command.
         const {
           showGovernedWorldModelBuild, worldModelAuthorityRefreshArguments
-        } = await import('./world-model-build.ts');
+        } = require(path.join(__dirname, 'world-model-build.cjs')) as typeof import('./world-model-build.ts');
         const modelMode = vscode.workspace.getConfiguration('singularityFlow')
           .get<string>('modelMode', 'auto');
         const outcome = await showGovernedWorldModelBuild(active, {
@@ -5227,7 +5222,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     },
     'singularityFlow.configureAstIntelligence': async () => {
-      const { AstIntelligencePanel } = await import('./views/ast-intelligence.ts');
+      const { AstIntelligencePanel } = lazyPanels();
       return AstIntelligencePanel.show(context, client, store);
     },
     'singularityFlow.publishConfiguration': async () => {
@@ -5276,41 +5271,41 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.configureTemplates': () => openConfigurationCenter('templates'),
     'singularityFlow.configureModels': () => openConfigurationCenter('models'),
     'singularityFlow.openWorkspaceLogs': async () => {
-      const { WorkspaceLogsPanel } = await import('./views/workspace-logs.ts');
+      const { WorkspaceLogsPanel } = lazyPanels();
       return WorkspaceLogsPanel.show(context, client, 'all');
     },
     'singularityFlow.refreshWorkspaceLogs': async () => {
       await refreshWorkspaceLogsTree();
-      const { WorkspaceLogsPanel } = await import('./views/workspace-logs.ts');
+      const { WorkspaceLogsPanel } = lazyPanels();
       WorkspaceLogsPanel.refreshCurrent();
     },
     'singularityFlow.openPromptAudit': async () => {
-      const { WorkspaceLogsPanel } = await import('./views/workspace-logs.ts');
+      const { WorkspaceLogsPanel } = lazyPanels();
       return WorkspaceLogsPanel.show(context, client, 'prompt');
     },
     'singularityFlow.openActivityLog': async () => {
-      const { WorkspaceLogsPanel } = await import('./views/workspace-logs.ts');
+      const { WorkspaceLogsPanel } = lazyPanels();
       return WorkspaceLogsPanel.show(context, client, 'activity');
     },
     'singularityFlow.openGoals': async () => {
-      const { GoalsPanel } = await import('./views/goals.ts');
+      const { GoalsPanel } = lazyPanels();
       return GoalsPanel.show(context, client, () => [
         ...(store.current.snapshot?.workItems ?? []).map((item) => ({ ...item, kind: 'story' as const })),
         ...(store.current.snapshot?.initiatives ?? []).map((item) => ({ ...item, kind: 'initiative' as const }))
       ], refreshAfterSurfaceMutation);
     },
     'singularityFlow.openFaultRepairs': async () => {
-      const { FaultRepairsPanel } = await import('./views/fault-repairs.ts');
+      const { FaultRepairsPanel } = lazyPanels();
       return FaultRepairsPanel.show(context, client, async () => {
         await refreshAfterSurfaceMutation(); void refreshWorkspaceLogsTree();
       });
     },
     'singularityFlow.openJournal': async () => {
-      const { JournalPanel } = await import('./views/journal.ts');
+      const { JournalPanel } = lazyPanels();
       return JournalPanel.show(context, client, refreshAfterSurfaceMutation);
     },
     'singularityFlow.openSpecificationTrace': async () => {
-      const { SpecificationTracePanel } = await import('./views/specification-trace.ts');
+      const { SpecificationTracePanel } = lazyPanels();
       return SpecificationTracePanel.show(context, client);
     },
     'singularityFlow.inspectCompositionCache': async () => {
@@ -5323,7 +5318,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       void vscode.window.showInformationMessage(result.valid ? 'Ledger deployment checks passed.' : `Ledger deployment needs attention: ${failed} failed check(s).`);
     },
     'singularityFlow.openVisualAssurance': async () => {
-      const { VisualAssurancePanel } = await import('./views/visual-assurance.ts');
+      const { VisualAssurancePanel } = lazyPanels();
       return VisualAssurancePanel.show(context, store, client);
     },
     'singularityFlow.openCopilot': async () => {
@@ -5375,7 +5370,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return vscode.commands.executeCommand('singularityFlow.mapCapability');
     }) as never,
     'singularityFlow.editCapability': (async (node?: TreeNode) => {
-      const { CapabilitiesPanel } = await import('./views/capabilities.ts');
+      const { CapabilitiesPanel } = lazyPanels();
       const panel = await CapabilitiesPanel.show(context, store, (message) => { void onCapabilitiesMessage(message); });
       const capability = capabilityIdOf(node);
       if (capability) panel.focus(capability);
@@ -5441,14 +5436,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         showRefusal(error, { headline: 'Could not resume governed Copilot handoff' });
       }
     }
-    const firstHomeKey = 'singularityFlow.firstHealthyHome.v1';
-    if (vscode.env?.appHost && !firstRunBlocked && !pendingStartWizard && !pendingHandoff
-        && !context.globalState.get(firstHomeKey)) {
-      // Home, not the walkthrough or a configuration form, is the successful first screen. The
-      // walkthrough remains available from its one-time offer and the Help section.
-      await context.globalState.update(firstHomeKey, true);
-      await vscode.commands.executeCommand('singularityFlow.myWork');
-    }
+    // The Navigator is already the successful first screen. My Work remains its primary action,
+    // but opening it without a click loads the full interactive gateway after first paint and
+    // creates a visible event-loop pause in a window whose reader asked only for the sidebar.
   };
 
   if (store.primeFromCache()) markHostPerformance('cachePublished');

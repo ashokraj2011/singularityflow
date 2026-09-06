@@ -34,7 +34,8 @@ test('the status bar and the card count gates with the same function', async () 
    * in one screenshot. The status bar calls `gateSummary`, which is what the card's own model uses.
    */
   const source = codeOnly(await read('apps', 'vscode', 'src', 'extension.ts'));
-  assert.match(source, /gateSummary\(await kernel\.read\(/);
+  const worker = codeOnly(await read('apps', 'vscode', 'src', 'gateway-status-worker.ts'));
+  assert.match(worker, /gates: readiness \? gateSummary\(readiness\) : null/);
   assert.match(source, /gates \$\{gates\.met\}\/\$\{gates\.total\}/);
 
   const model = codeOnly(await read('apps', 'vscode', 'src', 'views', 'result-card-model.ts'));
@@ -44,16 +45,16 @@ test('the status bar and the card count gates with the same function', async () 
 
 test('a gate count that cannot be read is absent, not zero', async () => {
   // "No gates" and "we could not ask" are different facts, and `gates 0/0` asserts the first.
-  const source = codeOnly(await read('apps', 'vscode', 'src', 'extension.ts'));
-  const gateCount = source.slice(source.indexOf('const gateCountFor = async'), source.indexOf('const homeChromeFor'));
-  assert.match(gateCount, /catch \{\s*return null;\s*\}/);
-  assert.match(gateCount, /if \(!repositoryEpoch\.isCurrent\(scope\)\) return null/);
+  const worker = codeOnly(await read('apps', 'vscode', 'src', 'gateway-status-worker.ts'));
+  const client = codeOnly(await read('apps', 'vscode', 'src', 'gateway-status-worker-client.ts'));
+  assert.match(worker, /catch \{[\s\S]*?value: null/);
+  assert.match(client, /pending\.resolve\(message\.value \?\? null\)/);
 });
 
 test('a late gate count for the previous Story is discarded', async () => {
   const source = codeOnly(await read('apps', 'vscode', 'src', 'extension.ts'));
   assert.match(source,
-    /if \(!gates \|\| statusWorkId !== renderedFor \|\| !repositoryEpoch\.isCurrent\(renderedScope\)\) return;/);
+    /if \(!home \|\| !repositoryEpoch\.isCurrent\(renderedScope\) \|\| statusWorkId !== renderedFor\) return;/);
 });
 
 test('the home renders one menu, from the envelope', async () => {

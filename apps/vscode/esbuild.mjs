@@ -53,9 +53,18 @@ const packageRootPlugin = {
 };
 
 const options = {
-  entryPoints: ['src/extension.ts'],
+  entryPoints: {
+    extension: 'src/extension.ts',
+    'gateway-context-runtime': 'src/gateway-context-runtime.ts',
+    'gateway-runtime': 'src/gateway-runtime.ts',
+    'gateway-status-worker': 'src/gateway-status-worker.ts',
+    'lazy-panels-runtime': 'src/lazy-panels-runtime.ts',
+    'support-runtime': 'src/support-runtime.ts',
+    'world-model-build': 'src/world-model-build.ts'
+  },
   bundle: true,
-  outfile: 'dist/extension.cjs',
+  outdir: 'dist',
+  outExtension: { '.js': '.cjs' },
   platform: 'node',
   target: 'node20',
   format: 'cjs',

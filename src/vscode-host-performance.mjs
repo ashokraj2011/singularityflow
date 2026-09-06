@@ -16,12 +16,20 @@ export function summarizeHostMetric(values) {
 
 function metricValues(pairs) {
   const all = pairs.flatMap(({ cold, warm }) => [cold, warm]);
+  const steadyEventLoop = (sample) => Math.max(...[
+    sample.unchangedRefresh?.eventLoop?.maxDelayMs,
+    sample.changedRefresh?.eventLoop?.maxDelayMs,
+    sample.watcherStorm?.eventLoop?.maxDelayMs,
+    sample.webviewOpening?.eventLoop?.maxDelayMs,
+    sample.cachePersistence?.eventLoop?.maxDelayMs
+  ].filter(Number.isFinite));
   const childPeaks = all.flatMap((sample) => [
     sample.activation.childMemory?.peakRssBytes,
     sample.unchangedRefresh.childMemory?.peakRssBytes,
     sample.changedRefresh.childMemory?.peakRssBytes,
     sample.watcherStorm.childMemory?.peakRssBytes,
-    sample.webviewOpening.childMemory?.peakRssBytes
+    sample.webviewOpening.childMemory?.peakRssBytes,
+    sample.cachePersistence?.childMemory?.peakRssBytes
   ]).filter(Number.isFinite);
   return {
     coldActivationCompleteMs: pairs.map(({ cold }) => cold.activation.marksMs.activationComplete),
@@ -31,7 +39,10 @@ function metricValues(pairs) {
     unchangedRefreshMs: all.map((sample) => sample.unchangedRefresh.durationMs),
     changedRefreshMs: all.map((sample) => sample.changedRefresh.durationMs),
     webviewOpeningMs: all.map((sample) => sample.webviewOpening.durationMs),
+    cachePersistenceMs: all.map((sample) => sample.cachePersistence?.durationMs),
     eventLoopMaxDelayMs: all.map((sample) => sample.eventLoop.maxDelayMs),
+    activationEventLoopMaxDelayMs: all.map((sample) => sample.activation.eventLoop?.maxDelayMs),
+    steadyStateEventLoopMaxDelayMs: all.map(steadyEventLoop),
     extensionHostRssBytes: all.map((sample) => sample.final.extensionHostRssBytes),
     peakChildRssBytes: childPeaks,
     watcherStormCliProcesses: all.map((sample) => sample.watcherStorm.counters.cliProcessesStarted),
@@ -65,12 +76,14 @@ export function buildHostPerformanceReport({ profile, pairs, budgets, enforce = 
       if (sample.scenario !== scenario) failures.push(`pair-${index + 1}:${scenario}-scenario-mismatch`);
       if (sample.extension.activeBeforeRequest) failures.push(`pair-${index + 1}:${scenario}-activated-before-view-request`);
       if (sample.final.cliProcessesConcurrent !== 0) failures.push(`pair-${index + 1}:${scenario}-child-not-quiescent`);
+      if (sample.final.backgroundTasksConcurrent !== 0) failures.push(`pair-${index + 1}:${scenario}-background-not-quiescent`);
       for (const [surface, measurement] of Object.entries({
         activation: sample.activation,
         unchangedRefresh: sample.unchangedRefresh,
         changedRefresh: sample.changedRefresh,
         watcherStorm: sample.watcherStorm,
-        webviewOpening: sample.webviewOpening
+        webviewOpening: sample.webviewOpening,
+        cachePersistence: sample.cachePersistence
       })) {
         if (!Number.isSafeInteger(measurement?.counters?.cliProcessesFailed)) {
           failures.push(`pair-${index + 1}:${scenario}-${surface}-cli-outcome-missing`);

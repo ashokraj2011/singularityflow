@@ -11,6 +11,8 @@ function sample(scenario, overrides = {}) {
   const successfulCounters = {
     cliProcessesStarted: 1, cliProcessesCompleted: 1, cliProcessesSucceeded: 1,
     cliProcessesFailed: 0, cliProcessesConcurrent: 0, cliProcessesMaximumConcurrent: 1,
+    backgroundTasksStarted: 0, backgroundTasksCompleted: 0,
+    backgroundTasksConcurrent: 0, backgroundTasksMaximumConcurrent: 0,
     storeEvents: 0, snapshotEvents: 0, sidebarRenders: 0
   };
   return {
@@ -28,17 +30,19 @@ function sample(scenario, overrides = {}) {
         ...(scenario === 'warm' ? { cachedFirstPaint: 20 } : {})
       },
       counters: { ...successfulCounters, storeEvents: 2, snapshotEvents: 1, sidebarRenders: 2 },
-      childMemory: { status: 'measured-linux-proc', peakRssBytes: 10_000 }
+      childMemory: { status: 'measured-linux-proc', peakRssBytes: 10_000 },
+      eventLoop: { maxDelayMs: 12, meanDelayMs: 10, p95DelayMs: 11 }
     },
-    unchangedRefresh: { durationMs: 30, counters: { ...successfulCounters }, childMemory: { status: 'measured-linux-proc', peakRssBytes: 9_000 } },
-    changedRefresh: { durationMs: 40, counters: { ...successfulCounters }, childMemory: { status: 'measured-linux-proc', peakRssBytes: 11_000 } },
+    unchangedRefresh: { durationMs: 30, counters: { ...successfulCounters }, childMemory: { status: 'measured-linux-proc', peakRssBytes: 9_000 }, eventLoop: { maxDelayMs: 13, meanDelayMs: 10, p95DelayMs: 11 } },
+    changedRefresh: { durationMs: 40, counters: { ...successfulCounters }, childMemory: { status: 'measured-linux-proc', peakRssBytes: 11_000 }, eventLoop: { maxDelayMs: 14, meanDelayMs: 10, p95DelayMs: 11 } },
     watcherStorm: { durationMs: 900, eventsWritten: 100, counters: {
       ...successfulCounters, cliProcessesStarted: 2, cliProcessesCompleted: 2,
       cliProcessesSucceeded: 2, sidebarRenders: 2
-    }, childMemory: { status: 'measured-linux-proc', peakRssBytes: 12_000 } },
-    webviewOpening: { durationMs: 25, counters: { ...successfulCounters }, childMemory: { status: 'measured-linux-proc', peakRssBytes: 8_000 } },
+    }, childMemory: { status: 'measured-linux-proc', peakRssBytes: 12_000 }, eventLoop: { maxDelayMs: 15, meanDelayMs: 10, p95DelayMs: 11 } },
+    webviewOpening: { durationMs: 25, counters: { ...successfulCounters }, childMemory: { status: 'measured-linux-proc', peakRssBytes: 8_000 }, eventLoop: { maxDelayMs: 16, meanDelayMs: 10, p95DelayMs: 11 } },
+    cachePersistence: { durationMs: 8, counters: { ...successfulCounters }, childMemory: { status: 'measured-linux-proc', peakRssBytes: 7_000 }, eventLoop: { maxDelayMs: 9, meanDelayMs: 8, p95DelayMs: 9 } },
     eventLoop: { maxDelayMs: 12, meanDelayMs: 10, p95DelayMs: 11 },
-    final: { extensionHostRssBytes: 100_000, cliProcessesConcurrent: 0 },
+    final: { extensionHostRssBytes: 100_000, cliProcessesConcurrent: 0, backgroundTasksConcurrent: 0 },
     ...overrides
   };
 }
@@ -72,6 +76,8 @@ test('real-host cold/warm samples produce bounded aggregate metrics without reta
   assert.equal(report.metrics.coldActivationCompleteMs.samples, 1);
   assert.equal(report.metrics.activationCompleteMs.samples, 2);
   assert.equal(report.metrics.peakChildRssBytes.maximum, 12_000);
+  assert.equal(report.metrics.activationEventLoopMaxDelayMs.maximum, 12);
+  assert.equal(report.metrics.steadyStateEventLoopMaxDelayMs.maximum, 16);
   assert.equal(report.protocol.questionsOrContentCaptured, false);
   const text = JSON.stringify(report);
   assert.doesNotMatch(text, /repositoryPath|work[-_ ]?id|identity|artifact|fixture\/path/i);
@@ -116,5 +122,6 @@ test('the benchmark launcher uses VS Code extensionTestsPath and fails closed wi
   assert.match(runner, /monitorEventLoopDelay/);
   assert.match(probe, /process\.platform === 'linux'/);
   assert.match(probe, /cliProcessesFailed/);
+  assert.match(probe, /trackHostBackgroundTask/);
   assert.match(probe, /\/proc\/\$\{pid\}\/status/);
 });

@@ -88,7 +88,7 @@ test('VS Code contributes and lazily registers the local runner journey', async 
     entry.command === 'singularityFlow.reviewLocalRunner'));
   const extension = await readFile(path.join(root, 'apps/vscode/src/extension.ts'), 'utf8');
   assert.match(extension, /'singularityFlow\.reviewLocalRunner': async/);
-  assert.match(extension, /import\('\.\/gdp-local-runner-review\.ts'\)/);
+  assert.match(extension, /const \{ showGdpLocalRunnerReview \} = lazyPanels\(\)/);
   const review = await readFile(path.join(root, 'apps/vscode/src/gdp-local-runner-review.ts'), 'utf8');
   assert.doesNotMatch(review, /writeFile|unlink|randomUUID/,
     'the native journey must not stage a crash-leaking plan in the working tree');

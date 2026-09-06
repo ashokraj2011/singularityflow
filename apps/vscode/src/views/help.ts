@@ -9,7 +9,7 @@ import {
 } from './help-page.ts';
 import { resolveHelp } from '../../../../src/help-service.mjs';
 import { helpMetricsStatus, recordHelpMetric } from '../../../../src/help-metrics.mjs';
-import { activeRepositoryContext } from '../gateway-session.ts';
+import { activeRepositoryContext } from '../gateway-runtime-client.ts';
 
 export class HelpPanel {
   private static current: HelpPanel | null = null;

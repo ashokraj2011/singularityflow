@@ -100,5 +100,5 @@ test('VS Code contributes and lazily registers the Meta-tool review wizard', asy
   assert.ok(manifest.contributes.commands.some((entry) =>
     entry.command === 'singularityFlow.reviewSgosMetaTool'));
   assert.match(extension, /'singularityFlow\.reviewSgosMetaTool': async/);
-  assert.match(extension, /import\('\.\/sgos-meta-tool-review\.ts'\)/);
+  assert.match(extension, /const \{ showSgosMetaToolReview \} = lazyPanels\(\)/);
 });

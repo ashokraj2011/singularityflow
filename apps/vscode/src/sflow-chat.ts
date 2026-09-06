@@ -3,10 +3,10 @@ import path from 'node:path';
 import * as vscode from 'vscode';
 
 import { resolveHelp } from '../../../src/help-service.mjs';
-import { recordHelpMetric } from '../../../src/help-metrics.mjs';
+import { recordHelpMetric } from './support-runtime-client.ts';
 import { PACKAGE_ROOT } from '../../../src/package-root.mjs';
 import { planDeveloperConversation } from '../../../src/gateway/conversation.mjs';
-import { activeRepositoryContext, gatewaySession, type GatewayRepositoryContext } from './gateway-session.ts';
+import { activeRepositoryContext, gatewaySession, type GatewayRepositoryContext } from './gateway-runtime-client.ts';
 import { buildResultCard } from './views/result-card-model.ts';
 
 const PARTICIPANT_ID = 'singularity-flow.sflow';

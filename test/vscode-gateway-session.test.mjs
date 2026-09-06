@@ -16,13 +16,13 @@ import { codeOnly } from './source-text.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-test('the extension bundle contains the gateway, not a call out to it', async () => {
+test('the packaged lazy gateway runtime contains the in-process handle authority', async () => {
   /**
    * The bridge, asserted at its narrowest point. A handle is signed per session and revalidated at
    * the moment of use; it cannot survive a process that exits after every command. Either the
    * kernel is in this bundle or nothing in the editor re-resolves anything.
    */
-  const bundle = await readFile(path.join(root, 'apps', 'vscode', 'dist', 'extension.cjs'), 'utf8');
+  const bundle = await readFile(path.join(root, 'apps', 'vscode', 'dist', 'gateway-runtime.cjs'), 'utf8');
   assert.ok(bundle.includes('sflow-result'), 'the result contract is bundled');
   assert.ok(bundle.includes('A handle requires the operation it resolved to'),
     'the handle authority is bundled');

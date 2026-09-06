@@ -54,17 +54,37 @@ test('the CommonJS extension build uses a host-safe package root without import.
   assert.doesNotMatch(output, /empty-import-meta|import\.meta.*not available/i, output);
 });
 
-test('the single-file extension package contains dynamically loaded gateway helpers', async () => {
+test('the extension package contains every explicit lazy runtime used by the activation bundle', async () => {
   const extension = path.join(root, 'apps', 'vscode');
   const built = spawnSync(process.execPath, ['esbuild.mjs'], { cwd: extension, encoding: 'utf8' });
   assert.equal(built.status, 0, `${built.stdout}${built.stderr}`);
   const manifest = JSON.parse(await readFile(path.join(extension, 'package.json'), 'utf8'));
-  const bundle = await readFile(path.join(extension, 'dist', 'extension.cjs'), 'utf8');
+  const [bundle, gatewayContext, gateway, panels, worker, support, worldModel] = await Promise.all([
+    readFile(path.join(extension, 'dist', 'extension.cjs'), 'utf8'),
+    readFile(path.join(extension, 'dist', 'gateway-context-runtime.cjs'), 'utf8'),
+    readFile(path.join(extension, 'dist', 'gateway-runtime.cjs'), 'utf8'),
+    readFile(path.join(extension, 'dist', 'lazy-panels-runtime.cjs'), 'utf8'),
+    readFile(path.join(extension, 'dist', 'gateway-status-worker.cjs'), 'utf8'),
+    readFile(path.join(extension, 'dist', 'support-runtime.cjs'), 'utf8'),
+    readFile(path.join(extension, 'dist', 'world-model-build.cjs'), 'utf8')
+  ]);
   assert.equal(manifest.activationEvents.includes('workspaceContains:workspace.json'), false);
-  assert.match(bundle, /investigate-problem/,
-    'the dynamically loaded conversation router was left outside the packaged CommonJS bundle');
-  assert.match(bundle, /function primaryAction\(/,
-    'the dynamically loaded result selector was left outside the packaged CommonJS bundle');
+  assert.match(bundle, /gateway-context-runtime\.cjs/);
+  assert.match(bundle, /lazy-panels-runtime\.cjs/);
+  assert.match(bundle, /gateway-status-worker\.cjs/);
+  assert.match(bundle, /support-runtime\.cjs/);
+  assert.match(bundle, /world-model-build\.cjs/);
+  assert.match(gatewayContext, /gateway-runtime\.cjs/);
+  assert.match(gatewayContext, /function activeRepositoryContext\(/,
+    'the shared lightweight entry owns repository routing for every lazy bundle');
+  assert.match(gateway, /investigate-problem/,
+    'the lazy gateway runtime omitted the conversation router');
+  assert.match(gateway, /function primaryAction\(/,
+    'the lazy gateway runtime omitted the result selector');
+  assert.match(panels, /var HelpPanel = class/);
+  assert.match(worker, /process\.on\(["']message["']/);
+  assert.match(support, /recordHelpMetric/);
+  assert.match(worldModel, /showGovernedWorldModelBuild/);
 });
 
 test('VS Code packaging pins one Artifactory-compatible MSAL dependency graph', () => {

@@ -32,6 +32,10 @@ export interface HostPerformanceSnapshot {
     readonly cliProcessesFailed: number;
     readonly cliProcessesConcurrent: number;
     readonly cliProcessesMaximumConcurrent: number;
+    readonly backgroundTasksStarted: number;
+    readonly backgroundTasksCompleted: number;
+    readonly backgroundTasksConcurrent: number;
+    readonly backgroundTasksMaximumConcurrent: number;
     readonly storeEvents: number;
     readonly snapshotEvents: number;
     readonly sidebarRenders: number;
@@ -59,6 +63,10 @@ let counters = {
   cliProcessesFailed: 0,
   cliProcessesConcurrent: 0,
   cliProcessesMaximumConcurrent: 0,
+  backgroundTasksStarted: 0,
+  backgroundTasksCompleted: 0,
+  backgroundTasksConcurrent: 0,
+  backgroundTasksMaximumConcurrent: 0,
   storeEvents: 0,
   snapshotEvents: 0,
   sidebarRenders: 0
@@ -104,6 +112,10 @@ export function beginHostPerformanceActivation(): boolean {
     cliProcessesFailed: 0,
     cliProcessesConcurrent: 0,
     cliProcessesMaximumConcurrent: 0,
+    backgroundTasksStarted: 0,
+    backgroundTasksCompleted: 0,
+    backgroundTasksConcurrent: 0,
+    backgroundTasksMaximumConcurrent: 0,
     storeEvents: 0,
     snapshotEvents: 0,
     sidebarRenders: 0
@@ -139,6 +151,35 @@ export function recordHostCliProcessCompleted(pid?: number, exitCode: number | n
   updateChildSampler();
 }
 
+/** Include persistent, non-CLI helpers in the same child-RSS envelope without mislabelling them. */
+export function recordHostBackgroundProcessStarted(pid?: number): void {
+  if (!enabled || !pid || !Number.isSafeInteger(pid) || pid <= 0) return;
+  activeChildPids.add(pid);
+  updateChildSampler();
+}
+
+export function recordHostBackgroundProcessCompleted(pid?: number): void {
+  if (!enabled || !pid) return;
+  activeChildPids.delete(pid);
+  updateChildSampler();
+}
+
+/** Include fire-and-forget SFlow reads in real-host quiescence and interval attribution. */
+export async function trackHostBackgroundTask<T>(task: Promise<T>): Promise<T> {
+  if (!enabled) return task;
+  counters.backgroundTasksStarted += 1;
+  counters.backgroundTasksConcurrent += 1;
+  counters.backgroundTasksMaximumConcurrent = Math.max(
+    counters.backgroundTasksMaximumConcurrent, counters.backgroundTasksConcurrent
+  );
+  try {
+    return await task;
+  } finally {
+    counters.backgroundTasksCompleted += 1;
+    counters.backgroundTasksConcurrent = Math.max(0, counters.backgroundTasksConcurrent - 1);
+  }
+}
+
 export function recordHostStoreEvent(kind: string): void {
   if (!enabled) return;
   counters.storeEvents += 1;
@@ -163,6 +204,10 @@ export function resetHostPerformanceInterval(): HostPerformanceSnapshot {
     cliProcessesFailed: 0,
     cliProcessesConcurrent: counters.cliProcessesConcurrent,
     cliProcessesMaximumConcurrent: counters.cliProcessesConcurrent,
+    backgroundTasksStarted: 0,
+    backgroundTasksCompleted: 0,
+    backgroundTasksConcurrent: counters.backgroundTasksConcurrent,
+    backgroundTasksMaximumConcurrent: counters.backgroundTasksConcurrent,
     storeEvents: 0,
     snapshotEvents: 0,
     sidebarRenders: 0

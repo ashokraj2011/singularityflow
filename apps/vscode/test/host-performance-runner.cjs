@@ -26,22 +26,34 @@ async function until(read, description, timeoutMs = 30_000) {
 
 const probe = (action = 'snapshot') => vscode.commands.executeCommand(CONTROL_COMMAND, action);
 
+function eventLoopStats(loop) {
+  return {
+    maxDelayMs: Number(loop.max) / 1e6,
+    meanDelayMs: Number.isFinite(Number(loop.mean)) ? Number(loop.mean) / 1e6 : null,
+    p95DelayMs: Number(loop.percentile(95)) / 1e6
+  };
+}
+
 async function quiescent() {
   return until(async () => {
     const current = await probe();
-    return current?.counters?.cliProcessesConcurrent === 0 ? current : null;
-  }, 'Singularity Flow CLI processes to quiesce');
+    return current?.counters?.cliProcessesConcurrent === 0
+      && current?.counters?.backgroundTasksConcurrent === 0 ? current : null;
+  }, 'Singularity Flow CLI processes and background reads to quiesce');
 }
 
 async function measuredCommand(command, ...args) {
   await quiescent();
   await probe('reset-interval');
+  const loop = monitorEventLoopDelay({ resolution: 10 });
+  loop.enable();
   const cpuBefore = process.cpuUsage();
   const rssBefore = process.memoryUsage().rss;
   const started = performance.now();
   await vscode.commands.executeCommand(command, ...args);
   const settled = await quiescent();
   const cpu = process.cpuUsage(cpuBefore);
+  loop.disable();
   return {
     durationMs: performance.now() - started,
     cpuUserMs: cpu.user / 1_000,
@@ -49,7 +61,8 @@ async function measuredCommand(command, ...args) {
     rssBeforeBytes: rssBefore,
     rssAfterBytes: process.memoryUsage().rss,
     counters: settled.counters,
-    childMemory: settled.childMemory
+    childMemory: settled.childMemory,
+    eventLoop: eventLoopStats(loop)
   };
 }
 
@@ -73,13 +86,20 @@ async function run() {
     const value = await probe();
     return value?.marksMs?.activationComplete !== undefined ? value : null;
   }, 'the activation performance checkpoint');
-  const activation = await until(async () => {
+  const confirmedActivation = await until(async () => {
     const value = await probe();
     const confirmed = value?.marksMs?.confirmedSnapshotPublished !== undefined
       && value?.marksMs?.confirmedFirstPaint !== undefined;
     return confirmed ? value : null;
   }, 'confirmed first paint');
-  if (!activation.enabled) throw new Error('The extension-host performance probe was not enabled.');
+  if (!confirmedActivation.enabled) throw new Error('The extension-host performance probe was not enabled.');
+  const settledActivation = await quiescent();
+  const activation = {
+    ...confirmedActivation,
+    counters: settledActivation.counters,
+    childMemory: settledActivation.childMemory
+  };
+  const activationEventLoop = eventLoopStats(loop);
 
   const unchangedRefresh = await measuredCommand('singularityFlow.refresh');
 
@@ -94,6 +114,8 @@ async function run() {
   const stormDirectory = path.join(root, 'singularity', 'host-benchmark');
   const stormPath = path.join(stormDirectory, 'events.txt');
   await mkdir(stormDirectory, { recursive: true });
+  const stormLoop = monitorEventLoopDelay({ resolution: 10 });
+  stormLoop.enable();
   const stormStarted = performance.now();
   for (let index = 0; index < 100; index += 1) await appendFile(stormPath, `${index}\n`, 'utf8');
   await until(async () => {
@@ -102,19 +124,30 @@ async function run() {
       && value.counters.cliProcessesConcurrent === 0 ? value : null;
   }, 'the governed-file event storm to publish its trailing refresh');
   const storm = await probe();
+  stormLoop.disable();
   const watcherStorm = {
     durationMs: performance.now() - stormStarted,
     eventsWritten: 100,
     counters: storm.counters,
-    childMemory: storm.childMemory
+    childMemory: storm.childMemory,
+    eventLoop: eventLoopStats(stormLoop)
   };
 
   const webviewOpening = await measuredCommand('singularityFlow.openHelp');
+  await quiescent();
+  await probe('reset-interval');
+  const cacheLoop = monitorEventLoopDelay({ resolution: 10 });
+  cacheLoop.enable();
+  const cacheStarted = performance.now();
   const cachePersisted = await probe('persist-cache');
-  // `Memento.update()` resolves after the extension-host/Main-thread request, while the disposable
-  // extension-test process exits as soon as this function returns. Give VS Code one bounded flush
-  // turn so the second real process can observe the same persisted state a normal window would.
-  await delay(1_000);
+  const cacheSettled = await quiescent();
+  cacheLoop.disable();
+  const cachePersistence = {
+    durationMs: performance.now() - cacheStarted,
+    counters: cacheSettled.counters,
+    childMemory: cacheSettled.childMemory,
+    eventLoop: eventLoopStats(cacheLoop)
+  };
   loop.disable();
   const finalProbe = await probe();
   const report = {
@@ -128,12 +161,14 @@ async function run() {
       viewOpenAndActivationMs,
       marksMs: activation.marksMs,
       counters: activation.counters,
-      childMemory: activation.childMemory
+      childMemory: activation.childMemory,
+      eventLoop: activationEventLoop
     },
     unchangedRefresh,
     changedRefresh,
     watcherStorm,
     webviewOpening,
+    cachePersistence,
     eventLoop: {
       maxDelayMs: Number(loop.max) / 1e6,
       meanDelayMs: Number(loop.mean) / 1e6,
@@ -141,7 +176,8 @@ async function run() {
     },
     final: {
       extensionHostRssBytes: finalProbe.runtime.extensionHostRssBytes,
-      cliProcessesConcurrent: finalProbe.counters.cliProcessesConcurrent
+      cliProcessesConcurrent: finalProbe.counters.cliProcessesConcurrent,
+      backgroundTasksConcurrent: finalProbe.counters.backgroundTasksConcurrent
     }
   };
   await writeFile(reportPath, `${JSON.stringify(report)}\n`, { encoding: 'utf8', mode: 0o600 });

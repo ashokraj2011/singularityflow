@@ -359,7 +359,16 @@ function stubVscode() {
 /** Load the shipped bundle with `vscode` swapped for the stub. */
 function loadExtension(api) {
   activeVscodeApi = api;
-  delete hostRequire.cache[hostRequire.resolve(bundle)];
+  // Each call represents a fresh extension host. Explicit lazy CommonJS entries are sibling
+  // modules rather than chunks owned by extension.cjs, so clear them with the activation entry;
+  // otherwise static panel state and the intercepted `vscode` API leak from the preceding host.
+  for (const name of [
+    'extension.cjs', 'gateway-context-runtime.cjs', 'gateway-runtime.cjs', 'gateway-status-worker.cjs',
+    'lazy-panels-runtime.cjs', 'support-runtime.cjs', 'world-model-build.cjs'
+  ]) {
+    const target = path.join(packageRoot, 'apps', 'vscode', 'dist', name);
+    if (existsSync(target)) delete hostRequire.cache[hostRequire.resolve(target)];
+  }
   return hostRequire(bundle);
 }
 

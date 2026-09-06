@@ -54,11 +54,11 @@ test('every repository-bound auxiliary and status publication carries an epoch g
 
   assert.match(extension, /repositoryEpoch\.moved\(canonicalTarget\);\s*repository = canonicalTarget/);
   assert.match(extension, /const renderedScope = repositoryEpoch\.capture\(\)/);
-  assert.match(extension, /gateCountFor\(renderedFor, renderedScope\)/);
-  assert.match(extension, /homeChromeFor\(renderedScope\)/);
-  assert.match(extension, /statusWorkId !== renderedFor \|\| !repositoryEpoch\.isCurrent\(renderedScope\)/,
+  assert.match(extension, /statusChromeFor\(renderedFor, renderedScope\)/);
+  assert.match(extension, /statusChromeFor\(null, renderedScope\)/);
+  assert.match(extension, /!repositoryEpoch\.isCurrent\(renderedScope\) \|\| statusWorkId !== renderedFor/,
     'equal Work IDs in two repositories can still accept the first repository status result');
   assert.match(extension, /statusWorkId !== null\) return/);
-  assert.match(extension, /!home\?\.decisions \|\| !repositoryEpoch\.isCurrent\(renderedScope\)/,
+  assert.match(extension, /!home \|\| !repositoryEpoch\.isCurrent\(renderedScope\) \|\| statusWorkId !== null/,
     'the no-active-Story status path can still accept a prior repository home result');
 });

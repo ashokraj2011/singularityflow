@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import { createHash } from 'node:crypto';
 import type { SingularityFlowClient } from '../cli/client.ts';
 import type { WorkspaceStore } from '../state.ts';
-import { activeRepositoryContext, type ActiveRepositoryContext } from '../gateway-session.ts';
+import { activeRepositoryContext, type ActiveRepositoryContext } from '../gateway-runtime-client.ts';
 import { commandData, list } from './surface-adapters.ts';
 import {
   astPolicyPreset, astPolicyView, astRepositoryScopeView, parseAstLanguageRows, parseAstPredicateRows,

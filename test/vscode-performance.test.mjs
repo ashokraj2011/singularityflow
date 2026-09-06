@@ -8,8 +8,11 @@ import { codeOnly } from './source-text.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-test('VS Code activation keeps heavyweight webview panels behind dynamic imports', async () => {
-  const source = await readFile(path.join(root, 'apps/vscode/src/extension.ts'), 'utf8');
+test('VS Code activation keeps heavyweight webview panels behind an explicit lazy bundle', async () => {
+  const [source, runtime] = await Promise.all([
+    readFile(path.join(root, 'apps/vscode/src/extension.ts'), 'utf8'),
+    readFile(path.join(root, 'apps/vscode/src/lazy-panels-runtime.ts'), 'utf8')
+  ]);
   const panels = [
     'workspace-panel', 'journey', 'reconciliation', 'approvals', 'inbox', 'stories', 'impact',
     'capabilities', 'intake-panel', 'dashboard', 'flow-impact', 'designer',
@@ -24,17 +27,15 @@ test('VS Code activation keeps heavyweight webview panels behind dynamic imports
       new RegExp(`^import(?!\\s+type\\b)[^\\n]*['\"]\\./views/${escaped}\\.ts['\"]`, 'm'),
       `${panel} must not load while the extension activates`
     );
-    assert.match(
-      source,
-      new RegExp(`import\\(['\"]\\./views/${escaped}\\.ts['\"]\\)`),
-      `${panel} must load only when its command is selected`
-    );
+    assert.match(runtime, new RegExp(`from ['\"]\\./views/${escaped}\\.ts['\"]`),
+      `${panel} is absent from the explicit lazy runtime`);
   }
+  assert.match(source, /require\(path\.join\(__dirname, 'lazy-panels-runtime\.cjs'\)\)/);
 });
 
 test('gateway-only helpers initialize only when their surfaces are invoked', async () => {
   const source = await readFile(path.join(root, 'apps/vscode/src/extension.ts'), 'utf8');
-  for (const module of ['conversation', 'result']) {
+  for (const module of ['conversation']) {
     assert.doesNotMatch(source,
       new RegExp(`^import(?!\\s+type\\b)[^\\n]*['"]\\.\\.\\/\\.\\.\\/\\.\\.\\/src/gateway/${module}\\.mjs['"]`, 'm'),
       `${module}.mjs still initializes with the extension entry point`);
@@ -42,6 +43,12 @@ test('gateway-only helpers initialize only when their surfaces are invoked', asy
       new RegExp(`await import\\(['"]\\.\\.\\/\\.\\.\\/\\.\\.\\/src/gateway/${module}\\.mjs['"]\\)`),
       `${module}.mjs is not loaded by its invoking surface`);
   }
+  assert.doesNotMatch(source,
+    /^import(?!\s+type\b)[^\n]*['\"]\.\.\/\.\.\/\.\.\/src\/gateway\/result\.mjs['\"]/m,
+    'result.mjs still initializes with the extension entry point');
+  const worker = await readFile(path.join(root, 'apps/vscode/src/gateway-status-worker.ts'), 'utf8');
+  assert.match(worker, /from ['\"]\.\.\/\.\.\/\.\.\/src\/gateway\/result\.mjs['\"]/,
+    'result selection is absent from the off-host status runtime');
 });
 
 test('VS Code CLI diagnostics use the versioned privacy-safe timing envelope', async () => {

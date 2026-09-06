@@ -121,6 +121,49 @@ test('host benchmark refuses fast failed CLI samples', () => {
   assert.ok(report.failures.includes('pair-1:warm-unchangedRefresh-cli-failed'));
 });
 
+test('platform-scoped child RSS is explicit and does not reject a macOS host', () => {
+  const withoutChildMemory = (scenario) => {
+    const value = sample(scenario);
+    for (const surface of [
+      'activation', 'unchangedRefresh', 'changedRefresh', 'watcherStorm', 'webviewOpening', 'cachePersistence'
+    ]) {
+      value[surface].childMemory = { status: 'unavailable-platform', peakRssBytes: null };
+    }
+    return value;
+  };
+  const platformBudgets = structuredClone(budgets);
+  platformBudgets.minimum.budgets.peakChildRssBytes = { p95: 268435456, platforms: ['linux'] };
+  const pairs = [{ cold: withoutChildMemory('cold'), warm: withoutChildMemory('warm') }];
+
+  const macos = buildHostPerformanceReport({
+    profile: 'minimum', pairs, budgets: platformBudgets, enforce: true, platform: 'darwin'
+  });
+  assert.equal(macos.status, 'passed');
+  assert.equal(macos.schemaVersion, 3);
+  assert.equal(macos.platform, 'darwin');
+  assert.deepEqual(macos.notApplicableMetrics, [{
+    id: 'peakChildRssBytes', reason: 'platform', platforms: ['linux']
+  }]);
+  assert.equal(macos.metrics.peakChildRssBytes.samples, 0);
+
+  const linux = buildHostPerformanceReport({
+    profile: 'minimum', pairs, budgets: platformBudgets, enforce: true, platform: 'linux'
+  });
+  assert.equal(linux.status, 'failed');
+  assert.ok(linux.failures.includes('peakChildRssBytes:unavailable'));
+});
+
+test('host benchmark rejects malformed platform applicability instead of hiding a budget', () => {
+  const invalid = structuredClone(budgets);
+  invalid.minimum.budgets.activationCompleteMs.platforms = ['darwin', 'darwin'];
+  const report = buildHostPerformanceReport({
+    profile: 'minimum', pairs: [{ cold: sample('cold'), warm: sample('warm') }],
+    budgets: invalid, enforce: true, platform: 'darwin'
+  });
+  assert.equal(report.status, 'failed');
+  assert.ok(report.failures.includes('activationCompleteMs:platforms-invalid'));
+});
+
 test('the benchmark launcher uses VS Code extensionTestsPath and fails closed without a real host', async () => {
   const [launcher, runner, probe] = await Promise.all([
     readFile(path.join(root, 'scripts/vscode-host-benchmark.mjs'), 'utf8'),

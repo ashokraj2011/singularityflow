@@ -141,7 +141,10 @@ The reviewed limits live in `benchmarks/dx/vscode-host-budgets.json`. `minimum` 
 other than VS Code 1.90.x; `current` refuses versions older than 1.90. Network and model access are
 disabled, every fixture is disposable, and reports contain no repository path, Work ID, identity,
 question, artifact, command output, or source bytes. Linux records peak child RSS from `/proc`;
-other platforms report that measurement as unavailable instead of inventing it.
+other platforms report that measurement as unavailable instead of inventing it. Platform-specific
+budgets declare their applicability in the reviewed budget file; an enforced report records the
+host platform and every not-applicable metric. An unavailable Linux-only child-RSS measurement is
+therefore accepted on macOS and Windows, but remains a hard failure on Linux.
 
 A non-enforcing run reports `incomplete` when any required cell is absent or any measured CLI child
 fails. Fast process failure is never accepted as good latency. The warm projection is retained in a

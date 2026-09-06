@@ -220,7 +220,9 @@ async function main() {
       const warm = await runScenario(editor, repository, stateRoot, 'warm', warmPath);
       pairs.push({ cold, warm });
     }
-    const report = buildHostPerformanceReport({ profile, pairs, budgets, enforce });
+    const report = buildHostPerformanceReport({
+      profile, pairs, budgets, enforce, platform: process.platform
+    });
     const serialized = `${JSON.stringify(report, null, 2)}\n`;
     if (outputPath) await writeFile(path.resolve(outputPath), serialized, { encoding: 'utf8', mode: 0o600 });
     process.stdout.write(json ? `${JSON.stringify(report)}\n` : serialized);

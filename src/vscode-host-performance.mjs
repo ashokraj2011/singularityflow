@@ -89,12 +89,29 @@ function compatibleVersion(profile, value) {
   return parsed[0] > 1 || (parsed[0] === 1 && parsed[1] >= 90);
 }
 
+const SUPPORTED_HOST_PLATFORMS = Object.freeze(['linux', 'darwin', 'win32']);
+
+function budgetPlatforms(id, limit, failures) {
+  if (limit.platforms === undefined) return null;
+  if (!Array.isArray(limit.platforms)
+    || limit.platforms.length === 0
+    || new Set(limit.platforms).size !== limit.platforms.length
+    || limit.platforms.some((platform) => !SUPPORTED_HOST_PLATFORMS.includes(platform))) {
+    failures.push(`${id}:platforms-invalid`);
+    return null;
+  }
+  return limit.platforms;
+}
+
 /** Build one content-free report from cold/warm real extension-host samples. */
-export function buildHostPerformanceReport({ profile, pairs, budgets, enforce = false }) {
+export function buildHostPerformanceReport({
+  profile, pairs, budgets, enforce = false, platform = process.platform
+}) {
   if (!['minimum', 'current'].includes(profile)) throw new TypeError('Profile must be minimum or current.');
   if (!Array.isArray(pairs) || !pairs.length) throw new TypeError('At least one cold/warm sample pair is required.');
   const versions = [...new Set(pairs.flatMap(({ cold, warm }) => [cold.vscode.version, warm.vscode.version]))];
   const failures = [];
+  if (!SUPPORTED_HOST_PLATFORMS.includes(platform)) failures.push(`platform:${platform || 'missing'}-unsupported`);
   if (versions.length !== 1 || !compatibleVersion(profile, versions[0])) {
     failures.push(`vscode-version:${versions.join(',') || 'missing'}`);
   }
@@ -140,8 +157,14 @@ export function buildHostPerformanceReport({ profile, pairs, budgets, enforce = 
   if (enforce && pairs.length < (configured?.samples ?? 30)) {
     failures.push(`samples:${pairs.length}<${configured?.samples ?? 30}`);
   }
+  const notApplicableMetrics = [];
   if (enforce && configured?.budgets) {
     for (const [id, limit] of Object.entries(configured.budgets)) {
+      const platforms = budgetPlatforms(id, limit, failures);
+      if (platforms && !platforms.includes(platform)) {
+        notApplicableMetrics.push(Object.freeze({ id, reason: 'platform', platforms: Object.freeze([...platforms]) }));
+        continue;
+      }
       const measured = metrics[id];
       if (!measured || measured.samples === 0) {
         failures.push(`${id}:unavailable`);
@@ -153,10 +176,11 @@ export function buildHostPerformanceReport({ profile, pairs, budgets, enforce = 
   }
   const status = failures.length ? (enforce ? 'failed' : 'incomplete') : enforce ? 'passed' : 'measured';
   return Object.freeze({
-    schemaVersion: 2,
+    schemaVersion: 3,
     kind: 'sflow-vscode-extension-host-performance-report',
     status,
     profile,
+    platform,
     vscodeVersion: versions.length === 1 ? versions[0] : null,
     samplePairs: pairs.length,
     protocol: Object.freeze({
@@ -169,6 +193,7 @@ export function buildHostPerformanceReport({ profile, pairs, budgets, enforce = 
     }),
     metrics: Object.freeze(metrics),
     budgets: configured?.budgets ?? null,
+    notApplicableMetrics: Object.freeze(notApplicableMetrics),
     failures: Object.freeze([...new Set(failures)])
   });
 }

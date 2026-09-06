@@ -16,7 +16,7 @@
       "eventLoopMaxDelayMs": { "p95": 50 },
       "extensionHostRssBytes": { "p95": 536870912 },
       "peakExtensionHostRssBytes": { "p95": 536870912 },
-      "peakChildRssBytes": { "p95": 268435456 },
+      "peakChildRssBytes": { "p95": 268435456, "platforms": ["linux"] },
       "watcherStormCliProcesses": { "maximum": 2 },
       "watcherStormSidebarRenders": { "maximum": 4 }
     }
@@ -37,7 +37,7 @@
       "eventLoopMaxDelayMs": { "p95": 50 },
       "extensionHostRssBytes": { "p95": 536870912 },
       "peakExtensionHostRssBytes": { "p95": 536870912 },
-      "peakChildRssBytes": { "p95": 268435456 },
+      "peakChildRssBytes": { "p95": 268435456, "platforms": ["linux"] },
       "watcherStormCliProcesses": { "maximum": 2 },
       "watcherStormSidebarRenders": { "maximum": 4 }
     }

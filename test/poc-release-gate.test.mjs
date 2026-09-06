@@ -29,6 +29,8 @@ test('POC release gate covers the installed CLI and guided SGOS behavior on its 
     'the release gate must exercise the deterministic CMP corpus');
   assert.match(gate, /test\/comprehension-command\.test\.mjs/,
     'the release gate must exercise the model-free CMP command');
+  assert.match(gate, /test\/comprehension-diff-preview\.test\.mjs/,
+    'the release gate must exercise bounded diff output and untracked-content privacy');
   assert.match(gate, /test\/wel-junit5\.test\.mjs/,
     'the release gate must exercise the WEL identity corpus and optional fallback');
   assert.match(gate, /test\/wel-javascript\.test\.mjs/,

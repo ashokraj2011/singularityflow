@@ -5,11 +5,12 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { isTestNamePatternExclusion } from '../scripts/release-test-reporter.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const reporter = path.join(root, 'scripts', 'release-test-reporter.mjs');
 
-async function runFixture(source) {
+async function runFixture(source, { namePattern = null } = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-release-reporter-'));
   const fixture = path.join(directory, 'fixture.test.mjs');
   try {
@@ -18,6 +19,7 @@ async function runFixture(source) {
     delete environment.NODE_TEST_CONTEXT;
     const result = spawnSync(process.execPath, [
       '--test-reporter', reporter,
+      ...(namePattern ? [`--test-name-pattern=${namePattern}`] : []),
       '--test', fixture
     ], { cwd: root, encoding: 'utf8', env: environment });
     return { ...result, output: `${result.stdout ?? ''}${result.stderr ?? ''}` };
@@ -25,6 +27,31 @@ async function runFixture(source) {
     await rm(directory, { recursive: true, force: true });
   }
 }
+
+test('release reporter distinguishes Node 20 name selection from authored skips', async () => {
+  const selectedOut = {
+    type: 'test:pass', data: { name: 'not selected', skip: 'test name does not match pattern' }
+  };
+  const authoredSkip = {
+    type: 'test:pass', data: { name: 'selected release test', skip: 'test name does not match pattern' }
+  };
+  const argv = ['--test-name-pattern=^selected release test$'];
+  assert.equal(isTestNamePatternExclusion(selectedOut, argv), true);
+  assert.equal(isTestNamePatternExclusion(authoredSkip, argv), false);
+  assert.equal(isTestNamePatternExclusion(selectedOut, []), false);
+
+  const result = await runFixture(`
+    import test from 'node:test';
+    import assert from 'node:assert/strict';
+    test('selected release test', () => assert.equal(2 + 2, 4));
+    test('not selected', () => { throw new Error('must not execute'); });
+  `, { namePattern: '^selected release test$' });
+  assert.equal(result.status, 0, result.output);
+  assert.doesNotMatch(result.output, /Release verification forbids/);
+  assert.doesNotMatch(result.output, /not selected/);
+  assert.match(result.output, /(?:ℹ|#) tests 1/);
+  assert.match(result.output, /(?:ℹ|#) skipped 0/);
+});
 
 test('release reporter preserves readable output and allows an ordinary passing suite', async () => {
   const result = await runFixture(`

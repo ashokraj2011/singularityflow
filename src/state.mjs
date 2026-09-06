@@ -138,7 +138,7 @@ import {
   buildTestExecutionReceipt, normalizeRequiredTestCommand, parseTestResult, readDurableTestObservation,
   resolveAffectedModule, testReceiptPassing
 } from './code-delivery-tests.mjs';
-import { observeJunit5SurefireIdentities } from './wel-junit5.mjs';
+import { observeExactTestcaseIdentities } from './wel-adapters.mjs';
 import { evaluateWitnessMappingReview } from './wel-review.mjs';
 import {
   buildRepositoryChangeSet, buildRepositoryTreeChangeSet, repositoryCaseInsensitivePaths
@@ -3030,7 +3030,7 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
         throw new SingularityFlowError(`Required test command '${command.id}' failed before publication.`, { code: 'CODE_TEST_FAILED' });
       }
       const parsed = await parseTestResult(root, command, { startedAt: check.startedAt });
-      const exactTestcaseObservation = await observeJunit5SurefireIdentities(
+      const exactTestcaseObservation = await observeExactTestcaseIdentities(
         root, command, parsed, workflow.resolution?.codeDelivery?.tests?.testcaseExact ?? null
       );
       const receipt = buildTestExecutionReceipt(command, check, parsed, {
@@ -3317,7 +3317,7 @@ async function submitPhaseTransition(root, config, workflow, {
           throw new SingularityFlowError(`Required test command '${command.id}' failed.`, { code: 'CODE_TEST_FAILED' });
         }
         const parsed = await parseTestResult(root, command, { startedAt: check.startedAt });
-        const exactTestcaseObservation = await observeJunit5SurefireIdentities(
+        const exactTestcaseObservation = await observeExactTestcaseIdentities(
           root, command, parsed, workflow.resolution?.codeDelivery?.tests?.testcaseExact ?? null
         );
         const receipt = buildTestExecutionReceipt(command, check, parsed, {

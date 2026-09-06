@@ -31,6 +31,8 @@ test('POC release gate covers the installed CLI and guided SGOS behavior on its 
     'the release gate must exercise the model-free CMP command');
   assert.match(gate, /test\/wel-junit5\.test\.mjs/,
     'the release gate must exercise the WEL identity corpus and optional fallback');
+  assert.match(gate, /test\/wel-javascript\.test\.mjs/,
+    'the release gate must exercise the static Jest\/Vitest identity contract');
   assert.match(gate, /scripts\/packaged-cli-smoke\.mjs/);
   assert.match(gate, /scripts\/packaged-vsix-engine-smoke\.mjs/,
     'the generated VSIX must execute its own contained CLI engine');
@@ -114,6 +116,8 @@ test('the exact VSIX smoke extracts a bounded engine and enforces a source-modul
     'the contained engine must carry the WEL parser helper');
   assert.match(smoke, /classifyJunit5SurefireCommandScope/,
     'the contained engine must load the WEL adapter rather than checking a filename only');
+  assert.match(smoke, /welResultAdapter\('vitest-static-v1'\)/,
+    'the contained engine must load the JavaScript WEL adapter registry');
   assert.match(smoke, /hostActivation: false/,
     'the code-level smoke must not claim real VS Code-host activation');
 });
@@ -131,6 +135,8 @@ test('packaged CLI smoke installs the tarball into an isolated prefix before exe
     'the installed package must carry the WEL parser helper');
   assert.match(smoke, /classifyJunit5SurefireCommandScope/,
     'the installed package must load the WEL adapter rather than checking a filename only');
+  assert.match(smoke, /welResultAdapter\('jest-static-v1'\)/,
+    'the installed package must load the JavaScript WEL adapter registry');
   assert.match(smoke, /await rm\(sandbox, \{ recursive: true, force: true \}\)/,
     'the isolated install must always be removed');
 });

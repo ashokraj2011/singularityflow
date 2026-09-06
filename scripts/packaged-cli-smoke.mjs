@@ -83,11 +83,14 @@ export async function runPackagedCliSmoke({ root = sourceRoot, tempRoot = os.tmp
     const requiredSurfaces = [
       'src/comprehension/contracts.mjs',
       'src/commands/comprehension.mjs',
+      'src/wel-adapters.mjs',
+      'src/wel-javascript.mjs',
       'src/wel-junit5.mjs',
       'src/wel/WelJunitCatalog.java',
       'docs/CMP-ROADMAP.md',
       'docs/WEL-PENDING-WORK.md',
-      'docs/adr/0014-cmp-observe-authority-boundary.md'
+      'docs/adr/0014-cmp-observe-authority-boundary.md',
+      'docs/adr/0015-wel-javascript-local-identity.md'
     ];
     for (const relative of requiredSurfaces) {
       await regularFile(path.join(installedRoot, relative), relative);
@@ -130,17 +133,23 @@ export async function runPackagedCliSmoke({ root = sourceRoot, tempRoot = os.tmp
     // JDK on the release host.
     const contractsUrl = pathToFileURL(path.join(installedRoot, 'src', 'comprehension', 'contracts.mjs')).href;
     const welUrl = pathToFileURL(path.join(installedRoot, 'src', 'wel-junit5.mjs')).href;
+    const welAdaptersUrl = pathToFileURL(path.join(installedRoot, 'src', 'wel-adapters.mjs')).href;
+    const welJavascriptUrl = pathToFileURL(path.join(installedRoot, 'src', 'wel-javascript.mjs')).href;
     const moduleProbe = JSON.parse(run(process.execPath, [
       '--input-type=module', '--eval', [
         `const cmp = await import(${JSON.stringify(contractsUrl)});`,
         `const wel = await import(${JSON.stringify(welUrl)});`,
+        `const adapters = await import(${JSON.stringify(welAdaptersUrl)});`,
+        `const javascript = await import(${JSON.stringify(welJavascriptUrl)});`,
         "const scope = wel.classifyJunit5SurefireCommandScope({ argv: ['mvn', 'test'] });",
         'console.log(JSON.stringify({',
         "  assurance: cmp.CMP_ASSURANCE_CLASSES.includes('unavailable'),",
         "  availability: cmp.CMP_AVAILABILITY_STATUSES.includes('degraded'),",
         "  refusal: cmp.CMP_REFUSAL_CODES.includes('CMP_STORY_CONTEXT_REQUIRED'),",
         "  diagnostic: cmp.CMP_DIAGNOSTIC_CODES.includes('CMP_BINDING_INVALID'),",
-        "  wel: scope.status === 'complete' && scope.gaps.length === 0",
+        "  wel: scope.status === 'complete' && scope.gaps.length === 0,",
+        "  welRegistry: adapters.welResultAdapter('jest-static-v1') === 'jest-json',",
+        "  welJavascript: javascript.classifyJavascriptTestCommandScope({ argv: ['npm', 'test'] }).status === 'complete'",
         '}));'
       ].join('\n')
     ], { cwd: installedRoot, env: isolatedEnvironment }).trim());

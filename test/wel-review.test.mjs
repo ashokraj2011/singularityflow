@@ -56,6 +56,21 @@ test('satisfied witness review binds the exact proposal and clause identities', 
   }]);
 });
 
+test('the existing human review authority accepts each closed observe-only adapter profile', () => {
+  for (const executionProfile of [
+    'junit5-surefire-v1', 'jest-static-v1', 'vitest-static-v1'
+  ]) {
+    const candidate = mapping({ executionProfile });
+    const result = evaluateWitnessMappingReview({
+      mappings: [candidate],
+      decisions: [{ mappingSha256: candidate.mappingSha256, decision: 'satisfied' }]
+    });
+    assert.equal(result.valid, true, `${executionProfile}: ${result.errors.join('\n')}`);
+  }
+  const unsupported = mapping({ executionProfile: 'generic-json-v1' });
+  assert.equal(evaluateWitnessMappingReview({ mappings: [unsupported] }).valid, false);
+});
+
 test('exceptions require a reason and a future expiry', () => {
   const now = Date.parse('2026-01-01T00:00:00.000Z');
   const missing = evaluateWitnessMappingReview({

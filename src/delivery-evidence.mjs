@@ -5,8 +5,8 @@ import path from 'node:path';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import {
   inferModuleTestCommand, isAllowedTestAutomationPath, isExecutableTestSourcePath,
-  isSupportingTestResourcePath, readDurableTestObservation, replayLocalJunitObservation,
-  resolveAffectedModule, testReceiptPassing
+  isSupportingTestResourcePath, readDurableTestObservation, replayLocalJavascriptJsonObservation,
+  replayLocalJunitObservation, resolveAffectedModule, testReceiptPassing
 } from './code-delivery-tests.mjs';
 import {
   buildRepositoryChangeSet, buildRepositoryTreeChangeSet, evaluateSourceBoundary,
@@ -20,7 +20,9 @@ import { evaluateStoryProtectedPaths } from './configuration-materialization.mjs
 import { canonicalJson } from './records.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { readRecord } from './schema-migrations.mjs';
-import { verifyJunit5SurefireIdentityObservation } from './wel-junit5.mjs';
+import {
+  verifyExactTestcaseIdentityObservation, welResultAdapter
+} from './wel-adapters.mjs';
 import { loadActiveSpecRecords, predecessorSpecClauses } from './specifications.mjs';
 import { SingularityFlowError, posix, run, secureRepositoryPath, snapshot } from './util.mjs';
 import {
@@ -733,10 +735,9 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
       if (!requiredBindingGaps.every((gap) => observation.bindingGaps?.includes(gap))) {
         fail(`test receipt ${execution.commandId} does not disclose its unavailable exact bindings`);
       }
-      if (testReceipt.adapter !== 'junit-xml'
-          || observation.profile !== 'junit5-surefire-v1'
+      if (testReceipt.adapter !== welResultAdapter(observation.profile)
           || testReceipt.adapterIdentity?.id !== observation.profile) {
-        fail(`test receipt ${execution.commandId} local JUnit profile binding is inconsistent`);
+        fail(`test receipt ${execution.commandId} local testcase profile binding is inconsistent`);
       }
       const localExecution = testReceipt.localExecution;
       const startedAt = Date.parse(localExecution?.startedAt ?? '');
@@ -759,7 +760,7 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
       }
       let exactReplay = null;
       if (observation.exact === true) {
-        exactReplay = await verifyJunit5SurefireIdentityObservation(root, observation, {
+        exactReplay = await verifyExactTestcaseIdentityObservation(root, observation, {
           evidenceCommit
         });
         for (const error of exactReplay.errors) fail(`test receipt ${execution.commandId} ${error}`);
@@ -767,7 +768,7 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
           || occurrence.verdict !== 'inconclusive'
           || occurrence.logicalTestId != null
           || occurrence.declarationSha256 != null)) {
-        fail(`test receipt ${execution.commandId} overstates a name-only JUnit occurrence`);
+        fail(`test receipt ${execution.commandId} overstates a name-only testcase occurrence`);
       }
       if (!observation.rawReports?.length) {
         fail(`test receipt ${execution.commandId} has no durable raw report evidence`);
@@ -776,9 +777,10 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
       const referencedPaths = new Set();
       let replayable = true;
       for (const report of observation.rawReports ?? []) {
+        const expectedExtension = testReceipt.adapter === 'junit-xml' ? '.xml' : '.bin';
         const contentAddressedPath = typeof report.path === 'string'
           && report.path.includes('/context/code-delivery/tests/raw/')
-          && report.path.endsWith(`/${report.sha256}.xml`);
+          && report.path.endsWith(`/${report.sha256}${expectedExtension}`);
         if (!safeEvidencePath(report.path) || !contentAddressedPath
             || !/^[0-9a-f]{64}$/.test(report.sha256 ?? '')
             || !Number.isInteger(report.bytes) || report.bytes < 0) {
@@ -820,13 +822,15 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
       }
       if (replayable && replayReports.length === observation.rawReports?.length) {
         try {
-          const replay = replayLocalJunitObservation(replayReports);
+          const replay = testReceipt.adapter === 'junit-xml'
+            ? replayLocalJunitObservation(replayReports)
+            : replayLocalJavascriptJsonObservation(replayReports, testReceipt.adapter);
           if (canonicalJson(replay.tests) !== canonicalJson(testReceipt.tests)) {
             fail(`test receipt ${execution.commandId} module counts do not replay from its raw reports`);
           }
           const expectedRawOccurrences = exactReplay?.rawOccurrences ?? observation.occurrences ?? [];
           const parserMatches = observation.exact === true
-            ? observation.parser?.id === 'jdk-compiler-tree-api'
+            ? ['jdk-compiler-tree-api', 'sflow-javascript-static-parser'].includes(observation.parser?.id)
             : canonicalJson(replay.testcaseObservation.parser) === canonicalJson(observation.parser);
           if (!parserMatches
               || canonicalJson(replay.testcaseObservation.occurrences)

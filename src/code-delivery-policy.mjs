@@ -1,5 +1,6 @@
 import { SingularityFlowError } from './util.mjs';
 import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
+import { WEL_EXACT_TEST_ADAPTERS } from './wel-adapters.mjs';
 
 const CODE_DELIVERY_ARTIFACT_KINDS = new Set(['implementation-summary']);
 
@@ -95,9 +96,9 @@ function normalizeTestcaseExactPolicy(value, defaults) {
     );
   }
   const adapter = source.adapter ?? defaults.adapter;
-  if (adapter != null && adapter !== 'junit5-surefire-v1') {
+  if (adapter != null && !WEL_EXACT_TEST_ADAPTERS.includes(adapter)) {
     throw new SingularityFlowError(
-      "codeDelivery.tests.testcaseExact.adapter currently supports only 'junit5-surefire-v1'.",
+      `codeDelivery.tests.testcaseExact.adapter must be one of: ${WEL_EXACT_TEST_ADAPTERS.join(', ')}.`,
       { code: 'WEL_TEST_ADAPTER_UNSUPPORTED' }
     );
   }

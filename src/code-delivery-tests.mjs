@@ -7,6 +7,7 @@ import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
 import { exists, posix, secureRepositoryPath, SingularityFlowError } from './util.mjs';
+import { welResultAdapter } from './wel-adapters.mjs';
 
 const SUPPORTING_SEGMENTS = new Set([
   '__snapshots__', 'fixture', 'fixtures', 'page-object', 'page-objects', 'pageobjects',
@@ -661,6 +662,115 @@ function countsFromJson(adapter, parsed) {
   };
 }
 
+function javascriptJsonObservation(adapter, parsed) {
+  const framework = adapter === 'jest-json' ? 'jest' : 'vitest';
+  const occurrences = [];
+  for (const suite of parsed?.testResults ?? []) {
+    if (!Array.isArray(suite?.assertionResults)) {
+      throw new SingularityFlowError(`${framework} JSON result contains a malformed assertion list.`, {
+        code: 'CODE_TEST_RESULT_REQUIRED'
+      });
+    }
+    for (const assertion of suite.assertionResults) {
+      if (occurrences.length >= MAX_TESTCASE_OCCURRENCES) {
+        throw new SingularityFlowError(`${framework} JSON result exceeds ${MAX_TESTCASE_OCCURRENCES} testcase occurrences.`, {
+          code: 'CODE_TEST_RESULT_REQUIRED'
+        });
+      }
+      const name = assertion?.title ?? assertion?.name;
+      const fullName = assertion?.fullName ?? null;
+      const ancestorTitles = assertion?.ancestorTitles ?? [];
+      if (typeof name !== 'string' || !name || (fullName != null && typeof fullName !== 'string')
+          || !Array.isArray(ancestorTitles) || ancestorTitles.some((entry) => typeof entry !== 'string')) {
+        throw new SingularityFlowError(`${framework} JSON result contains an invalid testcase identity.`, {
+          code: 'CODE_TEST_RESULT_REQUIRED'
+        });
+      }
+      const state = String(assertion.status ?? '').toLowerCase();
+      const outcome = state === 'passed' ? 'passed'
+        : state === 'failed' ? 'failed'
+          : ['pending', 'skipped', 'todo', 'disabled'].includes(state) ? 'skipped' : null;
+      if (!outcome) {
+        throw new SingularityFlowError(`${framework} JSON result contains unknown outcome '${state || 'absent'}'.`, {
+          code: 'CODE_TEST_RESULT_REQUIRED'
+        });
+      }
+      const duration = Number(assertion.duration);
+      occurrences.push({
+        suite: null, className: null, name, fullName, ancestorTitles: [...ancestorTitles],
+        framework, outcome, verdict: 'inconclusive',
+        durationMs: Number.isFinite(duration) && duration >= 0 ? Math.round(duration) : null,
+        logicalTestId: null, declarationSha256: null, exact: false,
+        identityStatus: 'observed-name-only'
+      });
+    }
+  }
+  const identities = new Map();
+  for (const occurrence of occurrences) {
+    const key = JSON.stringify([occurrence.fullName, occurrence.name, occurrence.ancestorTitles]);
+    identities.set(key, (identities.get(key) ?? 0) + 1);
+  }
+  for (const occurrence of occurrences) {
+    const key = JSON.stringify([occurrence.fullName, occurrence.name, occurrence.ancestorTitles]);
+    if (!occurrence.fullName) occurrence.identityStatus = 'missing-display-identity';
+    else if (identities.get(key) > 1) occurrence.identityStatus = 'ambiguous-display-identity';
+  }
+  return {
+    occurrences,
+    parser: { id: 'sflow-javascript-json-observer', version: 1, framework }
+  };
+}
+
+/** Deterministically replay a bounded Jest/Vitest projection from one retained JSON report. */
+export function replayLocalJavascriptJsonObservation(rawReports, adapter) {
+  if (!['jest-json', 'vitest-json'].includes(adapter)
+      || !Array.isArray(rawReports) || rawReports.length !== 1) {
+    throw new SingularityFlowError('Local JavaScript replay requires one Jest or Vitest JSON report.', {
+      code: 'CODE_TEST_RESULT_REQUIRED'
+    });
+  }
+  const contents = Buffer.from(rawReports[0]?.contents ?? Buffer.alloc(0));
+  if (!contents.length || contents.length > MAX_RESULT_FILE_BYTES) {
+    throw new SingularityFlowError('Local JavaScript replay exceeds the configured report byte limits.', {
+      code: 'CODE_TEST_RESULT_REQUIRED'
+    });
+  }
+  let text;
+  try { text = new TextDecoder('utf-8', { fatal: true }).decode(contents); }
+  catch {
+    throw new SingularityFlowError('Local JavaScript report is not UTF-8.', {
+      code: 'CODE_TEST_RESULT_REQUIRED'
+    });
+  }
+  let parsed;
+  try { parsed = JSON.parse(text); }
+  catch {
+    throw new SingularityFlowError('Local JavaScript report is not valid JSON.', {
+      code: 'CODE_TEST_RESULT_REQUIRED'
+    });
+  }
+  const tests = countsFromJson(adapter, parsed);
+  const testcaseObservation = javascriptJsonObservation(adapter, parsed);
+  const observed = testcaseObservation.occurrences.reduce((total, occurrence) => {
+    total[occurrence.outcome] += 1;
+    return total;
+  }, { passed: 0, failed: 0, skipped: 0 });
+  if (testcaseObservation.occurrences.length !== tests.discovered
+      || observed.passed !== tests.passed || observed.failed !== tests.failed
+      || observed.skipped !== tests.skipped) {
+    throw new SingularityFlowError('JavaScript testcase outcomes differ from the reporter aggregate.', {
+      code: 'CODE_TEST_RESULT_REQUIRED'
+    });
+  }
+  return {
+    tests, testcaseObservation,
+    result: {
+      sha256: sha256(contents), bytes: contents.length,
+      files: [{ sha256: sha256(contents), bytes: contents.length }]
+    }
+  };
+}
+
 function nodeTapCounts(value) {
   const summaries = [];
   let summary = Object.create(null);
@@ -969,7 +1079,11 @@ export async function parseTestResult(root, command, { startedAt = null } = {}) 
     const events = bytes.toString('utf8').split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
     tests = countsFromJson(adapter, events);
   } else {
-    tests = countsFromJson(adapter, JSON.parse(bytes.toString('utf8')));
+    const json = JSON.parse(bytes.toString('utf8'));
+    tests = countsFromJson(adapter, json);
+    if (['jest-json', 'vitest-json'].includes(adapter)) {
+      testcaseObservation = javascriptJsonObservation(adapter, json);
+    }
   }
   return {
     adapter, tests, testcaseObservation,
@@ -1027,8 +1141,7 @@ export function buildTestExecutionReceipt(command, check, parsed, {
     : check.status === 'skipped-warning' ? 'skipped' : check.status;
   const observationEnabled = testcasePolicy?.mode === 'observe';
   const observationSupported = observationEnabled
-    && testcasePolicy?.adapter === 'junit5-surefire-v1'
-    && parsed.adapter === 'junit-xml'
+    && welResultAdapter(testcasePolicy?.adapter) === parsed.adapter
     && parsed.testcaseObservation != null;
   const exactIdentityObserved = observationSupported
     && exactTestcaseObservation?.status === 'observed'
@@ -1036,7 +1149,10 @@ export function buildTestExecutionReceipt(command, check, parsed, {
   const identityOccurrences = exactIdentityObserved
     ? parsed.testcaseObservation.occurrences.map((occurrence) => {
       const exact = exactTestcaseObservation.occurrences.find((candidate) =>
-        candidate.className === occurrence.className && candidate.name === occurrence.name);
+        testcasePolicy.adapter === 'junit5-surefire-v1'
+          ? candidate.className === occurrence.className && candidate.name === occurrence.name
+          : candidate.fullName === occurrence.fullName && candidate.name === occurrence.name
+            && JSON.stringify(candidate.ancestorTitles) === JSON.stringify(occurrence.ancestorTitles));
       return exact ?? occurrence;
     })
     : parsed.testcaseObservation?.occurrences ?? [];
@@ -1062,8 +1178,8 @@ export function buildTestExecutionReceipt(command, check, parsed, {
       'reviewed-witness-mapping-unavailable'
     ],
     notice: exactIdentityObserved
-      ? 'candidate-controlled JUnit report joined to exact static test declarations; verdict remains inconclusive because the mapping is unreviewed and SGOS Candidate, GVM Program, durable attempt/nonce, and independent execution attestation are unavailable'
-      : 'candidate-controlled JUnit report captured as a non-exact local observation; verdict is inconclusive because SGOS Candidate, GVM Program, durable attempt/nonce, exact declaration, and reviewed witness bindings are unavailable; no independent execution attestation'
+      ? 'candidate-controlled test report joined to exact static test declarations; verdict remains inconclusive because the mapping is unreviewed and SGOS Candidate, GVM Program, durable attempt/nonce, and independent execution attestation are unavailable'
+      : 'candidate-controlled test report captured as a non-exact local observation; verdict is inconclusive because SGOS Candidate, GVM Program, durable attempt/nonce, exact declaration, and reviewed witness bindings are unavailable; no independent execution attestation'
   } : {
     status: observationEnabled ? 'unsupported' : 'unavailable',
     assurance: 'unavailable',

@@ -317,11 +317,14 @@ export async function runVsixContainedEngineSmoke({ root = sourceRoot, tempRoot 
     for (const relative of [
       'src/comprehension/contracts.mjs',
       'src/commands/comprehension.mjs',
+      'src/wel-adapters.mjs',
+      'src/wel-javascript.mjs',
       'src/wel-junit5.mjs',
       'src/wel/WelJunitCatalog.java',
       'docs/CMP-ROADMAP.md',
       'docs/WEL-PENDING-WORK.md',
-      'docs/adr/0014-cmp-observe-authority-boundary.md'
+      'docs/adr/0014-cmp-observe-authority-boundary.md',
+      'docs/adr/0015-wel-javascript-local-identity.md'
     ]) {
       const info = await lstat(path.join(extracted.engineRoot, relative)).catch(() => null);
       if (!info?.isFile() || info.isSymbolicLink()) {
@@ -389,17 +392,23 @@ export async function runVsixContainedEngineSmoke({ root = sourceRoot, tempRoot 
       canonicalEngineRoot, 'src', 'comprehension', 'contracts.mjs'
     )).href;
     const welUrl = pathToFileURL(path.join(canonicalEngineRoot, 'src', 'wel-junit5.mjs')).href;
+    const welAdaptersUrl = pathToFileURL(path.join(canonicalEngineRoot, 'src', 'wel-adapters.mjs')).href;
+    const welJavascriptUrl = pathToFileURL(path.join(canonicalEngineRoot, 'src', 'wel-javascript.mjs')).href;
     const moduleProbeText = runIsolatedNode([
       ...loaderFlags, '--input-type=module', '--eval', [
         `const cmp = await import(${JSON.stringify(contractsUrl)});`,
         `const wel = await import(${JSON.stringify(welUrl)});`,
+        `const adapters = await import(${JSON.stringify(welAdaptersUrl)});`,
+        `const javascript = await import(${JSON.stringify(welJavascriptUrl)});`,
         "const scope = wel.classifyJunit5SurefireCommandScope({ argv: ['mvn', 'test'] });",
         'console.log(JSON.stringify({',
         "  assurance: cmp.CMP_ASSURANCE_CLASSES.includes('unavailable'),",
         "  availability: cmp.CMP_AVAILABILITY_STATUSES.includes('degraded'),",
         "  refusal: cmp.CMP_REFUSAL_CODES.includes('CMP_STORY_CONTEXT_REQUIRED'),",
         "  diagnostic: cmp.CMP_DIAGNOSTIC_CODES.includes('CMP_BINDING_INVALID'),",
-        "  wel: scope.status === 'complete' && scope.gaps.length === 0",
+        "  wel: scope.status === 'complete' && scope.gaps.length === 0,",
+        "  welRegistry: adapters.welResultAdapter('vitest-static-v1') === 'vitest-json',",
+        "  welJavascript: javascript.classifyJavascriptTestCommandScope({ argv: ['npm', 'test'] }).status === 'complete'",
         '}));'
       ].join('\n')
     ], { cwd: consumer, environment });

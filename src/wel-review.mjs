@@ -6,6 +6,9 @@ const DIGEST = /^sha256:[a-f0-9]{64}$/;
 const DECISIONS = new Set(['satisfied', 'exception', 'not-applicable']);
 const MAX_MAPPINGS = 1000;
 const MAX_REASON_BYTES = 4096;
+const REVIEWED_EXECUTION_PROFILES = new Set([
+  'junit5-surefire-v1', 'jest-static-v1', 'vitest-static-v1'
+]);
 
 export function evaluateWitnessMappingReview({ mappings = [], decisions = [], now = Date.now() } = {}) {
   if (!Array.isArray(mappings) || mappings.length > MAX_MAPPINGS
@@ -31,7 +34,7 @@ export function evaluateWitnessMappingReview({ mappings = [], decisions = [], no
     const validCore = DIGEST.test(core.sourceProposalSha256 ?? '')
       && /^[A-Z0-9][A-Z0-9._-]{0,63}:AC-\d{3}$/.test(core.clauseId ?? '')
       && core.witnessType === 'test'
-      && core.executionProfile === 'junit5-surefire-v1'
+      && REVIEWED_EXECUTION_PROFILES.has(core.executionProfile)
       && DIGEST.test(core.logicalTestId ?? '')
       && typeof core.sourcePath === 'string' && core.sourcePath.length > 0
       && !core.sourcePath.startsWith('/') && !core.sourcePath.includes('\\')

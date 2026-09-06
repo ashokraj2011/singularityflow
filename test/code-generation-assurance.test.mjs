@@ -228,6 +228,12 @@ test('unsupported code-delivery policy alternatives are rejected instead of sile
     mode: 'observe', adapter: 'junit5-surefire-v1', requiredWitnessTypes: ['test'],
     evidenceTier: 'testcase-local-observed'
   });
+  for (const adapter of ['jest-static-v1', 'vitest-static-v1']) {
+    assert.equal(normalizeCodeDeliveryPolicy({ tests: { testcaseExact: {
+      mode: 'observe', adapter, requiredWitnessTypes: ['test'],
+      evidenceTier: 'testcase-local-observed'
+    } } }).tests.testcaseExact.adapter, adapter);
+  }
   assert.throws(() => normalizeCodeDeliveryPolicy({ tests: { testcaseExact: { mode: 'observe' } } }),
     (error) => error.code === 'WEL_TEST_ADAPTER_REQUIRED');
   assert.throws(() => normalizeCodeDeliveryPolicy({ tests: { testcaseExact: {

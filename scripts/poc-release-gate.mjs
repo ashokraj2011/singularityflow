@@ -64,6 +64,7 @@ export function pocReleaseStages({ rootDir = root, nodeVersion = process.version
         'test/install-staged-artifacts.test.mjs', 'test/local-install-script.test.mjs',
         'test/vscode-sgos-workflow-create.test.mjs', 'test/comprehension-contracts.test.mjs',
         'test/comprehension-command.test.mjs', 'test/wel-junit5.test.mjs',
+        'test/wel-javascript.test.mjs',
         // These files inspect the reporter and this stage manifest. Importing the gate is inert,
         // so including them proves the release authorities without recursively invoking this gate.
         'test/release-test-reporter.test.mjs', 'test/poc-release-gate.test.mjs'

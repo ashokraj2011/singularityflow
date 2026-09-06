@@ -197,9 +197,16 @@ host sample rather than flattening six stages and allowing a common high stage t
 Child-process RSS remains a separate Linux `/proc` measurement and stays explicitly unavailable on
 macOS and Windows.
 
-This closes the current-editor 30-pair cell. It does not replace the minimum-VS-Code-1.90 exercise,
-the pinned Node 22/Linux relative baseline, Linux child-process RSS, office-network evidence, or
-signed platform/package receipts; those distinct cells remain open.
+The minimum-profile exercise at `main@5b48b559` ran another 30 cold/warm pairs (60 real VS Code
+1.90.2 host processes) on macOS arm64 and also passed with zero failures. Load plus activation was
+239.7 ms p95, activation 183.2 ms p95, cached paint 190.0 ms p95, confirmed paint 618.0 ms p95,
+unchanged refresh 423.4 ms p95, changed refresh 601.7 ms p95, event-loop delay 48.3 ms p95, and
+extension-host peak RSS 149.5 MB p95. The content-free report SHA-256 is
+`4c46cd2938b5dba6086a20bf200502e54fda74f3328645cbd6bd012ebc0c7042`.
+
+This closes both editor-profile 30-pair cells on macOS. It does not replace the pinned Node 22/Linux
+relative baseline, Linux child-process RSS, Windows, office-network evidence, or signed
+platform/package receipts; those distinct cells remain open.
 
 ### Bundle and module-closure budget
 

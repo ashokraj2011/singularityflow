@@ -134,8 +134,16 @@ p95, cached paint 201.4 ms p95, confirmed paint 670.2 ms p95, unchanged refresh 
 event-loop delay 45.3 ms p95, one watcher CLI child, one sidebar render, and 215 MB extension-host
 peak RSS. The content-free report digest is
 `sha256:0a4aa4cb9613ac51cde365b64da9613d4670eb20ca9c3b92cb09a391916fc718`. Linux-only child RSS was
-explicitly not applicable rather than misreported as zero. The minimum-editor, pinned Linux,
-office-network, and signed package/platform cells remain external evidence, so DXP is not complete.
+explicitly not applicable rather than misreported as zero. The pinned Linux, office-network, and
+signed package/platform cells remain external evidence, so DXP is not complete.
+
+The minimum-editor cell is also accepted at `main@5b48b559`: 30 cold/warm pairs (60 real VS Code
+1.90.2 host processes) passed on macOS arm64 with zero failures. Load plus activation was 239.7 ms
+p95, cached paint 190.0 ms p95, confirmed paint 618.0 ms p95, unchanged refresh 423.4 ms p95,
+event-loop delay 48.3 ms p95, and extension-host peak RSS 149.5 MB p95. The content-free report
+digest is `sha256:4c46cd2938b5dba6086a20bf200502e54fda74f3328645cbd6bd012ebc0c7042`.
+Both editor-profile cells are therefore complete on macOS; Linux child RSS, Windows,
+office-network, pinned-runner baseline, and signed package/platform evidence remain open.
 
 ## 2026-09-06 reconciliation snapshot
 
@@ -194,7 +202,7 @@ supported Node 20/22 runtime contract.
 
 This closes the code-local aggregate blocker and proves two unsigned strict macOS runtime cells. It
 does **not** satisfy the supported-platform release matrix: signed Node 20/22 macOS/Linux/Windows
-receipts, the remaining minimum-editor and cross-platform VS Code host evidence, and selected
+receipts, the remaining cross-platform VS Code host evidence, and selected
 npm/VSIX artifact binding remain governed by the platform items below.
 
 ## Status rules
@@ -214,7 +222,7 @@ npm/VSIX artifact binding remain governed by the platform items below.
 | Track | Current boundary | Next eligible increment | Detailed authority |
 |---|---|---|---|
 | Release baseline | `REL-P0-001` is bounded and resumable; strict local macOS aggregates are green on Node 22 (`ef2adfc807f1380ad2a1c85f`, 4,645/4,645) and Node 20 (`b3e0136ed4c8a03598192402`, 4,648/4,648), both with no skips | Collect signed Node 20/22 macOS/Linux/Windows and npm/VSIX receipts; two unsigned local cells are not the release matrix | This document and [Verification](../VERIFICATION.md) |
-| Developer-experience performance | Hot paths and the office-Git code-local slice are implemented; the 30-pair current-editor/macOS cell passes, warm cache survives disposable host processes, and the reproduced event-loop tail is below its unchanged ceiling; pinned relative baseline and cross-platform host evidence are not established | Accept the minimum-editor 30-pair report and pinned Linux/office-network evidence, keep the isolated compatibility transport under audit, then close each `[~]` platform gate | This document and [DX performance](DX-PERFORMANCE.md) |
+| Developer-experience performance | Hot paths and the office-Git code-local slice are implemented; both 30-pair editor-profile cells pass on macOS, warm cache survives disposable host processes, and the reproduced event-loop tail is below its unchanged ceiling; pinned relative baseline and cross-platform host evidence are not established | Accept pinned Linux/Windows/office-network evidence, keep the isolated compatibility transport under audit, then close each `[~]` platform gate | This document and [DX performance](DX-PERFORMANCE.md) |
 | SGOS | Universal Candidate publication, portable authority transport, proposal-only Agent working-set injection, signed-Pack/Device meta-tool CLI/native review, and non-authoritative portable learning progress are code-complete; signed cross-platform release proof and real Secret Broker adapter integration remain open | Finish the `SGOS-P0-001`/`003` signed platform matrices and the external-adapter portion of `SGOS-P0-002` before expanding P2 authority | [SGOS pending work](SGOS-PENDING-WORK.md) |
 | World Model Builder v4 | Release receipt generation and enforcement exist; no reviewed six-cell supported-platform aggregate is recorded | `WMB-REL-001` | [WMB v4](WORLD-MODEL-BUILDER-V4.md) |
 | Witnessed Engineering Loop | Exact-static local JUnit and bounded literal Jest/Vitest observations, immutable proposal binding, existing-approval review, migration, release-gated baseline/delta/Context-X-Ray/Story-start/recovery benchmark, cancellable Java parser boundary, isolated npm/VSIX proof, strict signed benchmark-report binding, and a bounded platform-matrix command are active; the portable matrix passes 32/32 on clean Linux Node 20 and 22 containers; authenticated testcase claims and enforcement remain unavailable | Execute and sign the physical-host/office-network P0 gates, independently review and corpus-test the JavaScript profiles, then satisfy Candidate/Program/attempt and authenticated-runner dependencies | [WEL pending work](WEL-PENDING-WORK.md) |
@@ -292,10 +300,10 @@ All `[~]` DXP entries below share this tracked delivery metadata:
 
 | Scope | Landed in `96bb55f8` | Remaining evidence before `[x]` |
 |---|---|---|
-| `DXP-P0-001` | `doctor --performance` measures its explicit invoking checkout; scale and dirty-tree fixtures cover the VS Code snapshot; baseline import now binds the reviewed runner identity as well as Node/OS/architecture; a real-editor runner has version-bound minimum/current budgets, cold/warm processes, actual paint markers, event-loop delay, CPU, process counts, RSS, durable cache proof, and successful-child attestation without retaining workspace content; the 30-pair current-VS-Code/macOS cell passed at `06e73c40` | Minimum-VS-Code-1.90 report, pinned `ubuntu-latest` Node 22/Linux x64 baseline and child RSS, and office-network arm |
+| `DXP-P0-001` | `doctor --performance` measures its explicit invoking checkout; scale and dirty-tree fixtures cover the VS Code snapshot; baseline import now binds the reviewed runner identity as well as Node/OS/architecture; a real-editor runner has version-bound minimum/current budgets, cold/warm processes, actual paint markers, event-loop delay, CPU, process counts, RSS, durable cache proof, and successful-child attestation without retaining workspace content; both 30-pair current/VS-Code-1.90 macOS cells passed at `06e73c40`/`5b48b559` | Pinned `ubuntu-latest` Node 22/Linux x64 baseline and child RSS, Windows host report, and office-network arm |
 | `DXP-P0-002`–`003` | real-host activation returns after providers/commands and cache publication instead of awaiting workspace inventory or the fresh snapshot; confirmed-snapshot auxiliary reads, latest-only refresh/validation, one sidebar paint, hidden-panel deferral, an off-host status worker, explicit lazy bundles, and a real 100-event watcher exercise are measured; unchanged selection and absent capability/log scopes no longer launch redundant children; continuous transition measurement localized the post-Help pause and a dedicated Help runtime lowered the code-local event-loop p95 to 43.4 ms | Accepted 10-second real extension-host storms with CPU/RSS/process budgets on minimum and current VS Code |
 | `DXP-P0-004`–`006` | reviewed enterprise proxy/CA/helper parity, bounded process-tree supervisor, and centralized partial-clone fallback | live Windows GCM, Git Bash, macOS helper, office proxy/CA, provider filter, and descendant-cleanup exercises |
-| `DXP-P1-001`–`002` | leased heavy slices, linear bounded output, JSON stdout isolation, lazy workspace/capability startup readers, six-stage host RSS measurement, per-process peak aggregation, load-plus-activation timing, Help runtime timing, and a release-gated byte/module ceiling for every CommonJS entry; the current-VS-Code/macOS 30-pair host peak passed at 215 MB p95 | Minimum-VS-Code and pinned Linux/Windows peak-RSS and module-load reports |
+| `DXP-P1-001`–`002` | leased heavy slices, linear bounded output, JSON stdout isolation, lazy workspace/capability startup readers, six-stage host RSS measurement, per-process peak aggregation, load-plus-activation timing, Help runtime timing, and a release-gated byte/module ceiling for every CommonJS entry; current/minimum macOS 30-pair host peaks passed at 215/150 MB p95 | Pinned Linux/Windows peak-RSS and module-load reports |
 | `DXP-P1-003`, `DXP-P2-001` | one operation-scoped remote session, broad inventory reuse, mutation invalidation, exact revalidation, and asynchronous configuration/ledger/WMB/lifecycle authority reads; no product workflow calls the retained synchronous compatibility transport | collect pinned host measurements and remove the compatibility API only in a separately reviewed breaking release |
 | `DXP-P1-004` | async/batched local validation, origin-first streaming remote pool, canonical cache identity, repository epochs, and immediate A→B cancellation | live high-ref and A→B→A extension-host runs on Windows plus both supported VS Code versions |
 | `DXP-P1-005` | 10,000-file/40-Story/12-ref scale, dirty tree, ignored-build, clean-submodule, and nested linked-worktree tiers; every measured interactive read has p50/p95 ceilings and 20% accepted-baseline regression checks | establish the reviewed Node 22/Linux relative baseline and collect Windows/macOS platform reports |

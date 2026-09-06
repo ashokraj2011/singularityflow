@@ -226,6 +226,20 @@ test('comprehension walkthrough validates typed claims without model, AST, write
     () => true, (error) => error?.code === 'ENOENT' ? false : Promise.reject(error)
   ), false);
 
+  await writeFile(path.join(root, 'review', 'previous-validation.json'), result.stdout);
+  const revalidation = command(root, [
+    '--no-model', 'comprehension', 'walkthrough', 'revalidate',
+    'review/walkthrough.json', 'review/previous-validation.json',
+    '--base', 'HEAD', '--json'
+  ]);
+  assert.equal(revalidation.status, 0, revalidation.stderr);
+  const revalidationResponse = JSON.parse(revalidation.stdout);
+  assert.equal(revalidationResponse.operation.id, 'comprehension.walkthrough.revalidate');
+  assert.equal(revalidationResponse.data.validation.status, 'unchanged');
+  assert.equal(revalidationResponse.data.validation.counts.unchanged, 1);
+  assert.equal(revalidationResponse.data.validation.authoritative, false);
+  assert.equal(git(root, ['status', '--porcelain=v1']), before);
+
   await writeFile(path.join(root, 'walkthrough-unignored.json'), JSON.stringify(draft));
   const circular = command(root, [
     '--no-model', 'comprehension', 'walkthrough', 'validate', 'walkthrough-unignored.json',

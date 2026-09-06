@@ -22,6 +22,12 @@ const MAXIMUM_DRAFT_BYTES = 1024 * 1024;
 const MAXIMUM_NARRATIVE_BYTES = 128 * 1024;
 const MAXIMUM_TEXT_BYTES = 4096;
 const MAXIMUM_REFS = 64;
+const MAXIMUM_RESULT_SOURCES = 256;
+const MAXIMUM_VALIDATION_BYTES = 4 * 1024 * 1024;
+const DEPENDENCY_KEYS = Object.freeze([
+  'causeGraphSha256', 'changeRegionManifestSha256', 'structuralViewManifestSha256',
+  'evidenceManifestSha256', 'policySha256', 'extractorVersionsSha256'
+]);
 const ASSERTIONS_BY_CLASS = Object.freeze({
   'structural-fact': new Set([
     'symbol-exists', 'symbol-changed', 'call-edge', 'reference-edge',
@@ -95,14 +101,35 @@ function validateGraph(graph, manifest) {
 }
 
 function validateDependencyManifest(value, manifest, graph) {
-  const keys = [
-    'causeGraphSha256', 'changeRegionManifestSha256', 'structuralViewManifestSha256',
-    'evidenceManifestSha256', 'policySha256', 'extractorVersionsSha256'
-  ];
-  if (!exactKeys(value, keys)
+  if (!exactKeys(value, DEPENDENCY_KEYS)
       || value.changeRegionManifestSha256 !== manifest.manifestSha256
       || value.causeGraphSha256 !== graph.graphSha256) return false;
-  return keys.every((key) => value[key] === null || SHA256.test(String(value[key])));
+  return DEPENDENCY_KEYS.every((key) => value[key] === null || SHA256.test(String(value[key])));
+}
+
+function normalizedDependencies(value) {
+  return Object.fromEntries(DEPENDENCY_KEYS.map((key) => [
+    key, SHA256.test(String(value?.[key] ?? '')) ? value[key] : null
+  ]));
+}
+
+function claimDependencyKeys(claim, { regions, causes, evidence }) {
+  const keys = new Set();
+  if (regions.length || claim.claimClass === 'diff-fact') {
+    keys.add('changeRegionManifestSha256');
+  }
+  if (causes.length || claim.claimClass === 'human-judgment') {
+    keys.add('causeGraphSha256');
+  }
+  if (evidence.length || claim.claimClass === 'evidence-supported') {
+    keys.add('evidenceManifestSha256');
+  }
+  if (claim.claimClass === 'structural-fact') {
+    keys.add('structuralViewManifestSha256');
+    keys.add('extractorVersionsSha256');
+  }
+  if (claim.claimClass === 'human-judgment') keys.add('policySha256');
+  return [...keys].sort(compareText);
 }
 
 function regionSources(manifest, refs) {
@@ -120,7 +147,7 @@ function sourceForRegion(region) {
   };
 }
 
-function evaluateClaim(claim, manifest, dependencyManifest) {
+function evaluateClaim(claim, manifest, dependencyManifest, sourceBudget) {
   const diagnostics = [];
   const claimId = typeof claim?.claimId === 'string' ? claim.claimId : null;
   const fail = (code, message) => diagnostics.push(diagnostic(code, claimId, message));
@@ -133,7 +160,7 @@ function evaluateClaim(claim, manifest, dependencyManifest) {
       || claim.kind !== 'walkthrough-claim') {
     fail('CMP_WALKTHROUGH_SCHEMA_INVALID', 'Walkthrough claim shape or transport schema is invalid.');
     return { claimId, claimSha256: claim?.claimSha256 ?? null,
-      status: 'invalid', assurance: 'contradicted', sources: [], diagnostics };
+      status: 'invalid', assurance: 'contradicted', dependencyKeys: [], sources: [], diagnostics };
   }
   if (!CLAIM_ID.test(claim.claimId)
       || typeof claim.text !== 'string' || !claim.text.trim()
@@ -168,9 +195,10 @@ function evaluateClaim(claim, manifest, dependencyManifest) {
   if (diagnostics.length) {
     return { claimId, claimSha256: claim.claimSha256,
       claimClass: claim.claimClass, assertionType: claim.assertionType,
-      status: 'invalid', assurance: 'contradicted', sources: [], diagnostics };
+      status: 'invalid', assurance: 'contradicted', dependencyKeys: [], sources: [], diagnostics };
   }
 
+  const dependencyKeys = claimDependencyKeys(claim, { regions, causes, evidence });
   const candidateSource = {
     kind: 'compatibility-candidate', sha256: manifest.compatibilityCandidateSha256
   };
@@ -182,7 +210,7 @@ function evaluateClaim(claim, manifest, dependencyManifest) {
     if (!regions.length || matchedRegions.length !== regions.length) {
       return { claimId, claimSha256: claim.claimSha256,
         claimClass: claim.claimClass, assertionType: claim.assertionType,
-        status: 'contradicted', assurance: 'contradicted', sources: [], diagnostics };
+        status: 'contradicted', assurance: 'contradicted', dependencyKeys, sources: [], diagnostics };
     }
     const paths = new Set(matchedRegions.flatMap((region) => [
       region.location.pathBefore, region.location.pathAfter
@@ -191,8 +219,16 @@ function evaluateClaim(claim, manifest, dependencyManifest) {
       fail('CMP_WALKTHROUGH_REFERENCE_INVALID', 'A file-changed claim must cite exact files from its regions.');
       return { claimId, claimSha256: claim.claimSha256,
         claimClass: claim.claimClass, assertionType: claim.assertionType,
-        status: 'contradicted', assurance: 'contradicted', sources: [], diagnostics };
+        status: 'contradicted', assurance: 'contradicted', dependencyKeys, sources: [], diagnostics };
     }
+    if (matchedRegions.length > sourceBudget.remaining) {
+      fail('CMP_WALKTHROUGH_LIMIT',
+        `Walkthrough validation exceeds the ${MAXIMUM_RESULT_SOURCES}-source result boundary.`);
+      return { claimId, claimSha256: claim.claimSha256,
+        claimClass: claim.claimClass, assertionType: claim.assertionType,
+        status: 'invalid', assurance: 'contradicted', dependencyKeys, sources: [], diagnostics };
+    }
+    sourceBudget.remaining -= matchedRegions.length;
     const sources = matchedRegions.map(sourceForRegion);
     const resultSha256 = hash({
       verifier: 'cmp-exact-region-file-change-v1', candidateSha256: manifest.candidateSha256,
@@ -202,12 +238,21 @@ function evaluateClaim(claim, manifest, dependencyManifest) {
       claimClass: claim.claimClass, assertionType: claim.assertionType,
       status: 'passed', assurance: 'diff-verified',
       verification: { verifier: 'cmp-exact-region-file-change-v1', resultSha256 },
-      sources, diagnostics };
+      dependencyKeys, sources, diagnostics };
   }
   if (claim.claimClass === 'model-advisory') {
+    if (sourceBudget.remaining < 1) {
+      fail('CMP_WALKTHROUGH_LIMIT',
+        `Walkthrough validation exceeds the ${MAXIMUM_RESULT_SOURCES}-source result boundary.`);
+      return { claimId, claimSha256: claim.claimSha256,
+        claimClass: claim.claimClass, assertionType: claim.assertionType,
+        status: 'invalid', assurance: 'contradicted', dependencyKeys, sources: [], diagnostics };
+    }
+    sourceBudget.remaining -= 1;
     return { claimId, claimSha256: claim.claimSha256,
       claimClass: claim.claimClass, assertionType: claim.assertionType,
-      status: 'advisory', assurance: 'model-advisory', sources: [candidateSource], diagnostics };
+      status: 'advisory', assurance: 'model-advisory', dependencyKeys,
+      sources: [candidateSource], diagnostics };
   }
   if (claim.claimClass === 'structural-fact') {
     diagnostics.push(diagnostic('CMP_STRUCTURE_UNAVAILABLE', claimId,
@@ -224,10 +269,18 @@ function evaluateClaim(claim, manifest, dependencyManifest) {
     diagnostics.push(diagnostic('CMP_WALKTHROUGH_VALIDATOR_UNAVAILABLE', claimId,
       'No deterministic validator is installed for this claim class and assertion type.'));
   }
+  if (matchedRegions.length + 1 > sourceBudget.remaining) {
+    diagnostics.push(diagnostic('CMP_WALKTHROUGH_LIMIT', claimId,
+      `Walkthrough validation exceeds the ${MAXIMUM_RESULT_SOURCES}-source result boundary.`));
+    return { claimId, claimSha256: claim.claimSha256,
+      claimClass: claim.claimClass, assertionType: claim.assertionType,
+      status: 'invalid', assurance: 'contradicted', dependencyKeys, sources: [], diagnostics };
+  }
+  sourceBudget.remaining -= matchedRegions.length + 1;
   return { claimId, claimSha256: claim.claimSha256,
     claimClass: claim.claimClass, assertionType: claim.assertionType,
     status: 'unavailable', assurance: 'unavailable',
-    sources: [candidateSource, ...matchedRegions.map(sourceForRegion)], diagnostics };
+    dependencyKeys, sources: [candidateSource, ...matchedRegions.map(sourceForRegion)], diagnostics };
 }
 
 /**
@@ -287,9 +340,10 @@ export function validateComprehensionWalkthroughDraft(draft, { manifest, graph }
     fail('CMP_WALKTHROUGH_INTEGRITY_INVALID', 'Walkthrough draft content hash is invalid.');
   }
 
+  const sourceBudget = { remaining: MAXIMUM_RESULT_SOURCES };
   const evaluatedClaims = Array.isArray(draft?.claims)
     ? draft.claims.map((claim) => evaluateClaim(
-      claim, manifest ?? { regions: [] }, draft.dependencyManifest ?? {}
+      claim, manifest ?? { regions: [] }, draft.dependencyManifest ?? {}, sourceBudget
     )) : [];
   const identities = evaluatedClaims.map((claim) => claim.claimId);
   if (identities.some((value) => value == null)
@@ -328,6 +382,7 @@ export function validateComprehensionWalkthroughDraft(draft, { manifest, graph }
     draftSha256: draft?.draftSha256 ?? null,
     walkthroughContentSha256: narrative?.contentSha256 ?? null,
     dependencyManifestSha256: draft?.dependencyManifestSha256 ?? null,
+    dependencies: normalizedDependencies(draft?.dependencyManifest),
     walkthroughSha256: hash({
       candidateSha256: manifest?.compatibilityCandidateSha256 ?? null,
       walkthroughContentSha256: narrative?.contentSha256 ?? null,
@@ -341,10 +396,128 @@ export function validateComprehensionWalkthroughDraft(draft, { manifest, graph }
   return freezeDeep({ ...core, resultSha256: hash(core) });
 }
 
+function validationIntegrity(value) {
+  const shape = [
+    'schemaVersion', 'kind', 'status', 'authoritative', 'lifecycleGate', 'modelInvoked',
+    'walkthroughId', 'candidateSha256', 'draftSha256', 'walkthroughContentSha256',
+    'dependencyManifestSha256', 'dependencies', 'walkthroughSha256', 'claims', 'counts',
+    'diagnostics', 'resultSha256'
+  ];
+  return exactKeys(value, shape)
+    && value.schemaVersion === 1 // schema-transient: read-only validation report, never persisted or authorized
+    && value.kind === 'comprehension-walkthrough-validation'
+    && value.authoritative === false && value.lifecycleGate === false && value.modelInvoked === false
+    && Buffer.byteLength(JSON.stringify(value), 'utf8') <= MAXIMUM_VALIDATION_BYTES
+    && ['validated', 'incomplete', 'failed'].includes(value.status)
+    && exactKeys(value.dependencies, DEPENDENCY_KEYS)
+    && DEPENDENCY_KEYS.every((key) => value.dependencies[key] === null
+      || SHA256.test(String(value.dependencies[key])))
+    && Array.isArray(value.claims) && value.claims.length <= MAXIMUM_CLAIMS
+    && value.claims.every((claim, index) => plain(claim)
+      && typeof claim.claimId === 'string'
+      && (index === 0 || value.claims[index - 1].claimId < claim.claimId)
+      && SHA256.test(String(claim.claimSha256 ?? ''))
+      && ['passed', 'advisory', 'unavailable', 'contradicted', 'invalid'].includes(claim.status)
+      && Array.isArray(claim.dependencyKeys)
+      && claim.dependencyKeys.every((key, keyIndex) => DEPENDENCY_KEYS.includes(key)
+        && (keyIndex === 0 || claim.dependencyKeys[keyIndex - 1] < key)))
+    && value.resultSha256 === hash(without(value, 'resultSha256'));
+}
+
+function dependencyChanges(previous, current) {
+  return DEPENDENCY_KEYS.filter((key) => previous[key] !== current[key]);
+}
+
+/**
+ * Revalidate a prior observe-only report against current exact inputs. The projection does not
+ * preserve a prior pass: current validators always run again, and changed dependencies are shown.
+ */
+export function revalidateComprehensionWalkthroughDraft(previous, draft, context = {}) {
+  const current = validateComprehensionWalkthroughDraft(draft, context);
+  const validPrevious = validationIntegrity(previous);
+  const changedDependencies = validPrevious
+    ? dependencyChanges(previous.dependencies, current.dependencies) : [];
+  const candidateChanged = validPrevious
+    ? previous.candidateSha256 !== current.candidateSha256 : null;
+  const presentationChanged = validPrevious
+    ? previous.walkthroughContentSha256 !== current.walkthroughContentSha256 : null;
+  const previousClaims = validPrevious
+    ? new Map(previous.claims.map((claim) => [claim.claimId, claim])) : new Map();
+  const claims = current.claims.map((claim) => {
+    const prior = previousClaims.get(claim.claimId) ?? null;
+    const reasons = [];
+    if (prior == null) reasons.push('claim-added');
+    else {
+      if (candidateChanged) reasons.push('candidate-changed');
+      if (prior.claimSha256 !== claim.claimSha256) reasons.push('claim-content-changed');
+      for (const key of changedDependencies) {
+        if (claim.dependencyKeys.includes(key) || prior.dependencyKeys?.includes(key)) {
+          reasons.push(`dependency-changed:${key}`);
+        }
+      }
+    }
+    const invalidated = prior != null && reasons.length > 0;
+    const outcome = prior == null ? 'new'
+      : !invalidated ? 'unchanged'
+        : ['passed', 'advisory'].includes(claim.status) ? 'revalidated' : 'invalidated';
+    return {
+      claimId: claim.claimId,
+      previousClaimSha256: prior?.claimSha256 ?? null,
+      currentClaimSha256: claim.claimSha256,
+      previousStatus: prior?.status ?? null,
+      currentStatus: claim.status,
+      invalidated,
+      outcome,
+      reasons
+    };
+  });
+  const currentIds = new Set(current.claims.map((claim) => claim.claimId));
+  const removedClaimIds = validPrevious
+    ? previous.claims.map((claim) => claim.claimId).filter((id) => !currentIds.has(id)).sort(compareText)
+    : [];
+  const invalidated = claims.filter((claim) => claim.invalidated).length + removedClaimIds.length;
+  const revalidated = claims.filter((claim) => claim.outcome === 'revalidated').length;
+  const unchanged = claims.filter((claim) => claim.outcome === 'unchanged').length;
+  const diagnostics = validPrevious ? [] : [diagnostic(
+    'CMP_WALKTHROUGH_REVALIDATION_INVALID', null,
+    'The previous walkthrough validation report is malformed or hash-mismatched.'
+  )];
+  const status = !validPrevious || current.status === 'failed' ? 'failed'
+    : invalidated > revalidated ? 'incomplete'
+      : invalidated || presentationChanged || changedDependencies.length ? 'revalidated' : 'unchanged';
+  const core = {
+    schemaVersion: 1, // schema-transient: read-only revalidation projection; never persisted or authorized
+    kind: 'comprehension-walkthrough-revalidation',
+    status,
+    authoritative: false,
+    lifecycleGate: false,
+    modelInvoked: false,
+    previousResultSha256: validPrevious ? previous.resultSha256 : null,
+    currentResultSha256: current.resultSha256,
+    candidateChanged,
+    presentationChanged,
+    changedDependencies,
+    claims,
+    removedClaimIds,
+    counts: {
+      claims: claims.length,
+      invalidated,
+      revalidated,
+      unchanged,
+      added: claims.filter((claim) => claim.outcome === 'new').length,
+      removed: removedClaimIds.length
+    },
+    diagnostics
+  };
+  return freezeDeep({ ...core, resultSha256: hash(core), current });
+}
+
 export const CMP_WALKTHROUGH_LIMITS = Object.freeze({
   maximumClaims: MAXIMUM_CLAIMS,
   maximumDraftBytes: MAXIMUM_DRAFT_BYTES,
   maximumNarrativeBytes: MAXIMUM_NARRATIVE_BYTES,
   maximumClaimTextBytes: MAXIMUM_TEXT_BYTES,
-  maximumReferencesPerField: MAXIMUM_REFS
+  maximumReferencesPerField: MAXIMUM_REFS,
+  maximumResultSources: MAXIMUM_RESULT_SOURCES,
+  maximumValidationBytes: MAXIMUM_VALIDATION_BYTES
 });

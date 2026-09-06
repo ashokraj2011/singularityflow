@@ -20,7 +20,9 @@ import {
   buildComprehensionGraph, explainComprehensionGraph
 } from '../comprehension/graph.mjs';
 import { buildComprehensionReplay } from '../comprehension/replay.mjs';
-import { validateComprehensionWalkthroughDraft } from '../comprehension/walkthrough.mjs';
+import {
+  revalidateComprehensionWalkthroughDraft, validateComprehensionWalkthroughDraft
+} from '../comprehension/walkthrough.mjs';
 import {
   commandResult, noEffects, succeeded
 } from '../narration/command-result.mjs';
@@ -258,15 +260,22 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
   }
   if (subcommand === 'walkthrough') {
     const action = positionals[2] ?? 'validate';
-    if (action !== 'validate' || positionals.length !== 4) {
+    const expectedLength = action === 'validate' ? 4 : action === 'revalidate' ? 5 : null;
+    if (expectedLength == null || positionals.length !== expectedLength) {
       throw new SingularityFlowError(
-        'Usage: singularity-flow comprehension walkthrough validate <REPOSITORY-FILE> [--base REVISION] [--bindings FILE] [--dispositions FILE] [--json]',
+        'Usage: singularity-flow comprehension walkthrough validate <DRAFT-FILE> [--base REVISION] [--bindings FILE] [--dispositions FILE] [--json]\n'
+          + '   or: singularity-flow comprehension walkthrough revalidate <DRAFT-FILE> <PREVIOUS-VALIDATION-FILE> [--base REVISION] [--bindings FILE] [--dispositions FILE] [--json]',
         { code: 'CMP_WALKTHROUGH_SCHEMA_INVALID' }
       );
     }
     const draftLocation = await secureRepositoryPath(root, positionals[3], {
       label: 'Comprehension walkthrough draft', mustExist: true, type: 'file'
     });
+    const previousLocation = action === 'revalidate'
+      ? await secureRepositoryPath(root, positionals[4], {
+        label: 'Previous comprehension walkthrough validation', mustExist: true, type: 'file'
+      })
+      : null;
     const context = { ...await resolveBaseline(root, options), repository: root };
     const changeSet = await buildRepositoryChangeSet(root, {
       baseCommit: context.base,
@@ -275,11 +284,14 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
       }
     });
     const manifest = buildChangeRegionManifest(changeSet);
-    if (manifest.regions.some((region) => [
+    const candidatePaths = new Set(manifest.regions.flatMap((region) => [
       region.location.pathBefore, region.location.pathAfter
-    ].includes(draftLocation.relative))) {
+    ]).filter(Boolean));
+    const circularLocation = [draftLocation, previousLocation]
+      .find((location) => location && candidatePaths.has(location.relative));
+    if (circularLocation) {
       throw new SingularityFlowError(
-        `Walkthrough draft '${draftLocation.relative}' is part of the Candidate it describes. Move it to an ignored repository-local evidence path and retry.`,
+        `Walkthrough input '${circularLocation.relative}' is part of the Candidate it describes. Move it to an ignored repository-local evidence path and retry.`,
         { code: 'CMP_WALKTHROUGH_DRAFT_IN_CANDIDATE' }
       );
     }
@@ -289,14 +301,25 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
     const draft = await repositoryJson(
       root, draftLocation.relative, 'Comprehension walkthrough draft'
     );
-    const validation = validateComprehensionWalkthroughDraft(draft, { manifest, graph });
+    const validation = action === 'validate'
+      ? validateComprehensionWalkthroughDraft(draft, { manifest, graph })
+      : revalidateComprehensionWalkthroughDraft(
+        await repositoryJson(
+          root, previousLocation.relative, 'Previous comprehension walkthrough validation'
+        ).then((document) => document?.data?.validation ?? document),
+        draft,
+        { manifest, graph }
+      );
     return emitCommandResult(commandResult({
       operation: suppliedOperation
-        ?? { id: 'comprehension.walkthrough.validate', classification: 'read' },
-      outcome: succeeded('comprehension.walkthrough-validated', {
+        ?? { id: `comprehension.walkthrough.${action}`, classification: 'read' },
+      outcome: succeeded(action === 'validate'
+        ? 'comprehension.walkthrough-validated' : 'comprehension.walkthrough-revalidated', {
         status: validation.status,
         claims: validation.counts.claims,
-        unavailable: validation.counts.unavailable
+        unavailable: validation.counts.unavailable ?? validation.current?.counts?.unavailable ?? 0,
+        invalidated: validation.counts.invalidated ?? 0,
+        revalidated: validation.counts.revalidated ?? 0
       }),
       effects: noEffects(),
       restState: 'informational',

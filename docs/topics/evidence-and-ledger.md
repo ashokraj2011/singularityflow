@@ -1,7 +1,7 @@
 ---
 id: evidence-and-ledger
 title: Evidence, the ledger, and traceability
-version: 13
+version: 14
 aliases:
   - ledger
   - worldline
@@ -30,6 +30,10 @@ resource-level `file-changed` facts. Structural, evidence-supported, and human-j
 `unavailable` until their authoritative validators exist, while model-authored advice remains
 `model-advisory`. The validation report excludes narrative prose, separates narrative and
 dependency hashes, invokes no model or AST, writes nothing, and cannot approve or block a phase.
+`sflow comprehension walkthrough revalidate <DRAFT> <PREVIOUS-VALIDATION>` runs the current
+validators again and reports narrative-only drift separately from Candidate, claim, and declared
+dependency changes. A previous pass is never trusted or carried forward. Precise dependencies
+invalidate only their claims; unavailable authority remains unavailable rather than being guessed.
 
 GDP-M2 adds an equally bounded shadow view: `sflow change show <WORK-ID> --shadow`. It derives an in-memory Proof Subject and Change Passport only when an existing exact Candidate is available. The view shows legacy policy projections, evidence availability, World Model status, known gaps, provenance hashes, and a privacy-safe lifecycle comparison. It never writes the records or allows a gate, approval, publisher, or lifecycle decision to consume them. Missing World Model or AST remains visible and non-blocking.
 

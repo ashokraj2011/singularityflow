@@ -467,10 +467,12 @@ function resolveComprehensionOperation(definition, positionals) {
   }
   if (subcommand === 'walkthrough') {
     const action = positionals[2] ?? 'validate';
-    if (action !== 'validate') {
-      return unknownSubcommand('comprehension walkthrough', action, ['validate'], 'action');
+    if (!['validate', 'revalidate'].includes(action)) {
+      return unknownSubcommand(
+        'comprehension walkthrough', action, ['validate', 'revalidate'], 'action'
+      );
     }
-    return never('comprehension.walkthrough.validate', definition, 'read');
+    return never(`comprehension.walkthrough.${action}`, definition, 'read');
   }
   return never(`comprehension.${subcommand}`, definition, 'read');
 }
@@ -1253,6 +1255,7 @@ export function operationCatalog() {
     ...COMPREHENSION_SUBCOMMANDS.filter((name) => name !== 'walkthrough')
       .map((name) => never(`comprehension.${name}`, comprehensionDefinition, 'read')),
     never('comprehension.walkthrough.validate', comprehensionDefinition, 'read'),
+    never('comprehension.walkthrough.revalidate', comprehensionDefinition, 'read'),
     never('change.show.shadow', changeDefinition, 'read'),
     ...['status', 'explain', 'gaps', 'signals'].map((name) => never(`proof.${name}`, proofDefinition, 'read')),
     never('delivery.recommend', deliveryDefinition, 'read'),

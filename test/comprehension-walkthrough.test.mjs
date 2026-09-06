@@ -8,7 +8,7 @@ import {
 import { buildComprehensionGraph } from '../src/comprehension/graph.mjs';
 import {
   CMP_WALKTHROUGH_ASSERTION_TYPES, CMP_WALKTHROUGH_CLAIM_CLASSES, CMP_WALKTHROUGH_LIMITS,
-  validateComprehensionWalkthroughDraft
+  revalidateComprehensionWalkthroughDraft, validateComprehensionWalkthroughDraft
 } from '../src/comprehension/walkthrough.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import { repositoryChangeSetDigest } from '../src/repository-change-set.mjs';
@@ -186,4 +186,94 @@ test('walkthrough validation refuses oversized drafts before they can become aut
   assert.ok(result.diagnostics.some((entry) => entry.code === 'CMP_WALKTHROUGH_LIMIT'));
   assert.equal(result.authoritative, false);
   assert.equal(result.lifecycleGate, false);
+});
+
+test('walkthrough revalidation separates presentation drift from exact claim dependencies', () => {
+  const { manifest, graph } = context();
+  const originalDraft = draft(manifest, graph);
+  const previous = validateComprehensionWalkthroughDraft(originalDraft, { manifest, graph });
+  const presentationDraft = draft(manifest, graph, {
+    narrative: 'The presentation changed while every exact typed claim remained the same.'
+  });
+  const result = revalidateComprehensionWalkthroughDraft(
+    previous, presentationDraft, { manifest, graph }
+  );
+
+  assert.equal(result.status, 'revalidated');
+  assert.equal(result.presentationChanged, true);
+  assert.equal(result.candidateChanged, false);
+  assert.deepEqual(result.changedDependencies, []);
+  assert.equal(result.counts.invalidated, 0);
+  assert.equal(result.counts.unchanged, 3);
+  assert.ok(result.claims.every((entry) => entry.outcome === 'unchanged'));
+  assert.equal(result.authoritative, false);
+  assert.equal(result.lifecycleGate, false);
+  assert.equal(result.modelInvoked, false);
+});
+
+test('walkthrough revalidation invalidates only claims bound to a changed precise dependency', () => {
+  const { manifest, graph } = context();
+  const claims = [
+    claim({
+      claimId: 'WCL-001', text: 'The exact service resource changed.',
+      claimClass: 'diff-fact', assertionType: 'file-changed',
+      subjectRefs: ['file:src/service.js'], regionRefs: [manifest.regions[0].regionId]
+    }),
+    claim({
+      claimId: 'WCL-002', text: 'The Candidate matches the accepted human intent.',
+      claimClass: 'human-judgment', assertionType: 'candidate-subject-match'
+    })
+  ];
+  const originalDraft = draft(manifest, graph, { claims });
+  const previous = validateComprehensionWalkthroughDraft(originalDraft, { manifest, graph });
+  const changedGraphCore = structuredClone(graph);
+  delete changedGraphCore.graphSha256;
+  changedGraphCore.availability.causeGraph = 'available';
+  const changedGraph = { ...changedGraphCore, graphSha256: hash(changedGraphCore) };
+  const currentDraft = draft(manifest, changedGraph, { claims });
+  const result = revalidateComprehensionWalkthroughDraft(
+    previous, currentDraft, { manifest, graph: changedGraph }
+  );
+
+  assert.deepEqual(result.changedDependencies, ['causeGraphSha256']);
+  assert.equal(result.claims[0].outcome, 'unchanged');
+  assert.equal(result.claims[0].invalidated, false);
+  assert.equal(result.claims[1].outcome, 'invalidated');
+  assert.deepEqual(result.claims[1].reasons, ['dependency-changed:causeGraphSha256']);
+  assert.equal(result.counts.invalidated, 1);
+  assert.equal(result.status, 'incomplete');
+});
+
+test('walkthrough revalidation refuses a counterfeit previous result', () => {
+  const { manifest, graph } = context();
+  const input = draft(manifest, graph);
+  const previous = structuredClone(
+    validateComprehensionWalkthroughDraft(input, { manifest, graph })
+  );
+  previous.counts.passed = 99;
+  const result = revalidateComprehensionWalkthroughDraft(previous, input, { manifest, graph });
+  assert.equal(result.status, 'failed');
+  assert.equal(result.previousResultSha256, null);
+  assert.ok(result.diagnostics.some((entry) =>
+    entry.code === 'CMP_WALKTHROUGH_REVALIDATION_INVALID'));
+});
+
+test('walkthrough validation bounds expanded result sources across all claims', () => {
+  const { manifest, graph } = context();
+  const claims = Array.from({ length: CMP_WALKTHROUGH_LIMITS.maximumResultSources + 1 }, (_, index) =>
+    claim({
+      claimId: `WCL-${String(index + 1).padStart(3, '0')}`,
+      text: `Advisory observation ${index + 1}.`,
+      claimClass: 'model-advisory',
+      assertionType: 'candidate-subject-match'
+    }));
+  const result = validateComprehensionWalkthroughDraft(
+    draft(manifest, graph, { claims }), { manifest, graph }
+  );
+  assert.equal(result.status, 'failed');
+  assert.ok(result.diagnostics.some((entry) => entry.code === 'CMP_WALKTHROUGH_LIMIT'));
+  assert.equal(result.claims.reduce((total, entry) => total + entry.sources.length, 0),
+    CMP_WALKTHROUGH_LIMITS.maximumResultSources);
+  assert.ok(Buffer.byteLength(JSON.stringify(result), 'utf8')
+    <= CMP_WALKTHROUGH_LIMITS.maximumValidationBytes);
 });

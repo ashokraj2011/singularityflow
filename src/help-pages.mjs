@@ -187,7 +187,13 @@ const PAGES = Object.freeze({
       'resource-level `file-changed` diff facts. Structural, evidence-supported, and human-judgment',
       'claims stay explicitly unavailable until their approved authority exists; model advice stays',
       'advisory. Narrative and dependency hashes are separate, and the result remains read-only,',
-      'observe-only, and unable to approve or block publication.'
+      'observe-only, and unable to approve or block publication.',
+      '',
+      '`comprehension walkthrough revalidate` compares one prior hash-valid validation with the',
+      'current exact inputs. Narrative-only changes preserve factual claim results. Candidate,',
+      'claim, region, graph, structure, evidence, policy, and extractor changes invalidate only',
+      'declared dependants where the current projection has precision. Every affected claim is run',
+      'through the current validator again; the prior result never grants a pass.'
     ],
     options: [
       ['--work-id WORK-ID', 'Select and validate a Story context; its baseline follows the documented generation/work-interval/delivery/Story precedence.'],
@@ -198,6 +204,7 @@ const PAGES = Object.freeze({
       ['clause|file|symbol|change|refusal|generation|test SUBJECT', 'For explain, select one exact subject. Sources not represented by the current observe-only graph report unavailable.'],
       ['replay all|phase PHASE|kind EVENT-KIND', 'Project bounded, content-free Story lifecycle events. This is read-only and distinct from SGOS Process replay.'],
       ['walkthrough validate FILE', 'Validate one repository-contained untrusted walkthrough draft without invoking a model or creating authority.'],
+      ['walkthrough revalidate DRAFT PREVIOUS', 'Re-run current validators and show precise changed dependencies, invalidated claims, and presentation-only drift.'],
       ['--json', 'Emit the complete manifest or computed coverage result.']
     ],
     examples: [
@@ -206,7 +213,8 @@ const PAGES = Object.freeze({
       ['singularity-flow comprehension graph --bindings review/bindings.json --json', 'Build the deterministic bidirectional cause/region graph from validated diagnostic bindings.'],
       ['singularity-flow comprehension explain clause AC-001 --bindings review/bindings.json --json', 'Trace one exact cause to related changed resources without invoking a model or creating authority.'],
       ['singularity-flow comprehension replay phase implementation --work-id WRK-123 --json', 'Project the exact normalized Implementation history without operational detail, prompts, transcripts, or model summaries.'],
-      ['singularity-flow comprehension walkthrough validate .sflow/comprehension/walkthrough.json --base HEAD --json', 'Validate an ignored repository-local draft; a draft inside its own Candidate is refused as circular.']
+      ['singularity-flow comprehension walkthrough validate .sflow/comprehension/walkthrough.json --base HEAD --json', 'Validate an ignored repository-local draft; a draft inside its own Candidate is refused as circular.'],
+      ['singularity-flow comprehension walkthrough revalidate .sflow/comprehension/walkthrough.json .sflow/comprehension/previous-validation.json --base HEAD --json', 'Compare a previous validation with current exact inputs without preserving prior authority.']
     ],
     seeAlso: ['spec', 'receipt', 'review', 'explain']
   },

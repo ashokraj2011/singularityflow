@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+import { canonicalJson } from '../src/records.mjs';
 import {
   createLearningFixture, createLearningModule, createLearningWorkspaceService,
   createReadOnlyLessonCatalog, platformSha256, validateLearningFixture, validateLearningModule
@@ -218,6 +219,36 @@ test('learning workspace materialization is confirmation-bound, disposable, and 
     before);
 });
 
+test('interrupted learning materialization is diagnosed and resumes exact fixture bytes', async (t) => {
+  const root = await repository(t);
+  const fixture = learningFixture();
+  const module = learningModule({
+    sandboxFixture: {
+      kind: 'descriptor-only', fixtureId: fixture.id, fixtureSha256: fixture.fixtureSha256
+    }
+  });
+  const catalog = createReadOnlyLessonCatalog({ packRegistry: registry(packFor(module)) });
+  const service = createLearningWorkspaceService({ lessonCatalog: catalog, repositoryRoot: root });
+  const request = { role: 'developer', lessonId: module.id, module, fixture };
+  const plan = await service.plan(request);
+  const missionSegment = plan.missionId.slice('sha256:'.length);
+  const partialWorkspace = path.join(
+    root, '.git', 'singularity-flow', 'sgos', 'learning', missionSegment, 'workspace'
+  );
+  await mkdir(partialWorkspace, { recursive: true });
+  await writeFile(path.join(partialWorkspace, 'README.md'), fixture.files[0].content);
+
+  const interrupted = await service.status(plan.missionId);
+  assert.equal(interrupted.status, 'interrupted');
+  assert.equal(interrupted.recovery, 'repeat-confirmed-materialize');
+  assert.equal(interrupted.partialEntryCount, 1);
+
+  const resumed = await service.materialize({ ...request, confirm: plan.confirmationSha256 });
+  assert.equal(resumed.status, 'ready');
+  assert.equal((await service.status(plan.missionId)).status, 'ready');
+  assert.equal(execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }), '');
+});
+
 test('learning workspace confirmation cannot outlive signed Pack lesson authority', async (t) => {
   const root = await repository(t);
   const fixture = learningFixture();
@@ -320,6 +351,75 @@ test('learning progress is identity-free, monotonic, portable, and never certifi
   assert.equal(execFileSync('git', ['status', '--porcelain'], {
     cwd: secondRoot, encoding: 'utf8'
   }), '');
+});
+
+test('learning progress v1 migrates in memory and its portable token remains importable', async (t) => {
+  const firstRoot = await repository(t);
+  const secondRoot = await repository(t);
+  const fixture = learningFixture();
+  const module = learningModule({
+    sandboxFixture: {
+      kind: 'descriptor-only', fixtureId: fixture.id, fixtureSha256: fixture.fixtureSha256
+    }
+  });
+  const pack = packFor(module);
+  const request = { role: 'developer', lessonId: module.id, module, fixture };
+  const first = createLearningWorkspaceService({
+    lessonCatalog: createReadOnlyLessonCatalog({ packRegistry: registry(pack) }),
+    repositoryRoot: firstRoot
+  });
+  const second = createLearningWorkspaceService({
+    lessonCatalog: createReadOnlyLessonCatalog({ packRegistry: registry(pack) }),
+    repositoryRoot: secondRoot
+  });
+  const firstPlan = await first.plan(request);
+  const firstWorkspace = await first.materialize({
+    ...request, confirm: firstPlan.confirmationSha256
+  });
+  const secondPlan = await second.plan(request);
+  await second.materialize({ ...request, confirm: secondPlan.confirmationSha256 });
+
+  const v1Core = {
+    schemaVersion: 1,
+    kind: 'learning-progress',
+    missionId: firstWorkspace.missionId,
+    lessonId: firstWorkspace.lessonId,
+    role: firstWorkspace.role,
+    packId: firstWorkspace.packId,
+    packSha256: firstWorkspace.packSha256,
+    moduleSha256: firstWorkspace.moduleSha256,
+    fixtureSha256: firstWorkspace.fixtureSha256,
+    completedCheckIds: ['recovery-choice'],
+    authority: false,
+    certification: false,
+    employeeScoring: false
+  };
+  const v1 = { ...v1Core, progressSha256: platformSha256(v1Core) };
+  const missionSegment = firstWorkspace.missionId.slice('sha256:'.length);
+  const progressFile = path.join(
+    firstRoot, '.git', 'singularity-flow', 'sgos', 'learning', missionSegment, 'progress.json'
+  );
+  await writeFile(progressFile, canonicalJson(v1));
+
+  const migrated = await first.progress(firstWorkspace.missionId);
+  assert.deepEqual(migrated.completedCheckIds, ['recovery-choice']);
+  const exported = await first.exportProgress(firstWorkspace.missionId);
+  assert.match(exported.transfer, /^sflow-learning-progress-v2\./);
+
+  const legacyTransfer = `sflow-learning-progress-v1.${Buffer.from(canonicalJson(v1), 'utf8').toString('base64url')}`;
+  const importPlan = await second.importPlan(legacyTransfer);
+  assert.deepEqual(importPlan.checksAdded, ['recovery-choice']);
+  const imported = await second.importProgress(legacyTransfer, importPlan.confirmationSha256);
+  assert.deepEqual(imported.progress.completedCheckIds, ['recovery-choice']);
+
+  await first.recordCheck({
+    ...request,
+    checkId: 'recovery-teach-back',
+    answer: { text: 'Review current plan and its exact digest.' }
+  });
+  const upgraded = JSON.parse(await readFile(progressFile, 'utf8'));
+  assert.equal(upgraded.schemaVersion, 2);
+  assert.equal(upgraded.progressProfile, 'identity-free-monotonic-v2');
 });
 
 test('signed active Pack catalog filters by role and Pack and binds the exact module digest', async () => {

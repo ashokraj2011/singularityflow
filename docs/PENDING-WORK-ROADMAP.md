@@ -66,8 +66,9 @@ governed Process, or authority. Identity-free portable progress landed at `main@
 successful check IDs are retained, explicit transfers are content-addressed, destination-bound,
 previewed, confirmation-protected, and monotonic, and no failed attempt, answer, identity, timing,
 path, score, approval, or certification is recorded. Independent certification,
-interruption-resumable exercises, accessibility/offline evidence, and version migration remain
-staged.
+accessibility validation, and offline Pack/fixture distribution remain staged. The current
+increment adds explicit interrupted-materialization diagnosis and exact resume plus deterministic
+v1-to-v2 local-record and portable-token migration.
 
 WEL benchmark v4 landed at `main@116d6f43`. It adds a bounded synthetic post-preflight Story push
 rejection and proves that the public recovery path publishes the exact retained governed commit.
@@ -111,7 +112,7 @@ signed runner is useful M9 evidence, but it is not an authenticated independent 
 |---|---|---|
 | Auto v2 | Dependency-free Story profile and its P0/P1 controls | Optional SGOS execution profile, interval runtime, direct Ad Hoc materialization, and registered comparative-quality evidence |
 | CMP | Model-free, read-only `comprehension regions` and `check` foundation plus a release-gated content-free synthetic benchmark | Reviewed real corpus and storage/privacy decision, durable cause authority, intent graph/replay, typed walkthroughs, lifecycle enforcement, Comprehension Center, and brownfield policy |
-| SGOS | Bounded runtime, Universal Candidate code path, Git-trusted authority transport, signed transport, Windows DPAPI-protected local signer, stop-aware bounded Process-lock contention recovery, checkpoint-bound working-set injection, guarded signed-Pack/Device meta-tool activation CLI, native preview/confirm review UI, isolated disposable learning workspaces, and identity-free monotonic portable learning progress | Real external-adapter Secret Broker integration, signed platform release aggregate, end-to-end proof, additional adapters, orchestration, stores, independent certification, interruption exercises, accessibility/offline proof, and migration |
+| SGOS | Bounded runtime, Universal Candidate code path, Git-trusted authority transport, signed transport, Windows DPAPI-protected local signer, stop-aware bounded Process-lock contention recovery, checkpoint-bound working-set injection, guarded signed-Pack/Device meta-tool activation CLI, native preview/confirm review UI, isolated interruption-resumable learning workspaces, and identity-free monotonic portable learning progress with v1-to-v2 migration | Real external-adapter Secret Broker integration, signed platform release aggregate, end-to-end proof, additional adapters, orchestration, stores, independent certification, accessibility validation, and offline Pack/fixture distribution |
 | WEL | Observe-only witnessed clauses plus an exact-static local JUnit/Surefire pilot, human mapping review, same-process incremental cost, content-free Context X-Ray projection, model-free local Story-start transaction measurement, cancellable parser execution, and synthetic push/offline/fresh-clone/interrupted-write recovery; results remain inconclusive | Candidate/Program/attempt join, reviewed corpus, live office-network and cross-platform recovery receipts, authenticated hermetic execution, enforcement recovery, additional adapters, and signed platform release proof |
 | CAB | CAB v0.2 code-local architecture, adversarial design contract, and observe-only exact-static JUnit pilot are active over existing SGOS/GDP/WEL primitives | Independent R0 ratification, authenticated isolation/trust roots, corpus/platform proof, opt-in enforcement, adequacy, provider adapters, and regulated deployment proof |
 | GDP | M0–M8 implemented; M9 local observe/developer-local signed runner, M10 contracts, and M11 readiness report implemented as partial milestones | Authenticated runner and verifier, provider pilots, enforce enrollment, migration/support-window exercises, signed package/platform receipts, and GA decision |

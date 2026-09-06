@@ -43,6 +43,29 @@ function identity(next) {
   return (record) => ({ ...record, schemaVersion: next });
 }
 
+function learningProgressV1ToV2(source) {
+  const storedCore = clone(source);
+  delete storedCore.progressSha256;
+  if (source.progressSha256 !== `sha256:${recordSha256(storedCore)}`) {
+    throw new SingularityFlowError(
+      'Learning progress v1 failed its integrity check and cannot be migrated.',
+      {
+        code: 'SCHEMA_MIGRATION_SOURCE_CORRUPT',
+        details: { family: 'learning-progress', storedVersion: 1 }
+      }
+    );
+  }
+  const migrated = {
+    ...clone(source),
+    schemaVersion: 2,
+    progressProfile: 'identity-free-monotonic-v2'
+  };
+  const migratedCore = clone(migrated);
+  delete migratedCore.progressSha256;
+  migrated.progressSha256 = `sha256:${recordSha256(migratedCore)}`;
+  return migrated;
+}
+
 function assistedConvergenceV1ToV2(source) {
   // v1 did not seal the model provenance fields. Preserve it for audit, but mark the missing seal
   // explicitly so an authority decision cannot consume it; rerunning deterministic convergence
@@ -1868,7 +1891,8 @@ const families = [
     paths: [/^\$git\/sgos\/learning\/[a-f0-9]{64}\/workspace\.json$/]
   }),
   family({
-    id: 'learning-progress', currentVersion: 1, immutable: false,
+    id: 'learning-progress', currentVersion: 2, immutable: false,
+    steps: [migration(1, 2, learningProgressV1ToV2)],
     paths: [/^\$git\/sgos\/learning\/[a-f0-9]{64}\/progress\.json$/]
   }),
   // Approved policy inputs and the local, content-addressed amendment graph are deliberately

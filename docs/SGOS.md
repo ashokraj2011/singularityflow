@@ -343,6 +343,13 @@ approval, Process, Pack, certification, or employee-performance authority. No mo
 application-tree or Git write, or Process transition is created. See
 `singularity-flow learn --help` and the SGOS governed-execution topic.
 
+Materialization publishes the manifest last. If the process stops after one or more exact fixture
+files are durable, `learn workspace` reports `interrupted` instead of hiding the state as absent;
+repeating the same reviewed and confirmed `learn materialize` command verifies/reuses exact bytes
+and completes the manifest. Conflicting learner bytes are never overwritten. Learning progress v2
+also reads canonical v1 local records and copy tokens through the migration registry, recomputes the
+identity-free content seal, and writes v2 only on a later successful monotonic mutation.
+
 ## Governed meta-tool activation
 
 The platform API deliberately separates finding a recurring pattern from deploying it. Verified

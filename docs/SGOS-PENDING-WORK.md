@@ -241,6 +241,14 @@ merge, requires its exact confirmation digest, and can only add completed checks
 transfers exclude failed attempts, answers, identity, timing, paths, scores, approval, and
 certification.
 
+The recovery and migration slice is implemented in the current increment. A pre-manifest partial
+workspace is now surfaced as `interrupted`, with a stable `repeat-confirmed-materialize` recovery;
+the same confirmed operation reuses only byte-identical immutable files and publishes the missing
+manifest, while conflicting learner edits remain refused. Learning progress schema v2 adds an
+explicit identity-free monotonic profile. Canonical v1 records and copy tokens are integrity-checked,
+migrated in memory, remain importable, and upgrade durably only on the next successful monotonic
+write.
+
 Acceptance gates:
 
 - tutorial repositories are isolated, disposable, bounded, and cannot affect governed work;
@@ -248,11 +256,10 @@ Acceptance gates:
 - certification is based on explicit evidence and independent criteria;
 - reset, interruption, offline use, accessibility, and version migration are covered.
 
-The isolation, bounds, Pack binding, preview/confirmation, byte-integrity, reset, no-model,
-no-authority, identity-free portable-progress, and monotonic-import code-local gates are covered.
-Interruption-resumable exercises, independently reviewed certification, accessibility validation,
-offline Pack/fixture distribution, and cross-version progress migration remain open; therefore this
-item is not complete.
+The isolation, bounds, Pack binding, preview/confirmation, byte-integrity, interruption resume,
+reset, no-model, no-authority, identity-free portable-progress, monotonic import, and cross-version
+migration code-local gates are covered. Independently reviewed certification, accessibility
+validation, and offline Pack/fixture distribution remain open; therefore this item is not complete.
 
 ### [~] SGOS-P2-002 — Meta-tool activation CLI
 

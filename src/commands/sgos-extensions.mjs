@@ -952,7 +952,9 @@ async function learnCommand(root, positionals, options) {
     const service = createLearningWorkspaceService({ repositoryRoot: root });
     const result = await service.status(positionals[2]);
     return emit(result, options, 'learn.workspace',
-      `Learning workspace ${result.missionId} is ${result.status}.`);
+      result.status === 'interrupted'
+        ? `Learning workspace ${result.missionId} was interrupted before its manifest was published; repeat the exact reviewed learn materialize command to resume.`
+        : `Learning workspace ${result.missionId} is ${result.status}.`);
   }
   if (action === 'progress') {
     const service = createLearningWorkspaceService({ repositoryRoot: root });

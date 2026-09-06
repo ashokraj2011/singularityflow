@@ -9,7 +9,7 @@ import { rm } from 'node:fs/promises';
 
 import { gitCommonDir } from '../../git.mjs';
 import {
-  readPrivateSidecar, safePrivateSidecarDirectory, writeImmutablePrivateSidecar,
+  listPrivateSidecar, readPrivateSidecar, safePrivateSidecarDirectory, writeImmutablePrivateSidecar,
   writeMutablePrivateSidecar
 } from '../../private-sidecar.mjs';
 import { canonicalJson } from '../../records.mjs';
@@ -29,7 +29,10 @@ const MAX_FILES = 64;
 const MAX_MANIFEST_BYTES = 256 * 1024;
 const MAX_PROGRESS_BYTES = 64 * 1024;
 const MAX_TRANSFER_BYTES = 96 * 1024;
-const TRANSFER_PREFIX = 'sflow-learning-progress-v1.';
+const TRANSFER_PREFIXES = Object.freeze(new Map([
+  [1, 'sflow-learning-progress-v1.'],
+  [2, 'sflow-learning-progress-v2.']
+]));
 const SHA256 = /^sha256:[a-f0-9]{64}$/;
 const ID = /^[a-z0-9][a-z0-9._:-]{1,127}$/;
 const PORTABLE_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -235,6 +238,7 @@ function progressRecord(manifest, completedCheckIds) {
     moduleSha256: manifest.moduleSha256,
     fixtureSha256: manifest.fixtureSha256,
     completedCheckIds: [...new Set(completedCheckIds)].sort(),
+    progressProfile: 'identity-free-monotonic-v2',
     authority: false,
     certification: false,
     employeeScoring: false
@@ -246,7 +250,7 @@ function validateProgress(input) {
   exactKeys(input, [
     'schemaVersion', 'kind', 'missionId', 'lessonId', 'role', 'packId', 'packSha256',
     'moduleSha256', 'fixtureSha256', 'completedCheckIds', 'authority', 'certification',
-    'employeeScoring', 'progressSha256'
+    'employeeScoring', 'progressProfile', 'progressSha256'
   ], 'learning progress');
   if (input.kind !== 'learning-progress') {
     fail('Learning progress uses an unsupported schema.', 'SGOS_LEARN_PROGRESS_INVALID');
@@ -284,6 +288,9 @@ function validateProgress(input) {
       || input.employeeScoring !== false) {
     fail('Learning progress cannot contain authority, certification, or employee scoring.',
       'SGOS_LEARN_PROGRESS_AUTHORITY_REFUSED');
+  }
+  if (input.progressProfile !== 'identity-free-monotonic-v2') {
+    fail('Learning progress profile is not installed.', 'SGOS_LEARN_PROGRESS_INVALID');
   }
   const core = clonePlatformJson(input, '$learningProgress');
   delete core.progressSha256;
@@ -330,32 +337,41 @@ function assertProgressBinding(progress, manifest) {
 }
 
 function encodeProgressTransfer(progress) {
-  return `${TRANSFER_PREFIX}${Buffer.from(canonicalJson(progress), 'utf8').toString('base64url')}`;
+  const prefix = TRANSFER_PREFIXES.get(progress.schemaVersion);
+  if (!prefix) {
+    fail('Learning progress transfer uses an unsupported schema version.',
+      'SGOS_LEARN_PROGRESS_TRANSFER_INVALID');
+  }
+  return `${prefix}${Buffer.from(canonicalJson(progress), 'utf8').toString('base64url')}`;
 }
 
 function decodeProgressTransfer(transfer) {
-  if (typeof transfer !== 'string' || !transfer.startsWith(TRANSFER_PREFIX)
-      || Buffer.byteLength(transfer, 'utf8') > MAX_TRANSFER_BYTES
-      || !/^[A-Za-z0-9_-]+$/.test(transfer.slice(TRANSFER_PREFIX.length))) {
+  const selected = typeof transfer === 'string'
+    ? [...TRANSFER_PREFIXES.entries()].find(([, prefix]) => transfer.startsWith(prefix))
+    : null;
+  const encoded = selected ? transfer.slice(selected[1].length) : '';
+  if (!selected || Buffer.byteLength(transfer, 'utf8') > MAX_TRANSFER_BYTES
+      || !/^[A-Za-z0-9_-]+$/.test(encoded)) {
     fail('Learning progress transfer is malformed or exceeds the installed limit.',
       'SGOS_LEARN_PROGRESS_TRANSFER_INVALID');
   }
   let bytes;
   let parsed;
   try {
-    bytes = Buffer.from(transfer.slice(TRANSFER_PREFIX.length), 'base64url');
+    bytes = Buffer.from(encoded, 'base64url');
     parsed = JSON.parse(bytes.toString('utf8'));
   } catch {
     fail('Learning progress transfer is not canonical JSON.',
       'SGOS_LEARN_PROGRESS_TRANSFER_INVALID');
   }
-  const progress = validateProgress(parsed);
-  if (!bytes.equals(Buffer.from(canonicalJson(progress), 'utf8'))
-      || encodeProgressTransfer(progress) !== transfer) {
+  const decoded = readRecord(PROGRESS_FAMILY, parsed);
+  if (TRANSFER_PREFIXES.get(decoded.storedVersion) !== selected[1]
+      || !bytes.equals(Buffer.from(canonicalJson(parsed), 'utf8'))
+      || `${selected[1]}${Buffer.from(canonicalJson(parsed), 'utf8').toString('base64url')}` !== transfer) {
     fail('Learning progress transfer is not canonically encoded.',
       'SGOS_LEARN_PROGRESS_TRANSFER_INVALID');
   }
-  return progress;
+  return validateProgress(decoded.record);
 }
 
 export function createLearningWorkspaceService({ lessonCatalog = null, repositoryRoot }) {
@@ -501,7 +517,20 @@ export function createLearningWorkspaceService({ lessonCatalog = null, repositor
 
     async status(missionId) {
       const manifest = await readManifest(root, missionId, { optional: true });
-      if (!manifest) return Object.freeze({ missionId, status: 'not-materialized' });
+      if (!manifest) {
+        const partialEntries = await listPrivateSidecar(root, missionRoot(root, missionId), {
+          optional: true
+        });
+        return Object.freeze({
+          missionId,
+          status: partialEntries.length ? 'interrupted' : 'not-materialized',
+          recovery: partialEntries.length ? 'repeat-confirmed-materialize' : null,
+          partialEntryCount: partialEntries.length,
+          authority: false,
+          certification: false,
+          employeeScoring: false
+        });
+      }
       const target = workspacePath(root, missionId);
       const changed = [];
       const missing = [];

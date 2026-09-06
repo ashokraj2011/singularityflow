@@ -16,13 +16,16 @@ export function summarizeHostMetric(values) {
 
 function metricValues(pairs) {
   const all = pairs.flatMap(({ cold, warm }) => [cold, warm]);
-  const steadyEventLoop = (sample) => Math.max(...[
+  const legacySteadyEventLoop = (sample) => Math.max(...[
     sample.unchangedRefresh?.eventLoop?.maxDelayMs,
     sample.changedRefresh?.eventLoop?.maxDelayMs,
     sample.watcherStorm?.eventLoop?.maxDelayMs,
     sample.webviewOpening?.eventLoop?.maxDelayMs,
     sample.cachePersistence?.eventLoop?.maxDelayMs
   ].filter(Number.isFinite));
+  const steadyEventLoop = (sample) => Number.isFinite(sample.steadyStateEventLoop?.maxDelayMs)
+    ? sample.steadyStateEventLoop.maxDelayMs
+    : legacySteadyEventLoop(sample);
   const childPeaks = all.flatMap((sample) => [
     sample.activation.childMemory?.peakRssBytes,
     sample.unchangedRefresh.childMemory?.peakRssBytes,

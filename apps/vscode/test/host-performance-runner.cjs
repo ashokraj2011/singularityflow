@@ -13,6 +13,9 @@ const { monitorEventLoopDelay, performance } = require('node:perf_hooks');
 const EXTENSION_ID = 'singularityflow.singularity-flow-vscode';
 const CONTROL_COMMAND = 'singularityFlow.__hostPerformance';
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// Distinct user actions never arrive in one microtask chain. One 10 ms editor turn also lets the
+// 5/10 ms event-loop observers publish their preceding deadline before the next phase is labelled.
+const nextHostTurn = () => delay(10);
 
 async function until(read, description, timeoutMs = 30_000) {
   const deadline = Date.now() + timeoutMs;
@@ -42,17 +45,22 @@ async function quiescent() {
   }, 'Singularity Flow CLI processes and background reads to quiesce');
 }
 
-async function measuredCommand(command, ...args) {
-  await quiescent();
-  await probe('reset-interval');
+async function measuredCommand(command, {
+  prepare = null, args = [], transitions = null, nextTransition = null
+} = {}) {
   const loop = monitorEventLoopDelay({ resolution: 10 });
   loop.enable();
+  transitions?.enterStage();
+  await quiescent();
+  await probe('reset-interval');
+  if (prepare) await prepare();
   const cpuBefore = process.cpuUsage();
   const rssBefore = process.memoryUsage().rss;
   const started = performance.now();
   await vscode.commands.executeCommand(command, ...args);
   const settled = await quiescent();
   const cpu = process.cpuUsage(cpuBefore);
+  if (nextTransition) transitions?.leaveStage(nextTransition);
   loop.disable();
   return {
     durationMs: performance.now() - started,
@@ -63,6 +71,58 @@ async function measuredCommand(command, ...args) {
     counters: settled.counters,
     childMemory: settled.childMemory,
     eventLoop: eventLoopStats(loop)
+  };
+}
+
+function transitionTracker() {
+  const recorded = {};
+  let active = null;
+  let name = null;
+  return {
+    start(nextName) {
+      name = nextName;
+      active = monitorEventLoopDelay({ resolution: 10 });
+      active.enable();
+    },
+    enterStage() {
+      if (!active || !name) return;
+      active.disable();
+      recorded[name] = eventLoopStats(active);
+      active = null;
+      name = null;
+    },
+    leaveStage(nextName) {
+      this.start(nextName);
+    },
+    finish() {
+      this.enterStage();
+      return recorded;
+    }
+  };
+}
+
+/** A single timer keeps its deadline across phase changes, so a stall cannot disappear on reset. */
+function eventLoopAttributionTracker(resolutionMs = 5) {
+  const phases = {};
+  let phase = 'activation-to-unchanged';
+  let previous = performance.now();
+  const timer = setInterval(() => {
+    const now = performance.now();
+    const delayMs = Math.max(0, now - previous - resolutionMs);
+    const current = phases[phase] ?? { samples: 0, maximumDelayMs: 0 };
+    current.samples += 1;
+    current.maximumDelayMs = Math.max(current.maximumDelayMs, delayMs);
+    phases[phase] = current;
+    previous = now;
+  }, resolutionMs);
+  timer.unref?.();
+  return {
+    phase(next) { phase = next; },
+    async finish() {
+      await nextHostTurn();
+      clearInterval(timer);
+      return phases;
+    }
   };
 }
 
@@ -100,22 +160,42 @@ async function run() {
     childMemory: settledActivation.childMemory
   };
   const activationEventLoop = eventLoopStats(loop);
+  // One continuous steady-state monitor covers command preflights and the small transitions
+  // between the narrower per-surface probes. Without it an event-loop spike could appear in the
+  // host-wide total while every attributed surface misleadingly remained green.
+  const steadyLoop = monitorEventLoopDelay({ resolution: 10 });
+  steadyLoop.enable();
+  const transitions = transitionTracker();
+  transitions.start('activation-to-unchanged');
+  const eventLoopAttribution = eventLoopAttributionTracker();
 
-  const unchangedRefresh = await measuredCommand('singularityFlow.refresh');
+  eventLoopAttribution.phase('unchanged-refresh');
+  const unchangedRefresh = await measuredCommand('singularityFlow.refresh', {
+    transitions, nextTransition: 'unchanged-to-changed'
+  });
+  eventLoopAttribution.phase('unchanged-to-changed');
+  await nextHostTurn();
 
   const root = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
   if (!root) throw new Error('The extension-host benchmark fixture is not open.');
-  await mkdir(path.join(root, 'src'), { recursive: true });
-  await writeFile(path.join(root, 'src', 'host-benchmark-change.txt'), 'changed\n', 'utf8');
-  const changedRefresh = await measuredCommand('singularityFlow.refresh');
+  eventLoopAttribution.phase('changed-refresh');
+  const changedRefresh = await measuredCommand('singularityFlow.refresh', {
+    transitions, nextTransition: 'changed-to-storm', prepare: async () => {
+    await mkdir(path.join(root, 'src'), { recursive: true });
+    await writeFile(path.join(root, 'src', 'host-benchmark-change.txt'), 'changed\n', 'utf8');
+  } });
+  eventLoopAttribution.phase('changed-to-storm');
+  await nextHostTurn();
 
+  eventLoopAttribution.phase('watcher-storm');
+  const stormLoop = monitorEventLoopDelay({ resolution: 10 });
+  stormLoop.enable();
+  transitions.enterStage();
   await quiescent();
   await probe('reset-interval');
   const stormDirectory = path.join(root, 'singularity', 'host-benchmark');
   const stormPath = path.join(stormDirectory, 'events.txt');
   await mkdir(stormDirectory, { recursive: true });
-  const stormLoop = monitorEventLoopDelay({ resolution: 10 });
-  stormLoop.enable();
   const stormStarted = performance.now();
   for (let index = 0; index < 100; index += 1) await appendFile(stormPath, `${index}\n`, 'utf8');
   await until(async () => {
@@ -124,6 +204,7 @@ async function run() {
       && value.counters.cliProcessesConcurrent === 0 ? value : null;
   }, 'the governed-file event storm to publish its trailing refresh');
   const storm = await probe();
+  transitions.leaveStage('storm-to-help');
   stormLoop.disable();
   const watcherStorm = {
     durationMs: performance.now() - stormStarted,
@@ -132,15 +213,25 @@ async function run() {
     childMemory: storm.childMemory,
     eventLoop: eventLoopStats(stormLoop)
   };
+  eventLoopAttribution.phase('storm-to-help');
+  await nextHostTurn();
 
-  const webviewOpening = await measuredCommand('singularityFlow.openHelp');
-  await quiescent();
-  await probe('reset-interval');
+  eventLoopAttribution.phase('help-opening');
+  const webviewOpening = await measuredCommand('singularityFlow.openHelp', {
+    transitions, nextTransition: 'help-to-cache'
+  });
+  eventLoopAttribution.phase('help-to-cache');
+  await nextHostTurn();
+  eventLoopAttribution.phase('cache-persistence');
   const cacheLoop = monitorEventLoopDelay({ resolution: 10 });
   cacheLoop.enable();
+  transitions.enterStage();
+  await quiescent();
+  await probe('reset-interval');
   const cacheStarted = performance.now();
   const cachePersisted = await probe('persist-cache');
   const cacheSettled = await quiescent();
+  transitions.leaveStage('cache-to-finish');
   cacheLoop.disable();
   const cachePersistence = {
     durationMs: performance.now() - cacheStarted,
@@ -148,6 +239,11 @@ async function run() {
     childMemory: cacheSettled.childMemory,
     eventLoop: eventLoopStats(cacheLoop)
   };
+  eventLoopAttribution.phase('cache-to-finish');
+  await nextHostTurn();
+  const transitionEventLoop = transitions.finish();
+  const attributedEventLoop = await eventLoopAttribution.finish();
+  steadyLoop.disable();
   loop.disable();
   const finalProbe = await probe();
   const report = {
@@ -169,6 +265,9 @@ async function run() {
     watcherStorm,
     webviewOpening,
     cachePersistence,
+    steadyStateEventLoop: eventLoopStats(steadyLoop),
+    transitionEventLoop,
+    attributedEventLoop,
     eventLoop: {
       maxDelayMs: Number(loop.max) / 1e6,
       meanDelayMs: Number(loop.mean) / 1e6,

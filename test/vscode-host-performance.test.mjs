@@ -41,6 +41,7 @@ function sample(scenario, overrides = {}) {
     }, childMemory: { status: 'measured-linux-proc', peakRssBytes: 12_000 }, eventLoop: { maxDelayMs: 15, meanDelayMs: 10, p95DelayMs: 11 } },
     webviewOpening: { durationMs: 25, counters: { ...successfulCounters }, childMemory: { status: 'measured-linux-proc', peakRssBytes: 8_000 }, eventLoop: { maxDelayMs: 16, meanDelayMs: 10, p95DelayMs: 11 } },
     cachePersistence: { durationMs: 8, counters: { ...successfulCounters }, childMemory: { status: 'measured-linux-proc', peakRssBytes: 7_000 }, eventLoop: { maxDelayMs: 9, meanDelayMs: 8, p95DelayMs: 9 } },
+    steadyStateEventLoop: { maxDelayMs: 18, meanDelayMs: 10, p95DelayMs: 11 },
     eventLoop: { maxDelayMs: 12, meanDelayMs: 10, p95DelayMs: 11 },
     final: { extensionHostRssBytes: 100_000, cliProcessesConcurrent: 0, backgroundTasksConcurrent: 0 },
     ...overrides
@@ -77,7 +78,8 @@ test('real-host cold/warm samples produce bounded aggregate metrics without reta
   assert.equal(report.metrics.activationCompleteMs.samples, 2);
   assert.equal(report.metrics.peakChildRssBytes.maximum, 12_000);
   assert.equal(report.metrics.activationEventLoopMaxDelayMs.maximum, 12);
-  assert.equal(report.metrics.steadyStateEventLoopMaxDelayMs.maximum, 16);
+  assert.equal(report.metrics.steadyStateEventLoopMaxDelayMs.maximum, 18,
+    'the continuous steady-state envelope includes gaps between narrower surface probes');
   assert.equal(report.protocol.questionsOrContentCaptured, false);
   const text = JSON.stringify(report);
   assert.doesNotMatch(text, /repositoryPath|work[-_ ]?id|identity|artifact|fixture\/path/i);
@@ -120,6 +122,7 @@ test('the benchmark launcher uses VS Code extensionTestsPath and fails closed wi
   assert.doesNotMatch(launcher, /stubVscode|simulated-extension-host/);
   assert.match(runner, /workbench\.view\.extension\.singularityFlowNavigator/);
   assert.match(runner, /monitorEventLoopDelay/);
+  assert.match(runner, /steadyStateEventLoop/);
   assert.match(probe, /process\.platform === 'linux'/);
   assert.match(probe, /cliProcessesFailed/);
   assert.match(probe, /trackHostBackgroundTask/);

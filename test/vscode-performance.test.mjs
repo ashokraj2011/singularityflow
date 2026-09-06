@@ -8,16 +8,17 @@ import { codeOnly } from './source-text.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-test('VS Code activation keeps heavyweight webview panels behind an explicit lazy bundle', async () => {
-  const [source, runtime] = await Promise.all([
+test('VS Code activation keeps heavyweight webview panels behind explicit lazy bundles', async () => {
+  const [source, runtime, helpRuntime] = await Promise.all([
     readFile(path.join(root, 'apps/vscode/src/extension.ts'), 'utf8'),
-    readFile(path.join(root, 'apps/vscode/src/lazy-panels-runtime.ts'), 'utf8')
+    readFile(path.join(root, 'apps/vscode/src/lazy-panels-runtime.ts'), 'utf8'),
+    readFile(path.join(root, 'apps/vscode/src/help-runtime.ts'), 'utf8')
   ]);
   const panels = [
     'workspace-panel', 'journey', 'reconciliation', 'approvals', 'inbox', 'stories', 'impact',
     'capabilities', 'intake-panel', 'dashboard', 'flow-impact', 'designer',
     'instruction-designer', 'workspace-logs', 'specification-trace', 'visual-assurance',
-    'configuration-center', 'help', 'workspaces-panel', 'bootstrap-panel'
+    'configuration-center', 'workspaces-panel', 'bootstrap-panel'
   ];
 
   for (const panel of panels) {
@@ -30,6 +31,15 @@ test('VS Code activation keeps heavyweight webview panels behind an explicit laz
     assert.match(runtime, new RegExp(`from ['\"]\\./views/${escaped}\\.ts['\"]`),
       `${panel} is absent from the explicit lazy runtime`);
   }
+  assert.doesNotMatch(
+    source, /^import(?!\s+type\b)[^\n]*['"]\.\/views\/help\.ts['"]/m,
+    'Help must not load while the extension activates'
+  );
+  assert.match(helpRuntime, /from ['"]\.\/views\/help\.ts['"]/,
+    'Help is absent from its dedicated lazy runtime');
+  assert.doesNotMatch(runtime, /from ['"]\.\/views\/help\.ts['"]/,
+    'Help still loads the complete panel runtime');
+  assert.match(source, /require\(path\.join\(__dirname, 'help-runtime\.cjs'\)\)/);
   assert.match(source, /require\(path\.join\(__dirname, 'lazy-panels-runtime\.cjs'\)\)/);
 });
 

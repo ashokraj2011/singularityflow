@@ -58,6 +58,7 @@ const options = {
     'gateway-context-runtime': 'src/gateway-context-runtime.ts',
     'gateway-runtime': 'src/gateway-runtime.ts',
     'gateway-status-worker': 'src/gateway-status-worker.ts',
+    'help-runtime': 'src/help-runtime.ts',
     'lazy-panels-runtime': 'src/lazy-panels-runtime.ts',
     'support-runtime': 'src/support-runtime.ts',
     'world-model-build': 'src/world-model-build.ts'

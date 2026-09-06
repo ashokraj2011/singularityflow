@@ -59,10 +59,11 @@ test('the extension package contains every explicit lazy runtime used by the act
   const built = spawnSync(process.execPath, ['esbuild.mjs'], { cwd: extension, encoding: 'utf8' });
   assert.equal(built.status, 0, `${built.stdout}${built.stderr}`);
   const manifest = JSON.parse(await readFile(path.join(extension, 'package.json'), 'utf8'));
-  const [bundle, gatewayContext, gateway, panels, worker, support, worldModel] = await Promise.all([
+  const [bundle, gatewayContext, gateway, help, panels, worker, support, worldModel] = await Promise.all([
     readFile(path.join(extension, 'dist', 'extension.cjs'), 'utf8'),
     readFile(path.join(extension, 'dist', 'gateway-context-runtime.cjs'), 'utf8'),
     readFile(path.join(extension, 'dist', 'gateway-runtime.cjs'), 'utf8'),
+    readFile(path.join(extension, 'dist', 'help-runtime.cjs'), 'utf8'),
     readFile(path.join(extension, 'dist', 'lazy-panels-runtime.cjs'), 'utf8'),
     readFile(path.join(extension, 'dist', 'gateway-status-worker.cjs'), 'utf8'),
     readFile(path.join(extension, 'dist', 'support-runtime.cjs'), 'utf8'),
@@ -70,6 +71,7 @@ test('the extension package contains every explicit lazy runtime used by the act
   ]);
   assert.equal(manifest.activationEvents.includes('workspaceContains:workspace.json'), false);
   assert.match(bundle, /gateway-context-runtime\.cjs/);
+  assert.match(bundle, /help-runtime\.cjs/);
   assert.match(bundle, /lazy-panels-runtime\.cjs/);
   assert.match(bundle, /gateway-status-worker\.cjs/);
   assert.match(bundle, /support-runtime\.cjs/);
@@ -81,7 +83,9 @@ test('the extension package contains every explicit lazy runtime used by the act
     'the lazy gateway runtime omitted the conversation router');
   assert.match(gateway, /function primaryAction\(/,
     'the lazy gateway runtime omitted the result selector');
-  assert.match(panels, /var HelpPanel = class/);
+  assert.match(help, /var HelpPanel = class/);
+  assert.doesNotMatch(panels, /var HelpPanel = class/,
+    'the frequent Help surface must not parse the complete panel graph');
   assert.match(worker, /process\.on\(["']message["']/);
   assert.match(support, /recordHelpMetric/);
   assert.match(worldModel, /showGovernedWorldModelBuild/);

@@ -106,6 +106,12 @@ function lazyPanels(): LazyPanelsRuntime {
   return lazyPanelsRuntime ??= require(path.join(__dirname, 'lazy-panels-runtime.cjs')) as LazyPanelsRuntime;
 }
 
+type HelpRuntime = typeof import('./help-runtime.ts');
+let helpRuntimeValue: HelpRuntime | null = null;
+function helpRuntime(): HelpRuntime {
+  return helpRuntimeValue ??= require(path.join(__dirname, 'help-runtime.cjs')) as HelpRuntime;
+}
+
 interface PendingCopilotHandoff {
   /** Workspace handoffs must never infer a Story from the repository's checked-out branch. */
   kind: 'workspace' | 'story';
@@ -950,7 +956,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }).run<HelpDocument>(['help', '--json']);
       const topic = node?.id.startsWith('help:') && !['help:start', 'help:reference', 'help:all'].includes(node.id)
         ? node.id.slice('help:'.length) : null;
-      const { HelpPanel } = lazyPanels();
+      const { HelpPanel } = helpRuntime();
       HelpPanel.show(context, manual, topic, path.resolve(path.dirname(location.cli), '..'));
     } catch (error) {
       showRefusal(error, { headline: 'Could not open Singularity Flow Help' });
@@ -990,7 +996,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         topics: [topic, ...manual.topics.filter((entry) => entry.id !== topic.id)],
         selectedTopic: topic.id
       };
-      const { HelpPanel } = lazyPanels();
+      const { HelpPanel } = helpRuntime();
       HelpPanel.show(context, document, topic.id, path.resolve(path.dirname(location.cli), '..'));
     } catch (error) {
       showRefusal(error, { headline: `Could not read topic ${id}` });

@@ -5,7 +5,6 @@
  * modules—and the organisation, model-provider, SGOS, and configuration graphs behind them—out of
  * activation while preserving CommonJS support on the VS Code 1.90 baseline.
  */
-export { HelpPanel } from './views/help.ts';
 export { WorkspacePanel } from './views/workspace-panel.ts';
 export { BootstrapPanel } from './views/bootstrap-panel.ts';
 export { CapabilityProposalPanel } from './views/capability-proposal.ts';

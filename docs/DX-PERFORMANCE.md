@@ -162,15 +162,17 @@ small machine selection record and invokes `workspace current` only when those b
 record cannot be observed safely. Stub-host contract tests retain the awaited path so their
 assertions do not race fire-and-forget work.
 
-The code-local current-VS-Code smoke at `main@a745a505` measured three cold/warm pairs (six host
-samples): load plus activation p95 235 ms, activation p95 192 ms, cached first paint p95 195 ms,
-confirmed first paint p95 659 ms, unchanged refresh p95 398 ms, changed refresh p95 513 ms, Help
-webview opening p95 260 ms, and cache persistence p95 13.9 ms. A 100-event watcher burst used one
-CLI child and one sidebar render in every
-sample, and every measured CLI child exited successfully. Moving status derivation to a bounded
+The accepted current-profile exercise at `main@06e73c40` ran 30 cold/warm pairs (60 real VS Code
+1.136.1 host processes) on macOS arm64. It passed with zero failures: load plus activation p95
+248.2 ms, activation p95 193.4 ms, cached first paint p95 201.4 ms, confirmed first paint p95
+670.2 ms, unchanged refresh p95 384.7 ms, changed refresh p95 543.6 ms, Help webview opening p95
+273.0 ms, and cache persistence p95 11.9 ms. A 100-event watcher burst used one CLI child and one
+sidebar render in every sample, and every measured CLI child exited successfully. The content-free
+report SHA-256 is `0a4aa4cb9613ac51cde365b64da9613d4670eb20ca9c3b92cb09a391916fc718`.
+Moving status derivation to a bounded
 off-host worker, keeping the planner and panel graphs in explicit lazy bundles, and writing the
 retained snapshot through the atomic machine-local cache reduced activation event-loop p95 to
-28.0 ms. The explicit shared context entry also ensures lazy panels cannot erase or inherit the
+26.4 ms. The explicit shared context entry also ensures lazy panels cannot erase or inherit the
 wrong repository selection.
 
 A continuous steady-state observer now spans preflights and the transitions between narrower
@@ -178,19 +180,19 @@ surface probes; the aggregate no longer hides a pause merely because a stage-loc
 reset. Content-free transition attribution localized the previous 55.3 ms diagnostic tail to the
 turn immediately after Help. Help had loaded the complete multi-panel graph, so the first request
 paid delayed garbage collection for unrelated configuration, organisation, SGOS, and lifecycle
-panels. A dedicated Help runtime loaded in 25.5 ms p95 and lowered the latest aggregate and
-continuous steady-state event-loop p95 to 40.5 ms without raising the 50 ms ceiling.
+panels. A dedicated Help runtime loaded in 24.5 ms p95 and kept the accepted aggregate and
+continuous steady-state event-loop p95 at 45.3 ms without raising the 50 ms ceiling.
 
 The same report now records this process's peak RSS independently for activation, unchanged and
-changed refresh, watcher storm, Help, and cache persistence. The latest p95 values were 166 MB,
-171 MB, 177 MB, 182 MB, 204 MB, and 214 MB respectively; the per-process peak is judged once per
+changed refresh, watcher storm, Help, and cache persistence. The accepted p95 values were 167 MB,
+170 MB, 177 MB, 182 MB, 203 MB, and 215 MB respectively; the per-process peak is judged once per
 host sample rather than flattening six stages and allowing a common high stage to hide below p95.
 Child-process RSS remains a separate Linux `/proc` measurement and stays explicitly unavailable on
 macOS and Windows.
 
-This local macOS/Node 25/current-VS-Code run is diagnostic evidence only: it does not replace either
-accepted 30-pair editor profile or the pinned Node 22/Linux baseline. It closes the reproduced
-code-local tail; the accepted profile, platform, duration, and package receipts remain open.
+This closes the current-editor 30-pair cell. It does not replace the minimum-VS-Code-1.90 exercise,
+the pinned Node 22/Linux relative baseline, Linux child-process RSS, office-network evidence, or
+signed platform/package receipts; those distinct cells remain open.
 
 ### Bundle and module-closure budget
 

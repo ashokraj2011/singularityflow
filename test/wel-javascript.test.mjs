@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -259,4 +259,50 @@ test('delivery replay binds JavaScript source, normalized occurrences, and the c
   const tampered = await verifyCodeDeliveryReceipt(root, deliveryReceipt);
   assert.equal(tampered.valid, false);
   assert.ok(tampered.errors.some((entry) => /raw report is unavailable/.test(entry)));
+});
+
+test('the bounded JavaScript identity corpus produces zero false exact matches', async () => {
+  const corpus = JSON.parse(await readFile(
+    new URL('./fixtures/wel-javascript/corpus.json', import.meta.url), 'utf8'
+  ));
+  assert.ok(corpus.length >= 12);
+  for (const entry of corpus) {
+    const root = await fixture(`${entry.source.join('\n')}\n`);
+    const adapter = entry.framework === 'jest' ? 'jest-json' : 'vitest-json';
+    const profile = entry.framework === 'jest' ? 'jest-static-v1' : 'vitest-static-v1';
+    const value = {
+      numTotalTests: entry.tests.length,
+      numPassedTests: entry.tests.filter((candidate) => candidate.status === 'passed').length,
+      numFailedTests: entry.tests.filter((candidate) => candidate.status === 'failed').length,
+      numPendingTests: entry.tests.filter((candidate) =>
+        ['pending', 'skipped', 'todo', 'disabled'].includes(candidate.status)).length,
+      testResults: [{ assertionResults: entry.tests.map((candidate) => ({
+        ancestorTitles: candidate.ancestorTitles,
+        fullName: candidate.fullName,
+        title: candidate.name,
+        status: candidate.status,
+        duration: 1
+      })) }]
+    };
+    const parsed = parsedReport(value, adapter);
+    const observation = await observeJavascriptTestIdentities(root, {
+      ...command, result: { ...command.result, adapter }
+    }, parsed, { ...policy, adapter: profile });
+    assert.equal(observation.exact, entry.exact, entry.id);
+    assert.equal(observation.mappingProposals.length, entry.proposalCount, entry.id);
+    if (entry.gap) assert.ok(observation.gaps.includes(entry.gap), entry.id);
+    if (entry.exact) {
+      const receipt = buildTestExecutionReceipt({
+        ...command, result: { ...command.result, adapter }
+      }, {
+        status: 'passed', exitCode: 0, stderr: '', sourceCommit: git(root, ['rev-parse', 'HEAD']),
+        sourceTreeSha256: 'c'.repeat(64), startedAt: new Date(0).toISOString(),
+        completedAt: new Date(1).toISOString()
+      }, parsed, {
+        testcasePolicy: { ...policy, adapter: profile }, exactTestcaseObservation: observation
+      });
+      const verified = await verifyJavascriptTestIdentityObservation(root, receipt.testcaseObservation);
+      assert.equal(verified.valid, true, `${entry.id}: ${verified.errors.join('\n')}`);
+    }
+  }
 });

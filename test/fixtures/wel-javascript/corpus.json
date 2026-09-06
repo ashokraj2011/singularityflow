@@ -1,0 +1,128 @@
+[
+  {
+    "id": "jest-top-level-literal",
+    "framework": "jest",
+    "source": ["// @sflow-ac:PAY:AC-001", "test(\"returns balance\", () => {", "  expect(true).toBe(true);", "});", ""],
+    "tests": [{ "name": "returns balance", "fullName": "returns balance", "ancestorTitles": [], "status": "passed" }],
+    "exact": true,
+    "proposalCount": 1,
+    "gap": null
+  },
+  {
+    "id": "vitest-top-level-literal",
+    "framework": "vitest",
+    "source": ["// @sflow-ac:PAY:AC-002", "it(\"calculates interest\", () => {", "  expect(true).toBe(true);", "});", ""],
+    "tests": [{ "name": "calculates interest", "fullName": "calculates interest", "ancestorTitles": [], "status": "passed" }],
+    "exact": true,
+    "proposalCount": 1,
+    "gap": null
+  },
+  {
+    "id": "multiple-qualified-clauses",
+    "framework": "jest",
+    "source": ["// @sflow-ac:PAY:AC-001", "// @sflow-ac:PAY:AC-002", "test(\"returns balance\", () => {", "});", ""],
+    "tests": [{ "name": "returns balance", "fullName": "returns balance", "ancestorTitles": [], "status": "passed" }],
+    "exact": true,
+    "proposalCount": 2,
+    "gap": null
+  },
+  {
+    "id": "single-quoted-title",
+    "framework": "jest",
+    "source": ["// @sflow-ac:PAY:AC-001", "test('returns balance', () => {", "});", ""],
+    "tests": [{ "name": "returns balance", "fullName": "returns balance", "ancestorTitles": [], "status": "passed" }],
+    "exact": false,
+    "proposalCount": 0,
+    "gap": "UNSUPPORTED_JAVASCRIPT_SOURCE_SHAPE"
+  },
+  {
+    "id": "template-title",
+    "framework": "vitest",
+    "source": ["// @sflow-ac:PAY:AC-001", "test(`returns ${kind}`, () => {", "});", ""],
+    "tests": [{ "name": "returns balance", "fullName": "returns balance", "ancestorTitles": [], "status": "passed" }],
+    "exact": false,
+    "proposalCount": 0,
+    "gap": "UNSUPPORTED_JAVASCRIPT_SOURCE_SHAPE"
+  },
+  {
+    "id": "focused-test",
+    "framework": "jest",
+    "source": ["// @sflow-ac:PAY:AC-001", "test.only(\"returns balance\", () => {", "});", ""],
+    "tests": [{ "name": "returns balance", "fullName": "returns balance", "ancestorTitles": [], "status": "passed" }],
+    "exact": false,
+    "proposalCount": 0,
+    "gap": "UNSUPPORTED_JAVASCRIPT_SOURCE_SHAPE"
+  },
+  {
+    "id": "nested-suite",
+    "framework": "vitest",
+    "source": ["describe(\"payments\", () => {", "// @sflow-ac:PAY:AC-001", "test(\"returns balance\", () => {", "});", "});", ""],
+    "tests": [{ "name": "returns balance", "fullName": "payments returns balance", "ancestorTitles": ["payments"], "status": "passed" }],
+    "exact": false,
+    "proposalCount": 0,
+    "gap": "UNSUPPORTED_JAVASCRIPT_SOURCE_SHAPE"
+  },
+  {
+    "id": "dynamic-title",
+    "framework": "jest",
+    "source": ["const title = \"returns balance\";", "// @sflow-ac:PAY:AC-001", "test(title, () => {", "});", ""],
+    "tests": [{ "name": "returns balance", "fullName": "returns balance", "ancestorTitles": [], "status": "passed" }],
+    "exact": false,
+    "proposalCount": 0,
+    "gap": "UNSUPPORTED_JAVASCRIPT_SOURCE_SHAPE"
+  },
+  {
+    "id": "conditional-declaration",
+    "framework": "jest",
+    "source": ["if (enabled)", "// @sflow-ac:PAY:AC-001", "test(\"returns balance\", () => {", "});", ""],
+    "tests": [{ "name": "returns balance", "fullName": "returns balance", "ancestorTitles": [], "status": "passed" }],
+    "exact": false,
+    "proposalCount": 0,
+    "gap": "UNSUPPORTED_JAVASCRIPT_SOURCE_SHAPE"
+  },
+  {
+    "id": "duplicate-source-title",
+    "framework": "jest",
+    "source": ["// @sflow-ac:PAY:AC-001", "test(\"returns balance\", () => { });", "// @sflow-ac:PAY:AC-002", "test(\"returns balance\", () => { });", ""],
+    "tests": [{ "name": "returns balance", "fullName": "returns balance", "ancestorTitles": [], "status": "passed" }],
+    "exact": false,
+    "proposalCount": 0,
+    "gap": "TEST_DECLARATION_COLLISION"
+  },
+  {
+    "id": "duplicate-report-title",
+    "framework": "vitest",
+    "source": ["// @sflow-ac:PAY:AC-001", "test(\"returns balance\", () => {", "});", ""],
+    "tests": [{ "name": "returns balance", "fullName": "returns balance", "ancestorTitles": [], "status": "passed" }, { "name": "returns balance", "fullName": "returns balance", "ancestorTitles": [], "status": "passed" }],
+    "exact": false,
+    "proposalCount": 0,
+    "gap": "REPORT_TEST_IDENTITY_AMBIGUOUS"
+  },
+  {
+    "id": "report-source-mismatch",
+    "framework": "jest",
+    "source": ["// @sflow-ac:PAY:AC-001", "test(\"returns balance\", () => {", "});", ""],
+    "tests": [{ "name": "returns fee", "fullName": "returns fee", "ancestorTitles": [], "status": "passed" }],
+    "exact": false,
+    "proposalCount": 0,
+    "gap": "REPORT_SOURCE_DECLARATION_UNMATCHED"
+  },
+  {
+    "id": "block-comment-ambiguity",
+    "framework": "jest",
+    "source": ["/* generated wrapper */", "// @sflow-ac:PAY:AC-001", "test(\"returns balance\", () => {", "});", ""],
+    "tests": [{ "name": "returns balance", "fullName": "returns balance", "ancestorTitles": [], "status": "passed" }],
+    "exact": false,
+    "proposalCount": 0,
+    "gap": "UNSUPPORTED_JAVASCRIPT_SOURCE_SHAPE"
+  },
+  {
+    "id": "unqualified-marker",
+    "framework": "vitest",
+    "source": ["// @sflow-ac:AC-001", "test(\"returns balance\", () => {", "});", ""],
+    "tests": [{ "name": "returns balance", "fullName": "returns balance", "ancestorTitles": [], "status": "passed" }],
+    "exact": false,
+    "proposalCount": 0,
+    "gap": "TAGGED_TEST_DECLARATIONS_UNAVAILABLE"
+  }
+]

@@ -6,7 +6,7 @@
 
 **Created:** 2026-08-30
 
-**Current reconciliation:** checked against `main@921bc790` on 2026-09-06. Commits `259b76f1`,
+**Current reconciliation:** checked against `main@b138ce06` on 2026-09-06. Commits `259b76f1`,
 `58d9329d`, and `d55229c7` provide the bounded exact-static JUnit identity adapter, immutable
 proposal snapshot, human review through the existing phase approval, migration, safe command-shape
 fallbacks, the evolving content-free benchmark, and same-process unenrolled delta measurement. Commit
@@ -14,11 +14,13 @@ fallbacks, the evolving content-free benchmark, and same-process unenrolled delt
 boundary. The current release increment also makes the isolated npm and VSIX engine smokes load the
 WEL adapter and require its packaged Java parser helper. These increments do not satisfy the
 authenticated-independent-runner, Candidate/Program/attempt, cross-platform, enforcement, or
-release-evidence gates below.
+release-evidence gates below. Commit `b138ce06` adds the first separately bounded P2 adapter
+increment for top-level literal Jest and Vitest tests; those observations inherit the same local,
+inconclusive authority ceiling.
 
-The code-local WEL boundary and signed-evidence contract were revalidated at `main@921bc790`: all 39
-focused WEL policy, review, JUnit identity, knowledge-projection, benchmark, release-integrity, and
-receipt tests passed. The benchmark's exact content-free report is now retained privately during the
+The code-local WEL boundary and signed-evidence contract were revalidated at `main@b138ce06`: all 85
+focused WEL policy, review, Java/JUnit, JavaScript/Jest/Vitest, Code Delivery, release-integrity, and
+receipt tests passed. The benchmark's exact content-free report is retained privately during the
 release gate, validated against the invoking host/runtime, and embedded with its canonical digest in
 each signed release-matrix cell. No WEL item is marked complete by that run. Independent ratification,
 authenticated execution, reviewed real-corpus evidence, office-network/cross-platform receipts, and
@@ -82,7 +84,7 @@ enforcement.
 | `WEL-P1-001` hermetic authenticated execution | unavailable; developer-local signing is not independent authority | CAB-R2 | required |
 | `WEL-P1-002` universal Candidate lifecycle bridge | Candidate code path delivered; WEL integration parked | SGOS-P0-001 release evidence and CAB-R6 | required |
 | `WEL-P1-003` opt-in enforcement and recovery | unavailable | all WEL P0/P1 predecessors | enables selected new Stories only |
-| `WEL-P2-001` additional adapters | parked | separate reviewed identity contract per adapter | none by default |
+| `WEL-P2-001` additional adapters | active; bounded Jest/Vitest observe adapters landed | independent contract review, real corpus, platform proof; other adapters remain parked | none by default |
 | `WEL-P2-002` additional witness evidence | parked | CAB-R4 or a separately approved trust contract | none by default |
 
 ## P0 — finish the observe-only pilot
@@ -354,14 +356,47 @@ exit gates.
 
 ## P2 — separately reviewed expansion
 
-### [ ] WEL-P2-001 — Additional framework adapters
+### [~] WEL-P2-001 — Additional framework adapters
+
+Owner: repository maintainers. Branch: `main`. Started: 2026-09-06. Target: next observe-only
+release. Dependencies: the existing local-observation authority and approval review are reused;
+independent identity-contract review and supported-platform evidence remain open.
+
+Implemented in `b138ce06`:
+
+- closed `jest-static-v1` and `vitest-static-v1` profiles use the matching structured JSON result
+  adapter and one shared registry rather than adding framework branches throughout the lifecycle;
+- only Git-tracked, regular, bounded JavaScript/TypeScript test sources are read; Candidate modules
+  are never imported, transpiled, loaded, or executed by the observer;
+- one narrow top-level literal grammar binds `// @sflow-ac:<WORK-ID>:AC-NNN` to a unique top-level
+  reporter occurrence; suites, dynamic titles, modifiers, focus, retries, shards, collisions, and
+  lexical ambiguity fail safely to inexact evidence;
+- the JSON aggregate, normalized occurrences, exact source range, mapping proposal, and
+  content-addressed raw report are replayed during Code Delivery verification;
+- the existing human approval authority accepts the two closed profiles while Candidate, Program,
+  attempt, nonce, and independent attestation remain explicitly unavailable;
+- the portable CMP/WEL matrix, release gate, isolated npm install, and VSIX-contained engine smoke
+  load and exercise the packaged JavaScript adapter registry.
+
+Verification at landing:
+
+- 85 focused WEL, Code Delivery, policy, review, benchmark, receipt, and release-contract tests
+  passed;
+- the 31-test portable CMP/WEL matrix passed with zero failures, skips, cancellations, or todo;
+- repository conformance passed 1,337 checks;
+- isolated npm installation and VSIX-contained engine smokes loaded the new packaged modules.
+
+Still required before this item can be complete: independent review of
+[ADR 0015](adr/0015-wel-javascript-local-identity.md), a reviewed real-repository Jest/Vitest
+corpus with zero false exact matches, Windows/Linux/macOS receipts on supported Node runtimes,
+signed package-matrix evidence, and a separately approved contract for every additional framework
+or test shape.
 
 Add one framework at a time, each with its own exact identity, parser, reconciliation, trust,
 freshness, migration, recovery, performance, and platform contract.
 
-Candidate increments:
+Remaining candidate increments:
 
-- static Jest/Vitest;
 - additional JUnit identities such as parameterized and dynamic tests;
 - other language/framework adapters selected from real demand.
 
@@ -389,7 +424,8 @@ When this roadmap is resumed:
 2. finish the Candidate/Program/attempt join and reviewed corpus for `WEL-P0-002`;
 3. collect the remaining `WEL-P0-003` Flow Impact and signed release evidence;
 4. wait for CAB-R2 and SGOS-P0-001/CAB-R6 before starting the P1 enforcement path;
-5. add P2 adapters only after the first ecosystem has stable production evidence.
+5. finish independent review and platform/corpus evidence for the bounded Jest/Vitest increment;
+   add any further P2 adapter only after the first ecosystem has stable production evidence.
 
 There is no additional code-local WEL increment that can honestly close a current `[~]` item on a
 single developer machine. Independent ratification, authenticated execution, reviewed real-repo

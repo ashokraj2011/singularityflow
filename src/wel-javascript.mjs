@@ -425,7 +425,7 @@ export async function verifyJavascriptTestIdentityObservation(root, observation,
     const { mappingSha256, reviewStatus, ...core } = proposal;
     const declaration = declarations.get(proposal.logicalTestId);
     if (reviewStatus !== 'unreviewed' || mappingSha256 !== `sha256:${recordSha256(core)}`
-        || core.schemaVersion !== 1 || core.kind !== 'wel-witness-mapping-proposal'
+        || core.schemaVersion !== 1 || core.kind !== 'wel-witness-mapping-proposal' // schema-transient: embedded proposal in test-execution v3.
         || core.witnessType !== 'test' || !QUALIFIED_CLAUSE.test(core.clauseId ?? '')
         || proposal.executionProfile !== observation.profile
         || !declaration || proposal.sourcePath !== declaration.sourcePath

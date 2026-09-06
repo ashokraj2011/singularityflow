@@ -1434,9 +1434,10 @@ Exit gates:
 Each framework or non-test witness type is a separately scoped increment with its own identity,
 trust, freshness, and recovery contract. None is implied by completion of the JUnit adapter.
 
-Potential later increments:
+The bounded top-level literal Jest/Vitest observe-only slice is active under
+[ADR 0015](adr/0015-wel-javascript-local-identity.md). Its independent review, real corpus, and
+supported-platform evidence remain open. Other potential increments are:
 
-- static Jest/Vitest;
 - additional JUnit identities;
 - inspection evidence;
 - runtime and metric observations;

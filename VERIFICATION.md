@@ -147,6 +147,11 @@ content-bearing, or digest-mismatched benchmark cannot authorize a receipt. Merg
 older schemas, missing evidence, a mismatched artifact subject, or a selected artifact receipt that
 is not one of the reviewed cells. The local suite deliberately does not manufacture physical evidence.
 
+The portable `npm run test:platform:cmp-wel` contract executes the closed local witness profiles for
+JUnit/Surefire plus the bounded `jest-static-v1` and `vitest-static-v1` adapters. The JavaScript
+adapters replay their exact content-addressed JSON reporter bytes and source declaration ranges, but
+remain observe-only and inconclusive until the WEL authority prerequisites are independently proven.
+
 The journey uses deterministic light grounding for its Copilot handoff so this gate never invokes a
 model or spends tokens. `test/poc-workflow.test.mjs` separately holds the shipped POC workflow's
 standard/deep grounding, MCP evidence, validation, repair-budget, and publication-review contracts.

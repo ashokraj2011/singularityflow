@@ -21,7 +21,8 @@ import {
 } from '../comprehension/graph.mjs';
 import { buildComprehensionReplay } from '../comprehension/replay.mjs';
 import {
-  revalidateComprehensionWalkthroughDraft, validateComprehensionWalkthroughDraft
+  buildComprehensionWalkthroughDraft, revalidateComprehensionWalkthroughDraft,
+  validateComprehensionWalkthroughDraft
 } from '../comprehension/walkthrough.mjs';
 import {
   commandResult, noEffects, succeeded
@@ -260,17 +261,20 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
   }
   if (subcommand === 'walkthrough') {
     const action = positionals[2] ?? 'validate';
-    const expectedLength = action === 'validate' ? 4 : action === 'revalidate' ? 5 : null;
+    const expectedLength = action === 'draft' ? 3
+      : action === 'validate' ? 4 : action === 'revalidate' ? 5 : null;
     if (expectedLength == null || positionals.length !== expectedLength) {
       throw new SingularityFlowError(
-        'Usage: singularity-flow comprehension walkthrough validate <DRAFT-FILE> [--base REVISION] [--bindings FILE] [--dispositions FILE] [--json]\n'
+        'Usage: singularity-flow comprehension walkthrough draft [--base REVISION] [--json]\n'
+          + '   or: singularity-flow comprehension walkthrough validate <DRAFT-FILE> [--base REVISION] [--bindings FILE] [--dispositions FILE] [--json]\n'
           + '   or: singularity-flow comprehension walkthrough revalidate <DRAFT-FILE> <PREVIOUS-VALIDATION-FILE> [--base REVISION] [--bindings FILE] [--dispositions FILE] [--json]',
         { code: 'CMP_WALKTHROUGH_SCHEMA_INVALID' }
       );
     }
-    const draftLocation = await secureRepositoryPath(root, positionals[3], {
-      label: 'Comprehension walkthrough draft', mustExist: true, type: 'file'
-    });
+    const draftLocation = action === 'draft' ? null
+      : await secureRepositoryPath(root, positionals[3], {
+        label: 'Comprehension walkthrough draft', mustExist: true, type: 'file'
+      });
     const previousLocation = action === 'revalidate'
       ? await secureRepositoryPath(root, positionals[4], {
         label: 'Previous comprehension walkthrough validation', mustExist: true, type: 'file'
@@ -298,10 +302,10 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
     const evidence = await evidenceInputs(root, options);
     const coverage = evaluateComprehensionCoverage({ changeSet, manifest, ...evidence });
     const graph = buildComprehensionGraph({ manifest, coverage, ...evidence });
-    const draft = await repositoryJson(
-      root, draftLocation.relative, 'Comprehension walkthrough draft'
-    );
-    const validation = action === 'validate'
+    const draft = action === 'draft'
+      ? buildComprehensionWalkthroughDraft({ manifest, graph })
+      : await repositoryJson(root, draftLocation.relative, 'Comprehension walkthrough draft');
+    const validation = action === 'draft' ? null : action === 'validate'
       ? validateComprehensionWalkthroughDraft(draft, { manifest, graph })
       : revalidateComprehensionWalkthroughDraft(
         await repositoryJson(
@@ -313,17 +317,21 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
     return emitCommandResult(commandResult({
       operation: suppliedOperation
         ?? { id: `comprehension.walkthrough.${action}`, classification: 'read' },
-      outcome: succeeded(action === 'validate'
-        ? 'comprehension.walkthrough-validated' : 'comprehension.walkthrough-revalidated', {
-        status: validation.status,
-        claims: validation.counts.claims,
-        unavailable: validation.counts.unavailable ?? validation.current?.counts?.unavailable ?? 0,
-        invalidated: validation.counts.invalidated ?? 0,
-        revalidated: validation.counts.revalidated ?? 0
+      outcome: succeeded(action === 'draft' ? 'comprehension.walkthrough-drafted'
+        : action === 'validate' ? 'comprehension.walkthrough-validated'
+          : 'comprehension.walkthrough-revalidated', {
+        status: validation?.status ?? 'drafted',
+        claims: validation?.counts?.claims ?? draft.claims.length,
+        unavailable: validation?.counts?.unavailable
+          ?? validation?.current?.counts?.unavailable ?? 0,
+        invalidated: validation?.counts?.invalidated ?? 0,
+        revalidated: validation?.counts?.revalidated ?? 0
       }),
       effects: noEffects(),
       restState: 'informational',
-      data: { mode: 'observe-only', context, validation }
+      data: action === 'draft'
+        ? { mode: 'observe-only', context, draft }
+        : { mode: 'observe-only', context, validation }
     }), { json, restStateWhenIdle: 'informational' });
   }
   const context = { ...await resolveBaseline(root, options), repository: root };

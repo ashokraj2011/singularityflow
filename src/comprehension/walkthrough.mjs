@@ -2,6 +2,7 @@
 import { createHash } from 'node:crypto';
 
 import { recordSha256 } from '../records.mjs';
+import { SingularityFlowError } from '../util.mjs';
 import { validateChangeRegionManifest } from './contracts.mjs';
 
 export const CMP_WALKTHROUGH_CLAIM_CLASSES = Object.freeze([
@@ -145,6 +146,86 @@ function sourceForRegion(region) {
     pathBefore: region.location.pathBefore,
     pathAfter: region.location.pathAfter
   };
+}
+
+function draftClaim(region, index) {
+  const paths = [...new Set([
+    region.location.pathBefore, region.location.pathAfter
+  ].filter(Boolean).map((value) => `file:${value}`))].sort(compareText);
+  const text = `Repository resource change ${index + 1} is present in the selected Candidate.`;
+  const core = {
+    schemaVersion: 1, // schema-transient: untrusted deterministic draft output, never persisted or authorized
+    kind: 'walkthrough-claim',
+    claimId: `WCL-${String(index + 1).padStart(4, '0')}`,
+    text,
+    textSha256: textHash(text),
+    claimClass: 'diff-fact',
+    assertionType: 'file-changed',
+    subjectRefs: paths,
+    regionRefs: [region.regionId],
+    causeRefs: [],
+    evidenceRefs: [],
+    verification: { status: 'proposed', verifier: null, resultSha256: null },
+    assurance: 'unavailable'
+  };
+  return { ...core, claimSha256: hash(core) };
+}
+
+/** Build a deterministic untrusted resource-level walkthrough draft without invoking a model. */
+export function buildComprehensionWalkthroughDraft({ manifest, graph, audience = 'maintainer' } = {}) {
+  const manifestValidation = validateChangeRegionManifest(manifest);
+  if (!manifestValidation.valid || !validateGraph(graph, manifest ?? {})) {
+    throw new SingularityFlowError(
+      'Walkthrough drafting requires one exact current change-region manifest and cause graph.',
+      { code: 'CMP_WALKTHROUGH_REFERENCE_INVALID' }
+    );
+  }
+  if (!manifest.regions.length || manifest.regions.length > MAXIMUM_CLAIMS) {
+    throw new SingularityFlowError(
+      `Walkthrough drafting requires 1-${MAXIMUM_CLAIMS} exact change regions.`,
+      { code: 'CMP_WALKTHROUGH_LIMIT' }
+    );
+  }
+  const selectedAudience = String(audience ?? '').trim();
+  if (!selectedAudience || selectedAudience.length > 128 || selectedAudience.includes('\0')) {
+    throw new SingularityFlowError('Walkthrough audience must be 1-128 characters.', {
+      code: 'CMP_WALKTHROUGH_SCHEMA_INVALID'
+    });
+  }
+  const claims = manifest.regions.map(draftClaim)
+    .sort((left, right) => compareText(left.claimId, right.claimId));
+  const narrative = `The selected Candidate contains ${manifest.regions.length} exact resource-level change region(s). This deterministic draft contains one file-changed claim per region and makes no semantic or causal assertion.`;
+  const dependencyManifest = {
+    causeGraphSha256: graph.graphSha256,
+    changeRegionManifestSha256: manifest.manifestSha256,
+    structuralViewManifestSha256: null,
+    evidenceManifestSha256: null,
+    policySha256: null,
+    extractorVersionsSha256: null
+  };
+  const core = {
+    schemaVersion: 1, // schema-transient: untrusted deterministic draft output, never persisted or authorized
+    kind: 'comprehension-walkthrough-draft',
+    walkthroughId: `WLK-${manifest.compatibilityCandidateSha256.slice(7, 19).toUpperCase()}`,
+    subject: {
+      candidateSha256: manifest.compatibilityCandidateSha256,
+      sourceTreeSha256: null
+    },
+    audience: selectedAudience,
+    mode: 'change-walkthrough',
+    narrative: { content: narrative, contentSha256: textHash(narrative) },
+    claims,
+    dependencyManifest,
+    dependencyManifestSha256: hash(dependencyManifest)
+  };
+  const result = { ...core, draftSha256: hash(core) };
+  if (Buffer.byteLength(JSON.stringify(result), 'utf8') > MAXIMUM_DRAFT_BYTES) {
+    throw new SingularityFlowError(
+      `The deterministic walkthrough draft exceeds the ${MAXIMUM_DRAFT_BYTES}-byte boundary. Narrow the Candidate before drafting.`,
+      { code: 'CMP_WALKTHROUGH_LIMIT' }
+    );
+  }
+  return freezeDeep(result);
 }
 
 function evaluateClaim(claim, manifest, dependencyManifest, sourceBudget) {

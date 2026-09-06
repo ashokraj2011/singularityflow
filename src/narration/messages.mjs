@@ -252,6 +252,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Walkthrough validation is ${slot(s.status)} across ${slot(s.claims, '0')} typed claim(s), with ${slot(s.unavailable, '0')} unavailable.`,
     preserves: true
   },
+  'comprehension.walkthrough-drafted': {
+    headline: (s) => `Drafted ${slot(s.claims, '0')} deterministic resource-level walkthrough claim(s); no model, authority, or repository write was used.`,
+    preserves: true
+  },
   'comprehension.walkthrough-revalidated': {
     headline: (s) => `Walkthrough revalidation is ${slot(s.status)} across ${slot(s.claims, '0')} current claim(s): ${slot(s.revalidated, '0')} revalidated and ${slot(s.invalidated, '0')} invalidated.`,
     preserves: true

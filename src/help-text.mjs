@@ -441,6 +441,13 @@ Usage:
     [--work-id WORK-ID] [--phase PHASE] [--base REVISION] [--bindings REPOSITORY-FILE] [--json]
   singularity-flow comprehension replay [all|phase <PHASE>|kind <EVENT-KIND>]
     --work-id WORK-ID [--json]
+  singularity-flow comprehension walkthrough draft [--work-id WORK-ID] [--phase PHASE]
+    [--base REVISION] [--json]
+  singularity-flow comprehension walkthrough validate <DRAFT-FILE> [--work-id WORK-ID]
+    [--phase PHASE] [--base REVISION] [--bindings FILE] [--dispositions FILE] [--json]
+  singularity-flow comprehension walkthrough revalidate <DRAFT-FILE> <PREVIOUS-VALIDATION-FILE>
+    [--work-id WORK-ID] [--phase PHASE] [--base REVISION] [--bindings FILE]
+    [--dispositions FILE] [--json]
   singularity-flow change show [WORK-ID] --shadow [--proof-profile standard|high-assurance|regulated|custom-registered] [--json]
   singularity-flow proof status|gaps|signals [WORK-ID] [--proof-profile standard|high-assurance|regulated|custom-registered] [--json]
   singularity-flow proof explain [WORK-ID] <PREDICATE-ID> [--proof-profile standard|high-assurance|regulated|custom-registered] [--json]

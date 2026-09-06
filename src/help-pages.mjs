@@ -182,6 +182,10 @@ const PAGES = Object.freeze({
       'printed and returned in JSON. Baseline precedence is explicit --base, generation intent,',
       'current work interval, delivery evidence, Story base, then HEAD.',
       '',
+      '`comprehension walkthrough draft` creates a deterministic untrusted baseline with one exact',
+      'resource-level `file-changed` claim per current change region. It emits JSON but writes no',
+      'file and invokes no model. It deliberately makes no semantic or causal assertion.',
+      '',
       '`comprehension walkthrough validate` checks one bounded untrusted draft against the exact',
       'current change regions and cause graph. The initial deterministic validator can prove only',
       'resource-level `file-changed` diff facts. Structural, evidence-supported, and human-judgment',
@@ -204,6 +208,7 @@ const PAGES = Object.freeze({
       ['clause|file|symbol|change|refusal|generation|test SUBJECT', 'For explain, select one exact subject. Sources not represented by the current observe-only graph report unavailable.'],
       ['replay all|phase PHASE|kind EVENT-KIND', 'Project bounded, content-free Story lifecycle events. This is read-only and distinct from SGOS Process replay.'],
       ['walkthrough validate FILE', 'Validate one repository-contained untrusted walkthrough draft without invoking a model or creating authority.'],
+      ['walkthrough draft', 'Emit a deterministic resource-level draft without writing a file or invoking a model.'],
       ['walkthrough revalidate DRAFT PREVIOUS', 'Re-run current validators and show precise changed dependencies, invalidated claims, and presentation-only drift.'],
       ['--json', 'Emit the complete manifest or computed coverage result.']
     ],
@@ -213,6 +218,7 @@ const PAGES = Object.freeze({
       ['singularity-flow comprehension graph --bindings review/bindings.json --json', 'Build the deterministic bidirectional cause/region graph from validated diagnostic bindings.'],
       ['singularity-flow comprehension explain clause AC-001 --bindings review/bindings.json --json', 'Trace one exact cause to related changed resources without invoking a model or creating authority.'],
       ['singularity-flow comprehension replay phase implementation --work-id WRK-123 --json', 'Project the exact normalized Implementation history without operational detail, prompts, transcripts, or model summaries.'],
+      ['singularity-flow comprehension walkthrough draft --base HEAD --json', 'Emit one exact file-change claim per current change region without semantic inference.'],
       ['singularity-flow comprehension walkthrough validate .sflow/comprehension/walkthrough.json --base HEAD --json', 'Validate an ignored repository-local draft; a draft inside its own Candidate is refused as circular.'],
       ['singularity-flow comprehension walkthrough revalidate .sflow/comprehension/walkthrough.json .sflow/comprehension/previous-validation.json --base HEAD --json', 'Compare a previous validation with current exact inputs without preserving prior authority.']
     ],

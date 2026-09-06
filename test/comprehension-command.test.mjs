@@ -166,6 +166,20 @@ test('comprehension graph and explain are model-free bidirectional read projecti
 
 test('comprehension walkthrough validates typed claims without model, AST, writes, or authority', async (t) => {
   const root = await repository(t);
+  const drafted = command(root, [
+    '--no-model', 'comprehension', 'walkthrough', 'draft', '--base', 'HEAD', '--json'
+  ]);
+  assert.equal(drafted.status, 0, drafted.stderr);
+  const draftedResponse = JSON.parse(drafted.stdout);
+  assert.equal(draftedResponse.operation.id, 'comprehension.walkthrough.draft');
+  assert.equal(draftedResponse.operation.classification, 'read');
+  assert.equal(draftedResponse.data.draft.claims.length, 2);
+  assert.ok(draftedResponse.data.draft.claims.every((claim) =>
+    claim.assertionType === 'file-changed'));
+  assert.deepEqual(draftedResponse.effects, {
+    stateChanged: false, filesChanged: false, publicationCreated: false,
+    externalSystemsChanged: false
+  });
   const graphResult = command(root, [
     '--no-model', 'comprehension', 'graph', '--base', 'HEAD', '--json'
   ]);

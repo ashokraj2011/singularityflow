@@ -7,7 +7,8 @@ import {
 } from '../src/comprehension/contracts.mjs';
 import { buildComprehensionGraph } from '../src/comprehension/graph.mjs';
 import {
-  CMP_WALKTHROUGH_ASSERTION_TYPES, CMP_WALKTHROUGH_CLAIM_CLASSES, CMP_WALKTHROUGH_LIMITS,
+  buildComprehensionWalkthroughDraft, CMP_WALKTHROUGH_ASSERTION_TYPES,
+  CMP_WALKTHROUGH_CLAIM_CLASSES, CMP_WALKTHROUGH_LIMITS,
   revalidateComprehensionWalkthroughDraft, validateComprehensionWalkthroughDraft
 } from '../src/comprehension/walkthrough.mjs';
 import { recordSha256 } from '../src/records.mjs';
@@ -131,6 +132,25 @@ test('walkthrough validation distinguishes exact diff facts, unavailable structu
     'structural-fact', 'diff-fact', 'evidence-supported', 'human-judgment', 'model-advisory'
   ]);
   assert.ok(CMP_WALKTHROUGH_ASSERTION_TYPES.includes('file-changed'));
+});
+
+test('walkthrough drafting creates a deterministic model-free exact resource baseline', () => {
+  const { manifest, graph } = context();
+  const first = buildComprehensionWalkthroughDraft({ manifest, graph });
+  const second = buildComprehensionWalkthroughDraft({
+    manifest: structuredClone(manifest), graph: structuredClone(graph)
+  });
+  assert.deepEqual(second, first);
+  assert.equal(first.claims.length, manifest.regions.length);
+  assert.equal(first.claims[0].claimClass, 'diff-fact');
+  assert.equal(first.claims[0].assertionType, 'file-changed');
+  assert.deepEqual(first.claims[0].subjectRefs, ['file:src/service.js']);
+  assert.deepEqual(first.claims[0].regionRefs, [manifest.regions[0].regionId]);
+  const validation = validateComprehensionWalkthroughDraft(first, { manifest, graph });
+  assert.equal(validation.status, 'validated');
+  assert.equal(validation.counts.passed, 1);
+  assert.equal(validation.modelInvoked, false);
+  assert.equal(validation.authoritative, false);
 });
 
 test('walkthrough validation rejects self-awarded assurance, stale Candidate, and broken hashes', () => {

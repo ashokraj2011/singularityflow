@@ -14,7 +14,8 @@ import {
   normalizeWorkspaceAnchor, previewWorkspace, previewWorkspaceCapabilityChange, previewWorkspaceConfiguration, readWorkspace, readWorkspaceRegistry,
   rememberWorkspace, repairWorkspace, resolveWorkspaceDocument, restoreWorkspace, saveWorkspaceConfiguration, stageWorkspaceDocuments,
   updateWorkspaceConfiguration, validateWorkspaceCapabilityRegistration, validateWorkspaceManifest, workspaceArchiveReadiness, workspaceRepositoryPath,
-  workspaceRepositoryDefaults, workspaceStatus, withRegistryFileLease
+  workspaceDropGitConfigurationOverrides, workspaceRepositoryDefaults, workspaceStatus,
+  withRegistryFileLease
 } from '../src/workspace.mjs';
 import {
   activateWorkspaceContext, activateWorkspaceStoryContext, buildWorkspaceContext,
@@ -937,9 +938,24 @@ test('workspace capability drop isolates Git evidence and retains non-ref local 
       'the checkout is retained after the destructive proof refuses it');
   });
 
-  await t.test('core.filemode=false cannot hide an executable-bit change', async (subtest) => {
+  await t.test('local-drop proof pins the platform-safe executable-bit policy', async () => {
+    assert.deepEqual(
+      workspaceDropGitConfigurationOverrides('win32')
+        .filter(([key]) => key === 'core.filemode'),
+      [],
+      'Windows must not claim a filesystem executable-bit observation it cannot make'
+    );
+    for (const platform of ['darwin', 'linux']) {
+      assert.deepEqual(
+        workspaceDropGitConfigurationOverrides(platform)
+          .filter(([key]) => key === 'core.filemode'),
+        [['core.filemode', 'true']],
+        `${platform} destructive proofs must ignore a repository-local core.filemode=false hint`
+      );
+    }
     if (process.platform === 'win32') {
-      subtest.skip('Windows filesystems do not reliably expose Git executable-bit changes');
+      // The pure contract above is the portable Windows proof. A Windows checkout cannot
+      // truthfully manufacture the POSIX executable-bit behavior exercised below.
       return;
     }
     const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-filemode-'));
@@ -967,17 +983,22 @@ test('workspace capability drop isolates Git evidence and retains non-ref local 
       'the checkout containing the hidden mode change is retained');
   });
 
-  await t.test('core.ignorecase=true cannot hide a distinct case-colliding path', async (subtest) => {
+  await t.test('core.ignorecase=true cannot authorize dropping case-colliding local bytes', async () => {
+    for (const platform of ['darwin', 'linux', 'win32']) {
+      assert.deepEqual(
+        workspaceDropGitConfigurationOverrides(platform)
+          .filter(([key]) => key === 'core.ignorecase'),
+        [['core.ignorecase', 'false']],
+        `${platform} destructive proofs must ignore repository-local case folding`
+      );
+    }
     const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-ignorecase-'));
     const probe = path.join(root, 'case-sensitivity-probe');
     await mkdir(probe);
     await writeFile(path.join(probe, 'foo'), 'lowercase probe\n');
     await writeFile(path.join(probe, 'FOO'), 'uppercase probe\n');
     const probeEntries = await readdir(probe);
-    if (!probeEntries.includes('foo') || !probeEntries.includes('FOO')) {
-      subtest.skip('the checkout filesystem cannot represent distinct case-colliding paths');
-      return;
-    }
+    const caseDistinct = probeEntries.includes('foo') && probeEntries.includes('FOO');
 
     const fixture = await attachedCapabilityWorkspace(root, 'ignorecase');
     const manifestFile = path.join(fixture.workspace.path, 'workspace.json');
@@ -991,9 +1012,16 @@ test('workspace capability drop isolates Git evidence and retains non-ref local 
     run('git', ['config', 'core.ignorecase', 'true'], { cwd: fixture.apiCheckout });
     const retained = path.join(fixture.apiCheckout, 'FOO');
     await writeFile(retained, 'distinct uppercase local path\n');
-    assert.equal(run('git', ['status', '--porcelain=v1', '--untracked-files=all'], {
+    const ambientStatus = run('git', ['status', '--porcelain=v1', '--untracked-files=all'], {
       cwd: fixture.apiCheckout
-    }).stdout, '', 'repository-local core.ignorecase=true hides the distinct uppercase path');
+    }).stdout;
+    if (caseDistinct) {
+      assert.equal(ambientStatus, '',
+        'repository-local core.ignorecase=true hides the distinct uppercase path');
+    } else {
+      assert.match(ambientStatus, /foo/i,
+        'case-folding storage must still expose the overwritten tracked bytes');
+    }
 
     await assert.rejects(
       () => previewWorkspaceCapabilityChange(fixture.workspace.path, 'api', {
@@ -1004,9 +1032,9 @@ test('workspace capability drop isolates Git evidence and retains non-ref local 
     assert.equal(await readFile(manifestFile, 'utf8'), before);
     assert.equal(await readFile(retained, 'utf8'), 'distinct uppercase local path\n');
     assert.equal(await readFile(path.join(fixture.apiCheckout, 'foo'), 'utf8'),
-      'tracked lowercase path\n');
+      caseDistinct ? 'tracked lowercase path\n' : 'distinct uppercase local path\n');
     assert.ok(await stat(path.join(fixture.apiCheckout, '.git')),
-      'both case-distinct paths remain in the retained checkout');
+      'the checkout containing the case-colliding local bytes remains intact');
   });
 
   await t.test('restored stat-cache metadata cannot hide a same-size content mutation', async () => {

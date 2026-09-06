@@ -1888,6 +1888,25 @@ function assertWorkspaceCapabilityDropPathsIsolated(workspace, candidates) {
   }
 }
 
+/**
+ * Git configuration pinned by the destructive local-drop proof.
+ *
+ * Kept as a pure exported contract so every supported platform can verify the safety policy even
+ * when its host filesystem cannot physically represent one of the adversarial fixtures (for
+ * example case-distinct paths on default macOS/Windows volumes or executable bits on Windows).
+ */
+export function workspaceDropGitConfigurationOverrides(platform = process.platform) {
+  return Object.freeze([
+    Object.freeze(['core.fsmonitor', 'false']),
+    Object.freeze(['core.untrackedCache', 'false']),
+    Object.freeze(['core.ignorecase', 'false']),
+    ...(platform === 'win32' ? [] : [Object.freeze(['core.filemode', 'true'])]),
+    Object.freeze(['http.sslVerify', 'true']),
+    Object.freeze(['gc.auto', '0']),
+    Object.freeze(['maintenance.auto', 'false'])
+  ]);
+}
+
 function workspaceDropGitEnvironment(env = null) {
   const base = env ?? enterpriseGitEnvironment();
   if (workspaceDropGitEnvironments.has(base)) return base;
@@ -1898,15 +1917,7 @@ function workspaceDropGitEnvironment(env = null) {
   // executable answers must never hide bytes from a destructive proof.
   const offset = Number(base.GIT_CONFIG_COUNT ?? 0);
   const configurationOffset = Number.isSafeInteger(offset) && offset >= 0 ? offset : 0;
-  const overrides = [
-    ['core.fsmonitor', 'false'],
-    ['core.untrackedCache', 'false'],
-    ['core.ignorecase', 'false'],
-    ...(process.platform === 'win32' ? [] : [['core.filemode', 'true']]),
-    ['http.sslVerify', 'true'],
-    ['gc.auto', '0'],
-    ['maintenance.auto', 'false']
-  ];
+  const overrides = workspaceDropGitConfigurationOverrides();
   const isolated = {
     ...base,
     GIT_NO_LAZY_FETCH: '1',

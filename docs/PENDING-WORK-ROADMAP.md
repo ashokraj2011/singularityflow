@@ -2,9 +2,9 @@
 
 **Status:** authoritative cross-product tracker; bounded exact-tree aggregate and the latest code-local asynchronous Git migration are complete, while platform release evidence remains active
 
-**Baseline:** `main@cd577e0b`
+**Baseline:** `main@b6d4fdff`
 
-**Last reviewed:** 2026-09-06
+**Last reviewed:** 2026-09-07
 
 This is the one-page control plane for deliberately deferred product work. It does not replace the
 detailed domain roadmaps and it does not authorize implementation. It names the current boundary,
@@ -112,6 +112,14 @@ Linux x64 containers under Node 20.20.2 and Node 22.23.2 with OpenJDK 17. Both r
 with zero failures, skips, cancellations, or todo. This strengthens architecture portability but
 remains unsigned emulated-container evidence; it does not replace a physical Linux/Windows host,
 installed VS Code, office-network, authenticated-runner, or independent-review receipt.
+
+The machine-local daily Token Ledger read path landed at `main@b6d4fdff`. `tokens report --today`
+now aggregates completed, failed, interrupted, and active model-invocation observations with
+timestamped Context Packet telemetry for the exact local calendar day. Migrated observations with
+no trustworthy timestamp are excluded and counted instead of being attributed to today. The
+projection is read-only and content-free: it exposes no prompt, response, path, Work ID, packet ID,
+Git identity, or model name. This closes that code-local reporting gap; it does not create the
+independent WEL evidence or signed platform receipts listed below.
 
 The strict local Node 22/macOS release aggregate is green at `main@60e37936`. Run
 `ef2adfc807f1380ad2a1c85f` selected 457 files across eight exact-tree shards and passed all 4,645
@@ -241,7 +249,7 @@ npm/VSIX artifact binding remain governed by the platform items below.
 | Developer-experience performance | Hot paths and the office-Git code-local slice are implemented; both 30-pair editor-profile cells pass on macOS, warm cache survives disposable host processes, and the reproduced event-loop tail is below its unchanged ceiling; pinned relative baseline and cross-platform host evidence are not established | Accept pinned Linux/Windows/office-network evidence, keep the isolated compatibility transport under audit, then close each `[~]` platform gate | This document and [DX performance](DX-PERFORMANCE.md) |
 | SGOS | Universal Candidate publication, portable authority transport, proposal-only Agent working-set injection, signed-Pack/Device meta-tool CLI/native review, and non-authoritative portable learning progress are code-complete; signed cross-platform release proof and real Secret Broker adapter integration remain open | Finish the `SGOS-P0-001`/`003` signed platform matrices and the external-adapter portion of `SGOS-P0-002` before expanding P2 authority | [SGOS pending work](SGOS-PENDING-WORK.md) |
 | World Model Builder v4 | Release receipt generation and enforcement exist; no reviewed six-cell supported-platform aggregate is recorded | `WMB-REL-001` | [WMB v4](WORLD-MODEL-BUILDER-V4.md) |
-| Witnessed Engineering Loop | Exact-static local JUnit and bounded literal Jest/Vitest observations, immutable proposal binding, existing-approval review, migration, release-gated baseline/delta/Context-X-Ray/Story-start/recovery benchmark, cancellable Java parser boundary, isolated npm/VSIX proof, strict signed benchmark-report binding, and a bounded platform-matrix command are active; the portable matrix passes 32/32 on clean Linux Node 20 and 22 containers, the full unsigned Linux Node 22 package gate passes, Node 20 selection reporting is normalized without accepting real skips, and the exact Linux evidence is recorded at `main@cd577e0b`; authenticated testcase claims and enforcement remain unavailable | Execute and sign the physical-host/office-network P0 gates, independently review and corpus-test the JavaScript profiles, then satisfy Candidate/Program/attempt and authenticated-runner dependencies | [WEL pending work](WEL-PENDING-WORK.md) |
+| Witnessed Engineering Loop | Exact-static local JUnit and bounded literal Jest/Vitest observations, immutable proposal binding, existing-approval review, migration, release-gated baseline/delta/Context-X-Ray/Story-start/recovery benchmark, cancellable Java parser boundary, isolated npm/VSIX proof, strict signed benchmark-report binding, and a bounded platform-matrix command are active; the portable matrix passes 32/32 on clean Linux Node 20 and 22 containers, the full unsigned Linux Node 22 package gate passes, Node 20 selection reporting is normalized without accepting real skips, and the exact Linux evidence is reconciled through `main@b6d4fdff`; authenticated testcase claims and enforcement remain unavailable | Execute and sign the physical-host/office-network P0 gates, independently review and corpus-test the JavaScript profiles, then satisfy Candidate/Program/attempt and authenticated-runner dependencies | [WEL pending work](WEL-PENDING-WORK.md) |
 | Code Assurance Bridge | CAB-R0 architecture and CAB-R1 observe pilot are active; enforcement remains unavailable | Independent CAB-R0 review plus authenticated CAB-R2 runner authority | [CAB roadmap](CAB-ROADMAP.md) |
 | Governed comprehension | Read-only, non-authoritative P0 contract, closed registries, authority ADR, mutation tripwires, isolated npm/VSIX proof, deterministic corpus/matrix command, and content-free P1 benchmark exist | Execute and sign the unchanged `CMP-P0-001` matrix on Windows and Linux, then complete the reviewed P1 storage/privacy decision; keep record/enforce unavailable | [CMP roadmap](CMP-ROADMAP.md) |
 | Governed Delivery and Proof | M0–M8 are implemented; M9–M11 have code-local partial surfaces and remain non-GA | Authenticated M9 runner/verifier and signed release evidence before provider pilots or enforcement | [GDP milestone roadmap](GDP-DELIVERY-ROADMAP.md) |

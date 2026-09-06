@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "033321a735a149dfb457bc82f6c661097d76fa64",
+  "sourceCommit": "a8e7e95f52707eb1824658c0d90717300b99507c",
   "topicCount": 61,
-  "contentSha256": "8e02e22449beed09eeb90659d22d88b6d0f61b4746fbaf5c08d06ff78c631416",
+  "contentSha256": "d27db94fe861fc7b912896a9bdde6a74a9d70ae890e7b03de79a14112b9d6de8",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -392,8 +392,8 @@
     {
       "id": "sgos-governed-execution",
       "title": "SGOS governed execution",
-      "version": 21,
-      "sha256": "9c12f803330092a30754fdfae4d9e7a7682390c7af0813d6a7f79fbbea40ad72",
+      "version": 22,
+      "sha256": "78ddde12cee8d75c463d66f01a3d7e6ed24b703a5f9e44df5694ae65d3fe952f",
       "routingSha256": "dd35cdb578b69d97cc1d3f32f1a438a9f1b9f439039d94252e36b04f3d34afea",
       "file": "sgos-governed-execution.md"
     },

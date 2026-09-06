@@ -562,7 +562,11 @@ const PAGES = Object.freeze({
       'repository Git-common private directory after exact confirmation. It never executes content,',
       'invokes a model or tool, changes the application tree or Git, grants approval, or persists an',
       'employee score. `workspace` verifies local bytes; `reset` previews and removes only that local',
-      'tutorial. Teach-back is declared concept presence, not understanding or certification.'
+      'tutorial. `check` stores only passed check IDs. `progress-export` returns an explicit',
+      'content-addressed copy token; `progress-import` previews a monotonic merge into an already',
+      'materialized matching workspace. Progress never contains failed attempts, answers, identity,',
+      'timing, paths, scores, approval, or certification. Teach-back is declared concept presence,',
+      'not understanding or certification.'
     ],
     options: [
       ['--role ROLE', 'Select one lower-case kebab-case role declared by the signed lesson and module.'],
@@ -570,7 +574,8 @@ const PAGES = Object.freeze({
       ['--module FILE', 'Read one repository-contained, digest-bound learning-module v1 JSON descriptor.'],
       ['--fixture FILE', 'Read one strict self-hashed learning-fixture v1 containing bounded inert UTF-8 files.'],
       ['--answers FILE', 'Read a bounded quiz selection or teach-back answer; answer text is never echoed.'],
-      ['--confirm SHA256', 'Confirm the exact materialization or reset plan after reviewing it.'],
+      ['--transfer VALUE', 'Use one explicit identity-free, content-addressed learning-progress copy token.'],
+      ['--confirm SHA256', 'Confirm the exact materialization, progress-import, or reset plan after reviewing it.'],
       ['--trust FILE', 'Use the explicit public publisher trust map required by the active Pack registry.'],
       ['--json', 'Emit the bounded mission, inspection, change explanation, or check result.']
     ],
@@ -579,6 +584,9 @@ const PAGES = Object.freeze({
       ['singularity-flow learn start recovery-basics --role developer --module recovery.json --trust publisher-trust.json', 'Prepare a read-only mission plan without materializing its fixture.'],
       ['singularity-flow learn materialize recovery-basics --role developer --module recovery.json --fixture recovery-fixture.json --trust publisher-trust.json', 'Preview a disposable, non-executable local fixture; repeat with its confirmation digest.'],
       ['singularity-flow learn workspace sha256:<MISSION-DIGEST>', 'Verify the local tutorial files without Pack credentials.'],
+      ['singularity-flow learn check recovery-basics recovery-choice --role developer --module recovery.json --answers answer.json --trust publisher-trust.json', 'Evaluate one check and record only its successful check ID.'],
+      ['singularity-flow learn progress-export sha256:<MISSION-DIGEST> --json', 'Create an explicit identity-free copy token for successful check IDs.'],
+      ['singularity-flow learn progress-import --transfer <COPY-TOKEN>', 'Preview a merge into an exact matching local tutorial; repeat with its confirmation digest.'],
       ['singularity-flow learn reset sha256:<MISSION-DIGEST>', 'Preview removal of only the local tutorial workspace.'],
       ['singularity-flow learn explain-change recovery-basics inspect-refusal --role developer --module recovery.json --trust publisher-trust.json', 'Show the exact declared non-effects of one step.'],
       ['singularity-flow learn quiz recovery-basics recovery-choice --role developer --module recovery.json --answers answer.json --trust publisher-trust.json', 'Evaluate one exact option set without creating authority.']

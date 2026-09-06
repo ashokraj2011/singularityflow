@@ -256,11 +256,16 @@ Every public operation is classified before its implementation module is importe
 | journal.today | read | never | — | — |
 | knowledge | mutation | never | — | — |
 | land | mutation | never | — | — |
+| learn.check | mutation | never | — | — |
 | learn.explain-change | read | never | — | — |
 | learn.inspect | read | never | — | — |
 | learn.list | read | never | — | — |
 | learn.materialize | mutation | never | — | — |
 | learn.materialize.plan | read | never | — | — |
+| learn.progress | read | never | — | — |
+| learn.progress-export | read | never | — | — |
+| learn.progress-import | mutation | never | — | — |
+| learn.progress-import.plan | read | never | — | — |
 | learn.quiz | read | never | — | — |
 | learn.reset | mutation | never | — | — |
 | learn.reset.plan | read | never | — | — |

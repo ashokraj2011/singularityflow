@@ -26,7 +26,7 @@ related:
   - governed-execution
   - workflow-authoring
   - evidence-and-ledger
-version: 21
+version: 22
 ---
 SGOS compiles confirmed intent and a ratified workflow into a finite, content-addressed Governed VM
 Program. Its operational Process state never replaces Story, Initiative, configuration, ledger, or
@@ -114,6 +114,12 @@ singularity-flow learn materialize recovery-basics --role developer \
   --module learning/recovery-basics.json --fixture learning/recovery-fixture.json \
   --trust publisher-trust.json
 singularity-flow learn workspace sha256:<MISSION-DIGEST>
+singularity-flow learn check recovery-basics safe-action --role developer \
+  --module learning/recovery-basics.json --answers learning/quiz-answer.json \
+  --trust publisher-trust.json
+singularity-flow learn progress sha256:<MISSION-DIGEST>
+singularity-flow learn progress-export sha256:<MISSION-DIGEST> --json
+singularity-flow learn progress-import --transfer <IDENTITY-FREE-TOKEN>
 singularity-flow learn reset sha256:<MISSION-DIGEST>
 singularity-flow learn inspect recovery-basics --role developer \
   --module learning/recovery-basics.json --trust publisher-trust.json
@@ -135,11 +141,17 @@ storage only after confirmation. It never executes them and revalidates signed P
 holding the mission lock. `workspace` detects missing or changed reviewed files without Pack trust;
 `reset` previews before removing that one machine-local tutorial. Neither operation changes the
 application tree, Git, Devices, nor a governed Process. Quiz uses an exact option set; teach-back
-uses deterministic declared-concept presence and reports that limitation explicitly.
+uses deterministic declared-concept presence and reports that limitation explicitly. `check`
+persists only a passed check ID in private Git-common storage. Failed attempts and submitted answers
+are not retained.
 
-No learning progress is persisted in this bounded release. Workspace presence is local disposable
-state, not completion evidence. Results have no approval, Process, Pack,
-certification, or employee-performance authority; no model, tool, employee metric, ranking, or raw
+`progress-export` emits one explicit content-addressed copy token. `progress-import` accepts it only
+when an exact matching tutorial workspace is already materialized, previews the destination merge,
+and requires the exact confirmation digest before writing. Imports are monotonic: older transfers
+cannot erase later completed checks. The record contains no failed attempts, answers, Git identity,
+time, duration, machine path, score, approval, or certification. It has no Process, Pack,
+certification, or employee-performance authority; no model or tool is invoked, and no employee
+metric, ranking, or raw answer is captured.
 
 Command Center publishes one closed render descriptor for each canonical Work Object view:
 `overview`, `graph`, `board`, `timeline`, `table`, `document`, `form`, `evidence`, `diff`, `matrix`,

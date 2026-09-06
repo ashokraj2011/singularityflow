@@ -335,8 +335,12 @@ teach-back concept presence. The lesson must still come from a signed active Pac
 self-hash must equal that lesson's content digest. An optional self-hashed fixture can materialize
 bounded, secret-scanned UTF-8 tutorial files only under Git-common private storage after an exact
 preview/confirmation. SFlow never executes those files. `learn workspace` verifies their bytes and
-`learn reset` preview-removes only that local tutorial. No model, tool, Device, application-tree or
-Git write, Process transition, employee score, certification, or durable progress is created. See
+`learn reset` preview-removes only that local tutorial. `learn check` records only successful check
+IDs in private Git-common storage. An explicit `progress-export` token can be preview-merged with
+`progress-import` on another machine that already has the exact matching tutorial. The merge is
+monotonic and contains no failed attempts, answers, identity, timing, paths, or scores. It grants no
+approval, Process, Pack, certification, or employee-performance authority. No model, tool, Device,
+application-tree or Git write, or Process transition is created. See
 `singularity-flow learn --help` and the SGOS governed-execution topic.
 
 ## Governed meta-tool activation
@@ -455,7 +459,7 @@ tracked in [SGOS-PENDING-WORK.md](SGOS-PENDING-WORK.md):
   proposal-only Copilot Agent path is implemented;
 - a general Authority Store SPI and an alternate Operational Store; the filesystem Authority Store
   remains explicitly experimental;
-- executable/disposable tutorial environments, portable learning progress and certification, a
+- executable tutorial environments, independent learning certification, a
   public meta-tool activation/rollback CLI, and multi-domain proof packs;
 - fresh-authority trace-to-evidence reconstruction, external telemetry transport beyond the
   content-free read-only OpenTelemetry projection, and measured semantic read-model latency targets;

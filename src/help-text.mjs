@@ -381,6 +381,12 @@ Usage:
     --fixture <LEARNING-FIXTURE.json> [--pack <PACK-ID>] --trust <PUBLIC-TRUST-JSON>
     [--confirm <PLAN-SHA256>] [--json]
   singularity-flow learn workspace <MISSION-SHA256> [--json]
+  singularity-flow learn progress|progress-export <MISSION-SHA256> [--json]
+  singularity-flow learn check <LESSON-ID> <CHECK-ID> --role <ROLE>
+    --module <LEARNING-MODULE.json> --answers <ANSWER.json>
+    [--pack <PACK-ID>] --trust <PUBLIC-TRUST-JSON> [--json]
+  singularity-flow learn progress-import --transfer <IDENTITY-FREE-TOKEN>
+    [--confirm <PLAN-SHA256>] [--json]
   singularity-flow learn reset <MISSION-SHA256> [--confirm <PLAN-SHA256>] [--json]
   singularity-flow learn explain-change <LESSON-ID> <STEP-ID> --role <ROLE> --module <LEARNING-MODULE.json>
     [--pack <PACK-ID>] --trust <PUBLIC-TRUST-JSON> [--json]

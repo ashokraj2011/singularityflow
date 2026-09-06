@@ -957,6 +957,27 @@ test('signed Pack, role lesson, and typed Memory CLI preserve exact CAS and revi
   assert.equal(materializedEnvelope.operation.id, 'learn.materialize');
   assert.equal(materialized.status, 'ready');
   assert.equal(state(flow(root, 'learn', 'workspace', materialized.missionId)).status, 'ready');
+  assert.equal(state(flow(root, 'learn', 'inspect', 'finance-basics', '--role', 'developer',
+    '--module', 'learning-module.json', '--store', storeId,
+    '--trust', 'publisher-trust.json')).counts.steps, 1);
+  assert.equal(state(flow(root, 'learn', 'explain-change', 'finance-basics', 'inspect-result',
+    '--role', 'developer', '--module', 'learning-module.json', '--store', storeId,
+    '--trust', 'publisher-trust.json')).effects.repository, 'none');
+  await writeFile(path.join(root, 'quiz-answer.json'), JSON.stringify({ selectedOptionIds: ['nothing'] }));
+  await writeFile(path.join(root, 'teach-answer.json'), JSON.stringify({ text: 'The lesson grants no authority.' }));
+  const checkEnvelope = flow(root, 'learn', 'check', 'finance-basics', 'cli-quiz',
+    '--role', 'developer', '--module', 'learning-module.json', '--answers', 'quiz-answer.json',
+    '--store', storeId, '--trust', 'publisher-trust.json');
+  assert.equal(checkEnvelope.operation.id, 'learn.check');
+  assert.equal(checkEnvelope.operation.classification, 'mutation');
+  assert.equal(state(checkEnvelope).changed, true);
+  const progress = state(flow(root, 'learn', 'progress', materialized.missionId));
+  assert.deepEqual(progress.completedCheckIds, ['cli-quiz']);
+  assert.equal(progress.recordsIdentity, false);
+  assert.equal(progress.recordsAnswers, false);
+  const progressExport = state(flow(root, 'learn', 'progress-export', materialized.missionId));
+  assert.equal(progressExport.containsIdentity, false);
+  assert.equal(progressExport.containsAnswers, false);
   const resetPlanEnvelope = flow(root, 'learn', 'reset', materialized.missionId);
   const resetPlan = state(resetPlanEnvelope);
   assert.equal(resetPlanEnvelope.operation.classification, 'read');
@@ -967,14 +988,16 @@ test('signed Pack, role lesson, and typed Memory CLI preserve exact CAS and revi
   assert.equal(state(resetEnvelope).status, 'reset');
   assert.equal(state(flow(root, 'learn', 'workspace', materialized.missionId)).status,
     'not-materialized');
-  assert.equal(state(flow(root, 'learn', 'inspect', 'finance-basics', '--role', 'developer',
-    '--module', 'learning-module.json', '--store', storeId,
-    '--trust', 'publisher-trust.json')).counts.steps, 1);
-  assert.equal(state(flow(root, 'learn', 'explain-change', 'finance-basics', 'inspect-result',
-    '--role', 'developer', '--module', 'learning-module.json', '--store', storeId,
-    '--trust', 'publisher-trust.json')).effects.repository, 'none');
-  await writeFile(path.join(root, 'quiz-answer.json'), JSON.stringify({ selectedOptionIds: ['nothing'] }));
-  await writeFile(path.join(root, 'teach-answer.json'), JSON.stringify({ text: 'The lesson grants no authority.' }));
+  flow(root, ...materializeArguments, '--confirm', materializePlan.confirmationSha256);
+  const importPlanEnvelope = flow(root, 'learn', 'progress-import',
+    '--transfer', progressExport.transfer);
+  const importPlan = state(importPlanEnvelope);
+  assert.equal(importPlanEnvelope.operation.id, 'learn.progress-import.plan');
+  assert.equal(importPlanEnvelope.operation.classification, 'read');
+  const importedEnvelope = flow(root, 'learn', 'progress-import',
+    '--transfer', progressExport.transfer, '--confirm', importPlan.confirmationSha256);
+  assert.equal(importedEnvelope.operation.id, 'learn.progress-import');
+  assert.deepEqual(state(importedEnvelope).progress.completedCheckIds, ['cli-quiz']);
   assert.equal(state(flow(root, 'learn', 'quiz', 'finance-basics', 'cli-quiz', '--role', 'developer',
     '--module', 'learning-module.json', '--answers', 'quiz-answer.json', '--store', storeId,
     '--trust', 'publisher-trust.json')).status, 'passed');

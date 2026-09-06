@@ -369,7 +369,14 @@ export function createReadOnlyLessonCatalog({ packRegistry }) {
       gitChanges: false,
       processAuthority: false,
       employeeScoring: false,
-      progress: Object.freeze({ persistence: 'none', authority: false })
+      progress: Object.freeze({
+        persistence: 'machine-local-optional',
+        portableTransfer: 'explicit-content-addressed-copy',
+        identity: false,
+        timing: false,
+        answers: false,
+        authority: false
+      })
     });
   }
 

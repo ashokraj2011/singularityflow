@@ -41,10 +41,10 @@ test('the checked-in SGOS command index matches the public action families and r
   const learningLines = reference.split('\n').filter((entry) =>
     entry.startsWith('singularity-flow learn '));
   for (const line of learningLines.filter((entry) =>
-    !/^singularity-flow learn (?:workspace|reset)\b/.test(entry))) {
+    !/^singularity-flow learn (?:workspace|progress\|progress-export|progress-import|reset)\b/.test(entry))) {
     assert.match(line, /--trust PUBLIC-TRUST\.json/, `learning command is missing trust input: ${line}`);
   }
-  for (const action of ['workspace', 'reset']) {
+  for (const action of ['workspace', 'progress|progress-export', 'progress-import', 'reset']) {
     const line = learningLines.find((entry) => entry.startsWith(`singularity-flow learn ${action} `));
     assert.ok(line, `learning command index is missing local ${action}`);
     assert.doesNotMatch(line, /--trust/, `${action} must remain available without Pack credentials`);

@@ -238,6 +238,90 @@ test('learning workspace confirmation cannot outlive signed Pack lesson authorit
   );
 });
 
+test('learning progress is identity-free, monotonic, portable, and never certification', async (t) => {
+  const firstRoot = await repository(t);
+  const secondRoot = await repository(t);
+  const fixture = learningFixture();
+  const module = learningModule({
+    sandboxFixture: {
+      kind: 'descriptor-only', fixtureId: fixture.id, fixtureSha256: fixture.fixtureSha256
+    }
+  });
+  const pack = packFor(module);
+  const firstCatalog = createReadOnlyLessonCatalog({ packRegistry: registry(pack) });
+  const secondCatalog = createReadOnlyLessonCatalog({ packRegistry: registry(pack) });
+  const first = createLearningWorkspaceService({
+    lessonCatalog: firstCatalog, repositoryRoot: firstRoot
+  });
+  const second = createLearningWorkspaceService({
+    lessonCatalog: secondCatalog, repositoryRoot: secondRoot
+  });
+  const common = { role: 'developer', lessonId: module.id, module, fixture };
+  const firstPlan = await first.plan(common);
+  const firstWorkspace = await first.materialize({
+    ...common, confirm: firstPlan.confirmationSha256
+  });
+  const secondPlan = await second.plan(common);
+  await second.materialize({ ...common, confirm: secondPlan.confirmationSha256 });
+
+  const failed = await first.recordCheck({
+    ...common, checkId: 'recovery-choice',
+    answer: { selectedOptionIds: ['copy-new-digest'] }
+  });
+  assert.equal(failed.changed, false);
+  assert.equal(failed.result.status, 'needs-review');
+  assert.equal((await first.progress(firstWorkspace.missionId)).status, 'not-started');
+
+  const passed = await first.recordCheck({
+    ...common, checkId: 'recovery-choice',
+    answer: { selectedOptionIds: ['review-current-plan'] }
+  });
+  assert.equal(passed.changed, true);
+  assert.deepEqual(passed.progress.completedCheckIds, ['recovery-choice']);
+  assert.equal(passed.progress.recordsAttempts, false);
+  assert.equal(passed.progress.recordsIdentity, false);
+  assert.equal(passed.progress.recordsTime, false);
+  assert.equal(passed.progress.recordsAnswers, false);
+  assert.equal(passed.progress.certification, false);
+
+  const transfer = await first.exportProgress(firstWorkspace.missionId);
+  assert.equal(transfer.containsIdentity, false);
+  assert.equal(transfer.containsAnswers, false);
+  assert.equal(transfer.containsTiming, false);
+  assert.doesNotMatch(transfer.transfer, /Learning Tester|review-current-plan|copy-new-digest/);
+  const importPlan = await second.importPlan(transfer.transfer);
+  assert.deepEqual(importPlan.checksAdded, ['recovery-choice']);
+  await assert.rejects(
+    () => second.importProgress(transfer.transfer, platformSha256('wrong')),
+    (error) => error.code === 'SGOS_LEARN_CONFIRMATION_MISMATCH'
+  );
+  const imported = await second.importProgress(transfer.transfer, importPlan.confirmationSha256);
+  assert.equal(imported.changed, true);
+  assert.equal(imported.authority, false);
+  assert.equal(imported.certification, false);
+  assert.equal(imported.employeeScoring, false);
+  assert.deepEqual((await second.progress(firstWorkspace.missionId)).completedCheckIds,
+    ['recovery-choice']);
+  const repeatedPlan = await second.importPlan(transfer.transfer);
+  assert.deepEqual(repeatedPlan.checksAdded, []);
+  const repeated = await second.importProgress(transfer.transfer,
+    repeatedPlan.confirmationSha256);
+  assert.equal(repeated.changed, false);
+
+  const replacement = transfer.transfer.endsWith('A') ? 'B' : 'A';
+  await assert.rejects(
+    () => second.importPlan(`${transfer.transfer.slice(0, -1)}${replacement}`),
+    (error) => ['SGOS_LEARN_PROGRESS_TRANSFER_INVALID', 'SGOS_LEARN_PROGRESS_TAMPERED']
+      .includes(error.code)
+  );
+  assert.equal(execFileSync('git', ['status', '--porcelain'], {
+    cwd: firstRoot, encoding: 'utf8'
+  }), '');
+  assert.equal(execFileSync('git', ['status', '--porcelain'], {
+    cwd: secondRoot, encoding: 'utf8'
+  }), '');
+});
+
 test('signed active Pack catalog filters by role and Pack and binds the exact module digest', async () => {
   const module = learningModule();
   const first = packFor(module);
@@ -281,7 +365,12 @@ test('mission planning, inspection, and change explanation are explicit read-onl
     profile: 'descriptor-only-guided-mission-v1',
     execution: 'none', modelInvocations: 0, toolInvocations: 0,
     repositoryChanges: false, gitChanges: false, processAuthority: false,
-    employeeScoring: false, progress: { persistence: 'none', authority: false }
+    employeeScoring: false,
+    progress: {
+      persistence: 'machine-local-optional',
+      portableTransfer: 'explicit-content-addressed-copy',
+      identity: false, timing: false, answers: false, authority: false
+    }
   });
   assert.equal(Object.hasOwn(plan, 'command'), false);
   assert.equal(Object.hasOwn(plan, 'path'), false);

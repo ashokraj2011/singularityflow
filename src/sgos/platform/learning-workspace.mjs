@@ -9,7 +9,8 @@ import { rm } from 'node:fs/promises';
 
 import { gitCommonDir } from '../../git.mjs';
 import {
-  readPrivateSidecar, safePrivateSidecarDirectory, writeImmutablePrivateSidecar
+  readPrivateSidecar, safePrivateSidecarDirectory, writeImmutablePrivateSidecar,
+  writeMutablePrivateSidecar
 } from '../../private-sidecar.mjs';
 import { canonicalJson } from '../../records.mjs';
 import { currentSchemaVersion, readRecord } from '../../schema-migrations.mjs';
@@ -21,10 +22,14 @@ import { clonePlatformJson, isPlainPlatformObject, platformSha256 } from './cont
 const FIXTURE_KIND = 'learning-fixture';
 const FIXTURE_VERSION = 1;
 const WORKSPACE_FAMILY = 'learning-workspace';
+const PROGRESS_FAMILY = 'learning-progress';
 const MAX_FIXTURE_BYTES = 1024 * 1024;
 const MAX_FILE_BYTES = 64 * 1024;
 const MAX_FILES = 64;
 const MAX_MANIFEST_BYTES = 256 * 1024;
+const MAX_PROGRESS_BYTES = 64 * 1024;
+const MAX_TRANSFER_BYTES = 96 * 1024;
+const TRANSFER_PREFIX = 'sflow-learning-progress-v1.';
 const SHA256 = /^sha256:[a-f0-9]{64}$/;
 const ID = /^[a-z0-9][a-z0-9._:-]{1,127}$/;
 const PORTABLE_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -146,6 +151,10 @@ function manifestPath(root, missionId) {
   return path.join(missionRoot(root, missionId), 'workspace.json');
 }
 
+function progressPath(root, missionId) {
+  return path.join(missionRoot(root, missionId), 'progress.json');
+}
+
 function planCore(mission, fixture) {
   return {
     kind: 'learning-workspace-materialization-plan', version: 1,
@@ -214,6 +223,141 @@ async function readManifest(root, missionId, { optional = false } = {}) {
   return record;
 }
 
+function progressRecord(manifest, completedCheckIds) {
+  const core = {
+    schemaVersion: currentSchemaVersion(PROGRESS_FAMILY),
+    kind: 'learning-progress',
+    missionId: manifest.missionId,
+    lessonId: manifest.lessonId,
+    role: manifest.role,
+    packId: manifest.packId,
+    packSha256: manifest.packSha256,
+    moduleSha256: manifest.moduleSha256,
+    fixtureSha256: manifest.fixtureSha256,
+    completedCheckIds: [...new Set(completedCheckIds)].sort(),
+    authority: false,
+    certification: false,
+    employeeScoring: false
+  };
+  return Object.freeze({ ...core, progressSha256: platformSha256(core) });
+}
+
+function validateProgress(input) {
+  exactKeys(input, [
+    'schemaVersion', 'kind', 'missionId', 'lessonId', 'role', 'packId', 'packSha256',
+    'moduleSha256', 'fixtureSha256', 'completedCheckIds', 'authority', 'certification',
+    'employeeScoring', 'progressSha256'
+  ], 'learning progress');
+  if (input.kind !== 'learning-progress') {
+    fail('Learning progress uses an unsupported schema.', 'SGOS_LEARN_PROGRESS_INVALID');
+  }
+  missionSegment(input.missionId);
+  for (const [label, value] of [['lesson ID', input.lessonId], ['Pack ID', input.packId]]) {
+    if (typeof value !== 'string' || !ID.test(value)) {
+      fail(`Learning progress ${label} is invalid.`, 'SGOS_LEARN_PROGRESS_INVALID');
+    }
+  }
+  if (typeof input.role !== 'string' || !/^[a-z0-9][a-z0-9-]{1,63}$/.test(input.role)) {
+    fail('Learning progress role is invalid.', 'SGOS_LEARN_PROGRESS_INVALID');
+  }
+  for (const [label, value] of [
+    ['Pack', input.packSha256], ['module', input.moduleSha256],
+    ['fixture', input.fixtureSha256], ['record', input.progressSha256]
+  ]) {
+    if (!SHA256.test(String(value ?? ''))) {
+      fail(`Learning progress ${label} digest is invalid.`, 'SGOS_LEARN_PROGRESS_INVALID');
+    }
+  }
+  if (!Array.isArray(input.completedCheckIds) || input.completedCheckIds.length > 64) {
+    fail('Learning progress completed checks exceed the installed limit.', 'SGOS_LEARN_LIMIT');
+  }
+  let previous = null;
+  for (const checkId of input.completedCheckIds) {
+    if (typeof checkId !== 'string' || !ID.test(checkId)
+        || (previous !== null && previous >= checkId)) {
+      fail('Learning progress completed checks must be sorted unique identifiers.',
+        'SGOS_LEARN_PROGRESS_INVALID');
+    }
+    previous = checkId;
+  }
+  if (input.authority !== false || input.certification !== false
+      || input.employeeScoring !== false) {
+    fail('Learning progress cannot contain authority, certification, or employee scoring.',
+      'SGOS_LEARN_PROGRESS_AUTHORITY_REFUSED');
+  }
+  const core = clonePlatformJson(input, '$learningProgress');
+  delete core.progressSha256;
+  if (input.progressSha256 !== platformSha256(core)) {
+    fail('Learning progress failed integrity verification.', 'SGOS_LEARN_PROGRESS_TAMPERED');
+  }
+  return Object.freeze(clonePlatformJson(input, '$learningProgress'));
+}
+
+async function readProgress(root, missionId, { optional = false } = {}) {
+  const bytes = await readPrivateSidecar(root, progressPath(root, missionId), {
+    maximumBytes: MAX_PROGRESS_BYTES, optional
+  });
+  if (bytes === null) return null;
+  return validateProgress(readRecord(PROGRESS_FAMILY, bytes).record);
+}
+
+function progressProjection(missionId, progress = null) {
+  return Object.freeze({
+    missionId,
+    status: progress ? 'in-progress' : 'not-started',
+    completedCheckIds: Object.freeze([...(progress?.completedCheckIds ?? [])]),
+    progressSha256: progress?.progressSha256 ?? null,
+    portable: true,
+    recordsAttempts: false,
+    recordsIdentity: false,
+    recordsTime: false,
+    recordsAnswers: false,
+    authority: false,
+    certification: false,
+    employeeScoring: false
+  });
+}
+
+function assertProgressBinding(progress, manifest) {
+  for (const key of [
+    'missionId', 'lessonId', 'role', 'packId', 'packSha256', 'moduleSha256', 'fixtureSha256'
+  ]) {
+    if (progress[key] !== manifest[key]) {
+      fail(`Learning progress ${key} does not match the local tutorial workspace.`,
+        'SGOS_LEARN_PROGRESS_BINDING_MISMATCH');
+    }
+  }
+}
+
+function encodeProgressTransfer(progress) {
+  return `${TRANSFER_PREFIX}${Buffer.from(canonicalJson(progress), 'utf8').toString('base64url')}`;
+}
+
+function decodeProgressTransfer(transfer) {
+  if (typeof transfer !== 'string' || !transfer.startsWith(TRANSFER_PREFIX)
+      || Buffer.byteLength(transfer, 'utf8') > MAX_TRANSFER_BYTES
+      || !/^[A-Za-z0-9_-]+$/.test(transfer.slice(TRANSFER_PREFIX.length))) {
+    fail('Learning progress transfer is malformed or exceeds the installed limit.',
+      'SGOS_LEARN_PROGRESS_TRANSFER_INVALID');
+  }
+  let bytes;
+  let parsed;
+  try {
+    bytes = Buffer.from(transfer.slice(TRANSFER_PREFIX.length), 'base64url');
+    parsed = JSON.parse(bytes.toString('utf8'));
+  } catch {
+    fail('Learning progress transfer is not canonical JSON.',
+      'SGOS_LEARN_PROGRESS_TRANSFER_INVALID');
+  }
+  const progress = validateProgress(parsed);
+  if (!bytes.equals(Buffer.from(canonicalJson(progress), 'utf8'))
+      || encodeProgressTransfer(progress) !== transfer) {
+    fail('Learning progress transfer is not canonically encoded.',
+      'SGOS_LEARN_PROGRESS_TRANSFER_INVALID');
+  }
+  return progress;
+}
+
 export function createLearningWorkspaceService({ lessonCatalog = null, repositoryRoot }) {
   if (typeof repositoryRoot !== 'string' || !repositoryRoot.trim()) {
     fail('Learning workspace service requires an explicit repository root.');
@@ -223,12 +367,17 @@ export function createLearningWorkspaceService({ lessonCatalog = null, repositor
   }
   const root = path.resolve(repositoryRoot);
 
-  async function resolve(request) {
+  async function resolveMission(request) {
     if (!lessonCatalog) {
-      fail('Materializing a learning workspace requires the signed lesson catalog.',
+      fail('Pack-backed learning operations require the signed lesson catalog.',
         'SGOS_LEARN_LESSON_AUTHORITY_REQUIRED');
     }
     const mission = await lessonCatalog.start(request);
+    return mission;
+  }
+
+  async function resolve(request) {
+    const mission = await resolveMission(request);
     const fixture = validateLearningFixture(request.fixture);
     if (mission.module.sandboxFixture.fixtureId !== fixture.id
         || mission.module.sandboxFixture.fixtureSha256 !== fixture.fixtureSha256) {
@@ -236,6 +385,66 @@ export function createLearningWorkspaceService({ lessonCatalog = null, repositor
         'SGOS_LEARN_FIXTURE_BINDING_MISMATCH');
     }
     return { mission, fixture, plan: materializationPlan(mission, fixture) };
+  }
+
+  async function checkedWorkspace(mission) {
+    const manifest = await readManifest(root, mission.missionId);
+    const expected = {
+      missionId: mission.missionId,
+      lessonId: mission.lesson.lessonId,
+      role: mission.lesson.role,
+      packId: mission.lesson.packId,
+      packSha256: mission.lesson.packSha256,
+      moduleSha256: mission.module.moduleSha256,
+      fixtureSha256: mission.module.sandboxFixture.fixtureSha256
+    };
+    for (const [key, value] of Object.entries(expected)) {
+      if (manifest[key] !== value) {
+        fail(`Learning workspace ${key} no longer matches the signed lesson.`,
+          'SGOS_LEARN_WORKSPACE_BINDING_MISMATCH');
+      }
+    }
+    return manifest;
+  }
+
+  async function evaluateCheck(request) {
+    const check = request.module?.completionChecks?.find(
+      (candidate) => candidate?.checkId === request.checkId
+    );
+    if (!check) {
+      fail(`Learning check '${request.checkId ?? ''}' is unavailable.`,
+        'SGOS_LEARN_CHECK_UNAVAILABLE');
+    }
+    if (check.type === 'quiz') return lessonCatalog.quiz(request);
+    if (check.type === 'teach-back') return lessonCatalog.teachBack(request);
+    fail(`Learning check '${request.checkId}' has an unsupported type.`,
+      'SGOS_LEARN_CHECK_UNAVAILABLE');
+  }
+
+  async function planImport(transfer) {
+    const incoming = decodeProgressTransfer(transfer);
+    const manifest = await readManifest(root, incoming.missionId);
+    assertProgressBinding(incoming, manifest);
+    const existing = await readProgress(root, incoming.missionId, { optional: true });
+    if (existing) assertProgressBinding(existing, manifest);
+    const merged = progressRecord(manifest, [
+      ...(existing?.completedCheckIds ?? []), ...incoming.completedCheckIds
+    ]);
+    const core = {
+      kind: 'learning-progress-import-plan',
+      version: 1, // schema-transient: confirmation plan, never written.
+      missionId: incoming.missionId,
+      incomingProgressSha256: incoming.progressSha256,
+      currentProgressSha256: existing?.progressSha256 ?? null,
+      mergedProgressSha256: merged.progressSha256,
+      checksAdded: merged.completedCheckIds.filter(
+        (checkId) => !existing?.completedCheckIds.includes(checkId)
+      ),
+      effect: 'merge-machine-local-learning-progress-only'
+    };
+    return Object.freeze({
+      ...core, confirmationSha256: platformSha256(core), merged
+    });
   }
 
   async function planReset(missionId) {
@@ -303,12 +512,127 @@ export function createLearningWorkspaceService({ lessonCatalog = null, repositor
         if (bytes === null) missing.push(file.path);
         else if (bytes.length !== file.bytes || platformSha256(bytes) !== file.sha256) changed.push(file.path);
       }
+      const progress = await readProgress(root, missionId, { optional: true });
+      if (progress) assertProgressBinding(progress, manifest);
       return Object.freeze({
         missionId, status: missing.length ? 'incomplete' : changed.length ? 'changed' : 'ready',
         workspacePath: target, moduleSha256: manifest.moduleSha256,
         fixtureSha256: manifest.fixtureSha256,
         files: Object.freeze({ total: manifest.files.length, missing, changed }),
+        progress: progressProjection(missionId, progress),
         authority: false, certification: false, employeeScoring: false
+      });
+    },
+
+    async progress(missionId) {
+      const manifest = await readManifest(root, missionId);
+      const progress = await readProgress(root, missionId, { optional: true });
+      if (progress) assertProgressBinding(progress, manifest);
+      return progressProjection(missionId, progress);
+    },
+
+    async recordCheck(request) {
+      const mission = await resolveMission(request);
+      return withSubjectLock(root, {
+        kind: 'sgos-learning', id: missionSegment(mission.missionId)
+      }, async () => {
+        // Re-resolve and evaluate while holding the mission lock. A Pack replacement or revoked
+        // lesson cannot write progress for bytes that are no longer current.
+        const currentMission = await resolveMission(request);
+        if (currentMission.missionId !== mission.missionId) {
+          fail('Learning mission authority changed before progress could be recorded.',
+            'SGOS_LEARN_LESSON_AUTHORITY_CHANGED');
+        }
+        const manifest = await checkedWorkspace(currentMission);
+        const result = await evaluateCheck(request);
+        const finalMission = await resolveMission(request);
+        if (finalMission.missionId !== currentMission.missionId) {
+          fail('Learning mission authority changed while the check was evaluated.',
+            'SGOS_LEARN_LESSON_AUTHORITY_CHANGED');
+        }
+        const existing = await readProgress(root, currentMission.missionId, { optional: true });
+        if (existing) assertProgressBinding(existing, manifest);
+        if (result.status !== 'passed') {
+          return Object.freeze({
+            changed: false,
+            result: Object.freeze({
+              checkId: result.checkId, checkType: result.checkType,
+              evaluation: result.evaluation, status: result.status,
+              certification: false, authority: false
+            }),
+            progress: progressProjection(currentMission.missionId, existing)
+          });
+        }
+        const next = progressRecord(manifest, [
+          ...(existing?.completedCheckIds ?? []), result.checkId
+        ]);
+        const changed = existing?.progressSha256 !== next.progressSha256;
+        if (changed) {
+          await writeMutablePrivateSidecar(root, progressPath(root, currentMission.missionId),
+            `${canonicalJson(next)}\n`, { maximumBytes: MAX_PROGRESS_BYTES });
+        }
+        return Object.freeze({
+          changed,
+          result: Object.freeze({
+            checkId: result.checkId, checkType: result.checkType,
+            evaluation: result.evaluation, status: result.status,
+            certification: false, authority: false
+          }),
+          progress: progressProjection(currentMission.missionId, next)
+        });
+      });
+    },
+
+    async exportProgress(missionId) {
+      const manifest = await readManifest(root, missionId);
+      const progress = await readProgress(root, missionId);
+      assertProgressBinding(progress, manifest);
+      return Object.freeze({
+        kind: 'learning-progress-transfer',
+        version: 1, // schema-transient: copy/paste transport, never written.
+        encoding: 'base64url-canonical-json',
+        missionId,
+        progressSha256: progress.progressSha256,
+        transfer: encodeProgressTransfer(progress),
+        containsIdentity: false,
+        containsAnswers: false,
+        containsTiming: false,
+        authority: false,
+        certification: false,
+        employeeScoring: false
+      });
+    },
+
+    async importPlan(transfer) {
+      const { merged, ...plan } = await planImport(transfer);
+      return Object.freeze(plan);
+    },
+
+    async importProgress(transfer, confirm) {
+      const decoded = decodeProgressTransfer(transfer);
+      return withSubjectLock(root, {
+        kind: 'sgos-learning', id: missionSegment(decoded.missionId)
+      }, async () => {
+        const plan = await planImport(transfer);
+        if (confirm !== plan.confirmationSha256) {
+          fail(`Learning progress import confirmation must equal ${plan.confirmationSha256}.`,
+            'SGOS_LEARN_CONFIRMATION_MISMATCH');
+        }
+        const existing = await readProgress(root, decoded.missionId, { optional: true });
+        const changed = existing?.progressSha256 !== plan.merged.progressSha256;
+        if (changed) {
+          await writeMutablePrivateSidecar(root, progressPath(root, decoded.missionId),
+            `${canonicalJson(plan.merged)}\n`, { maximumBytes: MAX_PROGRESS_BYTES });
+        }
+        return Object.freeze({
+          changed,
+          progress: progressProjection(decoded.missionId, plan.merged),
+          importedProgressSha256: decoded.progressSha256,
+          mergeOnly: true,
+          authority: false,
+          certification: false,
+          employeeScoring: false
+        });
       });
     },
 

@@ -72,7 +72,7 @@ const MUTATIONS = new Set([
   'authority-store.export', 'authority-store.import', 'authority-store.rollback',
   'authority-store.publish', 'authority-store.sync',
   'pack.propose', 'pack.review', 'pack.activate', 'pack.revoke',
-  'learn.materialize', 'learn.reset',
+  'learn.materialize', 'learn.check', 'learn.progress-import', 'learn.reset',
   'memory.register', 'memory.promote',
   'meta-tool.propose', 'meta-tool.evaluation', 'meta-tool.promote',
   'meta-tool.activate', 'meta-tool.observe', 'meta-tool.revoke', 'meta-tool.rollback'
@@ -954,6 +954,32 @@ async function learnCommand(root, positionals, options) {
     return emit(result, options, 'learn.workspace',
       `Learning workspace ${result.missionId} is ${result.status}.`);
   }
+  if (action === 'progress') {
+    const service = createLearningWorkspaceService({ repositoryRoot: root });
+    const result = await service.progress(positionals[2]);
+    return emit(result, options, 'learn.progress',
+      `${result.completedCheckIds.length} completed learning check(s); no identity, timing, or answers recorded.`);
+  }
+  if (action === 'progress-export') {
+    const service = createLearningWorkspaceService({ repositoryRoot: root });
+    const result = await service.exportProgress(positionals[2]);
+    return emit(result, options, 'learn.progress-export',
+      `Prepared identity-free progress transfer ${result.progressSha256}; use --json to copy it.`);
+  }
+  if (action === 'progress-import') {
+    const service = createLearningWorkspaceService({ repositoryRoot: root });
+    const transfer = requiredString(options, 'transfer');
+    const plan = await service.importPlan(transfer);
+    const confirm = optionString(options, 'confirm');
+    if (confirm == null) {
+      return emit(plan, options, 'learn.progress-import.plan',
+        `Review the merge-only local progress import, then repeat with --confirm ${plan.confirmationSha256}.`);
+    }
+    const result = await service.importProgress(transfer, confirm);
+    return emit(result, options, 'learn.progress-import',
+      `Imported identity-free learning progress for ${result.progress.missionId}; authority was unchanged.`,
+    { changed: result.changed });
+  }
   if (action === 'reset') {
     const service = createLearningWorkspaceService({ repositoryRoot: root });
     const missionId = positionals[2];
@@ -980,7 +1006,7 @@ async function learnCommand(root, positionals, options) {
     const result = await catalog.show({ role, lessonId: positionals[2], packId });
     return emit(result, options, 'learn.show', `${result.lessonId} · ${result.title}.`);
   }
-  if (['start', 'materialize', 'inspect', 'explain-change', 'quiz', 'teach-back'].includes(action)) {
+  if (['start', 'materialize', 'check', 'inspect', 'explain-change', 'quiz', 'teach-back'].includes(action)) {
     const module = await jsonFile(root, optionString(options, 'module'), '--module');
     const request = { role, lessonId: positionals[2], packId, module };
     if (action === 'start') {
@@ -1002,6 +1028,16 @@ async function learnCommand(root, positionals, options) {
       return emit(result, options, 'learn.materialize',
         `Materialized ${result.missionId} outside the application tree; nothing was executed.`,
       { changed: true });
+    }
+    if (action === 'check') {
+      const answer = await jsonFile(root, optionString(options, 'answers'), '--answers');
+      const service = createLearningWorkspaceService({ lessonCatalog: catalog, repositoryRoot: root });
+      const result = await service.recordCheck({
+        ...request, checkId: positionals[3], answer
+      });
+      return emit(result, options, 'learn.check',
+        `Learning check ${result.result.checkId}: ${result.result.status}; stored progress contains no answer, identity, timing, score, or authority.`,
+      { changed: result.changed });
     }
     if (action === 'inspect') {
       const result = await catalog.inspect(request);

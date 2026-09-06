@@ -18,6 +18,15 @@
   "workflow-ir": [{ "schemaVersion": 1 }],
   "workflow-ratification": [{ "schemaVersion": 1 }],
   "policy-snapshot": [{ "schemaVersion": 1 }],
+  "learning-workspace": [{ "schemaVersion": 1 }],
+  "learning-offline-bundle": [{ "schemaVersion": 1 }],
+  "learning-progress": [
+    {
+      "schemaVersion": 1,
+      "progressSha256": "sha256:609b0270c380969286ce2be72aad387758e8169c221f93c3bb14a4b352c5e65c"
+    },
+    { "schemaVersion": 2 }
+  ],
   "sgos-policy-bundle": [{ "schemaVersion": 1 }],
   "sgos-policy-approval": [{ "schemaVersion": 1 }],
   "sgos-policy-diff": [{ "schemaVersion": 1 }],
@@ -511,7 +520,8 @@
       "stopReason": "fixture", "nextAction": "Review",
       "createdAt": "2026-01-02T03:04:05.000Z", "updatedAt": "2026-01-02T03:04:05.000Z",
       "recordSha256": "395c96c7b462e1e865dc02960f6daa8977497c61e43a7fc30751abc5ca2914c2"
-    }
+    },
+    { "schemaVersion": 3 }
   ],
   "auto-step-result": [{ "schemaVersion": 1 }],
   "auto-context-manifest": [{

@@ -653,6 +653,25 @@ function validateWorldModelContractSchema(schema, schemaFile) {
 }
 
 const durableRecordFamilies = new Set(migrationRegistrySnapshot().map((entry) => entry.id));
+const migrationGoldens = JSON.parse(await readFile(
+  path.join(root, 'test', 'fixtures', 'schema-migrations', 'goldens.json'), 'utf8'
+));
+const migrationGoldenFamilies = Object.keys(migrationGoldens).sort();
+const registeredMigrationFamilies = [...durableRecordFamilies].sort();
+if (JSON.stringify(migrationGoldenFamilies) !== JSON.stringify(registeredMigrationFamilies)) {
+  const missing = registeredMigrationFamilies.filter((family) => !migrationGoldenFamilies.includes(family));
+  const unknown = migrationGoldenFamilies.filter((family) => !durableRecordFamilies.has(family));
+  fail(`schema migration goldens are out of sync${missing.length ? `; missing: ${missing.join(', ')}` : ''}${unknown.length ? `; unknown: ${unknown.join(', ')}` : ''}`);
+}
+for (const family of migrationRegistrySnapshot()) {
+  const versions = new Set((migrationGoldens[family.id] ?? []).map((record) => record.schemaVersion));
+  const missing = [];
+  for (let version = family.minimumReadableVersion; version <= family.currentVersion; version += 1) {
+    if (!versions.has(version)) missing.push(version);
+  }
+  if (missing.length) fail(`${family.id} schema migration goldens are missing version(s): ${missing.join(', ')}`);
+}
+checked.push('test/fixtures/schema-migrations/goldens.json');
 const fullyCompiledAutoSchemas = new Set([
   'auto-context-manifest', 'auto-agent-task-contract',
   'auto-execution-selection', 'auto-execution-event', 'auto-flight-report'

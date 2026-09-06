@@ -123,6 +123,12 @@ The connected-ledger fixture and production ledger initialization do not require
 with the enterprise Git floor while still proving that the state branch shares no application
 history.
 
+The compatibility replay at `main@35b30fa0` used Node 22.23.2 and Git 2.39.5 in a clean Linux x64
+container. The connected fixture created the orphan ledger, resolved 24 durable intents across four
+remote branches, and reported zero network calls and zero repository writes on the read path. Its
+wall-clock values are not an accepted baseline because the x64 process was emulated on an arm64
+laptop; this receipt proves the Git-floor behavior only.
+
 ## Real VS Code extension-host benchmark
 
 The CLI benchmark cannot prove that VS Code remains responsive. The repository therefore also

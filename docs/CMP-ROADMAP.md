@@ -9,11 +9,13 @@
 **Last implementation audit:** `main@3b5d79e6` on 2026-08-31; the observe-only foundation
 described below is the only implemented CMP tranche
 
-**Current reconciliation:** checked against `main@898cb4a0` on 2026-09-05; the first content-free
-P1 measurement harness is release-gated, while P1 storage/retention authority and P2–P6 remain open
+**Current reconciliation:** checked through `main@bd79630b` on 2026-09-07; the first content-free
+P1 measurement harness and the read-only P3 graph/query projection are active, while P1
+storage/retention authority, P2 authority, P3 replay, and P4–P6 remain open
 
-**Current delivery boundary:** observe-only foundation plus a synthetic content-free P1 benchmark;
-no publication gate, approval authority, durable CMP store, or new publisher
+**Current delivery boundary:** observe-only foundation, a synthetic content-free P1 benchmark, and
+a deterministic ephemeral P3 graph/query projection; no publication gate, approval authority,
+durable CMP store or index, replay, or new publisher
 
 **Related roadmaps:** [SGOS pending work](SGOS-PENDING-WORK.md) and
 [Witnessed Engineering Loop pending work](WEL-PENDING-WORK.md)
@@ -63,6 +65,11 @@ inspection boundary while preserving every existing lifecycle behavior.
 - `singularity-flow comprehension check [--base REVISION] [--bindings FILE]
   [--dispositions FILE] [--json]` evaluates supplied cause bindings and dispositions without
   persisting or authorizing them.
+- `singularity-flow comprehension graph` projects only successfully validated diagnostic bindings
+  into a bounded, content-addressed cause-to-resource graph. `comprehension explain` follows that
+  graph in either direction for an exact clause, file, or change-region subject. Unsupported
+  symbol, refusal, generation, and test sources report explicit unavailability rather than
+  guessing.
 - Baseline precedence is explicit `--base`, generation intent, current work interval, delivery
   evidence, Story base, then `HEAD`; the selected source is reported. When `--base` is combined
   with Story/phase selection, that context must still resolve and is not silently discarded.
@@ -90,8 +97,8 @@ inspection boundary while preserving every existing lifecycle behavior.
 - no `bind`, `deviate`, `split`, `packet`, or CMP-specific `approve` mutation exists;
 - no region is classified as a deterministic transformation without a reviewed receipt protocol;
 - no symbol-level, hunk-level, semantic, dependency-edge, or AST-derived completeness is claimed;
-- no cause-to-code graph, canonical Story replay, model walkthrough, selective invalidation, or
-  comprehension receipt exists;
+- no durable or authoritative cause-to-code graph, canonical Story replay, model walkthrough,
+  selective invalidation, or comprehension receipt exists;
 - no legacy repository is backfilled and no existing Story is enrolled;
 - no failure from this foundation can block ordinary file-based work or governed publication.
 
@@ -109,6 +116,13 @@ reports aggregate latency, CPU, region/unresolved-code counts, availability, and
 report excludes paths, content and content digests, causes, identities, work IDs, prompts, and
 transcripts. It remains synthetic, local, non-authoritative evidence; the release gate runs it, but
 it does not satisfy the reviewed-real-corpus or supported-platform exit criteria.
+
+The first P3 read projection landed at `main@bd79630b`. It is model-free, AST-optional, bounded to
+5,000 nodes/edges and 500 query results, rejects tampered manifests, assessments, graphs, and
+non-normalized paths, and exposes opaque exact node handles. It deliberately creates no cache or
+durable authority and cannot affect a lifecycle gate. The combined portable CMP/WEL matrix passes
+34/34 on the landing tree. Replay, gateway planning, a rebuildable index, structural expansion,
+and P2-backed durable causes remain open.
 
 ## Verified implementation status
 
@@ -129,7 +143,7 @@ as permission to submit, approve, publish, or merge.
 | P0 — contracts and reads | **Partial** | Conservative resource regions; closed cause/relationship/disposition/assurance/availability/refusal/diagnostic registries; bounded diagnostic validation; `regions` and `check`; authority ADR; no-model/no-AST/no-write/no-lifecycle tripwires; isolated npm/VSIX engine proof | Supported-platform deterministic corpus execution |
 | P1 — pilot and storage decision | **Partial** | Release-gated content-free synthetic benchmark for latency, CPU, counts, availability, and storage-size preview; no durable state | Reviewed real corpus, supported-platform measurements, storage/retention/privacy decision, record-mode preview, migration prototype, and independent rollout decision |
 | P2 — governed cause recording | **Contract fragments only** | Cause, binding, disposition, and transformation-receipt validators over untrusted diagnostic input | Trusted authority lookup, durable versioned records, migrations, proposal/confirmation/supersession, recovery, and incorporation into the existing review transaction |
-| P3 — intent graph and replay | **Not implemented** | A future operation vocabulary and roadmap only | Typed graph/index, bounded bidirectional queries, CMP gateway planner, exact expansion, deterministic replay, and reverse-convergence provenance |
+| P3 — intent graph and replay | **Partial read projection** | Deterministic ephemeral graph over validated diagnostic bindings; bounded exact clause/file/change reads; opaque handles; explicit unavailable structure; no model, AST requirement, write, or gate | Durable typed index over P2 authority, cache rebuild, gateway planner, structural expansion, deterministic replay, and reverse-convergence provenance |
 | P4 — walkthroughs | **Not implemented** | None | Typed claims, deterministic validators, model-draft boundary, dual hashes, evidence validation, staleness, and revalidation receipts |
 | P5 — enforcement | **Blocked by prerequisites** | None; ordinary publication is deliberately unchanged | Universal lifecycle Candidate, existing-review-subject binding, existing approval/publication integration, projected receipt, recovery, and opt-in creation-pinned enforcement |
 | P6 — VS Code, learning, brownfield | **Not implemented** | Help content and generic `/sf-inspect comprehension` routing only | Leased snapshot slice, Comprehension Center, navigation, replay/walkthrough/staleness views, lessons, touched-area policy, backfill, accessibility, and large-repository hardening |
@@ -137,9 +151,10 @@ as permission to submit, approve, publish, or merge.
 ### Explain-change and intent-trace boundary
 
 The registered `intent.trace` phrase family (`why does this code exist`, `trace the intent`, and
-`which decision produced this`) is not proof that CMP explanation exists. It has no CMP graph,
-bounded CMP read planner, or exact cause-to-code/code-to-cause projection behind it. The future
-public surface remains namespaced:
+`which decision produced this`) is not itself proof that CMP authority exists. The code-local pilot
+now has a bounded ephemeral CMP graph and exact cause-to-resource/resource-to-cause projection, but
+it reads caller-supplied observe-only evidence and has no durable P2 cause authority or CMP gateway
+planner. The public surface remains namespaced:
 
 ```text
 singularity-flow comprehension explain clause <CLAUSE-ID>
@@ -151,9 +166,9 @@ singularity-flow comprehension explain generation <NUMBER>
 singularity-flow comprehension explain test <TEST-ID>
 ```
 
-Until P3 lands, `/sf-regression-investigate`, `/sf-logs`, and `/sf-review` remain adjacent tools for
-regression analysis, command history, and diff review; none of them is a substitute for governed
-code-to-intent explanation.
+`/sf-inspect` can route these exact reads. `/sf-regression-investigate`, `/sf-logs`, and `/sf-review`
+remain adjacent tools for regression analysis, command history, and diff review; none of them, nor
+the observe-only graph, is a substitute for governed P2-backed code-to-intent authority.
 
 ### Audit evidence
 
@@ -182,7 +197,7 @@ v1 release criteria, any enforcement acceptance criterion, or a native VS Code C
 | `CMP-P0-001` | Finish the read-only foundation. The code-local contract, registries, authority ADR, bounded inputs, mutation tripwires, corrected `--phase` recovery text, isolated npm/VSIX loading proof, and deterministic corpus/matrix command are implemented. The unchanged matrix also passes 32/32 on Linux x64 under Node 20.20.2 and 22.23.2 at `main@780da007`. | Signed physical-host execution of the unchanged matrix command on Windows and Linux remains before P0 exit; emulated unsigned containers are portability evidence only |
 | `CMP-P1-001` | The content-free local benchmark is implemented and release-gated at `898cb4a0`; decide storage, retention, privacy, measured budgets, and creation-pinned `off`/`record` rollout | Approved ADRs, real-corpus and supported-platform evidence, migration prototype, and independent pilot review |
 | `CMP-P2-001` | Add governed cause proposals, confirmations, terminal dispositions, and narrow transformation authority | Durable schemas/migrations plus authority, staleness, recovery, ref-race, and adversarial-laundering tests |
-| `CMP-P3-001` | Implement the intent-indexed graph and `comprehension explain` reads | Bidirectional query parity, bounded exact handles, cache rebuild, gateway no-extra-tool, and unavailable-structure tests |
+| `CMP-P3-001` | The ephemeral graph and exact `comprehension explain` reads landed at `bd79630b`; add the P2-authority-backed incremental index, cache rebuild, structural expansion, and gateway planner | Current bidirectional clause/file/change parity, bounded exact handles, unavailable-structure, tamper, no-model, no-write, and no-lifecycle tests are green; cache rebuild and gateway no-extra-tool evidence remain |
 | `CMP-P3-002` | Implement deterministic comprehension replay without colliding with SGOS Process replay | Fresh-export hash stability, ordering, refusal/repair, reverse-convergence, recovery, and transcript-exclusion tests |
 | `CMP-P4-001` | Implement typed walkthroughs, validators, exact expansion, and selective/conservative staleness | Counterfeit-model, prompt-injection, malformed/overflow, Candidate/evidence/structure drift, and zero-model tests |
 | `CMP-P5-001` | Integrate CMP into the single existing Candidate/review/approval/publication transaction | `SGOS-P0-001`, every-workflow lifecycle matrix, remote rejection/push recovery, crash/retry, and fresh-export receipt verification |

@@ -2,7 +2,7 @@
 
 **Status:** authoritative cross-product tracker; bounded exact-tree aggregate and the latest code-local asynchronous Git migration are complete, while platform release evidence remains active
 
-**Baseline:** `main@2eda5b75`
+**Baseline:** `main@e8edf155`
 
 **Last reviewed:** 2026-09-06
 
@@ -81,16 +81,19 @@ a synchronous child to the bounded asynchronous process-tree runner; cancellatio
 unavailable evidence and zero mapping proposals. These remain synthetic local proofs, not signed
 Windows/Linux, office-network, or independent-verifier evidence.
 
-The real VS Code host contract was corrected through `main@2eda5b75`. Cold and warm runs now pin
+The real VS Code host contract was corrected through `main@e8edf155`. Cold and warm runs now pin
 the exact development CLI, persist the last confirmed snapshot in a bounded atomic machine-local
 cache, and reject any measured surface whose CLI child failed. First-run health runs after the first
 confirmed paint, workspace logs do not launch without an active workspace, capability readiness
 does not probe a repository with no approved capability map, and an unchanged machine selection no
-longer repeats `workspace current`. A local current-VS-Code cold/warm pair measured cached first
-paint at 155 ms and unchanged refresh at 529–586 ms against the unchanged 250 ms and 650 ms limits.
-The host-wide event-loop tail remains above its 50 ms release ceiling, and accepted 30-pair
-minimum/current platform reports remain external evidence; this is therefore a code-local
-checkpoint, not completion.
+longer repeats `workspace current`. The continuation moves status-card derivation to a bounded
+off-host worker, separates the gateway, support, panel, and World Model graphs into explicit lazy
+bundles, persists snapshots without rewriting the full VS Code Memento, and gives every bundle one
+small shared repository-context authority. A three-pair current-VS-Code run measured cached first
+paint at 197 ms p95, unchanged refresh at 427 ms p95, activation event-loop delay at 26.7 ms p95,
+and steady-state delay at 12.1 ms p95. The host-wide diagnostic tail is down to 57.3 ms p95 but
+remains above its 50 ms release ceiling. Accepted 30-pair minimum/current platform reports remain
+external evidence; this is therefore a code-local checkpoint, not completion.
 
 ## 2026-09-05 reconciliation snapshot
 
@@ -241,7 +244,7 @@ All `[~]` DXP entries below share this tracked delivery metadata:
 | Scope | Landed in `96bb55f8` | Remaining evidence before `[x]` |
 |---|---|---|
 | `DXP-P0-001` | `doctor --performance` measures its explicit invoking checkout; scale and dirty-tree fixtures cover the VS Code snapshot; a real-editor runner has version-bound minimum/current budgets, cold/warm processes, actual paint markers, event-loop delay, CPU, process counts, RSS, durable cache proof, and successful-child attestation without retaining workspace content | Accepted 30-pair reports on pinned Node 22/Linux x64 and minimum/current VS Code; office-network arm |
-| `DXP-P0-002`–`003` | real-host activation returns after providers/commands and cache publication instead of awaiting workspace inventory or the fresh snapshot; confirmed-snapshot auxiliary reads, latest-only refresh/validation, one sidebar paint, hidden-panel deferral, and a real 100-event watcher exercise are measured; unchanged selection and absent capability/log scopes no longer launch redundant children | Accepted 10-second real extension-host storms with CPU/RSS/process budgets on minimum and current VS Code; attribute and lower the event-loop tail without raising budgets |
+| `DXP-P0-002`–`003` | real-host activation returns after providers/commands and cache publication instead of awaiting workspace inventory or the fresh snapshot; confirmed-snapshot auxiliary reads, latest-only refresh/validation, one sidebar paint, hidden-panel deferral, an off-host status worker, explicit lazy bundles, and a real 100-event watcher exercise are measured; unchanged selection and absent capability/log scopes no longer launch redundant children | Accepted 10-second real extension-host storms with CPU/RSS/process budgets on minimum and current VS Code; attribute and lower the remaining 57.3 ms diagnostic event-loop tail without raising budgets |
 | `DXP-P0-004`–`006` | reviewed enterprise proxy/CA/helper parity, bounded process-tree supervisor, and centralized partial-clone fallback | live Windows GCM, Git Bash, macOS helper, office proxy/CA, provider filter, and descendant-cleanup exercises |
 | `DXP-P1-001`–`002` | leased heavy slices, linear bounded output, JSON stdout isolation, and lazy workspace/capability startup readers | accepted peak-RSS and module-load release budgets on the pinned hosts |
 | `DXP-P1-003`, `DXP-P2-001` | one operation-scoped remote session, broad inventory reuse, mutation invalidation, exact revalidation, and asynchronous configuration/ledger/WMB/lifecycle authority reads; no product workflow calls the retained synchronous compatibility transport | collect pinned host measurements and remove the compatibility API only in a separately reviewed breaking release |

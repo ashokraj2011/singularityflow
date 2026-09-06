@@ -6,7 +6,7 @@
 
 **Created:** 2026-08-30
 
-**Current reconciliation:** checked against `main@9ea94aac` on 2026-09-06. Commits `259b76f1`,
+**Current reconciliation:** checked against `main@e8edf155` on 2026-09-06. Commits `259b76f1`,
 `58d9329d`, and `d55229c7` provide the bounded exact-static JUnit identity adapter, immutable
 proposal snapshot, human review through the existing phase approval, migration, safe command-shape
 fallbacks, the evolving content-free benchmark, and same-process unenrolled delta measurement. Commit
@@ -238,6 +238,16 @@ release-gate benchmark), `e3330e80` (same-process incremental observation cost),
 model-free governed Story-start transaction latency and workflow-byte measurement), and `116d6f43`
 (content-free post-preflight push-failure and exact-sync recovery measurement), and `9ea94aac`
 (offline/fresh-clone/interrupted-write recovery plus cancellable parser boundary).
+
+Local verification checkpoint on `main@e8edf155`:
+
+- `npm run test:platform:cmp-wel`: 27 passed, 0 failed;
+- `npm run benchmark:wel`: 12 content-free samples completed, including exact-static/inexact
+  classification, zero false-exact matches, exact retained-commit push recovery, offline recovery,
+  fresh-clone equality, interrupted-write restoration, and cancellation with zero proposals;
+- all results remain local macOS arm64/Node 25 observe-only evidence. They do not replace the
+  independent review, authenticated runner, real-repository corpus, office-network, Windows/Linux,
+  or signed package/platform receipts required below.
 
 Still required before completion: reviewed real-repository corpus metrics, office-network remote
 Story publication latency measurements, an approved Flow Impact design, live office/offline and

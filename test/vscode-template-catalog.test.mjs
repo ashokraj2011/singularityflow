@@ -13,6 +13,7 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { nodeTypeScriptFlags } from '../scripts/typescript-runtime.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const treeModule = pathToFileURL(path.join(packageRoot, 'apps/vscode/src/views/tree-model.ts')).href;
@@ -35,13 +36,12 @@ function rows(templates) {
       label: child.label, description: child.description, tooltip: child.tooltip
     }))));
   `;
-  const result = spawnSync(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e', source], {
+  const result = spawnSync(process.execPath, [...nodeTypeScriptFlags(packageRoot), '--input-type=module', '-e', source], {
     encoding: 'utf8', cwd: packageRoot, timeout: 60_000
   });
   assert.equal(result.status, 0, `child failed: ${result.stderr}`);
   return JSON.parse(result.stdout);
 }
-
 
 
 

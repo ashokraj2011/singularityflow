@@ -87,6 +87,14 @@ test('registered-v4 omission expands to every installed active exact contract', 
   ]);
 });
 
+test('view catalogs accept single-use iterable prompt references on every supported Node runtime', () => {
+  const promptReferences = new Map([
+    ['development', 'prompt'],
+    ['testing', 'prompt']
+  ]).keys();
+  assert.deepEqual(worldModelViewCatalog({ phases: {} }, promptReferences), ['development', 'testing']);
+});
+
 test('world-model workflow usage resolves inherited, overridden, empty, and disabled view routes', () => {
   const usage = worldModelWorkflowViewUsage({
     phases: {

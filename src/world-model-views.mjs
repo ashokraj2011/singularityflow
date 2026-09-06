@@ -96,9 +96,10 @@ export function worldModelViewContractCatalog(definition, promptViews = []) {
   const configured = configuredContractById(definition);
   const ordered = [...configured.values()];
   const present = new Set(configured.keys());
+  const prompted = promptViews == null ? [] : [...promptViews];
   const inferred = [
     ...structuredWorldModelViewReferences(definition).keys(),
-    ...promptViews.map((view) => worldModelViewIdentity(definition, view)?.id).filter(Boolean)
+    ...prompted.map((view) => worldModelViewIdentity(definition, view)?.id).filter(Boolean)
   ].filter((id) => !present.has(id)).sort();
   for (const id of inferred) {
     if (present.has(id)) continue;

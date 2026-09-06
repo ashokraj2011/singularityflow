@@ -6,22 +6,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolvePlatformProcess } from '../src/platform-process.mjs';
 import { signalProcessTree } from '../src/util.mjs';
+import { nodeTypeScriptFlags } from './typescript-runtime.mjs';
 
 const moduleFile = fileURLToPath(import.meta.url);
 const root = path.resolve(path.dirname(moduleFile), '..');
 const npm = 'npm';
 
 export const POC_RELEASE_TERMINATION_GRACE_MS = 5_000;
-
-function nodeTestFlags(rootDir = root, version = process.versions.node) {
-  const [nodeMajor, nodeMinor] = String(version).split('.').map(Number);
-  if (nodeMajor < 20) {
-    throw new Error(`POC release gate requires Node.js 20 or newer; found v${version}.`);
-  }
-  return nodeMajor > 22 || (nodeMajor === 22 && nodeMinor >= 6)
-    ? ['--experimental-strip-types', '--no-warnings=ExperimentalWarning']
-    : ['--experimental-loader', path.join(rootDir, 'scripts', 'typescript-test-loader.mjs')];
-}
 
 /**
  * The complete, bounded POC release contract.
@@ -30,7 +21,7 @@ function nodeTestFlags(rootDir = root, version = process.versions.node) {
  * possible for the gate's own tests to inspect the contract without recursively running the gate.
  */
 export function pocReleaseStages({ rootDir = root, nodeVersion = process.versions.node } = {}) {
-  const typescriptTestFlags = nodeTestFlags(rootDir, nodeVersion);
+  const typescriptTestFlags = nodeTypeScriptFlags(rootDir, nodeVersion);
   const releaseReporterFlags = [
     '--test-reporter', path.join(rootDir, 'scripts', 'release-test-reporter.mjs')
   ];

@@ -17,6 +17,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { nodeTypeScriptFlags } from '../scripts/typescript-runtime.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const storeModule = pathToFileURL(path.join(packageRoot, 'apps/vscode/src/state.ts')).href;
@@ -76,7 +77,7 @@ function drive({ failures, recovers = true, attemptWorkMs = 0 }) {
       published
     }));
   `;
-  const result = spawnSync(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e', source], {
+  const result = spawnSync(process.execPath, [...nodeTypeScriptFlags(packageRoot), '--input-type=module', '-e', source], {
     encoding: 'utf8', cwd: packageRoot, timeout: 60_000
   });
   assert.equal(result.status, 0, `child failed: ${result.stderr}`);
@@ -186,7 +187,7 @@ test('overlapping refreshes coalesce without aborting paid work or fanning out s
     await Promise.all([first, second]);
     process.stdout.write(JSON.stringify({ calls, aborted, events, marker: store.current.snapshot?.marker }));
   `;
-  const result = spawnSync(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e', source], {
+  const result = spawnSync(process.execPath, [...nodeTypeScriptFlags(packageRoot), '--input-type=module', '-e', source], {
     encoding: 'utf8', cwd: packageRoot, timeout: 10_000
   });
   assert.equal(result.status, 0, result.stderr);
@@ -221,7 +222,7 @@ test('loading a new snapshot slice cannot reuse a revision from a smaller projec
     await store.ensureSlices(['configuration']);
     process.stdout.write(JSON.stringify({ calls, definitionText: store.current.snapshot?.definitionText }));
   `;
-  const result = spawnSync(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e', source], {
+  const result = spawnSync(process.execPath, [...nodeTypeScriptFlags(packageRoot), '--input-type=module', '-e', source], {
     encoding: 'utf8', cwd: packageRoot, timeout: 10_000
   });
   assert.equal(result.status, 0, result.stderr);
@@ -250,7 +251,7 @@ test('loading a missing slice reports that it already refreshed, so Start Work d
     const secondRefreshed = await store.ensureSlices(['configuration']);
     process.stdout.write(JSON.stringify({ calls, firstRefreshed, secondRefreshed }));
   `;
-  const result = spawnSync(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e', source], {
+  const result = spawnSync(process.execPath, [...nodeTypeScriptFlags(packageRoot), '--input-type=module', '-e', source], {
     encoding: 'utf8', cwd: packageRoot, timeout: 10_000
   });
   assert.equal(result.status, 0, result.stderr);
@@ -287,7 +288,7 @@ test('a cached heavy panel does not make the next activation reload every heavy 
     await store.refresh();
     process.stdout.write(JSON.stringify({ requested }));
   `;
-  const result = spawnSync(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e', source], {
+  const result = spawnSync(process.execPath, [...nodeTypeScriptFlags(packageRoot), '--input-type=module', '-e', source], {
     encoding: 'utf8', cwd: packageRoot, timeout: 10_000
   });
   assert.equal(result.status, 0, result.stderr);

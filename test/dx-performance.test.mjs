@@ -646,9 +646,10 @@ test('every test that loads TypeScript runs with type stripping, whatever suite 
    * than the behaviour because the failure is a coupling, and a coupling is visible in the source
    * and invisible in a passing run.
    */
-  const [runner, planner] = await Promise.all([
+  const [runner, planner, runtime] = await Promise.all([
     readFile(path.join(root, 'scripts', 'run-test-suite.mjs'), 'utf8'),
-    readFile(path.join(root, 'scripts', 'test-suite-plan.mjs'), 'utf8')
+    readFile(path.join(root, 'scripts', 'test-suite-plan.mjs'), 'utf8'),
+    readFile(path.join(root, 'scripts', 'typescript-runtime.mjs'), 'utf8')
   ]);
   assert.match(planner, /function needsTypeStripping\(source\)/,
     'the shared planner decides type stripping from what a file loads');
@@ -662,7 +663,9 @@ test('every test that loads TypeScript runs with type stripping, whatever suite 
     'release mode must inspect actual Node test outcomes rather than compare file counters');
   assert.doesNotMatch(runner, /selected\.length !== eligibleFiles/,
     'release enforcement must not be a tautological selected-file count');
-  assert.match(runner, /typescript-test-loader\.mjs/,
+  assert.match(runner, /nodeTypeScriptFlags/,
+    'every selected TypeScript-dependent file must use the shared runtime boundary');
+  assert.match(runtime, /typescript-test-loader\.mjs/,
     'supported Node 20 must execute TypeScript-dependent tests through the bounded loader');
   assert.doesNotMatch(runner, /skipped\.push\(relative\)/,
     'supported Node 20 must not silently remove TypeScript-dependent files from the suite');

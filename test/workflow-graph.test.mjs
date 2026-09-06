@@ -16,6 +16,7 @@ import test from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import YAML from 'yaml';
 import { readFile } from 'node:fs/promises';
+import { nodeTypeScriptFlags } from '../scripts/typescript-runtime.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const modelUrl = pathToFileURL(path.join(packageRoot, 'apps/vscode/src/views/workflow-graph-model.ts')).href;
@@ -32,7 +33,7 @@ function drive(body) {
     const snapshot = { definition };
     ${body}
   `;
-  const result = spawnSync(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e', source], {
+  const result = spawnSync(process.execPath, [...nodeTypeScriptFlags(packageRoot), '--input-type=module', '-e', source], {
     encoding: 'utf8', cwd: packageRoot, timeout: 60_000
   });
   assert.equal(result.status, 0, `child failed: ${result.stderr}`);

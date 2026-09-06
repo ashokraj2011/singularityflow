@@ -1405,7 +1405,8 @@ test('AST Intelligence edits every policy layer through one guarded VS Code surf
     'an action rendered for another repository never reaches the CLI');
 
   await panel.post({ type: 'save-machine', mode: 'off' });
-  await until(() => panel.webview.html.includes('Machine AST preference set to off') ? true : null);
+  assert.match(panel.webview.html, /Machine AST preference set to off/,
+    'awaiting the webview message must await its persisted machine preference');
   assert.equal(YAML.parse(await readFile(process.env.SINGULARITY_FLOW_AST_PREFERENCE_FILE, 'utf8')).mode, 'off');
   await panel.post({ type: 'save-machine', mode: 'auto' });
   await until(() => panel.webview.html.includes('Machine AST preference set to auto') ? true : null);
@@ -1418,7 +1419,8 @@ test('AST Intelligence edits every policy layer through one guarded VS Code surf
     languages: 'typescript | auto | text',
     predicates: 'entrypoint | advisory | path-exists | README.md | text'
   }));
-  await until(() => panel.webview.html.includes('Repository AST policy saved locally') ? true : null);
+  assert.match(panel.webview.html, /Repository AST policy saved locally/,
+    'awaiting the webview message must await its saved repository policy');
   const workflow = YAML.parse(await readFile(path.join(root, 'singularity', 'workflow.yml'), 'utf8'));
   assert.deepEqual(workflow.ast, {
     mode: 'auto', fallback: 'text-only', evidence: { mode: 'identified' }, generatedRoots: ['generated/types'],

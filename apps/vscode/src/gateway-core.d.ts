@@ -265,8 +265,8 @@ declare module '*/world-model-views.mjs' {
   export function worldModelViewIdentity(definition: any, value: string): Readonly<{
     id: string; reference: string; version: number | null;
   }> | null;
-  export function worldModelViewCatalog(definition: any, promptViews?: string[]): string[];
-  export function worldModelViewContractCatalog(definition: any, promptViews?: string[]): Array<Readonly<{
+  export function worldModelViewCatalog(definition: any, promptViews?: Iterable<string>): string[];
+  export function worldModelViewContractCatalog(definition: any, promptViews?: Iterable<string>): Array<Readonly<{
     id: string; reference: string; version: number | null;
   }>>;
 }

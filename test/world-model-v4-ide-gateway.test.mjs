@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { nodeTypeScriptFlags } from '../scripts/typescript-runtime.mjs';
 
 import { gatewayRegistry } from '../src/gateway/operations.mjs';
 import {
@@ -343,7 +344,7 @@ test('a cached Explorer payload cannot rejoin the next activation without a leas
     const primed = store.primeFromCache();
     process.stdout.write(JSON.stringify({ primed, snapshot: store.current.snapshot }));
   `;
-  const result = spawnSync(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e', source], {
+  const result = spawnSync(process.execPath, [...nodeTypeScriptFlags(packageRoot), '--input-type=module', '-e', source], {
     encoding: 'utf8', cwd: packageRoot, timeout: 60_000
   });
   assert.equal(result.status, 0, result.stderr);
@@ -386,7 +387,7 @@ test('named World Model leases renew, expire, and evict the heavy payload after 
     await store.refresh();
     process.stdout.write(JSON.stringify({ loaded, survivedOriginalExpiry, evicted, firstExpiry, renewedExpiry, finalSlices:calls.at(-1) }));
   `;
-  const result = spawnSync(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e', source], {
+  const result = spawnSync(process.execPath, [...nodeTypeScriptFlags(packageRoot), '--input-type=module', '-e', source], {
     encoding: 'utf8', cwd: packageRoot, timeout: 60_000
   });
   assert.equal(result.status, 0, result.stderr);

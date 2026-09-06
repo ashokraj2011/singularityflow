@@ -399,7 +399,7 @@ export class AstIntelligencePanel {
       this.preview = null; this.result = null; void this.refresh();
     });
     panel.webview.onDidReceiveMessage((raw) => {
-      const navigation = navigationTarget(raw); if (navigation) return void navigateTo(navigation); this.router.route(raw);
+      const navigation = navigationTarget(raw); if (navigation) return navigateTo(navigation); return this.router.route(raw);
     });
     panel.onDidDispose(() => this.dispose());
     panel.onDidChangeViewState?.(({ webviewPanel }) => {
@@ -431,22 +431,22 @@ export class AstIntelligencePanel {
   }
   static repositoryChanged(): void { if (AstIntelligencePanel.current) { AstIntelligencePanel.current.doctor = null; AstIntelligencePanel.current.preview = null; AstIntelligencePanel.current.warmPreview = null; AstIntelligencePanel.current.result = null; AstIntelligencePanel.current.notice = null; AstIntelligencePanel.current.error = null; AstIntelligencePanel.current.repositoryInventory = null; AstIntelligencePanel.current.repositoryInventoryError = null; AstIntelligencePanel.current.repositoryInventoryLoaded = false; void AstIntelligencePanel.current.refresh(); } }
   private router = registerMessageRouter('singularityFlow.astIntelligence', {
-    refresh: () => { void this.refresh(); },
-    'save-machine': (message) => { const mode = enumField(message, 'mode', ['auto', 'off'] as const); if (mode) void this.saveMachine(mode); },
-    'select-repository': (message) => { void this.selectRepository(message); },
-    'save-policy': (message) => { void this.savePolicy(message); },
-    'run-scope': (message) => { void this.runScope(message); },
-    'continue-context': (message) => { void this.continueContext(message); },
-    'preview-warm': (message) => { void this.previewWarm(message); },
-    'execute-warm': (message) => { const confirmation = stringField(message, 'confirmation'); if (confirmation) void this.executeWarm(confirmation, message); },
-    'preview-cache': (message) => { const kind = enumField(message, 'kind', ['prune', 'clear'] as const); if (kind) void this.previewCache(kind, message); },
-    'execute-cache': (message) => { const kind = enumField(message, 'kind', ['prune', 'clear'] as const); const confirmation = stringField(message, 'confirmation'); if (kind && confirmation) void this.executeCache(kind, confirmation, message); },
-    'open-configuration': () => { void vscode.commands.executeCommand('singularityFlow.openConfigurationCenter'); },
-    'open-workspaces': () => { void vscode.commands.executeCommand('singularityFlow.openWorkspaces'); },
-    'open-workflow': (message) => { if (this.acceptsRepositoryScope(message)) void vscode.commands.executeCommand('singularityFlow.openArtifact', { path: 'singularity/workflow.yml', label: 'workflow.yml' }); },
-    'open-help': () => {
-      void vscode.commands.executeCommand('singularityFlow.openHelp', { id: 'help:world-model' });
-    }
+    refresh: () => this.refresh(),
+    'save-machine': (message) => { const mode = enumField(message, 'mode', ['auto', 'off'] as const); return mode ? this.saveMachine(mode) : undefined; },
+    'select-repository': (message) => this.selectRepository(message),
+    'save-policy': (message) => this.savePolicy(message),
+    'run-scope': (message) => this.runScope(message),
+    'continue-context': (message) => this.continueContext(message),
+    'preview-warm': (message) => this.previewWarm(message),
+    'execute-warm': (message) => { const confirmation = stringField(message, 'confirmation'); return confirmation ? this.executeWarm(confirmation, message) : undefined; },
+    'preview-cache': (message) => { const kind = enumField(message, 'kind', ['prune', 'clear'] as const); return kind ? this.previewCache(kind, message) : undefined; },
+    'execute-cache': (message) => { const kind = enumField(message, 'kind', ['prune', 'clear'] as const); const confirmation = stringField(message, 'confirmation'); return kind && confirmation ? this.executeCache(kind, confirmation, message) : undefined; },
+    'open-configuration': () => vscode.commands.executeCommand('singularityFlow.openConfigurationCenter'),
+    'open-workspaces': () => vscode.commands.executeCommand('singularityFlow.openWorkspaces'),
+    'open-workflow': (message) => this.acceptsRepositoryScope(message)
+      ? vscode.commands.executeCommand('singularityFlow.openArtifact', { path: 'singularity/workflow.yml', label: 'workflow.yml' })
+      : undefined,
+    'open-help': () => vscode.commands.executeCommand('singularityFlow.openHelp', { id: 'help:world-model' })
   });
   private dispose(): void {
     if (this.disposed) return;

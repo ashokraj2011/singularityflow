@@ -12,8 +12,8 @@ test('POC release gate covers the installed CLI and guided SGOS behavior on its 
   const gate = await readFile(path.join(root, 'scripts', 'poc-release-gate.mjs'), 'utf8');
   assert.match(gate, /resolvePlatformProcess/,
     'npm must use the centralized Windows-safe process resolver');
-  assert.match(gate, /typescript-test-loader\.mjs/,
-    'Node 20 must execute the guided TypeScript behavior test rather than skip it');
+  assert.match(gate, /nodeTypeScriptFlags/,
+    'Node 20 and Node 22 must share the guarded TypeScript runtime selector');
   assert.match(gate, /test\/poc-lite-workflow\.test\.mjs/,
     'the release gate must exercise the model-free POC Lite lifecycle');
   assert.match(gate, /test\/mcp-auth-profile\.test\.mjs/,
@@ -142,14 +142,16 @@ test('packaged CLI smoke installs the tarball into an isolated prefix before exe
 });
 
 test('Node 20 executes TypeScript tests and release authorities still refuse future skips', async () => {
-  const [runner, release, receipt] = await Promise.all([
+  const [runner, runtime, release, receipt] = await Promise.all([
     readFile(path.join(root, 'scripts', 'run-test-suite.mjs'), 'utf8'),
+    readFile(path.join(root, 'scripts', 'typescript-runtime.mjs'), 'utf8'),
     readFile(path.join(root, 'scripts', 'release.mjs'), 'utf8'),
     readFile(path.join(root, 'scripts', 'verification-receipt.mjs'), 'utf8')
   ]);
   assert.match(runner, /process\.env\.SINGULARITY_FLOW_RELEASE_FAIL_ON_SKIPPED_TEST_FILES === '1'/);
   assert.match(runner, /release-test-reporter\.mjs/);
-  assert.match(runner, /typescript-test-loader\.mjs/);
+  assert.match(runner, /nodeTypeScriptFlags/);
+  assert.match(runtime, /typescript-test-loader\.mjs/);
   assert.doesNotMatch(runner, /skipped\.push\(relative\)/,
     'a supported Node release must execute, rather than omit, the selected test file');
   assert.match(release, /SINGULARITY_FLOW_RELEASE_FAIL_ON_SKIPPED_TEST_FILES: '1'/);

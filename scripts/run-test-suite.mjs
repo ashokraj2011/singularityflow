@@ -9,6 +9,7 @@ import { signalProcessTree } from '../src/util.mjs';
 import {
   discoverTestSuite, parsePositiveInteger, parseShard, partitionTestFiles, TEST_SUITES, testRunId
 } from './test-suite-plan.mjs';
+import { nodeTypeScriptFlags } from './typescript-runtime.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const argv = process.argv.slice(2);
@@ -38,14 +39,10 @@ if (argv.includes('--list')) {
  * Node 20 uses the repository's bounded TypeScript loader. A supported runtime therefore executes
  * the same selected files instead of silently reporting a smaller green suite.
  */
-const [major, minor] = process.versions.node.split('.').map(Number);
-const canStripTypes = major > 22 || (major === 22 && minor >= 6);
 const needsStripping = selectedShard.files.some((file) => file.needsTypeStripping);
 const failOnSkippedFiles = process.env.SINGULARITY_FLOW_RELEASE_FAIL_ON_SKIPPED_TEST_FILES === '1';
-const flags = !needsStripping ? [] : canStripTypes
-  ? ['--experimental-strip-types', '--no-warnings=ExperimentalWarning']
-  : ['--experimental-loader', path.join(root, 'scripts', 'typescript-test-loader.mjs')];
-if (needsStripping && !canStripTypes) {
+const flags = needsStripping ? nodeTypeScriptFlags(root) : [];
+if (needsStripping && flags.includes('--experimental-loader')) {
   console.warn(`Node ${process.versions.node} will execute TypeScript-dependent tests through the bounded repository loader.`);
 }
 const releaseReporterFlags = failOnSkippedFiles

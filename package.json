@@ -90,7 +90,7 @@
     "vscode:demo:github": "node scripts/vscode-dev.mjs --github",
     "vscode:demo:clean": "node scripts/vscode-dev.mjs --clean-github",
     "vscode:package": "node scripts/vscode-dev.mjs --package",
-    "vscode:visual-fixtures": "node --experimental-strip-types scripts/render-vscode-visual-fixtures.mjs",
+    "vscode:visual-fixtures": "node scripts/run-typescript-module.mjs scripts/render-vscode-visual-fixtures.mjs",
     "vscode:host-benchmark": "node scripts/vscode-host-benchmark.mjs",
     "vscode:bundle-budget": "node scripts/vscode-bundle-budget.mjs",
     "release": "node scripts/release.mjs",

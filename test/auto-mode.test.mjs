@@ -137,6 +137,13 @@ function run(command, args, cwd, { allowFailure = false, env = {} } = {}) {
   return result;
 }
 
+function cloneRecoveryFixture(remote, destination, cwd) {
+  // Exercise the upload-pack transport used by a real remote. A local-path clone otherwise uses
+  // Git's hard-link/copy optimisation, which is explicitly unsafe while the source repository can
+  // receive maintenance or ref updates and has produced intermittent missing-object races on macOS.
+  return run('git', ['clone', '--no-local', '--branch', 'main', '--', remote, destination], cwd);
+}
+
 async function repository() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-auto-'));
   run('git', ['init', '-b', 'main'], root);
@@ -1414,7 +1421,7 @@ test('a model failure after writing seals a remotely reachable Candidate before 
   const recoveryRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-auto-partial-recovery-'));
   t.after(() => rm(recoveryRoot, { recursive: true, force: true }));
   const remote = run('git', ['remote', 'get-url', 'origin'], root).stdout.trim();
-  run('git', ['clone', '--branch', 'main', '--', remote, recoveryRoot], root);
+  cloneRecoveryFixture(remote, recoveryRoot, root);
   run('git', ['config', 'user.name', 'Auto Recovery Tester'], recoveryRoot);
   run('git', ['config', 'user.email', 'auto-recovery@example.com'], recoveryRoot);
   const rebuilt = await rebuildAutoFlightState(recoveryRoot, {
@@ -1835,7 +1842,7 @@ test('interval pacing durably gates each bounded operation without a background 
 
   const recoveryRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-auto-interval-recovery-'));
   const remote = run('git', ['remote', 'get-url', 'origin'], root).stdout.trim();
-  run('git', ['clone', '--branch', 'main', '--', remote, recoveryRoot], root);
+  cloneRecoveryFixture(remote, recoveryRoot, root);
   run('git', ['config', 'user.name', 'Auto Recovery Tester'], recoveryRoot);
   run('git', ['config', 'user.email', 'auto-recovery@example.com'], recoveryRoot);
   const rebuilt = await rebuildAutoFlightState(recoveryRoot, {
@@ -1871,7 +1878,7 @@ test('fresh-clone recovery after Candidate freeze restores authority without ano
   const recoveryRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-auto-candidate-recovery-'));
   t.after(() => rm(recoveryRoot, { recursive: true, force: true }));
   const remote = run('git', ['remote', 'get-url', 'origin'], root).stdout.trim();
-  run('git', ['clone', '--branch', 'main', '--', remote, recoveryRoot], root);
+  cloneRecoveryFixture(remote, recoveryRoot, root);
   run('git', ['config', 'user.name', 'Auto Recovery Tester'], recoveryRoot);
   run('git', ['config', 'user.email', 'auto-recovery@example.com'], recoveryRoot);
   let rebuilt = await rebuildAutoFlightState(recoveryRoot, {
@@ -2098,7 +2105,7 @@ test('halt records stop-requested before quiescence and preserves the exact even
   const recoveryRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-auto-halt-recovery-'));
   t.after(() => rm(recoveryRoot, { recursive: true, force: true }));
   const remote = run('git', ['remote', 'get-url', 'origin'], root).stdout.trim();
-  run('git', ['clone', '--branch', 'main', '--', remote, recoveryRoot], root);
+  cloneRecoveryFixture(remote, recoveryRoot, root);
   run('git', ['config', 'user.name', 'Auto Recovery Tester'], recoveryRoot);
   run('git', ['config', 'user.email', 'auto-recovery@example.com'], recoveryRoot);
   const rebuilt = await rebuildAutoFlightState(recoveryRoot, {

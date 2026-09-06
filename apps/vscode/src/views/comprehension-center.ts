@@ -134,7 +134,8 @@ export class ComprehensionCenterPanel {
     });
     panel.webview.onDidReceiveMessage((message) => router.route(message), null, this.subscriptions);
     panel.onDidChangeViewState(() => {
-      if (panel.visible) this.renewLease();
+      if (panel.visible) void this.ensureLease();
+      else this.releaseLease();
     }, null, this.subscriptions);
     panel.onDidDispose(() => this.dispose(), null, this.subscriptions);
     this.subscription = store.onDidChange((state, change) => {
@@ -197,8 +198,16 @@ export class ComprehensionCenterPanel {
   }
 
   private renewLease(): void {
-    try { this.lease?.renew(DEFAULT_COMPREHENSION_SLICE_LEASE_MS); }
+    if (!this.lease) { void this.ensureLease(); return; }
+    try { this.lease.renew(DEFAULT_COMPREHENSION_SLICE_LEASE_MS); }
     catch { this.lease = null; void this.ensureLease(); }
+  }
+
+  private releaseLease(): void {
+    if (this.renewal) clearInterval(this.renewal);
+    this.renewal = null;
+    this.lease?.dispose();
+    this.lease = null;
   }
 
   private async refresh(): Promise<void> {
@@ -256,10 +265,7 @@ export class ComprehensionCenterPanel {
   private dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    if (this.renewal) clearInterval(this.renewal);
-    this.renewal = null;
-    this.lease?.dispose();
-    this.lease = null;
+    this.releaseLease();
     this.subscription?.dispose();
     this.subscription = null;
     for (const disposable of this.subscriptions.splice(0)) disposable.dispose();

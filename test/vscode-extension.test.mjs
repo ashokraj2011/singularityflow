@@ -5203,6 +5203,8 @@ test('Comprehension Center is a lazy leased read-only surface with explicit unkn
     'opening the Center acquires only its dedicated heavy slice');
   assert.match(panel, /this\.lease\?\.dispose\(\)/,
     'closing the Center releases the comprehension projection');
+  assert.match(panel, /panel\.visible\) void this\.ensureLease\(\);[\s\S]*else this\.releaseLease\(\)/,
+    'hiding the Center releases the heavy slice and showing it reacquires through one flight');
   assert.match(panel, /DEFAULT_COMPREHENSION_SLICE_LEASE_MS/,
     'a lost webview cannot pin the projection forever');
   assert.doesNotMatch(panel, /client\.run|request\.model|phase publish|submit/,

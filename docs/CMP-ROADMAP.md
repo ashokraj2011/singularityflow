@@ -9,17 +9,20 @@
 **Last formal specification audit:** `main@3b5d79e6` on 2026-08-31; subsequent bounded increments
 are reconciled individually below and do not change that audit's authority/enforcement verdict
 
-**Current reconciliation:** checked through `main@6f0227d9` on 2026-09-07; the first content-free
+**Current reconciliation:** checked through `main@eb88b989` on 2026-09-07; the first content-free
 P1 measurement harness and read-only P3 graph/query/Story-replay projections are active, and the
 existing five-tool gateway now serves a conservative resource-level `intent.trace`. P4 now has a
-bounded observe-only typed walkthrough validator for exact resource-level diff facts. P1
+bounded observe-only typed walkthrough validator for exact resource-level diff facts. P6 now has
+an initial leased, read-only VS Code Comprehension Center over those same projections. P1
 storage/retention authority, P2 authority, the P3 durable index and cause-backed gateway/SGOS joins,
-authoritative P4 drafting/validation/receipts, structural/evidence validators, and P5–P6 remain open
+authoritative P4 drafting/validation/receipts, structural/evidence validators, P5, and the remaining
+P6 learning/brownfield/production evidence remain open
 
 **Current delivery boundary:** observe-only foundation, a synthetic content-free P1 benchmark,
-deterministic ephemeral P3 graph/query and normalized Story-history replay projections, and a
-model-free resource-change gateway fallback; no publication gate, approval authority, durable CMP
-store or index, governed gateway cause, SGOS Process join, causal replay, or new publisher
+deterministic ephemeral P3 graph/query and normalized Story-history replay projections, a
+model-free resource-change gateway fallback, and an explicitly leased read-only VS Code projection;
+no publication gate, approval authority, durable CMP store or index, governed gateway cause, SGOS
+Process join, causal replay, or new publisher
 
 **Related roadmaps:** [SGOS pending work](SGOS-PENDING-WORK.md) and
 [Witnessed Engineering Loop pending work](WEL-PENDING-WORK.md)
@@ -84,6 +87,12 @@ inspection boundary while preserving every existing lifecycle behavior.
   structural, evidence-backed, and human claims remain unavailable and model advice remains
   advisory. The draft must be in an ignored repository-local evidence path so it cannot become a
   circular part of the Candidate it describes.
+- VS Code now exposes a model-free **Comprehension Center** from Help, Favorites, and the command
+  palette. Opening it leases a dedicated `comprehension` snapshot slice; closing it evicts that
+  payload, and cached activation snapshots cannot restore it without a lease. The Center presents
+  exact resource regions, an explicit unavailable cause view, the deterministic narrow walkthrough,
+  a content-free Story replay, and explicit unknowns. File navigation accepts only paths present in
+  the current engine-owned slice. It performs no lifecycle mutation or independent CLI read.
 - The already-registered gateway operation `intent.trace` now resolves through the existing five
   gateway tools in the CLI and VS Code hosts. It can report exact current resource-level change
   regions for one normalized repository path, but reports governed cause as unavailable until P2
@@ -119,6 +128,7 @@ inspection boundary while preserving every existing lifecycle behavior.
 - no durable or authoritative cause-to-code graph, canonical Story replay, model-draft transport,
   authoritative walkthrough, selective invalidation, or comprehension receipt exists;
 - no legacy repository is backfilled and no existing Story is enrolled;
+- no Comprehension Center control authors, confirms, approves, publishes, or repairs anything;
 - no failure from this foundation can block ordinary file-based work or governed publication.
 
 The code-local P0 boundary now has bounded/escaped-input refusal, explicit zero-model/zero-AST/
@@ -204,7 +214,7 @@ as permission to submit, approve, publish, or merge.
 | P3 — intent graph and replay | **Partial read projection** | Deterministic ephemeral graph over validated diagnostic bindings; bounded exact clause/file/change reads; opaque handles; content-free normalized Story chronology; existing five-tool gateway resource fallback; explicit unavailable cause/structure; no model, AST requirement, write, or gate | Durable typed index over P2 authority, cache rebuild, cause-backed gateway query, structural expansion, SGOS/cause joins, causal replay, and governed reverse-convergence/post-hoc provenance |
 | P4 — walkthroughs | **Partial read validation** | Deterministic zero-model resource draft; bounded untrusted typed draft; exact resource-level `file-changed` validator; explicit unavailable structure/evidence/human authority; advisory-only model claims; dual hashes; Candidate/dependency integrity; circular-input refusal; selective observe-only revalidation; narrative/fact separation; bounded sources; no model, AST, write, or gate | Optional untrusted model-draft transport, authoritative structural/evidence/human validators, exact source expansion beyond resource diff, authoritative dependency resolution, durable revalidation receipts, persistence, and governed review |
 | P5 — enforcement | **Blocked by prerequisites** | None; ordinary publication is deliberately unchanged | Universal lifecycle Candidate, existing-review-subject binding, existing approval/publication integration, projected receipt, recovery, and opt-in creation-pinned enforcement |
-| P6 — VS Code, learning, brownfield | **Not implemented** | Help content and generic `/sf-inspect comprehension` routing only | Leased snapshot slice, Comprehension Center, navigation, replay/walkthrough/staleness views, lessons, touched-area policy, backfill, accessibility, and large-repository hardening |
+| P6 — VS Code, learning, brownfield | **Partial read projection** | Dedicated leased/evicted `comprehension` snapshot slice; Help/Favorites/palette entry points; exact resource navigation; explicit unavailable-cause view; deterministic walkthrough; content-free replay; explicit unknowns; no model, AST requirement, write, or lifecycle authority | Exact diff/source expansion; available-symbol/evidence navigation; durable stale-claim and repair-plan views; lessons; touched-area policy; labelled backfill; extension-host accessibility/localization/offline/office/large-repository evidence |
 
 ### Explain-change and intent-trace boundary
 
@@ -247,8 +257,9 @@ Evidence on `main@3b5d79e6`:
   mode-changed, symlink, binary, type-changed, and unsupported-extension resources; both the release
   gate and `npm run test:platform:cmp-wel` execute it.
 
-This evidence proves the observe-only pilot and its packaging boundary. It does not satisfy the CMP
-v1 release criteria, any enforcement acceptance criterion, or a native VS Code Comprehension Center.
+This evidence proves the observe-only pilot and its packaging boundary. The first native VS Code
+Comprehension Center slice landed later at `main@eb88b989`; neither that read-only surface nor the
+earlier evidence satisfies the CMP v1 release criteria or any enforcement acceptance criterion.
 
 ### Tracked implementation gaps
 
@@ -261,7 +272,7 @@ v1 release criteria, any enforcement acceptance criterion, or a native VS Code C
 | `CMP-P3-002` | The content-free normalized Story replay landed at `db61bb90`; add P2 cause records, SGOS lineage joins, refusal/repair subjects, and governed reverse-convergence/post-hoc provenance without colliding with SGOS Process replay | Current ordering, exact focus, source validation, privacy/transcript exclusion, ceiling, no-model, no-write, and command-collision tests are green; fresh-export, SGOS/cause join, recovery, and causal-provenance evidence remain |
 | `CMP-P4-001` | The bounded observe-only typed validator landed at `3fcaffea`; selective current-validator revalidation landed at `67a30f12`; deterministic zero-model resource drafting landed at `6f0227d9`. Add the optional model-draft transport, authoritative structural/evidence/human resolvers, exact source expansion, authority-backed dependency resolution, and durable revalidation receipts | Current deterministic-draft, self-awarded-assurance, malformed/oversized input/output, Candidate/dependency drift, counterfeit-prior-result, selective graph invalidation, dual-hash, circular-input, no-model, no-AST, no-write, and no-gate tests are green; counterfeit-model, prompt-injection, cancellation/timeout, authority-backed evidence/structure drift, and durable receipt evidence remain |
 | `CMP-P5-001` | Integrate CMP into the single existing Candidate/review/approval/publication transaction | `SGOS-P0-001`, every-workflow lifecycle matrix, remote rejection/push recovery, crash/retry, and fresh-export receipt verification |
-| `CMP-P6-001` | Add the leased VS Code Comprehension Center and learning experience | Slice lease/disposal, stale-response, multi-root, keyboard/screen-reader, offline/office-proxy, and large-tree tests |
+| `CMP-P6-001` | The initial leased, read-only VS Code Comprehension Center landed at `eb88b989`: engine-owned region/coverage/graph/walkthrough/replay projection, shared snapshot revision fencing, bounded renewable lease, close/expiry/cache eviction, Help/Favorites/palette discovery, explicit unknowns, and current-slice-only file navigation. Add exact diff/source and available-symbol/evidence expansion, durable stale-claim/repair views, learning, and production hardening. | Current code-local snapshot parity, no-model, lease/cache, repository switch, path boundary, accessibility-markup, lazy-load, VS Code source, build, and type tests are green. Real minimum/current extension-host cancellation, rapid-switch, keyboard/screen-reader, multi-root, offline/office-proxy, memory, and large-tree evidence remains before exit. |
 | `CMP-P6-002` | Add touched-area brownfield policy and labelled historical backfill | No-full-backfill compatibility, rename/move/touch fixtures, and no-fabricated-history tests |
 
 ## Validated reuse map
@@ -706,9 +717,18 @@ Required tests:
 
 **Goal:** make the proven contracts understandable and usable without changing their authority.
 
+**Current checkpoint (`main@eb88b989`):** the first deliverable is active as a read-only slice and
+Center. It intentionally exposes only the P3/P4 facts that exist today. Shared `WorkspaceStore`
+revision fencing prevents an older repository response from replacing a newer selection; a named
+renewable lease is bounded to five minutes, reacquired through a single flight after expiry, and
+released on panel disposal. Normal activation snapshots omit the slice, and cached payloads are
+stripped before first paint. This is not completion of P6: the remaining deliverables and physical
+host evidence below are still required.
+
 Deliverables:
 
-- leased `comprehension` snapshot slice and cause-grouped review panel;
+- leased `comprehension` snapshot slice and cause-grouped review panel (**initial read-only form
+  implemented**);
 - exact diff/source expansion, clause/file/available-symbol navigation, replay timeline, unknowns,
   stale claims, and repair actions;
 - `sf-learn` lessons in disposable examples, never the live governed repository;

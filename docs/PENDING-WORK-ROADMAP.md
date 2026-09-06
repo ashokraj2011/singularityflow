@@ -2,7 +2,7 @@
 
 **Status:** authoritative cross-product tracker; bounded exact-tree aggregate and the latest code-local asynchronous Git migration are complete, while platform release evidence remains active
 
-**Baseline:** `main@6768e191`
+**Baseline:** `main@9ea94aac`
 
 **Last reviewed:** 2026-09-06
 
@@ -74,18 +74,25 @@ rejection and proves that the public recovery path publishes the exact retained 
 Only content-free failure/recovery timings, a stable failure class, and commit equality are emitted;
 the report explicitly does not claim office-network evidence.
 
+WEL benchmark v5 and its cancellable parser boundary landed at `main@9ea94aac`. The content-free
+matrix now covers post-preflight local authority loss, exact `sync`, clean fresh-clone equality, and
+an abrupt state-write exit restored to the exact pre-transaction state. The JUnit parser moved from
+a synchronous child to the bounded asynchronous process-tree runner; cancellation returns
+unavailable evidence and zero mapping proposals. These remain synthetic local proofs, not signed
+Windows/Linux, office-network, or independent-verifier evidence.
+
 ## 2026-09-05 reconciliation snapshot
 
 This snapshot resolves conflicts between older domain roadmaps and the executable baseline. A
 shared primitive does not complete a higher-assurance track: for example, the developer-local
 signed runner is useful M9 evidence, but it is not an authenticated independent CAB/WEL verifier.
 
-| Area | Implemented boundary through `6768e191` | Still open |
+| Area | Implemented boundary through `9ea94aac` | Still open |
 |---|---|---|
 | Auto v2 | Dependency-free Story profile and its P0/P1 controls | Optional SGOS execution profile, interval runtime, direct Ad Hoc materialization, and registered comparative-quality evidence |
 | CMP | Model-free, read-only `comprehension regions` and `check` foundation plus a release-gated content-free synthetic benchmark | Reviewed real corpus and storage/privacy decision, durable cause authority, intent graph/replay, typed walkthroughs, lifecycle enforcement, Comprehension Center, and brownfield policy |
 | SGOS | Bounded runtime, Universal Candidate code path, Git-trusted authority transport, signed transport, Windows DPAPI-protected local signer, stop-aware bounded Process-lock contention recovery, checkpoint-bound working-set injection, guarded signed-Pack/Device meta-tool activation CLI, native preview/confirm review UI, isolated disposable learning workspaces, and identity-free monotonic portable learning progress | Real external-adapter Secret Broker integration, signed platform release aggregate, end-to-end proof, additional adapters, orchestration, stores, independent certification, interruption exercises, accessibility/offline proof, and migration |
-| WEL | Observe-only witnessed clauses plus an exact-static local JUnit/Surefire pilot, human mapping review, same-process incremental cost, content-free Context X-Ray projection, model-free local Story-start transaction measurement, and exact local post-preflight push recovery; results remain inconclusive | Candidate/Program/attempt join, reviewed corpus, office-network remote publication latency, authenticated hermetic execution, enforcement recovery, additional adapters, and signed platform release proof |
+| WEL | Observe-only witnessed clauses plus an exact-static local JUnit/Surefire pilot, human mapping review, same-process incremental cost, content-free Context X-Ray projection, model-free local Story-start transaction measurement, cancellable parser execution, and synthetic push/offline/fresh-clone/interrupted-write recovery; results remain inconclusive | Candidate/Program/attempt join, reviewed corpus, live office-network and cross-platform recovery receipts, authenticated hermetic execution, enforcement recovery, additional adapters, and signed platform release proof |
 | CAB | CAB v0.2 code-local architecture, adversarial design contract, and observe-only exact-static JUnit pilot are active over existing SGOS/GDP/WEL primitives | Independent R0 ratification, authenticated isolation/trust roots, corpus/platform proof, opt-in enforcement, adequacy, provider adapters, and regulated deployment proof |
 | GDP | M0–M8 implemented; M9 local observe/developer-local signed runner, M10 contracts, and M11 readiness report implemented as partial milestones | Authenticated runner and verifier, provider pilots, enforce enrollment, migration/support-window exercises, signed package/platform receipts, and GA decision |
 | VS Code UI remediation | Multi-Story navigation, timeout recovery, responsive layout, visual regression contract, and native developer-local runner review are complete | Future CMP Comprehension Center; this is a new surface, not a defect left in the closed remediation plan |
@@ -147,7 +154,7 @@ evidence, and selected npm/VSIX artifact binding remain governed by the platform
 | Developer-experience performance | Hot paths and the office-Git code-local slice are implemented; interactive configuration, ledger, WMB, SGOS authority, Auto authority/recovery, workspace routing, lifecycle publication, and checkout use bounded asynchronous Git; pinned relative baseline and cross-platform host evidence are not established | Finish `DXP-P0-001`, keep the isolated compatibility transport under audit, then close each `[~]` platform gate | This document and [DX performance](DX-PERFORMANCE.md) |
 | SGOS | Universal Candidate publication, portable authority transport, proposal-only Agent working-set injection, signed-Pack/Device meta-tool CLI/native review, and non-authoritative portable learning progress are code-complete; signed cross-platform release proof and real Secret Broker adapter integration remain open | Finish the `SGOS-P0-001`/`003` signed platform matrices and the external-adapter portion of `SGOS-P0-002` before expanding P2 authority | [SGOS pending work](SGOS-PENDING-WORK.md) |
 | World Model Builder v4 | Release receipt generation and enforcement exist; no reviewed six-cell supported-platform aggregate is recorded | `WMB-REL-001` | [WMB v4](WORLD-MODEL-BUILDER-V4.md) |
-| Witnessed Engineering Loop | Exact-static local JUnit observation, immutable proposal binding, existing-approval review, migration, release-gated baseline/delta/Context-X-Ray/Story-start benchmark, isolated npm/VSIX proof, and a bounded platform-matrix command are active; authenticated testcase claims and enforcement remain unavailable | Execute and sign the external/cross-platform and office-network gates in `WEL-P0-001` through `WEL-P0-003` | [WEL pending work](WEL-PENDING-WORK.md) |
+| Witnessed Engineering Loop | Exact-static local JUnit observation, immutable proposal binding, existing-approval review, migration, release-gated baseline/delta/Context-X-Ray/Story-start/recovery benchmark, cancellable parser boundary, isolated npm/VSIX proof, and a bounded platform-matrix command are active; authenticated testcase claims and enforcement remain unavailable | Execute and sign the external/cross-platform and office-network gates in `WEL-P0-001` through `WEL-P0-003` | [WEL pending work](WEL-PENDING-WORK.md) |
 | Code Assurance Bridge | CAB-R0 architecture and CAB-R1 observe pilot are active; enforcement remains unavailable | Independent CAB-R0 review plus authenticated CAB-R2 runner authority | [CAB roadmap](CAB-ROADMAP.md) |
 | Governed comprehension | Read-only, non-authoritative P0 contract, closed registries, authority ADR, mutation tripwires, isolated npm/VSIX proof, deterministic corpus/matrix command, and content-free P1 benchmark exist | Execute and sign the unchanged `CMP-P0-001` matrix on Windows and Linux, then complete the reviewed P1 storage/privacy decision; keep record/enforce unavailable | [CMP roadmap](CMP-ROADMAP.md) |
 | Governed Delivery and Proof | M0–M8 are implemented; M9–M11 have code-local partial surfaces and remain non-GA | Authenticated M9 runner/verifier and signed release evidence before provider pilots or enforcement | [GDP milestone roadmap](GDP-DELIVERY-ROADMAP.md) |

@@ -6,7 +6,7 @@
 
 **Created:** 2026-08-30
 
-**Current reconciliation:** checked against `main@116d6f43` on 2026-09-06. Commits `259b76f1`,
+**Current reconciliation:** checked against `main@9ea94aac` on 2026-09-06. Commits `259b76f1`,
 `58d9329d`, and `d55229c7` provide the bounded exact-static JUnit identity adapter, immutable
 proposal snapshot, human review through the existing phase approval, migration, safe command-shape
 fallbacks, the evolving content-free benchmark, and same-process unenrolled delta measurement. Commit
@@ -213,6 +213,13 @@ Implemented in the current increment:
   commit, recovers it through the public `sync` path, and proves the remote ref equals that retained
   SHA. It records only failure/recovery duration, stable failure class, and the equality result, and
   labels the exercise synthetic local evidence rather than office-network proof;
+- benchmark v5 adds a synthetic post-preflight authority outage, exact public `sync` recovery, and
+  a clean fresh-clone equality check; it also hard-exits a publication after its state write and
+  proves public recovery restores the exact pre-transaction commit and bytes;
+- the exact-static parser now uses the bounded asynchronous process-tree runner. Cancellation
+  yields `JUNIT_SOURCE_PARSER_CANCELLED`, no catalog, and no mapping proposal; a caller-owned abort
+  reason is never retained. The benchmark records only safe-cancellation latency and closed outcome
+  facts;
 - the release gate installs the exact npm tarball into an isolated prefix and extracts the exact
   VSIX engine under a loader that refuses source-tree module access; both artifacts must contain the
   Java parser helper, import the WEL adapter, and return the admitted Maven/Surefire command shape;
@@ -229,12 +236,15 @@ VSIX engine proof), `d960e928` (portable deterministic corpus command), `396ccb7
 release-gate benchmark), `e3330e80` (same-process incremental observation cost), and `723099fc`
 (content-free Context X-Ray projection latency and byte measurement), `150b6326` (bounded
 model-free governed Story-start transaction latency and workflow-byte measurement), and `116d6f43`
-(content-free post-preflight push-failure and exact-sync recovery measurement).
+(content-free post-preflight push-failure and exact-sync recovery measurement), and `9ea94aac`
+(offline/fresh-clone/interrupted-write recovery plus cancellable parser boundary).
 
 Still required before completion: reviewed real-repository corpus metrics, office-network remote
-Story publication latency measurements, an approved Flow Impact design, office/offline/recovery exercises, execution
-of the isolated artifact proof on Windows and Linux, and one signed release receipt binding npm,
-VSIX, schemas, source, and the full supported-platform matrix.
+Story publication latency measurements, an approved Flow Impact design, live office/offline and
+cross-platform cancellation/process-tree exercises, execution of the isolated artifact proof on
+Windows and Linux, and one signed release receipt binding npm, VSIX, schemas, source, and the full
+supported-platform matrix. The new synthetic local matrix is code evidence for those paths, not a
+substitute for the external host receipts.
 
 Measure whether WEL improves traceability without creating unacceptable latency, noise, or false
 confidence.

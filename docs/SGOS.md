@@ -83,7 +83,10 @@ The same build also contains separately bounded extension profiles:
   an executable handle portably across launch;
 - one read-only filesystem Device and one local consequential sandbox-CAS Device with durable Tool
   Intent/Tool Result recovery and exact confirmation-bound revocation;
-- confirmation-bound suffix replay and genesis-only fork commands; replay preserves immutable
+- confirmation-bound suffix replay plus genesis and exact non-genesis checkpoint fork commands;
+  a non-genesis child imports separately receipted recovery attempts, outputs, verification,
+  source evidence, and consumed attempt budget while the parent remains the authority for the
+  original execution. Replay preserves immutable
   attempt/receipt history, re-executes pure and read-only work, and retains an already-successful
   consequential Device task only after its installed postcondition protocol proves the original
   idempotency key, Tool Result, effect, and current state without executing the effect again;
@@ -260,19 +263,18 @@ state. The installed replay profile can reopen a suffix from an ancestor checkpo
 read-only tasks are re-executed. A successful consequential Device task is retained only when an
 installed exact postcondition protocol can reconcile it without repeating the effect; its complete
 in-plan predecessor closure is retained as well so inputs cannot change underneath a reused effect.
-The installed fork profile can create an independent Process only from genesis. General
-checkpoint-payload restoration and non-genesis prefix import remain unavailable. A tampered
-checkpoint, changed Program, changed policy, stale request, missing reconciliation receipt, changed
-postcondition, or lost revision is refused.
-
-That non-genesis refusal is a proof boundary, not a missing convenience flag. The current
-checkpoint contract records task states and ready IDs, but not the exact prefix receipt/output
-projection, attempt and Action Evidence lineage, reconciled effect/idempotency receipts, or the
-complete event-cursor, budget, and child-Process lineage needed to reconstruct authority after
-runtime-store loss. `process fork --from <NON-GENESIS-CHECKPOINT>` therefore reports
-`SGOS_FORK_PREFIX_EVIDENCE_INCOMPLETE` and names those missing proofs. It never infers records from
-state labels. A portable Process Evidence bundle or a future richer boundary-checkpoint contract is
-required before prefix import can be enabled safely.
+The installed fork profile creates an independent Process from genesis or from an exact ancestor
+checkpoint. For a non-genesis checkpoint it first reconstructs the parent's historical Process
+state from its control lineage and verifies the checkpoint, Program, record index, Task Receipts,
+running and terminal attempts, Candidate Snapshots, passing Action Evidence, outputs, human
+decisions, and consumed attempt count. The child receives new recovery-attempt identities and one
+immutable import record per successful prefix task, followed by an aggregate import checkpoint and
+receipt. It never claims that the child executed the parent's work. Consequential Device results
+are imported only when an installed protocol revalidates the original idempotency key and current
+postcondition without repeating the effect. Unsupported or changed effects, incomplete prefix
+closure, stale source evidence, a moved Program/policy/binding, and partial or counterfeit import
+receipts fail closed. An interrupted task or aggregate publication is recovered and retried against
+the exact same plan without duplicating an attempt or receipt.
 
 Replay clears the suffix tasks' current receipt/output projection while retaining every immutable
 historical attempt and receipt for audit; old outputs cannot appear current until a new successful
@@ -517,9 +519,9 @@ tracked in [SGOS-PENDING-WORK.md](SGOS-PENDING-WORK.md):
 - model-backed or tool-bearing `AGENT` execution beyond the reviewed Copilot proposal-only GEU,
   mutating Devices beyond the exact sandbox-CAS profile, arbitrary third-party adapters, and their
   complete independent conformance/counterfeit-model programs;
-- runtime-dynamic fan-out, additional reviewed reducers, non-genesis fork import, and
-  consequential-effect task retry; bounded nested inline fan-out, quorum, deterministic-reduce,
-  manual-reconcile joins, and installed-protocol idempotent effect replay are implemented;
+- runtime-dynamic fan-out, additional reviewed reducers, and consequential-effect task retry;
+  bounded nested inline fan-out, quorum, deterministic-reduce, manual-reconcile joins,
+  installed-protocol idempotent effect replay, and exact non-genesis fork import are implemented;
 - universal Candidate routing is implemented for the supported lifecycle surfaces; its
   cross-platform signed release promotion remains tracked as `SGOS-P0-001`;
 - Secret Broker integration with real external adapters, the corresponding cancellation/leakage/

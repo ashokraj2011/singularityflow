@@ -42,7 +42,7 @@ export const SGOS_RUNTIME_CAPABILITIES = Object.freeze({
   parallelExecution: Object.freeze({ status: 'available', reason: 'One deterministic, statically bounded ready wave is installed with exact resource leases and joins.' }),
   stopQuiescence: Object.freeze({ status: 'available', reason: 'Stop records paused authority immediately and execution must settle before resume.' }),
   replay: Object.freeze({ status: 'available', reason: 'Confirmation-bound replay is installed for replayable suffixes from an ancestor checkpoint; consequential effects require exact installed postcondition reconciliation.' }),
-  fork: Object.freeze({ status: 'available', reason: 'Confirmation-bound fork is installed for independent genesis-only Processes.' }),
+  fork: Object.freeze({ status: 'available', reason: 'Confirmation-bound fork is installed for independent genesis Processes and exact non-genesis checkpoint prefixes with durable attempt, receipt, evidence, budget, and effect reconciliation.' }),
   agentExecution: Object.freeze({ status: 'available', reason: 'The exact deterministic-translator manifest is installed; model-backed agents remain proposal-only.' }),
   deviceExecution: Object.freeze({ status: 'available', reason: 'The exact read-only filesystem Device is installed with durable Tool Intent and Tool Result evidence.' }),
   taskRetry: Object.freeze({ status: 'available', reason: 'A failed pure/read-only task can be retried through an exact preview, confirmation, and Process CAS while preserving parent-attempt lineage.' })

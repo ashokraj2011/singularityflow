@@ -186,6 +186,49 @@ function effectReplayProgram() {
   });
 }
 
+function effectForkProgram() {
+  const manifest = installedDeviceManifests().find((entry) => entry.id === 'sandbox-cas');
+  assert.ok(manifest);
+  const resource = 'sandbox-cas:lineage-key';
+  const tasks = [
+    task('00-start', 'NOOP'),
+    {
+      ...task('20-effect', 'DEVICE', ['00-start'], {
+        reads: [], writes: [resource], devices: [manifest.id], externalEffects: [resource]
+      }),
+      operation: 'fixture.cas-put', retry: { maximumAttempts: 1 },
+      recovery: { interruptedExecution: 'device-reconcile' },
+      metadata: {
+        sourceConstruct: 'task', operationVersion: '1', operationManifestSha256: D.manifest,
+        deviceId: manifest.id, deviceVersion: manifest.version,
+        deviceManifestSha256: manifest.manifestSha256,
+        parameters: {
+          operation: 'compare-and-swap-put',
+          arguments: {
+            key: 'lineage-key', expectedValueSha256: SGOS_SANDBOX_CAS_ABSENT_SHA256,
+            value: { replay: 'retain-exact-effect' }
+          }, scope: [resource]
+        }
+      }
+    },
+    task('30-boundary', 'CHECKPOINT', ['20-effect']),
+    task('90-end', 'END', ['30-boundary'])
+  ];
+  return createGvmProgram({
+    intentIrSha256: D.intent, workflowSha256: D.workflow,
+    ratificationSha256: D.ratification, policySnapshotSha256: D.policy,
+    registrySnapshotSha256: D.registry, storageProfileSha256: D.storage,
+    taskTemplates: tasks,
+    edges: tasks.flatMap((entry) => entry.dependsOn.map((from) => ({
+      from, to: entry.taskTemplateId
+    }))),
+    joins: [], budgets: { maximumTasks: tasks.length, maximumAttempts: 2 },
+    recoveryPolicy: { mode: 'fail-closed' },
+    terminalConditions: [{ taskTemplateId: '90-end', state: 'succeeded' }],
+    compiler: { id: SGOS_COMPILER_ID, version: '2' }
+  });
+}
+
 function readOnlyDeviceReplayProgram() {
   const manifest = installedDeviceManifests().find((entry) => entry.id === 'filesystem-read');
   assert.ok(manifest);
@@ -388,6 +431,35 @@ test('effect replay retains one exact consequential task and reopens only its do
     entry.code === 'effect-replay-lineage-invalid'), true);
 });
 
+test('non-genesis fork imports a consequential Device result without repeating its effect', async (t) => {
+  const storyId = 'SGOS-LINEAGE-EFFECT-FORK';
+  const root = await repository(t, storyId);
+  const started = await start(root, storyId, effectForkProgram());
+  const completed = await complete(root, started.process.processId);
+  const beforeEffect = await readSgosSandboxCasEffect(root, 'lineage-key');
+  const { boundary } = await boundaryLineage(root, completed);
+  const plan = await planSgosProcessFork(root, completed.processId, {
+    fromCheckpointSha256: boundary, label: 'effect-prefix', createdAt: T1
+  });
+  const plannedEffect = plan.prefixTasks.find((entry) =>
+    entry.taskTemplateId === '20-effect');
+  assert.ok(plannedEffect?.effectReconciliation);
+  const forked = await forkSgosProcess(root, completed.processId, {
+    confirmationSha256: plan.forkPlanSha256, clock: T2
+  });
+  assert.deepEqual(await readSgosSandboxCasEffect(root, 'lineage-key'), beforeEffect);
+  const childEffect = Object.values(forked.child.taskInstances)
+    .find((entry) => entry.taskTemplateId === '20-effect');
+  assert.equal(childEffect.state, 'succeeded');
+  const [imported] = await listSgosImmutableRecordsByField(
+    root, forked.child.processId, 'fork-prefix-task-import',
+    'childTaskInstanceId', childEffect.taskInstanceId
+  );
+  assert.deepEqual(imported.effectReconciliation, plannedEffect.effectReconciliation);
+  const childFsck = await fsckSgosProcess(root, forked.child.processId);
+  assert.equal(childFsck.status, 'ok', JSON.stringify(childFsck));
+});
+
 test('effect replay confirmation refuses a changed postcondition without changing Process state', async (t) => {
   const storyId = 'SGOS-LINEAGE-EFFECT-STALE';
   const root = await repository(t, storyId);
@@ -557,20 +629,36 @@ test('replay retry completes one exact pending suffix transition without applyin
   assert.equal((await fsckSgosProcess(root, completed.processId)).status, 'ok');
 });
 
-test('genesis fork creates an independent Process and refuses unsupported prefix import', async (t) => {
+test('genesis and non-genesis forks create independent exact Process lineage', async (t) => {
   const storyId = 'SGOS-LINEAGE-FORK';
   const root = await repository(t, storyId);
   const started = await start(root, storyId, program());
   const completed = await complete(root, started.process.processId);
   const { boundary, genesis } = await boundaryLineage(root, completed);
-  await assert.rejects(
-    planSgosProcessFork(root, completed.processId, {
-      fromCheckpointSha256: boundary, label: 'unsupported-prefix'
-    }),
-    (error) => error.code === 'SGOS_FORK_PREFIX_EVIDENCE_INCOMPLETE'
-      && error.details?.missingEvidence?.includes('task-receipt-and-output-projection')
-      && error.details?.missingEvidence?.includes('external-effect-and-idempotency-reconciliation')
-  );
+  const prefixPlan = await planSgosProcessFork(root, completed.processId, {
+    fromCheckpointSha256: boundary, label: 'imported-prefix', createdAt: T1
+  });
+  assert.equal(prefixPlan.prefixTasks.length, 1);
+  const prefixFork = await forkSgosProcess(root, completed.processId, {
+    confirmationSha256: prefixPlan.forkPlanSha256, clock: T2
+  });
+  assert.equal(prefixFork.imported, true);
+  assert.equal(prefixFork.importReceipt.tasks.length, 1);
+  const importedStart = Object.values(prefixFork.child.taskInstances)
+    .find((entry) => entry.taskTemplateId === '00-start');
+  assert.equal(importedStart.state, 'succeeded');
+  assert.equal(importedStart.attemptIds.length, 1);
+  assert.equal(Object.values(prefixFork.child.taskInstances)
+    .find((entry) => entry.taskTemplateId === '10-boundary').state, 'ready');
+  assert.equal((await fsckSgosProcess(root, prefixFork.child.processId)).status, 'ok');
+  const childEvidence = await compileSgosProcessEvidence(root, prefixFork.child.processId);
+  const childEvidenceReport = verifySgosProcessEvidence(childEvidence);
+  assert.equal(childEvidenceReport.integrity, 'valid', JSON.stringify(childEvidenceReport));
+  assert.deepEqual(childEvidenceReport.contradictions, []);
+  assert.ok(childEvidence.records.some((entry) =>
+    entry.family === 'fork-prefix-task-import'));
+  assert.ok(childEvidence.records.some((entry) =>
+    entry.family === 'fork-prefix-import-receipt'));
   const plan = await planSgosProcessFork(root, completed.processId, {
     fromCheckpointSha256: genesis, label: 'independent-study', createdAt: T1
   });
@@ -591,10 +679,54 @@ test('genesis fork creates an independent Process and refuses unsupported prefix
   assert.equal(repeated.receipt.forkReceiptSha256, forked.receipt.forkReceiptSha256);
   const receiptDirectory = path.join(root, '.git', 'singularity-flow', 'sgos', 'lineage',
     completed.processId, 'fork-receipts');
-  assert.equal((await readdir(receiptDirectory)).length, 1);
+  assert.equal((await readdir(receiptDirectory)).length, 2);
   const fsck = await fsckSgosProcess(root, completed.processId);
   assert.equal(fsck.status, 'ok');
   assert.equal(fsck.lineage.incompleteForkPlans.length, 0);
+});
+
+test('non-genesis fork resumes an interrupted prefix transition without duplicating import', async (t) => {
+  for (const occurrence of [2, 3]) {
+    const storyId = `SGOS-LINEAGE-FORK-PREFIX-CRASH-${occurrence}`;
+    const root = await repository(t, storyId);
+    const started = await start(root, storyId, program());
+    const completed = await complete(root, started.process.processId);
+    const { boundary } = await boundaryLineage(root, completed);
+    const plan = await planSgosProcessFork(root, completed.processId, {
+      fromCheckpointSha256: boundary, label: `prefix-crash-${occurrence}`, createdAt: T1
+    });
+    // Occurrence one publishes child genesis, two imports the task, and three publishes the
+    // aggregate checkpoint. Both durable crash boundaries must converge on the same records.
+    setSgosStoreFaultBoundaryForTests('state', { occurrence, code: 'EIO' });
+    try {
+      await assert.rejects(
+        forkSgosProcess(root, completed.processId, {
+          confirmationSha256: plan.forkPlanSha256, clock: T2
+        }),
+        (error) => error.code === 'SGOS_TRANSITION_RECOVERY_REQUIRED'
+          && error.details?.causeCode === 'EIO'
+      );
+    } finally {
+      setSgosStoreFaultBoundaryForTests(null);
+    }
+    const recovered = await forkSgosProcess(root, completed.processId, {
+      confirmationSha256: plan.forkPlanSha256, clock: T2
+    });
+    assert.equal(recovered.imported, true);
+    assert.equal(recovered.importReceipt.tasks.length, 1);
+    const task = Object.values(recovered.child.taskInstances)
+      .find((entry) => entry.taskTemplateId === '00-start');
+    assert.equal(task.attemptIds.length, 1);
+    assert.equal((await listSgosImmutableRecordsByField(
+      root, recovered.child.processId, 'fork-prefix-task-import',
+      'forkPlanSha256', plan.forkPlanSha256
+    )).length, 1);
+    assert.equal((await listSgosImmutableRecordsByField(
+      root, recovered.child.processId, 'fork-prefix-import-receipt',
+      'forkPlanSha256', plan.forkPlanSha256
+    )).length, 1);
+    assert.equal((await fsckSgosProcess(root, recovered.child.processId)).status, 'ok');
+  }
 });
 
 test('fork confirmation cannot be reused after the repository baseline changes', async (t) => {

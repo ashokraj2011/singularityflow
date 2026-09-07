@@ -15,6 +15,8 @@
     { "$ref": "#/$defs/reducerJoinReceipt" },
     { "$ref": "#/$defs/manualReconcileJoinReceipt" },
     { "$ref": "#/$defs/effectReplayReceipt" },
+    { "$ref": "#/$defs/forkPrefixTaskImport" },
+    { "$ref": "#/$defs/forkPrefixImportReceipt" },
     { "$ref": "#/$defs/fanoutExpansionReceipt" },
     { "$ref": "#/$defs/sgosReplayPlan" },
     { "$ref": "#/$defs/processBinding" },
@@ -576,6 +578,110 @@
       },
       "additionalProperties": false
     },
+    "forkAttemptMapping": {
+      "type": "object",
+      "required": ["sourceAttemptId", "childAttemptId", "sourceRunningAttemptSha256", "sourceTerminalAttemptSha256", "childRunningAttemptSha256", "childTerminalAttemptSha256", "sourceTerminalStatus"],
+      "properties": {
+        "sourceAttemptId": { "type": "string", "pattern": "^ATT-" },
+        "childAttemptId": { "type": "string", "pattern": "^ATT-" },
+        "sourceRunningAttemptSha256": { "$ref": "#/$defs/sha256" },
+        "sourceTerminalAttemptSha256": { "$ref": "#/$defs/sha256" },
+        "childRunningAttemptSha256": { "$ref": "#/$defs/sha256" },
+        "childTerminalAttemptSha256": { "$ref": "#/$defs/sha256" },
+        "sourceTerminalStatus": { "enum": ["succeeded", "failed", "blocked", "cancelled", "recovery-required"] }
+      },
+      "additionalProperties": false
+    },
+    "forkEffectReconciliation": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["deviceManifestSha256", "toolIntentSha256", "toolResultSha256", "idempotencyKey", "effectSha256", "postconditionSha256"],
+          "properties": {
+            "deviceManifestSha256": { "$ref": "#/$defs/sha256" },
+            "toolIntentSha256": { "$ref": "#/$defs/sha256" },
+            "toolResultSha256": { "$ref": "#/$defs/sha256" },
+            "idempotencyKey": { "$ref": "#/$defs/sha256" },
+            "effectSha256": { "$ref": "#/$defs/sha256" },
+            "postconditionSha256": { "$ref": "#/$defs/sha256" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "forkPrefixTaskImport": {
+      "type": "object",
+      "required": ["schemaVersion", "kind", "forkTaskImportId", "forkPlanSha256", "parentProcessId", "childProcessId", "sourceEvidenceProjectionSha256", "sourceProcessSha256", "sourceControlEventSha256", "sourceRecordIndexSha256", "fromCheckpointSha256", "sourceTaskInstanceId", "childTaskInstanceId", "taskTemplateId", "sourceTaskRevision", "inputRefs", "outputRefs", "attempts", "sourceTaskReceiptSha256", "sourceCandidateSha256", "sourceActionEvidenceSha256s", "sourceEvidenceRefs", "sourceEffectRefs", "sourceHumanDecisionRefs", "verificationChecksSha256", "effectReconciliation", "importedAt", "forkTaskImportSha256"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "kind": { "const": "fork-prefix-task-import" },
+        "forkTaskImportId": { "type": "string", "pattern": "^FTI-" },
+        "forkPlanSha256": { "$ref": "#/$defs/sha256" },
+        "parentProcessId": { "type": "string", "pattern": "^PROC-" },
+        "childProcessId": { "type": "string", "pattern": "^PROC-" },
+        "sourceEvidenceProjectionSha256": { "$ref": "#/$defs/sha256" },
+        "sourceProcessSha256": { "$ref": "#/$defs/sha256" },
+        "sourceControlEventSha256": { "$ref": "#/$defs/sha256" },
+        "sourceRecordIndexSha256": { "$ref": "#/$defs/sha256" },
+        "fromCheckpointSha256": { "$ref": "#/$defs/sha256" },
+        "sourceTaskInstanceId": { "type": "string", "minLength": 1 },
+        "childTaskInstanceId": { "type": "string", "minLength": 1 },
+        "taskTemplateId": { "type": "string", "minLength": 1 },
+        "sourceTaskRevision": { "type": "integer", "minimum": 1 },
+        "inputRefs": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "outputRefs": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "attempts": { "type": "array", "minItems": 1, "maxItems": 10, "items": { "$ref": "#/$defs/forkAttemptMapping" } },
+        "sourceTaskReceiptSha256": { "$ref": "#/$defs/sha256" },
+        "sourceCandidateSha256": { "$ref": "#/$defs/sha256" },
+        "sourceActionEvidenceSha256s": { "type": "array", "items": { "$ref": "#/$defs/sha256" }, "uniqueItems": true },
+        "sourceEvidenceRefs": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "sourceEffectRefs": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "sourceHumanDecisionRefs": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "verificationChecksSha256": { "$ref": "#/$defs/sha256" },
+        "effectReconciliation": { "$ref": "#/$defs/forkEffectReconciliation" },
+        "importedAt": { "$ref": "#/$defs/timestamp" },
+        "forkTaskImportSha256": { "$ref": "#/$defs/sha256" }
+      },
+      "additionalProperties": false
+    },
+    "forkImportedTask": {
+      "type": "object",
+      "required": ["taskTemplateId", "sourceTaskInstanceId", "childTaskInstanceId", "forkTaskImportSha256", "childTaskReceiptSha256", "attemptCount", "outputRefs"],
+      "properties": {
+        "taskTemplateId": { "type": "string", "minLength": 1 },
+        "sourceTaskInstanceId": { "type": "string", "minLength": 1 },
+        "childTaskInstanceId": { "type": "string", "minLength": 1 },
+        "forkTaskImportSha256": { "$ref": "#/$defs/sha256" },
+        "childTaskReceiptSha256": { "$ref": "#/$defs/sha256" },
+        "attemptCount": { "type": "integer", "minimum": 1, "maximum": 10 },
+        "outputRefs": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      },
+      "additionalProperties": false
+    },
+    "forkPrefixImportReceipt": {
+      "type": "object",
+      "required": ["schemaVersion", "kind", "forkImportReceiptId", "forkPlanSha256", "parentProcessId", "childProcessId", "sourceEvidenceProjectionSha256", "sourceProcessSha256", "sourceControlEventSha256", "sourceRecordIndexSha256", "fromCheckpointSha256", "childGenesisCheckpointSha256", "childImportedCheckpointSha256", "tasks", "importedAt", "forkImportReceiptSha256"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "kind": { "const": "fork-prefix-import-receipt" },
+        "forkImportReceiptId": { "type": "string", "pattern": "^FIR-" },
+        "forkPlanSha256": { "$ref": "#/$defs/sha256" },
+        "parentProcessId": { "type": "string", "pattern": "^PROC-" },
+        "childProcessId": { "type": "string", "pattern": "^PROC-" },
+        "sourceEvidenceProjectionSha256": { "$ref": "#/$defs/sha256" },
+        "sourceProcessSha256": { "$ref": "#/$defs/sha256" },
+        "sourceControlEventSha256": { "$ref": "#/$defs/sha256" },
+        "sourceRecordIndexSha256": { "$ref": "#/$defs/sha256" },
+        "fromCheckpointSha256": { "$ref": "#/$defs/sha256" },
+        "childGenesisCheckpointSha256": { "$ref": "#/$defs/sha256" },
+        "childImportedCheckpointSha256": { "$ref": "#/$defs/sha256" },
+        "tasks": { "type": "array", "minItems": 1, "maxItems": 2000, "items": { "$ref": "#/$defs/forkImportedTask" } },
+        "importedAt": { "$ref": "#/$defs/timestamp" },
+        "forkImportReceiptSha256": { "$ref": "#/$defs/sha256" }
+      },
+      "additionalProperties": false
+    },
     "fanoutExpansionReceipt": {
       "type": "object",
       "required": ["schemaVersion", "kind", "expansionId", "processId", "parentTaskTemplateId", "collectionSha256", "maximumItems", "maximumParallel", "items", "createdAt", "expansionSha256"],
@@ -734,7 +840,7 @@
       "type": "object",
       "required": ["family", "recordSha256", "bytes"],
       "properties": {
-        "family": { "enum": ["action-evidence", "agent-proposal", "candidate-snapshot", "effect-replay-receipt", "fanout-expansion-receipt", "gvm-checkpoint", "gvm-program", "gvm-task-attempt", "gvm-task-receipt", "human-request", "human-response", "join-receipt", "manual-reconcile-join-receipt", "process-binding", "quorum-join-receipt", "reducer-join-receipt", "resource-lease", "sgos-replay-plan"] },
+        "family": { "enum": ["action-evidence", "agent-proposal", "candidate-snapshot", "effect-replay-receipt", "fanout-expansion-receipt", "fork-prefix-import-receipt", "fork-prefix-task-import", "gvm-checkpoint", "gvm-program", "gvm-task-attempt", "gvm-task-receipt", "human-request", "human-response", "join-receipt", "manual-reconcile-join-receipt", "process-binding", "quorum-join-receipt", "reducer-join-receipt", "resource-lease", "sgos-replay-plan"] },
         "recordSha256": { "$ref": "#/$defs/sha256" },
         "attemptId": { "type": "string", "pattern": "^ATT-[A-Za-z0-9][A-Za-z0-9._:-]{5,127}$" },
         "taskInstanceId": { "type": "string", "minLength": 1 },
@@ -750,6 +856,8 @@
         "candidate-snapshot": { "type": "integer", "minimum": 1 },
         "effect-replay-receipt": { "type": "integer", "minimum": 1 },
         "fanout-expansion-receipt": { "type": "integer", "minimum": 1 },
+        "fork-prefix-import-receipt": { "type": "integer", "minimum": 1 },
+        "fork-prefix-task-import": { "type": "integer", "minimum": 1 },
         "gvm-checkpoint": { "type": "integer", "minimum": 1 },
         "gvm-program": { "type": "integer", "minimum": 1 },
         "gvm-task-attempt": { "type": "integer", "minimum": 1 },

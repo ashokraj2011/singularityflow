@@ -326,9 +326,10 @@ Usage:
     --resolution reconcile-success|retry-safe|fail --confirm <SHA256> [--json]
   singularity-flow process replay <PROCESS-ID> --from <CHECKPOINT-SHA256> [--confirm <REPLAY-PLAN-SHA256>] [--json]
     first records an exact confirmation plan; pure/read-only work is rerun, installed consequential effects are reconciled without repetition, and unsafe effects or stale plans are refused
-  singularity-flow process fork <PROCESS-ID> --from <GENESIS-CHECKPOINT-SHA256>
+  singularity-flow process fork <PROCESS-ID> --from <CHECKPOINT-SHA256>
     [--label <LOWER-KEBAB>] [--confirm <FORK-PLAN-SHA256>] [--json]
-    first records an exact genesis-only fork plan; confirmation creates the independent Process
+    first records an exact fork plan; non-genesis plans bind the verified successful prefix,
+    consumed attempts, outputs, evidence, and installed effect postconditions before confirmation
   singularity-flow process quarantine <PROCESS-ID> [--confirm <TREE-SHA256>] [--json]
   singularity-flow process archive <PROCESS-ID> ...  # compatibility alias for quarantine
     preserve an unreadable v1 machine-local Process; preview first, never restore it as v2

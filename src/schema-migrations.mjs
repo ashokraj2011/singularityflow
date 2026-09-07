@@ -2088,6 +2088,20 @@ const families = [
     ]
   }),
   family({
+    id: 'fork-prefix-task-import', currentVersion: 1, immutable: true,
+    paths: [
+      /^\$git\/sgos\/processes\/[^/]+\/fork-prefix-task-imports\/[a-f0-9]{64}\.json$/,
+      sgosRecordReservationPath('fork-prefix-task-import')
+    ]
+  }),
+  family({
+    id: 'fork-prefix-import-receipt', currentVersion: 1, immutable: true,
+    paths: [
+      /^\$git\/sgos\/processes\/[^/]+\/fork-prefix-import-receipts\/[a-f0-9]{64}\.json$/,
+      sgosRecordReservationPath('fork-prefix-import-receipt')
+    ]
+  }),
+  family({
     id: 'fanout-expansion-receipt', currentVersion: 1, immutable: true,
     paths: [
       /^\$git\/sgos\/processes\/[^/]+\/fanout-expansions\/[a-f0-9]{64}\.json$/,

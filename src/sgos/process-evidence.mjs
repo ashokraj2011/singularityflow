@@ -35,6 +35,8 @@ const HASH_FIELDS = Object.freeze({
   'agent-proposal': 'proposalSha256',
   'candidate-snapshot': 'candidateSha256',
   'effect-replay-receipt': 'effectReplayReceiptSha256',
+  'fork-prefix-task-import': 'forkTaskImportSha256',
+  'fork-prefix-import-receipt': 'forkImportReceiptSha256',
   'fanout-expansion-receipt': 'expansionSha256',
   'gvm-checkpoint': 'checkpointSha256',
   'gvm-program': 'programSha256',
@@ -550,7 +552,8 @@ function validateRecordIndexes(bundle, wrappers, contradictions) {
       add(contradictions, 'indexed-record-byte-count-mismatch', entry.family, entry.recordSha256);
     }
     const expectedAttemptId = wrapper.record.attemptId;
-    const expectedTaskInstanceId = wrapper.record.taskInstanceId;
+    const expectedTaskInstanceId = wrapper.family === 'fork-prefix-task-import'
+      ? wrapper.record.childTaskInstanceId : wrapper.record.taskInstanceId;
     if ((entry.attemptId ?? null) !== (expectedAttemptId ?? null)
         || (entry.taskInstanceId ?? null) !== (expectedTaskInstanceId ?? null)) {
       add(contradictions, 'indexed-record-metadata-mismatch', entry.family, entry.recordSha256);
@@ -966,6 +969,40 @@ function semanticReferences(bundle, wrappers, tools, contradictions, gaps) {
     referenceHash(wrapper.record.toolIntentSha256);
     referenceHash(wrapper.record.toolResultSha256);
     for (const hash of wrapper.record.outputRefs ?? []) referenceHash(hash);
+  }
+  for (const wrapper of byFamily.get('fork-prefix-task-import') ?? []) {
+    if (!referenced.has(recordIdentity(wrapper.family, wrapper.recordSha256))) continue;
+    for (const attempt of wrapper.record.attempts ?? []) {
+      referenced.add(recordIdentity(
+        'gvm-task-attempt', attempt.childRunningAttemptSha256
+      ));
+      referenced.add(recordIdentity(
+        'gvm-task-attempt', attempt.childTerminalAttemptSha256
+      ));
+    }
+  }
+  for (const wrapper of byFamily.get('fork-prefix-import-receipt') ?? []) {
+    const aggregate = wrapper.record;
+    if (aggregate.childProcessId !== bundle.processId) {
+      add(contradictions, 'fork-prefix-import-process-mismatch',
+        wrapper.family, wrapper.recordSha256);
+      continue;
+    }
+    referenced.add(recordIdentity(wrapper.family, wrapper.recordSha256));
+    referenced.add(recordIdentity(
+      'gvm-checkpoint', aggregate.childGenesisCheckpointSha256
+    ));
+    referenced.add(recordIdentity(
+      'gvm-checkpoint', aggregate.childImportedCheckpointSha256
+    ));
+    for (const task of aggregate.tasks ?? []) {
+      referenced.add(recordIdentity(
+        'fork-prefix-task-import', task.forkTaskImportSha256
+      ));
+      referenced.add(recordIdentity(
+        'gvm-task-receipt', task.childTaskReceiptSha256
+      ));
+    }
   }
 
   for (const wrapper of wrappers) {

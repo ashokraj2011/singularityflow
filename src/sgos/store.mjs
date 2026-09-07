@@ -100,6 +100,8 @@ const IMMUTABLE_FAMILIES = Object.freeze({
   'reducer-join-receipt': Object.freeze({ directory: 'reducer-join-receipts', hashField: 'reducerJoinReceiptSha256' }),
   'manual-reconcile-join-receipt': Object.freeze({ directory: 'manual-reconcile-join-receipts', hashField: 'manualReconcileJoinReceiptSha256' }),
   'effect-replay-receipt': Object.freeze({ directory: 'effect-replay-receipts', hashField: 'effectReplayReceiptSha256' }),
+  'fork-prefix-task-import': Object.freeze({ directory: 'fork-prefix-task-imports', hashField: 'forkTaskImportSha256' }),
+  'fork-prefix-import-receipt': Object.freeze({ directory: 'fork-prefix-import-receipts', hashField: 'forkImportReceiptSha256' }),
   'fanout-expansion-receipt': Object.freeze({ directory: 'fanout-expansions', hashField: 'expansionSha256' }),
   'sgos-replay-plan': Object.freeze({ directory: 'replay-plans', hashField: 'replayPlanSha256' }),
   'process-binding': Object.freeze({ directory: 'bindings', hashField: 'bindingSha256' }),
@@ -654,6 +656,8 @@ function recordIndexEntry(familyId, record, bytes = canonicalJson(record)) {
   if (record.attemptId != null) entry.attemptId = requireId('attemptId', record.attemptId);
   if (record.taskInstanceId != null) {
     entry.taskInstanceId = requireId('taskInstanceId', record.taskInstanceId);
+  } else if (familyId === 'fork-prefix-task-import') {
+    entry.taskInstanceId = requireId('taskInstanceId', record.childTaskInstanceId);
   }
   return Object.freeze(entry);
 }
@@ -1501,7 +1505,8 @@ function assertExactReplayTransition(before, after, plan, effectReplayReceipts =
 async function assertImmutableCore(before, after, {
   replayPlan = null,
   effectReplayReceipts = [],
-  appliedReplayPlans = new Map()
+  appliedReplayPlans = new Map(),
+  forkTaskImports = []
 } = {}) {
   const fields = [
     'processId', 'programSha256', 'policySnapshotSha256', 'processBindingSha256',
@@ -1604,7 +1609,12 @@ async function assertImmutableCore(before, after, {
       skipped: new Set(['skipped']),
       verifying: new Set(['verifying', 'succeeded', 'failed', 'recovery-required'])
     }[prior];
-    if (!replayReset && !legal?.has(next)) {
+    const exactForkImport = forkTaskImports.filter((record) =>
+      record.childProcessId === after.processId && record.childTaskInstanceId === id);
+    const importedSuccess = next === 'succeeded'
+      && ['ready', 'waiting'].includes(prior)
+      && exactForkImport.length === 1;
+    if (!replayReset && !legal?.has(next) && !importedSuccess) {
       fail(`SGOS task '${id}' attempted illegal transition '${prior}' -> '${next}'.`,
         'SGOS_TASK_TRANSITION_INVALID', { taskInstanceId: id, prior, next });
     }
@@ -3728,6 +3738,270 @@ function successfulSgosAttempt(attemptsById, attemptId) {
   return successful[0];
 }
 
+async function ancestorControlEvent(root, process, controlEventSha256) {
+  let cursor = process.controlEventSha256;
+  for (let depth = 0; cursor !== null && depth <= MAX_CONTROL_RECORDS; depth += 1) {
+    const { record } = await readSgosImmutableRecord(
+      root, process.processId, 'sgos-control-event', cursor
+    );
+    if (cursor === controlEventSha256) return record;
+    cursor = record.priorControlEventSha256;
+  }
+  fail('Fork import source control event is not an ancestor of the current parent Process.',
+    'SGOS_FORK_PREFIX_EVIDENCE_INVALID', { controlEventSha256 });
+}
+
+async function optionalForkTaskImport(readImmutable, receipt) {
+  const matches = [];
+  for (const reference of receipt.evidenceRefs) {
+    if (!SHA256.test(String(reference ?? ''))) continue;
+    try {
+      matches.push((await readImmutable('fork-prefix-task-import', reference)).record);
+    } catch (error) {
+      if (error?.code !== 'SGOS_RECORD_NOT_FOUND') throw error;
+    }
+  }
+  if (matches.length > 1) {
+    fail('A child Task Receipt references more than one fork-prefix import record.',
+      'SGOS_FORK_PREFIX_EVIDENCE_INVALID');
+  }
+  return matches[0] ?? null;
+}
+
+async function assertForkTaskImport(root, state, taskId, task, receipt, candidate,
+  boundEvidence, template, readImmutable) {
+  const imported = await optionalForkTaskImport(readImmutable, receipt);
+  if (imported === null) return null;
+  if (imported.childProcessId !== state.processId
+      || imported.childTaskInstanceId !== taskId
+      || imported.taskTemplateId !== task.taskTemplateId
+      || imported.parentProcessId === state.processId
+      || imported.attempts.map((entry) => entry.childAttemptId).join('\0')
+        !== task.attemptIds.join('\0')
+      || imported.attempts.at(-1)?.childAttemptId !== receipt.attemptId
+      || canonicalJson(imported.inputRefs) !== canonicalJson(task.inputRefs)
+      || canonicalJson(imported.outputRefs) !== canonicalJson(task.outputRefs)
+      || canonicalJson(imported.outputRefs) !== canonicalJson(receipt.outputRefs)
+      || imported.verificationChecksSha256 !== receipt.verification?.checksSha256
+      || !boundEvidence.evidenceRefs.includes(imported.forkTaskImportSha256)
+      || boundEvidence.verification?.checksSha256 !== imported.verificationChecksSha256) {
+    fail(`Fork-imported task '${taskId}' crosses its child receipt boundary.`,
+      'SGOS_FORK_PREFIX_EVIDENCE_INVALID');
+  }
+  const parent = await readSgosProcess(root, imported.parentProcessId);
+  if (parent.programSha256 !== state.programSha256
+      || parent.authorityBinding?.kind !== state.authorityBinding?.kind
+      || parent.authorityBinding?.subjectId !== state.authorityBinding?.subjectId
+      || parent.authorityBinding?.branch !== state.authorityBinding?.branch
+      || parent.authorityBinding?.baselineRevision !== state.authorityBinding?.baselineRevision) {
+    fail('Fork import parent crosses immutable Program or subject authority.',
+      'SGOS_FORK_PREFIX_EVIDENCE_INVALID');
+  }
+  const sourceEvent = await ancestorControlEvent(
+    root, parent, imported.sourceControlEventSha256
+  );
+  const sourceState = processFromControlEvent(parent, sourceEvent);
+  const sourceSuccessor = await readSgosControlSuccessor(
+    root, parent.processId, sourceEvent.beforeProcessSha256
+  );
+  if (sourceState.processSha256 !== imported.sourceProcessSha256
+      || sourceState.processRevision !== sourceEvent.result.processRevision
+      || sourceEvent.recordIndexSha256 !== imported.sourceRecordIndexSha256
+      || sourceSuccessor?.controlEventSha256 !== sourceEvent.controlEventSha256) {
+    fail('Fork import source Process boundary is not exact.',
+      'SGOS_FORK_PREFIX_EVIDENCE_INVALID');
+  }
+  const sourceCheckpoint = (await readSgosImmutableRecord(
+    root, parent.processId, 'gvm-checkpoint', imported.fromCheckpointSha256
+  )).record;
+  const sourceTask = sourceState.taskInstances[imported.sourceTaskInstanceId];
+  const sourceTaskStates = Object.fromEntries(Object.entries(sourceState.taskInstances)
+    .map(([id, entry]) => [id, entry.state]));
+  const sourceReady = Object.values(sourceState.taskInstances)
+    .filter((entry) => entry.state === 'ready')
+    .map((entry) => entry.taskInstanceId).sort(compareSgosCodePoints);
+  if (!sourceTask || sourceTask.taskTemplateId !== imported.taskTemplateId
+      || sourceTask.state !== 'succeeded'
+      || sourceTask.revision !== imported.sourceTaskRevision
+      || sourceCheckpoint.processId !== parent.processId
+      || sourceCheckpoint.processRevision !== sourceState.processRevision
+      || sourceCheckpoint.programSha256 !== parent.programSha256
+      || sourceCheckpoint.processBindingSha256 !== parent.processBindingSha256
+      || canonicalJson(sourceCheckpoint.taskStates) !== canonicalJson(sourceTaskStates)
+      || canonicalJson(sourceCheckpoint.readyTaskIds) !== canonicalJson(sourceReady)
+      || canonicalJson(sourceTask.inputRefs) !== canonicalJson(imported.inputRefs)
+      || canonicalJson(sourceTask.outputRefs) !== canonicalJson(imported.outputRefs)
+      || sourceTask.receiptSha256 !== imported.sourceTaskReceiptSha256
+      || canonicalJson(sourceTask.attemptIds)
+        !== canonicalJson(imported.attempts.map((entry) => entry.sourceAttemptId))) {
+    fail(`Fork import source task '${imported.sourceTaskInstanceId}' is not the checkpointed success.`,
+      'SGOS_FORK_PREFIX_EVIDENCE_INVALID');
+  }
+  const sourceRefs = [
+    ['gvm-task-receipt', imported.sourceTaskReceiptSha256],
+    ['candidate-snapshot', imported.sourceCandidateSha256],
+    ...imported.sourceActionEvidenceSha256s.map((hash) => ['action-evidence', hash]),
+    ...imported.attempts.flatMap((entry) => [
+      ['gvm-task-attempt', entry.sourceRunningAttemptSha256],
+      ['gvm-task-attempt', entry.sourceTerminalAttemptSha256]
+    ])
+  ];
+  for (const [family, hash] of sourceRefs) {
+    if (!await isRootedRecord(
+      root, parent.processId, imported.sourceRecordIndexSha256, family, hash
+    )) {
+      fail(`Fork import source ${family} is not rooted at the checkpoint record index.`,
+        'SGOS_FORK_PREFIX_EVIDENCE_INVALID', { family, recordSha256: hash });
+    }
+  }
+  // A runtime checkpoint describes the quiescent Process bytes immediately before its CHECKPOINT
+  // task executes, so that checkpoint record is necessarily published by a later control event.
+  // Bind its contents to the historical source state above, but prove the immutable record itself
+  // from the parent's current append-only index rather than pretending it existed in the older
+  // source index.
+  if (!await isRootedRecord(
+    root, parent.processId, parent.recordIndexSha256,
+    'gvm-checkpoint', imported.fromCheckpointSha256
+  )) {
+    fail('Fork import checkpoint is not rooted in the parent Process record history.',
+      'SGOS_FORK_PREFIX_EVIDENCE_INVALID', {
+        family: 'gvm-checkpoint', recordSha256: imported.fromCheckpointSha256
+      });
+  }
+  const sourceReceipt = (await readSgosImmutableRecord(
+    root, parent.processId, 'gvm-task-receipt', imported.sourceTaskReceiptSha256
+  )).record;
+  const sourceCandidate = (await readSgosImmutableRecord(
+    root, parent.processId, 'candidate-snapshot', imported.sourceCandidateSha256
+  )).record;
+  if (sourceReceipt.processId !== parent.processId
+      || sourceReceipt.taskInstanceId !== sourceTask.taskInstanceId
+      || sourceReceipt.attemptId !== sourceTask.attemptIds.at(-1)
+      || sourceReceipt.candidateSha256 !== sourceCandidate.candidateSha256
+      || sourceReceipt.verification?.checksSha256 !== imported.verificationChecksSha256
+      || canonicalJson(sourceReceipt.inputRefs) !== canonicalJson(imported.inputRefs)
+      || canonicalJson(sourceReceipt.outputRefs) !== canonicalJson(imported.outputRefs)
+      || canonicalJson(sourceReceipt.evidenceRefs) !== canonicalJson(imported.sourceEvidenceRefs)
+      || canonicalJson(sourceReceipt.effectRefs) !== canonicalJson(imported.sourceEffectRefs)
+      || canonicalJson(sourceReceipt.humanDecisionRefs)
+        !== canonicalJson(imported.sourceHumanDecisionRefs)
+      || !sourceReceipt.evidenceRefs.includes(sourceCandidate.candidateSha256)
+      || canonicalJson(candidate.resources) !== canonicalJson(sourceCandidate.resources)) {
+    fail('Fork import source Task Receipt or Candidate is inconsistent.',
+      'SGOS_FORK_PREFIX_EVIDENCE_INVALID');
+  }
+  let passingSourceEvidence = 0;
+  for (const evidenceSha256 of imported.sourceActionEvidenceSha256s) {
+    const sourceEvidence = (await readSgosImmutableRecord(
+      root, parent.processId, 'action-evidence', evidenceSha256
+    )).record;
+    if (!sourceReceipt.evidenceRefs.includes(evidenceSha256)
+        || sourceEvidence.processId !== parent.processId
+        || sourceEvidence.taskInstanceId !== sourceTask.taskInstanceId
+        || sourceEvidence.attemptId !== sourceReceipt.attemptId
+        || sourceEvidence.programSha256 !== parent.programSha256
+        || sourceEvidence.taskContractSha256 !== parent.taskContractSha256
+        || sourceEvidence.postStateSha256 !== sourceCandidate.candidateSha256
+        || sourceEvidence.verification?.status !== 'passed'
+        || sourceEvidence.verification?.checksSha256 !== imported.verificationChecksSha256
+        || (sourceEvidence.contradictions?.length ?? 0) !== 0) {
+      fail('Fork import source Action Evidence is inconsistent.',
+        'SGOS_FORK_PREFIX_EVIDENCE_INVALID');
+    }
+    passingSourceEvidence += 1;
+  }
+  if (passingSourceEvidence < 1) {
+    fail('Fork import has no exact passing source Action Evidence.',
+      'SGOS_FORK_PREFIX_EVIDENCE_INVALID');
+  }
+  for (let index = 0; index < imported.attempts.length; index += 1) {
+    const mapping = imported.attempts[index];
+    const [sourceRunning, sourceTerminal, childRunning, childTerminal] = await Promise.all([
+      readSgosImmutableRecord(
+        root, parent.processId, 'gvm-task-attempt', mapping.sourceRunningAttemptSha256
+      ).then((entry) => entry.record),
+      readSgosImmutableRecord(
+        root, parent.processId, 'gvm-task-attempt', mapping.sourceTerminalAttemptSha256
+      ).then((entry) => entry.record),
+      readImmutable('gvm-task-attempt', mapping.childRunningAttemptSha256)
+        .then((entry) => entry.record),
+      readImmutable('gvm-task-attempt', mapping.childTerminalAttemptSha256)
+        .then((entry) => entry.record)
+    ]);
+    const expectedSourceParent = imported.attempts[index - 1]?.sourceAttemptId ?? null;
+    const expectedChildParent = imported.attempts[index - 1]?.childAttemptId ?? null;
+    if (sourceRunning.attemptId !== mapping.sourceAttemptId
+        || sourceTerminal.attemptId !== mapping.sourceAttemptId
+        || sourceRunning.processId !== parent.processId
+        || sourceTerminal.processId !== parent.processId
+        || sourceRunning.taskInstanceId !== sourceTask.taskInstanceId
+        || sourceTerminal.taskInstanceId !== sourceTask.taskInstanceId
+        || sourceRunning.attemptNumber !== index + 1
+        || sourceTerminal.attemptNumber !== index + 1
+        || sourceRunning.parentAttemptId !== expectedSourceParent
+        || sourceTerminal.parentAttemptId !== expectedSourceParent
+        || sourceRunning.status !== 'running'
+        || sourceTerminal.status !== mapping.sourceTerminalStatus
+        || sourceRunning.executionHandleSha256 !== sourceTerminal.executionHandleSha256
+        || childRunning.attemptId !== mapping.childAttemptId
+        || childTerminal.attemptId !== mapping.childAttemptId
+        || childRunning.processId !== state.processId
+        || childTerminal.processId !== state.processId
+        || childRunning.taskInstanceId !== taskId
+        || childTerminal.taskInstanceId !== taskId
+        || childRunning.attemptNumber !== index + 1
+        || childTerminal.attemptNumber !== index + 1
+        || childRunning.parentAttemptId !== expectedChildParent
+        || childTerminal.parentAttemptId !== expectedChildParent
+        || childRunning.reason !== 'recovery' || childTerminal.reason !== 'recovery'
+        || childRunning.status !== 'running'
+        || childTerminal.status !== mapping.sourceTerminalStatus
+        || childRunning.executionHandleSha256 !== childTerminal.executionHandleSha256) {
+      fail('Fork import attempt mapping is inconsistent.',
+        'SGOS_FORK_PREFIX_EVIDENCE_INVALID', { attemptIndex: index });
+    }
+  }
+  const effect = replayEffectKind(template);
+  if (effect.kind === 'unsafe') {
+    fail('Fork import cannot claim a task without an installed effect protocol.',
+      'SGOS_FORK_PREFIX_EFFECT_UNSAFE', { taskInstanceId: taskId });
+  }
+  if (effect.kind === 'reconcile') {
+    const reconciliation = imported.effectReconciliation;
+    if (reconciliation == null) {
+      fail('Fork import is missing consequential-effect reconciliation.',
+        'SGOS_FORK_PREFIX_EFFECT_INVALID');
+    }
+    const intent = await readSgosToolIntent(root, reconciliation.toolIntentSha256);
+    const result = await readSgosToolResult(root, reconciliation.toolIntentSha256);
+    const proof = await verifySgosDeviceEffectPostcondition(root, intent, result);
+    const parameters = template.metadata?.parameters ?? {};
+    if (canonicalJson(reconciliation) !== canonicalJson({
+      deviceManifestSha256: proof.deviceManifestSha256,
+      toolIntentSha256: proof.toolIntentSha256,
+      toolResultSha256: proof.toolResultSha256,
+      idempotencyKey: proof.idempotencyKey,
+      effectSha256: proof.effectSha256,
+      postconditionSha256: proof.postconditionSha256
+    }) || intent.processId !== parent.processId
+        || intent.taskInstanceId !== sourceTask.taskInstanceId
+        || intent.attemptId !== sourceReceipt.attemptId
+        || intent.deviceManifestSha256 !== template.metadata?.deviceManifestSha256
+        || intent.operation !== parameters.operation
+        || intent.argumentsSha256 !== sha256(parameters.arguments)
+        || intent.scopeSha256 !== sha256(parameters.scope)
+        || !sourceReceipt.outputRefs.includes(result.resultSha256)
+        || !sourceReceipt.effectRefs.includes(result.resultSha256)) {
+      fail('Fork import consequential-effect reconciliation is inconsistent.',
+        'SGOS_FORK_PREFIX_EFFECT_INVALID');
+    }
+  } else if (imported.effectReconciliation !== null) {
+    fail('Fork import attached effect reconciliation to a non-consequential task.',
+      'SGOS_FORK_PREFIX_EFFECT_INVALID');
+  }
+  return imported;
+}
+
 function recordsBy(records, field) {
   const indexed = new Map();
   for (const record of records) {
@@ -3865,8 +4139,13 @@ async function assertSuccessfulReceiptLineage(
     if (!boundEvidence) {
       fail(`SGOS task '${taskId}' receipt has no exact passing Action Evidence lineage.`, 'SGOS_RECEIPT_LINEAGE_INVALID');
     }
-    await assertDeviceReceiptLineage(root, state, taskId, record, boundEvidence, template);
-    if (template?.opcode === 'AGENT'
+    const forkImport = await assertForkTaskImport(
+      root, state, taskId, task, record, candidate, boundEvidence, template, readImmutable
+    );
+    if (forkImport === null) await assertDeviceReceiptLineage(
+      root, state, taskId, record, boundEvidence, template
+    );
+    if (forkImport === null && template?.opcode === 'AGENT'
         && template.metadata?.executionUnitId === 'copilot-cli') {
       if (record.outputRefs.length !== 1
           || !record.evidenceRefs.includes(record.outputRefs[0])) {
@@ -3887,7 +4166,7 @@ async function assertSuccessfulReceiptLineage(
           'SGOS_AGENT_PROPOSAL_BINDING_MISMATCH');
       }
     }
-    for (const responseSha256 of record.humanDecisionRefs ?? []) {
+    for (const responseSha256 of forkImport === null ? record.humanDecisionRefs ?? [] : []) {
       const { record: response } = await readImmutable('human-response', responseSha256);
       if (response.processId !== state.processId || response.taskInstanceId !== taskId) {
         fail(`SGOS task '${taskId}' receipt references another task's Human Response.`, 'SGOS_RECEIPT_LINEAGE_INVALID');
@@ -4015,8 +4294,16 @@ async function assertHotSuccessfulReceiptLineage(
     fail(`SGOS task '${taskId}' receipt has no exact passing Action Evidence lineage.`,
       'SGOS_RECEIPT_LINEAGE_INVALID');
   }
-  await assertDeviceReceiptLineage(root, state, taskId, record, boundEvidence, template);
-  if (template?.opcode === 'AGENT'
+  const forkImport = await assertForkTaskImport(
+    root, state, taskId, task, record, candidate, boundEvidence, template,
+    (familyId, sha256) => readSgosImmutableRecord(
+      root, state.processId, familyId, sha256
+    )
+  );
+  if (forkImport === null) await assertDeviceReceiptLineage(
+    root, state, taskId, record, boundEvidence, template
+  );
+  if (forkImport === null && template?.opcode === 'AGENT'
       && template.metadata?.executionUnitId === 'copilot-cli') {
     if (record.outputRefs.length !== 1
         || !record.evidenceRefs.includes(record.outputRefs[0])) {
@@ -4037,7 +4324,7 @@ async function assertHotSuccessfulReceiptLineage(
         'SGOS_AGENT_PROPOSAL_BINDING_MISMATCH');
     }
   }
-  for (const responseSha256 of record.humanDecisionRefs ?? []) {
+  for (const responseSha256 of forkImport === null ? record.humanDecisionRefs ?? [] : []) {
     const { record: response } = await readSgosImmutableRecord(
       root, state.processId, 'human-response', responseSha256
     );
@@ -4126,6 +4413,138 @@ function assertAgentProposalCensus(
   }
 }
 
+async function assertForkImportCensus({
+  state, taskImports, importReceipts, receipts, checkpoints, isRooted, readImmutable
+}) {
+  const receiptUses = new Map();
+  for (const receipt of receipts) {
+    for (const reference of receipt.evidenceRefs ?? []) {
+      const values = receiptUses.get(reference) ?? [];
+      values.push(receipt);
+      receiptUses.set(reference, values);
+    }
+  }
+  const importsByPlan = recordsBy(taskImports, 'forkPlanSha256');
+  const aggregateByPlan = recordsBy(importReceipts, 'forkPlanSha256');
+  if (importsByPlan.size > 1 || aggregateByPlan.size > 1) {
+    fail('A child Process cannot mix more than one fork-prefix import plan.',
+      'SGOS_FORK_PREFIX_EVIDENCE_INVALID', {
+        taskImportPlans: importsByPlan.size, aggregatePlans: aggregateByPlan.size
+      });
+  }
+  const importedTaskIds = new Set();
+  for (const imported of taskImports) {
+    const uses = receiptUses.get(imported.forkTaskImportSha256) ?? [];
+    if (imported.childProcessId !== state.processId
+        || uses.length !== 1
+        || uses[0].processId !== state.processId
+        || uses[0].taskInstanceId !== imported.childTaskInstanceId) {
+      fail(`Fork task import '${imported.forkTaskImportSha256}' is orphaned or ambiguous.`,
+        'SGOS_FORK_PREFIX_EVIDENCE_INVALID', {
+          forkTaskImportSha256: imported.forkTaskImportSha256,
+          receiptUses: uses.length
+        });
+    }
+    importedTaskIds.add(imported.childTaskInstanceId);
+  }
+  for (const [forkPlanSha256, aggregates] of aggregateByPlan) {
+    const imports = importsByPlan.get(forkPlanSha256) ?? [];
+    if (aggregates.length !== 1 || imports.length < 1) {
+      fail('Fork prefix aggregate receipt has duplicate or missing task-import lineage.',
+        'SGOS_FORK_PREFIX_EVIDENCE_INVALID', {
+          forkPlanSha256, aggregates: aggregates.length, imports: imports.length
+        });
+    }
+    const aggregate = aggregates[0];
+    if (aggregate.childProcessId !== state.processId
+        || !await isRooted('fork-prefix-import-receipt', aggregate.forkImportReceiptSha256)
+        || !await isRooted('gvm-checkpoint', aggregate.childGenesisCheckpointSha256)
+        || !await isRooted('gvm-checkpoint', aggregate.childImportedCheckpointSha256)) {
+      fail('Fork prefix aggregate receipt is outside the child Process record history.',
+        'SGOS_FORK_PREFIX_EVIDENCE_INVALID', { forkPlanSha256 });
+    }
+    const genesis = checkpoints.find((entry) =>
+      entry.checkpointSha256 === aggregate.childGenesisCheckpointSha256) ?? null;
+    const importedCheckpoint = checkpoints.find((entry) =>
+      entry.checkpointSha256 === aggregate.childImportedCheckpointSha256) ?? null;
+    if (!genesis || !importedCheckpoint
+        || genesis.processId !== state.processId
+        || genesis.priorCheckpointSha256 !== null
+        || importedCheckpoint.processId !== state.processId
+        || importedCheckpoint.priorCheckpointSha256 !== genesis.checkpointSha256
+        || importedCheckpoint.programSha256 !== state.programSha256
+        || importedCheckpoint.policySnapshotSha256 !== state.policySnapshotSha256
+        || importedCheckpoint.processBindingSha256 !== state.processBindingSha256) {
+      fail('Fork prefix aggregate checkpoint lineage is invalid.',
+        'SGOS_FORK_PREFIX_EVIDENCE_INVALID', { forkPlanSha256 });
+    }
+    const expectedTasks = imports.map((imported) => {
+      const uses = receiptUses.get(imported.forkTaskImportSha256) ?? [];
+      return {
+        taskTemplateId: imported.taskTemplateId,
+        sourceTaskInstanceId: imported.sourceTaskInstanceId,
+        childTaskInstanceId: imported.childTaskInstanceId,
+        forkTaskImportSha256: imported.forkTaskImportSha256,
+        childTaskReceiptSha256: uses[0]?.receiptSha256 ?? null,
+        attemptCount: imported.attempts.length,
+        outputRefs: imported.outputRefs
+      };
+    }).sort((left, right) => compareSgosCodePoints(
+      left.taskTemplateId, right.taskTemplateId
+    ) || compareSgosCodePoints(left.childTaskInstanceId, right.childTaskInstanceId));
+    const source = imports[0];
+    const sourceFields = [
+      'parentProcessId', 'childProcessId', 'sourceEvidenceProjectionSha256',
+      'sourceProcessSha256', 'sourceControlEventSha256', 'sourceRecordIndexSha256',
+      'fromCheckpointSha256', 'importedAt'
+    ];
+    if (sourceFields.some((field) => aggregate[field] !== source[field])
+        || imports.some((entry) => sourceFields.some((field) => entry[field] !== source[field]))
+        || canonicalJson(aggregate.tasks) !== canonicalJson(expectedTasks)
+        || expectedTasks.some((entry) =>
+          importedCheckpoint.taskStates[entry.childTaskInstanceId] !== 'succeeded')) {
+      fail('Fork prefix aggregate does not exactly cover its task imports.',
+        'SGOS_FORK_PREFIX_EVIDENCE_INVALID', { forkPlanSha256 });
+    }
+    let cursor = state.currentCheckpointSha256;
+    let found = false;
+    for (let depth = 0; cursor !== null && depth <= MAX_PROCESS_RECORDS; depth += 1) {
+      if (cursor === importedCheckpoint.checkpointSha256) {
+        found = true;
+        break;
+      }
+      cursor = (await readImmutable('gvm-checkpoint', cursor)).record.priorCheckpointSha256;
+    }
+    if (!found) {
+      fail('Fork prefix imported checkpoint is not an ancestor of the current child checkpoint.',
+        'SGOS_FORK_PREFIX_EVIDENCE_INVALID', { forkPlanSha256 });
+    }
+  }
+  for (const [forkPlanSha256, imports] of importsByPlan) {
+    const aggregateCount = aggregateByPlan.get(forkPlanSha256)?.length ?? 0;
+    if (aggregateCount > 1) {
+      fail('Fork prefix has more than one aggregate import receipt.',
+        'SGOS_FORK_PREFIX_EVIDENCE_INVALID', { forkPlanSha256, aggregateCount });
+    }
+    if (aggregateCount === 0) {
+      const currentCheckpoint = checkpoints.find((entry) =>
+        entry.checkpointSha256 === state.currentCheckpointSha256) ?? null;
+      const pendingTaskIds = new Set(imports.map((entry) => entry.childTaskInstanceId));
+      if (!currentCheckpoint || currentCheckpoint.priorCheckpointSha256 !== null
+          || imports.some((entry) => entry.childProcessId !== state.processId)
+          || Object.values(state.taskInstances).some((task) =>
+            !pendingTaskIds.has(task.taskInstanceId)
+            && (task.attemptIds.length || task.receiptSha256 !== null
+              || task.outputRefs.length
+              || !['planned', 'waiting', 'ready'].includes(task.state)))) {
+        fail('Fork prefix task imports have no recoverable aggregate boundary.',
+          'SGOS_FORK_PREFIX_EVIDENCE_INVALID', { forkPlanSha256 });
+      }
+    }
+  }
+  return importedTaskIds;
+}
+
 async function assertReferencedRecords(root, state, { snapshotRecords = null } = {}) {
   const snapshotValues = snapshotRecords == null ? null : [...snapshotRecords.values()]
     .filter((entry) => entry.reservation !== true && entry.quarantinedV1 !== true);
@@ -4172,7 +4591,8 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
   // task state. A self-hashed Process cannot reset a receipted task to ready and execute it again.
   const [attempts, receipts, agentProposals, resourceLeases, joinReceipts,
     quorumJoinReceipts, reducerJoinReceipts, manualReconcileJoinReceipts, fanoutReceipts,
-    effectReplayReceipts, { record: program }] = await Promise.all([
+    effectReplayReceipts, forkTaskImports, forkImportReceipts, checkpoints,
+    { record: program }] = await Promise.all([
     allRecords('gvm-task-attempt'),
     allRecords('gvm-task-receipt'),
     allRecords('agent-proposal'),
@@ -4183,6 +4603,9 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
     allRecords('manual-reconcile-join-receipt'),
     allRecords('fanout-expansion-receipt'),
     allRecords('effect-replay-receipt'),
+    allRecords('fork-prefix-task-import'),
+    allRecords('fork-prefix-import-receipt'),
+    allRecords('gvm-checkpoint'),
     readImmutable('gvm-program', state.programSha256)
   ]);
   const attemptsById = recordsBy(attempts, 'attemptId');
@@ -4353,9 +4776,13 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
   for (const receipt of receipts) {
     if (ownerByAttempt.get(receipt.attemptId) !== receipt.taskInstanceId) {
       fail(`SGOS receipt '${receipt.receiptSha256}' is orphaned from mutable task lineage.`,
-        'SGOS_RECEIPT_LINEAGE_INVALID');
+      'SGOS_RECEIPT_LINEAGE_INVALID');
     }
   }
+  const importedTaskIds = await assertForkImportCensus({
+    state, taskImports: forkTaskImports, importReceipts: forkImportReceipts,
+    receipts, checkpoints, isRooted, readImmutable
+  });
   assertAgentProposalCensus(
     state, program, agentProposals, attempts, receipts, ownerByAttempt
   );
@@ -4485,7 +4912,8 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
     }
   }
   for (const [taskId, task] of Object.entries(state.taskInstances)) {
-    if (!joinsByTask.has(task.taskTemplateId) || task.state !== 'succeeded') continue;
+    if (importedTaskIds.has(taskId)
+        || !joinsByTask.has(task.taskTemplateId) || task.state !== 'succeeded') continue;
     const exact = joinReceiptsByAttempt.get(task.attemptIds.at(-1)) ?? [];
     const receiptSha256 = exact[0]?.policy === 'quorum'
       ? exact[0].quorumJoinReceiptSha256
@@ -4818,6 +5246,9 @@ async function assertTransitionIndexDelta(root, before, after, index) {
   };
   const introducedReplayPlans = new Set();
   const consumedAgentProposals = new Set();
+  const consumedForkTaskImports = new Set();
+  const introducedForkAggregates = index.delta.filter((entry) =>
+    entry.family === 'fork-prefix-import-receipt');
   for (const [taskId, task] of Object.entries(after.taskInstances)) {
     const prior = before.taskInstances[taskId];
     if (task.invalidatedBy !== prior.invalidatedBy) {
@@ -4835,6 +5266,22 @@ async function assertTransitionIndexDelta(root, before, after, index) {
   if (after.currentCheckpointSha256 !== before.currentCheckpointSha256
       && after.currentCheckpointSha256 !== null) {
     requireIndexed('gvm-checkpoint', after.currentCheckpointSha256, 'checkpoint');
+    if (introducedForkAggregates.length) {
+      if (introducedForkAggregates.length !== 1) {
+        fail('Fork prefix checkpoint transition must introduce one exact aggregate receipt.',
+          'SGOS_FORK_PREFIX_EVIDENCE_INVALID');
+      }
+      const { record: aggregate } = await readSgosImmutableRecord(
+        root, after.processId, 'fork-prefix-import-receipt',
+        introducedForkAggregates[0].recordSha256
+      );
+      if (aggregate.childProcessId !== after.processId
+          || aggregate.childGenesisCheckpointSha256 !== before.currentCheckpointSha256
+          || aggregate.childImportedCheckpointSha256 !== after.currentCheckpointSha256) {
+        fail('Fork prefix aggregate does not bind the exact child checkpoint transition.',
+          'SGOS_FORK_PREFIX_EVIDENCE_INVALID');
+      }
+    }
     if (before.currentCheckpointSha256 === null) {
       const { record: program } = await readSgosImmutableRecord(
         root, after.processId, 'gvm-program', after.programSha256
@@ -4895,7 +5342,19 @@ async function assertTransitionIndexDelta(root, before, after, index) {
       );
       const template = program.taskTemplates.find((entry) =>
         entry.taskTemplateId === task.taskTemplateId);
-      if (template?.opcode === 'AGENT'
+      const exactForkImports = index.delta.filter((entry) =>
+        entry.family === 'fork-prefix-task-import'
+        && entry.taskInstanceId === taskId);
+      if (exactForkImports.length > 1
+          || (exactForkImports.length === 1
+            && !receipt.evidenceRefs.includes(exactForkImports[0].recordSha256))) {
+        fail(`Fork-imported task '${taskId}' did not bind one exact import record.`,
+          'SGOS_FORK_PREFIX_EVIDENCE_INVALID');
+      }
+      if (exactForkImports.length === 1) {
+        consumedForkTaskImports.add(exactForkImports[0].recordSha256);
+      }
+      if (exactForkImports.length === 0 && template?.opcode === 'AGENT'
           && template.metadata?.executionUnitId === 'copilot-cli') {
         const exactProposals = index.delta.filter((entry) =>
           entry.family === 'agent-proposal'
@@ -4926,7 +5385,7 @@ async function assertTransitionIndexDelta(root, before, after, index) {
         }
         consumedAgentProposals.add(proposalSha256);
       }
-      if (template?.opcode === 'JOIN') {
+      if (exactForkImports.length === 0 && template?.opcode === 'JOIN') {
         const join = (program.joins ?? []).find((entry) =>
           entry.taskTemplateId === task.taskTemplateId);
         const joinReceiptFamily = join?.policy === 'quorum'
@@ -5056,6 +5515,20 @@ async function assertTransitionIndexDelta(root, before, after, index) {
           `Human Response for task '${taskId}'`);
       }
     }
+  }
+  const unconsumedForkTaskImports = index.delta.filter((entry) =>
+    entry.family === 'fork-prefix-task-import'
+    && !consumedForkTaskImports.has(entry.recordSha256));
+  if (unconsumedForkTaskImports.length) {
+    fail('SGOS transition introduced an unbound fork-prefix task import.',
+      'SGOS_FORK_PREFIX_EVIDENCE_INVALID', {
+        records: unconsumedForkTaskImports.map((entry) => entry.recordSha256)
+      });
+  }
+  if (introducedForkAggregates.length
+      && after.currentCheckpointSha256 === before.currentCheckpointSha256) {
+    fail('Fork prefix aggregate cannot be published without its exact child checkpoint.',
+      'SGOS_FORK_PREFIX_EVIDENCE_INVALID');
   }
   const unconsumedAgentProposals = index.delta.filter((entry) =>
     entry.family === 'agent-proposal'
@@ -5559,8 +6032,13 @@ export async function mutateSgosProcess(root, processId, mutate, {
       collector.active = false;
     }
     const next = returned ?? draft;
+    const forkTaskImports = await Promise.all(collector.tokens
+      .filter((token) => token?.family === 'fork-prefix-task-import')
+      .map(async (token) => (await readSgosImmutableRecord(
+        root, id, 'fork-prefix-task-import', token.recordSha256
+      )).record));
     await assertImmutableCore(current, next, {
-      replayPlan, effectReplayReceipts, appliedReplayPlans
+      replayPlan, effectReplayReceipts, appliedReplayPlans, forkTaskImports
     });
     next.schemaVersion = currentSchemaVersion('gvm-process');
     next.kind = 'gvm-process';
@@ -5947,11 +6425,20 @@ export async function fsckSgosProcess(root, processId) {
       }
       const rootedEvidence = new Map(rootedRecordFamily('action-evidence')
         .map((record) => [record.evidenceSha256, record]));
+      const rootedForkImports = new Map(rootedRecordFamily('fork-prefix-task-import')
+        .map((record) => [record.forkTaskImportSha256, record]));
       for (const receipt of rootedRecordFamily('gvm-task-receipt')) {
         const task = state.taskInstances[receipt.taskInstanceId] ?? null;
         const template = task == null ? null : rootedProgram.taskTemplates
           .find((entry) => entry.taskTemplateId === task.taskTemplateId);
         if (template?.opcode !== 'DEVICE') continue;
+        const imported = receipt.evidenceRefs
+          .map((reference) => rootedForkImports.get(reference) ?? null)
+          .find((record) => record?.childProcessId === state.processId
+            && record.childTaskInstanceId === receipt.taskInstanceId) ?? null;
+        // Cross-Process effect lineage is verified by assertForkTaskImport during the complete
+        // indexed-record census. It must not be reinterpreted here as a child-executed Device.
+        if (imported !== null) continue;
         try {
           const boundEvidence = receipt.evidenceRefs
             .map((reference) => rootedEvidence.get(reference) ?? null)

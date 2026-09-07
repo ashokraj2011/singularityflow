@@ -58,6 +58,13 @@ references. Its immutable receipt binds the complete terminal snapshot, request,
 selected predecessor, and exact selected outputs. Rejection and cancellation terminate without a
 join receipt or successful output.
 
+The non-genesis fork slice reconstructs the selected historical parent checkpoint from portable
+Process Evidence and imports only its closed successful predecessor prefix. Separate immutable task
+imports bind source and child attempt lineage, Candidate and Action Evidence, outputs, human
+decisions, verification, consumed attempts, and installed Device postcondition reconciliation. A
+single aggregate receipt advances the child from genesis to the imported checkpoint. Genesis fork
+bytes remain unchanged; interrupted task and aggregate publications resume idempotently.
+
 ## Status rules
 
 - `[ ]` means the capability remains unavailable or behind an explicit refusal boundary.
@@ -276,7 +283,7 @@ Implemented in the current increment:
   Devices continue through an ordinary new attempt.
 
 Still required: dynamic fan-out, additional independently reviewed reducer implementations,
-non-genesis fork import, consequential-effect retry, and additional reviewed Device-specific
+consequential-effect retry, and additional reviewed Device-specific
 postcondition protocols. The advanced orchestration family also needs shared signed
 supported-platform release evidence before this item can become `[x]`.
 

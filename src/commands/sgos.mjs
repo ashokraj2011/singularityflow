@@ -449,12 +449,15 @@ async function processCommand(root, positionals, options) {
         label: optionString(options, 'label', 'fork')
       });
       return emit(plan, options,
-        (value) => `Fork ${value.childProcessId} from genesis; confirm ${value.forkPlanSha256}.`,
+        (value) => `Fork ${value.childProcessId} ${value.prefixTasks == null
+          ? 'from genesis'
+          : `with ${value.prefixTasks.length} exact imported prefix task(s)`}; confirm ${value.forkPlanSha256}.`,
         { operation: 'process.fork.plan', changed: true });
     }
     const result = await forkSgosProcess(root, processId, { confirmationSha256 });
     return emit(result, options,
-      (value) => `Created independent Process ${value.child.processId} from ${value.parent.processId}.`,
+      (value) => `Created independent Process ${value.child.processId} from ${value.parent.processId}${
+        value.imported === true ? ` with ${value.importReceipt.tasks.length} imported prefix task(s)` : ''}.`,
       { operation: 'process.fork', changed: true });
   }
   const processId = positionals[2];

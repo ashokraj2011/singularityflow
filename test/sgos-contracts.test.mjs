@@ -10,7 +10,8 @@ import {
   createGvmTaskReceipt, createHumanRequest, createHumanResponse, createIntentEnvelope,
   createIntentIr, createPolicySnapshot, createProcessBinding, createSgosControlSuccessor,
   createSgosControlEvent, createSgosRecordIndex, createSgosTransitionIntent, createWorkflowIr,
-  createEffectReplayReceipt, createSgosReplayPlan,
+  createEffectReplayReceipt, createForkPrefixImportReceipt, createForkPrefixTaskImport,
+  createSgosReplayPlan,
   MAXIMUM_SGOS_PROCESS_RECORD_BYTES, MAXIMUM_SGOS_PROCESS_RECORD_COUNT,
   MAXIMUM_SGOS_RECORD_BYTES, MAXIMUM_SGOS_RECORD_INDEX_DELTA,
   SGOS_RECORD_INDEX_FAMILIES,
@@ -69,7 +70,7 @@ function candidateResources() {
 
 test('SGOS durable families expose exact readable versions and refuse future versions', () => {
   const registry = new Map(migrationRegistrySnapshot().map((entry) => [entry.id, entry]));
-  assert.equal(sgosContractFamilies().length, 29);
+  assert.equal(sgosContractFamilies().length, 31);
   for (const family of sgosContractFamilies()) {
     const current = family === 'gvm-process'
       ? 3
@@ -325,6 +326,70 @@ test('effect replay receipts bind exact idempotency and postcondition evidence',
   assert.throws(() => validateSgosRecord({
     ...receipt, idempotencyKey: d('forged-key')
   }), /does not match the canonical record/);
+});
+
+test('fork prefix records bind exact source attempts, child attempts, and aggregate coverage', () => {
+  const attempt = {
+    sourceAttemptId: 'ATT-SOURCE001', childAttemptId: 'ATT-CHILD0001',
+    sourceRunningAttemptSha256: d('fork-source-running'),
+    sourceTerminalAttemptSha256: d('fork-source-terminal'),
+    childRunningAttemptSha256: d('fork-child-running'),
+    childTerminalAttemptSha256: d('fork-child-terminal'),
+    sourceTerminalStatus: 'succeeded'
+  };
+  const imported = createForkPrefixTaskImport({
+    forkPlanSha256: d('fork-plan'), parentProcessId: 'PROC-PARENT01',
+    childProcessId: 'PROC-CHILD001',
+    sourceEvidenceProjectionSha256: d('fork-evidence'),
+    sourceProcessSha256: d('fork-process'),
+    sourceControlEventSha256: d('fork-event'),
+    sourceRecordIndexSha256: d('fork-index'),
+    fromCheckpointSha256: d('fork-source-checkpoint'),
+    sourceTaskInstanceId: 'TSK-SOURCE001', childTaskInstanceId: 'TSK-CHILD0001',
+    taskTemplateId: '10-work', sourceTaskRevision: 3,
+    inputRefs: [d('z-input'), d('a-input')], outputRefs: [d('fork-output')],
+    attempts: [attempt], sourceTaskReceiptSha256: d('fork-source-receipt'),
+    sourceCandidateSha256: d('fork-source-candidate'),
+    sourceActionEvidenceSha256s: [d('fork-source-evidence')],
+    sourceEvidenceRefs: [d('fork-source-candidate'), d('fork-source-evidence')],
+    sourceEffectRefs: [], sourceHumanDecisionRefs: [],
+    verificationChecksSha256: d('fork-checks'), effectReconciliation: null,
+    importedAt: at
+  });
+  assert.deepEqual(imported.inputRefs, [d('a-input'), d('z-input')].sort());
+  assert.equal(imported.forkTaskImportSha256,
+    recordSelfSha256(imported, 'forkTaskImportSha256'));
+  const aggregate = createForkPrefixImportReceipt({
+    forkPlanSha256: imported.forkPlanSha256,
+    parentProcessId: imported.parentProcessId, childProcessId: imported.childProcessId,
+    sourceEvidenceProjectionSha256: imported.sourceEvidenceProjectionSha256,
+    sourceProcessSha256: imported.sourceProcessSha256,
+    sourceControlEventSha256: imported.sourceControlEventSha256,
+    sourceRecordIndexSha256: imported.sourceRecordIndexSha256,
+    fromCheckpointSha256: imported.fromCheckpointSha256,
+    childGenesisCheckpointSha256: d('fork-child-genesis'),
+    childImportedCheckpointSha256: d('fork-child-imported'),
+    tasks: [{
+      taskTemplateId: imported.taskTemplateId,
+      sourceTaskInstanceId: imported.sourceTaskInstanceId,
+      childTaskInstanceId: imported.childTaskInstanceId,
+      forkTaskImportSha256: imported.forkTaskImportSha256,
+      childTaskReceiptSha256: d('fork-child-receipt'), attemptCount: 1,
+      outputRefs: imported.outputRefs
+    }], importedAt: at
+  });
+  assert.equal(aggregate.forkImportReceiptSha256,
+    recordSelfSha256(aggregate, 'forkImportReceiptSha256'));
+  assert.throws(() => validateSgosRecord({
+    ...imported,
+    attempts: [{ ...attempt, childTerminalAttemptSha256: d('counterfeit-child') }]
+  }), /canonical record/);
+  assert.throws(() => createForkPrefixTaskImport({
+    ...imported, attempts: [{ ...attempt, sourceTerminalStatus: 'failed' }]
+  }), /terminal successful/);
+  assert.throws(() => validateSgosRecord({
+    ...aggregate, tasks: [{ ...aggregate.tasks[0], attemptCount: 2 }]
+  }), /canonical record/);
 });
 
 test('SGOS transition intents bind one exact sorted reservation delta and control edge', () => {

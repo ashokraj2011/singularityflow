@@ -87,6 +87,8 @@ const CONTRACTS = Object.freeze({
   'reducer-join-receipt': Object.freeze({ kind: 'reducer-join-receipt', hash: 'reducerJoinReceiptSha256', id: 'reducerJoinReceiptId', prefix: 'RJR' }),
   'manual-reconcile-join-receipt': Object.freeze({ kind: 'manual-reconcile-join-receipt', hash: 'manualReconcileJoinReceiptSha256', id: 'manualReconcileJoinReceiptId', prefix: 'MJR' }),
   'effect-replay-receipt': Object.freeze({ kind: 'effect-replay-receipt', hash: 'effectReplayReceiptSha256', id: 'effectReplayReceiptId', prefix: 'ERP' }),
+  'fork-prefix-task-import': Object.freeze({ kind: 'fork-prefix-task-import', hash: 'forkTaskImportSha256', id: 'forkTaskImportId', prefix: 'FTI' }),
+  'fork-prefix-import-receipt': Object.freeze({ kind: 'fork-prefix-import-receipt', hash: 'forkImportReceiptSha256', id: 'forkImportReceiptId', prefix: 'FIR' }),
   'fanout-expansion-receipt': Object.freeze({ kind: 'fanout-expansion-receipt', hash: 'expansionSha256', id: 'expansionId', prefix: 'FOX' }),
   'sgos-replay-plan': Object.freeze({ kind: 'sgos-replay-plan', hash: 'replayPlanSha256', id: 'replayPlanId', prefix: 'RPL' }),
   'process-binding': Object.freeze({ kind: 'process-binding', hash: 'bindingSha256' }),
@@ -1237,6 +1239,217 @@ export function validateEffectReplayReceipt(value) {
   return returnValidated(value, validateEffectReplayReceiptRecord);
 }
 
+function validateForkAttemptMapping(value, label) {
+  exactKeys(value, [
+    'sourceAttemptId', 'childAttemptId', 'sourceRunningAttemptSha256',
+    'sourceTerminalAttemptSha256', 'childRunningAttemptSha256',
+    'childTerminalAttemptSha256', 'sourceTerminalStatus'
+  ], label);
+  requireKeys(value, [
+    'sourceAttemptId', 'childAttemptId', 'sourceRunningAttemptSha256',
+    'sourceTerminalAttemptSha256', 'childRunningAttemptSha256',
+    'childTerminalAttemptSha256', 'sourceTerminalStatus'
+  ], label);
+  identifier(value.sourceAttemptId, 'ATT', `${label}.sourceAttemptId`);
+  identifier(value.childAttemptId, 'ATT', `${label}.childAttemptId`);
+  digest(value.sourceRunningAttemptSha256, `${label}.sourceRunningAttemptSha256`);
+  digest(value.sourceTerminalAttemptSha256, `${label}.sourceTerminalAttemptSha256`);
+  digest(value.childRunningAttemptSha256, `${label}.childRunningAttemptSha256`);
+  digest(value.childTerminalAttemptSha256, `${label}.childTerminalAttemptSha256`);
+  enumeration(value.sourceTerminalStatus, [
+    'succeeded', 'failed', 'blocked', 'cancelled', 'recovery-required'
+  ], `${label}.sourceTerminalStatus`);
+}
+
+function validateForkEffectReconciliation(value, label) {
+  if (value === null) return;
+  exactKeys(value, [
+    'deviceManifestSha256', 'toolIntentSha256', 'toolResultSha256',
+    'idempotencyKey', 'effectSha256', 'postconditionSha256'
+  ], label);
+  requireKeys(value, [
+    'deviceManifestSha256', 'toolIntentSha256', 'toolResultSha256',
+    'idempotencyKey', 'effectSha256', 'postconditionSha256'
+  ], label);
+  for (const field of [
+    'deviceManifestSha256', 'toolIntentSha256', 'toolResultSha256',
+    'idempotencyKey', 'effectSha256', 'postconditionSha256'
+  ]) digest(value[field], `${label}.${field}`);
+}
+
+function validateForkPrefixTaskImportRecord(record, requireHash) {
+  validateBase(record, 'fork-prefix-task-import', [
+    'forkTaskImportId', 'forkPlanSha256', 'parentProcessId', 'childProcessId',
+    'sourceEvidenceProjectionSha256', 'sourceProcessSha256',
+    'sourceControlEventSha256', 'sourceRecordIndexSha256', 'fromCheckpointSha256',
+    'sourceTaskInstanceId', 'childTaskInstanceId', 'taskTemplateId',
+    'sourceTaskRevision', 'inputRefs', 'outputRefs', 'attempts',
+    'sourceTaskReceiptSha256', 'sourceCandidateSha256',
+    'sourceActionEvidenceSha256s', 'sourceEvidenceRefs', 'sourceEffectRefs',
+    'sourceHumanDecisionRefs', 'verificationChecksSha256',
+    'effectReconciliation', 'importedAt'
+  ], [
+    'forkTaskImportId', 'forkPlanSha256', 'parentProcessId', 'childProcessId',
+    'sourceEvidenceProjectionSha256', 'sourceProcessSha256',
+    'sourceControlEventSha256', 'sourceRecordIndexSha256', 'fromCheckpointSha256',
+    'sourceTaskInstanceId', 'childTaskInstanceId', 'taskTemplateId',
+    'sourceTaskRevision', 'inputRefs', 'outputRefs', 'attempts',
+    'sourceTaskReceiptSha256', 'sourceCandidateSha256',
+    'sourceActionEvidenceSha256s', 'sourceEvidenceRefs', 'sourceEffectRefs',
+    'sourceHumanDecisionRefs', 'verificationChecksSha256',
+    'effectReconciliation', 'importedAt'
+  ], requireHash);
+  identifier(record.forkTaskImportId, 'FTI', 'fork-prefix-task-import.forkTaskImportId');
+  identifier(record.parentProcessId, 'PROC', 'fork-prefix-task-import.parentProcessId');
+  identifier(record.childProcessId, 'PROC', 'fork-prefix-task-import.childProcessId');
+  for (const field of [
+    'forkPlanSha256', 'sourceEvidenceProjectionSha256', 'sourceProcessSha256',
+    'sourceControlEventSha256', 'sourceRecordIndexSha256', 'fromCheckpointSha256',
+    'sourceTaskReceiptSha256', 'sourceCandidateSha256', 'verificationChecksSha256'
+  ]) digest(record[field], `fork-prefix-task-import.${field}`);
+  for (const field of [
+    'sourceTaskInstanceId', 'childTaskInstanceId', 'taskTemplateId'
+  ]) string(record[field], `fork-prefix-task-import.${field}`);
+  integer(record.sourceTaskRevision, 'fork-prefix-task-import.sourceTaskRevision', { minimum: 1 });
+  for (const field of [
+    'inputRefs', 'outputRefs', 'sourceActionEvidenceSha256s', 'sourceEvidenceRefs',
+    'sourceEffectRefs', 'sourceHumanDecisionRefs'
+  ]) stringArray(record[field], `fork-prefix-task-import.${field}`);
+  if (!record.attempts.length
+      || record.attempts.length > SGOS_INSTALLED_LIMITS.maximumAttemptsPerTask) {
+    fail('fork-prefix-task-import.attempts exceeds the installed task-attempt bound.');
+  }
+  record.attempts.forEach((entry, index) =>
+    validateForkAttemptMapping(entry, `fork-prefix-task-import.attempts[${index}]`));
+  if (record.attempts.at(-1).sourceTerminalStatus !== 'succeeded') {
+    fail('fork-prefix-task-import requires an exact terminal successful source attempt.');
+  }
+  if (new Set(record.attempts.flatMap((entry) => [
+    entry.sourceAttemptId, entry.childAttemptId
+  ])).size !== 2 * record.attempts.length) {
+    fail('fork-prefix-task-import attempt identities must be unique.');
+  }
+  validateForkEffectReconciliation(
+    record.effectReconciliation, 'fork-prefix-task-import.effectReconciliation'
+  );
+  timestamp(record.importedAt, 'fork-prefix-task-import.importedAt');
+}
+
+export function createForkPrefixTaskImport(value) {
+  return createContract(
+    'fork-prefix-task-import', value, validateForkPrefixTaskImportRecord, {
+      prepare: (record) => ({
+        ...record,
+        ...Object.fromEntries([
+          'inputRefs', 'outputRefs', 'sourceActionEvidenceSha256s',
+          'sourceEvidenceRefs', 'sourceEffectRefs', 'sourceHumanDecisionRefs'
+        ].map((field) => [
+          field, [...new Set(record[field])].sort(compareSgosCodePoints)
+        ]))
+      }),
+      identity: (record) => ({
+        forkPlanSha256: record.forkPlanSha256,
+        parentProcessId: record.parentProcessId,
+        childProcessId: record.childProcessId,
+        sourceTaskInstanceId: record.sourceTaskInstanceId,
+        childTaskInstanceId: record.childTaskInstanceId,
+        sourceTaskReceiptSha256: record.sourceTaskReceiptSha256
+      })
+    }
+  );
+}
+
+export function validateForkPrefixTaskImport(value) {
+  return returnValidated(value, validateForkPrefixTaskImportRecord);
+}
+
+function forkImportedTaskOrder(left, right) {
+  return compareSgosCodePoints(left.taskTemplateId, right.taskTemplateId)
+    || compareSgosCodePoints(left.childTaskInstanceId, right.childTaskInstanceId);
+}
+
+function validateForkImportedTask(value, label) {
+  exactKeys(value, [
+    'taskTemplateId', 'sourceTaskInstanceId', 'childTaskInstanceId',
+    'forkTaskImportSha256', 'childTaskReceiptSha256', 'attemptCount', 'outputRefs'
+  ], label);
+  requireKeys(value, [
+    'taskTemplateId', 'sourceTaskInstanceId', 'childTaskInstanceId',
+    'forkTaskImportSha256', 'childTaskReceiptSha256', 'attemptCount', 'outputRefs'
+  ], label);
+  for (const field of [
+    'taskTemplateId', 'sourceTaskInstanceId', 'childTaskInstanceId'
+  ]) string(value[field], `${label}.${field}`);
+  digest(value.forkTaskImportSha256, `${label}.forkTaskImportSha256`);
+  digest(value.childTaskReceiptSha256, `${label}.childTaskReceiptSha256`);
+  integer(value.attemptCount, `${label}.attemptCount`, { minimum: 1 });
+  if (value.attemptCount > SGOS_INSTALLED_LIMITS.maximumAttemptsPerTask) {
+    fail(`${label}.attemptCount exceeds the installed task-attempt bound.`);
+  }
+  stringArray(value.outputRefs, `${label}.outputRefs`);
+}
+
+function validateForkPrefixImportReceiptRecord(record, requireHash) {
+  validateBase(record, 'fork-prefix-import-receipt', [
+    'forkImportReceiptId', 'forkPlanSha256', 'parentProcessId', 'childProcessId',
+    'sourceEvidenceProjectionSha256', 'sourceProcessSha256',
+    'sourceControlEventSha256', 'sourceRecordIndexSha256', 'fromCheckpointSha256',
+    'childGenesisCheckpointSha256', 'childImportedCheckpointSha256',
+    'tasks', 'importedAt'
+  ], [
+    'forkImportReceiptId', 'forkPlanSha256', 'parentProcessId', 'childProcessId',
+    'sourceEvidenceProjectionSha256', 'sourceProcessSha256',
+    'sourceControlEventSha256', 'sourceRecordIndexSha256', 'fromCheckpointSha256',
+    'childGenesisCheckpointSha256', 'childImportedCheckpointSha256',
+    'tasks', 'importedAt'
+  ], requireHash);
+  identifier(record.forkImportReceiptId, 'FIR',
+    'fork-prefix-import-receipt.forkImportReceiptId');
+  identifier(record.parentProcessId, 'PROC', 'fork-prefix-import-receipt.parentProcessId');
+  identifier(record.childProcessId, 'PROC', 'fork-prefix-import-receipt.childProcessId');
+  for (const field of [
+    'forkPlanSha256', 'sourceEvidenceProjectionSha256', 'sourceProcessSha256',
+    'sourceControlEventSha256', 'sourceRecordIndexSha256', 'fromCheckpointSha256',
+    'childGenesisCheckpointSha256', 'childImportedCheckpointSha256'
+  ]) digest(record[field], `fork-prefix-import-receipt.${field}`);
+  if (!Array.isArray(record.tasks)
+      || record.tasks.length < 1
+      || record.tasks.length > SGOS_INSTALLED_LIMITS.maximumTasks) {
+    fail('fork-prefix-import-receipt.tasks must be a bounded non-empty array.');
+  }
+  record.tasks.forEach((entry, index) =>
+    validateForkImportedTask(entry, `fork-prefix-import-receipt.tasks[${index}]`));
+  if (record.tasks.some((entry, index) =>
+    index > 0 && forkImportedTaskOrder(record.tasks[index - 1], entry) >= 0)) {
+    fail('fork-prefix-import-receipt.tasks must be unique and canonically ordered.');
+  }
+  timestamp(record.importedAt, 'fork-prefix-import-receipt.importedAt');
+}
+
+export function createForkPrefixImportReceipt(value) {
+  return createContract(
+    'fork-prefix-import-receipt', value, validateForkPrefixImportReceiptRecord, {
+      prepare: (record) => ({
+        ...record,
+        tasks: [...record.tasks].map((entry) => ({
+          ...entry, outputRefs: [...new Set(entry.outputRefs)].sort(compareSgosCodePoints)
+        })).sort(forkImportedTaskOrder)
+      }),
+      identity: (record) => ({
+        forkPlanSha256: record.forkPlanSha256,
+        parentProcessId: record.parentProcessId,
+        childProcessId: record.childProcessId,
+        fromCheckpointSha256: record.fromCheckpointSha256,
+        tasks: record.tasks
+      })
+    }
+  );
+}
+
+export function validateForkPrefixImportReceipt(value) {
+  return returnValidated(value, validateForkPrefixImportReceiptRecord);
+}
+
 function validateProcessBindingRecord(record, requireHash) {
   validateBase(record, 'process-binding', [
     'processId', 'subjectId', 'subjectAuthority', 'configurationAuthority', 'repositoryIdentity', 'gitCommonDirectory',
@@ -1608,7 +1821,7 @@ export function validateGvmProcess(value) {
 
 export const SGOS_RECORD_INDEX_FAMILIES = Object.freeze([
   'action-evidence', 'agent-proposal', 'candidate-snapshot', 'effect-replay-receipt',
-  'fanout-expansion-receipt',
+  'fanout-expansion-receipt', 'fork-prefix-import-receipt', 'fork-prefix-task-import',
   'gvm-checkpoint', 'gvm-program',
   'gvm-task-attempt', 'gvm-task-receipt', 'human-request', 'human-response',
   'join-receipt', 'manual-reconcile-join-receipt', 'process-binding',
@@ -2250,6 +2463,8 @@ const VALIDATORS = Object.freeze({
   'reducer-join-receipt': validateReducerJoinReceipt,
   'manual-reconcile-join-receipt': validateManualReconcileJoinReceipt,
   'effect-replay-receipt': validateEffectReplayReceipt,
+  'fork-prefix-task-import': validateForkPrefixTaskImport,
+  'fork-prefix-import-receipt': validateForkPrefixImportReceipt,
   'fanout-expansion-receipt': validateFanoutExpansionReceipt,
   'sgos-replay-plan': validateSgosReplayPlan,
   'process-binding': validateProcessBinding,

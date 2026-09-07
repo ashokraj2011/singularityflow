@@ -6,7 +6,7 @@
 
 **Created:** 2026-08-30
 
-**Current reconciliation:** checked through `main@d677577a` on 2026-09-07. Commits `259b76f1`,
+**Current reconciliation:** checked through `main@03825387` on 2026-09-07. Commits `259b76f1`,
 `58d9329d`, and `d55229c7` provide the bounded exact-static JUnit identity adapter, immutable
 proposal snapshot, human review through the existing phase approval, migration, safe command-shape
 fallbacks, the evolving content-free benchmark, and same-process unenrolled delta measurement. Commit
@@ -30,7 +30,11 @@ seed into independent object databases instead of regenerating the complete conf
 scenario. Commit `d677577a` makes every self-closing VS Code panel idempotent before host-disposal
 callbacks can re-enter it, restores Comprehension Center navigation through the shared router, and
 reconciles the GDP companion lock after the WEL/SGOS/CMP documentation increments. Neither
-optimization nor UI repair changes evidence authority or a lifecycle gate.
+optimization nor UI repair changes evidence authority or a lifecycle gate. Commit `03825387`
+removes an exact-authority publication deadlock by hashing bounded state bytes through a private
+temporary file instead of a child-process stdin pipe, and makes an interrupted aggregate terminate
+its detached descendant process group before returning an exact retry command. These liveness
+repairs change neither evidence identity nor authority.
 
 The code-local WEL boundary and signed-evidence contract were revalidated on both supported Node
 runtimes on macOS arm64. A clean strict Node 22 aggregate at `main@60e37936` completed all 457
@@ -441,6 +445,23 @@ Current clean release-aggregate checkpoint at `main@d677577a`:
 - this is unsigned same-developer local evidence. It strengthens the current macOS/Node 22
   regression and recovery record but fills no independent-review, authenticated-runner, reviewed
   real-corpus, physical Windows/Linux, office-network, or signed-package matrix cell.
+
+Current strict Node 20 liveness checkpoint at `main@03825387`:
+
+- `npx --yes node@20 scripts/run-test-aggregate.mjs all --require-clean --fail-on-skipped
+  --shards=8 --workers=2 --deadline-ms=7200000` completed run
+  `658a7530de082ce517cf5042` across all 469 selected files on macOS arm64/Node 20.20.2;
+- all 4,708 tests passed with zero failures, cancellations, skips, or todo. The aggregate receipt
+  binds commit `03825387abc6856bb2e234bf60c94297bb85938a`, tree
+  `a626942bfdd07d1bb98cc634b87ad61e51257c70`, strict-skip policy, runtime identity, and all eight
+  shard-receipt digests;
+- the run exercised the formerly blocking exact Git state publication under aggregate load and
+  completed after reusing only exact successful shard receipts. A separate concurrent `npm ci`
+  interrupted dependency installation during the first attempt; restoring the locked dependencies
+  and resuming the same run reran only the incomplete shards, which all passed;
+- this is unsigned same-developer local evidence. It closes the code-local liveness regression but
+  fills no independent-review, authenticated-runner, reviewed real-corpus, physical Windows/Linux,
+  office-network, or signed-package matrix cell.
 
 Depends on: `WEL-P0-001` and `WEL-P0-002`.
 

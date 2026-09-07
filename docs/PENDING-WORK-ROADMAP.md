@@ -2,7 +2,7 @@
 
 **Status:** authoritative cross-product tracker; bounded exact-tree aggregate and the latest code-local asynchronous Git migration are complete, while platform release evidence remains active
 
-**Baseline:** `main@c664d4d8`
+**Baseline:** `main@03825387`
 
 **Last reviewed:** 2026-09-07
 
@@ -282,6 +282,11 @@ the first aggregate: user stop now waits through bounded SGOS Process-lock conte
 Git authorities retain the bounded configuration window instead of being misreported as network
 outages, and reviewed process-heavy fixtures occupy dedicated lanes.
 
+`03825387` closes two additional liveness defects without changing authority: exact authority-state
+bytes are hashed through a bounded private temporary file rather than a child stdin stream that can
+wait forever for EOF, and aggregate interruption terminates the detached descendant group before
+printing the exact retry command.
+
 The strict clean Node 22 aggregate completed all 457 selected test files at `main@60e37936` under run
 `ef2adfc807f1380ad2a1c85f`: 4,645 tests passed with zero failures, cancellations, skips, or todo.
 Its receipt binds commit `60e379365bfd2674d7f43b307f54ea396f91b67f`, tree
@@ -299,6 +304,14 @@ does **not** satisfy the supported-platform release matrix: signed Node 20/22 ma
 receipts, the remaining cross-platform VS Code host evidence, and selected
 npm/VSIX artifact binding remain governed by the platform items below.
 
+The current strict Node 20 liveness replay at `main@03825387`, run
+`658a7530de082ce517cf5042`, selected all 469 files and passed 4,708/4,708 tests with zero failures,
+cancellations, skips, or todo on Node 20.20.2/macOS arm64. Its receipt binds commit
+`03825387abc6856bb2e234bf60c94297bb85938a`, tree
+`a626942bfdd07d1bb98cc634b87ad61e51257c70`, runtime identity, strict-skip policy, and all eight
+shard receipt digests. It is unsigned same-developer evidence and does not fill an external release
+matrix cell.
+
 ## Status rules
 
 - `[ ]` means parked. There is no active implementation Story or branch.
@@ -315,11 +328,11 @@ npm/VSIX artifact binding remain governed by the platform items below.
 
 | Track | Current boundary | Next eligible increment | Detailed authority |
 |---|---|---|---|
-| Release baseline | `REL-P0-001` is bounded and resumable; strict local macOS aggregates are green on Node 22 (`ef2adfc807f1380ad2a1c85f`, 4,645/4,645) and Node 20 (`b3e0136ed4c8a03598192402`, 4,648/4,648), both with no skips | Collect signed Node 20/22 macOS/Linux/Windows and npm/VSIX receipts; two unsigned local cells are not the release matrix | This document and [Verification](../VERIFICATION.md) |
+| Release baseline | `REL-P0-001` is bounded and resumable; the current strict Node 20/macOS liveness replay is green (`658a7530de082ce517cf5042`, 4,708/4,708), as are the earlier Node 20/22 cells, all with no skips | Collect signed Node 20/22 macOS/Linux/Windows and npm/VSIX receipts; unsigned local cells are not the release matrix | This document and [Verification](../VERIFICATION.md) |
 | Developer-experience performance | Hot paths and the office-Git code-local slice are implemented; both 30-pair editor-profile cells pass on macOS, warm cache survives disposable host processes, and the reproduced event-loop tail is below its unchanged ceiling; pinned relative baseline and cross-platform host evidence are not established | Accept pinned Linux/Windows/office-network evidence, keep the isolated compatibility transport under audit, then close each `[~]` platform gate | This document and [DX performance](DX-PERFORMANCE.md) |
 | SGOS | Universal Candidate publication, portable authority transport, proposal-only Agent working-set injection, signed-Pack/Device meta-tool CLI/native review, non-authoritative portable learning progress, and content-free bounded read-model measurement are code-complete; signed cross-platform release proof, real Secret Broker integration, and consented external telemetry remain open | Finish the `SGOS-P0-001`/`003` signed platform matrices and the external-adapter portion of `SGOS-P0-002`; approve external telemetry authority separately | [SGOS pending work](SGOS-PENDING-WORK.md) |
 | World Model Builder v4 | Release receipt generation and enforcement exist; no reviewed six-cell supported-platform aggregate is recorded | `WMB-REL-001` | [WMB v4](WORLD-MODEL-BUILDER-V4.md) |
-| Witnessed Engineering Loop | Exact-static local JUnit and bounded literal Jest/Vitest observations, immutable proposal binding, existing-approval review, migration, release-gated baseline/delta/Context-X-Ray/Story-start/recovery benchmark, cancellable Java parser boundary, isolated npm/VSIX proof, strict signed benchmark-report binding, and a bounded platform-matrix command are active; the portable matrix passes 32/32 on clean Linux Node 20 and 22 containers, the full unsigned Linux Node 22 package gate passes, Node 20 selection reporting is normalized without accepting real skips, and `main@c664d4d8` adds process-private Java-helper reuse plus isolated initialized Auto test fixtures; authenticated testcase claims and enforcement remain unavailable | Execute and sign the physical-host/office-network P0 gates, independently review and corpus-test the JavaScript profiles, then satisfy Candidate/Program/attempt and authenticated-runner dependencies | [WEL pending work](WEL-PENDING-WORK.md) |
+| Witnessed Engineering Loop | Exact-static local JUnit and bounded literal Jest/Vitest observations, immutable proposal binding, existing-approval review, migration, release-gated baseline/delta/Context-X-Ray/Story-start/recovery benchmark, cancellable Java parser boundary, isolated npm/VSIX proof, strict signed benchmark-report binding, and a bounded platform-matrix command are active; portable Linux matrices and package gates are green, process-private parser reuse is present, and `main@03825387` closes the remaining reproduced exact-publication/aggregate-interruption liveness defects; authenticated testcase claims and enforcement remain unavailable | Execute and sign the physical-host/office-network P0 gates, independently review and corpus-test the JavaScript profiles, then satisfy Candidate/Program/attempt and authenticated-runner dependencies | [WEL pending work](WEL-PENDING-WORK.md) |
 | Code Assurance Bridge | CAB-R0 architecture and CAB-R1 observe pilot are active; enforcement remains unavailable | Independent CAB-R0 review plus authenticated CAB-R2 runner authority | [CAB roadmap](CAB-ROADMAP.md) |
 | Governed comprehension | Read-only, non-authoritative P0 contract, closed registries, authority ADR, mutation tripwires, isolated npm/VSIX proof, deterministic corpus/matrix command, content-free P1 benchmark, bounded ephemeral P3 graph/exact explanation reads, normalized Story replay, an existing-five-tool resource-level gateway trace, and code-local incremental brownfield diagnostics with a leased native view exist | Execute and sign the unchanged `CMP-P0-001` matrix on Windows and Linux, complete the reviewed P1 storage/privacy decision, add P2-backed durable graph/causal authority plus SGOS joins, then integrate governed historical review before enforcement | [CMP roadmap](CMP-ROADMAP.md) |
 | Governed Delivery and Proof | M0–M8 are implemented; M9–M11 have code-local partial surfaces and remain non-GA | Authenticated M9 runner/verifier and signed release evidence before provider pilots or enforcement | [GDP milestone roadmap](GDP-DELIVERY-ROADMAP.md) |

@@ -273,6 +273,13 @@ The aggregate prints a standard Node test summary, so existing verification-rece
 compatible. Sharding changes scheduling only: deterministic disjoint file-set digests prove that
 every discovered test file appears exactly once.
 
+The current liveness hardening at `main@03825387` also routes `SIGINT` and `SIGTERM` through the
+same bounded process-tree shutdown used for timeouts. The aggregate waits for detached descendants
+to quiesce and prints an exact retry command. Exact authority-state hashing no longer streams bytes
+to a Git child waiting on stdin EOF; it uses a bounded private temporary file and the same Git
+deadline instead. A strict Node 20.20.2/macOS arm64 replay (`658a7530de082ce517cf5042`) selected 469
+files and passed 4,708/4,708 tests with no failures, cancellations, skips, or todo.
+
 ## Git-heavy workflow operations
 
 Capability onboarding, workspace creation/repair, configuration refresh, and Story start use one

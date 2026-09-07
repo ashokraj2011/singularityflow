@@ -784,9 +784,11 @@ function assertInstalledFanout(program) {
   for (const task of program.taskTemplates) {
     const item = task.metadata?.fanout ?? null;
     const coordinator = task.metadata?.fanoutCoordinator ?? null;
-    if (item && coordinator) {
+    const lineage = task.metadata?.fanoutLineage ?? [];
+    if (!Array.isArray(lineage) || (lineage.length && !item)
+        || lineage.length + (item ? 1 : 0) > SGOS_INSTALLED_LIMITS.maximumFanoutDepth) {
       fail('SGOS_FANOUT_MATERIALIZATION_INVALID',
-        `Task '${task.taskTemplateId}' cannot be both a fan-out item and coordinator.`);
+        `Task '${task.taskTemplateId}' has invalid bounded fan-out lineage.`);
     }
     if (item) {
       const parentTaskId = String(item.parentTaskId ?? '');
@@ -851,6 +853,15 @@ function assertInstalledFanout(program) {
           : coordinatorTask.opcode !== 'JOIN')) {
       fail('SGOS_FANOUT_MATERIALIZATION_INVALID',
         `Fan-out '${parentTaskId}' does not match its finite approved collection.`);
+    }
+    const expectedLineage = [
+      ...(coordinatorTask.metadata?.fanoutLineage ?? []),
+      ...(coordinatorTask.metadata?.fanout ? [coordinatorTask.metadata.fanout] : [])
+    ];
+    if (children.some(({ task }) => canonicalJson(task.metadata?.fanoutLineage ?? [])
+        !== canonicalJson(expectedLineage))) {
+      fail('SGOS_FANOUT_MATERIALIZATION_INVALID',
+        `Fan-out '${parentTaskId}' child lineage does not match its exact parent chain.`);
     }
   }
 }

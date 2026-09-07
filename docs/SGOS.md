@@ -118,9 +118,12 @@ and must produce a verified effect-free Tool Result. `sandbox-cas` can publish o
 compare-and-swap value under Git-common SGOS fixture storage when its compiled write and effect scope
 exactly match; it records Tool Intent first and verifies recovery without replay. Dotted task
 operation IDs remain separate from
-the kebab-case adapter IDs; the Program and registry bind both. Unreviewed model-backed `AGENT`, any
-other consequential or uninstalled `DEVICE`, model-created fan-out, nested fan-out, unsafe parallel execution, and join
-policies other than `all-success` and `all-terminal` still fail closed.
+the kebab-case adapter IDs; the Program and registry bind both. Approved inline fan-out may be
+nested to four finite levels; every level is pre-expanded before Program hashing, receives an exact
+expansion receipt, and applies its own distinct-item parallel ceiling. The installed join policies
+are `all-success`, `all-terminal`, and finite-threshold `quorum`. Unreviewed model-backed `AGENT`,
+any other consequential or uninstalled `DEVICE`, model-created or runtime-dynamic fan-out, unsafe
+parallel execution, and all other join policies still fail closed.
 
 The runtime API also requires separately registered kernel handlers, Candidate Snapshot capture,
 and deterministic verifiers. The CLI installs only two reviewed read-only pairs:
@@ -496,8 +499,9 @@ tracked in [SGOS-PENDING-WORK.md](SGOS-PENDING-WORK.md):
 - model-backed or tool-bearing `AGENT` execution beyond the reviewed Copilot proposal-only GEU,
   mutating Devices beyond the exact sandbox-CAS profile, arbitrary third-party adapters, and their
   complete independent conformance/counterfeit-model programs;
-- dynamic or nested fan-out, quorum/reducer/manual-reconcile joins, general idempotent effect replay,
-  non-genesis fork import, and consequential-effect task retry;
+- runtime-dynamic fan-out, reducer/manual-reconcile joins, general idempotent effect replay,
+  non-genesis fork import, and consequential-effect task retry; bounded nested inline fan-out and
+  quorum joins are implemented;
 - universal Candidate routing is implemented for the supported lifecycle surfaces; its
   cross-platform signed release promotion remains tracked as `SGOS-P0-001`;
 - Secret Broker integration with real external adapters, the corresponding cancellation/leakage/

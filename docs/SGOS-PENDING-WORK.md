@@ -230,8 +230,17 @@ Implemented in the current increment:
   still-running non-contributor by prematurely blocking the Process;
 - malformed thresholds, missing contributors, counterfeit lineage, and mismatched receipts fail
   closed while existing all-success/all-terminal Programs retain their historical receipt family.
+- approved inline fan-out can be nested to the installed depth of four while the compiler enforces
+  the 2,000-task and 63-group ceilings before Program publication;
+- every nesting level receives its own immutable expansion receipt, and each child carries its exact
+  ancestor membership chain so execution admission can reject missing, substituted, or forged
+  hierarchy;
+- scheduling applies both immediate and ancestor concurrency bounds to distinct item identities,
+  allowing parallel leaves within one item without accidentally opening another outer item;
+- existing one-level fan-out compiles to the same shape; dynamic/model-created collections remain
+  unavailable.
 
-Still required: dynamic or nested fan-out, reducer and human manual-reconcile joins, general
+Still required: dynamic fan-out, reducer and human manual-reconcile joins, general
 idempotent effect replay, non-genesis fork import, and consequential-effect retry. Quorum also needs
 the shared signed supported-platform release evidence before this item can become `[x]`.
 

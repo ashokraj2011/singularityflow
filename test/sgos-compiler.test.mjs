@@ -13,6 +13,7 @@ import {
 import {
   createIntentIr,
   createGvmProgram,
+  recordSelfSha256,
   createWorkflowIr,
   createWorkflowRatification,
   validateGvmProgram
@@ -24,6 +25,7 @@ import {
   validateSgosProgramStaticSafety, verifySgosProgramRegistry
 } from '../src/sgos/program-trust.mjs';
 import { resolveInstalledGvmAdapter } from '../src/sgos/gvm-adapters.mjs';
+import { SGOS_INSTALLED_LIMITS } from '../src/sgos/limits.mjs';
 import { withOperationContext } from '../src/operation-context.mjs';
 
 const POLICY_SHA = `sha256:${'1'.repeat(64)}`;
@@ -901,6 +903,86 @@ test('finite foreach expands canonically into bounded non-nested children and an
       workflow.spec.budgets.maximumTasks = 4;
     }
   })).program.programSha256);
+});
+
+test('nested finite foreach expands every level with bounded hierarchical lineage', () => {
+  const compiled = compileSgosProgram(fixture({
+    mutateWorkflow(workflow) {
+      workflow.spec.tasks.copy = {
+        ...workflow.spec.tasks.copy,
+        kind: 'foreach', maximumItems: 2, maximumParallel: 1,
+        items: [{ key: 'beta', value: { outer: 2 } }, { key: 'alpha', value: { outer: 1 } }],
+        resources: { reads: ['input:message'], writes: [], devices: [], externalEffects: [] },
+        body: {
+          kind: 'foreach', maximumItems: 2, maximumParallel: 2,
+          items: [{ key: 'two', value: { inner: 2 } }, { key: 'one', value: { inner: 1 } }],
+          body: { kind: 'task' }
+        }
+      };
+      workflow.spec.budgets.maximumTasks = 8;
+    }
+  })).program;
+  const nestedCoordinators = compiled.taskTemplates.filter((task) =>
+    task.metadata?.fanout && task.metadata?.fanoutCoordinator);
+  const leaves = compiled.taskTemplates.filter((task) =>
+    Array.isArray(task.metadata?.fanoutLineage) && !task.metadata?.fanoutCoordinator);
+  assert.equal(nestedCoordinators.length, 2);
+  assert.equal(leaves.length, 4);
+  assert.equal(leaves.every((task) => task.metadata.fanoutLineage.length === 1), true);
+  assert.equal(leaves.every((task) => task.inputs.filter((entry) =>
+    entry?.fanoutItemSha256).length === 2), true);
+  assert.deepEqual([...new Set(compiled.taskTemplates.flatMap((task) => [
+    task.metadata?.fanout?.parentTaskId,
+    task.metadata?.fanoutCoordinator?.parentTaskId
+  ].filter(Boolean)))].sort(), [
+    'copy', ...nestedCoordinators.map((task) => task.taskTemplateId)
+  ].sort());
+  assert.equal(compiled.joins.length, 3);
+  assert.equal(compiled.joins.every((join) => join.policy === 'all-success'), true);
+
+  const forged = structuredClone(compiled);
+  forged.taskTemplates.find((task) => Array.isArray(task.metadata?.fanoutLineage))
+    .metadata.fanoutLineage = [];
+  forged.programSha256 = recordSelfSha256(forged, 'programSha256');
+  assert.throws(() => validateSgosProgramStaticSafety(forged),
+    (error) => error.code === 'SGOS_FANOUT_MATERIALIZATION_INVALID');
+
+  let body = { kind: 'task' };
+  for (let depth = 0; depth < SGOS_INSTALLED_LIMITS.maximumFanoutDepth; depth += 1) {
+    body = {
+      kind: 'foreach', maximumItems: 1, maximumParallel: 1,
+      items: [{ key: `level-${depth}`, value: depth }], body
+    };
+  }
+  expectCode(() => compileSgosProgram(fixture({
+    mutateWorkflow(workflow) {
+      workflow.spec.tasks.copy = {
+        ...workflow.spec.tasks.copy,
+        kind: 'foreach', maximumItems: 1, maximumParallel: 1,
+        items: [{ key: 'root', value: true }], body
+      };
+      workflow.spec.budgets.maximumTasks = 32;
+    }
+  })), 'SGOS_FANOUT_DEPTH_LIMIT');
+});
+
+test('an empty finite fan-out preserves its declared predecessor boundary', () => {
+  const compiled = compileSgosProgram(fixture({
+    mutateWorkflow(workflow) {
+      workflow.spec.tasks.seed = {
+        kind: 'checkpoint', dependsOn: [], material: false
+      };
+      workflow.spec.tasks.copy = {
+        ...workflow.spec.tasks.copy,
+        kind: 'foreach', dependsOn: ['seed'], maximumItems: 0, maximumParallel: 1,
+        items: [], body: { kind: 'task' }
+      };
+      workflow.spec.budgets.maximumTasks = 3;
+    }
+  })).program;
+  const coordinator = compiled.taskTemplates.find((task) => task.taskTemplateId === 'copy');
+  assert.equal(coordinator.opcode, 'NOOP');
+  assert.deepEqual(coordinator.dependsOn, ['seed']);
 });
 
 test('task-count and retry ceilings are enforced at compile time', async (t) => {

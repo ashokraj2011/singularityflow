@@ -63,6 +63,37 @@ function taskOrder(left, right) {
     || compareSgosCodePoints(left.taskInstanceId, right.taskInstanceId);
 }
 
+function taskFanoutMemberships(template) {
+  const metadata = template?.metadata ?? {};
+  if (metadata.fanoutLineage != null && !Array.isArray(metadata.fanoutLineage)) {
+    fail(`Task '${template?.taskTemplateId}' has malformed fan-out lineage.`,
+      'SGOS_FANOUT_INVALID');
+  }
+  const memberships = [
+    ...(metadata.fanoutLineage ?? []),
+    ...(metadata.fanout ? [metadata.fanout] : [])
+  ].map((entry) => ({
+    parentTaskId: entry?.parentTaskId,
+    itemKey: entry?.itemKey,
+    maximumParallel: entry?.maximumParallel
+  }));
+  for (const membership of memberships) {
+    if (typeof membership.parentTaskId !== 'string' || !membership.parentTaskId
+        || typeof membership.itemKey !== 'string' || !membership.itemKey
+        || !Number.isSafeInteger(membership.maximumParallel)
+        || membership.maximumParallel < 1
+        || membership.maximumParallel > SGOS_INSTALLED_LIMITS.maximumFanoutParallel) {
+      fail(`Task '${template?.taskTemplateId}' has malformed fan-out membership.`,
+        'SGOS_FANOUT_INVALID');
+    }
+  }
+  if (new Set(memberships.map((entry) => entry.parentTaskId)).size !== memberships.length) {
+    fail(`Task '${template?.taskTemplateId}' repeats a fan-out group in its lineage.`,
+      'SGOS_FANOUT_INVALID');
+  }
+  return memberships;
+}
+
 /** Pure, deterministic selection. Completion timing and object insertion order are never inputs. */
 export function deterministicSgosDispatchPlan(program, process, {
   maximumParallel = 1
@@ -78,11 +109,29 @@ export function deterministicSgosDispatchPlan(program, process, {
   if (['paused', 'blocked', 'failed', 'cancelled', 'succeeded', 'recovery-required']
     .includes(process?.status)) return Object.freeze([]);
   const templates = templateMap(program);
+  const membershipByTemplate = new Map();
+  const fanoutLimits = new Map();
+  for (const template of templates.values()) {
+    const memberships = taskFanoutMemberships(template);
+    membershipByTemplate.set(template.taskTemplateId, memberships);
+    for (const membership of memberships) {
+      const prior = fanoutLimits.get(membership.parentTaskId);
+      if (prior != null && prior !== membership.maximumParallel) {
+        fail(`Fan-out '${membership.parentTaskId}' has inconsistent parallel ceilings.`,
+          'SGOS_FANOUT_INVALID');
+      }
+      fanoutLimits.set(membership.parentTaskId, membership.maximumParallel);
+    }
+  }
   const activeIds = activeTaskIds(process);
   const active = [...activeIds].map((taskInstanceId) => {
     const task = process.taskInstances[taskInstanceId];
     const template = templates.get(task.taskTemplateId);
-    return { taskInstanceId, entries: canonicalSgosResourceEntries(template.resources) };
+    return {
+      taskInstanceId,
+      entries: canonicalSgosResourceEntries(template.resources),
+      memberships: membershipByTemplate.get(task.taskTemplateId) ?? []
+    };
   });
   const available = Math.max(0, maximumParallel - active.length);
   if (!available) return Object.freeze([]);
@@ -98,30 +147,40 @@ export function deterministicSgosDispatchPlan(program, process, {
         taskTemplateId: task.taskTemplateId,
         opcode: template.opcode,
         entries: canonicalSgosResourceEntries(template.resources),
-        fanout: template.metadata?.fanout ?? null
+        memberships: membershipByTemplate.get(task.taskTemplateId) ?? []
       };
     })
     .sort(taskOrder);
 
   const selected = [];
-  const fanoutCounts = new Map();
+  const activeFanoutItems = new Map();
+  for (const entry of active) {
+    for (const membership of entry.memberships) {
+      const items = activeFanoutItems.get(membership.parentTaskId) ?? new Set();
+      items.add(membership.itemKey);
+      activeFanoutItems.set(membership.parentTaskId, items);
+    }
+  }
+  const selectedFanoutItems = new Map();
   for (const candidate of ready) {
     if (selected.length >= available) break;
     if (active.some((entry) => sgosResourceEntriesConflict(candidate.entries, entry.entries))
         || selected.some((entry) => sgosResourceEntriesConflict(candidate.entries, entry.entries))) {
       continue;
     }
-    const parent = candidate.fanout?.parentTaskId ?? null;
-    if (parent != null) {
-      const activeSame = active.filter((entry) => {
-        const task = process.taskInstances[entry.taskInstanceId];
-        return templates.get(task.taskTemplateId)?.metadata?.fanout?.parentTaskId === parent;
-      }).length;
-      const selectedSame = fanoutCounts.get(parent) ?? 0;
-      if (activeSame + selectedSame >= candidate.fanout.maximumParallel) continue;
-      fanoutCounts.set(parent, selectedSame + 1);
+    const fanoutBlocked = candidate.memberships.some((membership) => {
+      const activeItems = activeFanoutItems.get(membership.parentTaskId) ?? new Set();
+      const selectedItems = selectedFanoutItems.get(membership.parentTaskId) ?? new Set();
+      if (activeItems.has(membership.itemKey) || selectedItems.has(membership.itemKey)) return false;
+      return new Set([...activeItems, ...selectedItems]).size >= membership.maximumParallel;
+    });
+    if (fanoutBlocked) continue;
+    for (const membership of candidate.memberships) {
+      const items = selectedFanoutItems.get(membership.parentTaskId) ?? new Set();
+      items.add(membership.itemKey);
+      selectedFanoutItems.set(membership.parentTaskId, items);
     }
     selected.push(candidate);
   }
-  return Object.freeze(selected.map(({ entries, fanout, ...entry }) => Object.freeze(entry)));
+  return Object.freeze(selected.map(({ entries, memberships, ...entry }) => Object.freeze(entry)));
 }

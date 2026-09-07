@@ -498,20 +498,27 @@ function fanoutExpansionReceipts(program, process, createdAt) {
   for (const template of program.taskTemplates) {
     const item = template.metadata?.fanout ?? null;
     const coordinator = template.metadata?.fanoutCoordinator ?? null;
-    const metadata = item ?? coordinator;
-    if (!metadata?.parentTaskId) continue;
-    let group = groups.get(metadata.parentTaskId);
-    if (!group) {
-      group = {
-        parentTaskTemplateId: metadata.parentTaskId,
-        collectionSha256: metadata.collectionSha256,
-        maximumItems: metadata.maximumItems,
-        maximumParallel: metadata.maximumParallel,
-        items: []
-      };
-      groups.set(metadata.parentTaskId, group);
+    for (const metadata of [item, coordinator].filter(Boolean)) {
+      if (!metadata.parentTaskId) continue;
+      let group = groups.get(metadata.parentTaskId);
+      if (!group) {
+        group = {
+          parentTaskTemplateId: metadata.parentTaskId,
+          collectionSha256: metadata.collectionSha256,
+          maximumItems: metadata.maximumItems,
+          maximumParallel: metadata.maximumParallel,
+          items: []
+        };
+        groups.set(metadata.parentTaskId, group);
+      } else if (group.collectionSha256 !== metadata.collectionSha256
+          || group.maximumItems !== metadata.maximumItems
+          || group.maximumParallel !== metadata.maximumParallel) {
+        fail(`Fan-out '${metadata.parentTaskId}' has inconsistent Program metadata.`,
+          'SGOS_FANOUT_MATERIALIZATION_INVALID');
+      }
     }
     if (item) {
+      const group = groups.get(item.parentTaskId);
       const task = Object.values(process.taskInstances)
         .find((entry) => entry.taskTemplateId === template.taskTemplateId);
       if (!task) fail('Fan-out child was not deterministically materialized.',

@@ -169,6 +169,36 @@ test('END waits for non-contributing quorum predecessors to become terminal', ()
   });
 });
 
+test('nested fan-out parallelism counts distinct outer items instead of leaf tasks', () => {
+  const nested = (taskTemplateId, outerItem, innerParent, innerItem) => ({
+    ...template(taskTemplateId),
+    metadata: {
+      fanout: {
+        parentTaskId: innerParent, itemKey: innerItem, maximumParallel: 2
+      },
+      fanoutLineage: [{
+        parentTaskId: 'outer', itemKey: outerItem, maximumParallel: 1
+      }]
+    }
+  });
+  const taskTemplates = [
+    nested('a-one', 'a', 'inner-a', 'one'),
+    nested('a-two', 'a', 'inner-a', 'two'),
+    nested('b-one', 'b', 'inner-b', 'one'),
+    nested('b-two', 'b', 'inner-b', 'two')
+  ];
+  const process = {
+    status: 'running', activeExecutions: [],
+    taskInstances: Object.fromEntries(taskTemplates.map((entry) => {
+      const value = instance(entry.taskTemplateId, 'ready');
+      return [value.taskInstanceId, value];
+    }))
+  };
+  assert.deepEqual(deterministicSgosDispatchPlan({ taskTemplates, joins: [] }, process, {
+    maximumParallel: 4
+  }).map((entry) => entry.taskTemplateId), ['a-one', 'a-two']);
+});
+
 test('fan-out normalization is finite, key-stable, and bounded', () => {
   const normalized = normalizeSgosFanout({
     taskId: 'items', maximumItems: 2, maximumParallel: 2,

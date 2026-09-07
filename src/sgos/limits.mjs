@@ -29,6 +29,7 @@ export const SGOS_INSTALLED_LIMITS = Object.freeze({
   maximumResourceLeaseEntries: 256,
   maximumFanoutItems: 256,
   maximumFanoutParallel: 8,
+  maximumFanoutDepth: 4,
   // Initial checkpoint and every expansion receipt share one 64-entry exact index delta.
   maximumFanoutGroupsPerProcess: 63,
   maximumJoinInputs: 2_000

@@ -1130,6 +1130,109 @@ test('finite fan-out start roots one exact expansion receipt and executes only b
   assert.equal((await fsckSgosProcess(fixture.root, started.process.processId)).status, 'ok');
 });
 
+test('nested finite fan-out publishes every expansion and honors outer parallelism', async () => {
+  const fixture = await repository('SGOS-STORY-NESTED-FANOUT');
+  const outer = normalizeSgosFanout({
+    taskId: '70-outer', maximumItems: 2, maximumParallel: 1,
+    items: [{ key: 'b', value: { id: 2 } }, { key: 'a', value: { id: 1 } }]
+  });
+  const templates = [];
+  const joins = [];
+  const outerCoordinatorIds = [];
+  for (const outerItem of outer.items) {
+    const outerCoordinatorId = sgosFanoutChildTemplateId(
+      '70-outer', outerItem.itemKey, outerItem.itemSha256
+    );
+    outerCoordinatorIds.push(outerCoordinatorId);
+    const outerMembership = {
+      parentTaskId: '70-outer', itemKey: outerItem.itemKey,
+      itemSha256: outerItem.itemSha256, itemValue: outerItem.value,
+      collectionSha256: outer.collectionSha256,
+      maximumItems: outer.maximumItems, maximumParallel: outer.maximumParallel
+    };
+    const inner = normalizeSgosFanout({
+      taskId: outerCoordinatorId, maximumItems: 2, maximumParallel: 2,
+      items: [{ key: 'two', value: 2 }, { key: 'one', value: 1 }]
+    });
+    const innerIds = inner.items.map((innerItem) => {
+      const innerId = sgosFanoutChildTemplateId(
+        outerCoordinatorId, innerItem.itemKey, innerItem.itemSha256
+      );
+      templates.push(task(innerId, 'NOOP', [], {
+        metadata: {
+          fanout: {
+            parentTaskId: outerCoordinatorId, itemKey: innerItem.itemKey,
+            itemSha256: innerItem.itemSha256, itemValue: innerItem.value,
+            collectionSha256: inner.collectionSha256,
+            maximumItems: inner.maximumItems, maximumParallel: inner.maximumParallel
+          },
+          fanoutLineage: [outerMembership]
+        }
+      }));
+      return innerId;
+    }).sort();
+    templates.push(task(outerCoordinatorId, 'JOIN', innerIds, {
+      material: false, evidence: {},
+      metadata: {
+        fanout: outerMembership,
+        joinPolicy: 'all-success',
+        fanoutCoordinator: {
+          parentTaskId: outerCoordinatorId,
+          collectionSha256: inner.collectionSha256,
+          maximumItems: inner.maximumItems,
+          maximumParallel: inner.maximumParallel
+        }
+      }
+    }));
+    joins.push({
+      joinId: outerCoordinatorId, taskTemplateId: outerCoordinatorId,
+      policy: 'all-success', predecessorTaskTemplateIds: innerIds
+    });
+  }
+  templates.push(task('70-outer', 'JOIN', outerCoordinatorIds.sort(), {
+    material: false, evidence: {},
+    metadata: {
+      joinPolicy: 'all-success',
+      fanoutCoordinator: {
+        parentTaskId: '70-outer', collectionSha256: outer.collectionSha256,
+        maximumItems: outer.maximumItems, maximumParallel: outer.maximumParallel
+      }
+    }
+  }));
+  joins.push({
+    joinId: '70-outer', taskTemplateId: '70-outer', policy: 'all-success',
+    predecessorTaskTemplateIds: outerCoordinatorIds
+  });
+  templates.push(task('90-end', 'END', ['70-outer']));
+  templates.sort((left, right) => left.taskTemplateId < right.taskTemplateId ? -1
+    : left.taskTemplateId > right.taskTemplateId ? 1 : 0);
+  joins.sort((left, right) => left.joinId < right.joinId ? -1
+    : left.joinId > right.joinId ? 1 : 0);
+  const compiled = program(templates, joins);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const first = await runReadySgosTasks(fixture.root, started.process.processId, {
+    program: compiled, maximumParallel: 4, clock: T1
+  });
+  assert.equal(first.launched, 2, 'only one outer item may occupy the outer fan-out slot');
+  let current = first.process;
+  for (let wave = 0; wave < 12 && current.status === 'running'; wave += 1) {
+    const result = await runReadySgosTasks(fixture.root, started.process.processId, {
+      program: compiled, maximumParallel: 4, clock: T1
+    });
+    current = result.process;
+    if (result.launched === 0) break;
+  }
+  assert.equal(current.status, 'succeeded');
+  const receipts = await listSgosImmutableRecordsByField(
+    fixture.root, started.process.processId, 'fanout-expansion-receipt',
+    'processId', started.process.processId
+  );
+  assert.equal(receipts.length, 3);
+  assert.deepEqual(receipts.map((entry) => entry.parentTaskTemplateId).sort(),
+    ['70-outer', ...outerCoordinatorIds].sort());
+  assert.equal((await fsckSgosProcess(fixture.root, started.process.processId)).status, 'ok');
+});
+
 test('Process start refuses nonexistent and mismatched Story subjects before even a NOOP can run', async () => {
   const compiled = program([task('00-noop', 'NOOP'), task('90-end', 'END', ['00-noop'])]);
 

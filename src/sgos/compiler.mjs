@@ -373,11 +373,35 @@ function inheritedFanoutChild(parent, body) {
 /** Expand approved inline collections into one finite Program graph before hashing the Program. */
 function expandedTaskEntries(workflow) {
   const result = [];
-  for (const [taskId, rawTask] of rawTaskEntries(workflow)) {
+  let fanoutGroups = 0;
+  const pushTask = (taskId, task) => {
+    if (result.length >= SGOS_INSTALLED_LIMITS.maximumTasks) {
+      fail('SGOS_MAXIMUM_TASKS_EXCEEDED',
+        `Expanded Workflow exceeds the installed ${SGOS_INSTALLED_LIMITS.maximumTasks}-task ceiling.`, {
+          maximumTasks: SGOS_INSTALLED_LIMITS.maximumTasks
+        });
+    }
+    result.push([taskId, task]);
+  };
+  const expand = (taskId, rawTask, depth = 1, ancestorMemberships = []) => {
     const kind = String(rawTask?.kind ?? rawTask?.type ?? 'task').toLowerCase();
     if (kind !== 'foreach') {
-      result.push([taskId, rawTask]);
-      continue;
+      pushTask(taskId, rawTask);
+      return;
+    }
+    if (depth > SGOS_INSTALLED_LIMITS.maximumFanoutDepth) {
+      fail('SGOS_FANOUT_DEPTH_LIMIT',
+        `Fan-out '${taskId}' exceeds the installed nesting depth.`, {
+          taskId, depth, maximum: SGOS_INSTALLED_LIMITS.maximumFanoutDepth
+        });
+    }
+    fanoutGroups += 1;
+    if (fanoutGroups > SGOS_INSTALLED_LIMITS.maximumFanoutGroupsPerProcess) {
+      fail('SGOS_FANOUT_LIMIT',
+        'Workflow fan-out groups cannot fit the initial durable expansion boundary.', {
+          actual: fanoutGroups,
+          maximum: SGOS_INSTALLED_LIMITS.maximumFanoutGroupsPerProcess
+        });
     }
     const maximumItems = numericBound(rawTask, 'maximumItems', 'maxItems', 'maximumFanout', 'maximumIterations');
     if (!Number.isInteger(maximumItems) || maximumItems < 0) {
@@ -389,7 +413,7 @@ function expandedTaskEntries(workflow) {
       fail('SGOS_FANOUT_BODY_REQUIRED', `Fan-out '${taskId}' requires one finite body task.`);
     }
     const childKind = String(rawTask.body.kind ?? rawTask.body.type ?? 'task').toLowerCase();
-    if (['foreach', 'bounded-loop', 'loop', 'spawn', 'subprocess'].includes(childKind)) {
+    if (['bounded-loop', 'loop', 'spawn', 'subprocess'].includes(childKind)) {
       fail('SGOS_FANOUT_NESTED_UNSUPPORTED',
         `Fan-out '${taskId}' cannot contain nested dynamic control flow.`, { taskId, childKind });
     }
@@ -406,33 +430,54 @@ function expandedTaskEntries(workflow) {
     for (const item of fanout.items) {
       const childId = sgosFanoutChildTemplateId(taskId, item.itemKey, item.itemSha256);
       childIds.push(childId);
-      const child = inheritedFanoutChild(rawTask, rawTask.body);
+      const membership = {
+        parentTaskId: taskId,
+        itemKey: item.itemKey,
+        itemSha256: item.itemSha256,
+        itemValue: clone(item.value),
+        collectionSha256: fanout.collectionSha256,
+        maximumItems: fanout.maximumItems,
+        maximumParallel: fanout.maximumParallel
+      };
+      const child = childKind === 'foreach'
+        ? { ...clone(rawTask), ...clone(rawTask.body) }
+        : inheritedFanoutChild(rawTask, rawTask.body);
+      child.kind = rawTask.body.kind ?? rawTask.body.type ?? 'task';
+      delete child.opcode;
       child.dependsOn = clone(rawTask.dependsOn ?? rawTask.after ?? rawTask.predecessors ?? []);
-      child.inputs = [
-        ...clone(rawTask.body.inputs ?? rawTask.inputs ?? []),
+      const declaredInputs = clone(rawTask.body.inputs ?? rawTask.inputs ?? []);
+      child.inputs = childKind === 'foreach' ? declaredInputs : [
+        ...declaredInputs,
+        ...ancestorMemberships.map((entry) => ({
+          fanoutItemKey: entry.itemKey, fanoutItemSha256: entry.itemSha256
+        })),
         { fanoutItemKey: item.itemKey, fanoutItemSha256: item.itemSha256 }
       ];
       child.metadata = {
         ...clone(rawTask.metadata ?? {}),
         ...clone(rawTask.body.metadata ?? {}),
-        fanout: {
-          parentTaskId: taskId,
-          itemKey: item.itemKey,
-          itemSha256: item.itemSha256,
-          itemValue: clone(item.value),
-          collectionSha256: fanout.collectionSha256,
-          maximumItems: fanout.maximumItems,
-          maximumParallel: fanout.maximumParallel
-        }
+        fanout: membership,
+        ...(ancestorMemberships.length
+          ? { fanoutLineage: clone(ancestorMemberships) } : {})
       };
-      result.push([childId, child]);
+      if (childKind === 'foreach') {
+        expand(childId, child, depth + 1, [...ancestorMemberships, membership]);
+      } else {
+        pushTask(childId, child);
+      }
     }
     const coordinator = {
       kind: childIds.length ? 'join' : 'noop',
-      dependsOn: childIds,
+      dependsOn: childIds.length
+        ? childIds
+        : clone(rawTask.dependsOn ?? rawTask.after ?? rawTask.predecessors ?? []),
       material: false,
       intentClauseIds: [],
       metadata: {
+        ...(rawTask.metadata?.fanout
+          ? { fanout: clone(rawTask.metadata.fanout) } : {}),
+        ...(Array.isArray(rawTask.metadata?.fanoutLineage)
+          ? { fanoutLineage: clone(rawTask.metadata.fanoutLineage) } : {}),
         joinPolicy: childIds.length ? 'all-success' : null,
         fanoutCoordinator: {
           parentTaskId: taskId,
@@ -442,7 +487,10 @@ function expandedTaskEntries(workflow) {
         }
       }
     };
-    result.push([taskId, coordinator]);
+    pushTask(taskId, coordinator);
+  };
+  for (const [taskId, rawTask] of rawTaskEntries(workflow)) {
+    expand(taskId, rawTask);
   }
   return result;
 }
@@ -962,10 +1010,10 @@ function assertCompileCeilings(workflow, templates) {
         taskCount: templates.length, maximumTasks
       });
   }
-  const fanoutGroups = new Set(templates.flatMap((task) => {
-    const metadata = task.metadata?.fanout ?? task.metadata?.fanoutCoordinator;
-    return metadata?.parentTaskId ? [metadata.parentTaskId] : [];
-  }));
+  const fanoutGroups = new Set(templates.flatMap((task) => [
+    task.metadata?.fanout?.parentTaskId,
+    task.metadata?.fanoutCoordinator?.parentTaskId
+  ].filter(Boolean)));
   if (fanoutGroups.size > SGOS_INSTALLED_LIMITS.maximumFanoutGroupsPerProcess) {
     fail('SGOS_FANOUT_LIMIT',
       'Workflow fan-out groups cannot fit the initial durable expansion boundary.', {

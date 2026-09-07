@@ -4271,11 +4271,13 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
   }
   const fanoutGroups = new Map();
   for (const template of program.taskTemplates) {
-    const fanout = template.metadata?.fanout ?? template.metadata?.fanoutCoordinator;
-    if (!fanout) continue;
-    const key = fanout.parentTaskId;
-    if (!fanoutGroups.has(key)) fanoutGroups.set(key, []);
-    if (template.metadata?.fanout) fanoutGroups.get(key).push(template);
+    const item = template.metadata?.fanout ?? null;
+    const coordinator = template.metadata?.fanoutCoordinator ?? null;
+    for (const fanout of [item, coordinator].filter(Boolean)) {
+      const key = fanout.parentTaskId;
+      if (!fanoutGroups.has(key)) fanoutGroups.set(key, []);
+    }
+    if (item) fanoutGroups.get(item.parentTaskId).push(template);
   }
   const preFanoutStartBoundary = state.currentCheckpointSha256 === null
     && state.activeExecutions.length === 0
@@ -4608,10 +4610,10 @@ async function assertTransitionIndexDelta(root, before, after, index) {
       const { record: program } = await readSgosImmutableRecord(
         root, after.processId, 'gvm-program', after.programSha256
       );
-      const fanoutParents = new Set(program.taskTemplates.flatMap((template) => {
-        const metadata = template.metadata?.fanout ?? template.metadata?.fanoutCoordinator;
-        return metadata?.parentTaskId ? [metadata.parentTaskId] : [];
-      }));
+      const fanoutParents = new Set(program.taskTemplates.flatMap((template) => [
+        template.metadata?.fanout?.parentTaskId,
+        template.metadata?.fanoutCoordinator?.parentTaskId
+      ].filter(Boolean)));
       const introducedFanouts = index.delta.filter((entry) =>
         entry.family === 'fanout-expansion-receipt');
       if (introducedFanouts.length !== fanoutParents.size) {

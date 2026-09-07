@@ -37,6 +37,8 @@ test('POC release gate covers the installed CLI and guided SGOS behavior on its 
     'the release gate must exercise the model-free CMP command');
   assert.match(gate, /test\/cmp-corpus-measurement\.test\.mjs/,
     'the release gate must exercise the privacy-safe real-corpus measurement boundary');
+  assert.match(gate, /test\/wel-corpus-measurement\.test\.mjs/,
+    'the release gate must exercise the privacy-safe WEL real-corpus measurement boundary');
   assert.match(gate, /test\/comprehension-cached-symbols\.test\.mjs/,
     'the release gate must prove optional symbol navigation is cache-only');
   assert.match(gate, /test\/comprehension-diff-preview\.test\.mjs/,
@@ -147,6 +149,8 @@ test('packaged CLI smoke installs the tarball into an isolated prefix before exe
     'the installed command shim must execute the experimental CMP record preview');
   assert.match(smoke, /scripts\/cmp-corpus-measurement\.mjs/,
     'the installed package must carry the privacy-safe real-corpus runner');
+  assert.match(smoke, /scripts\/wel-corpus-measurement\.mjs/,
+    'the installed package must carry the privacy-safe WEL real-corpus runner');
   assert.match(smoke, /src\/wel\/WelJunitCatalog\.java/,
     'the installed package must carry the WEL parser helper');
   assert.match(smoke, /classifyJunit5SurefireCommandScope/,

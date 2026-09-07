@@ -89,6 +89,7 @@ export async function runPackagedCliSmoke({ root = sourceRoot, tempRoot = os.tmp
       'src/wel-junit5.mjs',
       'src/wel/WelJunitCatalog.java',
       'scripts/cmp-corpus-measurement.mjs',
+      'scripts/wel-corpus-measurement.mjs',
       'docs/CMP-ROADMAP.md',
       'docs/WEL-PENDING-WORK.md',
       'docs/adr/0014-cmp-observe-authority-boundary.md',

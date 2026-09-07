@@ -85,6 +85,7 @@ const CONTRACTS = Object.freeze({
   'join-receipt': Object.freeze({ kind: 'join-receipt', hash: 'joinReceiptSha256', id: 'joinReceiptId', prefix: 'JNR' }),
   'quorum-join-receipt': Object.freeze({ kind: 'quorum-join-receipt', hash: 'quorumJoinReceiptSha256', id: 'quorumJoinReceiptId', prefix: 'QJR' }),
   'reducer-join-receipt': Object.freeze({ kind: 'reducer-join-receipt', hash: 'reducerJoinReceiptSha256', id: 'reducerJoinReceiptId', prefix: 'RJR' }),
+  'manual-reconcile-join-receipt': Object.freeze({ kind: 'manual-reconcile-join-receipt', hash: 'manualReconcileJoinReceiptSha256', id: 'manualReconcileJoinReceiptId', prefix: 'MJR' }),
   'fanout-expansion-receipt': Object.freeze({ kind: 'fanout-expansion-receipt', hash: 'expansionSha256', id: 'expansionId', prefix: 'FOX' }),
   'sgos-replay-plan': Object.freeze({ kind: 'sgos-replay-plan', hash: 'replayPlanSha256', id: 'replayPlanId', prefix: 'RPL' }),
   'process-binding': Object.freeze({ kind: 'process-binding', hash: 'bindingSha256' }),
@@ -952,6 +953,86 @@ export function validateReducerJoinReceipt(value) {
   return returnValidated(value, validateReducerJoinReceiptRecord);
 }
 
+function validateManualReconcileJoinReceiptRecord(record, requireHash) {
+  validateBase(record, 'manual-reconcile-join-receipt', [
+    'manualReconcileJoinReceiptId', 'processId', 'taskInstanceId', 'attemptId',
+    'joinId', 'policy', 'predecessors', 'requestSha256', 'responseSha256',
+    'selectedTaskInstanceId', 'outputRefs', 'completedAt'
+  ], [
+    'manualReconcileJoinReceiptId', 'processId', 'taskInstanceId', 'attemptId',
+    'joinId', 'policy', 'predecessors', 'requestSha256', 'responseSha256',
+    'selectedTaskInstanceId', 'outputRefs', 'completedAt'
+  ], requireHash);
+  identifier(record.manualReconcileJoinReceiptId, 'MJR',
+    'manual-reconcile-join-receipt.manualReconcileJoinReceiptId');
+  identifier(record.processId, 'PROC', 'manual-reconcile-join-receipt.processId');
+  string(record.taskInstanceId, 'manual-reconcile-join-receipt.taskInstanceId');
+  identifier(record.attemptId, 'ATT', 'manual-reconcile-join-receipt.attemptId');
+  string(record.joinId, 'manual-reconcile-join-receipt.joinId');
+  if (record.policy !== 'manual-reconcile') {
+    fail("manual-reconcile-join-receipt.policy must be 'manual-reconcile'.");
+  }
+  if (!Array.isArray(record.predecessors) || !record.predecessors.length
+      || record.predecessors.length > SGOS_INSTALLED_LIMITS.maximumJoinInputs) {
+    fail('manual-reconcile-join-receipt.predecessors has an invalid size.');
+  }
+  record.predecessors.forEach((entry, index) => {
+    const label = `manual-reconcile-join-receipt.predecessors[${index}]`;
+    exactKeys(entry, ['taskInstanceId', 'state', 'receiptSha256', 'attemptId'], label);
+    requireKeys(entry, ['taskInstanceId', 'state', 'receiptSha256', 'attemptId'], label);
+    string(entry.taskInstanceId, `${label}.taskInstanceId`);
+    enumeration(entry.state, JOIN_TERMINAL_STATES, `${label}.state`);
+    if (entry.receiptSha256 !== null) digest(entry.receiptSha256, `${label}.receiptSha256`);
+    if (entry.attemptId !== null) identifier(entry.attemptId, 'ATT', `${label}.attemptId`);
+    if (entry.state === 'succeeded' && entry.receiptSha256 === null) {
+      fail(`${label} succeeded predecessor requires receiptSha256.`);
+    }
+    if (entry.state !== 'succeeded' && entry.receiptSha256 !== null) {
+      fail(`${label} non-succeeded predecessor must not claim receiptSha256.`);
+    }
+  });
+  if (record.predecessors.some((entry, index) =>
+    index > 0 && joinPredecessorOrder(record.predecessors[index - 1], entry) >= 0)) {
+    fail('manual-reconcile-join-receipt.predecessors must be unique and canonically sorted.');
+  }
+  digest(record.requestSha256, 'manual-reconcile-join-receipt.requestSha256');
+  digest(record.responseSha256, 'manual-reconcile-join-receipt.responseSha256');
+  string(record.selectedTaskInstanceId,
+    'manual-reconcile-join-receipt.selectedTaskInstanceId');
+  const selected = record.predecessors.find((entry) =>
+    entry.taskInstanceId === record.selectedTaskInstanceId);
+  if (!selected) fail('manual-reconcile-join-receipt must select one exact predecessor.');
+  stringArray(record.outputRefs, 'manual-reconcile-join-receipt.outputRefs');
+  if (selected.state !== 'succeeded' && record.outputRefs.length) {
+    fail('manual-reconcile-join-receipt cannot expose outputs from a failed predecessor.');
+  }
+  timestamp(record.completedAt, 'manual-reconcile-join-receipt.completedAt');
+}
+
+export function createManualReconcileJoinReceipt(value) {
+  return createContract(
+    'manual-reconcile-join-receipt', value, validateManualReconcileJoinReceiptRecord, {
+      prepare: (record) => ({
+        ...record,
+        predecessors: [...record.predecessors].sort(joinPredecessorOrder),
+        outputRefs: [...new Set(record.outputRefs)].sort(compareSgosCodePoints)
+      }),
+      identity: (record) => ({
+        processId: record.processId, taskInstanceId: record.taskInstanceId,
+        attemptId: record.attemptId, joinId: record.joinId, policy: record.policy,
+        predecessors: record.predecessors, requestSha256: record.requestSha256,
+        responseSha256: record.responseSha256,
+        selectedTaskInstanceId: record.selectedTaskInstanceId,
+        outputRefs: record.outputRefs
+      })
+    }
+  );
+}
+
+export function validateManualReconcileJoinReceipt(value) {
+  return returnValidated(value, validateManualReconcileJoinReceiptRecord);
+}
+
 function fanoutItemOrder(left, right) {
   return compareSgosCodePoints(left.itemKey, right.itemKey);
 }
@@ -1470,8 +1551,8 @@ export const SGOS_RECORD_INDEX_FAMILIES = Object.freeze([
   'action-evidence', 'agent-proposal', 'candidate-snapshot', 'fanout-expansion-receipt',
   'gvm-checkpoint', 'gvm-program',
   'gvm-task-attempt', 'gvm-task-receipt', 'human-request', 'human-response',
-  'join-receipt', 'process-binding', 'quorum-join-receipt', 'reducer-join-receipt',
-  'resource-lease', 'sgos-replay-plan'
+  'join-receipt', 'manual-reconcile-join-receipt', 'process-binding',
+  'quorum-join-receipt', 'reducer-join-receipt', 'resource-lease', 'sgos-replay-plan'
 ]);
 
 export const MAXIMUM_SGOS_RECORD_INDEX_DELTA =
@@ -2107,6 +2188,7 @@ const VALIDATORS = Object.freeze({
   'join-receipt': validateJoinReceipt,
   'quorum-join-receipt': validateQuorumJoinReceipt,
   'reducer-join-receipt': validateReducerJoinReceipt,
+  'manual-reconcile-join-receipt': validateManualReconcileJoinReceipt,
   'fanout-expansion-receipt': validateFanoutExpansionReceipt,
   'sgos-replay-plan': validateSgosReplayPlan,
   'process-binding': validateProcessBinding,

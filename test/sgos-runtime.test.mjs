@@ -1151,6 +1151,205 @@ test('deterministic-reduce JOIN binds exact predecessor outputs and the installe
       && entry.recordSha256 === joined.joinReceipt.reducerJoinReceiptSha256), true);
 });
 
+test('manual-reconcile JOIN pauses for approved authority and binds only the selected outputs', async () => {
+  const fixture = await repository('SGOS-STORY-JOIN-MANUAL');
+  const authority = {
+    kind: 'role', id: 'reviewer', minimumAssurance: 'configured-local'
+  };
+  const compiled = program([
+    task('10-alpha', 'KERNEL', [], {
+      operation: 'story.alpha',
+      resources: { reads: ['repo/a'], writes: [], devices: [], externalEffects: [] }
+    }),
+    task('20-fails', 'KERNEL', [], {
+      operation: 'story.expected-failure',
+      resources: { reads: ['repo/b'], writes: [], devices: [], externalEffects: [] }
+    }),
+    task('30-manual', 'JOIN', ['10-alpha', '20-fails'], {
+      material: false, evidence: {}, authority,
+      metadata: { joinPolicy: 'manual-reconcile' }
+    }),
+    task('90-end', 'END', ['30-manual'])
+  ], [{
+    joinId: 'join-manual', taskTemplateId: '30-manual', policy: 'manual-reconcile',
+    predecessorTaskTemplateIds: ['10-alpha', '20-fails']
+  }]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const predecessors = await runReadySgosTasks(fixture.root, started.process.processId, {
+    program: compiled, maximumParallel: 2,
+    handlers: { kernel: {
+      'story.alpha': async () => ({
+        outputRefs: ['sfref:alpha'], rawResult: { status: 'completed' }
+      }),
+      'story.expected-failure': async () => { throw new Error('expected conflict'); }
+    } },
+    captureCandidates: { 'story.alpha': async () => ({ resources: [] }) },
+    verifiers: { 'story.alpha': async ({ candidateSha256 }) => ({
+      status: 'passed', candidateSha256, checksSha256: HASH.checks
+    }) },
+    clock: T1
+  });
+  assert.equal(predecessors.launched, 2);
+  const waiting = await runNextSgosTask(fixture.root, started.process.processId, {
+    program: compiled, clock: T1
+  });
+  assert.equal(waiting.status, 'waiting-human');
+  assert.equal(waiting.request.requestType, 'conflict-resolution');
+  assert.deepEqual(waiting.request.options.map((entry) => entry.id),
+    Object.values(waiting.process.taskInstances)
+      .filter((entry) => ['10-alpha', '20-fails'].includes(entry.taskTemplateId))
+      .map((entry) => entry.taskInstanceId).sort());
+  await assert.rejects(() => respondToSgosHumanRequest(
+    fixture.root, waiting.process.processId, {
+      requestId: waiting.request.requestId,
+      requestSha256: waiting.request.requestSha256,
+      expectedRevision: waiting.process.processRevision,
+      expectedProcessSha256: waiting.process.processSha256,
+      actor: { id: 'sgos@example.test', kind: 'human' },
+      decision: 'selected', input: { optionId: 'task:not-a-predecessor' }, clock: T1
+    }
+  ), (error) => error.code === 'SGOS_HUMAN_RESPONSE_INVALID');
+  const selected = Object.values(waiting.process.taskInstances)
+    .find((entry) => entry.taskTemplateId === '10-alpha');
+  await assert.rejects(() => respondToSgosHumanRequest(
+    fixture.root, waiting.process.processId, {
+      requestId: waiting.request.requestId,
+      requestSha256: waiting.request.requestSha256,
+      expectedRevision: waiting.process.processRevision,
+      expectedProcessSha256: waiting.process.processSha256,
+      actor: { id: 'sgos@example.test', kind: 'human' },
+      decision: 'selected',
+      input: { optionId: selected.taskInstanceId, arbitraryOutput: 'sfref:forged' },
+      clock: T1
+    }
+  ), (error) => error.code === 'SGOS_JOIN_MANUAL_RECONCILE_INVALID');
+  const answered = await respondToSgosHumanRequest(
+    fixture.root, waiting.process.processId, {
+      requestId: waiting.request.requestId,
+      requestSha256: waiting.request.requestSha256,
+      expectedRevision: waiting.process.processRevision,
+      expectedProcessSha256: waiting.process.processSha256,
+      actor: { id: 'sgos@example.test', kind: 'human' },
+      decision: 'selected', input: { optionId: selected.taskInstanceId }, clock: T1
+    }
+  );
+  assert.equal(answered.status, 'succeeded');
+  assert.equal(answered.joinReceipt.kind, 'manual-reconcile-join-receipt');
+  assert.equal(answered.joinReceipt.selectedTaskInstanceId, selected.taskInstanceId);
+  assert.deepEqual(answered.joinReceipt.outputRefs, ['sfref:alpha']);
+  assert.deepEqual(answered.process.taskInstances[waiting.taskInstanceId].outputRefs, [
+    'sfref:alpha', answered.joinReceipt.manualReconcileJoinReceiptSha256
+  ]);
+  const stored = await listSgosImmutableRecordsByField(
+    fixture.root, started.process.processId, 'manual-reconcile-join-receipt',
+    'attemptId', answered.joinReceipt.attemptId
+  );
+  assert.equal(stored.length, 1);
+  assert.equal(stored[0].requestSha256, waiting.request.requestSha256);
+  assert.equal(stored[0].responseSha256, answered.response.responseSha256);
+  assert.equal((await fsckSgosProcess(fixture.root, started.process.processId)).status, 'ok');
+  const evidence = await compileSgosProcessEvidence(fixture.root, started.process.processId);
+  assert.equal(evidence.records.some((entry) =>
+    entry.family === 'manual-reconcile-join-receipt'
+      && entry.recordSha256
+        === answered.joinReceipt.manualReconcileJoinReceiptSha256), true);
+});
+
+test('manual-reconcile selection cannot expose outputs from a failed predecessor', async () => {
+  const fixture = await repository('SGOS-STORY-JOIN-MANUAL-FAILED');
+  const compiled = program([
+    task('10-fails', 'KERNEL', [], {
+      operation: 'story.expected-failure',
+      resources: { reads: ['repo/a'], writes: [], devices: [], externalEffects: [] }
+    }),
+    task('20-success', 'NOOP'),
+    task('30-manual', 'JOIN', ['10-fails', '20-success'], {
+      material: false, evidence: {},
+      authority: {
+        kind: 'role', id: 'reviewer', minimumAssurance: 'configured-local'
+      },
+      metadata: { joinPolicy: 'manual-reconcile' }
+    }),
+    task('90-end', 'END', ['30-manual'])
+  ], [{
+    joinId: 'join-manual-failed', taskTemplateId: '30-manual',
+    policy: 'manual-reconcile',
+    predecessorTaskTemplateIds: ['10-fails', '20-success']
+  }]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  await runReadySgosTasks(fixture.root, started.process.processId, {
+    program: compiled, maximumParallel: 2,
+    handlers: { kernel: { 'story.expected-failure': async () => {
+      throw new Error('expected conflict');
+    } } },
+    clock: T1
+  });
+  const waiting = await runNextSgosTask(fixture.root, started.process.processId, {
+    program: compiled, clock: T1
+  });
+  const failed = Object.values(waiting.process.taskInstances)
+    .find((entry) => entry.taskTemplateId === '10-fails');
+  const answered = await respondToSgosHumanRequest(
+    fixture.root, waiting.process.processId, {
+      requestId: waiting.request.requestId,
+      requestSha256: waiting.request.requestSha256,
+      expectedRevision: waiting.process.processRevision,
+      expectedProcessSha256: waiting.process.processSha256,
+      actor: { id: 'sgos@example.test', kind: 'human' },
+      decision: 'selected', input: { optionId: failed.taskInstanceId }, clock: T1
+    }
+  );
+  assert.deepEqual(answered.joinReceipt.outputRefs, []);
+  assert.deepEqual(answered.process.taskInstances[waiting.taskInstanceId].outputRefs,
+    [answered.joinReceipt.manualReconcileJoinReceiptSha256]);
+  assert.equal((await fsckSgosProcess(fixture.root, started.process.processId)).status, 'ok');
+});
+
+test('rejected manual reconciliation terminates without a join receipt or outputs', async () => {
+  const fixture = await repository('SGOS-STORY-JOIN-MANUAL-REJECTED');
+  const compiled = program([
+    task('10-alpha', 'NOOP'),
+    task('20-beta', 'NOOP'),
+    task('30-manual', 'JOIN', ['10-alpha', '20-beta'], {
+      material: false, evidence: {},
+      authority: {
+        kind: 'role', id: 'reviewer', minimumAssurance: 'configured-local'
+      },
+      metadata: { joinPolicy: 'manual-reconcile' }
+    }),
+    task('90-end', 'END', ['30-manual'])
+  ], [{
+    joinId: 'join-manual-rejected', taskTemplateId: '30-manual',
+    policy: 'manual-reconcile', predecessorTaskTemplateIds: ['10-alpha', '20-beta']
+  }]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  await runReadySgosTasks(fixture.root, started.process.processId, {
+    program: compiled, maximumParallel: 2, clock: T1
+  });
+  const waiting = await runNextSgosTask(fixture.root, started.process.processId, {
+    program: compiled, clock: T1
+  });
+  const answered = await respondToSgosHumanRequest(
+    fixture.root, waiting.process.processId, {
+      requestId: waiting.request.requestId,
+      requestSha256: waiting.request.requestSha256,
+      expectedRevision: waiting.process.processRevision,
+      expectedProcessSha256: waiting.process.processSha256,
+      actor: { id: 'sgos@example.test', kind: 'human' },
+      decision: 'rejected', clock: T1
+    }
+  );
+  assert.equal(answered.status, 'failed');
+  assert.equal(answered.joinReceipt, undefined);
+  assert.deepEqual(answered.process.taskInstances[waiting.taskInstanceId].outputRefs, []);
+  assert.equal(answered.process.taskInstances[waiting.taskInstanceId].receiptSha256, null);
+  assert.deepEqual(await listSgosImmutableRecordsByField(
+    fixture.root, started.process.processId, 'manual-reconcile-join-receipt',
+    'attemptId', waiting.process.taskInstances[waiting.taskInstanceId].attemptIds.at(-1)
+  ), []);
+  assert.equal((await fsckSgosProcess(fixture.root, started.process.processId)).status, 'ok');
+});
+
 test('finite fan-out start roots one exact expansion receipt and executes only bounded children', async () => {
   const fixture = await repository('SGOS-STORY-FANOUT');
   const fanout = normalizeSgosFanout({

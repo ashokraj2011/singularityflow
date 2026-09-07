@@ -24,8 +24,15 @@ function sha256(bytes) {
 
 function requirementsFor(program) {
   const requirements = [];
+  const manualJoinTasks = new Set((program.joins ?? [])
+    .filter((join) => join?.policy === 'manual-reconcile')
+    .map((join) => join.taskTemplateId));
   for (const task of program.taskTemplates ?? []) {
-    if (task.opcode !== 'HUMAN_REQUEST') continue;
+    const joinPolicy = task.metadata?.joinPolicy;
+    const joinPolicyId = typeof joinPolicy === 'string'
+      ? joinPolicy : joinPolicy?.policy ?? joinPolicy?.mode ?? null;
+    if (task.opcode !== 'HUMAN_REQUEST' && joinPolicyId !== 'manual-reconcile'
+        && !manualJoinTasks.has(task.taskTemplateId)) continue;
     const declared = task.metadata?.humanRequest?.authorityRequired
       ?? (task.authority && Object.keys(task.authority).length ? task.authority : null);
     if (typeof declared?.kind !== 'string' || typeof declared?.id !== 'string') continue;

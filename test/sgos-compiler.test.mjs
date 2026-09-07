@@ -887,6 +887,34 @@ test('deterministic-reduce JOIN compiles only an installed reducer contract', ()
   expectCode(() => build('unreviewed-reducer'), 'SGOS_JOIN_REDUCER_UNSUPPORTED');
 });
 
+test('manual-reconcile JOIN compiles only with explicit Human authority', () => {
+  const build = (authority) => compileSgosProgram(fixture({
+    mutateWorkflow(workflow) {
+      workflow.spec.tasks.join = {
+        kind: 'join', dependsOn: ['copy'], material: false,
+        authority,
+        metadata: { joinPolicy: 'manual-reconcile' }
+      };
+      workflow.spec.tasks.end.dependsOn = ['join'];
+      workflow.spec.joins = {
+        join: {
+          taskTemplateId: 'join', policy: 'manual-reconcile',
+          predecessorTaskTemplateIds: ['copy']
+        }
+      };
+      workflow.spec.budgets.maximumTasks = 3;
+    }
+  }));
+  const authority = {
+    kind: 'role', id: 'reviewer', minimumAssurance: 'configured-local'
+  };
+  assert.deepEqual(build(authority).program.joins, [{
+    joinId: 'join', taskTemplateId: 'join', policy: 'manual-reconcile',
+    predecessorTaskTemplateIds: ['copy']
+  }]);
+  expectCode(() => build({}), 'SGOS_HUMAN_AUTHORITY_REQUIRED');
+});
+
 test('finite foreach expands canonically into bounded non-nested children and an all-success join', () => {
   const first = compileSgosProgram(fixture({
     mutateWorkflow(workflow) {

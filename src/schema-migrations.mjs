@@ -2074,6 +2074,13 @@ const families = [
     ]
   }),
   family({
+    id: 'manual-reconcile-join-receipt', currentVersion: 1, immutable: true,
+    paths: [
+      /^\$git\/sgos\/processes\/[^/]+\/manual-reconcile-join-receipts\/[a-f0-9]{64}\.json$/,
+      sgosRecordReservationPath('manual-reconcile-join-receipt')
+    ]
+  }),
+  family({
     id: 'fanout-expansion-receipt', currentVersion: 1, immutable: true,
     paths: [
       /^\$git\/sgos\/processes\/[^/]+\/fanout-expansions\/[a-f0-9]{64}\.json$/,

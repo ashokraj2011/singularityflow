@@ -336,6 +336,9 @@ function assertDependenciesMatchEdges(program, graph) {
 }
 
 function assertEvidenceAuthorityAndRecovery(program) {
+  const manualJoinTasks = new Set((program.joins ?? [])
+    .filter((join) => join?.policy === 'manual-reconcile')
+    .map((join) => join.taskTemplateId));
   for (const task of program.taskTemplates) {
     if (task.policySnapshotSha256 !== program.policySnapshotSha256) {
       fail('SGOS_PROGRAM_POLICY_MISMATCH', `Task '${task.taskTemplateId}' is not pinned to the Program policy snapshot.`, {
@@ -355,7 +358,12 @@ function assertEvidenceAuthorityAndRecovery(program) {
       });
     }
     const verificationKind = String(task.metadata?.verification?.kind ?? task.metadata?.verification?.type ?? '').toLowerCase();
-    if ((task.opcode === 'HUMAN_REQUEST' || HUMAN_JUDGMENT_KINDS.has(verificationKind)) && !present(task.authority)) {
+    const joinPolicy = task.metadata?.joinPolicy;
+    const joinPolicyId = typeof joinPolicy === 'string'
+      ? joinPolicy : joinPolicy?.policy ?? joinPolicy?.mode ?? null;
+    if ((task.opcode === 'HUMAN_REQUEST' || joinPolicyId === 'manual-reconcile'
+        || manualJoinTasks.has(task.taskTemplateId)
+        || HUMAN_JUDGMENT_KINDS.has(verificationKind)) && !present(task.authority)) {
       fail('SGOS_PROGRAM_AUTHORITY_REQUIRED', `Task '${task.taskTemplateId}' requires human judgment but has no authority contract.`, {
         taskTemplateId: task.taskTemplateId
       });

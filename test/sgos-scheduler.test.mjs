@@ -9,14 +9,15 @@ import {
 import { deterministicSgosDispatchPlan, sgosTaskReadiness } from '../src/sgos/scheduler.mjs';
 import {
   canonicalSgosJoins, canonicalSgosReducerInputs, reduceSgosJoinOutputs,
-  sgosJoinReadiness
+  sgosJoinReadiness, sgosManualReconcileOptions
 } from '../src/sgos/joins.mjs';
 import { normalizeSgosFanout } from '../src/sgos/fanout.mjs';
 import {
   createFanoutExpansionReceipt, createJoinReceipt, createQuorumJoinReceipt,
-  createReducerJoinReceipt, createResourceLease, recordSelfSha256,
+  createManualReconcileJoinReceipt, createReducerJoinReceipt, createResourceLease,
+  recordSelfSha256,
   validateFanoutExpansionReceipt, validateJoinReceipt, validateQuorumJoinReceipt,
-  validateReducerJoinReceipt,
+  validateManualReconcileJoinReceipt, validateReducerJoinReceipt,
   validateResourceLease
 } from '../src/sgos/contracts.mjs';
 
@@ -145,6 +146,27 @@ test('quorum joins become ready at the installed threshold and fail only when it
     joinId: 'invalid', taskTemplateId: 'invalid', policy: 'all-success', requiredSuccesses: 1,
     predecessorTaskTemplateIds: ['a']
   }]), (error) => error.code === 'SGOS_JOIN_QUORUM_INVALID');
+});
+
+test('manual-reconcile joins wait for every terminal input and expose exact bounded choices', () => {
+  const [manual] = canonicalSgosJoins([{
+    joinId: 'manual', taskTemplateId: 'manual', policy: 'manual-reconcile',
+    predecessorTaskTemplateIds: ['a', 'b']
+  }]);
+  assert.deepEqual(sgosJoinReadiness(manual, ['succeeded', 'running']), {
+    ready: false, impossible: false
+  });
+  assert.deepEqual(sgosJoinReadiness(manual, ['succeeded', 'failed']), {
+    ready: true, impossible: false
+  });
+  const attemptId = `ATT-${'A'.repeat(32)}`;
+  assert.deepEqual(sgosManualReconcileOptions([
+    { taskInstanceId: 'task:b', state: 'failed', receiptSha256: null, attemptId },
+    {
+      taskInstanceId: 'task:a', state: 'succeeded',
+      receiptSha256: `sha256:${'1'.repeat(64)}`, attemptId
+    }
+  ]).map((entry) => entry.id), ['task:a', 'task:b']);
 });
 
 test('deterministic reducer joins require every successful input and bind a canonical reduction', () => {
@@ -315,6 +337,28 @@ test('parallel durable receipts are strict, self-hashed, and tamper evident', ()
   );
   assert.throws(() => validateReducerJoinReceipt(forgedReducerJoin),
     /outputs do not match/);
+
+  const manualJoin = createManualReconcileJoinReceipt({
+    processId, taskInstanceId: 'task:manual', attemptId,
+    joinId: 'manual-main', policy: 'manual-reconcile',
+    predecessors: [{
+      taskInstanceId: 'task:alpha', state: 'succeeded',
+      receiptSha256: `sha256:${'3'.repeat(64)}`, attemptId
+    }],
+    requestSha256: `sha256:${'4'.repeat(64)}`,
+    responseSha256: `sha256:${'5'.repeat(64)}`,
+    selectedTaskInstanceId: 'task:alpha', outputRefs: ['z', 'a'],
+    completedAt: '2026-08-30T00:01:00.000Z'
+  });
+  assert.equal(validateManualReconcileJoinReceipt(manualJoin)
+    .manualReconcileJoinReceiptSha256,
+  manualJoin.manualReconcileJoinReceiptSha256);
+  const forgedManualJoin = { ...manualJoin, selectedTaskInstanceId: 'task:foreign' };
+  forgedManualJoin.manualReconcileJoinReceiptSha256 = recordSelfSha256(
+    forgedManualJoin, 'manualReconcileJoinReceiptSha256'
+  );
+  assert.throws(() => validateManualReconcileJoinReceipt(forgedManualJoin),
+    /select one exact predecessor/);
 
   const itemSha256 = `sha256:${'1'.repeat(64)}`;
   const expansion = createFanoutExpansionReceipt({

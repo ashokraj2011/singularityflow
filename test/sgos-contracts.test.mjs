@@ -69,7 +69,7 @@ function candidateResources() {
 
 test('SGOS durable families expose exact readable versions and refuse future versions', () => {
   const registry = new Map(migrationRegistrySnapshot().map((entry) => [entry.id, entry]));
-  assert.equal(sgosContractFamilies().length, 27);
+  assert.equal(sgosContractFamilies().length, 28);
   for (const family of sgosContractFamilies()) {
     const current = family === 'gvm-process'
       ? 3

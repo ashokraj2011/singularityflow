@@ -770,7 +770,11 @@ function taskRecovery(workflow, taskId, task) {
 function humanJudgment(task, opcode) {
   const verification = task.verification ?? task.metadata?.verification;
   const verificationKind = String(verification?.kind ?? verification?.type ?? '').toLowerCase();
-  return opcode === 'HUMAN_REQUEST' || verificationKind === 'human-judgment' || task.requiresHumanJudgment === true;
+  const joinPolicy = task.joinPolicy ?? task.metadata?.joinPolicy;
+  const joinPolicyId = typeof joinPolicy === 'string'
+    ? joinPolicy : joinPolicy?.policy ?? joinPolicy?.mode ?? null;
+  return opcode === 'HUMAN_REQUEST' || joinPolicyId === 'manual-reconcile'
+    || verificationKind === 'human-judgment' || task.requiresHumanJudgment === true;
 }
 
 function normalizeRetry(taskId, task) {
@@ -1622,6 +1626,15 @@ function compileSgosProgramInternal(requestValue, { repositoryBindingSha256 = nu
   assertCoverage(clauses, templates, coverage);
 
   const joins = joinsForProgram(request.workflow, templates);
+  for (const join of joins.filter((entry) => entry.policy === 'manual-reconcile')) {
+    const template = templates.find((entry) => entry.taskTemplateId === join.taskTemplateId);
+    if (!present(template?.authority)) {
+      fail('SGOS_HUMAN_AUTHORITY_REQUIRED',
+        `Task '${join.taskTemplateId}' requires judgment but has no authority contract.`, {
+          taskId: join.taskTemplateId
+        });
+    }
+  }
   const terminalConditions = clone(request.workflow.spec?.terminalConditions ?? terminalTaskIds.map((taskId) => ({
     taskTemplateId: taskId, state: 'succeeded'
   })));

@@ -3,7 +3,7 @@ import { SGOS_INSTALLED_LIMITS } from './limits.mjs';
 import { compareSgosCodePoints } from './order.mjs';
 
 export const SGOS_INSTALLED_JOIN_POLICIES = Object.freeze([
-  'all-success', 'all-terminal', 'deterministic-reduce', 'quorum'
+  'all-success', 'all-terminal', 'deterministic-reduce', 'manual-reconcile', 'quorum'
 ]);
 
 export const SGOS_INSTALLED_JOIN_REDUCERS = Object.freeze([
@@ -160,6 +160,34 @@ export function reduceSgosJoinOutputs(reducerId, inputs) {
       .sort(compareSgosCodePoints));
   }
   fail(`Join reducer '${reducerId}' is not implemented.`, 'SGOS_JOIN_REDUCER_UNSUPPORTED');
+}
+
+export function sgosManualReconcileOptions(predecessors = []) {
+  if (!Array.isArray(predecessors) || !predecessors.length
+      || predecessors.length > SGOS_INSTALLED_LIMITS.maximumJoinInputs) {
+    fail('Manual reconciliation predecessors have an invalid size.',
+      'SGOS_JOIN_MANUAL_RECONCILE_INVALID');
+  }
+  const options = predecessors.map((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)
+        || typeof entry.taskInstanceId !== 'string' || !entry.taskInstanceId
+        || !TERMINAL.has(entry.state)
+        || (entry.receiptSha256 !== null && typeof entry.receiptSha256 !== 'string')
+        || (entry.attemptId !== null && typeof entry.attemptId !== 'string')) {
+      fail('Manual reconciliation requires exact terminal predecessor identities.',
+        'SGOS_JOIN_MANUAL_RECONCILE_INVALID');
+    }
+    return Object.freeze({
+      id: entry.taskInstanceId,
+      label: `Use outputs from ${entry.taskInstanceId} (${entry.state})`,
+      consequence: `Select only this predecessor's current outputs; receipt=${entry.receiptSha256 ?? 'none'}; attempt=${entry.attemptId ?? 'none'}.`
+    });
+  }).sort((left, right) => compareSgosCodePoints(left.id, right.id));
+  if (options.some((entry, index) => index > 0 && options[index - 1].id === entry.id)) {
+    fail('Manual reconciliation predecessors must be unique.',
+      'SGOS_JOIN_MANUAL_RECONCILE_INVALID');
+  }
+  return Object.freeze(options);
 }
 
 export function isSgosTerminalTaskState(value) {

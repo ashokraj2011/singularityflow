@@ -638,6 +638,32 @@ test('execution admission rechecks evidence, authority, recovery, and budgets', 
     });
     expectCode(() => validateSgosProgramStaticSafety(forged), 'SGOS_PROGRAM_AUTHORITY_REQUIRED');
   });
+  await t.test('manual join authority comes from the canonical join contract', () => {
+    const forged = reseal(program, (seed) => {
+      const run = seed.taskTemplates.find((entry) => entry.taskTemplateId === 'run');
+      const end = seed.taskTemplates.find((entry) => entry.taskTemplateId === 'end');
+      seed.taskTemplates.push({
+        ...structuredClone(run),
+        taskTemplateId: 'manual', opcode: 'JOIN', operation: 'kernel.join',
+        dependsOn: ['run'], resources: {
+          reads: [], writes: [], devices: [], externalEffects: []
+        }, evidence: {}, authority: {}, material: false, metadata: {}
+      });
+      end.dependsOn = ['manual'];
+      seed.taskTemplates.sort((left, right) =>
+        left.taskTemplateId < right.taskTemplateId ? -1 : 1);
+      seed.edges = [
+        { from: 'manual', to: 'end' }, { from: 'run', to: 'manual' }
+      ];
+      seed.joins = [{
+        joinId: 'manual', taskTemplateId: 'manual', policy: 'manual-reconcile',
+        predecessorTaskTemplateIds: ['run']
+      }];
+      seed.budgets.maximumTasks = 3;
+    });
+    expectCode(() => validateSgosProgramStaticSafety(forged),
+      'SGOS_PROGRAM_AUTHORITY_REQUIRED');
+  });
   await t.test('external-effect recovery', () => {
     const forged = reseal(program, (seed) => {
       const task = seed.taskTemplates.find((entry) => entry.taskTemplateId === 'run');

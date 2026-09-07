@@ -123,8 +123,12 @@ the kebab-case adapter IDs; the Program and registry bind both. Approved inline 
 nested to four finite levels; every level is pre-expanded before Program hashing, receives an exact
 expansion receipt, and applies its own distinct-item parallel ceiling. The installed join policies
 are `all-success`, `all-terminal`, finite-threshold `quorum`, and `deterministic-reduce` with the
-exact `canonical-output-ref-set-v1` reducer. The reducer consumes only already-bound output
-references; it cannot execute code or upgrade their assurance. Unreviewed model-backed `AGENT`,
+exact `canonical-output-ref-set-v1` reducer, plus Human-authority-bound `manual-reconcile`.
+The reducer consumes only already-bound output references; it cannot execute code or upgrade their
+assurance. Manual reconciliation waits for terminal predecessors and lets an approved reviewer
+select exactly one predecessor; the runtime derives that predecessor's current output references
+and binds the request, response, selection, and terminal snapshot in an immutable receipt.
+Unreviewed model-backed `AGENT`,
 any other consequential or uninstalled `DEVICE`, model-created or runtime-dynamic fan-out, unsafe
 parallel execution, and all other join policies still fail closed.
 
@@ -502,9 +506,9 @@ tracked in [SGOS-PENDING-WORK.md](SGOS-PENDING-WORK.md):
 - model-backed or tool-bearing `AGENT` execution beyond the reviewed Copilot proposal-only GEU,
   mutating Devices beyond the exact sandbox-CAS profile, arbitrary third-party adapters, and their
   complete independent conformance/counterfeit-model programs;
-- runtime-dynamic fan-out, manual-reconcile joins, additional reviewed reducers, general idempotent effect replay,
+- runtime-dynamic fan-out, additional reviewed reducers, general idempotent effect replay,
   non-genesis fork import, and consequential-effect task retry; bounded nested inline fan-out and
-  quorum joins are implemented;
+  quorum, deterministic-reduce, and manual-reconcile joins are implemented;
 - universal Candidate routing is implemented for the supported lifecycle surfaces; its
   cross-platform signed release promotion remains tracked as `SGOS-P0-001`;
 - Secret Broker integration with real external adapters, the corresponding cancellation/leakage/

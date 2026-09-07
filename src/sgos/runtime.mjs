@@ -18,6 +18,7 @@ import {
   createCandidateSnapshot,
   createFanoutExpansionReceipt,
   createJoinReceipt,
+  createManualReconcileJoinReceipt,
   createQuorumJoinReceipt,
   createReducerJoinReceipt,
   createResourceLease,
@@ -82,7 +83,7 @@ import {
 } from './scheduler.mjs';
 import {
   canonicalSgosReducerInputs, isSgosTerminalTaskState, reduceSgosJoinOutputs,
-  sgosJoinForTask
+  sgosJoinForTask, sgosManualReconcileOptions
 } from './joins.mjs';
 import {
   executeInstalledGvmAdapter, resolveInstalledGvmAdapter
@@ -118,7 +119,7 @@ const HUMAN_DECISIONS_BY_REQUEST = Object.freeze({
   credential: new Set(['provided', 'cancelled']),
   exception: new Set(['approved', 'rejected', 'cancelled']),
   'policy-choice': new Set(['selected', 'cancelled']),
-  'conflict-resolution': new Set(['selected', 'provided', 'cancelled']),
+  'conflict-resolution': new Set(['selected', 'provided', 'rejected', 'cancelled']),
   interpretation: new Set(['provided', 'cancelled']),
   'evidence-review': new Set(['approved', 'rejected', 'provided', 'cancelled']),
   'scope-expansion': new Set(['approved', 'rejected', 'cancelled']),
@@ -1278,6 +1279,53 @@ function humanRequestFor(process, task, template, attemptId, createdAt) {
   });
 }
 
+function joinPredecessorSnapshot(process, task) {
+  return task.predecessorTaskInstanceIds.map((taskInstanceId) => {
+    const predecessor = process.taskInstances[taskInstanceId];
+    if (!predecessor) {
+      fail(`JOIN predecessor '${taskInstanceId}' is missing.`,
+        'SGOS_JOIN_CONTRACT_MISMATCH');
+    }
+    return {
+      taskInstanceId,
+      state: predecessor.state,
+      // Terminal failures may retain historical attempts, but cannot contribute a successful
+      // receipt or output references to a join.
+      receiptSha256: predecessor.state === 'succeeded'
+        ? predecessor.receiptSha256
+        : null,
+      attemptId: predecessor.attemptIds.at(-1) ?? null
+    };
+  });
+}
+
+function manualReconcileRequestFor(
+  process, task, template, attemptId, join, predecessors, createdAt
+) {
+  const configured = clone(template.metadata?.humanRequest ?? {});
+  const requestTemplate = {
+    ...template,
+    metadata: {
+      ...template.metadata,
+      humanRequest: {
+        ...configured,
+        requestType: 'conflict-resolution',
+        authorityRequired: clone(template.authority),
+        prompt: clone(configured.prompt ?? {
+          title: `Reconcile ${join.joinId}`,
+          detail: 'Select the one terminal predecessor whose exact current outputs should continue.'
+        }),
+        options: sgosManualReconcileOptions(predecessors),
+        inputSchema: null,
+        sensitiveMode: 'none',
+        externalUrl: null,
+        secretBroker: null
+      }
+    }
+  };
+  return humanRequestFor(process, task, requestTemplate, attemptId, createdAt);
+}
+
 async function finalizeHumanRequest(
   root, begun, task, request, program, clock, executionLease, recordReservations = []
 ) {
@@ -2005,22 +2053,16 @@ async function runNextSgosTaskWithinPolicy(root, processId, {
       // The dispatch CAS proved this exact join was ready. Re-read the immutable predecessor
       // identities from the begun Process so concurrent unrelated completions cannot alter the
       // receipt bytes or make completion timing an input to deterministic lineage.
-      const predecessorSnapshot = task.predecessorTaskInstanceIds.map((taskInstanceId) => {
-        const predecessor = begun.taskInstances[taskInstanceId];
-        if (!predecessor) {
-          fail(`JOIN predecessor '${taskInstanceId}' is missing.`, 'SGOS_JOIN_CONTRACT_MISMATCH');
-        }
-        return {
-          taskInstanceId,
-          state: predecessor.state,
-          // A terminal failure may retain immutable historical attempts, but it does not
-          // contribute a successful receipt or outputs to an all-terminal JOIN.
-          receiptSha256: predecessor.state === 'succeeded'
-            ? predecessor.receiptSha256
-            : null,
-          attemptId: predecessor.attemptIds.at(-1) ?? null
-        };
-      });
+      const predecessorSnapshot = joinPredecessorSnapshot(begun, task);
+      if (join.policy === 'manual-reconcile') {
+        const request = manualReconcileRequestFor(
+          begun, task, template, attemptId, join, predecessorSnapshot, instant(clock)
+        );
+        return await finalizeHumanRequest(
+          root, begun, context.task, request, program, clock, executionLease,
+          context.recordReservations
+        );
+      }
       const contributors = join.policy === 'quorum'
         ? predecessorSnapshot.filter((entry) => entry.state === 'succeeded')
           .sort((left, right) => compareSgosCodePoints(left.taskInstanceId, right.taskInstanceId))
@@ -2633,6 +2675,48 @@ async function respondToSgosHumanRequestWithinPolicy(root, processId, options = 
     fail('Human Request attempt lineage is missing or ambiguous.', 'SGOS_RECORD_LINEAGE_INVALID');
   }
   const template = templateById(program).get(task.taskTemplateId);
+  const join = template?.opcode === 'JOIN'
+    ? sgosJoinForTask(program, task.taskTemplateId)
+    : null;
+  const manualReconcile = join?.policy === 'manual-reconcile';
+  let manualPredecessors = null;
+  let manualSelectedTaskInstanceId = null;
+  let manualOutputRefs = null;
+  if (manualReconcile) {
+    if (request.requestType !== 'conflict-resolution') {
+      fail('Manual reconciliation requires an exact conflict-resolution Human Request.',
+        'SGOS_JOIN_MANUAL_RECONCILE_INVALID');
+    }
+    manualPredecessors = joinPredecessorSnapshot(process, task);
+    if (canonicalJson(request.options)
+        !== canonicalJson(sgosManualReconcileOptions(manualPredecessors))) {
+      fail('Manual reconciliation options no longer match the exact terminal predecessors.',
+        'SGOS_JOIN_MANUAL_RECONCILE_STALE');
+    }
+    if (['approved', 'provided', 'selected'].includes(decision)) {
+      if (decision !== 'selected') {
+        fail("Manual reconciliation accepts only decision 'selected'.",
+          'SGOS_JOIN_MANUAL_RECONCILE_INVALID');
+      }
+      const selectionKeys = input && typeof input === 'object' && !Array.isArray(input)
+        ? Object.keys(input) : [];
+      if (selectionKeys.length !== 1
+          || !['optionId', 'option', 'id'].includes(selectionKeys[0])) {
+        fail('Manual reconciliation input must contain only one exact option identifier.',
+          'SGOS_JOIN_MANUAL_RECONCILE_INVALID');
+      }
+      manualSelectedTaskInstanceId = input?.optionId ?? input?.option ?? input?.id;
+      const selected = process.taskInstances[manualSelectedTaskInstanceId];
+      if (!selected || !task.predecessorTaskInstanceIds.includes(manualSelectedTaskInstanceId)
+          || !isSgosTerminalTaskState(selected.state)) {
+        fail('Manual reconciliation must select one exact terminal predecessor.',
+          'SGOS_JOIN_MANUAL_RECONCILE_STALE');
+      }
+      manualOutputRefs = selected.state === 'succeeded'
+        ? [...selected.outputRefs].sort(compareSgosCodePoints)
+        : [];
+    }
+  }
   const context = {
     begun: process,
     before: process,
@@ -2654,6 +2738,7 @@ async function respondToSgosHumanRequestWithinPolicy(root, processId, options = 
   let attempt;
   let evidence;
   let receipt;
+  let joinReceipt = null;
   // Hold the Process CAS lock while publishing every immutable response record.  Concurrent
   // responders must not be able to create divergent terminal lineage for one attemptId before
   // one of their final CAS operations loses.
@@ -2663,6 +2748,24 @@ async function respondToSgosHumanRequestWithinPolicy(root, processId, options = 
       fail('Human Request changed before its response committed.', 'SGOS_HUMAN_REQUEST_STALE');
     }
     await putRuntimeImmutableRecord(root, process.processId, 'human-response', response);
+    if (manualReconcile && accepted) {
+      joinReceipt = createManualReconcileJoinReceipt({
+        processId: process.processId,
+        taskInstanceId: task.taskInstanceId,
+        attemptId,
+        joinId: join.joinId,
+        policy: 'manual-reconcile',
+        predecessors: manualPredecessors,
+        requestSha256: request.requestSha256,
+        responseSha256: response.responseSha256,
+        selectedTaskInstanceId: manualSelectedTaskInstanceId,
+        outputRefs: manualOutputRefs,
+        completedAt: respondedAt
+      });
+      await putRuntimeImmutableRecord(
+        root, process.processId, 'manual-reconcile-join-receipt', joinReceipt
+      );
+    }
     candidate = await createAndReloadCandidate(root, process, {
       resources: [],
       createdBy: {
@@ -2676,10 +2779,25 @@ async function respondToSgosHumanRequestWithinPolicy(root, processId, options = 
       candidate,
       task,
       programSha256: process.programSha256,
-      rawVerdict: { status: 'passed', checks: { requestSha256, responseSha256: response.responseSha256 } }
+      rawVerdict: { status: 'passed', checks: {
+        requestSha256,
+        responseSha256: response.responseSha256,
+        ...(joinReceipt == null ? {} : {
+          manualReconcileJoinReceiptSha256:
+            joinReceipt.manualReconcileJoinReceiptSha256
+        })
+      } }
     });
+    const evidenceRefs = [
+      response.responseSha256,
+      ...(joinReceipt == null ? [] : [joinReceipt.manualReconcileJoinReceiptSha256])
+    ];
+    const outputRefs = joinReceipt == null
+      ? [response.responseSha256]
+      : [joinReceipt.manualReconcileJoinReceiptSha256, ...joinReceipt.outputRefs]
+        .sort(compareSgosCodePoints);
     const humanOutcome = {
-      evidenceRefs: [response.responseSha256],
+      evidenceRefs,
       humanDecisionRefs: [response.responseSha256],
       postState: candidate,
       candidateSnapshot: candidate
@@ -2702,7 +2820,7 @@ async function respondToSgosHumanRequestWithinPolicy(root, processId, options = 
         attemptId,
         attemptSha256: attempt.attemptSha256,
         inputRefs: task.inputRefs,
-        outputRefs: [response.responseSha256],
+        outputRefs,
         candidateSha256: candidate.candidateSha256,
         evidenceRefs: [candidate.candidateSha256, evidence.evidenceSha256],
         humanDecisionRefs: [response.responseSha256],
@@ -2716,7 +2834,7 @@ async function respondToSgosHumanRequestWithinPolicy(root, processId, options = 
     // and receipt bindings; assertImmutableCore deliberately permits introducing those bindings
     // only on an exact success transition.
     if (accepted) {
-      target.outputRefs = [response.responseSha256];
+      target.outputRefs = outputRefs;
       target.receiptSha256 = receipt.receiptSha256;
     }
     target.revision += 1;
@@ -2727,7 +2845,10 @@ async function respondToSgosHumanRequestWithinPolicy(root, processId, options = 
     expectedProcessSha256,
     updatedAt: respondedAt
   });
-  return Object.freeze({ status: taskOutcome, process: next, request, response, candidate, attempt, receipt, evidence });
+  return Object.freeze({
+    status: taskOutcome, process: next, request, response, candidate, attempt, receipt, evidence,
+    ...(joinReceipt == null ? {} : { joinReceipt })
+  });
 }
 
 export async function respondToSgosHumanRequest(root, processId, options = {}) {

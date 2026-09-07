@@ -51,6 +51,13 @@ predecessor's exact output-reference set, and produces their sorted unique union
 immutable reducer receipt binds the reducer ID, predecessor receipts, exact reducer inputs, and
 result. Arbitrary reducer code and unreviewed reducer IDs remain refused.
 
+The manual-reconciliation slice reuses the approved Human Request authority path. It waits for
+every predecessor to become terminal, presents only exact predecessor identities as selectable
+options, and derives outputs from the selected predecessor rather than accepting human-authored
+references. Its immutable receipt binds the complete terminal snapshot, request, response,
+selected predecessor, and exact selected outputs. Rejection and cancellation terminate without a
+join receipt or successful output.
+
 ## Status rules
 
 - `[ ]` means the capability remains unavailable or behind an explicit refusal boundary.
@@ -251,11 +258,19 @@ Implemented in the current increment:
   reducer identity and input/output contract;
 - unreviewed reducers cannot be introduced by Workflow metadata, and the reducer does not execute
   code, read output bodies, access tools, or mint verification authority.
+- `manual-reconcile` uses an explicit approved Human authority, becomes `waiting-human` only after
+  all predecessors are terminal, and exposes one exact predecessor choice per option;
+- accepted selection emits a separate immutable receipt bound to the request, response, complete
+  predecessor snapshot, selected predecessor, and exact current outputs; failed predecessor
+  selection yields no outputs, while rejection or cancellation yields no success receipt;
+- transition verification, process fsck, record indexes, schema migration, and portable Process
+  Evidence independently recheck that lineage without trusting mutable task state or arbitrary
+  human-provided output references.
 
-Still required: dynamic fan-out, human manual-reconcile joins, additional independently reviewed
-reducer implementations, general
-idempotent effect replay, non-genesis fork import, and consequential-effect retry. Quorum also needs
-the shared signed supported-platform release evidence before this item can become `[x]`.
+Still required: dynamic fan-out, additional independently reviewed reducer implementations,
+general idempotent effect replay, non-genesis fork import, and consequential-effect retry. The
+advanced join family also needs shared signed supported-platform release evidence before this item
+can become `[x]`.
 
 Acceptance gates:
 

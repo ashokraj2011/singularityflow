@@ -42,6 +42,7 @@ const HASH_FIELDS = Object.freeze({
   'human-request': 'requestSha256',
   'human-response': 'responseSha256',
   'join-receipt': 'joinReceiptSha256',
+  'manual-reconcile-join-receipt': 'manualReconcileJoinReceiptSha256',
   'quorum-join-receipt': 'quorumJoinReceiptSha256',
   'reducer-join-receipt': 'reducerJoinReceiptSha256',
   'process-binding': 'bindingSha256',

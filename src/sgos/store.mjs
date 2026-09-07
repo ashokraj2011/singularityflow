@@ -29,7 +29,9 @@ import { sgosContractPathFromLocal } from './paths.mjs';
 import { SGOS_INSTALLED_LIMITS } from './limits.mjs';
 import { assertSgosProcessMaterialization } from './materialization.mjs';
 import { compareSgosCodePoints } from './order.mjs';
-import { canonicalSgosReducerInputs, reduceSgosJoinOutputs } from './joins.mjs';
+import {
+  canonicalSgosReducerInputs, reduceSgosJoinOutputs, sgosManualReconcileOptions
+} from './joins.mjs';
 import { canonicalSgosResourceEntries } from './resource-contracts.mjs';
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
@@ -95,6 +97,7 @@ const IMMUTABLE_FAMILIES = Object.freeze({
   'join-receipt': Object.freeze({ directory: 'join-receipts', hashField: 'joinReceiptSha256' }),
   'quorum-join-receipt': Object.freeze({ directory: 'quorum-join-receipts', hashField: 'quorumJoinReceiptSha256' }),
   'reducer-join-receipt': Object.freeze({ directory: 'reducer-join-receipts', hashField: 'reducerJoinReceiptSha256' }),
+  'manual-reconcile-join-receipt': Object.freeze({ directory: 'manual-reconcile-join-receipts', hashField: 'manualReconcileJoinReceiptSha256' }),
   'fanout-expansion-receipt': Object.freeze({ directory: 'fanout-expansions', hashField: 'expansionSha256' }),
   'sgos-replay-plan': Object.freeze({ directory: 'replay-plans', hashField: 'replayPlanSha256' }),
   'process-binding': Object.freeze({ directory: 'bindings', hashField: 'bindingSha256' }),
@@ -4052,7 +4055,7 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
   // Index every bounded attempt and receipt once, including immutable records hidden by mutable
   // task state. A self-hashed Process cannot reset a receipted task to ready and execute it again.
   const [attempts, receipts, agentProposals, resourceLeases, joinReceipts,
-    quorumJoinReceipts, reducerJoinReceipts, fanoutReceipts,
+    quorumJoinReceipts, reducerJoinReceipts, manualReconcileJoinReceipts, fanoutReceipts,
     { record: program }] = await Promise.all([
     allRecords('gvm-task-attempt'),
     allRecords('gvm-task-receipt'),
@@ -4061,6 +4064,7 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
     allRecords('join-receipt'),
     allRecords('quorum-join-receipt'),
     allRecords('reducer-join-receipt'),
+    allRecords('manual-reconcile-join-receipt'),
     allRecords('fanout-expansion-receipt'),
     readImmutable('gvm-program', state.programSha256)
   ]);
@@ -4195,14 +4199,17 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
   );
   const joinsByTask = new Map((program.joins ?? []).map((join) => [join.taskTemplateId, join]));
   const everyJoinReceipt = [
-    ...joinReceipts, ...quorumJoinReceipts, ...reducerJoinReceipts
+    ...joinReceipts, ...quorumJoinReceipts, ...reducerJoinReceipts,
+    ...manualReconcileJoinReceipts
   ];
   const joinReceiptsByAttempt = recordsBy(everyJoinReceipt, 'attemptId');
   for (const receipt of everyJoinReceipt) {
     const receiptSha256 = receipt.policy === 'quorum'
       ? receipt.quorumJoinReceiptSha256
       : receipt.policy === 'deterministic-reduce'
-        ? receipt.reducerJoinReceiptSha256 : receipt.joinReceiptSha256;
+        ? receipt.reducerJoinReceiptSha256
+        : receipt.policy === 'manual-reconcile'
+          ? receipt.manualReconcileJoinReceiptSha256 : receipt.joinReceiptSha256;
     const taskId = ownerByAttempt.get(receipt.attemptId);
     const task = taskId == null ? null : state.taskInstances[taskId];
     const join = task == null ? null : joinsByTask.get(task.taskTemplateId);
@@ -4232,9 +4239,18 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
         outputRefs: predecessor?.outputRefs ?? []
       })))
       : null;
+    const selectedPredecessor = receipt.policy === 'manual-reconcile'
+      ? predecessorRecords.find(({ entry }) =>
+        entry.taskInstanceId === receipt.selectedTaskInstanceId) ?? null
+      : null;
     const expectedOutputs = receipt.policy === 'deterministic-reduce'
       ? reduceSgosJoinOutputs(receipt.reducerId, expectedReducerInputs)
-      : sourceOutputs;
+      : receipt.policy === 'manual-reconcile'
+        ? selectedPredecessor?.entry.state === 'succeeded'
+          ? [...new Set(selectedPredecessor.task?.outputRefs ?? [])]
+            .sort(compareSgosCodePoints)
+          : []
+        : sourceOutputs;
     if (!task || taskId !== receipt.taskInstanceId || receipt.processId !== state.processId
         || !join || receipt.joinId !== join.joinId || receipt.policy !== join.policy
         || (receipt.policy === 'quorum'
@@ -4242,6 +4258,7 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
         || (receipt.policy === 'deterministic-reduce'
           && (receipt.reducerId !== join.reducerId
             || canonicalJson(receipt.inputs) !== canonicalJson(expectedReducerInputs)))
+        || (receipt.policy === 'manual-reconcile' && !selectedPredecessor)
         || canonicalJson(receipt.policy === 'quorum'
           ? receipt.predecessorTaskInstanceIds
           : receipt.predecessors.map((entry) => entry.taskInstanceId))
@@ -4255,6 +4272,33 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
         || canonicalJson(receipt.outputRefs) !== canonicalJson(expectedOutputs)) {
       fail(`SGOS join receipt '${receiptSha256}' is orphaned or mismatched.`,
         'SGOS_JOIN_RECEIPT_INVALID');
+    }
+    if (receipt.policy === 'manual-reconcile') {
+      const [{ record: request }, { record: response }] = await Promise.all([
+        readImmutable('human-request', receipt.requestSha256),
+        readImmutable('human-response', receipt.responseSha256)
+      ]);
+      const selected = response.input?.optionId ?? response.input?.option ?? response.input?.id;
+      const taskReceipt = (receiptsByAttempt.get(receipt.attemptId) ?? [])[0] ?? null;
+      if (request.requestType !== 'conflict-resolution'
+          || request.processId !== state.processId
+          || request.taskInstanceId !== taskId
+          || response.requestSha256 !== request.requestSha256
+          || response.processId !== state.processId
+          || response.taskInstanceId !== taskId
+          || response.decision !== 'selected'
+          || selected !== receipt.selectedTaskInstanceId
+          || canonicalJson(request.options)
+            !== canonicalJson(sgosManualReconcileOptions(receipt.predecessors))
+          || taskReceipt == null
+          || canonicalJson(taskReceipt.humanDecisionRefs)
+            !== canonicalJson([response.responseSha256])
+          || canonicalJson(taskReceipt.outputRefs)
+            !== canonicalJson([receiptSha256, ...expectedOutputs]
+              .sort(compareSgosCodePoints))) {
+        fail(`SGOS manual reconciliation receipt '${receiptSha256}' has invalid Human authority lineage.`,
+          'SGOS_JOIN_MANUAL_RECONCILE_INVALID');
+      }
     }
     for (const { entry, task: predecessor } of predecessorRecords) {
       if (entry.state !== 'succeeded') {
@@ -4284,7 +4328,9 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
     const receiptSha256 = exact[0]?.policy === 'quorum'
       ? exact[0].quorumJoinReceiptSha256
       : exact[0]?.policy === 'deterministic-reduce'
-        ? exact[0].reducerJoinReceiptSha256 : exact[0]?.joinReceiptSha256;
+        ? exact[0].reducerJoinReceiptSha256
+        : exact[0]?.policy === 'manual-reconcile'
+          ? exact[0].manualReconcileJoinReceiptSha256 : exact[0]?.joinReceiptSha256;
     if (exact.length !== 1 || !task.outputRefs.includes(receiptSha256)) {
       fail(`Succeeded JOIN task '${taskId}' is not bound to one exact join receipt.`,
         'SGOS_JOIN_RECEIPT_INVALID');
@@ -4724,7 +4770,9 @@ async function assertTransitionIndexDelta(root, before, after, index) {
         const joinReceiptFamily = join?.policy === 'quorum'
           ? 'quorum-join-receipt'
           : join?.policy === 'deterministic-reduce'
-            ? 'reducer-join-receipt' : 'join-receipt';
+            ? 'reducer-join-receipt'
+            : join?.policy === 'manual-reconcile'
+              ? 'manual-reconcile-join-receipt' : 'join-receipt';
         const exactJoin = index.delta.filter((entry) =>
           entry.family === joinReceiptFamily
           && entry.attemptId === receipt.attemptId
@@ -4749,9 +4797,18 @@ async function assertTransitionIndexDelta(root, before, after, index) {
             outputRefs: predecessor?.outputRefs ?? []
           })))
           : null;
+        const selectedPredecessor = joinReceipt.policy === 'manual-reconcile'
+          ? predecessors.find(({ entry }) =>
+            entry.taskInstanceId === joinReceipt.selectedTaskInstanceId) ?? null
+          : null;
         const expectedOutputs = joinReceipt.policy === 'deterministic-reduce'
           ? reduceSgosJoinOutputs(joinReceipt.reducerId, expectedReducerInputs)
-          : sourceOutputs;
+          : joinReceipt.policy === 'manual-reconcile'
+            ? selectedPredecessor?.entry.state === 'succeeded'
+              ? [...new Set(selectedPredecessor.task?.outputRefs ?? [])]
+                .sort(compareSgosCodePoints)
+              : []
+            : sourceOutputs;
         if (!join || joinReceipt.joinId !== join.joinId
             || joinReceipt.policy !== join.policy
             || (joinReceipt.policy === 'quorum'
@@ -4762,6 +4819,7 @@ async function assertTransitionIndexDelta(root, before, after, index) {
               && (joinReceipt.reducerId !== join.reducerId
                 || canonicalJson(joinReceipt.inputs)
                   !== canonicalJson(expectedReducerInputs)))
+            || (joinReceipt.policy === 'manual-reconcile' && !selectedPredecessor)
             || joinReceipt.attemptId !== receipt.attemptId
             || predecessors.some(({ entry, task: predecessor }) =>
               !predecessor || predecessor.state !== entry.state
@@ -4771,6 +4829,41 @@ async function assertTransitionIndexDelta(root, before, after, index) {
             || canonicalJson(joinReceipt.outputRefs) !== canonicalJson(expectedOutputs)) {
           fail(`JOIN task '${taskId}' introduced a mismatched join receipt.`,
             'SGOS_JOIN_RECEIPT_INVALID');
+        }
+        if (joinReceipt.policy === 'manual-reconcile') {
+          await requireRooted('human-request', joinReceipt.requestSha256,
+            `manual reconciliation request for task '${taskId}'`);
+          await requireRooted('human-response', joinReceipt.responseSha256,
+            `manual reconciliation response for task '${taskId}'`);
+          const [{ record: request }, { record: response }] = await Promise.all([
+            readSgosImmutableRecord(
+              root, after.processId, 'human-request', joinReceipt.requestSha256
+            ),
+            readSgosImmutableRecord(
+              root, after.processId, 'human-response', joinReceipt.responseSha256
+            )
+          ]);
+          const selected = response.input?.optionId ?? response.input?.option
+            ?? response.input?.id;
+          if (request.requestType !== 'conflict-resolution'
+              || request.processId !== after.processId
+              || request.taskInstanceId !== taskId
+              || response.requestSha256 !== request.requestSha256
+              || response.processId !== after.processId
+              || response.taskInstanceId !== taskId
+              || response.decision !== 'selected'
+              || selected !== joinReceipt.selectedTaskInstanceId
+              || canonicalJson(request.options)
+                !== canonicalJson(sgosManualReconcileOptions(joinReceipt.predecessors))
+              || canonicalJson(receipt.humanDecisionRefs)
+                !== canonicalJson([response.responseSha256])
+              || canonicalJson(receipt.outputRefs)
+                !== canonicalJson([
+                  joinReceipt.manualReconcileJoinReceiptSha256, ...expectedOutputs
+                ].sort(compareSgosCodePoints))) {
+            fail(`JOIN task '${taskId}' introduced invalid manual reconciliation authority.`,
+              'SGOS_JOIN_MANUAL_RECONCILE_INVALID');
+          }
         }
       }
       await requireRooted('gvm-task-attempt', receipt.attemptSha256,

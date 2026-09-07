@@ -6,7 +6,7 @@
 
 **Created:** 2026-08-30
 
-**Current reconciliation:** checked through `main@c664d4d8` on 2026-09-07. Commits `259b76f1`,
+**Current reconciliation:** checked through `main@d677577a` on 2026-09-07. Commits `259b76f1`,
 `58d9329d`, and `d55229c7` provide the bounded exact-static JUnit identity adapter, immutable
 proposal snapshot, human review through the existing phase approval, migration, safe command-shape
 fallbacks, the evolving content-free benchmark, and same-process unenrolled delta measurement. Commit
@@ -27,7 +27,10 @@ observe-only authority ceiling. Commit `c664d4d8` removes two local release-vali
 the packaged JUnit helper is compiled once in process-private temporary storage and reused without
 ever compiling Candidate source, while Auto integration fixtures clone one immutable initialized
 seed into independent object databases instead of regenerating the complete configuration for each
-scenario. Neither optimization changes evidence authority or a lifecycle gate.
+scenario. Commit `d677577a` makes every self-closing VS Code panel idempotent before host-disposal
+callbacks can re-enter it, restores Comprehension Center navigation through the shared router, and
+reconciles the GDP companion lock after the WEL/SGOS/CMP documentation increments. Neither
+optimization nor UI repair changes evidence authority or a lifecycle gate.
 
 The code-local WEL boundary and signed-evidence contract were revalidated on both supported Node
 runtimes on macOS arm64. A clean strict Node 22 aggregate at `main@60e37936` completed all 457
@@ -421,6 +424,23 @@ Local performance/reliability checkpoint at `main@c664d4d8`:
 - repository conformance passed all 1,360 checks. These are unsigned local performance and
   regression observations only; they fill no independent-review, authenticated-runner, physical
   platform, office-network, or signed-package evidence cell.
+
+Current clean release-aggregate checkpoint at `main@d677577a`:
+
+- `npx --yes node@22 scripts/run-test-aggregate.mjs all --require-clean --fail-on-skipped
+  --shards=8 --workers=2 --deadline-ms=7200000` completed run
+  `be71c5a094d878bde7f1cfce` across all 469 selected files on macOS arm64/Node 22.23.2;
+- all 4,707 tests passed with zero failures, cancellations, skips, or todo. The aggregate receipt
+  binds commit `d677577a75bb704a1607f144951f4b3feb323e24`, tree
+  `fe9f7550c2aa656872cadb27bd60b9544af042d5`, the exact selected-source digest, strict-skip policy,
+  runtime identity, and all eight shard-receipt digests;
+- the initial cold run exposed one isolated transient Story-start fixture failure and exhausted the
+  30-minute ceiling in one broad shard. The exact failing test passed alone, and the aggregate then
+  reused six exact passing receipts and reran only the two incomplete shards under the bounded
+  two-hour ceiling; both passed completely. No dependency, workflow, or product failure repeated;
+- this is unsigned same-developer local evidence. It strengthens the current macOS/Node 22
+  regression and recovery record but fills no independent-review, authenticated-runner, reviewed
+  real-corpus, physical Windows/Linux, office-network, or signed-package matrix cell.
 
 Depends on: `WEL-P0-001` and `WEL-P0-002`.
 

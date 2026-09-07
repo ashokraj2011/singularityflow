@@ -735,6 +735,14 @@ test('the suite bounds file concurrency so child processes keep their timeout bu
     'every shard must have an explicit configurable wall-clock deadline');
   assert.match(runner, /signalProcessTree/,
     'a deadline must terminate descendants rather than only the immediate Node process');
+  assert.match(runner, /onSigint\s*=\s*\(\)\s*=>[^\n]+terminate\('interrupted'\)/,
+    'an interrupted shard wrapper must route to bounded process-tree termination');
+  assert.match(runner, /onSigterm\s*=\s*\(\)\s*=>[^\n]+terminate\('interrupted'\)/,
+    'a terminated shard wrapper must route to bounded process-tree termination');
+  assert.match(runner, /process\.once\('SIGINT',\s*onSigint\)/,
+    'the interrupt handler must be installed while the detached child is live');
+  assert.match(runner, /process\.once\('SIGTERM',\s*onSigterm\)/,
+    'the termination handler must be installed while the detached child is live');
   assert.match(runner, /--shard=/,
     'a timed-out shard must return one exact retry command');
 });

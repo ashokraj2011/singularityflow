@@ -96,21 +96,32 @@ async function executeBounded(argumentsList) {
     let settled = false;
     let timedOut = false;
     let overflow = false;
+    let interrupted = false;
     let deadline = null;
     let force = null;
     let final = null;
+    let onSigint = null;
+    let onSigterm = null;
+    const removeSignalHandlers = () => {
+      if (onSigint) process.removeListener('SIGINT', onSigint);
+      if (onSigterm) process.removeListener('SIGTERM', onSigterm);
+    };
     const finish = (status, signal, error = null) => {
       if (settled) return;
       settled = true;
       if (deadline) clearTimeout(deadline);
       if (force) clearTimeout(force);
-      resolve({ status: status ?? 1, signal, error, stdout, stderr, timedOut, overflow });
+      removeSignalHandlers();
+      resolve({
+        status: status ?? 1, signal, error, stdout, stderr, timedOut, overflow, interrupted
+      });
     };
     const terminate = async (reason) => {
       if (final) return;
       final = reason;
       timedOut = reason === 'deadline';
       overflow = reason === 'output-overflow';
+      interrupted = reason === 'interrupted';
       await signalProcessTree(child, 'SIGTERM', { timeoutMs: 1_000 });
       if (settled) return;
       force = setTimeout(async () => {
@@ -120,6 +131,14 @@ async function executeBounded(argumentsList) {
         finish(1, 'SIGKILL');
       }, TERMINATION_GRACE_MS);
     };
+    // The Node test process owns a detached group so a deadline can terminate all descendants.
+    // Consequently an interrupt delivered to this wrapper does not reach that group on its own.
+    // Keep the wrapper alive just long enough to quiesce its exact child tree; otherwise an
+    // interrupted aggregate leaves test and Git processes orphaned in the background.
+    onSigint = () => { void terminate('interrupted'); };
+    onSigterm = () => { void terminate('interrupted'); };
+    process.once('SIGINT', onSigint);
+    process.once('SIGTERM', onSigterm);
     const append = (channel, chunk) => {
       const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
       if (channel === 'stdout') process.stdout.write(text);
@@ -206,6 +225,9 @@ if (result.timedOut) {
   console.error(`Retry exactly: node scripts/run-test-suite.mjs ${suite} --shard=${shard.index}/${shard.count} --deadline-ms=${deadlineMs}`);
 } else if (result.overflow) {
   console.error(`\nSFlow test shard ${shard.index}/${shard.count} exceeded its bounded output allowance.`);
+} else if (result.interrupted) {
+  console.error(`\nSFlow test shard ${shard.index}/${shard.count} was interrupted after its process tree quiesced.`);
+  console.error(`Retry exactly: node scripts/run-test-suite.mjs ${suite} --shard=${shard.index}/${shard.count} --deadline-ms=${deadlineMs}`);
 } else if (!complete) {
   console.error(`\nSFlow test shard ${shard.index}/${shard.count} produced no complete Node test summary.`);
 }

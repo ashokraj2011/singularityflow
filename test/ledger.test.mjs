@@ -415,6 +415,28 @@ test('state projection push failures expose only a digest of hook diagnostics', 
   assert.match(refusal?.message ?? '', /diagnostic sha256:[0-9a-f]{16}/u);
 });
 
+test('exact state projection writes reviewed bytes without a hash-object stdin pipe', async () => {
+  const { root } = await repository();
+  await initializeLedger(root, enabled);
+  const file = 'singularity/sgos/authority-stores/example/current.json';
+  const bytes = Buffer.from('{"authority":"reviewed"}\n', 'utf8');
+  const published = await publishToStateBranch(root, enabled, {
+    [file]: bytes
+  }, 'Publish exact reviewed bytes', {
+    exactBlobSha256: { [file]: `sha256:${sha256(bytes)}` }
+  });
+
+  assert.equal(published.changed, true);
+  assert.deepEqual(run('git', ['show', `${enabled.branch}:${file}`], {
+    cwd: root, encoding: 'buffer'
+  }).stdout, bytes);
+  const source = await readFile(new URL('../src/ledger.mjs', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /hash-object[^\n]+--no-filters[^\n]+--stdin/u,
+    'exact authority publication must not reintroduce the Node 20 stdin-pipe hang');
+  assert.match(source, /hashExactStateBlob[\s\S]+timeoutMs:\s*30_000/u,
+    'the replacement exact-blob process must remain bounded');
+});
+
 test('state authority observation failures never expose remote diagnostics', async () => {
   const { root, parent } = await repository();
   const secret = 'office-remote-token-must-not-leak';

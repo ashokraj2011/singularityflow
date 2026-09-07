@@ -33,7 +33,7 @@ const README_PATH = 'README.md';
 
 function git(root, args, {
   allowFailure = false, stdio = 'pipe', env = process.env,
-  encoding = 'utf8', input = undefined, maxBuffer = undefined
+  encoding = 'utf8', input = undefined, maxBuffer = undefined, timeoutMs = undefined
 } = {}) {
   if (['fetch', 'push', 'pull', 'ls-remote', 'clone'].includes(args[0])) {
     throw new SingularityFlowError(
@@ -42,7 +42,7 @@ function git(root, args, {
     );
   }
   return run('git', args, {
-    cwd: root, allowFailure, stdio, env, encoding, input, maxBuffer
+    cwd: root, allowFailure, stdio, env, encoding, input, maxBuffer, timeoutMs
   });
 }
 
@@ -471,6 +471,30 @@ async function temporaryWorktree(root, ref, callback, { env = process.env } = {}
     git(root, ['worktree', 'remove', '--force', worktree], { allowFailure: true, env });
     if (bootstrap) git(root, ['branch', '-D', bootstrapBranch], { allowFailure: true, env });
     await rm(parent, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Write one reviewed byte sequence into the repository object database without a stdin pipe.
+ *
+ * Node 20 on macOS can leave `spawnSync(..., { input })` waiting forever for EOF when several test
+ * shards are spawning Git concurrently. The affected child is visibly stuck in
+ * `git hash-object --stdin`, so a timeout alone would turn a hang into a failed publication. The
+ * ledger worktree already has a private 0700 parent: stage the bytes there, let Git read that
+ * regular file with filters disabled, bound the process, and remove the staging file immediately.
+ * This keeps exact-byte and repository-object-format semantics while eliminating the pipe whose
+ * close was lost.
+ */
+async function hashExactStateBlob(worktree, bytes, { env = process.env } = {}) {
+  const source = path.join(path.dirname(worktree), `.exact-state-blob-${randomUUID()}`);
+  await writeAtomic(source, bytes, { mode: 0o600 });
+  try {
+    return git(worktree, ['hash-object', '-w', '--no-filters', '--', source], {
+      env,
+      timeoutMs: 30_000
+    }).stdout.trim();
+  } finally {
+    await rm(source, { force: true });
   }
 }
 
@@ -1325,9 +1349,7 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
           { code: 'state_branch.projection_bytes_changed', details: { path: file } }
         );
       }
-      const blob = git(worktree, ['hash-object', '-w', '--no-filters', '--stdin'], {
-        env, input: bytes
-      }).stdout.trim();
+      const blob = await hashExactStateBlob(worktree, bytes, { env });
       git(worktree, ['update-index', '--add', '--cacheinfo', `100644,${blob},${file}`], {
         env
       });

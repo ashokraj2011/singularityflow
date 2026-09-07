@@ -54,6 +54,7 @@ export function pocReleaseStages({ rootDir = root, nodeVersion = process.version
         'test/platform-process.test.mjs', 'test/quality-command-runner.test.mjs',
         'test/install-staged-artifacts.test.mjs', 'test/local-install-script.test.mjs',
         'test/vscode-sgos-workflow-create.test.mjs', 'test/comprehension-contracts.test.mjs',
+        'test/sgos-read-model-benchmark.test.mjs',
         'test/comprehension-brownfield.test.mjs',
         'test/comprehension-command.test.mjs', 'test/comprehension-cached-symbols.test.mjs',
         'test/comprehension-diff-preview.test.mjs',
@@ -88,6 +89,12 @@ export function pocReleaseStages({ rootDir = root, nodeVersion = process.version
       command: process.execPath,
       args: ['scripts/packaged-cli-smoke.mjs'],
       timeoutMs: 15 * 60_000
+    }),
+    Object.freeze({
+      label: 'SGOS content-free read-model budgets',
+      command: npm,
+      args: ['run', 'benchmark:sgos-read-model:enforce'],
+      timeoutMs: 5 * 60_000
     }),
     Object.freeze({
       label: 'CMP content-free observe-only benchmark',

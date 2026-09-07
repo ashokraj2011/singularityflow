@@ -29,6 +29,10 @@ test('POC release gate covers the installed CLI and guided SGOS behavior on its 
     'the release gate must exercise the deterministic CMP corpus');
   assert.match(gate, /test\/comprehension-brownfield\.test\.mjs/,
     'the release gate must exercise incremental brownfield and no-fabricated-history contracts');
+  assert.match(gate, /test\/sgos-read-model-benchmark\.test\.mjs/,
+    'the release gate must exercise the content-free SGOS read-model benchmark contract');
+  assert.match(gate, /benchmark:sgos-read-model:enforce/,
+    'the release gate must enforce the accepted SGOS read-model budgets');
   assert.match(gate, /test\/comprehension-command\.test\.mjs/,
     'the release gate must exercise the model-free CMP command');
   assert.match(gate, /test\/comprehension-cached-symbols\.test\.mjs/,

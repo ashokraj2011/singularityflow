@@ -22,6 +22,7 @@ is not part of the current product.
 | Run a complete Story locally | [Local runbook](../LOCAL-RUNBOOK.md) |
 | Learn the normal day-to-day flow | [How-to guide](../HOW-TO.md) |
 | Use SGOS for normal Stories, explicit Programs, recovery, and cross-laptop Pack authority | [How to use SGOS](SGOS-USAGE-GUIDE.md) |
+| Collect and merge the physical SGOS release proof | [SGOS end-to-end release proof](SGOS-END-TO-END-RELEASE-PROOF.md) |
 | Track deliberately deferred work and the next eligible increment | [Pending-work roadmap](PENDING-WORK-ROADMAP.md) |
 | Plan Governed Delivery and Proof as reversible release milestones | [GDP milestone delivery roadmap](GDP-DELIVERY-ROADMAP.md) |
 | Track governed comprehension from its read-only pilot through future enforcement | [CMP roadmap](CMP-ROADMAP.md) |

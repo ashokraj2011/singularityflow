@@ -2,7 +2,7 @@
 
 **Status:** authoritative cross-product tracker; bounded exact-tree aggregate and the latest code-local asynchronous Git migration are complete, while platform release evidence remains active
 
-**Baseline:** `main@ec1b5c88`
+**Baseline:** `main@7304c65c`
 
 **Last reviewed:** 2026-09-07
 
@@ -42,6 +42,13 @@ drift, and outputs aggregate timing/count/byte distributions without paths, sour
 digests, identities, prompts, or network/model/AST/lifecycle activity. A three-repository local
 smoke measured 126 regions without changing repository state. Independent corpus review and signed
 supported-platform evidence remain open.
+
+The SGOS end-to-end release-proof contract landed at `main@7304c65c`. The existing platform
+evidence, signed receipt, six-cell merge, and release promotion path now requires distinct retained
+proof for the software-conversion journey, hypothesis-analysis journey, interruption recovery,
+counterfeit-authority refusal, cross-machine authority round trip, and a separately reviewed
+performance budget. Historical v1 evidence remains readable but cannot authorize a current
+release. The six physical platform/runtime cells and independent review remain external work.
 
 Direct Ad Hoc-to-Auto adoption landed at `main@724cb85e`. The model-free adoption command now
 creates an exact Plan; ratified start seals the confirmed source as an immutable Candidate; and the
@@ -267,11 +274,11 @@ This snapshot resolves conflicts between older domain roadmaps and the executabl
 shared primitive does not complete a higher-assurance track: for example, the developer-local
 signed runner is useful M9 evidence, but it is not an authenticated independent CAB/WEL verifier.
 
-| Area | Implemented boundary through `ec1b5c88` | Still open |
+| Area | Implemented boundary through `7304c65c` | Still open |
 |---|---|---|
 | Auto v2 | Dependency-free Story profile, P0/P1 controls, interval pacing, and provenance-preserving direct Ad Hoc Candidate adoption | Optional SGOS execution profile and registered comparative-quality evidence |
 | CMP | Model-free, read-only `comprehension regions`, `check`, experimental source-free record preview/in-memory migration, bounded privacy-safe real-repository measurement, Candidate-bound bounded exact before/after source expansion, ephemeral intent graph, exact clause/file/change explanation, content-free normalized Story replay, resource-level `intent.trace` through the existing five gateway tools, release-gated synthetic benchmark, deterministic resource walkthrough drafts, typed validation, selective observe-only revalidation, a leased read-only VS Code Comprehension Center with bounded exact tracked-diff and on-demand source inspection, per-file/hunk indexing, cache-only current-symbol navigation, keyboard semantics, built-host/repository-switch fencing, an exact-region join to recorded delivery/test references, guarded `/sf-learn` routing, and a no-full-backfill touched-area/historical-proposal diagnostic with a native Brownfield tab | Independently reviewed corpus results and storage/privacy decision, durable cause authority/index, cause-backed gateway query, authoritative structural/evidence expansion, SGOS/cause replay joins, governed causal provenance, optional model drafting, authoritative walkthrough validators/receipts, lifecycle enforcement, remaining physical production evidence, reviewed CMP lessons, and governed historical persistence/review |
-| SGOS | Bounded runtime, Universal Candidate code path, Git-trusted authority transport, signed transport, Windows DPAPI-protected local signer, stop-aware bounded Process-lock contention recovery, checkpoint-bound working-set injection, guarded signed-Pack/Device meta-tool activation CLI, native preview/confirm review UI, isolated interruption-resumable learning workspaces, identity-free monotonic portable learning progress with v1-to-v2 migration, exact-active-Pack-bound offline learning bundles, and release-gated content-free read-model budgets | Real external-adapter Secret Broker integration, consented external telemetry, signed platform release aggregate, end-to-end proof, additional adapters, orchestration, stores, independent certification, and accessibility validation |
+| SGOS | Bounded runtime, Universal Candidate code path, Git-trusted authority transport, signed transport, Windows DPAPI-protected local signer, stop-aware bounded Process-lock contention recovery, checkpoint-bound working-set injection, guarded signed-Pack/Device meta-tool activation CLI, native preview/confirm review UI, isolated interruption-resumable learning workspaces, identity-free monotonic portable learning progress with v1-to-v2 migration, exact-active-Pack-bound offline learning bundles, release-gated content-free read-model budgets, and a strict v2 end-to-end release-proof/merge/promotion boundary | Real external-adapter Secret Broker integration, consented external telemetry, independently reviewed physical six-cell release evidence, additional adapters, orchestration, stores, independent certification, and accessibility validation |
 | WEL | Observe-only witnessed clauses; exact-static local JUnit/Surefire and bounded top-level literal Jest/Vitest adapters; human mapping review; a durable 14-case synthetic JavaScript adversarial corpus; same-process incremental cost; content-free Context X-Ray projection; model-free local Story-start transaction measurement; cancellable Java parser execution; synthetic push/offline/fresh-clone/interrupted-write recovery; strict benchmark binding in signed release receipts; clean Linux Node 20/22 portable matrices; and a complete unsigned Linux Node 22 package/VSIX release gate. Results remain inconclusive | Candidate/Program/attempt join, independently reviewed real corpora, physical Windows and office-network recovery receipts, authenticated hermetic execution, enforcement recovery, further adapter shapes, and signed platform release proof |
 | CAB | CAB v0.2 code-local architecture, adversarial design contract, and observe-only exact-static JUnit pilot are active over existing SGOS/GDP/WEL primitives | Independent R0 ratification, authenticated isolation/trust roots, corpus/platform proof, opt-in enforcement, adequacy, provider adapters, and regulated deployment proof |
 | GDP | M0–M8 implemented; M9 local observe/developer-local signed runner, M10 contracts, and M11 readiness report implemented as partial milestones | Authenticated runner and verifier, provider pilots, enforce enrollment, migration/support-window exercises, signed package/platform receipts, and GA decision |
@@ -400,6 +407,7 @@ evidence is recorded.
 | `DXP-P0-005` | Interactive onboarding, configuration refresh/proposals/identity enrollment, approved-configuration reads, branch refresh, ledger/state/lifecycle publication, Story/capability checkout, registered World-Model authority refresh/recovery and WMB planning, CLI routing, SGOS authority reads, Auto authority/recovery, and terminal gate publication checks use the bounded async process-tree supervisor and stable failure taxonomy (`9d44c013` through `53721b20`); ledger bootstrap no longer depends on post-floor `git worktree add --orphan`, and its connected fixture passes under Git 2.39.5/Linux x64 with zero network calls or repository writes | Keep the isolated low-level compatibility API under audit; collect live physical POSIX and Windows descendant-cleanup receipts |
 | `DXP-P0-006` | One partial-clone classifier retries only explicit filter rejection, recognizes ignored filters, and prevents double clone | Live provider exercises for filter rejection and filter ignored, with stage and transfer evidence |
 | `SGOS-P0-001` | Supported lifecycle publishers route through exact retained Candidate verification, commit binding, and recoverable publication | Signed supported-platform aggregate and artifact binding for the final release commit |
+| `SGOS-P0-004` | Platform-evidence v2 and the existing signed receipt, merge, and promotion path bind distinct software-conversion, hypothesis-analysis, interruption, counterfeit-authority, cross-machine, and reviewed performance evidence | Independently execute and sign all six physical macOS/Linux/Windows by Node 20/22 cells for the final commit and artifact pair |
 
 Local development evidence for this checkpoint:
 

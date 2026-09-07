@@ -18,6 +18,12 @@ The measured-read-model portion of `SGOS-P2-003` was added at `main@c18b8154` on
 It supplies a local, content-free release-gated benchmark; it does not supply consent for external
 telemetry or signed supported-machine evidence.
 
+The code-local `SGOS-P0-004` release-proof boundary landed at `main@7304c65c` on 2026-09-07.
+Platform-evidence schema v2, signed receipt generation, six-cell merge, and release promotion now
+require distinct retained proof for both end-to-end journeys, interruption, counterfeit-authority,
+cross-machine, and reviewed performance exercises. No physical or independent receipt is inferred
+from those validators.
+
 ## Status rules
 
 - `[ ]` means the capability remains unavailable or behind an explicit refusal boundary.
@@ -141,7 +147,7 @@ fixture has real signed macOS, Linux, and Windows release receipts proving ident
 authority and cutover recovery on the supported Node matrix. Simulated Windows tests and the
 developer-local GDP runner are not substitutes for those receipts.
 
-### [ ] SGOS-P0-004 — End-to-end release proof
+### [~] SGOS-P0-004 — End-to-end release proof
 
 Prove complete software-conversion and hypothesis-analysis journeys and issue an exact signed release
 receipt for the supported platform matrix.
@@ -154,6 +160,17 @@ Acceptance gates:
 - one signed receipt binds source commit, packaged artifacts, schemas, tests, and platform results.
 
 Depends on: all other P0 items required by the selected end-to-end journeys.
+
+The code-local contract is implemented at `main@7304c65c`. Historical v1 platform evidence remains
+readable, but new receipt generation, aggregate merge, and release promotion require the v2 SGOS
+profile in every signed cell. The validator binds six distinct external evidence digests and one
+reviewed performance-budget profile without admitting raw logs, paths, commands, URLs, prompts, or
+credentials. The operator sequence is documented in
+[SGOS end-to-end release proof](SGOS-END-TO-END-RELEASE-PROOF.md).
+
+This item remains `[~]`: independent reviewers must still execute both journeys and the recovery,
+counterfeit, cross-machine, and performance exercises on physical macOS/Linux/Windows hosts under
+Node 20 and 22, then retain one reviewed signed aggregate for the exact final release artifacts.
 
 ## P1 — execution breadth
 

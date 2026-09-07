@@ -136,6 +136,14 @@ authenticated Playwright smoke bound to the private profile's SHA-256, and Windo
 round-trip. The Windows check is mandatory on `win32` and must be explicitly `not-applicable` with
 the closed reason `non-windows-platform` everywhere else.
 
+New receipt generation uses platform-evidence schema v2. It additionally requires the SGOS
+software-conversion and hypothesis-analysis journeys, interruption recovery, counterfeit-authority
+refusal, cross-machine authority round trip, and reviewed performance-budget evidence. Each check
+must point to a distinct retained evidence digest, and the performance observation also binds the
+reviewed budget-profile digest. Historical schema-v1 evidence remains readable but cannot be merged
+or promoted as current release authority. See
+[`docs/SGOS-END-TO-END-RELEASE-PROOF.md`](docs/SGOS-END-TO-END-RELEASE-PROOF.md).
+
 Only check outcomes, lower-kebab mechanism names, and SHA-256 references to externally retained raw
 evidence enter the receipt. Raw logs, commands, paths, host names, URLs, and credentials are rejected
 as unknown fields. Single-host receipt schema v5 and aggregate schema v6 carry both the physical

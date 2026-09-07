@@ -297,6 +297,14 @@ VS Code gives workspace mutations a 30-minute host timeout while each Git subpro
 shorter operation deadline. A Start Work host timeout renders the exact CLI command so the same
 operation can be resumed in a terminal without restarting completed journal steps.
 
+At `main@bb162a7c`, a definitely new non-interactive Story that omits its required base refuses
+before approved-configuration resolution and remote inventory. The refusal provides a read-only
+base-preflight command and a separate `resume <WORK-ID> --fetch` route for an existing remote Story.
+Local durable Stories still resume without network access, while a cached remote-tracking Story is
+still fetched and resumed. The regression test enables the subprocess probe and requires zero
+`git ls-remote` and fetch calls on the missing-base path, so office latency cannot be paid before
+this deterministic input refusal.
+
 `npm run release`, `npm run release:dry`, and `npm run poc:release-gate` run the enforcing form
 automatically. This repository intentionally carries no hosted workflow; the local release gate is
 the authoritative enforcement path and always checks absolute budgets. The relative 20-percent

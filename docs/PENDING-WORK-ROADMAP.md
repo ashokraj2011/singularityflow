@@ -2,7 +2,7 @@
 
 **Status:** authoritative cross-product tracker; bounded exact-tree aggregate and the latest code-local asynchronous Git migration are complete, while platform release evidence remains active
 
-**Baseline:** `main@03825387`
+**Baseline:** `main@bb162a7c`
 
 **Last reviewed:** 2026-09-07
 
@@ -20,6 +20,14 @@ readiness reporting, and the developer-local signed runner subsequently landed t
 performance baseline, an authenticated independent authority, real
 VS Code hosts, signed platform receipts, office-network proof, or live Windows/macOS process and
 credential-helper evidence.
+
+The 2026-09-07 Story-start critical-path repair landed at `main@bb162a7c`. A definitely new,
+non-interactive Story with no selected base now refuses before configuration-authority resolution
+or remote Git discovery and returns both a base-inspection command and the explicit remote-Story
+resume path. Existing local Stories and Stories represented by a cached remote-tracking ref retain
+their resume behavior. The regression probe proves that this refusal performs neither `ls-remote`
+nor fetch. This is a DXP correctness and latency repair; it does not change WEL evidence authority
+or complete any external WEL acceptance gate.
 
 Direct Ad Hoc-to-Auto adoption landed at `main@724cb85e`. The model-free adoption command now
 creates an exact Plan; ratified start seals the confirmed source as an immutable Candidate; and the
@@ -329,7 +337,7 @@ matrix cell.
 | Track | Current boundary | Next eligible increment | Detailed authority |
 |---|---|---|---|
 | Release baseline | `REL-P0-001` is bounded and resumable; the current strict Node 20/macOS liveness replay is green (`658a7530de082ce517cf5042`, 4,708/4,708), as are the earlier Node 20/22 cells, all with no skips | Collect signed Node 20/22 macOS/Linux/Windows and npm/VSIX receipts; unsigned local cells are not the release matrix | This document and [Verification](../VERIFICATION.md) |
-| Developer-experience performance | Hot paths and the office-Git code-local slice are implemented; both 30-pair editor-profile cells pass on macOS, warm cache survives disposable host processes, and the reproduced event-loop tail is below its unchanged ceiling; pinned relative baseline and cross-platform host evidence are not established | Accept pinned Linux/Windows/office-network evidence, keep the isolated compatibility transport under audit, then close each `[~]` platform gate | This document and [DX performance](DX-PERFORMANCE.md) |
+| Developer-experience performance | Hot paths and the office-Git code-local slice are implemented; both 30-pair editor-profile cells pass on macOS, warm cache survives disposable host processes, the reproduced event-loop tail is below its unchanged ceiling, and `bb162a7c` refuses a missing Story base before remote/configuration discovery; pinned relative baseline and cross-platform host evidence are not established | Accept pinned Linux/Windows/office-network evidence, keep the isolated compatibility transport under audit, then close each `[~]` platform gate | This document and [DX performance](DX-PERFORMANCE.md) |
 | SGOS | Universal Candidate publication, portable authority transport, proposal-only Agent working-set injection, signed-Pack/Device meta-tool CLI/native review, non-authoritative portable learning progress, and content-free bounded read-model measurement are code-complete; signed cross-platform release proof, real Secret Broker integration, and consented external telemetry remain open | Finish the `SGOS-P0-001`/`003` signed platform matrices and the external-adapter portion of `SGOS-P0-002`; approve external telemetry authority separately | [SGOS pending work](SGOS-PENDING-WORK.md) |
 | World Model Builder v4 | Release receipt generation and enforcement exist; no reviewed six-cell supported-platform aggregate is recorded | `WMB-REL-001` | [WMB v4](WORLD-MODEL-BUILDER-V4.md) |
 | Witnessed Engineering Loop | Exact-static local JUnit and bounded literal Jest/Vitest observations, immutable proposal binding, existing-approval review, migration, release-gated baseline/delta/Context-X-Ray/Story-start/recovery benchmark, cancellable Java parser boundary, isolated npm/VSIX proof, strict signed benchmark-report binding, and a bounded platform-matrix command are active; portable Linux matrices and package gates are green, process-private parser reuse is present, and `main@03825387` closes the remaining reproduced exact-publication/aggregate-interruption liveness defects; authenticated testcase claims and enforcement remain unavailable | Execute and sign the physical-host/office-network P0 gates, independently review and corpus-test the JavaScript profiles, then satisfy Candidate/Program/attempt and authenticated-runner dependencies | [WEL pending work](WEL-PENDING-WORK.md) |

@@ -6,7 +6,7 @@
 
 **Created:** 2026-08-30
 
-**Current reconciliation:** checked through `main@ec1b5c88` on 2026-09-07. Commits `259b76f1`,
+**Current reconciliation:** checked through `main@8fbd3a97` on 2026-09-07. Commits `259b76f1`,
 `58d9329d`, and `d55229c7` provide the bounded exact-static JUnit identity adapter, immutable
 proposal snapshot, human review through the existing phase approval, migration, safe command-shape
 fallbacks, the evolving content-free benchmark, and same-process unenrolled delta measurement. Commit
@@ -35,6 +35,15 @@ removes an exact-authority publication deadlock by hashing bounded state bytes t
 temporary file instead of a child-process stdin pipe, and makes an interrupted aggregate terminate
 its detached descendant process group before returning an exact retry command. These liveness
 repairs change neither evidence identity nor authority.
+
+Commit `8fbd3a97` adds the first privacy-safe real-repository measurement boundary for the shipped
+Jest/Vitest profiles. It accepts only an explicitly reviewed, bounded manifest; replays retained
+reporter bytes without executing tests; refuses repository drift; and emits aggregate outcomes,
+latency, CPU, catalog bytes, and closed reason counts without paths, source, test names, clauses,
+content digests, identities, prompts, or transcripts. The npm package, portable matrix, and release
+gate contain and exercise the runner. This supplies collection machinery only: it is not an
+independently reviewed corpus result, a JUnit corpus measurement, authenticated evidence, or a
+release authority.
 
 The shared package boundary was re-exercised at `main@da6338ab`: both the isolated npm package and
 the exact VSIX-contained engine still import the WEL adapter and packaged Java helper while running
@@ -286,6 +295,12 @@ Implemented in the current increment:
   retains that independently signed report in every platform/Node matrix cell. A missing, unavailable,
   incomplete, host-mismatched, content-bearing, false-exact, or digest-mismatched report refuses the
   receipt rather than relying on an optional developer run or a pass-only stage label.
+- `npm run benchmark:wel:corpus -- --manifest <JSON> --samples <1..20>` measures the production
+  Jest/Vitest static observer on 1–16 explicitly selected local Git repositories and up to 64
+  reviewed cases. It consumes existing reporter output, performs no test/model/AST/network/lifecycle
+  action, verifies the complete repository state did not drift, and emits only content-free
+  aggregates. A classification mismatch exits nonzero, while the observation remains
+  non-authoritative and ineligible for release by itself.
 
 Implementation checkpoints: `d55229c7` (content-free benchmark v2), `6fbcf3bf` (isolated npm and
 VSIX engine proof), `d960e928` (portable deterministic corpus command), `396ccb73` (mandatory
@@ -294,7 +309,18 @@ release-gate benchmark), `e3330e80` (same-process incremental observation cost),
 model-free governed Story-start transaction latency and workflow-byte measurement), and `116d6f43`
 (content-free post-preflight push-failure and exact-sync recovery measurement), and `9ea94aac`
 (offline/fresh-clone/interrupted-write recovery plus cancellable parser boundary), and `921bc790`
-(strict private benchmark retention and signed single-host/matrix evidence binding).
+(strict private benchmark retention and signed single-host/matrix evidence binding), and `8fbd3a97`
+(privacy-safe reviewed-manifest Jest/Vitest corpus measurement boundary).
+
+Real-corpus runner checkpoint on `main@8fbd3a97`:
+
+- the runner's exact, safely inexact, malformed-report refusal, expectation-mismatch, duplicate,
+  missing, and bounded-input tests passed 3/3;
+- the expanded portable CMP/WEL matrix passed 68/68 with zero failures, skips, cancellations, or
+  todo, and repository conformance passed 1,371 checks;
+- isolated npm installation loaded the packaged runner without source-tree access;
+- these disposable-fixture runs verify the collection boundary, not the independent review or
+  real private-repository result required for completion.
 
 Local verification checkpoint on `main@e8edf155`:
 
@@ -387,12 +413,13 @@ Linux packaged-release checkpoint through `main@e2e90e59`:
   exercise, not the physical-host, office-network, Windows, independent-review, or signed-matrix
   gates.
 
-Still required before completion: reviewed real-repository corpus metrics, office-network remote
-Story publication latency measurements, an approved Flow Impact design, live office/offline and
-cross-platform cancellation/process-tree exercises, execution of the isolated artifact proof on a
-physical Windows host, and one signed release receipt binding npm, VSIX, schemas, source, and the
-full supported-platform matrix. The container evidence is code evidence for those paths, not a
-substitute for the external host receipts.
+Still required before completion: independently reviewed real-repository corpus results (including
+the JUnit/Surefire P0 corpus), office-network remote Story publication latency measurements, an
+approved Flow Impact design, live office/offline and cross-platform cancellation/process-tree
+exercises, execution of the isolated artifact proof on a physical Windows host, and one signed
+release receipt binding npm, VSIX, schemas, source, and the full supported-platform matrix. The
+local runner and container evidence are code evidence for those paths, not substitutes for the
+external review and host receipts.
 
 Measure whether WEL improves traceability without creating unacceptable latency, noise, or false
 confidence.
@@ -539,7 +566,7 @@ Owner: repository maintainers. Branch: `main`. Started: 2026-09-06. Target: next
 release. Dependencies: the existing local-observation authority and approval review are reused;
 independent identity-contract review and supported-platform evidence remain open.
 
-Implemented in `b138ce06` and `676c591e`:
+Implemented in `b138ce06`, `676c591e`, and `8fbd3a97`:
 
 - closed `jest-static-v1` and `vitest-static-v1` profiles use the matching structured JSON result
   adapter and one shared registry rather than adding framework branches throughout the lifecycle;
@@ -558,6 +585,10 @@ Implemented in `b138ce06` and `676c591e`:
   qualified clauses, dynamic and non-literal titles, focus, suites, conditional declarations,
   source/report collisions, report/source mismatch, comment ambiguity, and unqualified tags. Its
   executable assertion requires zero false exact matches while preserving safe degradation.
+- an operator-reviewed manifest runner now measures the same production profiles against retained
+  reports in explicitly selected real repositories, produces only content-free aggregate metrics,
+  detects expected/observed classification mismatches, and refuses concurrent repository drift.
+  It does not itself establish that a corpus or expectation received independent review.
 
 Verification at landing:
 
@@ -568,10 +599,10 @@ Verification at landing:
 - isolated npm installation and VSIX-contained engine smokes loaded the new packaged modules.
 
 Still required before this item can be complete: independent review of
-[ADR 0015](adr/0015-wel-javascript-local-identity.md), a reviewed real-repository Jest/Vitest
-corpus with zero false exact matches, Windows/Linux/macOS receipts on supported Node runtimes,
-signed package-matrix evidence, and a separately approved contract for every additional framework
-or test shape.
+[ADR 0015](adr/0015-wel-javascript-local-identity.md), execution and independent review of a
+real-repository Jest/Vitest corpus with zero false exact matches, Windows/Linux/macOS receipts on
+supported Node runtimes, signed package-matrix evidence, and a separately approved contract for
+every additional framework or test shape.
 
 Add one framework at a time, each with its own exact identity, parser, reconciliation, trust,
 freshness, migration, recovery, performance, and platform contract.

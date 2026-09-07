@@ -160,6 +160,13 @@ JUnit/Surefire plus the bounded `jest-static-v1` and `vitest-static-v1` adapters
 adapters replay their exact content-addressed JSON reporter bytes and source declaration ranges, but
 remain observe-only and inconclusive until the WEL authority prerequisites are independently proven.
 
+An operator can measure those JavaScript profiles against an explicitly reviewed private corpus with
+`npm run benchmark:wel:corpus -- --manifest <JSON> --samples <1..20>`. The runner emits only
+aggregate timing, byte, outcome, mismatch, and closed-reason counts; it performs no test, model, AST,
+network, cache, lifecycle, or authority action. See
+[`docs/WEL-REAL-CORPUS-MEASUREMENT.md`](docs/WEL-REAL-CORPUS-MEASUREMENT.md). A local report is not
+release authority and does not replace independent corpus review or signed platform evidence.
+
 The journey uses deterministic light grounding for its Copilot handoff so this gate never invokes a
 model or spends tokens. `test/poc-workflow.test.mjs` separately holds the shipped POC workflow's
 standard/deep grounding, MCP evidence, validation, repair-budget, and publication-review contracts.

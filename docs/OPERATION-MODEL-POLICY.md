@@ -117,6 +117,7 @@ Every public operation is classified before its implementation module is importe
 | comprehension.check | read | never | — | — |
 | comprehension.explain | read | never | — | — |
 | comprehension.graph | read | never | — | — |
+| comprehension.record-preview | read | never | — | — |
 | comprehension.regions | read | never | — | — |
 | comprehension.replay | read | never | — | — |
 | comprehension.source | read | never | — | — |

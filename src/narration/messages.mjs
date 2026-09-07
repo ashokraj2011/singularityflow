@@ -272,6 +272,14 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Walkthrough revalidation is ${slot(s.status)} across ${slot(s.claims, '0')} current claim(s): ${slot(s.revalidated, '0')} revalidated and ${slot(s.invalidated, '0')} invalidated.`,
     preserves: true
   },
+  'comprehension.record-preview-created': {
+    headline: (s) => `Experimental comprehension record preview is ${slot(s.verdict)} across ${slot(s.regions, '0')} region(s), with ${slot(s.unresolved, '0')} unresolved.`,
+    preserves: true
+  },
+  'comprehension.record-preview-migrated': {
+    headline: (s) => `Experimental comprehension preview migrated from schema ${slot(s.storedSchemaVersion)} to ${slot(s.currentSchemaVersion)} in ${slot(s.steps, '0')} step(s).`,
+    preserves: true
+  },
   'change.shadow-reported': {
     headline: (s) => `Shadow Change Passport for ${slot(s.workId)} is ${slot(s.status)} with ${slot(s.gaps, '0')} explicit gap(s).`,
     preserves: true

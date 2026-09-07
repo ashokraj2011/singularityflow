@@ -174,6 +174,22 @@ function comprehensionText(result) {
       style.detail(preservationLine(result))
     ].filter(Boolean).join('\n');
   }
+  if (result.operation.id === 'comprehension.record-preview' && result.data?.preview) {
+    const preview = result.data.preview;
+    const migration = result.data.migration ?? null;
+    return [
+      style.heading(headline(result)),
+      `Repository: ${context.repository ?? 'unavailable'}`,
+      `Preview: ${preview.previewSha256}`,
+      `Schema: ${preview.schemaVersion}${migration
+        ? ` (stored ${migration.storedSchemaVersion}; ${migration.applied.length} migration step(s))`
+        : ''}`,
+      `Assessment: ${preview.summary.verdict}; unresolved: ${preview.summary.counts.unresolved}/${preview.summary.counts.materialRegions}`,
+      'Authority: unverified observation · lifecycle gate: no · publication effect: none',
+      '', style.detail('Experimental preview only: no record, approval, cache, or repository state was written.'),
+      style.detail(preservationLine(result))
+    ].filter(Boolean).join('\n');
+  }
   if (result.operation.id === 'comprehension.regions' && manifest) {
     const rows = manifest.regions.map((region) => ({
       region: region.regionId,

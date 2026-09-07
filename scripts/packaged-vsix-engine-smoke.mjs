@@ -316,6 +316,7 @@ export async function runVsixContainedEngineSmoke({ root = sourceRoot, tempRoot 
     }
     for (const relative of [
       'src/comprehension/contracts.mjs',
+      'src/comprehension/record-preview.mjs',
       'src/commands/comprehension.mjs',
       'src/wel-adapters.mjs',
       'src/wel-javascript.mjs',
@@ -391,12 +392,16 @@ export async function runVsixContainedEngineSmoke({ root = sourceRoot, tempRoot 
     const contractsUrl = pathToFileURL(path.join(
       canonicalEngineRoot, 'src', 'comprehension', 'contracts.mjs'
     )).href;
+    const recordPreviewUrl = pathToFileURL(path.join(
+      canonicalEngineRoot, 'src', 'comprehension', 'record-preview.mjs'
+    )).href;
     const welUrl = pathToFileURL(path.join(canonicalEngineRoot, 'src', 'wel-junit5.mjs')).href;
     const welAdaptersUrl = pathToFileURL(path.join(canonicalEngineRoot, 'src', 'wel-adapters.mjs')).href;
     const welJavascriptUrl = pathToFileURL(path.join(canonicalEngineRoot, 'src', 'wel-javascript.mjs')).href;
     const moduleProbeText = runIsolatedNode([
       ...loaderFlags, '--input-type=module', '--eval', [
         `const cmp = await import(${JSON.stringify(contractsUrl)});`,
+        `const preview = await import(${JSON.stringify(recordPreviewUrl)});`,
         `const wel = await import(${JSON.stringify(welUrl)});`,
         `const adapters = await import(${JSON.stringify(welAdaptersUrl)});`,
         `const javascript = await import(${JSON.stringify(welJavascriptUrl)});`,
@@ -406,6 +411,7 @@ export async function runVsixContainedEngineSmoke({ root = sourceRoot, tempRoot 
         "  availability: cmp.CMP_AVAILABILITY_STATUSES.includes('degraded'),",
         "  refusal: cmp.CMP_REFUSAL_CODES.includes('CMP_STORY_CONTEXT_REQUIRED'),",
         "  diagnostic: cmp.CMP_DIAGNOSTIC_CODES.includes('CMP_BINDING_INVALID'),",
+        '  previewSchema: preview.COMPREHENSION_RECORD_PREVIEW_SCHEMA_VERSION === 2,',
         "  wel: scope.status === 'complete' && scope.gaps.length === 0,",
         "  welRegistry: adapters.welResultAdapter('vitest-static-v1') === 'vitest-json',",
         "  welJavascript: javascript.classifyJavascriptTestCommandScope({ argv: ['npm', 'test'] }).status === 'complete'",
@@ -430,16 +436,19 @@ export async function runVsixContainedEngineSmoke({ root = sourceRoot, tempRoot 
     await writeFile(path.join(consumer, 'new.txt'), 'new\n');
     const before = runGit(['status', '--porcelain=v1'], { cwd: consumer, environment });
     const projectionText = runIsolatedNode([
-      ...loaderFlags, cli, '--no-model', 'comprehension', 'regions', '--base', 'HEAD', '--json'
+      ...loaderFlags, cli, '--no-model', 'comprehension', 'record-preview', '--experimental',
+      '--base', 'HEAD', '--json'
     ], { cwd: consumer, environment });
     let projection;
     try { projection = JSON.parse(projectionText); }
     catch { refuse('the VSIX-contained CMP command did not return structured output.'); }
-    requireCondition(projection?.operation?.id === 'comprehension.regions'
+    requireCondition(projection?.operation?.id === 'comprehension.record-preview'
       && projection?.data?.mode === 'observe-only'
-      && projection?.data?.manifest?.structuralAssurance === 'unavailable'
-      && projection?.data?.manifest?.counts?.regions === 2,
-    'the VSIX-contained CMP command did not return the bounded observe-only projection.');
+      && projection?.data?.preview?.schemaVersion === 2
+      && projection?.data?.preview?.authoritative === false
+      && projection?.data?.preview?.lifecycleGate === false
+      && projection?.data?.preview?.summary?.counts?.regions === 2,
+    'the VSIX-contained CMP command did not return the bounded experimental record preview.');
     requireCondition(runGit(['status', '--porcelain=v1'], {
       cwd: consumer, environment
     }) === before, 'the VSIX-contained CMP read changed the isolated repository.');
@@ -449,7 +458,7 @@ export async function runVsixContainedEngineSmoke({ root = sourceRoot, tempRoot 
       vsixSha256: extracted.vsixSha256,
       engineSha256: extracted.engineSha256,
       fileCount: extracted.fileCount,
-      cmpObserveOnly: true,
+      cmpRecordPreview: true,
       welParserPackaged: true,
       hostActivation: false
     });

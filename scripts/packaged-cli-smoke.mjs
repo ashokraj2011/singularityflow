@@ -82,6 +82,7 @@ export async function runPackagedCliSmoke({ root = sourceRoot, tempRoot = os.tmp
     await regularFile(installedCli, 'CLI entry point');
     const requiredSurfaces = [
       'src/comprehension/contracts.mjs',
+      'src/comprehension/record-preview.mjs',
       'src/commands/comprehension.mjs',
       'src/wel-adapters.mjs',
       'src/wel-javascript.mjs',
@@ -132,12 +133,16 @@ export async function runPackagedCliSmoke({ root = sourceRoot, tempRoot = os.tmp
     // transitive module and proves the WEL helper selection remains model-free without requiring a
     // JDK on the release host.
     const contractsUrl = pathToFileURL(path.join(installedRoot, 'src', 'comprehension', 'contracts.mjs')).href;
+    const recordPreviewUrl = pathToFileURL(path.join(
+      installedRoot, 'src', 'comprehension', 'record-preview.mjs'
+    )).href;
     const welUrl = pathToFileURL(path.join(installedRoot, 'src', 'wel-junit5.mjs')).href;
     const welAdaptersUrl = pathToFileURL(path.join(installedRoot, 'src', 'wel-adapters.mjs')).href;
     const welJavascriptUrl = pathToFileURL(path.join(installedRoot, 'src', 'wel-javascript.mjs')).href;
     const moduleProbe = JSON.parse(run(process.execPath, [
       '--input-type=module', '--eval', [
         `const cmp = await import(${JSON.stringify(contractsUrl)});`,
+        `const preview = await import(${JSON.stringify(recordPreviewUrl)});`,
         `const wel = await import(${JSON.stringify(welUrl)});`,
         `const adapters = await import(${JSON.stringify(welAdaptersUrl)});`,
         `const javascript = await import(${JSON.stringify(welJavascriptUrl)});`,
@@ -147,6 +152,7 @@ export async function runPackagedCliSmoke({ root = sourceRoot, tempRoot = os.tmp
         "  availability: cmp.CMP_AVAILABILITY_STATUSES.includes('degraded'),",
         "  refusal: cmp.CMP_REFUSAL_CODES.includes('CMP_STORY_CONTEXT_REQUIRED'),",
         "  diagnostic: cmp.CMP_DIAGNOSTIC_CODES.includes('CMP_BINDING_INVALID'),",
+        '  previewSchema: preview.COMPREHENSION_RECORD_PREVIEW_SCHEMA_VERSION === 2,',
         "  wel: scope.status === 'complete' && scope.gaps.length === 0,",
         "  welRegistry: adapters.welResultAdapter('jest-static-v1') === 'jest-json',",
         "  welJavascript: javascript.classifyJavascriptTestCommandScope({ argv: ['npm', 'test'] }).status === 'complete'",
@@ -175,13 +181,15 @@ export async function runPackagedCliSmoke({ root = sourceRoot, tempRoot = os.tmp
       cwd: repository, env: isolatedEnvironment
     });
     const projection = JSON.parse(run(installedCommand, [
-      '--no-model', 'comprehension', 'regions', '--base', 'HEAD', '--json'
+      '--no-model', 'comprehension', 'record-preview', '--experimental', '--base', 'HEAD', '--json'
     ], { cwd: repository, env: isolatedEnvironment }));
-    requireCondition(projection?.operation?.id === 'comprehension.regions'
+    requireCondition(projection?.operation?.id === 'comprehension.record-preview'
       && projection?.data?.mode === 'observe-only'
-      && projection?.data?.manifest?.structuralAssurance === 'unavailable'
-      && projection?.data?.manifest?.counts?.regions === 2,
-    'the installed CMP command did not return the bounded observe-only projection.');
+      && projection?.data?.preview?.schemaVersion === 2
+      && projection?.data?.preview?.authoritative === false
+      && projection?.data?.preview?.lifecycleGate === false
+      && projection?.data?.preview?.summary?.counts?.regions === 2,
+    'the installed CMP command did not return the bounded experimental record preview.');
     requireCondition(run('git', ['status', '--porcelain=v1'], {
       cwd: repository, env: isolatedEnvironment
     }) === before, 'the installed CMP read changed the isolated repository.');
@@ -189,7 +197,7 @@ export async function runPackagedCliSmoke({ root = sourceRoot, tempRoot = os.tmp
     return {
       package: `${installedManifest.name}@${installedManifest.version}`,
       version,
-      cmpObserveOnly: true,
+      cmpRecordPreview: true,
       welParserPackaged: true
     };
   } finally {

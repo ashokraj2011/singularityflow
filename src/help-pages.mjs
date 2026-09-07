@@ -213,7 +213,14 @@ const PAGES = Object.freeze({
       '',
       '`comprehension backfill validate` checks one bounded, repository-local historical proposal.',
       'It keeps historically-confirmed, historically-inferred, and unknown labels distinct, but',
-      'all remain untrusted and non-authoritative until the existing governed review accepts them.'
+      'all remain untrusted and non-authoritative until the existing governed review accepts them.',
+      '',
+      '`comprehension record-preview --experimental` emits the proposed record-mode summary without',
+      'writing it. It contains exact subject digests, aggregate counts, and closed reason classes,',
+      'but no source, path, Story, identity, prompt, or prose. Its authority is always unverified,',
+      'its lifecycle effect is always none, and it never invokes AST or a model. The migrate form',
+      'validates a v1/v2 preview and demonstrates assurance-preserving in-memory migration; it has',
+      'no durable path or writer and never rewrites the supplied file.'
     ],
     options: [
       ['--work-id WORK-ID', 'Select and validate a Story context; its baseline follows the documented generation/work-interval/delivery/Story precedence.'],
@@ -231,6 +238,8 @@ const PAGES = Object.freeze({
       ['walkthrough revalidate DRAFT PREVIOUS', 'Re-run current validators and show precise changed dependencies, invalidated claims, and presentation-only drift.'],
       ['brownfield', 'Classify only current touched regions under the incremental brownfield policy; unchanged legacy code is not scanned.'],
       ['backfill validate FILE', 'Validate a bounded historical proposal without publishing or granting authority.'],
+      ['record-preview --experimental', 'Preview experimental non-blocking record mode without persisting a record or changing Story policy.'],
+      ['record-preview migrate FILE --experimental', 'Validate and migrate preview transport bytes in memory without increasing assurance or rewriting the file.'],
       ['--json', 'Emit the complete manifest or computed coverage result.']
     ],
     examples: [
@@ -244,7 +253,9 @@ const PAGES = Object.freeze({
       ['singularity-flow comprehension walkthrough validate .sflow/comprehension/walkthrough.json --base HEAD --json', 'Validate an ignored repository-local draft; a draft inside its own Candidate is refused as circular.'],
       ['singularity-flow comprehension walkthrough revalidate .sflow/comprehension/walkthrough.json .sflow/comprehension/previous-validation.json --base HEAD --json', 'Compare a previous validation with current exact inputs without preserving prior authority.'],
       ['singularity-flow comprehension brownfield --base HEAD --json', 'Show which exact changed regions require current cause and which are only mechanical-move candidates.'],
-      ['singularity-flow comprehension backfill validate review/backfill.json --base HEAD --json', 'Validate a partial historical module proposal without requiring repository-wide backfill.']
+      ['singularity-flow comprehension backfill validate review/backfill.json --base HEAD --json', 'Validate a partial historical module proposal without requiring repository-wide backfill.'],
+      ['singularity-flow comprehension record-preview --experimental --base HEAD --json', 'Inspect the bounded experimental record summary without writing or authorizing it.'],
+      ['singularity-flow comprehension record-preview migrate review/legacy-preview.json --experimental --json', 'Exercise the in-memory migration prototype without changing the source file.']
     ],
     seeAlso: ['spec', 'receipt', 'review', 'explain']
   },

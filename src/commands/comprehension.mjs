@@ -32,6 +32,9 @@ import {
   comprehensionSourceReferences, readComprehensionSourceExpansion
 } from '../comprehension/source-expansion.mjs';
 import {
+  buildComprehensionRecordPreview, readComprehensionRecordPreview
+} from '../comprehension/record-preview.mjs';
+import {
   commandResult, noEffects, succeeded
 } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
@@ -174,6 +177,67 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
   const root = repoRoot();
   const subcommand = positionals[1] ?? 'check';
   const json = optionBoolean(options, 'json');
+  if (subcommand === 'record-preview') {
+    if (!optionBoolean(options, 'experimental')) {
+      throw new SingularityFlowError(
+        'Comprehension record mode is an experimental, non-authoritative preview. '
+          + 'Review the boundary, then rerun with --experimental. Nothing will be persisted.',
+        {
+          code: 'CMP_EXPERIMENTAL_FLAG_REQUIRED',
+          details: { nextAction: 'singularity-flow comprehension record-preview --experimental --json' }
+        }
+      );
+    }
+    const action = positionals[2] ?? 'create';
+    if (action === 'migrate') {
+      const ignored = ['base', 'work-id', 'phase', 'bindings', 'dispositions']
+        .find((name) => options[name] !== undefined);
+      if (ignored) {
+        throw new SingularityFlowError(
+          `Comprehension record-preview migration does not accept --${ignored}; it validates only the supplied preview bytes.`,
+          { code: 'CMP_RECORD_PREVIEW_INVALID' }
+        );
+      }
+      if (positionals.length !== 4) {
+        throw new SingularityFlowError(
+          'Usage: singularity-flow comprehension record-preview migrate <PREVIEW-FILE> --experimental [--json]',
+          { code: 'CMP_RECORD_PREVIEW_INVALID' }
+        );
+      }
+      const source = await repositoryJson(
+        root, positionals[3], 'Experimental comprehension record preview'
+      );
+      const migration = readComprehensionRecordPreview(source);
+      return emitCommandResult(commandResult({
+        operation: suppliedOperation
+          ?? { id: 'comprehension.record-preview', classification: 'read' },
+        outcome: succeeded('comprehension.record-preview-migrated', {
+          storedSchemaVersion: migration.storedSchemaVersion,
+          currentSchemaVersion: migration.record.schemaVersion,
+          steps: migration.applied.length
+        }),
+        effects: noEffects(),
+        restState: 'informational',
+        data: {
+          mode: 'observe-only', context: { repository: root },
+          preview: migration.record,
+          migration: {
+            storedSchemaVersion: migration.storedSchemaVersion,
+            currentSchemaVersion: migration.record.schemaVersion,
+            applied: migration.applied
+          }
+        }
+      }), { json, restStateWhenIdle: 'informational' });
+    }
+    if (action !== 'create' || positionals.length !== 2) {
+      throw new SingularityFlowError(
+        'Usage: singularity-flow comprehension record-preview --experimental [--work-id WORK-ID] '
+          + '[--phase PHASE] [--base REVISION] [--bindings FILE] [--dispositions FILE] [--json]\n'
+          + '   or: singularity-flow comprehension record-preview migrate <PREVIEW-FILE> --experimental [--json]',
+        { code: 'CMP_RECORD_PREVIEW_INVALID' }
+      );
+    }
+  }
   if (subcommand === 'replay') {
     const ignored = ['phase', 'base', 'bindings', 'dispositions']
       .find((name) => options[name] !== undefined);
@@ -384,6 +448,23 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
       effects: noEffects(),
       restState: 'informational',
       data: { mode: 'observe-only', context, manifest, sourceReferences }
+    }), { json, restStateWhenIdle: 'informational' });
+  }
+  if (subcommand === 'record-preview') {
+    const evidence = await evidenceInputs(root, options);
+    const coverage = evaluateComprehensionCoverage({ changeSet, manifest, ...evidence });
+    const preview = buildComprehensionRecordPreview({ manifest, coverage });
+    return emitCommandResult(commandResult({
+      operation: suppliedOperation
+        ?? { id: 'comprehension.record-preview', classification: 'read' },
+      outcome: succeeded('comprehension.record-preview-created', {
+        verdict: preview.summary.verdict,
+        regions: preview.summary.counts.regions,
+        unresolved: preview.summary.counts.unresolved
+      }),
+      effects: noEffects(),
+      restState: 'informational',
+      data: { mode: 'observe-only', context, preview }
     }), { json, restStateWhenIdle: 'informational' });
   }
   if (subcommand === 'brownfield') {

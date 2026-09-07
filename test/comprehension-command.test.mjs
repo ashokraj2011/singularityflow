@@ -170,6 +170,120 @@ test('comprehension check reports incomplete coverage without turning observatio
   assert.equal(await readFile(path.join(root, 'service.txt'), 'utf8'), 'after\n');
 });
 
+test('experimental record preview is source-free, read-only, and never a lifecycle authority', async (t) => {
+  const root = await repository(t);
+  const before = git(root, ['status', '--porcelain=v1']);
+  const privateState = path.join(root, '.git', 'singularity-flow');
+  const privateStateExisted = await lstat(privateState).then(
+    () => true,
+    (error) => error?.code === 'ENOENT' ? false : Promise.reject(error)
+  );
+
+  const refused = command(root, [
+    '--no-model', 'comprehension', 'record-preview', '--base', 'HEAD', '--json'
+  ]);
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /--experimental/);
+
+  const result = command(root, [
+    '--no-model', 'comprehension', 'record-preview', '--experimental', '--base', 'HEAD', '--json'
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  const response = JSON.parse(result.stdout);
+  const preview = response.data.preview;
+  assert.equal(response.operation.id, 'comprehension.record-preview');
+  assert.equal(response.operation.classification, 'read');
+  assert.equal(response.data.mode, 'observe-only');
+  assert.equal(preview.schemaVersion, 2);
+  assert.equal(preview.mode, 'record');
+  assert.equal(preview.status, 'experimental');
+  assert.equal(preview.authoritative, false);
+  assert.equal(preview.lifecycleGate, false);
+  assert.equal(preview.assurance, 'unverified-observation');
+  assert.equal(preview.summary.verdict, 'incomplete');
+  assert.equal(preview.summary.counts.regions, 2);
+  assert.equal(preview.summary.counts.unresolved, 2);
+  assert.equal(preview.availability.structure, 'unavailable');
+  assert.equal(preview.availability.evidenceAuthority, 'unavailable');
+  assert.match(preview.previewSha256, /^sha256:[a-f0-9]{64}$/);
+  assert.doesNotMatch(JSON.stringify(preview), /service\.txt|new\.txt|CMP-STORY|sflow-comprehension-command/);
+  assert.deepEqual(response.effects, {
+    stateChanged: false, filesChanged: false, publicationCreated: false,
+    externalSystemsChanged: false
+  });
+  assert.equal(git(root, ['status', '--porcelain=v1']), before);
+  assert.equal(await lstat(privateState).then(
+    () => true,
+    (error) => error?.code === 'ENOENT' ? false : Promise.reject(error)
+  ), privateStateExisted);
+});
+
+test('experimental record preview migration preserves diagnostic meaning and cannot add assurance', async (t) => {
+  const root = await repository(t);
+  const currentResult = command(root, [
+    '--no-model', 'comprehension', 'record-preview', '--experimental', '--base', 'HEAD', '--json'
+  ]);
+  assert.equal(currentResult.status, 0, currentResult.stderr);
+  const current = JSON.parse(currentResult.stdout).data.preview;
+  const legacyCore = {
+    schemaVersion: 1,
+    kind: 'comprehension-record-preview',
+    mode: 'record',
+    status: 'experimental',
+    candidateSha256: current.subject.candidateSha256,
+    manifestSha256: current.subject.manifestSha256,
+    resultSha256: current.subject.resultSha256,
+    verdict: current.summary.verdict,
+    counts: current.summary.counts,
+    reasonCounts: current.summary.reasonCounts,
+    authoritative: false,
+    lifecycleGate: false,
+    assurance: 'unverified-observation'
+  };
+  const legacy = { ...legacyCore, previewSha256: sha256Record(legacyCore) };
+  await mkdir(path.join(root, 'review'), { recursive: true });
+  const previewFile = path.join(root, 'review', 'legacy-preview.json');
+  const legacyBytes = JSON.stringify(legacy);
+  await writeFile(previewFile, legacyBytes);
+
+  const migratedResult = command(root, [
+    '--no-model', 'comprehension', 'record-preview', 'migrate',
+    'review/legacy-preview.json', '--experimental', '--json'
+  ]);
+  assert.equal(migratedResult.status, 0, migratedResult.stderr);
+  const migrated = JSON.parse(migratedResult.stdout);
+  assert.deepEqual(migrated.data.migration, {
+    storedSchemaVersion: 1, currentSchemaVersion: 2, applied: ['1->2']
+  });
+  assert.deepEqual(migrated.data.preview.subject, current.subject);
+  assert.deepEqual(migrated.data.preview.summary, current.summary);
+  assert.equal(migrated.data.preview.authoritative, false);
+  assert.equal(migrated.data.preview.lifecycleGate, false);
+  assert.equal(migrated.data.preview.assurance, 'unverified-observation');
+  assert.equal(await readFile(previewFile, 'utf8'), legacyBytes,
+    'migration must never rewrite the supplied preview bytes');
+
+  legacy.verdict = 'complete';
+  await writeFile(previewFile, JSON.stringify(legacy));
+  const tampered = command(root, [
+    '--no-model', 'comprehension', 'record-preview', 'migrate',
+    'review/legacy-preview.json', '--experimental', '--json'
+  ]);
+  assert.notEqual(tampered.status, 0);
+  assert.match(tampered.stderr, /integrity check/);
+
+  const futureCore = { ...legacyCore, schemaVersion: 3 };
+  await writeFile(previewFile, JSON.stringify({
+    ...futureCore, previewSha256: sha256Record(futureCore)
+  }));
+  const future = command(root, [
+    '--no-model', 'comprehension', 'record-preview', 'migrate',
+    'review/legacy-preview.json', '--experimental', '--json'
+  ]);
+  assert.notEqual(future.status, 0);
+  assert.match(future.stderr, /newer sflow|above this build's readable range/);
+});
+
 test('comprehension brownfield limits adoption to touched areas and validates partial history without authority', async (t) => {
   const root = await repository(t);
   const before = git(root, ['status', '--porcelain=v1']);

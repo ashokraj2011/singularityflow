@@ -66,6 +66,55 @@ function learningProgressV1ToV2(source) {
   return migrated;
 }
 
+function comprehensionRecordPreviewV1ToV2(source) {
+  const expected = [
+    'schemaVersion', 'kind', 'mode', 'status', 'candidateSha256', 'manifestSha256',
+    'resultSha256', 'verdict', 'counts', 'reasonCounts', 'authoritative', 'lifecycleGate',
+    'assurance', 'previewSha256'
+  ].sort();
+  const actual = Object.keys(source).sort();
+  const sourceCore = clone(source);
+  delete sourceCore.previewSha256;
+  if (actual.length !== expected.length
+      || actual.some((key, index) => key !== expected[index])
+      || source.kind !== 'comprehension-record-preview'
+      || source.mode !== 'record'
+      || source.status !== 'experimental'
+      || source.authoritative !== false
+      || source.lifecycleGate !== false
+      || source.assurance !== 'unverified-observation'
+      || source.previewSha256 !== `sha256:${recordSha256(sourceCore)}`) {
+    throw new SingularityFlowError(
+      'Comprehension record preview v1 failed its integrity check or authority boundary and cannot be migrated.',
+      {
+        code: 'SCHEMA_MIGRATION_SOURCE_CORRUPT',
+        details: { family: 'comprehension-record-preview', storedVersion: 1 }
+      }
+    );
+  }
+  const migratedCore = {
+    schemaVersion: 2,
+    kind: 'comprehension-record-preview',
+    mode: 'record',
+    status: 'experimental',
+    subject: {
+      candidateSha256: source.candidateSha256,
+      manifestSha256: source.manifestSha256,
+      resultSha256: source.resultSha256
+    },
+    summary: {
+      verdict: source.verdict,
+      counts: clone(source.counts),
+      reasonCounts: clone(source.reasonCounts)
+    },
+    availability: { structure: 'unavailable', evidenceAuthority: 'unavailable' },
+    authoritative: false,
+    lifecycleGate: false,
+    assurance: 'unverified-observation'
+  };
+  return { ...migratedCore, previewSha256: `sha256:${recordSha256(migratedCore)}` };
+}
+
 function assistedConvergenceV1ToV2(source) {
   // v1 did not seal the model provenance fields. Preserve it for audit, but mark the missing seal
   // explicitly so an authority decision cannot consume it; rerunning deterministic convergence
@@ -2273,6 +2322,12 @@ const families = [
   family({
     id: 'repository-change-set', currentVersion: 1,
     paths: [/^singularity\/work-items\/[^/]+\/context\/code-delivery\/[^/]+-gen\d+-changes\.json$/], immutable: true
+  }),
+  // Experimental CMP record-mode transport. It has no durable path and no writer; registration
+  // exists only to exercise the central migration boundary before storage authority is approved.
+  family({
+    id: 'comprehension-record-preview', currentVersion: 2,
+    steps: [migration(1, 2, comprehensionRecordPreviewV1ToV2)]
   }),
   family({
     id: 'test-execution', currentVersion: 3,

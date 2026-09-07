@@ -3195,6 +3195,9 @@ singularity-flow sync
 singularity-flow spec index [FILE] [--out FILE] [--dry-run]|claims|coverage|acceptance|trace ...
 singularity-flow comprehension regions [--work-id WORK-ID] [--phase PHASE] [--base REVISION] [--json]
 singularity-flow comprehension check [--work-id WORK-ID] [--phase PHASE] [--base REVISION] [--json]
+singularity-flow comprehension record-preview --experimental [--work-id WORK-ID] [--phase PHASE]
+  [--base REVISION] [--bindings FILE] [--dispositions FILE] [--json]
+singularity-flow comprehension record-preview migrate <PREVIEW-FILE> --experimental [--json]
   check also accepts bounded, untrusted --bindings and --dispositions repository JSON files;
   this pilot is read-only and cannot authorize publication
 singularity-flow comprehension graph [--work-id WORK-ID] [--phase PHASE] [--base REVISION]

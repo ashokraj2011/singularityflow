@@ -103,6 +103,65 @@
   "generation-publication": [{ "schemaVersion": 1 }],
   "generation-start": [{ "schemaVersion": 1 }],
   "repository-change-set": [{ "schemaVersion": 1 }],
+  "comprehension-record-preview": [
+    {
+      "schemaVersion": 1,
+      "kind": "comprehension-record-preview",
+      "mode": "record",
+      "status": "experimental",
+      "candidateSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "manifestSha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "resultSha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "verdict": "incomplete",
+      "counts": {
+        "regions": 1,
+        "materialRegions": 1,
+        "nonmaterialRegions": 0,
+        "explained": 0,
+        "approvedDeviations": 0,
+        "deterministicTransformations": 0,
+        "split": 0,
+        "unresolved": 1,
+        "diagnostics": 0
+      },
+      "reasonCounts": { "CMP_DISPOSITION_MISSING": 1 },
+      "authoritative": false,
+      "lifecycleGate": false,
+      "assurance": "unverified-observation",
+      "previewSha256": "sha256:e52d77f456f1097b384b7ee97a2a08b60cf4c2b81c819b58f8bc88b1e7093025"
+    },
+    {
+      "schemaVersion": 2,
+      "kind": "comprehension-record-preview",
+      "mode": "record",
+      "status": "experimental",
+      "subject": {
+        "candidateSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "manifestSha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "resultSha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "summary": {
+        "verdict": "incomplete",
+        "counts": {
+          "regions": 1,
+          "materialRegions": 1,
+          "nonmaterialRegions": 0,
+          "explained": 0,
+          "approvedDeviations": 0,
+          "deterministicTransformations": 0,
+          "split": 0,
+          "unresolved": 1,
+          "diagnostics": 0
+        },
+        "reasonCounts": { "CMP_DISPOSITION_MISSING": 1 }
+      },
+      "availability": { "structure": "unavailable", "evidenceAuthority": "unavailable" },
+      "authoritative": false,
+      "lifecycleGate": false,
+      "assurance": "unverified-observation",
+      "previewSha256": "sha256:ed4cf83259ce47f50bdffa729838dcf0753992dd85f3cdababaf956a4841253f"
+    }
+  ],
   "test-execution": [{ "schemaVersion": 1 }, { "schemaVersion": 2, "candidate": null, "program": null, "attempt": null, "adapterIdentity": null, "testcaseObservation": { "status": "unavailable", "assurance": "unavailable", "profile": null, "occurrences": [], "rawReports": [], "notice": "legacy module receipt; testcase execution was not observed" } }, { "schemaVersion": 3, "candidate": null, "program": null, "attempt": null, "adapterIdentity": null, "testcaseObservation": { "status": "unavailable", "assurance": "unavailable", "profile": null, "occurrences": [], "rawReports": [], "notice": "legacy module receipt; testcase execution was not observed", "exact": false, "verdict": "inconclusive", "disposition": "witness-inconclusive", "catalog": null, "mappingProposals": [] } }],
   "code-delivery": [{ "schemaVersion": 1 }, { "schemaVersion": 2 }],
   "work-reconciliation": [{ "schemaVersion": 1 }],

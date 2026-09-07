@@ -76,9 +76,12 @@ sufficient cohorts, independent review, and accepted release evidence remain ope
 The first general-store interface boundary landed at `main@28819374`. The filesystem Authority
 Store now implements a versioned capability/method SPI, while the runtime separately restricts
 selection to build-installed profiles. A structurally conforming object therefore cannot become an
-authority merely because repository data names it. `SGOS-P1-003` remains partial until an alternate
-Operational Store and the unchanged migration, partial-failure, backup, restore, and rollback
-conformance matrix land.
+authority merely because repository data names it. The bounded `memory-replay-v1` alternate
+Operational Store followed at `main@cf06f10d`, with serialized CAS, append-only lineage, exact
+backup/fast-forward restore, append-only rollback, tamper/bounds checks, and a hard
+non-authoritative simulation/test selection boundary. `SGOS-P1-003` remains partial until the live
+filesystem Process store uses the SPI and the unchanged durable migration, process-loss,
+backup/restore, and rollback matrix passes against both implementations.
 
 The 2026-09-06 performance continuation moved branch refresh, ledger status/state publication,
 workflow configuration proposals, approval identity enrollment, approved-configuration fallback

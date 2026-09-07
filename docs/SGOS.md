@@ -388,6 +388,26 @@ VS Code exposes the same two-step ceremony through **Singularity Flow: Review Me
 it explicitly selects Pack or Device and displays the exact actor, Store revision/state, target,
 approval, and confirmation before invoking the confirmed CLI mutation.
 
+## Store interfaces and authority separation
+
+The filesystem Authority Store implements SPI version 1, with explicit CAS, append-only lineage,
+exclusive-writer locking, liveness recovery, bounds, schema validation, backup/restore, and
+rollback capabilities. Structural conformance does not grant installation authority: the running
+build separately allowlists installed Authority Store profiles, and repository configuration
+cannot widen that list.
+
+`memory-replay-v1` is the first alternate Operational Store. It is a bounded, deterministic,
+in-memory journal for simulation and conformance work. It serializes writers, rejects stale CAS,
+replays every event, emits exact backups, accepts only lineage-preserving fast-forward restore, and
+implements rollback by appending a compensating event instead of deleting history. Its descriptor
+is permanently non-authoritative and the selection guard admits it only for `simulation` or
+`test` when the selected storage-profile digest equals the Program's pinned digest. The live SGOS
+runtime cannot select it.
+
+This is a staged `SGOS-P1-003` boundary. The existing live filesystem Process store still owns
+runtime operations directly; moving it behind the same Operational Store SPI, durable migration,
+and cross-implementation crash/backup/restore proof remain open.
+
 ## Portable Authority Store and Capability Packs
 
 The `authority-store` surface supports two explicit transport profiles. The recommended team
@@ -476,9 +496,10 @@ tracked in [SGOS-PENDING-WORK.md](SGOS-PENDING-WORK.md):
 - Secret Broker integration with real external adapters, the corresponding cancellation/leakage/
   restart proof, and garbage-collection plans; bounded automatic working-set injection into the
   proposal-only Copilot Agent path is implemented;
-- an alternate Operational Store and its unchanged migration/backup/rollback conformance matrix;
-  the versioned Authority Store SPI is present, but the filesystem profile remains the only
-  installed and explicitly experimental Authority Store implementation;
+- migration of the live filesystem Process store through the Operational Store SPI and its durable
+  cross-implementation migration/backup/rollback matrix; the bounded memory-replay profile exists
+  only for simulation/test, while the filesystem profile remains the only installed and explicitly
+  experimental Authority Store implementation;
 - executable tutorial environments, independent learning certification, a
   public meta-tool activation/rollback CLI, and multi-domain proof packs;
 - external telemetry transport beyond the content-free read-only OpenTelemetry projection and

@@ -28,8 +28,11 @@ The first `SGOS-P1-003` store-interface increment landed at `main@28819374` on 2
 filesystem Authority Store now publishes a versioned, immutable capability contract; structural
 SPI conformance is tested separately from the installed-profile allowlist, so a repository or
 caller cannot authorize an alternate Store by supplying a compatible-looking object. This is the
-safe interface boundary, not completion of the milestone: an alternate Operational Store and the
-unchanged multi-implementation migration/backup/rollback conformance matrix remain open.
+safe Authority interface boundary. The bounded alternate Operational Store landed at
+`main@cf06f10d`: its in-memory replay profile is limited to simulation/test, explicitly
+non-authoritative, serialized, CAS-protected, append-only, bounded, backup/restore capable, and
+rollback-preserving. The live filesystem Process store has not migrated through that SPI, so the
+durable multi-implementation migration/backup/rollback matrix remains open.
 
 ## Status rules
 
@@ -220,9 +223,21 @@ Implemented code-locally in `main@28819374`:
 - counterfeit newer versions, missing methods, weakened capabilities, malformed profiles, and
   uninstalled conforming profiles fail closed.
 
-Still required: implement an alternate non-authoritative Operational Store, run one unchanged
-conformance suite against both operational implementations, and prove migration, partial failure,
-backup, restore, and rollback without changing Program or policy authority.
+The alternate Operational Store landed in `main@cf06f10d`:
+
+- `memory-replay-v1` supplies a versioned Operational Store descriptor and one unchanged bounded
+  conformance journey for CAS, serialized concurrent writers, append-only event replay, exact
+  backups, fast-forward restore, and append-only rollback;
+- rejected oversized writes, tampered backups, divergent restore, stale confirmation, and losing
+  CAS writers retain the last verified head;
+- the selection boundary accepts only `simulation` or `test`, requires the Program's exact pinned
+  storage-profile digest, and permanently declares `authorityEligible: false`;
+- live runtime and lifecycle publication do not call or auto-select this alternate profile.
+
+Still required: migrate the live filesystem Process store behind the Operational Store SPI, run the
+same conformance journey against both implementations, and prove durable migration, process-loss
+partial failure, backup, restore, and rollback without changing Program or policy authority. The
+memory profile is useful portability proof but cannot satisfy a durable runtime Store gate.
 
 Acceptance gates:
 

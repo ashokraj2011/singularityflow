@@ -120,6 +120,7 @@ Usage:
   singularity-flow auto adopt --from-adhoc <AHS-ID> [--capability ID] [--work-type ID]
     [--work-id ID] [--from-branch BRANCH] [--pace MODE] [--until SELECTOR] [--json]
   singularity-flow auto status|report <FLIGHT-ID> [--json]
+  singularity-flow auto compare <FLIGHT-ID> --study <IMPACT-STUDY-ID> [--json]
   singularity-flow auto pause|stop|halt|takeover <FLIGHT-ID> [--json]
   singularity-flow auto resume <FLIGHT-ID> --confirm <CHECKPOINT-SHA256> [--json]
   singularity-flow auto discard <FLIGHT-ID> --confirm <FLIGHT-ID> [--json]

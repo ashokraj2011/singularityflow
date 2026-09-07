@@ -5,6 +5,7 @@ import { loadDefinition } from '../config.mjs';
 import {
   createAutoPlan, readAutoPlan, synthesizeAutoPlanProposal
 } from '../auto/auto-plan.mjs';
+import { buildAutoQualityComparison } from '../auto/auto-quality-comparison.mjs';
 import { buildAutoPlanPacket, buildAutoPlanValidation } from '../auto/auto-plan-packet.mjs';
 import { startAutoFlight } from '../auto/auto-flight.mjs';
 import { executeAutoFlightStep } from '../auto/auto-executor.mjs';
@@ -30,9 +31,11 @@ import {
   adhocAutoRequirementSource, buildAdhocAutoHandoff,
   buildAutoContinuationProposal, resolveAutoGoalSeed
 } from '../auto/auto-entry-modes.mjs';
+import { loadImpactDefinition } from '../impact-config.mjs';
+import { compareImpactReceipts, listImpactReceipts } from '../impact.mjs';
 
 const SUBCOMMANDS = new Set([
-  'plan', 'show-plan', 'start', 'list', 'status', 'report',
+  'plan', 'show-plan', 'start', 'list', 'status', 'report', 'compare',
   'pause', 'resume', 'stop', 'halt', 'takeover', 'discard', 'flight-step',
   'continue', 'adopt', 'recover', 'repair', 'needs-you', 'respond', 'switch-unit'
 ]);
@@ -49,7 +52,8 @@ function emitAuto(value, {
       ['auto.plan', 'auto.plan.story', 'auto.show-plan'].includes(operation)
         ? 'auto.plan-ready'
         : operation === 'auto.list' ? 'auto.flight-list-ready'
-        : operation === 'auto.report' ? 'auto.report-ready' : 'auto.flight-reported',
+        : ['auto.report', 'auto.compare'].includes(operation)
+          ? 'auto.report-ready' : 'auto.flight-reported',
       operation === 'auto.continue'
         ? { proposalSha256: value.proposal?.proposalSha256, flightId: state?.flightId ?? null }
         : operation === 'auto.adopt'
@@ -140,6 +144,21 @@ function productCard(projection) {
     `Request: ${current.humanRequest.requestId}`
   );
   return lines.join('\n');
+}
+
+function comparisonCard(value) {
+  const classification = value.classification;
+  return [
+    `Auto quality comparison · ${classification.state}`,
+    `Flight: ${value.flight.flightId} · report ${value.flight.reportSha256}`,
+    `Study: ${value.study.id} · configuration ${value.study.configurationSha256}`,
+    `Cohorts: baseline ${value.cohorts.matchedBaseline} · treatment ${value.cohorts.matchedTreatment} · privacy floor ${value.cohorts.privacyFloor}`,
+    `Token metric: ${value.tokenMetric.id} · ${value.tokenMetric.gainPercent.toFixed(2)}% · provider evidence ${value.tokenMetric.providerTokenEvidence ? 'exact' : 'incomplete'}`,
+    `Quality guardrails: ${value.quality.gatePassed ? 'passed' : 'not passed'}`,
+    `Release claim: ${classification.releaseClaimAllowed ? 'allowed' : 'blocked'}`,
+    `Reason: ${classification.reason}`,
+    `Projection: ${value.comparisonSha256}`
+  ].join('\n');
 }
 
 function continuationCard(value) {
@@ -608,6 +627,40 @@ export async function run(_argv, { positionals, options }) {
     const report = renderAutoFlightReport(state, record);
     return emitAuto({ flight: state, report: record }, {
       operation: 'auto.report', state, card: report, json
+    });
+  }
+  if (subcommand === 'compare') {
+    const studyId = optionString(options, 'study');
+    if (!studyId) throw new SingularityFlowError(
+      'Auto comparison requires --study STUDY-ID.',
+      { code: 'AUTO_COMPARISON_STUDY_REQUIRED' }
+    );
+    const state = await readAutoFlightState(root, id);
+    const report = state.finalReportSha256
+      ? await readAutoFlightReport(root, id)
+      : await projectAutoFlightReport(root, state);
+    return withApprovedConfigurationRead(root, async (authority) => {
+      if (!authority) throw new SingularityFlowError(
+        'Auto comparison requires approved Singularity Flow configuration.',
+        { code: 'APPROVED_CONFIGURATION_UNAVAILABLE' }
+      );
+      const [definition, impact] = await Promise.all([
+        loadDefinition(root), loadImpactDefinition(root, { required: true })
+      ]);
+      const study = impact.studies.find((candidate) => candidate.id === studyId);
+      if (!study) throw new SingularityFlowError(`Unknown impact study '${studyId}'.`, {
+        code: 'AUTO_COMPARISON_STUDY_UNKNOWN', details: { studyId }
+      });
+      const receipts = await listImpactReceipts(root, definition, { studyId });
+      const comparison = compareImpactReceipts(receipts, study, {
+        configurationSha256: impact.sha256
+      });
+      const value = buildAutoQualityComparison({
+        report, study, configurationSha256: impact.sha256, receipts, comparison
+      });
+      return emitAuto({ flight: state, comparison: value }, {
+        operation: 'auto.compare', state, card: comparisonCard(value), json
+      });
     });
   }
   let state;

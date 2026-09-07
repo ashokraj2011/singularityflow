@@ -143,3 +143,33 @@ test('privacy floors and allowed dimensions are enforced before comparison outpu
   assert.throws(() => compareImpactReceipts(cohort().slice(0, 5), study()), /privacy floor/);
   assert.throws(() => compareImpactReceipts(cohort(), study(), { filters: { risk: 'small' } }), /does not allow filtering/);
 });
+
+test('an exact approved configuration revision prevents cohort-generation mixing', () => {
+  const current = 'c'.repeat(64);
+  const stale = 'd'.repeat(64);
+  const currentReceipts = cohort().map((item) => ({
+    ...item,
+    study: { ...item.study, configurationSha256: current }
+  }));
+  const staleBaseline = receipt('baseline', 'stale', 100);
+  const staleTreatment = receipt('agent', 'stale', 60);
+  const receipts = [
+    ...currentReceipts,
+    {
+      ...staleBaseline,
+      study: { ...staleBaseline.study, configurationSha256: stale }
+    },
+    {
+      ...staleTreatment,
+      study: { ...staleTreatment.study, configurationSha256: stale }
+    }
+  ];
+  const result = compareImpactReceipts(receipts, study(), { configurationSha256: current });
+  assert.equal(result.studyConfigurationSha256, current);
+  assert.equal(result.cohorts.eligibleBaseline, 3);
+  assert.equal(result.cohorts.eligibleTreatment, 3);
+  assert.throws(
+    () => compareImpactReceipts(receipts, study(), { configurationSha256: stale }),
+    /privacy floor/
+  );
+});

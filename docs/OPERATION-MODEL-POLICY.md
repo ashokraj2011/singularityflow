@@ -54,6 +54,7 @@ Every public operation is classified before its implementation module is importe
 | authority-store.trust-scaffold | read | never | — | — |
 | authority-store.verify | read | never | — | — |
 | auto.adopt | read | never | — | — |
+| auto.compare | mutation | never | — | — |
 | auto.continue | read | never | — | — |
 | auto.discard | mutation | never | — | — |
 | auto.flight-step | mutation | required | — | copilot-cli |

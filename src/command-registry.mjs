@@ -232,7 +232,7 @@ const CONTEXT_MUTATION_SUBCOMMANDS = Object.freeze(['compile', 'expand']);
 const CONTEXT_SUBCOMMANDS = Object.freeze([...CONTEXT_READ_SUBCOMMANDS, ...CONTEXT_MUTATION_SUBCOMMANDS]);
 const TOKENS_SUBCOMMANDS = Object.freeze(['status', 'report', 'compare']);
 const AUTO_SUBCOMMANDS = Object.freeze([
-  'plan', 'show-plan', 'start', 'list', 'status', 'report',
+  'plan', 'show-plan', 'start', 'list', 'status', 'report', 'compare',
   'pause', 'resume', 'stop', 'halt', 'takeover', 'discard', 'flight-step',
   'continue', 'adopt', 'recover', 'repair', 'needs-you', 'respond', 'switch-unit'
 ]);
@@ -712,7 +712,7 @@ function resolveAutoOperation(definition, positionals, options = {}) {
   if (subcommand === 'switch-unit' && optionString(options, 'confirm') == null) {
     return never('auto.switch-unit.plan', definition, 'read');
   }
-  if (['show-plan', 'list', 'status', 'report', 'continue', 'adopt', 'needs-you'].includes(subcommand)) {
+  if (['show-plan', 'list', 'status', 'report', 'compare', 'continue', 'adopt', 'needs-you'].includes(subcommand)) {
     return never(`auto.${subcommand}`, definition, 'read');
   }
   return never(`auto.${subcommand}`, definition, 'mutation');

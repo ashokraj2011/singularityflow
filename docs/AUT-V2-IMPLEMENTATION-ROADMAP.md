@@ -2,12 +2,14 @@
 
 Status: the dependency-free Story profile implements and release-validates the AUT v2 P0/P1
 boundary described below. Provenance-preserving direct Ad Hoc Candidate adoption landed at
-`main@724cb85e`. The optional SGOS profile and enforcement of optional CMP policy are separate work
-and are not claimed complete here.
+`main@724cb85e`. A read-only registered comparative-quality evidence path is implemented; collecting
+and independently reviewing a qualifying cohort remains external evidence work. The optional SGOS
+profile and enforcement of optional CMP policy are separate work and are not claimed complete here.
 
-Reconciled against `main@724cb85e` on 2026-09-06: direct Ad Hoc adoption is now part of the Story
-profile. The optional Auto SGOS profile and registered comparative-quality baseline remain open.
-The implemented Story profile remains the default boundary claimed by this document.
+Reconciled against the 2026-09-07 implementation tree: direct Ad Hoc adoption is part of the Story
+profile, and `auto compare` can project one exact Auto report against a reviewed Flow Impact study.
+The optional Auto SGOS profile and real independently reviewed comparison cohorts remain open. The
+implemented Story profile remains the default boundary claimed by this document.
 
 ## Architecture decisions
 
@@ -113,9 +115,12 @@ checkpoints, and reconstructible after clone or loss of disposable sidecars.
 - Attempt economics keep prompt/input/output accounting distinct from tool-output accounting. Tool
   output records exact observed bytes, a byte-derived estimate, and provider tokens only when the
   provider supplies them.
-- Reports expose a content-free outcome summary and an observed quality-floor result. Token-saving
-  comparison remains `not-evaluated` until a registered comparison baseline exists; no prompt text or
-  developer/person score is stored in outcome metrics.
+- Reports expose a content-free outcome summary and an observed quality-floor result. Immutable
+  reports keep token-saving comparison `not-evaluated`. The separate, read-only `auto compare`
+  projection can classify a reviewed Flow Impact comparison only when its exact approved
+  configuration revision, finalized Auto Story treatment receipt, final Story revision, privacy
+  floor, provider-token assurance, and quality guardrails all agree. It never stores prompt text or
+  a developer/person score and never rewrites a final report.
 - Home/Return, Gateway responses, and VS Code cards expose Plan, running, refusal, Needs You,
   takeover, and report state without introducing a tool per feature. Buttons prepare existing kernel
   commands for review and do not bypass confirmation.
@@ -133,7 +138,7 @@ checkpoints, and reconstructible after clone or loss of disposable sidecars.
 | Context/task/selection/event records | `src/auto/auto-contract-records.mjs`, `src/auto/auto-phase-contract.mjs`, `src/auto/auto-executor.mjs`, `src/schema-migrations.mjs` | Auto phase-contract and v2 control tests, schema-migration checks |
 | Checkpoints and recovery | `src/auto/auto-checkpoint.mjs`, `src/auto/auto-flight-store.mjs`, `src/auto/auto-private-store.mjs` | `test/auto-v2-controls.test.mjs`, `test/auto-private-store.test.mjs` |
 | Lineage, requests, and repair | `src/auto/auto-p1-lineage.mjs`, `src/auto/auto-p1-control.mjs`, `src/auto/auto-p1-records.mjs`, `src/auto/auto-repair-eligibility.mjs` | `test/auto-p1-product.test.mjs`, `test/auto-repair-eligibility.test.mjs`, `test/auto-mode.test.mjs` |
-| Reports and economics | `src/auto/auto-flight-store.mjs`, `src/gateway/auto-home-summary.mjs`, `src/gateway/planners/auto-flight.mjs` | `test/auto-report-economics.test.mjs`, `test/auto-p1-surfaces.test.mjs` |
+| Reports and economics | `src/auto/auto-flight-store.mjs`, `src/auto/auto-quality-comparison.mjs`, `src/gateway/auto-home-summary.mjs`, `src/gateway/planners/auto-flight.mjs` | `test/auto-report-economics.test.mjs`, `test/auto-quality-comparison.test.mjs`, `test/auto-p1-surfaces.test.mjs` |
 | VS Code cards | `apps/vscode/src/views/auto-cards-model.ts`, `apps/vscode/src/views/result-card-*.ts` | `test/auto-p1-surfaces.test.mjs`, VS Code result-card tests |
 
 ## Deferred roadmap
@@ -144,8 +149,9 @@ checkpoints, and reconstructible after clone or loss of disposable sidecars.
 - **CMP enforcement:** make configured cause bindings and walkthrough freshness authoritative only
   after CMP has its own complete validator, migration, and recovery coverage. Current bounded CMP
   references must not be presented as that enforcement.
-- **Comparative quality evidence:** register a baseline before claiming token savings preserve or
-  improve first-pass verification, review-return, or rework outcomes.
+- **Comparative quality evidence execution:** the exact registered-baseline join and guarded
+  classification are implemented. A release claim still requires a real reviewed token-primary
+  Flow Impact study with sufficient baseline/treatment cohorts and independently accepted results.
 
 ## Release evidence
 

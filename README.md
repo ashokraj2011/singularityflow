@@ -2667,6 +2667,10 @@ same Candidate while the authoring model is restricted to the phase artifact.
 
 AUT v2 implementation status and remaining release gates are tracked in
 [`docs/AUT-V2-IMPLEMENTATION-ROADMAP.md`](docs/AUT-V2-IMPLEMENTATION-ROADMAP.md).
+`singularity-flow auto compare <FLIGHT-ID> --study <STUDY-ID>` is the read-only comparison path:
+it binds the immutable Auto report to the exact approved Flow Impact configuration and permits a
+token-savings claim only when the finalized governed-agent treatment, provider-token evidence,
+privacy floor, final Story revision, and quality guardrails all hold.
 
 An authorized phase return now carries a reversible forward checkpoint. If the rework is later
 abandoned, preview it with `singularity-flow story rework roll-forward --work-id ENG-142 --json`,

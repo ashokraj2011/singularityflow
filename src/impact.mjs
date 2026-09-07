@@ -1007,10 +1007,14 @@ function cohortKey(receipt, dimensions) {
   return dimensions.map((dimension) => `${dimension}=${values[dimension] ?? 'unknown'}`).join('|');
 }
 
-export function compareImpactReceipts(receipts, study, { filters = {} } = {}) {
+export function compareImpactReceipts(receipts, study, {
+  filters = {}, configurationSha256 = null
+} = {}) {
   for (const key of Object.keys(filters)) if (!study.privacy.allowedDimensions.includes(key)) throw new SingularityFlowError(`Privacy policy does not allow filtering by '${key}'.`);
   let selected = receipts.filter((receipt) => receipt.study?.id === study.id
     && receipt.status === 'finalized'
+    && (configurationSha256 == null
+      || receipt.study?.configurationSha256 === configurationSha256)
     && (study.kind !== 'prompt-set-randomized' || (
       receipt.experiment?.studyRunId === study.studyRunId
       && receipt.study?.definitionSha256 === study.definitionSha256
@@ -1077,6 +1081,7 @@ export function compareImpactReceipts(receipts, study, { filters = {} } = {}) {
     study: study.id,
     studyRunId: study.studyRunId ?? study.id,
     studyDefinitionSha256: study.definitionSha256 ?? null,
+    ...(configurationSha256 == null ? {} : { studyConfigurationSha256: configurationSha256 }),
     experimentKind: study.kind ?? 'delivery-comparison',
     hypothesis: study.hypothesis ?? null,
     method: study.method,

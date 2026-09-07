@@ -326,6 +326,10 @@ classification vocabularies. It refuses employee ranking and prompt export, and 
 projection is content-free and returned locally without transport. See
 [SGOS-AGENTIC-EVALUATION.md](SGOS-AGENTIC-EVALUATION.md).
 
+The native Work Object and Command Center read models have a deterministic, content-free benchmark
+at 1, 200, and 2,000 tasks. Its enforced ceilings run in the POC release gate without sending
+telemetry. See [SGOS read-model benchmark](SGOS-READ-MODEL-BENCHMARK.md).
+
 ## Bounded guided learning
 
 The installed `learn` surface now supports role- and Pack-filtered lesson discovery plus strict,
@@ -476,9 +480,10 @@ tracked in [SGOS-PENDING-WORK.md](SGOS-PENDING-WORK.md):
   remains explicitly experimental;
 - executable tutorial environments, independent learning certification, a
   public meta-tool activation/rollback CLI, and multi-domain proof packs;
-- external telemetry transport beyond the content-free read-only OpenTelemetry projection, and
-  measured semantic read-model latency targets; fresh-authority trace-to-evidence reconstruction
-  is available through `singularity-flow evidence reconstruct PROC-... --json`;
+- external telemetry transport beyond the content-free read-only OpenTelemetry projection and
+  signed supported-machine baselines for the implemented semantic read-model budgets;
+  fresh-authority trace-to-evidence reconstruction is available through
+  `singularity-flow evidence reconstruct PROC-... --json`;
 - full software-conversion and hypothesis-analysis end-to-end proofs, the supported OS/Node matrix,
   and an exact signed release receipt for this change.
 

@@ -14,6 +14,10 @@ DPAPI-CurrentUser-protected Windows Ed25519 authority-transport signer and the s
 developer-local signed runner. Neither addition supplies independent enterprise authority or a
 signed supported-platform release aggregate.
 
+The measured-read-model portion of `SGOS-P2-003` was added at `main@c18b8154` on 2026-09-07.
+It supplies a local, content-free release-gated benchmark; it does not supply consent for external
+telemetry or signed supported-machine evidence.
+
 ## Status rules
 
 - `[ ]` means the capability remains unavailable or behind an explicit refusal boundary.
@@ -321,10 +325,29 @@ mutation plans, public CLI, help, VS Code classification, and end-to-end authori
 (canonical installed/nonrevoked Device operation resolution, signed-Pack authorization, native
 target-kind selection, and end-to-end refusal tests).
 
-### [ ] SGOS-P2-003 — External telemetry and measured read models
+### [~] SGOS-P2-003 — External telemetry and measured read models
+
+- **Owner:** repository maintainers
+- **Branch:** `main`
+- **Started:** 2026-09-07
+- **Code-local read-model implementation:** `c18b8154`
+- **Target:** next signed supported-platform release; external transport remains separately gated
 
 Add a consented external transport beyond the current local, content-free OpenTelemetry projection
 and establish semantic read-model latency targets.
+
+The measured read-model half is implemented. `npm run benchmark:sgos-read-model` exercises the
+actual canonical Work Object catalog and Command Center projection at 1, 200, and the installed
+2,000-task ceiling. It validates byte-deterministic output, emits only aggregate timing/CPU/row/byte
+counts, and invokes no model, network, store, Git, lifecycle mutation, or exporter. The enforced
+variant applies explicit p95 and serialized-byte ceilings and is part of the POC release gate. The
+script and its tests are included in the npm package. See
+[SGOS read-model benchmark](SGOS-READ-MODEL-BENCHMARK.md).
+
+This item remains `[~]`: the local budgets still need signed supported-machine baselines, and no
+external transport exists. An external transport must not be added until consent, destination,
+retention, retry, and independent-disable policy are approved. Local benchmark output cannot grant
+that authority.
 
 Acceptance gates:
 

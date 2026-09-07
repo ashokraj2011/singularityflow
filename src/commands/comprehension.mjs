@@ -3,9 +3,9 @@
  *
  * This command deliberately stops before durable authoring, approval, publication, or gating. It
  * projects the existing exact RepositoryChangeSet into conservative resource regions and evaluates
- * caller-supplied diagnostic evidence. Ordinary Story delivery does not yet share one
- * universal Candidate authority with SGOS, so treating this compatibility projection as a hard
- * publication authority would create the second Candidate path CMP explicitly forbids.
+ * caller-supplied diagnostic evidence. The universal Candidate code path exists, but CMP evidence
+ * is not yet bound to its existing review and publication transaction. Treating this compatibility
+ * projection as hard publication authority would create the second authority path CMP forbids.
  */
 import { constants as fsConstants } from 'node:fs';
 import { open } from 'node:fs/promises';

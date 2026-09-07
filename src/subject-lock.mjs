@@ -103,6 +103,11 @@ function stale(owner, ttlMs, directoryAgeMs, heartbeatModifiedAt = null) {
 async function reclaim(directory, seen) {
   const current = await readOwner(directory);
   if (JSON.stringify(current ?? null) !== JSON.stringify(seen ?? null)) return false;
+  // An ownerless directory can be a different acquisition that appeared after the caller's
+  // observation. Never rename that fresh claim: it is inside the protected owner-publication
+  // grace window. A genuinely abandoned ownerless directory remains reclaimable once old.
+  if ((current === undefined || current === null)
+      && (await directoryAge(directory) ?? 0) <= ACQUISITION_GRACE_MS) return false;
   const condemned = `${directory}.stale-${randomUUID()}`;
   try { await rename(directory, condemned); }
   catch (error) {
@@ -115,7 +120,9 @@ async function reclaim(directory, seen) {
 
 async function directoryAge(directory) {
   const info = await stat(directory).catch(() => null);
-  if (!info) return Number.POSITIVE_INFINITY;
+  // Missing means the prior holder completed removal. It is not evidence of an infinitely old
+  // lock: another contender may create a fresh directory at the same path immediately afterward.
+  if (!info) return null;
   return Date.now() - info.mtimeMs;
 }
 
@@ -182,8 +189,10 @@ export async function acquireSubjectLock(root, subject, { ttlMs = DEFAULT_TTL_MS
   // Three attempts rather than two: losing the reclaim race to another process is a normal outcome
   // now, and costs one extra turn round the loop.
   for (let attempt = 0; attempt < 3; attempt += 1) {
+    let created = false;
     try {
       await mkdir(directory, { recursive: false });
+      created = true;
       // Written whole and then moved into place. A plain write leaves a truncated record if the
       // process dies mid-write, and the next acquirer reads that as an unowned lock.
       const pending = `${path.join(directory, 'owner.json')}.${owner.lockToken}`;
@@ -192,12 +201,18 @@ export async function acquireSubjectLock(root, subject, { ttlMs = DEFAULT_TTL_MS
       await rename(pending, path.join(directory, 'owner.json'));
       return owner;
     } catch (error) {
+      // Losing our just-created directory before owner publication cannot have run a protected
+      // callback. Retry the acquisition; never remove the path because it may already belong to
+      // a newer contender.
+      if (created && error?.code === 'ENOENT') continue;
       if (error?.code !== 'EEXIST') throw error;
       const existing = await readOwner(directory);
+      const age = await directoryAge(directory);
+      if (age === null) continue;
       if (!stale(
         existing,
         ttlMs,
-        await directoryAge(directory),
+        age,
         await heartbeatModifiedAt(directory, existing)
       )) {
         const held = existing

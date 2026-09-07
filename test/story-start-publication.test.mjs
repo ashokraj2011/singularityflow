@@ -98,6 +98,7 @@ test('starting an existing durable Story routes to Resume without asking for ano
   const { root } = await repository();
   start(root, 'STORY-RESUME');
   git(root, 'switch', 'main');
+  git(root, 'branch', '-D', 'STORY-RESUME');
 
   const resumed = flow(root, ['start', 'STORY-RESUME']);
 
@@ -177,10 +178,18 @@ test('non-interactive Story start requires an explicit base before mutation', as
   const originalHead = git(root, 'rev-parse', 'HEAD').stdout.trim();
   const refused = flow(root, [
     'start', 'STORY-NO-BASE', '--json', '--work-type', 'feature',
-    '--title', 'Missing base', '--description', 'Must refuse.'
-  ], { allowFailure: true });
+    '--title', 'Missing base', '--description', 'Must refuse.', '--timings'
+  ], {
+    allowFailure: true,
+    env: { SINGULARITY_FLOW_SUBPROCESS_PROBE: '1' }
+  });
   assert.notEqual(refused.status, 0);
   assert.match(refused.stderr, /--from-branch/);
+  assert.match(refused.stderr,
+    /singularity-flow workspace branches --preflight-story STORY-NO-BASE --json/);
+  assert.match(refused.stderr, /singularity-flow resume STORY-NO-BASE --fetch/);
+  assert.doesNotMatch(refused.stderr, /git ls-remote|git fetch/,
+    'a missing required base must refuse before remote or configuration discovery');
   assert.equal(git(root, 'branch', '--show-current').stdout.trim(), 'main');
   assert.equal(git(root, 'rev-parse', 'HEAD').stdout.trim(), originalHead);
   assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/heads/STORY-NO-BASE'], root,

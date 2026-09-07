@@ -894,6 +894,7 @@ export async function startCommand(positionals, options) {
     return externalSourcePromise;
   };
   const explicitBase = optionString(options, 'base');
+  const fromBranch = optionStrings(options, 'from-branch');
   const canonicalBranch = optionString(options, 'ref', id);
   const advertisedStoryRef = `refs/heads/${canonicalBranch}`;
   const observeStoryDestination = async (remoteName) => {
@@ -955,6 +956,40 @@ export async function startCommand(positionals, options) {
       });
     }
     return resumeCommand(['resume', id], { ...options, fetch: false });
+  }
+
+  /**
+   * Refuse a definitely-new non-interactive Story before configuration and remote discovery.
+   *
+   * The base is mandatory input, but this check used to happen only after approved-configuration
+   * resolution, a destination probe, external-source lookup and capability catalog construction.
+   * On a loaded machine or an office network that turned a deterministic input error into a long
+   * apparent hang. A locally cached remote Story ref is deliberately exempt: it may be durable
+   * work that this checkout can fetch and resume. Jira/GitHub and signed selection receipts are
+   * also exempt because they can identify an existing Story or carry the reviewed base choice.
+   */
+  const nonInteractive = optionBoolean(options, 'json') || optionBoolean(options, 'yes');
+  const cachedRemoteStoryRef = `refs/remotes/${remote}/${canonicalBranch}`;
+  if (nonInteractive && !receiptToken && !explicitBase && fromBranch.length === 0
+      && !jira && !githubReference
+      && !refExists(root, cachedRemoteStoryRef)) {
+    const inspectCommand = `singularity-flow workspace branches --preflight-story ${id} --json`;
+    throw new SingularityFlowError(
+      `Choose the remote base branch explicitly with --from-branch <BRANCH>. No locally known `
+      + `governed Story '${id}' can be resumed, so Singularity Flow did not start remote or `
+      + `configuration discovery. Inspect available bases with: ${inspectCommand}. For an existing `
+      + `remote Story, run singularity-flow resume ${id} --fetch. Nothing was changed.`,
+      {
+        code: 'STORY_BASE_REQUIRED',
+        details: {
+          nextAction: inspectCommand,
+          recoveryCommands: [
+            `singularity-flow start ${id} --from-branch <BRANCH>`,
+            `singularity-flow resume ${id} --fetch`
+          ]
+        }
+      }
+    );
   }
 
   // Only after a local durable Story has had its network-free pinned resume path do we select policy
@@ -1080,7 +1115,6 @@ export async function startCommand(positionals, options) {
    * Absent both flags, a terminal presents the remote-derived choices and requires an answer;
    * non-interactive callers receive STORY_BASE_REQUIRED before any checkout or session mutation.
    */
-  const fromBranch = optionStrings(options, 'from-branch');
   if (explicitBase && fromBranch.length) {
     throw new SingularityFlowError('Choose either --from-branch or the compatibility --base option, not both.', {
       code: 'STORY_BASE_INVALID'

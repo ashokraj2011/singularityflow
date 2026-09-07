@@ -176,6 +176,40 @@ function comprehensionText(result) {
       style.detail(preservationLine(result))
     ].filter(Boolean).join('\n');
   }
+  if (result.operation.id === 'comprehension.brownfield' && result.data?.assessment) {
+    const assessment = result.data.assessment;
+    const rows = assessment.regions.map((region) => ({
+      region: region.regionId,
+      path: region.pathAfter ?? region.pathBefore ?? '(unknown)',
+      classification: region.touchClass,
+      requirement: region.requirement
+    }));
+    return [
+      ...common,
+      `Policy: ${assessment.policy.profile}; full repository backfill required: no`,
+      ...(rows.length ? ['', table(rows, [
+        { key: 'region', label: 'REGION' },
+        { key: 'path', label: 'PATH' },
+        { key: 'classification', label: 'CLASSIFICATION' },
+        { key: 'requirement', label: 'REQUIREMENT' }
+      ])] : []),
+      '', style.detail('Observe only: unchanged legacy code is not scanned, and no historical cause is invented.'),
+      style.detail(preservationLine(result))
+    ].filter(Boolean).join('\n');
+  }
+  if (result.operation.id === 'comprehension.backfill.validate' && result.data?.validation) {
+    const validation = result.data.validation;
+    return [
+      style.heading(headline(result)),
+      `Repository: ${context.repository ?? 'unavailable'}`,
+      `Source revision: ${validation.sourceRevision ?? 'unavailable'}`,
+      `Scope: ${validation.scope?.kind ?? 'invalid'}${validation.scope?.path ? ` (${validation.scope.path})` : ''}`,
+      `Validation: ${validation.valid ? 'valid proposal shape' : 'invalid'}; authority: none`,
+      ...validation.failures.map((failure) => `- ${failure.code}: ${failure.message}`),
+      '', style.detail('Validation never confirms historical truth or changes lifecycle state.'),
+      style.detail(preservationLine(result))
+    ].filter(Boolean).join('\n');
+  }
   if (result.operation.id === 'comprehension.check' && coverage) {
     const rows = coverage.unresolved.map((entry) => ({
       region: entry.regionId,

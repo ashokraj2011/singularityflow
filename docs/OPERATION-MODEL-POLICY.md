@@ -112,6 +112,8 @@ Every public operation is classified before its implementation module is importe
 | choices | read | never | — | — |
 | clarification.record | mutation | never | — | — |
 | clarification.status | read | never | — | — |
+| comprehension.backfill.validate | read | never | — | — |
+| comprehension.brownfield | read | never | — | — |
 | comprehension.check | read | never | — | — |
 | comprehension.explain | read | never | — | — |
 | comprehension.graph | read | never | — | — |

@@ -54,6 +54,7 @@ export function pocReleaseStages({ rootDir = root, nodeVersion = process.version
         'test/platform-process.test.mjs', 'test/quality-command-runner.test.mjs',
         'test/install-staged-artifacts.test.mjs', 'test/local-install-script.test.mjs',
         'test/vscode-sgos-workflow-create.test.mjs', 'test/comprehension-contracts.test.mjs',
+        'test/comprehension-brownfield.test.mjs',
         'test/comprehension-command.test.mjs', 'test/comprehension-cached-symbols.test.mjs',
         'test/comprehension-diff-preview.test.mjs',
         'test/comprehension-evidence-projection.test.mjs',

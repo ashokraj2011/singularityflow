@@ -197,7 +197,16 @@ const PAGES = Object.freeze({
       'current exact inputs. Narrative-only changes preserve factual claim results. Candidate,',
       'claim, region, graph, structure, evidence, policy, and extractor changes invalidate only',
       'declared dependants where the current projection has precision. Every affected claim is run',
-      'through the current validator again; the prior result never grants a pass.'
+      'through the current validator again; the prior result never grants a pass.',
+      '',
+      '`comprehension brownfield` applies the incremental touched-area policy only to the exact',
+      'current change regions. It never requires or performs full-repository historical backfill.',
+      'An exact object-preserving rename is only a mechanical-move candidate and still needs a',
+      'reviewed transformation receipt before retaining legacy status.',
+      '',
+      '`comprehension backfill validate` checks one bounded, repository-local historical proposal.',
+      'It keeps historically-confirmed, historically-inferred, and unknown labels distinct, but',
+      'all remain untrusted and non-authoritative until the existing governed review accepts them.'
     ],
     options: [
       ['--work-id WORK-ID', 'Select and validate a Story context; its baseline follows the documented generation/work-interval/delivery/Story precedence.'],
@@ -210,6 +219,8 @@ const PAGES = Object.freeze({
       ['walkthrough validate FILE', 'Validate one repository-contained untrusted walkthrough draft without invoking a model or creating authority.'],
       ['walkthrough draft', 'Emit a deterministic resource-level draft without writing a file or invoking a model.'],
       ['walkthrough revalidate DRAFT PREVIOUS', 'Re-run current validators and show precise changed dependencies, invalidated claims, and presentation-only drift.'],
+      ['brownfield', 'Classify only current touched regions under the incremental brownfield policy; unchanged legacy code is not scanned.'],
+      ['backfill validate FILE', 'Validate a bounded historical proposal without publishing or granting authority.'],
       ['--json', 'Emit the complete manifest or computed coverage result.']
     ],
     examples: [
@@ -220,7 +231,9 @@ const PAGES = Object.freeze({
       ['singularity-flow comprehension replay phase implementation --work-id WRK-123 --json', 'Project the exact normalized Implementation history without operational detail, prompts, transcripts, or model summaries.'],
       ['singularity-flow comprehension walkthrough draft --base HEAD --json', 'Emit one exact file-change claim per current change region without semantic inference.'],
       ['singularity-flow comprehension walkthrough validate .sflow/comprehension/walkthrough.json --base HEAD --json', 'Validate an ignored repository-local draft; a draft inside its own Candidate is refused as circular.'],
-      ['singularity-flow comprehension walkthrough revalidate .sflow/comprehension/walkthrough.json .sflow/comprehension/previous-validation.json --base HEAD --json', 'Compare a previous validation with current exact inputs without preserving prior authority.']
+      ['singularity-flow comprehension walkthrough revalidate .sflow/comprehension/walkthrough.json .sflow/comprehension/previous-validation.json --base HEAD --json', 'Compare a previous validation with current exact inputs without preserving prior authority.'],
+      ['singularity-flow comprehension brownfield --base HEAD --json', 'Show which exact changed regions require current cause and which are only mechanical-move candidates.'],
+      ['singularity-flow comprehension backfill validate review/backfill.json --base HEAD --json', 'Validate a partial historical module proposal without requiring repository-wide backfill.']
     ],
     seeAlso: ['spec', 'receipt', 'review', 'explain']
   },

@@ -69,6 +69,8 @@ test('mixed deterministic commands classify their actual operation rather than t
   assert.equal(classify('comprehension', ['comprehension', 'graph']), 'read');
   assert.equal(classify('comprehension', ['comprehension', 'explain', 'file', 'src/app.js']), 'read');
   assert.equal(classify('comprehension', ['comprehension', 'replay', 'phase', 'implementation']), 'read');
+  assert.equal(classify('comprehension', ['comprehension', 'brownfield']), 'read');
+  assert.equal(classify('comprehension', ['comprehension', 'backfill', 'validate', 'review/backfill.json']), 'read');
   assert.equal(classify('visual', ['visual', 'status']), 'read');
   assert.equal(classify('visual', ['visual', 'compare']), 'mutation');
   assert.equal(classify('mcp', ['mcp', 'probe', 'playwright'], { network: true }), 'read');

@@ -26,6 +26,9 @@ import {
   validateComprehensionWalkthroughDraft
 } from '../comprehension/walkthrough.mjs';
 import {
+  buildBrownfieldTouchedAreaAssessment, validateHistoricalBackfillProposal
+} from '../comprehension/brownfield.mjs';
+import {
   commandResult, noEffects, succeeded
 } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
@@ -272,6 +275,53 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
         : { mode: 'observe-only', context, validation }
     }), { json, restStateWhenIdle: 'informational' });
   }
+  if (subcommand === 'backfill') {
+    if (positionals[2] !== 'validate' || positionals.length !== 4) {
+      throw new SingularityFlowError(
+        'Usage: singularity-flow comprehension backfill validate <PROPOSAL-FILE> '
+          + '[--work-id WORK-ID] [--phase PHASE] [--base REVISION] [--json]',
+        { code: 'CMP_BACKFILL_SCHEMA_INVALID' }
+      );
+    }
+    const context = { ...await resolveBaseline(root, options), repository: root };
+    const proposalLocation = await secureRepositoryPath(root, positionals[3], {
+      label: 'Comprehension historical backfill proposal', mustExist: true, type: 'file'
+    });
+    const changeSet = await buildRepositoryChangeSet(root, {
+      baseCommit: context.base,
+      subject: { kind: 'comprehension-observation', workId: context.workId, phase: context.phase }
+    });
+    const manifest = buildChangeRegionManifest(changeSet);
+    const candidatePaths = new Set(manifest.regions.flatMap((region) => [
+      region.location.pathBefore, region.location.pathAfter
+    ]).filter(Boolean));
+    if (candidatePaths.has(proposalLocation.relative)) {
+      throw new SingularityFlowError(
+        `Historical backfill proposal '${proposalLocation.relative}' is part of the change set it describes. Move it to an ignored repository-local review path and retry.`,
+        { code: 'CMP_BACKFILL_SCOPE_INVALID' }
+      );
+    }
+    const proposal = await repositoryJson(
+      root, proposalLocation.relative, 'Comprehension historical backfill proposal'
+    );
+    const validation = validateHistoricalBackfillProposal(proposal, {
+      sourceRevision: changeSet.base.commit
+    });
+    return emitCommandResult(commandResult({
+      operation: suppliedOperation
+        ?? { id: 'comprehension.backfill.validate', classification: 'read' },
+      outcome: succeeded('comprehension.backfill-validated', {
+        status: validation.valid ? 'valid' : 'invalid',
+        entries: validation.counts.entries,
+        confirmed: validation.counts['historically-confirmed'],
+        inferred: validation.counts['historically-inferred'],
+        unknown: validation.counts.unknown
+      }),
+      effects: noEffects(),
+      restState: 'informational',
+      data: { mode: 'observe-only', context, validation }
+    }), { json, restStateWhenIdle: 'informational' });
+  }
   const context = { ...await resolveBaseline(root, options), repository: root };
   const changeSet = await buildRepositoryChangeSet(root, {
     baseCommit: context.base,
@@ -292,6 +342,21 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
       effects: noEffects(),
       restState: 'informational',
       data: { mode: 'observe-only', context, manifest }
+    }), { json, restStateWhenIdle: 'informational' });
+  }
+  if (subcommand === 'brownfield') {
+    const assessment = buildBrownfieldTouchedAreaAssessment(manifest);
+    return emitCommandResult(commandResult({
+      operation: suppliedOperation ?? { id: 'comprehension.brownfield', classification: 'read' },
+      outcome: succeeded('comprehension.brownfield-reported', {
+        regions: assessment.counts.regions,
+        newRegions: assessment.counts['new-region'],
+        touchedLegacy: assessment.counts['legacy-touched'],
+        mechanicalMoves: assessment.counts['mechanical-move-candidate']
+      }),
+      effects: noEffects(),
+      restState: 'informational',
+      data: { mode: 'observe-only', context, manifestSha256: manifest.manifestSha256, assessment }
     }), { json, restStateWhenIdle: 'informational' });
   }
   if (!['check', 'graph', 'explain'].includes(subcommand)) {

@@ -232,6 +232,14 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Observed ${slot(s.regions, '0')} conservative change region(s) at ${slot(s.granularity, 'resource')} granularity.`,
     preserves: true
   },
+  'comprehension.brownfield-reported': {
+    headline: (s) => `Brownfield touched-area assessment covers ${slot(s.regions, '0')} changed region(s): ${slot(s.newRegions, '0')} new, ${slot(s.touchedLegacy, '0')} legacy touched, and ${slot(s.mechanicalMoves, '0')} mechanical-move candidate(s).`,
+    preserves: true
+  },
+  'comprehension.backfill-validated': {
+    headline: (s) => `Historical backfill proposal is ${slot(s.status)} across ${slot(s.entries, '0')} entry(ies): ${slot(s.confirmed, '0')} confirmed-proposed, ${slot(s.inferred, '0')} inferred, and ${slot(s.unknown, '0')} unknown.`,
+    preserves: true
+  },
   'comprehension.coverage-reported': {
     headline: (s) => `Comprehension assessment: ${slot(s.verdict)} with ${slot(s.unresolved, '0')} unresolved material region(s).`,
     preserves: true

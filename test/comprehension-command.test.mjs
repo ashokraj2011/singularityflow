@@ -26,6 +26,10 @@ function command(root, args) {
   });
 }
 
+function sha256Record(value) {
+  return `sha256:${recordSha256(value)}`;
+}
+
 async function repository(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-comprehension-command-'));
   t.after(() => spawnSync('rm', ['-rf', root]));
@@ -128,6 +132,50 @@ test('comprehension check reports incomplete coverage without turning observatio
   assert.equal(response.data.coverage.counts.unresolved, 2);
   assert.match(JSON.stringify(response.data.coverage.unresolved), /No primary disposition is registered/);
   assert.equal(await readFile(path.join(root, 'service.txt'), 'utf8'), 'after\n');
+});
+
+test('comprehension brownfield limits adoption to touched areas and validates partial history without authority', async (t) => {
+  const root = await repository(t);
+  const before = git(root, ['status', '--porcelain=v1']);
+  const assessed = command(root, [
+    '--no-model', 'comprehension', 'brownfield', '--base', 'HEAD', '--json'
+  ]);
+  assert.equal(assessed.status, 0, assessed.stderr);
+  const assessment = JSON.parse(assessed.stdout);
+  assert.equal(assessment.operation.id, 'comprehension.brownfield');
+  assert.equal(assessment.data.assessment.policy.fullRepositoryBackfillRequired, false);
+  assert.equal(assessment.data.assessment.counts['new-region'], 1);
+  assert.equal(assessment.data.assessment.counts['legacy-touched'], 1);
+  assert.ok(assessment.data.assessment.regions.every((region) =>
+    region.requirement === 'current-governed-cause-required'));
+
+  const entryCore = {
+    path: 'service.txt', assurance: 'unknown', causeRefs: [], evidenceRefs: [],
+    decisionSha256: null
+  };
+  const entry = { ...entryCore, entrySha256: sha256Record(entryCore) };
+  const proposalCore = {
+    schemaVersion: 1,
+    kind: 'comprehension-historical-backfill-proposal',
+    sourceRevision: git(root, ['rev-parse', 'HEAD']),
+    scope: { kind: 'repository', path: null },
+    entries: [entry]
+  };
+  const proposal = { ...proposalCore, proposalSha256: sha256Record(proposalCore) };
+  await mkdir(path.join(root, 'review'), { recursive: true });
+  await writeFile(path.join(root, 'review', 'backfill.json'), `${JSON.stringify(proposal)}\n`);
+  const validated = command(root, [
+    '--no-model', 'comprehension', 'backfill', 'validate', 'review/backfill.json',
+    '--base', 'HEAD', '--json'
+  ]);
+  assert.equal(validated.status, 0, validated.stderr);
+  const result = JSON.parse(validated.stdout);
+  assert.equal(result.operation.id, 'comprehension.backfill.validate');
+  assert.equal(result.data.validation.valid, true);
+  assert.equal(result.data.validation.authoritative, false);
+  assert.equal(result.data.validation.lifecycleGate, false);
+  assert.match(result.data.validation.notices.join(' '), /No full-repository backfill is required/);
+  assert.equal(git(root, ['status', '--porcelain=v1']), before);
 });
 
 test('comprehension graph and explain are model-free bidirectional read projections', async (t) => {

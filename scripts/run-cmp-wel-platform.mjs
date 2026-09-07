@@ -4,6 +4,7 @@ import process from 'node:process';
 
 const TEST_FILES = Object.freeze([
   'test/comprehension-contracts.test.mjs',
+  'test/comprehension-brownfield.test.mjs',
   'test/comprehension-command.test.mjs',
   'test/comprehension-cached-symbols.test.mjs',
   'test/comprehension-diff-preview.test.mjs',

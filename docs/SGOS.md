@@ -37,8 +37,9 @@ It provides:
 - a GVM executor for deterministic kernel operations, verification, checkpoints, human requests,
   no-ops, terminal steps, one exact deterministic-translator `AGENT`, one exact read-only
   filesystem `DEVICE`, and a bounded parallel wave selected from exact resource contracts;
-- static compile-time fan-out with stable item keys, installed `all-success` and `all-terminal`
-  joins, immutable resource leases, and join/fan-out receipts;
+- static compile-time fan-out with stable item keys, installed `all-success`, `all-terminal`,
+  finite `quorum`, and model-free `deterministic-reduce` joins, immutable resource leases, and
+  policy-specific join/fan-out receipts;
 - execution admission that requires an exact Program approval loaded from `sflow/config` (or its
   verified state mirror); deterministic recompilation can corroborate it, but a Program self-hash,
   caller-supplied digest, or compiler inputs alone are never authority;
@@ -121,7 +122,9 @@ operation IDs remain separate from
 the kebab-case adapter IDs; the Program and registry bind both. Approved inline fan-out may be
 nested to four finite levels; every level is pre-expanded before Program hashing, receives an exact
 expansion receipt, and applies its own distinct-item parallel ceiling. The installed join policies
-are `all-success`, `all-terminal`, and finite-threshold `quorum`. Unreviewed model-backed `AGENT`,
+are `all-success`, `all-terminal`, finite-threshold `quorum`, and `deterministic-reduce` with the
+exact `canonical-output-ref-set-v1` reducer. The reducer consumes only already-bound output
+references; it cannot execute code or upgrade their assurance. Unreviewed model-backed `AGENT`,
 any other consequential or uninstalled `DEVICE`, model-created or runtime-dynamic fan-out, unsafe
 parallel execution, and all other join policies still fail closed.
 
@@ -499,7 +502,7 @@ tracked in [SGOS-PENDING-WORK.md](SGOS-PENDING-WORK.md):
 - model-backed or tool-bearing `AGENT` execution beyond the reviewed Copilot proposal-only GEU,
   mutating Devices beyond the exact sandbox-CAS profile, arbitrary third-party adapters, and their
   complete independent conformance/counterfeit-model programs;
-- runtime-dynamic fan-out, reducer/manual-reconcile joins, general idempotent effect replay,
+- runtime-dynamic fan-out, manual-reconcile joins, additional reviewed reducers, general idempotent effect replay,
   non-genesis fork import, and consequential-effect task retry; bounded nested inline fan-out and
   quorum joins are implemented;
 - universal Candidate routing is implemented for the supported lifecycle surfaces; its

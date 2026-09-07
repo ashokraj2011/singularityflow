@@ -7,11 +7,16 @@ import {
   sgosResourceKeysOverlap
 } from '../src/sgos/resource-contracts.mjs';
 import { deterministicSgosDispatchPlan, sgosTaskReadiness } from '../src/sgos/scheduler.mjs';
-import { canonicalSgosJoins, sgosJoinReadiness } from '../src/sgos/joins.mjs';
+import {
+  canonicalSgosJoins, canonicalSgosReducerInputs, reduceSgosJoinOutputs,
+  sgosJoinReadiness
+} from '../src/sgos/joins.mjs';
 import { normalizeSgosFanout } from '../src/sgos/fanout.mjs';
 import {
-  createFanoutExpansionReceipt, createJoinReceipt, createQuorumJoinReceipt, createResourceLease,
+  createFanoutExpansionReceipt, createJoinReceipt, createQuorumJoinReceipt,
+  createReducerJoinReceipt, createResourceLease, recordSelfSha256,
   validateFanoutExpansionReceipt, validateJoinReceipt, validateQuorumJoinReceipt,
+  validateReducerJoinReceipt,
   validateResourceLease
 } from '../src/sgos/contracts.mjs';
 
@@ -142,6 +147,46 @@ test('quorum joins become ready at the installed threshold and fail only when it
   }]), (error) => error.code === 'SGOS_JOIN_QUORUM_INVALID');
 });
 
+test('deterministic reducer joins require every successful input and bind a canonical reduction', () => {
+  const [join] = canonicalSgosJoins([{
+    joinId: 'reduce', taskTemplateId: 'reduce', policy: 'deterministic-reduce',
+    reducerId: 'canonical-output-ref-set-v1',
+    predecessorTaskTemplateIds: ['b', 'a']
+  }]);
+  assert.deepEqual(join, {
+    joinId: 'reduce', taskTemplateId: 'reduce', policy: 'deterministic-reduce',
+    reducerId: 'canonical-output-ref-set-v1',
+    predecessorTaskTemplateIds: ['a', 'b']
+  });
+  assert.deepEqual(sgosJoinReadiness(join, ['succeeded', 'running']), {
+    ready: false, impossible: false
+  });
+  assert.deepEqual(sgosJoinReadiness(join, ['succeeded', 'failed']), {
+    ready: false, impossible: true
+  });
+  assert.deepEqual(sgosJoinReadiness(join, ['succeeded', 'succeeded']), {
+    ready: true, impossible: false
+  });
+  const inputs = canonicalSgosReducerInputs([
+    { taskInstanceId: 'task:b', outputRefs: ['z', 'shared'] },
+    { taskInstanceId: 'task:a', outputRefs: ['shared', 'a'] }
+  ]);
+  assert.deepEqual(inputs, [
+    { taskInstanceId: 'task:a', outputRefs: ['a', 'shared'] },
+    { taskInstanceId: 'task:b', outputRefs: ['shared', 'z'] }
+  ]);
+  assert.deepEqual(reduceSgosJoinOutputs('canonical-output-ref-set-v1', inputs),
+    ['a', 'shared', 'z']);
+  assert.throws(() => canonicalSgosJoins([{
+    joinId: 'bad', taskTemplateId: 'bad', policy: 'deterministic-reduce',
+    reducerId: 'unreviewed', predecessorTaskTemplateIds: ['a']
+  }]), (error) => error.code === 'SGOS_JOIN_REDUCER_UNSUPPORTED');
+  assert.throws(() => canonicalSgosJoins([{
+    joinId: 'bad', taskTemplateId: 'bad', policy: 'all-success',
+    reducerId: 'canonical-output-ref-set-v1', predecessorTaskTemplateIds: ['a']
+  }]), (error) => error.code === 'SGOS_JOIN_REDUCER_INVALID');
+});
+
 test('END waits for non-contributing quorum predecessors to become terminal', () => {
   const templates = [
     template('a'), template('b'), template('c'),
@@ -250,6 +295,26 @@ test('parallel durable receipts are strict, self-hashed, and tamper evident', ()
   assert.throws(() => validateQuorumJoinReceipt({
     ...quorumJoin, requiredSuccesses: 2
   }));
+
+  const reducerJoin = createReducerJoinReceipt({
+    processId, taskInstanceId: 'task:reduce', attemptId,
+    joinId: 'reduce-main', policy: 'deterministic-reduce',
+    reducerId: 'canonical-output-ref-set-v1',
+    predecessors: [{
+      taskInstanceId: 'task:alpha', state: 'succeeded',
+      receiptSha256: `sha256:${'3'.repeat(64)}`, attemptId
+    }],
+    inputs: [{ taskInstanceId: 'task:alpha', outputRefs: ['z', 'a'] }],
+    outputRefs: ['a', 'z'], completedAt: '2026-08-30T00:01:00.000Z'
+  });
+  assert.equal(validateReducerJoinReceipt(reducerJoin).reducerJoinReceiptSha256,
+    reducerJoin.reducerJoinReceiptSha256);
+  const forgedReducerJoin = { ...reducerJoin, outputRefs: ['z'] };
+  forgedReducerJoin.reducerJoinReceiptSha256 = recordSelfSha256(
+    forgedReducerJoin, 'reducerJoinReceiptSha256'
+  );
+  assert.throws(() => validateReducerJoinReceipt(forgedReducerJoin),
+    /outputs do not match/);
 
   const itemSha256 = `sha256:${'1'.repeat(64)}`;
   const expansion = createFanoutExpansionReceipt({

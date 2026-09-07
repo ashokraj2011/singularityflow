@@ -38,6 +38,7 @@ import {
   buildSgosTaskAttempt, buildSgosTaskReceipt, compileSgosActionEvidence, sgosSha256
 } from '../src/sgos/evidence.mjs';
 import { projectSgosWorkObjects } from '../src/sgos/projection.mjs';
+import { compileSgosProcessEvidence } from '../src/sgos/process-evidence.mjs';
 import { SGOS_INSTALLED_LIMITS } from '../src/sgos/limits.mjs';
 import { normalizeSgosFanout, sgosFanoutChildTemplateId } from '../src/sgos/fanout.mjs';
 import { canonicalSgosResourceEntries } from '../src/sgos/resource-contracts.mjs';
@@ -1071,6 +1072,83 @@ test('quorum JOIN binds the full input set and only the deterministic successful
   assert.equal(joined.process.taskInstances[joined.taskInstanceId].outputRefs
     .includes(joined.joinReceipt.quorumJoinReceiptSha256), true);
   assert.equal((await fsckSgosProcess(fixture.root, started.process.processId)).status, 'ok');
+});
+
+test('deterministic-reduce JOIN binds exact predecessor outputs and the installed reduction', async () => {
+  const fixture = await repository('SGOS-STORY-JOIN-REDUCE');
+  const compiled = program([
+    task('10-alpha', 'KERNEL', [], {
+      operation: 'story.alpha',
+      resources: { reads: ['repo/a'], writes: [], devices: [], externalEffects: [] }
+    }),
+    task('20-beta', 'KERNEL', [], {
+      operation: 'story.beta',
+      resources: { reads: ['repo/b'], writes: [], devices: [], externalEffects: [] }
+    }),
+    task('30-reduce', 'JOIN', ['10-alpha', '20-beta'], {
+      material: false, evidence: {},
+      metadata: {
+        joinPolicy: {
+          policy: 'deterministic-reduce', reducerId: 'canonical-output-ref-set-v1'
+        }
+      }
+    }),
+    task('90-end', 'END', ['30-reduce'])
+  ], [{
+    joinId: 'join-reduce', taskTemplateId: '30-reduce', policy: 'deterministic-reduce',
+    reducerId: 'canonical-output-ref-set-v1',
+    predecessorTaskTemplateIds: ['10-alpha', '20-beta']
+  }]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const predecessors = await runReadySgosTasks(fixture.root, started.process.processId, {
+    program: compiled, maximumParallel: 2,
+    handlers: { kernel: {
+      'story.alpha': async () => ({
+        outputRefs: ['sfref:shared', 'sfref:alpha'], rawResult: { status: 'completed' }
+      }),
+      'story.beta': async () => ({
+        outputRefs: ['sfref:beta', 'sfref:shared'], rawResult: { status: 'completed' }
+      })
+    } },
+    captureCandidates: {
+      'story.alpha': async () => ({ resources: [] }),
+      'story.beta': async () => ({ resources: [] })
+    },
+    verifiers: {
+      'story.alpha': async ({ candidateSha256 }) => ({
+        status: 'passed', candidateSha256, checksSha256: HASH.checks
+      }),
+      'story.beta': async ({ candidateSha256 }) => ({
+        status: 'passed', candidateSha256, checksSha256: HASH.checks
+      })
+    },
+    clock: T1
+  });
+  assert.equal(predecessors.launched, 2);
+  const joined = await runNextSgosTask(fixture.root, started.process.processId, {
+    program: compiled, clock: T1
+  });
+  assert.equal(joined.status, 'succeeded');
+  assert.equal(joined.joinReceipt.kind, 'reducer-join-receipt');
+  assert.equal(joined.joinReceipt.reducerId, 'canonical-output-ref-set-v1');
+  assert.deepEqual(joined.joinReceipt.outputRefs,
+    ['sfref:alpha', 'sfref:beta', 'sfref:shared']);
+  assert.deepEqual(joined.joinReceipt.inputs.map((entry) => entry.taskInstanceId),
+    joined.joinReceipt.predecessors.map((entry) => entry.taskInstanceId));
+  const stored = await listSgosImmutableRecordsByField(
+    fixture.root, started.process.processId, 'reducer-join-receipt',
+    'attemptId', joined.joinReceipt.attemptId
+  );
+  assert.equal(stored.length, 1);
+  assert.equal(stored[0].reducerJoinReceiptSha256,
+    joined.joinReceipt.reducerJoinReceiptSha256);
+  assert.equal(joined.process.taskInstances[joined.taskInstanceId].outputRefs
+    .includes(joined.joinReceipt.reducerJoinReceiptSha256), true);
+  assert.equal((await fsckSgosProcess(fixture.root, started.process.processId)).status, 'ok');
+  const evidence = await compileSgosProcessEvidence(fixture.root, started.process.processId);
+  assert.equal(evidence.records.some((entry) =>
+    entry.family === 'reducer-join-receipt'
+      && entry.recordSha256 === joined.joinReceipt.reducerJoinReceiptSha256), true);
 });
 
 test('finite fan-out start roots one exact expansion receipt and executes only bounded children', async () => {

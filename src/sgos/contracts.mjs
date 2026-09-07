@@ -6,7 +6,9 @@ import { SingularityFlowError } from '../util.mjs';
 import { SGOS_INSTALLED_LIMITS } from './limits.mjs';
 import { compareSgosCodePoints } from './order.mjs';
 import { canonicalizeSgosAbsolutePath } from './paths.mjs';
-import { canonicalSgosJoins } from './joins.mjs';
+import {
+  canonicalSgosJoins, canonicalSgosReducerInputs, reduceSgosJoinOutputs
+} from './joins.mjs';
 import {
   normalizeSgosResourceKey, SGOS_RESOURCE_MODES
 } from './resource-contracts.mjs';
@@ -82,6 +84,7 @@ const CONTRACTS = Object.freeze({
   'resource-lease': Object.freeze({ kind: 'resource-lease', hash: 'leaseSha256', id: 'leaseId', prefix: 'RLS' }),
   'join-receipt': Object.freeze({ kind: 'join-receipt', hash: 'joinReceiptSha256', id: 'joinReceiptId', prefix: 'JNR' }),
   'quorum-join-receipt': Object.freeze({ kind: 'quorum-join-receipt', hash: 'quorumJoinReceiptSha256', id: 'quorumJoinReceiptId', prefix: 'QJR' }),
+  'reducer-join-receipt': Object.freeze({ kind: 'reducer-join-receipt', hash: 'reducerJoinReceiptSha256', id: 'reducerJoinReceiptId', prefix: 'RJR' }),
   'fanout-expansion-receipt': Object.freeze({ kind: 'fanout-expansion-receipt', hash: 'expansionSha256', id: 'expansionId', prefix: 'FOX' }),
   'sgos-replay-plan': Object.freeze({ kind: 'sgos-replay-plan', hash: 'replayPlanSha256', id: 'replayPlanId', prefix: 'RPL' }),
   'process-binding': Object.freeze({ kind: 'process-binding', hash: 'bindingSha256' }),
@@ -873,6 +876,82 @@ export function validateQuorumJoinReceipt(value) {
   return returnValidated(value, validateQuorumJoinReceiptRecord);
 }
 
+function validateReducerJoinReceiptRecord(record, requireHash) {
+  validateBase(record, 'reducer-join-receipt', [
+    'reducerJoinReceiptId', 'processId', 'taskInstanceId', 'attemptId', 'joinId',
+    'policy', 'reducerId', 'predecessors', 'inputs', 'outputRefs', 'completedAt'
+  ], [
+    'reducerJoinReceiptId', 'processId', 'taskInstanceId', 'attemptId', 'joinId',
+    'policy', 'reducerId', 'predecessors', 'inputs', 'outputRefs', 'completedAt'
+  ], requireHash);
+  identifier(record.reducerJoinReceiptId, 'RJR',
+    'reducer-join-receipt.reducerJoinReceiptId');
+  identifier(record.processId, 'PROC', 'reducer-join-receipt.processId');
+  string(record.taskInstanceId, 'reducer-join-receipt.taskInstanceId');
+  identifier(record.attemptId, 'ATT', 'reducer-join-receipt.attemptId');
+  string(record.joinId, 'reducer-join-receipt.joinId');
+  if (record.policy !== 'deterministic-reduce') {
+    fail("reducer-join-receipt.policy must be 'deterministic-reduce'.");
+  }
+  string(record.reducerId, 'reducer-join-receipt.reducerId');
+  if (!Array.isArray(record.predecessors) || !record.predecessors.length
+      || record.predecessors.length > SGOS_INSTALLED_LIMITS.maximumJoinInputs) {
+    fail('reducer-join-receipt.predecessors has an invalid size.');
+  }
+  record.predecessors.forEach((entry, index) => {
+    const label = `reducer-join-receipt.predecessors[${index}]`;
+    exactKeys(entry, ['taskInstanceId', 'state', 'receiptSha256', 'attemptId'], label);
+    requireKeys(entry, ['taskInstanceId', 'state', 'receiptSha256', 'attemptId'], label);
+    string(entry.taskInstanceId, `${label}.taskInstanceId`);
+    if (entry.state !== 'succeeded') fail(`${label} must be succeeded.`);
+    digest(entry.receiptSha256, `${label}.receiptSha256`);
+    identifier(entry.attemptId, 'ATT', `${label}.attemptId`);
+  });
+  if (record.predecessors.some((entry, index) =>
+    index > 0 && joinPredecessorOrder(record.predecessors[index - 1], entry) >= 0)) {
+    fail('reducer-join-receipt.predecessors must be unique and canonically sorted.');
+  }
+  let inputs;
+  let reduced;
+  try {
+    inputs = canonicalSgosReducerInputs(record.inputs);
+    reduced = reduceSgosJoinOutputs(record.reducerId, inputs);
+  } catch (error) {
+    fail(error?.message ?? String(error));
+  }
+  if (canonicalJson(inputs) !== canonicalJson(record.inputs)
+      || canonicalJson(inputs.map((entry) => entry.taskInstanceId))
+        !== canonicalJson(record.predecessors.map((entry) => entry.taskInstanceId))) {
+    fail('reducer-join-receipt inputs must canonically match every predecessor.');
+  }
+  stringArray(record.outputRefs, 'reducer-join-receipt.outputRefs');
+  if (canonicalJson(reduced) !== canonicalJson(record.outputRefs)) {
+    fail('reducer-join-receipt outputs do not match the installed deterministic reducer.');
+  }
+  timestamp(record.completedAt, 'reducer-join-receipt.completedAt');
+}
+
+export function createReducerJoinReceipt(value) {
+  return createContract('reducer-join-receipt', value, validateReducerJoinReceiptRecord, {
+    prepare: (record) => ({
+      ...record,
+      predecessors: [...record.predecessors].sort(joinPredecessorOrder),
+      inputs: canonicalSgosReducerInputs(record.inputs),
+      outputRefs: [...new Set(record.outputRefs)].sort(compareSgosCodePoints)
+    }),
+    identity: (record) => ({
+      processId: record.processId, taskInstanceId: record.taskInstanceId,
+      attemptId: record.attemptId, joinId: record.joinId, policy: record.policy,
+      reducerId: record.reducerId, predecessors: record.predecessors, inputs: record.inputs,
+      outputRefs: record.outputRefs
+    })
+  });
+}
+
+export function validateReducerJoinReceipt(value) {
+  return returnValidated(value, validateReducerJoinReceiptRecord);
+}
+
 function fanoutItemOrder(left, right) {
   return compareSgosCodePoints(left.itemKey, right.itemKey);
 }
@@ -1391,8 +1470,8 @@ export const SGOS_RECORD_INDEX_FAMILIES = Object.freeze([
   'action-evidence', 'agent-proposal', 'candidate-snapshot', 'fanout-expansion-receipt',
   'gvm-checkpoint', 'gvm-program',
   'gvm-task-attempt', 'gvm-task-receipt', 'human-request', 'human-response',
-  'join-receipt', 'process-binding', 'quorum-join-receipt', 'resource-lease',
-  'sgos-replay-plan'
+  'join-receipt', 'process-binding', 'quorum-join-receipt', 'reducer-join-receipt',
+  'resource-lease', 'sgos-replay-plan'
 ]);
 
 export const MAXIMUM_SGOS_RECORD_INDEX_DELTA =
@@ -2027,6 +2106,7 @@ const VALIDATORS = Object.freeze({
   'resource-lease': validateResourceLease,
   'join-receipt': validateJoinReceipt,
   'quorum-join-receipt': validateQuorumJoinReceipt,
+  'reducer-join-receipt': validateReducerJoinReceipt,
   'fanout-expansion-receipt': validateFanoutExpansionReceipt,
   'sgos-replay-plan': validateSgosReplayPlan,
   'process-binding': validateProcessBinding,

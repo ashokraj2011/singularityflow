@@ -863,6 +863,30 @@ test('quorum JOIN compiles with one finite threshold and rejects invalid thresho
   }
 });
 
+test('deterministic-reduce JOIN compiles only an installed reducer contract', () => {
+  const build = (reducerId) => compileSgosProgram(fixture({
+    mutateWorkflow(workflow) {
+      workflow.spec.tasks.join = {
+        kind: 'join', dependsOn: ['copy'], material: false,
+        metadata: { joinPolicy: { policy: 'deterministic-reduce', reducerId } }
+      };
+      workflow.spec.tasks.end.dependsOn = ['join'];
+      workflow.spec.joins = {
+        join: {
+          taskTemplateId: 'join', policy: 'deterministic-reduce', reducerId,
+          predecessorTaskTemplateIds: ['copy']
+        }
+      };
+      workflow.spec.budgets.maximumTasks = 3;
+    }
+  }));
+  assert.deepEqual(build('canonical-output-ref-set-v1').program.joins, [{
+    joinId: 'join', taskTemplateId: 'join', policy: 'deterministic-reduce',
+    reducerId: 'canonical-output-ref-set-v1', predecessorTaskTemplateIds: ['copy']
+  }]);
+  expectCode(() => build('unreviewed-reducer'), 'SGOS_JOIN_REDUCER_UNSUPPORTED');
+});
+
 test('finite foreach expands canonically into bounded non-nested children and an all-success join', () => {
   const first = compileSgosProgram(fixture({
     mutateWorkflow(workflow) {

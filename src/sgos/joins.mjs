@@ -3,7 +3,11 @@ import { SGOS_INSTALLED_LIMITS } from './limits.mjs';
 import { compareSgosCodePoints } from './order.mjs';
 
 export const SGOS_INSTALLED_JOIN_POLICIES = Object.freeze([
-  'all-success', 'all-terminal', 'quorum'
+  'all-success', 'all-terminal', 'deterministic-reduce', 'quorum'
+]);
+
+export const SGOS_INSTALLED_JOIN_REDUCERS = Object.freeze([
+  'canonical-output-ref-set-v1'
 ]);
 
 const TERMINAL = new Set(['succeeded', 'failed', 'blocked', 'cancelled', 'skipped']);
@@ -42,6 +46,7 @@ export function canonicalSgosJoins(joins = []) {
       });
     }
     const suppliedRequiredSuccesses = value.requiredSuccesses ?? value.threshold ?? null;
+    const suppliedReducerId = value.reducerId ?? value.reducer ?? null;
     if (policy === 'quorum') {
       if (!Number.isSafeInteger(suppliedRequiredSuccesses)
           || suppliedRequiredSuccesses < 1
@@ -56,9 +61,22 @@ export function canonicalSgosJoins(joins = []) {
       fail(`Join '${joinId}' may set requiredSuccesses only for policy 'quorum'.`,
         'SGOS_JOIN_QUORUM_INVALID', { joinId, policy });
     }
+    if (policy === 'deterministic-reduce') {
+      if (!SGOS_INSTALLED_JOIN_REDUCERS.includes(suppliedReducerId)) {
+        fail(`Join '${joinId}' reducer '${suppliedReducerId ?? ''}' is not installed.`,
+          'SGOS_JOIN_REDUCER_UNSUPPORTED', {
+            joinId, reducerId: suppliedReducerId,
+            installed: SGOS_INSTALLED_JOIN_REDUCERS
+          });
+      }
+    } else if (suppliedReducerId !== null) {
+      fail(`Join '${joinId}' may set reducerId only for policy 'deterministic-reduce'.`,
+        'SGOS_JOIN_REDUCER_INVALID', { joinId, policy });
+    }
     return Object.freeze({
       joinId, taskTemplateId, policy,
       ...(policy === 'quorum' ? { requiredSuccesses: suppliedRequiredSuccesses } : {}),
+      ...(policy === 'deterministic-reduce' ? { reducerId: suppliedReducerId } : {}),
       predecessorTaskTemplateIds
     });
   }).sort((left, right) => compareSgosCodePoints(left.joinId, right.joinId));
@@ -80,7 +98,7 @@ export function sgosJoinReadiness(join, predecessorStates) {
   if (states.length !== join.predecessorTaskTemplateIds.length) {
     fail(`Join '${join.joinId}' predecessor state count does not match its contract.`);
   }
-  if (join.policy === 'all-success') {
+  if (join.policy === 'all-success' || join.policy === 'deterministic-reduce') {
     return Object.freeze({
       ready: states.every((state) => state === 'succeeded'),
       impossible: states.some((state) => TERMINAL.has(state) && state !== 'succeeded')
@@ -98,6 +116,50 @@ export function sgosJoinReadiness(join, predecessorStates) {
     ready: states.every((state) => TERMINAL.has(state)),
     impossible: false
   });
+}
+
+export function canonicalSgosReducerInputs(inputs = []) {
+  if (!Array.isArray(inputs) || !inputs.length
+      || inputs.length > SGOS_INSTALLED_LIMITS.maximumJoinInputs) {
+    fail('Deterministic reducer inputs have an invalid size.', 'SGOS_JOIN_REDUCER_INVALID');
+  }
+  const canonical = inputs.map((value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)
+        || Object.keys(value).some((key) => !['taskInstanceId', 'outputRefs'].includes(key))) {
+      fail('Deterministic reducer inputs must contain only taskInstanceId and outputRefs.',
+        'SGOS_JOIN_REDUCER_INVALID');
+    }
+    const taskInstanceId = String(value.taskInstanceId ?? '');
+    if (!taskInstanceId || !Array.isArray(value.outputRefs)
+        || value.outputRefs.some((entry) => typeof entry !== 'string')) {
+      fail('Deterministic reducer inputs require a taskInstanceId and string outputRefs.',
+        'SGOS_JOIN_REDUCER_INVALID');
+    }
+    return Object.freeze({
+      taskInstanceId,
+      outputRefs: Object.freeze([...new Set(value.outputRefs)].sort(compareSgosCodePoints))
+    });
+  }).sort((left, right) => compareSgosCodePoints(left.taskInstanceId, right.taskInstanceId));
+  if (canonical.some((value, index) =>
+    index > 0 && canonical[index - 1].taskInstanceId === value.taskInstanceId)) {
+    fail('Deterministic reducer task inputs must be unique.', 'SGOS_JOIN_REDUCER_INVALID');
+  }
+  return Object.freeze(canonical);
+}
+
+export function reduceSgosJoinOutputs(reducerId, inputs) {
+  if (!SGOS_INSTALLED_JOIN_REDUCERS.includes(reducerId)) {
+    fail(`Join reducer '${reducerId ?? ''}' is not installed.`,
+      'SGOS_JOIN_REDUCER_UNSUPPORTED', {
+        reducerId: reducerId ?? null, installed: SGOS_INSTALLED_JOIN_REDUCERS
+      });
+  }
+  const canonical = canonicalSgosReducerInputs(inputs);
+  if (reducerId === 'canonical-output-ref-set-v1') {
+    return Object.freeze([...new Set(canonical.flatMap((entry) => entry.outputRefs))]
+      .sort(compareSgosCodePoints));
+  }
+  fail(`Join reducer '${reducerId}' is not implemented.`, 'SGOS_JOIN_REDUCER_UNSUPPORTED');
 }
 
 export function isSgosTerminalTaskState(value) {

@@ -45,6 +45,12 @@ the full configured predecessor set and the deterministic successful contributor
 transition verification, process fsck, evidence export, schema migration, and terminal scheduling
 all understand that receipt without changing historical `join-receipt` bytes.
 
+The next code-local slice installs one model-free `deterministic-reduce` policy. Its only installed
+reducer, `canonical-output-ref-set-v1`, waits for every predecessor to succeed, canonicalizes each
+predecessor's exact output-reference set, and produces their sorted unique union. A separate
+immutable reducer receipt binds the reducer ID, predecessor receipts, exact reducer inputs, and
+result. Arbitrary reducer code and unreviewed reducer IDs remain refused.
+
 ## Status rules
 
 - `[ ]` means the capability remains unavailable or behind an explicit refusal boundary.
@@ -239,8 +245,15 @@ Implemented in the current increment:
   allowing parallel leaves within one item without accidentally opening another outer item;
 - existing one-level fan-out compiles to the same shape; dynamic/model-created collections remain
   unavailable.
+- `deterministic-reduce` is installed with exactly one model-free canonical output-reference-set
+  reducer; Program admission, scheduling, immutable receipt validation, transition verification,
+  process fsck, evidence export, schema migration, and the umbrella schema share the exact
+  reducer identity and input/output contract;
+- unreviewed reducers cannot be introduced by Workflow metadata, and the reducer does not execute
+  code, read output bodies, access tools, or mint verification authority.
 
-Still required: dynamic fan-out, reducer and human manual-reconcile joins, general
+Still required: dynamic fan-out, human manual-reconcile joins, additional independently reviewed
+reducer implementations, general
 idempotent effect replay, non-genesis fork import, and consequential-effect retry. Quorum also needs
 the shared signed supported-platform release evidence before this item can become `[x]`.
 

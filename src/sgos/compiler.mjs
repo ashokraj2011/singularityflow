@@ -1136,11 +1136,15 @@ function joinsForProgram(workflow, templates) {
     const requiredSuccesses = supplied.requiredSuccesses ?? supplied.threshold
       ?? (typeof metadataPolicy === 'object'
         ? metadataPolicy.requiredSuccesses ?? metadataPolicy.threshold : null);
+    const reducerId = supplied.reducerId ?? supplied.reducer
+      ?? (typeof metadataPolicy === 'object'
+        ? metadataPolicy.reducerId ?? metadataPolicy.reducer : null);
     joins.push({
       joinId: String(supplied.joinId ?? template.taskTemplateId),
       taskTemplateId: template.taskTemplateId,
       policy,
       ...(requiredSuccesses != null ? { requiredSuccesses } : {}),
+      ...(reducerId != null ? { reducerId } : {}),
       predecessorTaskTemplateIds: [...template.dependsOn]
     });
   }

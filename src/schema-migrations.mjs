@@ -2067,6 +2067,13 @@ const families = [
     ]
   }),
   family({
+    id: 'reducer-join-receipt', currentVersion: 1, immutable: true,
+    paths: [
+      /^\$git\/sgos\/processes\/[^/]+\/reducer-join-receipts\/[a-f0-9]{64}\.json$/,
+      sgosRecordReservationPath('reducer-join-receipt')
+    ]
+  }),
+  family({
     id: 'fanout-expansion-receipt', currentVersion: 1, immutable: true,
     paths: [
       /^\$git\/sgos\/processes\/[^/]+\/fanout-expansions\/[a-f0-9]{64}\.json$/,

@@ -43,6 +43,7 @@ const HASH_FIELDS = Object.freeze({
   'human-response': 'responseSha256',
   'join-receipt': 'joinReceiptSha256',
   'quorum-join-receipt': 'quorumJoinReceiptSha256',
+  'reducer-join-receipt': 'reducerJoinReceiptSha256',
   'process-binding': 'bindingSha256',
   'resource-lease': 'leaseSha256',
   'sgos-replay-plan': 'replayPlanSha256'

@@ -29,6 +29,7 @@ import { sgosContractPathFromLocal } from './paths.mjs';
 import { SGOS_INSTALLED_LIMITS } from './limits.mjs';
 import { assertSgosProcessMaterialization } from './materialization.mjs';
 import { compareSgosCodePoints } from './order.mjs';
+import { canonicalSgosReducerInputs, reduceSgosJoinOutputs } from './joins.mjs';
 import { canonicalSgosResourceEntries } from './resource-contracts.mjs';
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
@@ -93,6 +94,7 @@ const IMMUTABLE_FAMILIES = Object.freeze({
   'resource-lease': Object.freeze({ directory: 'resource-leases', hashField: 'leaseSha256' }),
   'join-receipt': Object.freeze({ directory: 'join-receipts', hashField: 'joinReceiptSha256' }),
   'quorum-join-receipt': Object.freeze({ directory: 'quorum-join-receipts', hashField: 'quorumJoinReceiptSha256' }),
+  'reducer-join-receipt': Object.freeze({ directory: 'reducer-join-receipts', hashField: 'reducerJoinReceiptSha256' }),
   'fanout-expansion-receipt': Object.freeze({ directory: 'fanout-expansions', hashField: 'expansionSha256' }),
   'sgos-replay-plan': Object.freeze({ directory: 'replay-plans', hashField: 'replayPlanSha256' }),
   'process-binding': Object.freeze({ directory: 'bindings', hashField: 'bindingSha256' }),
@@ -4050,7 +4052,7 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
   // Index every bounded attempt and receipt once, including immutable records hidden by mutable
   // task state. A self-hashed Process cannot reset a receipted task to ready and execute it again.
   const [attempts, receipts, agentProposals, resourceLeases, joinReceipts,
-    quorumJoinReceipts, fanoutReceipts,
+    quorumJoinReceipts, reducerJoinReceipts, fanoutReceipts,
     { record: program }] = await Promise.all([
     allRecords('gvm-task-attempt'),
     allRecords('gvm-task-receipt'),
@@ -4058,6 +4060,7 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
     allRecords('resource-lease'),
     allRecords('join-receipt'),
     allRecords('quorum-join-receipt'),
+    allRecords('reducer-join-receipt'),
     allRecords('fanout-expansion-receipt'),
     readImmutable('gvm-program', state.programSha256)
   ]);
@@ -4191,11 +4194,15 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
     state, program, agentProposals, attempts, receipts, ownerByAttempt
   );
   const joinsByTask = new Map((program.joins ?? []).map((join) => [join.taskTemplateId, join]));
-  const everyJoinReceipt = [...joinReceipts, ...quorumJoinReceipts];
+  const everyJoinReceipt = [
+    ...joinReceipts, ...quorumJoinReceipts, ...reducerJoinReceipts
+  ];
   const joinReceiptsByAttempt = recordsBy(everyJoinReceipt, 'attemptId');
   for (const receipt of everyJoinReceipt) {
     const receiptSha256 = receipt.policy === 'quorum'
-      ? receipt.quorumJoinReceiptSha256 : receipt.joinReceiptSha256;
+      ? receipt.quorumJoinReceiptSha256
+      : receipt.policy === 'deterministic-reduce'
+        ? receipt.reducerJoinReceiptSha256 : receipt.joinReceiptSha256;
     const taskId = ownerByAttempt.get(receipt.attemptId);
     const task = taskId == null ? null : state.taskInstances[taskId];
     const join = task == null ? null : joinsByTask.get(task.taskTemplateId);
@@ -4216,13 +4223,25 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
         task: historicalPredecessor ?? state.taskInstances[entry.taskInstanceId] ?? null
       };
     });
-    const expectedOutputs = [...new Set(predecessorRecords.flatMap(({ entry, task: predecessor }) =>
+    const sourceOutputs = [...new Set(predecessorRecords.flatMap(({ entry, task: predecessor }) =>
       entry.state === 'succeeded' ? predecessor?.outputRefs ?? [] : []
     ))].sort(compareSgosCodePoints);
+    const expectedReducerInputs = receipt.policy === 'deterministic-reduce'
+      ? canonicalSgosReducerInputs(predecessorRecords.map(({ entry, task: predecessor }) => ({
+        taskInstanceId: entry.taskInstanceId,
+        outputRefs: predecessor?.outputRefs ?? []
+      })))
+      : null;
+    const expectedOutputs = receipt.policy === 'deterministic-reduce'
+      ? reduceSgosJoinOutputs(receipt.reducerId, expectedReducerInputs)
+      : sourceOutputs;
     if (!task || taskId !== receipt.taskInstanceId || receipt.processId !== state.processId
         || !join || receipt.joinId !== join.joinId || receipt.policy !== join.policy
         || (receipt.policy === 'quorum'
           && receipt.requiredSuccesses !== join.requiredSuccesses)
+        || (receipt.policy === 'deterministic-reduce'
+          && (receipt.reducerId !== join.reducerId
+            || canonicalJson(receipt.inputs) !== canonicalJson(expectedReducerInputs)))
         || canonicalJson(receipt.policy === 'quorum'
           ? receipt.predecessorTaskInstanceIds
           : receipt.predecessors.map((entry) => entry.taskInstanceId))
@@ -4263,7 +4282,9 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
     if (!joinsByTask.has(task.taskTemplateId) || task.state !== 'succeeded') continue;
     const exact = joinReceiptsByAttempt.get(task.attemptIds.at(-1)) ?? [];
     const receiptSha256 = exact[0]?.policy === 'quorum'
-      ? exact[0].quorumJoinReceiptSha256 : exact[0]?.joinReceiptSha256;
+      ? exact[0].quorumJoinReceiptSha256
+      : exact[0]?.policy === 'deterministic-reduce'
+        ? exact[0].reducerJoinReceiptSha256 : exact[0]?.joinReceiptSha256;
     if (exact.length !== 1 || !task.outputRefs.includes(receiptSha256)) {
       fail(`Succeeded JOIN task '${taskId}' is not bound to one exact join receipt.`,
         'SGOS_JOIN_RECEIPT_INVALID');
@@ -4701,7 +4722,9 @@ async function assertTransitionIndexDelta(root, before, after, index) {
         const join = (program.joins ?? []).find((entry) =>
           entry.taskTemplateId === task.taskTemplateId);
         const joinReceiptFamily = join?.policy === 'quorum'
-          ? 'quorum-join-receipt' : 'join-receipt';
+          ? 'quorum-join-receipt'
+          : join?.policy === 'deterministic-reduce'
+            ? 'reducer-join-receipt' : 'join-receipt';
         const exactJoin = index.delta.filter((entry) =>
           entry.family === joinReceiptFamily
           && entry.attemptId === receipt.attemptId
@@ -4717,15 +4740,28 @@ async function assertTransitionIndexDelta(root, before, after, index) {
         const predecessors = joinReceipt.predecessors.map((entry) => ({
           entry, task: after.taskInstances[entry.taskInstanceId] ?? null
         }));
-        const expectedOutputs = [...new Set(predecessors.flatMap(({ entry, task: predecessor }) =>
+        const sourceOutputs = [...new Set(predecessors.flatMap(({ entry, task: predecessor }) =>
           entry.state === 'succeeded' ? predecessor?.outputRefs ?? [] : []
         ))].sort(compareSgosCodePoints);
+        const expectedReducerInputs = joinReceipt.policy === 'deterministic-reduce'
+          ? canonicalSgosReducerInputs(predecessors.map(({ entry, task: predecessor }) => ({
+            taskInstanceId: entry.taskInstanceId,
+            outputRefs: predecessor?.outputRefs ?? []
+          })))
+          : null;
+        const expectedOutputs = joinReceipt.policy === 'deterministic-reduce'
+          ? reduceSgosJoinOutputs(joinReceipt.reducerId, expectedReducerInputs)
+          : sourceOutputs;
         if (!join || joinReceipt.joinId !== join.joinId
             || joinReceipt.policy !== join.policy
             || (joinReceipt.policy === 'quorum'
               && (joinReceipt.requiredSuccesses !== join.requiredSuccesses
                 || canonicalJson(joinReceipt.predecessorTaskInstanceIds)
                   !== canonicalJson(task.predecessorTaskInstanceIds)))
+            || (joinReceipt.policy === 'deterministic-reduce'
+              && (joinReceipt.reducerId !== join.reducerId
+                || canonicalJson(joinReceipt.inputs)
+                  !== canonicalJson(expectedReducerInputs)))
             || joinReceipt.attemptId !== receipt.attemptId
             || predecessors.some(({ entry, task: predecessor }) =>
               !predecessor || predecessor.state !== entry.state

@@ -19,6 +19,7 @@ import {
   createFanoutExpansionReceipt,
   createJoinReceipt,
   createQuorumJoinReceipt,
+  createReducerJoinReceipt,
   createResourceLease,
   validateCandidateSnapshot,
   validateAgentProposal,
@@ -79,7 +80,10 @@ import {
 import {
   deterministicSgosDispatchPlan, sgosTaskReadiness
 } from './scheduler.mjs';
-import { isSgosTerminalTaskState, sgosJoinForTask } from './joins.mjs';
+import {
+  canonicalSgosReducerInputs, isSgosTerminalTaskState, reduceSgosJoinOutputs,
+  sgosJoinForTask
+} from './joins.mjs';
 import {
   executeInstalledGvmAdapter, resolveInstalledGvmAdapter
 } from './gvm-adapters.mjs';
@@ -2026,6 +2030,19 @@ async function runNextSgosTaskWithinPolicy(root, processId, {
         fail(`JOIN task '${template.taskTemplateId}' no longer satisfies its quorum contract.`,
           'SGOS_JOIN_QUORUM_NOT_READY');
       }
+      const reducerInputs = join.policy === 'deterministic-reduce'
+        ? canonicalSgosReducerInputs(contributors.map((entry) => ({
+          taskInstanceId: entry.taskInstanceId,
+          outputRefs: begun.taskInstances[entry.taskInstanceId]?.outputRefs ?? []
+        })))
+        : null;
+      const joinedOutputRefs = join.policy === 'deterministic-reduce'
+        ? reduceSgosJoinOutputs(join.reducerId, reducerInputs)
+        : contributors.flatMap((entry) => {
+          if (entry.state !== 'succeeded') return [];
+          const predecessor = begun.taskInstances[entry.taskInstanceId];
+          return predecessor?.outputRefs ?? [];
+        });
       const receiptInput = {
         processId: begun.processId, taskInstanceId: task.taskInstanceId, attemptId,
         joinId: join.joinId, policy: join.policy,
@@ -2034,21 +2051,26 @@ async function runNextSgosTaskWithinPolicy(root, processId, {
           predecessorTaskInstanceIds: [...task.predecessorTaskInstanceIds]
             .sort(compareSgosCodePoints)
         } : {}),
+        ...(join.policy === 'deterministic-reduce' ? {
+          reducerId: join.reducerId, inputs: reducerInputs
+        } : {}),
         predecessors: contributors,
-        outputRefs: contributors.flatMap((entry) => {
-          if (entry.state !== 'succeeded') return [];
-          const predecessor = begun.taskInstances[entry.taskInstanceId];
-          return predecessor?.outputRefs ?? [];
-        }),
+        outputRefs: joinedOutputRefs,
         completedAt: instant(clock)
       };
       const joinReceipt = join.policy === 'quorum'
         ? createQuorumJoinReceipt(receiptInput)
-        : createJoinReceipt(receiptInput);
+        : join.policy === 'deterministic-reduce'
+          ? createReducerJoinReceipt(receiptInput)
+          : createJoinReceipt(receiptInput);
       const joinReceiptFamily = join.policy === 'quorum'
-        ? 'quorum-join-receipt' : 'join-receipt';
+        ? 'quorum-join-receipt'
+        : join.policy === 'deterministic-reduce'
+          ? 'reducer-join-receipt' : 'join-receipt';
       const joinReceiptSha256 = join.policy === 'quorum'
-        ? joinReceipt.quorumJoinReceiptSha256 : joinReceipt.joinReceiptSha256;
+        ? joinReceipt.quorumJoinReceiptSha256
+        : join.policy === 'deterministic-reduce'
+          ? joinReceipt.reducerJoinReceiptSha256 : joinReceipt.joinReceiptSha256;
       const publication = await putRuntimeImmutableRecord(
         root, begun.processId, joinReceiptFamily, joinReceipt
       );

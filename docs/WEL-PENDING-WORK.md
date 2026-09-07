@@ -6,7 +6,7 @@
 
 **Created:** 2026-08-30
 
-**Current reconciliation:** checked through `main@8fbd3a97` on 2026-09-07. Commits `259b76f1`,
+**Current reconciliation:** checked through `main@3edb8bcf` on 2026-09-07. Commits `259b76f1`,
 `58d9329d`, and `d55229c7` provide the bounded exact-static JUnit identity adapter, immutable
 proposal snapshot, human review through the existing phase approval, migration, safe command-shape
 fallbacks, the evolving content-free benchmark, and same-process unenrolled delta measurement. Commit
@@ -37,13 +37,13 @@ its detached descendant process group before returning an exact retry command. T
 repairs change neither evidence identity nor authority.
 
 Commit `8fbd3a97` adds the first privacy-safe real-repository measurement boundary for the shipped
-Jest/Vitest profiles. It accepts only an explicitly reviewed, bounded manifest; replays retained
-reporter bytes without executing tests; refuses repository drift; and emits aggregate outcomes,
-latency, CPU, catalog bytes, and closed reason counts without paths, source, test names, clauses,
-content digests, identities, prompts, or transcripts. The npm package, portable matrix, and release
-gate contain and exercise the runner. This supplies collection machinery only: it is not an
-independently reviewed corpus result, a JUnit corpus measurement, authenticated evidence, or a
-release authority.
+Jest/Vitest profiles; `3edb8bcf` extends that same boundary to the production JUnit/Surefire XML
+replay and packaged JDK parser. It accepts only an explicitly reviewed, bounded manifest; replays
+retained reporter bytes without executing tests; refuses repository drift; and emits aggregate
+outcomes, latency, CPU, catalog bytes, and closed reason counts without paths, source, test names,
+clauses, content digests, identities, prompts, or transcripts. The npm package, portable matrix,
+and release gate contain and exercise the runner. This supplies collection machinery only: it is
+not an independently reviewed corpus result, authenticated evidence, or a release authority.
 
 The shared package boundary was re-exercised at `main@da6338ab`: both the isolated npm package and
 the exact VSIX-contained engine still import the WEL adapter and packaged Java helper while running
@@ -198,19 +198,23 @@ Implemented in the current increment:
 - a reviewed 12-case local corpus proves exact identity for the supported literal forms and zero
   false exact matches across decoy, dynamic, parameterized, repeated, nested, wildcard,
   non-literal, duplicate-report, and class-mismatch cases;
+- the privacy-safe reviewed-manifest runner replays bounded Surefire XML directories through the
+  same production parser and emits aggregate expected/observed, false-exact, false-inconclusive,
+  closed-reason, latency, CPU, and catalog-byte measurements without corpus identities or content;
 - explicit Maven testcase/group/include/exclude/engine focus, Surefire rerun properties, and
   non-Surefire JUnit producers now fail safely to an inexact observation without suppressing the
   ordinary module test receipt;
 - missing Java/JDK/parser support is non-blocking and existing module Code Delivery evidence keeps
   its existing authority.
 
-Implementation checkpoints: `259b76f1` (pilot) and `58d9329d` (focused/filter/retry and
-non-Surefire fail-safe classification).
+Implementation checkpoints: `259b76f1` (pilot), `58d9329d` (focused/filter/retry and
+non-Surefire fail-safe classification), and `3edb8bcf` (bounded real-repository corpus measurement
+path).
 
-Still required before completion: universal Candidate/Program/attempt binding, reviewed adversarial
-real-repository corpus measurements, durable attempt-lineage retry semantics, cross-platform
-packaging receipts, and the authenticated execution contract. Until then every exact-static outcome
-is still `inconclusive`.
+Still required before completion: universal Candidate/Program/attempt binding, execution and
+independent review of adversarial real-repository corpus measurements, durable attempt-lineage retry
+semantics, cross-platform packaging receipts, and the authenticated execution contract. Until then
+every exact-static outcome is still `inconclusive`.
 
 An ordinary Story does not currently create an SGOS Program or task attempt. Its local
 test-execution receipt must therefore keep `candidate`, `program`, and `attempt` null and disclose
@@ -296,11 +300,12 @@ Implemented in the current increment:
   incomplete, host-mismatched, content-bearing, false-exact, or digest-mismatched report refuses the
   receipt rather than relying on an optional developer run or a pass-only stage label.
 - `npm run benchmark:wel:corpus -- --manifest <JSON> --samples <1..20>` measures the production
-  Jest/Vitest static observer on 1–16 explicitly selected local Git repositories and up to 64
-  reviewed cases. It consumes existing reporter output, performs no test/model/AST/network/lifecycle
-  action, verifies the complete repository state did not drift, and emits only content-free
-  aggregates. A classification mismatch exits nonzero, while the observation remains
-  non-authoritative and ineligible for release by itself.
+  JUnit/Surefire and Jest/Vitest static observers on 1–16 explicitly selected local Git repositories
+  and up to 64 reviewed cases. It consumes existing reporter output, performs no
+  test/model/AST-Intelligence/network/lifecycle action, verifies the complete repository state did
+  not drift, and emits only content-free aggregates. JUnit cases use the bounded packaged local JDK
+  parser without compiling or loading Candidate tests. A classification mismatch exits nonzero,
+  while the observation remains non-authoritative and ineligible for release by itself.
 
 Implementation checkpoints: `d55229c7` (content-free benchmark v2), `6fbcf3bf` (isolated npm and
 VSIX engine proof), `d960e928` (portable deterministic corpus command), `396ccb73` (mandatory
@@ -310,12 +315,13 @@ model-free governed Story-start transaction latency and workflow-byte measuremen
 (content-free post-preflight push-failure and exact-sync recovery measurement), and `9ea94aac`
 (offline/fresh-clone/interrupted-write recovery plus cancellable parser boundary), and `921bc790`
 (strict private benchmark retention and signed single-host/matrix evidence binding), and `8fbd3a97`
-(privacy-safe reviewed-manifest Jest/Vitest corpus measurement boundary).
+(privacy-safe reviewed-manifest Jest/Vitest corpus measurement boundary), and `3edb8bcf`
+(the matching bounded JUnit/Surefire measurement path).
 
-Real-corpus runner checkpoint on `main@8fbd3a97`:
+Real-corpus runner checkpoint on `main@3edb8bcf`:
 
-- the runner's exact, safely inexact, malformed-report refusal, expectation-mismatch, duplicate,
-  missing, and bounded-input tests passed 3/3;
+- the runner's exact JUnit and JavaScript, safely inexact, malformed-report refusal,
+  expectation-mismatch, duplicate, missing, and bounded-input tests passed 3/3;
 - the expanded portable CMP/WEL matrix passed 68/68 with zero failures, skips, cancellations, or
   todo, and repository conformance passed 1,371 checks;
 - isolated npm installation loaded the packaged runner without source-tree access;
@@ -413,13 +419,13 @@ Linux packaged-release checkpoint through `main@e2e90e59`:
   exercise, not the physical-host, office-network, Windows, independent-review, or signed-matrix
   gates.
 
-Still required before completion: independently reviewed real-repository corpus results (including
-the JUnit/Surefire P0 corpus), office-network remote Story publication latency measurements, an
-approved Flow Impact design, live office/offline and cross-platform cancellation/process-tree
-exercises, execution of the isolated artifact proof on a physical Windows host, and one signed
-release receipt binding npm, VSIX, schemas, source, and the full supported-platform matrix. The
-local runner and container evidence are code evidence for those paths, not substitutes for the
-external review and host receipts.
+Still required before completion: execution and independent review of real-repository corpus
+results for JUnit/Surefire and Jest/Vitest, office-network remote Story publication latency
+measurements, an approved Flow Impact design, live office/offline and cross-platform
+cancellation/process-tree exercises, execution of the isolated artifact proof on a physical
+Windows host, and one signed release receipt binding npm, VSIX, schemas, source, and the full
+supported-platform matrix. The local runner and container evidence are code evidence for those
+paths, not substitutes for the external review and host receipts.
 
 Measure whether WEL improves traceability without creating unacceptable latency, noise, or false
 confidence.

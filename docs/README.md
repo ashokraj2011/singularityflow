@@ -56,7 +56,7 @@ is not part of the current product.
 | Approved clause-driven specification architecture | [Clause-driven specifications](CLAUSE-DRIVEN-SPECIFICATIONS.md) |
 | Witnessed clauses, bounded knowledge, and observe-only testcase evidence | [Witnessed Engineering Loop](WEL-SPEC.md) |
 | Understand WEL trust, privacy, parser, and two-plane storage boundaries | [WEL threat model](WEL-THREAT-MODEL.md), [authority ADR](adr/0008-wel-authority-and-storage.md), [JUnit identity ADR](adr/0009-wel-junit5-local-identity.md), and [Jest/Vitest identity ADR](adr/0015-wel-javascript-local-identity.md) |
-| Measure an explicitly reviewed Jest/Vitest corpus without retaining repository content | [WEL real-repository corpus measurement](WEL-REAL-CORPUS-MEASUREMENT.md) |
+| Measure an explicitly reviewed JUnit/Surefire or Jest/Vitest corpus without retaining repository content | [WEL real-repository corpus measurement](WEL-REAL-CORPUS-MEASUREMENT.md) |
 | Review the CAB authority, trust, sandbox, risk, and rollout design | [CAB v0.2](CAB-V0.2.md), [CAB threat model](CAB-THREAT-MODEL.md), and [machine-readable contract](contracts/cab/architecture-v0.2.json) |
 | Review the corrected, non-runtime GDP contract baseline | [GDP contract vNext](GDP-CONTRACT-VNEXT.md) |
 | Govern Workflow and Outcome delivery through one Candidate and proof system | [Governed Delivery and Proof roadmap](GDP-DELIVERY-ROADMAP.md) |

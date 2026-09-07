@@ -17,7 +17,8 @@ const SUPPORTED_RELEASE_PLATFORMS = Object.freeze(['darwin', 'linux', 'win32']);
 const SUPPORTED_RELEASE_NODE_MAJORS = Object.freeze([20, 22]);
 const SINGLE_RECEIPT_VERSION = 5; // schema-transient: externally signed release receipt
 const MATRIX_RECEIPT_VERSION = 6; // schema-transient: externally signed release receipt
-const PLATFORM_EVIDENCE_VERSION = 1; // schema-transient: reviewed external evidence input
+const PLATFORM_EVIDENCE_VERSION = 1; // schema-transient: historical reviewed external evidence input
+const SGOS_PLATFORM_EVIDENCE_VERSION = 2; // schema-transient: reviewed SGOS release evidence input
 const SHA256 = /^sha256:[a-f0-9]{64}$/;
 const GIT_OBJECT_ID = /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/;
 const NODE_VERSION = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
@@ -61,6 +62,43 @@ function passedEvidenceFailures(value, label, mechanismField = null, additionalK
   return failures;
 }
 
+const SGOS_END_TO_END_CHECKS = Object.freeze([
+  ['softwareConversionJourney', 'software-conversion journey'],
+  ['hypothesisAnalysisJourney', 'hypothesis-analysis journey'],
+  ['interruptionRecovery', 'interruption recovery'],
+  ['counterfeitAuthorityRefusal', 'counterfeit-authority refusal'],
+  ['crossMachineAuthorityRoundTrip', 'cross-machine authority round trip']
+]);
+
+function collectSgosEndToEndFailures(value) {
+  const failures = [];
+  const keys = [
+    ...SGOS_END_TO_END_CHECKS.map(([field]) => field),
+    'performanceBudget'
+  ];
+  if (!hasExactKeys(value, keys)) failures.push('SGOS end-to-end evidence fields are invalid');
+  for (const [field, label] of SGOS_END_TO_END_CHECKS) {
+    failures.push(...passedEvidenceFailures(value?.[field], `SGOS ${label}`));
+  }
+  failures.push(...passedEvidenceFailures(
+    value?.performanceBudget,
+    'SGOS performance budget',
+    null,
+    ['budgetProfileSha256']
+  ));
+  if (!SHA256.test(String(value?.performanceBudget?.budgetProfileSha256 ?? ''))) {
+    failures.push('SGOS performance budget budgetProfileSha256 is invalid');
+  }
+  const digests = [
+    ...SGOS_END_TO_END_CHECKS.map(([field]) => value?.[field]?.evidenceSha256),
+    value?.performanceBudget?.evidenceSha256
+  ].filter((digest) => SHA256.test(String(digest ?? '')));
+  if (digests.length === keys.length && new Set(digests).size !== digests.length) {
+    failures.push('SGOS end-to-end evidence must bind a distinct retained receipt for every check');
+  }
+  return failures;
+}
+
 function collectPlatformEvidenceFailures(value, expected = {}) {
   const failures = [];
   const topLevelKeys = [
@@ -69,8 +107,10 @@ function collectPlatformEvidenceFailures(value, expected = {}) {
   ];
   if (!hasExactKeys(value, topLevelKeys)) failures.push('platform evidence fields are invalid');
   const evidenceVersion = value?.schemaVersion;
-  if (evidenceVersion !== PLATFORM_EVIDENCE_VERSION) {
-    failures.push(`platform evidence schemaVersion must be ${PLATFORM_EVIDENCE_VERSION}`);
+  if (![PLATFORM_EVIDENCE_VERSION, SGOS_PLATFORM_EVIDENCE_VERSION].includes(evidenceVersion)) {
+    failures.push(
+      `platform evidence schemaVersion must be ${PLATFORM_EVIDENCE_VERSION} or ${SGOS_PLATFORM_EVIDENCE_VERSION}`
+    );
   }
   if (!SUPPORTED_RELEASE_PLATFORMS.includes(value?.platform)) failures.push('platform evidence platform is unsupported');
   if (!NODE_VERSION.test(String(value?.nodeVersion ?? ''))) failures.push('platform evidence nodeVersion is invalid');
@@ -96,11 +136,21 @@ function collectPlatformEvidenceFailures(value, expected = {}) {
   }
 
   const checks = value?.checks;
-  const checkKeys = [
+  const baseCheckKeys = [
     'authenticatedPlaywrightSmoke', 'exactPackageLocalStart', 'installedVsixActivation',
     'stagedInstallerRecovery', 'windowsNpmNpxRoundTrip'
   ];
+  const checkKeys = evidenceVersion === SGOS_PLATFORM_EVIDENCE_VERSION
+    ? [...baseCheckKeys, 'sgosEndToEnd']
+    : baseCheckKeys;
   if (!hasExactKeys(checks, checkKeys)) failures.push('platform evidence checks are invalid');
+  if (evidenceVersion === SGOS_PLATFORM_EVIDENCE_VERSION) {
+    failures.push(...collectSgosEndToEndFailures(checks?.sgosEndToEnd));
+  } else if (expected.requireSgosEndToEnd === true) {
+    failures.push(
+      `SGOS end-to-end release proof requires platform evidence schemaVersion ${SGOS_PLATFORM_EVIDENCE_VERSION}`
+    );
+  }
   failures.push(...passedEvidenceFailures(
     checks?.installedVsixActivation, 'installed VSIX activation'
   ));
@@ -257,7 +307,7 @@ export function parseReleaseTestSummary(output) {
   return counts;
 }
 
-function validatePlatformMatrix(receipt, required = null) {
+function validatePlatformMatrix(receipt, required = null, { requireSgosEndToEnd = false } = {}) {
   if (receipt.platformMatrix == null) {
     if (required?.length) return { failures: ['platformMatrix is absent'], cells: [] };
     return { failures: [], cells: [] };
@@ -309,7 +359,8 @@ function validatePlatformMatrix(receipt, required = null) {
       tree: receipt.tree,
       packageSha256: receipt.packageSha256,
       vsixSha256: receipt.vsixSha256,
-      reviewerIdentity: entry.evidenceVerifierIdentity
+      reviewerIdentity: entry.evidenceVerifierIdentity,
+      requireSgosEndToEnd
     });
     if (platformEvidenceFailures.length) {
       failures.push(...platformEvidenceFailures.map((failure) => (
@@ -408,7 +459,8 @@ export function verifyVerificationReceipt(receipt, {
   expectedTree = null,
   expectedPackageSha256 = null,
   expectedVsixSha256 = null,
-  requiredPlatformMatrix = null
+  requiredPlatformMatrix = null,
+  requireSgosEndToEnd = false
 } = {}) {
   if (!receipt || typeof receipt !== 'object' || Array.isArray(receipt)) {
     throw new SingularityFlowError('Verification receipt must be an object.', { code: 'VERIFICATION_RECEIPT_INVALID' });
@@ -475,7 +527,8 @@ export function verifyVerificationReceipt(receipt, {
         tree: receipt.tree,
         packageSha256: receipt.packageSha256,
         vsixSha256: receipt.vsixSha256,
-        reviewerIdentity: receipt.verifierIdentity
+        reviewerIdentity: receipt.verifierIdentity,
+        requireSgosEndToEnd
       });
       failures.push(...evidenceFailures);
       if (!evidenceFailures.length) {
@@ -502,7 +555,9 @@ export function verifyVerificationReceipt(receipt, {
       || receipt.welBenchmark != null || receipt.welBenchmarkSha256 != null) {
     failures.push('platform-matrix receipt must keep platform and WEL benchmark evidence inside each matrix cell');
   }
-  failures.push(...validatePlatformMatrix(receipt, requiredPlatformMatrix).failures);
+  failures.push(...validatePlatformMatrix(receipt, requiredPlatformMatrix, {
+    requireSgosEndToEnd
+  }).failures);
   if (!SHA256.test(String(receipt.packageSha256 ?? ''))) failures.push('packageSha256 is invalid');
   if (!SHA256.test(String(receipt.vsixSha256 ?? ''))) failures.push('vsixSha256 is invalid');
   if (expectedCommit && receipt.commit !== expectedCommit) failures.push('commit does not match release HEAD');
@@ -546,7 +601,8 @@ function embeddedPublicKey(receipt) {
  */
 export function mergeSignedVerificationReceipts(receipts, privateKeyPem, verifierIdentity, {
   generatedAt = new Date().toISOString(),
-  artifactReceipt = null
+  artifactReceipt = null,
+  requireSgosEndToEnd = false
 } = {}) {
   if (!Array.isArray(receipts) || !receipts.length) {
     throw new SingularityFlowError('Verification receipt merge requires at least one signed receipt.', {
@@ -554,7 +610,10 @@ export function mergeSignedVerificationReceipts(receipts, privateKeyPem, verifie
     });
   }
   const verified = receipts.map((receipt) => {
-    verifyVerificationReceipt(receipt, { trustedPublicKeyPem: embeddedPublicKey(receipt) });
+    verifyVerificationReceipt(receipt, {
+      trustedPublicKeyPem: embeddedPublicKey(receipt),
+      requireSgosEndToEnd
+    });
     if (receipt.platformMatrix != null
         || receipt.platforms.length !== 1 || receipt.nodeVersions.length !== 1) {
       throw new SingularityFlowError(
@@ -594,7 +653,8 @@ export function mergeSignedVerificationReceipts(receipts, privateKeyPem, verifie
     expectedCommit: first.commit,
     expectedTree: first.tree,
     expectedPackageSha256: first.packageSha256,
-    expectedVsixSha256: first.vsixSha256
+    expectedVsixSha256: first.vsixSha256,
+    requireSgosEndToEnd
   });
   const byCell = new Map();
   for (const receipt of verified) {

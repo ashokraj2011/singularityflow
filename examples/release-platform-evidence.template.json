@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "reviewedAt": "REPLACE_WITH_CANONICAL_UTC_TIMESTAMP",
   "reviewerIdentity": "REPLACE_WITH_RECEIPT_SIGNER_IDENTITY",
   "platform": "darwin",
@@ -35,6 +35,33 @@
       "evidenceSha256": "sha256:REPLACE_WITH_RETAINED_EVIDENCE_SHA256",
       "authenticationMechanism": "REPLACE_WITH_LOWER_KEBAB_AUTH_MECHANISM",
       "authenticationProfileSha256": "sha256:REPLACE_WITH_PRIVATE_PROFILE_SHA256"
+    },
+    "sgosEndToEnd": {
+      "softwareConversionJourney": {
+        "outcome": "passed",
+        "evidenceSha256": "sha256:REPLACE_WITH_SOFTWARE_CONVERSION_EVIDENCE_SHA256"
+      },
+      "hypothesisAnalysisJourney": {
+        "outcome": "passed",
+        "evidenceSha256": "sha256:REPLACE_WITH_HYPOTHESIS_ANALYSIS_EVIDENCE_SHA256"
+      },
+      "interruptionRecovery": {
+        "outcome": "passed",
+        "evidenceSha256": "sha256:REPLACE_WITH_INTERRUPTION_RECOVERY_EVIDENCE_SHA256"
+      },
+      "counterfeitAuthorityRefusal": {
+        "outcome": "passed",
+        "evidenceSha256": "sha256:REPLACE_WITH_COUNTERFEIT_AUTHORITY_EVIDENCE_SHA256"
+      },
+      "crossMachineAuthorityRoundTrip": {
+        "outcome": "passed",
+        "evidenceSha256": "sha256:REPLACE_WITH_CROSS_MACHINE_EVIDENCE_SHA256"
+      },
+      "performanceBudget": {
+        "outcome": "passed",
+        "evidenceSha256": "sha256:REPLACE_WITH_PERFORMANCE_EVIDENCE_SHA256",
+        "budgetProfileSha256": "sha256:REPLACE_WITH_REVIEWED_BUDGET_PROFILE_SHA256"
+      }
     }
   }
 }

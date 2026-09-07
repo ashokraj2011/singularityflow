@@ -46,7 +46,7 @@ async function main() {
     receipts,
     await readFile(resolvedKey),
     identity,
-    { artifactReceipt }
+    { artifactReceipt, requireSgosEndToEnd: true }
   );
   // This is the deliberate review boundary: a partial aggregate is useful diagnostics but must not
   // be written with a release-authority filename.
@@ -55,7 +55,8 @@ async function main() {
       key: Buffer.from(aggregate.signature.publicKeySpki, 'base64'),
       format: 'der', type: 'spki'
     }).export({ type: 'spki', format: 'pem' }),
-    requiredPlatformMatrix: REQUIRED_RELEASE_PLATFORM_MATRIX
+    requiredPlatformMatrix: REQUIRED_RELEASE_PLATFORM_MATRIX,
+    requireSgosEndToEnd: true
   });
   await mkdir(path.dirname(output), { recursive: true, mode: 0o700 });
   await writeFile(output, `${JSON.stringify(aggregate, null, 2)}\n`, { mode: 0o600 });

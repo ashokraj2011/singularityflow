@@ -107,6 +107,10 @@ test('release and receipt scripts recheck the exact checkout around packaging an
     'a signed receipt must require separately reviewed physical platform evidence');
   assert.ok((receipt.match(/validateReleasePlatformEvidence\(/g) ?? []).length >= 2,
     'physical evidence must be checked before execution and rebound to the produced artifact digests');
+  assert.ok((receipt.match(/requireSgosEndToEnd: true/g) ?? []).length >= 2,
+    'new signed release evidence must bind SGOS end-to-end journeys before and after packaging');
+  assert.match(release, /requireSgosEndToEnd: true/,
+    'release promotion must reject a platform matrix that omits SGOS end-to-end evidence');
   assert.match(receipt, /SINGULARITY_FLOW_WEL_BENCHMARK_OUT/,
     'the signed receipt must retain the exact WEL benchmark produced inside the release gate');
   assert.match(receipt, /validateWelBenchmarkEvidence\(/,

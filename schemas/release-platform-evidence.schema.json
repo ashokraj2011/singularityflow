@@ -16,7 +16,7 @@
     "checks"
   ],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "enum": [1, 2] },
     "reviewedAt": { "type": "string", "format": "date-time" },
     "reviewerIdentity": {
       "type": "string",
@@ -97,12 +97,54 @@
             "authenticationProfileSha256": { "$ref": "#/$defs/sha256" }
           },
           "additionalProperties": false
+        },
+        "sgosEndToEnd": {
+          "type": "object",
+          "required": [
+            "softwareConversionJourney",
+            "hypothesisAnalysisJourney",
+            "interruptionRecovery",
+            "counterfeitAuthorityRefusal",
+            "crossMachineAuthorityRoundTrip",
+            "performanceBudget"
+          ],
+          "properties": {
+            "softwareConversionJourney": { "$ref": "#/$defs/passedEvidence" },
+            "hypothesisAnalysisJourney": { "$ref": "#/$defs/passedEvidence" },
+            "interruptionRecovery": { "$ref": "#/$defs/passedEvidence" },
+            "counterfeitAuthorityRefusal": { "$ref": "#/$defs/passedEvidence" },
+            "crossMachineAuthorityRoundTrip": { "$ref": "#/$defs/passedEvidence" },
+            "performanceBudget": {
+              "type": "object",
+              "required": ["outcome", "evidenceSha256", "budgetProfileSha256"],
+              "properties": {
+                "outcome": { "const": "passed" },
+                "evidenceSha256": { "$ref": "#/$defs/sha256" },
+                "budgetProfileSha256": { "$ref": "#/$defs/sha256" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
     }
   },
   "allOf": [
+    {
+      "if": { "properties": { "schemaVersion": { "const": 1 } } },
+      "then": {
+        "properties": {
+          "checks": { "not": { "required": ["sgosEndToEnd"] } }
+        }
+      },
+      "else": {
+        "properties": {
+          "checks": { "required": ["sgosEndToEnd"] }
+        }
+      }
+    },
     {
       "if": { "properties": { "platform": { "const": "win32" } } },
       "then": {

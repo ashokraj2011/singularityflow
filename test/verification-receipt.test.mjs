@@ -24,7 +24,7 @@ function reviewedPlatformEvidence({
   reviewerIdentity = 'release@example.test'
 } = {}) {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     reviewedAt: '2026-09-01T00:00:00.000Z',
     reviewerIdentity,
     platform,
@@ -49,6 +49,27 @@ function reviewedPlatformEvidence({
         outcome: 'passed', evidenceSha256: `sha256:${'3'.repeat(64)}`,
         authenticationMechanism: 'managed-auth-profile',
         authenticationProfileSha256: `sha256:${'5'.repeat(64)}`
+      },
+      sgosEndToEnd: {
+        softwareConversionJourney: {
+          outcome: 'passed', evidenceSha256: `sha256:${'6'.repeat(64)}`
+        },
+        hypothesisAnalysisJourney: {
+          outcome: 'passed', evidenceSha256: `sha256:${'7'.repeat(64)}`
+        },
+        interruptionRecovery: {
+          outcome: 'passed', evidenceSha256: `sha256:${'8'.repeat(64)}`
+        },
+        counterfeitAuthorityRefusal: {
+          outcome: 'passed', evidenceSha256: `sha256:${'9'.repeat(64)}`
+        },
+        crossMachineAuthorityRoundTrip: {
+          outcome: 'passed', evidenceSha256: `sha256:${'a'.repeat(64)}`
+        },
+        performanceBudget: {
+          outcome: 'passed', evidenceSha256: `sha256:${'b'.repeat(64)}`,
+          budgetProfileSha256: `sha256:${'c'.repeat(64)}`
+        }
       }
     }
   };
@@ -173,13 +194,18 @@ test('release promotion accepts only a reviewed signed aggregate covering the ex
   ));
   const aggregate = mergeSignedVerificationReceipts(
     cells, release.privateKey, 'release-matrix@example.test',
-    { generatedAt: '2026-09-01T00:00:00.000Z', artifactReceipt: cells[0] }
+    {
+      generatedAt: '2026-09-01T00:00:00.000Z',
+      artifactReceipt: cells[0],
+      requireSgosEndToEnd: true
+    }
   );
   const result = verifyVerificationReceipt(aggregate, {
     trustedPublicKeyPem: release.publicKey,
     expectedCommit: evidence().commit,
     expectedTree: evidence().tree,
-    requiredPlatformMatrix: REQUIRED_RELEASE_PLATFORM_MATRIX
+    requiredPlatformMatrix: REQUIRED_RELEASE_PLATFORM_MATRIX,
+    requireSgosEndToEnd: true
   });
   assert.equal(result.valid, true);
   assert.equal(aggregate.platformMatrix.length, REQUIRED_RELEASE_PLATFORM_MATRIX.length);
@@ -262,7 +288,25 @@ test('release promotion accepts only a reviewed signed aggregate covering the ex
 
 test('physical platform evidence is strict, digest-only, and platform-aware', () => {
   const valid = reviewedPlatformEvidence();
-  assert.match(validateReleasePlatformEvidence(valid).evidenceSha256, /^sha256:[a-f0-9]{64}$/);
+  assert.match(validateReleasePlatformEvidence(valid, {
+    requireSgosEndToEnd: true
+  }).evidenceSha256, /^sha256:[a-f0-9]{64}$/);
+
+  const legacy = structuredClone(valid);
+  legacy.schemaVersion = 1;
+  delete legacy.checks.sgosEndToEnd;
+  assert.match(validateReleasePlatformEvidence(legacy).evidenceSha256, /^sha256:[a-f0-9]{64}$/,
+    'historical v1 evidence remains readable outside SGOS release promotion');
+  assert.throws(() => validateReleasePlatformEvidence(legacy, { requireSgosEndToEnd: true }),
+    (error) => error.code === 'VERIFICATION_PLATFORM_EVIDENCE_INVALID'
+      && error.details.failures.some((failure) => failure.includes('requires platform evidence schemaVersion 2')));
+
+  const duplicateJourneyReceipt = structuredClone(valid);
+  duplicateJourneyReceipt.checks.sgosEndToEnd.hypothesisAnalysisJourney.evidenceSha256 =
+    duplicateJourneyReceipt.checks.sgosEndToEnd.softwareConversionJourney.evidenceSha256;
+  assert.throws(() => validateReleasePlatformEvidence(duplicateJourneyReceipt),
+    (error) => error.code === 'VERIFICATION_PLATFORM_EVIDENCE_INVALID'
+      && error.details.failures.some((failure) => failure.includes('distinct retained receipt')));
 
   const withRawTranscript = structuredClone(valid);
   withRawTranscript.checks.installedVsixActivation.transcript = 'raw host output';

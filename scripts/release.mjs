@@ -89,7 +89,8 @@ async function main() {
       trustedPublicKeyPem: trustedVerificationKey,
       expectedCommit: commit,
       expectedTree: tree,
-      requiredPlatformMatrix: REQUIRED_RELEASE_PLATFORM_MATRIX
+      requiredPlatformMatrix: REQUIRED_RELEASE_PLATFORM_MATRIX,
+      requireSgosEndToEnd: true
     });
   }
 
@@ -143,7 +144,8 @@ async function main() {
       expectedCommit: commit,
       expectedTree: tree,
       expectedPackageSha256: `sha256:${await sha256(tarball)}`,
-      requiredPlatformMatrix: REQUIRED_RELEASE_PLATFORM_MATRIX
+      requiredPlatformMatrix: REQUIRED_RELEASE_PLATFORM_MATRIX,
+      requireSgosEndToEnd: true
     });
   }
 
@@ -165,7 +167,8 @@ async function main() {
       expectedTree: tree,
       expectedPackageSha256: `sha256:${await sha256(tarball)}`,
       expectedVsixSha256: `sha256:${await sha256(vsix)}`,
-      requiredPlatformMatrix: REQUIRED_RELEASE_PLATFORM_MATRIX
+      requiredPlatformMatrix: REQUIRED_RELEASE_PLATFORM_MATRIX,
+      requireSgosEndToEnd: true
     });
   }
 

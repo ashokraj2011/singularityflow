@@ -115,7 +115,8 @@ async function main() {
     nodeVersion: process.versions.node,
     commit,
     tree,
-    reviewerIdentity: identity
+    reviewerIdentity: identity,
+    requireSgosEndToEnd: true
   });
   run('npm', ['ci']);
   const checkOutput = run('npm', ['run', 'check']);
@@ -149,7 +150,8 @@ async function main() {
     tree,
     packageSha256,
     vsixSha256,
-    reviewerIdentity: identity
+    reviewerIdentity: identity,
+    requireSgosEndToEnd: true
   });
   const receipt = signVerificationReceipt({
     schemaVersion: 5, // schema-transient: externally signed release receipt, not a migration-registry record

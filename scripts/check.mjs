@@ -794,6 +794,12 @@ if (releaseEvidenceTemplate.checks?.exactPackageLocalStart?.packageVersion
     !== MCP_SCAFFOLD_VERSIONS.playwright) {
   fail(`${releaseEvidenceTemplatePath} must pin Playwright MCP ${MCP_SCAFFOLD_VERSIONS.playwright}.`);
 }
+if (releaseEvidenceTemplate.schemaVersion !== 2
+    || releaseEvidenceTemplate.checks?.sgosEndToEnd?.softwareConversionJourney?.outcome !== 'passed'
+    || releaseEvidenceTemplate.checks?.sgosEndToEnd?.hypothesisAnalysisJourney?.outcome !== 'passed'
+    || releaseEvidenceTemplate.checks?.sgosEndToEnd?.performanceBudget?.outcome !== 'passed') {
+  fail(`${releaseEvidenceTemplatePath} must collect the SGOS end-to-end release evidence profile.`);
+}
 if (!releaseEvidenceTemplateText.includes('REPLACE_WITH_')) {
   fail(`${releaseEvidenceTemplatePath} must remain an intentionally non-signable operator template.`);
 }

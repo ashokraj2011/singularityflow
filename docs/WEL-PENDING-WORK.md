@@ -6,7 +6,7 @@
 
 **Created:** 2026-08-30
 
-**Current reconciliation:** checked through `main@da6338ab` on 2026-09-07. Commits `259b76f1`,
+**Current reconciliation:** checked through `main@ec1b5c88` on 2026-09-07. Commits `259b76f1`,
 `58d9329d`, and `d55229c7` provide the bounded exact-static JUnit identity adapter, immutable
 proposal snapshot, human review through the existing phase approval, migration, safe command-shape
 fallbacks, the evolving content-free benchmark, and same-process unenrolled delta measurement. Commit
@@ -38,7 +38,8 @@ repairs change neither evidence identity nor authority.
 
 The shared package boundary was re-exercised at `main@da6338ab`: both the isolated npm package and
 the exact VSIX-contained engine still import the WEL adapter and packaged Java helper while running
-the new read-only CMP preview, and the portable CMP/WEL matrix passes 62/62. This is compatibility
+the new read-only CMP preview, and the portable CMP/WEL matrix passes 65/65 after adding the
+privacy-safe real-repository measurement boundary. This is compatibility
 evidence only. It closes no WEL item because the remaining gates require independent ratification,
 authenticated execution, reviewed real repositories, physical office/platform runs, or signed
 release receipts.

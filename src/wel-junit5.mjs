@@ -7,7 +7,7 @@
  * enforce-grade pass.
  */
 import { createHash } from 'node:crypto';
-import { constants as fsConstants } from 'node:fs';
+import { constants as fsConstants, rmSync } from 'node:fs';
 import { lstat, mkdir, mkdtemp, open, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -34,6 +34,8 @@ const SUREFIRE_FOCUS_PROPERTIES = new Set([
 const SUREFIRE_RETRY_PROPERTIES = new Set([
   'rerunfailingtestscount', 'surefire.rerunfailingtestscount'
 ]);
+let compiledHelperPromise = null;
+let compiledHelperDirectory = null;
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
@@ -54,6 +56,60 @@ function parserUnavailable(reason, details = null) {
       : 'exact JUnit source identity is unavailable'
   });
 }
+
+function parserEnvironment() {
+  return {
+    PATH: process.env.PATH,
+    SystemRoot: process.env.SystemRoot,
+    WINDIR: process.env.WINDIR,
+    JAVA_HOME: process.env.JAVA_HOME,
+    LANG: 'C.UTF-8',
+    LC_ALL: 'C.UTF-8'
+  };
+}
+
+/**
+ * Compile the verified packaged parser once per SFlow process, then reuse its private class files.
+ *
+ * Java's source-file launcher compiles the helper on every observation. A reviewed corpus invokes
+ * the adapter repeatedly, so host load could make a later compile hit the parser deadline even
+ * after earlier cases passed. The cache is process-private, created with mkdtemp, and removed at
+ * exit; it never contains Candidate source and is not durable evidence. A toolchain without a
+ * separately resolvable `javac` falls back to the existing source-file launch and therefore keeps
+ * the previous behavior.
+ */
+async function compiledHelperLaunch() {
+  compiledHelperPromise ??= (async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-wel-helper-'));
+    const compilation = await runQualityCommand('javac', [
+      '-proc:none', '-encoding', 'UTF-8', '-d', directory, HELPER
+    ], {
+      cwd: directory,
+      timeoutMs: PARSER_TIMEOUT_MS,
+      captureBytes: MAX_OUTPUT_BYTES,
+      killTree: true,
+      env: parserEnvironment()
+    });
+    const classFile = path.join(directory, 'WelJunitCatalog.class');
+    const classStat = await lstat(classFile).catch(() => null);
+    const classBytes = compilation.status === 0 && !compilation.error && !compilation.signal
+      && !compilation.timedOut && !compilation.stdoutTruncated && !compilation.stderrTruncated
+      && classStat?.isFile() && classStat.size > 0 && classStat.size <= MAX_OUTPUT_BYTES
+      ? await readFile(classFile).catch(() => null)
+      : null;
+    if (!classBytes?.length) {
+      await rm(directory, { recursive: true, force: true });
+      return null;
+    }
+    compiledHelperDirectory = directory;
+    return Object.freeze({ command: 'java', args: ['-cp', directory, 'WelJunitCatalog'] });
+  })();
+  return await compiledHelperPromise;
+}
+
+process.once('exit', () => {
+  if (compiledHelperDirectory) rmSync(compiledHelperDirectory, { recursive: true, force: true });
+});
 
 function mavenProperty(token) {
   const match = String(token).match(/^-D([^=]+)(?:=.*)?$/u);
@@ -165,21 +221,15 @@ async function sourceDeclarations(root, sources, {
     }
     const paths = sources.map((source) => source.path);
     const input = `${staging}\n${paths.join('\n')}${paths.length ? '\n' : ''}`;
-    const invocation = await runParser('java', [HELPER], {
+    const compiled = runParser === runQualityCommand ? await compiledHelperLaunch() : null;
+    const invocation = await runParser(compiled?.command ?? 'java', compiled?.args ?? [HELPER], {
       cwd: staging,
       input,
       timeoutMs: PARSER_TIMEOUT_MS,
       captureBytes: MAX_OUTPUT_BYTES,
       signal,
       killTree: true,
-      env: {
-        PATH: process.env.PATH,
-        SystemRoot: process.env.SystemRoot,
-        WINDIR: process.env.WINDIR,
-        JAVA_HOME: process.env.JAVA_HOME,
-        LANG: 'C.UTF-8',
-        LC_ALL: 'C.UTF-8'
-      }
+      env: parserEnvironment()
     });
     if (invocation.aborted) {
       return { parser, declarations: [], gaps: ['JUNIT_SOURCE_PARSER_CANCELLED'] };

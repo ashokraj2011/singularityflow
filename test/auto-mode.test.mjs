@@ -49,11 +49,17 @@ const originalMachineEnvironment = Object.fromEntries(
   Object.keys(autoTestEnvironment).map((key) => [key, process.env[key]])
 );
 Object.assign(process.env, autoTestEnvironment);
+const autoTestRepositories = new Set();
+let autoRepositorySeedPromise = null;
 after(async () => {
   for (const [key, value] of Object.entries(originalMachineEnvironment)) {
     if (value == null) delete process.env[key];
     else process.env[key] = value;
   }
+  await Promise.all([...autoTestRepositories].map(async (root) => {
+    await rm(root, { recursive: true, force: true });
+    await rm(`${root}.git`, { recursive: true, force: true });
+  }));
   await rm(autoTestMachineState, { recursive: true, force: true });
 });
 
@@ -144,8 +150,9 @@ function cloneRecoveryFixture(remote, destination, cwd) {
   return run('git', ['clone', '--no-local', '--branch', 'main', '--', remote, destination], cwd);
 }
 
-async function repository() {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-auto-'));
+async function createRepositorySeed() {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-auto-seed-'));
+  autoTestRepositories.add(root);
   run('git', ['init', '-b', 'main'], root);
   run('git', ['config', 'user.name', 'Auto Tester'], root);
   run('git', ['config', 'user.email', 'auto@example.com'], root);
@@ -176,9 +183,28 @@ async function repository() {
   await writeFile(path.join(root, 'app.mjs'), 'export const value = 1;\n');
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'enable bounded auto fixture'], root);
+  return root;
+}
+
+async function repositorySeed() {
+  autoRepositorySeedPromise ??= createRepositorySeed();
+  return await autoRepositorySeedPromise;
+}
+
+async function repository() {
+  const seed = await repositorySeed();
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-auto-'));
+  autoTestRepositories.add(root);
+  // Auto's integration tests need isolated mutable repositories, not repeated product
+  // initialization. Reusing one immutable initialized seed avoids regenerating and hashing the
+  // complete governed configuration for every scenario. --no-hardlinks keeps object ownership
+  // independent so destructive Git maintenance in a fixture cannot affect the seed.
+  run('git', ['clone', '--local', '--no-hardlinks', '--branch', 'main', '--', seed, root], seed);
+  run('git', ['config', 'user.name', 'Auto Tester'], root);
+  run('git', ['config', 'user.email', 'auto@example.com'], root);
   const remote = `${root}.git`;
   run('git', ['init', '--bare', '-b', 'main', remote], root);
-  run('git', ['remote', 'add', 'origin', remote], root);
+  run('git', ['remote', 'set-url', 'origin', remote], root);
   run('git', ['push', '-u', 'origin', 'main'], root);
   return root;
 }

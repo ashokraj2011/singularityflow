@@ -39,6 +39,36 @@ const AUTHORITY_TRANSPORT_JOURNAL_INTEGRITY = 'machine-local-hmac-sha256-v1';
 const PORTABLE_STORE_ID = /^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9_-])?$/;
 const WINDOWS_RESERVED_STORE_ID = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/;
 
+/**
+ * Versioned structural contract for Authority Store adapters.
+ *
+ * Conforming to this SPI is deliberately not installation authority. Runtime consumers still use
+ * `assertAuthorityStoreAdapter`, whose default allowlist contains only implementations shipped by
+ * this build. This separates "has the required safety surface" from "is approved for use" and
+ * prevents an injected adapter from weakening Program or policy authority merely by resembling a
+ * Store.
+ */
+export const AUTHORITY_STORE_SPI_VERSION = 1;
+export const AUTHORITY_STORE_SPI_METHODS = Object.freeze([
+  'read', 'readAtMinimum', 'transact', 'verify', 'planRecovery', 'recover',
+  'exportPortable', 'exportTransport', 'exportGitProjection', 'planImport',
+  'planGitProjectionImport', 'hasGitProjectionCutover', 'importTransport',
+  'importGitProjection', 'planRollback', 'rollbackTransport'
+]);
+export const AUTHORITY_STORE_SPI_CAPABILITIES = Object.freeze({
+  compareAndSwap: true,
+  appendOnlyLineage: true,
+  exclusiveWriterLock: true,
+  livenessRecovery: true,
+  boundedRecords: true,
+  schemaValidation: true,
+  backupRestore: true,
+  rollback: true
+});
+export const INSTALLED_AUTHORITY_STORE_PROFILES = Object.freeze([
+  'experimental-filesystem-v1'
+]);
+
 function fail(message, code = 'SGOS_AUTHORITY_STORE_INVALID', details = null) {
   throw new SingularityFlowError(message, { code, details });
 }
@@ -1025,13 +1055,62 @@ function eventFilename(eventSha256) {
   return `${eventSha256.slice(7)}.json`;
 }
 
-export function assertAuthorityStoreAdapter(adapter) {
-  if (!adapter || typeof adapter !== 'object') fail('Authority Store adapter is required.');
-  for (const method of ['read', 'transact', 'verify', 'planRecovery', 'recover', 'exportPortable']) {
-    if (typeof adapter[method] !== 'function') fail(`Authority Store adapter is missing '${method}'.`);
+/** Validate the stable adapter shape without granting runtime installation authority. */
+export function assertAuthorityStoreAdapterContract(adapter) {
+  if (!adapter || typeof adapter !== 'object' || Array.isArray(adapter)) {
+    fail('Authority Store adapter is required.', 'SGOS_AUTHORITY_ADAPTER_INVALID');
   }
-  if (adapter.profile !== 'experimental-filesystem-v1') {
-    fail(`Authority Store profile '${adapter.profile ?? 'unknown'}' is not enabled.`, 'SGOS_AUTHORITY_PROFILE_UNSUPPORTED');
+  if (adapter.spiVersion !== AUTHORITY_STORE_SPI_VERSION) {
+    fail(`Authority Store SPI version '${adapter.spiVersion ?? 'unknown'}' is unsupported.`,
+      'SGOS_AUTHORITY_SPI_UNSUPPORTED', {
+        expectedSpiVersion: AUTHORITY_STORE_SPI_VERSION,
+        actualSpiVersion: adapter.spiVersion ?? null
+      });
+  }
+  if (typeof adapter.profile !== 'string'
+      || !/^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?$/u.test(adapter.profile)) {
+    fail('Authority Store adapter profile is invalid.', 'SGOS_AUTHORITY_ADAPTER_INVALID');
+  }
+  identifier(adapter.storeId, 'Authority Store adapter.storeId');
+  exactObject(adapter.capabilities, Object.keys(AUTHORITY_STORE_SPI_CAPABILITIES),
+    'Authority Store adapter capabilities');
+  for (const [capability, required] of Object.entries(AUTHORITY_STORE_SPI_CAPABILITIES)) {
+    if (adapter.capabilities[capability] !== required) {
+      fail(`Authority Store adapter capability '${capability}' must be ${required}.`,
+        'SGOS_AUTHORITY_ADAPTER_CAPABILITY_MISSING', { capability, required });
+    }
+  }
+  for (const method of AUTHORITY_STORE_SPI_METHODS) {
+    if (typeof adapter[method] !== 'function') {
+      fail(`Authority Store adapter is missing '${method}'.`,
+        'SGOS_AUTHORITY_ADAPTER_METHOD_MISSING', { method });
+    }
+  }
+  return adapter;
+}
+
+/**
+ * Validate the SPI and the separately reviewed installed-profile allowlist.
+ *
+ * Callers may narrow `installedProfiles`; they cannot widen the product default by placing a
+ * profile name in repository data. A future alternate Store must land in this immutable build
+ * list together with the unchanged conformance suite.
+ */
+export function assertAuthorityStoreAdapter(adapter, {
+  installedProfiles = INSTALLED_AUTHORITY_STORE_PROFILES
+} = {}) {
+  assertAuthorityStoreAdapterContract(adapter);
+  if (!Array.isArray(installedProfiles)
+      || !installedProfiles.every((profile) => typeof profile === 'string')) {
+    fail('Authority Store installed-profile allowlist is invalid.',
+      'SGOS_AUTHORITY_PROFILE_UNSUPPORTED');
+  }
+  if (!installedProfiles.includes(adapter.profile)) {
+    fail(`Authority Store profile '${adapter.profile}' is not enabled.`,
+      'SGOS_AUTHORITY_PROFILE_UNSUPPORTED', {
+        profile: adapter.profile,
+        installedProfiles: [...installedProfiles]
+      });
   }
   return adapter;
 }
@@ -1976,9 +2055,11 @@ export async function openFilesystemAuthorityStore({
   }
 
   const adapter = {
+    spiVersion: AUTHORITY_STORE_SPI_VERSION,
     profile: 'experimental-filesystem-v1',
     storeId,
     root: canonicalRoot,
+    capabilities: AUTHORITY_STORE_SPI_CAPABILITIES,
 
     async read() {
       const { head } = await verifiedSnapshot();

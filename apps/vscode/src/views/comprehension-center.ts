@@ -1,14 +1,18 @@
 /** Read-only CMP review surface over one explicitly leased comprehension snapshot slice. */
 import path from 'node:path';
 import * as vscode from 'vscode';
-import type { ComprehensionIdeSnapshot, ComprehensionRegion } from '../cli/snapshot.ts';
+import type { SingularityFlowClient } from '../cli/client.ts';
+import type {
+  ComprehensionIdeSnapshot, ComprehensionRegion, ComprehensionSourceExpansion
+} from '../cli/snapshot.ts';
 import {
   DEFAULT_COMPREHENSION_SLICE_LEASE_MS, type SliceLease, type WorkspaceStore
 } from '../state.ts';
 import { enumField, integerField, registerMessageRouter, stringField } from './messages.ts';
+import { commandData } from './surface-adapters.ts';
 import { contentSecurityPolicy, escape, icon, nonce, page } from './webview.ts';
 
-type Tab = 'regions' | 'brownfield' | 'diff' | 'evidence' | 'causes' | 'walkthrough' | 'replay' | 'unknowns';
+type Tab = 'regions' | 'source' | 'brownfield' | 'diff' | 'evidence' | 'causes' | 'walkthrough' | 'replay' | 'unknowns';
 
 function shortDigest(value: unknown): string {
   const digest = String(value ?? '');
@@ -23,15 +27,33 @@ function regions(snapshot: ComprehensionIdeSnapshot): string {
   if (!snapshot.manifest.regions.length) {
     return '<div class="empty"><p>No repository changes exist in the selected interval.</p></div>';
   }
-  return `<section><h2>Exact change regions</h2><p class="meta">One conservative resource region per changed path. Existing cached symbols are optional navigation aids at their stated assurance; they are never rebuilt here or treated as authoritative boundaries.</p>
-    <div class="table-wrap"><table><thead><tr><th>Path</th><th>Operation</th><th>Available cached symbols</th><th>Material</th><th>Assurance</th><th>Identity</th></tr></thead><tbody>${snapshot.manifest.regions.map((region) => {
+  return `<section><h2>Exact change regions</h2><p class="meta">One conservative resource region per changed path. Existing cached symbols are optional navigation aids at their stated assurance; they are never rebuilt here or treated as authoritative boundaries. Exact before/after source is loaded only when selected and is never retained after this panel is hidden.</p>
+    <div class="table-wrap"><table><thead><tr><th>Path</th><th>Operation</th><th>Available cached symbols</th><th>Exact source</th><th>Material</th><th>Assurance</th><th>Identity</th></tr></thead><tbody>${snapshot.manifest.regions.map((region) => {
       const file = regionPath(region);
       const symbols = snapshot.structure.symbols.filter((symbol) => symbol.path === file);
       const symbolLinks = symbols.length
         ? symbols.map((symbol) => `<button class="link" type="button" data-open-file="${escape(file)}" data-open-line="${symbol.line}" title="${escape(`${symbol.declarationKind} · ${symbol.assurance} · ${symbol.extractor}`)}">${escape(symbol.name)}:${symbol.line}</button>`).join(' ')
         : '—';
-      return `<tr><td><button class="link" type="button" data-open-file="${escape(file)}">${escape(file)}</button></td><td>${escape(region.operation ?? 'changed')}</td><td>${symbolLinks}</td><td>${region.classification?.material === false ? 'No' : 'Yes'}</td><td>${escape(region.classification?.assurance ?? 'diff-derived')}</td><td><code>${escape(shortDigest(region.regionSha256))}</code></td></tr>`;
+      const sourceLinks = snapshot.sourceReferences.filter((reference) =>
+        reference.regionSha256 === region.regionSha256).map((reference) =>
+        `<button class="link" type="button" data-source-ref="${escape(reference.ref)}">${escape(reference.side)}</button>`).join(' ') || '—';
+      return `<tr><td><button class="link" type="button" data-open-file="${escape(file)}">${escape(file)}</button></td><td>${escape(region.operation ?? 'changed')}</td><td>${symbolLinks}</td><td>${sourceLinks}</td><td>${region.classification?.material === false ? 'No' : 'Yes'}</td><td>${escape(region.classification?.assurance ?? 'diff-derived')}</td><td><code>${escape(shortDigest(region.regionSha256))}</code></td></tr>`;
     }).join('')}</tbody></table></div></section>`;
+}
+
+function sourceView(value: ComprehensionSourceExpansion | null): string {
+  if (!value) {
+    return '<section><h2>Exact source</h2><div class="empty"><p>Select a before or after source from Regions. Source bytes are fetched only for that explicit selection.</p></div></section>';
+  }
+  const bytes = Buffer.from(value.content, 'base64');
+  const decoded = bytes.toString('utf8');
+  const text = !bytes.includes(0) && Buffer.from(decoded, 'utf8').equals(bytes) ? decoded : null;
+  const body = text == null
+    ? '<p class="callout"><strong>Binary source page.</strong> It is digest-checked but is not rendered as text. Use the CLI JSON result when exact binary bytes are required.</p>'
+    : `<pre class="source-preview" tabindex="0">${escape(decoded)}</pre>`;
+  return `<section><h2>Exact ${escape(value.side)} source</h2><p class="meta">${escape(value.path)} · ${value.offset}-${value.offset + value.bytes} of ${value.totalBytes} bytes · <code>${escape(shortDigest(value.contentSha256))}</code></p>${body}
+    ${value.nextOffset == null ? '<p class="meta">Complete exact source loaded.</p>' : `<p><button class="secondary" type="button" data-source-next="${value.nextOffset}">Load next bounded page</button></p>`}
+    <p class="callout"><strong>Authority boundary:</strong> before bytes come from the immutable Git blob; after bytes must still match the selected Candidate. This read cannot approve, publish, or block work and is discarded when the panel is hidden.</p></section>`;
 }
 
 function brownfield(snapshot: ComprehensionIdeSnapshot): string {
@@ -138,21 +160,23 @@ export function comprehensionCenterBody(
   snapshot: ComprehensionIdeSnapshot | null,
   tab: Tab,
   loading: boolean,
-  error: string | null
+  error: string | null,
+  source: ComprehensionSourceExpansion | null = null
 ): string {
   const tabs: Array<[Tab, string]> = [
-    ['regions', 'Regions'], ['brownfield', 'Brownfield'], ['diff', 'Diff'], ['evidence', 'Evidence'], ['causes', 'Cause map'], ['walkthrough', 'Walkthrough'],
+    ['regions', 'Regions'], ['source', 'Source'], ['brownfield', 'Brownfield'], ['diff', 'Diff'], ['evidence', 'Evidence'], ['causes', 'Cause map'], ['walkthrough', 'Walkthrough'],
     ['replay', 'Replay'], ['unknowns', 'Unknowns']
   ];
   const content = !snapshot
     ? '<div class="empty"><p>The comprehension projection is not available yet.</p></div>'
     : tab === 'regions' ? regions(snapshot)
-      : tab === 'brownfield' ? brownfield(snapshot)
-        : tab === 'diff' ? diff(snapshot)
-          : tab === 'evidence' ? evidence(snapshot)
-            : tab === 'causes' ? causeMap(snapshot)
-              : tab === 'walkthrough' ? walkthrough(snapshot)
-                : tab === 'replay' ? replay(snapshot) : unknowns(snapshot);
+      : tab === 'source' ? sourceView(source)
+        : tab === 'brownfield' ? brownfield(snapshot)
+          : tab === 'diff' ? diff(snapshot)
+            : tab === 'evidence' ? evidence(snapshot)
+              : tab === 'causes' ? causeMap(snapshot)
+                : tab === 'walkthrough' ? walkthrough(snapshot)
+                  : tab === 'replay' ? replay(snapshot) : unknowns(snapshot);
   return `<header><p class="eyebrow">Comprehension</p><h1>${icon('code', { size: 24 })} Comprehension Center</h1><p class="meta">Trace the exact repository interval, what is known, and what remains unavailable. This surface is read-only and model-free.</p></header>
     ${snapshot ? `<section class="plain"><div class="context-banner"><div><span>Subject</span><strong>${escape(snapshot.context.workId ?? 'Repository changes')}</strong></div><div><span>Phase</span><strong>${escape(snapshot.context.phase ?? 'No active Story')}</strong></div><div><span>Baseline</span><code>${escape(snapshot.context.base)}</code></div><div><span>Source</span><strong>${escape(snapshot.context.source)}</strong></div></div><div class="summary-grid"><div class="summary-card"><strong>${snapshot.summary.regions}</strong><span>change regions</span></div><div class="summary-card"><strong>${snapshot.summary.explained}</strong><span>exactly explained</span></div><div class="summary-card ${snapshot.summary.unresolved ? 'important' : ''}"><strong>${snapshot.summary.unresolved}</strong><span>unresolved</span></div><div class="summary-card"><strong>${snapshot.summary.replayEvents}</strong><span>replay events</span></div></div></section>` : ''}
     <nav class="tabs" role="tablist" aria-label="Comprehension views">${tabs.map(([id, label]) => `<button id="cmp-tab-${id}" class="${id === tab ? 'active' : ''}" type="button" role="tab" data-message="tab" data-tab="${id}" aria-selected="${id === tab}" aria-controls="cmp-panel-${id}" tabindex="${id === tab ? '0' : '-1'}">${label}</button>`).join('')}</nav>
@@ -173,6 +197,10 @@ const SCRIPT = `
     if (tab) return vscode.postMessage({ type:'tab', tab:tab.dataset.tab });
     const refresh = event.target.closest('[data-message="refresh"]');
     if (refresh) return vscode.postMessage({ type:'refresh' });
+    const source = event.target.closest('[data-source-ref]');
+    if (source) return vscode.postMessage({ type:'source', reference:source.dataset.sourceRef });
+    const next = event.target.closest('[data-source-next]');
+    if (next) return vscode.postMessage({ type:'source-next', offset:Number(next.dataset.sourceNext) });
     const file = event.target.closest('[data-open-file]');
     if (file) vscode.postMessage({ type:'open-file', path:file.dataset.openFile, line:Number(file.dataset.openLine || 0) });
   });
@@ -194,6 +222,7 @@ export class ComprehensionCenterPanel {
   private static current: ComprehensionCenterPanel | null = null;
   private readonly panel: vscode.WebviewPanel;
   private readonly store: WorkspaceStore;
+  private readonly client: SingularityFlowClient;
   private readonly subscriptions: vscode.Disposable[] = [];
   private subscription: { dispose(): void } | null = null;
   private lease: SliceLease | null = null;
@@ -202,18 +231,36 @@ export class ComprehensionCenterPanel {
   private tab: Tab = 'regions';
   private loading = true;
   private error: string | null = null;
+  private source: ComprehensionSourceExpansion | null = null;
+  private sourceController: AbortController | null = null;
+  private sourceVersion = 0;
   private lastSliceRevision: string | null = null;
   private disposed = false;
 
-  private constructor(panel: vscode.WebviewPanel, store: WorkspaceStore) {
+  private constructor(
+    panel: vscode.WebviewPanel,
+    store: WorkspaceStore,
+    client: SingularityFlowClient
+  ) {
     this.panel = panel;
     this.store = store;
+    this.client = client;
     const router = registerMessageRouter('singularityFlow.comprehensionCenter', {
       tab: (message) => {
-        const tab = enumField(message, 'tab', ['regions', 'brownfield', 'diff', 'evidence', 'causes', 'walkthrough', 'replay', 'unknowns'] as const);
+        const tab = enumField(message, 'tab', ['regions', 'source', 'brownfield', 'diff', 'evidence', 'causes', 'walkthrough', 'replay', 'unknowns'] as const);
         if (tab) { this.tab = tab; this.render(); }
       },
       refresh: () => void this.refresh(),
+      source: (message) => {
+        const reference = stringField(message, 'reference');
+        if (reference) void this.loadSource(reference, 0);
+      },
+      'source-next': (message) => {
+        const offset = integerField(message, 'offset');
+        if (this.source && offset !== null && offset === this.source.nextOffset) {
+          void this.loadSource(this.source.reference, offset);
+        }
+      },
       'open-file': (message) => {
         const file = stringField(message, 'path');
         const line = integerField(message, 'line');
@@ -233,13 +280,18 @@ export class ComprehensionCenterPanel {
       this.error = state.error?.message ?? null;
       if (change.kind === 'snapshot' && revision === this.lastSliceRevision
           && change.revisionChanged === false && !this.error) return;
+      if (change.kind === 'snapshot' && revision !== this.lastSliceRevision) this.cancelSourceLoad();
       this.lastSliceRevision = revision;
       this.render();
     });
     this.render();
   }
 
-  static show(context: vscode.ExtensionContext, store: WorkspaceStore): ComprehensionCenterPanel {
+  static show(
+    context: vscode.ExtensionContext,
+    store: WorkspaceStore,
+    client: SingularityFlowClient
+  ): ComprehensionCenterPanel {
     if (ComprehensionCenterPanel.current) {
       ComprehensionCenterPanel.current.panel.reveal(vscode.ViewColumn.Active);
       ComprehensionCenterPanel.current.renewLease();
@@ -249,7 +301,7 @@ export class ComprehensionCenterPanel {
       'singularityFlow.comprehensionCenter', 'Comprehension Center', vscode.ViewColumn.Active,
       { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')] }
     );
-    const current = new ComprehensionCenterPanel(panel, store);
+    const current = new ComprehensionCenterPanel(panel, store, client);
     ComprehensionCenterPanel.current = current;
     void current.ensureLease();
     return current;
@@ -296,14 +348,84 @@ export class ComprehensionCenterPanel {
     this.renewal = null;
     this.lease?.dispose();
     this.lease = null;
+    this.cancelSourceLoad();
   }
 
   private async refresh(): Promise<void> {
+    this.cancelSourceLoad();
     this.loading = true;
     this.render();
     try { await this.store.refresh(); this.error = null; }
     catch (error) { this.error = error instanceof Error ? error.message : String(error); }
     finally { this.loading = false; if (!this.disposed) this.render(); }
+  }
+
+  private cancelSourceLoad(): void {
+    this.sourceVersion += 1;
+    this.sourceController?.abort();
+    this.sourceController = null;
+    this.source = null;
+    this.loading = false;
+  }
+
+  private async loadSource(reference: string, offset: number): Promise<void> {
+    const snapshot = this.store.current.snapshot?.comprehension;
+    const selected = snapshot?.sourceReferences.find((entry) => entry.ref === reference);
+    if (!snapshot || !selected) {
+      this.error = 'That exact source reference is not present in the current comprehension snapshot. Refresh and select it again.';
+      this.render();
+      return;
+    }
+    if (path.resolve(this.client.repository) !== path.resolve(snapshot.context.repository)) {
+      this.error = 'The selected repository changed. Refresh the Comprehension Center before reading source.';
+      this.render();
+      return;
+    }
+    const sliceRevision = this.store.current.snapshot?.revision?.slices?.comprehension ?? null;
+    this.sourceController?.abort();
+    const controller = new AbortController();
+    const version = ++this.sourceVersion;
+    this.sourceController = controller;
+    this.loading = true;
+    this.render();
+    const args = [
+      'comprehension', 'source', reference,
+      '--base', snapshot.context.base,
+      '--offset', String(offset), '--max-bytes', String(32 * 1024), '--json'
+    ];
+    if (snapshot.context.workId) args.push('--work-id', snapshot.context.workId);
+    if (snapshot.context.phase) args.push('--phase', snapshot.context.phase);
+    try {
+      const result = commandData<{ expansion: ComprehensionSourceExpansion }>(
+        await this.client.run(args, controller.signal)
+      );
+      const current = this.store.current.snapshot?.comprehension;
+      const currentRevision = this.store.current.snapshot?.revision?.slices?.comprehension ?? null;
+      if (version !== this.sourceVersion || this.disposed || !this.panel.visible || !this.lease
+          || currentRevision !== sliceRevision
+          || !current?.sourceReferences.some((entry) => entry.ref === reference)) return;
+      const expansion = result?.expansion;
+      const page = expansion ? Buffer.from(expansion.content, 'base64') : null;
+      if (!expansion || expansion.reference !== reference || expansion.offset !== offset
+          || expansion.regionSha256 !== selected.regionSha256
+          || expansion.referenceSha256 !== selected.referenceSha256
+          || expansion.encoding !== 'base64' || page?.length !== expansion.bytes) {
+        throw new Error('The exact source response did not match the selected bounded reference.');
+      }
+      this.source = expansion;
+      this.tab = 'source';
+      this.error = null;
+    } catch (error) {
+      if (version !== this.sourceVersion || controller.signal.aborted) return;
+      this.source = null;
+      this.error = error instanceof Error ? error.message : String(error);
+    } finally {
+      if (this.sourceController === controller) this.sourceController = null;
+      if (version === this.sourceVersion) {
+        this.loading = false;
+        if (!this.disposed) this.render();
+      }
+    }
   }
 
   private allowedPath(file: string): boolean {
@@ -347,7 +469,8 @@ export class ComprehensionCenterPanel {
     this.panel.webview.html = page(
       'Comprehension Center',
       comprehensionCenterBody(
-        this.store.current.snapshot?.comprehension ?? null, this.tab, this.loading, this.error
+        this.store.current.snapshot?.comprehension ?? null, this.tab, this.loading, this.error,
+        this.source
       ),
       contentSecurityPolicy(this.panel.webview, token), token, SCRIPT, { nav: 'help' }
     );

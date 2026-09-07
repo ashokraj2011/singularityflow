@@ -232,6 +232,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Observed ${slot(s.regions, '0')} conservative change region(s) at ${slot(s.granularity, 'resource')} granularity.`,
     preserves: true
   },
+  'comprehension.source-expanded': {
+    headline: (s) => `Expanded ${slot(s.bytes, '0')}/${slot(s.totalBytes, '0')} exact byte(s) from the ${slot(s.side)} side of ${slot(s.path)}${s.complete ? '' : ' (more available)'}.`,
+    preserves: true
+  },
   'comprehension.brownfield-reported': {
     headline: (s) => `Brownfield touched-area assessment covers ${slot(s.regions, '0')} changed region(s): ${slot(s.newRegions, '0')} new, ${slot(s.touchedLegacy, '0')} legacy touched, and ${slot(s.mechanicalMoves, '0')} mechanical-move candidate(s).`,
     preserves: true

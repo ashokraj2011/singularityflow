@@ -247,7 +247,7 @@ const SPEC_READ_SUBCOMMANDS = Object.freeze(['coverage', 'trace']);
 const SPEC_INDEX_SUBCOMMANDS = Object.freeze(['index', 'acceptance', 'tasks']);
 const SPEC_SUBCOMMANDS = Object.freeze(['analyze', 'claims', ...SPEC_READ_SUBCOMMANDS, ...SPEC_INDEX_SUBCOMMANDS]);
 const COMPREHENSION_SUBCOMMANDS = Object.freeze([
-  'regions', 'check', 'graph', 'explain', 'replay', 'walkthrough', 'brownfield', 'backfill'
+  'regions', 'source', 'check', 'graph', 'explain', 'replay', 'walkthrough', 'brownfield', 'backfill'
 ]);
 const DELIVERY_SUBCOMMANDS = Object.freeze([
   'recommend', 'select', 'workflow-status', 'execution-status',

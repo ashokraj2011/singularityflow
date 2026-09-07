@@ -936,6 +936,43 @@ export interface ComprehensionGraphNode {
   changeType?: string;
 }
 
+export interface ComprehensionSourceReference {
+  regionId: string;
+  regionSha256: string;
+  side: 'before' | 'after';
+  path: string;
+  fileType: 'regular-file' | 'symlink';
+  ref: string;
+  referenceSha256: string;
+}
+
+export interface ComprehensionSourceExpansion {
+  schemaVersion: 1;
+  kind: 'comprehension-source-expansion';
+  mode: 'observe-only';
+  authoritative: false;
+  lifecycleGate: false;
+  reference: string;
+  referenceSha256: string;
+  candidateSha256: string;
+  manifestSha256: string;
+  regionId: string;
+  regionSha256: string;
+  side: 'before' | 'after';
+  path: string;
+  fileType: 'regular-file' | 'symlink';
+  gitObject: string | null;
+  contentSha256: string;
+  totalBytes: number;
+  encoding: 'base64';
+  offset: number;
+  bytes: number;
+  content: string;
+  pageSha256: string;
+  complete: boolean;
+  nextOffset: number | null;
+}
+
 export interface ComprehensionIdeSnapshot {
   schemaVersion: number;
   kind: 'comprehension-ide-slice';
@@ -957,6 +994,7 @@ export interface ComprehensionIdeSnapshot {
     counts: { regions: number };
     regions: ComprehensionRegion[];
   };
+  sourceReferences: ComprehensionSourceReference[];
   brownfield: {
     schemaVersion: 1;
     kind: 'comprehension-brownfield-touched-area';
@@ -1112,10 +1150,12 @@ export interface ComprehensionIdeSnapshot {
     regions: number; materialRegions: number; explained: number; unresolved: number;
     causes: number; edges: number; symbols: number; replayEvents: number;
     newRegions: number; legacyTouched: number; mechanicalMoveCandidates: number;
+    sourceReferences: number;
   };
   availability: {
     structure: string; causeGraph: string; durableAuthority: string;
     walkthrough: string; replay: string; diff: string; evidence: string; brownfield: string;
+    source: string;
   };
 }
 

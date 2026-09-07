@@ -10,6 +10,7 @@ import { buildComprehensionDiffPreview } from './diff-preview.mjs';
 import { buildComprehensionEvidenceProjection } from './evidence-projection.mjs';
 import { buildComprehensionGraph } from './graph.mjs';
 import { buildComprehensionReplay } from './replay.mjs';
+import { comprehensionSourceReferences } from './source-expansion.mjs';
 import { buildComprehensionWalkthroughDraft } from './walkthrough.mjs';
 
 /**
@@ -31,6 +32,16 @@ export async function loadComprehensionIdeSlice(root) {
     }
   });
   const manifest = buildChangeRegionManifest(changeSet);
+  const sourceReferences = manifest.regions.flatMap((region) =>
+    comprehensionSourceReferences(manifest, region).map((reference) => ({
+      regionId: reference.regionId,
+      regionSha256: reference.regionSha256,
+      side: reference.side,
+      path: reference.path,
+      fileType: reference.fileType,
+      ref: reference.ref,
+      referenceSha256: reference.referenceSha256
+    })));
   const brownfield = buildBrownfieldTouchedAreaAssessment(manifest);
   const diff = buildComprehensionDiffPreview(root, changeSet);
   const emptyEvidence = {
@@ -88,6 +99,7 @@ export async function loadComprehensionIdeSlice(root) {
     lifecycleGate: false,
     context,
     manifest,
+    sourceReferences,
     brownfield,
     diff,
     coverage,
@@ -110,7 +122,8 @@ export async function loadComprehensionIdeSlice(root) {
       replayEvents: replay?.counts?.returned ?? 0,
       newRegions: brownfield.counts['new-region'],
       legacyTouched: brownfield.counts['legacy-touched'],
-      mechanicalMoveCandidates: brownfield.counts['mechanical-move-candidate']
+      mechanicalMoveCandidates: brownfield.counts['mechanical-move-candidate'],
+      sourceReferences: sourceReferences.length
     },
     availability: {
       structure: structure.status,
@@ -120,7 +133,8 @@ export async function loadComprehensionIdeSlice(root) {
       walkthrough: draft ? 'available' : 'unavailable',
       replay: replay ? 'available' : 'unavailable',
       evidence: evidence.status,
-      brownfield: 'available'
+      brownfield: 'available',
+      source: sourceReferences.length ? 'available' : 'not-applicable'
     }
   };
 }

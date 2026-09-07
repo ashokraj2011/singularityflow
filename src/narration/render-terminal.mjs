@@ -123,7 +123,7 @@ function journalLines(result) {
 function comprehensionText(result) {
   const {
     context = {}, manifest = null, coverage = null, graph = null, explanation = null,
-    replay = null
+    replay = null, expansion = null
   } = result.data ?? {};
   const common = [
     style.heading(headline(result)),
@@ -131,6 +131,25 @@ function comprehensionText(result) {
     `Repository change-set subject: ${manifest?.compatibilityCandidateSha256 ?? coverage?.candidateSha256 ?? graph?.candidateSha256 ?? result.data?.candidateSha256 ?? 'unavailable'}`,
     `Baseline: ${context.base ?? 'unavailable'} (${context.source ?? 'unknown'})`
   ];
+  if (result.operation.id === 'comprehension.source' && expansion) {
+    const bytes = Buffer.from(expansion.content ?? '', 'base64');
+    const decoded = bytes.toString('utf8');
+    const text = !bytes.includes(0) && Buffer.from(decoded, 'utf8').equals(bytes) ? decoded : null;
+    return [
+      ...common,
+      `Region: ${expansion.regionId} · ${expansion.side} · ${expansion.path}`,
+      `Exact content: ${expansion.contentSha256} · ${expansion.totalBytes} byte(s)`,
+      `Page: ${expansion.offset}-${expansion.offset + expansion.bytes} · ${expansion.pageSha256}`,
+      text == null ? 'Binary page: use --json to read its base64 content.' : '',
+      text == null ? null : '',
+      text,
+      expansion.nextOffset == null
+        ? null
+        : `Next page: repeat with --offset ${expansion.nextOffset}`,
+      '', style.detail('Observe only: exact source expansion neither authorizes nor blocks publication.'),
+      style.detail(preservationLine(result))
+    ].filter((value) => value !== null && value !== '').join('\n');
+  }
   if (result.operation.id === 'comprehension.replay' && replay) {
     const rows = replay.events.map((event) => ({
       at: event.at,

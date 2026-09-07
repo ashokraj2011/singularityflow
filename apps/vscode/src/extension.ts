@@ -4829,7 +4829,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openComprehensionCenter': async () => {
       await reconcileActiveWorkspaceSelection();
       const { ComprehensionCenterPanel } = lazyPanels();
-      return ComprehensionCenterPanel.show(context, store);
+      return ComprehensionCenterPanel.show(context, store, client);
     },
     'singularityFlow.createSgosWorkflow': async () => {
       await reconcileActiveWorkspaceSelection();

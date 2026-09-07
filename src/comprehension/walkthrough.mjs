@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { recordSha256 } from '../records.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { validateChangeRegionManifest } from './contracts.mjs';
+import { comprehensionSourceReferences } from './source-expansion.mjs';
 
 export const CMP_WALKTHROUGH_CLAIM_CLASSES = Object.freeze([
   'structural-fact', 'diff-fact', 'evidence-supported', 'human-judgment', 'model-advisory'
@@ -138,13 +139,19 @@ function regionSources(manifest, refs) {
     region.regionId === reference || region.regionSha256 === reference)).filter(Boolean);
 }
 
-function sourceForRegion(region) {
+function sourceForRegion(region, manifest) {
   return {
     kind: 'change-region',
     regionId: region.regionId,
     regionSha256: region.regionSha256,
     pathBefore: region.location.pathBefore,
-    pathAfter: region.location.pathAfter
+    pathAfter: region.location.pathAfter,
+    exactSourceRefs: comprehensionSourceReferences(manifest, region).map((entry) => ({
+      side: entry.side,
+      path: entry.path,
+      ref: entry.ref,
+      referenceSha256: entry.referenceSha256
+    }))
   };
 }
 
@@ -310,7 +317,7 @@ function evaluateClaim(claim, manifest, dependencyManifest, sourceBudget) {
         status: 'invalid', assurance: 'contradicted', dependencyKeys, sources: [], diagnostics };
     }
     sourceBudget.remaining -= matchedRegions.length;
-    const sources = matchedRegions.map(sourceForRegion);
+    const sources = matchedRegions.map((region) => sourceForRegion(region, manifest));
     const resultSha256 = hash({
       verifier: 'cmp-exact-region-file-change-v1', candidateSha256: manifest.candidateSha256,
       claimSha256: claim.claimSha256, sources
@@ -361,7 +368,9 @@ function evaluateClaim(claim, manifest, dependencyManifest, sourceBudget) {
   return { claimId, claimSha256: claim.claimSha256,
     claimClass: claim.claimClass, assertionType: claim.assertionType,
     status: 'unavailable', assurance: 'unavailable',
-    dependencyKeys, sources: [candidateSource, ...matchedRegions.map(sourceForRegion)], diagnostics };
+    dependencyKeys, sources: [
+      candidateSource, ...matchedRegions.map((region) => sourceForRegion(region, manifest))
+    ], diagnostics };
 }
 
 /**

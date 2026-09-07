@@ -29,11 +29,14 @@ import {
   buildBrownfieldTouchedAreaAssessment, validateHistoricalBackfillProposal
 } from '../comprehension/brownfield.mjs';
 import {
+  comprehensionSourceReferences, readComprehensionSourceExpansion
+} from '../comprehension/source-expansion.mjs';
+import {
   commandResult, noEffects, succeeded
 } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 import {
-  optionBoolean, optionString, secureRepositoryPath, SingularityFlowError
+  optionBoolean, optionNumber, optionString, secureRepositoryPath, SingularityFlowError
 } from '../util.mjs';
 
 const MAXIMUM_EVIDENCE_BYTES = 1024 * 1024;
@@ -332,6 +335,45 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
     }
   });
   const manifest = buildChangeRegionManifest(changeSet);
+  const sourceReferences = manifest.regions.flatMap((region) =>
+    comprehensionSourceReferences(manifest, region));
+  if (subcommand === 'source') {
+    if (positionals.length !== 3) {
+      throw new SingularityFlowError(
+        'Usage: singularity-flow comprehension source <SFREF> [--offset BYTES] [--max-bytes BYTES] [--work-id WORK-ID] [--phase PHASE] [--base REVISION] [--json]',
+        { code: 'CMP_SOURCE_REFERENCE_INVALID' }
+      );
+    }
+    const reference = positionals[2];
+    if (!sourceReferences.some((entry) => entry.ref === reference)) {
+      throw new SingularityFlowError(
+        'The source reference is not present in the exact current change-region manifest. Re-run comprehension regions and use one of its current sourceReferences.',
+        { code: 'CMP_SOURCE_REFERENCE_STALE' }
+      );
+    }
+    const expansion = await readComprehensionSourceExpansion(root, manifest, reference, {
+      offset: optionNumber(options, 'offset'),
+      maximumBytes: optionNumber(options, 'max-bytes')
+    });
+    return emitCommandResult(commandResult({
+      operation: suppliedOperation ?? { id: 'comprehension.source', classification: 'read' },
+      outcome: succeeded('comprehension.source-expanded', {
+        path: expansion.path,
+        side: expansion.side,
+        bytes: expansion.bytes,
+        totalBytes: expansion.totalBytes,
+        complete: expansion.complete
+      }),
+      effects: noEffects(),
+      restState: 'informational',
+      data: {
+        mode: 'observe-only', context,
+        manifestSha256: manifest.manifestSha256,
+        candidateSha256: manifest.compatibilityCandidateSha256,
+        expansion
+      }
+    }), { json, restStateWhenIdle: 'informational' });
+  }
   if (subcommand === 'regions') {
     return emitCommandResult(commandResult({
       operation: suppliedOperation ?? { id: 'comprehension.regions', classification: 'read' },
@@ -341,7 +383,7 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
       }),
       effects: noEffects(),
       restState: 'informational',
-      data: { mode: 'observe-only', context, manifest }
+      data: { mode: 'observe-only', context, manifest, sourceReferences }
     }), { json, restStateWhenIdle: 'informational' });
   }
   if (subcommand === 'brownfield') {

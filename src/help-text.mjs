@@ -433,6 +433,8 @@ Usage:
   singularity-flow spec tasks [--phase PHASE] [--work-id ID] [--dry-run] [--json]
   singularity-flow spec trace [CLAUSE-ID] [--format human|json|csv]
   singularity-flow comprehension regions [--work-id WORK-ID] [--phase PHASE] [--base REVISION] [--json]
+  singularity-flow comprehension source <SFREF> [--offset BYTES] [--max-bytes BYTES]
+    [--work-id WORK-ID] [--phase PHASE] [--base REVISION] [--json]
   singularity-flow comprehension brownfield [--work-id WORK-ID] [--phase PHASE] [--base REVISION] [--json]
   singularity-flow comprehension backfill validate <PROPOSAL-FILE> [--work-id WORK-ID]
     [--phase PHASE] [--base REVISION] [--json]

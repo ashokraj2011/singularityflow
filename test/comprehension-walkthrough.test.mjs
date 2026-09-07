@@ -124,6 +124,10 @@ test('walkthrough validation distinguishes exact diff facts, unavailable structu
   });
   assert.equal(first.claims[0].assurance, 'diff-verified');
   assert.equal(first.claims[0].sources[0].pathAfter, 'src/service.js');
+  assert.deepEqual(first.claims[0].sources[0].exactSourceRefs.map((entry) => entry.side),
+    ['before', 'after']);
+  assert.ok(first.claims[0].sources[0].exactSourceRefs.every((entry) =>
+    entry.ref.startsWith('sfref:comprehension:source:')));
   assert.equal(first.claims[1].assurance, 'model-advisory');
   assert.equal(first.claims[2].assurance, 'unavailable');
   assert.ok(first.diagnostics.some((entry) => entry.code === 'CMP_STRUCTURE_UNAVAILABLE'));

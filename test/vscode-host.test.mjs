@@ -1301,6 +1301,12 @@ test('the built extension leases, evicts, and reacquires exact comprehension dat
     entry.id === 'singularityFlow.comprehensionCenter'));
   await until(() => panel.webview.html.includes('Exact change regions')
     && panel.webview.html.includes('README.md') ? panel.webview.html : null);
+  const sourceReference = panel.webview.html.match(/data-source-ref="([^"]+)">after<\/button>/)?.[1];
+  assert.ok(sourceReference, 'the current Candidate exposes an explicit after-source reference');
+  await panel.post({ type: 'source', reference: sourceReference });
+  await until(() => panel.webview.html.includes('Exact after source')
+    && panel.webview.html.includes('Comprehension host observation') ? panel.webview.html : null);
+  assert.match(panel.webview.html, /discarded when the panel is hidden/);
   await panel.post({ type: 'tab', tab: 'diff' });
   await until(() => panel.webview.html.includes('Comprehension host observation')
     ? panel.webview.html : null);

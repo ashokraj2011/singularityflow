@@ -5193,7 +5193,7 @@ test('Comprehension Center is a lazy leased read-only surface with explicit unkn
 
   const extension = await readFile(source('extension.ts'), 'utf8');
   assert.match(extension, /'singularityFlow\.openComprehensionCenter'/);
-  assert.match(extension, /ComprehensionCenterPanel\.show\(context, store\)/);
+  assert.match(extension, /ComprehensionCenterPanel\.show\(context, store, client\)/);
   const lazy = await readFile(source('lazy-panels-runtime.ts'), 'utf8');
   assert.match(lazy, /ComprehensionCenterPanel/,
     'the Center stays outside activation until a person opens it');
@@ -5207,12 +5207,18 @@ test('Comprehension Center is a lazy leased read-only surface with explicit unkn
     'hiding the Center releases the heavy slice and showing it reacquires through one flight');
   assert.match(panel, /DEFAULT_COMPREHENSION_SLICE_LEASE_MS/,
     'a lost webview cannot pin the projection forever');
-  assert.doesNotMatch(panel, /client\.run|request\.model|phase publish|submit/,
-    'the first Center release is observation only');
+  assert.match(panel, /client\.run\(args, controller\.signal\)/,
+    'explicit source selection uses the model-free read-only comprehension command');
+  assert.doesNotMatch(panel, /request\.model|phase publish|submit/,
+    'the Center has no model or lifecycle mutation path');
   assert.match(panel, /No governed cause bindings are available/);
   assert.match(panel, /Exact bounded diff/);
   assert.match(panel, /Available cached symbols/,
     'regions expose cache-only symbol navigation without making AST a dependency');
+  assert.match(panel, /Exact before\/after source/,
+    'regions expose bounded Candidate-bound source reads only after explicit selection');
+  assert.match(panel, /cancelSourceLoad[\s\S]*sourceController\?\.abort\(\)[\s\S]*this\.source = null/,
+    'source-bearing pages and in-flight reads are discarded on refresh, repository change, and lease release');
   assert.match(panel, /section index references the single patch/,
     'per-region inspection reuses offsets into one bounded patch instead of copying source bytes');
   assert.match(panel, /Recorded delivery evidence/,

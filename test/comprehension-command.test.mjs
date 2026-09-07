@@ -117,6 +117,42 @@ test('comprehension regions is a model-free, read-only exact change projection',
   assert.equal(git(root, ['status', '--porcelain=v1']), before);
 });
 
+test('comprehension source expands only current Candidate-bound references in bounded pages', async (t) => {
+  const root = await repository(t);
+  const before = git(root, ['status', '--porcelain=v1']);
+  const regionsResult = command(root, [
+    '--no-model', 'comprehension', 'regions', '--base', 'HEAD', '--json'
+  ]);
+  assert.equal(regionsResult.status, 0, regionsResult.stderr);
+  const regions = JSON.parse(regionsResult.stdout);
+  const service = regions.data.sourceReferences.find((entry) =>
+    entry.path === 'service.txt' && entry.side === 'after');
+  assert.ok(service?.ref);
+  const pageResult = command(root, [
+    '--no-model', 'comprehension', 'source', service.ref,
+    '--base', 'HEAD', '--max-bytes', '3', '--json'
+  ]);
+  assert.equal(pageResult.status, 0, pageResult.stderr);
+  const page = JSON.parse(pageResult.stdout);
+  assert.equal(page.operation.id, 'comprehension.source');
+  assert.equal(page.data.expansion.path, 'service.txt');
+  assert.equal(page.data.expansion.side, 'after');
+  assert.equal(Buffer.from(page.data.expansion.content, 'base64').toString('utf8'), 'aft');
+  assert.equal(page.data.expansion.nextOffset, 3);
+  assert.deepEqual(page.effects, {
+    stateChanged: false, filesChanged: false, publicationCreated: false,
+    externalSystemsChanged: false
+  });
+  assert.equal(git(root, ['status', '--porcelain=v1']), before);
+
+  await writeFile(path.join(root, 'service.txt'), 'new current bytes\n');
+  const stale = command(root, [
+    '--no-model', 'comprehension', 'source', service.ref, '--base', 'HEAD', '--json'
+  ]);
+  assert.notEqual(stale.status, 0);
+  assert.match(stale.stderr, /not present in the exact current change-region manifest/i);
+});
+
 test('comprehension check reports incomplete coverage without turning observation into a gate', async (t) => {
   const root = await repository(t);
   const result = command(root, ['--no-model', 'comprehension', 'check', '--base', 'HEAD', '--json']);

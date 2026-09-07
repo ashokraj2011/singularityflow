@@ -92,6 +92,7 @@ const IMMUTABLE_FAMILIES = Object.freeze({
   'candidate-snapshot': Object.freeze({ directory: 'candidate-snapshots', hashField: 'candidateSha256' }),
   'resource-lease': Object.freeze({ directory: 'resource-leases', hashField: 'leaseSha256' }),
   'join-receipt': Object.freeze({ directory: 'join-receipts', hashField: 'joinReceiptSha256' }),
+  'quorum-join-receipt': Object.freeze({ directory: 'quorum-join-receipts', hashField: 'quorumJoinReceiptSha256' }),
   'fanout-expansion-receipt': Object.freeze({ directory: 'fanout-expansions', hashField: 'expansionSha256' }),
   'sgos-replay-plan': Object.freeze({ directory: 'replay-plans', hashField: 'replayPlanSha256' }),
   'process-binding': Object.freeze({ directory: 'bindings', hashField: 'bindingSha256' }),
@@ -4048,13 +4049,15 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
   };
   // Index every bounded attempt and receipt once, including immutable records hidden by mutable
   // task state. A self-hashed Process cannot reset a receipted task to ready and execute it again.
-  const [attempts, receipts, agentProposals, resourceLeases, joinReceipts, fanoutReceipts,
+  const [attempts, receipts, agentProposals, resourceLeases, joinReceipts,
+    quorumJoinReceipts, fanoutReceipts,
     { record: program }] = await Promise.all([
     allRecords('gvm-task-attempt'),
     allRecords('gvm-task-receipt'),
     allRecords('agent-proposal'),
     allRecords('resource-lease'),
     allRecords('join-receipt'),
+    allRecords('quorum-join-receipt'),
     allRecords('fanout-expansion-receipt'),
     readImmutable('gvm-program', state.programSha256)
   ]);
@@ -4188,16 +4191,19 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
     state, program, agentProposals, attempts, receipts, ownerByAttempt
   );
   const joinsByTask = new Map((program.joins ?? []).map((join) => [join.taskTemplateId, join]));
-  const joinReceiptsByAttempt = recordsBy(joinReceipts, 'attemptId');
-  for (const receipt of joinReceipts) {
+  const everyJoinReceipt = [...joinReceipts, ...quorumJoinReceipts];
+  const joinReceiptsByAttempt = recordsBy(everyJoinReceipt, 'attemptId');
+  for (const receipt of everyJoinReceipt) {
+    const receiptSha256 = receipt.policy === 'quorum'
+      ? receipt.quorumJoinReceiptSha256 : receipt.joinReceiptSha256;
     const taskId = ownerByAttempt.get(receipt.attemptId);
     const task = taskId == null ? null : state.taskInstances[taskId];
     const join = task == null ? null : joinsByTask.get(task.taskTemplateId);
     const currentJoin = task?.state === 'succeeded'
       && task.attemptIds.at(-1) === receipt.attemptId
-      && task.outputRefs.includes(receipt.joinReceiptSha256);
+      && task.outputRefs.includes(receiptSha256);
     const historicalJoin = (replayHistory.priorByJoinReceipt
-      .get(receipt.joinReceiptSha256) ?? []).find(({ prior }) =>
+      .get(receiptSha256) ?? []).find(({ prior }) =>
       prior.taskInstanceId === taskId && prior.attemptIds.at(-1) === receipt.attemptId) ?? null;
     const joinProjection = currentJoin ? task : historicalJoin?.prior ?? null;
     const predecessorRecords = receipt.predecessors.map((entry) => {
@@ -4215,7 +4221,11 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
     ))].sort(compareSgosCodePoints);
     if (!task || taskId !== receipt.taskInstanceId || receipt.processId !== state.processId
         || !join || receipt.joinId !== join.joinId || receipt.policy !== join.policy
-        || canonicalJson(receipt.predecessors.map((entry) => entry.taskInstanceId))
+        || (receipt.policy === 'quorum'
+          && receipt.requiredSuccesses !== join.requiredSuccesses)
+        || canonicalJson(receipt.policy === 'quorum'
+          ? receipt.predecessorTaskInstanceIds
+          : receipt.predecessors.map((entry) => entry.taskInstanceId))
           !== canonicalJson(task.predecessorTaskInstanceIds)
         || !joinProjection
         || predecessorRecords.some(({ entry, task: predecessor }) =>
@@ -4224,13 +4234,13 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
             !== entry.receiptSha256
           || (predecessor.attemptIds.at(-1) ?? null) !== entry.attemptId)
         || canonicalJson(receipt.outputRefs) !== canonicalJson(expectedOutputs)) {
-      fail(`SGOS join receipt '${receipt.joinReceiptSha256}' is orphaned or mismatched.`,
+      fail(`SGOS join receipt '${receiptSha256}' is orphaned or mismatched.`,
         'SGOS_JOIN_RECEIPT_INVALID');
     }
     for (const { entry, task: predecessor } of predecessorRecords) {
       if (entry.state !== 'succeeded') {
         if (entry.attemptId !== null && ownerByAttempt.get(entry.attemptId) !== entry.taskInstanceId) {
-          fail(`SGOS join receipt '${receipt.joinReceiptSha256}' has foreign predecessor lineage.`,
+          fail(`SGOS join receipt '${receiptSha256}' has foreign predecessor lineage.`,
             'SGOS_JOIN_RECEIPT_INVALID');
         }
         continue;
@@ -4238,7 +4248,7 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
       const predecessorReceipt = (receiptsByAttempt.get(entry.attemptId) ?? [])
         .find((candidate) => candidate.receiptSha256 === entry.receiptSha256);
       if (!predecessorReceipt) {
-        fail(`SGOS join receipt '${receipt.joinReceiptSha256}' has no exact predecessor receipt.`,
+        fail(`SGOS join receipt '${receiptSha256}' has no exact predecessor receipt.`,
           'SGOS_JOIN_RECEIPT_INVALID');
       }
       await assertSuccessfulReceiptLineage(
@@ -4252,7 +4262,9 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
   for (const [taskId, task] of Object.entries(state.taskInstances)) {
     if (!joinsByTask.has(task.taskTemplateId) || task.state !== 'succeeded') continue;
     const exact = joinReceiptsByAttempt.get(task.attemptIds.at(-1)) ?? [];
-    if (exact.length !== 1 || !task.outputRefs.includes(exact[0].joinReceiptSha256)) {
+    const receiptSha256 = exact[0]?.policy === 'quorum'
+      ? exact[0].quorumJoinReceiptSha256 : exact[0]?.joinReceiptSha256;
+    if (exact.length !== 1 || !task.outputRefs.includes(receiptSha256)) {
       fail(`Succeeded JOIN task '${taskId}' is not bound to one exact join receipt.`,
         'SGOS_JOIN_RECEIPT_INVALID');
     }
@@ -4684,8 +4696,12 @@ async function assertTransitionIndexDelta(root, before, after, index) {
         consumedAgentProposals.add(proposalSha256);
       }
       if (template?.opcode === 'JOIN') {
+        const join = (program.joins ?? []).find((entry) =>
+          entry.taskTemplateId === task.taskTemplateId);
+        const joinReceiptFamily = join?.policy === 'quorum'
+          ? 'quorum-join-receipt' : 'join-receipt';
         const exactJoin = index.delta.filter((entry) =>
-          entry.family === 'join-receipt'
+          entry.family === joinReceiptFamily
           && entry.attemptId === receipt.attemptId
           && entry.taskInstanceId === taskId);
         if (exactJoin.length !== 1
@@ -4694,10 +4710,8 @@ async function assertTransitionIndexDelta(root, before, after, index) {
             'SGOS_JOIN_RECEIPT_INVALID');
         }
         const { record: joinReceipt } = await readSgosImmutableRecord(
-          root, after.processId, 'join-receipt', exactJoin[0].recordSha256
+          root, after.processId, joinReceiptFamily, exactJoin[0].recordSha256
         );
-        const join = (program.joins ?? []).find((entry) =>
-          entry.taskTemplateId === task.taskTemplateId);
         const predecessors = joinReceipt.predecessors.map((entry) => ({
           entry, task: after.taskInstances[entry.taskInstanceId] ?? null
         }));
@@ -4706,6 +4720,10 @@ async function assertTransitionIndexDelta(root, before, after, index) {
         ))].sort(compareSgosCodePoints);
         if (!join || joinReceipt.joinId !== join.joinId
             || joinReceipt.policy !== join.policy
+            || (joinReceipt.policy === 'quorum'
+              && (joinReceipt.requiredSuccesses !== join.requiredSuccesses
+                || canonicalJson(joinReceipt.predecessorTaskInstanceIds)
+                  !== canonicalJson(task.predecessorTaskInstanceIds)))
             || joinReceipt.attemptId !== receipt.attemptId
             || predecessors.some(({ entry, task: predecessor }) =>
               !predecessor || predecessor.state !== entry.state

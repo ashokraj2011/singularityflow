@@ -2060,6 +2060,13 @@ const families = [
     ]
   }),
   family({
+    id: 'quorum-join-receipt', currentVersion: 1, immutable: true,
+    paths: [
+      /^\$git\/sgos\/processes\/[^/]+\/quorum-join-receipts\/[a-f0-9]{64}\.json$/,
+      sgosRecordReservationPath('quorum-join-receipt')
+    ]
+  }),
+  family({
     id: 'fanout-expansion-receipt', currentVersion: 1, immutable: true,
     paths: [
       /^\$git\/sgos\/processes\/[^/]+\/fanout-expansions\/[a-f0-9]{64}\.json$/,

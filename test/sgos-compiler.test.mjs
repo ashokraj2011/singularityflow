@@ -827,6 +827,40 @@ test('all-success JOIN compiles to one exact installed join contract', () => {
     .find((task) => task.taskTemplateId === 'join').opcode, 'JOIN');
 });
 
+test('quorum JOIN compiles with one finite threshold and rejects invalid thresholds', () => {
+  const build = (requiredSuccesses) => compileSgosProgram(fixture({
+    mutateWorkflow(workflow) {
+      workflow.spec.tasks.second = {
+        ...workflow.spec.tasks.copy,
+        dependsOn: [],
+        resources: {
+          reads: ['input:secondary'], writes: ['repo:secondary'],
+          devices: [], externalEffects: []
+        }
+      };
+      workflow.spec.tasks.join = {
+        kind: 'join', dependsOn: ['copy', 'second'], material: false,
+        metadata: { joinPolicy: 'quorum', requiredSuccesses }
+      };
+      workflow.spec.tasks.end.dependsOn = ['join'];
+      workflow.spec.joins = {
+        join: {
+          taskTemplateId: 'join', policy: 'quorum', requiredSuccesses,
+          predecessorTaskTemplateIds: ['copy', 'second']
+        }
+      };
+      workflow.spec.budgets.maximumTasks = 4;
+    }
+  }));
+  assert.deepEqual(build(1).program.joins, [{
+    joinId: 'join', taskTemplateId: 'join', policy: 'quorum', requiredSuccesses: 1,
+    predecessorTaskTemplateIds: ['copy', 'second']
+  }]);
+  for (const threshold of [0, 3]) {
+    expectCode(() => build(threshold), 'SGOS_JOIN_QUORUM_INVALID');
+  }
+});
+
 test('finite foreach expands canonically into bounded non-nested children and an all-success join', () => {
   const first = compileSgosProgram(fixture({
     mutateWorkflow(workflow) {

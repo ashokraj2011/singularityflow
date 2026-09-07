@@ -3,7 +3,7 @@ import { SGOS_INSTALLED_LIMITS } from './limits.mjs';
 import { compareSgosCodePoints } from './order.mjs';
 
 export const SGOS_INSTALLED_JOIN_POLICIES = Object.freeze([
-  'all-success', 'all-terminal'
+  'all-success', 'all-terminal', 'quorum'
 ]);
 
 const TERMINAL = new Set(['succeeded', 'failed', 'blocked', 'cancelled', 'skipped']);
@@ -41,7 +41,26 @@ export function canonicalSgosJoins(joins = []) {
         maximum: SGOS_INSTALLED_LIMITS.maximumJoinInputs
       });
     }
-    return Object.freeze({ joinId, taskTemplateId, policy, predecessorTaskTemplateIds });
+    const suppliedRequiredSuccesses = value.requiredSuccesses ?? value.threshold ?? null;
+    if (policy === 'quorum') {
+      if (!Number.isSafeInteger(suppliedRequiredSuccesses)
+          || suppliedRequiredSuccesses < 1
+          || suppliedRequiredSuccesses > predecessorTaskTemplateIds.length) {
+        fail(`Join '${joinId}' quorum must require 1..${predecessorTaskTemplateIds.length} successes.`,
+          'SGOS_JOIN_QUORUM_INVALID', {
+            joinId, requiredSuccesses: suppliedRequiredSuccesses,
+            predecessorCount: predecessorTaskTemplateIds.length
+          });
+      }
+    } else if (suppliedRequiredSuccesses !== null) {
+      fail(`Join '${joinId}' may set requiredSuccesses only for policy 'quorum'.`,
+        'SGOS_JOIN_QUORUM_INVALID', { joinId, policy });
+    }
+    return Object.freeze({
+      joinId, taskTemplateId, policy,
+      ...(policy === 'quorum' ? { requiredSuccesses: suppliedRequiredSuccesses } : {}),
+      predecessorTaskTemplateIds
+    });
   }).sort((left, right) => compareSgosCodePoints(left.joinId, right.joinId));
   if (new Set(normalized.map((value) => value.joinId)).size !== normalized.length
       || new Set(normalized.map((value) => value.taskTemplateId)).size !== normalized.length) {
@@ -65,6 +84,14 @@ export function sgosJoinReadiness(join, predecessorStates) {
     return Object.freeze({
       ready: states.every((state) => state === 'succeeded'),
       impossible: states.some((state) => TERMINAL.has(state) && state !== 'succeeded')
+    });
+  }
+  if (join.policy === 'quorum') {
+    const succeeded = states.filter((state) => state === 'succeeded').length;
+    const possible = succeeded + states.filter((state) => !TERMINAL.has(state)).length;
+    return Object.freeze({
+      ready: succeeded >= join.requiredSuccesses,
+      impossible: possible < join.requiredSuccesses
     });
   }
   return Object.freeze({

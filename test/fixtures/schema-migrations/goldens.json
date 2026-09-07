@@ -38,6 +38,7 @@
   "candidate-snapshot": [{ "schemaVersion": 1 }],
   "resource-lease": [{ "schemaVersion": 1 }],
   "join-receipt": [{ "schemaVersion": 1 }],
+  "quorum-join-receipt": [{ "schemaVersion": 1 }],
   "fanout-expansion-receipt": [{ "schemaVersion": 1 }],
   "sgos-replay-plan": [{ "schemaVersion": 1 }],
   "process-binding": [{ "schemaVersion": 2 }],

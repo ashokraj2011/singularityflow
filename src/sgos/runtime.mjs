@@ -18,6 +18,7 @@ import {
   createCandidateSnapshot,
   createFanoutExpansionReceipt,
   createJoinReceipt,
+  createQuorumJoinReceipt,
   createResourceLease,
   validateCandidateSnapshot,
   validateAgentProposal,
@@ -1993,7 +1994,7 @@ async function runNextSgosTaskWithinPolicy(root, processId, {
       // The dispatch CAS proved this exact join was ready. Re-read the immutable predecessor
       // identities from the begun Process so concurrent unrelated completions cannot alter the
       // receipt bytes or make completion timing an input to deterministic lineage.
-      const predecessors = task.predecessorTaskInstanceIds.map((taskInstanceId) => {
+      const predecessorSnapshot = task.predecessorTaskInstanceIds.map((taskInstanceId) => {
         const predecessor = begun.taskInstances[taskInstanceId];
         if (!predecessor) {
           fail(`JOIN predecessor '${taskInstanceId}' is missing.`, 'SGOS_JOIN_CONTRACT_MISMATCH');
@@ -2009,31 +2010,49 @@ async function runNextSgosTaskWithinPolicy(root, processId, {
           attemptId: predecessor.attemptIds.at(-1) ?? null
         };
       });
-      const joinReceipt = createJoinReceipt({
-        processId: begun.processId,
-        taskInstanceId: task.taskInstanceId,
-        attemptId,
-        joinId: join.joinId,
-        policy: join.policy,
-        predecessors,
-        outputRefs: predecessors.flatMap((entry) => {
+      const contributors = join.policy === 'quorum'
+        ? predecessorSnapshot.filter((entry) => entry.state === 'succeeded')
+          .sort((left, right) => compareSgosCodePoints(left.taskInstanceId, right.taskInstanceId))
+          .slice(0, join.requiredSuccesses)
+        : predecessorSnapshot;
+      if (join.policy === 'quorum' && contributors.length !== join.requiredSuccesses) {
+        fail(`JOIN task '${template.taskTemplateId}' no longer satisfies its quorum contract.`,
+          'SGOS_JOIN_QUORUM_NOT_READY');
+      }
+      const receiptInput = {
+        processId: begun.processId, taskInstanceId: task.taskInstanceId, attemptId,
+        joinId: join.joinId, policy: join.policy,
+        ...(join.policy === 'quorum' ? {
+          requiredSuccesses: join.requiredSuccesses,
+          predecessorTaskInstanceIds: [...task.predecessorTaskInstanceIds]
+            .sort(compareSgosCodePoints)
+        } : {}),
+        predecessors: contributors,
+        outputRefs: contributors.flatMap((entry) => {
           if (entry.state !== 'succeeded') return [];
           const predecessor = begun.taskInstances[entry.taskInstanceId];
           return predecessor?.outputRefs ?? [];
         }),
         completedAt: instant(clock)
-      });
+      };
+      const joinReceipt = join.policy === 'quorum'
+        ? createQuorumJoinReceipt(receiptInput)
+        : createJoinReceipt(receiptInput);
+      const joinReceiptFamily = join.policy === 'quorum'
+        ? 'quorum-join-receipt' : 'join-receipt';
+      const joinReceiptSha256 = join.policy === 'quorum'
+        ? joinReceipt.quorumJoinReceiptSha256 : joinReceipt.joinReceiptSha256;
       const publication = await putRuntimeImmutableRecord(
-        root, begun.processId, 'join-receipt', joinReceipt
+        root, begun.processId, joinReceiptFamily, joinReceipt
       );
       if (publication.reservationToken != null) {
         context.recordReservations.push(publication.reservationToken);
       }
       const outcome = await trustedRuntimeOutcome(root, begun, context, {
-        outputRefs: [joinReceipt.joinReceiptSha256, ...joinReceipt.outputRefs],
-        evidenceRefs: [joinReceipt.joinReceiptSha256],
+        outputRefs: [joinReceiptSha256, ...joinReceipt.outputRefs],
+        evidenceRefs: [joinReceiptSha256],
         rawResult: {
-          status: 'completed', opcode: 'JOIN', joinReceiptSha256: joinReceipt.joinReceiptSha256
+          status: 'completed', opcode: 'JOIN', joinReceiptSha256
         }
       }, 'kernel-join-integrity', instant(clock));
       const result = await finalizeSuccess(root, context, outcome, program, clock);

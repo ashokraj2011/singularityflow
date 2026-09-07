@@ -1011,6 +1011,68 @@ test('all-terminal JOIN converges deterministically after a predecessor failure'
   assert.equal((await fsckSgosProcess(fixture.root, started.process.processId)).status, 'ok');
 });
 
+test('quorum JOIN binds the full input set and only the deterministic successful threshold', async () => {
+  const fixture = await repository('SGOS-STORY-JOIN-QUORUM');
+  const compiled = program([
+    task('10-alpha', 'NOOP'),
+    task('20-beta', 'NOOP'),
+    task('30-fails', 'KERNEL', [], {
+      operation: 'story.expected-failure',
+      resources: { reads: ['repo/input'], writes: [], devices: [], externalEffects: [] }
+    }),
+    task('40-join', 'JOIN', ['10-alpha', '20-beta', '30-fails'], {
+      material: false, evidence: {},
+      metadata: { joinPolicy: 'quorum', requiredSuccesses: 2 }
+    }),
+    task('90-end', 'END', ['40-join'])
+  ], [{
+    joinId: 'join-quorum', taskTemplateId: '40-join', policy: 'quorum', requiredSuccesses: 2,
+    predecessorTaskTemplateIds: ['10-alpha', '20-beta', '30-fails']
+  }]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const predecessors = await runReadySgosTasks(fixture.root, started.process.processId, {
+    program: compiled,
+    maximumParallel: 3,
+    handlers: { kernel: { 'story.expected-failure': async () => {
+      throw new Error('expected non-contributor failure');
+    } } },
+    clock: T1
+  });
+  assert.equal(predecessors.launched, 3);
+  const joined = await runNextSgosTask(fixture.root, started.process.processId, {
+    program: compiled, clock: T1
+  });
+  assert.equal(joined.status, 'succeeded');
+  assert.equal(joined.joinReceipt.kind, 'quorum-join-receipt');
+  assert.equal(joined.joinReceipt.policy, 'quorum');
+  assert.equal(joined.joinReceipt.requiredSuccesses, 2);
+  assert.deepEqual(joined.joinReceipt.predecessorTaskInstanceIds,
+    Object.values(joined.process.taskInstances)
+      .filter((entry) => ['10-alpha', '20-beta', '30-fails'].includes(entry.taskTemplateId))
+      .map((entry) => entry.taskInstanceId)
+      .sort());
+  assert.deepEqual(joined.joinReceipt.predecessors.map((entry) => entry.state),
+    ['succeeded', 'succeeded']);
+  const expectedContributors = Object.values(joined.process.taskInstances)
+    .filter((entry) => ['10-alpha', '20-beta', '30-fails'].includes(entry.taskTemplateId)
+      && entry.state === 'succeeded')
+    .sort((left, right) => left.taskInstanceId < right.taskInstanceId ? -1 : 1)
+    .slice(0, 2)
+    .map((entry) => entry.taskTemplateId);
+  assert.deepEqual(joined.joinReceipt.predecessors.map((entry) =>
+    joined.process.taskInstances[entry.taskInstanceId].taskTemplateId), expectedContributors);
+  const stored = await listSgosImmutableRecordsByField(
+    fixture.root, started.process.processId, 'quorum-join-receipt',
+    'attemptId', joined.joinReceipt.attemptId
+  );
+  assert.equal(stored.length, 1);
+  assert.equal(stored[0].quorumJoinReceiptSha256,
+    joined.joinReceipt.quorumJoinReceiptSha256);
+  assert.equal(joined.process.taskInstances[joined.taskInstanceId].outputRefs
+    .includes(joined.joinReceipt.quorumJoinReceiptSha256), true);
+  assert.equal((await fsckSgosProcess(fixture.root, started.process.processId)).status, 'ok');
+});
+
 test('finite fan-out start roots one exact expansion receipt and executes only bounded children', async () => {
   const fixture = await repository('SGOS-STORY-FANOUT');
   const fanout = normalizeSgosFanout({

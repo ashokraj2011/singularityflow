@@ -38,6 +38,13 @@ recovers an abandoned writer lock, ignores unfinished staging files, and preserv
 rollback and exact fast-forward restore. The live filesystem Process store has not migrated through
 that SPI, so live-format migration and runtime cutover remain open.
 
+The first `SGOS-P1-002` advanced-orchestration slice is implemented in the current increment. A
+bounded `quorum` join can require an exact finite number of successful predecessors, becomes ready
+without waiting for unrelated non-contributors, and emits a separate immutable receipt that binds
+the full configured predecessor set and the deterministic successful contributors. Record indexes,
+transition verification, process fsck, evidence export, schema migration, and terminal scheduling
+all understand that receipt without changing historical `join-receipt` bytes.
+
 ## Status rules
 
 - `[ ]` means the capability remains unavailable or behind an explicit refusal boundary.
@@ -200,10 +207,33 @@ Acceptance gates:
 - counterfeit model, tool escalation, prompt leakage, and post-effect failure suites pass;
 - no adapter can mint success, verification, or policy authority.
 
-### [ ] SGOS-P1-002 — Advanced orchestration and recovery
+### [~] SGOS-P1-002 — Advanced orchestration and recovery
+
+- **Owner:** Codex orchestration continuation
+- **Branch:** `main`
+- **Started:** 2026-09-07
+- **Target:** staged SGOS execution-breadth release after the P0 release gates
 
 Add dynamic or nested bounded fan-out, quorum/reducer/manual-reconcile joins, general idempotent
 effect replay, non-genesis fork import, and consequential-effect task retry.
+
+Implemented in the current increment:
+
+- `quorum` is an installed finite join policy with an explicit `requiredSuccesses` threshold;
+- readiness distinguishes a reachable threshold from an impossible one and can dispatch as soon as
+  the threshold is met;
+- a new immutable `quorum-join-receipt` v1 family binds the full configured input set, exactly the
+  canonical successful threshold, their attempt/receipt lineage, and their output references;
+- compilation, runtime publication, record indexes, transition verification, fsck, evidence export,
+  schema migration, and the umbrella JSON Schema share that contract;
+- `END` scheduling waits until every other task is terminal, so an early quorum cannot strand a
+  still-running non-contributor by prematurely blocking the Process;
+- malformed thresholds, missing contributors, counterfeit lineage, and mismatched receipts fail
+  closed while existing all-success/all-terminal Programs retain their historical receipt family.
+
+Still required: dynamic or nested fan-out, reducer and human manual-reconcile joins, general
+idempotent effect replay, non-genesis fork import, and consequential-effect retry. Quorum also needs
+the shared signed supported-platform release evidence before this item can become `[x]`.
 
 Acceptance gates:
 

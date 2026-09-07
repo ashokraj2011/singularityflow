@@ -10,8 +10,9 @@ import { deterministicSgosDispatchPlan, sgosTaskReadiness } from '../src/sgos/sc
 import { canonicalSgosJoins, sgosJoinReadiness } from '../src/sgos/joins.mjs';
 import { normalizeSgosFanout } from '../src/sgos/fanout.mjs';
 import {
-  createFanoutExpansionReceipt, createJoinReceipt, createResourceLease,
-  validateFanoutExpansionReceipt, validateJoinReceipt, validateResourceLease
+  createFanoutExpansionReceipt, createJoinReceipt, createQuorumJoinReceipt, createResourceLease,
+  validateFanoutExpansionReceipt, validateJoinReceipt, validateQuorumJoinReceipt,
+  validateResourceLease
 } from '../src/sgos/contracts.mjs';
 
 function template(taskTemplateId, dependsOn = [], resources = {}) {
@@ -111,6 +112,63 @@ test('installed joins distinguish all-success impossibility from all-terminal re
   });
 });
 
+test('quorum joins become ready at the installed threshold and fail only when it is unreachable', () => {
+  const [quorum] = canonicalSgosJoins([{
+    joinId: 'quorum', taskTemplateId: 'quorum', policy: 'quorum', requiredSuccesses: 2,
+    predecessorTaskTemplateIds: ['a', 'b', 'c']
+  }]);
+  assert.deepEqual(quorum, {
+    joinId: 'quorum', taskTemplateId: 'quorum', policy: 'quorum', requiredSuccesses: 2,
+    predecessorTaskTemplateIds: ['a', 'b', 'c']
+  });
+  assert.deepEqual(sgosJoinReadiness(quorum, ['succeeded', 'succeeded', 'running']), {
+    ready: true, impossible: false
+  });
+  assert.deepEqual(sgosJoinReadiness(quorum, ['succeeded', 'failed', 'running']), {
+    ready: false, impossible: false
+  });
+  assert.deepEqual(sgosJoinReadiness(quorum, ['succeeded', 'failed', 'cancelled']), {
+    ready: false, impossible: true
+  });
+  for (const requiredSuccesses of [undefined, 0, 4]) {
+    assert.throws(() => canonicalSgosJoins([{
+      joinId: 'invalid', taskTemplateId: 'invalid', policy: 'quorum', requiredSuccesses,
+      predecessorTaskTemplateIds: ['a', 'b', 'c']
+    }]), (error) => error.code === 'SGOS_JOIN_QUORUM_INVALID');
+  }
+  assert.throws(() => canonicalSgosJoins([{
+    joinId: 'invalid', taskTemplateId: 'invalid', policy: 'all-success', requiredSuccesses: 1,
+    predecessorTaskTemplateIds: ['a']
+  }]), (error) => error.code === 'SGOS_JOIN_QUORUM_INVALID');
+});
+
+test('END waits for non-contributing quorum predecessors to become terminal', () => {
+  const templates = [
+    template('a'), template('b'), template('c'),
+    { ...template('join', ['a', 'b', 'c']), opcode: 'JOIN' },
+    { ...template('end', ['join']), opcode: 'END' }
+  ];
+  const joinContract = canonicalSgosJoins([{
+    joinId: 'join', taskTemplateId: 'join', policy: 'quorum', requiredSuccesses: 2,
+    predecessorTaskTemplateIds: ['a', 'b', 'c']
+  }])[0];
+  const a = instance('a', 'succeeded');
+  const b = instance('b', 'succeeded');
+  const c = instance('c', 'waiting');
+  const join = instance('join', 'succeeded', [a.taskInstanceId, b.taskInstanceId, c.taskInstanceId]);
+  const end = instance('end', 'waiting', [join.taskInstanceId]);
+  const process = { taskInstances: Object.fromEntries([a, b, c, join, end]
+    .map((entry) => [entry.taskInstanceId, entry])) };
+  const program = { taskTemplates: templates, joins: [joinContract] };
+  assert.deepEqual(sgosTaskReadiness(program, process, end), {
+    ready: false, impossible: false
+  });
+  c.state = 'failed';
+  assert.deepEqual(sgosTaskReadiness(program, process, end), {
+    ready: true, impossible: false
+  });
+});
+
 test('fan-out normalization is finite, key-stable, and bounded', () => {
   const normalized = normalizeSgosFanout({
     taskId: 'items', maximumItems: 2, maximumParallel: 2,
@@ -146,6 +204,22 @@ test('parallel durable receipts are strict, self-hashed, and tamper evident', ()
   });
   assert.equal(validateJoinReceipt(join).joinReceiptSha256, join.joinReceiptSha256);
   assert.throws(() => validateJoinReceipt({ ...join, policy: 'first-finished' }));
+
+  const quorumJoin = createQuorumJoinReceipt({
+    processId, taskInstanceId: 'task:quorum', attemptId,
+    joinId: 'quorum-main', policy: 'quorum', requiredSuccesses: 1,
+    predecessorTaskInstanceIds: ['task:alpha', 'task:beta'],
+    predecessors: [{
+      taskInstanceId: 'task:alpha', state: 'succeeded',
+      receiptSha256: `sha256:${'3'.repeat(64)}`, attemptId
+    }],
+    outputRefs: [`sha256:${'3'.repeat(64)}`], completedAt: '2026-08-30T00:01:00.000Z'
+  });
+  assert.equal(validateQuorumJoinReceipt(quorumJoin).quorumJoinReceiptSha256,
+    quorumJoin.quorumJoinReceiptSha256);
+  assert.throws(() => validateQuorumJoinReceipt({
+    ...quorumJoin, requiredSuccesses: 2
+  }));
 
   const itemSha256 = `sha256:${'1'.repeat(64)}`;
   const expansion = createFanoutExpansionReceipt({

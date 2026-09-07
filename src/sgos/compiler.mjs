@@ -1085,10 +1085,14 @@ function joinsForProgram(workflow, templates) {
     const policy = supplied.policy ?? supplied.mode
       ?? (typeof metadataPolicy === 'string' ? metadataPolicy : metadataPolicy?.policy)
       ?? (typeof metadataPolicy === 'object' ? metadataPolicy?.mode : null);
+    const requiredSuccesses = supplied.requiredSuccesses ?? supplied.threshold
+      ?? (typeof metadataPolicy === 'object'
+        ? metadataPolicy.requiredSuccesses ?? metadataPolicy.threshold : null);
     joins.push({
       joinId: String(supplied.joinId ?? template.taskTemplateId),
       taskTemplateId: template.taskTemplateId,
       policy,
+      ...(requiredSuccesses != null ? { requiredSuccesses } : {}),
       predecessorTaskTemplateIds: [...template.dependsOn]
     });
   }

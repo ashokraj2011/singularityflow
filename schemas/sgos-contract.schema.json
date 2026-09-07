@@ -11,6 +11,7 @@
     { "$ref": "#/$defs/candidateSnapshot" },
     { "$ref": "#/$defs/resourceLease" },
     { "$ref": "#/$defs/joinReceipt" },
+    { "$ref": "#/$defs/quorumJoinReceipt" },
     { "$ref": "#/$defs/fanoutExpansionReceipt" },
     { "$ref": "#/$defs/sgosReplayPlan" },
     { "$ref": "#/$defs/processBinding" },
@@ -430,6 +431,43 @@
       },
       "additionalProperties": false
     },
+    "quorumJoinReceipt": {
+      "type": "object",
+      "required": ["schemaVersion", "kind", "quorumJoinReceiptId", "processId", "taskInstanceId", "attemptId", "joinId", "policy", "requiredSuccesses", "predecessorTaskInstanceIds", "predecessors", "outputRefs", "completedAt", "quorumJoinReceiptSha256"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "kind": { "const": "quorum-join-receipt" },
+        "quorumJoinReceiptId": { "type": "string", "pattern": "^QJR-" },
+        "processId": { "type": "string", "pattern": "^PROC-" },
+        "taskInstanceId": { "type": "string", "minLength": 1 },
+        "attemptId": { "type": "string", "pattern": "^ATT-" },
+        "joinId": { "type": "string", "minLength": 1 },
+        "policy": { "const": "quorum" },
+        "requiredSuccesses": { "type": "integer", "minimum": 1, "maximum": 2000 },
+        "predecessorTaskInstanceIds": {
+          "type": "array", "minItems": 1, "maxItems": 2000, "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "predecessors": {
+          "type": "array", "minItems": 1, "maxItems": 2000, "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "required": ["taskInstanceId", "state", "receiptSha256", "attemptId"],
+            "properties": {
+              "taskInstanceId": { "type": "string", "minLength": 1 },
+              "state": { "const": "succeeded" },
+              "receiptSha256": { "$ref": "#/$defs/sha256" },
+              "attemptId": { "type": "string", "pattern": "^ATT-" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "outputRefs": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "completedAt": { "$ref": "#/$defs/timestamp" },
+        "quorumJoinReceiptSha256": { "$ref": "#/$defs/sha256" }
+      },
+      "additionalProperties": false
+    },
     "fanoutExpansionReceipt": {
       "type": "object",
       "required": ["schemaVersion", "kind", "expansionId", "processId", "parentTaskTemplateId", "collectionSha256", "maximumItems", "maximumParallel", "items", "createdAt", "expansionSha256"],
@@ -574,7 +612,7 @@
       "type": "object",
       "required": ["family", "recordSha256", "bytes"],
       "properties": {
-        "family": { "enum": ["action-evidence", "agent-proposal", "candidate-snapshot", "fanout-expansion-receipt", "gvm-checkpoint", "gvm-program", "gvm-task-attempt", "gvm-task-receipt", "human-request", "human-response", "join-receipt", "process-binding", "resource-lease", "sgos-replay-plan"] },
+        "family": { "enum": ["action-evidence", "agent-proposal", "candidate-snapshot", "fanout-expansion-receipt", "gvm-checkpoint", "gvm-program", "gvm-task-attempt", "gvm-task-receipt", "human-request", "human-response", "join-receipt", "process-binding", "quorum-join-receipt", "resource-lease", "sgos-replay-plan"] },
         "recordSha256": { "$ref": "#/$defs/sha256" },
         "attemptId": { "type": "string", "pattern": "^ATT-[A-Za-z0-9][A-Za-z0-9._:-]{5,127}$" },
         "taskInstanceId": { "type": "string", "minLength": 1 },
@@ -597,6 +635,7 @@
         "human-response": { "type": "integer", "minimum": 1 },
         "join-receipt": { "type": "integer", "minimum": 1 },
         "process-binding": { "type": "integer", "minimum": 1 },
+        "quorum-join-receipt": { "type": "integer", "minimum": 1 },
         "resource-lease": { "type": "integer", "minimum": 1 },
         "sgos-replay-plan": { "type": "integer", "minimum": 1 }
       },

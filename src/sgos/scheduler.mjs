@@ -4,7 +4,9 @@ import { compareSgosCodePoints } from './order.mjs';
 import {
   canonicalSgosResourceEntries, sgosResourceEntriesConflict
 } from './resource-contracts.mjs';
-import { sgosJoinForTask, sgosJoinReadiness } from './joins.mjs';
+import {
+  isSgosTerminalTaskState, sgosJoinForTask, sgosJoinReadiness
+} from './joins.mjs';
 
 function fail(message, code = 'SGOS_SCHEDULER_INVALID', details = null) {
   throw new SingularityFlowError(message, { code, details });
@@ -35,8 +37,18 @@ export function sgosTaskReadiness(program, process, task) {
     fail(`Task '${task.taskInstanceId}' has a missing predecessor.`);
   }
   if (template.opcode !== 'JOIN') {
+    const allPredecessorsSucceeded = predecessors.every((entry) => entry.state === 'succeeded');
+    if (template.opcode === 'END') {
+      const allOtherTasksTerminal = Object.values(process.taskInstances)
+        .filter((entry) => entry.taskInstanceId !== task.taskInstanceId)
+        .every((entry) => isSgosTerminalTaskState(entry.state));
+      return Object.freeze({
+        ready: allPredecessorsSucceeded && allOtherTasksTerminal,
+        impossible: false
+      });
+    }
     return Object.freeze({
-      ready: predecessors.every((entry) => entry.state === 'succeeded'),
+      ready: allPredecessorsSucceeded,
       impossible: false
     });
   }

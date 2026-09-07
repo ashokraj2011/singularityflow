@@ -81,6 +81,7 @@ const CONTRACTS = Object.freeze({
   'candidate-snapshot': Object.freeze({ kind: 'candidate-snapshot', hash: 'candidateSha256', id: 'candidateId', prefix: 'CAN' }),
   'resource-lease': Object.freeze({ kind: 'resource-lease', hash: 'leaseSha256', id: 'leaseId', prefix: 'RLS' }),
   'join-receipt': Object.freeze({ kind: 'join-receipt', hash: 'joinReceiptSha256', id: 'joinReceiptId', prefix: 'JNR' }),
+  'quorum-join-receipt': Object.freeze({ kind: 'quorum-join-receipt', hash: 'quorumJoinReceiptSha256', id: 'quorumJoinReceiptId', prefix: 'QJR' }),
   'fanout-expansion-receipt': Object.freeze({ kind: 'fanout-expansion-receipt', hash: 'expansionSha256', id: 'expansionId', prefix: 'FOX' }),
   'sgos-replay-plan': Object.freeze({ kind: 'sgos-replay-plan', hash: 'replayPlanSha256', id: 'replayPlanId', prefix: 'RPL' }),
   'process-binding': Object.freeze({ kind: 'process-binding', hash: 'bindingSha256' }),
@@ -798,6 +799,80 @@ export function validateJoinReceipt(value) {
   return returnValidated(value, validateJoinReceiptRecord);
 }
 
+function validateQuorumJoinReceiptRecord(record, requireHash) {
+  validateBase(record, 'quorum-join-receipt', [
+    'quorumJoinReceiptId', 'processId', 'taskInstanceId', 'attemptId', 'joinId',
+    'policy', 'requiredSuccesses', 'predecessorTaskInstanceIds', 'predecessors',
+    'outputRefs', 'completedAt'
+  ], [
+    'quorumJoinReceiptId', 'processId', 'taskInstanceId', 'attemptId', 'joinId',
+    'policy', 'requiredSuccesses', 'predecessorTaskInstanceIds', 'predecessors',
+    'outputRefs', 'completedAt'
+  ], requireHash);
+  identifier(record.quorumJoinReceiptId, 'QJR',
+    'quorum-join-receipt.quorumJoinReceiptId');
+  identifier(record.processId, 'PROC', 'quorum-join-receipt.processId');
+  string(record.taskInstanceId, 'quorum-join-receipt.taskInstanceId');
+  identifier(record.attemptId, 'ATT', 'quorum-join-receipt.attemptId');
+  string(record.joinId, 'quorum-join-receipt.joinId');
+  if (record.policy !== 'quorum') fail("quorum-join-receipt.policy must be 'quorum'.");
+  integer(record.requiredSuccesses, 'quorum-join-receipt.requiredSuccesses', { minimum: 1 });
+  stringArray(record.predecessorTaskInstanceIds,
+    'quorum-join-receipt.predecessorTaskInstanceIds');
+  if (!record.predecessorTaskInstanceIds.length
+      || record.predecessorTaskInstanceIds.length > SGOS_INSTALLED_LIMITS.maximumJoinInputs
+      || record.requiredSuccesses > record.predecessorTaskInstanceIds.length
+      || record.predecessorTaskInstanceIds.some((entry, index) =>
+        index > 0 && compareSgosCodePoints(record.predecessorTaskInstanceIds[index - 1], entry) >= 0)) {
+    fail('quorum-join-receipt predecessor contract is invalid or non-canonical.');
+  }
+  if (!Array.isArray(record.predecessors)
+      || record.predecessors.length !== record.requiredSuccesses) {
+    fail('quorum-join-receipt must bind exactly the required number of successful contributors.');
+  }
+  const configured = new Set(record.predecessorTaskInstanceIds);
+  record.predecessors.forEach((entry, index) => {
+    const label = `quorum-join-receipt.predecessors[${index}]`;
+    exactKeys(entry, ['taskInstanceId', 'state', 'receiptSha256', 'attemptId'], label);
+    requireKeys(entry, ['taskInstanceId', 'state', 'receiptSha256', 'attemptId'], label);
+    string(entry.taskInstanceId, `${label}.taskInstanceId`);
+    if (!configured.has(entry.taskInstanceId) || entry.state !== 'succeeded') {
+      fail(`${label} must name a configured successful contributor.`);
+    }
+    digest(entry.receiptSha256, `${label}.receiptSha256`);
+    identifier(entry.attemptId, 'ATT', `${label}.attemptId`);
+  });
+  if (record.predecessors.some((entry, index) =>
+    index > 0 && joinPredecessorOrder(record.predecessors[index - 1], entry) >= 0)) {
+    fail('quorum-join-receipt.predecessors must be unique and canonically sorted.');
+  }
+  stringArray(record.outputRefs, 'quorum-join-receipt.outputRefs');
+  timestamp(record.completedAt, 'quorum-join-receipt.completedAt');
+}
+
+export function createQuorumJoinReceipt(value) {
+  return createContract('quorum-join-receipt', value, validateQuorumJoinReceiptRecord, {
+    prepare: (record) => ({
+      ...record,
+      predecessorTaskInstanceIds: [...record.predecessorTaskInstanceIds]
+        .sort(compareSgosCodePoints),
+      predecessors: [...record.predecessors].sort(joinPredecessorOrder),
+      outputRefs: [...new Set(record.outputRefs)].sort(compareSgosCodePoints)
+    }),
+    identity: (record) => ({
+      processId: record.processId, taskInstanceId: record.taskInstanceId,
+      attemptId: record.attemptId, joinId: record.joinId, policy: record.policy,
+      requiredSuccesses: record.requiredSuccesses,
+      predecessorTaskInstanceIds: record.predecessorTaskInstanceIds,
+      predecessors: record.predecessors
+    })
+  });
+}
+
+export function validateQuorumJoinReceipt(value) {
+  return returnValidated(value, validateQuorumJoinReceiptRecord);
+}
+
 function fanoutItemOrder(left, right) {
   return compareSgosCodePoints(left.itemKey, right.itemKey);
 }
@@ -1316,7 +1391,8 @@ export const SGOS_RECORD_INDEX_FAMILIES = Object.freeze([
   'action-evidence', 'agent-proposal', 'candidate-snapshot', 'fanout-expansion-receipt',
   'gvm-checkpoint', 'gvm-program',
   'gvm-task-attempt', 'gvm-task-receipt', 'human-request', 'human-response',
-  'join-receipt', 'process-binding', 'resource-lease', 'sgos-replay-plan'
+  'join-receipt', 'process-binding', 'quorum-join-receipt', 'resource-lease',
+  'sgos-replay-plan'
 ]);
 
 export const MAXIMUM_SGOS_RECORD_INDEX_DELTA =
@@ -1950,6 +2026,7 @@ const VALIDATORS = Object.freeze({
   'candidate-snapshot': validateCandidateSnapshot,
   'resource-lease': validateResourceLease,
   'join-receipt': validateJoinReceipt,
+  'quorum-join-receipt': validateQuorumJoinReceipt,
   'fanout-expansion-receipt': validateFanoutExpansionReceipt,
   'sgos-replay-plan': validateSgosReplayPlan,
   'process-binding': validateProcessBinding,

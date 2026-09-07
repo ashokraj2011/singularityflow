@@ -9,8 +9,9 @@ import {
   DEFAULT_COMPREHENSION_SLICE_LEASE_MS, type SliceLease, type WorkspaceStore
 } from '../state.ts';
 import { enumField, integerField, registerMessageRouter, stringField } from './messages.ts';
+import { navigateTo } from './navigate.ts';
 import { commandData } from './surface-adapters.ts';
-import { contentSecurityPolicy, escape, icon, nonce, page } from './webview.ts';
+import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 
 type Tab = 'regions' | 'source' | 'brownfield' | 'diff' | 'evidence' | 'causes' | 'walkthrough' | 'replay' | 'unknowns';
 
@@ -267,7 +268,11 @@ export class ComprehensionCenterPanel {
         if (file) void this.openFile(file, line && line > 0 ? line : null);
       }
     });
-    panel.webview.onDidReceiveMessage((message) => router.route(message), null, this.subscriptions);
+    panel.webview.onDidReceiveMessage((raw) => {
+      const navigation = navigationTarget(raw);
+      if (navigation) return void navigateTo(navigation);
+      return router.route(raw);
+    }, null, this.subscriptions);
     panel.onDidChangeViewState(() => {
       if (panel.visible) void this.ensureLease();
       else this.releaseLease();

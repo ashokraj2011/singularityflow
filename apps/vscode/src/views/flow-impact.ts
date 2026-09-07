@@ -232,6 +232,7 @@ export class FlowImpactPanel {
   private static current: FlowImpactPanel | null = null;
   private readonly disposables: vscode.Disposable[] = [];
   private readonly subscription: { dispose(): void };
+  private disposed = false;
   private refreshRevision = 0;
   private refreshPending = false;
   private tab = 'overview';
@@ -459,7 +460,9 @@ export class FlowImpactPanel {
   }
 
   dispose(): void {
-    FlowImpactPanel.current = null;
+    if (this.disposed) return;
+    this.disposed = true;
+    if (FlowImpactPanel.current === this) FlowImpactPanel.current = null;
     this.subscription.dispose();
     this.panel.dispose();
     for (const disposable of this.disposables) disposable.dispose();

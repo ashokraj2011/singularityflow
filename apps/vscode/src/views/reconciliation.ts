@@ -73,6 +73,7 @@ export class ReconciliationPanel {
   private readonly client: SingularityFlowClient;
   private readonly subscription: { dispose(): void };
   private readonly disposables: vscode.Disposable[] = [];
+  private disposed = false;
   private mergePlan: MergePlan | null = null;
   private reloadRevision = 0;
   private reloadPending = false;
@@ -154,7 +155,9 @@ export class ReconciliationPanel {
   }
 
   dispose(): void {
-    ReconciliationPanel.current = null;
+    if (this.disposed) return;
+    this.disposed = true;
+    if (ReconciliationPanel.current === this) ReconciliationPanel.current = null;
     this.subscription.dispose();
     this.panel.dispose();
     for (const disposable of this.disposables) disposable.dispose();

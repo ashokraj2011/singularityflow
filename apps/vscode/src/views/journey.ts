@@ -240,6 +240,7 @@ export class JourneyPanel {
   private readonly store: WorkspaceStore;
   private readonly subscription: { dispose(): void };
   private readonly disposables: vscode.Disposable[] = [];
+  private disposed = false;
   private selectedStageId: string | null = null;
   private subjectKey: string | null;
 
@@ -333,7 +334,9 @@ export class JourneyPanel {
   }
 
   dispose(): void {
-    JourneyPanel.current = null;
+    if (this.disposed) return;
+    this.disposed = true;
+    if (JourneyPanel.current === this) JourneyPanel.current = null;
     this.subscription.dispose();
     this.panel.dispose();
     for (const disposable of this.disposables) disposable.dispose();

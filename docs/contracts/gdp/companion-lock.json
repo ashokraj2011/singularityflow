@@ -17,12 +17,12 @@
     {
       "id": "sgos-contract",
       "path": "docs/SGOS.md",
-      "sha256": "sha256:cf6fd9ed38fe6c99b9fc09682abb24b91a4ea1d31bb90965eb3b05f61400a8a8"
+      "sha256": "sha256:3e1c1c98e1d9bbeeebe3eaf5c61f67c37040623942507bc402fa20f9585d3244"
     },
     {
       "id": "sgos-delivery-status",
       "path": "docs/SGOS-PENDING-WORK.md",
-      "sha256": "sha256:cecb7d3f4659668a465452dde4d58960e46157ef52c2ef704071899e71dd4ed6"
+      "sha256": "sha256:1d8e579085752dba5ff1d59c17459d7f7ccd9ce10ea3fd775c8b7009ee72c4f1"
     },
     {
       "id": "world-model-v4",
@@ -37,7 +37,7 @@
     {
       "id": "witnessed-engineering-delivery-status",
       "path": "docs/WEL-PENDING-WORK.md",
-      "sha256": "sha256:dae345e827c6fd51c32a50491a6299314e434608192413a5d3b43fcb5bd3d212"
+      "sha256": "sha256:f9f7eb0f2dfd84e6ef0f498469425cbdc9be2e3c5aa4d299c4ec48390d2cc38a"
     },
     {
       "id": "code-assurance-bridge",
@@ -92,7 +92,7 @@
     {
       "id": "migration-registry",
       "path": "src/schema-migrations.mjs",
-      "sha256": "sha256:d92f9676fe645dc0a69793790e8c1a045d9f1d3d4718ca63327df799fffd8a2a"
+      "sha256": "sha256:74e2166880a239dc74d3e0c0e37c88a93fe5bdd46ba7f3225e40c1ceafda4c61"
     },
     {
       "id": "smart-initialization-v1",

@@ -69,6 +69,7 @@ export class WorkspacesPanel {
   private detailsLoading = false;
   private detailRequest = 0;
   private manageRevision = 0;
+  private disposed = false;
   private repairPath: string | null = null;
   private requestedCapabilityIds: string[] = [];
   private attachScope: WorkspaceCapabilityAttachScope | null = null;
@@ -628,10 +629,12 @@ export class WorkspacesPanel {
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     this.manageRevision++;
     this.edit = { ...EMPTY_EDIT_DRAFT };
     this.detailRequest++;
-    WorkspacesPanel.current = null;
+    if (WorkspacesPanel.current === this) WorkspacesPanel.current = null;
     this.panel.dispose();
     for (const disposable of this.disposables) disposable.dispose();
   }

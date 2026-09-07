@@ -158,3 +158,20 @@ test('leased heavyweight panels gate snapshot-driven rendering while hidden', as
   assert.match(ast, /panel\.visible === false[\s\S]*refreshPending = true/);
   assert.match(ast, /onDidChangeViewState\?\.[\s\S]*!this\.refreshPending/);
 });
+
+test('panels that close their own host surface make disposal idempotent before re-entry', async () => {
+  const selfClosing = [
+    'views/activity-log.ts', 'views/approvals.ts', 'views/bootstrap-panel.ts',
+    'views/capabilities.ts', 'views/dashboard.ts', 'views/designer.ts',
+    'views/flow-impact.ts', 'views/impact.ts', 'views/inbox.ts', 'views/intake-panel.ts',
+    'views/journey.ts', 'views/reconciliation.ts', 'views/stories.ts',
+    'views/workspace-panel.ts', 'views/workspaces-panel.ts'
+  ];
+  for (const file of selfClosing) {
+    const content = await readFile(source(file), 'utf8');
+    assert.match(content, /private disposed = false/,
+      `${file} can re-enter disposal when WebviewPanel.dispose emits onDidDispose`);
+    assert.match(content, /dispose\(\): void \{\s*if \(this\.disposed\) return;\s*this\.disposed = true;/,
+      `${file} does not close its recursion guard before disposing the host panel`);
+  }
+});

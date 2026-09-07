@@ -75,6 +75,7 @@ export class WorkspacePanel {
   private readonly onCreated: (created: WorkspaceCreated) => Promise<void>;
   private readonly onOpenCapabilities: () => Promise<void>;
   private readonly disposables: vscode.Disposable[] = [];
+  private disposed = false;
   private form: WorkspaceForm = { ...EMPTY_WORKSPACE_FORM };
   private journey: StartWizardProgress | null;
   private preferredOrganisation: string | null;
@@ -430,7 +431,9 @@ export class WorkspacePanel {
   }
 
   dispose(): void {
-    WorkspacePanel.current = null;
+    if (this.disposed) return;
+    this.disposed = true;
+    if (WorkspacePanel.current === this) WorkspacePanel.current = null;
     this.panel.dispose();
     for (const disposable of this.disposables) disposable.dispose();
   }

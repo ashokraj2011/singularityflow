@@ -116,6 +116,7 @@ export class InboxPanel {
   private static current: InboxPanel | null = null;
   private readonly subscription: { dispose(): void };
   private readonly disposables: vscode.Disposable[] = [];
+  private disposed = false;
 
   private constructor(
     private readonly panel: vscode.WebviewPanel,
@@ -184,7 +185,9 @@ export class InboxPanel {
   }
 
   dispose(): void {
-    InboxPanel.current = null;
+    if (this.disposed) return;
+    this.disposed = true;
+    if (InboxPanel.current === this) InboxPanel.current = null;
     this.subscription.dispose();
     this.panel.dispose();
     for (const disposable of this.disposables) disposable.dispose();

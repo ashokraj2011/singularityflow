@@ -76,6 +76,7 @@ export class BootstrapPanel {
   private readonly run: Run;
   private onMapped: (result: Mapped) => Promise<void>;
   private readonly disposables: vscode.Disposable[] = [];
+  private disposed = false;
   private form: MapCapabilityForm = { ...EMPTY_MAP_FORM };
   private requestedParent = '';
   private journey: StartWizardProgress | null = null;
@@ -595,7 +596,9 @@ export class BootstrapPanel {
   }
 
   dispose(): void {
-    BootstrapPanel.current = null;
+    if (this.disposed) return;
+    this.disposed = true;
+    if (BootstrapPanel.current === this) BootstrapPanel.current = null;
     this.panel.dispose();
     for (const disposable of this.disposables) disposable.dispose();
   }

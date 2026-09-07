@@ -249,6 +249,7 @@ export class ImpactPanel {
   private readonly client: SingularityFlowClient;
   private readonly subscription: { dispose(): void };
   private readonly disposables: vscode.Disposable[] = [];
+  private disposed = false;
   private report: ImpactReport | null = null;
   private error: string | null = null;
   private workspace: { path: string; name?: string | null } | null = null;
@@ -430,7 +431,9 @@ export class ImpactPanel {
   }
 
   dispose(): void {
-    ImpactPanel.current = null;
+    if (this.disposed) return;
+    this.disposed = true;
+    if (ImpactPanel.current === this) ImpactPanel.current = null;
     this.subscription.dispose();
     this.panel.dispose();
     for (const disposable of this.disposables) disposable.dispose();

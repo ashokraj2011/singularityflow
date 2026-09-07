@@ -111,6 +111,7 @@ export class ActivityLogPanel {
   private readonly panel: vscode.WebviewPanel;
   private readonly client: SingularityFlowClient;
   private readonly disposables: vscode.Disposable[] = [];
+  private disposed = false;
   private entries: LogEntry[] | null = null;
   private level: Level = 'all';
   private error: string | null = null;
@@ -187,7 +188,9 @@ export class ActivityLogPanel {
   }
 
   dispose(): void {
-    ActivityLogPanel.current = null;
+    if (this.disposed) return;
+    this.disposed = true;
+    if (ActivityLogPanel.current === this) ActivityLogPanel.current = null;
     for (const subscription of this.disposables.splice(0)) subscription.dispose();
     this.panel.dispose();
   }

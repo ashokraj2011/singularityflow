@@ -123,6 +123,7 @@ export class StoriesPanel {
   private readonly store: WorkspaceStore;
   private readonly subscription: { dispose(): void };
   private readonly disposables: vscode.Disposable[] = [];
+  private disposed = false;
 
   private constructor(
     panel: vscode.WebviewPanel,
@@ -196,7 +197,9 @@ export class StoriesPanel {
   }
 
   dispose(): void {
-    StoriesPanel.current = null;
+    if (this.disposed) return;
+    this.disposed = true;
+    if (StoriesPanel.current === this) StoriesPanel.current = null;
     this.subscription.dispose();
     this.panel.dispose();
     for (const disposable of this.disposables) disposable.dispose();

@@ -910,6 +910,19 @@ export interface ComprehensionRegion {
   classification?: { material?: boolean; changeKind?: string; assurance?: string; granularity?: string };
 }
 
+export interface ComprehensionBrownfieldRegion {
+  regionId: string;
+  regionSha256: string;
+  operation: string;
+  pathBefore: string | null;
+  pathAfter: string | null;
+  origin: 'new' | 'legacy';
+  touchClass: 'new-region' | 'legacy-touched' | 'mechanical-move-candidate';
+  priorLegacyLabel: 'legacy-unexplained' | null;
+  requirement: 'current-governed-cause-required' | 'transformation-receipt-required';
+  legacyStatusRetained: false;
+}
+
 export interface ComprehensionGraphNode {
   id: string;
   type: 'cause' | 'change-region' | string;
@@ -943,6 +956,29 @@ export interface ComprehensionIdeSnapshot {
     structuralAssurance: string;
     counts: { regions: number };
     regions: ComprehensionRegion[];
+  };
+  brownfield: {
+    schemaVersion: 1;
+    kind: 'comprehension-brownfield-touched-area';
+    mode: 'observe-only';
+    authoritative: false;
+    lifecycleGate: false;
+    candidateSha256: string;
+    manifestSha256: string;
+    assessmentSha256: string;
+    policy: {
+      profile: 'incremental-touched-area-v1';
+      fullRepositoryBackfillRequired: false;
+      untouchedLegacyLabel: 'legacy-unexplained';
+      changedLegacyMayRemainUntouched: false;
+    };
+    regions: ComprehensionBrownfieldRegion[];
+    counts: {
+      regions: number;
+      'new-region': number;
+      'legacy-touched': number;
+      'mechanical-move-candidate': number;
+    };
   };
   diff: {
     schemaVersion: 1;
@@ -1075,10 +1111,11 @@ export interface ComprehensionIdeSnapshot {
   summary: {
     regions: number; materialRegions: number; explained: number; unresolved: number;
     causes: number; edges: number; symbols: number; replayEvents: number;
+    newRegions: number; legacyTouched: number; mechanicalMoveCandidates: number;
   };
   availability: {
     structure: string; causeGraph: string; durableAuthority: string;
-    walkthrough: string; replay: string; diff: string; evidence: string;
+    walkthrough: string; replay: string; diff: string; evidence: string; brownfield: string;
   };
 }
 

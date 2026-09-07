@@ -5217,6 +5217,10 @@ test('Comprehension Center is a lazy leased read-only surface with explicit unkn
     'per-region inspection reuses offsets into one bounded patch instead of copying source bytes');
   assert.match(panel, /Recorded delivery evidence/,
     'the Center exposes only the delivery references already recorded for the current phase');
+  assert.match(panel, /Incremental brownfield adoption/,
+    'the Center explains touched-area adoption without requiring a full repository backfill');
+  assert.match(panel, /never retains a legacy label, creates history, approves a proposal, or blocks lifecycle work/,
+    'the brownfield view remains visibly non-authoritative');
   assert.match(panel, /untracked file\(s\) omitted/,
     'new untracked bodies are not copied into the in-memory webview snapshot');
   assert.match(panel, /Explicit unknowns/);
@@ -5224,7 +5228,7 @@ test('Comprehension Center is a lazy leased read-only surface with explicit unkn
   assert.match(panel, /role="tab"[\s\S]*aria-selected/);
   assert.match(panel, /role="tabpanel"[\s\S]*aria-labelledby/);
   assert.match(panel, /ArrowLeft[\s\S]*ArrowRight[\s\S]*Home[\s\S]*End/,
-    'the seven views are operable without a pointing device');
+    'all views are operable without a pointing device');
   assert.match(panel, /role="alert"/,
     'a failed optional projection is announced without becoming lifecycle authority');
   assert.match(panel, /allowedPath\(file/,

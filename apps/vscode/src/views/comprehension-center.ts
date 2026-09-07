@@ -8,7 +8,7 @@ import {
 import { enumField, integerField, registerMessageRouter, stringField } from './messages.ts';
 import { contentSecurityPolicy, escape, icon, nonce, page } from './webview.ts';
 
-type Tab = 'regions' | 'diff' | 'evidence' | 'causes' | 'walkthrough' | 'replay' | 'unknowns';
+type Tab = 'regions' | 'brownfield' | 'diff' | 'evidence' | 'causes' | 'walkthrough' | 'replay' | 'unknowns';
 
 function shortDigest(value: unknown): string {
   const digest = String(value ?? '');
@@ -32,6 +32,24 @@ function regions(snapshot: ComprehensionIdeSnapshot): string {
         : '—';
       return `<tr><td><button class="link" type="button" data-open-file="${escape(file)}">${escape(file)}</button></td><td>${escape(region.operation ?? 'changed')}</td><td>${symbolLinks}</td><td>${region.classification?.material === false ? 'No' : 'Yes'}</td><td>${escape(region.classification?.assurance ?? 'diff-derived')}</td><td><code>${escape(shortDigest(region.regionSha256))}</code></td></tr>`;
     }).join('')}</tbody></table></div></section>`;
+}
+
+function brownfield(snapshot: ComprehensionIdeSnapshot): string {
+  const assessment = snapshot.brownfield;
+  const labels: Record<string, string> = {
+    'new-region': 'New region',
+    'legacy-touched': 'Legacy touched',
+    'mechanical-move-candidate': 'Move candidate'
+  };
+  const rows = assessment.regions.map((region) => {
+    const file = region.pathAfter ?? region.pathBefore ?? 'unknown';
+    const prior = region.priorLegacyLabel ?? 'not applicable';
+    return `<tr><td><button class="link" type="button" data-open-file="${escape(file)}">${escape(file)}</button></td><td><span class="badge">${escape(labels[region.touchClass] ?? region.touchClass)}</span></td><td>${escape(region.operation)}</td><td>${escape(prior)}</td><td>${escape(region.requirement)}</td></tr>`;
+  }).join('');
+  return `<section><h2>Incremental brownfield adoption</h2><p class="meta">Only the exact current change regions are assessed. Unchanged legacy files are not scanned and keep the explicit label <code>${escape(assessment.policy.untouchedLegacyLabel)}</code>.</p>
+    <div class="summary-grid"><div class="summary-card"><strong>${assessment.counts['new-region']}</strong><span>new regions</span></div><div class="summary-card"><strong>${assessment.counts['legacy-touched']}</strong><span>legacy touched</span></div><div class="summary-card"><strong>${assessment.counts['mechanical-move-candidate']}</strong><span>move candidates</span></div><div class="summary-card"><strong>No</strong><span>full backfill required</span></div></div>
+    ${rows ? `<div class="table-wrap"><table><thead><tr><th>Path</th><th>Touch class</th><th>Git operation</th><th>Prior label</th><th>Required next evidence</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="empty"><p>No repository changes exist in the selected interval. No legacy files were scanned.</p></div>'}
+    <p class="callout"><strong>Safety boundary:</strong> an exact object-preserving rename is only a move candidate. This view never retains a legacy label, creates history, approves a proposal, or blocks lifecycle work.</p><p class="meta">Assessment <code>${escape(shortDigest(assessment.assessmentSha256))}</code></p></section>`;
 }
 
 function causeMap(snapshot: ComprehensionIdeSnapshot): string {
@@ -123,17 +141,18 @@ export function comprehensionCenterBody(
   error: string | null
 ): string {
   const tabs: Array<[Tab, string]> = [
-    ['regions', 'Regions'], ['diff', 'Diff'], ['evidence', 'Evidence'], ['causes', 'Cause map'], ['walkthrough', 'Walkthrough'],
+    ['regions', 'Regions'], ['brownfield', 'Brownfield'], ['diff', 'Diff'], ['evidence', 'Evidence'], ['causes', 'Cause map'], ['walkthrough', 'Walkthrough'],
     ['replay', 'Replay'], ['unknowns', 'Unknowns']
   ];
   const content = !snapshot
     ? '<div class="empty"><p>The comprehension projection is not available yet.</p></div>'
     : tab === 'regions' ? regions(snapshot)
-      : tab === 'diff' ? diff(snapshot)
-        : tab === 'evidence' ? evidence(snapshot)
-          : tab === 'causes' ? causeMap(snapshot)
-          : tab === 'walkthrough' ? walkthrough(snapshot)
-            : tab === 'replay' ? replay(snapshot) : unknowns(snapshot);
+      : tab === 'brownfield' ? brownfield(snapshot)
+        : tab === 'diff' ? diff(snapshot)
+          : tab === 'evidence' ? evidence(snapshot)
+            : tab === 'causes' ? causeMap(snapshot)
+              : tab === 'walkthrough' ? walkthrough(snapshot)
+                : tab === 'replay' ? replay(snapshot) : unknowns(snapshot);
   return `<header><p class="eyebrow">Comprehension</p><h1>${icon('code', { size: 24 })} Comprehension Center</h1><p class="meta">Trace the exact repository interval, what is known, and what remains unavailable. This surface is read-only and model-free.</p></header>
     ${snapshot ? `<section class="plain"><div class="context-banner"><div><span>Subject</span><strong>${escape(snapshot.context.workId ?? 'Repository changes')}</strong></div><div><span>Phase</span><strong>${escape(snapshot.context.phase ?? 'No active Story')}</strong></div><div><span>Baseline</span><code>${escape(snapshot.context.base)}</code></div><div><span>Source</span><strong>${escape(snapshot.context.source)}</strong></div></div><div class="summary-grid"><div class="summary-card"><strong>${snapshot.summary.regions}</strong><span>change regions</span></div><div class="summary-card"><strong>${snapshot.summary.explained}</strong><span>exactly explained</span></div><div class="summary-card ${snapshot.summary.unresolved ? 'important' : ''}"><strong>${snapshot.summary.unresolved}</strong><span>unresolved</span></div><div class="summary-card"><strong>${snapshot.summary.replayEvents}</strong><span>replay events</span></div></div></section>` : ''}
     <nav class="tabs" role="tablist" aria-label="Comprehension views">${tabs.map(([id, label]) => `<button id="cmp-tab-${id}" class="${id === tab ? 'active' : ''}" type="button" role="tab" data-message="tab" data-tab="${id}" aria-selected="${id === tab}" aria-controls="cmp-panel-${id}" tabindex="${id === tab ? '0' : '-1'}">${label}</button>`).join('')}</nav>
@@ -191,7 +210,7 @@ export class ComprehensionCenterPanel {
     this.store = store;
     const router = registerMessageRouter('singularityFlow.comprehensionCenter', {
       tab: (message) => {
-        const tab = enumField(message, 'tab', ['regions', 'diff', 'evidence', 'causes', 'walkthrough', 'replay', 'unknowns'] as const);
+        const tab = enumField(message, 'tab', ['regions', 'brownfield', 'diff', 'evidence', 'causes', 'walkthrough', 'replay', 'unknowns'] as const);
         if (tab) { this.tab = tab; this.render(); }
       },
       refresh: () => void this.refresh(),

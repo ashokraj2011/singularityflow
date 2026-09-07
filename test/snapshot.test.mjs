@@ -232,6 +232,13 @@ test('Comprehension Center is a lazy model-free snapshot slice with explicit unk
   assert.equal(scoped.comprehension.summary.regions, 1);
   assert.equal(scoped.comprehension.summary.symbols, 0);
   assert.equal(scoped.comprehension.summary.unresolved, 1);
+  assert.equal(scoped.comprehension.summary.newRegions, 1);
+  assert.equal(scoped.comprehension.summary.legacyTouched, 0);
+  assert.equal(scoped.comprehension.summary.mechanicalMoveCandidates, 0);
+  assert.equal(scoped.comprehension.brownfield.policy.fullRepositoryBackfillRequired, false);
+  assert.equal(scoped.comprehension.brownfield.regions[0].touchClass, 'new-region');
+  assert.equal(scoped.comprehension.brownfield.authoritative, false);
+  assert.equal(scoped.comprehension.availability.brownfield, 'available');
   assert.equal(scoped.comprehension.availability.structure, 'unavailable');
   assert.equal(scoped.comprehension.structure.reason, 'cache-miss');
   assert.equal(scoped.comprehension.manifest.regions[0].location.pathAfter, 'src-observation.js');

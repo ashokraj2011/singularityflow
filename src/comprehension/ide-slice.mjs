@@ -3,6 +3,7 @@ import { branch } from '../git.mjs';
 import { readCachedAstSymbols } from '../ast-intelligence.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from '../repository-subject-index.mjs';
 import { buildRepositoryChangeSet } from '../repository-change-set.mjs';
+import { buildBrownfieldTouchedAreaAssessment } from './brownfield.mjs';
 import { buildChangeRegionManifest, evaluateComprehensionCoverage } from './contracts.mjs';
 import { resolveComprehensionBaseline } from './context.mjs';
 import { buildComprehensionDiffPreview } from './diff-preview.mjs';
@@ -30,6 +31,7 @@ export async function loadComprehensionIdeSlice(root) {
     }
   });
   const manifest = buildChangeRegionManifest(changeSet);
+  const brownfield = buildBrownfieldTouchedAreaAssessment(manifest);
   const diff = buildComprehensionDiffPreview(root, changeSet);
   const emptyEvidence = {
     bindings: [], dispositions: [], causes: [], decisions: [], transformationReceipts: []
@@ -86,6 +88,7 @@ export async function loadComprehensionIdeSlice(root) {
     lifecycleGate: false,
     context,
     manifest,
+    brownfield,
     diff,
     coverage,
     graph,
@@ -104,7 +107,10 @@ export async function loadComprehensionIdeSlice(root) {
       causes: graph.counts.causes,
       edges: graph.counts.edges,
       symbols: structure.counts.symbols,
-      replayEvents: replay?.counts?.returned ?? 0
+      replayEvents: replay?.counts?.returned ?? 0,
+      newRegions: brownfield.counts['new-region'],
+      legacyTouched: brownfield.counts['legacy-touched'],
+      mechanicalMoveCandidates: brownfield.counts['mechanical-move-candidate']
     },
     availability: {
       structure: structure.status,
@@ -113,7 +119,8 @@ export async function loadComprehensionIdeSlice(root) {
       diff: diff.status,
       walkthrough: draft ? 'available' : 'unavailable',
       replay: replay ? 'available' : 'unavailable',
-      evidence: evidence.status
+      evidence: evidence.status,
+      brownfield: 'available'
     }
   };
 }

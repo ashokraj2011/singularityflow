@@ -11,6 +11,7 @@ export * from './evaluation.mjs';
 export * from './limits.mjs';
 export * from './memory.mjs';
 export * from './order.mjs';
+export * from './operational-store.mjs';
 export * from './paths.mjs';
 export * from './fanout.mjs';
 export * from './joins.mjs';

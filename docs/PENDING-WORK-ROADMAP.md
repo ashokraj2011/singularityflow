@@ -2,7 +2,7 @@
 
 **Status:** authoritative cross-product tracker; bounded exact-tree aggregate and the latest code-local asynchronous Git migration are complete, while platform release evidence remains active
 
-**Baseline:** `main@3edb8bcf`
+**Baseline:** `main@0a2ffb39`
 
 **Last reviewed:** 2026-09-07
 
@@ -62,8 +62,16 @@ release. The six physical platform/runtime cells and independent review remain e
 Direct Ad Hoc-to-Auto adoption landed at `main@724cb85e`. The model-free adoption command now
 creates an exact Plan; ratified start seals the confirmed source as an immutable Candidate; and the
 first code-delivery phase materializes and verifies that Candidate without relabelling its original
-provenance. The remaining Auto work is the optional SGOS execution profile and registered
-comparative-quality evidence.
+provenance. The remaining Auto work is the optional SGOS execution profile and real independently
+reviewed comparative-quality evidence.
+
+The registered Auto comparative-quality projection landed at `main@0a2ffb39`. `auto compare` now
+joins an immutable Flight Report to one finalized Auto Story Impact receipt and a privacy-safe
+token-primary cohort. The join pins the exact approved `impact.yml` revision, final Story commit,
+governed-agent treatment, matched stratum, provider-token evidence, and quality guardrails. It is a
+model-free read and cannot rewrite the final report; lower tokens with regressed quality remains
+`cheaper-but-worse`. The comparison mechanism is code-complete, but a real qualifying study,
+sufficient cohorts, independent review, and accepted release evidence remain open.
 
 The 2026-09-06 performance continuation moved branch refresh, ledger status/state publication,
 workflow configuration proposals, approval identity enrollment, approved-configuration fallback
@@ -283,9 +291,9 @@ This snapshot resolves conflicts between older domain roadmaps and the executabl
 shared primitive does not complete a higher-assurance track: for example, the developer-local
 signed runner is useful M9 evidence, but it is not an authenticated independent CAB/WEL verifier.
 
-| Area | Implemented boundary through `3edb8bcf` | Still open |
+| Area | Implemented boundary through `0a2ffb39` | Still open |
 |---|---|---|
-| Auto v2 | Dependency-free Story profile, P0/P1 controls, interval pacing, and provenance-preserving direct Ad Hoc Candidate adoption | Optional SGOS execution profile and registered comparative-quality evidence |
+| Auto v2 | Dependency-free Story profile, P0/P1 controls, interval pacing, provenance-preserving direct Ad Hoc Candidate adoption, and an exact registered Flow Impact comparison projection | Optional SGOS execution profile plus collection and independent review of qualifying comparison cohorts |
 | CMP | Model-free, read-only `comprehension regions`, `check`, experimental source-free record preview/in-memory migration, bounded privacy-safe real-repository measurement, Candidate-bound bounded exact before/after source expansion, ephemeral intent graph, exact clause/file/change explanation, content-free normalized Story replay, resource-level `intent.trace` through the existing five gateway tools, release-gated synthetic benchmark, deterministic resource walkthrough drafts, typed validation, selective observe-only revalidation, a leased read-only VS Code Comprehension Center with bounded exact tracked-diff and on-demand source inspection, per-file/hunk indexing, cache-only current-symbol navigation, keyboard semantics, built-host/repository-switch fencing, an exact-region join to recorded delivery/test references, guarded `/sf-learn` routing, and a no-full-backfill touched-area/historical-proposal diagnostic with a native Brownfield tab | Independently reviewed corpus results and storage/privacy decision, durable cause authority/index, cause-backed gateway query, authoritative structural/evidence expansion, SGOS/cause replay joins, governed causal provenance, optional model drafting, authoritative walkthrough validators/receipts, lifecycle enforcement, remaining physical production evidence, reviewed CMP lessons, and governed historical persistence/review |
 | SGOS | Bounded runtime, Universal Candidate code path, Git-trusted authority transport, signed transport, Windows DPAPI-protected local signer, stop-aware bounded Process-lock contention recovery, checkpoint-bound working-set injection, guarded signed-Pack/Device meta-tool activation CLI, native preview/confirm review UI, isolated interruption-resumable learning workspaces, identity-free monotonic portable learning progress with v1-to-v2 migration, exact-active-Pack-bound offline learning bundles, release-gated content-free read-model budgets, and a strict v2 end-to-end release-proof/merge/promotion boundary | Real external-adapter Secret Broker integration, consented external telemetry, independently reviewed physical six-cell release evidence, additional adapters, orchestration, stores, independent certification, and accessibility validation |
 | WEL | Observe-only witnessed clauses; exact-static local JUnit/Surefire and bounded top-level literal Jest/Vitest adapters; human mapping review; durable synthetic adversarial corpora; a bounded privacy-safe reviewed-manifest runner for real JUnit/Surefire and Jest/Vitest repositories; same-process incremental cost; content-free Context X-Ray projection; model-free local Story-start transaction measurement; cancellable Java parser execution; synthetic push/offline/fresh-clone/interrupted-write recovery; strict benchmark binding in signed release receipts; clean Linux Node 20/22 portable matrices; and a complete unsigned Linux Node 22 package/VSIX release gate. Results remain inconclusive | Candidate/Program/attempt join, execution and independent review of the real corpora, physical Windows and office-network recovery receipts, authenticated hermetic execution, enforcement recovery, further adapter shapes, and signed platform release proof |
@@ -374,7 +382,7 @@ matrix cell.
 | Code Assurance Bridge | CAB-R0 architecture and CAB-R1 observe pilot are active; enforcement remains unavailable | Independent CAB-R0 review plus authenticated CAB-R2 runner authority | [CAB roadmap](CAB-ROADMAP.md) |
 | Governed comprehension | Read-only, non-authoritative P0 contract, closed registries, authority ADR, mutation tripwires, isolated npm/VSIX proof, deterministic corpus/matrix command, content-free P1 benchmark, bounded privacy-safe real-repository measurement, experimental source-free record preview/in-memory migration, bounded ephemeral P3 graph/exact explanation reads, normalized Story replay, an existing-five-tool resource-level gateway trace, and code-local incremental brownfield diagnostics with a leased native view exist | Execute and sign the unchanged `CMP-P0-001` matrix on Windows and Linux, independently review collected corpus results, complete the P1 storage/privacy and rollout decision, add P2-backed durable graph/causal authority plus SGOS joins, then integrate governed historical review before enforcement | [CMP roadmap](CMP-ROADMAP.md) |
 | Governed Delivery and Proof | M0–M8 are implemented; M9–M11 have code-local partial surfaces and remain non-GA | Authenticated M9 runner/verifier and signed release evidence before provider pilots or enforcement | [GDP milestone roadmap](GDP-DELIVERY-ROADMAP.md) |
-| Auto v2 | Story P0/P1, model/AST optionality, and direct Ad Hoc Candidate adoption are implemented | Optional SGOS profile after its independent acceptance contract, plus registered comparative-quality evidence | [Auto v2 roadmap](AUT-V2-IMPLEMENTATION-ROADMAP.md) |
+| Auto v2 | Story P0/P1, model/AST optionality, direct Ad Hoc Candidate adoption, and guarded registered comparative-quality projection are implemented | Optional SGOS profile after its independent acceptance contract; execute and independently review a real qualifying comparison study | [Auto v2 roadmap](AUT-V2-IMPLEMENTATION-ROADMAP.md) |
 
 Completed work is not repeated in this tracker. In particular, the
 [VS Code UI remediation contract](UI-REMEDIATION-PLAN.md) is implemented and regression-backed; a

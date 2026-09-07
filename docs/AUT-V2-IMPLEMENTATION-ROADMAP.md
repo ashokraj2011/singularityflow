@@ -6,7 +6,7 @@ boundary described below. Provenance-preserving direct Ad Hoc Candidate adoption
 and independently reviewing a qualifying cohort remains external evidence work. The optional SGOS
 profile and enforcement of optional CMP policy are separate work and are not claimed complete here.
 
-Reconciled against the 2026-09-07 implementation tree: direct Ad Hoc adoption is part of the Story
+Reconciled against `main@0a2ffb39` on 2026-09-07: direct Ad Hoc adoption is part of the Story
 profile, and `auto compare` can project one exact Auto report against a reviewed Flow Impact study.
 The optional Auto SGOS profile and real independently reviewed comparison cohorts remain open. The
 implemented Story profile remains the default boundary claimed by this document.
@@ -173,3 +173,10 @@ The direct Ad Hoc adoption increment at `main@724cb85e` additionally passed:
 - 139/139 remaining Auto contract, Candidate, authorization, recovery, and surface tests;
 - 24/24 WEL boundary tests and 91/91 Help/plugin tests;
 - 1,333 repository conformance checks.
+
+The registered comparison increment at `main@0a2ffb39` additionally passed:
+
+- 35/35 focused Auto comparison, Impact comparison, token-economy, command-contract, and direct-skill
+  tests;
+- 1,373 repository conformance checks;
+- npm package dry-run with the comparison module, updated help topic, and `/sf-auto` contract.

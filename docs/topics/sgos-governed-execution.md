@@ -26,7 +26,7 @@ related:
   - governed-execution
   - workflow-authoring
   - evidence-and-ledger
-version: 24
+version: 25
 ---
 SGOS compiles confirmed intent and a ratified workflow into a finite, content-addressed Governed VM
 Program. Its operational Process state never replaces Story, Initiative, configuration, ledger, or
@@ -242,8 +242,10 @@ digest. The host re-reads those values after confirmation; sensitive or typed in
    repairs, or resumes that Process.
    `process archive` remains only as a compatibility alias.
 11. For an intentional replay, preview `process replay <PROCESS-ID> --from <CHECKPOINT-SHA256>` and
-    repeat with the printed `--confirm` digest. The installed profile reopens only a pure suffix and
-    refuses prior writes, Devices, external effects, stale state, or exhausted attempts. It clears
+    repeat with the printed `--confirm` digest. The installed profile reruns pure/read-only suffix
+    work and retains a consequential Device task only after exact installed postcondition
+    reconciliation proves the original effect without repeating it. It refuses effects without an
+    installed reconciliation protocol, stale state, or exhausted attempts. It clears
     the current suffix receipt/output projection but preserves immutable history. Fork uses the
     same preview/confirm pattern, supports only a genesis checkpoint, writes a predecessor intent,
     and recovers the same deterministic receipt after an interrupted confirmation.

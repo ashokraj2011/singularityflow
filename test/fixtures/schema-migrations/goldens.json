@@ -41,6 +41,7 @@
   "quorum-join-receipt": [{ "schemaVersion": 1 }],
   "reducer-join-receipt": [{ "schemaVersion": 1 }],
   "manual-reconcile-join-receipt": [{ "schemaVersion": 1 }],
+  "effect-replay-receipt": [{ "schemaVersion": 1 }],
   "fanout-expansion-receipt": [{ "schemaVersion": 1 }],
   "sgos-replay-plan": [{ "schemaVersion": 1 }],
   "process-binding": [{ "schemaVersion": 2 }],

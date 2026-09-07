@@ -451,7 +451,9 @@ Never delete Process storage, reset a branch, invent a new digest, or replay an 
 recovery shortcut. Use `process quarantine` for the exact legacy or incomplete state shapes that
 SGOS identifies as unprovable.
 
-Intentional replay is restricted to a safe pure suffix. Forking is restricted to a genesis
+Intentional replay is restricted to a safe replayable suffix. Pure and read-only work is rerun;
+an installed consequential Device effect is retained only after exact postcondition reconciliation
+proves it without executing the effect again. Forking is restricted to a genesis
 checkpoint. Preview either action first and confirm only its current plan digest.
 
 ## Export Process evidence

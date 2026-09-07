@@ -266,11 +266,19 @@ Implemented in the current increment:
 - transition verification, process fsck, record indexes, schema migration, and portable Process
   Evidence independently recheck that lineage without trusting mutable task state or arbitrary
   human-provided output references.
+- the replay runtime now supports installed-protocol idempotent effect reconciliation without
+  repeating a consequential Device operation; the first reviewed protocol retains an exact
+  successful `sandbox-cas` task plus its complete in-plan predecessor closure, binds an immutable
+  `effect-replay-receipt` to the prior Task Receipt, Tool Intent, Tool Result, idempotency key,
+  effect, current postcondition, and outputs, and reopens only downstream work;
+- missing or counterfeit reconciliation receipts, changed postconditions, unsupported effects,
+  stale plans, and crash/retry at the Process transition boundary fail closed, while read-only
+  Devices continue through an ordinary new attempt.
 
 Still required: dynamic fan-out, additional independently reviewed reducer implementations,
-general idempotent effect replay, non-genesis fork import, and consequential-effect retry. The
-advanced join family also needs shared signed supported-platform release evidence before this item
-can become `[x]`.
+non-genesis fork import, consequential-effect retry, and additional reviewed Device-specific
+postcondition protocols. The advanced orchestration family also needs shared signed
+supported-platform release evidence before this item can become `[x]`.
 
 Acceptance gates:
 

@@ -34,6 +34,7 @@ const HASH_FIELDS = Object.freeze({
   'action-evidence': 'evidenceSha256',
   'agent-proposal': 'proposalSha256',
   'candidate-snapshot': 'candidateSha256',
+  'effect-replay-receipt': 'effectReplayReceiptSha256',
   'fanout-expansion-receipt': 'expansionSha256',
   'gvm-checkpoint': 'checkpointSha256',
   'gvm-program': 'programSha256',
@@ -723,6 +724,139 @@ function validateExecutionLeases(bundle, contradictions, gaps) {
   }
 }
 
+function replayTaskProjection(task) {
+  return {
+    taskInstanceId: task.taskInstanceId,
+    taskTemplateId: task.taskTemplateId,
+    state: task.state,
+    revision: task.revision,
+    inputRefs: [...task.inputRefs],
+    attemptIds: [...task.attemptIds],
+    receiptSha256: task.receiptSha256,
+    outputRefs: [...task.outputRefs],
+    invalidatedBy: task.invalidatedBy
+  };
+}
+
+function consequentialReplayTemplate(template) {
+  const resources = template?.resources ?? {};
+  return template?.opcode === 'DEVICE'
+    && ((resources.writes?.length ?? 0) > 0
+      || (resources.externalEffects?.length ?? 0) > 0);
+}
+
+function retainedReplayClosure(process, plan, effectRecords) {
+  const inPlan = new Set(plan.taskInstanceIds ?? []);
+  const retained = new Set(effectRecords.map((entry) => entry.taskInstanceId));
+  const pending = [...retained];
+  while (pending.length) {
+    const task = process?.taskInstances?.[pending.pop()];
+    for (const predecessor of task?.predecessorTaskInstanceIds ?? []) {
+      if (!inPlan.has(predecessor) || retained.has(predecessor)) continue;
+      retained.add(predecessor);
+      pending.push(predecessor);
+    }
+  }
+  return retained;
+}
+
+function validateEffectReplayLineage(bundle, wrappers, tools, contradictions) {
+  const byFamilyAndHash = new Map(wrappers.filter(Boolean).map((wrapper) => [
+    recordIdentity(wrapper.family, wrapper.recordSha256), wrapper.record
+  ]));
+  const plans = new Map(wrappers.filter((wrapper) =>
+    wrapper?.family === 'sgos-replay-plan').map((wrapper) => [
+    wrapper.recordSha256, wrapper.record
+  ]));
+  const effectReceiptsByPlan = new Map();
+  for (const wrapper of wrappers.filter((entry) =>
+    entry?.family === 'effect-replay-receipt')) {
+    const key = wrapper.record.replayPlanSha256;
+    if (!effectReceiptsByPlan.has(key)) effectReceiptsByPlan.set(key, []);
+    effectReceiptsByPlan.get(key).push(wrapper.record);
+  }
+  const templates = new Map((bundle.program?.taskTemplates ?? []).map((template) => [
+    template.taskTemplateId, template
+  ]));
+  const toolByIntent = new Map(tools.filter((entry) =>
+    typeof entry?.intentSha256 === 'string').map((entry) => [entry.intentSha256, entry]));
+  for (const [planSha256, effectRecords] of effectReceiptsByPlan) {
+    if (!plans.has(planSha256)) {
+      add(contradictions, 'effect-replay-plan-unavailable',
+        'effect-replay-receipt', planSha256);
+    }
+  }
+  for (const [planSha256, plan] of plans) {
+    const expected = (plan.priorTasks ?? []).filter((prior) =>
+      consequentialReplayTemplate(templates.get(prior.taskTemplateId)));
+    const effectRecords = effectReceiptsByPlan.get(planSha256) ?? [];
+    const byTask = new Map(effectRecords.map((record) => [record.taskInstanceId, record]));
+    if (effectRecords.length !== expected.length || byTask.size !== effectRecords.length) {
+      add(contradictions, 'effect-replay-receipt-coverage-invalid',
+        'sgos-replay-plan', planSha256);
+    }
+    const priorByTask = new Map((plan.priorTasks ?? []).map((prior) => [
+      prior.taskInstanceId, prior
+    ]));
+    for (const prior of expected) {
+      const effectReceipt = byTask.get(prior.taskInstanceId);
+      const taskReceipt = effectReceipt == null ? null : byFamilyAndHash.get(recordIdentity(
+        'gvm-task-receipt', effectReceipt.taskReceiptSha256
+      ));
+      const tool = effectReceipt == null ? null : toolByIntent.get(effectReceipt.toolIntentSha256);
+      const proof = effectReceipt == null ? null : {
+        status: 'passed',
+        deviceManifestSha256: effectReceipt.deviceManifestSha256,
+        toolIntentSha256: effectReceipt.toolIntentSha256,
+        toolResultSha256: effectReceipt.toolResultSha256,
+        idempotencyKey: effectReceipt.idempotencyKey,
+        effectSha256: effectReceipt.effectSha256
+      };
+      if (effectReceipt == null || taskReceipt == null || tool?.intent == null
+          || tool?.result == null
+          || effectReceipt.processId !== bundle.processId
+          || effectReceipt.replayPlanSha256 !== planSha256
+          || effectReceipt.taskInstanceId !== prior.taskInstanceId
+          || effectReceipt.taskTemplateId !== prior.taskTemplateId
+          || effectReceipt.attemptId !== prior.attemptIds?.at(-1)
+          || effectReceipt.taskReceiptSha256 !== prior.receiptSha256
+          || effectReceipt.reconciledAt !== plan.createdAt
+          || taskReceipt.processId !== bundle.processId
+          || taskReceipt.taskInstanceId !== prior.taskInstanceId
+          || taskReceipt.attemptId !== effectReceipt.attemptId
+          || canonicalJson(taskReceipt.outputRefs) !== canonicalJson(prior.outputRefs)
+          || canonicalJson(effectReceipt.outputRefs) !== canonicalJson(taskReceipt.outputRefs)
+          || !taskReceipt.evidenceRefs?.includes(effectReceipt.toolIntentSha256)
+          || !taskReceipt.evidenceRefs?.includes(effectReceipt.toolResultSha256)
+          || !taskReceipt.effectRefs?.includes(effectReceipt.toolResultSha256)
+          || tool.intent.processId !== bundle.processId
+          || tool.intent.taskInstanceId !== prior.taskInstanceId
+          || tool.intent.attemptId !== effectReceipt.attemptId
+          || tool.intent.deviceManifestSha256 !== effectReceipt.deviceManifestSha256
+          || tool.intent.idempotencyKey !== effectReceipt.idempotencyKey
+          || tool.resultSha256 !== effectReceipt.toolResultSha256
+          || tool.result.intentSha256 !== effectReceipt.toolIntentSha256
+          || tool.result.status !== 'observed'
+          || tool.result.verification?.status !== 'passed'
+          || tool.result.effect?.effectSha256 !== effectReceipt.effectSha256
+          || effectReceipt.postconditionSha256 !== sgosSha256(proof)) {
+        add(contradictions, 'effect-replay-lineage-invalid',
+          'effect-replay-receipt', effectReceipt?.effectReplayReceiptSha256 ?? prior.taskInstanceId);
+      }
+    }
+    const retained = retainedReplayClosure(bundle.process, plan, effectRecords);
+    for (const taskInstanceId of retained) {
+      const task = bundle.process?.taskInstances?.[taskInstanceId];
+      const prior = priorByTask.get(taskInstanceId);
+      if (!task || !prior
+          || canonicalJson(replayTaskProjection(task)) !== canonicalJson(prior)) {
+        add(contradictions, 'effect-replay-retained-task-changed',
+          'task-instance', taskInstanceId);
+      }
+    }
+  }
+}
+
 function semanticReferences(bundle, wrappers, tools, contradictions, gaps) {
   const byFamily = new Map();
   for (const wrapper of wrappers) {
@@ -824,6 +958,14 @@ function semanticReferences(bundle, wrappers, tools, contradictions, gaps) {
   // task output and therefore do not need a current Process pointer to remain relevant evidence.
   for (const wrapper of byFamily.get('sgos-replay-plan') ?? []) {
     referenced.add(recordIdentity(wrapper.family, wrapper.recordSha256));
+  }
+  for (const wrapper of byFamily.get('effect-replay-receipt') ?? []) {
+    referenced.add(recordIdentity(wrapper.family, wrapper.recordSha256));
+    referenced.add(recordIdentity('sgos-replay-plan', wrapper.record.replayPlanSha256));
+    referenced.add(recordIdentity('gvm-task-receipt', wrapper.record.taskReceiptSha256));
+    referenceHash(wrapper.record.toolIntentSha256);
+    referenceHash(wrapper.record.toolResultSha256);
+    for (const hash of wrapper.record.outputRefs ?? []) referenceHash(hash);
   }
 
   for (const wrapper of wrappers) {
@@ -971,6 +1113,7 @@ export function verifySgosProcessEvidence(bundleValue) {
   validateControlLineage(bundle, indexes, contradictions);
   const tools = validateTools(bundle, contradictions, gaps);
   validateExecutionLeases(bundle, contradictions, gaps);
+  validateEffectReplayLineage(bundle, wrappers, tools, contradictions);
   semanticReferences(bundle, wrappers, tools, contradictions, gaps);
   validateSourceIntegrity(bundle, contradictions, gaps);
 

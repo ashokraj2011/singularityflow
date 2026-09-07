@@ -81,10 +81,12 @@ The same build also contains separately bounded extension profiles:
   mint verification or advance Process authority. A fixed-argv pure-process factory remains
   experimental and is not part of the installed manifest catalog because the host cannot yet pin
   an executable handle portably across launch;
-- one read-only filesystem Device with durable Tool Intent/Tool Result recovery and exact
-  confirmation-bound revocation;
-- pure-suffix replay and genesis-only fork commands; replay preserves immutable attempt/receipt
-  history and refuses repeated writes, Devices, and external effects;
+- one read-only filesystem Device and one local consequential sandbox-CAS Device with durable Tool
+  Intent/Tool Result recovery and exact confirmation-bound revocation;
+- confirmation-bound suffix replay and genesis-only fork commands; replay preserves immutable
+  attempt/receipt history, re-executes pure and read-only work, and retains an already-successful
+  consequential Device task only after its installed postcondition protocol proves the original
+  idempotency key, Tool Result, effect, and current state without executing the effect again;
 - an experimental filesystem Authority Store, typed memory promotion, signed/revocable declarative
   Capability Packs, a read-only role lesson catalog, and human-gated meta-tool review, activation,
   observation, revocation, and rollback authority. A meta-tool activation binds the exact candidate,
@@ -254,10 +256,14 @@ confirmed records produce the same Program hash.
 The scheduler derives the ready set from the Program and current durable Process state. Completion
 order is never an authority rule. Each state mutation compares the expected process revision while
 holding the process subject lock. Resume requires the exact checkpoint that guards that durable
-state. The installed replay profile can reopen only a pure suffix from an ancestor checkpoint, and
-the installed fork profile can create an independent Process only from genesis. General
+state. The installed replay profile can reopen a suffix from an ancestor checkpoint. Pure and
+read-only tasks are re-executed. A successful consequential Device task is retained only when an
+installed exact postcondition protocol can reconcile it without repeating the effect; its complete
+in-plan predecessor closure is retained as well so inputs cannot change underneath a reused effect.
+The installed fork profile can create an independent Process only from genesis. General
 checkpoint-payload restoration and non-genesis prefix import remain unavailable. A tampered
-checkpoint, changed Program, changed policy, stale request, or lost revision is refused.
+checkpoint, changed Program, changed policy, stale request, missing reconciliation receipt, changed
+postcondition, or lost revision is refused.
 
 That non-genesis refusal is a proof boundary, not a missing convenience flag. The current
 checkpoint contract records task states and ready IDs, but not the exact prefix receipt/output
@@ -270,11 +276,16 @@ required before prefix import can be enabled safely.
 
 Replay clears the suffix tasks' current receipt/output projection while retaining every immutable
 historical attempt and receipt for audit; old outputs cannot appear current until a new successful
-attempt publishes them. An `all-terminal` join records failed predecessors as terminal without
-borrowing their historical success receipt or outputs. Fork first writes an immutable predecessor
-intent and creates one deterministic child genesis bound to the parent's immutable Process Binding;
-repeating confirmation recovers the same receipt even if the child has since progressed, while
-lineage fsck reports orphaned, corrupt, or incomplete fork records.
+attempt publishes them. For an installed consequential Device, an immutable
+`effect-replay-receipt` instead binds the replay plan, prior Task Receipt, Tool Intent, Tool Result,
+idempotency key, effect digest, current postcondition proof, and exact outputs. The replay Process
+CAS roots that receipt and retains the effect task and its predecessor closure byte-for-byte while
+reopening only downstream work. Crash recovery repeats the transition, never the Device effect. An
+`all-terminal` join records failed predecessors as terminal without borrowing their historical
+success receipt or outputs. Fork first writes an immutable predecessor intent and creates one
+deterministic child genesis bound to the parent's immutable Process Binding; repeating confirmation
+recovers the same receipt even if the child has since progressed, while lineage fsck reports
+orphaned, corrupt, or incomplete fork records.
 
 An ordinary failed task can be retried only while its Program still has an unused attempt and its
 recovery policy explicitly says `retry-safe`. `task retry` first writes a content-addressed preview
@@ -506,9 +517,9 @@ tracked in [SGOS-PENDING-WORK.md](SGOS-PENDING-WORK.md):
 - model-backed or tool-bearing `AGENT` execution beyond the reviewed Copilot proposal-only GEU,
   mutating Devices beyond the exact sandbox-CAS profile, arbitrary third-party adapters, and their
   complete independent conformance/counterfeit-model programs;
-- runtime-dynamic fan-out, additional reviewed reducers, general idempotent effect replay,
-  non-genesis fork import, and consequential-effect task retry; bounded nested inline fan-out and
-  quorum, deterministic-reduce, and manual-reconcile joins are implemented;
+- runtime-dynamic fan-out, additional reviewed reducers, non-genesis fork import, and
+  consequential-effect task retry; bounded nested inline fan-out, quorum, deterministic-reduce,
+  manual-reconcile joins, and installed-protocol idempotent effect replay are implemented;
 - universal Candidate routing is implemented for the supported lifecycle surfaces; its
   cross-platform signed release promotion remains tracked as `SGOS-P0-001`;
 - Secret Broker integration with real external adapters, the corresponding cancellation/leakage/

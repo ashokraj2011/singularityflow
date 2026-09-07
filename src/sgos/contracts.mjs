@@ -86,6 +86,7 @@ const CONTRACTS = Object.freeze({
   'quorum-join-receipt': Object.freeze({ kind: 'quorum-join-receipt', hash: 'quorumJoinReceiptSha256', id: 'quorumJoinReceiptId', prefix: 'QJR' }),
   'reducer-join-receipt': Object.freeze({ kind: 'reducer-join-receipt', hash: 'reducerJoinReceiptSha256', id: 'reducerJoinReceiptId', prefix: 'RJR' }),
   'manual-reconcile-join-receipt': Object.freeze({ kind: 'manual-reconcile-join-receipt', hash: 'manualReconcileJoinReceiptSha256', id: 'manualReconcileJoinReceiptId', prefix: 'MJR' }),
+  'effect-replay-receipt': Object.freeze({ kind: 'effect-replay-receipt', hash: 'effectReplayReceiptSha256', id: 'effectReplayReceiptId', prefix: 'ERP' }),
   'fanout-expansion-receipt': Object.freeze({ kind: 'fanout-expansion-receipt', hash: 'expansionSha256', id: 'expansionId', prefix: 'FOX' }),
   'sgos-replay-plan': Object.freeze({ kind: 'sgos-replay-plan', hash: 'replayPlanSha256', id: 'replayPlanId', prefix: 'RPL' }),
   'process-binding': Object.freeze({ kind: 'process-binding', hash: 'bindingSha256' }),
@@ -1178,6 +1179,64 @@ export function validateSgosReplayPlan(value) {
   return returnValidated(value, validateSgosReplayPlanRecord);
 }
 
+function validateEffectReplayReceiptRecord(record, requireHash) {
+  validateBase(record, 'effect-replay-receipt', [
+    'effectReplayReceiptId', 'processId', 'replayPlanSha256', 'taskInstanceId',
+    'taskTemplateId', 'attemptId', 'taskReceiptSha256', 'deviceManifestSha256',
+    'toolIntentSha256', 'toolResultSha256', 'idempotencyKey', 'effectSha256',
+    'postconditionSha256', 'outputRefs', 'reconciledAt'
+  ], [
+    'effectReplayReceiptId', 'processId', 'replayPlanSha256', 'taskInstanceId',
+    'taskTemplateId', 'attemptId', 'taskReceiptSha256', 'deviceManifestSha256',
+    'toolIntentSha256', 'toolResultSha256', 'idempotencyKey', 'effectSha256',
+    'postconditionSha256', 'outputRefs', 'reconciledAt'
+  ], requireHash);
+  identifier(record.effectReplayReceiptId, 'ERP',
+    'effect-replay-receipt.effectReplayReceiptId');
+  identifier(record.processId, 'PROC', 'effect-replay-receipt.processId');
+  digest(record.replayPlanSha256, 'effect-replay-receipt.replayPlanSha256');
+  string(record.taskInstanceId, 'effect-replay-receipt.taskInstanceId');
+  string(record.taskTemplateId, 'effect-replay-receipt.taskTemplateId');
+  identifier(record.attemptId, 'ATT', 'effect-replay-receipt.attemptId');
+  for (const field of [
+    'taskReceiptSha256', 'deviceManifestSha256', 'toolIntentSha256',
+    'toolResultSha256', 'idempotencyKey', 'effectSha256', 'postconditionSha256'
+  ]) digest(record[field], `effect-replay-receipt.${field}`);
+  stringArray(record.outputRefs, 'effect-replay-receipt.outputRefs');
+  if (!record.outputRefs.length) {
+    fail('effect-replay-receipt.outputRefs must retain the exact consequential result.');
+  }
+  timestamp(record.reconciledAt, 'effect-replay-receipt.reconciledAt');
+}
+
+export function createEffectReplayReceipt(value) {
+  return createContract('effect-replay-receipt', value, validateEffectReplayReceiptRecord, {
+    prepare: (record) => ({
+      ...record,
+      outputRefs: [...new Set(record.outputRefs)].sort(compareSgosCodePoints)
+    }),
+    identity: (record) => ({
+      processId: record.processId,
+      replayPlanSha256: record.replayPlanSha256,
+      taskInstanceId: record.taskInstanceId,
+      taskTemplateId: record.taskTemplateId,
+      attemptId: record.attemptId,
+      taskReceiptSha256: record.taskReceiptSha256,
+      deviceManifestSha256: record.deviceManifestSha256,
+      toolIntentSha256: record.toolIntentSha256,
+      toolResultSha256: record.toolResultSha256,
+      idempotencyKey: record.idempotencyKey,
+      effectSha256: record.effectSha256,
+      postconditionSha256: record.postconditionSha256,
+      outputRefs: record.outputRefs
+    })
+  });
+}
+
+export function validateEffectReplayReceipt(value) {
+  return returnValidated(value, validateEffectReplayReceiptRecord);
+}
+
 function validateProcessBindingRecord(record, requireHash) {
   validateBase(record, 'process-binding', [
     'processId', 'subjectId', 'subjectAuthority', 'configurationAuthority', 'repositoryIdentity', 'gitCommonDirectory',
@@ -1548,7 +1607,8 @@ export function validateGvmProcess(value) {
 }
 
 export const SGOS_RECORD_INDEX_FAMILIES = Object.freeze([
-  'action-evidence', 'agent-proposal', 'candidate-snapshot', 'fanout-expansion-receipt',
+  'action-evidence', 'agent-proposal', 'candidate-snapshot', 'effect-replay-receipt',
+  'fanout-expansion-receipt',
   'gvm-checkpoint', 'gvm-program',
   'gvm-task-attempt', 'gvm-task-receipt', 'human-request', 'human-response',
   'join-receipt', 'manual-reconcile-join-receipt', 'process-binding',
@@ -2189,6 +2249,7 @@ const VALIDATORS = Object.freeze({
   'quorum-join-receipt': validateQuorumJoinReceipt,
   'reducer-join-receipt': validateReducerJoinReceipt,
   'manual-reconcile-join-receipt': validateManualReconcileJoinReceipt,
+  'effect-replay-receipt': validateEffectReplayReceipt,
   'fanout-expansion-receipt': validateFanoutExpansionReceipt,
   'sgos-replay-plan': validateSgosReplayPlan,
   'process-binding': validateProcessBinding,

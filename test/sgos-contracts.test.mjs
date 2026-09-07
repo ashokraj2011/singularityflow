@@ -10,7 +10,7 @@ import {
   createGvmTaskReceipt, createHumanRequest, createHumanResponse, createIntentEnvelope,
   createIntentIr, createPolicySnapshot, createProcessBinding, createSgosControlSuccessor,
   createSgosControlEvent, createSgosRecordIndex, createSgosTransitionIntent, createWorkflowIr,
-  createSgosReplayPlan,
+  createEffectReplayReceipt, createSgosReplayPlan,
   MAXIMUM_SGOS_PROCESS_RECORD_BYTES, MAXIMUM_SGOS_PROCESS_RECORD_COUNT,
   MAXIMUM_SGOS_RECORD_BYTES, MAXIMUM_SGOS_RECORD_INDEX_DELTA,
   SGOS_RECORD_INDEX_FAMILIES,
@@ -69,7 +69,7 @@ function candidateResources() {
 
 test('SGOS durable families expose exact readable versions and refuse future versions', () => {
   const registry = new Map(migrationRegistrySnapshot().map((entry) => [entry.id, entry]));
-  assert.equal(sgosContractFamilies().length, 28);
+  assert.equal(sgosContractFamilies().length, 29);
   for (const family of sgosContractFamilies()) {
     const current = family === 'gvm-process'
       ? 3
@@ -306,6 +306,24 @@ test('replay plans bind one canonical exact prior-task projection', () => {
   assert.throws(() => validateSgosRecord({
     ...plan,
     priorTasks: [{ ...plan.priorTasks[0], attemptIds: [] }]
+  }), /does not match the canonical record/);
+});
+
+test('effect replay receipts bind exact idempotency and postcondition evidence', () => {
+  const receipt = createEffectReplayReceipt({
+    processId: 'PROC-EFFECT01', replayPlanSha256: d('effect-plan'),
+    taskInstanceId: 'TSK-EFFECT01', taskTemplateId: '20-effect',
+    attemptId: 'ATT-EFFECT01', taskReceiptSha256: d('effect-task-receipt'),
+    deviceManifestSha256: d('effect-device'), toolIntentSha256: d('effect-intent'),
+    toolResultSha256: d('effect-result'), idempotencyKey: d('effect-key'),
+    effectSha256: d('effect-state'), postconditionSha256: d('effect-postcondition'),
+    outputRefs: [d('z-output'), d('a-output')], reconciledAt: at
+  });
+  assert.deepEqual(receipt.outputRefs, [d('a-output'), d('z-output')].sort());
+  assert.equal(receipt.effectReplayReceiptSha256,
+    recordSelfSha256(receipt, 'effectReplayReceiptSha256'));
+  assert.throws(() => validateSgosRecord({
+    ...receipt, idempotencyKey: d('forged-key')
   }), /does not match the canonical record/);
 });
 

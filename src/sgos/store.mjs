@@ -19,11 +19,12 @@ import {
 import { withSubjectLock } from '../subject-lock.mjs';
 import { SingularityFlowError, nowIso } from '../util.mjs';
 import {
-  createSgosTransitionIntent, MAXIMUM_SGOS_RECORD_INDEX_DELTA,
+  createEffectReplayReceipt, createSgosTransitionIntent, MAXIMUM_SGOS_RECORD_INDEX_DELTA,
   SGOS_RECORD_INDEX_FAMILIES, sha256, validateSgosRecord, validateSgosTransitionIntent
 } from './contracts.mjs';
 import {
-  readSgosToolIntent, readSgosToolResult, verifySgosSandboxCasPostcondition
+  installedDeviceManifests, readSgosToolIntent, readSgosToolResult,
+  verifySgosDeviceEffectPostcondition, verifySgosSandboxCasPostcondition
 } from './devices.mjs';
 import { sgosContractPathFromLocal } from './paths.mjs';
 import { SGOS_INSTALLED_LIMITS } from './limits.mjs';
@@ -98,6 +99,7 @@ const IMMUTABLE_FAMILIES = Object.freeze({
   'quorum-join-receipt': Object.freeze({ directory: 'quorum-join-receipts', hashField: 'quorumJoinReceiptSha256' }),
   'reducer-join-receipt': Object.freeze({ directory: 'reducer-join-receipts', hashField: 'reducerJoinReceiptSha256' }),
   'manual-reconcile-join-receipt': Object.freeze({ directory: 'manual-reconcile-join-receipts', hashField: 'manualReconcileJoinReceiptSha256' }),
+  'effect-replay-receipt': Object.freeze({ directory: 'effect-replay-receipts', hashField: 'effectReplayReceiptSha256' }),
   'fanout-expansion-receipt': Object.freeze({ directory: 'fanout-expansions', hashField: 'expansionSha256' }),
   'sgos-replay-plan': Object.freeze({ directory: 'replay-plans', hashField: 'replayPlanSha256' }),
   'process-binding': Object.freeze({ directory: 'bindings', hashField: 'bindingSha256' }),
@@ -1263,7 +1265,71 @@ function replayAttemptCeiling(program, template) {
   return Math.min(taskMaximum, programMaximum, SGOS_INSTALLED_LIMITS.maximumAttemptsPerTask);
 }
 
-async function assertReplayPlanAuthority(root, before, plan) {
+function replayEffectKind(template) {
+  const resources = template.resources ?? {};
+  const writes = (resources.writes?.length ?? 0) > 0
+    || (resources.externalEffects?.length ?? 0) > 0;
+  const devices = (resources.devices?.length ?? 0) > 0;
+  const manifest = template.opcode === 'DEVICE'
+    ? installedDeviceManifests().find((entry) =>
+      entry.manifestSha256 === template.metadata?.deviceManifestSha256) ?? null
+    : null;
+  if (template.opcode === 'DEVICE' && manifest?.effects?.class === 'read-only' && !writes) {
+    return Object.freeze({ kind: 'reexecute', manifest: null });
+  }
+  if (template.opcode === 'DEVICE' && manifest != null
+      && manifest.effects?.class !== 'read-only' && writes) {
+    return Object.freeze({ kind: 'reconcile', manifest });
+  }
+  return Object.freeze({ kind: writes || devices ? 'unsafe' : 'reexecute', manifest });
+}
+
+async function assertEffectReplayReceipt(root, before, plan, task, template, manifest, receipt) {
+  const { record: taskReceipt } = await readSgosImmutableRecord(
+    root, before.processId, 'gvm-task-receipt', task.receiptSha256
+  );
+  const intent = await readSgosToolIntent(root, receipt.toolIntentSha256);
+  const result = await readSgosToolResult(root, intent.intentSha256);
+  const proof = await verifySgosDeviceEffectPostcondition(root, intent, result);
+  const expected = createEffectReplayReceipt({
+    processId: before.processId,
+    replayPlanSha256: plan.replayPlanSha256,
+    taskInstanceId: task.taskInstanceId,
+    taskTemplateId: task.taskTemplateId,
+    attemptId: taskReceipt.attemptId,
+    taskReceiptSha256: taskReceipt.receiptSha256,
+    deviceManifestSha256: proof.deviceManifestSha256,
+    toolIntentSha256: proof.toolIntentSha256,
+    toolResultSha256: proof.toolResultSha256,
+    idempotencyKey: proof.idempotencyKey,
+    effectSha256: proof.effectSha256,
+    postconditionSha256: proof.postconditionSha256,
+    outputRefs: taskReceipt.outputRefs,
+    reconciledAt: plan.createdAt
+  });
+  const parameters = template.metadata?.parameters ?? {};
+  if (task.state !== 'succeeded' || task.receiptSha256 === null
+      || task.attemptIds.at(-1) !== taskReceipt.attemptId
+      || taskReceipt.taskInstanceId !== task.taskInstanceId
+      || taskReceipt.processId !== before.processId
+      || canonicalJson(taskReceipt.outputRefs) !== canonicalJson(task.outputRefs)
+      || !taskReceipt.outputRefs.includes(result.resultSha256)
+      || !taskReceipt.effectRefs.includes(result.resultSha256)
+      || intent.processId !== before.processId
+      || intent.taskInstanceId !== task.taskInstanceId
+      || intent.attemptId !== taskReceipt.attemptId
+      || intent.deviceManifestSha256 !== manifest.manifestSha256
+      || intent.authorizationSha256 !== manifest.manifestSha256
+      || intent.operation !== parameters.operation
+      || intent.argumentsSha256 !== sha256(parameters.arguments)
+      || intent.scopeSha256 !== sha256(parameters.scope)
+      || canonicalJson(expected) !== canonicalJson(receipt)) {
+    fail(`SGOS effect replay receipt for task '${task.taskInstanceId}' is stale or counterfeit.`,
+      'SGOS_REPLAY_EFFECT_LINEAGE_INVALID', { taskInstanceId: task.taskInstanceId });
+  }
+}
+
+async function assertReplayPlanAuthority(root, before, plan, effectReplayReceipts = []) {
   if (plan.processId !== before.processId
       || plan.expectedProcessRevision !== before.processRevision
       || plan.expectedProcessSha256 !== before.processSha256
@@ -1317,7 +1383,7 @@ async function assertReplayPlanAuthority(root, before, plan) {
         !== canonicalJson(plan.taskInstanceIds)
       || canonicalJson(expectedTasks.map(replayTaskProjection))
         !== canonicalJson(plan.priorTasks)) {
-    fail('SGOS replay plan does not bind the exact pure suffix task projection.',
+    fail('SGOS replay plan does not bind the exact replayable suffix task projection.',
       'SGOS_REPLAY_PLAN_STALE', { replayPlanSha256: plan.replayPlanSha256 });
   }
   const program = (await readSgosImmutableRecord(
@@ -1326,6 +1392,15 @@ async function assertReplayPlanAuthority(root, before, plan) {
   const templates = new Map(program.taskTemplates.map((template) => [
     template.taskTemplateId, template
   ]));
+  const effectReceiptsByTask = new Map(effectReplayReceipts.map((receipt) => [
+    receipt.taskInstanceId, receipt
+  ]));
+  if (effectReceiptsByTask.size !== effectReplayReceipts.length) {
+    fail('SGOS replay contains duplicate effect-reconciliation receipts.',
+      'SGOS_REPLAY_EFFECT_LINEAGE_INVALID');
+  }
+  const retainedTasks = replayRetainedClosure(before, plan, effectReplayReceipts);
+  const expectedEffectTasks = new Set();
   for (const task of expectedTasks) {
     const template = templates.get(task.taskTemplateId);
     if (!template || !['succeeded', 'failed', 'blocked', 'cancelled'].includes(task.state)
@@ -1333,23 +1408,54 @@ async function assertReplayPlanAuthority(root, before, plan) {
       fail(`SGOS task '${task.taskInstanceId}' is not a completed replay suffix task.`,
         'SGOS_REPLAY_PLAN_INVALID');
     }
-    const resources = template.resources ?? {};
-    if ((resources.writes?.length ?? 0) > 0
-        || (resources.devices?.length ?? 0) > 0
-        || (resources.externalEffects?.length ?? 0) > 0) {
-      fail(`SGOS task '${task.taskInstanceId}' has effects that the pure replay profile cannot repeat.`,
+    const effect = replayEffectKind(template);
+    if (effect.kind === 'unsafe') {
+      fail(`SGOS task '${task.taskInstanceId}' has no installed exact effect-replay protocol.`,
         'SGOS_REPLAY_EFFECT_UNSAFE');
     }
-    if (task.attemptIds.length >= replayAttemptCeiling(program, template)) {
+    if (effect.kind === 'reconcile') {
+      expectedEffectTasks.add(task.taskInstanceId);
+      const receipt = effectReceiptsByTask.get(task.taskInstanceId);
+      if (receipt == null) {
+        fail(`SGOS task '${task.taskInstanceId}' has no effect-reconciliation receipt.`,
+          'SGOS_REPLAY_EFFECT_LINEAGE_INVALID');
+      }
+      await assertEffectReplayReceipt(
+        root, before, plan, task, template, effect.manifest, receipt
+      );
+    }
+    if (!retainedTasks.has(task.taskInstanceId)
+        && task.attemptIds.length >= replayAttemptCeiling(program, template)) {
       fail(`SGOS task '${task.taskInstanceId}' has no remaining governed attempt.`,
         'SGOS_REPLAY_ATTEMPT_CEILING');
     }
   }
+  if (effectReplayReceipts.some((receipt) =>
+    !expectedEffectTasks.has(receipt.taskInstanceId))) {
+    fail('SGOS replay contains an effect receipt for a task that does not require reconciliation.',
+      'SGOS_REPLAY_EFFECT_LINEAGE_INVALID');
+  }
   return Object.freeze({ plan, checkpoint, program });
 }
 
-function assertExactReplayTransition(before, after, plan) {
-  const replaySet = new Set(plan.taskInstanceIds);
+function replayRetainedClosure(process, plan, effectReplayReceipts) {
+  const inPlan = new Set(plan.taskInstanceIds);
+  const retained = new Set(effectReplayReceipts.map((entry) => entry.taskInstanceId));
+  const pending = [...retained];
+  while (pending.length) {
+    const taskInstanceId = pending.pop();
+    for (const predecessor of process.taskInstances[taskInstanceId]?.predecessorTaskInstanceIds ?? []) {
+      if (!inPlan.has(predecessor) || retained.has(predecessor)) continue;
+      retained.add(predecessor);
+      pending.push(predecessor);
+    }
+  }
+  return retained;
+}
+
+function assertExactReplayTransition(before, after, plan, effectReplayReceipts = []) {
+  const retainedEffects = replayRetainedClosure(before, plan, effectReplayReceipts);
+  const replaySet = new Set(plan.taskInstanceIds.filter((id) => !retainedEffects.has(id)));
   if (after.status !== 'running'
       || after.currentCheckpointSha256 !== plan.fromCheckpointSha256
       || after.activeExecutions.length || after.activeLeases.length
@@ -1359,6 +1465,13 @@ function assertExactReplayTransition(before, after, plan) {
   }
   for (const [taskId, beforeTask] of Object.entries(before.taskInstances)) {
     const afterTask = after.taskInstances[taskId];
+    if (retainedEffects.has(taskId)) {
+      if (canonicalJson(afterTask) !== canonicalJson(beforeTask)) {
+        fail(`SGOS replay attempted to alter reconciled effect task '${taskId}'.`,
+          'SGOS_REPLAY_TRANSITION_INVALID');
+      }
+      continue;
+    }
     if (!replaySet.has(taskId)) {
       if (canonicalJson(afterTask) !== canonicalJson(beforeTask)) {
         fail(`SGOS replay attempted to change non-suffix task '${taskId}'.`,
@@ -1387,6 +1500,7 @@ function assertExactReplayTransition(before, after, plan) {
 
 async function assertImmutableCore(before, after, {
   replayPlan = null,
+  effectReplayReceipts = [],
   appliedReplayPlans = new Map()
 } = {}) {
   const fields = [
@@ -1507,7 +1621,9 @@ async function assertImmutableCore(before, after, {
         });
     }
   }
-  if (replayPlan !== null) assertExactReplayTransition(before, after, replayPlan);
+  if (replayPlan !== null) {
+    assertExactReplayTransition(before, after, replayPlan, effectReplayReceipts);
+  }
 }
 
 async function withProcessLock(root, processId, callback, timeoutMs = 2_000, {
@@ -4056,7 +4172,7 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
   // task state. A self-hashed Process cannot reset a receipted task to ready and execute it again.
   const [attempts, receipts, agentProposals, resourceLeases, joinReceipts,
     quorumJoinReceipts, reducerJoinReceipts, manualReconcileJoinReceipts, fanoutReceipts,
-    { record: program }] = await Promise.all([
+    effectReplayReceipts, { record: program }] = await Promise.all([
     allRecords('gvm-task-attempt'),
     allRecords('gvm-task-receipt'),
     allRecords('agent-proposal'),
@@ -4066,6 +4182,7 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
     allRecords('reducer-join-receipt'),
     allRecords('manual-reconcile-join-receipt'),
     allRecords('fanout-expansion-receipt'),
+    allRecords('effect-replay-receipt'),
     readImmutable('gvm-program', state.programSha256)
   ]);
   const attemptsById = recordsBy(attempts, 'attemptId');
@@ -4091,6 +4208,51 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
       }
     }
   });
+  const templates = new Map(program.taskTemplates.map((template) => [
+    template.taskTemplateId, template
+  ]));
+  const effectReceiptsByPlan = recordsBy(effectReplayReceipts, 'replayPlanSha256');
+  for (const [replayPlanSha256, effectRecords] of effectReceiptsByPlan) {
+    const plan = replayHistory.plans.get(replayPlanSha256);
+    if (!plan || new Set(effectRecords.map((record) => record.taskInstanceId)).size
+        !== effectRecords.length) {
+      fail('SGOS effect-replay receipts are duplicated or have no applied replay plan.',
+        'SGOS_REPLAY_EFFECT_LINEAGE_INVALID', { replayPlanSha256 });
+    }
+    const expected = plan.priorTasks.filter((prior) => {
+      const template = templates.get(prior.taskTemplateId);
+      return replayEffectKind(template).kind === 'reconcile';
+    });
+    if (expected.length !== effectRecords.length) {
+      fail('SGOS effect-replay receipts do not exactly cover the applied replay plan.',
+        'SGOS_REPLAY_EFFECT_LINEAGE_INVALID', { replayPlanSha256 });
+    }
+    for (const prior of expected) {
+      const task = state.taskInstances[prior.taskInstanceId];
+      const template = templates.get(prior.taskTemplateId);
+      const effect = replayEffectKind(template);
+      const receipt = effectRecords.find((record) =>
+        record.taskInstanceId === prior.taskInstanceId);
+      if (!task || !receipt
+          || canonicalJson(replayTaskProjection(task)) !== canonicalJson(prior)) {
+        fail(`SGOS reconciled effect task '${prior.taskInstanceId}' changed after replay.`,
+          'SGOS_REPLAY_EFFECT_LINEAGE_INVALID', { replayPlanSha256 });
+      }
+      await assertEffectReplayReceipt(
+        root, state, plan, task, template, effect.manifest, receipt
+      );
+    }
+  }
+  for (const plan of replayHistory.plans.values()) {
+    const expectedCount = plan.priorTasks.filter((prior) =>
+      replayEffectKind(templates.get(prior.taskTemplateId)).kind === 'reconcile').length;
+    if ((effectReceiptsByPlan.get(plan.replayPlanSha256)?.length ?? 0) !== expectedCount) {
+      fail('Applied SGOS replay plan is missing exact effect reconciliation evidence.',
+        'SGOS_REPLAY_EFFECT_LINEAGE_INVALID', {
+          replayPlanSha256: plan.replayPlanSha256
+        });
+    }
+  }
 
   for (const [taskId, task] of Object.entries(state.taskInstances)) {
     if (new Set(task.attemptIds).size !== task.attemptIds.length) {
@@ -5310,7 +5472,8 @@ export async function mutateSgosProcess(root, processId, mutate, {
   expectedProcessSha256 = null,
   updatedAt = null,
   recordReservations = [],
-  replayPlanSha256 = null
+  replayPlanSha256 = null,
+  effectReplayReceiptSha256s = []
 } = {}) {
   const id = requireProcessId(processId);
   if (!Number.isInteger(expectedRevision) || expectedRevision < 1) {
@@ -5342,6 +5505,7 @@ export async function mutateSgosProcess(root, processId, mutate, {
       });
     }
     let replayPlan = null;
+    let effectReplayReceipts = [];
     const appliedReplayPlans = new Map();
     for (const replayPlanHash of new Set(Object.values(current.taskInstances)
       .map((task) => task.invalidatedBy)
@@ -5362,7 +5526,27 @@ export async function mutateSgosProcess(root, processId, mutate, {
       replayPlan = (await readSgosImmutableRecord(
         root, id, 'sgos-replay-plan', replayPlanSha256
       )).record;
-      await assertReplayPlanAuthority(root, current, replayPlan);
+      if (!Array.isArray(effectReplayReceiptSha256s)
+          || new Set(effectReplayReceiptSha256s).size !== effectReplayReceiptSha256s.length
+          || effectReplayReceiptSha256s.some((value) => !SHA256.test(String(value ?? '')))) {
+        fail('SGOS replay effect-receipt list is invalid or contains duplicates.',
+          'SGOS_REPLAY_EFFECT_LINEAGE_INVALID');
+      }
+      effectReplayReceipts = await Promise.all(effectReplayReceiptSha256s.map(async (hash) => {
+        const hasExactReservation = recordReservations.some((token) =>
+          token?.family === 'effect-replay-receipt' && token?.recordSha256 === hash);
+        if (!hasExactReservation) {
+          fail('SGOS replay mutation requires every exact effect receipt reservation in the same CAS.',
+            'SGOS_REPLAY_EFFECT_UNROOTED', { effectReplayReceiptSha256: hash });
+        }
+        return (await readSgosImmutableRecord(
+          root, id, 'effect-replay-receipt', hash
+        )).record;
+      }));
+      await assertReplayPlanAuthority(root, current, replayPlan, effectReplayReceipts);
+    } else if (effectReplayReceiptSha256s.length) {
+      fail('SGOS effect-replay receipts require an exact replay plan.',
+        'SGOS_REPLAY_EFFECT_UNROOTED');
     }
     const draft = clone(current);
     const collector = { active: true, tokens: [] };
@@ -5375,7 +5559,9 @@ export async function mutateSgosProcess(root, processId, mutate, {
       collector.active = false;
     }
     const next = returned ?? draft;
-    await assertImmutableCore(current, next, { replayPlan, appliedReplayPlans });
+    await assertImmutableCore(current, next, {
+      replayPlan, effectReplayReceipts, appliedReplayPlans
+    });
     next.schemaVersion = currentSchemaVersion('gvm-process');
     next.kind = 'gvm-process';
     next.processRevision = current.processRevision + 1;

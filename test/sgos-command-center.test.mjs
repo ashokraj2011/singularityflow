@@ -210,7 +210,8 @@ test('runtime capability projection exposes bounded parallel, lineage, stop, and
   assert.equal(SGOS_RUNTIME_CAPABILITIES.parallelExecution.status, 'available');
   assert.match(SGOS_RUNTIME_CAPABILITIES.parallelExecution.reason, /one deterministic.*bounded.*wave/i);
   assert.equal(SGOS_RUNTIME_CAPABILITIES.replay.status, 'available');
-  assert.match(SGOS_RUNTIME_CAPABILITIES.replay.reason, /pure suffix.*ancestor checkpoint/i);
+  assert.match(SGOS_RUNTIME_CAPABILITIES.replay.reason,
+    /replayable suffixes.*ancestor checkpoint.*postcondition reconciliation/i);
   assert.equal(SGOS_RUNTIME_CAPABILITIES.fork.status, 'available');
   assert.match(SGOS_RUNTIME_CAPABILITIES.fork.reason, /genesis-only/i);
   assert.equal(SGOS_RUNTIME_CAPABILITIES.stopQuiescence.status, 'available');

@@ -2081,6 +2081,13 @@ const families = [
     ]
   }),
   family({
+    id: 'effect-replay-receipt', currentVersion: 1, immutable: true,
+    paths: [
+      /^\$git\/sgos\/processes\/[^/]+\/effect-replay-receipts\/[a-f0-9]{64}\.json$/,
+      sgosRecordReservationPath('effect-replay-receipt')
+    ]
+  }),
+  family({
     id: 'fanout-expansion-receipt', currentVersion: 1, immutable: true,
     paths: [
       /^\$git\/sgos\/processes\/[^/]+\/fanout-expansions\/[a-f0-9]{64}\.json$/,

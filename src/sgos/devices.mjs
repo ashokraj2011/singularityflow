@@ -990,6 +990,65 @@ export async function verifySgosSandboxCasPostcondition(root, intent, result) {
   return freezeDeep({ status: 'passed', effectSha256: effect.effectSha256 });
 }
 
+/**
+ * Revalidate an already-recorded consequential effect without executing the Device again.
+ *
+ * This is deliberately a closed installed-manifest dispatch. A Device having an idempotency
+ * declaration is not sufficient by itself: the current runtime must also ship the exact
+ * postcondition verifier for that manifest and must observe the original Tool Result unchanged.
+ */
+export async function verifySgosDeviceEffectPostcondition(root, intent, result) {
+  if (!HASH.test(String(intent?.intentSha256 ?? ''))
+      || !HASH.test(String(intent?.deviceManifestSha256 ?? ''))
+      || !HASH.test(String(intent?.idempotencyKey ?? ''))
+      || result?.intentSha256 !== intent.intentSha256
+      || result?.status !== 'observed'
+      || result?.verification?.status !== 'passed') {
+    fail('Consequential effect replay requires an exact verified Tool Intent and Result.',
+      'SGOS_DEVICE_EFFECT_REPLAY_UNSAFE');
+  }
+  const manifest = installedDeviceManifests().find((entry) =>
+    entry.manifestSha256 === intent.deviceManifestSha256);
+  const device = manifest == null ? null : installedDevice(root, manifest.id);
+  if (!manifest || !device) {
+    fail('Consequential effect replay refers to an unavailable Device manifest.',
+      'SGOS_DEVICE_NOT_INSTALLED', {
+        deviceManifestSha256: intent.deviceManifestSha256
+      });
+  }
+  await assertNotRevoked(root, manifest);
+  if (manifest.effects?.class === 'read-only') {
+    fail('Read-only Device operations do not require consequential effect reconciliation.',
+      'SGOS_DEVICE_EFFECT_REPLAY_UNSAFE');
+  }
+  let verification;
+  if (manifest.id === SANDBOX_CAS_DEVICE_ID
+      && manifest.recovery?.protocol === 'inspect-exact-postcondition'
+      && manifest.idempotency?.kind === 'content-addressed-tool-intent') {
+    verification = await verifySgosSandboxCasPostcondition(root, intent, result);
+  } else {
+    fail('The installed Device has no reviewed effect-replay postcondition verifier.',
+      'SGOS_DEVICE_EFFECT_REPLAY_UNSUPPORTED', {
+        deviceId: manifest.id,
+        deviceManifestSha256: manifest.manifestSha256
+      });
+  }
+  if (!HASH.test(String(verification.effectSha256 ?? ''))
+      || result.effect?.effectSha256 !== verification.effectSha256) {
+    fail('Consequential Device postcondition no longer matches its exact Tool Result.',
+      'SGOS_DEVICE_EFFECT_UNCERTAIN');
+  }
+  const proof = {
+    status: 'passed',
+    deviceManifestSha256: manifest.manifestSha256,
+    toolIntentSha256: intent.intentSha256,
+    toolResultSha256: result.resultSha256,
+    idempotencyKey: intent.idempotencyKey,
+    effectSha256: verification.effectSha256
+  };
+  return freezeDeep({ ...proof, postconditionSha256: sha256(proof) });
+}
+
 export async function readSgosToolResult(root, intentSha256) {
   if (!HASH.test(String(intentSha256 ?? ''))) {
     fail('Tool Intent SHA is invalid.', 'SGOS_TOOL_INTENT_INVALID');

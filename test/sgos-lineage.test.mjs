@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {
-  mkdir, mkdtemp, readdir, rm, symlink, unlink, writeFile
+  mkdir, mkdtemp, readFile, readdir, rm, symlink, unlink, writeFile
 } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
@@ -8,17 +8,25 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { initializeDefinition } from '../src/config.mjs';
-import { createGvmProgram } from '../src/sgos/contracts.mjs';
+import { createGvmProgram, sha256 } from '../src/sgos/contracts.mjs';
 import { SGOS_COMPILER_ID } from '../src/sgos/compiler.mjs';
+import {
+  installedDeviceManifests, readSgosSandboxCasEffect,
+  SGOS_SANDBOX_CAS_ABSENT_SHA256
+} from '../src/sgos/devices.mjs';
 import {
   forkSgosProcess, planSgosProcessFork, planSgosProcessReplay, replaySgosProcess
 } from '../src/sgos/lineage.mjs';
+import {
+  compileSgosProcessEvidence, verifySgosProcessEvidence
+} from '../src/sgos/process-evidence.mjs';
 import {
   pauseSgosProcess, runNextSgosTask, startSgosProcess
 } from '../src/sgos/runtime.mjs';
 import {
   fsckSgosProcess, readSgosCheckpoint, readSgosProcess,
-  setSgosStoreFaultBoundaryForTests, mutateSgosProcess
+  setSgosStoreFaultBoundaryForTests, mutateSgosProcess,
+  listSgosImmutableRecordsByField
 } from '../src/sgos/store.mjs';
 import { publishSgosProgramAuthority } from './helpers/sgos-authority.mjs';
 
@@ -133,6 +141,89 @@ function replayJoinProgram() {
   });
 }
 
+function effectReplayProgram() {
+  const manifest = installedDeviceManifests().find((entry) => entry.id === 'sandbox-cas');
+  assert.ok(manifest);
+  const resource = 'sandbox-cas:lineage-key';
+  const tasks = [
+    task('00-start', 'NOOP'),
+    task('10-boundary', 'CHECKPOINT', ['00-start']),
+    {
+      ...task('20-effect', 'DEVICE', ['10-boundary'], {
+        reads: [], writes: [resource], devices: [manifest.id], externalEffects: [resource]
+      }),
+      operation: 'fixture.cas-put',
+      retry: { maximumAttempts: 1 },
+      recovery: { interruptedExecution: 'device-reconcile' },
+      metadata: {
+        sourceConstruct: 'task', operationVersion: '1', operationManifestSha256: D.manifest,
+        deviceId: manifest.id, deviceVersion: manifest.version,
+        deviceManifestSha256: manifest.manifestSha256,
+        parameters: {
+          operation: 'compare-and-swap-put',
+          arguments: {
+            key: 'lineage-key', expectedValueSha256: SGOS_SANDBOX_CAS_ABSENT_SHA256,
+            value: { replay: 'retain-exact-effect' }
+          },
+          scope: [resource]
+        }
+      }
+    },
+    task('90-end', 'END', ['20-effect'])
+  ];
+  return createGvmProgram({
+    intentIrSha256: D.intent, workflowSha256: D.workflow,
+    ratificationSha256: D.ratification, policySnapshotSha256: D.policy,
+    registrySnapshotSha256: D.registry, storageProfileSha256: D.storage,
+    taskTemplates: tasks,
+    edges: tasks.flatMap((entry) => entry.dependsOn.map((from) => ({
+      from, to: entry.taskTemplateId
+    }))),
+    joins: [], budgets: { maximumTasks: tasks.length, maximumAttempts: 2 },
+    recoveryPolicy: { mode: 'fail-closed' },
+    terminalConditions: [{ taskTemplateId: '90-end', state: 'succeeded' }],
+    compiler: { id: SGOS_COMPILER_ID, version: '2' }
+  });
+}
+
+function readOnlyDeviceReplayProgram() {
+  const manifest = installedDeviceManifests().find((entry) => entry.id === 'filesystem-read');
+  assert.ok(manifest);
+  const tasks = [
+    task('00-start', 'NOOP'),
+    task('10-boundary', 'CHECKPOINT', ['00-start']),
+    {
+      ...task('20-read', 'DEVICE', ['10-boundary'], {
+        reads: ['app.mjs'], writes: [], devices: [manifest.id], externalEffects: []
+      }),
+      operation: 'fixture.read-file',
+      recovery: { failedExecution: 'retry-safe' },
+      metadata: {
+        sourceConstruct: 'task', operationVersion: '1', operationManifestSha256: D.manifest,
+        deviceId: manifest.id, deviceVersion: manifest.version,
+        deviceManifestSha256: manifest.manifestSha256,
+        parameters: {
+          operation: 'read-file', arguments: { path: 'app.mjs' }, scope: ['app.mjs']
+        }
+      }
+    },
+    task('90-end', 'END', ['20-read'])
+  ];
+  return createGvmProgram({
+    intentIrSha256: D.intent, workflowSha256: D.workflow,
+    ratificationSha256: D.ratification, policySnapshotSha256: D.policy,
+    registrySnapshotSha256: D.registry, storageProfileSha256: D.storage,
+    taskTemplates: tasks,
+    edges: tasks.flatMap((entry) => entry.dependsOn.map((from) => ({
+      from, to: entry.taskTemplateId
+    }))),
+    joins: [], budgets: { maximumTasks: tasks.length, maximumAttempts: 2 },
+    recoveryPolicy: { mode: 'fail-closed' },
+    terminalConditions: [{ taskTemplateId: '90-end', state: 'succeeded' }],
+    compiler: { id: SGOS_COMPILER_ID, version: '2' }
+  });
+}
+
 function successfulKernel() {
   return {
     handlers: { kernel: { 'kernel.kernel': async () => ({
@@ -173,6 +264,16 @@ async function boundaryLineage(root, process) {
     boundary: current.checkpointSha256,
     genesis: current.priorCheckpointSha256
   };
+}
+
+function privateSgosProcessDirectory(root, processId) {
+  return path.join(path.resolve(root, git(root, ['rev-parse', '--git-common-dir'])),
+    'singularity-flow', 'sgos', 'processes', processId);
+}
+
+function sandboxCasEffectFile(root, key) {
+  return path.join(path.resolve(root, git(root, ['rev-parse', '--git-common-dir'])),
+    'singularity-flow', 'sgos', 'devices', 'effects', 'sandbox-cas', `${key}.json`);
 }
 
 test('pure suffix replay preserves prior attempts and receipts while reopening only checkpoint descendants', async (t) => {
@@ -224,7 +325,7 @@ test('pure suffix replay preserves prior attempts and receipts while reopening o
   }
 });
 
-test('replay refuses a completed suffix with writes, Devices, or external effects', async (t) => {
+test('replay refuses a completed suffix with effects lacking an installed reconciliation protocol', async (t) => {
   const storyId = 'SGOS-LINEAGE-EFFECT';
   const root = await repository(t, storyId);
   const compiled = program({ reads: [], writes: ['src'], devices: [], externalEffects: [] });
@@ -235,6 +336,174 @@ test('replay refuses a completed suffix with writes, Devices, or external effect
     planSgosProcessReplay(root, completed.processId, { fromCheckpointSha256: boundary }),
     (error) => error.code === 'SGOS_REPLAY_EFFECT_UNSAFE'
   );
+});
+
+test('effect replay retains one exact consequential task and reopens only its downstream suffix', async (t) => {
+  const storyId = 'SGOS-LINEAGE-EFFECT-REPLAY';
+  const root = await repository(t, storyId);
+  const started = await start(root, storyId, effectReplayProgram());
+  const completed = await complete(root, started.process.processId);
+  assert.equal(completed.status, 'succeeded');
+  const effectTask = Object.values(completed.taskInstances)
+    .find((entry) => entry.taskTemplateId === '20-effect');
+  const beforeEffect = structuredClone(effectTask);
+  const beforeStoredEffect = await readSgosSandboxCasEffect(root, 'lineage-key');
+  const { boundary } = await boundaryLineage(root, completed);
+  const plan = await planSgosProcessReplay(root, completed.processId, {
+    fromCheckpointSha256: boundary, createdAt: T1
+  });
+  const plannedReceipts = await listSgosImmutableRecordsByField(
+    root, completed.processId, 'effect-replay-receipt',
+    'replayPlanSha256', plan.replayPlanSha256
+  );
+  assert.equal(plannedReceipts.length, 1);
+  assert.equal(plannedReceipts[0].taskInstanceId, effectTask.taskInstanceId);
+  assert.equal(plannedReceipts[0].effectSha256, beforeStoredEffect.effectSha256);
+  const replayed = await replaySgosProcess(root, completed.processId, {
+    confirmationSha256: plan.replayPlanSha256, clock: T2
+  });
+  const retained = replayed.process.taskInstances[effectTask.taskInstanceId];
+  assert.deepEqual(retained, beforeEffect);
+  assert.equal(replayed.effectReplayReceipts.length, 1);
+  assert.equal(replayed.process.status, 'running');
+  assert.deepEqual(await readSgosSandboxCasEffect(root, 'lineage-key'), beforeStoredEffect);
+  const end = Object.values(replayed.process.taskInstances)
+    .find((entry) => entry.taskTemplateId === '90-end');
+  assert.equal(end.state, 'ready');
+  assert.equal(end.invalidatedBy, plan.replayPlanSha256);
+  await runNextSgosTask(root, completed.processId, { clock: T2 });
+  assert.equal((await readSgosProcess(root, completed.processId)).status, 'succeeded');
+  assert.equal((await fsckSgosProcess(root, completed.processId)).status, 'ok');
+  const portable = await compileSgosProcessEvidence(root, completed.processId);
+  const portableReport = verifySgosProcessEvidence(portable);
+  assert.equal(portableReport.integrity, 'valid');
+  assert.equal(portableReport.contradictions.length, 0);
+  const crossed = structuredClone(portable);
+  const crossedReceipt = crossed.records.find((entry) =>
+    entry.family === 'effect-replay-receipt');
+  crossedReceipt.record.idempotencyKey = `sha256:${'f'.repeat(64)}`;
+  delete crossed.bundleSha256;
+  crossed.bundleSha256 = sha256(crossed);
+  assert.equal(verifySgosProcessEvidence(crossed).contradictions.some((entry) =>
+    entry.code === 'effect-replay-lineage-invalid'), true);
+});
+
+test('effect replay confirmation refuses a changed postcondition without changing Process state', async (t) => {
+  const storyId = 'SGOS-LINEAGE-EFFECT-STALE';
+  const root = await repository(t, storyId);
+  const started = await start(root, storyId, effectReplayProgram());
+  const completed = await complete(root, started.process.processId);
+  const { boundary } = await boundaryLineage(root, completed);
+  const plan = await planSgosProcessReplay(root, completed.processId, {
+    fromCheckpointSha256: boundary, createdAt: T1
+  });
+  const stateFile = path.join(privateSgosProcessDirectory(root, completed.processId), 'state.json');
+  const beforeStateBytes = await readFile(stateFile);
+  const priorEffect = await readSgosSandboxCasEffect(root, 'lineage-key');
+  const replacementCore = {
+    ...structuredClone(priorEffect), appliedAt: '2026-08-30T10:01:30.000Z'
+  };
+  delete replacementCore.effectSha256;
+  const replacement = { ...replacementCore, effectSha256: sha256(replacementCore) };
+  await writeFile(sandboxCasEffectFile(root, 'lineage-key'), JSON.stringify(replacement));
+  await assert.rejects(
+    replaySgosProcess(root, completed.processId, {
+      confirmationSha256: plan.replayPlanSha256, clock: T2
+    }),
+    (error) => error.code === 'SGOS_DEVICE_EFFECT_UNCERTAIN'
+  );
+  assert.deepEqual(await readFile(stateFile), beforeStateBytes);
+});
+
+test('effect replay confirmation refuses a missing reconciliation receipt without changing Process state', async (t) => {
+  const storyId = 'SGOS-LINEAGE-EFFECT-MISSING-RECEIPT';
+  const root = await repository(t, storyId);
+  const started = await start(root, storyId, effectReplayProgram());
+  const completed = await complete(root, started.process.processId);
+  const { boundary } = await boundaryLineage(root, completed);
+  const plan = await planSgosProcessReplay(root, completed.processId, {
+    fromCheckpointSha256: boundary, createdAt: T1
+  });
+  const [receipt] = await listSgosImmutableRecordsByField(
+    root, completed.processId, 'effect-replay-receipt',
+    'replayPlanSha256', plan.replayPlanSha256
+  );
+  await unlink(path.join(privateSgosProcessDirectory(root, completed.processId),
+    'effect-replay-receipts',
+    `${receipt.effectReplayReceiptSha256.slice('sha256:'.length)}.json`));
+  await assert.rejects(
+    replaySgosProcess(root, completed.processId, {
+      confirmationSha256: plan.replayPlanSha256, clock: T2
+    }),
+    (error) => error.code === 'SGOS_REPLAY_EFFECT_LINEAGE_INVALID'
+  );
+  const unchanged = await readSgosProcess(root, completed.processId);
+  assert.equal(unchanged.processRevision, completed.processRevision);
+  assert.equal(unchanged.processSha256, completed.processSha256);
+});
+
+test('effect replay crash recovery retains the effect and applies the replay transition once', async (t) => {
+  const storyId = 'SGOS-LINEAGE-EFFECT-CRASH';
+  const root = await repository(t, storyId);
+  const started = await start(root, storyId, effectReplayProgram());
+  const completed = await complete(root, started.process.processId);
+  const effectTask = Object.values(completed.taskInstances)
+    .find((entry) => entry.taskTemplateId === '20-effect');
+  const beforeEffectTask = structuredClone(effectTask);
+  const beforeStoredEffect = await readSgosSandboxCasEffect(root, 'lineage-key');
+  const { boundary } = await boundaryLineage(root, completed);
+  const plan = await planSgosProcessReplay(root, completed.processId, {
+    fromCheckpointSha256: boundary, createdAt: T1
+  });
+  setSgosStoreFaultBoundaryForTests('state', { code: 'EIO' });
+  try {
+    await assert.rejects(
+      replaySgosProcess(root, completed.processId, {
+        confirmationSha256: plan.replayPlanSha256, clock: T2
+      }),
+      (error) => error.code === 'SGOS_TRANSITION_RECOVERY_REQUIRED'
+        && error.details?.causeCode === 'EIO'
+    );
+  } finally {
+    setSgosStoreFaultBoundaryForTests(null);
+  }
+  const recovered = await replaySgosProcess(root, completed.processId, {
+    confirmationSha256: plan.replayPlanSha256, clock: T2
+  });
+  assert.equal(recovered.recovered, true);
+  assert.equal(recovered.process.processRevision, completed.processRevision + 1);
+  assert.deepEqual(recovered.process.taskInstances[effectTask.taskInstanceId], beforeEffectTask);
+  assert.deepEqual(await readSgosSandboxCasEffect(root, 'lineage-key'), beforeStoredEffect);
+  assert.equal((await fsckSgosProcess(root, completed.processId)).status, 'ok');
+});
+
+test('read-only Device replay executes a new attempt without requiring effect reconciliation', async (t) => {
+  const storyId = 'SGOS-LINEAGE-READ-ONLY-REPLAY';
+  const root = await repository(t, storyId);
+  const started = await start(root, storyId, readOnlyDeviceReplayProgram());
+  const completed = await complete(root, started.process.processId);
+  const beforeRead = Object.values(completed.taskInstances)
+    .find((entry) => entry.taskTemplateId === '20-read');
+  const { boundary } = await boundaryLineage(root, completed);
+  const plan = await planSgosProcessReplay(root, completed.processId, {
+    fromCheckpointSha256: boundary, createdAt: T1
+  });
+  assert.deepEqual(await listSgosImmutableRecordsByField(
+    root, completed.processId, 'effect-replay-receipt',
+    'replayPlanSha256', plan.replayPlanSha256
+  ), []);
+  await replaySgosProcess(root, completed.processId, {
+    confirmationSha256: plan.replayPlanSha256, clock: T2
+  });
+  for (let index = 0; index < 3; index += 1) {
+    await runNextSgosTask(root, completed.processId, { clock: T2 });
+  }
+  const rerun = await readSgosProcess(root, completed.processId);
+  const afterRead = rerun.taskInstances[beforeRead.taskInstanceId];
+  assert.equal(afterRead.attemptIds.length, beforeRead.attemptIds.length + 1);
+  assert.notEqual(afterRead.receiptSha256, beforeRead.receiptSha256);
+  assert.equal(rerun.status, 'succeeded');
+  assert.equal((await fsckSgosProcess(root, completed.processId)).status, 'ok');
 });
 
 test('generic Process CAS cannot invent replay invalidation authority', async (t) => {

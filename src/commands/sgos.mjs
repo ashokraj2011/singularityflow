@@ -426,12 +426,12 @@ async function processCommand(root, positionals, options) {
       }
       const plan = await planSgosProcessReplay(root, processId, { fromCheckpointSha256 });
       return emit(plan, options,
-        (value) => `Replay ${value.taskInstanceIds.length} pure suffix task(s); confirm ${value.replayPlanSha256}.`,
+        (value) => `Prepare replay of ${value.taskInstanceIds.length} suffix task(s); installed consequential effects are reconciled before confirmation. Confirm ${value.replayPlanSha256}.`,
         { operation: 'process.replay.plan', changed: true });
     }
     const result = await replaySgosProcess(root, processId, { confirmationSha256 });
     return emit(result, options,
-      (value) => `Reopened ${value.plan.taskInstanceIds.length} pure suffix task(s) in ${value.process.processId}.`,
+      (value) => `Applied replay to ${value.plan.taskInstanceIds.length} suffix task(s) in ${value.process.processId}; reconciled ${value.effectReplayReceipts.length} consequential effect(s).`,
       { operation: 'process.replay', changed: true });
   }
   if (action === 'fork') {

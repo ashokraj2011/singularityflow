@@ -9,7 +9,7 @@
 **Last formal specification audit:** `main@3b5d79e6` on 2026-08-31; subsequent bounded increments
 are reconciled individually below and do not change that audit's authority/enforcement verdict
 
-**Current reconciliation:** checked through `main@09d0f53f` on 2026-09-07; the first content-free
+**Current reconciliation:** checked through `main@a76e891b` on 2026-09-07; the first content-free
 P1 measurement harness and read-only P3 graph/query/Story-replay projections are active, and the
 existing five-tool gateway now serves a conservative resource-level `intent.trace`. P4 now has a
 bounded observe-only typed walkthrough validator for exact resource-level diff facts. P6 now has
@@ -21,8 +21,8 @@ without granting authority. P1
 storage/retention authority, P2 authority, the P3 durable index and cause-backed gateway/SGOS joins,
 authoritative P4 drafting/validation/receipts, structural/evidence validators, P5, and the remaining
 P6 learning/production evidence remain open. P6 brownfield now has a model-free touched-area
-assessment and bounded historical-proposal validator; persistence and governed historical review
-remain open
+assessment, bounded historical-proposal validator, and a leased read-only Brownfield view;
+persistence and governed historical review remain open
 
 **Current delivery boundary:** observe-only foundation, a synthetic content-free P1 benchmark,
 deterministic ephemeral P3 graph/query and normalized Story-history replay projections, a
@@ -235,7 +235,7 @@ as permission to submit, approve, publish, or merge.
 | P3 — intent graph and replay | **Partial read projection** | Deterministic ephemeral graph over validated diagnostic bindings; bounded exact clause/file/change reads; opaque handles; content-free normalized Story chronology; existing five-tool gateway resource fallback; explicit unavailable cause/structure; no model, AST requirement, write, or gate | Durable typed index over P2 authority, cache rebuild, cause-backed gateway query, structural expansion, SGOS/cause joins, causal replay, and governed reverse-convergence/post-hoc provenance |
 | P4 — walkthroughs | **Partial read validation** | Deterministic zero-model resource draft; bounded untrusted typed draft; exact resource-level `file-changed` validator; explicit unavailable structure/evidence/human authority; advisory-only model claims; dual hashes; Candidate/dependency integrity; circular-input refusal; selective observe-only revalidation; narrative/fact separation; bounded sources; no model, AST, write, or gate | Optional untrusted model-draft transport, authoritative structural/evidence/human validators, exact source expansion beyond resource diff, authoritative dependency resolution, durable revalidation receipts, persistence, and governed review |
 | P5 — enforcement | **Blocked by prerequisites** | None; ordinary publication is deliberately unchanged | Universal lifecycle Candidate, existing-review-subject binding, existing approval/publication integration, projected receipt, recovery, and opt-in creation-pinned enforcement |
-| P6 — VS Code, learning, brownfield | **Partial read projection** | Dedicated leased/evicted `comprehension` snapshot slice; Help/Favorites/palette entry points; exact resource navigation; one bounded hash-bound tracked Git patch indexed to per-file sections and hunks with untracked-body exclusion and overflow degradation; cache-only exact-current symbol navigation that never builds or requires AST; exact-region roles joined only to already-recorded phase delivery/test references; explicit unavailable-cause view; deterministic walkthrough; content-free replay; explicit unknowns; guarded `/sf-learn` routing to inert signed-Pack lessons; model-free incremental touched-area assessment; bounded partial historical-proposal validation with distinct confirmed/inferred/unknown labels; no model, AST requirement, write, or lifecycle authority | Authoritative structural/evidence navigation and source expansion beyond the bounded patch; durable stale-claim and repair-plan views; reviewed CMP lesson modules/fixtures; governed persistence/review of labelled backfill; native brownfield UI; physical extension-host accessibility/localization/offline/office/large-repository evidence |
+| P6 — VS Code, learning, brownfield | **Partial read projection** | Dedicated leased/evicted `comprehension` snapshot slice; Help/Favorites/palette entry points; exact resource navigation; one bounded hash-bound tracked Git patch indexed to per-file sections and hunks with untracked-body exclusion and overflow degradation; cache-only exact-current symbol navigation that never builds or requires AST; exact-region roles joined only to already-recorded phase delivery/test references; explicit unavailable-cause view; deterministic walkthrough; content-free replay; explicit unknowns; guarded `/sf-learn` routing to inert signed-Pack lessons; model-free incremental touched-area assessment and native Brownfield tab; bounded partial historical-proposal validation with distinct confirmed/inferred/unknown labels; no model, AST requirement, write, or lifecycle authority | Authoritative structural/evidence navigation and source expansion beyond the bounded patch; durable stale-claim and repair-plan views; reviewed CMP lesson modules/fixtures; governed persistence/review of labelled backfill; physical extension-host accessibility/localization/offline/office/large-repository evidence |
 
 ### Explain-change and intent-trace boundary
 
@@ -295,7 +295,7 @@ earlier evidence satisfies the CMP v1 release criteria or any enforcement accept
 | `CMP-P4-001` | The bounded observe-only typed validator landed at `3fcaffea`; selective current-validator revalidation landed at `67a30f12`; deterministic zero-model resource drafting landed at `6f0227d9`. Add the optional model-draft transport, authoritative structural/evidence/human resolvers, exact source expansion, authority-backed dependency resolution, and durable revalidation receipts | Current deterministic-draft, self-awarded-assurance, malformed/oversized input/output, Candidate/dependency drift, counterfeit-prior-result, selective graph invalidation, dual-hash, circular-input, no-model, no-AST, no-write, and no-gate tests are green; counterfeit-model, prompt-injection, cancellation/timeout, authority-backed evidence/structure drift, and durable receipt evidence remain |
 | `CMP-P5-001` | Integrate CMP into the single existing Candidate/review/approval/publication transaction | `SGOS-P0-001`, every-workflow lifecycle matrix, remote rejection/push recovery, crash/retry, and fresh-export receipt verification |
 | `CMP-P6-001` | The initial leased, read-only VS Code Comprehension Center landed at `eb88b989`; the bounded exact tracked-diff projection and portable release-gate coverage landed through `34e9b7c1`; guarded `/sf-learn` routing landed at `daf6cba0`; keyboard semantics, built-host lease exercise, repository-switch fencing, and the bounded exact-region delivery/test evidence join landed through `b0e61c7c`; exact per-file/hunk indexing and cache-only current-symbol navigation landed through `82339499`. The slice has engine-owned region/coverage/graph/walkthrough/replay/evidence facts, shared snapshot revision fencing, bounded renewable lease, hide/close/expiry/cache eviction, Help/Favorites/palette discovery, explicit unknowns, current-slice-only file/symbol navigation, untracked-body privacy, and safe output/record-limit degradation. AST-off, missing, stale, or unsupported cache state is an unavailable non-blocking view and the Center never warms or repairs it. Add authoritative structural/evidence expansion, durable stale-claim/repair views, reviewed CMP lessons, and production hardening. | Current code-local snapshot parity, no-model, cache-only/no-build AST behavior, lease/cache, external workspace switch, path boundary, exact-patch digest/limit/privacy/index, exact-region evidence joins, learning boundary/no-authority, accessibility-markup, lazy-load, VS Code source, build, type, bundle-budget, and 55-test portable CMP/WEL matrix evidence are green. Physical minimum/current extension-host cancellation, keyboard/screen-reader, multi-root, offline/office-proxy, memory, and large-tree evidence remains before exit. |
-| `CMP-P6-002` | **Partial at `09d0f53f`.** The model-free touched-area command classifies new/touched/mechanical-move candidate regions without scanning unchanged legacy code or requiring full backfill. A bounded partial historical-proposal validator preserves `historically-confirmed`, `historically-inferred`, and `unknown` without granting authority. Add governed persistence/review and the native UI after P2 authority exists. | Code-local no-full-backfill, rename/move/touch, partial-module, stale/tamper/path, and no-fabricated-history tests are in the portable and release matrices; P2 authority integration and physical UI evidence remain |
+| `CMP-P6-002` | **Partial through `a76e891b`.** The model-free touched-area command classifies new/touched/mechanical-move candidate regions without scanning unchanged legacy code or requiring full backfill. The leased Comprehension Center exposes the same assessment in a read-only Brownfield tab. A bounded partial historical-proposal validator preserves `historically-confirmed`, `historically-inferred`, and `unknown` without granting authority. Add governed persistence/review after P2 authority exists. | Code-local no-full-backfill, rename/move/touch, partial-module, stale/tamper/path, no-fabricated-history, snapshot, TypeScript, bundle, and source-contract tests are green; P2 authority integration and physical UI evidence remain |
 
 ## Validated reuse map
 
@@ -752,13 +752,15 @@ region manifest to the active phase's already-recorded delivery/test references;
 the receipt bytes nor upgrades their assurance. Reviewed CMP-specific lesson bytes and the
 remaining physical host evidence below are still required.
 
-The first brownfield tranche landed at `main@09d0f53f`. It classifies only the exact current
+The first brownfield tranche landed at `main@09d0f53f`, with its native read-only UI at
+`main@a76e891b`. It classifies only the exact current
 change-region manifest, keeps unchanged legacy code outside the scan, and treats exact
 object-preserving renames as receipt candidates rather than automatically safe moves. Its bounded
 historical validator accepts repository or partial-module scopes and preserves confirmed,
 inferred, and unknown as untrusted proposal labels. The commands invoke no model or AST, write
-nothing, and cannot participate in a lifecycle gate. Governed persistence/review and native UI
-remain dependent on P2 authority.
+nothing, and cannot participate in a lifecycle gate. The leased Brownfield tab exposes only that
+same transient assessment and is evicted with the Comprehension Center slice. Governed
+persistence/review remains dependent on P2 authority.
 
 Deliverables:
 

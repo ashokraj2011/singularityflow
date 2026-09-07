@@ -74,5 +74,6 @@ standalone CMP approval or publisher.
 - An inferred or unknown entry cannot acquire confirmation merely by passing validation.
 - No command writes a record, invokes a model, builds AST, changes Git, or advances a Story.
 
-See [CMP roadmap](CMP-ROADMAP.md) for the remaining authority, persistence, UI, and physical-host
-release work.
+See [CMP roadmap](CMP-ROADMAP.md) for the remaining authority, persistence, and physical-host
+release work. The same transient assessment is available under **Comprehension Center →
+Brownfield** in VS Code; opening it neither scans unchanged legacy files nor writes a proposal.

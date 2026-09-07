@@ -9,13 +9,14 @@
 **Last formal specification audit:** `main@3b5d79e6` on 2026-08-31; subsequent bounded increments
 are reconciled individually below and do not change that audit's authority/enforcement verdict
 
-**Current reconciliation:** checked through `main@a76e891b` on 2026-09-07; the first content-free
+**Current reconciliation:** checked through `main@e8bcbcce` on 2026-09-07; the first content-free
 P1 measurement harness and read-only P3 graph/query/Story-replay projections are active, and the
 existing five-tool gateway now serves a conservative resource-level `intent.trace`. P4 now has a
 bounded observe-only typed walkthrough validator for exact resource-level diff facts. P6 now has
 an initial leased, read-only VS Code Comprehension Center over those same projections, a bounded,
-hash-bound exact Git patch view indexed to per-file sections and hunk coordinates, an exact-region
-join to already-recorded phase delivery/test references, and optional navigation through exact-current
+hash-bound exact Git patch view indexed to per-file sections and hunk coordinates, Candidate-bound
+on-demand exact before/after source pages, an exact-region join to already-recorded phase
+delivery/test references, and optional navigation through exact-current
 symbols already present in the local AST cache. A guarded `/sf-learn` entry now reuses the existing inert SGOS learning workspace
 without granting authority. P1
 storage/retention authority, P2 authority, the P3 durable index and cause-backed gateway/SGOS joins,
@@ -75,6 +76,10 @@ inspection boundary while preserving every existing lifecycle behavior.
 
 - `singularity-flow comprehension regions [--base REVISION] [--json]` computes a deterministic,
   read-only region manifest from the existing exact repository change-set implementation.
+- `singularity-flow comprehension source <SFREF> [--offset BYTES] [--max-bytes BYTES]` expands only
+  opaque references issued by that exact current manifest. Before bytes come from an immutable Git
+  blob; after bytes are no-follow reads that must still match the manifest digest. Pages are binary
+  safe and bounded to 64 KiB, complete sources to 1 MiB, and stale Candidate references are refused.
 - `singularity-flow comprehension check [--base REVISION] [--bindings FILE]
   [--dispositions FILE] [--json]` evaluates supplied cause bindings and dispositions without
   persisting or authorizing them.
@@ -108,10 +113,13 @@ inspection boundary while preserving every existing lifecycle behavior.
   the current engine-owned slice. A separate Diff tab shows at most 192 KiB of exact tracked Git
   patch content, excludes untracked file bodies, and degrades on overflow. The single bounded patch
   is indexed into exact per-file sections and hunk coordinates without duplicating source bytes.
+  A separate Source tab fetches only the explicitly selected Candidate-bound before/after page,
+  cancels in-flight reads on repository/revision/visibility changes, and discards the bytes when the
+  panel is hidden or refreshed.
   Existing AST cache entries may add current-content symbol links at their stated assurance; opening
   the Center never builds, warms, repairs, or requires AST, and a missing, stale, disabled, or
-  unsupported cache remains an ordinary unavailable view. It performs no lifecycle mutation or
-  independent CLI read.
+  unsupported cache remains an ordinary unavailable view. Apart from the explicit bounded
+  `comprehension source` selection, it performs no independent CLI read and no lifecycle mutation.
 - The already-registered gateway operation `intent.trace` now resolves through the existing five
   gateway tools in the CLI and VS Code hosts. It can report exact current resource-level change
   regions for one normalized repository path, but reports governed cause as unavailable until P2
@@ -196,7 +204,7 @@ and dependency hashes, rejects self-awarded assurance and Candidate drift, and k
 structure, evidence authority, and human decisions explicitly unavailable. It accepts no model
 output as authority, invokes neither a model nor AST, writes nothing, and cannot participate in a
 lifecycle gate. Model drafting, authoritative resolvers, precise dependency invalidation,
-revalidation receipts, structural/source expansion, and durable review remain open.
+revalidation receipts, authoritative structural/evidence expansion, and durable review remain open.
 
 Selective observe-only revalidation landed at `main@67a30f12`. A prior result must pass exact
 self-integrity checks and is never carried forward as authority. Current validators always run
@@ -212,6 +220,14 @@ current Candidate compatibility subject, region manifest, and cause graph. It wr
 deliberately creates no semantic or causal assertion. This supplies the safe fallback required
 when model drafting is disabled or unavailable; the optional untrusted model-draft transport and
 authoritative validators remain open.
+
+Bounded exact-source expansion landed at `main@e8bcbcce`. Every validated resource source now
+includes opaque Candidate- and region-bound before/after references. The CLI and native Source tab
+resolve those references only against the exact current manifest; before content comes from its
+immutable Git blob, after content is no-follow and digest revalidated, and every response is paged,
+binary safe, size bounded, read-only, model-free, AST-independent, non-authoritative, and unable to
+participate in a lifecycle gate. This closes the code-local exact resource-source gap; authoritative
+structural/evidence validators, durable receipts, and governed review remain open.
 
 ## Verified implementation status
 
@@ -233,9 +249,9 @@ as permission to submit, approve, publish, or merge.
 | P1 — pilot and storage decision | **Partial** | Release-gated content-free synthetic benchmark for latency, CPU, counts, availability, and storage-size preview; no durable state | Reviewed real corpus, supported-platform measurements, storage/retention/privacy decision, record-mode preview, migration prototype, and independent rollout decision |
 | P2 — governed cause recording | **Contract fragments only** | Cause, binding, disposition, and transformation-receipt validators over untrusted diagnostic input | Trusted authority lookup, durable versioned records, migrations, proposal/confirmation/supersession, recovery, and incorporation into the existing review transaction |
 | P3 — intent graph and replay | **Partial read projection** | Deterministic ephemeral graph over validated diagnostic bindings; bounded exact clause/file/change reads; opaque handles; content-free normalized Story chronology; existing five-tool gateway resource fallback; explicit unavailable cause/structure; no model, AST requirement, write, or gate | Durable typed index over P2 authority, cache rebuild, cause-backed gateway query, structural expansion, SGOS/cause joins, causal replay, and governed reverse-convergence/post-hoc provenance |
-| P4 — walkthroughs | **Partial read validation** | Deterministic zero-model resource draft; bounded untrusted typed draft; exact resource-level `file-changed` validator; explicit unavailable structure/evidence/human authority; advisory-only model claims; dual hashes; Candidate/dependency integrity; circular-input refusal; selective observe-only revalidation; narrative/fact separation; bounded sources; no model, AST, write, or gate | Optional untrusted model-draft transport, authoritative structural/evidence/human validators, exact source expansion beyond resource diff, authoritative dependency resolution, durable revalidation receipts, persistence, and governed review |
+| P4 — walkthroughs | **Partial read validation** | Deterministic zero-model resource draft; bounded untrusted typed draft; exact resource-level `file-changed` validator; Candidate-bound opaque before/after source references and bounded binary-safe exact expansion; explicit unavailable structure/evidence/human authority; advisory-only model claims; dual hashes; Candidate/dependency integrity; circular-input refusal; selective observe-only revalidation; narrative/fact separation; bounded sources; no model, AST, write, or gate | Optional untrusted model-draft transport, authoritative structural/evidence/human validators, authoritative dependency resolution, durable revalidation receipts, persistence, and governed review |
 | P5 — enforcement | **Blocked by prerequisites** | None; ordinary publication is deliberately unchanged | Universal lifecycle Candidate, existing-review-subject binding, existing approval/publication integration, projected receipt, recovery, and opt-in creation-pinned enforcement |
-| P6 — VS Code, learning, brownfield | **Partial read projection** | Dedicated leased/evicted `comprehension` snapshot slice; Help/Favorites/palette entry points; exact resource navigation; one bounded hash-bound tracked Git patch indexed to per-file sections and hunks with untracked-body exclusion and overflow degradation; cache-only exact-current symbol navigation that never builds or requires AST; exact-region roles joined only to already-recorded phase delivery/test references; explicit unavailable-cause view; deterministic walkthrough; content-free replay; explicit unknowns; guarded `/sf-learn` routing to inert signed-Pack lessons; model-free incremental touched-area assessment and native Brownfield tab; bounded partial historical-proposal validation with distinct confirmed/inferred/unknown labels; no model, AST requirement, write, or lifecycle authority | Authoritative structural/evidence navigation and source expansion beyond the bounded patch; durable stale-claim and repair-plan views; reviewed CMP lesson modules/fixtures; governed persistence/review of labelled backfill; physical extension-host accessibility/localization/offline/office/large-repository evidence |
+| P6 — VS Code, learning, brownfield | **Partial read projection** | Dedicated leased/evicted `comprehension` snapshot slice; Help/Favorites/palette entry points; exact resource navigation; one bounded hash-bound tracked Git patch indexed to per-file sections and hunks with untracked-body exclusion and overflow degradation; on-demand Candidate-bound exact Source tab with cancellation and visibility/revision eviction; cache-only exact-current symbol navigation that never builds or requires AST; exact-region roles joined only to already-recorded phase delivery/test references; explicit unavailable-cause view; deterministic walkthrough; content-free replay; explicit unknowns; guarded `/sf-learn` routing to inert signed-Pack lessons; model-free incremental touched-area assessment and native Brownfield tab; bounded partial historical-proposal validation with distinct confirmed/inferred/unknown labels; no model, AST requirement, write, or lifecycle authority | Authoritative structural/evidence navigation; durable stale-claim and repair-plan views; reviewed CMP lesson modules/fixtures; governed persistence/review of labelled backfill; physical extension-host accessibility/localization/offline/office/large-repository evidence |
 
 ### Explain-change and intent-trace boundary
 

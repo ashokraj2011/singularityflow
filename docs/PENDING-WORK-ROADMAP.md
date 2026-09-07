@@ -73,6 +73,13 @@ model-free read and cannot rewrite the final report; lower tokens with regressed
 `cheaper-but-worse`. The comparison mechanism is code-complete, but a real qualifying study,
 sufficient cohorts, independent review, and accepted release evidence remain open.
 
+The first general-store interface boundary landed at `main@28819374`. The filesystem Authority
+Store now implements a versioned capability/method SPI, while the runtime separately restricts
+selection to build-installed profiles. A structurally conforming object therefore cannot become an
+authority merely because repository data names it. `SGOS-P1-003` remains partial until an alternate
+Operational Store and the unchanged migration, partial-failure, backup, restore, and rollback
+conformance matrix land.
+
 The 2026-09-06 performance continuation moved branch refresh, ledger status/state publication,
 workflow configuration proposals, approval identity enrollment, approved-configuration fallback
 reads, registered World-Model authority refresh/recovery, CLI workspace authority routing,

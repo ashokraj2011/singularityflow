@@ -476,8 +476,9 @@ tracked in [SGOS-PENDING-WORK.md](SGOS-PENDING-WORK.md):
 - Secret Broker integration with real external adapters, the corresponding cancellation/leakage/
   restart proof, and garbage-collection plans; bounded automatic working-set injection into the
   proposal-only Copilot Agent path is implemented;
-- a general Authority Store SPI and an alternate Operational Store; the filesystem Authority Store
-  remains explicitly experimental;
+- an alternate Operational Store and its unchanged migration/backup/rollback conformance matrix;
+  the versioned Authority Store SPI is present, but the filesystem profile remains the only
+  installed and explicitly experimental Authority Store implementation;
 - executable tutorial environments, independent learning certification, a
   public meta-tool activation/rollback CLI, and multi-domain proof packs;
 - external telemetry transport beyond the content-free read-only OpenTelemetry projection and

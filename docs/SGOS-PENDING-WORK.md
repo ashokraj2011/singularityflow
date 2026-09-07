@@ -24,6 +24,13 @@ require distinct retained proof for both end-to-end journeys, interruption, coun
 cross-machine, and reviewed performance exercises. No physical or independent receipt is inferred
 from those validators.
 
+The first `SGOS-P1-003` store-interface increment landed at `main@28819374` on 2026-09-07. The
+filesystem Authority Store now publishes a versioned, immutable capability contract; structural
+SPI conformance is tested separately from the installed-profile allowlist, so a repository or
+caller cannot authorize an alternate Store by supplying a compatible-looking object. This is the
+safe interface boundary, not completion of the milestone: an alternate Operational Store and the
+unchanged multi-implementation migration/backup/rollback conformance matrix remain open.
+
 ## Status rules
 
 - `[ ]` means the capability remains unavailable or behind an explicit refusal boundary.
@@ -198,9 +205,24 @@ Acceptance gates:
 - effect replay is idempotency- and reconciliation-bound rather than inferred from task state;
 - concurrency, crash-boundary, stale-plan, and duplicate-confirmation tests pass.
 
-### [ ] SGOS-P1-003 — General store interfaces
+### [~] SGOS-P1-003 — General store interfaces
 
 Define a stable Authority Store SPI and add at least one alternate Operational Store.
+
+Implemented code-locally in `main@28819374`:
+
+- Authority Store adapters declare one exact SPI version, canonical profile, Store identity,
+  complete method surface, and explicit CAS/lineage/locking/liveness/bounds/schema/backup/rollback
+  capabilities;
+- the filesystem adapter conforms to that contract;
+- conformance never grants installation authority: runtime consumers accept only the immutable
+  profile allowlist shipped by the current build;
+- counterfeit newer versions, missing methods, weakened capabilities, malformed profiles, and
+  uninstalled conforming profiles fail closed.
+
+Still required: implement an alternate non-authoritative Operational Store, run one unchanged
+conformance suite against both operational implementations, and prove migration, partial failure,
+backup, restore, and rollback without changing Program or policy authority.
 
 Acceptance gates:
 

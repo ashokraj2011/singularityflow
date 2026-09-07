@@ -53,17 +53,50 @@ async function repository(parent, name, { exact }) {
   return root;
 }
 
+async function junitRepository(parent, name) {
+  const root = path.join(parent, name);
+  const source = path.join(root, 'src', 'test', 'java', 'example', 'PaymentTest.java');
+  const reports = path.join(root, 'target', 'surefire-reports');
+  await mkdir(path.dirname(source), { recursive: true });
+  await mkdir(reports, { recursive: true });
+  await writeFile(path.join(root, 'pom.xml'), '<project><modelVersion>4.0.0</modelVersion></project>\n');
+  await writeFile(source, [
+    'package example;',
+    'import org.junit.jupiter.api.Test;',
+    'import org.junit.jupiter.api.Tag;',
+    'class PaymentTest {',
+    '  @Test @Tag("sflow-ac:PRIVATE:AC-002") void pays() {}',
+    '}',
+    ''
+  ].join('\n'));
+  await writeFile(path.join(reports, 'TEST-example.PaymentTest.xml'), [
+    '<testsuite name="PaymentTest" tests="1" failures="0" errors="0" skipped="0">',
+    '  <testcase classname="example.PaymentTest" name="pays" time="0.01"/>',
+    '</testsuite>',
+    ''
+  ].join('\n'));
+  git(root, ['init', '-q', '-b', 'main']);
+  git(root, ['config', 'user.name', 'Private Corpus Person']);
+  git(root, ['config', 'user.email', 'private-corpus@example.invalid']);
+  git(root, ['remote', 'add', 'origin', `https://example.test/team/${name}.git`]);
+  git(root, ['add', 'pom.xml', 'src/test/java/example/PaymentTest.java']);
+  git(root, ['commit', '-qm', 'fixture']);
+  return root;
+}
+
 async function writeManifest(file, cases) {
   await writeFile(file, `${JSON.stringify({
     schema: 'sflow-wel-real-corpus-input/v1', cases
   }, null, 2)}\n`);
 }
 
-function corpusCase(caseId, repositoryRoot, expected, report = '.sflow/results/node-tests.json') {
+function corpusCase(caseId, repositoryRoot, expected, {
+  framework = 'jest', report = '.sflow/results/node-tests.json'
+} = {}) {
   return {
     caseId,
     repository: repositoryRoot,
-    framework: 'jest',
+    framework,
     workingDirectory: '.',
     report,
     expected
@@ -75,6 +108,7 @@ test('real WEL corpus measurement aggregates reviewed outcomes without leaking o
   t.after(() => rm(parent, { recursive: true, force: true }));
   const exact = await repository(parent, 'customer-payments-secret', { exact: true });
   const inexact = await repository(parent, 'customer-ledger-secret', { exact: false });
+  const junit = await junitRepository(parent, 'customer-java-secret');
   await writeFile(path.join(exact, '.sflow', 'results', 'malformed.json'), '{invalid-json\n');
   const manifest = path.join(parent, 'private-reviewed-manifest.json');
   await writeManifest(manifest, [
@@ -84,7 +118,10 @@ test('real WEL corpus measurement aggregates reviewed outcomes without leaking o
     }),
     corpusCase('refused-malformed-report', exact, {
       outcome: 'report-refused', reason: 'CODE_TEST_RESULT_REQUIRED'
-    }, '.sflow/results/malformed.json')
+    }, { report: '.sflow/results/malformed.json' }),
+    corpusCase('exact-junit-payment', junit, { outcome: 'exact', reason: null }, {
+      framework: 'junit-surefire', report: 'target/surefire-reports'
+    })
   ]);
   const beforeExact = git(exact, ['status', '--porcelain=v1', '-z']);
   const beforeInexact = git(inexact, ['status', '--porcelain=v1', '-z']);
@@ -93,22 +130,25 @@ test('real WEL corpus measurement aggregates reviewed outcomes without leaking o
   ], { cwd: process.cwd(), encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 });
   assert.equal(resultValue.status, 0, resultValue.stderr || resultValue.stdout);
   const report = JSON.parse(resultValue.stdout);
-  assert.equal(report.schema, 'sflow-wel-real-corpus/v1');
+  assert.equal(report.schema, 'sflow-wel-real-corpus/v2');
   assert.equal(report.outcome, 'observed');
-  assert.equal(report.repositoryCount, 2);
-  assert.equal(report.caseCount, 3);
-  assert.equal(report.completedMeasurements, 6);
-  assert.equal(report.counts.expectedExact, 1);
+  assert.equal(report.repositoryCount, 3);
+  assert.equal(report.caseCount, 4);
+  assert.equal(report.completedMeasurements, 8);
+  assert.equal(report.counts.expectedExact, 2);
   assert.equal(report.counts.expectedInexact, 1);
   assert.equal(report.counts.expectedReportRefused, 1);
-  assert.equal(report.counts.observedExact, 1);
+  assert.equal(report.counts.observedExact, 2);
   assert.equal(report.counts.observedInexact, 1);
   assert.equal(report.counts.observedReportRefused, 1);
   assert.equal(report.counts.falseExact, 0);
   assert.equal(report.counts.falseInconclusive, 0);
   assert.equal(report.counts.mismatched, 0);
+  assert.equal(report.availability.javascriptStaticObservation, 'used');
+  assert.equal(report.availability.junitSurefireStaticObservation, 'used');
   assert.equal(report.availability.model, 'not-invoked');
-  assert.equal(report.availability.structuralExtraction, 'not-invoked');
+  assert.equal(report.availability.astIntelligence, 'not-invoked');
+  assert.equal(report.availability.structuralExtraction, 'local-jdk-parser');
   assert.equal(report.availability.network, 'not-invoked');
   assert.equal(report.availability.testExecution, 'not-invoked');
   assert.equal(report.repositoryState, 'unchanged-observed');
@@ -120,8 +160,9 @@ test('real WEL corpus measurement aggregates reviewed outcomes without leaking o
 
   const serialized = JSON.stringify(report);
   for (const forbidden of [
-    parent, 'customer-payments-secret', 'customer-ledger-secret', 'private.test.js',
-    'node-tests.json', 'private-reviewed-manifest', 'PRIVATE:AC-001',
+    parent, 'customer-payments-secret', 'customer-ledger-secret', 'customer-java-secret',
+    'private.test.js', 'PaymentTest.java', 'TEST-example.PaymentTest.xml',
+    'node-tests.json', 'private-reviewed-manifest', 'PRIVATE:AC-001', 'PRIVATE:AC-002',
     'Private Corpus Person', 'private-corpus@example.invalid', 'sha256:'
   ]) assert.equal(serialized.includes(forbidden), false, forbidden);
 });

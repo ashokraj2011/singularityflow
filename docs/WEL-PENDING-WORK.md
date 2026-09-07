@@ -23,7 +23,11 @@ the strict aggregate. Commits `ecefa2aa` through `dbff2b86` add the JDK prefligh
 portable-matrix evidence, real minimum/current VS Code host evidence, enterprise-Git ledger
 compatibility, and runner-bound DX baselines. Commit `e2e90e59` normalizes Node 20's synthetic
 name-pattern exclusions without permitting a real skip, todo, or cancellation. None changes the
-observe-only authority ceiling.
+observe-only authority ceiling. Commit `c664d4d8` removes two local release-validation bottlenecks:
+the packaged JUnit helper is compiled once in process-private temporary storage and reused without
+ever compiling Candidate source, while Auto integration fixtures clone one immutable initialized
+seed into independent object databases instead of regenerating the complete configuration for each
+scenario. Neither optimization changes evidence authority or a lifecycle gate.
 
 The code-local WEL boundary and signed-evidence contract were revalidated on both supported Node
 runtimes on macOS arm64. A clean strict Node 22 aggregate at `main@60e37936` completed all 457
@@ -248,6 +252,11 @@ Implemented in the current increment:
   yields `JUNIT_SOURCE_PARSER_CANCELLED`, no catalog, and no mapping proposal; a caller-owned abort
   reason is never retained. The benchmark records only safe-cancellation latency and closed outcome
   facts;
+- repeated observations in one process compile the packaged Java helper once into private temporary
+  storage, reuse only those helper class files, and remove them on ordinary process exit. Candidate
+  source remains staged separately and parsed as data; it is never compiled, loaded, or retained in
+  the helper cache. A toolchain without a separately resolvable `javac` retains the prior bounded
+  source-file fallback;
 - the release gate installs the exact npm tarball into an isolated prefix and extracts the exact
   VSIX engine under a loader that refuses source-tree module access; both artifacts must contain the
   Java parser helper, import the WEL adapter, and return the admitted Maven/Surefire command shape;
@@ -400,6 +409,18 @@ offline failures, exact clean fresh-clone equality, exact interrupted-write rest
 adapter cancellation with zero mapping proposals. This refresh proves that the current WEL
 observe-only boundary still composes with the newer CMP projections. It remains unsigned,
 unsupported-runtime, same-developer local evidence and fills none of the external gates below.
+
+Local performance/reliability checkpoint at `main@c664d4d8`:
+
+- the full Auto integration file completed 59/59 tests in 636.6 seconds, inside the unchanged
+  30-minute process-heavy shard deadline that the repeated-initialization fixture had exceeded;
+- the reviewed JUnit corpus completed in 2.1 seconds after a loaded-host run had taken 59.5 seconds
+  and degraded its final safe-mismatch case to parser-unavailable;
+- `npm run test:platform:cmp-wel` completed 55/55 tests in 6.4 seconds with zero failures, skips,
+  cancellations, or todo; 60 focused delivery, runner, receipt, benchmark, and WEL tests also passed;
+- repository conformance passed all 1,360 checks. These are unsigned local performance and
+  regression observations only; they fill no independent-review, authenticated-runner, physical
+  platform, office-network, or signed-package evidence cell.
 
 Depends on: `WEL-P0-001` and `WEL-P0-002`.
 

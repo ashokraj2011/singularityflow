@@ -13,6 +13,7 @@ import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 
 import { buildChangeRegionManifest, evaluateComprehensionCoverage } from '../src/comprehension/contracts.mjs';
+import { buildComprehensionRecordPreview } from '../src/comprehension/record-preview.mjs';
 import { buildRepositoryChangeSet } from '../src/repository-change-set.mjs';
 
 const sampleArgument = process.argv.find((argument) => argument.startsWith('--samples='));
@@ -120,11 +121,9 @@ try {
 
   const manifestBytes = Buffer.byteLength(JSON.stringify(manifest), 'utf8');
   const coverageBytes = Buffer.byteLength(JSON.stringify(coverage), 'utf8');
-  const previewRecordBytes = Buffer.byteLength(JSON.stringify({
-    manifestSha256: manifest.manifestSha256,
-    resultSha256: coverage.resultSha256,
-    counts: coverage.counts
-  }), 'utf8');
+  const previewRecordBytes = Buffer.byteLength(JSON.stringify(
+    buildComprehensionRecordPreview({ manifest, coverage })
+  ), 'utf8');
   const report = {
     schema: 'sflow-cmp-benchmark/v1',
     assurance: 'content-free-local-measurement',

@@ -35,6 +35,8 @@ test('POC release gate covers the installed CLI and guided SGOS behavior on its 
     'the release gate must enforce the accepted SGOS read-model budgets');
   assert.match(gate, /test\/comprehension-command\.test\.mjs/,
     'the release gate must exercise the model-free CMP command');
+  assert.match(gate, /test\/cmp-corpus-measurement\.test\.mjs/,
+    'the release gate must exercise the privacy-safe real-corpus measurement boundary');
   assert.match(gate, /test\/comprehension-cached-symbols\.test\.mjs/,
     'the release gate must prove optional symbol navigation is cache-only');
   assert.match(gate, /test\/comprehension-diff-preview\.test\.mjs/,
@@ -122,8 +124,8 @@ test('the exact VSIX smoke extracts a bounded engine and enforces a source-modul
   assert.match(smoke, /NODE_PATH: path\.join\(sandbox, 'no-node-path'\)/);
   assert.match(smoke, /help', '--json'/,
     'the contained engine must execute a structured surface, not merely parse its manifest');
-  assert.match(smoke, /comprehension', 'regions'/,
-    'the contained engine must execute the CMP observe-only command');
+  assert.match(smoke, /comprehension', 'record-preview', '--experimental'/,
+    'the contained engine must execute the experimental CMP record preview');
   assert.match(smoke, /src\/wel\/WelJunitCatalog\.java/,
     'the contained engine must carry the WEL parser helper');
   assert.match(smoke, /classifyJunit5SurefireCommandScope/,
@@ -141,8 +143,10 @@ test('packaged CLI smoke installs the tarball into an isolated prefix before exe
   assert.match(smoke, /node_modules', 'singularity-flow'/);
   assert.match(smoke, /installedCommand, \['--version'\]/,
     'the smoke must execute npm\'s installed command shim rather than bypassing it');
-  assert.match(smoke, /comprehension', 'regions'/,
-    'the installed command shim must execute the CMP observe-only command');
+  assert.match(smoke, /comprehension', 'record-preview', '--experimental'/,
+    'the installed command shim must execute the experimental CMP record preview');
+  assert.match(smoke, /scripts\/cmp-corpus-measurement\.mjs/,
+    'the installed package must carry the privacy-safe real-corpus runner');
   assert.match(smoke, /src\/wel\/WelJunitCatalog\.java/,
     'the installed package must carry the WEL parser helper');
   assert.match(smoke, /classifyJunit5SurefireCommandScope/,

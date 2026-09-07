@@ -6,7 +6,7 @@
 
 **Created:** 2026-08-30
 
-**Current reconciliation:** checked through `main@03825387` on 2026-09-07. Commits `259b76f1`,
+**Current reconciliation:** checked through `main@da6338ab` on 2026-09-07. Commits `259b76f1`,
 `58d9329d`, and `d55229c7` provide the bounded exact-static JUnit identity adapter, immutable
 proposal snapshot, human review through the existing phase approval, migration, safe command-shape
 fallbacks, the evolving content-free benchmark, and same-process unenrolled delta measurement. Commit
@@ -35,6 +35,13 @@ removes an exact-authority publication deadlock by hashing bounded state bytes t
 temporary file instead of a child-process stdin pipe, and makes an interrupted aggregate terminate
 its detached descendant process group before returning an exact retry command. These liveness
 repairs change neither evidence identity nor authority.
+
+The shared package boundary was re-exercised at `main@da6338ab`: both the isolated npm package and
+the exact VSIX-contained engine still import the WEL adapter and packaged Java helper while running
+the new read-only CMP preview, and the portable CMP/WEL matrix passes 62/62. This is compatibility
+evidence only. It closes no WEL item because the remaining gates require independent ratification,
+authenticated execution, reviewed real repositories, physical office/platform runs, or signed
+release receipts.
 
 The code-local WEL boundary and signed-evidence contract were revalidated on both supported Node
 runtimes on macOS arm64. A clean strict Node 22 aggregate at `main@60e37936` completed all 457

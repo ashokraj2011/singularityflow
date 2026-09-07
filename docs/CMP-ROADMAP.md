@@ -9,8 +9,9 @@
 **Last formal specification audit:** `main@3b5d79e6` on 2026-08-31; subsequent bounded increments
 are reconciled individually below and do not change that audit's authority/enforcement verdict
 
-**Current reconciliation:** checked through `main@e8bcbcce` on 2026-09-07; the first content-free
-P1 measurement harness and read-only P3 graph/query/Story-replay projections are active, and the
+**Current reconciliation:** checked through `main@da6338ab` on 2026-09-07; the first content-free
+P1 measurement harness, experimental source-free record preview/migration prototype, and read-only
+P3 graph/query/Story-replay projections are active, and the
 existing five-tool gateway now serves a conservative resource-level `intent.trace`. P4 now has a
 bounded observe-only typed walkthrough validator for exact resource-level diff facts. P6 now has
 an initial leased, read-only VS Code Comprehension Center over those same projections, a bounded,
@@ -164,9 +165,10 @@ The code-local P0 boundary now has bounded/escaped-input refusal, explicit zero-
 zero-write/zero-lifecycle tripwires, corrected Story/phase recovery guidance, and the accepted
 [authority-boundary ADR](adr/0014-cmp-observe-authority-boundary.md). The release gate now installs
 the exact npm tarball and extracts the exact VSIX engine, imports the CMP contracts from each
-isolated artifact, and runs `comprehension regions` against a separate Git fixture while proving its
-status is unchanged. Until the same deterministic corpus passes the supported platform matrix,
-treat this as an in-progress implementation tranche, not a shipped product claim.
+isolated artifact, and runs the experimental `comprehension record-preview` against a separate Git
+fixture while proving its status is unchanged. Until the same deterministic corpus passes the
+supported platform matrix, treat this as an in-progress implementation tranche, not a shipped
+product claim.
 
 The first P1 measurement checkpoint landed at `main@898cb4a0`. `npm run benchmark:cmp` creates a
 private mixed-change fixture, exercises the exact repository-change-set and CMP coverage paths, and
@@ -174,6 +176,16 @@ reports aggregate latency, CPU, region/unresolved-code counts, availability, and
 report excludes paths, content and content digests, causes, identities, work IDs, prompts, and
 transcripts. It remains synthetic, local, non-authoritative evidence; the release gate runs it, but
 it does not satisfy the reviewed-real-corpus or supported-platform exit criteria.
+
+The P1 record-mode experiment landed at `main@da6338ab`. `comprehension record-preview
+--experimental` emits only exact subject digests, aggregate counts, and closed reason classes. It
+contains no source, path, Story, identity, prompt, or prose, invokes neither AST nor a model, writes
+nothing, and is permanently labelled `authoritative: false`, `lifecycleGate: false`, and
+`unverified-observation`. Its central migration-registry prototype reads sealed v1/v2 transport
+bytes in memory, rejects tampering and unknown future versions, preserves the input file byte for
+byte, and has no durable path or writer. This closes the code-local preview/migration deliverable;
+storage, retention, privacy, real-corpus/platform evidence, and independent rollout authority remain
+open.
 
 The first P3 graph projection landed at `main@bd79630b`. It is model-free, AST-optional, bounded to
 5,000 nodes/edges and 500 query results, rejects tampered manifests, assessments, graphs, and
@@ -246,7 +258,7 @@ as permission to submit, approve, publish, or merge.
 | Corrected phase | Verified status | Present now | Missing before the phase can exit |
 |---|---|---|---|
 | P0 — contracts and reads | **Partial** | Conservative resource regions; closed cause/relationship/disposition/assurance/availability/refusal/diagnostic registries; bounded diagnostic validation; `regions` and `check`; authority ADR; no-model/no-AST/no-write/no-lifecycle tripwires; isolated npm/VSIX engine proof | Supported-platform deterministic corpus execution |
-| P1 — pilot and storage decision | **Partial** | Release-gated content-free synthetic benchmark for latency, CPU, counts, availability, and storage-size preview; no durable state | Reviewed real corpus, supported-platform measurements, storage/retention/privacy decision, record-mode preview, migration prototype, and independent rollout decision |
+| P1 — pilot and storage decision | **Partial** | Release-gated content-free synthetic benchmark plus an explicit experimental source-free record preview and assurance-preserving in-memory v1/v2 migration prototype; no durable path, writer, or state | Reviewed real corpus, supported-platform measurements, storage/retention/privacy decision, creation-pinned rollout policy, and independent rollout decision |
 | P2 — governed cause recording | **Contract fragments only** | Cause, binding, disposition, and transformation-receipt validators over untrusted diagnostic input | Trusted authority lookup, durable versioned records, migrations, proposal/confirmation/supersession, recovery, and incorporation into the existing review transaction |
 | P3 — intent graph and replay | **Partial read projection** | Deterministic ephemeral graph over validated diagnostic bindings; bounded exact clause/file/change reads; opaque handles; content-free normalized Story chronology; existing five-tool gateway resource fallback; explicit unavailable cause/structure; no model, AST requirement, write, or gate | Durable typed index over P2 authority, cache rebuild, cause-backed gateway query, structural expansion, SGOS/cause joins, causal replay, and governed reverse-convergence/post-hoc provenance |
 | P4 — walkthroughs | **Partial read validation** | Deterministic zero-model resource draft; bounded untrusted typed draft; exact resource-level `file-changed` validator; Candidate-bound opaque before/after source references and bounded binary-safe exact expansion; explicit unavailable structure/evidence/human authority; advisory-only model claims; dual hashes; Candidate/dependency integrity; circular-input refusal; selective observe-only revalidation; narrative/fact separation; bounded sources; no model, AST, write, or gate | Optional untrusted model-draft transport, authoritative structural/evidence/human validators, authoritative dependency resolution, durable revalidation receipts, persistence, and governed review |
@@ -289,7 +301,8 @@ Evidence on `main@3b5d79e6`:
   pre-existing vocabulary advisories;
 - npm dry-run packaging included the CMP command, contracts, roadmap, help topic, and inspect skill.
 - the current release-gate smokes import the CMP contract from the installed npm package and the
-  extracted VSIX engine, execute a model-free resource projection, and verify no Git status change.
+  extracted VSIX engine, execute the model-free experimental record preview, and verify no Git
+  status change.
 - the reviewed corpus freezes a canonical manifest over added, deleted, modified, renamed,
   mode-changed, symlink, binary, type-changed, and unsupported-extension resources; both the release
   gate and `npm run test:platform:cmp-wel` execute it.
@@ -299,12 +312,17 @@ Comprehension Center slice landed later at `main@eb88b989`, and its bounded exac
 portable release contract landed through `main@34e9b7c1`; neither that read-only surface nor the
 earlier evidence satisfies the CMP v1 release criteria or any enforcement acceptance criterion.
 
+Evidence at `main@da6338ab`: 29 focused command/migration/registry tests and 62 portable CMP/WEL
+tests passed; the product check passed 1,367 checks; isolated npm and exact VSIX-contained engine
+smokes both imported schema v2 and executed the experimental preview without changing Git status.
+These are local code/package proofs, not the independent or supported-platform P1 decision.
+
 ### Tracked implementation gaps
 
 | Backlog ID | Required work | Dependency/exit evidence |
 |---|---|---|
 | `CMP-P0-001` | Finish the read-only foundation. The code-local contract, registries, authority ADR, bounded inputs, mutation tripwires, corrected `--phase` recovery text, isolated npm/VSIX loading proof, and deterministic corpus/matrix command are implemented. The unchanged matrix also passes 32/32 on Linux x64 under Node 20.20.2 and 22.23.2 at `main@780da007`. | Signed physical-host execution of the unchanged matrix command on Windows and Linux remains before P0 exit; emulated unsigned containers are portability evidence only |
-| `CMP-P1-001` | The content-free local benchmark is implemented and release-gated at `898cb4a0`; decide storage, retention, privacy, measured budgets, and creation-pinned `off`/`record` rollout | Approved ADRs, real-corpus and supported-platform evidence, migration prototype, and independent pilot review |
+| `CMP-P1-001` | The content-free local benchmark is implemented and release-gated at `898cb4a0`; the explicit source-free record preview and central in-memory v1/v2 migration prototype landed at `da6338ab` with no durable path/writer or authority; decide storage, retention, privacy, measured budgets, and creation-pinned `off`/`record` rollout | Approved ADRs, real-corpus and supported-platform evidence, and independent pilot review |
 | `CMP-P2-001` | Add governed cause proposals, confirmations, terminal dispositions, and narrow transformation authority | Durable schemas/migrations plus authority, staleness, recovery, ref-race, and adversarial-laundering tests |
 | `CMP-P3-001` | The ephemeral graph and exact `comprehension explain` reads landed at `bd79630b`; the model-free resource-level `intent.trace` gateway fallback landed at `10b8bcd6`; add the P2-authority-backed incremental index, cache rebuild, structural expansion, and cause-backed gateway query | Current bidirectional clause/file/change parity, bounded exact handles, unavailable-cause/structure, tamper, no-model, no-write, no-lifecycle, existing-five-tool, CLI-host, and VS Code-host tests are green; P2 cause authority and cache rebuild remain |
 | `CMP-P3-002` | The content-free normalized Story replay landed at `db61bb90`; add P2 cause records, SGOS lineage joins, refusal/repair subjects, and governed reverse-convergence/post-hoc provenance without colliding with SGOS Process replay | Current ordering, exact focus, source validation, privacy/transcript exclusion, ceiling, no-model, no-write, and command-collision tests are green; fresh-export, SGOS/cause join, recovery, and causal-provenance evidence remain |

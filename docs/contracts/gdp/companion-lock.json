@@ -37,7 +37,7 @@
     {
       "id": "witnessed-engineering-delivery-status",
       "path": "docs/WEL-PENDING-WORK.md",
-      "sha256": "sha256:798e507d75c0bedc5cbb40762b87331abbe0ccccd66c3b426ab9744211b748c4"
+      "sha256": "sha256:0dd960f48857b1125606dd15dd8ea67e631cf0d58a4c4e08003d1367c90d6869"
     },
     {
       "id": "code-assurance-bridge",
@@ -92,7 +92,7 @@
     {
       "id": "migration-registry",
       "path": "src/schema-migrations.mjs",
-      "sha256": "sha256:74e2166880a239dc74d3e0c0e37c88a93fe5bdd46ba7f3225e40c1ceafda4c61"
+      "sha256": "sha256:9d6fdd3e03b8db60ae5f30c939ccefd9ad885284942ca4c489edce16e06bcce3"
     },
     {
       "id": "smart-initialization-v1",

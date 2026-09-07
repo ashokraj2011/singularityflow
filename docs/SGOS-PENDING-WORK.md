@@ -31,8 +31,12 @@ caller cannot authorize an alternate Store by supplying a compatible-looking obj
 safe Authority interface boundary. The bounded alternate Operational Store landed at
 `main@cf06f10d`: its in-memory replay profile is limited to simulation/test, explicitly
 non-authoritative, serialized, CAS-protected, append-only, bounded, backup/restore capable, and
-rollback-preserving. The live filesystem Process store has not migrated through that SPI, so the
-durable multi-implementation migration/backup/rollback matrix remains open.
+rollback-preserving. Commit `32f1afd0` adds the matching durable `filesystem-replay-v1` profile and
+runs the unchanged conformance journey against both implementations. The durable profile rebuilds
+its head from fsynced immutable events, rejects competing stale CAS writers and corrupt lineage,
+recovers an abandoned writer lock, ignores unfinished staging files, and preserves append-only
+rollback and exact fast-forward restore. The live filesystem Process store has not migrated through
+that SPI, so live-format migration and runtime cutover remain open.
 
 ## Status rules
 
@@ -234,10 +238,22 @@ The alternate Operational Store landed in `main@cf06f10d`:
   storage-profile digest, and permanently declares `authorityEligible: false`;
 - live runtime and lifecycle publication do not call or auto-select this alternate profile.
 
-Still required: migrate the live filesystem Process store behind the Operational Store SPI, run the
-same conformance journey against both implementations, and prove durable migration, process-loss
-partial failure, backup, restore, and rollback without changing Program or policy authority. The
-memory profile is useful portability proof but cannot satisfy a durable runtime Store gate.
+The second Operational Store implementation landed in `main@32f1afd0`:
+
+- `filesystem-replay-v1` implements the same SPI and passes the unchanged CAS, concurrent-writer,
+  event-replay, backup, fast-forward restore, and append-only rollback journey;
+- every committed event is a bounded, fsynced immutable file and the current state is reconstructed
+  from exact lineage, so a process loss cannot make an uncommitted head authoritative;
+- abandoned writer locks are reclaimed only after the bounded liveness condition, unfinished hidden
+  staging files are ignored, and malformed, renamed, missing, reordered, or digest-mismatched events
+  fail closed before a later event can be published;
+- like the memory profile, it is permanently non-authoritative, accepts only `simulation` or `test`,
+  and cannot be selected by the live SGOS runtime or a lifecycle publisher.
+
+Still required: migrate the live filesystem Process store behind the Operational Store SPI and prove
+an explicit old-live-format migration plus atomic runtime cutover without changing Program or policy
+authority. The unchanged conformance journey now passes against both generic implementations, but
+neither generic profile is installed as live execution authority.
 
 Acceptance gates:
 

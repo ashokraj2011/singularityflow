@@ -80,8 +80,11 @@ authority merely because repository data names it. The bounded `memory-replay-v1
 Operational Store followed at `main@cf06f10d`, with serialized CAS, append-only lineage, exact
 backup/fast-forward restore, append-only rollback, tamper/bounds checks, and a hard
 non-authoritative simulation/test selection boundary. `SGOS-P1-003` remains partial until the live
-filesystem Process store uses the SPI and the unchanged durable migration, process-loss,
-backup/restore, and rollback matrix passes against both implementations.
+filesystem Process store uses the SPI. A durable `filesystem-replay-v1` Operational Store followed
+at `main@32f1afd0`; the unchanged CAS/replay/backup/restore/rollback journey now passes against both
+generic implementations, with competing-writer, abandoned-lock, unfinished-stage, and corrupt-
+lineage proofs. The remaining gate is an exact migration of the old live Process format and atomic
+runtime cutover without changing Program or policy authority.
 
 The 2026-09-06 performance continuation moved branch refresh, ledger status/state publication,
 workflow configuration proposals, approval identity enrollment, approved-configuration fallback

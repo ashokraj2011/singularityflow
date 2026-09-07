@@ -404,9 +404,16 @@ is permanently non-authoritative and the selection guard admits it only for `sim
 `test` when the selected storage-profile digest equals the Program's pinned digest. The live SGOS
 runtime cannot select it.
 
+`filesystem-replay-v1` is the durable counterpart behind the same SPI. It reconstructs state from
+bounded fsynced immutable event files, serializes independent writers, detects stale CAS and corrupt
+or non-contiguous lineage, recovers an abandoned lock, and treats unfinished staging files as
+non-authoritative. The exact same conformance journey exercises both profiles, including backup,
+fast-forward restore, and compensating rollback. This profile is also restricted to `simulation`
+and `test`; durability does not make it Program, policy, or lifecycle authority.
+
 This is a staged `SGOS-P1-003` boundary. The existing live filesystem Process store still owns
-runtime operations directly; moving it behind the same Operational Store SPI, durable migration,
-and cross-implementation crash/backup/restore proof remain open.
+runtime operations directly; moving it behind the same Operational Store SPI and proving an exact
+old-format migration plus atomic runtime cutover remain open.
 
 ## Portable Authority Store and Capability Packs
 
@@ -496,10 +503,10 @@ tracked in [SGOS-PENDING-WORK.md](SGOS-PENDING-WORK.md):
 - Secret Broker integration with real external adapters, the corresponding cancellation/leakage/
   restart proof, and garbage-collection plans; bounded automatic working-set injection into the
   proposal-only Copilot Agent path is implemented;
-- migration of the live filesystem Process store through the Operational Store SPI and its durable
-  cross-implementation migration/backup/rollback matrix; the bounded memory-replay profile exists
-  only for simulation/test, while the filesystem profile remains the only installed and explicitly
-  experimental Authority Store implementation;
+- migration of the live filesystem Process store through the Operational Store SPI and an exact
+  old-format/runtime-cutover matrix; bounded memory and durable filesystem replay profiles both
+  exist only for simulation/test, while the separate platform filesystem profile remains the only
+  installed and explicitly experimental Authority Store implementation;
 - executable tutorial environments, independent learning certification, a
   public meta-tool activation/rollback CLI, and multi-domain proof packs;
 - external telemetry transport beyond the content-free read-only OpenTelemetry projection and

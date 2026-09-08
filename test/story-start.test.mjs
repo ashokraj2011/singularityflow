@@ -78,9 +78,11 @@ test('Story intake creates durable manual state and resumes an existing branch',
   assert.equal(created.resumed, false);
   assert.equal(created.workId, 'WORK-901');
   assert.equal(created.documents.length, 2);
-  assert.equal(created.astWarm.status, 'scheduled');
+  assert.equal(created.astWarm.status, 'available-on-request');
   assert.equal(created.astWarm.blocking, false);
-  assert.deepEqual(astWarmLaunch, { repositoryRoot: root, workId: 'WORK-901' });
+  assert.equal(created.astWarm.launched, false);
+  assert.equal(astWarmLaunch, null);
+  assert.equal(created.astWarm.command, 'singularity-flow wm ast build --all');
   const workRoot = path.join(root, 'singularity/work-items/WORK-901');
   const workflow = JSON.parse(await readFile(path.join(workRoot, 'workflow.json'), 'utf8'));
   assert.equal(workflow.workItem.source.type, 'manual');

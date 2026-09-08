@@ -178,6 +178,7 @@ import {
   resolveStoryConfigurationAuthority,
   withStoryConfigurationSnapshotRead
 } from './configuration-branch.mjs';
+import { fosStoryConfigurationAuthority } from './onboard.mjs';
 import {
   beginStoryStartJournal, clearStoryStartJournal, recoverStoryStart,
   serializeConfigurationRestorePoint, updateStoryStartJournal
@@ -222,7 +223,6 @@ import { assertActionPlanFresh, createActionPlan, loadActionPlan, readActionResu
 import { consumeActionAuthorization, issueActionAuthorization } from './action-authorization.mjs';
 import { refreshBranch } from './branch-refresh.mjs';
 import { buildStoryStack, publishedStackForStory, syncStoryStack } from './story-stack.mjs';
-import { scheduleStoryStartAstWarm } from './ast-story-start-warm.mjs';
 import {
   publishCapabilityRepositoriesDurably, retainCapabilityPublicationRecovery
 } from './capability-publication-recovery.mjs';
@@ -958,6 +958,20 @@ export async function startCommand(positionals, options) {
     return resumeCommand(['resume', id], { ...options, fetch: false });
   }
 
+  // A local branch with the requested Story name is not evidence that the branch is governed.
+  // Preserve this specific refusal before the fast missing-base path: otherwise `--json --yes`
+  // reports that a base is missing even though selecting a base could never make the occupied
+  // branch safe to adopt. Reading one exact blob from the already-known local ref is local,
+  // bounded, and precedes every configuration or remote lookup.
+  if (refExists(root, localStoryRef)
+      && fileAtRef(root, localStoryRef, storySeedRelative) === null) {
+    throw new SingularityFlowError(
+      `Local branch '${canonicalBranch}' exists but contains neither governed Story state nor a materialized Story seed. `
+      + 'Singularity Flow will not adopt an ungoverned branch as a new Story. Rename or remove that branch, then retry.',
+      { code: 'STORY_BRANCH_EXISTS' }
+    );
+  }
+
   /**
    * Refuse a definitely-new non-interactive Story before configuration and remote discovery.
    *
@@ -999,9 +1013,10 @@ export async function startCommand(positionals, options) {
   // default base, publication, receipt validation and workflow template. Reading current authority
   // later (after one of those choices) would combine two configuration revisions in one start.
   const currentPin = await capabilityDoctorStoryPin(root);
-  let configurationAuthority = await resolveNewStoryConfigurationAuthority(root, {
-    pinnedRemote: currentPin.valid ? currentPin.source.repository : null
-  });
+  let configurationAuthority = await fosStoryConfigurationAuthority(root)
+    ?? await resolveNewStoryConfigurationAuthority(root, {
+      pinnedRemote: currentPin.valid ? currentPin.source.repository : null
+    });
   let approvedConfigurationSnapshot = configurationAuthority
     ? await loadStoryConfigurationSnapshot(configurationAuthority)
     : null;
@@ -1599,7 +1614,14 @@ export async function startCommand(positionals, options) {
     workId: id,
     inputs: supportingDocuments
   });
-  const astWarm = await scheduleStoryStartAstWarm(root, config, workflow);
+  // FOS:CON-004: a durable Story start is the boundary of this command. Optional AST work is
+  // exposed as an explicit next action and is never launched (including in the background).
+  const astWarm = {
+    status: 'available-on-request',
+    blocking: false,
+    launched: false,
+    command: 'singularity-flow wm ast build --all'
+  };
   const startResult = commandResult({
     operation: { id: 'start', classification: 'mutation' },
     subject: { kind: 'story', id: workflow.workItem.id },
@@ -1697,13 +1719,7 @@ export async function startCommand(positionals, options) {
       console.log(`Prompt study assignment: ${workflow.measurement.plan.variantId} · ${workflow.measurement.plan.studyRunId}.`);
     }
     if (supportingDocuments.length) console.log(`Supporting documents: ${supportingDocuments.length} uploaded and published.`);
-    if (astWarm.status === 'scheduled') {
-      console.log(`AST cache warm-up: running in the background (${astWarm.scope}); Story work may continue.`);
-    } else if (astWarm.status === 'failed') {
-      console.warn(`Warning: optional AST cache warm-up did not start: ${astWarm.message ?? astWarm.reason}. Story work may continue.`);
-    } else if (astWarm.mode === 'before-first-phase') {
-      console.log(`AST cache warm-up: ${astWarm.status} (${astWarm.scope}); Story work may continue.`);
-    }
+    console.log(`Optional AST warm-up: ${astWarm.command}`);
   }
   emitCommandResult(startResult, { json: optionBoolean(options, 'json'), postState: workflow });
   return startResult;
@@ -6426,6 +6442,23 @@ async function logsCommand(positionals, options) {
 }
 
 async function doctorCommand(positionals, options) {
+  if (optionBoolean(options, 'git-speed')) {
+    const root = repoRoot();
+    const { applyFosGitSpeed, inspectFosGitSpeed } = await import('./fos-git-speed.mjs');
+    const report = optionBoolean(options, 'apply')
+      ? await applyFosGitSpeed(root, optionStrings(options, 'enable'))
+      : inspectFosGitSpeed(root);
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(report, null, 2));
+    else {
+      console.log(`Git speed: ${report.status}`);
+      const settings = report.report?.settings ?? report.settings ?? {};
+      for (const [id, value] of Object.entries(settings)) {
+        console.log(`${id}: ${value.value ?? 'unset'} · ${value.compatible ? 'compatible' : 'unsupported'} · ${value.scope}`);
+      }
+      if (report.receipt) console.log(`Receipt: ${report.receipt.receiptId}`);
+    }
+    return report;
+  }
   if (optionString(options, 'fix') === 'telemetry') {
     return telemetryCommand(['telemetry', 'enable'], options);
   }
@@ -12916,6 +12949,9 @@ async function dispatch(command, positionals, options) {
     harness: () => harnessCommand(positionals, options),
     init: () => initCommand(options),
     precheck: async () => (await import('./commands/precheck.mjs')).run(argv, { positionals, options }),
+    onboard: async () => (await import('./commands/fos.mjs')).run(argv, { positionals, options }),
+    authority: async () => (await import('./commands/fos.mjs')).run(argv, { positionals, options }),
+    cache: async () => (await import('./commands/fos.mjs')).run(argv, { positionals, options }),
     'factory-reset': () => factoryResetCommand(options),
     'reset-all': () => resetAllCommand(options),
     'local-reset': () => localResetCommand(options),

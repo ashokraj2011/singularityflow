@@ -36,6 +36,7 @@ Every public operation is classified before its implementation module is importe
 | approve | mutation | never | — | — |
 | artifact | mutation | never | — | — |
 | assign | mutation | never | — | — |
+| authority | mutation | never | — | — |
 | authority-store.export | mutation | never | — | — |
 | authority-store.import | mutation | never | — | — |
 | authority-store.import.plan | read | never | — | — |
@@ -78,6 +79,7 @@ Every public operation is classified before its implementation module is importe
 | auto.switch-unit.plan | read | never | — | — |
 | auto.takeover | mutation | never | — | — |
 | bootstrap | mutation | never | — | — |
+| cache | mutation | never | — | — |
 | cancel | mutation | never | — | — |
 | candidate.diff-argv | read | never | — | — |
 | candidate.freeze | mutation | never | — | — |
@@ -327,6 +329,7 @@ Every public operation is classified before its implementation module is importe
 | next.model-free | mutation | never | — | — |
 | next.orchestrate | mutation | optional | next.model-free | copilot-cli |
 | nextsteps | read | never | — | — |
+| onboard | mutation | never | — | — |
 | pack.activate | mutation | never | — | — |
 | pack.active | read | never | — | — |
 | pack.list | read | never | — | — |

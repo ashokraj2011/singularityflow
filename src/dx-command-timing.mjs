@@ -2,7 +2,7 @@ import { appendFile, chmod, mkdir, readdir, rename, stat, unlink } from 'node:fs
 import path from 'node:path';
 import { gitDir } from './git.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
-export { incrementCommandCounter, withCommandTiming } from './dx-timing-context.mjs';
+export { incrementCommandCounter, markCommandFeedback, withCommandTiming } from './dx-timing-context.mjs';
 
 const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;
 const DEFAULT_RETENTION_DAYS = 90;
@@ -20,6 +20,7 @@ export function commandTimer(command, input = {}) {
   const stages = {};
   const counters = {};
   let checkpoint = started;
+  let firstFeedbackMs = null;
   return {
     stage(name) {
       const now = process.hrtime.bigint();
@@ -41,6 +42,13 @@ export function commandTimer(command, input = {}) {
       counters[name] = (counters[name] ?? 0) + amount;
       return counters[name];
     },
+    /** Mark the first user-visible feedback separately from command completion. */
+    feedback() {
+      if (firstFeedbackMs == null) {
+        firstFeedbackMs = Number(process.hrtime.bigint() - started) / 1e6;
+      }
+      return firstFeedbackMs;
+    },
     finish(extra = {}) {
       const ended = process.hrtime.bigint();
       return {
@@ -51,7 +59,9 @@ export function commandTimer(command, input = {}) {
         operationId: options.operationId ?? null,
         startedAt,
         recordedAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
         durationMs: Number(ended - started) / 1e6,
+        firstFeedbackMs,
         stages,
         counters,
         outcome: 'success',

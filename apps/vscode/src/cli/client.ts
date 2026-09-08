@@ -422,6 +422,12 @@ export class SingularityFlowClient {
     if (args[0] === 'capability' && REMOTE_CAPABILITY_OPERATIONS.has(args[1] ?? '')) {
       return CAPABILITY_AUTHORITY_TIMEOUT_MS;
     }
+    // Fast attachment and authority refresh observe one exact configuration ref. They still cross
+    // the office Git/proxy boundary, so the ordinary two-minute UI ceiling is too short and can
+    // interrupt a valid receipt transaction while Git is negotiating credentials.
+    if (args[0] === 'onboard' || args[0] === 'authority') {
+      return CAPABILITY_AUTHORITY_TIMEOUT_MS;
+    }
     // Workflow Designer proposals clone the approved configuration authority and publish an exact
     // review ref. Office Git proxies can make that bounded remote transaction slower than an
     // ordinary local CLI action, so it gets the same ceiling as capability authority changes. A

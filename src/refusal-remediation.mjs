@@ -72,6 +72,58 @@ const KNOWN = Object.freeze({
   SINGULARITY_FLOW_AUTHORITY_UNAVAILABLE: () => [
     step('diagnose-network', 'Check Git access, proxy, certificates, and unfinished workspace setup.',
       'singularity-flow workspace doctor --network --json')
+  ],
+  AUTHORITY_ROUTE_REQUIRED: () => [
+    step('review-onboarding', 'Choose a configured authority remote, or explicitly select an existing reviewed local authority.',
+      'singularity-flow onboard --help', 'help')
+  ],
+  AUTHORITY_ROUTE_AMBIGUOUS: () => [
+    step('choose-authority-remote', 'Review the configured remotes and rerun onboarding with one explicit remote name.',
+      'singularity-flow onboard <LOCAL-PATH> --remote <NAME>')
+  ],
+  AUTHORITY_REBIND_REQUIRED: () => [
+    step('review-rebind', 'Use the reviewed configuration-authority process; onboarding cannot replace an existing binding.',
+      'singularity-flow explain fast-onboarding', 'configuration')
+  ],
+  AUTHORITY_CONFLICT: () => [
+    step('inspect-authority-conflict', 'Inspect the bound authority and repository state before deciding whether to restore or rebind it.',
+      'singularity-flow doctor --json')
+  ],
+  AUTHORITY_NOT_CONFIGURED: () => [
+    step('inspect-authority', 'Verify whether the selected route publishes reviewed configuration or a verified state projection.',
+      'singularity-flow workspace doctor --network --json')
+  ],
+  AUTHORITY_PIN_MISSING: () => [
+    step('attach-authority', 'Attach the checkout before attempting to refresh its authority pin.',
+      'singularity-flow onboard <LOCAL-PATH>')
+  ],
+  AUTHORITY_PIN_INVALID: () => [
+    step('diagnose-pin', 'Diagnose the attachment record; do not hand-edit its descriptor or receipt.',
+      'singularity-flow doctor --json')
+  ],
+  BOOTSTRAP_REMOTE_CONTAINS_CREDENTIAL: () => [
+    step('remove-url-credential', 'Configure an approved Git credential helper and replace the remote with a credential-free URL.',
+      'singularity-flow workspace doctor --network --json')
+  ],
+  FOS_BOOTSTRAP_UNSUPPORTED: () => [
+    step('use-reviewed-configuration', 'Create or publish configuration through the existing reviewed configuration-authority workflow.',
+      'singularity-flow explain configuration', 'configuration')
+  ],
+  FOS_FEATURE_DISABLED: () => [
+    step('review-feature', 'Review the feature prerequisites and enable only that feature through approved repository policy.',
+      'singularity-flow explain fast-onboarding', 'configuration')
+  ],
+  FOS_CACHE_PATH_INVALID: () => [
+    step('diagnose-cache-path', 'Inspect the repository and derived-cache boundary; no unsafe cleanup was attempted.',
+      'singularity-flow doctor --json')
+  ],
+  OBJECT_SERVICE_UNAVAILABLE: () => [
+    step('continue-without-object-service', 'Retry the read through the ordinary uncached Git path and inspect Git if it also fails.',
+      'singularity-flow doctor --git-speed --json')
+  ],
+  WORK_PRESERVATION_FAILED: () => [
+    step('inspect-story-worktrees', 'Keep the recovery checkpoint and inspect the available workspace and Story worktrees.',
+      'singularity-flow workspace list --json')
   ]
 });
 

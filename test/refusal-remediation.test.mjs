@@ -69,6 +69,24 @@ test('the refusal envelope preserves existing bounded transport diagnostics', ()
   assert.equal(envelope.remediationPlan.steps[0].command, diagnosticAction.command);
 });
 
+test('FOS:AC-044 FOS refusals provide bounded real commands without executing recovery', () => {
+  const cases = new Map([
+    ['AUTHORITY_ROUTE_AMBIGUOUS', 'singularity-flow onboard <LOCAL-PATH> --remote <NAME>'],
+    ['AUTHORITY_REBIND_REQUIRED', 'singularity-flow explain fast-onboarding'],
+    ['AUTHORITY_PIN_INVALID', 'singularity-flow doctor --json'],
+    ['FOS_CACHE_PATH_INVALID', 'singularity-flow doctor --json'],
+    ['OBJECT_SERVICE_UNAVAILABLE', 'singularity-flow doctor --git-speed --json'],
+    ['WORK_PRESERVATION_FAILED', 'singularity-flow workspace list --json']
+  ]);
+  for (const [code, command] of cases) {
+    const plan = refusalRemediationPlan(Object.assign(new Error('hostile path /tmp/a b/δ'), { code }), ['onboard']);
+    assert.equal(plan.steps[0].command, command, code);
+    assert.equal(plan.steps[0].execution, 'user-reviewed', code);
+    assert.equal(plan.retry.automatic, false, code);
+    assert.doesNotMatch(JSON.stringify(plan), /Error:|\n\s+at /, code);
+  }
+});
+
 test('every published executable routes its own refusal through the shared planner', async () => {
   const manifest = JSON.parse(await readFile(path.resolve('package.json'), 'utf8'));
   const executables = [...new Set(Object.values(manifest.bin))];

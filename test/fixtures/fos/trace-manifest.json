@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "kind": "fos-trace-manifest",
+  "status": "implemented-local-contracts-release-evidence-pending",
+  "specificationSha256": "sha256:e3e41038e753c5a9de0ca001aec6e280ae6e208c39cc62d57f377174b1658403",
+  "baselineCommit": "076f1edf22a18519e943a6b8580130f8a5a57e3b",
+  "featureDefaultsChanged": false,
+  "releaseEvidence": {
+    "localDeterministicSuites": "executed",
+    "hashBoundImplementationReport": "pending-final-commit",
+    "controlledPerformanceRunner": "pending",
+    "macosLinuxWindowsMatrix": "pending",
+    "officeNetworkRunner": "pending",
+    "m5LiveAdapterCertification": "pending"
+  },
+  "milestones": {
+    "M0": {
+      "requirements": ["FOS:REQ-034", "FOS:REQ-036", "FOS:REQ-037", "FOS:REQ-038", "FOS:REQ-048", "FOS:REQ-049", "FOS:REQ-050", "FOS:REQ-051", "FOS:REQ-052", "FOS:REQ-053"],
+      "modules": ["src/cli.mjs", "src/dx-command-timing.mjs", "src/fos-semantic-projection.mjs", "src/schema-migrations.mjs"],
+      "tests": ["test/story-start-recovery.test.mjs", "test/dx-performance.test.mjs", "test/fos-m0.test.mjs"]
+    },
+    "M1": {
+      "requirements": ["FOS:REQ-001", "FOS:REQ-020", "FOS:REQ-021", "FOS:REQ-022", "FOS:REQ-023", "FOS:REQ-024", "FOS:REQ-025"],
+      "modules": ["src/git-query.mjs", "src/repo-context.mjs"],
+      "tests": ["test/fos-git-query.test.mjs"]
+    },
+    "M2": {
+      "requirements": ["FOS:REQ-002", "FOS:REQ-003", "FOS:REQ-004", "FOS:REQ-005", "FOS:REQ-006", "FOS:REQ-007", "FOS:REQ-008", "FOS:REQ-009", "FOS:REQ-010", "FOS:REQ-011", "FOS:REQ-012", "FOS:REQ-013", "FOS:REQ-014", "FOS:REQ-015", "FOS:REQ-016", "FOS:REQ-017", "FOS:REQ-018", "FOS:REQ-019"],
+      "modules": ["src/onboard.mjs", "src/story-start.mjs", "src/story-start-journal.mjs"],
+      "tests": ["test/fos-onboarding.test.mjs", "test/story-start-recovery.test.mjs"]
+    },
+    "M3": {
+      "requirements": ["FOS:REQ-026", "FOS:REQ-027", "FOS:REQ-028", "FOS:REQ-029", "FOS:REQ-030", "FOS:REQ-031", "FOS:REQ-032", "FOS:REQ-033", "FOS:REQ-035"],
+      "modules": ["src/fos-derived-cache.mjs", "src/fos-git-speed.mjs", "src/fos-object-service.mjs"],
+      "tests": ["test/fos-cache.test.mjs", "test/fos-git-speed.test.mjs", "test/fos-object-service.test.mjs"]
+    },
+    "M4": {
+      "requirements": ["FOS:REQ-039", "FOS:REQ-042", "FOS:REQ-044", "FOS:REQ-045", "FOS:REQ-046", "FOS:REQ-047"],
+      "modules": ["src/fos-features.mjs", "src/fos-evidence-ingestion.mjs", "src/fos-story-switch.mjs"],
+      "tests": ["test/fos-features.test.mjs", "test/fos-evidence-switch.test.mjs"]
+    },
+    "M5": {
+      "requirements": ["FOS:REQ-040", "FOS:REQ-041", "FOS:REQ-043"],
+      "modules": ["src/fos-features.mjs"],
+      "tests": ["test/fos-features.test.mjs"]
+    }
+  },
+  "acceptanceCases": [
+    "FOS:AC-001", "FOS:AC-002", "FOS:AC-003", "FOS:AC-004", "FOS:AC-005",
+    "FOS:AC-006", "FOS:AC-007", "FOS:AC-008", "FOS:AC-009", "FOS:AC-010",
+    "FOS:AC-011", "FOS:AC-012", "FOS:AC-013", "FOS:AC-014", "FOS:AC-015",
+    "FOS:AC-016", "FOS:AC-017", "FOS:AC-018", "FOS:AC-019", "FOS:AC-020",
+    "FOS:AC-021", "FOS:AC-022", "FOS:AC-023", "FOS:AC-024", "FOS:AC-025",
+    "FOS:AC-026", "FOS:AC-027", "FOS:AC-028", "FOS:AC-029", "FOS:AC-030",
+    "FOS:AC-031", "FOS:AC-032", "FOS:AC-033", "FOS:AC-034", "FOS:AC-035",
+    "FOS:AC-036", "FOS:AC-037", "FOS:AC-038", "FOS:AC-039", "FOS:AC-040",
+    "FOS:AC-041", "FOS:AC-042", "FOS:AC-043", "FOS:AC-044", "FOS:AC-045",
+    "FOS:AC-046", "FOS:AC-047", "FOS:AC-048", "FOS:AC-049", "FOS:AC-050"
+  ]
+}

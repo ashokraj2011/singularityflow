@@ -1352,6 +1352,213 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   }));
 
+  /**
+   * FOS commands are registered before repository activation succeeds because their purpose is to
+   * attach an ordinary existing checkout. The CLI owns every mutation, validation, receipt and
+   * recovery boundary; this host only gathers an explicit repository/route and renders the result.
+   */
+  const fosClient = (repository: string): SingularityFlowClient => {
+    const settings = vscode.workspace.getConfiguration('singularityFlow');
+    return new SingularityFlowClient({
+      location: resolveCli({
+        configuredCli: settings.get<string>('cliPath'),
+        configuredNode: settings.get<string>('nodePath'),
+        extensionPath: context.extensionPath
+      }),
+      repository,
+      environment: cliEnvironment,
+      onOutput: (text) => output.append(text)
+    });
+  };
+  const chooseFosRepository = async (title: string): Promise<string | null> => {
+    const selected = await vscode.window.showOpenDialog({
+      title,
+      canSelectFiles: false,
+      canSelectFolders: true,
+      canSelectMany: false,
+      openLabel: 'Use this Git checkout',
+      defaultUri: vscode.workspace.workspaceFolders?.[0]?.uri
+    });
+    return selected?.[0]?.fsPath ?? null;
+  };
+  const fosPayload = <T,>(value: any): T => (value?.data?.result ?? value) as T;
+
+  context.subscriptions.push(vscode.commands.registerCommand(
+    'singularityFlow.fastOnboardRepository', async () => {
+      const repository = await chooseFosRepository('Choose the existing repository to attach');
+      if (!repository) return;
+      try {
+        const { stdout } = await promisify(execFile)('git', ['remote'], {
+          cwd: repository, timeout: 10_000, encoding: 'utf8', windowsHide: true
+        });
+        const remotes = String(stdout).split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
+        let routeArgs: string[] = [];
+        let routeLabel = 'the repository’s only configured remote';
+        if (remotes.length > 1) {
+          const remote = await vscode.window.showQuickPick(remotes.map((name) => ({
+            label: name, description: 'Read the reviewed configuration authority from this remote'
+          })), {
+            title: 'Choose the configuration authority remote',
+            placeHolder: 'No remote is assumed to be authoritative',
+            ignoreFocusOut: true
+          });
+          if (!remote) return;
+          routeArgs = ['--remote', remote.label];
+          routeLabel = `remote ${remote.label}`;
+        } else if (remotes.length === 1) {
+          routeArgs = ['--remote', remotes[0]!];
+          routeLabel = `remote ${remotes[0]}`;
+        } else {
+          const local = await vscode.window.showWarningMessage(
+            'This checkout has no Git remote. Use an already reviewed local configuration authority?',
+            {
+              modal: true,
+              detail: 'Singularity Flow will validate a local sflow/config or state authority. It will not create or weaken policy.'
+            },
+            'Use reviewed local authority'
+          );
+          if (local !== 'Use reviewed local authority') return;
+          routeArgs = ['--authority-local'];
+          routeLabel = 'the reviewed local authority';
+        }
+        const confirmed = await vscode.window.showInformationMessage(
+          'Attach this repository to Singularity Flow?',
+          {
+            modal: true,
+            detail: `Repository: ${repository}\nAuthority: ${routeLabel}\n\nNo clone, source scan, AST build, world-model build, model request, checkout, or application-branch commit will run.`
+          },
+          'Attach repository'
+        );
+        if (confirmed !== 'Attach repository') return;
+        const envelope = await vscode.window.withProgress(
+          { location: vscode.ProgressLocation.Notification, title: 'Verifying and attaching repository', cancellable: false },
+          () => fosClient(repository).run<any>(['onboard', repository, ...routeArgs, '--json'])
+        );
+        const result = fosPayload<{ status: string; operationId: string; descriptor?: {
+          authority?: { branch?: string; commit?: string }; descriptorSha256?: string;
+        } }>(envelope);
+        output.appendLine(`FOS attachment: ${result.status} · ${result.operationId}`);
+        output.appendLine(`Authority: ${result.descriptor?.authority?.branch ?? 'unknown'}@${result.descriptor?.authority?.commit ?? 'unknown'}`);
+        output.appendLine(`Pin: ${result.descriptor?.descriptorSha256 ?? 'unavailable'}`);
+        output.show(true);
+        void vscode.window.showInformationMessage(
+          result.status === 'already-attached'
+            ? 'Repository is already attached to this exact reviewed authority.'
+            : 'Repository attached. Story start can now reuse the verified authority pin.'
+        );
+      } catch (error) {
+        showRefusal(error, { headline: 'Fast repository onboarding did not complete' });
+      }
+    }
+  ));
+
+  context.subscriptions.push(vscode.commands.registerCommand(
+    'singularityFlow.refreshAuthorityPin', async () => {
+      const repository = await chooseFosRepository('Choose the attached repository to refresh');
+      if (!repository) return;
+      const confirmed = await vscode.window.showInformationMessage(
+        'Refresh this repository’s reviewed authority pin?',
+        {
+          modal: true,
+          detail: `Repository: ${repository}\n\nOnly the previously selected authority route is observed. Source, AST, world model, and application branches are not changed.`
+        },
+        'Refresh authority pin'
+      );
+      if (confirmed !== 'Refresh authority pin') return;
+      try {
+        const envelope = await vscode.window.withProgress(
+          { location: vscode.ProgressLocation.Notification, title: 'Refreshing reviewed authority pin', cancellable: false },
+          () => fosClient(repository).run<any>(['authority', 'refresh', repository, '--json'])
+        );
+        const result = fosPayload<{ status: string; operationId: string }>(envelope);
+        output.appendLine(`FOS authority refresh: ${result.status} · ${result.operationId}`);
+        output.show(true);
+        void vscode.window.showInformationMessage(`Authority pin ${result.status}.`);
+      } catch (error) {
+        showRefusal(error, { headline: 'Authority refresh did not complete' });
+      }
+    }
+  ));
+
+  context.subscriptions.push(vscode.commands.registerCommand(
+    'singularityFlow.configureGitAcceleration', async () => {
+      const repository = await chooseFosRepository('Choose the repository to inspect');
+      if (!repository) return;
+      try {
+        const report = await fosClient(repository).run<any>(['doctor', '--git-speed', '--json']);
+        const settings = report.settings ?? report.report?.settings ?? {};
+        const choices = Object.entries(settings).map(([id, raw]) => {
+          const value = raw as { key?: string; value?: string | null; compatible?: boolean };
+          return {
+            label: id,
+            description: value.value == null ? 'unset' : `currently ${value.value}`,
+            detail: value.compatible ? `${value.key} · repository-local` : `${value.key} · unsupported by this Git version`,
+            picked: value.value?.toLowerCase() === 'true',
+            compatible: value.compatible !== false
+          };
+        });
+        const selected = await vscode.window.showQuickPick(choices.filter((item) => item.compatible), {
+          title: `Safe Git acceleration · Git ${report.gitVersion ?? 'unknown'}`,
+          placeHolder: 'Select repository-local accelerators to enable; existing custom values are preserved',
+          canPickMany: true,
+          ignoreFocusOut: true
+        });
+        if (selected === undefined || selected.length === 0) {
+          output.appendLine(`Git speed inspection: ${repository}`);
+          for (const item of choices) output.appendLine(`  ${item.label}: ${item.description} · ${item.detail}`);
+          output.show(true);
+          return;
+        }
+        const enable = selected.filter((item) => !item.picked).map((item) => item.label);
+        if (!enable.length) {
+          return void vscode.window.showInformationMessage('The selected Git accelerators are already enabled.');
+        }
+        const confirmed = await vscode.window.showInformationMessage(
+          'Enable the selected repository-local Git accelerators?',
+          {
+            modal: true,
+            detail: `${enable.join(', ')}\n\nSFlow verifies each write, records a receipt, preserves custom values, and rolls back its own changes if verification fails.`
+          },
+          'Enable selected'
+        );
+        if (confirmed !== 'Enable selected') return;
+        const applied = await fosClient(repository).run<any>([
+          'doctor', '--git-speed', '--apply', ...enable.flatMap((id) => ['--enable', id]), '--json'
+        ]);
+        output.appendLine(`Git acceleration receipt: ${applied.receipt?.receiptId ?? 'unavailable'}`);
+        output.show(true);
+        void vscode.window.showInformationMessage('Selected Git accelerators were verified and enabled for this repository.');
+      } catch (error) {
+        showRefusal(error, { headline: 'Git acceleration could not be inspected or changed' });
+      }
+    }
+  ));
+
+  context.subscriptions.push(vscode.commands.registerCommand(
+    'singularityFlow.clearDerivedCache', async () => {
+      const repository = await chooseFosRepository('Choose the repository whose disposable cache should be cleared');
+      if (!repository) return;
+      const confirmed = await vscode.window.showWarningMessage(
+        'Clear only the disposable FOS derived cache?',
+        {
+          modal: true,
+          detail: `Repository: ${repository}\n\nAuthority pins, receipts, journals, evidence, Story state, and recovery checkpoints are outside this cache and will be preserved.`
+        },
+        'Clear derived cache'
+      );
+      if (confirmed !== 'Clear derived cache') return;
+      try {
+        const envelope = await fosClient(repository).run<any>([
+          'cache', 'clear', '--derived', '--repo', repository, '--json'
+        ]);
+        const result = fosPayload<{ removedEntries: number }>(envelope);
+        void vscode.window.showInformationMessage(`Cleared ${result.removedEntries} disposable cache entr${result.removedEntries === 1 ? 'y' : 'ies'}.`);
+      } catch (error) {
+        showRefusal(error, { headline: 'Derived cache was not cleared' });
+      }
+    }
+  ));
+
   /** Read-only machine and bootstrap diagnostics, available even in an empty VS Code window. */
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.workspaceDoctor', async () => {
     try {

@@ -10,10 +10,14 @@ commands:
   - guide
   - quickstart
   - init
+  - onboard
+  - authority
+  - cache
 related:
   - nextsteps
   - starting-work
-version: 2
+  - fast-onboarding
+version: 4
 ---
 Install from your artifact mirror (`npm install -g`), then run `sflow doctor` — it checks Node, Git identity, and plugin state, and names exact fixes. `sflow guide --first-run` creates a throwaway sandbox repository (never your checkout) and walks one toy story end to end — start, offline authoring, the real approval ceremony, receipt — in about ten minutes and five commands, no model required.
 
@@ -23,9 +27,16 @@ Use this topic when the current goal matches **getting started**. Start in a gov
 
 ## Use it from each surface
 
-- **Shell:** `sflow doctor`, `sflow guide`, `sflow quickstart`, `sflow init`. Run `singularity-flow doctor --help` for the exact forms supported by this build.
+- **Shell:** `sflow doctor`, `sflow guide`, `sflow quickstart`, `sflow init`. Attach an existing
+  governed checkout with `sflow onboard <path>`; refresh its exact authority pin with
+  `sflow authority refresh <path>`; clear only disposable derived data with
+  `sflow cache clear --derived --repo <path>`. Run `singularity-flow doctor --help` for the exact
+  forms supported by this build.
 - **Copilot:** `/sf-doctor`, `/sf-quickstart`, `/sf-init`. The skill must preserve the CLI result and ask before any governed mutation.
-- **VS Code:** open Singularity Flow **Help Center**. The extension renders engine results; it does not independently decide lifecycle state.
+- **VS Code:** open the Command Palette and choose **Fast Onboard Existing Repository**, **Refresh
+  Repository Authority Pin**, **Inspect or Enable Safe Git Acceleration**, or **Clear Disposable
+  Derived Cache**. The extension renders engine results; it does not independently decide
+  lifecycle state.
 
 ## Guided workflow
 

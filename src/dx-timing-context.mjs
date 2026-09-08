@@ -11,3 +11,7 @@ export function withCommandTiming(timer, action) {
 export function incrementCommandCounter(name, amount = 1) {
   return commandTimingContext.getStore()?.increment(name, amount) ?? null;
 }
+
+export function markCommandFeedback() {
+  return commandTimingContext.getStore()?.feedback() ?? null;
+}

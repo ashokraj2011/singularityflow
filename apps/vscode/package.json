@@ -214,6 +214,26 @@
         "icon": "$(repo-clone)"
       },
       {
+        "command": "singularityFlow.fastOnboardRepository",
+        "title": "Singularity Flow: Fast Onboard Existing Repository",
+        "icon": "$(repo-clone)"
+      },
+      {
+        "command": "singularityFlow.refreshAuthorityPin",
+        "title": "Singularity Flow: Refresh Repository Authority Pin",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "singularityFlow.configureGitAcceleration",
+        "title": "Singularity Flow: Inspect or Enable Safe Git Acceleration",
+        "icon": "$(dashboard)"
+      },
+      {
+        "command": "singularityFlow.clearDerivedCache",
+        "title": "Singularity Flow: Clear Disposable Derived Cache",
+        "icon": "$(trash)"
+      },
+      {
         "command": "singularityFlow.resumeWorkspaceBootstrap",
         "title": "Singularity Flow: Continue Workspace Setup",
         "icon": "$(debug-continue)"

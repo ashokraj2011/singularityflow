@@ -17,6 +17,22 @@ function slot(value, fallback = '') {
 }
 
 export const MESSAGES = Object.freeze({
+  'fos.repository-attached': {
+    headline: (s) => `Repository authority attachment is ${slot(s.status)}${s.authority ? ` (${slot(s.authority)})` : ''}.`,
+    preserves: false
+  },
+  'fos.authority-refreshed': {
+    headline: (s) => `Repository authority pin was refreshed to ${slot(s.authority)}.`,
+    preserves: false
+  },
+  'fos.authority-current': {
+    headline: (s) => `Repository authority pin is already current at ${slot(s.authority)}.`,
+    preserves: true
+  },
+  'fos.cache-cleared': {
+    headline: (s) => `Cleared ${slot(s.removedEntries, '0')} disposable FOS cache entr${Number(s.removedEntries) === 1 ? 'y' : 'ies'}.`,
+    preserves: false
+  },
   'delivery.recommendation-created': {
     headline: (s) => `Delivery recommendation: ${slot(s.recommendation)} (${slot(s.reasons, '0')} reason(s)).`,
     preserves: true

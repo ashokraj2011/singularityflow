@@ -24,7 +24,7 @@ const LOCAL_STATE_RESET_COMMANDS = new Set(['factory-reset', 'reset-all', 'local
 // Copilot or another host starts the CLI outside a Git checkout.
 export const ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS = new Set([
   'about', 'help', 'explain', 'guide', 'show', 'quickstart', 'home',
-  'init', 'bootstrap',
+  'init', 'bootstrap', 'onboard', 'authority', 'cache',
   'factory-reset', 'reset-all', 'local-reset', 'fresh-install', 'reinstall',
   'workspace', 'session', 'plugin', 'goal', 'journal', 'push'
 ]);
@@ -47,7 +47,7 @@ export function excludesActiveWorkspaceRouting(command, subcommand = null, optio
     // `doctor --performance` measures the Git checkout a person invoked it from, including a fresh
     // checkout with no workflow yet. Ordinary doctor remains repository-scoped and follows the
     // selected workspace when Copilot starts it outside a checkout.
-    || (command === 'doctor' && options.performance === true)
+    || (command === 'doctor' && (options.performance === true || options['git-speed'] === true))
     || (command === 'capability' && REPOSITORY_INDEPENDENT_CAPABILITY_SUBCOMMANDS.has(subcommand))
     // Portable Process Evidence verification consumes only the named bundle bytes. It must work
     // in a fresh directory and must never be redirected to the last selected workspace.
@@ -400,12 +400,18 @@ export async function main(argv) {
         }
       });
     }
+    // Even legacy handlers that print directly instead of using the narration boundary have now
+    // produced their terminal result. Record that as feedback before sealing the timing event so
+    // success/refusal/error records never leave first-feedback unknowable merely because they used
+    // an older renderer.
+    timer.feedback();
     const event = timer.finish({ outcome: 'success' });
     if (!LOCAL_STATE_RESET_COMMANDS.has(definition.name) && !smartInitDryRun) await recordCommandTiming(root, event);
     if (options.timings === true) writeCommandTimings(event);
     return result;
   } catch (error) {
     timer.stage('execute');
+    timer.feedback();
     const event = timer.finish({ outcome: 'error', errorClass: error?.name ?? 'Error' });
     const smartInitDryRun = definition.name === 'init'
       && optionBoolean(options, 'smart-detect') && optionBoolean(options, 'dry-run');

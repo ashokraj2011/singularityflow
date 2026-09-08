@@ -79,6 +79,45 @@ export function synopsisFor(command) {
  * what it refuses and why, and a worked example. Commands absent from this map still render.
  */
 const PAGES = Object.freeze({
+  onboard: {
+    summary: 'Attach an existing checkout to an exact verified configuration authority without cloning it.',
+    description: [
+      'Onboarding verifies the recorded, explicitly selected, or only eligible Git authority and',
+      'stores a machine-local exact pin and receipt. It does not clone the application repository,',
+      'create policy, enumerate an organisation, build AST/world-model data, or invoke a model.',
+      'Remote failures, non-advertisement and ambiguity remain distinct. Bootstrap is deliberately',
+      'unsupported until its independent authority contract is enabled.'
+    ],
+    options: [
+      ['--remote NAME', 'Select one configured remote explicitly.'],
+      ['--authority-local', 'Use only an explicitly selected repository-local configuration authority.'],
+      ['--offline', 'Request reuse of a verified pin; refused unless approved offline policy is available.'],
+      ['--resume OPERATION-ID', 'Resume only the exact matching interrupted attachment operation.'],
+      ['--json', 'Emit the descriptor, receipt, freshness and exact outcome.']
+    ],
+    examples: [
+      ['sflow onboard . --remote origin --json', 'Verify and attach the current checkout.']
+    ],
+    seeAlso: ['authority', 'workspace', 'doctor']
+  },
+  authority: {
+    summary: 'Refresh one recorded FOS authority pin through the same verified attachment transaction.',
+    description: [
+      'Refresh re-observes the exact recorded authority, verifies its current fold, and replaces',
+      'the machine-local pin atomically. It never changes the remote authority branch.'
+    ],
+    examples: [['sflow authority refresh . --json', 'Refresh the authority attached to this checkout.']],
+    seeAlso: ['onboard', 'cache']
+  },
+  cache: {
+    summary: 'Manage disposable FOS acceleration data without deleting authority or recovery state.',
+    description: [
+      'The derived-cache clear operation validates the Git-owned cache root and removes only FOS',
+      'derived entries. Pins, journals, receipts, evidence and recovery buffers are outside it.'
+    ],
+    examples: [['sflow cache clear --derived --repo . --json', 'Clear only disposable FOS cache entries.']],
+    seeAlso: ['doctor', 'onboard']
+  },
   'authority-store': {
     summary: 'Inspect local SGOS authority and move reviewed Capability Pack authority between laptops.',
     description: [

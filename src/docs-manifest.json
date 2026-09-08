@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "95837d68425e034b8ac0014e490f83ddcb449556",
-  "topicCount": 61,
-  "contentSha256": "274b53274f117d43e0fa8fb1f52afa1a9ac1b98754eec3f7953f7fb2809795af",
+  "sourceCommit": "69c5fa380d24246731ec7e4a19711fd6dd731e64",
+  "topicCount": 62,
+  "contentSha256": "80ddf75051d92864d9131e23554dbc3e3b4e8acab1809d90fb5e064f294ae2c3",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -158,6 +158,14 @@
       "file": "evidence-and-ledger.md"
     },
     {
+      "id": "fast-onboarding",
+      "title": "Fast onboarding and safe Git acceleration",
+      "version": 1,
+      "sha256": "f2d55b0948f96e28380316acc4b318937006ee003c0a727aa3675b81d89ab2b1",
+      "routingSha256": "7ce510660d68a51d147c04c7385b481b6bc5ba8e470626811012929b0cde3891",
+      "file": "fast-onboarding.md"
+    },
+    {
       "id": "fast-path-verbs",
       "title": "The five verbs",
       "version": 2,
@@ -176,9 +184,9 @@
     {
       "id": "getting-started",
       "title": "Getting started",
-      "version": 2,
-      "sha256": "c701bf6655bbd75284848da710aa3f8b3bcf06486d3d474b047c32d9cef13895",
-      "routingSha256": "c34671950bbcee1761d5c4b5f678c7ffb48b090b1b3ef408264ebd198491c517",
+      "version": 4,
+      "sha256": "b25687dd85ef9ce1021bb712355cb99ef22e0138d6b56e01e169630a405c29d3",
+      "routingSha256": "c4fb3eedd242f5d18b04d4da037c6e2f38946715fde7734ff8a485486e393228",
       "file": "getting-started.md"
     },
     {

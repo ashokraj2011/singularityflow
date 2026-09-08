@@ -32,7 +32,6 @@ import { writeReturnLocator } from './return-locator.mjs';
 import { pinAcceptedChangeFlightPlan } from './change-flight-plan.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { pinAcceptedAutoPlan } from './auto/auto-origin.mjs';
-import { scheduleStoryStartAstWarm } from './ast-story-start-warm.mjs';
 import { runDraftTransaction } from './draft-unit-of-work.mjs';
 import {
   captureConfigurationState, CONFIGURATION_BRANCH, loadStoryConfigurationSnapshot,
@@ -48,6 +47,7 @@ import {
 } from './story-start-journal.mjs';
 import { publishInitialStoryDocuments } from './story-start-documents.mjs';
 import { validateConfigurationSnapshotCapabilities } from './capability-context.mjs';
+import { fosStoryConfigurationAuthority } from './onboard.mjs';
 
 function lines(value) {
   if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
@@ -231,9 +231,8 @@ export async function startStory(root, {
   // positively reported no authority. Transport, permission, workspace, and mirror-integrity
   // failures must remain refusals; otherwise an old checkout silently governs new work. In
   // particular, an older Story's workflow may not redirect authority discovery through git.remote.
-  let configurationAuthority = await resolveNewStoryConfigurationAuthority(root, {
-    pinnedRemote: pinnedConfigurationRemote
-  });
+  let configurationAuthority = await fosStoryConfigurationAuthority(root)
+    ?? await resolveNewStoryConfigurationAuthority(root, { pinnedRemote: pinnedConfigurationRemote });
   let approvedConfigurationSnapshot = configurationAuthority
     ? await loadStoryConfigurationSnapshot(configurationAuthority)
     : null;
@@ -583,9 +582,16 @@ export async function startStory(root, {
       ...urls.map((url) => ({ url }))
     ]
   });
-  const astWarm = await scheduleStoryStartAstWarm(root, definition, workflow, {
-    ...(astWarmLauncher ? { launcher: astWarmLauncher } : {})
-  });
+  // FOS:CON-004: Story start ends when governed Story state is durable. AST remains optional and
+  // available immediately afterward, but start never launches scans or background workers. The
+  // injected launcher argument is retained temporarily for source compatibility and deliberately
+  // ignored; callers receive the exact explicit action instead.
+  const astWarm = {
+    status: 'available-on-request',
+    blocking: false,
+    launched: false,
+    command: 'singularity-flow wm ast build --all'
+  };
   return {
     workId: id,
     resumed: false,

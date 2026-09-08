@@ -67,14 +67,14 @@ function displayBoundedRedactionInput(source: string): string {
 // Kept as a packaged snapshot because the extension deliberately does not import engine modules.
 // A parity test compares it with util.mjs so a new engine boolean cannot silently shift a receipt.
 export const DISPLAY_BOOLEAN_OPTIONS = new Set([
-  'archive-readiness', 'allow-unavailable-verification',
+  'archive-readiness', 'allow-unavailable-verification', 'authority-local',
   'accept-bundled-conflicts', 'accept-partial', 'acknowledge-self-approval', 'acknowledge-unprotected', 'active', 'adopt-current-interval', 'adopt-existing', 'all', 'allow-dirty', 'allow-model', 'apply', 'assigned-to-me', 'ast',
-  'assisted', 'auto', 'automatic', 'blocking', 'check', 'churn', 'cli-only', 'clipboard', 'clone', 'concat',
-  'confirm-pin-retention', 'confirm-protected', 'confirm-push-policy', 'create', 'dry-run', 'evidence',
-  'diagnose-only', 'drop-local', 'fetch', 'first-run', 'force', 'forget-only', 'for-start', 'from-records', 'gate-recovery', 'here', 'include-prompt', 'initialize', 'intake', 'json',
+  'assisted', 'auto', 'automatic', 'blocking', 'bootstrap', 'check', 'churn', 'cli-only', 'clipboard', 'clone', 'concat',
+  'confirm-pin-retention', 'confirm-protected', 'confirm-push-policy', 'create', 'derived', 'dry-run', 'evidence',
+  'diagnose-only', 'drop-local', 'experimental', 'fetch', 'first-run', 'force', 'forget-only', 'for-start', 'from-records', 'gate-recovery', 'here', 'include-prompt', 'initialize', 'intake', 'json',
   'include-existing', 'independent', 'isolated-worktree',
-  'keep', 'local', 'local-only', 'make-lead', 'markdown', 'migrate-legacy', 'network', 'offline', 'once', 'open', 'performance', 'plan-only',
-  'opt-out', 'optional', 'parallel', 'polish', 'preview', 'probe', 'propose', 'push',
+  'git-speed', 'keep', 'local', 'local-only', 'make-lead', 'markdown', 'migrate-legacy', 'network', 'offline', 'once', 'open', 'performance', 'plan-only',
+  'opt-out', 'optional', 'parallel', 'polish', 'preview', 'probe', 'propose', 'publish', 'push',
   'quick', 'raw', 'readiness', 'rebuild', 'recap', 'record', 'record-audit', 'recover', 'refresh', 'release', 'render-only', 'repair', 'repair-on-fault', 'restore-remote', 'run',
   'repair-projections', 'replace', 'replace-server', 'resume', 'set', 'sign', 'solo',
   'semantic', 'shadow', 'skip-checks', 'smart-detect', 'staged', 'stale', 'strict', 'terminal', 'timings', 'today', 'update', 'write',

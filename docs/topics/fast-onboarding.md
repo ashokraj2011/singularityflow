@@ -1,0 +1,58 @@
+---
+id: fast-onboarding
+title: Fast onboarding and safe Git acceleration
+aliases:
+  - onboard-existing-repository
+  - authority-pin
+  - git-speed
+  - derived-cache
+commands:
+  - onboard
+  - authority
+  - cache
+  - doctor
+related:
+  - getting-started
+  - starting-work
+version: 1
+---
+Fast onboarding attaches an existing Git checkout to one exact reviewed configuration authority.
+It performs no clone, source scan, AST or World-Model build, model call, application checkout, or
+application-branch commit. The verified authority pin is machine-local and Story start reuses it.
+
+## Purpose and prerequisites
+
+Use this topic for an existing checkout. The repository must already advertise reviewed
+`sflow/config` or a verified `state` projection. With multiple remotes, choose one explicitly;
+`origin` is never assumed to be more authoritative. Credential-bearing and external-helper
+remote forms are refused before persistence or network access.
+
+## Use it from each surface
+
+- **Shell:** `singularity-flow onboard <LOCAL-PATH> [--remote <NAME> | --authority-local]`.
+  Advance an existing pin only with `singularity-flow authority refresh <LOCAL-PATH>`.
+- **Copilot:** ask `/sf-init` to attach the current existing checkout and require it to show the
+  exact repository and authority route before running the command.
+- **VS Code:** use **Fast Onboard Existing Repository**, **Refresh Repository Authority Pin**,
+  **Inspect or Enable Safe Git Acceleration**, or **Clear Disposable Derived Cache**.
+
+## State and safety
+
+Repeated onboarding returns `already-attached` without silently advancing authority. A different
+route is a rebind and needs normal reviewed authority configuration. Derived caches are
+non-authoritative; clearing them preserves pins, journals, receipts, evidence, Story state, and
+recovery checkpoints. Git speed changes are repository-local, explicit, verified, and receipted.
+
+## Troubleshooting
+
+- Multiple remotes: re-run with `--remote <NAME>`.
+- Authority moved: use `singularity-flow authority refresh <LOCAL-PATH>`.
+- Auth, SSO, TLS, proxy, or network refusal: repair approved Git access and retry; never put a
+  credential in the URL or weaken TLS.
+- Invalid pin: run `singularity-flow doctor --json`; do not edit attachment records by hand.
+- Optional cache unavailable: continue uncached and repair disk or permissions separately.
+
+## Related topics
+
+Continue with `sflow explain getting-started` or `sflow explain starting-work`. The full operator
+guide is `docs/FAST-ONBOARDING-AND-GIT-PERFORMANCE.md` in the product repository.

@@ -2,7 +2,8 @@
 
 **Plan ID:** `FOS-PLAN-v1`
 
-**Status:** planned; no FOS feature or default is enabled by this document
+**Status:** M0–M5 code-local implementation complete; release evidence and external M5 adapter
+certification remain pending; every optional feature still defaults to off
 
 **Specification:** `SPEC-FOS-Fast-Onboarding-and-Safe-Git-Performance-v1.md`, version
 `1.0.0-draft.1`, SHA-256
@@ -11,6 +12,27 @@
 **Code baseline reviewed:** `main@076f1edf22a18519e943a6b8580130f8a5a57e3b`
 
 **Last reviewed:** 2026-09-08
+
+## Implementation status — 2026-09-08
+
+This repository now contains the safe executable slice across every milestone. “Implemented” here
+means the deterministic local contract and its fail-closed tests exist; it does not claim that
+unavailable enterprise authority or platform evidence was simulated.
+
+| Milestone | Implemented now | Remaining release evidence or authority |
+|---|---|---|
+| M0 | Specific Story-start refusal restored; first-feedback/completion timing, benchmark and semantic-projection contracts, schema registrations, and trace inventory added | Controlled-runner latency samples and hash-bound release report |
+| M1 | Closed typed Git query registry; lazy immutable repository context; in-flight coalescing, mutable epochs, counters, and mutation barrier | Broader migration of legacy read-heavy callers occurs only after shadow projection evidence; unknown Git remains uncached |
+| M2 | `onboard`, explicit route selection, exact configuration fold/pin, durable journal/receipt, idempotence, refresh, credential/rebind refusal, Story-start pin consumption, no AST/WM/model start callback, CLI/help/VS Code surfaces | Bootstrap and offline freshness are explicitly unsupported until separately approved policy exists |
+| M3 | Bounded derived cache, safe clear, quota/entry limits, shared binary-safe object service, Git-speed inspection/apply/rollback receipt, VS Code actions | macOS/Linux/Windows process and controlled performance lanes before any default enablement |
+| M4 | Independent-off feature contracts for reusable defaults, interpretation, provenance prefill, error guidance, bounded local evidence ingestion, and crash-safe Story-switch recovery | Product-surface rollout remains opt-in and must consume approved repository policy |
+| M5 | Strict pre-authorization, approval request/outbox, replay/staleness/separation checks, and advisory/enforced PR adoption contracts | Real identity, notification, trusted server-gate and workflow-import adapters plus live certification; M5 remains disabled |
+
+Operator commands, recovery semantics, VS Code actions, and the feature matrix are documented in
+[Fast onboarding and safe Git performance](FAST-ONBOARDING-AND-GIT-PERFORMANCE.md).
+
+The checked-in trace stays explicit about evidence not yet collected. Passing local mocks never
+changes an external prerequisite to “complete,” and no unfinished optional feature is enabled.
 
 ## Outcome
 

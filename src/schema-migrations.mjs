@@ -1421,6 +1421,15 @@ function dxCommandTimingV3ToV4(source) {
   };
 }
 
+function dxCommandTimingV4ToV5(source) {
+  return {
+    ...source,
+    schemaVersion: 5,
+    firstFeedbackMs: source.firstFeedbackMs ?? null,
+    completedAt: source.completedAt ?? source.recordedAt ?? null
+  };
+}
+
 function vscodeResetMarkerV1ToV2(source) {
   return {
     ...source,
@@ -2647,11 +2656,12 @@ const families = [
     paths: [/^(?:\$git|\$workspace)\/prompt-audit\/prompts\.jsonl$/], immutable: true
   }),
   family({
-    id: 'dx-command-timing', currentVersion: 4,
+    id: 'dx-command-timing', currentVersion: 5,
     steps: [
       migration(1, 2, dxCommandTimingV1ToV2),
       migration(2, 3, dxCommandTimingV2ToV3),
-      migration(3, 4, dxCommandTimingV3ToV4)
+      migration(3, 4, dxCommandTimingV3ToV4),
+      migration(4, 5, dxCommandTimingV4ToV5)
     ],
     paths: [/^\$git\/(?:dx\/timings(?:-[^/]+)?|performance\/commands)\.jsonl$/]
   }),
@@ -2941,6 +2951,17 @@ const families = [
   family({ id: 'capability-dependency-resolution', currentVersion: 1 }),
   family({ id: 'capability-explanation', currentVersion: 1 }),
   family({ id: 'capability-managed-adoption', currentVersion: 1 }),
+  family({ id: 'fos-attachment-descriptor', currentVersion: 1 }),
+  family({ id: 'fos-attachment-state', currentVersion: 1 }),
+  family({ id: 'fos-operation-journal', currentVersion: 1 }),
+  family({ id: 'fos-attachment-receipt', currentVersion: 1 }),
+  family({ id: 'fos-derived-cache-entry', currentVersion: 1 }),
+  family({ id: 'fos-git-accelerator-receipt', currentVersion: 1 }),
+  family({ id: 'fos-evidence-attachment', currentVersion: 1 }),
+  family({ id: 'fos-story-switch-checkpoint', currentVersion: 1 }),
+  family({ id: 'fos-story-switch-outcome', currentVersion: 1 }),
+  family({ id: 'fos-reusable-default', currentVersion: 1 }),
+  family({ id: 'fos-approval-request', currentVersion: 1 }),
   family({ id: 'reinstall-plan', currentVersion: 1, paths: [/^\$temp\/singularity-flow-reinstall-plans\/.+\/reinstall-plan\.json$/] }),
   family({ id: 'story-stack', currentVersion: 1, paths: [/^\$state\/orchestration\/stacks\/[^/]+\.json$/], immutable: true }),
   family({ id: 'workspace-impact-report', currentVersion: 1, paths: [/^\$workspace\/.+\/impact\/[^/]+\/report\.json$/] }),

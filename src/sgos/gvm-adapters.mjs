@@ -345,7 +345,7 @@ function deviceParameters(template, adapter) {
   return normalized;
 }
 
-async function executeDevice(root, context, adapter, signal) {
+async function executeDevice(root, context, adapter, signal, deviceOptions = {}) {
   const parameters = deviceParameters(context.template, adapter);
   const invocation = await invokeSgosDevice(root, {
     deviceId: adapter.id,
@@ -357,7 +357,7 @@ async function executeDevice(root, context, adapter, signal) {
     scope: parameters.scope,
     authorizationSha256: adapter.manifest.manifestSha256,
     createdAt: context.startedAt
-  }, { signal });
+  }, { signal, faultInjector: deviceOptions.faultInjector ?? null });
   if (signal?.aborted) {
     fail('DEVICE execution stopped before its result could be admitted.',
       'SGOS_PROCESS_STOP_REQUESTED');
@@ -408,6 +408,8 @@ export async function executeInstalledGvmAdapter(
   if (adapter?.kind === 'agent') {
     return executeAgent(root, context, adapter, signal, executionUnitOptions);
   }
-  if (adapter?.kind === 'device') return executeDevice(root, context, adapter, signal);
+  if (adapter?.kind === 'device') {
+    return executeDevice(root, context, adapter, signal, executionUnitOptions);
+  }
   fail('No installed GVM adapter was selected.', 'SGOS_GVM_ADAPTER_UNAVAILABLE');
 }

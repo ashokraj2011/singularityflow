@@ -2088,6 +2088,13 @@ const families = [
     ]
   }),
   family({
+    id: 'effect-retry-receipt', currentVersion: 1, immutable: true,
+    paths: [
+      /^\$git\/sgos\/processes\/[^/]+\/effect-retry-receipts\/[a-f0-9]{64}\.json$/,
+      sgosRecordReservationPath('effect-retry-receipt')
+    ]
+  }),
+  family({
     id: 'fork-prefix-task-import', currentVersion: 1, immutable: true,
     paths: [
       /^\$git\/sgos\/processes\/[^/]+\/fork-prefix-task-imports\/[a-f0-9]{64}\.json$/,

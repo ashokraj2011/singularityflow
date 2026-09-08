@@ -42,6 +42,7 @@
   "reducer-join-receipt": [{ "schemaVersion": 1 }],
   "manual-reconcile-join-receipt": [{ "schemaVersion": 1 }],
   "effect-replay-receipt": [{ "schemaVersion": 1 }],
+  "effect-retry-receipt": [{ "schemaVersion": 1 }],
   "fork-prefix-task-import": [{ "schemaVersion": 1 }],
   "fork-prefix-import-receipt": [{ "schemaVersion": 1 }],
   "fanout-expansion-receipt": [{ "schemaVersion": 1 }],

@@ -679,7 +679,8 @@ export async function assertCurrentStoredProcessBinding(root, process) {
   return stored;
 }
 
-function updateReadinessAndStatus(process, program) {
+/** @internal Recompute only derived task readiness and Process status after a guarded mutation. */
+export function updateSgosReadinessAndStatus(process, program) {
   for (const task of Object.values(process.taskInstances)) {
     if (!['planned', 'waiting', 'ready'].includes(task.state)) continue;
     const readiness = sgosTaskReadiness(program, process, task);
@@ -1341,7 +1342,7 @@ async function finalizeHumanRequest(
     draft.activeExecutions = draft.activeExecutions.filter((id) => id !== task.attemptId);
     draft.activeLeases = draft.activeLeases.filter((id) => id !== executionLease.leaseId);
     draft.openHumanRequests = [...new Set([...draft.openHumanRequests, request.requestSha256])].sort();
-    updateReadinessAndStatus(draft, program);
+    updateSgosReadinessAndStatus(draft, program);
   }, {
     updatedAt: instant(clock),
     recordReservations: [
@@ -1575,12 +1576,45 @@ async function finalizeFailure(root, context, error, program, clock) {
     detail: error?.message ?? String(error)
   }] };
   const completedAt = instant(clock);
-  const rawResult = { status: 'failed', error: { code: error?.code ?? null, message: error?.message ?? String(error) } };
+  const toolIntentSha256 = SHA256.test(String(error?.toolIntentSha256 ?? ''))
+    ? error.toolIntentSha256 : null;
+  const rawResult = {
+    status: 'failed',
+    error: {
+      code: error?.code ?? null,
+      message: error?.message ?? String(error),
+      toolIntentSha256,
+      effectDisposition: typeof error?.effectDisposition === 'string'
+        ? error.effectDisposition : error?.uncertainEffect === true ? 'uncertain' : null
+    }
+  };
+  // A consequential Device can fail after its durable Tool Intent or after its effect. Preserve
+  // that exact Intent as non-authoritative failed evidence so a later installed recovery protocol
+  // can reconcile the same operation. Never infer an Intent by scanning ambient Device storage.
+  const priorOutcome = context.outcome ?? {};
+  const failureOutcome = {
+    ...priorOutcome,
+    evidenceRefs: [...new Set([
+      ...(priorOutcome.evidenceRefs ?? []),
+      ...(toolIntentSha256 == null ? [] : [toolIntentSha256])
+    ])].sort(),
+    executionEvents: priorOutcome.executionEvents
+      ?? (toolIntentSha256 == null ? [] : [{
+        sequence: 1, type: 'tool-intent', eventSha256: toolIntentSha256
+      }])
+  };
   const { attempt, evidence, recordReservations } = await persistAttemptAndEvidence(root, {
     ...context,
+    evidenceContext: {
+      ...(context.evidenceContext ?? {}),
+      deviceManifest: context.evidenceContext?.deviceManifest
+        ?? context.gvmAdapter?.manifest?.manifestSha256
+        ?? null
+    },
     status: 'failed',
     rawResult,
     verification,
+    outcome: failureOutcome,
     completedAt
   });
   const uncertain = error?.uncertainEffect === true
@@ -1594,7 +1628,7 @@ async function finalizeFailure(root, context, error, program, clock) {
     task.revision += 1;
     draft.activeExecutions = draft.activeExecutions.filter((id) => id !== context.attemptId);
     draft.activeLeases = draft.activeLeases.filter((id) => id !== context.executionLease.leaseId);
-    updateReadinessAndStatus(draft, program);
+    updateSgosReadinessAndStatus(draft, program);
   }, {
     updatedAt: completedAt,
     recordReservations: [
@@ -1728,7 +1762,7 @@ async function finalizeSuccess(root, context, outcome, program, clock, checkpoin
     draft.activeExecutions = draft.activeExecutions.filter((id) => id !== context.attemptId);
     draft.activeLeases = draft.activeLeases.filter((id) => id !== context.executionLease.leaseId);
     if (checkpoint) draft.currentCheckpointSha256 = checkpoint.checkpointSha256;
-    updateReadinessAndStatus(draft, program);
+    updateSgosReadinessAndStatus(draft, program);
     }, {
       updatedAt: completedAt,
       recordReservations: [
@@ -2839,7 +2873,7 @@ async function respondToSgosHumanRequestWithinPolicy(root, processId, options = 
     }
     target.revision += 1;
     draft.openHumanRequests = draft.openHumanRequests.filter((sha256) => sha256 !== request.requestSha256);
-    updateReadinessAndStatus(draft, program);
+    updateSgosReadinessAndStatus(draft, program);
   }, {
     expectedRevision,
     expectedProcessSha256,
@@ -3232,7 +3266,7 @@ async function recoverInterruptedSgosExecutionWithinPolicy(root, processId, {
       target.revision += 1;
       draft.activeExecutions = draft.activeExecutions.filter((value) => value !== attemptId);
       draft.activeLeases = draft.activeLeases.filter((value) => value !== leaseState.leaseId);
-      updateReadinessAndStatus(draft, program);
+      updateSgosReadinessAndStatus(draft, program);
     }, {
       expectedRevision: process.processRevision,
       expectedProcessSha256: process.processSha256,
@@ -3306,7 +3340,7 @@ async function recoverInterruptedSgosExecutionWithinPolicy(root, processId, {
     target.revision += 1;
     draft.activeExecutions = draft.activeExecutions.filter((value) => value !== attemptId);
     draft.activeLeases = draft.activeLeases.filter((value) => value !== leaseState.leaseId);
-    updateReadinessAndStatus(draft, program);
+    updateSgosReadinessAndStatus(draft, program);
   }, {
     expectedRevision: process.processRevision,
     expectedProcessSha256: process.processSha256,
@@ -3455,7 +3489,7 @@ async function resumeSgosProcessWithinPolicy(root, processId, {
         'SGOS_PROCESS_NOT_QUIESCENT');
     }
     draft.status = 'running';
-    updateReadinessAndStatus(draft, program);
+    updateSgosReadinessAndStatus(draft, program);
   }, {
     expectedRevision: expectedRevision ?? process.processRevision,
     expectedProcessSha256: process.processSha256,

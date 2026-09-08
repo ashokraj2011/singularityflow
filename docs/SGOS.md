@@ -294,9 +294,13 @@ recovery policy explicitly says `retry-safe`. `task retry` first writes a conten
 bound to the exact Process revision, Program, policy, Binding, checkpoint, failed attempt, and failed
 Action Evidence. Confirmation dispatches only that task through the normal Process CAS; the new
 attempt names the failed attempt as its immutable parent. Pure work and installed read-only Devices
-are supported. Writable, external-effect, and consequential Device retries remain refused: even a
-verified consequential effect is a reconciliation fact, not permission to mint a different Tool
-Intent.
+are supported. Consequential retry is supported only for the exact installed `sandbox-cas`
+manifest and its reviewed `inspect-exact-postcondition` protocol. It reuses the failed attempt's
+durable Tool Intent, either applies a provably not-started CAS once or verifies the already-applied
+effect, then publishes a child attempt plus an immutable `effect-retry-receipt`. Revocation,
+changed postconditions, missing lineage, unsupported Devices, duplicate confirmation, and Process
+transition interruption fail closed or converge on that same intent; no retry can mint a second
+Tool Intent. Other writable or external-effect retries remain refused.
 
 `process stop <PROCESS-ID>` is distinct from an idle `process pause`. Stop may win while an attempt
 is active: it durably records `paused`, requests adapter cancellation, and returns
@@ -519,9 +523,10 @@ tracked in [SGOS-PENDING-WORK.md](SGOS-PENDING-WORK.md):
 - model-backed or tool-bearing `AGENT` execution beyond the reviewed Copilot proposal-only GEU,
   mutating Devices beyond the exact sandbox-CAS profile, arbitrary third-party adapters, and their
   complete independent conformance/counterfeit-model programs;
-- runtime-dynamic fan-out, additional reviewed reducers, and consequential-effect task retry;
-  bounded nested inline fan-out, quorum, deterministic-reduce, manual-reconcile joins,
-  installed-protocol idempotent effect replay, and exact non-genesis fork import are implemented;
+- runtime-dynamic fan-out, additional reviewed reducers, and additional Device-specific
+  postcondition protocols; bounded nested inline fan-out, quorum, deterministic-reduce,
+  manual-reconcile joins, installed-protocol idempotent effect replay, exact sandbox-CAS
+  consequential retry, and exact non-genesis fork import are implemented;
 - universal Candidate routing is implemented for the supported lifecycle surfaces; its
   cross-platform signed release promotion remains tracked as `SGOS-P0-001`;
 - Secret Broker integration with real external adapters, the corresponding cancellation/leakage/

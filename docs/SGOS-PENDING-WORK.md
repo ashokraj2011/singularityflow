@@ -281,11 +281,20 @@ Implemented in the current increment:
 - missing or counterfeit reconciliation receipts, changed postconditions, unsupported effects,
   stale plans, and crash/retry at the Process transition boundary fail closed, while read-only
   Devices continue through an ordinary new attempt.
+- failed `sandbox-cas` Device execution now retains its original durable Tool Intent in Action
+  Evidence and can be retried only through the installed `inspect-exact-postcondition` protocol;
+- retry preview binds the failed parent attempt/evidence, exact Tool Intent, manifest,
+  idempotency key, arguments, scope, Process revision, policy, Binding, and checkpoint;
+- confirmation never creates another Tool Intent: it applies a provably not-started CAS once or
+  verifies the already-applied effect, then atomically records one child attempt, Task Receipt,
+  Action Evidence, Candidate, and immutable `effect-retry-receipt`;
+- transition interruption resumes the exact retained mutation, duplicate confirmation converges,
+  and revoked authority, changed postconditions, missing/counterfeit lineage, or unsupported
+  consequential Devices remain recovery-required without repeating an effect.
 
 Still required: dynamic fan-out, additional independently reviewed reducer implementations,
-consequential-effect retry, and additional reviewed Device-specific
-postcondition protocols. The advanced orchestration family also needs shared signed
-supported-platform release evidence before this item can become `[x]`.
+and additional reviewed Device-specific postcondition protocols. The advanced orchestration family
+also needs shared signed supported-platform release evidence before this item can become `[x]`.
 
 Acceptance gates:
 

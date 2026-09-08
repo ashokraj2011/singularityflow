@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import { gitCommonDir } from '../git.mjs';
 import { canonicalJson } from '../records.mjs';
+import { withSubjectLock } from '../subject-lock.mjs';
 import { SingularityFlowError, nowIso } from '../util.mjs';
 import { cloneSgosValue, sha256 } from './contracts.mjs';
 import { readPrivateSidecar, writeImmutablePrivateSidecar } from './private-sidecar.mjs';
@@ -891,44 +892,56 @@ export async function invokeSgosDevice(root, request, {
   assertRequestMatchesIntent(normalizedRequest, intent, manifest);
   // Tool Intent is durable before the device can observe or affect anything.
   await immutableWrite(root, intentPath(root, intent.intentSha256), intent);
-  const existing = await readResultForIntent(root, intent.intentSha256);
-  if (existing) return Object.freeze({ manifest, intent, result: existing, recovered: true });
-  await injectFault(faultInjector, 'after-tool-intent-before-effect', {
-    intentSha256: intent.intentSha256,
-    deviceManifestSha256: manifest.manifestSha256
-  });
   try {
-    let raw = recover
-      ? await device.recover(intent, normalizedRequest, signal)
-      : await device.execute(intent, normalizedRequest, signal);
-    await injectFault(faultInjector, 'after-effect-before-tool-result', {
-      intentSha256: intent.intentSha256,
-      deviceManifestSha256: manifest.manifestSha256
+    // One exact Intent has one private result slot. Serializing that slot prevents two identical
+    // confirmations from racing different recovery observations (for example "applied" versus
+    // "verified-noop") into the immutable raw-result path. The Process transition still has its
+    // own independent CAS; this lock grants no task or publication authority.
+    return await withSubjectLock(root, {
+      kind: 'sgos-device-intent', id: intent.intentSha256
+    }, async () => {
+      const existing = await readResultForIntent(root, intent.intentSha256);
+      if (existing) {
+        return Object.freeze({ manifest, intent, result: existing, recovered: true });
+      }
+      await injectFault(faultInjector, 'after-tool-intent-before-effect', {
+        intentSha256: intent.intentSha256,
+        deviceManifestSha256: manifest.manifestSha256
+      });
+      let raw = recover
+        ? await device.recover(intent, normalizedRequest, signal)
+        : await device.execute(intent, normalizedRequest, signal);
+      await injectFault(faultInjector, 'after-effect-before-tool-result', {
+        intentSha256: intent.intentSha256,
+        deviceManifestSha256: manifest.manifestSha256
+      });
+      // Everything after execute/recover is still part of the consequential boundary. Revocation,
+      // normalization, verification, or durable-result publication can fail after an effect exists;
+      // those failures must retain the exact Tool Intent so callers recover rather than replay.
+      await assertNotRevoked(root, manifest);
+      if (!Buffer.isBuffer(raw)) raw = Buffer.from(canonicalJson(raw));
+      if (raw.length > MAX_RAW_BYTES) {
+        fail('Device raw result exceeds its byte ceiling.', 'SGOS_DEVICE_RESULT_LIMIT');
+      }
+      const rawResultSha256 = bytesSha256(raw);
+      await immutableWrite(root, rawPath(root, intent.intentSha256), raw);
+      const normalized = await device.normalize(intent, raw);
+      const verification = await device.verify(intent, normalized, rawResultSha256);
+      const result = createToolResult({
+        intentSha256: intent.intentSha256,
+        status: verification.status === 'passed' ? 'observed' : 'uncertain',
+        rawResultRef: `sfref:v1:device-raw:${intent.intentSha256.slice('sha256:'.length)}`,
+        rawResultSha256,
+        observation: normalized.observation,
+        effect: normalized.effect,
+        assurance: normalized.assurance,
+        observedAt: nowIso(),
+        verification
+      });
+      await immutableWrite(root, resultPath(root, result.resultSha256), result);
+      await immutableWrite(root, resultByIntentPath(root, intent.intentSha256), result);
+      return Object.freeze({ manifest, intent, result });
     });
-    // Everything after execute/recover is still part of the consequential boundary.  Revocation,
-    // normalization, verification, or durable-result publication can fail after an effect exists;
-    // those failures must retain the exact Tool Intent so callers recover rather than replay.
-    await assertNotRevoked(root, manifest);
-    if (!Buffer.isBuffer(raw)) raw = Buffer.from(canonicalJson(raw));
-    if (raw.length > MAX_RAW_BYTES) fail('Device raw result exceeds its byte ceiling.', 'SGOS_DEVICE_RESULT_LIMIT');
-    const rawResultSha256 = bytesSha256(raw);
-    await immutableWrite(root, rawPath(root, intent.intentSha256), raw);
-    const normalized = await device.normalize(intent, raw);
-    const verification = await device.verify(intent, normalized, rawResultSha256);
-    const result = createToolResult({
-      intentSha256: intent.intentSha256,
-      status: verification.status === 'passed' ? 'observed' : 'uncertain',
-      rawResultRef: `sfref:v1:device-raw:${intent.intentSha256.slice('sha256:'.length)}`,
-      rawResultSha256,
-      observation: normalized.observation,
-      effect: normalized.effect,
-      assurance: normalized.assurance,
-      observedAt: nowIso(),
-      verification
-    });
-    await immutableWrite(root, resultPath(root, result.resultSha256), result);
-    await immutableWrite(root, resultByIntentPath(root, intent.intentSha256), result);
-    return Object.freeze({ manifest, intent, result });
   } catch (error) {
     const failure = error instanceof Error ? error : new SingularityFlowError(
       'Device invocation failed without a typed error.', { code: 'SGOS_DEVICE_FAILED' });

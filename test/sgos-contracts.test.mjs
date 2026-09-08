@@ -10,7 +10,7 @@ import {
   createGvmTaskReceipt, createHumanRequest, createHumanResponse, createIntentEnvelope,
   createIntentIr, createPolicySnapshot, createProcessBinding, createSgosControlSuccessor,
   createSgosControlEvent, createSgosRecordIndex, createSgosTransitionIntent, createWorkflowIr,
-  createEffectReplayReceipt, createForkPrefixImportReceipt, createForkPrefixTaskImport,
+  createEffectReplayReceipt, createEffectRetryReceipt, createForkPrefixImportReceipt, createForkPrefixTaskImport,
   createSgosReplayPlan,
   MAXIMUM_SGOS_PROCESS_RECORD_BYTES, MAXIMUM_SGOS_PROCESS_RECORD_COUNT,
   MAXIMUM_SGOS_RECORD_BYTES, MAXIMUM_SGOS_RECORD_INDEX_DELTA,
@@ -70,7 +70,7 @@ function candidateResources() {
 
 test('SGOS durable families expose exact readable versions and refuse future versions', () => {
   const registry = new Map(migrationRegistrySnapshot().map((entry) => [entry.id, entry]));
-  assert.equal(sgosContractFamilies().length, 31);
+  assert.equal(sgosContractFamilies().length, 32);
   for (const family of sgosContractFamilies()) {
     const current = family === 'gvm-process'
       ? 3
@@ -325,6 +325,28 @@ test('effect replay receipts bind exact idempotency and postcondition evidence',
     recordSelfSha256(receipt, 'effectReplayReceiptSha256'));
   assert.throws(() => validateSgosRecord({
     ...receipt, idempotencyKey: d('forged-key')
+  }), /does not match the canonical record/);
+});
+
+test('effect retry receipts bind failed-parent, successful-child, and exact Device proof', () => {
+  const receipt = createEffectRetryReceipt({
+    processId: 'PROC-RETRY001', retryPlanSha256: d('effect-retry-plan'),
+    taskInstanceId: 'TSK-RETRY001', taskTemplateId: '20-effect',
+    parentAttemptId: 'ATT-PARENT001', parentAttemptSha256: d('parent-attempt'),
+    parentEvidenceSha256: d('parent-evidence'), attemptId: 'ATT-CHILD0001',
+    attemptSha256: d('child-attempt'), candidateSha256: d('retry-candidate'),
+    actionEvidenceSha256: d('retry-evidence'),
+    verificationChecksSha256: d('retry-checks'),
+    deviceManifestSha256: d('retry-device'), toolIntentSha256: d('retry-intent'),
+    toolResultSha256: d('retry-result'), idempotencyKey: d('retry-key'),
+    effectSha256: d('retry-effect'), postconditionSha256: d('retry-postcondition'),
+    outputRefs: [d('z-output'), d('a-output')], reconciledAt: at
+  });
+  assert.deepEqual(receipt.outputRefs, [d('a-output'), d('z-output')].sort());
+  assert.equal(receipt.effectRetryReceiptSha256,
+    recordSelfSha256(receipt, 'effectRetryReceiptSha256'));
+  assert.throws(() => validateSgosRecord({
+    ...receipt, parentAttemptSha256: d('forged-parent')
   }), /does not match the canonical record/);
 });
 

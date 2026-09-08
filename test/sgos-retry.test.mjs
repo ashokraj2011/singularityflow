@@ -9,14 +9,21 @@ import { initializeDefinition } from '../src/config.mjs';
 import { createGvmProgram } from '../src/sgos/contracts.mjs';
 import { SGOS_COMPILER_ID } from '../src/sgos/compiler.mjs';
 import {
+  installedDeviceManifests, readSgosSandboxCasEffect, revokeSgosDevice,
+  SGOS_SANDBOX_CAS_ABSENT_SHA256
+} from '../src/sgos/devices.mjs';
+import {
   planSgosTaskRetry, retrySgosTask, retrySgosTaskWithInstalledAdapters
 } from '../src/sgos/retry.mjs';
-import { compileSgosProcessEvidence } from '../src/sgos/process-evidence.mjs';
+import {
+  compileSgosProcessEvidence, verifySgosProcessEvidence
+} from '../src/sgos/process-evidence.mjs';
 import {
   pauseSgosProcess, runNextSgosTask, startSgosProcess
 } from '../src/sgos/runtime.mjs';
 import {
-  fsckSgosProcess, listSgosImmutableRecordsByField, readSgosProcess
+  fsckSgosProcess, listSgosImmutableRecordsByField, readSgosProcess,
+  setSgosStoreFaultBoundaryForTests
 } from '../src/sgos/store.mjs';
 import { publishSgosProgramAuthority } from './helpers/sgos-authority.mjs';
 
@@ -100,9 +107,66 @@ function program(options = {}) {
   });
 }
 
+function consequentialProgram({ key = 'retry-key' } = {}) {
+  const manifest = installedDeviceManifests().find((entry) => entry.id === 'sandbox-cas');
+  const resource = `sandbox-cas:${key}`;
+  const work = {
+    ...template({ maximumAttempts: 2 }),
+    opcode: 'DEVICE', operation: 'fixture.cas-put',
+    resources: {
+      reads: [], writes: [resource], devices: [manifest.id], externalEffects: [resource]
+    },
+    recovery: { failedExecution: 'device-reconcile' },
+    metadata: {
+      sourceConstruct: 'task', operationVersion: '1', operationManifestSha256: D.manifest,
+      deviceId: manifest.id, deviceVersion: manifest.version,
+      deviceManifestSha256: manifest.manifestSha256,
+      parameters: {
+        operation: 'compare-and-swap-put',
+        arguments: {
+          key, expectedValueSha256: SGOS_SANDBOX_CAS_ABSENT_SHA256,
+          value: { retry: 'same-exact-intent' }
+        },
+        scope: [resource]
+      }
+    }
+  };
+  const end = {
+    ...template({ maximumAttempts: 1 }),
+    taskTemplateId: '90-end', opcode: 'END', operation: 'kernel.end',
+    dependsOn: ['10-work'], material: false
+  };
+  return createGvmProgram({
+    intentIrSha256: D.intent, workflowSha256: D.workflow,
+    ratificationSha256: D.ratification, policySnapshotSha256: D.policy,
+    registrySnapshotSha256: D.registry, storageProfileSha256: D.storage,
+    taskTemplates: [work, end], edges: [{ from: '10-work', to: '90-end' }], joins: [],
+    budgets: { maximumTasks: 2, maximumAttempts: 2 },
+    recoveryPolicy: { mode: 'fail-closed' },
+    terminalConditions: [{ taskTemplateId: '90-end', state: 'succeeded' }],
+    compiler: { id: SGOS_COMPILER_ID, version: '2' }
+  });
+}
+
 async function started(t, storyId, options = {}) {
   const root = await repository(t, storyId);
   const compiled = program(options);
+  await publishSgosProgramAuthority(root, compiled);
+  const result = await startSgosProcess(root, {
+    program: compiled,
+    taskContractSha256: D.contract,
+    subject: {
+      kind: 'story', id: storyId, branch: 'main',
+      baselineRevision: git(root, ['rev-parse', 'HEAD'])
+    },
+    clock: T0
+  });
+  return { root, compiled, ...result };
+}
+
+async function startedConsequential(t, storyId, options = {}) {
+  const root = await repository(t, storyId);
+  const compiled = consequentialProgram(options);
   await publishSgosProgramAuthority(root, compiled);
   const result = await startSgosProcess(root, {
     program: compiled,
@@ -201,6 +265,245 @@ test('ordinary retry uses an exact plan and creates immutable parent-attempt lin
   assert.equal(repeated.receipt.retryReceiptSha256, result.receipt.retryReceiptSha256);
   assert.deepEqual(repeated.process.taskInstances[task.taskInstanceId].attemptIds,
     retried.attemptIds);
+});
+
+for (const boundaryName of [
+  'after-tool-intent-before-effect', 'after-effect-before-tool-result'
+]) {
+  test(`consequential retry reconciles the original Tool Intent after ${boundaryName}`, async (t) => {
+    const key = boundaryName === 'after-tool-intent-before-effect'
+      ? 'retry-before-effect' : 'retry-after-effect';
+    const fixture = await startedConsequential(t, `SGOS-${key.toUpperCase()}`, { key });
+    const failed = await runNextSgosTask(fixture.root, fixture.process.processId, {
+      executionUnitOptions: {
+        'sandbox-cas': {
+          faultInjector(boundary) {
+            if (boundary === boundaryName) {
+              throw Object.assign(new Error(`simulated ${boundaryName}`), { code: 'TEST_CRASH' });
+            }
+          }
+        }
+      },
+      clock: T1
+    });
+    assert.equal(failed.status, 'recovery-required');
+    assert.equal(failed.evidence.evidenceRefs.length, 1);
+    assert.match(failed.evidence.evidenceRefs[0], /^sha256:/);
+    const task = Object.values(failed.process.taskInstances)
+      .find((entry) => entry.taskTemplateId === '10-work');
+    const priorEffect = await readSgosSandboxCasEffect(
+      fixture.root, key, { optional: true }
+    );
+    assert.equal(priorEffect == null, boundaryName === 'after-tool-intent-before-effect');
+    const plan = await planSgosTaskRetry(
+      fixture.root, failed.process.processId, task.taskInstanceId, { createdAt: T2 }
+    );
+    assert.equal(plan.effectClassification, 'reconciled-consequential-device');
+    assert.match(plan.effectRecovery.toolIntentSha256, /^sha256:/);
+    const result = await retrySgosTaskWithInstalledAdapters(
+      fixture.root, failed.process.processId, task.taskInstanceId,
+      { confirmationSha256: plan.retryPlanSha256 }
+    );
+    assert.equal(result.status, 'succeeded');
+    assert.equal(result.effectRetryReceipt.parentAttemptId, plan.parentAttemptId);
+    assert.equal(result.effectRetryReceipt.attemptId, plan.expectedAttemptId);
+    assert.equal(result.effectRetryReceipt.toolIntentSha256,
+      plan.effectRecovery.toolIntentSha256);
+    assert.equal(result.taskReceipt.evidenceRefs.includes(
+      result.effectRetryReceipt.effectRetryReceiptSha256), true);
+    const finalEffect = await readSgosSandboxCasEffect(fixture.root, key);
+    if (priorEffect != null) {
+      assert.equal(finalEffect.effectSha256, priorEffect.effectSha256,
+        'post-effect recovery must verify rather than repeat the effect');
+    }
+    const fsck = await fsckSgosProcess(fixture.root, failed.process.processId);
+    assert.equal(fsck.status, 'ok');
+    const portable = await compileSgosProcessEvidence(
+      fixture.root, failed.process.processId
+    );
+    assert.deepEqual(portable.contradictions, []);
+    assert.deepEqual(verifySgosProcessEvidence(portable).contradictions, []);
+
+    const repeated = await retrySgosTaskWithInstalledAdapters(
+      fixture.root, failed.process.processId, task.taskInstanceId,
+      { confirmationSha256: plan.retryPlanSha256 }
+    );
+    assert.equal(repeated.recovered, true);
+    assert.equal((await readSgosSandboxCasEffect(fixture.root, key)).effectSha256,
+      finalEffect.effectSha256);
+  });
+}
+
+test('consequential retry recovers an interrupted Process transition without repeating the effect',
+  async (t) => {
+    const key = 'retry-transition-crash';
+    const fixture = await startedConsequential(t, 'SGOS-RETRY-TRANSITION-CRASH', { key });
+    const failed = await runNextSgosTask(fixture.root, fixture.process.processId, {
+      executionUnitOptions: {
+        'sandbox-cas': {
+          faultInjector(boundary) {
+            if (boundary === 'after-effect-before-tool-result') {
+              throw Object.assign(new Error('simulated post-effect crash'), { code: 'TEST_CRASH' });
+            }
+          }
+        }
+      },
+      clock: T1
+    });
+    const task = Object.values(failed.process.taskInstances)
+      .find((entry) => entry.taskTemplateId === '10-work');
+    const plan = await planSgosTaskRetry(
+      fixture.root, failed.process.processId, task.taskInstanceId, { createdAt: T2 }
+    );
+    const beforeRecovery = await readSgosSandboxCasEffect(fixture.root, key);
+    setSgosStoreFaultBoundaryForTests('state', { code: 'EIO' });
+    try {
+      await assert.rejects(
+        retrySgosTaskWithInstalledAdapters(
+          fixture.root, failed.process.processId, task.taskInstanceId,
+          { confirmationSha256: plan.retryPlanSha256 }
+        ),
+        (error) => error.code === 'SGOS_TRANSITION_RECOVERY_REQUIRED'
+          && error.details?.causeCode === 'EIO'
+      );
+    } finally {
+      setSgosStoreFaultBoundaryForTests(null);
+    }
+    assert.equal((await readSgosSandboxCasEffect(fixture.root, key)).effectSha256,
+      beforeRecovery.effectSha256);
+    const recovered = await retrySgosTaskWithInstalledAdapters(
+      fixture.root, failed.process.processId, task.taskInstanceId,
+      { confirmationSha256: plan.retryPlanSha256 }
+    );
+    assert.equal(recovered.recovered, true);
+    assert.equal((await readSgosSandboxCasEffect(fixture.root, key)).effectSha256,
+      beforeRecovery.effectSha256);
+    assert.equal((await fsckSgosProcess(fixture.root, failed.process.processId)).status, 'ok');
+  });
+
+test('concurrent consequential retry confirmations publish one child and one effect receipt',
+  async (t) => {
+    const key = 'retry-concurrent-effect';
+    const fixture = await startedConsequential(t, 'SGOS-RETRY-CONCURRENT-EFFECT', { key });
+    const failed = await runNextSgosTask(fixture.root, fixture.process.processId, {
+      executionUnitOptions: {
+        'sandbox-cas': {
+          faultInjector(boundary) {
+            if (boundary === 'after-tool-intent-before-effect') {
+              throw Object.assign(new Error('simulated pre-effect crash'), { code: 'TEST_CRASH' });
+            }
+          }
+        }
+      },
+      clock: T1
+    });
+    const task = Object.values(failed.process.taskInstances)
+      .find((entry) => entry.taskTemplateId === '10-work');
+    const plan = await planSgosTaskRetry(
+      fixture.root, failed.process.processId, task.taskInstanceId, { createdAt: T2 }
+    );
+    const execute = () => retrySgosTaskWithInstalledAdapters(
+      fixture.root, failed.process.processId, task.taskInstanceId,
+      { confirmationSha256: plan.retryPlanSha256 }
+    );
+    const outcomes = await Promise.allSettled([execute(), execute()]);
+    assert.equal(outcomes.filter((entry) => entry.status === 'fulfilled').length >= 1, true);
+    for (const rejected of outcomes.filter((entry) => entry.status === 'rejected')) {
+      assert.equal([
+        'SUBJECT_LOCK_BUSY', 'SGOS_PROCESS_REVISION_STALE',
+        'SGOS_TRANSITION_RECOVERY_REQUIRED', 'SGOS_TRANSITION_RECOVERED_RETRY'
+      ].includes(rejected.reason?.code), true, rejected.reason?.code);
+    }
+    const settled = await execute();
+    assert.equal(settled.recovered, true);
+    const final = await readSgosProcess(fixture.root, failed.process.processId);
+    assert.deepEqual(final.taskInstances[task.taskInstanceId].attemptIds,
+      [plan.parentAttemptId, plan.expectedAttemptId]);
+    const receipts = await listSgosImmutableRecordsByField(
+      fixture.root, failed.process.processId, 'effect-retry-receipt',
+      'retryPlanSha256', plan.retryPlanSha256
+    );
+    assert.equal(receipts.length, 1);
+    assert.equal((await fsckSgosProcess(fixture.root, failed.process.processId)).status, 'ok');
+  });
+
+test('consequential retry refuses changed postconditions and revoked Device authority', async (t) => {
+  const changed = await startedConsequential(t, 'SGOS-RETRY-POSTCONDITION-CHANGED', {
+    key: 'retry-postcondition-changed'
+  });
+  const changedFailure = await runNextSgosTask(changed.root, changed.process.processId, {
+    executionUnitOptions: {
+      'sandbox-cas': {
+        faultInjector(boundary) {
+          if (boundary === 'after-effect-before-tool-result') {
+            throw Object.assign(new Error('simulated post-effect crash'), { code: 'TEST_CRASH' });
+          }
+        }
+      }
+    },
+    clock: T1
+  });
+  const changedTask = Object.values(changedFailure.process.taskInstances)
+    .find((entry) => entry.taskTemplateId === '10-work');
+  const changedPlan = await planSgosTaskRetry(
+    changed.root, changedFailure.process.processId, changedTask.taskInstanceId, { createdAt: T2 }
+  );
+  const changedEffectPath = path.join(
+    changed.root, '.git', 'singularity-flow', 'sgos', 'devices', 'effects', 'sandbox-cas',
+    'retry-postcondition-changed.json'
+  );
+  await writeFile(changedEffectPath, '{"tampered":true}');
+  await assert.rejects(
+    retrySgosTaskWithInstalledAdapters(
+      changed.root, changedFailure.process.processId, changedTask.taskInstanceId,
+      { confirmationSha256: changedPlan.retryPlanSha256 }
+    ),
+    (error) => error.code === 'SGOS_DEVICE_EFFECT_UNCERTAIN'
+  );
+  assert.equal((await readSgosProcess(changed.root, changedFailure.process.processId)).status,
+    'recovery-required');
+
+  const revoked = await startedConsequential(t, 'SGOS-RETRY-DEVICE-REVOKED', {
+    key: 'retry-device-revoked'
+  });
+  const revokedFailure = await runNextSgosTask(revoked.root, revoked.process.processId, {
+    executionUnitOptions: {
+      'sandbox-cas': {
+        faultInjector(boundary) {
+          if (boundary === 'after-tool-intent-before-effect') {
+            throw Object.assign(new Error('simulated pre-effect crash'), { code: 'TEST_CRASH' });
+          }
+        }
+      }
+    },
+    clock: T1
+  });
+  const revokedTask = Object.values(revokedFailure.process.taskInstances)
+    .find((entry) => entry.taskTemplateId === '10-work');
+  const revokedPlan = await planSgosTaskRetry(
+    revoked.root, revokedFailure.process.processId, revokedTask.taskInstanceId, { createdAt: T2 }
+  );
+  const manifest = installedDeviceManifests().find((entry) => entry.id === 'sandbox-cas');
+  const revocation = await revokeSgosDevice(revoked.root, manifest.manifestSha256, {
+    reason: 'fixture revoked before retry'
+  });
+  await revokeSgosDevice(revoked.root, manifest.manifestSha256, {
+    reason: 'fixture revoked before retry',
+    confirmationSha256: revocation.confirmationSha256,
+    revokedAt: T2
+  });
+  await assert.rejects(
+    retrySgosTaskWithInstalledAdapters(
+      revoked.root, revokedFailure.process.processId, revokedTask.taskInstanceId,
+      { confirmationSha256: revokedPlan.retryPlanSha256 }
+    ),
+    (error) => error.code === 'SGOS_DEVICE_REVOKED'
+  );
+  assert.equal(await readSgosSandboxCasEffect(
+    revoked.root, 'retry-device-revoked', { optional: true }
+  ), null);
+  assert.equal((await readSgosProcess(revoked.root, revokedFailure.process.processId)).status,
+    'recovery-required');
 });
 
 test('task retry refuses exhausted and effect-unsafe failures without changing bytes', async (t) => {

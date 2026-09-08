@@ -35,6 +35,7 @@ const HASH_FIELDS = Object.freeze({
   'agent-proposal': 'proposalSha256',
   'candidate-snapshot': 'candidateSha256',
   'effect-replay-receipt': 'effectReplayReceiptSha256',
+  'effect-retry-receipt': 'effectRetryReceiptSha256',
   'fork-prefix-task-import': 'forkTaskImportSha256',
   'fork-prefix-import-receipt': 'forkImportReceiptSha256',
   'fanout-expansion-receipt': 'expansionSha256',
@@ -860,6 +861,122 @@ function validateEffectReplayLineage(bundle, wrappers, tools, contradictions) {
   }
 }
 
+function validateEffectRetryLineage(bundle, wrappers, tools, contradictions) {
+  const byIdentity = new Map(wrappers.filter(Boolean).map((wrapper) => [
+    recordIdentity(wrapper.family, wrapper.recordSha256), wrapper.record
+  ]));
+  const byAttempt = new Map();
+  for (const wrapper of wrappers.filter((entry) => entry?.family === 'gvm-task-receipt')) {
+    const values = byAttempt.get(wrapper.record.attemptId) ?? [];
+    values.push(wrapper.record);
+    byAttempt.set(wrapper.record.attemptId, values);
+  }
+  const templates = new Map((bundle.program?.taskTemplates ?? []).map((template) => [
+    template.taskTemplateId, template
+  ]));
+  const toolByIntent = new Map(tools.filter((entry) =>
+    typeof entry?.intentSha256 === 'string').map((entry) => [entry.intentSha256, entry]));
+  const seenPlans = new Set();
+  for (const wrapper of wrappers.filter((entry) =>
+    entry?.family === 'effect-retry-receipt')) {
+    const record = wrapper.record;
+    const parentAttempt = byIdentity.get(recordIdentity(
+      'gvm-task-attempt', record.parentAttemptSha256
+    ));
+    const parentEvidence = byIdentity.get(recordIdentity(
+      'action-evidence', record.parentEvidenceSha256
+    ));
+    const childAttempt = byIdentity.get(recordIdentity(
+      'gvm-task-attempt', record.attemptSha256
+    ));
+    const childEvidence = byIdentity.get(recordIdentity(
+      'action-evidence', record.actionEvidenceSha256
+    ));
+    const candidate = byIdentity.get(recordIdentity(
+      'candidate-snapshot', record.candidateSha256
+    ));
+    const receipts = byAttempt.get(record.attemptId) ?? [];
+    const taskReceipt = receipts.find((entry) =>
+      entry.evidenceRefs?.includes(record.effectRetryReceiptSha256)) ?? null;
+    const tool = toolByIntent.get(record.toolIntentSha256);
+    const template = templates.get(record.taskTemplateId);
+    const proof = {
+      status: 'passed',
+      deviceManifestSha256: record.deviceManifestSha256,
+      toolIntentSha256: record.toolIntentSha256,
+      toolResultSha256: record.toolResultSha256,
+      idempotencyKey: record.idempotencyKey,
+      effectSha256: record.effectSha256
+    };
+    const invalid = seenPlans.has(record.retryPlanSha256)
+      || record.processId !== bundle.processId
+      || template?.opcode !== 'DEVICE'
+      || template.recovery?.failedExecution !== 'device-reconcile'
+      || template.metadata?.deviceId !== 'sandbox-cas'
+      || template.metadata?.deviceManifestSha256 !== record.deviceManifestSha256
+      || !plain(template.metadata?.parameters)
+      || typeof template.metadata.parameters.operation !== 'string'
+      || !plain(template.metadata.parameters.arguments)
+      || !Array.isArray(template.metadata.parameters.scope)
+      || parentAttempt?.status !== 'failed'
+      || parentAttempt?.attemptId !== record.parentAttemptId
+      || parentAttempt?.processId !== bundle.processId
+      || parentAttempt?.taskInstanceId !== record.taskInstanceId
+      || parentEvidence?.attemptId !== record.parentAttemptId
+      || parentEvidence?.processId !== bundle.processId
+      || parentEvidence?.taskInstanceId !== record.taskInstanceId
+      || parentEvidence?.verification?.status !== 'failed'
+      || !parentEvidence?.evidenceRefs?.includes(record.toolIntentSha256)
+      || childAttempt?.status !== 'succeeded'
+      || childAttempt?.attemptId !== record.attemptId
+      || childAttempt?.parentAttemptId !== record.parentAttemptId
+      || childAttempt?.processId !== bundle.processId
+      || childAttempt?.taskInstanceId !== record.taskInstanceId
+      || childEvidence?.attemptId !== record.attemptId
+      || childEvidence?.processId !== bundle.processId
+      || childEvidence?.taskInstanceId !== record.taskInstanceId
+      || childEvidence?.verification?.status !== 'passed'
+      || childEvidence?.verification?.checksSha256 !== record.verificationChecksSha256
+      || childEvidence?.deviceManifestSha256 !== record.deviceManifestSha256
+      || candidate?.candidateSha256 !== record.candidateSha256
+      || taskReceipt?.attemptSha256 !== record.attemptSha256
+      || taskReceipt?.candidateSha256 !== record.candidateSha256
+      || taskReceipt?.verification?.checksSha256 !== record.verificationChecksSha256
+      || canonicalJson(taskReceipt?.outputRefs ?? null) !== canonicalJson(record.outputRefs)
+      || canonicalJson(record.outputRefs) !== canonicalJson([record.toolResultSha256])
+      || !taskReceipt?.evidenceRefs?.includes(record.toolIntentSha256)
+      || !taskReceipt?.evidenceRefs?.includes(record.toolResultSha256)
+      || !taskReceipt?.effectRefs?.includes(record.toolResultSha256)
+      || !childEvidence?.evidenceRefs?.includes(record.toolIntentSha256)
+      || !childEvidence?.evidenceRefs?.includes(record.toolResultSha256)
+      || !childEvidence?.effectRefs?.includes(record.toolResultSha256)
+      || tool?.intent?.processId !== bundle.processId
+      || tool?.intent?.taskInstanceId !== record.taskInstanceId
+      || tool?.intent?.attemptId !== record.parentAttemptId
+      || tool?.intent?.deviceManifestSha256 !== record.deviceManifestSha256
+      || tool?.intent?.authorizationSha256 !== record.deviceManifestSha256
+      || tool?.intent?.idempotencyKey !== record.idempotencyKey
+      || tool?.intent?.operation !== template?.metadata?.parameters?.operation
+      || tool?.intent?.argumentsSha256 !== sgosSha256(
+        template?.metadata?.parameters?.arguments
+      )
+      || tool?.intent?.scopeSha256 !== sgosSha256(
+        template?.metadata?.parameters?.scope
+      )
+      || tool?.result?.resultSha256 !== record.toolResultSha256
+      || tool?.result?.intentSha256 !== record.toolIntentSha256
+      || tool?.result?.status !== 'observed'
+      || tool?.result?.verification?.status !== 'passed'
+      || tool?.result?.effect?.effectSha256 !== record.effectSha256
+      || record.postconditionSha256 !== sgosSha256(proof);
+    if (invalid) {
+      add(contradictions, 'effect-retry-lineage-invalid',
+        'effect-retry-receipt', record.effectRetryReceiptSha256);
+    }
+    seenPlans.add(record.retryPlanSha256);
+  }
+}
+
 function semanticReferences(bundle, wrappers, tools, contradictions, gaps) {
   const byFamily = new Map();
   for (const wrapper of wrappers) {
@@ -966,6 +1083,27 @@ function semanticReferences(bundle, wrappers, tools, contradictions, gaps) {
     referenced.add(recordIdentity(wrapper.family, wrapper.recordSha256));
     referenced.add(recordIdentity('sgos-replay-plan', wrapper.record.replayPlanSha256));
     referenced.add(recordIdentity('gvm-task-receipt', wrapper.record.taskReceiptSha256));
+    referenceHash(wrapper.record.toolIntentSha256);
+    referenceHash(wrapper.record.toolResultSha256);
+    for (const hash of wrapper.record.outputRefs ?? []) referenceHash(hash);
+  }
+  for (const wrapper of byFamily.get('effect-retry-receipt') ?? []) {
+    referenced.add(recordIdentity(wrapper.family, wrapper.recordSha256));
+    referenced.add(recordIdentity(
+      'gvm-task-attempt', wrapper.record.parentAttemptSha256
+    ));
+    referenced.add(recordIdentity(
+      'action-evidence', wrapper.record.parentEvidenceSha256
+    ));
+    referenced.add(recordIdentity(
+      'gvm-task-attempt', wrapper.record.attemptSha256
+    ));
+    referenced.add(recordIdentity(
+      'candidate-snapshot', wrapper.record.candidateSha256
+    ));
+    referenced.add(recordIdentity(
+      'action-evidence', wrapper.record.actionEvidenceSha256
+    ));
     referenceHash(wrapper.record.toolIntentSha256);
     referenceHash(wrapper.record.toolResultSha256);
     for (const hash of wrapper.record.outputRefs ?? []) referenceHash(hash);
@@ -1151,6 +1289,7 @@ export function verifySgosProcessEvidence(bundleValue) {
   const tools = validateTools(bundle, contradictions, gaps);
   validateExecutionLeases(bundle, contradictions, gaps);
   validateEffectReplayLineage(bundle, wrappers, tools, contradictions);
+  validateEffectRetryLineage(bundle, wrappers, tools, contradictions);
   semanticReferences(bundle, wrappers, tools, contradictions, gaps);
   validateSourceIntegrity(bundle, contradictions, gaps);
 

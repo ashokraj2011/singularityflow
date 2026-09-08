@@ -1854,6 +1854,9 @@ export async function inspectSgosLineageIntegrity(root, processId, {
     .filter(([identity]) => identity.startsWith('task-retry-receipts\u0000'))
     .map(([, record]) => [record.retryPlanSha256, record]));
   for (const [retryPlanSha256, plan] of retryPlans) {
+    const consequential = plan.effectClassification === 'reconciled-consequential-device';
+    const recovery = plan.effectRecovery ?? null;
+    const exactRecoveryKeys = recovery == null ? [] : Object.keys(recovery).sort();
     if (plan.processId !== processId
         || !HASH.test(String(plan.expectedProcessSha256 ?? ''))
         || !HASH.test(String(plan.programSha256 ?? ''))
@@ -1870,8 +1873,27 @@ export async function inspectSgosLineageIntegrity(root, processId, {
         || !Number.isSafeInteger(plan.attemptNumber)
         || !Number.isSafeInteger(plan.maximumAttempts)
         || plan.attemptNumber < 2 || plan.attemptNumber > plan.maximumAttempts
-        || !['pure-or-read-only', 'verified-read-only-device']
+        || ![
+          'pure-or-read-only', 'verified-read-only-device',
+          'reconciled-consequential-device'
+        ]
           .includes(plan.effectClassification)
+        || (!consequential && recovery !== null)
+        || (consequential && (
+          recovery == null
+          || canonicalJson(exactRecoveryKeys) !== canonicalJson([
+            'argumentsSha256', 'classification', 'deviceId', 'deviceManifestSha256',
+            'idempotencyKey', 'operation', 'scopeSha256', 'toolIntentSha256'
+          ])
+          || recovery.classification !== 'reconciled-consequential-device'
+          || recovery.deviceId !== 'sandbox-cas'
+          || typeof recovery.operation !== 'string' || recovery.operation.length === 0
+          || !HASH.test(String(recovery.deviceManifestSha256 ?? ''))
+          || !HASH.test(String(recovery.toolIntentSha256 ?? ''))
+          || !HASH.test(String(recovery.idempotencyKey ?? ''))
+          || !HASH.test(String(recovery.argumentsSha256 ?? ''))
+          || !HASH.test(String(recovery.scopeSha256 ?? ''))
+        ))
         || typeof plan.createdAt !== 'string') {
       errors.push(Object.freeze({
         code: 'SGOS_LINEAGE_CORRUPT',

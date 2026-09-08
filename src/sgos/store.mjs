@@ -19,7 +19,7 @@ import {
 import { withSubjectLock } from '../subject-lock.mjs';
 import { SingularityFlowError, nowIso } from '../util.mjs';
 import {
-  createEffectReplayReceipt, createSgosTransitionIntent, MAXIMUM_SGOS_RECORD_INDEX_DELTA,
+  createEffectReplayReceipt, createEffectRetryReceipt, createSgosTransitionIntent, MAXIMUM_SGOS_RECORD_INDEX_DELTA,
   SGOS_RECORD_INDEX_FAMILIES, sha256, validateSgosRecord, validateSgosTransitionIntent
 } from './contracts.mjs';
 import {
@@ -77,7 +77,7 @@ const LIVE_CURRENT_EXECUTION_OWNERS = new Set();
 // one additional immutable record; each control transition can leave an event, successor, and
 // checkpoint. The fixed allowance covers state, authority, Program, lease, and directories.
 const MAX_QUARANTINE_RECORD_ENTRIES = 32
-  + 7 * SGOS_INSTALLED_LIMITS.maximumAttemptRecords
+  + 8 * SGOS_INSTALLED_LIMITS.maximumAttemptRecords
   + 3 * SGOS_INSTALLED_LIMITS.maximumControlRecords;
 const MAX_QUARANTINE_PENDING_FILES = SGOS_INSTALLED_LIMITS.maximumPendingWriterFiles;
 const MAX_QUARANTINE_TREE_FILES = MAX_QUARANTINE_RECORD_ENTRIES
@@ -100,6 +100,7 @@ const IMMUTABLE_FAMILIES = Object.freeze({
   'reducer-join-receipt': Object.freeze({ directory: 'reducer-join-receipts', hashField: 'reducerJoinReceiptSha256' }),
   'manual-reconcile-join-receipt': Object.freeze({ directory: 'manual-reconcile-join-receipts', hashField: 'manualReconcileJoinReceiptSha256' }),
   'effect-replay-receipt': Object.freeze({ directory: 'effect-replay-receipts', hashField: 'effectReplayReceiptSha256' }),
+  'effect-retry-receipt': Object.freeze({ directory: 'effect-retry-receipts', hashField: 'effectRetryReceiptSha256' }),
   'fork-prefix-task-import': Object.freeze({ directory: 'fork-prefix-task-imports', hashField: 'forkTaskImportSha256' }),
   'fork-prefix-import-receipt': Object.freeze({ directory: 'fork-prefix-import-receipts', hashField: 'forkImportReceiptSha256' }),
   'fanout-expansion-receipt': Object.freeze({ directory: 'fanout-expansions', hashField: 'expansionSha256' }),
@@ -4174,10 +4175,118 @@ async function assertSuccessfulReceiptLineage(
     }
 }
 
+async function assertEffectRetryReceiptLineage(
+  root, state, taskId, receipt, evidence, template
+) {
+  const candidates = [];
+  for (const reference of receipt.evidenceRefs ?? []) {
+    if (!SHA256.test(String(reference ?? ''))) continue;
+    try {
+      candidates.push((await readSgosImmutableRecord(
+        root, state.processId, 'effect-retry-receipt', reference
+      )).record);
+    } catch (error) {
+      if (error?.code !== 'SGOS_RECORD_NOT_FOUND') throw error;
+    }
+  }
+  if (candidates.length === 0) return null;
+  if (candidates.length !== 1) {
+    fail(`DEVICE task '${taskId}' binds more than one consequential retry receipt.`,
+      'SGOS_TASK_RETRY_LINEAGE_INVALID');
+  }
+  const effectReceipt = candidates[0];
+  const [{ record: parentAttempt }, { record: parentEvidence },
+    { record: childAttempt }, { record: candidate }] = await Promise.all([
+    readSgosImmutableRecord(
+      root, state.processId, 'gvm-task-attempt', effectReceipt.parentAttemptSha256
+    ),
+    readSgosImmutableRecord(
+      root, state.processId, 'action-evidence', effectReceipt.parentEvidenceSha256
+    ),
+    readSgosImmutableRecord(
+      root, state.processId, 'gvm-task-attempt', effectReceipt.attemptSha256
+    ),
+    readSgosImmutableRecord(
+      root, state.processId, 'candidate-snapshot', effectReceipt.candidateSha256
+    )
+  ]);
+  const intent = await readSgosToolIntent(root, effectReceipt.toolIntentSha256);
+  const result = await readSgosToolResult(root, intent.intentSha256);
+  const proof = await verifySgosDeviceEffectPostcondition(root, intent, result);
+  const parameters = template.metadata?.parameters ?? {};
+  const expected = createEffectRetryReceipt({
+    processId: state.processId,
+    retryPlanSha256: effectReceipt.retryPlanSha256,
+    taskInstanceId: taskId,
+    taskTemplateId: template.taskTemplateId,
+    parentAttemptId: parentAttempt.attemptId,
+    parentAttemptSha256: parentAttempt.attemptSha256,
+    parentEvidenceSha256: parentEvidence.evidenceSha256,
+    attemptId: childAttempt.attemptId,
+    attemptSha256: childAttempt.attemptSha256,
+    candidateSha256: candidate.candidateSha256,
+    actionEvidenceSha256: evidence.evidenceSha256,
+    verificationChecksSha256: receipt.verification.checksSha256,
+    deviceManifestSha256: proof.deviceManifestSha256,
+    toolIntentSha256: proof.toolIntentSha256,
+    toolResultSha256: proof.toolResultSha256,
+    idempotencyKey: proof.idempotencyKey,
+    effectSha256: proof.effectSha256,
+    postconditionSha256: proof.postconditionSha256,
+    outputRefs: receipt.outputRefs,
+    reconciledAt: effectReceipt.reconciledAt
+  });
+  if (template.recovery?.failedExecution !== 'device-reconcile'
+      || template.metadata?.deviceId !== 'sandbox-cas'
+      || effectReceipt.attemptId !== receipt.attemptId
+      || effectReceipt.attemptSha256 !== receipt.attemptSha256
+      || effectReceipt.candidateSha256 !== receipt.candidateSha256
+      || effectReceipt.actionEvidenceSha256 !== evidence.evidenceSha256
+      || effectReceipt.parentAttemptId !== childAttempt.parentAttemptId
+      || parentAttempt.status !== 'failed'
+      || parentAttempt.processId !== state.processId
+      || parentAttempt.taskInstanceId !== taskId
+      || parentEvidence.processId !== state.processId
+      || parentEvidence.taskInstanceId !== taskId
+      || parentEvidence.attemptId !== parentAttempt.attemptId
+      || parentEvidence.verification?.status !== 'failed'
+      || !parentEvidence.evidenceRefs.includes(intent.intentSha256)
+      || childAttempt.status !== 'succeeded'
+      || childAttempt.processId !== state.processId
+      || childAttempt.taskInstanceId !== taskId
+      || candidate.candidateSha256 !== receipt.candidateSha256
+      || intent.processId !== state.processId
+      || intent.taskInstanceId !== taskId
+      || intent.attemptId !== parentAttempt.attemptId
+      || intent.deviceManifestSha256 !== template.metadata.deviceManifestSha256
+      || intent.authorizationSha256 !== template.metadata.deviceManifestSha256
+      || intent.operation !== parameters.operation
+      || intent.argumentsSha256 !== sha256(parameters.arguments)
+      || intent.scopeSha256 !== sha256(parameters.scope)
+      || result.resultSha256 !== effectReceipt.toolResultSha256
+      || canonicalJson(receipt.outputRefs) !== canonicalJson([result.resultSha256])
+      || !receipt.evidenceRefs.includes(effectReceipt.effectRetryReceiptSha256)
+      || !receipt.evidenceRefs.includes(intent.intentSha256)
+      || !receipt.evidenceRefs.includes(result.resultSha256)
+      || !receipt.effectRefs.includes(result.resultSha256)
+      || !evidence.evidenceRefs.includes(intent.intentSha256)
+      || !evidence.evidenceRefs.includes(result.resultSha256)
+      || !evidence.effectRefs.includes(result.resultSha256)
+      || evidence.deviceManifestSha256 !== template.metadata.deviceManifestSha256
+      || canonicalJson(expected) !== canonicalJson(effectReceipt)) {
+    fail(`DEVICE task '${taskId}' consequential retry lineage is stale or counterfeit.`,
+      'SGOS_TASK_RETRY_LINEAGE_INVALID');
+  }
+  return effectReceipt;
+}
+
 async function assertDeviceReceiptLineage(
   root, state, taskId, receipt, evidence, template
 ) {
   if (template?.opcode !== 'DEVICE') return;
+  const effectRetry = await assertEffectRetryReceiptLineage(
+    root, state, taskId, receipt, evidence, template
+  );
   const references = [...new Set([
     ...(receipt.evidenceRefs ?? []), ...(receipt.outputRefs ?? []),
     ...(receipt.effectRefs ?? []), ...(evidence.evidenceRefs ?? []),
@@ -4201,7 +4310,7 @@ async function assertDeviceReceiptLineage(
   const manifestSha256 = template.metadata?.deviceManifestSha256;
   if (intent.processId !== state.processId
       || intent.taskInstanceId !== taskId
-      || intent.attemptId !== receipt.attemptId
+      || intent.attemptId !== (effectRetry?.parentAttemptId ?? receipt.attemptId)
       || intent.deviceManifestSha256 !== manifestSha256
       || intent.authorizationSha256 !== manifestSha256
       || intent.operation !== parameters.operation
@@ -4591,7 +4700,7 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
   // task state. A self-hashed Process cannot reset a receipted task to ready and execute it again.
   const [attempts, receipts, agentProposals, resourceLeases, joinReceipts,
     quorumJoinReceipts, reducerJoinReceipts, manualReconcileJoinReceipts, fanoutReceipts,
-    effectReplayReceipts, forkTaskImports, forkImportReceipts, checkpoints,
+    effectReplayReceipts, effectRetryReceipts, forkTaskImports, forkImportReceipts, checkpoints,
     { record: program }] = await Promise.all([
     allRecords('gvm-task-attempt'),
     allRecords('gvm-task-receipt'),
@@ -4603,6 +4712,7 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
     allRecords('manual-reconcile-join-receipt'),
     allRecords('fanout-expansion-receipt'),
     allRecords('effect-replay-receipt'),
+    allRecords('effect-retry-receipt'),
     allRecords('fork-prefix-task-import'),
     allRecords('fork-prefix-import-receipt'),
     allRecords('gvm-checkpoint'),
@@ -4675,6 +4785,29 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
           replayPlanSha256: plan.replayPlanSha256
         });
     }
+  }
+  const effectRetryByPlan = recordsBy(effectRetryReceipts, 'retryPlanSha256');
+  for (const [retryPlanSha256, retryRecords] of effectRetryByPlan) {
+    if (retryRecords.length !== 1) {
+      fail('Consequential retry has duplicate immutable effect receipts.',
+        'SGOS_TASK_RETRY_LINEAGE_INVALID', { retryPlanSha256 });
+    }
+    const effectReceipt = retryRecords[0];
+    const matchingReceipts = receipts.filter((entry) =>
+      entry.attemptId === effectReceipt.attemptId
+      && entry.taskInstanceId === effectReceipt.taskInstanceId
+      && entry.evidenceRefs.includes(effectReceipt.effectRetryReceiptSha256));
+    const matchingEvidence = await allRecords('action-evidence').then((records) =>
+      records.filter((entry) => entry.evidenceSha256 === effectReceipt.actionEvidenceSha256));
+    const template = templates.get(effectReceipt.taskTemplateId);
+    if (matchingReceipts.length !== 1 || matchingEvidence.length !== 1 || !template) {
+      fail('Consequential retry receipt is orphaned from its successful task lineage.',
+        'SGOS_TASK_RETRY_LINEAGE_INVALID', { retryPlanSha256 });
+    }
+    await assertEffectRetryReceiptLineage(
+      root, state, effectReceipt.taskInstanceId,
+      matchingReceipts[0], matchingEvidence[0], template
+    );
   }
 
   for (const [taskId, task] of Object.entries(state.taskInstances)) {
@@ -5247,6 +5380,7 @@ async function assertTransitionIndexDelta(root, before, after, index) {
   const introducedReplayPlans = new Set();
   const consumedAgentProposals = new Set();
   const consumedForkTaskImports = new Set();
+  const consumedEffectRetries = new Set();
   const introducedForkAggregates = index.delta.filter((entry) =>
     entry.family === 'fork-prefix-import-receipt');
   for (const [taskId, task] of Object.entries(after.taskInstances)) {
@@ -5384,6 +5518,21 @@ async function assertTransitionIndexDelta(root, before, after, index) {
             'SGOS_AGENT_PROPOSAL_BINDING_MISMATCH');
         }
         consumedAgentProposals.add(proposalSha256);
+      }
+      if (exactForkImports.length === 0 && template?.opcode === 'DEVICE') {
+        const exactEffectRetries = index.delta.filter((entry) =>
+          entry.family === 'effect-retry-receipt'
+          && entry.attemptId === receipt.attemptId
+          && entry.taskInstanceId === taskId);
+        if (exactEffectRetries.length > 1
+            || (exactEffectRetries.length === 1
+              && !receipt.evidenceRefs.includes(exactEffectRetries[0].recordSha256))) {
+          fail(`DEVICE task '${taskId}' did not bind one exact consequential retry receipt.`,
+            'SGOS_TASK_RETRY_LINEAGE_INVALID');
+        }
+        if (exactEffectRetries.length === 1) {
+          consumedEffectRetries.add(exactEffectRetries[0].recordSha256);
+        }
       }
       if (exactForkImports.length === 0 && template?.opcode === 'JOIN') {
         const join = (program.joins ?? []).find((entry) =>
@@ -5523,6 +5672,15 @@ async function assertTransitionIndexDelta(root, before, after, index) {
     fail('SGOS transition introduced an unbound fork-prefix task import.',
       'SGOS_FORK_PREFIX_EVIDENCE_INVALID', {
         records: unconsumedForkTaskImports.map((entry) => entry.recordSha256)
+      });
+  }
+  const unconsumedEffectRetries = index.delta.filter((entry) =>
+    entry.family === 'effect-retry-receipt'
+    && !consumedEffectRetries.has(entry.recordSha256));
+  if (unconsumedEffectRetries.length) {
+    fail('SGOS transition introduced an unbound consequential retry receipt.',
+      'SGOS_TASK_RETRY_LINEAGE_INVALID', {
+        records: unconsumedEffectRetries.map((entry) => entry.recordSha256)
       });
   }
   if (introducedForkAggregates.length

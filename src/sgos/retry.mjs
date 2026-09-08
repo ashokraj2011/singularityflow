@@ -6,10 +6,10 @@
  * retry boundary, then dispatches only that task through the ordinary runtime CAS.  The next
  * attempt therefore keeps the failed attempt as its immutable parent.
  *
- * Consequential Device retries are deliberately refused by this profile.  A verified effect is
- * evidence for reconciliation, not permission to create a different Tool Intent; an uncertain
- * effect is never repeatable.  Installing such a retry requires an adapter whose exact recovery
- * protocol can bind the new attempt to the original idempotency receipt.
+ * Consequential Device retries remain refused unless the exact installed manifest supplies a
+ * reviewed recovery protocol. The first such profile is sandbox-cas: it reuses the original
+ * durable Tool Intent, proves the exact postcondition, and publishes a separate immutable retry
+ * receipt. It never mints a second Tool Intent or repeats an already-applied effect.
  */
 import path from 'node:path';
 import { types as utilTypes } from 'node:util';
@@ -17,16 +17,24 @@ import { types as utilTypes } from 'node:util';
 import { gitCommonDir } from '../git.mjs';
 import { canonicalJson, recordSha256 } from '../records.mjs';
 import { SingularityFlowError, nowIso } from '../util.mjs';
-import { sha256 } from './contracts.mjs';
-import { installedDeviceManifests } from './devices.mjs';
+import {
+  createCandidateSnapshot, createEffectRetryReceipt, sha256
+} from './contracts.mjs';
+import {
+  installedDeviceManifests, readSgosToolIntent, readSgosToolResult,
+  recoverSgosToolIntent, verifySgosDeviceEffectPostcondition
+} from './devices.mjs';
+import {
+  buildSgosTaskAttempt, buildSgosTaskReceipt, compileSgosActionEvidence, sgosSha256
+} from './evidence.mjs';
 import { createSgosBuiltinAdapters } from './builtin-adapters.mjs';
 import { SGOS_INSTALLED_LIMITS } from './limits.mjs';
 import {
-  assertCurrentStoredProcessBinding, runNextSgosTask
+  assertCurrentStoredProcessBinding, runNextSgosTask, updateSgosReadinessAndStatus
 } from './runtime.mjs';
 import {
   listSgosImmutableRecordsByField, readSgosProcess, readSgosProgram,
-  recoverPendingSgosTransition
+  mutateSgosProcess, putSgosImmutableRecord, recoverPendingSgosTransition
 } from './store.mjs';
 import {
   readPrivateSidecar, writeImmutablePrivateSidecar
@@ -161,6 +169,64 @@ function effectSafety(template) {
   });
 }
 
+async function consequentialRetryBoundary(root, process, task, template, prior) {
+  const devices = [...(template.resources?.devices ?? [])];
+  const writes = [...(template.resources?.writes ?? [])].sort();
+  const externalEffects = [...(template.resources?.externalEffects ?? [])].sort();
+  const manifest = installedDeviceManifests().find((entry) =>
+    entry.id === devices[0] && entry.manifestSha256 === template.metadata?.deviceManifestSha256);
+  const parameters = template.metadata?.parameters ?? {};
+  if (template.opcode !== 'DEVICE' || devices.length !== 1 || manifest?.id !== 'sandbox-cas'
+      || manifest.effects?.class !== 'local-consequential'
+      || manifest.idempotency?.kind !== 'content-addressed-tool-intent'
+      || manifest.recovery?.protocol !== 'inspect-exact-postcondition'
+      || manifest.recovery?.replayEffect !== false
+      || writes.length !== 1 || canonicalJson(writes) !== canonicalJson(externalEffects)
+      || typeof parameters.operation !== 'string' || parameters.operation.length === 0
+      || parameters.arguments == null || typeof parameters.arguments !== 'object'
+      || Array.isArray(parameters.arguments)
+      || canonicalJson(parameters.scope ?? []) !== canonicalJson(writes)) {
+    fail('Task effects have no installed exact consequential-retry protocol.',
+      'SGOS_TASK_RETRY_EFFECT_UNSAFE', {
+        classification: 'device-effect-requires-exact-reconciliation',
+        devices,
+        remediation: 'Use an installed Device recovery protocol bound to the original Tool Intent.'
+      });
+  }
+  const intents = [];
+  for (const reference of prior.evidence.evidenceRefs ?? []) {
+    if (!HASH.test(String(reference ?? ''))) continue;
+    try { intents.push(await readSgosToolIntent(root, reference)); }
+    catch (error) { if (error?.code !== 'ENOENT') throw error; }
+  }
+  if (intents.length !== 1) {
+    fail('Consequential retry requires exactly one original Tool Intent in failed Action Evidence.',
+      'SGOS_TASK_RETRY_LINEAGE_INVALID', { intentCount: intents.length });
+  }
+  const intent = intents[0];
+  if (intent.processId !== process.processId
+      || intent.taskInstanceId !== task.taskInstanceId
+      || intent.attemptId !== prior.attemptId
+      || intent.deviceManifestSha256 !== manifest.manifestSha256
+      || intent.authorizationSha256 !== manifest.manifestSha256
+      || intent.operation !== parameters.operation
+      || intent.argumentsSha256 !== sha256(parameters.arguments)
+      || intent.scopeSha256 !== sha256(parameters.scope)) {
+    fail('Original Tool Intent crosses the failed task or compiled Device boundary.',
+      'SGOS_TASK_RETRY_LINEAGE_INVALID');
+  }
+  return freezeDeep({
+    classification: 'reconciled-consequential-device',
+    deviceId: manifest.id,
+    deviceManifestSha256: manifest.manifestSha256,
+    toolIntentSha256: intent.intentSha256,
+    idempotencyKey: intent.idempotencyKey,
+    operation: parameters.operation,
+    argumentsSha256: intent.argumentsSha256,
+    scopeSha256: intent.scopeSha256
+  });
+}
+
 async function exactFailedAttempt(root, process, task) {
   const attemptId = task.attemptIds.at(-1);
   if (attemptId == null) {
@@ -222,13 +288,18 @@ async function retryBoundary(root, processId, taskInstanceId) {
         attempts: task.attemptIds.length, maximumAttempts
       });
   }
+  const prior = await exactFailedAttempt(root, process, task);
   const policy = recoveryPolicy(template);
-  if (policy !== 'retry-safe') {
+  const effects = effectSafety(template);
+  let effectRecovery = null;
+  if (policy === 'device-reconcile') {
+    effectRecovery = await consequentialRetryBoundary(
+      root, process, task, template, prior
+    );
+  } else if (policy !== 'retry-safe') {
     fail('Task recovery policy does not explicitly classify retry as safe.',
       'SGOS_TASK_RETRY_POLICY_UNSAFE', { recoveryPolicy: policy });
-  }
-  const effects = effectSafety(template);
-  if (!effects.safe) {
+  } else if (!effects.safe) {
     fail('Task effects cannot be repeated by the installed ordinary-retry profile.',
       'SGOS_TASK_RETRY_EFFECT_UNSAFE', {
         ...effects,
@@ -237,14 +308,17 @@ async function retryBoundary(root, processId, taskInstanceId) {
           : 'Use an effect-specific idempotency and reconciliation policy.'
       });
   }
-  if (process.status !== 'running' || task.state !== 'ready') {
+  const expectedStatus = effectRecovery == null ? 'running' : 'recovery-required';
+  const expectedTaskState = effectRecovery == null ? 'ready' : 'recovery-required';
+  if (process.status !== expectedStatus || task.state !== expectedTaskState) {
     fail(`Task '${taskInstanceId}' is '${task.state}', not retry-ready.`,
       'SGOS_TASK_RETRY_NOT_READY', {
         taskInstanceId, taskState: task.state, processStatus: process.status
       });
   }
-  const prior = await exactFailedAttempt(root, process, task);
-  return freezeDeep({ process, program, task, template, maximumAttempts, effects, prior });
+  return freezeDeep({
+    process, program, task, template, maximumAttempts, effects, effectRecovery, prior
+  });
 }
 
 async function planWithinPolicy(root, processId, taskInstanceId, { createdAt = nowIso() } = {}) {
@@ -269,7 +343,9 @@ async function planWithinPolicy(root, processId, taskInstanceId, { createdAt = n
     attemptNumber,
     expectedAttemptId: stableAttemptId(processId, taskInstanceId, attemptNumber),
     maximumAttempts: boundary.maximumAttempts,
-    effectClassification: boundary.effects.classification,
+    effectClassification: boundary.effectRecovery?.classification
+      ?? boundary.effects.classification,
+    effectRecovery: boundary.effectRecovery,
     createdAt
   });
   await writeImmutable(root,
@@ -335,6 +411,240 @@ function retryReceipt(plan, process, applied) {
   });
 }
 
+function processBaselineSha256(process) {
+  return process.authorityBinding?.baselineSnapshotSha256 ?? sgosSha256({
+    kind: 'sgos-process-baseline',
+    processBindingSha256: process.processBindingSha256,
+    revision: process.authorityBinding?.baselineRevision ?? process.processBindingSha256
+  });
+}
+
+async function exactEffectRetryReceipt(root, processId, retryPlanSha256, { optional = false } = {}) {
+  const records = await listSgosImmutableRecordsByField(
+    root, processId, 'effect-retry-receipt', 'retryPlanSha256', retryPlanSha256
+  );
+  if (records.length > 1 || (!optional && records.length !== 1)) {
+    fail('Consequential retry must have exactly one immutable effect-retry receipt.',
+      'SGOS_TASK_RETRY_LINEAGE_INVALID', { retryPlanSha256, receiptCount: records.length });
+  }
+  return records[0] ?? null;
+}
+
+async function recoverAppliedConsequentialRetry(root, process, plan) {
+  const receipt = await exactEffectRetryReceipt(
+    root, process.processId, plan.retryPlanSha256, { optional: true }
+  );
+  if (receipt == null) return null;
+  const task = process.taskInstances?.[plan.taskInstanceId];
+  if (!task || task.state !== 'succeeded'
+      || task.attemptIds.at(-1) !== plan.expectedAttemptId
+      || task.attemptIds.at(-2) !== plan.parentAttemptId
+      || task.receiptSha256 == null
+      || receipt.processId !== process.processId
+      || receipt.taskInstanceId !== plan.taskInstanceId
+      || receipt.parentAttemptId !== plan.parentAttemptId
+      || receipt.attemptId !== plan.expectedAttemptId
+      || receipt.retryPlanSha256 !== plan.retryPlanSha256) {
+    fail('Consequential retry receipt no longer matches the exact Process task lineage.',
+      'SGOS_TASK_RETRY_LINEAGE_INVALID');
+  }
+  const attempts = await listSgosImmutableRecordsByField(
+    root, process.processId, 'gvm-task-attempt', 'attemptId', plan.expectedAttemptId
+  );
+  const terminal = attempts.filter((entry) => entry.status === 'succeeded');
+  if (attempts.filter((entry) => entry.status === 'running').length !== 1
+      || terminal.length !== 1
+      || terminal[0].attemptSha256 !== receipt.attemptSha256) {
+    fail('Consequential retry receipt has no exact running→succeeded child attempt.',
+      'SGOS_TASK_RETRY_LINEAGE_INVALID');
+  }
+  return freezeDeep({ task, attempt: terminal[0], effectRetryReceipt: receipt, inProgress: false });
+}
+
+async function applyConsequentialRetry(root, boundary, plan) {
+  const parameters = boundary.template.metadata.parameters;
+  const originalIntent = await readSgosToolIntent(
+    root, plan.effectRecovery.toolIntentSha256
+  );
+  const request = {
+    deviceId: plan.effectRecovery.deviceId,
+    processId: plan.processId,
+    taskInstanceId: plan.taskInstanceId,
+    attemptId: plan.parentAttemptId,
+    operation: parameters.operation,
+    arguments: structuredClone(parameters.arguments),
+    scope: [...parameters.scope],
+    authorizationSha256: plan.effectRecovery.deviceManifestSha256,
+    createdAt: originalIntent.createdAt
+  };
+  // Recovery reuses the content-addressed original Intent. For sandbox-cas this either applies a
+  // provably not-started effect once or verifies the already-applied postcondition without replay.
+  const recovered = await recoverSgosToolIntent(
+    root, originalIntent.intentSha256, request
+  );
+  const proof = await verifySgosDeviceEffectPostcondition(
+    root, recovered.intent, recovered.result
+  );
+  if (proof.toolIntentSha256 !== plan.effectRecovery.toolIntentSha256
+      || proof.deviceManifestSha256 !== plan.effectRecovery.deviceManifestSha256
+      || proof.idempotencyKey !== plan.effectRecovery.idempotencyKey) {
+    fail('Recovered Device proof differs from the confirmed consequential-retry plan.',
+      'SGOS_TASK_RETRY_PLAN_STALE');
+  }
+  const completedAt = plan.createdAt;
+  const executionHandleSha256 = sgosSha256({
+    kind: 'sgos-effect-retry-execution', retryPlanSha256: plan.retryPlanSha256
+  });
+  const runningAttempt = buildSgosTaskAttempt({
+    attemptId: plan.expectedAttemptId,
+    processId: plan.processId,
+    taskInstanceId: plan.taskInstanceId,
+    attemptNumber: plan.attemptNumber,
+    parentAttemptId: plan.parentAttemptId,
+    reason: 'recovery',
+    taskContractSha256: boundary.process.taskContractSha256,
+    executionHandleSha256,
+    status: 'running',
+    startedAt: completedAt,
+    completedAt: null
+  });
+  const terminalAttempt = buildSgosTaskAttempt({
+    attemptId: plan.expectedAttemptId,
+    processId: plan.processId,
+    taskInstanceId: plan.taskInstanceId,
+    attemptNumber: plan.attemptNumber,
+    parentAttemptId: plan.parentAttemptId,
+    reason: 'recovery',
+    taskContractSha256: boundary.process.taskContractSha256,
+    executionHandleSha256,
+    status: 'succeeded',
+    startedAt: completedAt,
+    completedAt
+  });
+  const authority = boundary.process.authorityBinding ?? {};
+  const candidate = createCandidateSnapshot({
+    subject: {
+      kind: authority.kind ?? 'story',
+      id: authority.subjectId,
+      revision: String(authority.baselineRevision),
+      sha256: boundary.process.processBindingSha256
+    },
+    baseline: {
+      revision: String(authority.baselineRevision),
+      snapshotSha256: processBaselineSha256(boundary.process)
+    },
+    resources: [],
+    createdBy: { id: `sgos-retry:${plan.expectedAttemptId}`, kind: 'system' },
+    createdAt: completedAt
+  });
+  const verification = {
+    status: 'passed',
+    checksSha256: sgosSha256({
+      kind: 'sgos-effect-retry-verification',
+      retryPlanSha256: plan.retryPlanSha256,
+      candidateSha256: candidate.candidateSha256,
+      toolIntentSha256: proof.toolIntentSha256,
+      toolResultSha256: proof.toolResultSha256,
+      postconditionSha256: proof.postconditionSha256
+    })
+  };
+  const outputRefs = [proof.toolResultSha256];
+  const actionEvidence = compileSgosActionEvidence({
+    processId: plan.processId,
+    taskInstanceId: plan.taskInstanceId,
+    attemptId: plan.expectedAttemptId,
+    programSha256: boundary.process.programSha256,
+    taskContractSha256: boundary.process.taskContractSha256,
+    deviceManifest: proof.deviceManifestSha256,
+    arguments: boundary.template.operation,
+    preState: {
+      processSha256: boundary.process.processSha256,
+      processRevision: boundary.process.processRevision,
+      parentAttemptSha256: plan.parentAttemptSha256
+    },
+    rawResult: {
+      status: 'completed', recovery: 'exact-tool-intent-reconciliation',
+      toolIntents: [proof.toolIntentSha256], toolResults: [proof.toolResultSha256]
+    },
+    postState: candidate.candidateSha256,
+    verification,
+    cost: { status: 'observed', amount: 0 },
+    evidenceRefs: [proof.toolIntentSha256, proof.toolResultSha256],
+    effectRefs: [proof.toolResultSha256],
+    executionEvents: [
+      { sequence: 1, type: 'tool-intent', eventSha256: proof.toolIntentSha256 },
+      { sequence: 2, type: 'tool-result', eventSha256: proof.toolResultSha256 }
+    ],
+    requiresDevice: true,
+    createdAt: completedAt
+  });
+  const effectRetryReceipt = createEffectRetryReceipt({
+    processId: plan.processId,
+    retryPlanSha256: plan.retryPlanSha256,
+    taskInstanceId: plan.taskInstanceId,
+    taskTemplateId: plan.taskTemplateId,
+    parentAttemptId: plan.parentAttemptId,
+    parentAttemptSha256: plan.parentAttemptSha256,
+    parentEvidenceSha256: plan.parentEvidenceSha256,
+    attemptId: plan.expectedAttemptId,
+    attemptSha256: terminalAttempt.attemptSha256,
+    candidateSha256: candidate.candidateSha256,
+    actionEvidenceSha256: actionEvidence.evidenceSha256,
+    verificationChecksSha256: verification.checksSha256,
+    deviceManifestSha256: proof.deviceManifestSha256,
+    toolIntentSha256: proof.toolIntentSha256,
+    toolResultSha256: proof.toolResultSha256,
+    idempotencyKey: proof.idempotencyKey,
+    effectSha256: proof.effectSha256,
+    postconditionSha256: proof.postconditionSha256,
+    outputRefs,
+    reconciledAt: completedAt
+  });
+  const taskReceipt = buildSgosTaskReceipt({
+    processId: plan.processId,
+    taskInstanceId: plan.taskInstanceId,
+    attemptId: plan.expectedAttemptId,
+    attemptSha256: terminalAttempt.attemptSha256,
+    inputRefs: boundary.task.inputRefs,
+    outputRefs,
+    candidateSha256: candidate.candidateSha256,
+    evidenceRefs: [
+      candidate.candidateSha256, actionEvidence.evidenceSha256,
+      effectRetryReceipt.effectRetryReceiptSha256,
+      proof.toolIntentSha256, proof.toolResultSha256
+    ],
+    effectRefs: [proof.toolResultSha256],
+    verification,
+    completedAt
+  });
+  const process = await mutateSgosProcess(root, plan.processId, async (draft) => {
+    for (const [family, record] of [
+      ['gvm-task-attempt', runningAttempt],
+      ['candidate-snapshot', candidate],
+      ['gvm-task-attempt', terminalAttempt],
+      ['action-evidence', actionEvidence],
+      ['effect-retry-receipt', effectRetryReceipt],
+      ['gvm-task-receipt', taskReceipt]
+    ]) await putSgosImmutableRecord(root, plan.processId, family, record);
+    const target = draft.taskInstances[plan.taskInstanceId];
+    target.state = 'succeeded';
+    target.attemptIds = [...target.attemptIds, plan.expectedAttemptId];
+    target.outputRefs = [...outputRefs];
+    target.receiptSha256 = taskReceipt.receiptSha256;
+    target.revision += 1;
+    updateSgosReadinessAndStatus(draft, boundary.program);
+  }, {
+    expectedRevision: plan.expectedProcessRevision,
+    expectedProcessSha256: plan.expectedProcessSha256,
+    updatedAt: completedAt
+  });
+  return freezeDeep({
+    status: 'succeeded', taskInstanceId: plan.taskInstanceId, process,
+    attempt: terminalAttempt, receipt: taskReceipt, evidence: actionEvidence,
+    effectRetryReceipt, deviceResult: recovered.result
+  });
+}
+
 async function retryWithinPolicy(root, processId, taskInstanceId, {
   confirmationSha256,
   ...runtimeOptions
@@ -395,8 +705,21 @@ async function retryWithinPolicy(root, processId, taskInstanceId, {
       || boundary.prior.terminal.attemptSha256 !== plan.parentAttemptSha256
       || boundary.prior.evidence.evidenceSha256 !== plan.parentEvidenceSha256
       || boundary.maximumAttempts !== plan.maximumAttempts
-      || boundary.effects.classification !== plan.effectClassification) {
+      || (boundary.effectRecovery?.classification ?? boundary.effects.classification)
+        !== plan.effectClassification
+      || canonicalJson(boundary.effectRecovery ?? null)
+        !== canonicalJson(plan.effectRecovery ?? null)) {
     fail('Task retry evidence or policy changed after preview.', 'SGOS_TASK_RETRY_PLAN_STALE');
+  }
+  if (plan.effectRecovery != null) {
+    const result = await applyConsequentialRetry(root, boundary, plan);
+    const applied = await recoverAppliedConsequentialRetry(root, result.process, plan);
+    const receipt = retryReceipt(plan, result.process, applied);
+    await writeImmutable(root,
+      retryPath(root, processId, 'task-retry-receipts', plan.retryPlanSha256), receipt);
+    return freezeDeep({
+      ...result, taskReceipt: result.receipt, plan, receipt, recovered: false
+    });
   }
   const result = await runNextSgosTask(root, processId, {
     ...runtimeOptions,

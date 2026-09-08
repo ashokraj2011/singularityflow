@@ -87,6 +87,7 @@ const CONTRACTS = Object.freeze({
   'reducer-join-receipt': Object.freeze({ kind: 'reducer-join-receipt', hash: 'reducerJoinReceiptSha256', id: 'reducerJoinReceiptId', prefix: 'RJR' }),
   'manual-reconcile-join-receipt': Object.freeze({ kind: 'manual-reconcile-join-receipt', hash: 'manualReconcileJoinReceiptSha256', id: 'manualReconcileJoinReceiptId', prefix: 'MJR' }),
   'effect-replay-receipt': Object.freeze({ kind: 'effect-replay-receipt', hash: 'effectReplayReceiptSha256', id: 'effectReplayReceiptId', prefix: 'ERP' }),
+  'effect-retry-receipt': Object.freeze({ kind: 'effect-retry-receipt', hash: 'effectRetryReceiptSha256', id: 'effectRetryReceiptId', prefix: 'ETR' }),
   'fork-prefix-task-import': Object.freeze({ kind: 'fork-prefix-task-import', hash: 'forkTaskImportSha256', id: 'forkTaskImportId', prefix: 'FTI' }),
   'fork-prefix-import-receipt': Object.freeze({ kind: 'fork-prefix-import-receipt', hash: 'forkImportReceiptSha256', id: 'forkImportReceiptId', prefix: 'FIR' }),
   'fanout-expansion-receipt': Object.freeze({ kind: 'fanout-expansion-receipt', hash: 'expansionSha256', id: 'expansionId', prefix: 'FOX' }),
@@ -1239,6 +1240,70 @@ export function validateEffectReplayReceipt(value) {
   return returnValidated(value, validateEffectReplayReceiptRecord);
 }
 
+function validateEffectRetryReceiptRecord(record, requireHash) {
+  const fields = [
+    'effectRetryReceiptId', 'processId', 'retryPlanSha256', 'taskInstanceId',
+    'taskTemplateId', 'parentAttemptId', 'parentAttemptSha256',
+    'parentEvidenceSha256', 'attemptId', 'attemptSha256', 'candidateSha256',
+    'actionEvidenceSha256', 'verificationChecksSha256', 'deviceManifestSha256',
+    'toolIntentSha256', 'toolResultSha256', 'idempotencyKey', 'effectSha256',
+    'postconditionSha256', 'outputRefs', 'reconciledAt'
+  ];
+  validateBase(record, 'effect-retry-receipt', fields, fields, requireHash);
+  identifier(record.effectRetryReceiptId, 'ETR',
+    'effect-retry-receipt.effectRetryReceiptId');
+  identifier(record.processId, 'PROC', 'effect-retry-receipt.processId');
+  string(record.taskInstanceId, 'effect-retry-receipt.taskInstanceId');
+  string(record.taskTemplateId, 'effect-retry-receipt.taskTemplateId');
+  identifier(record.parentAttemptId, 'ATT', 'effect-retry-receipt.parentAttemptId');
+  identifier(record.attemptId, 'ATT', 'effect-retry-receipt.attemptId');
+  for (const field of [
+    'retryPlanSha256', 'parentAttemptSha256', 'parentEvidenceSha256',
+    'attemptSha256', 'candidateSha256', 'actionEvidenceSha256',
+    'verificationChecksSha256', 'deviceManifestSha256', 'toolIntentSha256',
+    'toolResultSha256', 'idempotencyKey', 'effectSha256', 'postconditionSha256'
+  ]) digest(record[field], `effect-retry-receipt.${field}`);
+  stringArray(record.outputRefs, 'effect-retry-receipt.outputRefs');
+  if (!record.outputRefs.length) {
+    fail('effect-retry-receipt.outputRefs must retain the exact consequential result.');
+  }
+  timestamp(record.reconciledAt, 'effect-retry-receipt.reconciledAt');
+}
+
+export function createEffectRetryReceipt(value) {
+  return createContract('effect-retry-receipt', value, validateEffectRetryReceiptRecord, {
+    prepare: (record) => ({
+      ...record,
+      outputRefs: [...new Set(record.outputRefs)].sort(compareSgosCodePoints)
+    }),
+    identity: (record) => ({
+      processId: record.processId,
+      retryPlanSha256: record.retryPlanSha256,
+      taskInstanceId: record.taskInstanceId,
+      taskTemplateId: record.taskTemplateId,
+      parentAttemptId: record.parentAttemptId,
+      parentAttemptSha256: record.parentAttemptSha256,
+      parentEvidenceSha256: record.parentEvidenceSha256,
+      attemptId: record.attemptId,
+      attemptSha256: record.attemptSha256,
+      candidateSha256: record.candidateSha256,
+      actionEvidenceSha256: record.actionEvidenceSha256,
+      verificationChecksSha256: record.verificationChecksSha256,
+      deviceManifestSha256: record.deviceManifestSha256,
+      toolIntentSha256: record.toolIntentSha256,
+      toolResultSha256: record.toolResultSha256,
+      idempotencyKey: record.idempotencyKey,
+      effectSha256: record.effectSha256,
+      postconditionSha256: record.postconditionSha256,
+      outputRefs: record.outputRefs
+    })
+  });
+}
+
+export function validateEffectRetryReceipt(value) {
+  return returnValidated(value, validateEffectRetryReceiptRecord);
+}
+
 function validateForkAttemptMapping(value, label) {
   exactKeys(value, [
     'sourceAttemptId', 'childAttemptId', 'sourceRunningAttemptSha256',
@@ -1821,6 +1886,7 @@ export function validateGvmProcess(value) {
 
 export const SGOS_RECORD_INDEX_FAMILIES = Object.freeze([
   'action-evidence', 'agent-proposal', 'candidate-snapshot', 'effect-replay-receipt',
+  'effect-retry-receipt',
   'fanout-expansion-receipt', 'fork-prefix-import-receipt', 'fork-prefix-task-import',
   'gvm-checkpoint', 'gvm-program',
   'gvm-task-attempt', 'gvm-task-receipt', 'human-request', 'human-response',
@@ -2463,6 +2529,7 @@ const VALIDATORS = Object.freeze({
   'reducer-join-receipt': validateReducerJoinReceipt,
   'manual-reconcile-join-receipt': validateManualReconcileJoinReceipt,
   'effect-replay-receipt': validateEffectReplayReceipt,
+  'effect-retry-receipt': validateEffectRetryReceipt,
   'fork-prefix-task-import': validateForkPrefixTaskImport,
   'fork-prefix-import-receipt': validateForkPrefixImportReceipt,
   'fanout-expansion-receipt': validateFanoutExpansionReceipt,

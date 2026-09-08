@@ -93,6 +93,7 @@ const PAGES = Object.freeze({
       ['--authority-local', 'Use only an explicitly selected repository-local configuration authority.'],
       ['--offline', 'Request reuse of a verified pin; refused unless approved offline policy is available.'],
       ['--resume OPERATION-ID', 'Resume only the exact matching interrupted attachment operation.'],
+      ['--no-cache', 'Use the uncached reference read path for semantic/performance comparison.'],
       ['--json', 'Emit the descriptor, receipt, freshness and exact outcome.']
     ],
     examples: [

@@ -45,7 +45,7 @@ async function repository({ configurationAuthority = false } = {}) {
   return root;
 }
 
-test('Story intake creates durable manual state and resumes an existing branch', async () => {
+test('FOS:PARTIAL-AC-016 Story intake creates durable state without launching optional AST work', async () => {
   const root = await repository({ configurationAuthority: true });
   const sourceDirectory = await mkdtemp(path.join(os.tmpdir(), 'sflow-desktop-story-source-'));
   const sourceFile = path.join(sourceDirectory, 'brief.md');

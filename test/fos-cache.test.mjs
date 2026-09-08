@@ -62,3 +62,15 @@ test('FOS:AC-026 incomplete cache dependencies are refused before write', async 
     producer: 'fos.test', producerVersion: '1', inputs: ['HEAD']
   }, {}), (error) => error.code === 'FOS_CACHE_KEY_INVALID');
 });
+
+test('FOS:PARTIAL-AC-025 every declared cache dependency participates in invalidation identity', async () => {
+  const root = await repository();
+  await writeFosDerivedCache(root, key, { bounded: true });
+  assert.deepEqual(await readFosDerivedCache(root, key), { bounded: true });
+  assert.equal(await readFosDerivedCache(root, {
+    ...key, inputs: [`sha256:${'c'.repeat(64)}`]
+  }), null);
+  assert.equal(await readFosDerivedCache(root, {
+    ...key, configuration: `sha256:${'d'.repeat(64)}`
+  }), null);
+});

@@ -38,10 +38,12 @@ export class RepoContext {
   #cache = new Map();
   #pending = new Map();
   #mutation = false;
+  #cacheEnabled;
 
-  constructor(root, { execute = executeGitQuery } = {}) {
+  constructor(root, { execute = executeGitQuery, cache = true } = {}) {
     this.#root = path.resolve(root);
     this.#execute = execute;
+    this.#cacheEnabled = cache !== false;
   }
 
   get root() { return this.#root; }
@@ -61,26 +63,27 @@ export class RepoContext {
     );
     const observedEpoch = this.#epoch;
     const key = this.#key(id, params, descriptor.dependency);
-    if (this.#cache.has(key)) {
+    if (this.#cacheEnabled && this.#cache.has(key)) {
       incrementCommandCounter('cache.hits');
       return cloneFrozen(this.#cache.get(key));
     }
-    if (this.#pending.has(key)) {
+    if (this.#cacheEnabled && this.#pending.has(key)) {
       incrementCommandCounter('cache.hits');
       incrementCommandCounter('git.coalesced-requests');
       return cloneFrozen(await this.#pending.get(key));
     }
     incrementCommandCounter('cache.misses');
     const pending = Promise.resolve().then(() => this.#execute(this.#root, id, structuredClone(params)));
-    this.#pending.set(key, pending);
+    if (this.#cacheEnabled) this.#pending.set(key, pending);
     try {
       const value = cloneFrozen(await pending);
-      if (descriptor.dependency !== 'mutable' || observedEpoch === this.#epoch) {
+      if (this.#cacheEnabled
+          && (descriptor.dependency !== 'mutable' || observedEpoch === this.#epoch)) {
         this.#cache.set(key, value);
       }
       return cloneFrozen(value);
     } finally {
-      if (this.#pending.get(key) === pending) this.#pending.delete(key);
+      if (this.#cacheEnabled && this.#pending.get(key) === pending) this.#pending.delete(key);
     }
   }
 

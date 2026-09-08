@@ -334,13 +334,14 @@ export async function onboardRepository(root, {
   authorityLocal = false,
   offline = false,
   resume = null,
-  refresh = false
+  refresh = false,
+  cache = true
 } = {}) {
   if (offline) throw new SingularityFlowError(
     'Pinned offline attachment is not enabled because no approved FOS offline-freshness policy is available. Retry online or add that policy through the normal configuration authority.',
     { code: 'AUTHORITY_UNAVAILABLE' }
   );
-  const context = createRepoContext(root);
+  const context = createRepoContext(root, { cache });
   const identity = await context.identity();
   if (identity.bare) throw new SingularityFlowError(
     'FOS onboarding attaches a working checkout, not a bare repository.', { code: 'REPOSITORY_STATE_UNSUPPORTED' }

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "kind": "fos-benchmark-manifest",
-  "status": "reference-only",
+  "status": "local-runner-available-release-evidence-pending",
   "specificationSha256": "sha256:e3e41038e753c5a9de0ca001aec6e280ae6e208c39cc62d57f377174b1658403",
   "baselineCommit": "076f1edf22a18519e943a6b8580130f8a5a57e3b",
   "claimsAuthorized": false,

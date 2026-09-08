@@ -2,8 +2,9 @@
 
 **Plan ID:** `FOS-PLAN-v1`
 
-**Status:** M0–M5 code-local implementation complete; release evidence and external M5 adapter
-certification remain pending; every optional feature still defaults to off
+**Status:** M0–M5 code-local implementation plus the next local evidence/comparison slice are
+complete; physical release evidence and external M5 adapter certification remain pending; every
+optional feature still defaults to off
 
 **Specification:** `SPEC-FOS-Fast-Onboarding-and-Safe-Git-Performance-v1.md`, version
 `1.0.0-draft.1`, SHA-256
@@ -31,8 +32,20 @@ unavailable enterprise authority or platform evidence was simulated.
 Operator commands, recovery semantics, VS Code actions, and the feature matrix are documented in
 [Fast onboarding and safe Git performance](FAST-ONBOARDING-AND-GIT-PERFORMANCE.md).
 
-The checked-in trace stays explicit about evidence not yet collected. Passing local mocks never
+The checked-in trace stays explicit about evidence not yet collected. The local benchmark now
+compares cached and uncached projections, and the executable evidence inventory records exact test
+name paths and body digests while refusing to call missing rows complete. Passing local mocks never
 changes an external prerequisite to “complete,” and no unfinished optional feature is enabled.
+
+The current static inventory represents 29 of 50 acceptance IDs with exact-title witnesses.
+These 21 remain unrepresented until their complete observable conditions, including the physical
+runners where specified, are implemented and reviewed:
+
+`FOS:AC-002`, `007`, `008`, `010`, `011`, `012`, `013`, `014`, `015`, `016`, `017`,
+`018`, `022`, `023`, `025`, `028`, `030`, `033`, `034`, `035`, and `036`.
+
+Partial and deliberately deferred tests are reported separately as
+`FOS:PARTIAL-AC-NNN`/`FOS:DEFERRED-AC-NNN`; they never count toward that 29.
 
 ## Outcome
 

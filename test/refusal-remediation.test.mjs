@@ -87,6 +87,16 @@ test('FOS:AC-044 FOS refusals provide bounded real commands without executing re
   }
 });
 
+test('FOS:PARTIAL-AC-033 generated recovery commands remain bounded SFlow diagnostics and are never executed', () => {
+  const plan = refusalRemediationPlan(Object.assign(new Error('attachment is invalid'), {
+    code: 'AUTHORITY_PIN_INVALID'
+  }), ['onboard']);
+  assert.equal(plan.retry.automatic, false);
+  assert.ok(plan.steps.length > 0 && plan.steps.length <= 3);
+  assert.ok(plan.steps.every((step) => step.execution === 'user-reviewed'));
+  assert.ok(plan.steps.every((step) => /^singularity-flow [a-z][a-z0-9-]*(?: |$)/.test(step.command)));
+});
+
 test('every published executable routes its own refusal through the shared planner', async () => {
   const manifest = JSON.parse(await readFile(path.resolve('package.json'), 'utf8'));
   const executables = [...new Set(Object.values(manifest.bin))];

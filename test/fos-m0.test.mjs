@@ -5,6 +5,7 @@ import test from 'node:test';
 import {
   compareFosSemanticProjections, fosSemanticProjection
 } from '../src/fos-semantic-projection.mjs';
+import { commandTimer } from '../src/dx-command-timing.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 
 const fixture = (name) => new URL(`./fixtures/fos/${name}`, import.meta.url);
@@ -23,14 +24,37 @@ test('FOS:M0 trace covers every requirement and acceptance identity without clai
   assert.equal(manifest.featureDefaultsChanged, false);
 });
 
-test('FOS:M0 benchmark manifest separates feedback, completion, requests and spawns', async () => {
-  const manifest = JSON.parse(await readFile(fixture('benchmark-manifest.json'), 'utf8'));
+test('FOS:PARTIAL-AC-035 benchmark manifest separates feedback, completion, requests and spawns', async () => {
+  const manifest = JSON.parse(await readFile(new URL('../benchmarks/fos/benchmark-manifest.json', import.meta.url), 'utf8'));
   assert.equal(manifest.claimsAuthorized, false);
   for (const required of [
     'first-feedback-ms', 'local-completion-ms', 'network-completion-ms',
     'git-request-count', 'git-process-spawn-count'
   ]) assert.ok(manifest.measurements.includes(required), required);
   assert.equal(manifest.budgets, null);
+});
+
+test('FOS:PARTIAL-AC-034 terminal timing retains explicit local, network, request and spawn dimensions', () => {
+  const timer = commandTimer('onboard', { commandClass: 'mutation', operationId: 'fos-op-test' });
+  timer.feedback();
+  timer.increment('git.requests', 2);
+  timer.increment('git.spawns', 1);
+  timer.stage('local-completion');
+  timer.stage('network-completion');
+  const event = timer.finish();
+  assert.equal(event.operationId, 'fos-op-test');
+  assert.deepEqual(event.counters, { 'git.requests': 2, 'git.spawns': 1 });
+  assert.equal(typeof event.stages['local-completion'], 'number');
+  assert.equal(typeof event.stages['network-completion'], 'number');
+});
+
+test('FOS:PARTIAL-AC-036 first feedback and command completion are distinct observations', () => {
+  const timer = commandTimer('onboard', { commandClass: 'mutation' });
+  const first = timer.feedback();
+  const event = timer.finish();
+  assert.equal(event.firstFeedbackMs, first);
+  assert.ok(event.durationMs >= event.firstFeedbackMs);
+  assert.notEqual(event.recordedAt, null);
 });
 
 test('FOS:AC-037 semantic projection ignores timing identity but not governance', () => {

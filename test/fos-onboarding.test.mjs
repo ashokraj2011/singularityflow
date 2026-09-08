@@ -66,6 +66,26 @@ test('FOS:AC-005 offline and missing authority refuse without bootstrap', async 
   assert.equal(git(['branch', '--list', 'sflow/config'], root), '');
 });
 
+test('FOS:DEFERRED-AC-007 bootstrap is refused before creating attachment state', async () => {
+  const root = await governedRepository();
+  const result = spawnSync(process.execPath, [cli, 'onboard', root, '--authority-local', '--bootstrap', '--json'], {
+    cwd: os.tmpdir(), encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_TEST_IDENTITY: 'FOS Test' }
+  });
+  assert.notEqual(result.status, 0);
+  const refusal = JSON.parse(result.stderr);
+  assert.equal(refusal.error.code, 'FOS_BOOTSTRAP_UNSUPPORTED');
+  assert.equal(await readFosAttachment(root), null);
+});
+
+test('FOS:DEFERRED-AC-008 offline reuse stays refused without approved freshness policy and preserves the pin', async () => {
+  const root = await governedRepository();
+  const attached = await onboardRepository(root, { authorityLocal: true });
+  await assert.rejects(() => onboardRepository(root, { authorityLocal: true, offline: true }),
+    (error) => error.code === 'AUTHORITY_UNAVAILABLE');
+  assert.equal((await readFosAttachment(root)).descriptor.descriptorSha256,
+    attached.descriptor.descriptorSha256);
+});
+
 test('FOS:AC-003 ambiguous configured remotes require an explicit choice', async () => {
   const root = await governedRepository();
   git(['remote', 'add', 'one', root], root);
@@ -126,9 +146,44 @@ test('FOS:AC-009 refresh advances the exact pin and retains a completed operatio
   assert.equal(journal.phase, 'completed');
 });
 
+test('FOS:PARTIAL-AC-013 policy changes invalidate the old effective policy digest only on explicit refresh', async () => {
+  const root = await governedRepository();
+  const attached = await onboardRepository(root, { authorityLocal: true });
+  git(['switch', '-q', 'sflow/config'], root);
+  await writeFile(path.join(root, 'singularity', 'workflow.yml'),
+    `${await readFile(path.join(root, 'singularity', 'workflow.yml'), 'utf8')}\n# FOS policy epoch change\n`);
+  git(['add', 'singularity/workflow.yml'], root);
+  git(['commit', '-qm', 'change policy epoch'], root);
+  git(['switch', '-q', 'main'], root);
+  const pinned = await onboardRepository(root, { authorityLocal: true });
+  assert.equal(pinned.status, 'already-attached');
+  assert.equal(pinned.descriptor.policySha256, attached.descriptor.policySha256);
+  const refreshed = await refreshFosAuthority(root);
+  assert.notEqual(refreshed.descriptor.policySha256, attached.descriptor.policySha256);
+  assert.equal(refreshed.descriptor.effectivePolicyDigest, refreshed.descriptor.policySha256);
+});
+
+test('FOS:PARTIAL-AC-017 an advanced authority remains pinned until refresh and then advances exactly once', async () => {
+  const root = await governedRepository();
+  const attached = await onboardRepository(root, { authorityLocal: true });
+  git(['switch', '-q', 'sflow/config'], root);
+  await writeFile(path.join(root, 'authority-extension.txt'), 'new reviewed authority bytes\n');
+  git(['add', 'authority-extension.txt'], root);
+  git(['commit', '-qm', 'advance reviewed authority'], root);
+  const advancedCommit = git(['rev-parse', 'HEAD'], root);
+  git(['switch', '-q', 'main'], root);
+  const stillPinned = await onboardRepository(root, { authorityLocal: true });
+  assert.equal(stillPinned.descriptor.authority.commit, attached.descriptor.authority.commit);
+  const refreshed = await refreshFosAuthority(root);
+  assert.equal(refreshed.descriptor.authority.commit, advancedCommit);
+  assert.equal((await refreshFosAuthority(root)).status, 'already-attached');
+});
+
 test('FOS:AC-001 public onboard command emits a structured exact pin', async () => {
   const root = await governedRepository();
-  const result = spawnSync(process.execPath, [cli, 'onboard', root, '--authority-local', '--json'], {
+  const result = spawnSync(process.execPath, [
+    cli, 'onboard', root, '--authority-local', '--no-cache', '--json'
+  ], {
     cwd: os.tmpdir(), encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_TEST_IDENTITY: 'FOS Test' }
   });
   assert.equal(result.status, 0, result.stderr);

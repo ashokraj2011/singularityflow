@@ -66,6 +66,7 @@ export async function run(_argv, { positionals, options }) {
       remote: optionString(options, 'remote'),
       authorityLocal: optionBoolean(options, 'authority-local'),
       offline: optionBoolean(options, 'offline'),
+      cache: options.cache !== false,
       // `--resume` is an established boolean flag on other commands. The shared parser therefore
       // leaves its value as the next positional for this command rather than greedily consuming it.
       resume: options.resume === true ? positionals[2] : null

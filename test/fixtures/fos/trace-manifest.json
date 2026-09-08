@@ -9,6 +9,9 @@
     "localDeterministicSuites": "executed",
     "hashBoundImplementationReport": "pending-final-commit",
     "controlledPerformanceRunner": "pending",
+    "localPerformanceRunner": "available-unclaimed",
+    "executableWitnessInventory": "available-incomplete",
+    "cachedNoCacheComparison": "implemented",
     "macosLinuxWindowsMatrix": "pending",
     "officeNetworkRunner": "pending",
     "m5LiveAdapterCertification": "pending"

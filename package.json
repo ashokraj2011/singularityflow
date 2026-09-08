@@ -53,6 +53,9 @@
     "scripts/wel-corpus-measurement.mjs",
     "scripts/wel-benchmark.mjs",
     "scripts/sgos-read-model-benchmark.mjs",
+    "scripts/fos-benchmark.mjs",
+    "scripts/fos-release-evidence.mjs",
+    "benchmarks/fos/",
     "LICENSE"
   ],
   "workspaces": [
@@ -107,6 +110,9 @@
     "benchmark:sgos-read-model": "node scripts/sgos-read-model-benchmark.mjs",
     "benchmark:sgos-read-model:enforce": "node scripts/sgos-read-model-benchmark.mjs --enforce",
     "benchmark:wel": "node scripts/wel-benchmark.mjs",
+    "benchmark:fos": "node scripts/fos-benchmark.mjs",
+    "evidence:fos": "node scripts/fos-release-evidence.mjs",
+    "evidence:fos:execute": "node scripts/fos-release-evidence.mjs --execute",
     "verification:receipt": "node scripts/verification-receipt.mjs",
     "verification:receipt:merge": "node scripts/merge-verification-receipts.mjs"
   },

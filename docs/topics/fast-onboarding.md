@@ -14,7 +14,7 @@ commands:
 related:
   - getting-started
   - starting-work
-version: 1
+version: 2
 ---
 Fast onboarding attaches an existing Git checkout to one exact reviewed configuration authority.
 It performs no clone, source scan, AST or World-Model build, model call, application checkout, or
@@ -31,10 +31,22 @@ remote forms are refused before persistence or network access.
 
 - **Shell:** `singularity-flow onboard <LOCAL-PATH> [--remote <NAME> | --authority-local]`.
   Advance an existing pin only with `singularity-flow authority refresh <LOCAL-PATH>`.
+  Add `--no-cache` only when comparing the reference read path; it changes no policy or receipt.
 - **Copilot:** ask `/sf-init` to attach the current existing checkout and require it to show the
   exact repository and authority route before running the command.
 - **VS Code:** use **Fast Onboard Existing Repository**, **Refresh Repository Authority Pin**,
   **Inspect or Enable Safe Git Acceleration**, or **Clear Disposable Derived Cache**.
+
+## Guided workflow
+
+1. Open the existing checkout; do not clone it again.
+2. Run `singularity-flow onboard <LOCAL-PATH>`. Name `--remote <NAME>` when more than one
+   configured remote exists, or use `--authority-local` only for a deliberately local authority.
+3. Review the returned full authority commit, fold digest, pin, and receipt status.
+4. Start or resume normal governed work. Onboarding never launches AST, a World Model, or a model.
+5. When reviewed configuration moves, run `singularity-flow authority refresh <LOCAL-PATH>`;
+   ordinary repeated onboarding intentionally keeps the previous exact pin.
+6. Use `--no-cache` only for diagnosis or semantic comparison. It does not clear durable caches.
 
 ## State and safety
 

@@ -6,6 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { executeGitQuery, gitQueryDescriptor } from '../src/git-query.mjs';
+import { compareFosSemanticProjections } from '../src/fos-semantic-projection.mjs';
 import { RepoContext } from '../src/repo-context.mjs';
 
 function git(args, cwd) {
@@ -88,4 +89,39 @@ test('FOS:AC-006 remote identity reads the repository-local literal without URL 
   const context = new RepoContext(root);
   assert.equal(await context.observe('repository.remote-url', { remote: 'origin' }),
     'https://example.test/repository.git');
+});
+
+test('FOS:AC-037 cached and --no-cache repository projections remain equivalent', async () => {
+  const root = await repository();
+  let cachedCalls = 0;
+  let uncachedCalls = 0;
+  const cached = new RepoContext(root, {
+    cache: true,
+    execute(repositoryRoot, id, params) {
+      cachedCalls += 1;
+      return executeGitQuery(repositoryRoot, id, params);
+    }
+  });
+  const uncached = new RepoContext(root, {
+    cache: false,
+    execute(repositoryRoot, id, params) {
+      uncachedCalls += 1;
+      return executeGitQuery(repositoryRoot, id, params);
+    }
+  });
+  const cachedProjection = {
+    identity: await cached.identity(),
+    status: await cached.observe('repository.status'),
+    repeatIdentity: await cached.identity(),
+    repeatStatus: await cached.observe('repository.status')
+  };
+  const uncachedProjection = {
+    identity: await uncached.identity(),
+    status: await uncached.observe('repository.status'),
+    repeatIdentity: await uncached.identity(),
+    repeatStatus: await uncached.observe('repository.status')
+  };
+  assert.equal(compareFosSemanticProjections(cachedProjection, uncachedProjection).equivalent, true);
+  assert.equal(cachedCalls, 7);
+  assert.equal(uncachedCalls, 14);
 });

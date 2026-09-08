@@ -43,7 +43,7 @@ Usage:
     [--yes | --accept-proposal REPOSITORY-FILE --confirm SHA256]
   singularity-flow init --recover --proposal SHA256 [--json]
   singularity-flow precheck --quick [--json]
-  sflow onboard <LOCAL-PATH> [--remote NAME | --authority-local] [--offline] [--resume OPERATION-ID] [--json]
+  sflow onboard <LOCAL-PATH> [--remote NAME | --authority-local] [--offline] [--resume OPERATION-ID] [--no-cache] [--json]
   sflow authority refresh <LOCAL-PATH> [--json]
   sflow cache clear --derived --repo <LOCAL-PATH> [--json]
   singularity-flow refresh-branch [--remote origin] [--branch CURRENT] [--json]

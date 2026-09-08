@@ -32,6 +32,13 @@ Story start never launches AST work in the foreground or background. When struct
 is useful, its result includes the explicit, optional command
 `singularity-flow wm ast build --all`; work can continue without running it.
 
+For a diagnostic reference run, add `--no-cache`. It disables only the invocation-local
+`RepoContext` reuse and leaves authority, receipts, policy, and durable derived caches unchanged:
+
+```bash
+singularity-flow onboard /absolute/path/to/repository --no-cache
+```
+
 ## VS Code
 
 Open the Command Palette and run one of:
@@ -113,3 +120,28 @@ The checked-in FOS benchmark manifest distinguishes first feedback, local comple
 completion, Git service time, logical requests, process spawns, and peak memory. Performance claims
 are not authorized until the named macOS/Linux/Windows and office-network runners publish the
 required raw samples. Safe functionality does not depend on meeting a marketing latency number.
+
+Run the content-free local comparator without writing into the repository:
+
+```bash
+npm run benchmark:fos -- --samples=3 --out=/absolute/private/fos-benchmark.json
+```
+
+It compares cached and `--no-cache` repository projections, verifies linked-worktree identity,
+and reports request counts. Its report
+sets `claimsAuthorized: false` and lists every platform/network lane it did not measure.
+
+The executable witness inventory maps each present `FOS:AC-NNN` test to its exact source line and
+test-body digest. Inventory mode never claims that tests ran; execution mode fails until all 50
+acceptance rows have real, non-skipped witnesses:
+
+```bash
+npm run evidence:fos
+npm run evidence:fos:execute -- --out=/absolute/private/fos-evidence.json
+```
+
+Evidence output is refused inside the repository to avoid a self-referential commit binding.
+Run it from a clean exact release commit when producing a hash-bound report.
+Tests named `FOS:PARTIAL-AC-NNN` and `FOS:DEFERRED-AC-NNN` are listed separately and never count
+toward completion; they preserve useful code-local evidence without pretending an external or
+unfinished acceptance row has passed.

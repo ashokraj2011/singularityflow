@@ -3015,6 +3015,7 @@ const families = [
   family({ id: 'fos-approval-request', currentVersion: 1 }),
   family({ id: 'fos-adapter-certification', currentVersion: 1 }),
   family({ id: 'fos-adapter-set', currentVersion: 1 }),
+  family({ id: 'fos-git-shadow-observation', currentVersion: 1 }),
   family({ id: 'reinstall-plan', currentVersion: 1, paths: [/^\$temp\/singularity-flow-reinstall-plans\/.+\/reinstall-plan\.json$/] }),
   family({ id: 'story-stack', currentVersion: 1, paths: [/^\$state\/orchestration\/stacks\/[^/]+\.json$/], immutable: true }),
   family({ id: 'workspace-impact-report', currentVersion: 1, paths: [/^\$workspace\/.+\/impact\/[^/]+\/report\.json$/] }),

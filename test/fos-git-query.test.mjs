@@ -99,6 +99,15 @@ test('FOS:AC-024 query registry rejects unknown operations and unsafe remote nam
   assert.throws(() => gitQueryDescriptor('git.anything'), (error) => error.code === 'GIT_QUERY_UNKNOWN');
   assert.throws(() => executeGitQuery('/tmp', 'repository.remote-url', { remote: '--upload-pack=x' }),
     (error) => error.code === 'GIT_QUERY_INPUT_INVALID');
+  assert.throws(() => executeGitQuery('/tmp', 'repository.status', { untracked: 'sometimes' }),
+    (error) => error.code === 'GIT_QUERY_INPUT_INVALID');
+});
+
+test('typed status supports the reviewed summary projection without reading untracked paths', async () => {
+  const root = await repository();
+  await writeFile(path.join(root, 'untracked.txt'), 'untracked\n');
+  assert.equal(executeGitQuery(root, 'repository.status', { untracked: 'no' }).length, 0);
+  assert.equal(executeGitQuery(root, 'repository.status', { untracked: 'all' }).length, 1);
 });
 
 test('FOS:AC-006 remote identity reads the repository-local literal without URL rewrites', async () => {

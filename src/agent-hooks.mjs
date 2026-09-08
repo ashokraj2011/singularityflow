@@ -284,7 +284,7 @@ function isConsumedGenerationTerminalCallAllowed(payload, phase) {
     `^${flow} documents (?:list|view)(?: [A-Za-z0-9._:-]+| --[A-Za-z0-9-]+(?: [A-Za-z0-9._:+/-]+)?)*$`,
     `^${flow} choices (?:begin|answer|status)(?: [A-Za-z0-9._:/-]+)*?(?: --json)?$`,
     `^${flow} (?:approve|reject|cancel) (?:[^;&|]+)$`,
-    `^${flow} workspace current(?: --json)?$`,
+    `^${flow} workspace current(?: --git-shadow)?(?: --json)?$`,
     `^${flow} session status(?: --json)?$`
   ];
   if (safeFlow.some((pattern) => new RegExp(pattern).test(command))) return true;

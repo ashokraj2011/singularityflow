@@ -12,7 +12,7 @@ external M5 adapter certification remain pending; every optional feature still d
 
 **Code baseline reviewed:** `main@076f1edf22a18519e943a6b8580130f8a5a57e3b`
 
-**Last reviewed:** 2026-09-08
+**Last reviewed:** 2026-09-09
 
 ## Implementation status — 2026-09-08
 
@@ -23,7 +23,7 @@ unavailable enterprise authority or platform evidence was simulated.
 | Milestone | Implemented now | Remaining release evidence or authority |
 |---|---|---|
 | M0 | Specific Story-start refusal restored; first-feedback/completion timing, benchmark and semantic-projection contracts, schema registrations, trace inventory, deterministic fixture hashing, and exact-commit evidence registration added | Retain reviewed controlled-runner reports for each required lane; one local runner does not certify network or other platforms |
-| M1 | Closed typed Git query registry; lazy immutable repository context; in-flight coalescing, mutable epochs, counters, mutation barrier, and epoch-labelled observational status | Broader migration of legacy read-heavy callers occurs only after shadow projection evidence; unknown Git remains uncached |
+| M1 | Closed typed Git query registry; lazy immutable repository context; in-flight coalescing, mutable epochs, counters, mutation barrier, epoch-labelled observational status, and an explicit content-free shadow comparison for `workspace current` repository status | Collect cross-platform shadow evidence, then migrate additional legacy read-heavy callers one bounded projection at a time; unknown Git remains uncached |
 | M2 | `onboard`, explicit route selection, exact configuration fold/pin, bounded authority-move retry, durable recoverable journal/receipt, idempotence, refresh, credential/rebind refusal, explicit package-approved local-only bootstrap, trusted-provider remote bootstrap boundary, bounded digest-bound offline snapshots and finite pinned-policy reuse, exact leased remote publication with interruption reconciliation, publication-time authorization revalidation, per-capability decisions, non-sticky observations, concurrent World-Model view preservation, Story-start pin consumption, no discovery/AST/WM/model start callback, CLI/help/VS Code surfaces | Live organizational remote-bootstrap certification remains dependent on a separately installed trusted policy/kernel provider; no packaged preset grants corporate authority |
 | M3 | Bounded derived cache with full parser/configuration/membership/sparse/ignore/path dependency identity, safe clear, quota/entry limits, shared binary-safe exact-OID object service, non-sticky negative reads, sealed worktree/index input bytes, Git-speed inspection/apply/rollback receipt, VS Code actions | macOS/Linux/Windows process and controlled performance lanes before any default enablement |
 | M4 | Independent-off feature contracts for reusable defaults, interpretation, provenance prefill, error guidance, bounded local evidence ingestion, and crash-safe Story-switch recovery | Product-surface rollout remains opt-in and must consume approved repository policy |
@@ -222,7 +222,10 @@ The boundaries are deliberate:
 - Binary and hostile path fixtures remain byte-correct and shell-free.
 
 **Rollout:** facade active only for explicitly registered migrated queries; command reuse remains
-`off` for all other operations.
+`off` for all other operations. `workspace current --git-shadow` is the first migration probe: it
+executes the typed repository-status projection after the established reader, reports content-free
+equivalence counts, returns only the established result, and is never enabled by default. Candidate
+failure cannot change selection, readiness, Story detection, or command exit status.
 
 ### M2 — verified fast attachment and a bounded Story start
 

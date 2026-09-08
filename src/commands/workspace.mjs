@@ -56,17 +56,34 @@ export async function run(argv, context = {}) {
     ]));
   }
 
-  const current = await readActiveWorkspaceContext(selectionFile, registry);
+  const gitShadow = action === 'current' && optionBoolean(options, 'git-shadow');
+  const gitShadowObservations = [];
+  const current = await readActiveWorkspaceContext(selectionFile, registry, gitShadow ? {
+    gitReadMode: 'shadow',
+    onGitShadowComparison(value) { gitShadowObservations.push(value); }
+  } : undefined);
   if (!current) {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ active: false }, null, 2));
     if (action === 'prompt') return console.log('');
     return console.log('No active workspace. Run singularity-flow workspace use <WORKSPACE>.');
   }
-  if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ active: true, ...current }, null, 2));
+  let gitShadowSummary = null;
+  if (gitShadow) {
+    const { summarizeFosGitShadowObservations } = await import('../fos-git-shadow.mjs');
+    gitShadowSummary = summarizeFosGitShadowObservations(gitShadowObservations);
+  }
+  if (optionBoolean(options, 'json')) return console.log(JSON.stringify({
+    active: true,
+    ...current,
+    ...(gitShadowSummary ? { gitShadow: gitShadowSummary } : {})
+  }, null, 2));
   if (action === 'prompt') return console.log(workspacePromptLabel(current));
   console.log(`\n${workspacePromptLabel(current)}`);
   console.log(`Workspace: ${current.workspacePath}`);
   console.log(`Repository: ${current.repositoryId} · ${current.repositoryPath}`);
   console.log(`Branch: ${current.branch ?? '—'}`);
   console.log(`Story: ${current.storyId ?? '—'}`);
+  if (gitShadowSummary) {
+    console.log(`Git shadow: ${gitShadowSummary.equivalent}/${gitShadowSummary.comparisons} equivalent · reference remains authoritative`);
+  }
 }

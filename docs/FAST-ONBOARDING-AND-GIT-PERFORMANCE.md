@@ -57,6 +57,19 @@ For a diagnostic reference run, add `--no-cache`. It disables only the invocatio
 singularity-flow onboard /absolute/path/to/repository --no-cache
 ```
 
+The first high-count legacy reader can now collect migration evidence explicitly:
+
+```bash
+singularity-flow workspace current --git-shadow --json
+```
+
+The established workspace Git reads run first and remain authoritative. The typed candidate then
+reads the same dirty/branch/origin/HEAD projection, and the response reports only equivalent,
+mismatch, and candidate-error counts. It never records paths, branches, remotes, object IDs, or
+the compared values. Candidate and evidence-recorder failures cannot change or block the reference
+result. Without `--git-shadow`, the candidate module is not loaded or executed. There is no
+optimized mode yet; promotion requires reviewed cross-platform shadow evidence.
+
 ## VS Code
 
 Open the Command Palette and run one of:

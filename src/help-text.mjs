@@ -797,7 +797,9 @@ Usage:
   singularity-flow workspace restore <DIRECTORY> [--json]
   singularity-flow workspace list [--json]
   singularity-flow workspace prune [--json]
-  singularity-flow workspace current [--json]
+  singularity-flow workspace current [--git-shadow] [--json]
+    (--git-shadow compares the typed Git reader without changing the authoritative result or
+     recording repository values; intended for migration evidence, not ordinary use)
   singularity-flow workspace use [ID|NAME|JIRA|DIRECTORY] [--repository ID] [--story ID] [--json]
   singularity-flow workspace refresh-configuration [WORKSPACE] [--repository ID] [--dry-run]
   singularity-flow workspace copilot [ID|NAME|JIRA|DIRECTORY]

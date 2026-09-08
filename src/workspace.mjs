@@ -4347,9 +4347,52 @@ async function repositoryWorldModelStatus(root) {
   }
 }
 
+async function referenceRepositoryGitProjection(absolute, { level, env }) {
+  const readinessOnly = level === 'readiness';
+  const [statusText, branch, remote, head] = await Promise.all([
+    readinessOnly
+      ? Promise.resolve('')
+      : gitValueAsync(absolute, ['status', '--porcelain=v1', level === 'summary'
+        ? '--untracked-files=no' : '--untracked-files=all'], { env }),
+    gitValueAsync(absolute, ['branch', '--show-current'], { env }),
+    // Read the durable identity rather than Git's operationally rewritten URL. Workspace transports
+    // freeze this exact value per invocation; ambient url.* rules are neither manifest authority nor
+    // permission to make an otherwise correct clone look permanently misconfigured.
+    gitValueAsync(absolute, ['config', '--local', '--get', 'remote.origin.url'], { env }),
+    gitValueAsync(absolute, ['rev-parse', 'HEAD'], { env })
+  ]);
+  return Object.freeze({ dirty: Boolean(statusText), branch, remote, head });
+}
+
+async function typedRepositoryGitProjection(absolute, { level, env }) {
+  const [{ createRepoContext }, { executeGitQuery }] = await Promise.all([
+    import('./repo-context.mjs'), import('./git-query.mjs')
+  ]);
+  const context = createRepoContext(absolute, {
+    execute(root, id, params) { return executeGitQuery(root, id, params, { env }); }
+  });
+  const readinessOnly = level === 'readiness';
+  const [entries, branch, remote, head] = await Promise.all([
+    readinessOnly ? Promise.resolve([]) : context.observe('repository.status', {
+      untracked: level === 'summary' ? 'no' : 'all'
+    }),
+    context.observe('repository.branch'),
+    context.observe('repository.remote-url', { remote: 'origin' }),
+    context.observe('repository.head')
+  ]);
+  return Object.freeze({
+    dirty: entries.length > 0,
+    branch: branch ?? '',
+    remote: remote ?? '',
+    head: head ?? ''
+  });
+}
+
 async function repositoryStatus(root, repository, {
   level = 'full',
-  env = process.env
+  env = process.env,
+  gitReadMode = 'reference',
+  onGitShadowComparison = null
 } = {}) {
   const absolute = repository.adoption?.canonicalPath ?? path.join(root, repository.path);
   if (repository.adoption) {
@@ -4391,22 +4434,24 @@ async function repositoryStatus(root, repository, {
       worldModel: null
     };
   }
-  // These are independent local reads. Running them concurrently keeps a workspace with many
-  // repositories from serially blocking the extension host on four spawnSync calls per repository.
-  const readinessOnly = level === 'readiness';
-  const [statusText, branch, remote, headCommit] = await Promise.all([
-    readinessOnly
-      ? Promise.resolve('')
-      : gitValueAsync(absolute, ['status', '--porcelain=v1', level === 'summary'
-        ? '--untracked-files=no' : '--untracked-files=all'], { env }),
-    gitValueAsync(absolute, ['branch', '--show-current'], { env }),
-    // Read the durable identity rather than Git's operationally rewritten URL. Workspace transports
-    // freeze this exact value per invocation; ambient url.* rules are neither manifest authority nor
-    // permission to make an otherwise correct clone look permanently misconfigured.
-    gitValueAsync(absolute, ['config', '--local', '--get', 'remote.origin.url'], { env }),
-    gitValueAsync(absolute, ['rev-parse', 'HEAD'], { env })
-  ]);
-  const dirty = Boolean(statusText);
+  // Shadow mode executes the typed candidate but keeps this established projection authoritative.
+  // The FOS modules stay off the default module-load path until the operator explicitly asks for
+  // evidence with --git-shadow.
+  const read = () => referenceRepositoryGitProjection(absolute, { level, env });
+  let gitProjection;
+  if (gitReadMode === 'shadow') {
+    const { runFosGitShadowRead } = await import('./fos-git-shadow.mjs');
+    ({ value: gitProjection } = await runFosGitShadowRead({
+      operation: 'workspace.repository-status',
+      mode: 'shadow',
+      reference: read,
+      candidate: () => typedRepositoryGitProjection(absolute, { level, env }),
+      record: onGitShadowComparison
+    }));
+  } else {
+    gitProjection = await read();
+  }
+  const { dirty, branch, remote, head: headCommit } = gitProjection;
   let operationalRemote = null;
   try { operationalRemote = storableRemote(remote, { redactCredentials: true }); }
   catch { /* an unsafe configured remote is a mismatch, not a status-read crash */ }
@@ -4427,14 +4472,23 @@ async function repositoryStatus(root, repository, {
 
 export async function workspaceStatus(workspacePath, {
   level = 'full',
-  env = process.env
+  env = process.env,
+  gitReadMode = 'reference',
+  onGitShadowComparison = null
 } = {}) {
   if (!['readiness', 'summary', 'full'].includes(level)) {
     throw new SingularityFlowError(`Unknown workspace status level '${level}'.`);
   }
+  if (!['reference', 'shadow'].includes(gitReadMode)) {
+    throw new SingularityFlowError(`Unknown workspace Git read mode '${gitReadMode}'.`, {
+      code: 'FOS_GIT_SHADOW_MODE_INVALID'
+    });
+  }
   const workspace = await readWorkspace(workspacePath);
   const repositories = await Promise.all(Object.values(workspace.repositories).map((repository) =>
-    repositoryStatus(workspace.path, repository, { level, env })));
+    repositoryStatus(workspace.path, repository, {
+      level, env, gitReadMode, onGitShadowComparison
+    })));
   const staged = level === 'full' ? await listWorkspaceDocuments(workspace.path) : [];
   const warnings = repositories
     .filter((repository) => repository.state === 'ready' && repository.worldModel?.warning)

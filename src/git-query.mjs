@@ -65,7 +65,16 @@ const descriptors = [
     parser: (result) => result.status === 0 ? text(result) : null
   }),
   descriptor('repository.status', {
-    argv: () => ['status', '--porcelain=v2', '-z', '--untracked-files=all'], parser: nul
+    argv(params) {
+      const untracked = params?.untracked ?? 'all';
+      if (!['all', 'no'].includes(untracked)) throw new SingularityFlowError(
+        "Repository status untracked mode must be 'all' or 'no'.", {
+          code: 'GIT_QUERY_INPUT_INVALID'
+        }
+      );
+      return ['status', '--porcelain=v2', '-z', `--untracked-files=${untracked}`];
+    },
+    parser: nul
   }),
   descriptor('repository.tracked-paths', {
     argv: () => ['ls-files', '-z'], parser: nul

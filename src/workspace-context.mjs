@@ -237,12 +237,17 @@ export function workspacePromptLabel(context) {
 export async function buildWorkspaceContext(registryFile, reference, {
   repositoryId = null,
   storyId = null,
-  detectStory = true
+  detectStory = true,
+  gitReadMode = 'reference',
+  onGitShadowComparison = null
 } = {}) {
   const { readWorkspace, workspaceStatus } = await workspaceModule();
   const entry = await resolveWorkspaceReference(registryFile, reference);
   const workspace = await readWorkspace(entry.path);
-  const status = await workspaceStatus(workspace.path);
+  const status = await workspaceStatus(workspace.path, {
+    gitReadMode,
+    onGitShadowComparison
+  });
   const selectedRepositoryId = String(repositoryId ?? workspace.leadRepository).trim();
   const repository = status.repositories.find((item) => item.id === selectedRepositoryId);
   if (!repository) {
@@ -289,7 +294,11 @@ export async function activateWorkspaceContext(registryFile, selectionFile, refe
   });
 }
 
-export async function readActiveWorkspaceContext(selectionFile, registryFile, { refresh = true } = {}) {
+export async function readActiveWorkspaceContext(selectionFile, registryFile, {
+  refresh = true,
+  gitReadMode = 'reference',
+  onGitShadowComparison = null
+} = {}) {
   let selected;
   try {
     selected = readRecord('active-workspace', await readFile(selectionFile)).record;
@@ -306,7 +315,9 @@ export async function readActiveWorkspaceContext(selectionFile, registryFile, { 
     context = await buildWorkspaceContext(registryFile, selected.workspaceId, {
       repositoryId: selected.repositoryId,
       // The selected checkout, not the canonical clone's current branch, proves the Story below.
-      storyId: null
+      storyId: null,
+      gitReadMode,
+      onGitShadowComparison
     });
   } catch (error) {
     if (error?.code !== 'ACTIVE_WORKSPACE_REPOSITORY_REMOVED') throw error;
@@ -323,7 +334,10 @@ export async function readActiveWorkspaceContext(selectionFile, registryFile, { 
       }
       try {
         const repaired = await buildWorkspaceContext(registryFile, latest.workspaceId, {
-          repositoryId: latest.repositoryId, storyId: null
+          repositoryId: latest.repositoryId,
+          storyId: null,
+          gitReadMode,
+          onGitShadowComparison
         });
         return { ...repaired, prompt: workspacePromptLabel(repaired) };
       } catch (latestError) {

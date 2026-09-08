@@ -175,6 +175,21 @@ It compares cached and `--no-cache` repository projections, verifies linked-work
 and reports request counts. Its report
 sets `claimsAuthorized: false` and lists every platform/network lane it did not measure.
 
+For an acceptance-grade local runner, start from a clean exact commit and run the controlled
+profile. It enforces five warm-ups, 30 measured samples, the 1k/10k/100k fixtures, dirty reference
+states, an externally timed existing-authority onboarding command, and explicit runner facts:
+
+```bash
+npm run benchmark:fos -- --profile=controlled --samples=30 \
+  --runner=mac-studio-local --power-mode=ac \
+  --storage-class=local-ssd --filesystem=apfs \
+  --out=/absolute/private/fos-controlled.json
+```
+
+Use truthful lower-case values for the physical host. The report is hash-bound only when the
+checkout was clean. Controlled local success does not stand in for the Windows, Linux, VS Code,
+or office-network lanes; those remain named in `coverage.notMeasured` until run independently.
+
 The executable witness inventory maps each present `FOS:AC-NNN` test to its exact source line and
 test-body digest. Inventory mode never claims that tests ran; execution mode fails until all 50
 acceptance rows have real, non-skipped witnesses:

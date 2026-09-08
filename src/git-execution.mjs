@@ -92,6 +92,7 @@ const REMOTE_GIT_VERBS = new Set(['clone', 'fetch', 'ls-remote', 'pull', 'push']
  * paths, refs, and Work IDs, so they must never become timing keys or values.
  */
 function recordRemoteGitInvocation(args, operation) {
+  incrementCommandCounter('git.requests');
   incrementCommandCounter('git.remote.total');
   const operationName = String(operation ?? '').replace(/^remote-/, '');
   if (['probe', 'configuration', 'push'].includes(operationName)) {
@@ -143,6 +144,7 @@ export function runRemoteGit(args, {
   maxBuffer = undefined
 } = {}) {
   recordRemoteGitInvocation(args, operation);
+  const serviceStarted = performance.now();
   if (networkDisabled(env)) {
     const blocked = {
       status: 1, stdout: '', stderr: '', error: undefined,
@@ -157,13 +159,19 @@ export function runRemoteGit(args, {
     if (!allowFailure) throwRemoteFailure(observed);
     return observed;
   }
-  const result = runCommand('git', args, {
-    cwd,
-    env: nonInteractiveGitEnvironment(env),
-    timeoutMs,
-    allowFailure: true,
-    ...(maxBuffer === undefined ? {} : { maxBuffer })
-  });
+  incrementCommandCounter('git.spawns');
+  let result;
+  try {
+    result = runCommand('git', args, {
+      cwd,
+      env: nonInteractiveGitEnvironment(env),
+      timeoutMs,
+      allowFailure: true,
+      ...(maxBuffer === undefined ? {} : { maxBuffer })
+    });
+  } finally {
+    incrementCommandCounter('git.service-ms', Math.max(0, Math.round(performance.now() - serviceStarted)));
+  }
   const failure = result.status === 0 ? null : {
     ...classifyGitRemoteFailure(result, { cwdAvailable: workingDirectoryAvailable(cwd) }),
     evidence: failureEvidence(result)
@@ -194,7 +202,9 @@ export async function runRemoteGitAsync(args, {
     });
   }
   recordRemoteGitInvocation(args, operation);
-  const probeStarted = process.env.SINGULARITY_FLOW_SUBPROCESS_PROBE ? performance.now() : 0;
+  const serviceStarted = performance.now();
+  const probeStarted = process.env.SINGULARITY_FLOW_SUBPROCESS_PROBE ? serviceStarted : 0;
+  if (!signal?.aborted) incrementCommandCounter('git.spawns');
   const result = signal?.aborted
     // Abort reasons are caller-owned values and may contain credentials, URLs, or UI text. The
     // closed-vocabulary cancellation classification below is the complete public diagnosis; never
@@ -372,7 +382,9 @@ export async function runRemoteGitAsync(args, {
     if (signal?.aborted) onAbort();
     else signal?.addEventListener('abort', onAbort, { once: true });
   });
-  if (probeStarted) recordSubprocessTiming('git', args, performance.now() - probeStarted);
+  const serviceMs = performance.now() - serviceStarted;
+  incrementCommandCounter('git.service-ms', Math.max(0, Math.round(serviceMs)));
+  if (probeStarted) recordSubprocessTiming('git', args, serviceMs);
   const classified = result.status === 0 && !result.outputOverflow
     ? null
     : {

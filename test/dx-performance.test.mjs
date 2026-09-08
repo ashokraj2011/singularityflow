@@ -425,13 +425,17 @@ test('command timing events use the privacy-safe versioned envelope', () => {
   const firstFeedbackMs = timer.feedback();
   assert.equal(timer.feedback(), firstFeedbackMs);
   const event = timer.finish({ outcome: 'cancelled', fallback: 'cached-snapshot' });
-  assert.equal(event.schemaVersion, 5);
+  assert.equal(event.schemaVersion, 6);
   assert.equal(event.event, 'dx.command-timing');
   assert.equal(event.commandClass, 'read');
   assert.equal(event.command, 'status');
   assert.equal(event.outcome, 'cancelled');
   assert.equal(event.fallback, 'cached-snapshot');
   assert.equal(event.operationId, 'story.status');
+  assert.match(event.invocationId, /^[0-9a-f-]{36}$/);
+  assert.equal(event.mode, 'standard');
+  assert.equal(event.telemetryComplete, true);
+  assert.equal(event.errorCode, null);
   assert.equal(event.firstFeedbackMs, firstFeedbackMs);
   assert.ok(Date.parse(event.completedAt));
   assert.equal(typeof event.stages.resolve, 'number');

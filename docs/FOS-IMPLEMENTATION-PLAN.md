@@ -37,14 +37,14 @@ compares cached and uncached projections, and the executable evidence inventory 
 name paths and body digests while refusing to call missing rows complete. Passing local mocks never
 changes an external prerequisite to “complete,” and no unfinished optional feature is enabled.
 
-The current static inventory represents 46 of 50 acceptance IDs with exact-title witnesses.
-These four remain unrepresented until their complete observable conditions on physical runners
-are implemented and reviewed:
+The current static inventory represents 49 of 50 acceptance IDs with exact-title witnesses.
+One remains unrepresented until its complete observable conditions on a named physical runner
+are measured and retained:
 
-`FOS:AC-033`, `034`, `035`, and `036`.
+`FOS:AC-035`.
 
 Partial and deliberately deferred tests are reported separately as
-`FOS:PARTIAL-AC-NNN`/`FOS:DEFERRED-AC-NNN`; they never count toward that 46.
+`FOS:PARTIAL-AC-NNN`/`FOS:DEFERRED-AC-NNN`; they never count toward that 49.
 
 ## Outcome
 

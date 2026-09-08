@@ -7,14 +7,69 @@
  * guidance still wins; this module fills only the gap and never executes an action.
  */
 
+import { commandDefinition } from './command-registry.mjs';
+import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
+
 const SAFE_COMMAND = /^(?:singularity-flow|sflow)(?:\s|$)/;
 const SECRET_SHAPE = /(?:--(?:token|secret|password|credential|authorization|cookie|api[-_]?key|private[-_]?key|selection[-_]?receipt)\b|:\/\/[^\s/@:]+:[^\s/@]+@)/i;
+
+function tokenizeCommand(command) {
+  const tokens = [];
+  let current = '';
+  let quote = null;
+  let escaped = false;
+  for (const character of command) {
+    if (escaped) { current += character; escaped = false; continue; }
+    if (character === '\\' && quote !== "'") { escaped = true; continue; }
+    if (quote) {
+      if (character === quote) quote = null;
+      else current += character;
+      continue;
+    }
+    if (character === '"' || character === "'") { quote = character; continue; }
+    if (/\s/.test(character)) {
+      if (current) { tokens.push(current); current = ''; }
+      continue;
+    }
+    // Angle-bracket placeholders are documentation syntax and make the step non-copyable below.
+    // Shell operators remain forbidden even inside a producer-supplied recovery string.
+    if (';&|`$'.includes(character)) return null;
+    current += character;
+  }
+  if (escaped || quote) return null;
+  if (current) tokens.push(current);
+  return tokens;
+}
+
+function quoteToken(value, platform) {
+  return platform === 'win32'
+    ? `'${value.replaceAll("'", "''")}'`
+    : `'${value.replaceAll("'", `'"'"'`)}'`;
+}
 
 function safeCommand(value) {
   const command = typeof value === 'string' ? value.trim() : '';
   if (!command || command.length > 2_000 || /[\r\n\u0000-\u001f\u007f]/.test(command)
       || !SAFE_COMMAND.test(command) || SECRET_SHAPE.test(command)) return null;
-  return command;
+  const tokens = tokenizeCommand(command);
+  if (!tokens?.length || !['singularity-flow', 'sflow'].includes(tokens[0])) return null;
+  const executable = tokens[0] === 'sflow' ? ['singularity-flow', ...tokens.slice(1)] : tokens;
+  const top = executable[1];
+  if (!top || (top.startsWith('-') && !['--help', '--version'].includes(top))) return null;
+  if (!top.startsWith('-')) {
+    try { commandDefinition(top); } catch { return null; }
+  }
+  const copyable = !executable.some((token) => /<[^>]+>/.test(token));
+  return Object.freeze({
+    command: executable.join(' '),
+    argv: Object.freeze(executable.slice(1)),
+    copyable,
+    platformCommands: copyable ? Object.freeze({
+      darwin: executable.map((token) => quoteToken(token, 'darwin')).join(' '),
+      linux: executable.map((token) => quoteToken(token, 'linux')).join(' '),
+      win32: `& ${executable.map((token) => quoteToken(token, 'win32')).join(' ')}`
+    }) : null
+  });
 }
 
 function explicitCommands(error) {
@@ -29,7 +84,15 @@ function explicitCommands(error) {
 }
 
 function step(id, label, command = null, kind = 'diagnostic') {
-  return Object.freeze({ id, label, command, kind, execution: 'user-reviewed' });
+  const safe = command == null ? null : safeCommand(command);
+  if (command != null && !safe) return null;
+  return Object.freeze({
+    id, label, command: safe?.command ?? null,
+    argv: safe?.argv ?? null,
+    copyable: safe?.copyable ?? false,
+    platformCommands: safe?.platformCommands ?? null,
+    kind, execution: 'user-reviewed'
+  });
 }
 
 function optionValue(argv, name) {
@@ -145,7 +208,7 @@ function genericSteps(argv) {
 
 function deduplicate(steps) {
   const seen = new Set();
-  return steps.filter((entry) => {
+  return steps.filter(Boolean).filter((entry) => {
     const identity = `${entry.label}\u0000${entry.command ?? ''}`;
     if (seen.has(identity)) return false;
     seen.add(identity);
@@ -156,7 +219,7 @@ function deduplicate(steps) {
 export function refusalRemediationPlan(error, argv = []) {
   const code = String(error?.code ?? 'SINGULARITY_FLOW_ERROR');
   const explicit = explicitCommands(error).map((command, index) => step(
-    `producer-${index + 1}`, 'Follow the recovery action supplied by the refusing operation.', command,
+    `producer-${index + 1}`, 'Follow the recovery action supplied by the refusing operation.', command.command,
     index === 0 ? 'remediation' : 'diagnostic'
   ));
   const known = KNOWN[code]?.(argv) ?? [];
@@ -182,7 +245,7 @@ export function refusalEnvelope(error, argv = []) {
     status: 'failed',
     error: {
       code: error?.code ?? 'SINGULARITY_FLOW_ERROR',
-      message: error?.message ?? String(error),
+      message: redactDiagnosticText(error?.message ?? String(error)),
       ...(diagnosticAction?.command ? { diagnosticAction: {
         command: diagnosticAction.command,
         skill: diagnosticAction.skill ?? null

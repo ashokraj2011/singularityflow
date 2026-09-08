@@ -1441,6 +1441,32 @@ function dxCommandTimingV4ToV5(source) {
   };
 }
 
+function dxCommandTimingV5ToV6(source) {
+  const counters = clone(source.counters ?? {});
+  return {
+    ...source,
+    schemaVersion: 6,
+    invocationId: source.invocationId ?? null,
+    mode: source.mode ?? 'legacy-unknown',
+    gitSpawns: source.gitSpawns ?? counters['git.spawns'] ?? 0,
+    gitChildSpawns: source.gitChildSpawns ?? counters['git.child-spawns'] ?? 0,
+    gitRequests: source.gitRequests ?? counters['git.requests'] ?? 0,
+    batchRequests: source.batchRequests ?? counters['git.batch-requests'] ?? 0,
+    gitMs: source.gitMs ?? counters['git.service-ms'] ?? 0,
+    cacheHits: source.cacheHits ?? counters['cache.hits'] ?? 0,
+    cacheMisses: source.cacheMisses ?? counters['cache.misses'] ?? 0,
+    cacheInvalidations: source.cacheInvalidations ?? counters['cache.invalidations'] ?? 0,
+    remoteLookups: source.remoteLookups ?? counters['git.remote.total'] ?? 0,
+    fetches: source.fetches ?? counters['git.remote.command.fetch'] ?? 0,
+    mutationRetries: source.mutationRetries ?? counters['git.mutation-retries'] ?? 0,
+    discoveryCalls: source.discoveryCalls ?? counters['discovery.calls'] ?? 0,
+    compositionCalls: source.compositionCalls ?? counters['composition.calls'] ?? 0,
+    llmCalls: source.llmCalls ?? counters['llm.calls'] ?? 0,
+    telemetryComplete: source.telemetryComplete ?? false,
+    errorCode: source.errorCode ?? null
+  };
+}
+
 function vscodeResetMarkerV1ToV2(source) {
   return {
     ...source,
@@ -2667,12 +2693,13 @@ const families = [
     paths: [/^(?:\$git|\$workspace)\/prompt-audit\/prompts\.jsonl$/], immutable: true
   }),
   family({
-    id: 'dx-command-timing', currentVersion: 5,
+    id: 'dx-command-timing', currentVersion: 6,
     steps: [
       migration(1, 2, dxCommandTimingV1ToV2),
       migration(2, 3, dxCommandTimingV2ToV3),
       migration(3, 4, dxCommandTimingV3ToV4),
-      migration(4, 5, dxCommandTimingV4ToV5)
+      migration(4, 5, dxCommandTimingV4ToV5),
+      migration(5, 6, dxCommandTimingV5ToV6)
     ],
     paths: [/^\$git\/(?:dx\/timings(?:-[^/]+)?|performance\/commands)\.jsonl$/]
   }),

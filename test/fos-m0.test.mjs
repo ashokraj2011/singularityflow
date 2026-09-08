@@ -5,8 +5,12 @@ import test from 'node:test';
 import {
   compareFosSemanticProjections, fosSemanticProjection
 } from '../src/fos-semantic-projection.mjs';
-import { commandTimer } from '../src/dx-command-timing.mjs';
+import {
+  commandTimer, interruptedCommandTimings, recordCommandTiming
+} from '../src/dx-command-timing.mjs';
+import { commandFailureTiming } from '../src/cli-entry.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
+import { SingularityFlowError } from '../src/util.mjs';
 
 const fixture = (name) => new URL(`./fixtures/fos/${name}`, import.meta.url);
 
@@ -31,29 +35,91 @@ test('FOS:PARTIAL-AC-035 benchmark manifest separates feedback, completion, requ
     'first-feedback-ms', 'local-completion-ms', 'network-completion-ms',
     'git-request-count', 'git-process-spawn-count'
   ]) assert.ok(manifest.measurements.includes(required), required);
-  assert.equal(manifest.budgets, null);
+  assert.equal(manifest.profiles.controlled.minimumSamples, 30);
+  assert.equal(manifest.profiles.controlled.warmupRuns, 5);
+  assert.deepEqual(Object.keys(manifest.profiles.controlled.fixtures), [
+    'small-local', 'reference-local', 'large-local'
+  ]);
+  assert.equal(manifest.budgets['reference-local'].optimizedWarmGitRequests, 0);
 });
 
-test('FOS:PARTIAL-AC-034 terminal timing retains explicit local, network, request and spawn dimensions', () => {
-  const timer = commandTimer('onboard', { commandClass: 'mutation', operationId: 'fos-op-test' });
+test('FOS:AC-034 terminal events distinguish every outcome and recover forced interruption without forged success', async () => {
+  const timer = commandTimer('onboard', {
+    commandClass: 'mutation', operationId: 'fos-op-test', mode: 'network'
+  });
   timer.feedback();
   timer.increment('git.requests', 2);
+  timer.increment('git.batch-requests', 2);
   timer.increment('git.spawns', 1);
+  timer.increment('git.child-spawns', 3);
+  timer.increment('git.service-ms', 14);
   timer.stage('local-completion');
   timer.stage('network-completion');
   const event = timer.finish();
   assert.equal(event.operationId, 'fos-op-test');
-  assert.deepEqual(event.counters, { 'git.requests': 2, 'git.spawns': 1 });
+  assert.deepEqual(event.counters, {
+    'git.requests': 2, 'git.batch-requests': 2, 'git.spawns': 1,
+    'git.child-spawns': 3, 'git.service-ms': 14
+  });
+  assert.equal(event.gitRequests, 2);
+  assert.equal(event.batchRequests, 2);
+  assert.equal(event.gitSpawns, 1);
+  assert.equal(event.gitChildSpawns, 3);
+  assert.equal(event.gitMs, 14);
   assert.equal(typeof event.stages['local-completion'], 'number');
   assert.equal(typeof event.stages['network-completion'], 'number');
+  assert.throws(() => timer.finish(), /terminal event/);
+
+  const refused = commandFailureTiming(new SingularityFlowError('blocked', { code: 'AUTHORITY_PIN_INVALID' }));
+  const cancelled = commandFailureTiming(new SingularityFlowError('cancelled', { code: 'MODEL_CANCELLED' }));
+  const recovery = commandFailureTiming(new SingularityFlowError('repair', { code: 'WORK_RECOVERY_REQUIRED' }));
+  const failed = commandFailureTiming(new TypeError('unexpected'));
+  assert.deepEqual([refused.outcome, cancelled.outcome, recovery.outcome, failed.outcome],
+    ['refused', 'cancelled', 'recovery_required', 'error']);
+
+  const completedTimer = commandTimer('status', { invocationId: 'completed-invocation' });
+  const completedStart = completedTimer.startEvent();
+  const completed = completedTimer.finish();
+  const killedStart = commandTimer('status', { invocationId: 'killed-invocation' }).startEvent();
+  const interruptions = interruptedCommandTimings([completedStart, killedStart, completed], {
+    observedAt: '2026-09-08T00:00:00.000Z'
+  });
+  assert.equal(interruptions.length, 1);
+  assert.equal(interruptions[0].invocationId, 'killed-invocation');
+  assert.equal(interruptions[0].outcome, 'unknown');
+  assert.equal(interruptions[0].telemetryComplete, false);
+  assert.equal(interruptions[0].completedAt, null);
+
+  // A broken best-effort telemetry destination cannot rewrite a completed command outcome.
+  await assert.doesNotReject(() => recordCommandTiming('/path/that/is/not/a/git/repository', event));
 });
 
-test('FOS:PARTIAL-AC-036 first feedback and command completion are distinct observations', () => {
-  const timer = commandTimer('onboard', { commandClass: 'mutation' });
+test('FOS:AC-036 delayed network receipt and child work remain inside completion after immediate feedback', () => {
+  let monotonic = 0n;
+  const clock = () => monotonic;
+  const advance = (milliseconds) => { monotonic += BigInt(milliseconds) * 1_000_000n; };
+  const timer = commandTimer('onboard', {
+    commandClass: 'mutation', mode: 'network', clock,
+    wallClock: () => Date.parse('2026-09-08T00:00:00.000Z')
+  });
+  advance(5);
   const first = timer.feedback();
+  advance(20);
+  timer.stage('local-work');
+  advance(80);
+  timer.stage('network-work');
+  advance(15);
+  timer.stage('receipt-work');
+  advance(10);
+  timer.stage('child-quiescence');
   const event = timer.finish();
   assert.equal(event.firstFeedbackMs, first);
-  assert.ok(event.durationMs >= event.firstFeedbackMs);
+  assert.equal(event.firstFeedbackMs, 5);
+  assert.equal(event.durationMs, 130);
+  assert.equal(event.stages['network-work'], 80);
+  assert.equal(event.stages['receipt-work'], 15);
+  assert.equal(event.stages['child-quiescence'], 10);
+  assert.ok(event.durationMs > event.firstFeedbackMs);
   assert.notEqual(event.recordedAt, null);
 });
 

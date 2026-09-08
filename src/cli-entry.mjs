@@ -58,6 +58,28 @@ function rootIfAvailable(cwd = process.cwd()) {
   try { return repoRoot(cwd); } catch { return null; }
 }
 
+function timingMode(options) {
+  if (options.offline === true) return 'offline';
+  if (options['authority-local'] === true || options.local === true) return 'local';
+  if (options.network === true) return 'network';
+  return 'standard';
+}
+
+export function commandFailureTiming(error) {
+  const code = typeof error?.code === 'string' ? error.code : null;
+  if (/(?:CANCELLED|CANCELED|STOP_REQUESTED|_ABORTED)$/.test(code ?? '')
+      || /\bcancelled\b/i.test(error?.message ?? '')) {
+    return Object.freeze({ outcome: 'cancelled', errorCode: code ?? 'COMMAND_CANCELLED' });
+  }
+  if (/(?:RECOVERY|INTERRUPTED)/.test(code ?? '')) {
+    return Object.freeze({ outcome: 'recovery_required', errorCode: code });
+  }
+  if (error instanceof SingularityFlowError || error?.commandResult) {
+    return Object.freeze({ outcome: 'refused', errorCode: code || 'SINGULARITY_FLOW_ERROR' });
+  }
+  return Object.freeze({ outcome: 'error', errorCode: code ?? 'UNEXPECTED_ERROR' });
+}
+
 /**
  * A Git root is not automatically the repository a workspace command should govern.
  *
@@ -339,8 +361,16 @@ export async function main(argv) {
     // one of them a mutation and mis-partitions the DX timing dataset. The VS Code adapter already
     // classifies per subcommand; this keeps the two surfaces telling the same story.
     commandClass: operation.classification,
-    operationId: operation.id
+    operationId: operation.id,
+    mode: timingMode(options)
   });
+  const smartInitDryRun = definition.name === 'init'
+    && optionBoolean(options, 'smart-detect') && optionBoolean(options, 'dry-run');
+  const durableTimingStart = process.env.SINGULARITY_FLOW_DX_DURABLE_START === '1'
+    || process.env.CI === 'true';
+  if (durableTimingStart && !LOCAL_STATE_RESET_COMMANDS.has(definition.name) && !smartInitDryRun) {
+    await recordCommandTiming(root, timer.startEvent());
+  }
   timer.stage('root-dispatch');
   try {
     const module = await import(definition.modulePath);
@@ -384,8 +414,6 @@ export async function main(argv) {
      * workspace registration cannot turn a successful publish into a failed command, and retrying
      * journal capture can never replay the governed operation.
      */
-    const smartInitDryRun = definition.name === 'init'
-      && optionBoolean(options, 'smart-detect') && optionBoolean(options, 'dry-run');
     if (operation.classification === 'mutation' && !smartInitDryRun) {
       await import('./local-work-journal.mjs').then(({ captureCommandOutcome }) => captureCommandOutcome({
         root,
@@ -412,9 +440,11 @@ export async function main(argv) {
   } catch (error) {
     timer.stage('execute');
     timer.feedback();
-    const event = timer.finish({ outcome: 'error', errorClass: error?.name ?? 'Error' });
-    const smartInitDryRun = definition.name === 'init'
-      && optionBoolean(options, 'smart-detect') && optionBoolean(options, 'dry-run');
+    const terminal = commandFailureTiming(error);
+    const event = timer.finish({
+      ...terminal,
+      errorClass: error?.name ?? 'Error'
+    });
     if (!LOCAL_STATE_RESET_COMMANDS.has(definition.name) && !smartInitDryRun) await recordCommandTiming(root, event);
     if (options.timings === true) writeCommandTimings(event);
     throw error;

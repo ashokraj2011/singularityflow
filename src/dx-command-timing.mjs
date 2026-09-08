@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { appendFile, chmod, mkdir, readdir, rename, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { gitDir } from './git.mjs';
@@ -14,16 +15,49 @@ function positiveInteger(value, fallback) {
 
 export function commandTimer(command, input = {}) {
   const options = typeof input === 'bigint' ? { started: input } : input;
-  const started = options.started ?? process.hrtime.bigint();
-  const created = process.hrtime.bigint();
-  const startedAt = new Date(Date.now() - (Number(created - started) / 1e6)).toISOString();
+  const clock = options.clock ?? process.hrtime.bigint;
+  const wallClock = options.wallClock ?? Date.now;
+  const created = clock();
+  const started = options.started ?? created;
+  const invocationId = options.invocationId ?? randomUUID();
+  const startedAt = new Date(wallClock() - (Number(created - started) / 1e6)).toISOString();
   const stages = {};
   const counters = {};
   let checkpoint = started;
   let firstFeedbackMs = null;
+  let finished = false;
+  const summarizedCounters = () => ({
+    gitSpawns: counters['git.spawns'] ?? 0,
+    gitChildSpawns: counters['git.child-spawns'] ?? 0,
+    gitRequests: counters['git.requests'] ?? 0,
+    batchRequests: counters['git.batch-requests'] ?? 0,
+    gitMs: counters['git.service-ms'] ?? 0,
+    cacheHits: counters['cache.hits'] ?? 0,
+    cacheMisses: counters['cache.misses'] ?? 0,
+    cacheInvalidations: counters['cache.invalidations'] ?? 0,
+    remoteLookups: counters['git.remote.total'] ?? 0,
+    fetches: counters['git.remote.command.fetch'] ?? 0,
+    mutationRetries: counters['git.mutation-retries'] ?? 0,
+    discoveryCalls: counters['discovery.calls'] ?? 0,
+    compositionCalls: counters['composition.calls'] ?? 0,
+    llmCalls: counters['llm.calls'] ?? 0
+  });
   return {
+    invocationId,
+    startEvent() {
+      return {
+        schemaVersion: currentSchemaVersion('dx-command-timing'),
+        event: 'dx.command-start', invocationId,
+        commandClass: options.commandClass ?? 'unknown', command,
+        operationId: options.operationId ?? null,
+        mode: options.mode ?? 'standard', startedAt,
+        recordedAt: new Date(wallClock()).toISOString(),
+        outcome: 'started', telemetryComplete: false
+      };
+    },
     stage(name) {
-      const now = process.hrtime.bigint();
+      if (finished) throw new Error('Command timing is already terminal.');
+      const now = clock();
       stages[name] = (stages[name] ?? 0) + (Number(now - checkpoint) / 1e6);
       checkpoint = now;
     },
@@ -44,32 +78,67 @@ export function commandTimer(command, input = {}) {
     },
     /** Mark the first user-visible feedback separately from command completion. */
     feedback() {
+      if (finished) throw new Error('Command timing is already terminal.');
       if (firstFeedbackMs == null) {
-        firstFeedbackMs = Number(process.hrtime.bigint() - started) / 1e6;
+        firstFeedbackMs = Number(clock() - started) / 1e6;
       }
       return firstFeedbackMs;
     },
     finish(extra = {}) {
-      const ended = process.hrtime.bigint();
+      if (finished) throw new Error('Command timing already has a terminal event.');
+      finished = true;
+      const ended = clock();
+      const completedAt = new Date(wallClock()).toISOString();
       return {
         schemaVersion: currentSchemaVersion('dx-command-timing'),
         event: 'dx.command-timing',
+        invocationId,
         commandClass: options.commandClass ?? 'unknown',
         command,
         operationId: options.operationId ?? null,
+        mode: options.mode ?? 'standard',
         startedAt,
-        recordedAt: new Date().toISOString(),
-        completedAt: new Date().toISOString(),
+        recordedAt: completedAt,
+        completedAt,
         durationMs: Number(ended - started) / 1e6,
         firstFeedbackMs,
         stages,
         counters,
+        ...summarizedCounters(),
         outcome: 'success',
         fallback: 'none',
+        telemetryComplete: true,
+        errorCode: null,
         ...extra
       };
     }
   };
+}
+
+/**
+ * Reconcile durable starts after an ungraceful process death without inventing completion.
+ * The returned observations are in-memory diagnostics; callers decide whether TEL consent permits
+ * persistence. A normal invocation still has exactly one terminal `dx.command-timing` event.
+ */
+export function interruptedCommandTimings(events, { observedAt = new Date().toISOString() } = {}) {
+  const starts = new Map();
+  const terminal = new Set();
+  for (const event of events ?? []) {
+    if (!event || typeof event.invocationId !== 'string') continue;
+    if (event.event === 'dx.command-start') starts.set(event.invocationId, event);
+    if (event.event === 'dx.command-timing') terminal.add(event.invocationId);
+  }
+  return Object.freeze([...starts.values()]
+    .filter((event) => !terminal.has(event.invocationId))
+    .map((event) => Object.freeze({
+      ...event,
+      event: 'dx.command-interrupted',
+      recordedAt: observedAt,
+      completedAt: null,
+      outcome: 'unknown',
+      telemetryComplete: false,
+      errorCode: 'PROCESS_INTERRUPTED'
+    })));
 }
 
 export function writeCommandTimings(event) {

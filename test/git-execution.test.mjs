@@ -404,7 +404,13 @@ test('remote execution records privacy-safe operation, verb, and outcome counter
       }
     });
   });
-  assert.deepEqual(timer.finish().counters, {
+  const counters = timer.finish().counters;
+  const serviceMs = counters['git.service-ms'];
+  assert.ok(Number.isSafeInteger(serviceMs) && serviceMs >= 0);
+  assert.deepEqual({ ...counters, 'git.service-ms': 0 }, {
+    'git.requests': 3,
+    'git.spawns': 3,
+    'git.service-ms': 0,
     'git.remote.total': 3,
     'git.remote.operation.configuration': 1,
     'git.remote.command.fetch': 1,

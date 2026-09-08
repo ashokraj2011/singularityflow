@@ -87,14 +87,31 @@ test('FOS:AC-044 FOS refusals provide bounded real commands without executing re
   }
 });
 
-test('FOS:PARTIAL-AC-033 generated recovery commands remain bounded SFlow diagnostics and are never executed', () => {
-  const plan = refusalRemediationPlan(Object.assign(new Error('attachment is invalid'), {
-    code: 'AUTHORITY_PIN_INVALID'
-  }), ['onboard']);
+test('FOS:AC-033 recovery remains registered and shell-safe on macOS Linux and Windows with hostile context', () => {
+  const secret = 'https://person:office-secret@example.test/repo.git';
+  const error = Object.assign(new Error(`hostile path /tmp/a b/δ; touch escaped ${secret}`), {
+    code: 'AUTHORITY_PIN_INVALID',
+    details: {
+      diagnosticAction: { command: 'singularity-flow doctor --json; touch escaped' },
+      recoveryCommand: 'singularity-flow doctor --json'
+    }
+  });
+  const envelope = refusalEnvelope(error, ['onboard']);
+  const plan = envelope.remediationPlan;
   assert.equal(plan.retry.automatic, false);
   assert.ok(plan.steps.length > 0 && plan.steps.length <= 3);
   assert.ok(plan.steps.every((step) => step.execution === 'user-reviewed'));
   assert.ok(plan.steps.every((step) => /^singularity-flow [a-z][a-z0-9-]*(?: |$)/.test(step.command)));
+  assert.ok(plan.steps.every((step) => Array.isArray(step.argv)));
+  for (const step of plan.steps.filter((entry) => entry.copyable)) {
+    assert.deepEqual(Object.keys(step.platformCommands), ['darwin', 'linux', 'win32']);
+    assert.match(step.platformCommands.darwin, /^'singularity-flow'/);
+    assert.match(step.platformCommands.linux, /^'singularity-flow'/);
+    assert.match(step.platformCommands.win32, /^& 'singularity-flow'/);
+    assert.doesNotMatch(JSON.stringify(step.platformCommands), /touch escaped|office-secret/);
+  }
+  assert.doesNotMatch(JSON.stringify(envelope), /office-secret|\n\s+at /);
+  assert.match(envelope.error.message, /REDACTED/);
 });
 
 test('every published executable routes its own refusal through the shared planner', async () => {

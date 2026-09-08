@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -10,15 +10,41 @@ import { FOS_FEATURE_DEFAULTS } from '../src/fos-features.mjs';
 import { executeGitQuery } from '../src/git-query.mjs';
 import { createRepoContext } from '../src/repo-context.mjs';
 import { compareFosSemanticProjections } from '../src/fos-semantic-projection.mjs';
+import {
+  bootstrapFosAuthority, FOS_LOCAL_BOOTSTRAP_POLICY_ID
+} from '../src/onboard.mjs';
+import { mapLimit } from '../src/util.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(await readFile(
   path.join(packageRoot, 'benchmarks', 'fos', 'benchmark-manifest.json'), 'utf8'
 ));
+const valueOption = (name) => process.argv.find((argument) => argument.startsWith(`--${name}=`))
+  ?.slice(name.length + 3);
+const profile = valueOption('profile') ?? 'smoke';
+if (!Object.hasOwn(manifest.profiles, profile)) throw new Error(`Unknown FOS benchmark profile '${profile}'.`);
+const profileDefinition = manifest.profiles[profile];
 const samplesArgument = process.argv.find((argument) => argument.startsWith('--samples='));
-const samples = Number(samplesArgument?.slice('--samples='.length) ?? 3);
+const samples = Number(samplesArgument?.slice('--samples='.length) ?? profileDefinition.minimumSamples);
 if (!Number.isInteger(samples) || samples < 1 || samples > 30) {
   throw new Error('--samples must be an integer from 1 to 30.');
+}
+if (samples < profileDefinition.minimumSamples) {
+  throw new Error(`FOS ${profile} evidence requires at least ${profileDefinition.minimumSamples} measured samples.`);
+}
+const runnerIdentity = valueOption('runner');
+const powerMode = valueOption('power-mode');
+const storageClass = valueOption('storage-class');
+const filesystem = valueOption('filesystem');
+if (profile === 'controlled') {
+  for (const [name, value] of Object.entries({
+    runner: runnerIdentity, 'power-mode': powerMode,
+    'storage-class': storageClass, filesystem
+  })) {
+    if (!value || !/^[a-z0-9][a-z0-9._-]{1,63}$/.test(value)) {
+      throw new Error(`Controlled FOS evidence requires --${name}=<lower-case-runner-fact>.`);
+    }
+  }
 }
 const outputArgument = process.argv.find((argument) => argument.startsWith('--out='));
 const outputPath = outputArgument ? path.resolve(outputArgument.slice('--out='.length)) : null;
@@ -32,18 +58,44 @@ function git(root, ...arguments_) {
   }).trim();
 }
 
-async function fixture(fileCount) {
+async function fixture(definition) {
+  const fileCount = definition.trackedFiles;
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-fos-benchmark-'));
   git(root, 'init', '-q', '-b', 'main');
   git(root, 'config', 'user.name', 'FOS Benchmark');
   git(root, 'config', 'user.email', 'fos-benchmark@example.invalid');
   const directory = path.join(root, 'fixture');
   await mkdir(directory);
-  await Promise.all(Array.from({ length: fileCount }, (_, index) => writeFile(
+  await mapLimit(Array.from({ length: fileCount }), 32, (_, index) => writeFile(
     path.join(directory, `file-${String(index).padStart(5, '0')}.txt`), `fixture ${index}\n`
-  )));
+  ));
+  if (definition.spacesAndUnicode) {
+    await writeFile(path.join(directory, 'space and Unicode δ.txt'), 'portable fixture\n');
+  }
   git(root, 'add', '.');
   git(root, 'commit', '-qm', 'benchmark fixture');
+  await mapLimit(Array.from({ length: definition.untrackedFiles ?? 0 }), 32, (_, index) => writeFile(
+    path.join(directory, `untracked-${String(index).padStart(5, '0')}.txt`), `untracked ${index}\n`
+  ));
+  for (let index = 0; index < (definition.modifiedFiles ?? 0); index += 1) {
+    await writeFile(path.join(directory, `file-${String(index).padStart(5, '0')}.txt`), `modified ${index}\n`);
+  }
+  const stagedOffset = definition.modifiedFiles ?? 0;
+  for (let index = 0; index < (definition.stagedFiles ?? 0); index += 1) {
+    const relative = `fixture/file-${String(stagedOffset + index).padStart(5, '0')}.txt`;
+    await writeFile(path.join(root, relative), `staged ${index}\n`);
+    git(root, 'add', '--', relative);
+  }
+  const renameOffset = stagedOffset + (definition.stagedFiles ?? 0);
+  for (let index = 0; index < (definition.renamedFiles ?? 0); index += 1) {
+    const from = `fixture/file-${String(renameOffset + index).padStart(5, '0')}.txt`;
+    const to = `fixture/renamed ${String(index).padStart(3, '0')} δ.txt`;
+    git(root, 'mv', '--', from, to);
+  }
+  const deleteOffset = renameOffset + (definition.renamedFiles ?? 0);
+  for (let index = 0; index < (definition.deletedFiles ?? 0); index += 1) {
+    await rm(path.join(directory, `file-${String(deleteOffset + index).padStart(5, '0')}.txt`));
+  }
   return root;
 }
 
@@ -93,11 +145,15 @@ function quantiles(values) {
   return { minimum: sorted[0], median: at(0.5), p95: at(0.95), maximum: sorted.at(-1) };
 }
 
-async function measureFixture(id, fileCount) {
+async function measureFixture(id, definition) {
   const records = [];
-  for (let sample = 0; sample < samples; sample += 1) {
-    const root = await fixture(fileCount);
-    try {
+  const root = await fixture(definition);
+  try {
+    for (let warmup = 0; warmup < profileDefinition.warmupRuns; warmup += 1) {
+      await lane(root, true);
+      await lane(root, false);
+    }
+    for (let sample = 0; sample < samples; sample += 1) {
       const before = process.memoryUsage().rss;
       const optimized = await lane(root, true);
       const reference = await lane(root, false);
@@ -111,12 +167,12 @@ async function measureFixture(id, fileCount) {
         semanticEquivalent: coldComparison.equivalent && warmComparison.equivalent,
         maximumObservedRssBytes: Math.max(before, after)
       });
-    } finally {
-      await rm(root, { recursive: true, force: true });
     }
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
   return {
-    id, fileCount, samples, records,
+    id, definition, samples, warmupRuns: profileDefinition.warmupRuns, records,
     summary: {
       optimizedColdMs: quantiles(records.map((entry) => entry.optimized.coldMs)),
       optimizedWarmMs: quantiles(records.map((entry) => entry.optimized.warmMs)),
@@ -131,7 +187,7 @@ async function measureFixture(id, fileCount) {
 async function measureLinkedWorktrees() {
   const records = [];
   for (let sample = 0; sample < samples; sample += 1) {
-    const root = await fixture(64);
+    const root = await fixture({ trackedFiles: 64, untrackedFiles: 0 });
     const linked = `${root}-linked`;
     try {
       git(root, 'worktree', 'add', '-q', '-b', 'benchmark-linked', linked);
@@ -150,7 +206,7 @@ async function measureLinkedWorktrees() {
     }
   }
   return {
-    id: 'linked-worktrees', fileCount: 64, samples, records,
+    id: 'linked-worktrees', definition: { trackedFiles: 64 }, samples, records,
     summary: {
       semanticEquivalent: records.every((entry) => entry.sameRepositoryInstance
         && entry.distinctWorktreeInstances && entry.sameCommonDirectory
@@ -159,18 +215,102 @@ async function measureLinkedWorktrees() {
   };
 }
 
-const fixtures = [];
-fixtures.push(await measureFixture('small-local', 32));
-fixtures.push(await measureFixture('medium-local', 512));
-fixtures.push(await measureLinkedWorktrees());
+function runOnboardSample(root) {
+  const started = performance.now();
+  const result = spawnSync(process.execPath, [
+    path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'onboard', root, '--authority-local', '--timings'
+  ], {
+    cwd: root, encoding: 'utf8', timeout: 30_000, maxBuffer: 4 * 1024 * 1024,
+    env: {
+      ...process.env,
+      SINGULARITY_FLOW_NO_MODEL: '1',
+      ...(profile === 'controlled' ? { SINGULARITY_FLOW_DX_DURABLE_START: '1' } : {})
+    }
+  });
+  const externalWallMs = performance.now() - started;
+  if (result.status !== 0) throw new Error(`FOS onboarding benchmark failed with exit ${result.status}.`);
+  const internal = /\[sflow timing\][^\n]*\btotal=([0-9.]+)ms/.exec(result.stderr)?.[1];
+  if (internal == null) throw new Error('FOS onboarding benchmark did not emit its terminal timing.');
+  return { externalWallMs, internalWallMs: Number(internal), completed: true };
+}
+
+async function measureExistingLocalOnboard(definition) {
+  const root = await fixture(definition);
+  try {
+    await bootstrapFosAuthority(root, {
+      authorityLocal: true,
+      policyId: FOS_LOCAL_BOOTSTRAP_POLICY_ID
+    });
+    for (let warmup = 0; warmup < profileDefinition.warmupRuns; warmup += 1) runOnboardSample(root);
+    const records = Array.from({ length: samples }, (_, sample) => ({
+      sample: sample + 1,
+      ...runOnboardSample(root)
+    }));
+    return {
+      id: 'existing-local-authority-onboard', samples,
+      warmupRuns: profileDefinition.warmupRuns,
+      records,
+      summary: {
+        externalWallMs: quantiles(records.map((entry) => entry.externalWallMs)),
+        internalWallMs: quantiles(records.map((entry) => entry.internalWallMs)),
+        allCompleted: records.every((entry) => entry.completed)
+      }
+    };
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
 const commit = git(packageRoot, 'rev-parse', 'HEAD');
 const dirty = Boolean(git(packageRoot, 'status', '--porcelain=v1', '--untracked-files=all'));
+if (profile === 'controlled' && dirty) {
+  throw new Error('Controlled FOS evidence requires a clean exact implementation commit.');
+}
+if (profile === 'controlled' && !outputPath) {
+  throw new Error('Controlled FOS evidence requires --out outside the repository.');
+}
+
+const fixtures = [];
+for (const [id, definition] of Object.entries(profileDefinition.fixtures)) {
+  fixtures.push(await measureFixture(id, definition));
+}
+fixtures.push(await measureLinkedWorktrees());
+const externalCommands = [];
+if (profile === 'controlled') {
+  externalCommands.push(await measureExistingLocalOnboard(profileDefinition.fixtures['reference-local']));
+}
+const reference = fixtures.find((entry) => entry.id === 'reference-local');
+const onboard = externalCommands.find((entry) => entry.id === 'existing-local-authority-onboard');
+const checks = profile === 'controlled' ? {
+  referenceWarmLatency: reference.summary.optimizedWarmMs.p95
+    <= manifest.budgets['reference-local'].optimizedWarmP95Ms,
+  referenceWarmRequests: reference.summary.optimizedWarmGitRequests.every((count) => count
+    <= manifest.budgets['reference-local'].optimizedWarmGitRequests),
+  referenceWarmSpawns: reference.summary.optimizedWarmGitRequests.every((count) => count
+    <= manifest.budgets['reference-local'].optimizedWarmGitSpawns),
+  onboardExternalLatency: onboard.summary.externalWallMs.p95
+    <= manifest.budgets['existing-local-authority-onboard'].externalWallP95Ms
+} : null;
 const report = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   kind: 'fos-local-benchmark-report',
   claimsAuthorized: false,
+  profile,
   binding: { implementationCommit: commit, workingTree: dirty ? 'dirty-unbound' : 'clean', hashBound: !dirty },
-  runner: { platform: process.platform, architecture: process.arch, node: process.versions.node },
+  runner: {
+    identity: runnerIdentity ?? 'unclaimed-local',
+    platform: process.platform,
+    architecture: process.arch,
+    node: process.versions.node,
+    git: git(packageRoot, '--version').replace(/^git version\s+/, ''),
+    osRelease: os.release(),
+    cpu: os.cpus()[0]?.model ?? 'unknown',
+    memoryBytes: os.totalmem(),
+    storageClass: storageClass ?? 'unreported',
+    filesystem: filesystem ?? 'unreported',
+    powerMode: powerMode ?? 'unreported'
+  },
   featureState: FOS_FEATURE_DEFAULTS,
   manifest: {
     schemaVersion: manifest.schemaVersion,
@@ -179,12 +319,18 @@ const report = {
   },
   coverage: {
     localFixtures: fixtures.map((entry) => entry.id),
-    notMeasured: [
-      'first-feedback', 'network-completion', 'office-remote',
-      'fault-matrix', 'vscode-hosts', 'other-platforms'
-    ]
+    externallyMeasuredCommands: externalCommands.map((entry) => entry.id),
+    notMeasured: profile === 'controlled'
+      ? ['controlled-network-completion', 'office-remote', 'vscode-hosts', 'other-platforms']
+      : ['first-feedback', 'network-completion', 'office-remote',
+        'fault-matrix', 'vscode-hosts', 'other-platforms']
   },
-  fixtures
+  evaluation: checks == null ? null : {
+    checks,
+    status: Object.values(checks).every(Boolean) ? 'passed' : 'failed'
+  },
+  fixtures,
+  externalCommands
 };
 const serialized = `${JSON.stringify(report, null, 2)}\n`;
 if (outputPath) {
@@ -192,4 +338,5 @@ if (outputPath) {
   await writeFile(outputPath, serialized, { mode: 0o600 });
 }
 process.stdout.write(serialized);
-if (!fixtures.every((entry) => entry.summary.semanticEquivalent)) process.exitCode = 1;
+if (!fixtures.every((entry) => entry.summary.semanticEquivalent)
+    || report.evaluation?.status === 'failed') process.exitCode = 1;

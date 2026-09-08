@@ -2,9 +2,9 @@
 
 **Status:** authoritative cross-product tracker; bounded exact-tree aggregate and the latest code-local asynchronous Git migration are complete, while platform release evidence remains active
 
-**Baseline:** `main@0a2ffb39`
+**Baseline:** `main@076f1edf`
 
-**Last reviewed:** 2026-09-07
+**Last reviewed:** 2026-09-08
 
 This is the one-page control plane for deliberately deferred product work. It does not replace the
 detailed domain roadmaps and it does not authorize implementation. It names the current boundary,
@@ -396,6 +396,7 @@ matrix cell.
 | Governed comprehension | Read-only, non-authoritative P0 contract, closed registries, authority ADR, mutation tripwires, isolated npm/VSIX proof, deterministic corpus/matrix command, content-free P1 benchmark, bounded privacy-safe real-repository measurement, experimental source-free record preview/in-memory migration, bounded ephemeral P3 graph/exact explanation reads, normalized Story replay, an existing-five-tool resource-level gateway trace, and code-local incremental brownfield diagnostics with a leased native view exist | Execute and sign the unchanged `CMP-P0-001` matrix on Windows and Linux, independently review collected corpus results, complete the P1 storage/privacy and rollout decision, add P2-backed durable graph/causal authority plus SGOS joins, then integrate governed historical review before enforcement | [CMP roadmap](CMP-ROADMAP.md) |
 | Governed Delivery and Proof | M0–M8 are implemented; M9–M11 have code-local partial surfaces and remain non-GA | Authenticated M9 runner/verifier and signed release evidence before provider pilots or enforcement | [GDP milestone roadmap](GDP-DELIVERY-ROADMAP.md) |
 | Auto v2 | Story P0/P1, model/AST optionality, direct Ad Hoc Candidate adoption, and guarded registered comparative-quality projection are implemented | Optional SGOS profile after its independent acceptance contract; execute and independently review a real qualifying comparison study | [Auto v2 roadmap](AUT-V2-IMPLEMENTATION-ROADMAP.md) |
+| Fast onboarding and safe Git | Bounded Git execution, scoped remote/read reuse, recovery journals and performance harnesses exist; the typed repository context, verified attach-only command and FOS conformance trace are not implemented | Execute M0 to repair the Story-start refusal-order baseline, establish semantic projections and resolve the AST-at-start contract before enabling any FOS path | [FOS implementation plan](FOS-IMPLEMENTATION-PLAN.md) |
 
 Completed work is not repeated in this tracker. In particular, the
 [VS Code UI remediation contract](UI-REMEDIATION-PLAN.md) is implemented and regression-backed; a
@@ -759,6 +760,7 @@ For each remaining performance acceptance gate:
 ## Master-roadmap maintenance
 
 - Review this file whenever `AUT-V2-IMPLEMENTATION-ROADMAP.md`, `CMP-ROADMAP.md`,
+  `FOS-IMPLEMENTATION-PLAN.md`,
   `GDP-DELIVERY-ROADMAP.md`, `SGOS-PENDING-WORK.md`, `WEL-PENDING-WORK.md`, `CAB-ROADMAP.md`, or the
   accepted DX baseline changes.
 - Keep the portfolio dashboard a summary; detailed domain acceptance gates remain authoritative in

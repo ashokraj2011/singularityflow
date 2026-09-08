@@ -24,6 +24,7 @@ is not part of the current product.
 | Use SGOS for normal Stories, explicit Programs, recovery, and cross-laptop Pack authority | [How to use SGOS](SGOS-USAGE-GUIDE.md) |
 | Collect and merge the physical SGOS release proof | [SGOS end-to-end release proof](SGOS-END-TO-END-RELEASE-PROOF.md) |
 | Track deliberately deferred work and the next eligible increment | [Pending-work roadmap](PENDING-WORK-ROADMAP.md) |
+| Plan fast existing-repository onboarding and safe Git acceleration | [FOS implementation plan](FOS-IMPLEMENTATION-PLAN.md) |
 | Plan Governed Delivery and Proof as reversible release milestones | [GDP milestone delivery roadmap](GDP-DELIVERY-ROADMAP.md) |
 | Track governed comprehension from its read-only pilot through future enforcement | [CMP roadmap](CMP-ROADMAP.md) |
 | Measure CMP safely across explicitly selected real repositories | [CMP real-repository corpus measurement](CMP-REAL-CORPUS-MEASUREMENT.md) |

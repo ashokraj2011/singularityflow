@@ -34,6 +34,7 @@ import {
   canonicalSgosReducerInputs, reduceSgosJoinOutputs, sgosManualReconcileOptions
 } from './joins.mjs';
 import { canonicalSgosResourceEntries } from './resource-contracts.mjs';
+import { sgosDynamicFanoutChildInstanceId } from './fanout.mjs';
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
 const SHA256 = /^sha256:[a-f0-9]{64}$/;
@@ -104,6 +105,8 @@ const IMMUTABLE_FAMILIES = Object.freeze({
   'fork-prefix-task-import': Object.freeze({ directory: 'fork-prefix-task-imports', hashField: 'forkTaskImportSha256' }),
   'fork-prefix-import-receipt': Object.freeze({ directory: 'fork-prefix-import-receipts', hashField: 'forkImportReceiptSha256' }),
   'fanout-expansion-receipt': Object.freeze({ directory: 'fanout-expansions', hashField: 'expansionSha256' }),
+  'dynamic-fanout-collection': Object.freeze({ directory: 'dynamic-fanout-collections', hashField: 'collectionRecordSha256' }),
+  'dynamic-fanout-expansion-receipt': Object.freeze({ directory: 'dynamic-fanout-expansions', hashField: 'expansionSha256' }),
   'sgos-replay-plan': Object.freeze({ directory: 'replay-plans', hashField: 'replayPlanSha256' }),
   'process-binding': Object.freeze({ directory: 'bindings', hashField: 'bindingSha256' }),
   'sgos-record-index': Object.freeze({ directory: 'record-indexes', hashField: 'recordIndexSha256' }),
@@ -655,10 +658,15 @@ function recordIndexEntry(familyId, record, bytes = canonicalJson(record)) {
     bytes: Buffer.byteLength(bytes)
   };
   if (record.attemptId != null) entry.attemptId = requireId('attemptId', record.attemptId);
+  else if (familyId === 'dynamic-fanout-collection') {
+    entry.attemptId = requireId('attemptId', record.sourceAttemptId);
+  }
   if (record.taskInstanceId != null) {
     entry.taskInstanceId = requireId('taskInstanceId', record.taskInstanceId);
   } else if (familyId === 'fork-prefix-task-import') {
     entry.taskInstanceId = requireId('taskInstanceId', record.childTaskInstanceId);
+  } else if (familyId === 'dynamic-fanout-collection') {
+    entry.taskInstanceId = requireId('taskInstanceId', record.sourceTaskInstanceId);
   }
   return Object.freeze(entry);
 }
@@ -1503,11 +1511,79 @@ function assertExactReplayTransition(before, after, plan, effectReplayReceipts =
   }
 }
 
+function assertDynamicFanoutMutation(before, after, receipts) {
+  const beforeIds = new Set(Object.keys(before.taskInstances));
+  const addedIds = Object.keys(after.taskInstances ?? {})
+    .filter((id) => !beforeIds.has(id)).sort(compareSgosCodePoints);
+  const expectedAdded = receipts.flatMap((receipt) =>
+    receipt.items.map((item) => item.taskInstanceId)).sort(compareSgosCodePoints);
+  if (canonicalJson(addedIds) !== canonicalJson(expectedAdded)
+      || new Set(expectedAdded).size !== expectedAdded.length) {
+    fail('Dynamic fan-out task additions do not match one exact expansion receipt.',
+      'SGOS_DYNAMIC_FANOUT_EXPANSION_INVALID', { addedIds, expectedAdded });
+  }
+  const changedCoordinators = new Set();
+  for (const receipt of receipts) {
+    if (receipt.processId !== before.processId) {
+      fail('Dynamic fan-out expansion belongs to another Process.',
+        'SGOS_DYNAMIC_FANOUT_EXPANSION_INVALID');
+    }
+    const source = before.taskInstances[receipt.sourceTaskInstanceId];
+    const coordinator = Object.values(before.taskInstances).find((task) =>
+      task.taskTemplateId === receipt.parentTaskTemplateId);
+    const nextCoordinator = coordinator == null
+      ? null : after.taskInstances[coordinator.taskInstanceId];
+    if (!source || source.state !== 'succeeded'
+        || source.receiptSha256 !== receipt.sourceTaskReceiptSha256
+        || !source.outputRefs.includes(receipt.collectionRecordSha256)
+        || !coordinator || !nextCoordinator) {
+      fail(`Dynamic fan-out '${receipt.parentTaskTemplateId}' has foreign source lineage.`,
+        'SGOS_DYNAMIC_FANOUT_EXPANSION_INVALID');
+    }
+    const childIds = receipt.items.map((item) => item.taskInstanceId)
+      .sort(compareSgosCodePoints);
+    const expectedCoordinatorPredecessors = childIds.length
+      ? childIds : coordinator.predecessorTaskInstanceIds;
+    if (canonicalJson(nextCoordinator.predecessorTaskInstanceIds)
+        !== canonicalJson(expectedCoordinatorPredecessors)) {
+      fail(`Dynamic fan-out '${receipt.parentTaskTemplateId}' changed its coordinator incorrectly.`,
+        'SGOS_DYNAMIC_FANOUT_EXPANSION_INVALID');
+    }
+    changedCoordinators.add(coordinator.taskInstanceId);
+    for (const item of receipt.items) {
+      const task = after.taskInstances[item.taskInstanceId];
+      const expectedBinding = {
+        parentTaskTemplateId: receipt.parentTaskTemplateId,
+        itemKey: item.itemKey,
+        itemSha256: item.itemSha256,
+        collectionRecordSha256: receipt.collectionRecordSha256,
+        collectionSha256: receipt.collectionSha256,
+        maximumParallel: receipt.maximumParallel
+      };
+      if (!task || task.taskTemplateId !== receipt.bodyTaskTemplateId
+          || sgosDynamicFanoutChildInstanceId(
+            before.processId, receipt.parentTaskTemplateId,
+            item.itemKey, item.itemSha256
+          ) !== task.taskInstanceId
+          || canonicalJson(task.fanoutBinding) !== canonicalJson(expectedBinding)
+          || task.attemptIds.length || task.outputRefs.length
+          || task.receiptSha256 !== null || task.invalidatedBy !== null
+          || !task.predecessorTaskInstanceIds.includes(receipt.sourceTaskInstanceId)
+          || !['ready', 'waiting'].includes(task.state)) {
+        fail(`Dynamic fan-out child '${item.taskInstanceId}' has an invalid binding.`,
+          'SGOS_DYNAMIC_FANOUT_EXPANSION_INVALID');
+      }
+    }
+  }
+  return changedCoordinators;
+}
+
 async function assertImmutableCore(before, after, {
   replayPlan = null,
   effectReplayReceipts = [],
   appliedReplayPlans = new Map(),
-  forkTaskImports = []
+  forkTaskImports = [],
+  dynamicFanoutReceipts = []
 } = {}) {
   const fields = [
     'processId', 'programSha256', 'policySnapshotSha256', 'processBindingSha256',
@@ -1520,15 +1596,21 @@ async function assertImmutableCore(before, after, {
   }
   const beforeIds = Object.keys(before.taskInstances).sort();
   const afterIds = Object.keys(after.taskInstances ?? {}).sort();
-  if (JSON.stringify(beforeIds) !== JSON.stringify(afterIds)) {
+  const dynamicCoordinatorIds = assertDynamicFanoutMutation(
+    before, after, dynamicFanoutReceipts
+  );
+  if (!dynamicFanoutReceipts.length
+      && JSON.stringify(beforeIds) !== JSON.stringify(afterIds)) {
     fail('The sequential SGOS runtime cannot add or remove compiled task instances.', 'SGOS_TASK_SET_CHANGED');
   }
   const attemptOwners = new Map();
   for (const id of beforeIds) {
     const stableFields = [
-      'taskInstanceId', 'taskTemplateId', 'predecessorTaskInstanceIds', 'inputRefs'
+      'taskInstanceId', 'taskTemplateId', 'predecessorTaskInstanceIds', 'inputRefs',
+      'fanoutBinding'
     ];
     for (const field of stableFields) {
+      if (field === 'predecessorTaskInstanceIds' && dynamicCoordinatorIds.has(id)) continue;
       if (JSON.stringify(before.taskInstances[id][field] ?? null) !== JSON.stringify(after.taskInstances[id]?.[field] ?? null)) {
         fail(`SGOS task '${id}' attempted to replace immutable '${field}'.`, 'SGOS_TASK_BINDING_CHANGED', { taskInstanceId: id, field });
       }
@@ -1595,8 +1677,8 @@ async function assertImmutableCore(before, after, {
     const prior = before.taskInstances[id].state;
     const next = after.taskInstances[id]?.state;
     const legal = {
-      planned: new Set(['planned', 'waiting', 'ready']),
-      waiting: new Set(['waiting', 'ready']),
+      planned: new Set(['planned', 'waiting', 'ready', 'blocked']),
+      waiting: new Set(['waiting', 'ready', 'blocked']),
       ready: new Set(['ready', 'waiting', 'running', 'verifying', 'blocked']),
       leased: new Set(['leased', 'running', 'recovery-required']),
       running: new Set(['running', 'waiting-human', 'succeeded', 'ready', 'failed', 'recovery-required']),
@@ -4700,6 +4782,7 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
   // task state. A self-hashed Process cannot reset a receipted task to ready and execute it again.
   const [attempts, receipts, agentProposals, resourceLeases, joinReceipts,
     quorumJoinReceipts, reducerJoinReceipts, manualReconcileJoinReceipts, fanoutReceipts,
+    dynamicFanoutCollections, dynamicFanoutReceipts,
     effectReplayReceipts, effectRetryReceipts, forkTaskImports, forkImportReceipts, checkpoints,
     { record: program }] = await Promise.all([
     allRecords('gvm-task-attempt'),
@@ -4711,6 +4794,8 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
     allRecords('reducer-join-receipt'),
     allRecords('manual-reconcile-join-receipt'),
     allRecords('fanout-expansion-receipt'),
+    allRecords('dynamic-fanout-collection'),
+    allRecords('dynamic-fanout-expansion-receipt'),
     allRecords('effect-replay-receipt'),
     allRecords('effect-retry-receipt'),
     allRecords('fork-prefix-task-import'),
@@ -5112,6 +5197,117 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
     fail('SGOS fan-out expansion receipts do not exactly match Program fan-out groups.',
       'SGOS_FANOUT_MATERIALIZATION_INVALID');
   }
+  const dynamicDescriptors = new Map(program.taskTemplates
+    .map((template) => template.metadata?.dynamicFanoutCoordinator ?? null)
+    .filter(Boolean).map((descriptor) => [descriptor.parentTaskId, descriptor]));
+  const dynamicBodies = new Map(program.taskTemplates
+    .filter((template) => template.metadata?.dynamicFanoutBody)
+    .map((template) => [template.taskTemplateId, template]));
+  const dynamicCollectionsByHash = new Map(dynamicFanoutCollections.map((record) => [
+    record.collectionRecordSha256, record
+  ]));
+  const dynamicReceiptByParent = new Map();
+  for (const receipt of dynamicFanoutReceipts) {
+    if (dynamicReceiptByParent.has(receipt.parentTaskTemplateId)
+        || receipt.processId !== state.processId) {
+      fail('Dynamic fan-out expansion receipts are duplicated or foreign.',
+        'SGOS_DYNAMIC_FANOUT_EXPANSION_INVALID');
+    }
+    dynamicReceiptByParent.set(receipt.parentTaskTemplateId, receipt);
+  }
+  const consumedDynamicCollections = new Set();
+  const consumedDynamicTasks = new Set();
+  for (const [parentTaskId, descriptor] of dynamicDescriptors) {
+    const body = dynamicBodies.get(descriptor.bodyTaskTemplateId);
+    const coordinator = Object.values(state.taskInstances).find((task) =>
+      task.taskTemplateId === parentTaskId);
+    const source = Object.values(state.taskInstances).find((task) =>
+      task.taskTemplateId === descriptor.sourceTaskTemplateId);
+    const children = Object.values(state.taskInstances)
+      .filter((task) => task.fanoutBinding?.parentTaskTemplateId === parentTaskId)
+      .sort((left, right) => compareSgosCodePoints(
+        left.fanoutBinding.itemKey, right.fanoutBinding.itemKey
+      ));
+    const expansion = dynamicReceiptByParent.get(parentTaskId) ?? null;
+    if (!body || !coordinator || !source) {
+      fail(`Dynamic fan-out '${parentTaskId}' is missing its Program or Process boundary.`,
+        'SGOS_DYNAMIC_FANOUT_EXPANSION_INVALID');
+    }
+    if (expansion == null) {
+      if (children.length) {
+        fail(`Dynamic fan-out '${parentTaskId}' has tasks without an expansion receipt.`,
+          'SGOS_DYNAMIC_FANOUT_EXPANSION_INVALID');
+      }
+      continue;
+    }
+    const collection = dynamicCollectionsByHash.get(expansion.collectionRecordSha256);
+    const expectedItems = collection?.items.map(({ itemKey, itemSha256 }) => ({
+      itemKey,
+      itemSha256,
+      taskInstanceId: sgosDynamicFanoutChildInstanceId(
+        state.processId, parentTaskId, itemKey, itemSha256
+      )
+    })) ?? [];
+    if (!collection
+        || expansion.bodyTaskTemplateId !== descriptor.bodyTaskTemplateId
+        || expansion.sourceTaskInstanceId !== source.taskInstanceId
+        || expansion.sourceTaskReceiptSha256 !== source.receiptSha256
+        || expansion.collectionSha256 !== collection.collectionSha256
+        || expansion.maximumItems !== descriptor.maximumItems
+        || expansion.maximumParallel !== descriptor.maximumParallel
+        || collection.outputName !== descriptor.outputName
+        || collection.itemKeySelector !== descriptor.itemKeySelector
+        || collection.sourceTaskInstanceId !== source.taskInstanceId
+        || !source.outputRefs.includes(collection.collectionRecordSha256)
+        || canonicalJson(expansion.items) !== canonicalJson(expectedItems)
+        || canonicalJson(children.map((task) => task.taskInstanceId))
+          !== canonicalJson(expectedItems.map((item) => item.taskInstanceId))) {
+      fail(`Dynamic fan-out '${parentTaskId}' is not bound to its exact collection.`,
+        'SGOS_DYNAMIC_FANOUT_EXPANSION_INVALID');
+    }
+    const expectedCoordinatorPredecessors = children.length
+      ? children.map((task) => task.taskInstanceId)
+      : coordinator.predecessorTaskInstanceIds;
+    if (children.length && canonicalJson(coordinator.predecessorTaskInstanceIds)
+        !== canonicalJson(expectedCoordinatorPredecessors)) {
+      fail(`Dynamic fan-out '${parentTaskId}' coordinator does not join its exact children.`,
+        'SGOS_DYNAMIC_FANOUT_EXPANSION_INVALID');
+    }
+    for (const task of children) {
+      const item = expectedItems.find((entry) => entry.taskInstanceId === task.taskInstanceId);
+      if (!item || task.taskTemplateId !== body.taskTemplateId
+          || task.fanoutBinding.collectionRecordSha256 !== collection.collectionRecordSha256
+          || task.fanoutBinding.collectionSha256 !== collection.collectionSha256
+          || task.fanoutBinding.maximumParallel !== descriptor.maximumParallel) {
+        fail(`Dynamic fan-out child '${task.taskInstanceId}' has counterfeit lineage.`,
+          'SGOS_DYNAMIC_FANOUT_EXPANSION_INVALID');
+      }
+      consumedDynamicTasks.add(task.taskInstanceId);
+    }
+    consumedDynamicCollections.add(collection.collectionRecordSha256);
+  }
+  const foreignDynamicTasks = Object.values(state.taskInstances)
+    .filter((task) => task.fanoutBinding && !consumedDynamicTasks.has(task.taskInstanceId));
+  if (foreignDynamicTasks.length
+      || dynamicFanoutReceipts.length !== dynamicReceiptByParent.size
+      || dynamicFanoutReceipts.some((receipt) =>
+        !dynamicDescriptors.has(receipt.parentTaskTemplateId))) {
+    fail('Process contains a dynamic fan-out task or receipt outside installed Program authority.',
+      'SGOS_DYNAMIC_FANOUT_EXPANSION_INVALID');
+  }
+  for (const collection of dynamicFanoutCollections) {
+    const source = state.taskInstances[collection.sourceTaskInstanceId];
+    const authorized = [...dynamicDescriptors.values()].some((descriptor) =>
+      descriptor.sourceTaskTemplateId === source?.taskTemplateId
+      && descriptor.outputName === collection.outputName
+      && descriptor.itemKeySelector === collection.itemKeySelector);
+    if (!authorized || source?.state !== 'succeeded'
+        || source.attemptIds.at(-1) !== collection.sourceAttemptId
+        || !source.outputRefs.includes(collection.collectionRecordSha256)) {
+      fail('Dynamic fan-out collection is orphaned from its exact successful source task.',
+        'SGOS_DYNAMIC_FANOUT_COLLECTION_UNAUTHORIZED');
+    }
+  }
   const resourceLeasesByAttempt = recordsBy(resourceLeases, 'attemptId');
   for (const lease of resourceLeases) {
     const task = state.taskInstances[lease.taskInstanceId] ?? null;
@@ -5381,10 +5577,14 @@ async function assertTransitionIndexDelta(root, before, after, index) {
   const consumedAgentProposals = new Set();
   const consumedForkTaskImports = new Set();
   const consumedEffectRetries = new Set();
+  const consumedDynamicCollections = new Set();
   const introducedForkAggregates = index.delta.filter((entry) =>
     entry.family === 'fork-prefix-import-receipt');
+  const introducedDynamicFanouts = index.delta.filter((entry) =>
+    entry.family === 'dynamic-fanout-expansion-receipt');
   for (const [taskId, task] of Object.entries(after.taskInstances)) {
     const prior = before.taskInstances[taskId];
+    if (!prior) continue;
     if (task.invalidatedBy !== prior.invalidatedBy) {
       requireIndexed('sgos-replay-plan', task.invalidatedBy,
         `replay plan for task '${taskId}'`);
@@ -5438,6 +5638,44 @@ async function assertTransitionIndexDelta(root, before, after, index) {
       if (fanoutParents.size > 0) await assertReferencedRecords(root, after);
     }
   }
+  const addedTaskIds = Object.keys(after.taskInstances)
+    .filter((taskId) => before.taskInstances[taskId] == null);
+  if (addedTaskIds.length || introducedDynamicFanouts.length) {
+    if (!introducedDynamicFanouts.length
+        || after.currentCheckpointSha256 === before.currentCheckpointSha256) {
+      fail('Dynamic fan-out expansion requires one indexed receipt and a new exact checkpoint.',
+        'SGOS_DYNAMIC_FANOUT_EXPANSION_INVALID');
+    }
+    const covered = new Set();
+    for (const entry of introducedDynamicFanouts) {
+      const { record: receipt } = await readSgosImmutableRecord(
+        root, after.processId, 'dynamic-fanout-expansion-receipt', entry.recordSha256
+      );
+      await requireRooted('dynamic-fanout-collection', receipt.collectionRecordSha256,
+        `dynamic fan-out collection for '${receipt.parentTaskTemplateId}'`);
+      const { record: collection } = await readSgosImmutableRecord(
+        root, after.processId, 'dynamic-fanout-collection', receipt.collectionRecordSha256
+      );
+      if (collection.processId !== after.processId
+          || collection.sourceTaskInstanceId !== receipt.sourceTaskInstanceId
+          || collection.collectionSha256 !== receipt.collectionSha256
+          || canonicalJson(collection.items.map(({ itemKey, itemSha256 }) => ({
+            itemKey, itemSha256,
+            taskInstanceId: sgosDynamicFanoutChildInstanceId(
+              after.processId, receipt.parentTaskTemplateId, itemKey, itemSha256
+            )
+          }))) !== canonicalJson(receipt.items)) {
+        fail(`Dynamic fan-out '${receipt.parentTaskTemplateId}' receipt mismatches its collection.`,
+          'SGOS_DYNAMIC_FANOUT_EXPANSION_INVALID');
+      }
+      receipt.items.forEach((item) => covered.add(item.taskInstanceId));
+    }
+    if (canonicalJson([...covered].sort(compareSgosCodePoints))
+        !== canonicalJson(addedTaskIds.sort(compareSgosCodePoints))) {
+      fail('Dynamic fan-out expansion receipt does not cover every added task.',
+        'SGOS_DYNAMIC_FANOUT_EXPANSION_INVALID');
+    }
+  }
   for (const requestSha256 of after.openHumanRequests) {
     if (!before.openHumanRequests.includes(requestSha256)) {
       requireIndexed('human-request', requestSha256, 'Human Request');
@@ -5445,6 +5683,13 @@ async function assertTransitionIndexDelta(root, before, after, index) {
   }
   for (const [taskId, task] of Object.entries(after.taskInstances)) {
     const prior = before.taskInstances[taskId];
+    if (!prior) {
+      if (task.attemptIds.length || task.receiptSha256 !== null || task.outputRefs.length) {
+        fail(`New dynamic task '${taskId}' cannot arrive with execution lineage.`,
+          'SGOS_DYNAMIC_FANOUT_EXPANSION_INVALID');
+      }
+      continue;
+    }
     for (const attemptId of task.attemptIds.slice(prior.attemptIds.length)) {
       const exactAttempt = index.delta.find((entry) => entry.family === 'gvm-task-attempt'
         && entry.attemptId === attemptId && entry.taskInstanceId === taskId);
@@ -5487,6 +5732,49 @@ async function assertTransitionIndexDelta(root, before, after, index) {
       }
       if (exactForkImports.length === 1) {
         consumedForkTaskImports.add(exactForkImports[0].recordSha256);
+      }
+      const expectedDynamicOutputs = program.taskTemplates
+        .map((candidate) => candidate.metadata?.dynamicFanoutBody ?? null)
+        .filter((descriptor) =>
+          descriptor?.sourceTaskTemplateId === task.taskTemplateId);
+      const exactDynamicCollections = index.delta.filter((entry) =>
+        entry.family === 'dynamic-fanout-collection'
+        && entry.attemptId === receipt.attemptId
+        && entry.taskInstanceId === taskId);
+      const expectedNames = [...new Set(expectedDynamicOutputs.map((entry) => entry.outputName))]
+        .sort(compareSgosCodePoints);
+      if (exactForkImports.length === 0
+          && exactDynamicCollections.length !== expectedNames.length) {
+        fail(`Task '${taskId}' did not publish every approved dynamic fan-out collection.`,
+          'SGOS_DYNAMIC_FANOUT_COLLECTION_REQUIRED', {
+            expected: expectedNames.length, actual: exactDynamicCollections.length
+          });
+      }
+      const observedNames = [];
+      for (const entry of exactDynamicCollections) {
+        const { record: collection } = await readSgosImmutableRecord(
+          root, after.processId, 'dynamic-fanout-collection', entry.recordSha256
+        );
+        const descriptors = expectedDynamicOutputs.filter((descriptor) =>
+          descriptor.outputName === collection.outputName);
+        if (descriptors.length < 1
+            || descriptors.some((descriptor) =>
+              descriptor.itemKeySelector !== collection.itemKeySelector
+              || collection.items.length > descriptor.maximumItems)
+            || collection.processId !== after.processId
+            || collection.sourceTaskInstanceId !== taskId
+            || collection.sourceAttemptId !== receipt.attemptId
+            || !receipt.outputRefs.includes(collection.collectionRecordSha256)) {
+          fail(`Task '${taskId}' published a mismatched dynamic fan-out collection.`,
+            'SGOS_DYNAMIC_FANOUT_COLLECTION_MISMATCH');
+        }
+        observedNames.push(collection.outputName);
+        consumedDynamicCollections.add(entry.recordSha256);
+      }
+      if (canonicalJson([...new Set(observedNames)].sort(compareSgosCodePoints))
+          !== canonicalJson(expectedNames)) {
+        fail(`Task '${taskId}' dynamic fan-out output names do not match its Program.`,
+          'SGOS_DYNAMIC_FANOUT_COLLECTION_MISMATCH');
       }
       if (exactForkImports.length === 0 && template?.opcode === 'AGENT'
           && template.metadata?.executionUnitId === 'copilot-cli') {
@@ -5735,6 +6023,15 @@ async function assertTransitionIndexDelta(root, before, after, index) {
       fail('SGOS transition introduced an unbound or authoritative orphan proposal.',
         'SGOS_AGENT_PROPOSAL_INVALID', { proposalSha256: entry.recordSha256 });
     }
+  }
+  const unconsumedDynamicCollections = index.delta.filter((entry) =>
+    entry.family === 'dynamic-fanout-collection'
+    && !consumedDynamicCollections.has(entry.recordSha256));
+  if (unconsumedDynamicCollections.length) {
+    fail('SGOS transition introduced an unbound dynamic fan-out collection.',
+      'SGOS_DYNAMIC_FANOUT_COLLECTION_UNAUTHORIZED', {
+        collections: unconsumedDynamicCollections.map((entry) => entry.recordSha256)
+      });
   }
 }
 
@@ -6193,10 +6490,16 @@ export async function mutateSgosProcess(root, processId, mutate, {
     const forkTaskImports = await Promise.all(collector.tokens
       .filter((token) => token?.family === 'fork-prefix-task-import')
       .map(async (token) => (await readSgosImmutableRecord(
-        root, id, 'fork-prefix-task-import', token.recordSha256
+      root, id, 'fork-prefix-task-import', token.recordSha256
+      )).record));
+    const dynamicFanoutReceipts = await Promise.all(collector.tokens
+      .filter((token) => token?.family === 'dynamic-fanout-expansion-receipt')
+      .map(async (token) => (await readSgosImmutableRecord(
+        root, id, 'dynamic-fanout-expansion-receipt', token.recordSha256
       )).record));
     await assertImmutableCore(current, next, {
-      replayPlan, effectReplayReceipts, appliedReplayPlans, forkTaskImports
+      replayPlan, effectReplayReceipts, appliedReplayPlans, forkTaskImports,
+      dynamicFanoutReceipts
     });
     next.schemaVersion = currentSchemaVersion('gvm-process');
     next.kind = 'gvm-process';

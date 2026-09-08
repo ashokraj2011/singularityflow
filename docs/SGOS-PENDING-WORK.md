@@ -65,6 +65,17 @@ decisions, verification, consumed attempts, and installed Device postcondition r
 single aggregate receipt advances the child from genesis to the imported checkpoint. Genesis fork
 bytes remain unchanged; interrupted task and aggregate publications resume idempotently.
 
+The runtime-sized fan-out slice is implemented in the current increment. A reviewed `foreach`
+selects exactly one predecessor output through the closed
+`$tasks.<task>.outputs.<name>` grammar, derives stable item keys through `$` or `$.<field>`, and
+reuses one Program-hashed body prototype. The source publishes one immutable collection record;
+one later Process CAS publishes a matching expansion receipt, deterministic child instances, and
+an exact checkpoint. Process fsck, portable evidence, simulation, scheduling, migration, and the
+umbrella schema validate the same finite bounds and lineage. Replay is allowed only from the
+expansion checkpoint or later. Non-genesis fork refuses a prefix that would relabel a Process-bound
+dynamic collection under a child identity until a separately reviewed cross-Process mapping
+contract exists.
+
 ## Status rules
 
 - `[ ]` means the capability remains unavailable or behind an explicit refusal boundary.
@@ -257,8 +268,15 @@ Implemented in the current increment:
   hierarchy;
 - scheduling applies both immediate and ancestor concurrency bounds to distinct item identities,
   allowing parallel leaves within one item without accidentally opening another outer item;
-- existing one-level fan-out compiles to the same shape; dynamic/model-created collections remain
-  unavailable.
+- existing one-level fan-out compiles to the same shape;
+- bounded runtime fan-out admits only one exact predecessor output and one Program-hashed body
+  prototype; the source collection and expansion receipt bind stable keys, values, deterministic
+  child identities, ceilings, and the exact source attempt/receipt;
+- missing, foreign, duplicate-key, oversized, corrupt, unreceipted, or competing expansions fail
+  closed or converge on the one exact receipt; an empty collection completes without executing a
+  body task, and runtime/model-created task shapes remain unavailable;
+- replay cannot cross an already-expanded source and non-genesis fork refuses a dynamic prefix
+  pending a reviewed cross-Process collection/import mapping protocol.
 - `deterministic-reduce` is installed with exactly one model-free canonical output-reference-set
   reducer; Program admission, scheduling, immutable receipt validation, transition verification,
   process fsck, evidence export, schema migration, and the umbrella schema share the exact
@@ -292,9 +310,10 @@ Implemented in the current increment:
   and revoked authority, changed postconditions, missing/counterfeit lineage, or unsupported
   consequential Devices remain recovery-required without repeating an effect.
 
-Still required: dynamic fan-out, additional independently reviewed reducer implementations,
-and additional reviewed Device-specific postcondition protocols. The advanced orchestration family
-also needs shared signed supported-platform release evidence before this item can become `[x]`.
+Still required: a reviewed cross-Process mapping protocol for non-genesis forks after dynamic
+expansion, additional independently reviewed reducer implementations, and additional reviewed
+Device-specific postcondition protocols. The advanced orchestration family also needs shared signed
+supported-platform release evidence before this item can become `[x]`.
 
 Acceptance gates:
 

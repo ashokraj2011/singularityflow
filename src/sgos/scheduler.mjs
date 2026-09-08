@@ -55,6 +55,17 @@ export function sgosTaskReadiness(program, process, task) {
   const join = sgosJoinForTask(program, template.taskTemplateId);
   if (!join) fail(`JOIN task '${template.taskTemplateId}' has no installed join contract.`,
     'SGOS_JOIN_CONTRACT_MISSING');
+  if (template.metadata?.dynamicFanoutCoordinator) {
+    if (join.policy !== 'all-success') {
+      fail(`Dynamic fan-out JOIN '${template.taskTemplateId}' must use all-success.`,
+        'SGOS_DYNAMIC_FANOUT_EXPANSION_INVALID');
+    }
+    return Object.freeze({
+      ready: predecessors.every((entry) => entry.state === 'succeeded'),
+      impossible: predecessors.some((entry) =>
+        isSgosTerminalTaskState(entry.state) && entry.state !== 'succeeded')
+    });
+  }
   return sgosJoinReadiness(join, predecessors.map((entry) => entry.state));
 }
 
@@ -63,7 +74,7 @@ function taskOrder(left, right) {
     || compareSgosCodePoints(left.taskInstanceId, right.taskInstanceId);
 }
 
-function taskFanoutMemberships(template) {
+function taskFanoutMemberships(template, task = null) {
   const metadata = template?.metadata ?? {};
   if (metadata.fanoutLineage != null && !Array.isArray(metadata.fanoutLineage)) {
     fail(`Task '${template?.taskTemplateId}' has malformed fan-out lineage.`,
@@ -71,7 +82,12 @@ function taskFanoutMemberships(template) {
   }
   const memberships = [
     ...(metadata.fanoutLineage ?? []),
-    ...(metadata.fanout ? [metadata.fanout] : [])
+    ...(metadata.fanout ? [metadata.fanout] : []),
+    ...(task?.fanoutBinding ? [{
+      parentTaskId: task.fanoutBinding.parentTaskTemplateId,
+      itemKey: task.fanoutBinding.itemKey,
+      maximumParallel: task.fanoutBinding.maximumParallel
+    }] : [])
   ].map((entry) => ({
     parentTaskId: entry?.parentTaskId,
     itemKey: entry?.itemKey,
@@ -112,7 +128,11 @@ export function deterministicSgosDispatchPlan(program, process, {
   const membershipByTemplate = new Map();
   const fanoutLimits = new Map();
   for (const template of templates.values()) {
-    const memberships = taskFanoutMemberships(template);
+    const matchingTasks = Object.values(process?.taskInstances ?? {})
+      .filter((task) => task.taskTemplateId === template.taskTemplateId);
+    const memberships = matchingTasks.length === 1
+      ? taskFanoutMemberships(template, matchingTasks[0])
+      : taskFanoutMemberships(template);
     membershipByTemplate.set(template.taskTemplateId, memberships);
     for (const membership of memberships) {
       const prior = fanoutLimits.get(membership.parentTaskId);
@@ -130,7 +150,7 @@ export function deterministicSgosDispatchPlan(program, process, {
     return {
       taskInstanceId,
       entries: canonicalSgosResourceEntries(template.resources),
-      memberships: membershipByTemplate.get(task.taskTemplateId) ?? []
+      memberships: taskFanoutMemberships(template, task)
     };
   });
   const available = Math.max(0, maximumParallel - active.length);
@@ -147,7 +167,7 @@ export function deterministicSgosDispatchPlan(program, process, {
         taskTemplateId: task.taskTemplateId,
         opcode: template.opcode,
         entries: canonicalSgosResourceEntries(template.resources),
-        memberships: membershipByTemplate.get(task.taskTemplateId) ?? []
+        memberships: taskFanoutMemberships(template, task)
       };
     })
     .sort(taskOrder);

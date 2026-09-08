@@ -29,7 +29,7 @@ It provides:
 
 - versioned, content-addressed contracts for intent, policy, workflow, ratification, programs,
   process bindings, processes, attempts, receipts, human requests, evidence, and UI projections;
-- model-free compiler profile v3 with a closed opcode vocabulary, deterministic output, and an
+- model-free compiler profile v4 with a closed opcode vocabulary, deterministic output, and an
   exact Capability Pack authority digest;
 - compile-time refusal of unbounded work, cycles, orphan tasks, unmapped confirmed clauses,
   missing evidence, ungoverned judgment, unsafe overlapping writes, and consequential external
@@ -37,9 +37,10 @@ It provides:
 - a GVM executor for deterministic kernel operations, verification, checkpoints, human requests,
   no-ops, terminal steps, one exact deterministic-translator `AGENT`, one exact read-only
   filesystem `DEVICE`, and a bounded parallel wave selected from exact resource contracts;
-- static compile-time fan-out with stable item keys, installed `all-success`, `all-terminal`,
-  finite `quorum`, and model-free `deterministic-reduce` joins, immutable resource leases, and
-  policy-specific join/fan-out receipts;
+- static compile-time fan-out plus bounded runtime fan-out from one exact predecessor output,
+  installed `all-success`, `all-terminal`, finite `quorum`, and model-free
+  `deterministic-reduce` joins, immutable resource leases, and policy-specific join/fan-out
+  receipts;
 - execution admission that requires an exact Program approval loaded from `sflow/config` (or its
   verified state mirror); deterministic recompilation can corroborate it, but a Program self-hash,
   caller-supplied digest, or compiler inputs alone are never authority;
@@ -134,8 +135,8 @@ assurance. Manual reconciliation waits for terminal predecessors and lets an app
 select exactly one predecessor; the runtime derives that predecessor's current output references
 and binds the request, response, selection, and terminal snapshot in an immutable receipt.
 Unreviewed model-backed `AGENT`,
-any other consequential or uninstalled `DEVICE`, model-created or runtime-dynamic fan-out, unsafe
-parallel execution, and all other join policies still fail closed.
+any other consequential or uninstalled `DEVICE`, model-created task shapes, nested runtime fan-out,
+unsafe parallel execution, and all other join policies still fail closed.
 
 The runtime API also requires separately registered kernel handlers, Candidate Snapshot capture,
 and deterministic verifiers. The CLI installs only two reviewed read-only pairs:
@@ -208,11 +209,11 @@ with `process quarantine`; listing never repairs, migrates, or silently hides it
 
 ### Runtime API compatibility
 
-This hardened profile is an intentional SGOS contract boundary change: compiler output is v3 and
-mutable Process state is schema v3, rooted in an immutable predecessor-keyed control lineage.
-Unshipped/interrupted-development v2 state requires the internal exact-hash upgrade path; ordinary
-reads never rewrite it, and shipped v1 state remains quarantine-only because its authority cannot
-be recovered. The public `src/sgos/index.mjs` barrel no longer exports local
+This hardened profile is an intentional SGOS contract boundary change: compiler output is v4 and
+mutable Process state is schema v4, rooted in an immutable predecessor-keyed control lineage.
+Readable v2/v3 state follows the registered migration path; ordinary reads never invent execution
+authority, and shipped v1 state remains quarantine-only because its authority cannot be recovered.
+The public `src/sgos/index.mjs` barrel no longer exports local
 store writers or CAS primitives (`createSgosProcess`, `mutateSgosProcess`,
 `putSgosImmutableRecord`, `sealSgosImmutableRecord`, `buildSgosProcessBinding`, or raw Process-path
 helpers). Raw execution adapters, Candidate writers, and injectable test clocks are excluded too.
@@ -251,6 +252,30 @@ For a `HUMAN_REQUEST` task, the typed request descriptor is stored at
 the strict contract refuses it instead of maintaining two representations for the same authority
 boundary.
 
+A runtime-sized fan-out uses the same reviewed `foreach` construct but names one exact predecessor
+output instead of embedding `items`:
+
+```yaml
+inspect-modules:
+  kind: foreach
+  dependsOn: [discover]
+  over: $tasks.discover.outputs.modules
+  itemKey: $.id
+  maximumItems: 100
+  maximumParallel: 4
+  body:
+    kind: task
+```
+
+The compiler admits only `$tasks.<task>.outputs.<name>` and `$`/`$.<field>` selectors. It hashes one
+fixed body prototype into the Program and one `all-success` coordinator; runtime values may choose
+only the number and exact item bindings, never a task opcode, operation, resource, authority, or
+recovery shape. The source success publishes a content-addressed `dynamic-fanout-collection`; one
+later Process CAS publishes the corresponding expansion receipt, deterministically named child
+instances, and an exact checkpoint. Duplicate keys, missing/foreign collections, bound overflow,
+conflicting consumers, competing expansion, and crash recovery fail closed or converge on that
+same receipt. Empty collections are valid and execute no body task.
+
 Compilation is pure: timestamps are not injected, source key order is irrelevant, and the same
 confirmed records produce the same Program hash.
 
@@ -288,6 +313,12 @@ success receipt or outputs. Fork first writes an immutable predecessor intent an
 deterministic child genesis bound to the parent's immutable Process Binding; repeating confirmation
 recovers the same receipt even if the child has since progressed, while lineage fsck reports
 orphaned, corrupt, or incomplete fork records.
+
+Replay may start at the dynamic expansion checkpoint or later. It cannot cross back through a
+source whose collection has already materialized, because doing so would allow one replay to imply
+a different task set. Non-genesis fork currently refuses a prefix containing such a source: the
+collection and its expansion are Process-bound, and SGOS will not silently relabel that evidence as
+child execution. Genesis fork remains available.
 
 An ordinary failed task can be retried only while its Program still has an unused attempt and its
 recovery policy explicitly says `retry-safe`. `task retry` first writes a content-addressed preview
@@ -523,8 +554,9 @@ tracked in [SGOS-PENDING-WORK.md](SGOS-PENDING-WORK.md):
 - model-backed or tool-bearing `AGENT` execution beyond the reviewed Copilot proposal-only GEU,
   mutating Devices beyond the exact sandbox-CAS profile, arbitrary third-party adapters, and their
   complete independent conformance/counterfeit-model programs;
-- runtime-dynamic fan-out, additional reviewed reducers, and additional Device-specific
-  postcondition protocols; bounded nested inline fan-out, quorum, deterministic-reduce,
+- additional reviewed reducers, additional Device-specific postcondition protocols, and a reviewed
+  cross-Process mapping contract for non-genesis forks after dynamic expansion; bounded runtime
+  fan-out, nested inline fan-out, quorum, deterministic-reduce,
   manual-reconcile joins, installed-protocol idempotent effect replay, exact sandbox-CAS
   consequential retry, and exact non-genesis fork import are implemented;
 - universal Candidate routing is implemented for the supported lifecycle surfaces; its

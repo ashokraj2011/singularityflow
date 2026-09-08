@@ -100,13 +100,15 @@ function validatedProgram(value) {
         bytes, maximumBytes: SGOS_INSTALLED_LIMITS.maximumProgramBytes
       });
   }
-  if (program.taskTemplates.length > SGOS_INSTALLED_LIMITS.maximumTasks
+  const maximumTaskTemplates = SGOS_INSTALLED_LIMITS.maximumTasks
+    + SGOS_INSTALLED_LIMITS.maximumFanoutGroupsPerProcess;
+  if (program.taskTemplates.length > maximumTaskTemplates
       || program.edges.length > SGOS_INSTALLED_LIMITS.maximumEdges) {
     fail('Program exceeds the installed simulation graph ceiling.',
       'SGOS_SIMULATION_GRAPH_TOO_LARGE', {
         tasks: program.taskTemplates.length,
         edges: program.edges.length,
-        maximumTasks: SGOS_INSTALLED_LIMITS.maximumTasks,
+        maximumTasks: maximumTaskTemplates,
         maximumEdges: SGOS_INSTALLED_LIMITS.maximumEdges
       });
   }

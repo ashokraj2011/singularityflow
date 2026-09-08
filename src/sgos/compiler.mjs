@@ -19,7 +19,8 @@ import { canonicalSgosJoins } from './joins.mjs';
 import { canonicalSgosResourceEntries } from './resource-contracts.mjs';
 import { SGOS_INSTALLED_LIMITS } from './limits.mjs';
 import {
-  normalizeSgosFanout, sgosFanoutChildTemplateId
+  normalizeSgosDynamicFanoutDescriptor, normalizeSgosFanout,
+  sgosDynamicFanoutBodyTemplateId, sgosFanoutChildTemplateId
 } from './fanout.mjs';
 import {
   assertSgosCapabilityPackOperations, capabilityPackAuthoritiesForCompilation,
@@ -29,7 +30,7 @@ import {
 import { simulateSgosProgramAssurance } from './simulation.mjs';
 
 export const SGOS_COMPILER_ID = 'sflow-gvm-compiler';
-export const SGOS_COMPILER_VERSION = '3';
+export const SGOS_COMPILER_VERSION = '4';
 
 export const GVM_OPCODES = CONTRACT_GVM_OPCODES;
 
@@ -363,7 +364,7 @@ function inheritedFanoutChild(parent, body) {
   const child = { ...clone(parent), ...clone(body) };
   for (const field of [
     'items', 'body', 'maximumItems', 'maximumParallel', 'maximumIterations',
-    'dynamicFanout', 'bounds'
+    'dynamicFanout', 'over', 'itemKey', 'bounds'
   ]) delete child[field];
   child.kind = body.kind ?? body.type ?? 'task';
   delete child.opcode;
@@ -418,6 +419,66 @@ function expandedTaskEntries(workflow) {
         `Fan-out '${taskId}' cannot contain nested dynamic control flow.`, { taskId, childKind });
     }
     const maximumParallel = numericBound(rawTask, 'maximumParallel', 'maxParallel') ?? 1;
+    if (rawTask.items != null && rawTask.over != null) {
+      fail('SGOS_DYNAMIC_FANOUT_SOURCE_AMBIGUOUS',
+        `Fan-out '${taskId}' cannot declare both compile-time items and a runtime collection source.`, {
+          taskId
+        });
+    }
+    const dynamic = rawTask.items == null && rawTask.over != null;
+    if (dynamic) {
+      if (childKind === 'foreach') {
+        fail('SGOS_DYNAMIC_FANOUT_NESTED_UNSUPPORTED',
+          `Dynamic fan-out '${taskId}' cannot contain another runtime fan-out body.`, {
+            taskId, childKind
+          });
+      }
+      const bodyTaskTemplateId = sgosDynamicFanoutBodyTemplateId(taskId);
+      let descriptor;
+      try {
+        descriptor = normalizeSgosDynamicFanoutDescriptor({
+          taskId,
+          over: rawTask.over,
+          itemKey: rawTask.itemKey,
+          maximumItems,
+          maximumParallel,
+          bodyTaskTemplateId
+        });
+      } catch (error) {
+        fail(error?.code ?? 'SGOS_DYNAMIC_FANOUT_INVALID',
+          error?.message ?? String(error), error?.details ?? {});
+      }
+      const declaredPredecessors = clone(
+        rawTask.dependsOn ?? rawTask.after ?? rawTask.predecessors ?? []
+      );
+      if (!declaredPredecessors.includes(descriptor.sourceTaskTemplateId)) {
+        fail('SGOS_DYNAMIC_FANOUT_SOURCE_NOT_PREDECESSOR',
+          `Dynamic fan-out '${taskId}' must depend on its exact collection source '${descriptor.sourceTaskTemplateId}'.`, {
+            taskId, sourceTaskTemplateId: descriptor.sourceTaskTemplateId
+          });
+      }
+      const child = inheritedFanoutChild(rawTask, rawTask.body);
+      child.kind = rawTask.body.kind ?? rawTask.body.type ?? 'task';
+      child.dependsOn = declaredPredecessors;
+      child.inputs = clone(rawTask.body.inputs ?? rawTask.inputs ?? []);
+      child.metadata = {
+        ...clone(rawTask.metadata ?? {}),
+        ...clone(rawTask.body.metadata ?? {}),
+        dynamicFanoutBody: clone(descriptor)
+      };
+      pushTask(bodyTaskTemplateId, child);
+      pushTask(taskId, {
+        kind: 'join',
+        dependsOn: [bodyTaskTemplateId],
+        material: false,
+        intentClauseIds: [],
+        metadata: {
+          joinPolicy: 'all-success',
+          dynamicFanoutCoordinator: clone(descriptor)
+        }
+      });
+      return;
+    }
     let fanout;
     try {
       fanout = normalizeSgosFanout({
@@ -1008,15 +1069,42 @@ function assertCompileCeilings(workflow, templates) {
         maximumTasks: budgets.maximumTasks ?? null
       });
   }
-  if (templates.length > maximumTasks) {
+  const dynamicBodies = templates.filter((task) => task.metadata?.dynamicFanoutBody);
+  const dynamicOutputContracts = new Map();
+  for (const task of dynamicBodies) {
+    const descriptor = task.metadata.dynamicFanoutBody;
+    const identity = `${descriptor.sourceTaskTemplateId}\u0000${descriptor.outputName}`;
+    const contract = {
+      itemKeySelector: descriptor.itemKeySelector,
+      maximumItems: descriptor.maximumItems
+    };
+    const prior = dynamicOutputContracts.get(identity);
+    if (prior != null && canonicalJson(prior) !== canonicalJson(contract)) {
+      fail('SGOS_DYNAMIC_FANOUT_COLLECTION_MISMATCH',
+        `Dynamic fan-out consumers of '${descriptor.sourceTaskTemplateId}.${descriptor.outputName}' disagree on collection shape.`);
+    }
+    dynamicOutputContracts.set(identity, contract);
+  }
+  const maximumMaterializedTasks = templates.length - dynamicBodies.length
+    + dynamicBodies.reduce((total, task) =>
+      total + Number(task.metadata.dynamicFanoutBody.maximumItems), 0);
+  if (maximumMaterializedTasks > maximumTasks) {
     fail('SGOS_MAXIMUM_TASKS_EXCEEDED',
-      `Workflow contains ${templates.length} tasks, exceeding maximumTasks ${maximumTasks}.`, {
-        taskCount: templates.length, maximumTasks
+      `Workflow can materialize ${maximumMaterializedTasks} tasks, exceeding maximumTasks ${maximumTasks}.`, {
+        taskCount: maximumMaterializedTasks, maximumTasks
+      });
+  }
+  if (maximumMaterializedTasks > SGOS_INSTALLED_LIMITS.maximumTasks) {
+    fail('SGOS_MAXIMUM_TASKS_EXCEEDED',
+      `Workflow can materialize more than the installed ${SGOS_INSTALLED_LIMITS.maximumTasks}-task ceiling.`, {
+        taskCount: maximumMaterializedTasks,
+        maximumTasks: SGOS_INSTALLED_LIMITS.maximumTasks
       });
   }
   const fanoutGroups = new Set(templates.flatMap((task) => [
     task.metadata?.fanout?.parentTaskId,
-    task.metadata?.fanoutCoordinator?.parentTaskId
+    task.metadata?.fanoutCoordinator?.parentTaskId,
+    task.metadata?.dynamicFanoutCoordinator?.parentTaskId
   ].filter(Boolean)));
   if (fanoutGroups.size > SGOS_INSTALLED_LIMITS.maximumFanoutGroupsPerProcess) {
     fail('SGOS_FANOUT_LIMIT',

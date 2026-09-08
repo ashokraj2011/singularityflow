@@ -38,10 +38,15 @@ import {
   buildSgosTaskAttempt, buildSgosTaskReceipt, compileSgosActionEvidence, sgosSha256
 } from '../src/sgos/evidence.mjs';
 import { projectSgosWorkObjects } from '../src/sgos/projection.mjs';
-import { compileSgosProcessEvidence } from '../src/sgos/process-evidence.mjs';
+import {
+  compileSgosProcessEvidence, verifySgosProcessEvidence
+} from '../src/sgos/process-evidence.mjs';
 import { SGOS_INSTALLED_LIMITS } from '../src/sgos/limits.mjs';
 import { normalizeSgosFanout, sgosFanoutChildTemplateId } from '../src/sgos/fanout.mjs';
 import { canonicalSgosResourceEntries } from '../src/sgos/resource-contracts.mjs';
+import {
+  planSgosProcessFork, planSgosProcessReplay, replaySgosProcess
+} from '../src/sgos/lineage.mjs';
 import {
   deterministicSgosReadySet,
   listSgosProcesses,
@@ -168,6 +173,10 @@ function task(taskTemplateId, opcode, dependsOn = [], extra = {}) {
 }
 
 function program(taskTemplates, joins = []) {
+  const dynamicBodies = taskTemplates.filter((entry) => entry.metadata?.dynamicFanoutBody);
+  const maximumTasks = taskTemplates.length - dynamicBodies.length
+    + dynamicBodies.reduce((sum, entry) =>
+      sum + entry.metadata.dynamicFanoutBody.maximumItems, 0);
   return createGvmProgram({
     intentIrSha256: HASH.intent,
     workflowSha256: HASH.workflow,
@@ -182,13 +191,72 @@ function program(taskTemplates, joins = []) {
         : left.to < right.to ? -1 : left.to > right.to ? 1 : 0),
     joins,
     budgets: {
-      maximumTasks: taskTemplates.length,
+      maximumTasks,
       maximumAttempts: Math.max(...taskTemplates.map((entry) => entry.retry?.maximumAttempts ?? 1))
     },
     recoveryPolicy: { mode: 'fail-closed' },
     terminalConditions: [{ taskTemplateId: taskTemplates.at(-1).taskTemplateId, state: 'succeeded' }],
     compiler: { id: SGOS_COMPILER_ID, version: '2' }
   });
+}
+
+function dynamicFanoutProgram({
+  maximumItems = 3, maximumParallel = 2, maximumAttempts = 1
+} = {}) {
+  const descriptor = {
+    parentTaskId: '30-fanout', sourceTaskTemplateId: '10-discover',
+    outputName: 'modules', itemKeySelector: '$.id',
+    bodyTaskTemplateId: '30-fanout:dynamic-body', maximumItems, maximumParallel
+  };
+  const templates = [
+    task('10-discover', 'KERNEL', [], {
+      operation: 'story.discover', retry: { maximumAttempts }
+    }),
+    task('30-fanout:dynamic-body', 'KERNEL', ['10-discover'], {
+      operation: 'story.inspect-module', retry: { maximumAttempts },
+      metadata: { dynamicFanoutBody: descriptor }
+    }),
+    task('30-fanout', 'JOIN', ['30-fanout:dynamic-body'], {
+      material: false, retry: { maximumAttempts },
+      metadata: { joinPolicy: 'all-success', dynamicFanoutCoordinator: descriptor }
+    }),
+    task('90-end', 'END', ['30-fanout'], { retry: { maximumAttempts } })
+  ].sort((left, right) => left.taskTemplateId.localeCompare(right.taskTemplateId));
+  return Object.freeze({
+    descriptor: Object.freeze(descriptor),
+    program: program(templates, [{
+      joinId: '30-fanout', taskTemplateId: '30-fanout', policy: 'all-success',
+      predecessorTaskTemplateIds: ['30-fanout:dynamic-body']
+    }])
+  });
+}
+
+function dynamicFanoutAdapters(fanoutCollections, observed = []) {
+  return {
+    handlers: { kernel: {
+      'story.discover': async () => ({
+        ...(fanoutCollections === undefined ? {} : { fanoutCollections }),
+        rawResult: { status: 'completed' }
+      }),
+      'story.inspect-module': async ({ fanoutItem }) => {
+        observed.push(fanoutItem);
+        return { rawResult: { status: 'completed', itemKey: fanoutItem.itemKey } };
+      }
+    } },
+    captureCandidates: {
+      'story.discover': async () => ({ resources: [] }),
+      'story.inspect-module': async () => ({ resources: [] })
+    },
+    verifiers: {
+      'story.discover': async ({ candidateSha256 }) => ({
+        status: 'passed', candidateSha256, checksSha256: HASH.checks
+      }),
+      'story.inspect-module': async ({ candidateSha256 }) => ({
+        status: 'passed', candidateSha256, checksSha256: HASH.checks
+      })
+    },
+    clock: T1
+  };
 }
 
 function compilerProducedProgram() {
@@ -623,7 +691,7 @@ function processAtControlEvent(current, event) {
   const result = {
     ...structuredClone(current),
     ...structuredClone(event.result),
-    schemaVersion: 3,
+    schemaVersion: 4,
     kind: 'gvm-process',
     controlEventSha256: event.controlEventSha256,
     recordIndexSha256: event.recordIndexSha256
@@ -1405,6 +1473,395 @@ test('finite fan-out start roots one exact expansion receipt and executes only b
   );
   assert.equal(ended.process.status, 'succeeded');
   assert.equal((await fsckSgosProcess(fixture.root, started.process.processId)).status, 'ok');
+});
+
+test('runtime fan-out materializes a content-addressed collection once and reuses one approved body', async () => {
+  const fixture = await repository('SGOS-STORY-DYNAMIC-FANOUT');
+  const descriptor = {
+    parentTaskId: '30-fanout',
+    sourceTaskTemplateId: '10-discover',
+    outputName: 'modules',
+    itemKeySelector: '$.id',
+    bodyTaskTemplateId: '30-fanout:dynamic-body',
+    maximumItems: 3,
+    maximumParallel: 2
+  };
+  const templates = [
+    task('10-discover', 'KERNEL', [], { operation: 'story.discover' }),
+    task('30-fanout:dynamic-body', 'KERNEL', ['10-discover'], {
+      operation: 'story.inspect-module',
+      metadata: { dynamicFanoutBody: descriptor }
+    }),
+    task('30-fanout', 'JOIN', ['30-fanout:dynamic-body'], {
+      material: false,
+      metadata: { joinPolicy: 'all-success', dynamicFanoutCoordinator: descriptor }
+    }),
+    task('90-end', 'END', ['30-fanout'])
+  ].sort((left, right) => left.taskTemplateId.localeCompare(right.taskTemplateId));
+  const compiled = program(templates, [{
+    joinId: '30-fanout', taskTemplateId: '30-fanout', policy: 'all-success',
+    predecessorTaskTemplateIds: ['30-fanout:dynamic-body']
+  }]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  assert.equal(Object.values(started.process.taskInstances)
+    .some((entry) => entry.taskTemplateId === descriptor.bodyTaskTemplateId), false);
+  const observed = [];
+  const adapters = {
+    handlers: { kernel: {
+      'story.discover': async () => ({
+        fanoutCollections: {
+          modules: [{ id: 'beta', path: 'b.mjs' }, { id: 'alpha', path: 'a.mjs' }]
+        },
+        rawResult: { status: 'completed' }
+      }),
+      'story.inspect-module': async ({ fanoutItem }) => {
+        observed.push(fanoutItem);
+        return { rawResult: { status: 'completed', itemKey: fanoutItem.itemKey } };
+      }
+    } },
+    captureCandidates: {
+      'story.discover': async () => ({ resources: [] }),
+      'story.inspect-module': async () => ({ resources: [] })
+    },
+    verifiers: {
+      'story.discover': async ({ candidateSha256 }) => ({
+        status: 'passed', candidateSha256, checksSha256: HASH.checks
+      }),
+      'story.inspect-module': async ({ candidateSha256 }) => ({
+        status: 'passed', candidateSha256, checksSha256: HASH.checks
+      })
+    },
+    clock: T1
+  };
+  const discovered = await runNextSgosTask(
+    fixture.root, started.process.processId, { program: compiled, ...adapters }
+  );
+  assert.equal(discovered.status, 'succeeded');
+  const collections = await listSgosImmutableRecordsByField(
+    fixture.root, started.process.processId,
+    'dynamic-fanout-collection', 'sourceTaskInstanceId', discovered.taskInstanceId
+  );
+  assert.equal(collections.length, 1);
+  assert.deepEqual(collections[0].items.map((item) => item.itemKey), ['alpha', 'beta']);
+
+  const wave = await runReadySgosTasks(fixture.root, started.process.processId, {
+    program: compiled, maximumParallel: 8, ...adapters
+  });
+  assert.equal(wave.launched, 2);
+  assert.deepEqual(observed.map((entry) => entry.itemKey).sort(), ['alpha', 'beta']);
+  assert.equal(observed.every((entry) => entry.collectionRecordSha256
+    === collections[0].collectionRecordSha256), true);
+  const expansions = await listSgosImmutableRecordsByField(
+    fixture.root, started.process.processId,
+    'dynamic-fanout-expansion-receipt', 'parentTaskTemplateId', '30-fanout'
+  );
+  assert.equal(expansions.length, 1);
+  assert.deepEqual(expansions[0].items.map((item) => item.itemKey), ['alpha', 'beta']);
+  await runNextSgosTask(fixture.root, started.process.processId, {
+    program: compiled, ...adapters
+  });
+  const ended = await runNextSgosTask(fixture.root, started.process.processId, {
+    program: compiled, ...adapters
+  });
+  assert.equal(ended.process.status, 'succeeded');
+  assert.equal((await fsckSgosProcess(
+    fixture.root, started.process.processId
+  )).status, 'ok');
+  const evidence = await compileSgosProcessEvidence(fixture.root, started.process.processId);
+  const evidenceReport = verifySgosProcessEvidence(evidence);
+  assert.equal(evidenceReport.integrity, 'valid');
+  assert.equal(evidence.records.some((entry) =>
+    entry.family === 'dynamic-fanout-collection'), true);
+  assert.equal(evidence.records.some((entry) =>
+    entry.family === 'dynamic-fanout-expansion-receipt'), true);
+});
+
+test('runtime fan-out refuses missing, foreign, unstable, and oversized collections safely', async (t) => {
+  const cases = [
+    {
+      name: 'missing', collections: undefined,
+      code: 'SGOS_DYNAMIC_FANOUT_COLLECTION_REQUIRED'
+    },
+    {
+      name: 'foreign', collections: { unexpected: [] },
+      code: 'SGOS_DYNAMIC_FANOUT_COLLECTION_MISMATCH'
+    },
+    {
+      name: 'duplicate-key', collections: {
+        modules: [{ id: 'same', value: 1 }, { id: 'same', value: 2 }]
+      },
+      code: 'SGOS_DYNAMIC_FANOUT_ITEM_KEY_DUPLICATE'
+    },
+    {
+      name: 'oversized', collections: {
+        modules: [{ id: 'one' }, { id: 'two' }, { id: 'three' }, { id: 'four' }]
+      },
+      code: 'SGOS_FANOUT_LIMIT'
+    }
+  ];
+  for (const entry of cases) {
+    await t.test(entry.name, async () => {
+      const fixture = await repository(`SGOS-STORY-DYNAMIC-${entry.name.toUpperCase()}`);
+      const compiled = dynamicFanoutProgram().program;
+      const started = await start(fixture.root, fixture.storyId, compiled);
+      const result = await runNextSgosTask(fixture.root, started.process.processId, {
+        program: compiled, ...dynamicFanoutAdapters(entry.collections)
+      });
+      assert.equal(result.status, 'failed');
+      assert.equal(result.error.code, entry.code);
+      assert.equal((await listSgosImmutableRecordsByField(
+        fixture.root, started.process.processId,
+        'dynamic-fanout-collection', 'processId', started.process.processId
+      )).length, 0);
+      assert.equal(Object.values(result.process.taskInstances)
+        .some((taskEntry) => taskEntry.fanoutBinding != null), false);
+      assert.equal((await fsckSgosProcess(
+        fixture.root, started.process.processId
+      )).status, 'ok');
+    });
+  }
+});
+
+test('runtime fan-out refuses unreceipted children and fsck detects corrupt expansion lineage', async () => {
+  const fixture = await repository('SGOS-STORY-DYNAMIC-FORGERY');
+  const compiled = dynamicFanoutProgram().program;
+  const adapters = dynamicFanoutAdapters({
+    modules: [{ id: 'alpha' }, { id: 'beta' }]
+  });
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const discovered = await runNextSgosTask(fixture.root, started.process.processId, {
+    program: compiled, ...adapters
+  });
+  await assert.rejects(
+    () => mutateSgosProcess(fixture.root, discovered.process.processId, (draft) => {
+      draft.taskInstances['TSK-FORGED-DYNAMIC-CHILD'] = {
+        taskInstanceId: 'TSK-FORGED-DYNAMIC-CHILD',
+        taskTemplateId: '30-fanout:dynamic-body',
+        state: 'ready',
+        predecessorTaskInstanceIds: [discovered.taskInstanceId],
+        inputRefs: [], outputRefs: [], attemptIds: [], receiptSha256: null,
+        invalidatedBy: null, revision: 1,
+        fanoutBinding: {
+          parentTaskTemplateId: '30-fanout', itemKey: 'forged',
+          itemSha256: HASH.candidate, collectionRecordSha256: HASH.evidence,
+          collectionSha256: HASH.output, maximumParallel: 2
+        }
+      };
+    }, {
+      expectedRevision: discovered.process.processRevision,
+      expectedProcessSha256: discovered.process.processSha256,
+      updatedAt: T1
+    }),
+    (error) => error.code === 'SGOS_DYNAMIC_FANOUT_EXPANSION_INVALID'
+  );
+  const unchanged = await readSgosProcess(fixture.root, started.process.processId);
+  assert.equal(unchanged.processSha256, discovered.process.processSha256);
+
+  await runReadySgosTasks(fixture.root, started.process.processId, {
+    program: compiled, maximumParallel: 2, ...adapters
+  });
+  const [collection] = await listSgosImmutableRecordsByField(
+    fixture.root, started.process.processId,
+    'dynamic-fanout-collection', 'sourceTaskInstanceId', discovered.taskInstanceId
+  );
+  const [expansion] = await listSgosImmutableRecordsByField(
+    fixture.root, started.process.processId,
+    'dynamic-fanout-expansion-receipt', 'parentTaskTemplateId', '30-fanout'
+  );
+  const storedCollection = await readSgosImmutableRecord(
+    fixture.root, started.process.processId,
+    'dynamic-fanout-collection', collection.collectionRecordSha256
+  );
+  const collectionBytes = await readFile(storedCollection.path);
+  await writeFile(storedCollection.path, JSON.stringify({
+    ...collection,
+    outputName: 'counterfeit'
+  }));
+  const corrupted = await fsckSgosProcess(fixture.root, started.process.processId);
+  assert.notEqual(corrupted.status, 'ok');
+  assert.ok(corrupted.errors.some((entry) =>
+    JSON.stringify(entry).includes('dynamic-fanout-collection')));
+  await writeFile(storedCollection.path, collectionBytes);
+  assert.equal((await fsckSgosProcess(
+    fixture.root, started.process.processId
+  )).status, 'ok');
+
+  const storedExpansion = await readSgosImmutableRecord(
+    fixture.root, started.process.processId,
+    'dynamic-fanout-expansion-receipt', expansion.expansionSha256
+  );
+  await unlink(storedExpansion.path);
+  const missing = await fsckSgosProcess(fixture.root, started.process.processId);
+  assert.notEqual(missing.status, 'ok');
+  assert.ok(missing.errors.length > 0,
+    'a missing indexed dynamic expansion receipt must fail fsck');
+});
+
+test('runtime fan-out recovers one exact expansion after an interrupted transition', async () => {
+  const fixture = await repository('SGOS-STORY-DYNAMIC-CRASH');
+  const compiled = dynamicFanoutProgram().program;
+  const adapters = dynamicFanoutAdapters({
+    modules: [{ id: 'alpha' }, { id: 'beta' }]
+  });
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  await runNextSgosTask(fixture.root, started.process.processId, {
+    program: compiled, ...adapters
+  });
+  setSgosStoreFaultBoundaryForTests('transition-intent', { code: 'EIO' });
+  try {
+    await assert.rejects(
+      () => runNextSgosTask(fixture.root, started.process.processId, {
+        program: compiled, ...adapters
+      }),
+      (error) => error.code === 'SGOS_TRANSITION_RECOVERY_REQUIRED'
+    );
+  } finally {
+    setSgosStoreFaultBoundaryForTests(null);
+  }
+  await assert.rejects(
+    () => runReadySgosTasks(fixture.root, started.process.processId, {
+      program: compiled, maximumParallel: 8, ...adapters
+    }),
+    (error) => error.code === 'SGOS_TRANSITION_RECOVERED_RETRY'
+  );
+  const resumed = await runReadySgosTasks(fixture.root, started.process.processId, {
+    program: compiled, maximumParallel: 8, ...adapters
+  });
+  assert.equal(resumed.launched, 2);
+  const expansions = await listSgosImmutableRecordsByField(
+    fixture.root, started.process.processId,
+    'dynamic-fanout-expansion-receipt', 'parentTaskTemplateId', '30-fanout'
+  );
+  assert.equal(expansions.length, 1);
+  assert.equal(new Set(expansions[0].items.map((entry) => entry.taskInstanceId)).size, 2);
+  assert.equal((await fsckSgosProcess(
+    fixture.root, started.process.processId
+  )).status, 'ok');
+});
+
+test('competing runtime fan-out dispatchers converge on one expansion receipt', async () => {
+  const fixture = await repository('SGOS-STORY-DYNAMIC-CONCURRENT');
+  const compiled = dynamicFanoutProgram().program;
+  const observed = [];
+  const adapters = dynamicFanoutAdapters({
+    modules: [{ id: 'alpha' }, { id: 'beta' }]
+  }, observed);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  await runNextSgosTask(fixture.root, started.process.processId, {
+    program: compiled, ...adapters
+  });
+  const settled = await Promise.allSettled([
+    runReadySgosTasks(fixture.root, started.process.processId, {
+      program: compiled, maximumParallel: 2, ...adapters
+    }),
+    runReadySgosTasks(fixture.root, started.process.processId, {
+      program: compiled, maximumParallel: 2, ...adapters
+    })
+  ]);
+  assert.equal(settled.some((entry) => entry.status === 'fulfilled'), true);
+  assert.equal(settled.filter((entry) => entry.status === 'rejected')
+    .every((entry) => ['SGOS_PROCESS_REVISION_STALE', 'SGOS_EXECUTION_RECOVERY_REQUIRED']
+      .includes(entry.reason?.code)), true);
+  const expansions = await listSgosImmutableRecordsByField(
+    fixture.root, started.process.processId,
+    'dynamic-fanout-expansion-receipt', 'parentTaskTemplateId', '30-fanout'
+  );
+  assert.equal(expansions.length, 1);
+  assert.equal(new Set(observed.map((entry) => entry.itemKey)).size, observed.length,
+    'a competing dispatcher must not execute the same collection item twice');
+  assert.equal((await fsckSgosProcess(
+    fixture.root, started.process.processId
+  )).status, 'ok');
+});
+
+test('an empty runtime fan-out records its collection and completes without a body execution', async () => {
+  const fixture = await repository('SGOS-STORY-DYNAMIC-EMPTY');
+  const compiled = dynamicFanoutProgram({ maximumItems: 0, maximumParallel: 1 }).program;
+  const observed = [];
+  const adapters = dynamicFanoutAdapters({ modules: [] }, observed);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  await runNextSgosTask(fixture.root, started.process.processId, {
+    program: compiled, ...adapters
+  });
+  const joined = await runNextSgosTask(fixture.root, started.process.processId, {
+    program: compiled, ...adapters
+  });
+  assert.equal(joined.process.taskInstances[joined.taskInstanceId].taskTemplateId, '30-fanout');
+  assert.deepEqual(observed, []);
+  const expansions = await listSgosImmutableRecordsByField(
+    fixture.root, started.process.processId,
+    'dynamic-fanout-expansion-receipt', 'parentTaskTemplateId', '30-fanout'
+  );
+  assert.equal(expansions.length, 1);
+  assert.deepEqual(expansions[0].items, []);
+  const ended = await runNextSgosTask(fixture.root, started.process.processId, {
+    program: compiled, ...adapters
+  });
+  assert.equal(ended.process.status, 'succeeded');
+  assert.equal((await fsckSgosProcess(
+    fixture.root, started.process.processId
+  )).status, 'ok');
+});
+
+test('runtime fan-out replays only after expansion and refuses identity-changing fork prefixes', async () => {
+  const fixture = await repository('SGOS-STORY-DYNAMIC-LINEAGE');
+  const compiled = dynamicFanoutProgram({ maximumAttempts: 2 }).program;
+  const observed = [];
+  const adapters = dynamicFanoutAdapters({
+    modules: [{ id: 'alpha' }, { id: 'beta' }]
+  }, observed);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const genesisCheckpointSha256 = started.checkpoint.checkpointSha256;
+  await runNextSgosTask(fixture.root, started.process.processId, {
+    program: compiled, ...adapters
+  });
+  const expanded = await runReadySgosTasks(fixture.root, started.process.processId, {
+    program: compiled, maximumParallel: 2, ...adapters
+  });
+  const expansionCheckpointSha256 = expanded.process.currentCheckpointSha256;
+  await runNextSgosTask(fixture.root, started.process.processId, {
+    program: compiled, ...adapters
+  });
+  await runNextSgosTask(fixture.root, started.process.processId, {
+    program: compiled, ...adapters
+  });
+  await assert.rejects(
+    () => planSgosProcessReplay(fixture.root, started.process.processId, {
+      fromCheckpointSha256: genesisCheckpointSha256, createdAt: T1
+    }),
+    (error) => error.code === 'SGOS_DYNAMIC_FANOUT_REPLAY_BOUNDARY_INVALID'
+  );
+  await assert.rejects(
+    () => planSgosProcessFork(fixture.root, started.process.processId, {
+      fromCheckpointSha256: expansionCheckpointSha256,
+      label: 'dynamic-prefix', createdAt: T1
+    }),
+    (error) => error.code === 'SGOS_DYNAMIC_FANOUT_FORK_BOUNDARY_INVALID'
+  );
+  const plan = await planSgosProcessReplay(fixture.root, started.process.processId, {
+    fromCheckpointSha256: expansionCheckpointSha256, createdAt: T1
+  });
+  assert.equal(plan.taskInstanceIds.some((taskInstanceId) =>
+    expanded.process.taskInstances[taskInstanceId]?.taskTemplateId === '10-discover'), false);
+  const replayed = await replaySgosProcess(fixture.root, started.process.processId, {
+    confirmationSha256: plan.replayPlanSha256, clock: T1
+  });
+  assert.equal(replayed.process.status, 'running');
+  const rerun = await runReadySgosTasks(fixture.root, started.process.processId, {
+    program: compiled, maximumParallel: 2, ...adapters
+  });
+  assert.equal(rerun.launched, 2);
+  await runNextSgosTask(fixture.root, started.process.processId, {
+    program: compiled, ...adapters
+  });
+  const ended = await runNextSgosTask(fixture.root, started.process.processId, {
+    program: compiled, ...adapters
+  });
+  assert.equal(ended.process.status, 'succeeded');
+  assert.equal(observed.length, 4);
+  assert.equal((await fsckSgosProcess(
+    fixture.root, started.process.processId
+  )).status, 'ok');
 });
 
 test('nested finite fan-out publishes every expansion and honors outer parallelism', async () => {
@@ -2189,7 +2646,7 @@ test('v2 Process reads fail closed until an exact lock-bound control upgrade', a
   const upgraded = await upgradeSgosProcessControlLineage(fixture.root, legacy.processId, {
     expectedProcessSha256: legacy.processSha256
   });
-  assert.equal(upgraded.schemaVersion, 3);
+  assert.equal(upgraded.schemaVersion, 4);
   assert.match(upgraded.controlEventSha256, /^sha256:/);
   assert.equal(upgraded.processRevision, legacy.processRevision + 1);
   assert.equal((await readSgosProcess(fixture.root, legacy.processId)).processSha256,

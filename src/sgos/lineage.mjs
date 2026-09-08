@@ -40,7 +40,7 @@ import {
   recoverPendingSgosTransition
 } from './store.mjs';
 import { taskInstancesForSgosProgram } from './materialization.mjs';
-import { sgosTaskReadiness } from './scheduler.mjs';
+import { deterministicSgosDispatchPlan, sgosTaskReadiness } from './scheduler.mjs';
 import {
   buildSgosTaskAttempt, buildSgosTaskReceipt, compileSgosActionEvidence
 } from './evidence.mjs';
@@ -411,6 +411,27 @@ function taskLineageProjection(process, taskInstanceIds) {
   });
 }
 
+function assertDynamicFanoutReplayBoundary(process, program, taskInstanceIds) {
+  const selected = new Set(taskInstanceIds);
+  for (const template of program.taskTemplates) {
+    const descriptor = template.metadata?.dynamicFanoutCoordinator;
+    if (!descriptor) continue;
+    const source = Object.values(process.taskInstances).find((task) =>
+      task.taskTemplateId === descriptor.sourceTaskTemplateId
+      && task.fanoutBinding == null);
+    const children = Object.values(process.taskInstances).filter((task) =>
+      task.fanoutBinding?.parentTaskTemplateId === descriptor.parentTaskId);
+    if (source && children.length && selected.has(source.taskInstanceId)) {
+      fail(`Replay cannot cross dynamic fan-out source '${descriptor.sourceTaskTemplateId}' after its collection was expanded. Select the expansion checkpoint or a later checkpoint.`,
+        'SGOS_DYNAMIC_FANOUT_REPLAY_BOUNDARY_INVALID', {
+          parentTaskTemplateId: descriptor.parentTaskId,
+          sourceTaskInstanceId: source.taskInstanceId,
+          childCount: children.length
+        });
+    }
+  }
+}
+
 async function planSgosProcessReplayWithinPolicy(root, processId, {
   fromCheckpointSha256,
   createdAt = nowIso()
@@ -423,6 +444,7 @@ async function planSgosProcessReplayWithinPolicy(root, processId, {
   const checkpoint = await checkpointInLineage(root, process, fromCheckpointSha256);
   const program = (await readSgosProgram(root, processId, process.programSha256)).record;
   const taskInstanceIds = replayTaskIds(process, checkpoint);
+  assertDynamicFanoutReplayBoundary(process, program, taskInstanceIds);
   const reconciliationTasks = assertReplayableSuffix(process, program, taskInstanceIds);
   const plan = createSgosReplayPlan({
     processId,
@@ -661,23 +683,35 @@ function checkpointEvidenceState(bundle, checkpoint) {
   const state = processAtEvidenceEvent(bundle, pair.event);
   const taskStates = Object.fromEntries(Object.entries(state.taskInstances)
     .map(([taskInstanceId, task]) => [taskInstanceId, task.state]));
-  const readyTaskIds = Object.values(state.taskInstances)
-    .filter((task) => task.state === 'ready')
-    .map((task) => task.taskInstanceId).sort(compareSgosCodePoints);
-  if (pair.successor?.controlEventSha256 !== pair.event.controlEventSha256
-      || pair.successor?.beforeProcessSha256 !== pair.event.beforeProcessSha256
-      || state.processId !== checkpoint.processId
-      || state.programSha256 !== checkpoint.programSha256
-      || state.policySnapshotSha256 !== checkpoint.policySnapshotSha256
-      || state.processBindingSha256 !== checkpoint.processBindingSha256
-      || canonicalJson(taskStates) !== canonicalJson(checkpoint.taskStates)
-      || canonicalJson(readyTaskIds) !== canonicalJson(checkpoint.readyTaskIds)
-      || state.activeExecutions.length || state.activeLeases.length
-      || state.openHumanRequests.length) {
-    fail('Checkpoint bytes do not match their exact quiescent historical Process state.',
+  const readyTaskIds = deterministicSgosDispatchPlan(bundle.program, state, {
+    maximumParallel: 1
+  }).map((task) => task.taskInstanceId);
+  const mismatches = [];
+  if (pair.successor?.controlEventSha256 !== pair.event.controlEventSha256) {
+    mismatches.push('successor-event');
+  }
+  if (pair.successor?.beforeProcessSha256 !== pair.event.beforeProcessSha256) {
+    mismatches.push('successor-predecessor');
+  }
+  if (state.processId !== checkpoint.processId) mismatches.push('process');
+  if (state.programSha256 !== checkpoint.programSha256) mismatches.push('program');
+  if (state.policySnapshotSha256 !== checkpoint.policySnapshotSha256) mismatches.push('policy');
+  if (state.processBindingSha256 !== checkpoint.processBindingSha256) mismatches.push('binding');
+  if (canonicalJson(taskStates) !== canonicalJson(checkpoint.taskStates)) {
+    mismatches.push('task-states');
+  }
+  if (canonicalJson(readyTaskIds) !== canonicalJson(checkpoint.readyTaskIds)) {
+    mismatches.push('ready-set');
+  }
+  if (state.activeExecutions.length) mismatches.push('active-executions');
+  if (state.activeLeases.length) mismatches.push('active-leases');
+  if (state.openHumanRequests.length) mismatches.push('open-human-requests');
+  if (mismatches.length) {
+    fail(`Checkpoint bytes do not match their exact quiescent historical Process state (${mismatches.join(', ')}).`,
       'SGOS_FORK_PREFIX_EVIDENCE_INVALID', {
         checkpointSha256: checkpoint.checkpointSha256,
-        sourceProcessSha256: state.processSha256
+        sourceProcessSha256: state.processSha256,
+        mismatches
       });
   }
   return Object.freeze({ state, event: pair.event, successor: pair.successor });
@@ -778,6 +812,19 @@ async function buildForkPrefixPlan(root, process, checkpoint, childProcessId) {
   const historical = checkpointEvidenceState(bundle, checkpoint);
   const records = evidenceRecordMap(bundle);
   const program = bundle.program;
+  const dynamicSources = new Set(program.taskTemplates.flatMap((template) => {
+    const descriptor = template.metadata?.dynamicFanoutCoordinator;
+    return descriptor ? [descriptor.sourceTaskTemplateId] : [];
+  }));
+  const crossedDynamicSource = Object.values(historical.state.taskInstances).find((task) =>
+    task.state === 'succeeded' && dynamicSources.has(task.taskTemplateId));
+  if (crossedDynamicSource) {
+    fail(`Fork prefix cannot copy Process-bound dynamic collection source '${crossedDynamicSource.taskTemplateId}'. Fork from a checkpoint before that source or start a fresh Process.`,
+      'SGOS_DYNAMIC_FANOUT_FORK_BOUNDARY_INVALID', {
+        sourceTaskInstanceId: crossedDynamicSource.taskInstanceId,
+        sourceTaskTemplateId: crossedDynamicSource.taskTemplateId
+      });
+  }
   const childTasksByTemplate = new Map(Object.values(
     taskInstancesForSgosProgram(program, childProcessId)
   ).map((task) => [task.taskTemplateId, task]));

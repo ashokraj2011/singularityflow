@@ -34,6 +34,8 @@ const HASH_FIELDS = Object.freeze({
   'action-evidence': 'evidenceSha256',
   'agent-proposal': 'proposalSha256',
   'candidate-snapshot': 'candidateSha256',
+  'dynamic-fanout-collection': 'collectionRecordSha256',
+  'dynamic-fanout-expansion-receipt': 'expansionSha256',
   'effect-replay-receipt': 'effectReplayReceiptSha256',
   'effect-retry-receipt': 'effectRetryReceiptSha256',
   'fork-prefix-task-import': 'forkTaskImportSha256',
@@ -552,9 +554,12 @@ function validateRecordIndexes(bundle, wrappers, contradictions) {
     if (Buffer.byteLength(canonicalJson(wrapper.record)) !== entry.bytes) {
       add(contradictions, 'indexed-record-byte-count-mismatch', entry.family, entry.recordSha256);
     }
-    const expectedAttemptId = wrapper.record.attemptId;
+    const expectedAttemptId = wrapper.family === 'dynamic-fanout-collection'
+      ? wrapper.record.sourceAttemptId : wrapper.record.attemptId;
     const expectedTaskInstanceId = wrapper.family === 'fork-prefix-task-import'
-      ? wrapper.record.childTaskInstanceId : wrapper.record.taskInstanceId;
+      ? wrapper.record.childTaskInstanceId
+      : wrapper.family === 'dynamic-fanout-collection'
+        ? wrapper.record.sourceTaskInstanceId : wrapper.record.taskInstanceId;
     if ((entry.attemptId ?? null) !== (expectedAttemptId ?? null)
         || (entry.taskInstanceId ?? null) !== (expectedTaskInstanceId ?? null)) {
       add(contradictions, 'indexed-record-metadata-mismatch', entry.family, entry.recordSha256);
@@ -1073,6 +1078,19 @@ function semanticReferences(bundle, wrappers, tools, contradictions, gaps) {
     if (fanoutParents.has(wrapper.record.parentTaskTemplateId)) {
       referenced.add(recordIdentity(wrapper.family, wrapper.recordSha256));
     }
+  }
+  const dynamicFanoutParents = new Set((bundle.program?.taskTemplates ?? [])
+    .flatMap((task) => task.metadata?.dynamicFanoutCoordinator?.parentTaskId
+      ? [task.metadata.dynamicFanoutCoordinator.parentTaskId] : []));
+  for (const wrapper of byFamily.get('dynamic-fanout-expansion-receipt') ?? []) {
+    if (!dynamicFanoutParents.has(wrapper.record.parentTaskTemplateId)) continue;
+    referenced.add(recordIdentity(wrapper.family, wrapper.recordSha256));
+    referenced.add(recordIdentity(
+      'dynamic-fanout-collection', wrapper.record.collectionRecordSha256
+    ));
+    referenced.add(recordIdentity(
+      'gvm-task-receipt', wrapper.record.sourceTaskReceiptSha256
+    ));
   }
   // Replay plans are themselves immutable, confirmation-bound lineage roots. They are not mutable
   // task output and therefore do not need a current Process pointer to remain relevant evidence.

@@ -28,7 +28,9 @@ import {
   validateWorkflowIr
 } from './contracts.mjs';
 import { compareSgosCodePoints } from './order.mjs';
-import { normalizeSgosFanout } from './fanout.mjs';
+import {
+  normalizeSgosDynamicFanoutDescriptor, normalizeSgosFanout
+} from './fanout.mjs';
 import { SGOS_INSTALLED_LIMITS } from './limits.mjs';
 import { validateSgosRegistrySnapshot } from './compiler.mjs';
 import {
@@ -333,15 +335,30 @@ function declaredTaskBound(tasks) {
   for (const [taskId, task] of Object.entries(tasks)) {
     const kind = String(task.kind ?? '').toLowerCase();
     if (kind === 'foreach') {
+      if (!plainObject(task.body)) {
+        fail(`Fan-out '${taskId}' requires one explicit body task.`, 'SGOS_WORKFLOW_BOUND_INVALID');
+      }
+      if (task.items != null && task.over != null) {
+        fail(`Fan-out '${taskId}' cannot declare both items and over.`,
+          'SGOS_WORKFLOW_BOUND_INVALID');
+      }
+      if (task.items == null && task.over != null) {
+        normalizeSgosDynamicFanoutDescriptor({
+          taskId,
+          over: task.over,
+          itemKey: task.itemKey,
+          maximumItems: task.maximumItems,
+          maximumParallel: task.maximumParallel ?? 1
+        });
+        count += task.maximumItems + 1;
+        continue;
+      }
       const fanout = normalizeSgosFanout({
         taskId,
         items: task.items,
         maximumItems: task.maximumItems,
         maximumParallel: task.maximumParallel ?? 1
       });
-      if (!plainObject(task.body)) {
-        fail(`Fan-out '${taskId}' requires one explicit body task.`, 'SGOS_WORKFLOW_BOUND_INVALID');
-      }
       count += fanout.items.length + 1;
       continue;
     }

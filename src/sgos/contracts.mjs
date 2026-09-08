@@ -91,6 +91,8 @@ const CONTRACTS = Object.freeze({
   'fork-prefix-task-import': Object.freeze({ kind: 'fork-prefix-task-import', hash: 'forkTaskImportSha256', id: 'forkTaskImportId', prefix: 'FTI' }),
   'fork-prefix-import-receipt': Object.freeze({ kind: 'fork-prefix-import-receipt', hash: 'forkImportReceiptSha256', id: 'forkImportReceiptId', prefix: 'FIR' }),
   'fanout-expansion-receipt': Object.freeze({ kind: 'fanout-expansion-receipt', hash: 'expansionSha256', id: 'expansionId', prefix: 'FOX' }),
+  'dynamic-fanout-collection': Object.freeze({ kind: 'dynamic-fanout-collection', hash: 'collectionRecordSha256', id: 'collectionId', prefix: 'DFC' }),
+  'dynamic-fanout-expansion-receipt': Object.freeze({ kind: 'dynamic-fanout-expansion-receipt', hash: 'expansionSha256', id: 'expansionId', prefix: 'DFX' }),
   'sgos-replay-plan': Object.freeze({ kind: 'sgos-replay-plan', hash: 'replayPlanSha256', id: 'replayPlanId', prefix: 'RPL' }),
   'process-binding': Object.freeze({ kind: 'process-binding', hash: 'bindingSha256' }),
   'gvm-program': Object.freeze({ kind: 'gvm-program', hash: 'programSha256', id: 'programId', prefix: 'PRG' }),
@@ -420,7 +422,7 @@ function validateResourceContract(value, label) {
 function validateWorkflowTask(value, label, keyedId = null) {
   exactKeys(value, [
     'id', 'taskId', 'kind', 'opcode', 'operation', 'dependsOn', 'resources', 'evidence',
-    'authority', 'recovery', 'intentClauseIds', 'material', 'condition', 'body', 'items',
+    'authority', 'recovery', 'intentClauseIds', 'material', 'condition', 'body', 'items', 'over', 'itemKey',
     'maximumIterations', 'maximumItems', 'maximumParallel', 'subprocess', 'compensation', 'checkpoint', 'metadata', 'inputs',
     'outputs', 'timeoutMs', 'retry', 'policySnapshotSha256'
   ], label);
@@ -438,6 +440,8 @@ function validateWorkflowTask(value, label, keyedId = null) {
   if (value.maximumIterations != null) integer(value.maximumIterations, `${label}.maximumIterations`, { minimum: 1 });
   if (value.maximumItems != null) integer(value.maximumItems, `${label}.maximumItems`);
   if (value.maximumParallel != null) integer(value.maximumParallel, `${label}.maximumParallel`, { minimum: 1 });
+  if (value.over != null) string(value.over, `${label}.over`);
+  if (value.itemKey != null) string(value.itemKey, `${label}.itemKey`);
   if (value.timeoutMs != null) integer(value.timeoutMs, `${label}.timeoutMs`, { minimum: 1 });
   if (value.policySnapshotSha256 != null) digest(value.policySnapshotSha256, `${label}.policySnapshotSha256`);
   for (const field of ['evidence', 'authority', 'recovery', 'condition', 'body', 'items', 'subprocess', 'compensation', 'checkpoint', 'metadata', 'inputs', 'outputs', 'retry']) {
@@ -1095,6 +1099,141 @@ export function validateFanoutExpansionReceipt(value) {
   return returnValidated(value, validateFanoutExpansionReceiptRecord);
 }
 
+function validateDynamicFanoutCollectionRecord(record, requireHash) {
+  validateBase(record, 'dynamic-fanout-collection', [
+    'collectionId', 'processId', 'sourceTaskInstanceId', 'sourceAttemptId',
+    'outputName', 'itemKeySelector', 'collectionSha256', 'items', 'createdAt'
+  ], [
+    'collectionId', 'processId', 'sourceTaskInstanceId', 'sourceAttemptId',
+    'outputName', 'itemKeySelector', 'collectionSha256', 'items', 'createdAt'
+  ], requireHash);
+  identifier(record.collectionId, 'DFC', 'dynamic-fanout-collection.collectionId');
+  identifier(record.processId, 'PROC', 'dynamic-fanout-collection.processId');
+  string(record.sourceTaskInstanceId, 'dynamic-fanout-collection.sourceTaskInstanceId');
+  identifier(record.sourceAttemptId, 'ATT', 'dynamic-fanout-collection.sourceAttemptId');
+  string(record.outputName, 'dynamic-fanout-collection.outputName', {
+    pattern: /^[A-Za-z0-9][A-Za-z0-9._-]*$/
+  });
+  string(record.itemKeySelector, 'dynamic-fanout-collection.itemKeySelector', {
+    pattern: /^\$(?:\.[A-Za-z0-9][A-Za-z0-9._-]*)?$/
+  });
+  digest(record.collectionSha256, 'dynamic-fanout-collection.collectionSha256');
+  if (!Array.isArray(record.items)
+      || record.items.length > SGOS_INSTALLED_LIMITS.maximumFanoutItems) {
+    fail('dynamic-fanout-collection.items exceeds the installed bound.');
+  }
+  record.items.forEach((entry, index) => {
+    const label = `dynamic-fanout-collection.items[${index}]`;
+    exactKeys(entry, ['itemKey', 'itemSha256', 'value'], label);
+    requireKeys(entry, ['itemKey', 'itemSha256', 'value'], label);
+    string(entry.itemKey, `${label}.itemKey`);
+    digest(entry.itemSha256, `${label}.itemSha256`);
+    cloneJson(entry.value, `${label}.value`);
+    if (entry.itemSha256 !== sha256({ kind: 'sgos-fanout-item', value: entry.value })) {
+      fail(`${label}.itemSha256 does not bind its exact value.`);
+    }
+  });
+  if (record.items.some((entry, index) => index > 0
+      && fanoutItemOrder(record.items[index - 1], entry) >= 0)) {
+    fail('dynamic-fanout-collection.items must have unique, canonically sorted itemKey values.');
+  }
+  const expectedCollectionSha256 = sha256({
+    kind: 'sgos-dynamic-fanout-collection',
+    outputName: record.outputName,
+    itemKeySelector: record.itemKeySelector,
+    items: record.items.map(({ itemKey, itemSha256 }) => ({ itemKey, itemSha256 }))
+  });
+  if (record.collectionSha256 !== expectedCollectionSha256) {
+    fail('dynamic-fanout-collection.collectionSha256 does not bind its canonical items.');
+  }
+  timestamp(record.createdAt, 'dynamic-fanout-collection.createdAt');
+}
+
+export function createDynamicFanoutCollection(value) {
+  return createContract(
+    'dynamic-fanout-collection', value, validateDynamicFanoutCollectionRecord, {
+      prepare: (record) => ({ ...record, items: [...record.items].sort(fanoutItemOrder) }),
+      identity: (record) => ({
+        processId: record.processId,
+        sourceTaskInstanceId: record.sourceTaskInstanceId,
+        sourceAttemptId: record.sourceAttemptId,
+        outputName: record.outputName,
+        itemKeySelector: record.itemKeySelector,
+        collectionSha256: record.collectionSha256
+      })
+    }
+  );
+}
+
+export function validateDynamicFanoutCollection(value) {
+  return returnValidated(value, validateDynamicFanoutCollectionRecord);
+}
+
+function validateDynamicFanoutExpansionReceiptRecord(record, requireHash) {
+  validateBase(record, 'dynamic-fanout-expansion-receipt', [
+    'expansionId', 'processId', 'parentTaskTemplateId', 'bodyTaskTemplateId',
+    'sourceTaskInstanceId', 'sourceTaskReceiptSha256', 'collectionRecordSha256',
+    'collectionSha256', 'maximumItems', 'maximumParallel', 'items', 'createdAt'
+  ], [
+    'expansionId', 'processId', 'parentTaskTemplateId', 'bodyTaskTemplateId',
+    'sourceTaskInstanceId', 'sourceTaskReceiptSha256', 'collectionRecordSha256',
+    'collectionSha256', 'maximumItems', 'maximumParallel', 'items', 'createdAt'
+  ], requireHash);
+  identifier(record.expansionId, 'DFX', 'dynamic-fanout-expansion-receipt.expansionId');
+  identifier(record.processId, 'PROC', 'dynamic-fanout-expansion-receipt.processId');
+  string(record.parentTaskTemplateId, 'dynamic-fanout-expansion-receipt.parentTaskTemplateId');
+  string(record.bodyTaskTemplateId, 'dynamic-fanout-expansion-receipt.bodyTaskTemplateId');
+  string(record.sourceTaskInstanceId, 'dynamic-fanout-expansion-receipt.sourceTaskInstanceId');
+  digest(record.sourceTaskReceiptSha256,
+    'dynamic-fanout-expansion-receipt.sourceTaskReceiptSha256');
+  digest(record.collectionRecordSha256,
+    'dynamic-fanout-expansion-receipt.collectionRecordSha256');
+  digest(record.collectionSha256, 'dynamic-fanout-expansion-receipt.collectionSha256');
+  integer(record.maximumItems, 'dynamic-fanout-expansion-receipt.maximumItems');
+  integer(record.maximumParallel, 'dynamic-fanout-expansion-receipt.maximumParallel', {
+    minimum: 1
+  });
+  if (record.maximumItems > SGOS_INSTALLED_LIMITS.maximumFanoutItems
+      || record.maximumParallel > SGOS_INSTALLED_LIMITS.maximumFanoutParallel
+      || !Array.isArray(record.items) || record.items.length > record.maximumItems) {
+    fail('dynamic-fanout-expansion-receipt exceeds installed bounds.');
+  }
+  record.items.forEach((entry, index) => {
+    const label = `dynamic-fanout-expansion-receipt.items[${index}]`;
+    exactKeys(entry, ['itemKey', 'itemSha256', 'taskInstanceId'], label);
+    requireKeys(entry, ['itemKey', 'itemSha256', 'taskInstanceId'], label);
+    string(entry.itemKey, `${label}.itemKey`);
+    digest(entry.itemSha256, `${label}.itemSha256`);
+    string(entry.taskInstanceId, `${label}.taskInstanceId`);
+  });
+  if (record.items.some((entry, index) => index > 0
+      && fanoutItemOrder(record.items[index - 1], entry) >= 0)) {
+    fail('dynamic-fanout-expansion-receipt.items must be unique and canonically sorted.');
+  }
+  timestamp(record.createdAt, 'dynamic-fanout-expansion-receipt.createdAt');
+}
+
+export function createDynamicFanoutExpansionReceipt(value) {
+  return createContract(
+    'dynamic-fanout-expansion-receipt', value,
+    validateDynamicFanoutExpansionReceiptRecord, {
+      prepare: (record) => ({ ...record, items: [...record.items].sort(fanoutItemOrder) }),
+      identity: (record) => ({
+        processId: record.processId,
+        parentTaskTemplateId: record.parentTaskTemplateId,
+        bodyTaskTemplateId: record.bodyTaskTemplateId,
+        sourceTaskReceiptSha256: record.sourceTaskReceiptSha256,
+        collectionRecordSha256: record.collectionRecordSha256,
+        items: record.items
+      })
+    }
+  );
+}
+
+export function validateDynamicFanoutExpansionReceipt(value) {
+  return returnValidated(value, validateDynamicFanoutExpansionReceiptRecord);
+}
+
 function replayTaskOrder(left, right) {
   return compareSgosCodePoints(left.taskTemplateId, right.taskTemplateId)
     || compareSgosCodePoints(left.taskInstanceId, right.taskInstanceId);
@@ -1645,7 +1784,7 @@ export function validateGvmProgram(value) {
 function validateTaskInstance(value, label, keyedId) {
   exactKeys(value, [
     'taskInstanceId', 'taskTemplateId', 'state', 'predecessorTaskInstanceIds', 'inputRefs',
-    'outputRefs', 'attemptIds', 'receiptSha256', 'invalidatedBy', 'revision'
+    'outputRefs', 'attemptIds', 'receiptSha256', 'invalidatedBy', 'revision', 'fanoutBinding'
   ], label);
   requireKeys(value, [
     'taskInstanceId', 'taskTemplateId', 'state', 'predecessorTaskInstanceIds', 'inputRefs',
@@ -1659,6 +1798,30 @@ function validateTaskInstance(value, label, keyedId) {
   if (value.receiptSha256 !== null) digest(value.receiptSha256, `${label}.receiptSha256`);
   if (value.invalidatedBy !== null) digest(value.invalidatedBy, `${label}.invalidatedBy`);
   integer(value.revision, `${label}.revision`);
+  if (value.fanoutBinding != null) {
+    const bindingLabel = `${label}.fanoutBinding`;
+    exactKeys(value.fanoutBinding, [
+      'parentTaskTemplateId', 'itemKey', 'itemSha256', 'collectionRecordSha256',
+      'collectionSha256', 'maximumParallel'
+    ], bindingLabel);
+    requireKeys(value.fanoutBinding, [
+      'parentTaskTemplateId', 'itemKey', 'itemSha256', 'collectionRecordSha256',
+      'collectionSha256', 'maximumParallel'
+    ], bindingLabel);
+    string(value.fanoutBinding.parentTaskTemplateId,
+      `${bindingLabel}.parentTaskTemplateId`);
+    string(value.fanoutBinding.itemKey, `${bindingLabel}.itemKey`);
+    digest(value.fanoutBinding.itemSha256, `${bindingLabel}.itemSha256`);
+    digest(value.fanoutBinding.collectionRecordSha256,
+      `${bindingLabel}.collectionRecordSha256`);
+    digest(value.fanoutBinding.collectionSha256, `${bindingLabel}.collectionSha256`);
+    integer(value.fanoutBinding.maximumParallel, `${bindingLabel}.maximumParallel`, {
+      minimum: 1
+    });
+    if (value.fanoutBinding.maximumParallel > SGOS_INSTALLED_LIMITS.maximumFanoutParallel) {
+      fail(`${bindingLabel}.maximumParallel exceeds the installed bound.`);
+    }
+  }
   if (value.state === 'succeeded' && value.receiptSha256 === null) fail(`${label} cannot be succeeded without receiptSha256.`);
   if (value.state !== 'succeeded' && value.receiptSha256 !== null
       && value.invalidatedBy === null) {
@@ -1887,6 +2050,7 @@ export function validateGvmProcess(value) {
 export const SGOS_RECORD_INDEX_FAMILIES = Object.freeze([
   'action-evidence', 'agent-proposal', 'candidate-snapshot', 'effect-replay-receipt',
   'effect-retry-receipt',
+  'dynamic-fanout-collection', 'dynamic-fanout-expansion-receipt',
   'fanout-expansion-receipt', 'fork-prefix-import-receipt', 'fork-prefix-task-import',
   'gvm-checkpoint', 'gvm-program',
   'gvm-task-attempt', 'gvm-task-receipt', 'human-request', 'human-response',
@@ -2533,6 +2697,8 @@ const VALIDATORS = Object.freeze({
   'fork-prefix-task-import': validateForkPrefixTaskImport,
   'fork-prefix-import-receipt': validateForkPrefixImportReceipt,
   'fanout-expansion-receipt': validateFanoutExpansionReceipt,
+  'dynamic-fanout-collection': validateDynamicFanoutCollection,
+  'dynamic-fanout-expansion-receipt': validateDynamicFanoutExpansionReceipt,
   'sgos-replay-plan': validateSgosReplayPlan,
   'process-binding': validateProcessBinding,
   'gvm-program': validateGvmProgram,

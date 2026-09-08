@@ -19,6 +19,8 @@
     { "$ref": "#/$defs/forkPrefixTaskImport" },
     { "$ref": "#/$defs/forkPrefixImportReceipt" },
     { "$ref": "#/$defs/fanoutExpansionReceipt" },
+    { "$ref": "#/$defs/dynamicFanoutCollection" },
+    { "$ref": "#/$defs/dynamicFanoutExpansionReceipt" },
     { "$ref": "#/$defs/sgosReplayPlan" },
     { "$ref": "#/$defs/processBinding" },
     { "$ref": "#/$defs/gvmProgram" },
@@ -745,6 +747,71 @@
       },
       "additionalProperties": false
     },
+    "dynamicFanoutCollection": {
+      "type": "object",
+      "required": ["schemaVersion", "kind", "collectionId", "processId", "sourceTaskInstanceId", "sourceAttemptId", "outputName", "itemKeySelector", "collectionSha256", "items", "createdAt", "collectionRecordSha256"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "kind": { "const": "dynamic-fanout-collection" },
+        "collectionId": { "type": "string", "pattern": "^DFC-" },
+        "processId": { "type": "string", "pattern": "^PROC-" },
+        "sourceTaskInstanceId": { "type": "string", "minLength": 1 },
+        "sourceAttemptId": { "type": "string", "pattern": "^ATT-" },
+        "outputName": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$" },
+        "itemKeySelector": { "type": "string", "pattern": "^\\$(?:\\.[A-Za-z0-9][A-Za-z0-9._-]*)?$" },
+        "collectionSha256": { "$ref": "#/$defs/sha256" },
+        "items": {
+          "type": "array", "maxItems": 256,
+          "items": {
+            "type": "object",
+            "required": ["itemKey", "itemSha256", "value"],
+            "properties": {
+              "itemKey": { "type": "string", "minLength": 1 },
+              "itemSha256": { "$ref": "#/$defs/sha256" },
+              "value": true
+            },
+            "additionalProperties": false
+          }
+        },
+        "createdAt": { "$ref": "#/$defs/timestamp" },
+        "collectionRecordSha256": { "$ref": "#/$defs/sha256" }
+      },
+      "additionalProperties": false
+    },
+    "dynamicFanoutExpansionReceipt": {
+      "type": "object",
+      "required": ["schemaVersion", "kind", "expansionId", "processId", "parentTaskTemplateId", "bodyTaskTemplateId", "sourceTaskInstanceId", "sourceTaskReceiptSha256", "collectionRecordSha256", "collectionSha256", "maximumItems", "maximumParallel", "items", "createdAt", "expansionSha256"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "kind": { "const": "dynamic-fanout-expansion-receipt" },
+        "expansionId": { "type": "string", "pattern": "^DFX-" },
+        "processId": { "type": "string", "pattern": "^PROC-" },
+        "parentTaskTemplateId": { "type": "string", "minLength": 1 },
+        "bodyTaskTemplateId": { "type": "string", "minLength": 1 },
+        "sourceTaskInstanceId": { "type": "string", "minLength": 1 },
+        "sourceTaskReceiptSha256": { "$ref": "#/$defs/sha256" },
+        "collectionRecordSha256": { "$ref": "#/$defs/sha256" },
+        "collectionSha256": { "$ref": "#/$defs/sha256" },
+        "maximumItems": { "type": "integer", "minimum": 0, "maximum": 256 },
+        "maximumParallel": { "type": "integer", "minimum": 1, "maximum": 8 },
+        "items": {
+          "type": "array", "maxItems": 256,
+          "items": {
+            "type": "object",
+            "required": ["itemKey", "itemSha256", "taskInstanceId"],
+            "properties": {
+              "itemKey": { "type": "string", "minLength": 1 },
+              "itemSha256": { "$ref": "#/$defs/sha256" },
+              "taskInstanceId": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": false
+          }
+        },
+        "createdAt": { "$ref": "#/$defs/timestamp" },
+        "expansionSha256": { "$ref": "#/$defs/sha256" }
+      },
+      "additionalProperties": false
+    },
     "sgosReplayPlanPriorTask": {
       "type": "object",
       "required": ["taskInstanceId", "taskTemplateId", "state", "revision", "inputRefs", "attemptIds", "receiptSha256", "outputRefs", "invalidatedBy"],
@@ -853,7 +920,7 @@
       "type": "object",
       "required": ["schemaVersion", "kind", "processId", "programSha256", "policySnapshotSha256", "processBindingSha256", "status", "taskInstances", "activeExecutions", "openHumanRequests", "activeLeases", "currentCheckpointSha256", "controlEventSha256", "recordIndexSha256", "processRevision", "authorityBinding", "taskContractSha256", "createdAt", "updatedAt", "processSha256"],
       "properties": {
-        "schemaVersion": { "const": 3 }, "kind": { "const": "gvm-process" },
+        "schemaVersion": { "const": 4 }, "kind": { "const": "gvm-process" },
         "processId": { "type": "string", "pattern": "^PROC-" }, "programSha256": { "$ref": "#/$defs/sha256" },
         "policySnapshotSha256": { "$ref": "#/$defs/sha256" }, "processBindingSha256": { "$ref": "#/$defs/sha256" },
         "status": { "enum": ["queued", "running", "waiting-human", "blocked", "paused", "succeeded", "failed", "cancelled", "recovery-required"] },
@@ -872,7 +939,7 @@
       "type": "object",
       "required": ["family", "recordSha256", "bytes"],
       "properties": {
-        "family": { "enum": ["action-evidence", "agent-proposal", "candidate-snapshot", "effect-replay-receipt", "effect-retry-receipt", "fanout-expansion-receipt", "fork-prefix-import-receipt", "fork-prefix-task-import", "gvm-checkpoint", "gvm-program", "gvm-task-attempt", "gvm-task-receipt", "human-request", "human-response", "join-receipt", "manual-reconcile-join-receipt", "process-binding", "quorum-join-receipt", "reducer-join-receipt", "resource-lease", "sgos-replay-plan"] },
+        "family": { "enum": ["action-evidence", "agent-proposal", "candidate-snapshot", "dynamic-fanout-collection", "dynamic-fanout-expansion-receipt", "effect-replay-receipt", "effect-retry-receipt", "fanout-expansion-receipt", "fork-prefix-import-receipt", "fork-prefix-task-import", "gvm-checkpoint", "gvm-program", "gvm-task-attempt", "gvm-task-receipt", "human-request", "human-response", "join-receipt", "manual-reconcile-join-receipt", "process-binding", "quorum-join-receipt", "reducer-join-receipt", "resource-lease", "sgos-replay-plan"] },
         "recordSha256": { "$ref": "#/$defs/sha256" },
         "attemptId": { "type": "string", "pattern": "^ATT-[A-Za-z0-9][A-Za-z0-9._:-]{5,127}$" },
         "taskInstanceId": { "type": "string", "minLength": 1 },
@@ -886,6 +953,8 @@
         "action-evidence": { "type": "integer", "minimum": 1 },
         "agent-proposal": { "type": "integer", "minimum": 1 },
         "candidate-snapshot": { "type": "integer", "minimum": 1 },
+        "dynamic-fanout-collection": { "type": "integer", "minimum": 1 },
+        "dynamic-fanout-expansion-receipt": { "type": "integer", "minimum": 1 },
         "effect-replay-receipt": { "type": "integer", "minimum": 1 },
         "effect-retry-receipt": { "type": "integer", "minimum": 1 },
         "fanout-expansion-receipt": { "type": "integer", "minimum": 1 },

@@ -1759,6 +1759,12 @@ function gvmProcessV2ToV3(source) {
   };
 }
 
+function gvmProcessV3ToV4(source) {
+  // v4 admits exact runtime-expanded task bindings. Existing static task projections retain their
+  // bytes apart from the schema stamp; no fan-out authority is synthesized during migration.
+  return { ...source, schemaVersion: 4 };
+}
+
 function sgosRecordReservationPath(familyId) {
   const escaped = familyId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return new RegExp(
@@ -2116,6 +2122,20 @@ const families = [
     ]
   }),
   family({
+    id: 'dynamic-fanout-collection', currentVersion: 1, immutable: true,
+    paths: [
+      /^\$git\/sgos\/processes\/[^/]+\/dynamic-fanout-collections\/[a-f0-9]{64}\.json$/,
+      sgosRecordReservationPath('dynamic-fanout-collection')
+    ]
+  }),
+  family({
+    id: 'dynamic-fanout-expansion-receipt', currentVersion: 1, immutable: true,
+    paths: [
+      /^\$git\/sgos\/processes\/[^/]+\/dynamic-fanout-expansions\/[a-f0-9]{64}\.json$/,
+      sgosRecordReservationPath('dynamic-fanout-expansion-receipt')
+    ]
+  }),
+  family({
     id: 'sgos-replay-plan', currentVersion: 1, immutable: true,
     paths: [
       /^\$git\/sgos\/processes\/[^/]+\/replay-plans\/[a-f0-9]{64}\.json$/,
@@ -2143,8 +2163,8 @@ const families = [
     // that authority during read; preserve the old Process for archival. v3 adds a deterministic
     // null control head; the SGOS store establishes its first immutable control event while holding
     // the Process lock before republishing the migrated mutable state.
-    id: 'gvm-process', currentVersion: 3, minimumReadableVersion: 2,
-    steps: [migration(2, 3, gvmProcessV2ToV3)],
+    id: 'gvm-process', currentVersion: 4, minimumReadableVersion: 2,
+    steps: [migration(2, 3, gvmProcessV2ToV3), migration(3, 4, gvmProcessV3ToV4)],
     paths: [/^\$git\/sgos\/processes\/[^/]+\/state\.json$/]
   }),
   family({

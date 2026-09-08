@@ -249,7 +249,7 @@ test('same confirmed inputs compile to the same canonical finite Program', () =>
     sourceSha256: first.program.compiler.sourceSha256
   });
   assert.match(first.program.compiler.sourceSha256, /^sha256:[a-f0-9]{64}$/);
-  assert.equal(SGOS_COMPILER_VERSION, '3');
+  assert.equal(SGOS_COMPILER_VERSION, '4');
   assert.deepEqual(first.program.edges.map(({ from, to }) => [from, to]), [['copy', 'end']]);
   assert.deepEqual(firstInput, untouched, 'the compiler must not mutate its confirmed inputs');
   assert.deepEqual(GVM_OPCODES, [
@@ -1035,6 +1035,100 @@ test('an empty finite fan-out preserves its declared predecessor boundary', () =
   const coordinator = compiled.taskTemplates.find((task) => task.taskTemplateId === 'copy');
   assert.equal(coordinator.opcode, 'NOOP');
   assert.deepEqual(coordinator.dependsOn, ['seed']);
+});
+
+test('runtime foreach compiles one approved body prototype and bounded dynamic coordinator', () => {
+  const compiled = compileSgosProgram(fixture({
+    mutateWorkflow(workflow) {
+      workflow.spec.tasks.discover = {
+        kind: 'checkpoint', dependsOn: [], material: false
+      };
+      workflow.spec.tasks.copy = {
+        ...workflow.spec.tasks.copy,
+        kind: 'foreach',
+        dependsOn: ['discover'],
+        over: '$tasks.discover.outputs.modules',
+        itemKey: '$.id',
+        maximumItems: 2,
+        maximumParallel: 2,
+        body: { kind: 'task' }
+      };
+      workflow.spec.budgets.maximumTasks = 5;
+    }
+  })).program;
+  const body = compiled.taskTemplates.find((task) =>
+    task.metadata?.dynamicFanoutBody?.parentTaskId === 'copy');
+  const coordinator = compiled.taskTemplates.find((task) =>
+    task.metadata?.dynamicFanoutCoordinator?.parentTaskId === 'copy');
+  assert.equal(body.taskTemplateId, 'copy:dynamic-body');
+  assert.equal(body.opcode, 'KERNEL');
+  assert.deepEqual(body.dependsOn, ['discover']);
+  assert.deepEqual(body.metadata.dynamicFanoutBody, {
+    parentTaskId: 'copy', sourceTaskTemplateId: 'discover', outputName: 'modules',
+    itemKeySelector: '$.id', bodyTaskTemplateId: 'copy:dynamic-body',
+    maximumItems: 2, maximumParallel: 2
+  });
+  assert.equal(coordinator.opcode, 'JOIN');
+  assert.deepEqual(coordinator.dependsOn, ['copy:dynamic-body']);
+  assert.deepEqual(compiled.joins.find((join) => join.taskTemplateId === 'copy'), {
+    joinId: 'copy', taskTemplateId: 'copy', policy: 'all-success',
+    predecessorTaskTemplateIds: ['copy:dynamic-body']
+  });
+  assert.doesNotThrow(() => validateSgosProgramStaticSafety(compiled));
+
+  expectCode(() => compileSgosProgram(fixture({
+    mutateWorkflow(workflow) {
+      workflow.spec.tasks.copy = {
+        ...workflow.spec.tasks.copy,
+        kind: 'foreach', dependsOn: [], over: '$tasks.discover.outputs.modules',
+        itemKey: '$.id', maximumItems: 2, maximumParallel: 1, body: { kind: 'task' }
+      };
+      workflow.spec.budgets.maximumTasks = 4;
+    }
+  })), 'SGOS_DYNAMIC_FANOUT_SOURCE_NOT_PREDECESSOR');
+  expectCode(() => compileSgosProgram(fixture({
+    mutateWorkflow(workflow) {
+      workflow.spec.tasks.copy = {
+        ...workflow.spec.tasks.copy,
+        kind: 'foreach', dependsOn: ['copy'], over: '$.arbitrary',
+        itemKey: '$.id', maximumItems: 2, maximumParallel: 1, body: { kind: 'task' }
+      };
+      workflow.spec.budgets.maximumTasks = 4;
+    }
+  })), 'SGOS_DYNAMIC_FANOUT_SELECTOR_INVALID');
+  expectCode(() => compileSgosProgram(fixture({
+    mutateWorkflow(workflow) {
+      workflow.spec.tasks.discover = {
+        kind: 'checkpoint', dependsOn: [], material: false
+      };
+      workflow.spec.tasks.copy = {
+        ...workflow.spec.tasks.copy,
+        kind: 'foreach', dependsOn: ['discover'],
+        over: '$tasks.discover.outputs.modules', itemKey: '$.id',
+        maximumItems: 2, maximumParallel: 1,
+        resources: { reads: [], writes: [], devices: [], externalEffects: [] },
+        body: { kind: 'task' }
+      };
+      workflow.spec.tasks.inspect = {
+        ...baseTask(),
+        kind: 'foreach', dependsOn: ['discover'],
+        over: '$tasks.discover.outputs.modules', itemKey: '$.name',
+        maximumItems: 2, maximumParallel: 1,
+        resources: { reads: [], writes: [], devices: [], externalEffects: [] },
+        body: { kind: 'task' }
+      };
+      workflow.spec.tasks.end.dependsOn = ['copy', 'inspect'];
+      workflow.spec.budgets.maximumTasks = 8;
+    },
+    mutateRatification(ratification) {
+      ratification.coverage.clauses[OBJECTIVE_ID].push({
+        kind: 'task', targetId: 'inspect'
+      });
+      ratification.coverage.tasks.inspect = [{
+        kind: 'intent-clause', sourceId: OBJECTIVE_ID
+      }];
+    }
+  })), 'SGOS_DYNAMIC_FANOUT_COLLECTION_MISMATCH');
 });
 
 test('task-count and retry ceilings are enforced at compile time', async (t) => {

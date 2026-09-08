@@ -16,6 +16,8 @@ import { SingularityFlowError, nowIso } from '../util.mjs';
 import {
   createAgentProposal,
   createCandidateSnapshot,
+  createDynamicFanoutCollection,
+  createDynamicFanoutExpansionReceipt,
   createFanoutExpansionReceipt,
   createJoinReceipt,
   createManualReconcileJoinReceipt,
@@ -61,6 +63,9 @@ import {
 } from './store.mjs';
 import { compareSgosCodePoints } from './order.mjs';
 import { SGOS_INSTALLED_LIMITS } from './limits.mjs';
+import {
+  normalizeSgosDynamicFanoutCollection, sgosDynamicFanoutChildInstanceId
+} from './fanout.mjs';
 import {
   assertSgosProcessMaterialization, taskInstancesForSgosProgram
 } from './materialization.mjs';
@@ -275,9 +280,14 @@ function assertProgram(program) {
   if (maximumTasks != null && (!Number.isSafeInteger(maximumTasks) || maximumTasks < 1)) {
     fail('Program maximumTasks must be a positive integer.', 'SGOS_PROGRAM_BUDGET_INVALID');
   }
-  if (maximumTasks != null && program.taskTemplates.length > maximumTasks) {
+  const dynamicBodies = program.taskTemplates
+    .filter((task) => task.metadata?.dynamicFanoutBody != null);
+  const maximumMaterializedTasks = program.taskTemplates.length - dynamicBodies.length
+    + dynamicBodies.reduce((sum, task) =>
+      sum + task.metadata.dynamicFanoutBody.maximumItems, 0);
+  if (maximumTasks != null && maximumMaterializedTasks > maximumTasks) {
     fail('The compiled Program exceeds its maximumTasks ceiling.', 'SGOS_PROGRAM_BUDGET_EXCEEDED', {
-      maximumTasks, actualTasks: program.taskTemplates.length
+      maximumTasks, actualTasks: maximumMaterializedTasks
     });
   }
   const maximumAttempts = program.budgets?.maximumAttempts;
@@ -1670,6 +1680,60 @@ function assertRequiredTaskEvidence(template, outcome) {
   }
 }
 
+function dynamicFanoutCollectionsForOutcome(process, context, outcome, program, createdAt) {
+  const descriptors = program.taskTemplates
+    .map((template) => template.metadata?.dynamicFanoutBody ?? null)
+    .filter((descriptor) =>
+      descriptor?.sourceTaskTemplateId === context.task.taskTemplateId);
+  const supplied = outcome.fanoutCollections;
+  if (!descriptors.length) {
+    if (supplied != null) {
+      fail(`Task '${context.task.taskTemplateId}' is not an approved dynamic fan-out source.`,
+        'SGOS_DYNAMIC_FANOUT_COLLECTION_UNAUTHORIZED');
+    }
+    return Object.freeze([]);
+  }
+  if (!supplied || typeof supplied !== 'object' || Array.isArray(supplied)) {
+    fail(`Task '${context.task.taskTemplateId}' must return its approved fanoutCollections.`,
+      'SGOS_DYNAMIC_FANOUT_COLLECTION_REQUIRED');
+  }
+  const expectedNames = [...new Set(descriptors.map((entry) => entry.outputName))]
+    .sort(compareSgosCodePoints);
+  const suppliedNames = Object.keys(supplied).sort(compareSgosCodePoints);
+  if (canonicalJson(expectedNames) !== canonicalJson(suppliedNames)) {
+    fail(`Task '${context.task.taskTemplateId}' returned a different dynamic collection set.`,
+      'SGOS_DYNAMIC_FANOUT_COLLECTION_MISMATCH', {
+        expectedOutputNames: expectedNames, suppliedOutputNames: suppliedNames
+      });
+  }
+  return Object.freeze(expectedNames.map((outputName) => {
+    const matching = descriptors.filter((entry) => entry.outputName === outputName);
+    const descriptor = matching[0];
+    if (matching.some((entry) => entry.itemKeySelector !== descriptor.itemKeySelector
+        || entry.maximumItems !== descriptor.maximumItems)) {
+      fail(`Dynamic fan-out output '${outputName}' has conflicting approved consumers.`,
+        'SGOS_DYNAMIC_FANOUT_COLLECTION_MISMATCH');
+    }
+    const normalized = normalizeSgosDynamicFanoutCollection({
+      taskId: descriptor.parentTaskId,
+      outputName,
+      itemKeySelector: descriptor.itemKeySelector,
+      values: supplied[outputName],
+      maximumItems: descriptor.maximumItems
+    });
+    return createDynamicFanoutCollection({
+      processId: process.processId,
+      sourceTaskInstanceId: context.task.taskInstanceId,
+      sourceAttemptId: context.attemptId,
+      outputName,
+      itemKeySelector: descriptor.itemKeySelector,
+      collectionSha256: normalized.collectionSha256,
+      items: normalized.items,
+      createdAt
+    });
+  }));
+}
+
 async function finalizeSuccess(root, context, outcome, program, clock, checkpoint = null) {
   // `process stop` records paused state before it waits for an owner to quiesce. A handler that
   // ignores AbortSignal may still return, but it must never publish success across that durable
@@ -1709,7 +1773,18 @@ async function finalizeSuccess(root, context, outcome, program, clock, checkpoin
     return finalizeFailure(root, { ...context, outcome }, error, program, clock);
   }
   const completedAt = instant(clock);
-  const outputRefs = [...new Set(outcome.outputRefs ?? [])].sort();
+  let dynamicCollections;
+  try {
+    dynamicCollections = dynamicFanoutCollectionsForOutcome(
+      context.begun, context, outcome, program, completedAt
+    );
+  } catch (error) {
+    return finalizeFailure(root, { ...context, outcome }, error, program, clock);
+  }
+  const outputRefs = [...new Set([
+    ...(outcome.outputRefs ?? []),
+    ...dynamicCollections.map((record) => record.collectionRecordSha256)
+  ])].sort();
   let attempt;
   let evidence;
   let receipt;
@@ -1722,6 +1797,11 @@ async function finalizeSuccess(root, context, outcome, program, clock, checkpoin
       if (draft.status === 'paused') {
         fail('SGOS Process stop was recorded before execution completion.',
           'SGOS_PROCESS_STOP_REQUESTED');
+      }
+      for (const collection of dynamicCollections) {
+        await putRuntimeImmutableRecord(
+          root, context.begun.processId, 'dynamic-fanout-collection', collection
+        );
       }
       ({ attempt, evidence } = await persistAttemptAndEvidence(root, {
         ...context,
@@ -1790,6 +1870,205 @@ function isSgosTransitionRecoveryError(error) {
   ].includes(error?.code);
 }
 
+function runtimeTemplateRefs(values = []) {
+  return [...new Set((Array.isArray(values) ? values : []).map((value) => {
+    if (typeof value === 'string') return value;
+    if (typeof value?.ref === 'string') return value.ref;
+    return sgosSha256(value);
+  }))].sort(compareSgosCodePoints);
+}
+
+function dynamicFanoutDescriptors(program) {
+  return program.taskTemplates
+    .map((template) => template.metadata?.dynamicFanoutCoordinator ?? null)
+    .filter(Boolean)
+    .sort((left, right) => compareSgosCodePoints(left.parentTaskId, right.parentTaskId));
+}
+
+async function materializeReadyDynamicFanouts(root, initial, program, clock) {
+  let process = initial;
+  const templates = templateById(program);
+  for (const descriptor of dynamicFanoutDescriptors(program)) {
+    const existing = await listSgosImmutableRecordsByField(
+      root, process.processId, 'dynamic-fanout-expansion-receipt',
+      'parentTaskTemplateId', descriptor.parentTaskId
+    );
+    if (existing.length > 1) {
+      fail(`Dynamic fan-out '${descriptor.parentTaskId}' has duplicate expansion receipts.`,
+        'SGOS_DYNAMIC_FANOUT_EXPANSION_INVALID');
+    }
+    if (existing.length === 1) continue;
+    const sourceTask = Object.values(process.taskInstances).find((task) =>
+      task.taskTemplateId === descriptor.sourceTaskTemplateId);
+    if (!sourceTask || sourceTask.state !== 'succeeded' || !sourceTask.receiptSha256) continue;
+    const collections = await listSgosImmutableRecordsByField(
+      root, process.processId, 'dynamic-fanout-collection',
+      'sourceTaskInstanceId', sourceTask.taskInstanceId
+    );
+    const exact = collections.filter((record) =>
+      record.outputName === descriptor.outputName
+      && record.sourceAttemptId === sourceTask.attemptIds.at(-1)
+      && sourceTask.outputRefs.includes(record.collectionRecordSha256));
+    if (exact.length !== 1) {
+      fail(`Dynamic fan-out '${descriptor.parentTaskId}' has no single exact source collection.`,
+        'SGOS_DYNAMIC_FANOUT_COLLECTION_REQUIRED', {
+          outputName: descriptor.outputName, matches: exact.length
+        });
+    }
+    const collection = exact[0];
+    if (collection.itemKeySelector !== descriptor.itemKeySelector
+        || collection.items.length > descriptor.maximumItems) {
+      fail(`Dynamic fan-out '${descriptor.parentTaskId}' collection changed its approved shape.`,
+        'SGOS_DYNAMIC_FANOUT_COLLECTION_MISMATCH');
+    }
+    const body = templates.get(descriptor.bodyTaskTemplateId);
+    const coordinator = Object.values(process.taskInstances).find((task) =>
+      task.taskTemplateId === descriptor.parentTaskId);
+    if (!body || !coordinator) {
+      fail(`Dynamic fan-out '${descriptor.parentTaskId}' is missing its Program materialization.`,
+        'SGOS_DYNAMIC_FANOUT_EXPANSION_INVALID');
+    }
+    const predecessorIds = [...(body.dependsOn ?? [])].map((templateId) => {
+      const task = Object.values(process.taskInstances).find((entry) =>
+        entry.taskTemplateId === templateId && entry.fanoutBinding == null);
+      if (!task) {
+        fail(`Dynamic fan-out '${descriptor.parentTaskId}' predecessor '${templateId}' is missing.`,
+          'SGOS_DYNAMIC_FANOUT_EXPANSION_INVALID');
+      }
+      return task.taskInstanceId;
+    }).sort(compareSgosCodePoints);
+    const children = collection.items.map((item) => {
+      const taskInstanceId = sgosDynamicFanoutChildInstanceId(
+        process.processId, descriptor.parentTaskId, item.itemKey, item.itemSha256
+      );
+      return {
+        taskInstanceId,
+        taskTemplateId: descriptor.bodyTaskTemplateId,
+        state: predecessorIds.every((id) => process.taskInstances[id]?.state === 'succeeded')
+          ? 'ready' : 'waiting',
+        predecessorTaskInstanceIds: predecessorIds,
+        inputRefs: [...new Set([
+          ...runtimeTemplateRefs(body.inputs ?? body.inputRefs ?? []),
+          collection.collectionRecordSha256,
+          item.itemSha256
+        ])].sort(compareSgosCodePoints),
+        outputRefs: [],
+        attemptIds: [],
+        receiptSha256: null,
+        invalidatedBy: null,
+        revision: 1,
+        fanoutBinding: {
+          parentTaskTemplateId: descriptor.parentTaskId,
+          itemKey: item.itemKey,
+          itemSha256: item.itemSha256,
+          collectionRecordSha256: collection.collectionRecordSha256,
+          collectionSha256: collection.collectionSha256,
+          maximumParallel: descriptor.maximumParallel
+        }
+      };
+    });
+    const createdAt = instant(clock);
+    const receipt = createDynamicFanoutExpansionReceipt({
+      processId: process.processId,
+      parentTaskTemplateId: descriptor.parentTaskId,
+      bodyTaskTemplateId: descriptor.bodyTaskTemplateId,
+      sourceTaskInstanceId: sourceTask.taskInstanceId,
+      sourceTaskReceiptSha256: sourceTask.receiptSha256,
+      collectionRecordSha256: collection.collectionRecordSha256,
+      collectionSha256: collection.collectionSha256,
+      maximumItems: descriptor.maximumItems,
+      maximumParallel: descriptor.maximumParallel,
+      items: children.map((task) => ({
+        itemKey: task.fanoutBinding.itemKey,
+        itemSha256: task.fanoutBinding.itemSha256,
+        taskInstanceId: task.taskInstanceId
+      })),
+      createdAt
+    });
+    try {
+      process = await mutateSgosProcess(root, process.processId, async (draft) => {
+        const currentSource = draft.taskInstances[sourceTask.taskInstanceId];
+        if (currentSource?.state !== 'succeeded'
+            || currentSource.receiptSha256 !== sourceTask.receiptSha256) {
+          fail(`Dynamic fan-out '${descriptor.parentTaskId}' source changed before expansion.`,
+            'SGOS_PROCESS_REVISION_STALE');
+        }
+        await putRuntimeImmutableRecord(
+          root, draft.processId, 'dynamic-fanout-expansion-receipt', receipt
+        );
+        for (const child of children) {
+          if (draft.taskInstances[child.taskInstanceId] != null) {
+            fail(`Dynamic fan-out child '${child.taskInstanceId}' already exists.`,
+              'SGOS_DYNAMIC_FANOUT_EXPANSION_INVALID');
+          }
+          draft.taskInstances[child.taskInstanceId] = clone(child);
+        }
+        const target = draft.taskInstances[coordinator.taskInstanceId];
+        const priorCoordinatorRevision = target.revision;
+        const priorCoordinatorPredecessors = canonicalJson(
+          target.predecessorTaskInstanceIds
+        );
+        target.predecessorTaskInstanceIds = children.length
+          ? children.map((task) => task.taskInstanceId).sort(compareSgosCodePoints)
+          : [...target.predecessorTaskInstanceIds];
+        updateSgosReadinessAndStatus(draft, program);
+        if (target.revision === priorCoordinatorRevision
+            && priorCoordinatorPredecessors
+              !== canonicalJson(target.predecessorTaskInstanceIds)) {
+          target.revision += 1;
+        }
+        // Unlike a CHECKPOINT opcode, runtime materialization and checkpoint publication happen
+        // in the same control transition.  Bind the checkpoint to the revision that this CAS will
+        // publish so portable lineage can reconstruct the exact task set introduced here.
+        const checkpoint = buildCheckpoint({
+          ...draft,
+          processRevision: draft.processRevision + 1
+        }, program, {
+          priorCheckpointSha256: draft.currentCheckpointSha256,
+          createdAt
+        });
+        await putRuntimeImmutableRecord(root, draft.processId, 'gvm-checkpoint', checkpoint);
+        draft.currentCheckpointSha256 = checkpoint.checkpointSha256;
+      }, {
+        expectedRevision: process.processRevision,
+        expectedProcessSha256: process.processSha256,
+        updatedAt: createdAt
+      });
+    } catch (error) {
+      if (!['SGOS_PROCESS_REVISION_STALE', 'SUBJECT_LOCK_BUSY'].includes(error?.code)) throw error;
+      const current = await readSgosProcess(root, process.processId);
+      const converged = await listSgosImmutableRecordsByField(
+        root, current.processId, 'dynamic-fanout-expansion-receipt',
+        'parentTaskTemplateId', descriptor.parentTaskId
+      );
+      if (converged.length !== 1) throw error;
+      process = current;
+    }
+  }
+  return process;
+}
+
+async function dynamicFanoutItemForTask(root, process, task) {
+  const binding = task.fanoutBinding;
+  if (!binding) return null;
+  const { record } = await readSgosImmutableRecord(
+    root, process.processId, 'dynamic-fanout-collection', binding.collectionRecordSha256
+  );
+  const item = record.items.find((entry) =>
+    entry.itemKey === binding.itemKey && entry.itemSha256 === binding.itemSha256);
+  if (!item || record.collectionSha256 !== binding.collectionSha256) {
+    fail(`Dynamic fan-out task '${task.taskInstanceId}' cannot resolve its exact item.`,
+      'SGOS_DYNAMIC_FANOUT_ITEM_INVALID');
+  }
+  return Object.freeze({
+    itemKey: item.itemKey,
+    itemSha256: item.itemSha256,
+    value: clone(item.value),
+    collectionRecordSha256: record.collectionRecordSha256,
+    collectionSha256: record.collectionSha256
+  });
+}
+
 /**
  * Execute at most one ready task, selected canonically.
  *
@@ -1817,7 +2096,7 @@ async function runNextSgosTaskWithinPolicy(root, processId, {
   await assertSafeSgosSidecar(root, processId);
   await settlePendingTransitionBeforeMutation(root, processId, 'step');
   await reconcileSgosExecutionLeases(root, processId);
-  const before = await readSgosProcess(root, processId);
+  let before = await readSgosProcess(root, processId);
   await assertCurrentStoredProcessBinding(root, before);
   const program = await resolveProgram(root, before, suppliedProgram);
   if (expectedRevision != null && before.processRevision !== expectedRevision) {
@@ -1825,6 +2104,7 @@ async function runNextSgosTaskWithinPolicy(root, processId, {
       expectedRevision, actualRevision: before.processRevision
     });
   }
+  before = await materializeReadyDynamicFanouts(root, before, program, clock);
   if (before.activeExecutions.length && !allowConcurrent) {
     fail('An interrupted execution must be reconciled before dispatch can continue.', 'SGOS_EXECUTION_RECOVERY_REQUIRED');
   }
@@ -1851,6 +2131,7 @@ async function runNextSgosTaskWithinPolicy(root, processId, {
   const workingSet = composeSgosRuntimeWorkingSet({
     process: before, checkpoint: workingSetCheckpoint, task, template, program
   });
+  const fanoutItem = await dynamicFanoutItemForTask(root, before, task);
   const maximumAttempts = retryCeiling(template);
   if (task.attemptIds.length >= maximumAttempts) {
     return blockTask(root, before, task, {
@@ -2004,6 +2285,7 @@ async function runNextSgosTaskWithinPolicy(root, processId, {
     handlerKind,
     gvmAdapter,
     workingSet,
+    fanoutItem,
     executionUnitOptions
   };
 
@@ -2229,6 +2511,7 @@ async function runNextSgosTaskWithinPolicy(root, processId, {
       programSha256: program.programSha256,
       policySnapshotSha256: program.policySnapshotSha256,
       workingSet: clone(workingSet),
+      fanoutItem: clone(fanoutItem),
       agentProposals: clone(agentProposals)
     }, template.timeoutMs ?? null, executionController.signal);
     if (stopMonitorError) throw stopMonitorError;
@@ -2331,7 +2614,7 @@ async function runReadySgosTasksWithinPolicy(root, processId, {
   await assertSafeSgosSidecar(root, processId);
   await settlePendingTransitionBeforeMutation(root, processId, 'run');
   await reconcileSgosExecutionLeases(root, processId);
-  const before = await readSgosProcess(root, processId);
+  let before = await readSgosProcess(root, processId);
   await assertCurrentStoredProcessBinding(root, before);
   if (expectedRevision != null && before.processRevision !== expectedRevision) {
     fail(`SGOS process '${processId}' changed before dispatch.`, 'SGOS_PROCESS_REVISION_STALE', {
@@ -2343,6 +2626,7 @@ async function runReadySgosTasksWithinPolicy(root, processId, {
       'SGOS_EXECUTION_RECOVERY_REQUIRED');
   }
   const program = await resolveProgram(root, before, suppliedProgram);
+  before = await materializeReadyDynamicFanouts(root, before, program, clock);
   const plan = deterministicSgosDispatchPlan(program, before, { maximumParallel });
   if (!plan.length) {
     return Object.freeze({

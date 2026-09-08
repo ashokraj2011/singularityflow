@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   candidateManifestSha256, createActionEvidence, createAgentProposal, createCandidateSnapshot,
+  createDynamicFanoutCollection, createDynamicFanoutExpansionReceipt,
   createGvmCheckpoint, createGvmProcess, createGvmProgram, createGvmTaskAttempt,
   createGvmTaskReceipt, createHumanRequest, createHumanResponse, createIntentEnvelope,
   createIntentIr, createPolicySnapshot, createProcessBinding, createSgosControlSuccessor,
@@ -70,10 +71,10 @@ function candidateResources() {
 
 test('SGOS durable families expose exact readable versions and refuse future versions', () => {
   const registry = new Map(migrationRegistrySnapshot().map((entry) => [entry.id, entry]));
-  assert.equal(sgosContractFamilies().length, 32);
+  assert.equal(sgosContractFamilies().length, 34);
   for (const family of sgosContractFamilies()) {
     const current = family === 'gvm-process'
-      ? 3
+      ? 4
       : ['process-binding', 'human-request', 'gvm-task-receipt'].includes(family) ? 2 : 1;
     assert.equal(currentSchemaVersion(family), current);
     assert.equal(registry.get(family)?.immutable,
@@ -102,6 +103,67 @@ test('SGOS canonical ordering is locale-independent across contracts, runtime, a
   ]) {
     assert.doesNotMatch(await readFile(path.join(root, file), 'utf8'), /\.localeCompare\(/, file);
   }
+});
+
+test('dynamic fan-out collection and expansion contracts bind exact values, order, and limits', () => {
+  const rawItems = [
+    { itemKey: 'beta', value: { id: 'beta', path: 'src/beta.mjs' } },
+    { itemKey: 'alpha', value: { id: 'alpha', path: 'src/alpha.mjs' } }
+  ].map((entry) => ({
+    ...entry,
+    itemSha256: sha256({ kind: 'sgos-fanout-item', value: entry.value })
+  }));
+  const items = [...rawItems].sort((left, right) =>
+    compareSgosCodePoints(left.itemKey, right.itemKey));
+  const collectionSha256 = sha256({
+    kind: 'sgos-dynamic-fanout-collection',
+    outputName: 'modules',
+    itemKeySelector: '$.id',
+    items: items.map(({ itemKey, itemSha256 }) => ({ itemKey, itemSha256 }))
+  });
+  const collection = createDynamicFanoutCollection({
+    processId: 'PROC-123456',
+    sourceTaskInstanceId: 'TASK-discover',
+    sourceAttemptId: 'ATT-123456',
+    outputName: 'modules',
+    itemKeySelector: '$.id',
+    collectionSha256,
+    items: rawItems,
+    createdAt: at
+  });
+  assert.deepEqual(collection.items.map((entry) => entry.itemKey), ['alpha', 'beta']);
+  assert.deepEqual(validateSgosRecord(collection), collection);
+
+  const expansion = createDynamicFanoutExpansionReceipt({
+    processId: collection.processId,
+    parentTaskTemplateId: '30-fanout',
+    bodyTaskTemplateId: '30-fanout::body',
+    sourceTaskInstanceId: collection.sourceTaskInstanceId,
+    sourceTaskReceiptSha256: d('source-receipt'),
+    collectionRecordSha256: collection.collectionRecordSha256,
+    collectionSha256: collection.collectionSha256,
+    maximumItems: 2,
+    maximumParallel: 2,
+    items: [...collection.items].reverse().map((entry) => ({
+      itemKey: entry.itemKey,
+      itemSha256: entry.itemSha256,
+      taskInstanceId: `TASK-${entry.itemKey}`
+    })),
+    createdAt: at
+  });
+  assert.deepEqual(expansion.items.map((entry) => entry.itemKey), ['alpha', 'beta']);
+  assert.deepEqual(validateSgosRecord(expansion), expansion);
+
+  const changedValue = structuredClone(collection);
+  changedValue.items[0].value.path = 'src/counterfeit.mjs';
+  assert.throws(() => validateSgosRecord(changedValue), /canonical record|exact value/);
+  const crossedCollection = structuredClone(expansion);
+  crossedCollection.collectionRecordSha256 = d('other-collection');
+  assert.throws(() => validateSgosRecord(crossedCollection), /canonical record/);
+  assert.throws(() => createDynamicFanoutExpansionReceipt({
+    ...expansion,
+    maximumItems: 1
+  }), /exceeds installed bounds/);
 });
 
 test('the umbrella JSON Schema covers every closed SGOS record vocabulary', async () => {
@@ -135,7 +197,7 @@ test('the umbrella JSON Schema covers every closed SGOS record vocabulary', asyn
   };
   visit(schema);
 
-  assert.equal(schema.$defs.gvmProcess.properties.schemaVersion.const, 3);
+  assert.equal(schema.$defs.gvmProcess.properties.schemaVersion.const, 4);
   assert.ok(schema.$defs.gvmProcess.required.includes('recordIndexSha256'));
   assert.ok(schema.$defs.sgosControlEvent.required.includes('recordIndexSha256'));
   for (const field of ['cumulativeInfrastructureBytes', 'cumulativeInfrastructureRecords']) {
@@ -764,7 +826,7 @@ test('intent, workflow, ratification, Program, runtime, human, evidence, and UI 
     taskContractSha256: d('task-contract'),
     createdAt: at, updatedAt: at
   });
-  assert.equal(process.schemaVersion, 3);
+  assert.equal(process.schemaVersion, 4);
   assert.equal(process.recordIndexSha256, null);
   const processWithAuthority = (authorityBinding) => {
     const seed = structuredClone(process);

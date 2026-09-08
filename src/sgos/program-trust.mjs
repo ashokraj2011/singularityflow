@@ -25,7 +25,8 @@ import { compareSgosCodePoints } from './order.mjs';
 import { SGOS_INSTALLED_LIMITS } from './limits.mjs';
 import { canonicalSgosJoins } from './joins.mjs';
 import {
-  normalizeSgosFanout, sgosFanoutChildTemplateId
+  normalizeSgosDynamicFanoutDescriptor, normalizeSgosFanout,
+  sgosDynamicFanoutBodyTemplateId, sgosFanoutChildTemplateId
 } from './fanout.mjs';
 import {
   canonicalSgosResourceEntries, normalizeSgosResourceKey
@@ -424,14 +425,25 @@ function assertBudgets(program, {
   if (!Number.isSafeInteger(taskCeiling) || taskCeiling < 1) {
     fail('SGOS_PROGRAM_BUDGET_INVALID', 'Program budgets require a positive maximumTasks ceiling.');
   }
-  if (program.taskTemplates.length > taskCeiling) {
+  const dynamicBodies = program.taskTemplates
+    .filter((task) => task.metadata?.dynamicFanoutBody != null);
+  if (dynamicBodies.some((task) =>
+    !Number.isSafeInteger(task.metadata.dynamicFanoutBody.maximumItems)
+    || task.metadata.dynamicFanoutBody.maximumItems < 0)) {
+    fail('SGOS_PROGRAM_BUDGET_INVALID',
+      'Program dynamic fan-out requires a non-negative integer maximumItems ceiling.');
+  }
+  const materializedTaskCeiling = program.taskTemplates.length - dynamicBodies.length
+    + dynamicBodies.reduce((sum, task) =>
+      sum + task.metadata.dynamicFanoutBody.maximumItems, 0);
+  if (materializedTaskCeiling > taskCeiling) {
     fail('SGOS_PROGRAM_BUDGET_EXCEEDED', 'Program task count exceeds maximumTasks.', {
-      maximumTasks: taskCeiling, actualTasks: program.taskTemplates.length
+      maximumTasks: taskCeiling, actualTasks: materializedTaskCeiling
     });
   }
-  if (maximumTasks != null && program.taskTemplates.length > maximumTasks) {
+  if (maximumTasks != null && materializedTaskCeiling > maximumTasks) {
     fail('SGOS_PROGRAM_BUDGET_EXCEEDED', 'Program task count exceeds the execution admission ceiling.', {
-      maximumTasks, actualTasks: program.taskTemplates.length
+      maximumTasks, actualTasks: materializedTaskCeiling
     });
   }
 
@@ -491,10 +503,12 @@ export function assertSgosInstalledProgramLimits(program) {
       actualBytes: bytes, maximumBytes: SGOS_INSTALLED_LIMITS.maximumProgramBytes
     });
   }
-  if (program.taskTemplates.length > SGOS_INSTALLED_LIMITS.maximumTasks) {
+  const maximumTaskTemplates = SGOS_INSTALLED_LIMITS.maximumTasks
+    + SGOS_INSTALLED_LIMITS.maximumFanoutGroupsPerProcess;
+  if (program.taskTemplates.length > maximumTaskTemplates) {
     fail('SGOS_PROGRAM_BUDGET_EXCEEDED', 'Program exceeds the installed task ceiling.', {
       actualTasks: program.taskTemplates.length,
-      maximumTasks: SGOS_INSTALLED_LIMITS.maximumTasks
+      maximumTasks: maximumTaskTemplates
     });
   }
   if (program.edges.length > SGOS_INSTALLED_LIMITS.maximumEdges) {
@@ -789,10 +803,49 @@ function assertInstalledJoins(program) {
 function assertInstalledFanout(program) {
   const groups = new Map();
   const coordinators = new Map();
+  const dynamicBodies = new Map();
+  const dynamicCoordinators = new Map();
+  const dynamicOutputContracts = new Map();
   for (const task of program.taskTemplates) {
     const item = task.metadata?.fanout ?? null;
     const coordinator = task.metadata?.fanoutCoordinator ?? null;
     const lineage = task.metadata?.fanoutLineage ?? [];
+    const dynamicBody = task.metadata?.dynamicFanoutBody ?? null;
+    const dynamicCoordinator = task.metadata?.dynamicFanoutCoordinator ?? null;
+    if ((dynamicBody || dynamicCoordinator) && (item || coordinator || lineage.length)) {
+      fail('SGOS_FANOUT_MATERIALIZATION_INVALID',
+        `Task '${task.taskTemplateId}' mixes static and dynamic fan-out authority.`);
+    }
+    if (dynamicBody) {
+      const expectedBodyId = sgosDynamicFanoutBodyTemplateId(dynamicBody.parentTaskId);
+      if (task.taskTemplateId !== expectedBodyId || dynamicBodies.has(dynamicBody.parentTaskId)) {
+        fail('SGOS_FANOUT_MATERIALIZATION_INVALID',
+          `Dynamic fan-out body '${task.taskTemplateId}' is duplicate or mismatched.`);
+      }
+      dynamicBodies.set(dynamicBody.parentTaskId, { task, descriptor: dynamicBody });
+      const outputIdentity = `${dynamicBody.sourceTaskTemplateId}\u0000${dynamicBody.outputName}`;
+      const outputContract = {
+        itemKeySelector: dynamicBody.itemKeySelector,
+        maximumItems: dynamicBody.maximumItems
+      };
+      const priorOutputContract = dynamicOutputContracts.get(outputIdentity);
+      if (priorOutputContract != null
+          && canonicalJson(priorOutputContract) !== canonicalJson(outputContract)) {
+        fail('SGOS_DYNAMIC_FANOUT_COLLECTION_MISMATCH',
+          `Dynamic fan-out consumers of '${dynamicBody.sourceTaskTemplateId}.${dynamicBody.outputName}' disagree on collection shape.`);
+      }
+      dynamicOutputContracts.set(outputIdentity, outputContract);
+    }
+    if (dynamicCoordinator) {
+      if (task.taskTemplateId !== dynamicCoordinator.parentTaskId
+          || dynamicCoordinators.has(dynamicCoordinator.parentTaskId)) {
+        fail('SGOS_FANOUT_MATERIALIZATION_INVALID',
+          `Dynamic fan-out coordinator '${task.taskTemplateId}' is duplicate or mismatched.`);
+      }
+      dynamicCoordinators.set(dynamicCoordinator.parentTaskId, {
+        task, descriptor: dynamicCoordinator
+      });
+    }
     if (!Array.isArray(lineage) || (lineage.length && !item)
         || lineage.length + (item ? 1 : 0) > SGOS_INSTALLED_LIMITS.maximumFanoutDepth) {
       fail('SGOS_FANOUT_MATERIALIZATION_INVALID',
@@ -820,6 +873,53 @@ function assertInstalledFanout(program) {
       }
       coordinators.set(parentTaskId, { task, coordinator });
     }
+  }
+  for (const parentTaskId of new Set([
+    ...dynamicBodies.keys(), ...dynamicCoordinators.keys()
+  ])) {
+    const body = dynamicBodies.get(parentTaskId);
+    const coordinator = dynamicCoordinators.get(parentTaskId);
+    if (!body || !coordinator) {
+      fail('SGOS_FANOUT_MATERIALIZATION_INVALID',
+        `Dynamic fan-out '${parentTaskId}' requires one body and one coordinator.`);
+    }
+    let normalized;
+    try {
+      normalized = normalizeSgosDynamicFanoutDescriptor({
+        taskId: parentTaskId,
+        over: `$tasks.${body.descriptor.sourceTaskTemplateId}.outputs.${body.descriptor.outputName}`,
+        itemKey: body.descriptor.itemKeySelector,
+        maximumItems: body.descriptor.maximumItems,
+        maximumParallel: body.descriptor.maximumParallel,
+        bodyTaskTemplateId: body.descriptor.bodyTaskTemplateId
+      });
+    } catch (error) {
+      fail(error?.code ?? 'SGOS_FANOUT_MATERIALIZATION_INVALID',
+        error?.message ?? String(error), error?.details ?? {});
+    }
+    if (canonicalJson(normalized) !== canonicalJson(body.descriptor)
+        || canonicalJson(body.descriptor) !== canonicalJson(coordinator.descriptor)
+        || coordinator.task.opcode !== 'JOIN'
+        || canonicalJson(coordinator.task.dependsOn)
+          !== canonicalJson([body.task.taskTemplateId])
+        || !body.task.dependsOn.includes(normalized.sourceTaskTemplateId)) {
+      fail('SGOS_FANOUT_MATERIALIZATION_INVALID',
+        `Dynamic fan-out '${parentTaskId}' does not match its installed descriptor.`);
+    }
+  }
+  if (new Set([
+    ...groups.keys(), ...coordinators.keys(), ...dynamicCoordinators.keys()
+  ]).size > SGOS_INSTALLED_LIMITS.maximumFanoutGroupsPerProcess) {
+    fail('SGOS_FANOUT_LIMIT',
+      'Program fan-out groups exceed the installed expansion ceiling.');
+  }
+  const maximumMaterializedTasks = program.taskTemplates.length - dynamicBodies.size
+    + [...dynamicBodies.values()].reduce((sum, entry) =>
+      sum + entry.descriptor.maximumItems, 0);
+  if (maximumMaterializedTasks > SGOS_INSTALLED_LIMITS.maximumTasks
+      || maximumMaterializedTasks > program.budgets.maximumTasks) {
+    fail('SGOS_MAXIMUM_TASKS_EXCEEDED',
+      'Program dynamic fan-out exceeds its declared or installed task ceiling.');
   }
   if (new Set([...groups.keys(), ...coordinators.keys()]).size
       > SGOS_INSTALLED_LIMITS.maximumFanoutGroupsPerProcess) {

@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import {
   fosBenchmarkReportSha256, registerFosBenchmarkEvidence, validateFosBenchmarkEvidence
@@ -12,6 +13,10 @@ import { FOS_FEATURE_DEFAULTS } from '../src/fos-features.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 
 const sourceManifest = new URL('../benchmarks/fos/benchmark-manifest.json', import.meta.url);
+const repositoryRoot = fileURLToPath(new URL('..', import.meta.url));
+const registeredDarwinEvidence = new URL(
+  '../benchmarks/fos/evidence/darwin-arm64-ashok-m4-local-5430fd35a351.json', import.meta.url
+);
 const digest = `sha256:${'a'.repeat(64)}`;
 
 function git(root, ...arguments_) {
@@ -108,4 +113,16 @@ test('controlled FOS evidence registration is exact-commit-bound, content-safe, 
   } finally {
     await rm(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
+});
+
+test('registered Darwin FOS evidence remains verifiable against its historical manifest', async () => {
+  const serialized = await readFile(registeredDarwinEvidence, 'utf8');
+  const report = await validateFosBenchmarkEvidence(repositoryRoot, serialized);
+  assert.equal(report.binding.implementationCommit,
+    '5430fd35a3516ffb846f94814f79cf95c8bbb61a');
+  assert.equal(report.evaluation.status, 'passed');
+  assert.equal(report.fixtures.find((entry) => entry.id === 'reference-local')
+    .summary.optimizedWarmGitRequests[0], 0);
+  assert.ok(report.coverage.notMeasured.includes('office-remote'));
+  assert.equal(report.claimsAuthorized, false);
 });

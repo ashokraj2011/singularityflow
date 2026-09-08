@@ -7,9 +7,9 @@
   "featureDefaultsChanged": false,
   "releaseEvidence": {
     "localDeterministicSuites": "executed",
-    "hashBoundImplementationReport": "pending-final-commit",
-    "controlledPerformanceRunner": "pending",
-    "localPerformanceRunner": "available-unclaimed",
+    "hashBoundImplementationReport": "darwin-arm64-5430fd35a351",
+    "controlledPerformanceRunner": "darwin-arm64-passed-other-lanes-pending",
+    "localPerformanceRunner": "ashok-m4-local",
     "executableWitnessInventory": "available-incomplete",
     "cachedNoCacheComparison": "implemented",
     "macosLinuxWindowsMatrix": "pending",

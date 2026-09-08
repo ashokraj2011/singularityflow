@@ -40,6 +40,22 @@ function currentCommit(root) {
   }).trim();
 }
 
+function manifestAtCommit(root, commit) {
+  try {
+    return execFileSync('git', ['show', `${commit}:benchmarks/fos/benchmark-manifest.json`], {
+      cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 4 * 1024 * 1024
+    });
+  } catch {
+    refuse('The FOS evidence does not bind a commit containing its benchmark manifest.');
+  }
+}
+
+function cleanCheckout(root) {
+  return execFileSync('git', ['status', '--porcelain=v1', '--untracked-files=all'], {
+    cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']
+  }).trim() === '';
+}
+
 function p95(values) {
   const sorted = [...values].sort((left, right) => left - right);
   return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1)];
@@ -51,16 +67,19 @@ export function fosBenchmarkReportSha256(report) {
   return sha256(JSON.stringify(copy));
 }
 
-export async function validateFosBenchmarkEvidence(root, serialized) {
+export async function validateFosBenchmarkEvidence(root, serialized, {
+  expectedCommit = null, expectedFeatureState = null
+} = {}) {
   let report;
   try { report = readRecord('fos-benchmark-report', JSON.parse(serialized)).record; }
   catch { refuse('The FOS benchmark evidence is not valid JSON.'); }
-  const manifest = readRecord('fos-benchmark-manifest', await readFile(
-    path.join(root, 'benchmarks', 'fos', 'benchmark-manifest.json'), 'utf8'
-  ).then(JSON.parse)).record;
+  if (!/^[a-f0-9]{40,64}$/.test(report.binding?.implementationCommit ?? '')) refuse(
+    'The FOS benchmark evidence has no valid full implementation commit.'
+  );
+  const manifest = readRecord('fos-benchmark-manifest',
+    JSON.parse(manifestAtCommit(root, report.binding.implementationCommit))).record;
   const controlled = manifest.profiles?.controlled;
   const expectedFixtureIds = [...Object.keys(controlled?.fixtures ?? {}), 'linked-worktrees'];
-  const expectedCommit = currentCommit(root);
   const nodeMajor = Number(String(report.runner?.node ?? '').split('.')[0]);
   const runnerFacts = ['identity', 'platform', 'architecture', 'node', 'git', 'osRelease', 'cpu',
     'storageClass', 'filesystem', 'powerMode'];
@@ -88,7 +107,7 @@ export async function validateFosBenchmarkEvidence(root, serialized) {
   const invalid = report.kind !== 'fos-local-benchmark-report'
     || report.profile !== 'controlled'
     || report.claimsAuthorized !== false
-    || report.binding?.implementationCommit !== expectedCommit
+    || (expectedCommit != null && report.binding?.implementationCommit !== expectedCommit)
     || report.binding?.workingTree !== 'clean'
     || report.binding?.hashBound !== true
     || report.reportSha256 !== fosBenchmarkReportSha256(report)
@@ -98,7 +117,7 @@ export async function validateFosBenchmarkEvidence(root, serialized) {
     || !Number.isSafeInteger(report.runner?.memoryBytes) || report.runner.memoryBytes <= 0
     || runnerFacts.some((name) => !report.runner?.[name]
       || ['unknown', 'unreported', 'unclaimed-local'].includes(report.runner[name]))
-    || !exactJson(report.featureState, FOS_FEATURE_DEFAULTS)
+    || (expectedFeatureState != null && !exactJson(report.featureState, expectedFeatureState))
     || report.evaluation?.status !== 'passed'
     || Object.keys(report.evaluation?.checks ?? {}).length === 0
     || Object.values(report.evaluation?.checks ?? {}).some((value) => value !== true)
@@ -144,7 +163,10 @@ export async function registerFosBenchmarkEvidence(root, inputPath) {
     refuse('Raw FOS benchmark output must be produced outside the repository before registration.');
   }
   const serialized = await readFile(absoluteInput, 'utf8');
-  const report = await validateFosBenchmarkEvidence(absoluteRoot, serialized);
+  const report = await validateFosBenchmarkEvidence(absoluteRoot, serialized, {
+    expectedCommit: currentCommit(absoluteRoot),
+    expectedFeatureState: FOS_FEATURE_DEFAULTS
+  });
   const name = `${report.runner.platform}-${report.runner.architecture}-${report.runner.identity}-${report.binding.implementationCommit.slice(0, 12)}.json`;
   const directory = path.join(absoluteRoot, 'benchmarks', 'fos', 'evidence');
   const target = path.join(directory, name);
@@ -157,6 +179,9 @@ export async function registerFosBenchmarkEvidence(root, inputPath) {
     if (existing !== serialized) refuse('A different FOS evidence record already exists for this runner and commit.');
     return Object.freeze({ status: 'current', path: path.relative(absoluteRoot, target), report });
   }
+  if (!cleanCheckout(absoluteRoot)) refuse(
+    'Register FOS evidence only from the same clean exact implementation commit used by the runner.'
+  );
   const temporary = path.join(directory, `.${name}.${randomUUID()}.tmp`);
   try {
     await writeFile(temporary, serialized, { mode: 0o644 });

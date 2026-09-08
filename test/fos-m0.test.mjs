@@ -23,7 +23,8 @@ test('FOS:M0 trace covers every requirement and acceptance identity without clai
     Array.from({ length: 50 }, (_, index) => `FOS:AC-${String(index + 1).padStart(3, '0')}`).sort());
   assert.equal(manifest.status, 'implemented-local-contracts-release-evidence-pending');
   assert.equal(manifest.releaseEvidence.localDeterministicSuites, 'executed');
-  assert.equal(manifest.releaseEvidence.controlledPerformanceRunner, 'pending');
+  assert.equal(manifest.releaseEvidence.controlledPerformanceRunner,
+    'darwin-arm64-passed-other-lanes-pending');
   assert.equal(manifest.releaseEvidence.m5LiveAdapterCertification, 'pending');
   assert.equal(manifest.featureDefaultsChanged, false);
 });

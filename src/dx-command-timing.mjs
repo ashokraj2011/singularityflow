@@ -147,7 +147,9 @@ export function writeCommandTimings(event) {
   const counters = Object.entries(event.counters ?? {})
     .map(([name, count]) => `${name}=${count}`).join(' ');
   const operation = event.operationId ? ` operation=${event.operationId}` : '';
-  process.stderr.write(`[sflow timing] ${event.command}${operation} class=${event.commandClass} outcome=${event.outcome} total=${event.durationMs.toFixed(1)}ms${stages ? ` ${stages}` : ''}${counters ? ` ${counters}` : ''}\n`);
+  const feedback = Number.isFinite(event.firstFeedbackMs)
+    ? ` first-feedback=${event.firstFeedbackMs.toFixed(1)}ms` : '';
+  process.stderr.write(`[sflow timing] ${event.command}${operation} class=${event.commandClass} outcome=${event.outcome} total=${event.durationMs.toFixed(1)}ms${feedback}${stages ? ` ${stages}` : ''}${counters ? ` ${counters}` : ''}\n`);
 }
 
 export function commandTimingDirectory(root) {

@@ -54,6 +54,7 @@
     "scripts/wel-benchmark.mjs",
     "scripts/sgos-read-model-benchmark.mjs",
     "scripts/fos-benchmark.mjs",
+    "scripts/fos-accept-benchmark.mjs",
     "scripts/fos-release-evidence.mjs",
     "benchmarks/fos/",
     "LICENSE"
@@ -111,6 +112,7 @@
     "benchmark:sgos-read-model:enforce": "node scripts/sgos-read-model-benchmark.mjs --enforce",
     "benchmark:wel": "node scripts/wel-benchmark.mjs",
     "benchmark:fos": "node scripts/fos-benchmark.mjs",
+    "benchmark:fos:accept": "node scripts/fos-accept-benchmark.mjs",
     "evidence:fos": "node scripts/fos-release-evidence.mjs",
     "evidence:fos:execute": "node scripts/fos-release-evidence.mjs --execute",
     "verification:receipt": "node scripts/verification-receipt.mjs",

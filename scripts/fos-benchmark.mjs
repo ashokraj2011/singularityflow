@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -10,6 +11,7 @@ import { FOS_FEATURE_DEFAULTS } from '../src/fos-features.mjs';
 import { executeGitQuery } from '../src/git-query.mjs';
 import { createRepoContext } from '../src/repo-context.mjs';
 import { compareFosSemanticProjections } from '../src/fos-semantic-projection.mjs';
+import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 import {
   bootstrapFosAuthority, FOS_LOCAL_BOOTSTRAP_POLICY_ID
 } from '../src/onboard.mjs';
@@ -56,6 +58,39 @@ function git(root, ...arguments_) {
   return execFileSync('git', arguments_, {
     cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']
   }).trim();
+}
+
+function sha256(value) {
+  return `sha256:${createHash('sha256').update(value).digest('hex')}`;
+}
+
+function gitBytes(root, ...arguments_) {
+  return execFileSync('git', arguments_, {
+    cwd: root, encoding: null, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024
+  });
+}
+
+async function fixtureHashes(root, definition) {
+  const untrackedPaths = gitBytes(root, 'ls-files', '--others', '--exclude-standard', '-z')
+    .toString('utf8').split('\0').filter(Boolean).sort();
+  const untracked = await mapLimit(untrackedPaths, 32, async (relative) => ({
+    path: relative,
+    sha256: sha256(await readFile(path.join(root, relative)))
+  }));
+  const state = {
+    generatorVersion: 1,
+    definition,
+    headTree: git(root, 'rev-parse', 'HEAD^{tree}'),
+    stagedDiffSha256: sha256(gitBytes(root, '-c', 'diff.renames=false',
+      'diff', '--cached', '--binary', '--full-index', '--no-ext-diff')),
+    worktreeDiffSha256: sha256(gitBytes(root, '-c', 'diff.renames=false',
+      'diff', '--binary', '--full-index', '--no-ext-diff')),
+    untracked
+  };
+  return Object.freeze({
+    definitionSha256: sha256(JSON.stringify(definition)),
+    stateSha256: sha256(JSON.stringify(state))
+  });
 }
 
 async function removeFixture(root) {
@@ -108,7 +143,7 @@ async function fixture(definition) {
   for (let index = 0; index < (definition.deletedFiles ?? 0); index += 1) {
     await rm(path.join(directory, `file-${String(deleteOffset + index).padStart(5, '0')}.txt`));
   }
-  return root;
+  return { root, hashes: await fixtureHashes(root, definition) };
 }
 
 const QUERIES = Object.freeze([
@@ -145,6 +180,12 @@ async function lane(root, cache) {
       coldMs, warmMs, gitServiceMs: serviceMs,
       gitRequestCount: requests,
       gitProcessSpawnCount: requests,
+      logicalRequestCount: QUERIES.length * 2,
+      batchRequestCount: 0,
+      descendantGitProcessSpawnCount: 0,
+      networkOperationCount: 0,
+      cacheHitCount: cache ? QUERIES.length : 0,
+      cacheMissCount: cache ? QUERIES.length : QUERIES.length * 2,
       coldRequestCount: requestsAfterCold,
       warmRequestCount: requests - requestsAfterCold,
       coldSpawnCount: requestsAfterCold,
@@ -156,7 +197,8 @@ async function lane(root, cache) {
 function quantiles(values) {
   const sorted = [...values].sort((left, right) => left - right);
   const at = (fraction) => sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * fraction) - 1)];
-  return { minimum: sorted[0], median: at(0.5), p95: at(0.95), maximum: sorted.at(-1) };
+  const p50 = at(0.5);
+  return { minimum: sorted[0], p50, median: p50, p95: at(0.95), maximum: sorted.at(-1) };
 }
 
 function processFailureDiagnostic(result, root) {
@@ -173,7 +215,8 @@ function processFailureDiagnostic(result, root) {
 
 async function measureFixture(id, definition) {
   const records = [];
-  const root = await fixture(definition);
+  const created = await fixture(definition);
+  const { root } = created;
   try {
     for (let warmup = 0; warmup < profileDefinition.warmupRuns; warmup += 1) {
       await lane(root, true);
@@ -198,7 +241,9 @@ async function measureFixture(id, definition) {
     await removeFixture(root);
   }
   return {
-    id, definition, samples, warmupRuns: profileDefinition.warmupRuns, records,
+    id, definition, hashes: created.hashes,
+    measurementState: { process: 'warm-in-process', fosCache: 'cold-then-warm', osDisk: 'uncontrolled' },
+    samples, warmupRuns: profileDefinition.warmupRuns, records,
     summary: {
       optimizedColdMs: quantiles(records.map((entry) => entry.optimized.coldMs)),
       optimizedWarmMs: quantiles(records.map((entry) => entry.optimized.warmMs)),
@@ -214,8 +259,11 @@ async function measureFixture(id, definition) {
 
 async function measureLinkedWorktrees() {
   const records = [];
+  const fixtureHashRecords = new Map();
   for (let sample = 0; sample < samples; sample += 1) {
-    const root = await fixture({ trackedFiles: 64, untrackedFiles: 0 });
+    const created = await fixture({ trackedFiles: 64, untrackedFiles: 0 });
+    const { root } = created;
+    fixtureHashRecords.set(created.hashes.stateSha256, created.hashes);
     const linked = `${root}-linked`;
     try {
       git(root, 'worktree', 'add', '-q', '-b', 'benchmark-linked', linked);
@@ -234,7 +282,10 @@ async function measureLinkedWorktrees() {
     }
   }
   return {
-    id: 'linked-worktrees', definition: { trackedFiles: 64 }, samples, records,
+    id: 'linked-worktrees', definition: { trackedFiles: 64 },
+    hashes: fixtureHashRecords.size === 1 ? [...fixtureHashRecords.values()][0] : null,
+    measurementState: { process: 'warm-in-process', fosCache: 'identity-only', osDisk: 'uncontrolled' },
+    samples, records,
     summary: {
       semanticEquivalent: records.every((entry) => entry.sameRepositoryInstance
         && entry.distinctWorktreeInstances && entry.sameCommonDirectory
@@ -260,13 +311,31 @@ function runOnboardSample(root) {
   if (result.status !== 0) throw new Error(
     `FOS onboarding benchmark failed with exit ${result.status}: ${processFailureDiagnostic(result, root)}`
   );
-  const internal = /\[sflow timing\][^\n]*\btotal=([0-9.]+)ms/.exec(result.stderr)?.[1];
+  const timing = /\[sflow timing\][^\n]*/.exec(result.stderr)?.[0];
+  const internal = /\btotal=([0-9.]+)ms/.exec(timing ?? '')?.[1];
+  const firstFeedback = /\bfirst-feedback=([0-9.]+)ms/.exec(timing ?? '')?.[1];
   if (internal == null) throw new Error('FOS onboarding benchmark did not emit its terminal timing.');
-  return { externalWallMs, internalWallMs: Number(internal), completed: true };
+  if (firstFeedback == null) throw new Error('FOS onboarding benchmark did not emit first-feedback timing.');
+  const counter = (name) => Number(new RegExp(
+    `\\b${name.replaceAll('.', '\\.') }=([0-9.]+)`
+  ).exec(timing)?.[1] ?? 0);
+  return {
+    externalWallMs,
+    internalWallMs: Number(internal),
+    firstFeedbackMs: Number(firstFeedback),
+    counters: {
+      gitRequests: counter('git.requests'), gitSpawns: counter('git.spawns'),
+      gitChildSpawns: counter('git.child-spawns'), remoteOperations: counter('git.remote.total'),
+      discoveryCalls: counter('discovery.calls'), compositionCalls: counter('composition.calls'),
+      llmCalls: counter('llm.calls'), astCalls: counter('ast.calls')
+    },
+    completed: true
+  };
 }
 
 async function measureExistingLocalOnboard(definition) {
-  const root = await fixture(definition);
+  const created = await fixture(definition);
+  const { root } = created;
   try {
     await bootstrapFosAuthority(root, {
       authorityLocal: true,
@@ -278,12 +347,21 @@ async function measureExistingLocalOnboard(definition) {
       ...runOnboardSample(root)
     }));
     return {
-      id: 'existing-local-authority-onboard', samples,
+      id: 'existing-local-authority-onboard', hashes: created.hashes,
+      measurementState: { process: 'cold', route: 'warm-local', osDisk: 'uncontrolled' },
+      samples,
       warmupRuns: profileDefinition.warmupRuns,
       records,
       summary: {
         externalWallMs: quantiles(records.map((entry) => entry.externalWallMs)),
         internalWallMs: quantiles(records.map((entry) => entry.internalWallMs)),
+        firstFeedbackMs: quantiles(records.map((entry) => entry.firstFeedbackMs)),
+        gitRequests: [...new Set(records.map((entry) => entry.counters.gitRequests))],
+        gitSpawns: [...new Set(records.map((entry) => entry.counters.gitSpawns))],
+        gitChildSpawns: [...new Set(records.map((entry) => entry.counters.gitChildSpawns))],
+        remoteOperations: [...new Set(records.map((entry) => entry.counters.remoteOperations))],
+        forbiddenWorkCalls: [...new Set(records.map((entry) => entry.counters.discoveryCalls
+          + entry.counters.compositionCalls + entry.counters.llmCalls + entry.counters.astCalls))],
         allCompleted: records.every((entry) => entry.completed)
       }
     };
@@ -320,10 +398,13 @@ const checks = profile === 'controlled' ? {
   referenceWarmSpawns: reference.summary.optimizedWarmGitSpawns.every((count) => count
     <= manifest.budgets['reference-local'].optimizedWarmGitSpawns),
   onboardExternalLatency: onboard.summary.externalWallMs.p95
-    <= manifest.budgets['existing-local-authority-onboard'].externalWallP95Ms
+    <= manifest.budgets['existing-local-authority-onboard'].externalWallP95Ms,
+  onboardFirstFeedback: onboard.summary.firstFeedbackMs.p95
+    <= manifest.budgets['existing-local-authority-onboard'].firstFeedbackP95Ms,
+  onboardNoForbiddenWork: onboard.summary.forbiddenWorkCalls.every((count) => count === 0)
 } : null;
 const report = {
-  schemaVersion: 2,
+  schemaVersion: currentSchemaVersion('fos-benchmark-report'),
   kind: 'fos-local-benchmark-report',
   claimsAuthorized: false,
   profile,
@@ -362,6 +443,7 @@ const report = {
   fixtures,
   externalCommands
 };
+report.reportSha256 = sha256(JSON.stringify(report));
 const serialized = `${JSON.stringify(report, null, 2)}\n`;
 if (outputPath) {
   await mkdir(path.dirname(outputPath), { recursive: true });

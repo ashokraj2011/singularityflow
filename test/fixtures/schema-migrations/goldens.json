@@ -26,6 +26,8 @@
   "fos-sealed-input": [{ "schemaVersion": 1 }, { "schemaVersion": 2 }],
   "fos-git-accelerator-receipt": [{ "schemaVersion": 1 }],
   "fos-evidence-attachment": [{ "schemaVersion": 1 }],
+  "fos-benchmark-manifest": [{ "schemaVersion": 3 }],
+  "fos-benchmark-report": [{ "schemaVersion": 3 }],
   "fos-story-switch-checkpoint": [{ "schemaVersion": 1 }],
   "fos-story-switch-outcome": [{ "schemaVersion": 1 }],
   "fos-reusable-default": [{ "schemaVersion": 1 }],

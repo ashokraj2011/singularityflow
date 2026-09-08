@@ -190,6 +190,22 @@ Use truthful lower-case values for the physical host. The report is hash-bound o
 checkout was clean. Controlled local success does not stand in for the Windows, Linux, VS Code,
 or office-network lanes; those remain named in `coverage.notMeasured` until run independently.
 
+The report retains raw samples, explicit process/cache/disk state, synthetic fixture hashes,
+first-feedback and completion latency, request/spawn counters, and the full implementation commit.
+
+After reviewing a passing report, register its exact bytes without copying arbitrary local paths
+or remotes into Git:
+
+```bash
+npm run benchmark:fos:accept -- --in=/absolute/private/fos-controlled.json
+```
+
+Registration independently recomputes the p95 budgets from raw samples and requires the current
+clean commit, current manifest, all controlled fixtures, complete runner facts, semantic
+equivalence, zero forbidden discovery/composition/AST/model calls, and a content-safe report. It
+creates an immutable commit-qualified file under `benchmarks/fos/evidence/`; it does not change
+`claimsAuthorized` and does not certify any lane still named under `coverage.notMeasured`.
+
 The executable witness inventory maps each present `FOS:AC-NNN` test to its exact source line and
 test-body digest. Inventory mode never claims that tests ran; execution mode fails until all 50
 acceptance rows have real, non-skipped witnesses:

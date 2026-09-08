@@ -3004,6 +3004,11 @@ const families = [
   }),
   family({ id: 'fos-git-accelerator-receipt', currentVersion: 1 }),
   family({ id: 'fos-evidence-attachment', currentVersion: 1 }),
+  family({ id: 'fos-benchmark-manifest', currentVersion: 3, minimumReadableVersion: 3 }),
+  family({
+    id: 'fos-benchmark-report', currentVersion: 3, minimumReadableVersion: 3,
+    paths: [/^benchmarks\/fos\/evidence\/[^/]+\.json$/], immutable: true
+  }),
   family({ id: 'fos-story-switch-checkpoint', currentVersion: 1 }),
   family({ id: 'fos-story-switch-outcome', currentVersion: 1 }),
   family({ id: 'fos-reusable-default', currentVersion: 1 }),

@@ -394,7 +394,7 @@ test('deterministic views publish atomically, reuse exact cache, and survive sel
   assert.equal(cachedImpact.markdown, first.runtime.availableViews[0].markdown);
 });
 
-test('concurrent clones preserve every independently published state view from the exact remote authority', async (t) => {
+test('FOS:AC-018 concurrent clones preserve every independently published state view from the exact remote authority', async (t) => {
   const { root: firstClone, remote } = await repository(t);
   const first = await buildAndPublishWorldModelV4(firstClone, buildOptions({
     views: ['dev.impact'], generatedAt: '2026-09-01T00:02:30.000Z'

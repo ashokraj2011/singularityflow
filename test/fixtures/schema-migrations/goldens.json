@@ -17,6 +17,8 @@
   "fos-attachment-state": [{ "schemaVersion": 1 }],
   "fos-operation-journal": [{ "schemaVersion": 1 }],
   "fos-attachment-receipt": [{ "schemaVersion": 1 }],
+  "fos-remote-publication-journal": [{ "schemaVersion": 1 }],
+  "fos-remote-publication-receipt": [{ "schemaVersion": 1 }],
   "fos-derived-cache-entry": [{ "schemaVersion": 1 }],
   "fos-sealed-input": [{ "schemaVersion": 1 }, { "schemaVersion": 2 }],
   "fos-git-accelerator-receipt": [{ "schemaVersion": 1 }],

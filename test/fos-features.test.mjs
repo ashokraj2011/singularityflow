@@ -3,9 +3,11 @@ import test from 'node:test';
 
 import {
   acceptFosApprovalRequest, buildFosInterpretationCard, createFosApprovalRequest,
-  createFosReusableDefault, evaluateFosPrCheckAdoption, FOS_FEATURE_DEFAULTS,
+  classifyFosBootstrapAuthority, createFosReusableDefault,
+  evaluateFosCapabilityMutationBatch, evaluateFosPrCheckAdoption, FOS_FEATURE_DEFAULTS,
   FOS_FAILURE_GUIDANCE, fosFailureGuidance, fosMilestoneReadiness, prefillFosTemplate,
-  requestFosPreauthorization, resolveFosFeatures, resolveFosReusableDefault
+  requestFosPreauthorization, resolveFosFeatures, resolveFosReusableDefault,
+  validateFosPublicationBoundary
 } from '../src/fos-features.mjs';
 
 const sha = (character) => `sha256:${character.repeat(64)}`;
@@ -83,6 +85,107 @@ test('FOS:AC-040 documentation preauthorization is bounded and only a bound kern
     kernelAuthorize: async () => assert.fail('kernel must not be called')
   });
   assert.equal(unsafe.disposition, 'ordinary-review');
+});
+
+test('FOS:AC-012 local bootstrap scope never becomes claimed corporate authority without an existing trust anchor', () => {
+  const local = classifyFosBootstrapAuthority({
+    explicitIntent: true, scope: 'unmanaged-local', localPresetApproved: true,
+    claimedIdentity: 'corporate-admin'
+  });
+  assert.equal(local.status, 'eligible-local-only');
+  assert.equal(local.organizationalAuthority, false);
+  assert.equal(local.proposedPolicySelfAuthorizing, false);
+  const claimed = classifyFosBootstrapAuthority({
+    explicitIntent: true, scope: 'organization', claimedIdentity: 'corporate-admin',
+    proposedPolicySelfAuthorizing: true
+  });
+  assert.equal(claimed.status, 'refused');
+  assert.equal(claimed.code, 'TRUST_REQUIRED');
+});
+
+test('FOS:AC-013 publication revalidates policy, actor, approvals and sealed inputs at the trusted boundary', async () => {
+  const input = {
+    operationId: 'capability-publish', actorPrincipalId: 'user:1',
+    targetAuthoritySha256: sha('a'), expectedParentSha256: sha('b'),
+    candidateSha256: sha('c'), inputsSha256: sha('d'), evidenceSha256: sha('e'),
+    approvalsSha256: sha('f'), policySha256: sha('1'), policyEpoch: 7
+  };
+  let kernelCalls = 0;
+  await assert.rejects(() => validateFosPublicationBoundary(input, {
+    readCurrentAuthorization: async () => ({
+      ...input, actorValid: true, policySha256: sha('2')
+    }),
+    kernelAuthorize: async () => { kernelCalls += 1; }
+  }), (error) => error.code === 'FOS_PUBLICATION_AUTHORIZATION_STALE');
+  assert.equal(kernelCalls, 0);
+  const authorized = await validateFosPublicationBoundary(input, {
+    readCurrentAuthorization: async () => ({ ...input, actorValid: true }),
+    kernelAuthorize: async (request) => ({
+      disposition: 'allow', ...request, receiptSha256: sha('3')
+    })
+  });
+  assert.equal(authorized.authorized, true);
+  assert.match(authorized.authorizationSha256, /^sha256:[a-f0-9]{64}$/);
+});
+
+test('FOS:AC-014 profiles, ownership, authorship and classifier edits never manufacture preauthorization', async () => {
+  const features = { 'policy-preauthorization': true };
+  const policy = {
+    id: 'docs-v1', approved: true, policySha256: sha('a'), epoch: 4,
+    paths: ['docs/'], actors: ['user:approved']
+  };
+  const candidate = {
+    baseSha256: sha('b'), candidateSha256: sha('c'),
+    changes: [{ newPath: 'docs/a.md', mode: '100644' }]
+  };
+  for (const profile of ['team', 'poc']) {
+    const ownerOnly = await requestFosPreauthorization({
+      candidate, policy: { ...policy, profile },
+      actor: { principalId: 'user:owner', authorEqualsOwner: true }, features,
+      kernelAuthorize: async () => assert.fail('unapproved owner must not reach kernel')
+    });
+    assert.equal(ownerOnly.disposition, 'ordinary-review');
+  }
+  const classifierEdit = await requestFosPreauthorization({
+    candidate: {
+      ...candidate,
+      changes: [{ newPath: 'docs/a.md', mode: '100644', classifierConfiguration: true }]
+    },
+    policy, actor: { principalId: 'user:approved' }, features,
+    kernelAuthorize: async () => assert.fail('classifier mutation must not reach kernel')
+  });
+  assert.equal(classifierEdit.disposition, 'ordinary-review');
+});
+
+test('FOS:AC-015 capability batches preserve deny, proposal and direct decisions including regulated ancestry', async () => {
+  const common = {
+    operationId: 'capability-batch', actorPrincipalId: 'user:1',
+    targetAuthoritySha256: sha('a'), expectedParentSha256: sha('b'),
+    candidateSha256: sha('c'), inputsSha256: sha('d'), evidenceSha256: sha('e'),
+    approvalsSha256: sha('f'), policySha256: sha('1'), policyEpoch: 7,
+    changes: [
+      { capabilityId: 'denied', changeSha256: sha('2'), ancestry: ['root'] },
+      { capabilityId: 'reviewed', changeSha256: sha('3'), ancestry: ['root'] },
+      { capabilityId: 'regulated', changeSha256: sha('4'), ancestry: ['foreign-root'], regulated: true }
+    ]
+  };
+  const result = await evaluateFosCapabilityMutationBatch(common, {
+    kernelAuthorize: async (request) => ({
+      disposition: request.capabilityId === 'denied' ? 'deny'
+        : request.capabilityId === 'reviewed' ? 'proposal' : 'direct',
+      capabilityId: request.capabilityId,
+      changeSha256: request.changeSha256,
+      policySha256: request.policySha256,
+      policyEpoch: request.policyEpoch,
+      actorPrincipalId: request.actorPrincipalId,
+      ancestrySha256: request.ancestrySha256
+    })
+  });
+  assert.deepEqual(result.decisions.map((entry) => entry.disposition), [
+    'deny', 'proposal', 'deny'
+  ]);
+  assert.equal(result.status, 'proposal');
+  assert.ok(result.decisions.every((entry) => /^sha256:[a-f0-9]{64}$/.test(entry.receiptSha256)));
 });
 
 test('FOS:AC-041 approval requests reject replay, staleness and aliases before kernel acceptance', async () => {

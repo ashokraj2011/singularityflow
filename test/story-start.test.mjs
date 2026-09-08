@@ -5,6 +5,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import YAML from 'yaml';
+import { onboardRepository } from '../src/onboard.mjs';
 import { manualStorySource, startStory } from '../src/story-start.mjs';
 import {
   ensureConfigurationBranch, resolveStoryConfigurationAuthority
@@ -45,7 +46,7 @@ async function repository({ configurationAuthority = false } = {}) {
   return root;
 }
 
-test('FOS:PARTIAL-AC-016 Story intake creates durable state without launching optional AST work', async () => {
+test('FOS:AC-016 onboarding and Story intake avoid discovery, composition, AST and model launchers', async () => {
   const root = await repository({ configurationAuthority: true });
   const sourceDirectory = await mkdtemp(path.join(os.tmpdir(), 'sflow-desktop-story-source-'));
   const sourceFile = path.join(sourceDirectory, 'brief.md');
@@ -60,6 +61,19 @@ test('FOS:PARTIAL-AC-016 Story intake creates durable state without launching op
     acceptanceCriteria: 'Authorized users can export\nUnauthorized users are denied',
     parentEpicId: 'EPIC-42'
   });
+  const forbiddenLaunches = [];
+  const forbiddenLauncher = async (name) => { forbiddenLaunches.push(name); };
+  const forbiddenDependencies = {
+    organizationEnumerator: () => forbiddenLauncher('organization-discovery'),
+    sourceScanner: () => forbiddenLauncher('source-scan'),
+    worldModelComposer: () => forbiddenLauncher('world-model-compose'),
+    modelInvoker: () => forbiddenLauncher('model-invocation')
+  };
+  const attached = await onboardRepository(root, {
+    remote: 'origin',
+    ...forbiddenDependencies
+  });
+  assert.equal(attached.status, 'attached');
   let astWarmLaunch = null;
   const created = await startStory(root, {
     id: 'WORK-901',
@@ -69,6 +83,7 @@ test('FOS:PARTIAL-AC-016 Story intake creates durable state without launching op
     baseBranch: 'main',
     files: [sourceFile],
     urls: ['https://example.com/export-reference'],
+    ...forbiddenDependencies,
     astWarmLauncher: (repositoryRoot, workId) => {
       astWarmLaunch = { repositoryRoot, workId };
       return { pid: 1234 };
@@ -82,6 +97,7 @@ test('FOS:PARTIAL-AC-016 Story intake creates durable state without launching op
   assert.equal(created.astWarm.blocking, false);
   assert.equal(created.astWarm.launched, false);
   assert.equal(astWarmLaunch, null);
+  assert.deepEqual(forbiddenLaunches, []);
   assert.equal(created.astWarm.command, 'singularity-flow wm ast build --all');
   const workRoot = path.join(root, 'singularity/work-items/WORK-901');
   const workflow = JSON.parse(await readFile(path.join(workRoot, 'workflow.json'), 'utf8'));

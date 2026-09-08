@@ -25,12 +25,23 @@ or silently advance policy. Use `authority refresh` when the reviewed authority 
 from one remote to another, or between remote and local authority, is a rebind and is refused by
 `onboard`; use the normal reviewed configuration-authority process for that decision.
 
+An ordinary reused pin is deliberately reported as `pinned-local` with `current: false` and
+`latest: false`: it is valid recorded evidence, not a claim that the remote was just checked.
+Only an explicit successful refresh reports `observed-online`, `current: true`, and `latest: true`.
+
 The attachment descriptor and receipt are machine-local under Git's reported common directory.
 They contain full object identities and content digests, but never credentials. Story start may
 reuse this verified pin, including from a checkout whose working branch has no `workflow.yml`.
 Story start never launches AST work in the foreground or background. When structural cache warming
 is useful, its result includes the explicit, optional command
 `singularity-flow wm ast build --all`; work can continue without running it.
+
+The shared FOS publication boundary uses one full candidate commit, one exact expected remote OID
+(or expected absence), and `--force-with-lease` against the full branch ref. It revalidates actor,
+policy epoch, approvals, inputs, evidence, parent and target authority immediately before the push.
+If Git accepts the push and the process is interrupted before its receipt is written, the same
+operation ID reconciles the exact remote candidate from its authorized journal; it never pushes a
+second time. Different payload reuse, an unexplained candidate, or a moved remote ref is refused.
 
 For a diagnostic reference run, add `--no-cache`. It disables only the invocation-local
 `RepoContext` reuse and leaves authority, receipts, policy, and durable derived caches unchanged:

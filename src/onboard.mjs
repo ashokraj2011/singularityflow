@@ -458,7 +458,10 @@ export async function onboardRepository(root, {
     if (currentBinding && !refresh && !resume) return Object.freeze({
       status: 'already-attached', changed: false, operationId,
       descriptor: currentBinding.descriptor, receipt: currentBinding.receipt,
-      freshness: { mode: 'pinned-local', observedAt: currentBinding.descriptor.observedAt }
+      freshness: {
+        mode: 'pinned-local', observedAt: currentBinding.descriptor.observedAt,
+        current: false, latest: false
+      }
     });
     const journalPath = journalFile(identity, operationId);
     let prior = null;
@@ -526,7 +529,7 @@ export async function onboardRepository(root, {
         operationId,
         descriptor,
         receipt,
-        freshness: { mode: 'observed-online', observedAt }
+        freshness: { mode: 'observed-online', observedAt, current: true, latest: true }
       });
     } catch (error) {
       await writeJournal(identity, operationRecord({

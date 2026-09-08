@@ -207,6 +207,154 @@ export async function requestFosPreauthorization({ candidate, policy, actor, evi
   });
 }
 
+/**
+ * Classify bootstrap authority without performing bootstrap. A proposed policy can never authorize
+ * itself, and a claimed organization identity without an existing trust anchor stays refused.
+ */
+export function classifyFosBootstrapAuthority(input = {}) {
+  if (input.explicitIntent !== true) return Object.freeze({
+    status: 'refused', code: 'BOOTSTRAP_INTENT_REQUIRED', authority: null
+  });
+  if (input.scope === 'unmanaged-local' && input.localPresetApproved === true) return Object.freeze({
+    status: 'eligible-local-only',
+    authority: 'local-only',
+    organizationalAuthority: false,
+    proposedPolicySelfAuthorizing: false
+  });
+  const trusted = input.scope === 'organization'
+    && HASH.test(input.trustAnchorSha256 ?? '')
+    && HASH.test(input.bootstrapPolicySha256 ?? '')
+    && input.actorEligible === true
+    && input.proposedPolicySelfAuthorizing !== true;
+  return trusted
+    ? Object.freeze({
+        status: 'eligible-existing-trust', authority: 'organization-trust-anchor',
+        organizationalAuthority: true, proposedPolicySelfAuthorizing: false
+      })
+    : Object.freeze({
+        status: 'refused', code: 'TRUST_REQUIRED', authority: null,
+        organizationalAuthority: false, proposedPolicySelfAuthorizing: false
+      });
+}
+
+function publicationAuthorizationRequest(input) {
+  const request = {
+    operationId: boundedText(input?.operationId, 'operationId', 256),
+    actorPrincipalId: boundedText(input?.actorPrincipalId, 'actorPrincipalId', 256),
+    targetAuthoritySha256: digest(input?.targetAuthoritySha256, 'targetAuthoritySha256'),
+    expectedParentSha256: digest(input?.expectedParentSha256, 'expectedParentSha256'),
+    candidateSha256: digest(input?.candidateSha256, 'candidateSha256'),
+    inputsSha256: digest(input?.inputsSha256, 'inputsSha256'),
+    evidenceSha256: digest(input?.evidenceSha256, 'evidenceSha256'),
+    approvalsSha256: digest(input?.approvalsSha256, 'approvalsSha256'),
+    policySha256: digest(input?.policySha256, 'policySha256'),
+    policyEpoch: Number(input?.policyEpoch)
+  };
+  if (!PRINCIPAL.test(request.actorPrincipalId) || !Number.isInteger(request.policyEpoch)) fail(
+    'Publication authorization requires a verified principal and integer policy epoch.',
+    'FOS_PUBLICATION_AUTHORIZATION_INVALID'
+  );
+  return Object.freeze(request);
+}
+
+/** Re-read every mutable authorization input and ask the existing kernel at publication time. */
+export async function validateFosPublicationBoundary(input, {
+  readCurrentAuthorization, kernelAuthorize
+} = {}) {
+  const request = publicationAuthorizationRequest(input);
+  if (typeof readCurrentAuthorization !== 'function' || typeof kernelAuthorize !== 'function') {
+    fail('Trusted publication requires current-authority and kernel adapters.', 'TRUST_REQUIRED');
+  }
+  const current = await readCurrentAuthorization(request);
+  const exact = current?.actorValid === true
+    && current.actorPrincipalId === request.actorPrincipalId
+    && current.targetAuthoritySha256 === request.targetAuthoritySha256
+    && current.expectedParentSha256 === request.expectedParentSha256
+    && current.candidateSha256 === request.candidateSha256
+    && current.inputsSha256 === request.inputsSha256
+    && current.evidenceSha256 === request.evidenceSha256
+    && current.approvalsSha256 === request.approvalsSha256
+    && current.policySha256 === request.policySha256
+    && current.policyEpoch === request.policyEpoch;
+  if (!exact) fail(
+    'Publication authorization changed after preflight; nothing may be published.',
+    'FOS_PUBLICATION_AUTHORIZATION_STALE'
+  );
+  const kernelResult = await kernelAuthorize(request, Object.freeze(structuredClone(current)));
+  const bound = kernelResult?.disposition === 'allow'
+    && Object.entries(request).every(([key, value]) => kernelResult[key] === value);
+  if (!bound) fail(
+    'The governance kernel did not grant this exact publication request.', 'NOT_AUTHORIZED'
+  );
+  const body = {
+    kind: 'fos-publication-authorization',
+    authorized: true,
+    ...request,
+    kernelReceiptSha256: digest(kernelResult.receiptSha256, 'kernel receipt')
+  };
+  return Object.freeze({ ...body, authorizationSha256: `sha256:${recordSha256(body)}` });
+}
+
+/** Ask the kernel separately for every capability edit; batching never creates a grant. */
+export async function evaluateFosCapabilityMutationBatch(input, { kernelAuthorize } = {}) {
+  if (!Array.isArray(input?.changes) || input.changes.length === 0 || typeof kernelAuthorize !== 'function') {
+    fail('Capability mutation evaluation requires explicit changes and a kernel adapter.', 'TRUST_REQUIRED');
+  }
+  const base = publicationAuthorizationRequest(input);
+  const seen = new Set();
+  const decisions = [];
+  for (const change of input.changes) {
+    const capabilityId = boundedText(change?.capabilityId, 'capabilityId', 256);
+    if (seen.has(capabilityId)) fail(
+      `Capability '${capabilityId}' appears more than once in one mutation batch.`,
+      'FOS_CAPABILITY_BATCH_INVALID'
+    );
+    seen.add(capabilityId);
+    const ancestry = [...new Set((change.ancestry ?? []).map((entry) => boundedText(entry, 'ancestry', 256)))];
+    const request = Object.freeze({
+      ...base,
+      capabilityId,
+      changeSha256: digest(change.changeSha256, 'changeSha256'),
+      ancestry: Object.freeze(ancestry),
+      ancestrySha256: `sha256:${recordSha256(ancestry)}`,
+      regulated: change.regulated === true,
+      foreign: change.foreign === true
+    });
+    const result = await kernelAuthorize(request);
+    const disposition = ['deny', 'proposal', 'direct'].includes(result?.disposition)
+      ? result.disposition : 'deny';
+    const bound = result != null
+      && result.capabilityId === capabilityId
+      && result.changeSha256 === request.changeSha256
+      && result.policySha256 === request.policySha256
+      && result.policyEpoch === request.policyEpoch
+      && result.actorPrincipalId === request.actorPrincipalId
+      && result.ancestrySha256 === request.ancestrySha256;
+    const ancestryAllowsDirect = !request.regulated && !request.foreign
+      || result?.directAncestryAuthorized === true;
+    const effective = bound && (disposition !== 'direct' || ancestryAllowsDirect)
+      ? disposition : 'deny';
+    const receiptBody = {
+      capabilityId,
+      changeSha256: request.changeSha256,
+      ancestrySha256: request.ancestrySha256,
+      disposition: effective,
+      policySha256: request.policySha256,
+      policyEpoch: request.policyEpoch,
+      actorPrincipalId: request.actorPrincipalId
+    };
+    decisions.push(Object.freeze({
+      ...receiptBody,
+      receiptSha256: `sha256:${recordSha256(receiptBody)}`
+    }));
+  }
+  return Object.freeze({
+    status: decisions.every((entry) => entry.disposition === 'direct') ? 'direct'
+      : decisions.some((entry) => entry.disposition === 'proposal') ? 'proposal' : 'denied',
+    decisions: Object.freeze(decisions)
+  });
+}
+
 export function createFosApprovalRequest(input, { features = {}, now = new Date() } = {}) {
   assertFosFeature(features, 'approval-routing');
   const recipients = [...new Set(input?.recipients ?? [])];

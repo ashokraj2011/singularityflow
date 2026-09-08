@@ -257,6 +257,45 @@ test('FOS:PARTIAL-AC-017 an advanced authority remains pinned until refresh and 
   assert.equal((await refreshFosAuthority(root)).status, 'already-attached');
 });
 
+test('FOS:AC-017 a new remote tip never changes an observed pin until explicit refresh', async () => {
+  const authority = await governedRepository();
+  const parent = await mkdtemp(path.join(os.tmpdir(), 'sflow-fos-observation-'));
+  const remote = path.join(parent, 'authority.git');
+  const checkout = path.join(parent, 'checkout');
+  git(['clone', '-q', '--bare', authority, remote], parent);
+  git(['clone', '-q', remote, checkout], parent);
+  git(['config', 'user.name', 'FOS Observer'], checkout);
+  git(['config', 'user.email', 'observer@example.com'], checkout);
+
+  const attached = await onboardRepository(checkout, { remote: 'origin' });
+  assert.equal(attached.freshness.mode, 'observed-online');
+  assert.equal(attached.freshness.current, true);
+  const oldPin = attached.descriptor.authority.commit;
+
+  git(['switch', '-q', 'sflow/config'], authority);
+  await writeFile(path.join(authority, 'remote-advance.txt'), 'new authority generation\n');
+  git(['add', 'remote-advance.txt'], authority);
+  git(['commit', '-qm', 'advance observed authority'], authority);
+  const newPin = git(['rev-parse', 'HEAD'], authority);
+  git(['push', '-q', remote, 'sflow/config'], authority);
+
+  const reused = await onboardRepository(checkout, { remote: 'origin' });
+  assert.equal(reused.status, 'already-attached');
+  assert.equal(reused.descriptor.authority.commit, oldPin);
+  assert.deepEqual(reused.freshness, {
+    mode: 'pinned-local', observedAt: attached.descriptor.observedAt,
+    current: false, latest: false
+  });
+
+  const refreshed = await refreshFosAuthority(checkout);
+  assert.equal(refreshed.status, 'refreshed');
+  assert.equal(refreshed.descriptor.authority.commit, newPin);
+  assert.equal(refreshed.freshness.current, true);
+  assert.equal(refreshed.freshness.latest, true);
+  await rm(parent, { recursive: true, force: true });
+  await rm(authority, { recursive: true, force: true });
+});
+
 test('FOS:AC-001 public onboard command emits a structured exact pin', async () => {
   const root = await governedRepository();
   const result = spawnSync(process.execPath, [

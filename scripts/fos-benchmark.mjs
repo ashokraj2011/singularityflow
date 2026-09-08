@@ -58,6 +58,18 @@ function git(root, ...arguments_) {
   }).trim();
 }
 
+async function removeFixture(root) {
+  await rm(root, {
+    recursive: true,
+    force: true,
+    // Git can still be closing a freshly written pack/index on macOS and Windows when a fixture
+    // finishes. Node's recursive-rm retry contract handles that bounded OS race without hiding a
+    // persistent cleanup failure.
+    maxRetries: 8,
+    retryDelay: 50
+  });
+}
+
 async function fixture(definition) {
   const fileCount = definition.trackedFiles;
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-fos-benchmark-'));
@@ -134,7 +146,9 @@ async function lane(root, cache) {
       gitRequestCount: requests,
       gitProcessSpawnCount: requests,
       coldRequestCount: requestsAfterCold,
-      warmRequestCount: requests - requestsAfterCold
+      warmRequestCount: requests - requestsAfterCold,
+      coldSpawnCount: requestsAfterCold,
+      warmSpawnCount: requests - requestsAfterCold
     }
   };
 }
@@ -169,7 +183,7 @@ async function measureFixture(id, definition) {
       });
     }
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeFixture(root);
   }
   return {
     id, definition, samples, warmupRuns: profileDefinition.warmupRuns, records,
@@ -178,7 +192,9 @@ async function measureFixture(id, definition) {
       optimizedWarmMs: quantiles(records.map((entry) => entry.optimized.warmMs)),
       noCacheWarmMs: quantiles(records.map((entry) => entry.noCache.warmMs)),
       optimizedWarmGitRequests: [...new Set(records.map((entry) => entry.optimized.warmRequestCount))],
+      optimizedWarmGitSpawns: [...new Set(records.map((entry) => entry.optimized.warmSpawnCount))],
       noCacheWarmGitRequests: [...new Set(records.map((entry) => entry.noCache.warmRequestCount))],
+      noCacheWarmGitSpawns: [...new Set(records.map((entry) => entry.noCache.warmSpawnCount))],
       semanticEquivalent: records.every((entry) => entry.semanticEquivalent)
     }
   };
@@ -201,8 +217,8 @@ async function measureLinkedWorktrees() {
         distinctGitDirectories: primary.gitDir !== secondary.gitDir
       });
     } finally {
-      await rm(linked, { recursive: true, force: true });
-      await rm(root, { recursive: true, force: true });
+      await removeFixture(linked);
+      await removeFixture(root);
     }
   }
   return {
@@ -258,7 +274,7 @@ async function measureExistingLocalOnboard(definition) {
       }
     };
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeFixture(root);
   }
 }
 
@@ -287,7 +303,7 @@ const checks = profile === 'controlled' ? {
     <= manifest.budgets['reference-local'].optimizedWarmP95Ms,
   referenceWarmRequests: reference.summary.optimizedWarmGitRequests.every((count) => count
     <= manifest.budgets['reference-local'].optimizedWarmGitRequests),
-  referenceWarmSpawns: reference.summary.optimizedWarmGitRequests.every((count) => count
+  referenceWarmSpawns: reference.summary.optimizedWarmGitSpawns.every((count) => count
     <= manifest.budgets['reference-local'].optimizedWarmGitSpawns),
   onboardExternalLatency: onboard.summary.externalWallMs.p95
     <= manifest.budgets['existing-local-authority-onboard'].externalWallP95Ms

@@ -97,6 +97,49 @@ export class RepoContext {
     }
   }
 
+  /**
+   * Advance the mutable observation epoch after an editor watcher event, overflow, machine resume,
+   * or another explicitly detected external checkout change. The reason is deliberately closed so
+   * callers cannot turn arbitrary labels into evidence.
+   */
+  notifyExternalChange(reason) {
+    if (!['watcher', 'watcher-overflow', 'resume', 'external'].includes(reason)) {
+      throw new SingularityFlowError(`Unknown external repository change reason '${reason}'.`, {
+        code: 'REPO_CONTEXT_EXTERNAL_CHANGE_INVALID'
+      });
+    }
+    this.invalidate();
+    return this.#epoch;
+  }
+
+  /**
+   * A status result is useful UI information, not authorization evidence. Bind all fields to one
+   * cache epoch and label that boundary so downstream code cannot mistake a convenient snapshot
+   * for sealed input bytes.
+   */
+  async statusObservation() {
+    const observedEpoch = this.#epoch;
+    const identity = await this.identity();
+    const entries = await this.observe('repository.status');
+    if (observedEpoch !== this.#epoch) {
+      throw new SingularityFlowError(
+        'Repository state changed while its observational status snapshot was being collected.', {
+          code: 'REPO_CONTEXT_EPOCH_CHANGED',
+          details: { observedEpoch, currentEpoch: this.#epoch }
+        }
+      );
+    }
+    return cloneFrozen({
+      classification: 'observational',
+      observedAt: new Date().toISOString(),
+      epoch: observedEpoch,
+      repositoryInstanceId: identity.repositoryInstanceId,
+      worktreeInstanceId: identity.worktreeInstanceId,
+      head: identity.head,
+      entries
+    });
+  }
+
   async mutate(action) {
     if (this.#mutation) throw new SingularityFlowError(
       'A repository mutation is already in progress.', { code: 'REPO_CONTEXT_MUTATION_IN_PROGRESS' }

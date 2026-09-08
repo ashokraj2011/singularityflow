@@ -63,14 +63,32 @@ test('FOS:AC-026 incomplete cache dependencies are refused before write', async 
   }, {}), (error) => error.code === 'FOS_CACHE_KEY_INVALID');
 });
 
-test('FOS:PARTIAL-AC-025 every declared cache dependency participates in invalidation identity', async () => {
+test('FOS:AC-025 parser, configuration, membership, sparse, ignore and path-resolution inputs invalidate persistent facts', async () => {
   const root = await repository();
-  await writeFosDerivedCache(root, key, { bounded: true });
-  assert.deepEqual(await readFosDerivedCache(root, key), { bounded: true });
-  assert.equal(await readFosDerivedCache(root, {
-    ...key, inputs: [`sha256:${'c'.repeat(64)}`]
-  }), null);
-  assert.equal(await readFosDerivedCache(root, {
-    ...key, configuration: `sha256:${'d'.repeat(64)}`
-  }), null);
+  const complete = {
+    ...key,
+    parser: `sha256:${'c'.repeat(64)}`,
+    membership: `sha256:${'d'.repeat(64)}`,
+    sparse: `sha256:${'e'.repeat(64)}`,
+    ignore: `sha256:${'f'.repeat(64)}`,
+    pathResolution: `sha256:${'1'.repeat(64)}`
+  };
+  await writeFosDerivedCache(root, complete, { bounded: true });
+  assert.deepEqual(await readFosDerivedCache(root, complete), { bounded: true });
+  for (const field of [
+    'inputs', 'configuration', 'parser', 'membership', 'sparse', 'ignore', 'pathResolution'
+  ]) {
+    const changed = structuredClone(complete);
+    changed[field] = field === 'inputs'
+      ? [`sha256:${'2'.repeat(64)}`]
+      : `sha256:${'2'.repeat(64)}`;
+    assert.equal(await readFosDerivedCache(root, changed), null, field);
+  }
+});
+
+test('FOS:AC-026 malformed optional dependency digests are refused before cache write', async () => {
+  const root = await repository();
+  await assert.rejects(() => writeFosDerivedCache(root, {
+    ...key, parser: 'parser-v1'
+  }, {}), (error) => error.code === 'FOS_CACHE_KEY_INVALID');
 });

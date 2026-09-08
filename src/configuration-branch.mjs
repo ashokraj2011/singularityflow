@@ -1200,47 +1200,68 @@ export async function loadStoryConfigurationSnapshot(authority, { env = process.
     incrementCommandCounter('configuration.snapshot-reused');
     return retained;
   }
-  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-config-read-'));
-  incrementCommandCounter('configuration.snapshot-read');
-  try {
-    let observedCommit;
-    let sourceCommit;
-    let mirror = null;
-    if (authority.branch === STATE_CONFIGURATION_BRANCH) {
-      mirror = await copyVerifiedStateConfiguration(authority.remote, scratch, authority.branch, {
-        env
-      });
-      observedCommit = mirror.mirrorCommit;
-      sourceCommit = mirror.sourceCommit;
-      if (authority.sourceCommit && mirror.sourceCommit !== authority.sourceCommit) {
+  let lastMoved = null;
+  // A mutable authority ref can advance between its ls-remote observation and the bounded clone.
+  // Retry that exact read once. A second mismatch is a stable authority-moved refusal, never an
+  // invitation to consume whichever revision happened to win the race.
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-config-read-'));
+    incrementCommandCounter('configuration.snapshot-read');
+    try {
+      let observedCommit;
+      let sourceCommit;
+      let mirror = null;
+      if (authority.branch === STATE_CONFIGURATION_BRANCH) {
+        mirror = await copyVerifiedStateConfiguration(authority.remote, scratch, authority.branch, {
+          env
+        });
+        observedCommit = mirror.mirrorCommit;
+        sourceCommit = mirror.sourceCommit;
+        if (authority.sourceCommit && mirror.sourceCommit !== authority.sourceCommit) {
+          throw new SingularityFlowError(
+            `Approved configuration source moved from ${authority.sourceCommit.slice(0, 12)} to ${mirror.sourceCommit.slice(0, 12)} while Story intake was being prepared. Refresh and retry; nothing was changed.`,
+            {
+              code: 'STORY_CONFIGURATION_AUTHORITY_STALE',
+              details: {
+                branch: authority.branch,
+                expectedCommit: authority.sourceCommit,
+                actualCommit: mirror.sourceCommit
+              }
+            }
+          );
+        }
+      } else {
+        observedCommit = await cloneConfiguration(authority.remote, scratch, { env });
+        sourceCommit = observedCommit;
+      }
+      if (authority.commit && observedCommit !== authority.commit) {
         throw new SingularityFlowError(
-          `Approved configuration source moved from ${authority.sourceCommit.slice(0, 12)} to ${mirror.sourceCommit.slice(0, 12)} while Story intake was being prepared. Refresh and retry; nothing was changed.`,
-          { code: 'STORY_CONFIGURATION_AUTHORITY_STALE' }
+          `Approved configuration authority moved from ${authority.commit.slice(0, 12)} to ${observedCommit.slice(0, 12)} while Story intake was being prepared. Refresh and retry; nothing was changed.`,
+          {
+            code: 'STORY_CONFIGURATION_AUTHORITY_STALE',
+            details: { branch: authority.branch, expectedCommit: authority.commit, actualCommit: observedCommit }
+          }
         );
       }
-    } else {
-      observedCommit = await cloneConfiguration(authority.remote, scratch, { env });
-      sourceCommit = observedCommit;
+      return await storyConfigurationSnapshotFromDirectory(authority, scratch, {
+        observedCommit,
+        sourceCommit,
+        mirror,
+        definition: mirror?.definition ?? null,
+        env
+      });
+    } catch (error) {
+      if (error?.code !== 'STORY_CONFIGURATION_AUTHORITY_STALE') throw error;
+      lastMoved = error;
+      if (attempt === 2) {
+        error.details = { ...(error.details ?? {}), attempts: 2, disposition: 'authority-moved' };
+        throw error;
+      }
+    } finally {
+      await removeTemporaryTree(scratch);
     }
-    if (authority.commit && observedCommit !== authority.commit) {
-      throw new SingularityFlowError(
-        `Approved configuration authority moved from ${authority.commit.slice(0, 12)} to ${observedCommit.slice(0, 12)} while Story intake was being prepared. Refresh and retry; nothing was changed.`,
-        {
-          code: 'STORY_CONFIGURATION_AUTHORITY_STALE',
-          details: { branch: authority.branch, expectedCommit: authority.commit, actualCommit: observedCommit }
-        }
-      );
-    }
-    return await storyConfigurationSnapshotFromDirectory(authority, scratch, {
-      observedCommit,
-      sourceCommit,
-      mirror,
-      definition: mirror?.definition ?? null,
-      env
-    });
-  } finally {
-    await removeTemporaryTree(scratch);
   }
+  throw lastMoved;
 }
 
 async function copyStoryConfigurationSnapshot(snapshot, destination, { selectPaths = null } = {}) {

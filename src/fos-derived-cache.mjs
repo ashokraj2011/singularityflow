@@ -24,11 +24,16 @@ function stable(value) {
 }
 
 function keyRecord(key) {
+  const dependencyDigests = [
+    'configuration', 'parser', 'membership', 'sparse', 'ignore', 'pathResolution'
+  ];
   if (!key || typeof key !== 'object' || Array.isArray(key)
       || !/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/.test(key.producer ?? '')
       || typeof key.producerVersion !== 'string'
       || !Array.isArray(key.inputs)
-      || key.inputs.some((input) => !/^sha256:[a-f0-9]{64}$/.test(input))) {
+      || key.inputs.some((input) => !/^sha256:[a-f0-9]{64}$/.test(input))
+      || dependencyDigests.some((field) => key[field] != null
+        && !/^sha256:[a-f0-9]{64}$/.test(key[field]))) {
     throw new SingularityFlowError(
       'A FOS cache key requires a producer, version and complete SHA-256 input set.', {
         code: 'FOS_CACHE_KEY_INVALID'
@@ -41,7 +46,10 @@ function keyRecord(key) {
     inputs: [...key.inputs],
     configuration: key.configuration ?? null,
     parser: key.parser ?? null,
-    membership: key.membership ?? null
+    membership: key.membership ?? null,
+    sparse: key.sparse ?? null,
+    ignore: key.ignore ?? null,
+    pathResolution: key.pathResolution ?? null
   });
 }
 

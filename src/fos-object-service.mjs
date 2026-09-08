@@ -140,6 +140,13 @@ export class FosGitObjectService {
         this.#failService(error('Git object service returned a malformed protocol header.', 'OBJECT_PROTOCOL_INVALID'));
         return;
       }
+      if (match[1] !== request.oid) {
+        this.#failService(error(
+          'Git object service returned a different object than the exact object requested.',
+          'OBJECT_PROTOCOL_INVALID', { expectedOid: request.oid, actualOid: match[1] }
+        ));
+        return;
+      }
       if (size > this.#maxObjectBytes) {
         this.#failService(error('Git object exceeds the configured object-service limit.', 'LIMIT_EXCEEDED', { size }));
         return;

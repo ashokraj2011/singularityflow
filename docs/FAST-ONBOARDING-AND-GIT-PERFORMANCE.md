@@ -114,6 +114,22 @@ The last three automation features remain disabled until real identity, notifica
 server-gate, and workflow-import adapters have been certified. Deterministic local adapter tests
 prove refusal and binding behavior; they do not impersonate that external authority.
 
+## Input and cache integrity
+
+FOS now separates convenient status observations from authorization inputs. Status carries its
+observation time, worktree identity, HEAD and mutable epoch, and is explicitly labelled
+`observational`. Editor watcher overflow and machine resume advance that epoch.
+
+Code that needs an authorization input can seal explicit worktree or index paths with
+`sealFosInputs`. The seal hashes the bytes actually read, includes ignored or untracked paths when
+they are explicitly named, distinguishes index bytes from worktree bytes, and detects a live read
+race. `verifyFosSealedInputs` re-reads the same sources before use and refuses changed bytes.
+
+Persistent derived-cache callers must include every relevant parser, configuration, membership,
+sparse-checkout, ignore-policy and path-resolution digest. Missing Git objects are not cached as a
+negative result, and the shared object reader verifies that the full returned OID is exactly the
+one requested. These caches remain non-authoritative optimizations.
+
 ## Performance evidence
 
 The checked-in FOS benchmark manifest distinguishes first feedback, local completion, network

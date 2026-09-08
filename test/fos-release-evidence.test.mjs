@@ -16,7 +16,8 @@ test('FOS release inventory binds exact source locations and test-body digests w
   assert.equal(FOS_ACCEPTANCE_CASES.length, 50);
   assert.equal(report.status, 'incomplete');
   assert.ok(report.representedAcceptanceCases.includes('FOS:AC-001'));
-  assert.ok(report.unrepresentedAcceptanceCases.includes('FOS:AC-002'));
+  assert.ok(report.representedAcceptanceCases.includes('FOS:AC-002'));
+  assert.ok(report.unrepresentedAcceptanceCases.includes('FOS:AC-011'));
   assert.equal(report.malformedWitnesses.length, 0);
   assert.equal(report.duplicateTitles.length, 0);
   assert.ok(report.witnesses.every((entry) => entry.namePath.startsWith('test/')));

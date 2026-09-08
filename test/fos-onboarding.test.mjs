@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
 import { onboardRepository, readFosAttachment, refreshFosAuthority } from '../src/onboard.mjs';
+import {
+  loadStoryConfigurationSnapshot, resolveRemoteStoryConfigurationAuthority
+} from '../src/configuration-branch.mjs';
 import { recordSha256 } from '../src/records.mjs';
 
 const cli = new URL('../bin/singularity-flow.mjs', import.meta.url).pathname;
@@ -144,6 +147,81 @@ test('FOS:AC-009 refresh advances the exact pin and retains a completed operatio
     'singularity-flow', 'fos', 'operations', `${refreshed.operationId}.json`);
   const journal = JSON.parse(await readFile(path.resolve(root, journalPath), 'utf8'));
   assert.equal(journal.phase, 'completed');
+});
+
+test('FOS:AC-002 remote-tracking-only onboarding pins one authority revision and refuses a moving ref after one retry', async () => {
+  const authority = await governedRepository();
+  const parent = await mkdtemp(path.join(os.tmpdir(), 'sflow-fos-remote-pin-'));
+  const remote = path.join(parent, 'authority.git');
+  const checkout = path.join(parent, 'checkout');
+  try {
+    git(['switch', '-q', 'sflow/config'], authority);
+    await writeFile(path.join(authority, 'authority-only.txt'), 'not reachable from application main\n');
+    git(['add', 'authority-only.txt'], authority);
+    git(['commit', '-qm', 'authority-only revision'], authority);
+    git(['switch', '-q', 'main'], authority);
+    git(['clone', '-q', '--bare', authority, remote], parent);
+    git(['clone', '-q', '--no-local', '--single-branch', '--branch', 'main', remote, checkout], parent);
+    git(['config', 'user.name', 'FOS Consumer'], checkout);
+    git(['config', 'user.email', 'consumer@example.com'], checkout);
+    const expected = git(['rev-parse', 'refs/heads/sflow/config'], remote);
+    assert.notEqual(spawnSync('git', ['cat-file', '-e', `${expected}^{commit}`], {
+      cwd: checkout, encoding: 'utf8'
+    }).status, 0, 'the application checkout starts with an object-cache miss');
+
+    const attached = await onboardRepository(checkout, { remote: 'origin' });
+    assert.equal(attached.descriptor.authority.commit, expected);
+    assert.equal(attached.descriptor.authority.sourceCommit, expected);
+    assert.equal(git(['branch', '--list', 'sflow/config'], checkout), '',
+      'onboarding does not create a local authority branch');
+
+    const selected = await resolveRemoteStoryConfigurationAuthority(remote);
+    git(['switch', '-q', 'sflow/config'], authority);
+    await writeFile(path.join(authority, 'remote-race.txt'), 'moved after observation\n');
+    git(['add', 'remote-race.txt'], authority);
+    git(['commit', '-qm', 'move authority after observation'], authority);
+    git(['push', '-q', remote, 'sflow/config'], authority);
+    await assert.rejects(() => loadStoryConfigurationSnapshot(selected), (error) => {
+      assert.equal(error.code, 'STORY_CONFIGURATION_AUTHORITY_STALE');
+      assert.equal(error.details.attempts, 2);
+      assert.equal(error.details.disposition, 'authority-moved');
+      return true;
+    });
+  } finally {
+    await rm(parent, { recursive: true, force: true });
+  }
+});
+
+test('FOS:AC-010 a truncated attachment replacement recovers from the sealed transaction journal', async () => {
+  const root = await governedRepository();
+  const attached = await onboardRepository(root, { authorityLocal: true });
+  const common = path.resolve(root, git(['rev-parse', '--git-common-dir'], root));
+  const statePath = path.join(common, 'singularity-flow', 'fos', 'attachments',
+    attached.descriptor.repository.repositoryInstanceId, 'current.json');
+  await writeFile(statePath, '{"schemaVersion":');
+  const recovered = await readFosAttachment(root);
+  assert.equal(recovered.recovery.required, true);
+  assert.equal(recovered.descriptor.descriptorSha256, attached.descriptor.descriptorSha256);
+  const repaired = await onboardRepository(root, { authorityLocal: true });
+  assert.equal(repaired.status, 'already-attached');
+  const durable = JSON.parse(await readFile(statePath, 'utf8'));
+  assert.equal(durable.descriptor.descriptorSha256, attached.descriptor.descriptorSha256);
+
+  git(['switch', '-q', 'sflow/config'], root);
+  await writeFile(path.join(root, 'after-recovery.txt'), 'next complete authority state\n');
+  git(['add', 'after-recovery.txt'], root);
+  git(['commit', '-qm', 'advance after recovery'], root);
+  git(['switch', '-q', 'main'], root);
+  const noSpace = new Error('simulated disk full');
+  noSpace.code = 'ENOSPC';
+  await assert.rejects(() => refreshFosAuthority(root, {
+    stateWriter: async () => { throw noSpace; }
+  }), (error) => error.code === 'ENOSPC');
+  assert.equal((await readFosAttachment(root)).descriptor.descriptorSha256,
+    attached.descriptor.descriptorSha256, 'failed replacement preserves the complete old state');
+  const resumed = await refreshFosAuthority(root);
+  assert.equal(resumed.status, 'refreshed');
+  assert.notEqual(resumed.descriptor.descriptorSha256, attached.descriptor.descriptorSha256);
 });
 
 test('FOS:PARTIAL-AC-013 policy changes invalidate the old effective policy digest only on explicit refresh', async () => {

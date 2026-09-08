@@ -31,6 +31,21 @@ test('FOS:AC-031 persistent object service preserves binary bytes and missing re
   await service.close();
 });
 
+test('FOS:AC-028 a missing object result is not sticky after the exact object becomes available', async () => {
+  const root = await repository();
+  const bytes = Buffer.from('arrives after the negative lookup\n');
+  const oid = git(['hash-object', '--stdin'], root, { input: bytes });
+  const service = new FosGitObjectService(root, { idleMs: 60_000 });
+  assert.equal(await service.read(oid), null);
+  assert.equal(git(['hash-object', '-w', '--stdin'], root, { input: bytes }), oid);
+  const available = await service.read(oid);
+  assert.equal(available.oid, oid);
+  assert.equal(available.type, 'blob');
+  assert.deepEqual(available.bytes, bytes);
+  assert.equal(service.processSpawns, 1);
+  await service.close();
+});
+
 test('FOS:AC-031 linked worktrees share one immutable object-store service', async () => {
   const root = await repository();
   const target = path.join(path.dirname(root), `${path.basename(root)}-linked`);

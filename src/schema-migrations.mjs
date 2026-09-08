@@ -43,6 +43,17 @@ function identity(next) {
   return (record) => ({ ...record, schemaVersion: next });
 }
 
+function fosSealedInputV1ToV2(source) {
+  return {
+    ...clone(source),
+    schemaVersion: 2,
+    observation: {
+      ...(plainObject(source.observation) ? clone(source.observation) : {}),
+      classification: 'observational'
+    }
+  };
+}
+
 function learningProgressV1ToV2(source) {
   const storedCore = clone(source);
   delete storedCore.progressSha256;
@@ -2956,6 +2967,10 @@ const families = [
   family({ id: 'fos-operation-journal', currentVersion: 1 }),
   family({ id: 'fos-attachment-receipt', currentVersion: 1 }),
   family({ id: 'fos-derived-cache-entry', currentVersion: 1 }),
+  family({
+    id: 'fos-sealed-input', currentVersion: 2, minimumReadableVersion: 1,
+    steps: [migration(1, 2, fosSealedInputV1ToV2)]
+  }),
   family({ id: 'fos-git-accelerator-receipt', currentVersion: 1 }),
   family({ id: 'fos-evidence-attachment', currentVersion: 1 }),
   family({ id: 'fos-story-switch-checkpoint', currentVersion: 1 }),

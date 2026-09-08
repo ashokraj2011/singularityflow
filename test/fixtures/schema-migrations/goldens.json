@@ -18,6 +18,7 @@
   "fos-operation-journal": [{ "schemaVersion": 1 }],
   "fos-attachment-receipt": [{ "schemaVersion": 1 }],
   "fos-derived-cache-entry": [{ "schemaVersion": 1 }],
+  "fos-sealed-input": [{ "schemaVersion": 1 }, { "schemaVersion": 2 }],
   "fos-git-accelerator-receipt": [{ "schemaVersion": 1 }],
   "fos-evidence-attachment": [{ "schemaVersion": 1 }],
   "fos-story-switch-checkpoint": [{ "schemaVersion": 1 }],

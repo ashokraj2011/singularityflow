@@ -76,6 +76,25 @@ test('FOS:AC-021 mutation barriers prevent stale in-flight results from entering
   assert.equal(calls, 2);
 });
 
+test('FOS:AC-022 external edits, watcher overflow and resume advance observational status epochs', async () => {
+  const root = await repository();
+  const context = new RepoContext(root);
+  const clean = await context.statusObservation();
+  assert.equal(clean.classification, 'observational');
+  assert.deepEqual(clean.entries, []);
+  await writeFile(path.join(root, 'alpha.txt'), 'externally edited\n');
+  context.notifyExternalChange('watcher-overflow');
+  const changed = await context.statusObservation();
+  assert.ok(changed.epoch > clean.epoch);
+  assert.ok(changed.entries.some((entry) => entry.includes('alpha.txt')));
+  context.notifyExternalChange('resume');
+  const resumed = await context.statusObservation();
+  assert.ok(resumed.epoch > changed.epoch);
+  assert.equal(resumed.head, changed.head);
+  const newInvocation = await new RepoContext(root).statusObservation();
+  assert.ok(newInvocation.entries.some((entry) => entry.includes('alpha.txt')));
+});
+
 test('FOS:AC-024 query registry rejects unknown operations and unsafe remote names', async () => {
   assert.throws(() => gitQueryDescriptor('git.anything'), (error) => error.code === 'GIT_QUERY_UNKNOWN');
   assert.throws(() => executeGitQuery('/tmp', 'repository.remote-url', { remote: '--upload-pack=x' }),

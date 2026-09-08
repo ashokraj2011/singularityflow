@@ -2,9 +2,9 @@
 
 **Plan ID:** `FOS-PLAN-v1`
 
-**Status:** M0–M5 code-local implementation plus the next local evidence/comparison slice are
-complete; physical release evidence and external M5 adapter certification remain pending; every
-optional feature still defaults to off
+**Status:** M0–M5 code-local implementation plus local evidence, authority-race, transaction-
+recovery, sealed-input and cache-integrity slices are complete; physical release evidence and
+external M5 adapter certification remain pending; every optional feature still defaults to off
 
 **Specification:** `SPEC-FOS-Fast-Onboarding-and-Safe-Git-Performance-v1.md`, version
 `1.0.0-draft.1`, SHA-256
@@ -23,9 +23,9 @@ unavailable enterprise authority or platform evidence was simulated.
 | Milestone | Implemented now | Remaining release evidence or authority |
 |---|---|---|
 | M0 | Specific Story-start refusal restored; first-feedback/completion timing, benchmark and semantic-projection contracts, schema registrations, and trace inventory added | Controlled-runner latency samples and hash-bound release report |
-| M1 | Closed typed Git query registry; lazy immutable repository context; in-flight coalescing, mutable epochs, counters, and mutation barrier | Broader migration of legacy read-heavy callers occurs only after shadow projection evidence; unknown Git remains uncached |
-| M2 | `onboard`, explicit route selection, exact configuration fold/pin, durable journal/receipt, idempotence, refresh, credential/rebind refusal, Story-start pin consumption, no AST/WM/model start callback, CLI/help/VS Code surfaces | Bootstrap and offline freshness are explicitly unsupported until separately approved policy exists |
-| M3 | Bounded derived cache, safe clear, quota/entry limits, shared binary-safe object service, Git-speed inspection/apply/rollback receipt, VS Code actions | macOS/Linux/Windows process and controlled performance lanes before any default enablement |
+| M1 | Closed typed Git query registry; lazy immutable repository context; in-flight coalescing, mutable epochs, counters, mutation barrier, and epoch-labelled observational status | Broader migration of legacy read-heavy callers occurs only after shadow projection evidence; unknown Git remains uncached |
+| M2 | `onboard`, explicit route selection, exact configuration fold/pin, bounded authority-move retry, durable recoverable journal/receipt, idempotence, refresh, credential/rebind refusal, Story-start pin consumption, no AST/WM/model start callback, CLI/help/VS Code surfaces | Bootstrap and offline freshness are explicitly unsupported until separately approved policy exists |
+| M3 | Bounded derived cache with full parser/configuration/membership/sparse/ignore/path dependency identity, safe clear, quota/entry limits, shared binary-safe exact-OID object service, non-sticky negative reads, sealed worktree/index input bytes, Git-speed inspection/apply/rollback receipt, VS Code actions | macOS/Linux/Windows process and controlled performance lanes before any default enablement |
 | M4 | Independent-off feature contracts for reusable defaults, interpretation, provenance prefill, error guidance, bounded local evidence ingestion, and crash-safe Story-switch recovery | Product-surface rollout remains opt-in and must consume approved repository policy |
 | M5 | Strict pre-authorization, approval request/outbox, replay/staleness/separation checks, and advisory/enforced PR adoption contracts | Real identity, notification, trusted server-gate and workflow-import adapters plus live certification; M5 remains disabled |
 
@@ -37,15 +37,15 @@ compares cached and uncached projections, and the executable evidence inventory 
 name paths and body digests while refusing to call missing rows complete. Passing local mocks never
 changes an external prerequisite to “complete,” and no unfinished optional feature is enabled.
 
-The current static inventory represents 29 of 50 acceptance IDs with exact-title witnesses.
-These 21 remain unrepresented until their complete observable conditions, including the physical
+The current static inventory represents 36 of 50 acceptance IDs with exact-title witnesses.
+These 14 remain unrepresented until their complete observable conditions, including the physical
 runners where specified, are implemented and reviewed:
 
-`FOS:AC-002`, `007`, `008`, `010`, `011`, `012`, `013`, `014`, `015`, `016`, `017`,
-`018`, `022`, `023`, `025`, `028`, `030`, `033`, `034`, `035`, and `036`.
+`FOS:AC-007`, `008`, `011`, `012`, `013`, `014`, `015`, `016`, `017`, `018`, `033`,
+`034`, `035`, and `036`.
 
 Partial and deliberately deferred tests are reported separately as
-`FOS:PARTIAL-AC-NNN`/`FOS:DEFERRED-AC-NNN`; they never count toward that 29.
+`FOS:PARTIAL-AC-NNN`/`FOS:DEFERRED-AC-NNN`; they never count toward that 36.
 
 ## Outcome
 

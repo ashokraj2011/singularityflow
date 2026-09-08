@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
@@ -91,41 +91,95 @@ function validateAttachmentDescriptor(descriptor) {
   );
 }
 
+function validatedState(parsed) {
+  if (parsed.kind !== 'fos-attachment-state') {
+    throw new SingularityFlowError('The FOS attachment state uses an unsupported format.', {
+      code: 'AUTHORITY_PIN_INVALID'
+    });
+  }
+  const descriptor = readRecord('fos-attachment-descriptor', parsed.descriptor).record;
+  const receipt = readRecord('fos-attachment-receipt', parsed.receipt).record;
+  validateAttachmentDescriptor(descriptor);
+  if (descriptor.descriptorSha256 !== `sha256:${recordSha256({
+    ...descriptor, descriptorSha256: null
+  })}`) throw new SingularityFlowError('The FOS authority descriptor digest is invalid.', {
+    code: 'AUTHORITY_PIN_INVALID'
+  });
+  const { receiptSha256, ...receiptBody } = receipt;
+  if (receiptSha256 !== `sha256:${recordSha256(receiptBody)}`) {
+    throw new SingularityFlowError('The FOS attachment receipt digest is invalid.', {
+      code: 'AUTHORITY_PIN_INVALID'
+    });
+  }
+  if (receipt.descriptorSha256 !== descriptor.descriptorSha256
+      || receipt.receiptId !== descriptor.receiptId
+      || receipt.operationId !== descriptor.operationId
+      || receipt.authorityCommit !== descriptor.authority.commit) {
+    throw new SingularityFlowError('The FOS attachment receipt does not bind the stored descriptor.', {
+      code: 'AUTHORITY_PIN_INVALID'
+    });
+  }
+  return Object.freeze({ ...parsed, descriptor, receipt });
+}
+
+async function recoverableJournalState(identity) {
+  const directory = path.dirname(journalFile(identity, 'placeholder'));
+  const files = (await readdir(directory, { withFileTypes: true }).catch((error) => {
+    if (error?.code === 'ENOENT') return [];
+    throw error;
+  })).filter((entry) => entry.isFile() && /^fos-op-[a-f0-9]{24}\.json$/.test(entry.name));
+  if (files.length > 256) throw new SingularityFlowError(
+    'FOS recovery has more operation journals than the bounded reader can inspect.', {
+      code: 'FOS_RECOVERY_LIMIT_EXCEEDED'
+    }
+  );
+  const candidates = [];
+  for (const file of files) {
+    try {
+      const journal = readRecord('fos-operation-journal', await readFile(path.join(directory, file.name), 'utf8')).record;
+      if (journal.kind !== 'fos-operation-journal'
+          || journal.request?.repositoryInstanceId !== identity.repositoryInstanceId
+          || !['validated', 'completed', 'recovery-required'].includes(journal.phase)
+          || !journal.candidate) continue;
+      const candidate = validatedState(readRecord('fos-attachment-state', journal.candidate).record);
+      if (candidate.descriptor.operationId !== journal.operationId
+          || candidate.descriptor.worktree.worktreeInstanceId !== identity.worktreeInstanceId
+          || candidate.descriptor.descriptorSha256 !== journal.candidateDigest) continue;
+      candidates.push({ journal, candidate });
+    } catch {
+      // One malformed operation receipt cannot hide a different fully sealed recovery candidate.
+    }
+  }
+  candidates.sort((left, right) => String(right.journal.updatedAt).localeCompare(String(left.journal.updatedAt)));
+  const recovered = candidates[0];
+  if (!recovered) return null;
+  return Object.freeze({
+    ...recovered.candidate,
+    recovery: Object.freeze({
+      required: true,
+      operationId: recovered.journal.operationId,
+      journalPhase: recovered.journal.phase
+    })
+  });
+}
+
 async function readState(identity) {
   try {
     const parsed = readRecord('fos-attachment-state', await readFile(stateFile(identity), 'utf8')).record;
-    if (parsed.kind !== 'fos-attachment-state') {
-      throw new SingularityFlowError('The FOS attachment state uses an unsupported format.', {
-        code: 'AUTHORITY_PIN_INVALID'
-      });
-    }
-    const descriptor = readRecord('fos-attachment-descriptor', parsed.descriptor).record;
-    const receipt = readRecord('fos-attachment-receipt', parsed.receipt).record;
-    validateAttachmentDescriptor(descriptor);
-    if (descriptor.descriptorSha256 !== `sha256:${recordSha256({
-      ...descriptor, descriptorSha256: null
-    })}`) throw new SingularityFlowError('The FOS authority descriptor digest is invalid.', {
-      code: 'AUTHORITY_PIN_INVALID'
-    });
-    const { receiptSha256, ...receiptBody } = receipt;
-    if (receiptSha256 !== `sha256:${recordSha256(receiptBody)}`) {
-      throw new SingularityFlowError('The FOS attachment receipt digest is invalid.', {
-        code: 'AUTHORITY_PIN_INVALID'
-      });
-    }
-    if (receipt.descriptorSha256 !== descriptor.descriptorSha256
-        || receipt.receiptId !== descriptor.receiptId
-        || receipt.operationId !== descriptor.operationId
-        || receipt.authorityCommit !== descriptor.authority.commit) {
-      throw new SingularityFlowError('The FOS attachment receipt does not bind the stored descriptor.', {
-        code: 'AUTHORITY_PIN_INVALID'
-      });
-    }
-    return Object.freeze({ ...parsed, descriptor, receipt });
+    return validatedState(parsed);
   } catch (error) {
+    if (error?.code === 'SCHEMA_VERSION_FUTURE' || error?.code === 'SCHEMA_VERSION_ARCHIVED') throw error;
+    const truncatedOrMissing = error?.code === 'ENOENT' || error?.code === 'SCHEMA_RECORD_INVALID'
+      || error instanceof SyntaxError;
+    if (truncatedOrMissing) {
+      const recovered = await recoverableJournalState(identity);
+      if (recovered) return recovered;
+    }
     if (error?.code === 'ENOENT') return null;
-    if (error instanceof SyntaxError) throw new SingularityFlowError(
-      'The FOS attachment state is not valid JSON.', { code: 'AUTHORITY_PIN_INVALID' }
+    if (error instanceof SyntaxError || error?.code === 'SCHEMA_RECORD_INVALID') throw new SingularityFlowError(
+      'The FOS attachment state is not valid JSON and no sealed recovery candidate is available.', {
+        code: 'AUTHORITY_PIN_INVALID'
+      }
     );
     throw error;
   }
@@ -335,7 +389,8 @@ export async function onboardRepository(root, {
   offline = false,
   resume = null,
   refresh = false,
-  cache = true
+  cache = true,
+  stateWriter = writeAtomic
 } = {}) {
   if (offline) throw new SingularityFlowError(
     'Pinned offline attachment is not enabled because no approved FOS offline-freshness policy is available. Retry online or add that policy through the normal configuration authority.',
@@ -388,6 +443,15 @@ export async function onboardRepository(root, {
         { code: 'AUTHORITY_CONFLICT' }
       );
     }
+    if (currentBinding?.recovery?.required) {
+      await stateWriter(stateFile(identity), `${JSON.stringify({
+        schemaVersion: currentBinding.schemaVersion,
+        kind: currentBinding.kind,
+        revision: currentBinding.revision,
+        descriptor: currentBinding.descriptor,
+        receipt: currentBinding.receipt
+      }, null, 2)}\n`, { mode: 0o600 });
+    }
     // Ordinary onboarding is attachment, not freshness refresh. Once the exact route is attached,
     // repeat calls return its existing receipt without contacting the authority or rewriting local
     // state. `authority refresh` is the explicit operation that may advance the pin.
@@ -433,19 +497,20 @@ export async function onboardRepository(root, {
       const receipt = unchanged
         ? current.receipt
         : receiptFor(descriptor, actor, { changed: true });
+      const candidate = {
+        schemaVersion: currentSchemaVersion('fos-attachment-state'),
+        kind: 'fos-attachment-state',
+        revision: (current?.revision ?? 0) + (unchanged ? 0 : 1),
+        descriptor,
+        receipt
+      };
       journal = operationRecord({
         ...journal, phase: 'validated', candidateDigest: descriptor.descriptorSha256,
-        authorityCommit: authority.commit, updatedAt: nowIso()
+        authorityCommit: authority.commit, candidate, updatedAt: nowIso()
       });
       await writeJournal(identity, journal);
       if (!unchanged) {
-        await writeAtomic(stateFile(identity), `${JSON.stringify({
-          schemaVersion: currentSchemaVersion('fos-attachment-state'),
-          kind: 'fos-attachment-state',
-          revision: (current?.revision ?? 0) + 1,
-          descriptor,
-          receipt
-        }, null, 2)}\n`, { mode: 0o600 });
+        await stateWriter(stateFile(identity), `${JSON.stringify(candidate, null, 2)}\n`, { mode: 0o600 });
       }
       journal = operationRecord({
         ...journal, phase: 'completed', observedOutcome: {

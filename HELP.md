@@ -2903,6 +2903,8 @@ singularity-flow init --smart-detect --activation proposal-only|review-proposal 
 singularity-flow init --recover --proposal SHA256 [--json]
 singularity-flow precheck --quick [--json]
 singularity-flow onboard <LOCAL-PATH> [--remote NAME | --authority-local] [--offline] [--resume OPERATION-ID] [--no-cache] [--json]
+singularity-flow onboard <LOCAL-PATH> --bootstrap --policy unmanaged-local-v1 --authority-local [--json]
+singularity-flow onboard <LOCAL-PATH> --bootstrap --policy POLICY-ID --remote NAME --publish [--json]
 singularity-flow authority refresh <LOCAL-PATH> [--json]
 singularity-flow cache clear --derived --repo <LOCAL-PATH> [--json]
 singularity-flow factory-reset [--dry-run | --confirm TEXT] [--allow-dirty]

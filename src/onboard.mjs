@@ -1,11 +1,14 @@
 import { createHash } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
+import YAML from 'yaml';
 
 import {
-  loadStoryConfigurationSnapshot, resolveRemoteStoryConfigurationAuthority
+  configurationBranchHead, ensureConfigurationBranch, loadStoryConfigurationSnapshot,
+  resolveRemoteStoryConfigurationAuthority
 } from './configuration-branch.mjs';
 import { gitCommitIdentity } from './git.mjs';
+import { GitRemoteSession } from './git-execution.mjs';
 import { assertCredentialFreeRemote, sanitizeRemote } from './git-remote-diagnostics.mjs';
 import { recordSha256 } from './records.mjs';
 import { createRepoContext } from './repo-context.mjs';
@@ -80,6 +83,8 @@ function validateAttachmentDescriptor(descriptor) {
     && descriptor?.verifiedFoldSha256 === folded
     && descriptor?.effectivePolicyDigest === descriptor?.policySha256
     && /^sha256:[a-f0-9]{64}$/.test(descriptor?.policySha256 ?? '')
+    && (descriptor?.offlineSnapshotSha256 == null
+      || /^sha256:[a-f0-9]{64}$/.test(descriptor.offlineSnapshotSha256))
     && descriptor?.policyEpoch === descriptor?.authority?.sourceCommit
     && descriptor?.observation?.source === (route.kind === 'remote' ? 'remote-observed' : 'local-verified')
     && descriptor?.observation?.remoteOid === (route.kind === 'remote' ? descriptor.authority.commit : null)
@@ -119,7 +124,8 @@ function validatedState(parsed) {
       code: 'AUTHORITY_PIN_INVALID'
     });
   }
-  return Object.freeze({ ...parsed, descriptor, receipt });
+  const offlineSnapshot = validateOfflineSnapshot(parsed.offlineSnapshot ?? null, descriptor);
+  return Object.freeze({ ...parsed, descriptor, receipt, offlineSnapshot });
 }
 
 async function recoverableJournalState(identity) {
@@ -257,8 +263,143 @@ function fold(snapshot) {
   };
 }
 
+const OFFLINE_SNAPSHOT_MAX_BYTES = 32 * 1024 * 1024;
+const OFFLINE_POLICY_PATH = 'singularity/fos.yml';
+const OFFLINE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
+export const FOS_LOCAL_BOOTSTRAP_POLICY_ID = 'unmanaged-local-v1';
+const LOCAL_BOOTSTRAP_POLICY_BODY = Object.freeze({
+  id: FOS_LOCAL_BOOTSTRAP_POLICY_ID,
+  version: 1,
+  scope: 'unmanaged-local',
+  organizationalAuthority: false,
+  permitsRemotePublication: false,
+  proposedPolicySelfAuthorizing: false,
+  source: 'signed-package-preset'
+});
+export const FOS_LOCAL_BOOTSTRAP_POLICY_SHA256 = `sha256:${recordSha256(LOCAL_BOOTSTRAP_POLICY_BODY)}`;
+
+function offlineSnapshotFor(snapshot, folded, observedAt) {
+  const totalBytes = snapshot.assets.reduce((sum, asset) => sum + asset.contents.length, 0);
+  if (totalBytes > OFFLINE_SNAPSHOT_MAX_BYTES) return null;
+  const body = {
+    schemaVersion: currentSchemaVersion('fos-offline-snapshot'),
+    kind: 'fos-offline-snapshot',
+    authorityCommit: snapshot.observedCommit,
+    sourceCommit: snapshot.sourceCommit,
+    foldSha256: folded.foldSha256,
+    observedAt,
+    totalBytes,
+    assets: snapshot.assets.map((asset) => ({
+      path: asset.relative,
+      object: asset.object,
+      gitMode: asset.gitMode,
+      mode: asset.mode,
+      sha256: `sha256:${asset.sha256}`,
+      bytes: asset.contents.length,
+      contentsBase64: asset.contents.toString('base64')
+    })).sort((left, right) => left.path.localeCompare(right.path))
+  };
+  return Object.freeze({
+    ...body,
+    snapshotSha256: `sha256:${recordSha256(body)}`
+  });
+}
+
+function validateOfflineSnapshot(snapshot, descriptor) {
+  if (descriptor.offlineSnapshotSha256 == null) {
+    if (snapshot != null) throw new SingularityFlowError(
+      'The FOS attachment contains unbound offline bytes.', { code: 'AUTHORITY_PIN_INVALID' }
+    );
+    return null;
+  }
+  const current = readRecord('fos-offline-snapshot', snapshot).record;
+  const { snapshotSha256, ...body } = current;
+  const dependencies = new Map(descriptor.dependencyClosure.map((entry) => [entry.path, entry]));
+  let totalBytes = 0;
+  const valid = current.kind === 'fos-offline-snapshot'
+    && snapshotSha256 === descriptor.offlineSnapshotSha256
+    && snapshotSha256 === `sha256:${recordSha256(body)}`
+    && current.authorityCommit === descriptor.authority.commit
+    && current.sourceCommit === descriptor.authority.sourceCommit
+    && current.foldSha256 === descriptor.verifiedFoldSha256
+    && current.observedAt === descriptor.observedAt
+    && Array.isArray(current.assets)
+    && current.assets.length === dependencies.size
+    && current.assets.length <= 4096
+    && current.assets.every((asset) => {
+      const dependency = dependencies.get(asset?.path);
+      if (!dependency || typeof asset.contentsBase64 !== 'string'
+          || !Number.isInteger(asset.bytes) || asset.bytes < 0
+          || !Number.isInteger(asset.mode)) return false;
+      const bytes = Buffer.from(asset.contentsBase64, 'base64');
+      if (bytes.toString('base64') !== asset.contentsBase64 || bytes.length !== asset.bytes
+          || `sha256:${createHash('sha256').update(bytes).digest('hex')}` !== asset.sha256
+          || asset.object !== dependency.object || asset.gitMode !== dependency.gitMode
+          || asset.sha256 !== dependency.sha256) return false;
+      totalBytes += bytes.length;
+      return totalBytes <= OFFLINE_SNAPSHOT_MAX_BYTES;
+    })
+    && totalBytes === current.totalBytes;
+  if (!valid) throw new SingularityFlowError(
+    'The FOS offline snapshot is incomplete or does not match the verified authority pin.', {
+      code: 'AUTHORITY_PIN_INVALID'
+    }
+  );
+  return Object.freeze(current);
+}
+
+function offlinePolicyDecision(state, now) {
+  const snapshot = validateOfflineSnapshot(state.offlineSnapshot, state.descriptor);
+  if (!snapshot) throw new SingularityFlowError(
+    'The verified attachment has no complete offline snapshot. Refresh online before offline reuse.', {
+      code: 'AUTHORITY_UNAVAILABLE'
+    }
+  );
+  const asset = snapshot.assets.find((entry) => entry.path === OFFLINE_POLICY_PATH);
+  if (!asset) throw new SingularityFlowError(
+    `Pinned offline reuse is not permitted because ${OFFLINE_POLICY_PATH} is absent from the approved authority.`, {
+      code: 'AUTHORITY_UNAVAILABLE'
+    }
+  );
+  let document;
+  try {
+    const parsed = YAML.parse(Buffer.from(asset.contentsBase64, 'base64').toString('utf8')) ?? {};
+    document = readRecord('fos-offline-policy', parsed).record;
+  }
+  catch { throw new SingularityFlowError('The pinned FOS offline policy is malformed.', { code: 'AUTHORITY_PIN_INVALID' }); }
+  const policy = document.offline ?? {};
+  const observed = Date.parse(state.descriptor.observedAt);
+  const current = now instanceof Date ? now.getTime() : new Date(now).getTime();
+  const notAfter = Date.parse(policy.notAfter ?? '');
+  const maxAgeSeconds = Number(policy.maxAgeSeconds);
+  const policyValid = /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(policy.policyId ?? '')
+    && policy.enabled === true
+    && policy.revoked !== true
+    && policy.requiredLive !== true
+    && Array.isArray(policy.operations) && policy.operations.includes('onboard')
+    && Number.isInteger(maxAgeSeconds) && maxAgeSeconds > 0
+    && maxAgeSeconds <= OFFLINE_MAX_AGE_SECONDS
+    && Number.isFinite(observed) && Number.isFinite(current) && current >= observed
+    && Number.isFinite(notAfter)
+    && policy.authorityPolicySha256 === state.descriptor.policySha256;
+  const expiresAtMs = policyValid
+    ? Math.min(notAfter, observed + maxAgeSeconds * 1000)
+    : Number.NaN;
+  if (!policyValid || current >= expiresAtMs) throw new SingularityFlowError(
+    'The approved pinned/offline policy is absent, incompatible, revoked, expired, or requires a live authority check.', {
+      code: 'AUTHORITY_UNAVAILABLE'
+    }
+  );
+  return Object.freeze({
+    policyId: policy.policyId,
+    policySha256: asset.sha256,
+    ageMilliseconds: current - observed,
+    expiresAt: new Date(expiresAtMs).toISOString()
+  });
+}
+
 function descriptorFor({
-  identity, route, location, authority, snapshot, operationId, receiptId, observedAt
+  identity, route, location, authority, snapshot, offlineSnapshot, operationId, receiptId, observedAt
 }) {
   const folded = fold(snapshot);
   const workflowAsset = snapshot.assets.find((asset) => asset.relative === 'singularity/workflow.yml');
@@ -319,6 +460,7 @@ function descriptorFor({
     policySha256: `sha256:${workflowAsset.sha256}`,
     effectivePolicyDigest: `sha256:${workflowAsset.sha256}`,
     policyEpoch: snapshot.sourceCommit,
+    offlineSnapshotSha256: offlineSnapshot?.snapshotSha256 ?? null,
     observation: {
       source: route.kind === 'local' ? 'local-verified' : 'remote-observed',
       observedAt,
@@ -383,6 +525,244 @@ export async function fosStoryConfigurationAuthority(root) {
   });
 }
 
+function bootstrapActor(root, env) {
+  const actor = gitCommitIdentity(root, { env });
+  if (!actor?.email) throw new SingularityFlowError(
+    'Approved bootstrap requires a configured Git email that can be bound to the authorization.', {
+      code: 'NOT_AUTHORIZED'
+    }
+  );
+  return Object.freeze({ ...actor, principalId: `git:${actor.email.toLowerCase()}` });
+}
+
+async function bootstrapAuthorization({
+  policyId, route, actor, resolveBootstrapPolicy, kernelAuthorize
+}) {
+  let policy;
+  if (route.kind === 'local' && policyId === FOS_LOCAL_BOOTSTRAP_POLICY_ID) {
+    policy = {
+      ...LOCAL_BOOTSTRAP_POLICY_BODY,
+      approved: true,
+      policySha256: FOS_LOCAL_BOOTSTRAP_POLICY_SHA256,
+      policyEpoch: 1,
+      trustAnchorSha256: FOS_LOCAL_BOOTSTRAP_POLICY_SHA256,
+      actorPrincipalId: actor.principalId
+    };
+  } else if (typeof resolveBootstrapPolicy === 'function') {
+    policy = await resolveBootstrapPolicy(Object.freeze({
+      policyId, route: structuredClone(route), actorPrincipalId: actor.principalId
+    }));
+  } else {
+    throw new SingularityFlowError(
+      'No existing trusted bootstrap policy provider can authorize this request. The proposed configuration cannot authorize its own creation.', {
+        code: 'TRUST_REQUIRED'
+      }
+    );
+  }
+  const expectedScope = route.kind === 'local' ? 'unmanaged-local' : 'organization';
+  const valid = policy?.approved === true
+    && policy.id === policyId
+    && policy.scope === expectedScope
+    && /^sha256:[a-f0-9]{64}$/.test(policy.policySha256 ?? '')
+    && /^sha256:[a-f0-9]{64}$/.test(policy.trustAnchorSha256 ?? '')
+    && Number.isInteger(policy.policyEpoch)
+    && policy.actorPrincipalId === actor.principalId
+    && policy.proposedPolicySelfAuthorizing !== true
+    && (route.kind === 'local'
+      ? policy.organizationalAuthority === false && policy.permitsRemotePublication === false
+      : policy.permitsRemotePublication === true);
+  if (!valid) throw new SingularityFlowError(
+    'The selected bootstrap policy is missing approval, actor, scope, epoch, or trust-anchor binding.', {
+      code: 'NOT_AUTHORIZED'
+    }
+  );
+  if (route.kind === 'remote') {
+    if (typeof kernelAuthorize !== 'function') throw new SingularityFlowError(
+      'Remote bootstrap requires a trusted governance-kernel authorization adapter.', {
+        code: 'TRUST_REQUIRED'
+      }
+    );
+    const request = Object.freeze({
+      operation: 'fos-authority-bootstrap',
+      policyId: policy.id,
+      policySha256: policy.policySha256,
+      policyEpoch: policy.policyEpoch,
+      trustAnchorSha256: policy.trustAnchorSha256,
+      actorPrincipalId: actor.principalId,
+      expectedRemoteOid: null,
+      targetRef: 'refs/heads/sflow/config'
+    });
+    const result = await kernelAuthorize(request);
+    const bound = result?.disposition === 'allow'
+      && Object.entries(request).every(([key, value]) => result[key] === value)
+      && /^sha256:[a-f0-9]{64}$/.test(result.receiptSha256 ?? '');
+    if (!bound) throw new SingularityFlowError(
+      'The governance kernel did not authorize this exact remote bootstrap.', {
+        code: 'NOT_AUTHORIZED'
+      }
+    );
+    return Object.freeze({ policy: Object.freeze(structuredClone(policy)), kernel: Object.freeze(structuredClone(result)) });
+  }
+  return Object.freeze({ policy: Object.freeze(structuredClone(policy)), kernel: null });
+}
+
+/**
+ * Explicitly establish one missing configuration authority under a pre-existing bootstrap trust
+ * contract. The local preset is package-scoped and can never claim organizational authority;
+ * remote creation requires an injected trusted policy resolver and governance-kernel receipt.
+ */
+export async function bootstrapFosAuthority(root, {
+  remote = null,
+  authorityLocal = false,
+  publish = false,
+  policyId,
+  resolveBootstrapPolicy = null,
+  kernelAuthorize = null,
+  beforeAuthorityCreate = null,
+  afterAuthorityCreate = null,
+  env = process.env
+} = {}) {
+  if (!policyId || (authorityLocal && publish) || (!authorityLocal && !publish)) {
+    throw new SingularityFlowError(
+      'Bootstrap requires --policy; local bootstrap forbids --publish and remote bootstrap requires it.', {
+        code: 'FOS_BOOTSTRAP_OPTIONS_INVALID'
+      }
+    );
+  }
+  const context = createRepoContext(root, { cache: false });
+  const identity = await context.identity();
+  if (identity.bare) throw new SingularityFlowError(
+    'FOS bootstrap requires an existing working checkout.', { code: 'REPOSITORY_STATE_UNSUPPORTED' }
+  );
+  if (await readState(identity)) throw new SingularityFlowError(
+    'This checkout already has a verified FOS attachment; bootstrap cannot replace its authority.', {
+      code: 'AUTHORITY_CONFLICT'
+    }
+  );
+  const route = await resolveRoute(context, null, { remote, authorityLocal });
+  const location = await routeLocation(context, route);
+  const actor = bootstrapActor(root, env);
+  const authorization = await bootstrapAuthorization({
+    policyId, route, actor, resolveBootstrapPolicy, kernelAuthorize
+  });
+  const request = {
+    kind: 'authority-bootstrap',
+    repositoryInstanceId: identity.repositoryInstanceId,
+    authorityLocator: sanitizeRemote(location),
+    route,
+    actorPrincipalId: actor.principalId,
+    expectedRemoteOid: null,
+    policyId: authorization.policy.id,
+    policySha256: authorization.policy.policySha256,
+    policyEpoch: authorization.policy.policyEpoch,
+    trustAnchorSha256: authorization.policy.trustAnchorSha256
+  };
+  const requestDigest = `sha256:${recordSha256(request)}`;
+  const operationId = `fos-op-${requestDigest.slice('sha256:'.length, 'sha256:'.length + 24)}`;
+
+  return withSubjectLock(root, { kind: 'fos-bootstrap', id: identity.repositoryInstanceId }, async () => {
+    const journalPath = journalFile(identity, operationId);
+    let prior = null;
+    try { prior = readRecord('fos-operation-journal', await readFile(journalPath, 'utf8')).record; }
+    catch (error) { if (error?.code !== 'ENOENT') throw error; }
+    if (prior && prior.requestDigest !== requestDigest) throw new SingularityFlowError(
+      `Operation '${operationId}' was already used with different bootstrap inputs.`, {
+        code: 'IDEMPOTENCY_CONFLICT'
+      }
+    );
+    if (prior?.phase === 'completed' || prior?.phase === 'authority-committed'
+        || (prior?.phase === 'recovery-required' && prior.authorityCommit)) {
+      if (prior.phase !== 'completed') {
+        const recoveryHead = await configurationBranchHead(location, {
+          session: new GitRemoteSession({ env }), refresh: true
+        });
+        if (!recoveryHead.reachable || recoveryHead.sha !== prior.authorityCommit) {
+          throw new SingularityFlowError(
+            'The authority changed after bootstrap publication and before attachment recovery.', {
+              code: 'AUTHORITY_MOVED',
+              details: { expectedOid: prior.authorityCommit, actual: recoveryHead.sha ?? null }
+            }
+          );
+        }
+      }
+      const attached = await onboardRepository(root, {
+        remote: route.remoteName, authorityLocal: route.kind === 'local'
+      });
+      await writeJournal(identity, operationRecord({
+        ...prior, phase: 'completed', attachmentOperationId: attached.operationId,
+        updatedAt: nowIso(), lastErrorCode: null
+      }));
+      return Object.freeze({
+        ...attached, status: 'bootstrapped', bootstrap: Object.freeze({
+          operationId, policyId, scope: authorization.policy.scope,
+          organizationalAuthority: authorization.policy.organizationalAuthority === true,
+          authorityCommit: prior.authorityCommit, reconciled: true
+        })
+      });
+    }
+    const startedAt = prior?.startedAt ?? nowIso();
+    let journal = operationRecord({
+      operationId, requestDigest, request,
+      actorBinding: { name: actor.name, email: actor.email, principalId: actor.principalId },
+      authorization,
+      phase: 'prepared', startedAt, updatedAt: nowIso(), lastErrorCode: null
+    });
+    await writeJournal(identity, journal);
+    try {
+      const session = new GitRemoteSession({ env });
+      const observed = await configurationBranchHead(location, { session, refresh: true });
+      if (!observed.reachable) throw new SingularityFlowError(
+        observed.error ?? 'The selected bootstrap authority is unavailable.', {
+          code: observed.observation?.failure?.code ?? 'AUTHORITY_UNAVAILABLE'
+        }
+      );
+      if (observed.exists) throw new SingularityFlowError(
+        'The configuration authority already exists; attach or refresh it instead of bootstrapping.', {
+          code: 'AUTHORITY_CONFLICT', details: { actualOid: observed.sha }
+        }
+      );
+      journal = operationRecord({ ...journal, phase: 'authorized', updatedAt: nowIso() });
+      await writeJournal(identity, journal);
+      if (beforeAuthorityCreate) await beforeAuthorityCreate();
+      const created = await ensureConfigurationBranch(location, {
+        remoteSession: session, observedHead: observed, authorIdentity: actor, env
+      });
+      if (created.created !== true) throw new SingularityFlowError(
+        'Another authorized creator established the configuration authority first. The winner was preserved; review it before attachment.', {
+          code: 'AUTHORITY_CONFLICT', details: { actualOid: created.commit }
+        }
+      );
+      journal = operationRecord({
+        ...journal, phase: 'authority-committed', authorityCommit: created.commit,
+        updatedAt: nowIso()
+      });
+      await writeJournal(identity, journal);
+      if (afterAuthorityCreate) await afterAuthorityCreate(created.commit);
+      const attached = await onboardRepository(root, {
+        remote: route.remoteName, authorityLocal: route.kind === 'local'
+      });
+      journal = operationRecord({
+        ...journal, phase: 'completed', attachmentOperationId: attached.operationId,
+        updatedAt: nowIso(), lastErrorCode: null
+      });
+      await writeJournal(identity, journal);
+      return Object.freeze({
+        ...attached, status: 'bootstrapped', bootstrap: Object.freeze({
+          operationId, policyId, scope: authorization.policy.scope,
+          organizationalAuthority: authorization.policy.organizationalAuthority === true,
+          authorityCommit: created.commit, reconciled: false
+        })
+      });
+    } catch (error) {
+      await writeJournal(identity, operationRecord({
+        ...journal, phase: 'recovery-required', updatedAt: nowIso(),
+        lastErrorCode: error?.code ?? 'AUTHORITY_UNAVAILABLE'
+      })).catch(() => {});
+      throw error;
+    }
+  });
+}
+
 export async function onboardRepository(root, {
   remote = null,
   authorityLocal = false,
@@ -390,11 +770,13 @@ export async function onboardRepository(root, {
   resume = null,
   refresh = false,
   cache = true,
-  stateWriter = writeAtomic
+  stateWriter = writeAtomic,
+  now = new Date()
 } = {}) {
-  if (offline) throw new SingularityFlowError(
-    'Pinned offline attachment is not enabled because no approved FOS offline-freshness policy is available. Retry online or add that policy through the normal configuration authority.',
-    { code: 'AUTHORITY_UNAVAILABLE' }
+  if (offline && (refresh || resume)) throw new SingularityFlowError(
+    'Offline reuse cannot refresh authority or resume a mutating attachment operation.', {
+      code: 'AUTHORITY_ROUTE_INVALID'
+    }
   );
   const context = createRepoContext(root, { cache });
   const identity = await context.identity();
@@ -402,6 +784,11 @@ export async function onboardRepository(root, {
     'FOS onboarding attaches a working checkout, not a bare repository.', { code: 'REPOSITORY_STATE_UNSUPPORTED' }
   );
   const existing = await readState(identity);
+  if (offline && !existing) throw new SingularityFlowError(
+    'Offline reuse requires a previously verified attachment pin and complete retained snapshot.', {
+      code: 'AUTHORITY_UNAVAILABLE'
+    }
+  );
   const route = await resolveRoute(context, existing, { remote, authorityLocal });
   if (refresh && !existing) throw new SingularityFlowError(
     'This repository has no recorded FOS authority pin to refresh. Run sflow onboard first.', {
@@ -409,10 +796,12 @@ export async function onboardRepository(root, {
     }
   );
   const request = {
-    kind: refresh ? 'authority-refresh' : 'repository-onboard',
+    kind: offline ? 'offline-reuse' : refresh ? 'authority-refresh' : 'repository-onboard',
     repositoryInstanceId: identity.repositoryInstanceId,
     route,
-    ...(refresh ? { previousDescriptorSha256: existing?.descriptor?.descriptorSha256 ?? null } : {})
+    ...(refresh || offline
+      ? { previousDescriptorSha256: existing?.descriptor?.descriptorSha256 ?? null }
+      : {})
   };
   const requestDigest = `sha256:${recordSha256(request)}`;
   const operationId = `fos-op-${requestDigest.slice('sha256:'.length, 'sha256:'.length + 24)}`;
@@ -443,13 +832,29 @@ export async function onboardRepository(root, {
         { code: 'AUTHORITY_CONFLICT' }
       );
     }
+    if (offline) {
+      const policy = offlinePolicyDecision(currentBinding, now);
+      return Object.freeze({
+        status: 'already-attached', changed: false, operationId,
+        descriptor: currentBinding.descriptor, receipt: currentBinding.receipt,
+        freshness: {
+          mode: 'pinned-offline', observedAt: currentBinding.descriptor.observedAt,
+          current: false, latest: false,
+          ageMilliseconds: policy.ageMilliseconds,
+          expiresAt: policy.expiresAt,
+          policyId: policy.policyId,
+          policySha256: policy.policySha256
+        }
+      });
+    }
     if (currentBinding?.recovery?.required) {
       await stateWriter(stateFile(identity), `${JSON.stringify({
         schemaVersion: currentBinding.schemaVersion,
         kind: currentBinding.kind,
         revision: currentBinding.revision,
         descriptor: currentBinding.descriptor,
-        receipt: currentBinding.receipt
+        receipt: currentBinding.receipt,
+        offlineSnapshot: currentBinding.offlineSnapshot
       }, null, 2)}\n`, { mode: 0o600 });
     }
     // Ordinary onboarding is attachment, not freshness refresh. Once the exact route is attached,
@@ -486,8 +891,11 @@ export async function onboardRepository(root, {
       const snapshot = await loadStoryConfigurationSnapshot(authority);
       const observedAt = nowIso();
       const receiptId = `fos-receipt-${requestDigest.slice('sha256:'.length, 'sha256:'.length + 24)}`;
+      const folded = fold(snapshot);
+      const offlineSnapshot = offlineSnapshotFor(snapshot, folded, observedAt);
       let descriptor = descriptorFor({
-        identity, route, location, authority, snapshot, operationId, receiptId, observedAt
+        identity, route, location, authority, snapshot, offlineSnapshot,
+        operationId, receiptId, observedAt
       });
       const current = await readState(identity);
       const unchanged = Boolean(current
@@ -505,7 +913,8 @@ export async function onboardRepository(root, {
         kind: 'fos-attachment-state',
         revision: (current?.revision ?? 0) + (unchanged ? 0 : 1),
         descriptor,
-        receipt
+        receipt,
+        offlineSnapshot: unchanged ? current.offlineSnapshot : offlineSnapshot
       };
       journal = operationRecord({
         ...journal, phase: 'validated', candidateDigest: descriptor.descriptorSha256,

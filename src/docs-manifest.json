@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "dccc09be1b32954b6ddea1df44e6395041c965f5",
+  "sourceCommit": "477a2f0203a98b75fadea05456326f510f3f5d6f",
   "topicCount": 62,
-  "contentSha256": "c40fae156f51df165a8fc4b50dfcb7018a8e9bd8f5b3ad7aaaeeeee77c177b0f",
+  "contentSha256": "af2ec417b590195c86ca0a78ec3fdde6c39025a7a4e9c1fbee24b06bf32c28e6",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -160,8 +160,8 @@
     {
       "id": "fast-onboarding",
       "title": "Fast onboarding and safe Git acceleration",
-      "version": 2,
-      "sha256": "ddc8faaba96fd2116d10b18f983519ca0d09e66f06ac0800dc9099990ddadeb6",
+      "version": 3,
+      "sha256": "0a1257c742381361e2c88366810b33ac0e12d15d882c4407f9ef229f42d6ee62",
       "routingSha256": "7ce510660d68a51d147c04c7385b481b6bc5ba8e470626811012929b0cde3891",
       "file": "fast-onboarding.md"
     },

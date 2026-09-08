@@ -535,7 +535,7 @@ async function inspectApprovedConfiguration(remote, capability = null, options =
 export async function ensureConfigurationBranch(remote, {
   sourceBranch = null, capability = null, grounding = null,
   sourceCommit = null, publisherRoot = null, transport = {}, remoteSession = null, observedHead = null,
-  env = process.env
+  authorIdentity = null, env = process.env
 } = {}) {
   const url = String(remote ?? '').trim();
   if (!url) throw new SingularityFlowError('A configuration repository URL is required.');
@@ -662,7 +662,15 @@ export async function ensureConfigurationBranch(remote, {
     // Read the caller's ordinary Git identity here; otherwise a valid globally configured user
     // is erased by the transport sandbox and every freshly bootstrapped approval group is empty.
     // The later attainability check remains fail-closed when the caller truly has no email.
-    const actor = gitCommitIdentity(canonicalPublisher ?? scratch, { env });
+    const actor = authorIdentity ?? gitCommitIdentity(canonicalPublisher ?? scratch, { env });
+    if (authorIdentity && (typeof actor?.name !== 'string' || !actor.name.trim()
+        || typeof actor?.email !== 'string' || !actor.email.trim())) {
+      throw new SingularityFlowError(
+        'Configuration authority creation requires a verified Git author identity.', {
+          code: 'CONFIGURATION_AUTHOR_IDENTITY_REQUIRED'
+        }
+      );
+    }
     await describeRepository(scratch, repositoryIdFromUrl(url), url, defaultBranch, actor);
     if (grounding) await setGroundingMode(scratch, grounding);
     if (capability) await describeCapability(scratch, capability);

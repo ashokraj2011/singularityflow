@@ -85,19 +85,28 @@ const PAGES = Object.freeze({
       'Onboarding verifies the recorded, explicitly selected, or only eligible Git authority and',
       'stores a machine-local exact pin and receipt. It does not clone the application repository,',
       'create policy, enumerate an organisation, build AST/world-model data, or invoke a model.',
-      'Remote failures, non-advertisement and ambiguity remain distinct. Bootstrap is deliberately',
-      'unsupported until its independent authority contract is enabled.'
+      'Remote failures, non-advertisement and ambiguity remain distinct. Explicit local-only',
+      'bootstrap uses the package-approved unmanaged-local-v1 preset and never claims organization',
+      'authority. Remote bootstrap also requires a separately installed trusted policy provider and',
+      'a fresh governance-kernel grant; the proposed configuration cannot authorize itself.'
     ],
     options: [
       ['--remote NAME', 'Select one configured remote explicitly.'],
       ['--authority-local', 'Use only an explicitly selected repository-local configuration authority.'],
       ['--offline', 'Request reuse of a verified pin; refused unless approved offline policy is available.'],
+      ['--bootstrap', 'Explicitly request creation of a missing authority under an existing trust contract.'],
+      ['--policy ID', 'Name the approved bootstrap policy; unmanaged-local-v1 is local-only.'],
+      ['--publish', 'Required for authorized remote bootstrap and forbidden for local-only bootstrap.'],
       ['--resume OPERATION-ID', 'Resume only the exact matching interrupted attachment operation.'],
       ['--no-cache', 'Use the uncached reference read path for semantic/performance comparison.'],
       ['--json', 'Emit the descriptor, receipt, freshness and exact outcome.']
     ],
     examples: [
-      ['sflow onboard . --remote origin --json', 'Verify and attach the current checkout.']
+      ['sflow onboard . --remote origin --json', 'Verify and attach the current checkout.'],
+      ['sflow onboard . --bootstrap --policy unmanaged-local-v1 --authority-local --json',
+        'Create an explicitly unmanaged local-only authority without changing the application branch.'],
+      ['sflow onboard . --offline --json',
+        'Reuse complete pinned bytes only when the pinned approved policy permits it.']
     ],
     seeAlso: ['authority', 'workspace', 'doctor']
   },

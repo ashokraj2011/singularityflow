@@ -2966,6 +2966,8 @@ const families = [
   family({ id: 'fos-attachment-state', currentVersion: 1 }),
   family({ id: 'fos-operation-journal', currentVersion: 1 }),
   family({ id: 'fos-attachment-receipt', currentVersion: 1 }),
+  family({ id: 'fos-offline-policy', currentVersion: 1 }),
+  family({ id: 'fos-offline-snapshot', currentVersion: 1 }),
   family({ id: 'fos-remote-publication-journal', currentVersion: 1 }),
   family({ id: 'fos-remote-publication-receipt', currentVersion: 1 }),
   family({ id: 'fos-derived-cache-entry', currentVersion: 1 }),

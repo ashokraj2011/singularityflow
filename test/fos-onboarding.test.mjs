@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { onboardRepository, readFosAttachment, refreshFosAuthority } from '../src/onboard.mjs';
+import {
+  bootstrapFosAuthority, FOS_LOCAL_BOOTSTRAP_POLICY_ID,
+  onboardRepository, readFosAttachment, refreshFosAuthority
+} from '../src/onboard.mjs';
 import {
   loadStoryConfigurationSnapshot, resolveRemoteStoryConfigurationAuthority
 } from '../src/configuration-branch.mjs';
@@ -33,6 +37,36 @@ async function governedRepository() {
   git(['commit', '-qm', 'governance'], root);
   git(['branch', 'sflow/config'], root);
   return root;
+}
+
+async function plainRepository(parent = os.tmpdir(), name = null) {
+  const root = name ? path.join(parent, name) : await mkdtemp(path.join(parent, 'sflow-fos-plain-'));
+  git(['init', '-q', '-b', 'main', root], parent);
+  git(['config', 'user.name', 'FOS Bootstrap'], root);
+  git(['config', 'user.email', 'bootstrap@example.com'], root);
+  await writeFile(path.join(root, 'README.md'), '# plain repository\n');
+  git(['add', '.'], root);
+  git(['commit', '-qm', 'initial'], root);
+  return root;
+}
+
+async function permitOfflineOnboard(root, overrides = {}) {
+  git(['switch', '-q', 'sflow/config'], root);
+  const workflow = await readFile(path.join(root, 'singularity/workflow.yml'));
+  const authorityPolicySha256 = `sha256:${createHash('sha256').update(workflow).digest('hex')}`;
+  const document = {
+    schemaVersion: 1,
+    offline: {
+      policyId: 'bounded-offline-onboard', enabled: true, revoked: false,
+      requiredLive: false, operations: ['onboard'], maxAgeSeconds: 3600,
+      notAfter: '2099-01-01T00:00:00.000Z', authorityPolicySha256,
+      ...overrides
+    }
+  };
+  await writeFile(path.join(root, 'singularity/fos.yml'), `${JSON.stringify(document, null, 2)}\n`);
+  git(['add', 'singularity/fos.yml'], root);
+  git(['commit', '-qm', 'approve bounded offline onboarding'], root);
+  git(['switch', '-q', 'main'], root);
 }
 
 test('FOS:AC-001 existing local authority attaches idempotently without changing the checkout', async () => {
@@ -69,15 +103,110 @@ test('FOS:AC-005 offline and missing authority refuse without bootstrap', async 
   assert.equal(git(['branch', '--list', 'sflow/config'], root), '');
 });
 
-test('FOS:DEFERRED-AC-007 bootstrap is refused before creating attachment state', async () => {
+test('FOS:DEFERRED-AC-007 bootstrap without an approved policy is refused before creating attachment state', async () => {
   const root = await governedRepository();
   const result = spawnSync(process.execPath, [cli, 'onboard', root, '--authority-local', '--bootstrap', '--json'], {
     cwd: os.tmpdir(), encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_TEST_IDENTITY: 'FOS Test' }
   });
   assert.notEqual(result.status, 0);
   const refusal = JSON.parse(result.stderr);
-  assert.equal(refusal.error.code, 'FOS_BOOTSTRAP_UNSUPPORTED');
+  assert.equal(refusal.error.code, 'FOS_BOOTSTRAP_OPTIONS_INVALID');
   assert.equal(await readFosAttachment(root), null);
+});
+
+test('FOS:AC-007 approved bootstrap creates expected absence once while refusals and concurrent losers preserve authority', async () => {
+  const local = await plainRepository();
+  const localHead = git(['rev-parse', 'HEAD'], local);
+  const localRun = spawnSync(process.execPath, [
+    cli, 'onboard', local, '--bootstrap', '--policy', FOS_LOCAL_BOOTSTRAP_POLICY_ID,
+    '--authority-local', '--json'
+  ], {
+    cwd: os.tmpdir(), encoding: 'utf8',
+    env: { ...process.env, SINGULARITY_FLOW_TEST_IDENTITY: 'FOS Bootstrap' }
+  });
+  assert.equal(localRun.status, 0, localRun.stderr);
+  const localResult = JSON.parse(localRun.stdout).data.result;
+  assert.equal(localResult.status, 'bootstrapped');
+  assert.equal(localResult.bootstrap.scope, 'unmanaged-local');
+  assert.equal(localResult.bootstrap.organizationalAuthority, false);
+  assert.equal(git(['rev-parse', 'HEAD'], local), localHead);
+  assert.equal(git(['status', '--porcelain'], local), '');
+  assert.match(git(['rev-parse', 'refs/heads/sflow/config'], local), /^[a-f0-9]{40,64}$/);
+
+  const interrupted = await plainRepository();
+  const interruptedError = new Error('simulated interruption after authority creation');
+  interruptedError.code = 'SIMULATED_INTERRUPT';
+  await assert.rejects(() => bootstrapFosAuthority(interrupted, {
+    authorityLocal: true, policyId: FOS_LOCAL_BOOTSTRAP_POLICY_ID,
+    afterAuthorityCreate: async () => { throw interruptedError; }
+  }), (error) => error.code === 'SIMULATED_INTERRUPT');
+  assert.equal(await readFosAttachment(interrupted), null);
+  const resumed = await bootstrapFosAuthority(interrupted, {
+    authorityLocal: true, policyId: FOS_LOCAL_BOOTSTRAP_POLICY_ID
+  });
+  assert.equal(resumed.status, 'bootstrapped');
+  assert.equal(resumed.bootstrap.reconciled, true);
+
+  const parent = await mkdtemp(path.join(os.tmpdir(), 'sflow-fos-bootstrap-race-'));
+  const source = await plainRepository(parent, 'source');
+  const remote = path.join(parent, 'remote.git');
+  const first = path.join(parent, 'first');
+  const second = path.join(parent, 'second');
+  git(['clone', '-q', '--bare', source, remote], parent);
+  git(['clone', '-q', remote, first], parent);
+  git(['clone', '-q', remote, second], parent);
+  for (const checkout of [first, second]) {
+    git(['config', 'user.name', 'FOS Bootstrap'], checkout);
+    git(['config', 'user.email', 'bootstrap@example.com'], checkout);
+  }
+  git(['config', 'user.name', 'FOS Bootstrap Two'], second);
+  git(['config', 'user.email', 'bootstrap-two@example.com'], second);
+  const policyId = 'approved-organization-bootstrap';
+  const resolveBootstrapPolicy = async ({ actorPrincipalId }) => ({
+    approved: true, id: policyId, scope: 'organization',
+    policySha256: `sha256:${'a'.repeat(64)}`, policyEpoch: 4,
+    trustAnchorSha256: `sha256:${'b'.repeat(64)}`, actorPrincipalId,
+    organizationalAuthority: true, permitsRemotePublication: true,
+    proposedPolicySelfAuthorizing: false
+  });
+  const kernelAuthorize = async (request) => ({
+    disposition: 'allow', ...request, receiptSha256: `sha256:${'c'.repeat(64)}`
+  });
+
+  await assert.rejects(() => bootstrapFosAuthority(first, {
+    remote: 'origin', publish: true, policyId,
+    resolveBootstrapPolicy: async ({ actorPrincipalId }) => ({
+      ...(await resolveBootstrapPolicy({ actorPrincipalId })), approved: false
+    }),
+    kernelAuthorize
+  }), (error) => error.code === 'NOT_AUTHORIZED');
+  assert.equal(spawnSync('git', [
+    '--git-dir', remote, 'show-ref', '--verify', '--quiet', 'refs/heads/sflow/config'
+  ]).status, 1);
+
+  let arrivals = 0;
+  let release;
+  const released = new Promise((resolve) => { release = resolve; });
+  const beforeAuthorityCreate = async () => {
+    arrivals += 1;
+    if (arrivals === 2) release();
+    await released;
+  };
+  const attempts = await Promise.allSettled([first, second].map((checkout) => bootstrapFosAuthority(checkout, {
+    remote: 'origin', publish: true, policyId,
+    resolveBootstrapPolicy, kernelAuthorize, beforeAuthorityCreate
+  })));
+  assert.equal(attempts.filter((entry) => entry.status === 'fulfilled').length, 1);
+  const rejected = attempts.find((entry) => entry.status === 'rejected');
+  assert.equal(rejected.reason.code, 'AUTHORITY_CONFLICT');
+  const winner = git(['--git-dir', remote, 'rev-parse', 'refs/heads/sflow/config'], parent);
+  assert.match(winner, /^[a-f0-9]{40,64}$/);
+  const successful = attempts.find((entry) => entry.status === 'fulfilled').value;
+  assert.equal(successful.bootstrap.authorityCommit, winner);
+
+  await rm(local, { recursive: true, force: true });
+  await rm(interrupted, { recursive: true, force: true });
+  await rm(parent, { recursive: true, force: true });
 });
 
 test('FOS:DEFERRED-AC-008 offline reuse stays refused without approved freshness policy and preserves the pin', async () => {
@@ -87,6 +216,56 @@ test('FOS:DEFERRED-AC-008 offline reuse stays refused without approved freshness
     (error) => error.code === 'AUTHORITY_UNAVAILABLE');
   assert.equal((await readFosAttachment(root)).descriptor.descriptorSha256,
     attached.descriptor.descriptorSha256);
+});
+
+test('FOS:AC-008 offline reuse requires complete pinned bytes and a compatible unexpired policy without network access', async () => {
+  const authority = await governedRepository();
+  await permitOfflineOnboard(authority);
+  const parent = await mkdtemp(path.join(os.tmpdir(), 'sflow-fos-offline-'));
+  const remote = path.join(parent, 'authority.git');
+  const checkout = path.join(parent, 'checkout');
+  git(['clone', '-q', '--bare', authority, remote], parent);
+  git(['clone', '-q', remote, checkout], parent);
+  git(['config', 'user.name', 'Offline FOS'], checkout);
+  git(['config', 'user.email', 'offline@example.com'], checkout);
+  const attached = await onboardRepository(checkout, { remote: 'origin' });
+  const observedAt = Date.parse(attached.descriptor.observedAt);
+  await rm(remote, { recursive: true, force: true });
+
+  const reused = await onboardRepository(checkout, {
+    remote: 'origin', offline: true, now: new Date(observedAt + 1_000)
+  });
+  assert.equal(reused.freshness.mode, 'pinned-offline');
+  assert.equal(reused.freshness.current, false);
+  assert.equal(reused.freshness.latest, false);
+  assert.equal(reused.freshness.ageMilliseconds, 1_000);
+  assert.equal(reused.freshness.policyId, 'bounded-offline-onboard');
+
+  await assert.rejects(() => onboardRepository(checkout, {
+    remote: 'origin', offline: true, now: new Date(observedAt + 3_600_001)
+  }), (error) => error.code === 'AUTHORITY_UNAVAILABLE');
+
+  const common = path.resolve(checkout, git(['rev-parse', '--git-common-dir'], checkout));
+  const statePath = path.join(common, 'singularity-flow', 'fos', 'attachments',
+    attached.descriptor.repository.repositoryInstanceId, 'current.json');
+  const damaged = JSON.parse(await readFile(statePath, 'utf8'));
+  damaged.offlineSnapshot.assets[0].contentsBase64 = '';
+  await writeFile(statePath, `${JSON.stringify(damaged, null, 2)}\n`);
+  await assert.rejects(() => onboardRepository(checkout, {
+    remote: 'origin', offline: true, now: new Date(observedAt + 2_000)
+  }), (error) => error.code === 'AUTHORITY_PIN_INVALID');
+
+  const liveRequired = await governedRepository();
+  await permitOfflineOnboard(liveRequired, { requiredLive: true });
+  const liveAttached = await onboardRepository(liveRequired, { authorityLocal: true });
+  await assert.rejects(() => onboardRepository(liveRequired, {
+    authorityLocal: true, offline: true,
+    now: new Date(Date.parse(liveAttached.descriptor.observedAt) + 1_000)
+  }), (error) => error.code === 'AUTHORITY_UNAVAILABLE');
+
+  await rm(parent, { recursive: true, force: true });
+  await rm(authority, { recursive: true, force: true });
+  await rm(liveRequired, { recursive: true, force: true });
 });
 
 test('FOS:AC-003 ambiguous configured remotes require an explicit choice', async () => {

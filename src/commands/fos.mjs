@@ -1,7 +1,9 @@
 import { repoRoot } from '../git.mjs';
 import { incrementCommandCounter, markCommandFeedback } from '../dx-timing-context.mjs';
 import { clearFosDerivedCache } from '../fos-derived-cache.mjs';
-import { onboardRepository, refreshFosAuthority } from '../onboard.mjs';
+import {
+  bootstrapFosAuthority, onboardRepository, refreshFosAuthority
+} from '../onboard.mjs';
 import { commandResult, effects, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 import {
@@ -49,23 +51,41 @@ export async function run(_argv, { positionals, options }) {
   const json = optionBoolean(options, 'json');
   if (command === 'onboard') {
     const root = selectedRoot(requirePositional(positionals, 1, 'local path'));
-    if (optionBoolean(options, 'bootstrap') || optionBoolean(options, 'publish')) {
+    const bootstrap = optionBoolean(options, 'bootstrap');
+    const publish = optionBoolean(options, 'publish');
+    const offline = optionBoolean(options, 'offline');
+    if (publish && !bootstrap) {
       throw new SingularityFlowError(
-        'FOS bootstrap is not enabled. Use the existing reviewed bootstrap/configuration-authority workflow.',
-        { code: 'FOS_BOOTSTRAP_UNSUPPORTED' }
+        '--publish is valid only with an explicit approved bootstrap.',
+        { code: 'FOS_BOOTSTRAP_OPTIONS_INVALID' }
       );
+    }
+    if (bootstrap && offline) throw new SingularityFlowError(
+      '--offline cannot be combined with bootstrap or publication.', {
+        code: 'FOS_BOOTSTRAP_OPTIONS_INVALID'
+      }
+    );
+    if (bootstrap) {
+      markCommandFeedback();
+      if (!json) process.stderr.write('Establishing one missing authority under an existing bootstrap trust contract; no source scan, AST, world model, or model request will run.\n');
+      return output(await bootstrapFosAuthority(root, {
+        remote: optionString(options, 'remote'),
+        authorityLocal: optionBoolean(options, 'authority-local'),
+        publish,
+        policyId: optionString(options, 'policy')
+      }), json, 'onboard');
     }
     // This is meaningful feedback rather than an empty spinner: it says exactly which bounded
     // operation has begun without reflecting a path, URL, identity, or secret into diagnostics.
     markCommandFeedback();
-    process.stderr.write('Verifying one reviewed configuration authority; no clone, source scan, AST, world model, or model request will run.\n');
+    if (!json) process.stderr.write('Verifying one reviewed configuration authority; no clone, source scan, AST, world model, or model request will run.\n');
     for (const counter of ['discovery.calls', 'composition.calls', 'llm.calls', 'ast.calls']) {
       incrementCommandCounter(counter, 0);
     }
     return output(await onboardRepository(root, {
       remote: optionString(options, 'remote'),
       authorityLocal: optionBoolean(options, 'authority-local'),
-      offline: optionBoolean(options, 'offline'),
+      offline,
       cache: options.cache !== false,
       // `--resume` is an established boolean flag on other commands. The shared parser therefore
       // leaves its value as the next positional for this command rather than greedily consuming it.

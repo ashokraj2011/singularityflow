@@ -1481,6 +1481,71 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   ));
 
   context.subscriptions.push(vscode.commands.registerCommand(
+    'singularityFlow.bootstrapLocalAuthority', async () => {
+      const repository = await chooseFosRepository('Choose the unmanaged repository to initialize locally');
+      if (!repository) return;
+      const confirmed = await vscode.window.showWarningMessage(
+        'Create a local-only Singularity Flow authority?',
+        {
+          modal: true,
+          detail: `Repository: ${repository}\nPolicy: unmanaged-local-v1\n\nThis creates sflow/config without changing the application branch. It does not claim organization membership, corporate approval, or authority over another repository.`
+        },
+        'Create local-only authority'
+      );
+      if (confirmed !== 'Create local-only authority') return;
+      try {
+        const envelope = await vscode.window.withProgress(
+          { location: vscode.ProgressLocation.Notification, title: 'Creating local-only configuration authority', cancellable: false },
+          () => fosClient(repository).run<any>([
+            'onboard', repository, '--bootstrap', '--policy', 'unmanaged-local-v1',
+            '--authority-local', '--json'
+          ])
+        );
+        const result = fosPayload<{ status: string; bootstrap?: {
+          operationId?: string; scope?: string; authorityCommit?: string;
+        } }>(envelope);
+        output.appendLine(`FOS local bootstrap: ${result.status} · ${result.bootstrap?.operationId ?? 'unknown operation'}`);
+        output.appendLine(`Scope: ${result.bootstrap?.scope ?? 'local-only'} · authority ${result.bootstrap?.authorityCommit ?? 'unknown'}`);
+        output.show(true);
+        void vscode.window.showInformationMessage('Local-only authority created and attached.');
+      } catch (error) {
+        showRefusal(error, { headline: 'Local-only authority creation did not complete' });
+      }
+    }
+  ));
+
+  context.subscriptions.push(vscode.commands.registerCommand(
+    'singularityFlow.useOfflineAuthorityPin', async () => {
+      const repository = await chooseFosRepository('Choose the attached repository to use offline');
+      if (!repository) return;
+      const confirmed = await vscode.window.showInformationMessage(
+        'Use this repository’s approved offline authority pin?',
+        {
+          modal: true,
+          detail: `Repository: ${repository}\n\nNo remote will be contacted. Complete retained bytes and the pinned authority policy must permit this operation and remain unexpired.`
+        },
+        'Use approved offline pin'
+      );
+      if (confirmed !== 'Use approved offline pin') return;
+      try {
+        const envelope = await vscode.window.withProgress(
+          { location: vscode.ProgressLocation.Notification, title: 'Validating retained offline authority', cancellable: false },
+          () => fosClient(repository).run<any>(['onboard', repository, '--offline', '--json'])
+        );
+        const result = fosPayload<{ status: string; freshness?: {
+          mode?: string; ageMilliseconds?: number; expiresAt?: string; policyId?: string;
+        } }>(envelope);
+        output.appendLine(`FOS offline authority: ${result.status} · ${result.freshness?.mode ?? 'unknown'}`);
+        output.appendLine(`Policy: ${result.freshness?.policyId ?? 'unknown'} · age ${result.freshness?.ageMilliseconds ?? 'unknown'} ms · expires ${result.freshness?.expiresAt ?? 'unknown'}`);
+        output.show(true);
+        void vscode.window.showInformationMessage('Approved pinned authority is available offline. It is not reported as current or latest.');
+      } catch (error) {
+        showRefusal(error, { headline: 'Offline authority reuse was refused' });
+      }
+    }
+  ));
+
+  context.subscriptions.push(vscode.commands.registerCommand(
     'singularityFlow.configureGitAcceleration', async () => {
       const repository = await chooseFosRepository('Choose the repository to inspect');
       if (!repository) return;

@@ -18,10 +18,9 @@ test('FOS release inventory binds exact source locations and test-body digests w
   assert.ok(report.representedAcceptanceCases.includes('FOS:AC-001'));
   assert.ok(report.representedAcceptanceCases.includes('FOS:AC-002'));
   assert.ok(report.representedAcceptanceCases.includes('FOS:AC-011'));
-  assert.equal(report.representedAcceptanceCases.length, 44);
+  assert.equal(report.representedAcceptanceCases.length, 46);
   assert.deepEqual(report.unrepresentedAcceptanceCases, [
-    'FOS:AC-007', 'FOS:AC-008', 'FOS:AC-033',
-    'FOS:AC-034', 'FOS:AC-035', 'FOS:AC-036'
+    'FOS:AC-033', 'FOS:AC-034', 'FOS:AC-035', 'FOS:AC-036'
   ]);
   assert.equal(report.malformedWitnesses.length, 0);
   assert.equal(report.duplicateTitles.length, 0);

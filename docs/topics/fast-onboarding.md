@@ -14,7 +14,7 @@ commands:
 related:
   - getting-started
   - starting-work
-version: 2
+version: 3
 ---
 Fast onboarding attaches an existing Git checkout to one exact reviewed configuration authority.
 It performs no clone, source scan, AST or World-Model build, model call, application checkout, or
@@ -22,8 +22,9 @@ application-branch commit. The verified authority pin is machine-local and Story
 
 ## Purpose and prerequisites
 
-Use this topic for an existing checkout. The repository must already advertise reviewed
-`sflow/config` or a verified `state` projection. With multiple remotes, choose one explicitly;
+Use this topic for an existing checkout. Ordinarily the repository already advertises reviewed
+`sflow/config` or a verified `state` projection. An explicitly unmanaged repository can instead
+use the package-approved local-only bootstrap preset. With multiple remotes, choose one explicitly;
 `origin` is never assumed to be more authoritative. Credential-bearing and external-helper
 remote forms are refused before persistence or network access.
 
@@ -32,9 +33,14 @@ remote forms are refused before persistence or network access.
 - **Shell:** `singularity-flow onboard <LOCAL-PATH> [--remote <NAME> | --authority-local]`.
   Advance an existing pin only with `singularity-flow authority refresh <LOCAL-PATH>`.
   Add `--no-cache` only when comparing the reference read path; it changes no policy or receipt.
+  Use `--offline` only for an already attached pin whose retained approved `singularity/fos.yml`
+  policy permits bounded offline onboarding. For a new unmanaged local repository use
+  `--bootstrap --policy unmanaged-local-v1 --authority-local`. Remote bootstrap additionally needs
+  `--publish` and an installed trusted organizational policy/kernel provider.
 - **Copilot:** ask `/sf-init` to attach the current existing checkout and require it to show the
   exact repository and authority route before running the command.
 - **VS Code:** use **Fast Onboard Existing Repository**, **Refresh Repository Authority Pin**,
+  **Create Local-Only Configuration Authority**, **Use Approved Offline Authority Pin**,
   **Inspect or Enable Safe Git Acceleration**, or **Clear Disposable Derived Cache**.
 
 ## Guided workflow
@@ -47,6 +53,10 @@ remote forms are refused before persistence or network access.
 5. When reviewed configuration moves, run `singularity-flow authority refresh <LOCAL-PATH>`;
    ordinary repeated onboarding intentionally keeps the previous exact pin.
 6. Use `--no-cache` only for diagnosis or semantic comparison. It does not clear durable caches.
+
+Offline results say `pinned-offline`, show their age and expiry, and never claim to be current or
+latest. Missing retained bytes, expiry, revocation, an incompatible policy, or a required-live rule
+refuses without contacting a remote or creating authority.
 
 ## State and safety
 

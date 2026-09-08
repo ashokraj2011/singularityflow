@@ -18,6 +18,13 @@ singularity-flow onboard /absolute/path/to/repository --authority-local
 
 # Re-observe the previously recorded route and advance its exact pin.
 singularity-flow authority refresh /absolute/path/to/repository
+
+# Explicitly initialize an unmanaged local-only repository. This never claims organization scope.
+singularity-flow onboard /absolute/path/to/repository \
+  --bootstrap --policy unmanaged-local-v1 --authority-local
+
+# Reuse complete retained bytes when the pinned authority policy permits bounded offline use.
+singularity-flow onboard /absolute/path/to/repository --offline
 ```
 
 Repeated `onboard` is idempotent. It returns the existing receipt and does not contact the remote
@@ -56,6 +63,8 @@ Open the Command Palette and run one of:
 
 - **Singularity Flow: Fast Onboard Existing Repository**
 - **Singularity Flow: Refresh Repository Authority Pin**
+- **Singularity Flow: Create Local-Only Configuration Authority**
+- **Singularity Flow: Use Approved Offline Authority Pin**
 - **Singularity Flow: Inspect or Enable Safe Git Acceleration**
 - **Singularity Flow: Clear Disposable Derived Cache**
 
@@ -102,9 +111,17 @@ singularity-flow cache clear --derived --repo /absolute/path/to/repository --jso
 | `AUTHORITY_PIN_INVALID` | Local pin/receipt integrity or schema validation failed | Run `singularity-flow doctor --json`; do not hand-edit the record |
 | `cache-unavailable` | Optional cache storage failed | Continue uncached; repair disk/permissions separately |
 
-`--bootstrap`, `--publish`, and offline attachment are intentionally refused in this release.
-They require separate approved bootstrap and offline-freshness policy rather than a performance
-shortcut.
+Local-only bootstrap is available only as the explicit package-approved `unmanaged-local-v1`
+preset. It creates `sflow/config` without changing the application branch, records its operation,
+and labels the result unmanaged/local-only. It cannot create organization membership or remote
+authority. Remote bootstrap requires `--publish` plus a separately installed trusted policy
+provider and fresh governance-kernel grant; without those, it refuses before creating authority.
+
+Offline reuse is enabled by approved authority bytes, not a machine setting. The pinned
+`singularity/fos.yml` must permit the `onboard` operation, bind the pinned workflow policy digest,
+set a finite `maxAgeSeconds` and `notAfter`, and not be revoked or require a live check. The atomic
+attachment stores a digest-bound bounded snapshot (maximum 32 MiB). Missing or altered bytes,
+expiry, incompatible policy, and required-live policy all refuse without network or bootstrap.
 
 ## Optional experience and automation features
 

@@ -224,6 +224,16 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "singularityFlow.bootstrapLocalAuthority",
+        "title": "Singularity Flow: Create Local-Only Configuration Authority",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "singularityFlow.useOfflineAuthorityPin",
+        "title": "Singularity Flow: Use Approved Offline Authority Pin",
+        "icon": "$(cloud)"
+      },
+      {
         "command": "singularityFlow.configureGitAcceleration",
         "title": "Singularity Flow: Inspect or Enable Safe Git Acceleration",
         "icon": "$(dashboard)"

@@ -27,7 +27,7 @@ unavailable enterprise authority or platform evidence was simulated.
 | M2 | `onboard`, explicit route selection, exact configuration fold/pin, bounded authority-move retry, durable recoverable journal/receipt, idempotence, refresh, credential/rebind refusal, explicit package-approved local-only bootstrap, trusted-provider remote bootstrap boundary, bounded digest-bound offline snapshots and finite pinned-policy reuse, exact leased remote publication with interruption reconciliation, publication-time authorization revalidation, per-capability decisions, non-sticky observations, concurrent World-Model view preservation, Story-start pin consumption, no discovery/AST/WM/model start callback, CLI/help/VS Code surfaces | Live organizational remote-bootstrap certification remains dependent on a separately installed trusted policy/kernel provider; no packaged preset grants corporate authority |
 | M3 | Bounded derived cache with full parser/configuration/membership/sparse/ignore/path dependency identity, safe clear, quota/entry limits, shared binary-safe exact-OID object service, non-sticky negative reads, sealed worktree/index input bytes, Git-speed inspection/apply/rollback receipt, VS Code actions | macOS/Linux/Windows process and controlled performance lanes before any default enablement |
 | M4 | Independent-off feature contracts for reusable defaults, interpretation, provenance prefill, error guidance, bounded local evidence ingestion, and crash-safe Story-switch recovery | Product-surface rollout remains opt-in and must consume approved repository policy |
-| M5 | Strict pre-authorization, approval request/outbox, replay/staleness/separation checks, and advisory/enforced PR adoption contracts | Real identity, notification, trusted server-gate and workflow-import adapters plus live certification; M5 remains disabled |
+| M5 | Strict pre-authorization, approval request/outbox, replay/staleness/separation checks, advisory/enforced PR adoption contracts, and an exact-implementation-bound adapter certification boundary now exist; authenticated group membership, notification receipts, branch protection and imported CI evidence must pass only through a process-branded verified adapter set | Supply and independently review real identity, notification, trusted server-gate and workflow-import implementations plus physical certification evidence; M5 remains disabled even when all prerequisite records verify |
 
 Operator commands, recovery semantics, VS Code actions, and the feature matrix are documented in
 [Fast onboarding and safe Git performance](FAST-ONBOARDING-AND-GIT-PERFORMANCE.md).
@@ -334,6 +334,20 @@ Every item has an independent feature flag and can ship or roll back without cha
 
 This milestone cannot be declared complete from local mocks alone. Deterministic adapter tests are
 required locally and live adapter certification is separate release evidence.
+
+The code-local certification boundary binds each external certification to the exact adapter ID,
+version and implementation digest loaded in the current process. It requires the complete
+adapter-specific adversarial scenario set, a current policy and trust root, a validity interval,
+an independent reviewer, and verification by a trusted attestation verifier. The resulting adapter
+set is branded by object identity: booleans, copied JSON and serialized readiness output cannot
+unlock M5. Certification does not itself approve a change, deliver a kernel grant, or enable M5.
+
+Approval acceptance uses the certified identity adapter to authenticate the actual person and
+resolve membership in a requested group; it never records a group ID as the human principal.
+Notification success must bind the exact request ID and digest. Enforced PR evidence additionally
+requires a certified server-gate observation that preserves existing checks and a certified
+workflow-import result bound to provider, repository, workflow/trust identities, run attempt,
+tested commit, artifact, environment and passing non-skipped test identities.
 
 ## Requirement-to-milestone trace
 

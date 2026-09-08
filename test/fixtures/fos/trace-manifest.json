@@ -44,8 +44,8 @@
     },
     "M5": {
       "requirements": ["FOS:REQ-040", "FOS:REQ-041", "FOS:REQ-043"],
-      "modules": ["src/fos-features.mjs"],
-      "tests": ["test/fos-features.test.mjs"]
+      "modules": ["src/fos-adapters.mjs", "src/fos-api.mjs", "src/fos-convenience-store.mjs", "src/fos-features.mjs"],
+      "tests": ["test/fos-adapters.test.mjs", "test/fos-convenience-store.test.mjs", "test/fos-features.test.mjs"]
     }
   },
   "acceptanceCases": [

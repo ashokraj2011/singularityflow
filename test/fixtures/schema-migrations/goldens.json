@@ -32,6 +32,8 @@
   "fos-story-switch-outcome": [{ "schemaVersion": 1 }],
   "fos-reusable-default": [{ "schemaVersion": 1 }],
   "fos-approval-request": [{ "schemaVersion": 1 }],
+  "fos-adapter-certification": [{ "schemaVersion": 1 }],
+  "fos-adapter-set": [{ "schemaVersion": 1 }],
   "intent-envelope": [{ "schemaVersion": 1 }],
   "intent-ir": [{ "schemaVersion": 1 }],
   "workflow-ir": [{ "schemaVersion": 1 }],

@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 
+import { certifiedFosAdapterTypes, requireCertifiedFosAdapter } from './fos-adapters.mjs';
 import { recordSha256 } from './records.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { SingularityFlowError } from './util.mjs';
@@ -22,6 +23,12 @@ export const FOS_FEATURE_DEFAULTS = Object.freeze(Object.fromEntries(
 const HASH = /^sha256:[a-f0-9]{64}$/;
 const FIELD_CLASSIFICATIONS = new Set(['observed', 'derived', 'historical', 'needs_input']);
 const PRINCIPAL = /^[a-z0-9]+(?:[.:_-][a-z0-9]+)*$/;
+const FOS_ADAPTER_TYPES_FOR_READINESS = Object.freeze([
+  ['identityAdapter', 'identity'],
+  ['notificationAdapter', 'notification'],
+  ['serverGate', 'server-gate'],
+  ['workflowImportAdapter', 'workflow-import']
+]);
 
 function fail(message, code) {
   throw new SingularityFlowError(message, { code });
@@ -388,18 +395,37 @@ export function createFosApprovalRequest(input, { features = {}, now = new Date(
   return Object.freeze({ ...request, requestSha256: `sha256:${recordSha256(request)}` });
 }
 
-export async function acceptFosApprovalRequest(request, response, current, kernelAccept, { now = new Date(), replayed = false } = {}) {
+export async function acceptFosApprovalRequest(request, response, current, kernelAccept, {
+  now = new Date(), replayed = false, adapterSet = null
+} = {}) {
   if (replayed || response?.challenge !== request?.challenge) fail('Approval challenge is stale or replayed.', 'FOS_APPROVAL_REPLAYED');
   if (Date.parse(request.expiresAt) <= now.getTime()) fail('Approval request expired.', 'FOS_APPROVAL_EXPIRED');
   if (current?.candidateSha256 !== request.candidateSha256 || current?.policySha256 !== request.policySha256
       || current?.policyEpoch !== request.policyEpoch) fail('Approval request no longer matches current authority.', 'FOS_APPROVAL_STALE');
-  if (!request.recipients.includes(response?.principalId)) fail('Approving principal is outside the authorized scope.', 'NOT_AUTHORIZED');
-  if (response.principalId === request.actorPrincipalId && current?.separationOfDuties) fail('Separation of duties forbids self-approval.', 'NOT_AUTHORIZED');
+  if (!PRINCIPAL.test(response?.principalId ?? '')) fail('Approving principal is outside the authorized scope.', 'NOT_AUTHORIZED');
+  const identityAdapter = requireCertifiedFosAdapter(adapterSet, 'identity');
+  const verifiedIdentity = await identityAdapter.verifyPrincipal(Object.freeze({
+    requestId: request.requestId,
+    challenge: request.challenge,
+    assertedPrincipalId: response.principalId,
+    targetAuthoritySha256: request.targetAuthoritySha256,
+    recipients: Object.freeze([...request.recipients])
+  }));
+  const authorizedRecipientIds = [...new Set(verifiedIdentity?.authorizedRecipientIds ?? [])];
+  if (verifiedIdentity?.authenticated !== true || verifiedIdentity?.revoked === true
+      || verifiedIdentity?.principalId !== response.principalId
+      || verifiedIdentity?.requestId !== request.requestId
+      || verifiedIdentity?.challenge !== request.challenge
+      || verifiedIdentity?.targetAuthoritySha256 !== request.targetAuthoritySha256
+      || !authorizedRecipientIds.some((id) => request.recipients.includes(id))) {
+    fail('The configured identity adapter did not verify an authorized principal.', 'NOT_AUTHORIZED');
+  }
+  if (verifiedIdentity.principalId === request.actorPrincipalId && current?.separationOfDuties) fail('Separation of duties forbids self-approval.', 'NOT_AUTHORIZED');
   if (typeof kernelAccept !== 'function') fail('No approved approval-kernel adapter is configured.', 'TRUST_REQUIRED');
-  return kernelAccept({ request, response, current });
+  return kernelAccept({ request, response, current, verifiedIdentity: Object.freeze(structuredClone(verifiedIdentity)) });
 }
 
-export function evaluateFosPrCheckAdoption(input, { features = {} } = {}) {
+export async function evaluateFosPrCheckAdoption(input, { features = {}, adapterSet = null } = {}) {
   assertFosFeature(features, 'pr-check-adoption');
   if (!['advisory', 'enforced'].includes(input?.mode)) fail('PR-check adoption mode must be advisory or enforced.', 'FOS_PR_MODE_INVALID');
   if (!input.repositoryAuthorized) return Object.freeze({ status: 'refused', code: 'NOT_AUTHORIZED', authoritative: false });
@@ -407,14 +433,50 @@ export function evaluateFosPrCheckAdoption(input, { features = {} } = {}) {
     status: 'advisory', authoritative: false, mayMerge: false,
     scope: Object.freeze([...(input.scope ?? [])]), gaps: Object.freeze([...(input.gaps ?? [])])
   });
-  if (!input.trustedServerGate || !input.branchProtectionVerified || !input.workflowImportCertified) {
+  let serverGate;
+  let workflowImport;
+  try {
+    serverGate = requireCertifiedFosAdapter(adapterSet, 'server-gate');
+    workflowImport = requireCertifiedFosAdapter(adapterSet, 'workflow-import');
+  } catch (error) {
+    if (error?.code !== 'TRUST_REQUIRED') throw error;
     return Object.freeze({ status: 'unavailable', code: 'TRUST_REQUIRED', authoritative: false, mayMerge: false });
   }
+  const repositoryId = boundedText(input.repositoryId, 'repositoryId', 256);
+  const sourceCommit = boundedText(input.sourceCommit, 'sourceCommit', 64);
+  if (!/^[a-f0-9]{40,64}$/.test(sourceCommit)) fail('PR adoption requires an exact source commit.', 'FOS_PR_EVIDENCE_INVALID');
+  const protection = await serverGate.verifyProtection(Object.freeze({ repositoryId, sourceCommit }));
+  if (protection?.verified !== true || protection.repositoryId !== repositoryId
+      || protection.sourceCommit !== sourceCommit || protection.branchProtection !== true
+      || protection.existingChecksPreserved !== true) {
+    return Object.freeze({ status: 'refused', code: 'SERVER_GATE_UNVERIFIED', authoritative: false, mayMerge: false });
+  }
   const evidence = input.evidence;
-  const complete = evidence?.trusted === true && HASH.test(evidence.artifactSha256 ?? '')
-    && evidence.sourceCommit === input.sourceCommit && evidence.status === 'passed'
-    && Array.isArray(evidence.tests) && evidence.tests.length > 0
-    && evidence.tests.every((test) => test.status === 'passed' && test.identity);
+  const requiredTests = [...new Set((input.requiredTestIdentities ?? []).map((identity) =>
+    boundedText(identity, 'required test identity', 512)))].sort();
+  const imported = await workflowImport.verifyEvidence(Object.freeze(structuredClone(evidence ?? {})));
+  const importedTests = Array.isArray(imported?.tests) ? [...imported.tests] : [];
+  const importedTestIdentities = importedTests.map((test) => String(test?.identity ?? '')).sort();
+  const complete = evidence?.forkControlled !== true
+    && boundedText(evidence?.provider, 'evidence.provider', 128) === imported?.provider
+    && repositoryId === imported?.repositoryId
+    && HASH.test(evidence?.workflowDefinitionSha256 ?? '')
+    && evidence.workflowDefinitionSha256 === imported?.workflowDefinitionSha256
+    && HASH.test(evidence?.trustIdentitySha256 ?? '')
+    && evidence.trustIdentitySha256 === imported?.trustIdentitySha256
+    && boundedText(evidence?.runId, 'evidence.runId', 256) === imported?.runId
+    && Number.isSafeInteger(evidence?.runAttempt) && evidence.runAttempt > 0
+    && evidence.runAttempt === imported?.runAttempt
+    && HASH.test(evidence?.artifactSha256 ?? '')
+    && evidence.artifactSha256 === imported?.artifactSha256
+    && HASH.test(evidence?.environmentSha256 ?? '')
+    && evidence.environmentSha256 === imported?.environmentSha256
+    && evidence.testedCommit === sourceCommit && imported?.testedCommit === sourceCommit
+    && imported?.trusted === true && imported?.status === 'passed'
+    && requiredTests.length > 0
+    && importedTestIdentities.length === requiredTests.length
+    && importedTestIdentities.every((identity, index) => identity === requiredTests[index])
+    && importedTests.every((test) => test.status === 'passed' && test.skipped !== true);
   return complete
     ? Object.freeze({ status: 'enforced-evidence-eligible', authoritative: true, mayMerge: false })
     : Object.freeze({ status: 'refused', code: 'EVIDENCE_INCOMPLETE', authoritative: false, mayMerge: false });
@@ -446,15 +508,20 @@ export function fosFailureGuidance(code) {
   return Object.freeze({ code, command, executesAutomatically: false });
 }
 
-export function fosMilestoneReadiness({ identityAdapter = false, notificationAdapter = false, serverGate = false, workflowImportAdapter = false } = {}) {
+export function fosMilestoneReadiness({ adapterSet = null } = {}) {
+  const certified = new Set(certifiedFosAdapterTypes(adapterSet));
+  const prerequisites = Object.freeze(Object.fromEntries(FOS_ADAPTER_TYPES_FOR_READINESS.map(
+    ([name, type]) => [name, certified.has(type)]
+  )));
+  const complete = Object.values(prerequisites).every(Boolean);
   return Object.freeze({
     trackA: Object.freeze({ status: 'implemented', milestones: Object.freeze(['M0', 'M1', 'M2', 'M3']) }),
     M4: Object.freeze({ status: 'implemented-disabled-by-default', features: Object.freeze(FOS_FEATURE_IDS.filter((id) => !['policy-preauthorization', 'approval-routing', 'pr-check-adoption'].includes(id))) }),
     M5: Object.freeze({
-      status: identityAdapter && notificationAdapter && serverGate && workflowImportAdapter
-        ? 'adapter-prerequisites-present-certification-required' : 'external-adapters-required',
+      status: complete ? 'verified-adapter-prerequisites-present-live-release-review-required'
+        : 'external-adapters-required',
       enabled: false,
-      prerequisites: Object.freeze({ identityAdapter, notificationAdapter, serverGate, workflowImportAdapter })
+      prerequisites
     })
   });
 }

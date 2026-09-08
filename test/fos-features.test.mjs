@@ -9,6 +9,7 @@ import {
   requestFosPreauthorization, resolveFosFeatures, resolveFosReusableDefault,
   validateFosPublicationBoundary
 } from '../src/fos-features.mjs';
+import { fakeCertifiedFosAdapterSet } from './helpers/fos-certified-adapters.mjs';
 
 const sha = (character) => `sha256:${character.repeat(64)}`;
 
@@ -206,16 +207,105 @@ test('FOS:AC-041 approval requests reject replay, staleness and aliases before k
   }, { candidateSha256: sha('c'), policySha256: sha('e'), policyEpoch: 9 }, async () => ({}), {
     now: new Date('2029-01-01'), replayed: true
   }), (error) => error.code === 'FOS_APPROVAL_REPLAYED');
+
+  const adapterSet = await fakeCertifiedFosAdapterSet({
+    identity: {
+      async verifyPrincipal(input) {
+        return {
+          authenticated: true,
+          revoked: false,
+          principalId: input.assertedPrincipalId,
+          requestId: input.requestId,
+          challenge: input.challenge,
+          targetAuthoritySha256: input.targetAuthoritySha256,
+          authorizedRecipientIds: ['group:reviewers']
+        };
+      }
+    }
+  }, { types: ['identity'] });
+  const accepted = await acceptFosApprovalRequest(request, {
+    challenge: request.challenge, principalId: 'user:reviewer'
+  }, {
+    candidateSha256: sha('c'), policySha256: sha('e'), policyEpoch: 9,
+    separationOfDuties: true
+  }, async ({ verifiedIdentity }) => ({
+    status: 'accepted', principalId: verifiedIdentity.principalId
+  }), { now: new Date('2029-01-01'), adapterSet });
+  assert.deepEqual(accepted, { status: 'accepted', principalId: 'user:reviewer' });
 });
 
-test('FOS:AC-043 PR checks separate advisory evidence from unavailable enforced authority', () => {
+test('FOS:AC-043 PR checks require exact certified server and workflow-import adapters', async () => {
   const features = { 'pr-check-adoption': true };
-  const advisory = evaluateFosPrCheckAdoption({ mode: 'advisory', repositoryAuthorized: true, scope: ['tests'], gaps: ['identity'] }, { features });
+  const advisory = await evaluateFosPrCheckAdoption({
+    mode: 'advisory', repositoryAuthorized: true, scope: ['tests'], gaps: ['identity']
+  }, { features });
   assert.equal(advisory.authoritative, false);
   assert.equal(advisory.mayMerge, false);
-  const enforced = evaluateFosPrCheckAdoption({ mode: 'enforced', repositoryAuthorized: true }, { features });
+  const enforced = await evaluateFosPrCheckAdoption({
+    mode: 'enforced', repositoryAuthorized: true,
+    trustedServerGate: true, workflowImportCertified: true
+  }, { features });
   assert.equal(enforced.status, 'unavailable');
   assert.equal(enforced.code, 'TRUST_REQUIRED');
+
+  const sourceCommit = '1'.repeat(40);
+  const evidence = {
+    provider: 'office-ci',
+    repositoryId: 'repo:payments',
+    workflowDefinitionSha256: sha('2'),
+    trustIdentitySha256: sha('3'),
+    runId: 'run:41',
+    runAttempt: 2,
+    testedCommit: sourceCommit,
+    artifactSha256: sha('4'),
+    environmentSha256: sha('5'),
+    forkControlled: false
+  };
+  const adapterSet = await fakeCertifiedFosAdapterSet({
+    'server-gate': {
+      async verifyProtection(input) {
+        return {
+          verified: true,
+          repositoryId: input.repositoryId,
+          sourceCommit: input.sourceCommit,
+          branchProtection: true,
+          existingChecksPreserved: true
+        };
+      }
+    },
+    'workflow-import': {
+      async verifyEvidence(input) {
+        return {
+          ...input,
+          trusted: true,
+          status: 'passed',
+          tests: [{ identity: 'test:interest', status: 'passed', skipped: false }]
+        };
+      }
+    }
+  }, { types: ['server-gate', 'workflow-import'] });
+  const eligible = await evaluateFosPrCheckAdoption({
+    mode: 'enforced', repositoryAuthorized: true, repositoryId: evidence.repositoryId,
+    sourceCommit, evidence, requiredTestIdentities: ['test:interest']
+  }, { features, adapterSet });
+  assert.equal(eligible.status, 'enforced-evidence-eligible');
+  assert.equal(eligible.authoritative, true);
+  assert.equal(eligible.mayMerge, false);
+
+  const incompleteScope = await evaluateFosPrCheckAdoption({
+    mode: 'enforced', repositoryAuthorized: true, repositoryId: evidence.repositoryId,
+    sourceCommit, evidence, requiredTestIdentities: ['test:interest', 'test:boundary']
+  }, { features, adapterSet });
+  assert.equal(incompleteScope.status, 'refused');
+  assert.equal(incompleteScope.code, 'EVIDENCE_INCOMPLETE');
+
+  const fork = await evaluateFosPrCheckAdoption({
+    mode: 'enforced', repositoryAuthorized: true, repositoryId: evidence.repositoryId,
+    sourceCommit, evidence: { ...evidence, forkControlled: true },
+    requiredTestIdentities: ['test:interest']
+  }, { features, adapterSet });
+  assert.equal(fork.status, 'refused');
+  assert.equal(fork.code, 'EVIDENCE_INCOMPLETE');
 });
 
 test('FOS:AC-044 every specified failure class has a non-executing registered remedy', () => {

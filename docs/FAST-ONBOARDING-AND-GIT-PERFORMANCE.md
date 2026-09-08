@@ -142,6 +142,24 @@ The last three automation features remain disabled until real identity, notifica
 server-gate, and workflow-import adapters have been certified. Deterministic local adapter tests
 prove refusal and binding behavior; they do not impersonate that external authority.
 
+M5 adapters are accepted only as one process-local verified set. Every external certification must
+match the runtime adapter ID, version and implementation SHA-256, current policy and trust root,
+complete required adversarial scenarios, validity interval, and independently signed attestation.
+Copied readiness JSON and legacy flags such as `trustedServerGate: true` are ignored. Even a fully
+verified prerequisite set reports `enabled: false` until the separate live release review enables
+the corresponding repository policy.
+
+Separately installed integrations use the package export `singularity-flow/fos`; the export has no
+enable or bypass function. It exposes certification verification plus the approval, notification
+and PR-evidence consumers that require the branded set.
+
+For routed approvals, the identity adapter authenticates the real principal and resolves its
+authorized user/group scopes; a group address is never recorded as the approving person. Delivery
+receipts bind the exact request ID and digest but grant no approval. Enforced PR adoption verifies
+branch protection without replacing existing checks and imports CI evidence only when provider,
+repository, workflow/trust identities, run attempt, tested commit, artifact, environment and every
+required test result remain exactly bound.
+
 ## Input and cache integrity
 
 FOS now separates convenient status observations from authorization inputs. Status carries its

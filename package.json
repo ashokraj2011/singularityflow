@@ -17,6 +17,7 @@
   },
   "exports": {
     "./src/api.mjs": "./src/api.mjs",
+    "./fos": "./src/fos-api.mjs",
     "./sgos": "./src/sgos/index.mjs",
     "./package.json": "./package.json"
   },

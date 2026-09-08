@@ -1,6 +1,7 @@
 import { mkdir, readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 
+import { requireCertifiedFosAdapter } from './fos-adapters.mjs';
 import { gitCommonDir } from './git.mjs';
 import { recordSha256 } from './records.mjs';
 import { readRecord } from './schema-migrations.mjs';
@@ -47,8 +48,8 @@ export async function enqueueFosApprovalRequest(root, request) {
   return Object.freeze({ status: existing == null ? 'queued' : 'already-queued', path: target, request: Object.freeze(parsed) });
 }
 
-export async function deliverFosApprovalOutbox(root, deliver) {
-  if (typeof deliver !== 'function') fail('Approval delivery requires a configured provider adapter.', 'TRUST_REQUIRED');
+export async function deliverFosApprovalOutbox(root, adapterSet) {
+  const notificationAdapter = requireCertifiedFosAdapter(adapterSet, 'notification');
   const directory = rootFor(root, 'approval-outbox');
   const names = (await readdir(directory).catch((error) => error?.code === 'ENOENT' ? [] : Promise.reject(error)))
     .filter((name) => /^[a-f0-9]{64}\.json$/.test(name)).sort();
@@ -62,8 +63,12 @@ export async function deliverFosApprovalOutbox(root, deliver) {
       continue;
     }
     let result;
-    try { result = await deliver(request); }
+    try { result = await notificationAdapter.deliver(request); }
     catch (error) { result = { delivered: false, code: error?.code ?? 'DELIVERY_FAILED' }; }
+    if (result?.delivered === true && (result.requestId !== request.requestId
+        || result.requestSha256 !== request.requestSha256)) {
+      result = { delivered: false, code: 'DELIVERY_RECEIPT_UNBOUND' };
+    }
     const delivery = {
       status: result?.delivered === true ? 'delivered' : 'pending',
       attempts: Number(envelope.delivery?.attempts ?? 0) + 1,

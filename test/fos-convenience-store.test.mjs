@@ -9,6 +9,7 @@ import {
   deliverFosApprovalOutbox, enqueueFosApprovalRequest, retainFosReusableDefault
 } from '../src/fos-convenience-store.mjs';
 import { createFosApprovalRequest, createFosReusableDefault } from '../src/fos-features.mjs';
+import { fakeCertifiedFosAdapterSet } from './helpers/fos-certified-adapters.mjs';
 
 const sha = (character) => `sha256:${character.repeat(64)}`;
 function git(args, cwd) { return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim(); }
@@ -41,10 +42,48 @@ test('FOS:AC-042 approval outbox retries delivery without granting approval', as
   }, { features: { 'approval-routing': true }, now: new Date('2029-01-01') });
   assert.equal((await enqueueFosApprovalRequest(root, request)).status, 'queued');
   assert.equal((await enqueueFosApprovalRequest(root, request)).status, 'already-queued');
-  const failed = await deliverFosApprovalOutbox(root, async () => ({ delivered: false, code: 'OFFLINE' }));
+  let attempts = 0;
+  const adapters = await fakeCertifiedFosAdapterSet({
+    notification: {
+      async deliver(deliveryRequest) {
+        attempts += 1;
+        return attempts === 1 ? { delivered: false, code: 'OFFLINE' } : {
+          delivered: true,
+          messageId: 'm-1',
+          requestId: deliveryRequest.requestId,
+          requestSha256: deliveryRequest.requestSha256
+        };
+      }
+    }
+  }, { types: ['notification'] });
+  const failed = await deliverFosApprovalOutbox(root, adapters);
   assert.equal(failed[0].status, 'pending');
-  const delivered = await deliverFosApprovalOutbox(root, async () => ({ delivered: true, messageId: 'm-1' }));
+  const delivered = await deliverFosApprovalOutbox(root, adapters);
   assert.equal(delivered[0].status, 'delivered');
-  const duplicate = await deliverFosApprovalOutbox(root, async () => assert.fail('must dedupe'));
+  const duplicate = await deliverFosApprovalOutbox(root, adapters);
   assert.equal(duplicate[0].status, 'already-delivered');
+  assert.equal(attempts, 2);
+});
+
+test('approval delivery refuses an unbound provider receipt and keeps the request pending', async () => {
+  const root = await repository();
+  const request = createFosApprovalRequest({
+    operationId: 'approve', generation: 1, actorPrincipalId: 'user:author',
+    targetAuthoritySha256: sha('a'), baseSha256: sha('b'), candidateSha256: sha('c'),
+    evidenceSha256: sha('d'), policySha256: sha('e'), policyEpoch: 1,
+    recipients: ['user:reviewer'], expiresAt: '2030-01-01T00:00:00.000Z'
+  }, { features: { 'approval-routing': true }, now: new Date('2029-01-01') });
+  await enqueueFosApprovalRequest(root, request);
+  const adapters = await fakeCertifiedFosAdapterSet({
+    notification: {
+      async deliver() {
+        return {
+          delivered: true, messageId: 'wrong-subject', requestId: 'another-request',
+          requestSha256: sha('f')
+        };
+      }
+    }
+  }, { types: ['notification'] });
+  const outcome = await deliverFosApprovalOutbox(root, adapters);
+  assert.equal(outcome[0].status, 'pending');
 });

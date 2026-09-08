@@ -45,6 +45,8 @@
   "effect-retry-receipt": [{ "schemaVersion": 1 }],
   "fork-prefix-task-import": [{ "schemaVersion": 1 }],
   "fork-prefix-import-receipt": [{ "schemaVersion": 1 }],
+  "fork-dynamic-task-import": [{ "schemaVersion": 1 }],
+  "fork-dynamic-prefix-import-receipt": [{ "schemaVersion": 1 }],
   "fanout-expansion-receipt": [{ "schemaVersion": 1 }],
   "sgos-replay-plan": [{ "schemaVersion": 1 }],
   "process-binding": [{ "schemaVersion": 2 }],

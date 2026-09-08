@@ -72,9 +72,12 @@ reuses one Program-hashed body prototype. The source publishes one immutable col
 one later Process CAS publishes a matching expansion receipt, deterministic child instances, and
 an exact checkpoint. Process fsck, portable evidence, simulation, scheduling, migration, and the
 umbrella schema validate the same finite bounds and lineage. Replay is allowed only from the
-expansion checkpoint or later. Non-genesis fork refuses a prefix that would relabel a Process-bound
-dynamic collection under a child identity until a separately reviewed cross-Process mapping
-contract exists.
+expansion checkpoint or later. A non-genesis dynamic fork now creates distinct source-bound and
+child-bound collection records over the same content hash. Separate immutable task imports retain
+both reference sets, while one aggregate mapping binds the source and child collections,
+expansions, source/child item identities, attempts, receipts, genesis checkpoint, expansion
+checkpoint, and imported checkpoint. Empty collections, completed dynamic children, interrupted
+publication, repeated confirmation, portable evidence, and fsck use that same exact mapping.
 
 ## Status rules
 
@@ -275,8 +278,9 @@ Implemented in the current increment:
 - missing, foreign, duplicate-key, oversized, corrupt, unreceipted, or competing expansions fail
   closed or converge on the one exact receipt; an empty collection completes without executing a
   body task, and runtime/model-created task shapes remain unavailable;
-- replay cannot cross an already-expanded source and non-genesis fork refuses a dynamic prefix
-  pending a reviewed cross-Process collection/import mapping protocol.
+- replay cannot cross an already-expanded source; a non-genesis fork at or after the expansion
+  checkpoint uses a separate immutable cross-Process collection/import mapping without relabelling
+  parent execution as child execution;
 - `deterministic-reduce` is installed with exactly one model-free canonical output-reference-set
   reducer; Program admission, scheduling, immutable receipt validation, transition verification,
   process fsck, evidence export, schema migration, and the umbrella schema share the exact
@@ -310,8 +314,7 @@ Implemented in the current increment:
   and revoked authority, changed postconditions, missing/counterfeit lineage, or unsupported
   consequential Devices remain recovery-required without repeating an effect.
 
-Still required: a reviewed cross-Process mapping protocol for non-genesis forks after dynamic
-expansion, additional independently reviewed reducer implementations, and additional reviewed
+Still required: additional independently reviewed reducer implementations and additional reviewed
 Device-specific postcondition protocols. The advanced orchestration family also needs shared signed
 supported-platform release evidence before this item can become `[x]`.
 

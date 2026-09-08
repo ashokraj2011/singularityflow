@@ -1885,7 +1885,7 @@ function dynamicFanoutDescriptors(program) {
     .sort((left, right) => compareSgosCodePoints(left.parentTaskId, right.parentTaskId));
 }
 
-async function materializeReadyDynamicFanouts(root, initial, program, clock) {
+export async function materializeReadySgosDynamicFanouts(root, initial, program, clock) {
   let process = initial;
   const templates = templateById(program);
   for (const descriptor of dynamicFanoutDescriptors(program)) {
@@ -2104,7 +2104,7 @@ async function runNextSgosTaskWithinPolicy(root, processId, {
       expectedRevision, actualRevision: before.processRevision
     });
   }
-  before = await materializeReadyDynamicFanouts(root, before, program, clock);
+  before = await materializeReadySgosDynamicFanouts(root, before, program, clock);
   if (before.activeExecutions.length && !allowConcurrent) {
     fail('An interrupted execution must be reconciled before dispatch can continue.', 'SGOS_EXECUTION_RECOVERY_REQUIRED');
   }
@@ -2626,7 +2626,7 @@ async function runReadySgosTasksWithinPolicy(root, processId, {
       'SGOS_EXECUTION_RECOVERY_REQUIRED');
   }
   const program = await resolveProgram(root, before, suppliedProgram);
-  before = await materializeReadyDynamicFanouts(root, before, program, clock);
+  before = await materializeReadySgosDynamicFanouts(root, before, program, clock);
   const plan = deterministicSgosDispatchPlan(program, before, { maximumParallel });
   if (!plan.length) {
     return Object.freeze({

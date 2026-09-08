@@ -87,7 +87,8 @@ The same build also contains separately bounded extension profiles:
 - confirmation-bound suffix replay plus genesis and exact non-genesis checkpoint fork commands;
   a non-genesis child imports separately receipted recovery attempts, outputs, verification,
   source evidence, and consumed attempt budget while the parent remains the authority for the
-  original execution. Replay preserves immutable
+  original execution. Dynamic prefixes retain distinct source/child collection and expansion
+  identities joined by one exact immutable mapping. Replay preserves immutable
   attempt/receipt history, re-executes pure and read-only work, and retains an already-successful
   consequential Device task only after its installed postcondition protocol proves the original
   idempotency key, Tool Result, effect, and current state without executing the effect again;
@@ -316,9 +317,11 @@ orphaned, corrupt, or incomplete fork records.
 
 Replay may start at the dynamic expansion checkpoint or later. It cannot cross back through a
 source whose collection has already materialized, because doing so would allow one replay to imply
-a different task set. Non-genesis fork currently refuses a prefix containing such a source: the
-collection and its expansion are Process-bound, and SGOS will not silently relabel that evidence as
-child execution. Genesis fork remains available.
+a different task set. A non-genesis fork at or after that checkpoint creates a child-bound
+collection with the same content hash and deterministic child item identities. The dynamic import
+receipt binds both Process-bound collection records, both expansion receipts, every item mapping,
+the source and child Task Receipts, and the complete checkpoint chain. It does not relabel parent
+execution as child execution. Genesis fork remains available.
 
 An ordinary failed task can be retried only while its Program still has an unused attempt and its
 recovery policy explicitly says `retry-safe`. `task retry` first writes a content-addressed preview
@@ -554,9 +557,9 @@ tracked in [SGOS-PENDING-WORK.md](SGOS-PENDING-WORK.md):
 - model-backed or tool-bearing `AGENT` execution beyond the reviewed Copilot proposal-only GEU,
   mutating Devices beyond the exact sandbox-CAS profile, arbitrary third-party adapters, and their
   complete independent conformance/counterfeit-model programs;
-- additional reviewed reducers, additional Device-specific postcondition protocols, and a reviewed
-  cross-Process mapping contract for non-genesis forks after dynamic expansion; bounded runtime
-  fan-out, nested inline fan-out, quorum, deterministic-reduce,
+- additional reviewed reducers and additional Device-specific postcondition protocols; bounded
+  runtime fan-out, exact cross-Process dynamic-prefix mapping, nested inline fan-out, quorum,
+  deterministic-reduce,
   manual-reconcile joins, installed-protocol idempotent effect replay, exact sandbox-CAS
   consequential retry, and exact non-genesis fork import are implemented;
 - universal Candidate routing is implemented for the supported lifecycle surfaces; its

@@ -11,7 +11,9 @@ import {
   createGvmTaskReceipt, createHumanRequest, createHumanResponse, createIntentEnvelope,
   createIntentIr, createPolicySnapshot, createProcessBinding, createSgosControlSuccessor,
   createSgosControlEvent, createSgosRecordIndex, createSgosTransitionIntent, createWorkflowIr,
-  createEffectReplayReceipt, createEffectRetryReceipt, createForkPrefixImportReceipt, createForkPrefixTaskImport,
+  createEffectReplayReceipt, createEffectRetryReceipt,
+  createForkDynamicPrefixImportReceipt, createForkDynamicTaskImport,
+  createForkPrefixImportReceipt, createForkPrefixTaskImport,
   createSgosReplayPlan,
   MAXIMUM_SGOS_PROCESS_RECORD_BYTES, MAXIMUM_SGOS_PROCESS_RECORD_COUNT,
   MAXIMUM_SGOS_RECORD_BYTES, MAXIMUM_SGOS_RECORD_INDEX_DELTA,
@@ -71,7 +73,7 @@ function candidateResources() {
 
 test('SGOS durable families expose exact readable versions and refuse future versions', () => {
   const registry = new Map(migrationRegistrySnapshot().map((entry) => [entry.id, entry]));
-  assert.equal(sgosContractFamilies().length, 34);
+  assert.equal(sgosContractFamilies().length, 36);
   for (const family of sgosContractFamilies()) {
     const current = family === 'gvm-process'
       ? 4
@@ -473,6 +475,101 @@ test('fork prefix records bind exact source attempts, child attempts, and aggreg
   }), /terminal successful/);
   assert.throws(() => validateSgosRecord({
     ...aggregate, tasks: [{ ...aggregate.tasks[0], attemptCount: 2 }]
+  }), /canonical record/);
+});
+
+test('dynamic fork records bind exact source-to-child collection and instance mappings', () => {
+  const attempt = {
+    sourceAttemptId: 'ATT-SOURCE002', childAttemptId: 'ATT-CHILD2222',
+    sourceRunningAttemptSha256: d('dynamic-source-running'),
+    sourceTerminalAttemptSha256: d('dynamic-source-terminal'),
+    childRunningAttemptSha256: d('dynamic-child-running'),
+    childTerminalAttemptSha256: d('dynamic-child-terminal'),
+    sourceTerminalStatus: 'succeeded'
+  };
+  const imported = createForkDynamicTaskImport({
+    forkPlanSha256: d('dynamic-fork-plan'), parentProcessId: 'PROC-PARENT02',
+    childProcessId: 'PROC-CHILD002',
+    sourceEvidenceProjectionSha256: d('dynamic-fork-evidence'),
+    sourceProcessSha256: d('dynamic-fork-process'),
+    sourceControlEventSha256: d('dynamic-fork-event'),
+    sourceRecordIndexSha256: d('dynamic-fork-index'),
+    fromCheckpointSha256: d('dynamic-source-checkpoint'),
+    sourceTaskInstanceId: 'TSK-SOURCE002', childTaskInstanceId: 'TSK-CHILD0002',
+    taskTemplateId: '10-source', sourceTaskRevision: 3,
+    sourceInputRefs: [d('source-input')],
+    sourceOutputRefs: [d('source-collection-record')],
+    childInputRefs: [d('child-input')],
+    childOutputRefs: [d('child-collection-record')],
+    attempts: [attempt], sourceTaskReceiptSha256: d('dynamic-source-receipt'),
+    sourceCandidateSha256: d('dynamic-source-candidate'),
+    sourceActionEvidenceSha256s: [d('dynamic-source-evidence')],
+    sourceEvidenceRefs: [d('dynamic-source-candidate'), d('dynamic-source-evidence')],
+    sourceEffectRefs: [], sourceHumanDecisionRefs: [],
+    verificationChecksSha256: d('dynamic-fork-checks'), effectReconciliation: null,
+    importedAt: at
+  });
+  assert.notDeepEqual(imported.sourceOutputRefs, imported.childOutputRefs);
+  assert.equal(imported.forkDynamicTaskImportSha256,
+    recordSelfSha256(imported, 'forkDynamicTaskImportSha256'));
+
+  const fanout = {
+    parentTaskTemplateId: '20-map', bodyTaskTemplateId: '21-body',
+    sourceTaskInstanceId: imported.sourceTaskInstanceId,
+    childSourceTaskInstanceId: imported.childTaskInstanceId,
+    sourceAttemptId: attempt.sourceAttemptId, childAttemptId: attempt.childAttemptId,
+    sourceTaskReceiptSha256: imported.sourceTaskReceiptSha256,
+    childTaskReceiptSha256: d('dynamic-child-receipt'),
+    sourceCollectionRecordSha256: imported.sourceOutputRefs[0],
+    childCollectionRecordSha256: imported.childOutputRefs[0],
+    sourceExpansionSha256: d('source-expansion'),
+    childExpansionSha256: d('child-expansion'),
+    collectionSha256: d('shared-collection-content'),
+    items: [
+      {
+        itemKey: 'z', itemSha256: d('item-z'),
+        sourceTaskInstanceId: 'TSK-DYNAMIC-Z', childTaskInstanceId: 'TSK-CHILD-Z'
+      },
+      {
+        itemKey: 'a', itemSha256: d('item-a'),
+        sourceTaskInstanceId: 'TSK-DYNAMIC-A', childTaskInstanceId: 'TSK-CHILD-A'
+      }
+    ]
+  };
+  const aggregate = createForkDynamicPrefixImportReceipt({
+    forkPlanSha256: imported.forkPlanSha256,
+    parentProcessId: imported.parentProcessId, childProcessId: imported.childProcessId,
+    sourceEvidenceProjectionSha256: imported.sourceEvidenceProjectionSha256,
+    sourceProcessSha256: imported.sourceProcessSha256,
+    sourceControlEventSha256: imported.sourceControlEventSha256,
+    sourceRecordIndexSha256: imported.sourceRecordIndexSha256,
+    fromCheckpointSha256: imported.fromCheckpointSha256,
+    childGenesisCheckpointSha256: d('dynamic-child-genesis'),
+    childPrefixBaseCheckpointSha256: d('dynamic-child-base'),
+    childImportedCheckpointSha256: d('dynamic-child-imported'),
+    tasks: [{
+      taskTemplateId: imported.taskTemplateId,
+      sourceTaskInstanceId: imported.sourceTaskInstanceId,
+      childTaskInstanceId: imported.childTaskInstanceId,
+      forkDynamicTaskImportSha256: imported.forkDynamicTaskImportSha256,
+      childTaskReceiptSha256: fanout.childTaskReceiptSha256,
+      attemptCount: 1, outputRefs: imported.childOutputRefs
+    }],
+    dynamicFanouts: [fanout], importedAt: at
+  });
+  assert.deepEqual(aggregate.dynamicFanouts[0].items.map((entry) => entry.itemKey), ['a', 'z']);
+  assert.equal(aggregate.forkDynamicImportReceiptSha256,
+    recordSelfSha256(aggregate, 'forkDynamicImportReceiptSha256'));
+  assert.throws(() => validateSgosRecord({
+    ...imported, childOutputRefs: imported.sourceOutputRefs
+  }), /canonical record/);
+  assert.throws(() => validateSgosRecord({
+    ...aggregate,
+    dynamicFanouts: [{
+      ...aggregate.dynamicFanouts[0],
+      items: [{ ...aggregate.dynamicFanouts[0].items[0], childTaskInstanceId: 'TSK-FORGED' },
+        ...aggregate.dynamicFanouts[0].items.slice(1)]
+    }]
   }), /canonical record/);
 });
 

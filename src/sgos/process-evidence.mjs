@@ -38,6 +38,8 @@ const HASH_FIELDS = Object.freeze({
   'dynamic-fanout-expansion-receipt': 'expansionSha256',
   'effect-replay-receipt': 'effectReplayReceiptSha256',
   'effect-retry-receipt': 'effectRetryReceiptSha256',
+  'fork-dynamic-task-import': 'forkDynamicTaskImportSha256',
+  'fork-dynamic-prefix-import-receipt': 'forkDynamicImportReceiptSha256',
   'fork-prefix-task-import': 'forkTaskImportSha256',
   'fork-prefix-import-receipt': 'forkImportReceiptSha256',
   'fanout-expansion-receipt': 'expansionSha256',
@@ -556,7 +558,9 @@ function validateRecordIndexes(bundle, wrappers, contradictions) {
     }
     const expectedAttemptId = wrapper.family === 'dynamic-fanout-collection'
       ? wrapper.record.sourceAttemptId : wrapper.record.attemptId;
-    const expectedTaskInstanceId = wrapper.family === 'fork-prefix-task-import'
+    const expectedTaskInstanceId = [
+      'fork-prefix-task-import', 'fork-dynamic-task-import'
+    ].includes(wrapper.family)
       ? wrapper.record.childTaskInstanceId
       : wrapper.family === 'dynamic-fanout-collection'
         ? wrapper.record.sourceTaskInstanceId : wrapper.record.taskInstanceId;
@@ -1126,7 +1130,10 @@ function semanticReferences(bundle, wrappers, tools, contradictions, gaps) {
     referenceHash(wrapper.record.toolResultSha256);
     for (const hash of wrapper.record.outputRefs ?? []) referenceHash(hash);
   }
-  for (const wrapper of byFamily.get('fork-prefix-task-import') ?? []) {
+  for (const wrapper of [
+    ...(byFamily.get('fork-prefix-task-import') ?? []),
+    ...(byFamily.get('fork-dynamic-task-import') ?? [])
+  ]) {
     if (!referenced.has(recordIdentity(wrapper.family, wrapper.recordSha256))) continue;
     for (const attempt of wrapper.record.attempts ?? []) {
       referenced.add(recordIdentity(
@@ -1157,6 +1164,36 @@ function semanticReferences(bundle, wrappers, tools, contradictions, gaps) {
       ));
       referenced.add(recordIdentity(
         'gvm-task-receipt', task.childTaskReceiptSha256
+      ));
+    }
+  }
+  for (const wrapper of byFamily.get('fork-dynamic-prefix-import-receipt') ?? []) {
+    const aggregate = wrapper.record;
+    if (aggregate.childProcessId !== bundle.processId) {
+      add(contradictions, 'fork-dynamic-import-process-mismatch',
+        wrapper.family, wrapper.recordSha256);
+      continue;
+    }
+    referenced.add(recordIdentity(wrapper.family, wrapper.recordSha256));
+    for (const checkpointSha256 of [
+      aggregate.childGenesisCheckpointSha256,
+      aggregate.childPrefixBaseCheckpointSha256,
+      aggregate.childImportedCheckpointSha256
+    ]) referenced.add(recordIdentity('gvm-checkpoint', checkpointSha256));
+    for (const task of aggregate.tasks ?? []) {
+      referenced.add(recordIdentity(
+        'fork-dynamic-task-import', task.forkDynamicTaskImportSha256
+      ));
+      referenced.add(recordIdentity(
+        'gvm-task-receipt', task.childTaskReceiptSha256
+      ));
+    }
+    for (const mapping of aggregate.dynamicFanouts ?? []) {
+      referenced.add(recordIdentity(
+        'dynamic-fanout-collection', mapping.childCollectionRecordSha256
+      ));
+      referenced.add(recordIdentity(
+        'dynamic-fanout-expansion-receipt', mapping.childExpansionSha256
       ));
     }
   }

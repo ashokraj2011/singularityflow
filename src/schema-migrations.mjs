@@ -2115,6 +2115,20 @@ const families = [
     ]
   }),
   family({
+    id: 'fork-dynamic-task-import', currentVersion: 1, immutable: true,
+    paths: [
+      /^\$git\/sgos\/processes\/[^/]+\/fork-dynamic-task-imports\/[a-f0-9]{64}\.json$/,
+      sgosRecordReservationPath('fork-dynamic-task-import')
+    ]
+  }),
+  family({
+    id: 'fork-dynamic-prefix-import-receipt', currentVersion: 1, immutable: true,
+    paths: [
+      /^\$git\/sgos\/processes\/[^/]+\/fork-dynamic-prefix-import-receipts\/[a-f0-9]{64}\.json$/,
+      sgosRecordReservationPath('fork-dynamic-prefix-import-receipt')
+    ]
+  }),
+  family({
     id: 'fanout-expansion-receipt', currentVersion: 1, immutable: true,
     paths: [
       /^\$git\/sgos\/processes\/[^/]+\/fanout-expansions\/[a-f0-9]{64}\.json$/,

@@ -17,8 +17,10 @@ import { gitCommonDir } from '../git.mjs';
 import { canonicalJson } from '../records.mjs';
 import { SingularityFlowError, nowIso } from '../util.mjs';
 import {
-  createCandidateSnapshot, createEffectReplayReceipt, createForkPrefixImportReceipt,
-  createForkPrefixTaskImport, createGvmCheckpoint, createSgosReplayPlan,
+  createCandidateSnapshot, createDynamicFanoutCollection,
+  createForkDynamicPrefixImportReceipt, createForkDynamicTaskImport,
+  createForkPrefixImportReceipt, createForkPrefixTaskImport,
+  createGvmCheckpoint, createSgosReplayPlan, createEffectReplayReceipt,
   deterministicSgosId, sha256
 } from './contracts.mjs';
 import {
@@ -28,7 +30,8 @@ import {
 import { SGOS_INSTALLED_LIMITS } from './limits.mjs';
 import { compareSgosCodePoints } from './order.mjs';
 import {
-  assertCurrentStoredProcessBinding, startSgosProcess
+  assertCurrentStoredProcessBinding, materializeReadySgosDynamicFanouts,
+  startSgosProcess
 } from './runtime.mjs';
 import {
   listPrivateSidecar, readPrivateSidecar, writeImmutablePrivateSidecar
@@ -40,6 +43,7 @@ import {
   recoverPendingSgosTransition
 } from './store.mjs';
 import { taskInstancesForSgosProgram } from './materialization.mjs';
+import { sgosDynamicFanoutChildInstanceId } from './fanout.mjs';
 import { deterministicSgosDispatchPlan, sgosTaskReadiness } from './scheduler.mjs';
 import {
   buildSgosTaskAttempt, buildSgosTaskReceipt, compileSgosActionEvidence
@@ -802,7 +806,23 @@ async function forkEffectReconciliation(root, sourceProcess, task, template, rec
   });
 }
 
-async function buildForkPrefixPlan(root, process, checkpoint, childProcessId) {
+function replaceForkRefs(values, replacements) {
+  return [...new Set(values.map((value) => replacements.get(value) ?? value))]
+    .sort(compareSgosCodePoints);
+}
+
+function dynamicForkDescriptors(program) {
+  return program.taskTemplates
+    .map((template) => template.metadata?.dynamicFanoutCoordinator ?? null)
+    .filter(Boolean)
+    .sort((left, right) => compareSgosCodePoints(
+      left.parentTaskId, right.parentTaskId
+    ));
+}
+
+async function buildForkPrefixPlan(
+  root, process, checkpoint, childProcessId, createdAt
+) {
   const bundle = await compileSgosProcessEvidence(root, process.processId);
   const report = verifySgosProcessEvidence(bundle);
   if (report.integrity !== 'valid' || report.contradictions.length) {
@@ -812,29 +832,34 @@ async function buildForkPrefixPlan(root, process, checkpoint, childProcessId) {
   const historical = checkpointEvidenceState(bundle, checkpoint);
   const records = evidenceRecordMap(bundle);
   const program = bundle.program;
-  const dynamicSources = new Set(program.taskTemplates.flatMap((template) => {
-    const descriptor = template.metadata?.dynamicFanoutCoordinator;
-    return descriptor ? [descriptor.sourceTaskTemplateId] : [];
-  }));
-  const crossedDynamicSource = Object.values(historical.state.taskInstances).find((task) =>
-    task.state === 'succeeded' && dynamicSources.has(task.taskTemplateId));
-  if (crossedDynamicSource) {
-    fail(`Fork prefix cannot copy Process-bound dynamic collection source '${crossedDynamicSource.taskTemplateId}'. Fork from a checkpoint before that source or start a fresh Process.`,
-      'SGOS_DYNAMIC_FANOUT_FORK_BOUNDARY_INVALID', {
-        sourceTaskInstanceId: crossedDynamicSource.taskInstanceId,
-        sourceTaskTemplateId: crossedDynamicSource.taskTemplateId
-      });
-  }
   const childTasksByTemplate = new Map(Object.values(
     taskInstancesForSgosProgram(program, childProcessId)
   ).map((task) => [task.taskTemplateId, task]));
   const templates = templatesById(program);
   const prefixTasks = [];
-  for (const template of program.taskTemplates) {
-    const sourceTask = Object.values(historical.state.taskInstances)
-      .find((task) => task.taskTemplateId === template.taskTemplateId);
-    if (sourceTask?.state !== 'succeeded') continue;
-    const childTask = childTasksByTemplate.get(template.taskTemplateId);
+  const successfulTasks = Object.values(historical.state.taskInstances)
+    .filter((task) => task.state === 'succeeded')
+    .sort((left, right) => compareSgosCodePoints(
+      left.taskInstanceId, right.taskInstanceId
+    ));
+  for (const sourceTask of successfulTasks) {
+    const template = templates.get(sourceTask.taskTemplateId);
+    if (!template) {
+      fail(`Fork prefix task '${sourceTask.taskTemplateId}' is outside the immutable Program.`,
+        'SGOS_FORK_PREFIX_EVIDENCE_INVALID');
+    }
+    const childTaskInstanceId = sourceTask.fanoutBinding == null
+      ? childTasksByTemplate.get(sourceTask.taskTemplateId)?.taskInstanceId
+      : sgosDynamicFanoutChildInstanceId(
+        childProcessId,
+        sourceTask.fanoutBinding.parentTaskTemplateId,
+        sourceTask.fanoutBinding.itemKey,
+        sourceTask.fanoutBinding.itemSha256
+      );
+    if (!childTaskInstanceId) {
+      fail(`Fork prefix task '${sourceTask.taskTemplateId}' has no deterministic child identity.`,
+        'SGOS_FORK_PREFIX_EVIDENCE_INVALID');
+    }
     const receipt = evidenceRecord(
       records, 'gvm-task-receipt', sourceTask.receiptSha256,
       `Task Receipt for '${template.taskTemplateId}'`
@@ -870,14 +895,18 @@ async function buildForkPrefixPlan(root, process, checkpoint, childProcessId) {
         'SGOS_FORK_PREFIX_EVIDENCE_INVALID');
     }
     const childAttemptIds = attempts.map((entry, attemptIndex) => deterministicSgosId('ATT', {
-      fork: 'prefix-import', childProcessId, childTaskInstanceId: childTask.taskInstanceId,
+      fork: 'prefix-import', childProcessId, childTaskInstanceId,
       attemptNumber: attemptIndex + 1, sourceAttemptId: entry.terminal.attemptId
     }));
-    prefixTasks.push(Object.freeze({
+    prefixTasks.push({
       taskTemplateId: template.taskTemplateId,
       sourceTaskInstanceId: sourceTask.taskInstanceId,
-      childTaskInstanceId: childTask.taskInstanceId,
+      childTaskInstanceId,
       sourceTaskRevision: sourceTask.revision,
+      sourcePredecessorTaskInstanceIds: [...sourceTask.predecessorTaskInstanceIds],
+      childPredecessorTaskInstanceIds: [],
+      sourceInputRefs: [...sourceTask.inputRefs],
+      sourceOutputRefs: [...sourceTask.outputRefs],
       inputRefs: [...sourceTask.inputRefs],
       outputRefs: [...sourceTask.outputRefs],
       sourceTaskReceiptSha256: receipt.receiptSha256,
@@ -897,19 +926,103 @@ async function buildForkPrefixPlan(root, process, checkpoint, childProcessId) {
       effectReconciliation: await forkEffectReconciliation(
         root, process, sourceTask, templates.get(template.taskTemplateId), receipt
       )
-    }));
+    });
   }
   if (!prefixTasks.length) {
     fail('The selected non-genesis checkpoint contains no successful prefix to import.',
       'SGOS_FORK_PREFIX_EMPTY');
   }
-  const importedTemplateIds = new Set(prefixTasks.map((entry) => entry.taskTemplateId));
+  const childIdBySourceId = new Map(prefixTasks.map((entry) => [
+    entry.sourceTaskInstanceId, entry.childTaskInstanceId
+  ]));
   for (const entry of prefixTasks) {
-    const template = templates.get(entry.taskTemplateId);
-    if ((template.dependsOn ?? []).some((dependency) => !importedTemplateIds.has(dependency))) {
+    if (entry.sourcePredecessorTaskInstanceIds.some((dependency) =>
+      !childIdBySourceId.has(dependency))) {
       fail(`Fork prefix task '${entry.taskTemplateId}' has a non-successful predecessor.`,
         'SGOS_FORK_PREFIX_EVIDENCE_INVALID');
     }
+    entry.childPredecessorTaskInstanceIds = entry.sourcePredecessorTaskInstanceIds
+      .map((dependency) => childIdBySourceId.get(dependency))
+      .sort(compareSgosCodePoints);
+  }
+  const replacements = new Map();
+  const dynamicFanouts = [];
+  for (const descriptor of dynamicForkDescriptors(program)) {
+    const sourceTask = successfulTasks.find((task) =>
+      task.taskTemplateId === descriptor.sourceTaskTemplateId
+      && task.fanoutBinding == null);
+    if (!sourceTask) continue;
+    const sourceEntry = prefixTasks.find((entry) =>
+      entry.sourceTaskInstanceId === sourceTask.taskInstanceId);
+    const collections = bundle.records.filter((wrapper) =>
+      wrapper.family === 'dynamic-fanout-collection'
+      && wrapper.record.sourceTaskInstanceId === sourceTask.taskInstanceId
+      && wrapper.record.outputName === descriptor.outputName
+      && sourceTask.outputRefs.includes(wrapper.recordSha256));
+    const expansions = bundle.records.filter((wrapper) =>
+      wrapper.family === 'dynamic-fanout-expansion-receipt'
+      && wrapper.record.parentTaskTemplateId === descriptor.parentTaskId
+      && wrapper.record.sourceTaskInstanceId === sourceTask.taskInstanceId
+      && collections.some((collection) =>
+        collection.recordSha256 === wrapper.record.collectionRecordSha256));
+    if (!collections.length && !expansions.length) continue;
+    if (collections.length !== 1 || expansions.length !== 1 || !sourceEntry) {
+      fail(`Dynamic fork source '${descriptor.sourceTaskTemplateId}' has ambiguous collection lineage.`,
+        'SGOS_DYNAMIC_FANOUT_FORK_MAPPING_INVALID', {
+          collections: collections.length, expansions: expansions.length
+        });
+    }
+    const sourceCollection = collections[0].record;
+    const sourceExpansion = expansions[0].record;
+    const childCollection = createDynamicFanoutCollection({
+      processId: childProcessId,
+      sourceTaskInstanceId: sourceEntry.childTaskInstanceId,
+      sourceAttemptId: sourceEntry.attempts.at(-1).childAttemptId,
+      outputName: sourceCollection.outputName,
+      itemKeySelector: sourceCollection.itemKeySelector,
+      collectionSha256: sourceCollection.collectionSha256,
+      items: sourceCollection.items,
+      createdAt
+    });
+    replacements.set(
+      sourceCollection.collectionRecordSha256,
+      childCollection.collectionRecordSha256
+    );
+    const items = sourceExpansion.items.map((item) => {
+      const sourceChild = historical.state.taskInstances[item.taskInstanceId];
+      if (!sourceChild
+          || sourceChild.fanoutBinding?.itemKey !== item.itemKey
+          || sourceChild.fanoutBinding?.itemSha256 !== item.itemSha256) {
+        fail(`Dynamic fork item '${item.itemKey}' has no exact source child.`,
+          'SGOS_DYNAMIC_FANOUT_FORK_MAPPING_INVALID');
+      }
+      return {
+        itemKey: item.itemKey,
+        itemSha256: item.itemSha256,
+        sourceTaskInstanceId: item.taskInstanceId,
+        childTaskInstanceId: sgosDynamicFanoutChildInstanceId(
+          childProcessId, descriptor.parentTaskId, item.itemKey, item.itemSha256
+        )
+      };
+    }).sort((left, right) => compareSgosCodePoints(left.itemKey, right.itemKey));
+    dynamicFanouts.push(Object.freeze({
+      parentTaskTemplateId: descriptor.parentTaskId,
+      bodyTaskTemplateId: descriptor.bodyTaskTemplateId,
+      sourceTaskInstanceId: sourceTask.taskInstanceId,
+      childSourceTaskInstanceId: sourceEntry.childTaskInstanceId,
+      sourceAttemptId: sourceTask.attemptIds.at(-1),
+      childAttemptId: sourceEntry.attempts.at(-1).childAttemptId,
+      sourceTaskReceiptSha256: sourceTask.receiptSha256,
+      sourceCollectionRecordSha256: sourceCollection.collectionRecordSha256,
+      childCollection,
+      sourceExpansionSha256: sourceExpansion.expansionSha256,
+      collectionSha256: sourceCollection.collectionSha256,
+      items: Object.freeze(items.map((item) => Object.freeze(item)))
+    }));
+  }
+  for (const entry of prefixTasks) {
+    entry.inputRefs = replaceForkRefs(entry.inputRefs, replacements);
+    entry.outputRefs = replaceForkRefs(entry.outputRefs, replacements);
   }
   return Object.freeze({
     sourceEvidenceProjectionSha256: processEvidenceProjectionSha256(bundle),
@@ -917,7 +1030,8 @@ async function buildForkPrefixPlan(root, process, checkpoint, childProcessId) {
     sourceProcessRevision: historical.state.processRevision,
     sourceControlEventSha256: historical.event.controlEventSha256,
     sourceRecordIndexSha256: historical.event.recordIndexSha256,
-    prefixTasks: Object.freeze(prefixTasks)
+    prefixTasks: Object.freeze(prefixTasks.map((entry) => Object.freeze(entry))),
+    dynamicFanouts: Object.freeze(dynamicFanouts)
   });
 }
 
@@ -944,7 +1058,7 @@ async function planSgosProcessForkWithinPolicy(root, processId, {
   });
   const prefix = checkpoint.priorCheckpointSha256 === null
     ? null
-    : await buildForkPrefixPlan(root, process, checkpoint, childProcessId);
+    : await buildForkPrefixPlan(root, process, checkpoint, childProcessId, createdAt);
   const plan = sealLineage('sgos-fork-plan', 'forkPlanSha256', {
     parentProcessId: processId,
     expectedParentProcessRevision: process.processRevision,
@@ -978,7 +1092,8 @@ export async function planSgosProcessFork(root, processId, options = {}) {
 function assertForkPlanShape(plan, processId) {
   const prefixFields = [
     'sourceEvidenceProjectionSha256', 'sourceProcessSha256', 'sourceProcessRevision',
-    'sourceControlEventSha256', 'sourceRecordIndexSha256', 'prefixTasks'
+    'sourceControlEventSha256', 'sourceRecordIndexSha256', 'prefixTasks',
+    'dynamicFanouts'
   ];
   const presentPrefixFields = prefixFields.filter((field) => plan[field] != null);
   if (![0, prefixFields.length].includes(presentPrefixFields.length)) {
@@ -992,7 +1107,8 @@ function assertForkPlanShape(plan, processId) {
     sourceProcessRevision: plan.sourceProcessRevision,
     sourceControlEventSha256: plan.sourceControlEventSha256,
     sourceRecordIndexSha256: plan.sourceRecordIndexSha256,
-    prefixTasks: plan.prefixTasks
+    prefixTasks: plan.prefixTasks,
+    dynamicFanouts: plan.dynamicFanouts
   };
   if (plan.parentProcessId !== processId
       || !PROCESS_ID.test(String(plan.childProcessId ?? ''))
@@ -1018,6 +1134,9 @@ function assertForkPlanShape(plan, processId) {
         || !Array.isArray(prefix.prefixTasks)
         || prefix.prefixTasks.length < 1
         || prefix.prefixTasks.length > SGOS_INSTALLED_LIMITS.maximumTasks
+        || !Array.isArray(prefix.dynamicFanouts)
+        || prefix.dynamicFanouts.length
+          > SGOS_INSTALLED_LIMITS.maximumFanoutGroupsPerProcess
       ))) {
     fail('SGOS fork plan failed its installed exact contract.', 'SGOS_LINEAGE_CORRUPT', {
       forkPlanSha256: plan.forkPlanSha256
@@ -1026,7 +1145,6 @@ function assertForkPlanShape(plan, processId) {
   if (prefix !== null) {
     const sourceTasks = new Set();
     const childTasks = new Set();
-    const templates = new Set();
     const sourceAttempts = new Set();
     const childAttempts = new Set();
     for (const entry of prefix.prefixTasks) {
@@ -1034,6 +1152,10 @@ function assertForkPlanShape(plan, processId) {
           || typeof entry?.sourceTaskInstanceId !== 'string'
           || typeof entry?.childTaskInstanceId !== 'string'
           || !Number.isSafeInteger(entry?.sourceTaskRevision)
+          || !Array.isArray(entry?.sourcePredecessorTaskInstanceIds)
+          || !Array.isArray(entry?.childPredecessorTaskInstanceIds)
+          || !Array.isArray(entry?.sourceInputRefs)
+          || !Array.isArray(entry?.sourceOutputRefs)
           || !Array.isArray(entry?.attempts) || !entry.attempts.length
           || entry.attempts.length > SGOS_INSTALLED_LIMITS.maximumAttemptsPerTask
           || !HASH.test(String(entry?.sourceTaskReceiptSha256 ?? ''))
@@ -1065,7 +1187,6 @@ function assertForkPlanShape(plan, processId) {
       }
       sourceTasks.add(entry.sourceTaskInstanceId);
       childTasks.add(entry.childTaskInstanceId);
-      templates.add(entry.taskTemplateId);
       for (const attempt of entry.attempts) {
         sourceAttempts.add(attempt.sourceAttemptId);
         childAttempts.add(attempt.childAttemptId);
@@ -1079,9 +1200,42 @@ function assertForkPlanShape(plan, processId) {
       sum + entry.attempts.length, 0);
     if (sourceTasks.size !== prefix.prefixTasks.length
         || childTasks.size !== prefix.prefixTasks.length
-        || templates.size !== prefix.prefixTasks.length
         || sourceAttempts.size !== attemptCount || childAttempts.size !== attemptCount) {
       fail('SGOS fork prefix plan contains duplicate task or attempt identities.',
+        'SGOS_LINEAGE_CORRUPT', { forkPlanSha256: plan.forkPlanSha256 });
+    }
+    const dynamicParents = new Set();
+    for (const mapping of prefix.dynamicFanouts) {
+      if (typeof mapping?.parentTaskTemplateId !== 'string'
+          || typeof mapping?.bodyTaskTemplateId !== 'string'
+          || typeof mapping?.sourceTaskInstanceId !== 'string'
+          || typeof mapping?.childSourceTaskInstanceId !== 'string'
+          || !/^ATT-[A-Za-z0-9._:-]{6,127}$/.test(String(mapping?.sourceAttemptId ?? ''))
+          || !/^ATT-[A-Za-z0-9._:-]{6,127}$/.test(String(mapping?.childAttemptId ?? ''))
+          || !HASH.test(String(mapping?.sourceTaskReceiptSha256 ?? ''))
+          || !HASH.test(String(mapping?.sourceCollectionRecordSha256 ?? ''))
+          || !HASH.test(String(mapping?.sourceExpansionSha256 ?? ''))
+          || !HASH.test(String(mapping?.collectionSha256 ?? ''))
+          || mapping?.childCollection?.processId !== plan.childProcessId
+          || mapping?.childCollection?.sourceTaskInstanceId
+            !== mapping.childSourceTaskInstanceId
+          || mapping?.childCollection?.sourceAttemptId !== mapping.childAttemptId
+          || mapping?.childCollection?.collectionSha256 !== mapping.collectionSha256
+          || !HASH.test(String(mapping?.childCollection?.collectionRecordSha256 ?? ''))
+          || !Array.isArray(mapping?.items)
+          || mapping.items.length > SGOS_INSTALLED_LIMITS.maximumFanoutItems
+          || mapping.items.some((item) =>
+            typeof item?.itemKey !== 'string'
+            || !HASH.test(String(item?.itemSha256 ?? ''))
+            || typeof item?.sourceTaskInstanceId !== 'string'
+            || typeof item?.childTaskInstanceId !== 'string')) {
+        fail('SGOS dynamic fork mapping failed its exact bounded contract.',
+          'SGOS_LINEAGE_CORRUPT', { forkPlanSha256: plan.forkPlanSha256 });
+      }
+      dynamicParents.add(mapping.parentTaskTemplateId);
+    }
+    if (dynamicParents.size !== prefix.dynamicFanouts.length) {
+      fail('SGOS dynamic fork mappings contain duplicate fan-out identities.',
         'SGOS_LINEAGE_CORRUPT', { forkPlanSha256: plan.forkPlanSha256 });
     }
   }
@@ -1103,7 +1257,8 @@ function forkIntentFor(plan, parent) {
       sourceProcessRevision: plan.sourceProcessRevision,
       sourceControlEventSha256: plan.sourceControlEventSha256,
       sourceRecordIndexSha256: plan.sourceRecordIndexSha256,
-      prefixTasksSha256: sha256(plan.prefixTasks)
+      prefixTasksSha256: sha256(plan.prefixTasks),
+      dynamicFanoutsSha256: sha256(plan.dynamicFanouts)
     }),
     createdAt: plan.createdAt
   });
@@ -1200,25 +1355,26 @@ async function assertForkGenesisAncestor(root, plan, parent, child, program) {
   return Object.freeze({ child, binding, checkpoint });
 }
 
-function topologicalForkPrefix(program, prefixTasks) {
-  const pending = new Map(prefixTasks.map((entry) => [entry.taskTemplateId, entry]));
+function topologicalForkPrefix(prefixTasks) {
+  const pending = new Map(prefixTasks.map((entry) => [
+    entry.sourceTaskInstanceId, entry
+  ]));
   const imported = new Set();
   const ordered = [];
   while (pending.size) {
     const eligible = [...pending.values()].filter((entry) => {
-      const template = program.taskTemplates.find((candidate) =>
-        candidate.taskTemplateId === entry.taskTemplateId);
-      return template && (template.dependsOn ?? []).every((dependency) => imported.has(dependency));
+      return entry.sourcePredecessorTaskInstanceIds.every((dependency) =>
+        imported.has(dependency));
     }).sort((left, right) => compareSgosCodePoints(
-      left.taskTemplateId, right.taskTemplateId
+      left.sourceTaskInstanceId, right.sourceTaskInstanceId
     ));
     if (!eligible.length) {
       fail('Fork prefix is not a closed acyclic predecessor set.',
         'SGOS_FORK_PREFIX_EVIDENCE_INVALID');
     }
     for (const entry of eligible) {
-      pending.delete(entry.taskTemplateId);
-      imported.add(entry.taskTemplateId);
+      pending.delete(entry.sourceTaskInstanceId);
+      imported.add(entry.sourceTaskInstanceId);
       ordered.push(entry);
     }
   }
@@ -1306,6 +1462,8 @@ async function importForkPrefixTask(root, plan, child, program, entry) {
     const target = child.taskInstances[entry.childTaskInstanceId];
     const mapping = entry.attempts[attemptIndex];
     if (!target || target.taskTemplateId !== entry.taskTemplateId
+        || canonicalJson(target.predecessorTaskInstanceIds)
+          !== canonicalJson(entry.childPredecessorTaskInstanceIds)
         || canonicalJson(target.inputRefs) !== canonicalJson(entry.inputRefs)) {
       fail(`Fork prefix task '${entry.taskTemplateId}' no longer matches the child Program.`,
         'SGOS_FORK_CHILD_CONFLICT');
@@ -1327,7 +1485,7 @@ async function importForkPrefixTask(root, plan, child, program, entry) {
     );
     const final = attemptIndex === entry.attempts.length - 1;
     const candidate = final ? importedCandidate(child, sourceCandidate, plan.createdAt) : null;
-    const taskImport = final ? createForkPrefixTaskImport({
+    const importCore = final ? {
       forkPlanSha256: plan.forkPlanSha256,
       parentProcessId: plan.parentProcessId,
       childProcessId: child.processId,
@@ -1340,7 +1498,6 @@ async function importForkPrefixTask(root, plan, child, program, entry) {
       childTaskInstanceId: entry.childTaskInstanceId,
       taskTemplateId: entry.taskTemplateId,
       sourceTaskRevision: entry.sourceTaskRevision,
-      inputRefs: entry.inputRefs, outputRefs: entry.outputRefs,
       attempts: entry.attempts.map((attempt, index) => {
         const records = importedAttemptRecords(plan, child, entry, index);
         return {
@@ -1358,7 +1515,24 @@ async function importForkPrefixTask(root, plan, child, program, entry) {
       verificationChecksSha256: entry.verificationChecksSha256,
       effectReconciliation: entry.effectReconciliation,
       importedAt: plan.createdAt
-    }) : null;
+    } : null;
+    const dynamicProtocol = plan.dynamicFanouts.length > 0;
+    const taskImport = !final ? null : dynamicProtocol
+      ? createForkDynamicTaskImport({
+        ...importCore,
+        sourceInputRefs: entry.sourceInputRefs,
+        sourceOutputRefs: entry.sourceOutputRefs,
+        childInputRefs: entry.inputRefs,
+        childOutputRefs: entry.outputRefs
+      })
+      : createForkPrefixTaskImport({
+        ...importCore, inputRefs: entry.inputRefs, outputRefs: entry.outputRefs
+      });
+    const taskImportSha256 = taskImport?.forkDynamicTaskImportSha256
+      ?? taskImport?.forkTaskImportSha256 ?? null;
+    const childCollections = final ? plan.dynamicFanouts
+      .filter((mapping) => mapping.childSourceTaskInstanceId === entry.childTaskInstanceId)
+      .map((mapping) => mapping.childCollection) : [];
     const evidence = final ? compileSgosActionEvidence({
       processId: child.processId, taskInstanceId: target.taskInstanceId,
       attemptId: mapping.childAttemptId,
@@ -1380,7 +1554,7 @@ async function importForkPrefixTask(root, plan, child, program, entry) {
       postState: candidate.candidateSha256,
       verification: { status: 'passed', checksSha256: entry.verificationChecksSha256 },
       cost: { status: 'not-invoked', amount: 0 }, latencyMs: 0,
-      evidenceRefs: [taskImport.forkTaskImportSha256], effectRefs: [],
+      evidenceRefs: [taskImportSha256], effectRefs: [],
       humanDecisionRefs: [], executionEvents: [],
       requiresExecutionUnit: false, requiresDevice: false,
       createdAt: plan.createdAt
@@ -1391,7 +1565,7 @@ async function importForkPrefixTask(root, plan, child, program, entry) {
       inputRefs: entry.inputRefs, outputRefs: entry.outputRefs,
       candidateSha256: candidate.candidateSha256,
       evidenceRefs: [
-        candidate.candidateSha256, evidence.evidenceSha256, taskImport.forkTaskImportSha256
+        candidate.candidateSha256, evidence.evidenceSha256, taskImportSha256
       ],
       effectRefs: [], humanDecisionRefs: [],
       verification: { status: 'passed', checksSha256: entry.verificationChecksSha256 },
@@ -1405,8 +1579,15 @@ async function importForkPrefixTask(root, plan, child, program, entry) {
       if (final) {
         await putSgosImmutableRecord(root, child.processId, 'candidate-snapshot', candidate,
           { reserveExisting: true });
-        await putSgosImmutableRecord(root, child.processId, 'fork-prefix-task-import', taskImport,
+        await putSgosImmutableRecord(root, child.processId,
+          dynamicProtocol ? 'fork-dynamic-task-import' : 'fork-prefix-task-import', taskImport,
           { reserveExisting: true });
+        for (const collection of childCollections) {
+          await putSgosImmutableRecord(
+            root, child.processId, 'dynamic-fanout-collection', collection,
+            { reserveExisting: true }
+          );
+        }
         await putSgosImmutableRecord(root, child.processId, 'action-evidence', evidence,
           { reserveExisting: true });
         await putSgosImmutableRecord(root, child.processId, 'gvm-task-receipt', receipt,
@@ -1439,7 +1620,76 @@ async function importForkPrefixTask(root, plan, child, program, entry) {
   return child;
 }
 
-async function finalizeForkPrefixImport(root, plan, child, genesis) {
+async function resolvedDynamicForkMappings(root, plan, child) {
+  const resolved = [];
+  for (const mapping of plan.dynamicFanouts) {
+    const childSource = child.taskInstances[mapping.childSourceTaskInstanceId];
+    const sourceCollection = (await readSgosImmutableRecord(
+      root, plan.parentProcessId, 'dynamic-fanout-collection',
+      mapping.sourceCollectionRecordSha256
+    )).record;
+    const sourceExpansion = (await readSgosImmutableRecord(
+      root, plan.parentProcessId, 'dynamic-fanout-expansion-receipt',
+      mapping.sourceExpansionSha256
+    )).record;
+    const childCollection = (await readSgosImmutableRecord(
+      root, child.processId, 'dynamic-fanout-collection',
+      mapping.childCollection.collectionRecordSha256
+    )).record;
+    const childExpansions = await listSgosImmutableRecordsByField(
+      root, child.processId, 'dynamic-fanout-expansion-receipt',
+      'parentTaskTemplateId', mapping.parentTaskTemplateId
+    );
+    if (!childSource || childSource.state !== 'succeeded'
+        || childExpansions.length !== 1
+        || sourceCollection.collectionSha256 !== mapping.collectionSha256
+        || childCollection.collectionSha256 !== mapping.collectionSha256
+        || canonicalJson(childCollection) !== canonicalJson(mapping.childCollection)
+        || sourceExpansion.sourceTaskReceiptSha256 !== mapping.sourceTaskReceiptSha256
+        || sourceExpansion.collectionRecordSha256
+          !== mapping.sourceCollectionRecordSha256
+        || childExpansions[0].sourceTaskReceiptSha256 !== childSource.receiptSha256
+        || childExpansions[0].collectionRecordSha256
+          !== childCollection.collectionRecordSha256) {
+      fail(`Dynamic fork mapping '${mapping.parentTaskTemplateId}' did not converge exactly.`,
+        'SGOS_DYNAMIC_FANOUT_FORK_MAPPING_INVALID');
+    }
+    const expectedSourceItems = mapping.items.map((item) => ({
+      itemKey: item.itemKey,
+      itemSha256: item.itemSha256,
+      taskInstanceId: item.sourceTaskInstanceId
+    }));
+    const expectedChildItems = mapping.items.map((item) => ({
+      itemKey: item.itemKey,
+      itemSha256: item.itemSha256,
+      taskInstanceId: item.childTaskInstanceId
+    }));
+    if (canonicalJson(sourceExpansion.items) !== canonicalJson(expectedSourceItems)
+        || canonicalJson(childExpansions[0].items) !== canonicalJson(expectedChildItems)) {
+      fail(`Dynamic fork mapping '${mapping.parentTaskTemplateId}' changed its item identities.`,
+        'SGOS_DYNAMIC_FANOUT_FORK_MAPPING_INVALID');
+    }
+    resolved.push({
+      parentTaskTemplateId: mapping.parentTaskTemplateId,
+      bodyTaskTemplateId: mapping.bodyTaskTemplateId,
+      sourceTaskInstanceId: mapping.sourceTaskInstanceId,
+      childSourceTaskInstanceId: mapping.childSourceTaskInstanceId,
+      sourceAttemptId: mapping.sourceAttemptId,
+      childAttemptId: mapping.childAttemptId,
+      sourceTaskReceiptSha256: mapping.sourceTaskReceiptSha256,
+      childTaskReceiptSha256: childSource.receiptSha256,
+      sourceCollectionRecordSha256: mapping.sourceCollectionRecordSha256,
+      childCollectionRecordSha256: childCollection.collectionRecordSha256,
+      sourceExpansionSha256: mapping.sourceExpansionSha256,
+      childExpansionSha256: childExpansions[0].expansionSha256,
+      collectionSha256: mapping.collectionSha256,
+      items: mapping.items
+    });
+  }
+  return Object.freeze(resolved);
+}
+
+async function finalizeForkPrefixImport(root, plan, child, genesis, program) {
   assertForkImportBoundary(child, plan.prefixTasks);
   const tasks = [];
   for (const entry of plan.prefixTasks) {
@@ -1451,11 +1701,16 @@ async function finalizeForkPrefixImport(root, plan, child, genesis) {
     const receipt = (await readSgosImmutableRecord(
       root, child.processId, 'gvm-task-receipt', task.receiptSha256
     )).record;
+    const dynamicProtocol = plan.dynamicFanouts.length > 0;
+    const importFamily = dynamicProtocol
+      ? 'fork-dynamic-task-import' : 'fork-prefix-task-import';
     const imports = await listSgosImmutableRecordsByField(
-      root, child.processId, 'fork-prefix-task-import',
+      root, child.processId, importFamily,
       'childTaskInstanceId', task.taskInstanceId
     );
-    if (imports.length !== 1 || !receipt.evidenceRefs.includes(imports[0].forkTaskImportSha256)) {
+    const taskImportSha256 = imports[0]?.forkDynamicTaskImportSha256
+      ?? imports[0]?.forkTaskImportSha256 ?? null;
+    if (imports.length !== 1 || !receipt.evidenceRefs.includes(taskImportSha256)) {
       fail('Fork prefix task does not retain one exact import receipt.',
         'SGOS_FORK_PREFIX_EVIDENCE_INVALID');
     }
@@ -1463,18 +1718,23 @@ async function finalizeForkPrefixImport(root, plan, child, genesis) {
       taskTemplateId: entry.taskTemplateId,
       sourceTaskInstanceId: entry.sourceTaskInstanceId,
       childTaskInstanceId: entry.childTaskInstanceId,
-      forkTaskImportSha256: imports[0].forkTaskImportSha256,
+      ...(dynamicProtocol
+        ? { forkDynamicTaskImportSha256: taskImportSha256 }
+        : { forkTaskImportSha256: taskImportSha256 }),
       childTaskReceiptSha256: receipt.receiptSha256,
       attemptCount: entry.attempts.length,
       outputRefs: entry.outputRefs
     });
   }
   let current = (await recoverPendingSgosTransition(root, child.processId)).process;
-  if (current.currentCheckpointSha256 !== genesis.checkpointSha256) {
-    const existing = await listSgosImmutableRecordsByField(
-      root, child.processId, 'fork-prefix-import-receipt',
-      'forkPlanSha256', plan.forkPlanSha256
-    );
+  const dynamicProtocol = plan.dynamicFanouts.length > 0;
+  const aggregateFamily = dynamicProtocol
+    ? 'fork-dynamic-prefix-import-receipt' : 'fork-prefix-import-receipt';
+  const existing = await listSgosImmutableRecordsByField(
+    root, child.processId, aggregateFamily,
+    'forkPlanSha256', plan.forkPlanSha256
+  );
+  if (existing.length > 0) {
     if (existing.length !== 1
         || current.currentCheckpointSha256 !== existing[0].childImportedCheckpointSha256) {
       fail('Fork child checkpoint advanced outside the confirmed import.',
@@ -1484,6 +1744,13 @@ async function finalizeForkPrefixImport(root, plan, child, genesis) {
       root, child.processId, current.currentCheckpointSha256
     )).record, importReceipt: existing[0] });
   }
+  if (!dynamicProtocol && current.currentCheckpointSha256 !== genesis.checkpointSha256) {
+    fail('Static fork child checkpoint advanced outside the confirmed import.',
+      'SGOS_FORK_CHILD_CONFLICT');
+  }
+  const childPrefixBaseCheckpointSha256 = current.currentCheckpointSha256;
+  const dynamicFanouts = dynamicProtocol
+    ? await resolvedDynamicForkMappings(root, plan, current) : [];
   const checkpoint = createGvmCheckpoint({
     processId: current.processId,
     processRevision: current.processRevision,
@@ -1492,13 +1759,14 @@ async function finalizeForkPrefixImport(root, plan, child, genesis) {
     processBindingSha256: current.processBindingSha256,
     taskStates: Object.fromEntries(Object.entries(current.taskInstances)
       .map(([taskInstanceId, task]) => [taskInstanceId, task.state])),
-    readyTaskIds: Object.values(current.taskInstances).filter((task) => task.state === 'ready')
-      .map((task) => task.taskInstanceId).sort(compareSgosCodePoints),
+    readyTaskIds: deterministicSgosDispatchPlan(program, current, {
+      maximumParallel: 1
+    }).map((task) => task.taskInstanceId),
     activeExecutions: [], openHumanRequests: [], activeLeases: [],
-    priorCheckpointSha256: genesis.checkpointSha256,
+    priorCheckpointSha256: childPrefixBaseCheckpointSha256,
     createdAt: plan.createdAt
   });
-  const importReceipt = createForkPrefixImportReceipt({
+  const aggregateCore = {
     forkPlanSha256: plan.forkPlanSha256,
     parentProcessId: plan.parentProcessId,
     childProcessId: current.processId,
@@ -1510,12 +1778,17 @@ async function finalizeForkPrefixImport(root, plan, child, genesis) {
     childGenesisCheckpointSha256: genesis.checkpointSha256,
     childImportedCheckpointSha256: checkpoint.checkpointSha256,
     tasks, importedAt: plan.createdAt
-  });
+  };
+  const importReceipt = dynamicProtocol
+    ? createForkDynamicPrefixImportReceipt({
+      ...aggregateCore, childPrefixBaseCheckpointSha256, dynamicFanouts
+    })
+    : createForkPrefixImportReceipt(aggregateCore);
   current = await mutateSgosProcess(root, current.processId, async (draft) => {
     await putSgosImmutableRecord(root, current.processId, 'gvm-checkpoint', checkpoint,
       { reserveExisting: true });
     await putSgosImmutableRecord(
-      root, current.processId, 'fork-prefix-import-receipt', importReceipt,
+      root, current.processId, aggregateFamily, importReceipt,
       { reserveExisting: true }
     );
     draft.currentCheckpointSha256 = checkpoint.checkpointSha256;
@@ -1532,10 +1805,16 @@ async function importForkPrefix(root, plan, parent, started, program) {
   let child = recovered.process;
   const genesis = await assertForkGenesisAncestor(root, plan, parent, child, program);
   assertForkImportBoundary(child, plan.prefixTasks);
-  for (const entry of topologicalForkPrefix(program, plan.prefixTasks)) {
+  for (const entry of topologicalForkPrefix(plan.prefixTasks)) {
     child = await importForkPrefixTask(root, plan, child, program, entry);
+    if (plan.dynamicFanouts.some((mapping) =>
+      mapping.childSourceTaskInstanceId === entry.childTaskInstanceId)) {
+      child = await materializeReadySgosDynamicFanouts(
+        root, child, program, plan.createdAt
+      );
+    }
   }
-  return finalizeForkPrefixImport(root, plan, child, genesis.checkpoint);
+  return finalizeForkPrefixImport(root, plan, child, genesis.checkpoint, program);
 }
 
 async function validateCanonicalForkReceipt(root, plan, parent, receipt) {
@@ -1595,8 +1874,11 @@ async function validateCanonicalForkReceipt(root, plan, parent, receipt) {
     const importedCheckpoint = (await readSgosCheckpoint(
       root, child.processId, receipt.childImportedCheckpointSha256
     )).record;
+    const dynamicProtocol = plan.dynamicFanouts.length > 0;
     const importRecord = (await readSgosImmutableRecord(
-      root, child.processId, 'fork-prefix-import-receipt',
+      root, child.processId,
+      dynamicProtocol
+        ? 'fork-dynamic-prefix-import-receipt' : 'fork-prefix-import-receipt',
       receipt.forkImportReceiptSha256
     )).record;
     if (importRecord.forkPlanSha256 !== plan.forkPlanSha256
@@ -1604,7 +1886,11 @@ async function validateCanonicalForkReceipt(root, plan, parent, receipt) {
         || importRecord.childProcessId !== child.processId
         || importRecord.childGenesisCheckpointSha256 !== genesis.checkpointSha256
         || importRecord.childImportedCheckpointSha256 !== importedCheckpoint.checkpointSha256
-        || importedCheckpoint.priorCheckpointSha256 !== genesis.checkpointSha256) {
+        || importedCheckpoint.priorCheckpointSha256 !== (
+          dynamicProtocol
+            ? importRecord.childPrefixBaseCheckpointSha256
+            : genesis.checkpointSha256
+        )) {
       fail('Canonical SGOS fork receipt has invalid prefix-import lineage.',
         'SGOS_LINEAGE_CORRUPT');
     }
@@ -1644,7 +1930,9 @@ async function forkSgosProcessWithinPolicy(root, processId, {
     const child = await validateCanonicalForkReceipt(root, plan, parent, existingReceipt);
     const imported = plan.sourceEvidenceProjectionSha256 != null;
     const importReceipt = imported ? (await readSgosImmutableRecord(
-      root, child.processId, 'fork-prefix-import-receipt',
+      root, child.processId,
+      plan.dynamicFanouts.length > 0
+        ? 'fork-dynamic-prefix-import-receipt' : 'fork-prefix-import-receipt',
       existingReceipt.forkImportReceiptSha256
     )).record : null;
     const checkpoint = imported ? (await readSgosCheckpoint(
@@ -1677,7 +1965,7 @@ async function forkSgosProcessWithinPolicy(root, processId, {
   const sourceCheckpoint = await checkpointInLineage(root, parent, plan.fromCheckpointSha256);
   if (plan.sourceEvidenceProjectionSha256 != null) {
     const currentPrefix = await buildForkPrefixPlan(
-      root, parent, sourceCheckpoint, plan.childProcessId
+      root, parent, sourceCheckpoint, plan.childProcessId, plan.createdAt
     );
     const plannedPrefix = {
       sourceEvidenceProjectionSha256: plan.sourceEvidenceProjectionSha256,
@@ -1685,7 +1973,8 @@ async function forkSgosProcessWithinPolicy(root, processId, {
       sourceProcessRevision: plan.sourceProcessRevision,
       sourceControlEventSha256: plan.sourceControlEventSha256,
       sourceRecordIndexSha256: plan.sourceRecordIndexSha256,
-      prefixTasks: plan.prefixTasks
+      prefixTasks: plan.prefixTasks,
+      dynamicFanouts: plan.dynamicFanouts
     };
     if (canonicalJson(currentPrefix) !== canonicalJson(plannedPrefix)) {
       fail('Parent prefix evidence changed after fork preview; create a new exact plan.',
@@ -1755,7 +2044,8 @@ async function forkSgosProcessWithinPolicy(root, processId, {
       sourceControlEventSha256: plan.sourceControlEventSha256,
       sourceRecordIndexSha256: plan.sourceRecordIndexSha256,
       childImportedCheckpointSha256: prefix.checkpoint.checkpointSha256,
-      forkImportReceiptSha256: prefix.importReceipt.forkImportReceiptSha256
+      forkImportReceiptSha256: prefix.importReceipt.forkDynamicImportReceiptSha256
+        ?? prefix.importReceipt.forkImportReceiptSha256
     }),
     forkedAt: plan.createdAt
   });

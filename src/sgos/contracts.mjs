@@ -90,6 +90,8 @@ const CONTRACTS = Object.freeze({
   'effect-retry-receipt': Object.freeze({ kind: 'effect-retry-receipt', hash: 'effectRetryReceiptSha256', id: 'effectRetryReceiptId', prefix: 'ETR' }),
   'fork-prefix-task-import': Object.freeze({ kind: 'fork-prefix-task-import', hash: 'forkTaskImportSha256', id: 'forkTaskImportId', prefix: 'FTI' }),
   'fork-prefix-import-receipt': Object.freeze({ kind: 'fork-prefix-import-receipt', hash: 'forkImportReceiptSha256', id: 'forkImportReceiptId', prefix: 'FIR' }),
+  'fork-dynamic-task-import': Object.freeze({ kind: 'fork-dynamic-task-import', hash: 'forkDynamicTaskImportSha256', id: 'forkDynamicTaskImportId', prefix: 'FDT' }),
+  'fork-dynamic-prefix-import-receipt': Object.freeze({ kind: 'fork-dynamic-prefix-import-receipt', hash: 'forkDynamicImportReceiptSha256', id: 'forkDynamicImportReceiptId', prefix: 'FDI' }),
   'fanout-expansion-receipt': Object.freeze({ kind: 'fanout-expansion-receipt', hash: 'expansionSha256', id: 'expansionId', prefix: 'FOX' }),
   'dynamic-fanout-collection': Object.freeze({ kind: 'dynamic-fanout-collection', hash: 'collectionRecordSha256', id: 'collectionId', prefix: 'DFC' }),
   'dynamic-fanout-expansion-receipt': Object.freeze({ kind: 'dynamic-fanout-expansion-receipt', hash: 'expansionSha256', id: 'expansionId', prefix: 'DFX' }),
@@ -1567,6 +1569,276 @@ export function validateForkPrefixTaskImport(value) {
   return returnValidated(value, validateForkPrefixTaskImportRecord);
 }
 
+function validateForkDynamicTaskImportRecord(record, requireHash) {
+  validateBase(record, 'fork-dynamic-task-import', [
+    'forkDynamicTaskImportId', 'forkPlanSha256', 'parentProcessId', 'childProcessId',
+    'sourceEvidenceProjectionSha256', 'sourceProcessSha256',
+    'sourceControlEventSha256', 'sourceRecordIndexSha256', 'fromCheckpointSha256',
+    'sourceTaskInstanceId', 'childTaskInstanceId', 'taskTemplateId',
+    'sourceTaskRevision', 'sourceInputRefs', 'sourceOutputRefs',
+    'childInputRefs', 'childOutputRefs', 'attempts',
+    'sourceTaskReceiptSha256', 'sourceCandidateSha256',
+    'sourceActionEvidenceSha256s', 'sourceEvidenceRefs', 'sourceEffectRefs',
+    'sourceHumanDecisionRefs', 'verificationChecksSha256',
+    'effectReconciliation', 'importedAt'
+  ], [
+    'forkDynamicTaskImportId', 'forkPlanSha256', 'parentProcessId', 'childProcessId',
+    'sourceEvidenceProjectionSha256', 'sourceProcessSha256',
+    'sourceControlEventSha256', 'sourceRecordIndexSha256', 'fromCheckpointSha256',
+    'sourceTaskInstanceId', 'childTaskInstanceId', 'taskTemplateId',
+    'sourceTaskRevision', 'sourceInputRefs', 'sourceOutputRefs',
+    'childInputRefs', 'childOutputRefs', 'attempts',
+    'sourceTaskReceiptSha256', 'sourceCandidateSha256',
+    'sourceActionEvidenceSha256s', 'sourceEvidenceRefs', 'sourceEffectRefs',
+    'sourceHumanDecisionRefs', 'verificationChecksSha256',
+    'effectReconciliation', 'importedAt'
+  ], requireHash);
+  identifier(record.forkDynamicTaskImportId, 'FDT',
+    'fork-dynamic-task-import.forkDynamicTaskImportId');
+  identifier(record.parentProcessId, 'PROC', 'fork-dynamic-task-import.parentProcessId');
+  identifier(record.childProcessId, 'PROC', 'fork-dynamic-task-import.childProcessId');
+  for (const field of [
+    'forkPlanSha256', 'sourceEvidenceProjectionSha256', 'sourceProcessSha256',
+    'sourceControlEventSha256', 'sourceRecordIndexSha256', 'fromCheckpointSha256',
+    'sourceTaskReceiptSha256', 'sourceCandidateSha256', 'verificationChecksSha256'
+  ]) digest(record[field], `fork-dynamic-task-import.${field}`);
+  for (const field of [
+    'sourceTaskInstanceId', 'childTaskInstanceId', 'taskTemplateId'
+  ]) string(record[field], `fork-dynamic-task-import.${field}`);
+  integer(record.sourceTaskRevision, 'fork-dynamic-task-import.sourceTaskRevision', {
+    minimum: 1
+  });
+  for (const field of [
+    'sourceInputRefs', 'sourceOutputRefs', 'childInputRefs', 'childOutputRefs',
+    'sourceActionEvidenceSha256s', 'sourceEvidenceRefs', 'sourceEffectRefs',
+    'sourceHumanDecisionRefs'
+  ]) stringArray(record[field], `fork-dynamic-task-import.${field}`);
+  if (!record.attempts.length
+      || record.attempts.length > SGOS_INSTALLED_LIMITS.maximumAttemptsPerTask) {
+    fail('fork-dynamic-task-import.attempts exceeds the installed task-attempt bound.');
+  }
+  record.attempts.forEach((entry, index) =>
+    validateForkAttemptMapping(entry, `fork-dynamic-task-import.attempts[${index}]`));
+  if (record.attempts.at(-1).sourceTerminalStatus !== 'succeeded') {
+    fail('fork-dynamic-task-import requires an exact terminal successful source attempt.');
+  }
+  if (new Set(record.attempts.flatMap((entry) => [
+    entry.sourceAttemptId, entry.childAttemptId
+  ])).size !== 2 * record.attempts.length) {
+    fail('fork-dynamic-task-import attempt identities must be unique.');
+  }
+  validateForkEffectReconciliation(
+    record.effectReconciliation, 'fork-dynamic-task-import.effectReconciliation'
+  );
+  timestamp(record.importedAt, 'fork-dynamic-task-import.importedAt');
+}
+
+export function createForkDynamicTaskImport(value) {
+  return createContract(
+    'fork-dynamic-task-import', value, validateForkDynamicTaskImportRecord, {
+      prepare: (record) => ({
+        ...record,
+        ...Object.fromEntries([
+          'sourceInputRefs', 'sourceOutputRefs', 'childInputRefs', 'childOutputRefs',
+          'sourceActionEvidenceSha256s', 'sourceEvidenceRefs', 'sourceEffectRefs',
+          'sourceHumanDecisionRefs'
+        ].map((field) => [
+          field, [...new Set(record[field])].sort(compareSgosCodePoints)
+        ]))
+      }),
+      identity: (record) => ({
+        forkPlanSha256: record.forkPlanSha256,
+        parentProcessId: record.parentProcessId,
+        childProcessId: record.childProcessId,
+        sourceTaskInstanceId: record.sourceTaskInstanceId,
+        childTaskInstanceId: record.childTaskInstanceId,
+        sourceTaskReceiptSha256: record.sourceTaskReceiptSha256,
+        sourceInputRefs: record.sourceInputRefs,
+        sourceOutputRefs: record.sourceOutputRefs,
+        childInputRefs: record.childInputRefs,
+        childOutputRefs: record.childOutputRefs
+      })
+    }
+  );
+}
+
+export function validateForkDynamicTaskImport(value) {
+  return returnValidated(value, validateForkDynamicTaskImportRecord);
+}
+
+function forkDynamicItemOrder(left, right) {
+  return compareSgosCodePoints(left.itemKey, right.itemKey)
+    || compareSgosCodePoints(left.childTaskInstanceId, right.childTaskInstanceId);
+}
+
+function validateForkDynamicFanoutItem(value, label) {
+  exactKeys(value, [
+    'itemKey', 'itemSha256', 'sourceTaskInstanceId', 'childTaskInstanceId'
+  ], label);
+  requireKeys(value, [
+    'itemKey', 'itemSha256', 'sourceTaskInstanceId', 'childTaskInstanceId'
+  ], label);
+  string(value.itemKey, `${label}.itemKey`);
+  digest(value.itemSha256, `${label}.itemSha256`);
+  string(value.sourceTaskInstanceId, `${label}.sourceTaskInstanceId`);
+  string(value.childTaskInstanceId, `${label}.childTaskInstanceId`);
+}
+
+function forkDynamicFanoutOrder(left, right) {
+  return compareSgosCodePoints(left.parentTaskTemplateId, right.parentTaskTemplateId);
+}
+
+function validateForkDynamicFanout(value, label) {
+  exactKeys(value, [
+    'parentTaskTemplateId', 'bodyTaskTemplateId',
+    'sourceTaskInstanceId', 'childSourceTaskInstanceId',
+    'sourceAttemptId', 'childAttemptId',
+    'sourceTaskReceiptSha256', 'childTaskReceiptSha256',
+    'sourceCollectionRecordSha256', 'childCollectionRecordSha256',
+    'sourceExpansionSha256', 'childExpansionSha256', 'collectionSha256', 'items'
+  ], label);
+  requireKeys(value, [
+    'parentTaskTemplateId', 'bodyTaskTemplateId',
+    'sourceTaskInstanceId', 'childSourceTaskInstanceId',
+    'sourceAttemptId', 'childAttemptId',
+    'sourceTaskReceiptSha256', 'childTaskReceiptSha256',
+    'sourceCollectionRecordSha256', 'childCollectionRecordSha256',
+    'sourceExpansionSha256', 'childExpansionSha256', 'collectionSha256', 'items'
+  ], label);
+  for (const field of [
+    'parentTaskTemplateId', 'bodyTaskTemplateId',
+    'sourceTaskInstanceId', 'childSourceTaskInstanceId'
+  ]) string(value[field], `${label}.${field}`);
+  identifier(value.sourceAttemptId, 'ATT', `${label}.sourceAttemptId`);
+  identifier(value.childAttemptId, 'ATT', `${label}.childAttemptId`);
+  for (const field of [
+    'sourceTaskReceiptSha256', 'childTaskReceiptSha256',
+    'sourceCollectionRecordSha256', 'childCollectionRecordSha256',
+    'sourceExpansionSha256', 'childExpansionSha256', 'collectionSha256'
+  ]) digest(value[field], `${label}.${field}`);
+  if (!Array.isArray(value.items)
+      || value.items.length > SGOS_INSTALLED_LIMITS.maximumFanoutItems) {
+    fail(`${label}.items exceeds the installed fan-out bound.`);
+  }
+  value.items.forEach((entry, index) =>
+    validateForkDynamicFanoutItem(entry, `${label}.items[${index}]`));
+  if (value.items.some((entry, index) =>
+    index > 0 && forkDynamicItemOrder(value.items[index - 1], entry) >= 0)) {
+    fail(`${label}.items must be unique and canonically ordered.`);
+  }
+}
+
+function validateForkDynamicImportedTask(value, label) {
+  exactKeys(value, [
+    'taskTemplateId', 'sourceTaskInstanceId', 'childTaskInstanceId',
+    'forkDynamicTaskImportSha256', 'childTaskReceiptSha256', 'attemptCount',
+    'outputRefs'
+  ], label);
+  requireKeys(value, [
+    'taskTemplateId', 'sourceTaskInstanceId', 'childTaskInstanceId',
+    'forkDynamicTaskImportSha256', 'childTaskReceiptSha256', 'attemptCount',
+    'outputRefs'
+  ], label);
+  for (const field of [
+    'taskTemplateId', 'sourceTaskInstanceId', 'childTaskInstanceId'
+  ]) string(value[field], `${label}.${field}`);
+  digest(value.forkDynamicTaskImportSha256, `${label}.forkDynamicTaskImportSha256`);
+  digest(value.childTaskReceiptSha256, `${label}.childTaskReceiptSha256`);
+  integer(value.attemptCount, `${label}.attemptCount`, { minimum: 1 });
+  if (value.attemptCount > SGOS_INSTALLED_LIMITS.maximumAttemptsPerTask) {
+    fail(`${label}.attemptCount exceeds the installed task-attempt bound.`);
+  }
+  stringArray(value.outputRefs, `${label}.outputRefs`);
+}
+
+function validateForkDynamicPrefixImportReceiptRecord(record, requireHash) {
+  validateBase(record, 'fork-dynamic-prefix-import-receipt', [
+    'forkDynamicImportReceiptId', 'forkPlanSha256', 'parentProcessId',
+    'childProcessId', 'sourceEvidenceProjectionSha256', 'sourceProcessSha256',
+    'sourceControlEventSha256', 'sourceRecordIndexSha256', 'fromCheckpointSha256',
+    'childGenesisCheckpointSha256', 'childPrefixBaseCheckpointSha256',
+    'childImportedCheckpointSha256', 'tasks', 'dynamicFanouts', 'importedAt'
+  ], [
+    'forkDynamicImportReceiptId', 'forkPlanSha256', 'parentProcessId',
+    'childProcessId', 'sourceEvidenceProjectionSha256', 'sourceProcessSha256',
+    'sourceControlEventSha256', 'sourceRecordIndexSha256', 'fromCheckpointSha256',
+    'childGenesisCheckpointSha256', 'childPrefixBaseCheckpointSha256',
+    'childImportedCheckpointSha256', 'tasks', 'dynamicFanouts', 'importedAt'
+  ], requireHash);
+  identifier(record.forkDynamicImportReceiptId, 'FDI',
+    'fork-dynamic-prefix-import-receipt.forkDynamicImportReceiptId');
+  identifier(record.parentProcessId, 'PROC',
+    'fork-dynamic-prefix-import-receipt.parentProcessId');
+  identifier(record.childProcessId, 'PROC',
+    'fork-dynamic-prefix-import-receipt.childProcessId');
+  for (const field of [
+    'forkPlanSha256', 'sourceEvidenceProjectionSha256', 'sourceProcessSha256',
+    'sourceControlEventSha256', 'sourceRecordIndexSha256', 'fromCheckpointSha256',
+    'childGenesisCheckpointSha256', 'childPrefixBaseCheckpointSha256',
+    'childImportedCheckpointSha256'
+  ]) digest(record[field], `fork-dynamic-prefix-import-receipt.${field}`);
+  if (!Array.isArray(record.tasks) || record.tasks.length < 1
+      || record.tasks.length > SGOS_INSTALLED_LIMITS.maximumTasks) {
+    fail('fork-dynamic-prefix-import-receipt.tasks must be a bounded non-empty array.');
+  }
+  record.tasks.forEach((entry, index) =>
+    validateForkDynamicImportedTask(
+      entry, `fork-dynamic-prefix-import-receipt.tasks[${index}]`
+    ));
+  if (record.tasks.some((entry, index) => index > 0
+      && forkImportedTaskOrder(record.tasks[index - 1], entry) >= 0)) {
+    fail('fork-dynamic-prefix-import-receipt.tasks must be unique and canonically ordered.');
+  }
+  if (!Array.isArray(record.dynamicFanouts) || !record.dynamicFanouts.length
+      || record.dynamicFanouts.length
+        > SGOS_INSTALLED_LIMITS.maximumFanoutGroupsPerProcess) {
+    fail('fork-dynamic-prefix-import-receipt.dynamicFanouts must be bounded and non-empty.');
+  }
+  record.dynamicFanouts.forEach((entry, index) =>
+    validateForkDynamicFanout(
+      entry, `fork-dynamic-prefix-import-receipt.dynamicFanouts[${index}]`
+    ));
+  if (record.dynamicFanouts.some((entry, index) => index > 0
+      && forkDynamicFanoutOrder(record.dynamicFanouts[index - 1], entry) >= 0)) {
+    fail('fork-dynamic-prefix-import-receipt.dynamicFanouts must be unique and canonical.');
+  }
+  timestamp(record.importedAt, 'fork-dynamic-prefix-import-receipt.importedAt');
+}
+
+export function createForkDynamicPrefixImportReceipt(value) {
+  return createContract(
+    'fork-dynamic-prefix-import-receipt', value,
+    validateForkDynamicPrefixImportReceiptRecord, {
+      prepare: (record) => ({
+        ...record,
+        tasks: [...record.tasks].map((entry) => ({
+          ...entry,
+          outputRefs: [...new Set(entry.outputRefs)].sort(compareSgosCodePoints)
+        })).sort(forkImportedTaskOrder),
+        dynamicFanouts: [...record.dynamicFanouts].map((entry) => ({
+          ...entry, items: [...entry.items].sort(forkDynamicItemOrder)
+        })).sort(forkDynamicFanoutOrder)
+      }),
+      identity: (record) => ({
+        forkPlanSha256: record.forkPlanSha256,
+        parentProcessId: record.parentProcessId,
+        childProcessId: record.childProcessId,
+        sourceEvidenceProjectionSha256: record.sourceEvidenceProjectionSha256,
+        sourceProcessSha256: record.sourceProcessSha256,
+        childGenesisCheckpointSha256: record.childGenesisCheckpointSha256,
+        childPrefixBaseCheckpointSha256: record.childPrefixBaseCheckpointSha256,
+        childImportedCheckpointSha256: record.childImportedCheckpointSha256,
+        tasks: record.tasks,
+        dynamicFanouts: record.dynamicFanouts
+      })
+    }
+  );
+}
+
+export function validateForkDynamicPrefixImportReceipt(value) {
+  return returnValidated(value, validateForkDynamicPrefixImportReceiptRecord);
+}
+
 function forkImportedTaskOrder(left, right) {
   return compareSgosCodePoints(left.taskTemplateId, right.taskTemplateId)
     || compareSgosCodePoints(left.childTaskInstanceId, right.childTaskInstanceId);
@@ -2051,7 +2323,8 @@ export const SGOS_RECORD_INDEX_FAMILIES = Object.freeze([
   'action-evidence', 'agent-proposal', 'candidate-snapshot', 'effect-replay-receipt',
   'effect-retry-receipt',
   'dynamic-fanout-collection', 'dynamic-fanout-expansion-receipt',
-  'fanout-expansion-receipt', 'fork-prefix-import-receipt', 'fork-prefix-task-import',
+  'fanout-expansion-receipt', 'fork-dynamic-prefix-import-receipt',
+  'fork-dynamic-task-import', 'fork-prefix-import-receipt', 'fork-prefix-task-import',
   'gvm-checkpoint', 'gvm-program',
   'gvm-task-attempt', 'gvm-task-receipt', 'human-request', 'human-response',
   'join-receipt', 'manual-reconcile-join-receipt', 'process-binding',
@@ -2696,6 +2969,8 @@ const VALIDATORS = Object.freeze({
   'effect-retry-receipt': validateEffectRetryReceipt,
   'fork-prefix-task-import': validateForkPrefixTaskImport,
   'fork-prefix-import-receipt': validateForkPrefixImportReceipt,
+  'fork-dynamic-task-import': validateForkDynamicTaskImport,
+  'fork-dynamic-prefix-import-receipt': validateForkDynamicPrefixImportReceipt,
   'fanout-expansion-receipt': validateFanoutExpansionReceipt,
   'dynamic-fanout-collection': validateDynamicFanoutCollection,
   'dynamic-fanout-expansion-receipt': validateDynamicFanoutExpansionReceipt,

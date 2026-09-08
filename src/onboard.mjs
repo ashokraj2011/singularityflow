@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile, readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 
@@ -233,7 +233,10 @@ async function resolveRoute(context, existing, options) {
 }
 
 async function routeLocation(context, route) {
-  if (route.kind === 'local') return context.root;
+  // Bind a local authority to Git's canonical worktree root. The caller may have entered an OS
+  // alias such as macOS `/var` versus `/private/var`, a symlink, or a differently cased Windows
+  // path; persisting that spelling makes the next invocation look like an authority rebind.
+  if (route.kind === 'local') return context.observe('repository.root');
   const remoteUrl = await context.observe('repository.remote-url', { remote: route.remoteName });
   if (!remoteUrl) throw new SingularityFlowError(
     `Configured remote '${route.remoteName}' has no single readable fetch URL.`, {
@@ -245,6 +248,16 @@ async function routeLocation(context, route) {
   // remote transport freezes ambient URL rewrites later; this validation keeps the literal itself
   // safe to bind and diagnose.
   return assertCredentialFreeRemote(remoteUrl);
+}
+
+async function sameAuthorityLocation(route, current, recorded) {
+  if (route.kind !== 'local') return sanitizeRemote(current) === recorded;
+  try {
+    return await realpath(current) === await realpath(recorded);
+  } catch {
+    // A missing or unreadable recorded location cannot be treated as an equivalent authority.
+    return false;
+  }
 }
 
 function fold(snapshot) {
@@ -509,7 +522,8 @@ export async function fosStoryConfigurationAuthority(root) {
     });
   }
   const location = await routeLocation(context, state.descriptor.route);
-  if (sanitizeRemote(location) !== state.descriptor.authority.locator) {
+  if (!await sameAuthorityLocation(state.descriptor.route, location,
+    state.descriptor.authority.locator)) {
     throw new SingularityFlowError(
       'The configured authority location changed after onboarding. Refresh the authority pin explicitly.', {
         code: 'AUTHORITY_CONFLICT'
@@ -826,7 +840,8 @@ export async function onboardRepository(root, {
       );
     }
     const location = await routeLocation(context, route);
-    if (currentBinding && currentBinding.descriptor.authority.locator !== sanitizeRemote(location)) {
+    if (currentBinding && !await sameAuthorityLocation(route, location,
+      currentBinding.descriptor.authority.locator)) {
       throw new SingularityFlowError(
         'The configured authority location changed after onboarding. Refresh cannot silently rebind it; restore the recorded remote or use a reviewed rebind operation.',
         { code: 'AUTHORITY_CONFLICT' }

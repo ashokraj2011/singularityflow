@@ -159,6 +159,18 @@ function quantiles(values) {
   return { minimum: sorted[0], median: at(0.5), p95: at(0.95), maximum: sorted.at(-1) };
 }
 
+function processFailureDiagnostic(result, root) {
+  const lines = `${result.stderr ?? ''}\n${result.stdout ?? ''}`
+    .split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const selected = [...lines].reverse().find((line) => line.startsWith('Singularity Flow error:'))
+    ?? result.error?.code ?? result.signal ?? 'no bounded provider diagnostic';
+  return String(selected)
+    .replaceAll(root, '<fixture>')
+    .replaceAll(packageRoot, '<package>')
+    .replace(/https?:\/\/[^\s]+/gi, '<remote>')
+    .slice(0, 500);
+}
+
 async function measureFixture(id, definition) {
   const records = [];
   const root = await fixture(definition);
@@ -245,7 +257,9 @@ function runOnboardSample(root) {
     }
   });
   const externalWallMs = performance.now() - started;
-  if (result.status !== 0) throw new Error(`FOS onboarding benchmark failed with exit ${result.status}.`);
+  if (result.status !== 0) throw new Error(
+    `FOS onboarding benchmark failed with exit ${result.status}: ${processFailureDiagnostic(result, root)}`
+  );
   const internal = /\[sflow timing\][^\n]*\btotal=([0-9.]+)ms/.exec(result.stderr)?.[1];
   if (internal == null) throw new Error('FOS onboarding benchmark did not emit its terminal timing.');
   return { externalWallMs, internalWallMs: Number(internal), completed: true };

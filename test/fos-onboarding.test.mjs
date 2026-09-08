@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -91,6 +91,21 @@ test('FOS:AC-001 existing local authority attaches idempotently without changing
   assert.equal(first.descriptor.locator.ref, 'refs/heads/sflow/config');
   assert.equal(first.descriptor.effectivePolicyDigest, first.descriptor.policySha256);
   assert.equal(first.descriptor.receiptId, first.receipt.receiptId);
+});
+
+test('local authority reuse treats a symlink spelling as the same repository, not a rebind', async () => {
+  const parent = await mkdtemp(path.join(os.tmpdir(), 'sflow-fos-alias-'));
+  const root = await plainRepository(parent, 'actual');
+  const alias = path.join(parent, 'alias');
+  await symlink(root, alias, process.platform === 'win32' ? 'junction' : 'dir');
+  const bootstrapped = await bootstrapFosAuthority(alias, {
+    authorityLocal: true, policyId: FOS_LOCAL_BOOTSTRAP_POLICY_ID
+  });
+  const reused = await onboardRepository(root, { authorityLocal: true });
+  assert.equal(bootstrapped.status, 'bootstrapped');
+  assert.equal(reused.status, 'already-attached');
+  assert.equal(reused.descriptor.authority.locator, await realpath(root));
+  await rm(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
 });
 
 test('FOS:AC-005 offline and missing authority refuse without bootstrap', async () => {

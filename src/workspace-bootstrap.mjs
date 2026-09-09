@@ -13,7 +13,8 @@ import {
 import { workspaceRegistryFile } from './workspace-context.mjs';
 import {
   atomicJson, createWorkspaceConfiguration, previewWorkspaceConfiguration, readWorkspace,
-  rememberWorkspace, validateWorkspaceCapabilityRegistration, workspaceRepositoryPath,
+  rehydrateWorkspaceCapabilityValidation, rememberWorkspace,
+  validateWorkspaceCapabilityRegistration, workspaceRemoteCapabilities, workspaceRepositoryPath,
   workspaceStatus
 } from './workspace.mjs';
 import { gitWorkerCount, mapLimit, run, SingularityFlowError } from './util.mjs';
@@ -137,6 +138,9 @@ function sessionPath(root, bootstrapId) {
 
 function indexPath(root) { return path.join(root, 'index.json'); }
 function leasePath(root, bootstrapId) { return path.join(root, 'leases', `${bootstrapId}.lock`); }
+function catalogStorePath(root, bootstrapId) {
+  return path.join(root, 'catalogs', `catalog-${bootstrapId}.git`);
+}
 
 async function assertStateRoot(root) {
   const existing = await lstat(root).catch(() => null);
@@ -147,6 +151,7 @@ async function assertStateRoot(root) {
   }
   await mkdir(path.join(root, 'sessions'), { recursive: true, mode: 0o700 });
   await mkdir(path.join(root, 'leases'), { recursive: true, mode: 0o700 });
+  await mkdir(path.join(root, 'catalogs'), { recursive: true, mode: 0o700 });
 }
 
 function summary(session) {
@@ -820,7 +825,11 @@ async function asynchronousRemoteProbe(remote, {
   return { ...base, ok: true, failure: null };
 }
 
-async function remotePreflight(plan, { env = process.env, runCommand = run } = {}) {
+async function remotePreflight(plan, {
+  env = process.env,
+  runCommand = run,
+  capabilityObjectStoreDirectory = null
+} = {}) {
   const checks = [];
   const findings = [];
   const branchUpdates = new Map();
@@ -890,7 +899,12 @@ async function remotePreflight(plan, { env = process.env, runCommand = run } = {
   if (requestedCapabilities.length) {
     try {
       const validation = await validateWorkspaceCapabilityRegistration(manifest, {
-        env: gitEnv, remoteSession
+        env: gitEnv,
+        remoteSession,
+        readCapabilities: (url, options) => workspaceRemoteCapabilities(url, {
+          ...options,
+          objectStoreDirectory: capabilityObjectStoreDirectory
+        })
       });
       liveCapabilityValidation = validation;
       checks.push({
@@ -987,9 +1001,16 @@ export async function preflightWorkspaceBootstrap(bootstrapId, {
       operationBudgets: budgets,
       steps: started.steps
     });
+    const capabilityObjectStoreDirectory = catalogStorePath(root, bootstrapId);
+    await rm(capabilityObjectStoreDirectory, { recursive: true, force: true });
     const [machine, remote] = await Promise.all([
       machinePreflight(session.plan, { env, home, runCommand }),
-      remotePreflight(session.plan, { env, runCommand })
+      remotePreflight(session.plan, {
+        env,
+        runCommand,
+        capabilityObjectStoreDirectory: runCommand === run
+          ? capabilityObjectStoreDirectory : null
+      })
     ]);
     const findings = [...machine.findings, ...remote.findings];
     const blockers = findings.filter((entry) => entry.severity === 'blocker');
@@ -1116,15 +1137,30 @@ export async function resumeWorkspaceBootstrap(bootstrapId, {
       nextAction: null
     });
     try {
+      let capabilityValidation = takeLiveCapabilityValidation(bootstrapId, session.planHash);
+      const serializedCapabilityValidation = session.preflight?.checks
+        ?.find((check) => check.id === 'configuration:capability-catalog')?.capabilityValidation
+        ?? null;
+      if (!capabilityValidation && serializedCapabilityValidation?.catalogProof) {
+        try {
+          const manifest = previewWorkspaceConfiguration(session.plan.createInput).manifest;
+          capabilityValidation = await rehydrateWorkspaceCapabilityValidation(manifest, {
+            objectStoreDirectory: catalogStorePath(root, bootstrapId),
+            expected: serializedCapabilityValidation,
+            env
+          });
+        } catch {
+          // A serialized bootstrap record is diagnostic, not authority. If its retained Git
+          // objects are missing or invalid, the creation boundary performs one fresh catalog read.
+          capabilityValidation = null;
+        }
+      }
       const materialized = await createWorkspaceConfiguration(session.plan.createInput, {
         confirmation: session.plan.workspace.confirmation,
         clone: true,
         bootstrapId,
         env,
-        capabilityValidation: takeLiveCapabilityValidation(bootstrapId, session.planHash)
-          ?? session.preflight?.checks
-            ?.find((check) => check.id === 'configuration:capability-catalog')?.capabilityValidation
-          ?? null
+        capabilityValidation
       });
       const journalPath = path.join(
         materialized.workspace.path, materialized.workspace.directories.logs, 'workspace-materialization.json'
@@ -1219,6 +1255,9 @@ export async function resumeWorkspaceBootstrap(bootstrapId, {
       }
 
       const finalStatus = initialization?.error || !status.healthy ? 'degraded' : 'ready';
+      if (finalStatus === 'ready') {
+        await rm(catalogStorePath(root, bootstrapId), { recursive: true, force: true });
+      }
       const completedAt = nowIso();
       const attempts = session.attempts.map((entry) => entry.number === attempt.number
         ? { ...entry, completedAt, status: finalStatus }

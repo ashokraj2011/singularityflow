@@ -2979,6 +2979,14 @@ const families = [
   }),
   family({ id: 'organisation-cache', currentVersion: 1, paths: [/^\$local\/organisation-cache\/[^/]+\.json$/] }),
   family({ id: 'capability-lead-registry', currentVersion: 1, paths: [/^\$local\/leads\.json$/] }),
+  family({
+    id: 'capability-authority-link', currentVersion: 1,
+    paths: [/^\$state\/singularity\/capability-authority\.json$/]
+  }),
+  family({ id: 'capability-authority-resolution', currentVersion: 1 }),
+  family({ id: 'workspace-capability-catalog-proof', currentVersion: 1 }),
+  family({ id: 'workspace-capability-bootstrap-receipt', currentVersion: 1 }),
+  family({ id: 'capability-reconciliation-plan', currentVersion: 1 }),
   family({ id: 'effective-capability-resolution', currentVersion: 1 }),
   family({ id: 'capability-map', currentVersion: 2, minimumReadableVersion: 1, steps: [migration(1, 2, identity(2))] }),
   family({

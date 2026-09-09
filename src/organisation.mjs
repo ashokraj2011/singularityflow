@@ -28,7 +28,7 @@ import {
 } from './util.mjs';
 import {
   CAPABILITIES_PATH, capabilityRepositories, editCapability, loadCapabilities,
-  validateCapabilities, capabilityTree, capabilityPath, foldCapabilityPolicy,
+  validateCapabilities, capabilityTree, flattenCapabilityTree, capabilityPath, foldCapabilityPolicy,
   materializeImplicitCapability, normalizeCapabilityOwnership, resolveCapabilityOwner,
   resolveImplicitCapability
 } from './capabilities.mjs';
@@ -69,6 +69,10 @@ import {
   rememberLeadRepository
 } from './lead-repositories.mjs';
 import { normalizeCapabilityAutoPolicy } from './auto/auto-policy.mjs';
+import {
+  CAPABILITY_AUTHORITY_BRANCH, DEFAULT_CAPABILITY_STATE_BRANCH,
+  publishCapabilityAuthorityLinkSet, readCapabilityAuthorityLink
+} from './capability-authority-link.mjs';
 
 export {
   forgetLeadRepository, leadRegistryFile, listLeadRepositories, rememberLeadRepository
@@ -1312,14 +1316,25 @@ function proposalTransportFailuresForInspection(proposals, lead) {
 
 export async function inspectCapabilityRepository(repositoryUrl, {
   leadUrl = null, leadUrls = [], refresh = false,
-  proposalRemoteCommand = runRemoteGitAsync
+  proposalRemoteCommand = runRemoteGitAsync,
+  searchKnown = true,
+  includeProposals = true,
+  stateBranch = DEFAULT_CAPABILITY_STATE_BRANCH
 } = {}) {
   const repository = assertCredentialFreeRemote(repositoryUrl);
   const suppliedLeads = [...(leadUrl == null ? [] : [leadUrl]), ...leadUrls]
     .map((url) => assertCredentialFreeRemote(url));
+  const authorityLink = await readCapabilityAuthorityLink(repository, {
+    stateBranch
+  }).catch((error) => ({
+    status: 'invalid', repository: sanitizeRemote(repository), stateBranch,
+    stateCommit: null, link: null,
+    failure: { code: error?.code ?? 'CAPABILITY_AUTHORITY_LINK_INVALID',
+      message: redactDiagnosticText(error?.message ?? String(error)) }
+  }));
   const registeredLeads = [];
   const registeredLeadFailures = [];
-  if (!suppliedLeads.length) {
+  if (!suppliedLeads.length && authorityLink.status !== 'current' && searchKnown) {
     for (const entry of await listLeadRepositoryRegistryRecords()) {
       const candidate = String(entry?.url ?? '').trim();
       if (!candidate) continue;
@@ -1335,11 +1350,15 @@ export async function inspectCapabilityRepository(repositoryUrl, {
   // self-hosted map is still discovered. A reachable repository with no sflow/config is only a
   // candidate, not proof that no other organisation map names it; the UI asks before establishing
   // it as the first authority.
-  const baseLeads = suppliedLeads.length ? [...new Set(suppliedLeads)] : registeredLeads;
+  const linkedLead = authorityLink.status === 'current'
+    ? authorityLink.link.authority.remote : null;
+  const baseLeads = suppliedLeads.length ? [...new Set(suppliedLeads)]
+    : linkedLead ? [linkedLead] : registeredLeads;
   const repositoryCandidateOnly = baseLeads.length === 0;
   const repositoryCandidateAdded = !baseLeads.includes(repository);
   const authorityScope = suppliedLeads.length ? 'explicit'
-    : repositoryCandidateOnly ? 'repository-candidate' : 'registered';
+    : linkedLead ? 'state-link'
+      : repositoryCandidateOnly ? 'repository-candidate' : 'registered';
   const leads = repositoryCandidateAdded ? [...baseLeads, repository] : baseLeads;
 
   const inspected = await mapLimit(leads, Math.max(1, Math.min(4, leads.length)), async (url) => {
@@ -1385,7 +1404,8 @@ export async function inspectCapabilityRepository(repositoryUrl, {
       let proposalInspection = { total: 0, inspected: 0 };
       // The first capability itself can still be waiting on a proposal before the approved
       // configuration branch exists, so even an otherwise ungoverned target must be checked.
-      if (!organisation.stale) {
+      if (!organisation.stale && includeProposals
+          && !matches.some((match) => match.capabilities.length > 0)) {
         try {
           const catalog = await listCapabilityProposals(url, {
             includeDiff: false,
@@ -1434,7 +1454,8 @@ export async function inspectCapabilityRepository(repositoryUrl, {
       return {
         lead: url, matches, pendingMatches, failure, proposalFailure,
         proposalTransportFailures, proposalCoverage,
-        proposalChecked: !organisation.stale,
+        proposalChecked: !organisation.stale && includeProposals
+          && !matches.some((match) => match.capabilities.length > 0),
         proposalInspection, stale: Boolean(organisation.stale),
         governed: Boolean(organisation.governed),
         candidate: repositoryCandidateAdded && url === repository
@@ -1462,6 +1483,17 @@ export async function inspectCapabilityRepository(repositoryUrl, {
   const pendingMatches = inspected.flatMap((entry) => entry.pendingMatches ?? []);
   const failures = [
     ...registeredLeadFailures,
+    ...(['invalid', 'stale'].includes(authorityLink.status) ? [{
+      lead: registeredLeadDiagnosticReference(repository),
+      code: authorityLink.failure?.code ?? (authorityLink.status === 'stale'
+        ? 'CAPABILITY_AUTHORITY_LINK_STALE' : 'CAPABILITY_AUTHORITY_LINK_INVALID'),
+      message: redactDiagnosticText(authorityLink.failure?.message
+        ?? `The repository capability authority link is ${authorityLink.status}.`),
+      diagnosticAction: {
+        command: `singularity-flow capability fsck --lead ${quoted(commandRemote(repository))} --json`,
+        skill: '/sf-capability-map'
+      }
+    }] : []),
     ...inspected.flatMap((entry) => [
       entry.failure, entry.proposalFailure, ...(entry.proposalTransportFailures ?? [])
     ]).filter(Boolean)
@@ -1477,14 +1509,36 @@ export async function inspectCapabilityRepository(repositoryUrl, {
   const proposalCoverage = inspected.length === 0 ? 'not-checked'
     : inspected.every((entry) => entry.proposalCoverage === 'complete')
       ? 'complete'
-      : inspected.some((entry) => entry.proposalChecked) ? 'partial' : 'not-checked';
+      : inspected.some((entry) => entry.proposalCoverage === 'complete'
+        || entry.proposalChecked) ? 'partial' : 'not-checked';
   const proposalInspection = inspected.reduce((summary, entry) => ({
     total: summary.total + (entry.proposalInspection?.total ?? 0),
     inspected: summary.inspected + (entry.proposalInspection?.inspected ?? 0)
   }), { total: 0, inspected: 0 });
   const proposalInspectionIncomplete = proposalCoverage !== 'complete';
   const noAuthoritiesConfirmed = ungovernedCandidate && registeredLeadFailures.length === 0;
-  const status = pendingMatches.length
+  const linkedMatch = linkedLead
+    ? matches.find((match) => match.lead === linkedLead && match.repositoryUrl === repository)
+    : null;
+  const authorityLinkMismatch = Boolean(linkedLead) && (
+    !linkedMatch
+    || authorityLink.link.subject.capabilityIds
+      .some((capability) => !linkedMatch.capabilities.includes(capability))
+  );
+  if (authorityLinkMismatch) {
+    failures.push({
+      lead: sanitizeRemote(linkedLead),
+      code: 'CAPABILITY_AUTHORITY_LINK_STALE',
+      message: 'The repository state link does not match the current approved capability map.',
+      diagnosticAction: {
+        command: `singularity-flow capability publish --lead ${quoted(commandRemote(linkedLead))} --json`,
+        skill: '/sf-capability-map'
+      }
+    });
+  }
+  const status = authorityLinkMismatch
+    ? 'inconclusive'
+    : pendingMatches.length
     ? 'inconclusive'
     : matches.length > 1
       ? 'ambiguous'
@@ -1504,12 +1558,20 @@ export async function inspectCapabilityRepository(repositoryUrl, {
     checkedLeads, candidateLeads, staleLeads, failures,
     authorityScope,
     completeness: noAuthoritiesConfirmed ? 'no-authorities'
-      : failures.length || proposalInspectionIncomplete
+      : failures.length || proposalInspectionIncomplete || authorityLinkMismatch
         ? (checkedLeads.length ? 'partial' : 'none') : 'complete',
     proposalCoverage,
     proposalInspection: {
       ...proposalInspection,
       limitPerAuthority: CAPABILITY_INSPECTION_MAX_PROPOSALS
+    },
+    authorityDiscovery: {
+      source: authorityScope,
+      portable: authorityLink.status === 'current' && !authorityLinkMismatch,
+      stateBranch: authorityLink.stateBranch ?? stateBranch,
+      stateCommit: authorityLink.stateCommit ?? null,
+      authorityId: authorityLink.link?.authority?.id ?? null,
+      status: authorityLinkMismatch ? 'stale' : authorityLink.status
     }
   };
 }
@@ -1925,6 +1987,58 @@ export async function publishCapabilityMap(root, {
 }
 
 /**
+ * Project the canonical lead locator into every delivery repository's state branch.
+ *
+ * The approved map remains the authority. These records only make that authority discoverable
+ * from a fresh laptop that knows the delivery URL but has no machine-local lead registry.
+ */
+export async function publishOrganisationCapabilityAuthorityLinks(root, leadUrl, {
+  env = process.env, workers = 4
+} = {}) {
+  const authorityRemote = assertCredentialFreeRemote(leadUrl);
+  const definition = await loadCapabilities(root);
+  if (!definition) return {
+    status: 'not-configured', portable: false, outcomes: [], failures: []
+  };
+  const portfolioFile = path.join(root, PORTFOLIO_PATH);
+  if (!existsSync(portfolioFile)) return {
+    status: 'not-configured', portable: false, outcomes: [], failures: []
+  };
+  const portfolio = YAML.parse(await readFile(portfolioFile, 'utf8'))?.repositories ?? {};
+  const capabilitiesByRepository = new Map();
+  for (const capability of flattenCapabilityTree(capabilityTree(definition))) {
+    for (const repositoryId of capability.repositories ?? []) {
+      const ids = capabilitiesByRepository.get(repositoryId) ?? new Set();
+      ids.add(capability.id);
+      capabilitiesByRepository.set(repositoryId, ids);
+    }
+  }
+  const entries = [...capabilitiesByRepository].flatMap(([repositoryId, capabilityIds]) => {
+    const repository = portfolio[repositoryId];
+    if (!repository?.url) return [];
+    // Self-hosted authorities are already discoverable through their own sflow/config branch, and
+    // publishCapabilityMap has just mirrored that configuration to the same state branch.
+    if (assertCredentialFreeRemote(repository.url) === authorityRemote) return [];
+    return [{
+      authorityRemote,
+      authorityBranch: CAPABILITY_AUTHORITY_BRANCH,
+      repositoryRemote: assertCredentialFreeRemote(repository.url),
+      capabilityIds: [...capabilityIds].sort(),
+      defaultBranch: repository.defaultBranch ?? 'main',
+      stateBranch: repository.stateBranch ?? DEFAULT_CAPABILITY_STATE_BRANCH
+    }];
+  });
+  if (!entries.length) return {
+    status: 'not-required', portable: true, outcomes: [], failures: []
+  };
+  const result = await publishCapabilityAuthorityLinkSet(entries, { workers, env });
+  return {
+    ...result,
+    failures: result.outcomes.filter((entry) => entry.status !== 'current')
+  };
+}
+
+/**
  * Refresh the orphan capability projection from the reviewed configuration branch of a remote lead.
  *
  * This is intentionally separate from map/edit. Those operations only propose a review branch;
@@ -1997,7 +2111,10 @@ export async function publishOrganisationCapabilityMap(url) {
       message: `Publish reviewed capability map from ${baseBranch}`,
       env: transport.env
     });
-    return { baseBranch, ...state };
+    const portability = await publishOrganisationCapabilityAuthorityLinks(
+      scratch, remote, { env: transport.env }
+    );
+    return { baseBranch, ...state, portability };
   } finally {
     await removeTemporaryTree(scratch);
   }
@@ -3102,17 +3219,23 @@ export async function activateCapabilityProposal(url, branch, {
           message: `Publish reviewed capability map from ${CONFIGURATION_BRANCH}`,
           env
         });
+        const portability = await publishOrganisationCapabilityAuthorityLinks(
+          root, remote, { env }
+        );
         const projection = { baseBranch: CONFIGURATION_BRANCH, ...state };
         const projectionPending = !projection.published && !projection.branch
           && projection.reason !== 'state publication is disabled';
-        const nextAction = projectionPending
+        const portabilityPending = portability.portable !== true;
+        const nextAction = projectionPending || portabilityPending
           ? { command: capabilityCommand('publish', { remote: url }), skill: '/sf-capability-map' }
           : null;
         return {
           ...activated,
           status: projectionPending ? 'activation-complete-projection-pending'
+            : portabilityPending ? 'activation-complete-portability-pending'
             : projection.published || projection.branch ? 'activated' : 'activated-without-projection',
           projection: projectionPending ? { ...projection, pending: true, nextAction } : projection,
+          portability,
           nextAction
         };
       } catch (error) {
@@ -3125,6 +3248,7 @@ export async function activateCapabilityProposal(url, branch, {
             reason: redactDiagnosticText(error?.message ?? String(error)),
             nextAction
           },
+          portability: { status: 'pending', portable: false, outcomes: [], failures: [] },
           nextAction
         };
       }

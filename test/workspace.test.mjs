@@ -12,9 +12,11 @@ import YAML from 'yaml';
 import {
   adoptWorkspaceConfiguration, archiveWorkspace, changeWorkspaceCapability, createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace, gitValueAsync, listWorkspaceDocuments,
   normalizeWorkspaceAnchor, previewWorkspace, previewWorkspaceCapabilityChange, previewWorkspaceConfiguration, readWorkspace, readWorkspaceRegistry,
-  rememberWorkspace, repairWorkspace, resolveWorkspaceDocument, restoreWorkspace, saveWorkspaceConfiguration, stageWorkspaceDocuments,
+  rehydrateWorkspaceCapabilityValidation, rememberWorkspace, repairWorkspace,
+  resolveWorkspaceDocument, restoreWorkspace, saveWorkspaceConfiguration, stageWorkspaceDocuments,
   updateWorkspaceConfiguration, validateWorkspaceCapabilityRegistration, validateWorkspaceManifest, workspaceArchiveReadiness, workspaceRepositoryPath,
-  workspaceDropGitConfigurationOverrides, workspaceRepositoryDefaults, workspaceStatus,
+  workspaceDropGitConfigurationOverrides, workspaceRemoteCapabilities, workspaceRepositoryDefaults,
+  workspaceStatus,
   withRegistryFileLease
 } from '../src/workspace.mjs';
 import {
@@ -555,6 +557,52 @@ test('a commit-bound capability receipt avoids a second catalog clone without wi
     'mutating a branded receipt cannot authorize observing claims from a different plan');
   assert.equal(bypassCatalogReads, 1,
     'mutating a branded receipt falls back to the approved catalog instead of bypassing it');
+});
+
+test('a retained exact catalog recreates a capability receipt across processes without a second clone', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-catalog-proof-'));
+  const remote = await remoteRepository(root, 'platform');
+  const commit = await approveCapabilityAuthority(root, remote, {
+    payments: {
+      name: 'Payments', kind: 'delivery', parent: null, repository: 'platform'
+    }
+  }, { platform: { url: remote } });
+  const manifest = {
+    leadRepository: 'platform',
+    capabilities: ['payments'],
+    repositories: {
+      platform: {
+        id: 'platform', url: remote, defaultBranch: 'main', capabilities: ['payments']
+      }
+    }
+  };
+  const objectStoreDirectory = path.join(
+    root, 'catalogs', 'catalog-bst_1234567890abcdef1234.git'
+  );
+  const catalog = await workspaceRemoteCapabilities(remote, { objectStoreDirectory });
+  const first = await validateWorkspaceCapabilityRegistration(manifest, {
+    readCapabilities: async () => catalog
+  });
+  assert.equal(first.commit, commit);
+  assert.equal(first.catalogProof.commit, commit);
+
+  let rehydrated;
+  try {
+    rehydrated = await rehydrateWorkspaceCapabilityValidation(manifest, {
+      objectStoreDirectory,
+      expected: structuredClone(first)
+    });
+  } catch (error) {
+    assert.fail(`${error.message}: ${JSON.stringify(error.details)}`);
+  }
+  let catalogReads = 0;
+  const reused = await validateWorkspaceCapabilityRegistration(manifest, {
+    receipt: rehydrated,
+    observeAuthority: async () => commit,
+    readCapabilities: async () => { catalogReads += 1; throw new Error('unexpected clone'); }
+  });
+  assert.equal(reused.reused, true);
+  assert.equal(catalogReads, 0, 'the retained verified Git objects replace a second catalog clone');
 });
 
 test('workspace capability detach preserves checkouts, drop is bounded, and attach restores from the approved map', async () => {

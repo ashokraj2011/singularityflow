@@ -8445,11 +8445,16 @@ async function capabilityCommand(positionals, options) {
     const result = await inspectCapabilityRepository(
       requirePositional(positionals, 2, 'Git repository URL'), {
         leadUrls: optionStrings(options, 'lead'),
-        refresh: optionBoolean(options, 'refresh')
+        refresh: optionBoolean(options, 'refresh'),
+        searchKnown: optionBoolean(options, 'search-known'),
+        includeProposals: optionBoolean(options, 'include-proposals')
       }
     );
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`${result.repositoryUrl}: ${result.status}`);
+    if (result.authorityDiscovery?.source === 'state-link') {
+      console.log(`  authority: discovered from ${result.authorityDiscovery.stateBranch} and verified against the approved map`);
+    }
     for (const match of result.matches) {
       console.log(`  ${match.lead}: ${match.repositoryId}${match.capabilities.length ? ` (${match.capabilities.join(', ')})` : ''}`);
     }

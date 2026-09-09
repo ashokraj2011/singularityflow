@@ -285,6 +285,9 @@ export class BootstrapPanel {
       error: null });
     const argv = ['capability', 'inspect-repository', repositoryUrl, '--json'];
     for (const lead of inspectionLeads) argv.push('--lead', lead);
+    // The first URL-only lookup is the portable approved-map fast path. Proposal enumeration is
+    // deferred until the contributor explicitly selects the authority they are about to mutate.
+    if (explicitLead) argv.push('--include-proposals');
     const { result, error } = await this.run(argv);
     if (revision !== this.inspectionRevision || repositoryUrl !== this.form.repositoryUrl.trim()) return;
     if (error) return void this.update({ inspectionStatus: 'inconclusive', inspectionComplete: false,
@@ -524,12 +527,10 @@ export class BootstrapPanel {
     if (message?.type === 'useFirstAuthority') {
       if (this.form.inspectionStatus !== 'inconclusive'
         || this.form.inspectionCompleteness !== 'no-authorities'
-        || this.form.inspectionProposalCoverage !== 'complete'
         || !this.form.repositoryUrl.trim()) return;
-      this.form.inspectionComplete = true;
-      this.form.inspectionBoundRepositoryUrl = this.form.repositoryUrl.trim();
-      this.form.inspectionBoundLeadUrl = this.form.repositoryUrl.trim();
-      await this.selectLead(this.form.repositoryUrl);
+      // Confirm absence of a duplicate pending proposal on the selected first authority before the
+      // form becomes writable. The URL-only discovery pass deliberately skipped proposal refs.
+      await this.inspectRepository(this.form.repositoryUrl);
       return;
     }
 

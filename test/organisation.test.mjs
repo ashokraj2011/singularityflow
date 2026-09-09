@@ -437,7 +437,8 @@ test('repository inspection finds an exact URL in registered capability maps wit
   assert.equal(found.authorityScope, 'registered');
   assert.equal(found.completeness, 'complete');
   assert.equal(found.proposalCoverage, 'complete');
-  assert.deepEqual(found.proposalInspection, { total: 1, inspected: 1, limitPerAuthority: 64 });
+  assert.deepEqual(found.proposalInspection, { total: 0, inspected: 0, limitPerAuthority: 64 },
+    'an approved exact match does not enumerate review proposal refs');
 
   const missing = await inspectCapabilityRepository(org.unmapped, { leadUrl: org.platform });
   assert.equal(missing.status, 'not-onboarded');
@@ -563,7 +564,8 @@ test('repository inspection blocks duplicate onboarding while an exact mapping a
 
   const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
   const displayed = execFileSync(process.execPath, [
-    cli, 'capability', 'inspect-repository', org.service, '--lead', org.platform
+    cli, 'capability', 'inspect-repository', org.service, '--lead', org.platform,
+    '--include-proposals'
   ], {
     cwd: org.base,
     env: { ...process.env, SINGULARITY_FLOW_LEAD_REGISTRY: registry(org.base), NO_COLOR: '1' },
@@ -797,6 +799,40 @@ test('repository inspection discovers a self-hosted approved map on a new laptop
   assert.equal(result.authorityScope, 'repository-candidate');
   assert.deepEqual(result.checkedLeads, [org.platform]);
   assert.deepEqual(result.matches[0].capabilities, ['platform-runtime']);
+});
+
+test('an activated mapping is discoverable from the delivery state branch on a new laptop', async () => {
+  const org = await remotes('platform', 'service');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const proposal = await mapAndMerge(org.platform, {
+    capabilityId: 'portable-service', kind: 'delivery', repositoryUrl: org.service
+  });
+  const activated = await activateCapabilityProposal(org.platform, proposal.branch, {
+    confirm: proposal.commit
+  });
+  assert.equal(activated.activated, true);
+  assert.equal(activated.portability.portable, true);
+  assert.equal(activated.portability.outcomes.length, 1);
+
+  const stored = JSON.parse(run('git', [
+    'show', 'state:singularity/capability-authority.json'
+  ], { cwd: org.service }).stdout);
+  assert.equal(stored.kind, 'capability-authority-link');
+  assert.equal(stored.authority.remote, org.platform);
+  assert.deepEqual(stored.subject.capabilityIds, ['portable-service']);
+
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(path.join(org.base, 'fresh-machine'));
+  const found = await inspectCapabilityRepository(org.service, {
+    refresh: true, searchKnown: false, includeProposals: false
+  });
+  assert.equal(found.status, 'already-mapped');
+  assert.equal(found.authorityScope, 'state-link');
+  assert.equal(found.authorityDiscovery.portable, true);
+  assert.deepEqual(found.checkedLeads, [org.platform]);
+  assert.deepEqual(found.matches[0].capabilities, ['portable-service']);
+  assert.deepEqual(found.proposalInspection, {
+    total: 0, inspected: 0, limitPerAuthority: 64
+  });
 });
 
 test('repository inspection reports ambiguity across registered organisations', async () => {

@@ -761,7 +761,8 @@ function immutableCapabilityValidationClaims(validation) {
     branch: validation.branch,
     path: validation.path,
     commit: validation.commit,
-    bindingSha256: validation.bindingSha256
+    bindingSha256: validation.bindingSha256,
+    catalogProof: validation.catalogProof ? Object.freeze(structuredClone(validation.catalogProof)) : null
   });
 }
 
@@ -774,6 +775,7 @@ function capabilityValidationResult(claims, reused) {
     path: claims.path,
     commit: claims.commit,
     bindingSha256: claims.bindingSha256,
+    catalogProof: claims.catalogProof ? structuredClone(claims.catalogProof) : null,
     reused
   };
 }
@@ -1077,13 +1079,40 @@ export async function workspaceRemoteCapabilities(url, {
   portfolioPath = 'singularity/portfolio.yml',
   configurationBranch = 'sflow/config',
   env = process.env,
-  remoteSession = null
+  remoteSession = null,
+  objectStoreDirectory = null
 } = {}) {
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A repository URL is required.');
   const gitEnv = remoteSession?.env ?? enterpriseGitEnvironment(env);
   const operationSession = remoteSession ?? new GitRemoteSession({ env: gitEnv });
-  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-lead-map-'));
+  const persistentStore = objectStoreDirectory == null
+    ? null : path.resolve(String(objectStoreDirectory));
+  if (persistentStore && (
+    persistentStore === path.parse(persistentStore).root
+    || persistentStore === path.resolve(os.homedir())
+    || !/^catalog-bst_[a-f0-9-]{20,64}\.git$/.test(path.basename(persistentStore))
+  )) {
+    throw new SingularityFlowError('Workspace capability object-store path is unsafe.', {
+      code: 'WORKSPACE_CAPABILITY_RECEIPT_INVALID'
+    });
+  }
+  if (persistentStore) {
+    const current = await lstat(persistentStore).catch(() => null);
+    if (current?.isSymbolicLink()) throw new SingularityFlowError(
+      'Workspace capability object store cannot be a symbolic link.', {
+        code: 'WORKSPACE_CAPABILITY_RECEIPT_INVALID'
+      }
+    );
+    if (current) throw new SingularityFlowError(
+      'Workspace capability object store already exists; its owning bootstrap must replace it.', {
+        code: 'WORKSPACE_CAPABILITY_RECEIPT_INVALID'
+      }
+    );
+    await mkdir(path.dirname(persistentStore), { recursive: true, mode: 0o700 });
+  }
+  const scratch = persistentStore
+    ?? await mkdtemp(path.join(os.tmpdir(), 'sflow-lead-map-'));
   try {
     // Partial clones are refused by some servers and by older Git; without the filter this still
     // works, it just fetches one commit's blobs.
@@ -1166,39 +1195,79 @@ export async function workspaceRemoteCapabilities(url, {
     const portfolioText = run('git', ['show', `HEAD:${portfolioPath}`], {
       cwd: scratch, env: transport.env, allowFailure: true
     });
-    const portfolio = portfolioText.status === 0 ? (YAML.parse(portfolioText.stdout)?.repositories ?? {}) : {};
-
-    const { capabilityTree, flattenCapabilityTree, validateCapabilities } = await import('./capabilities.mjs');
-    const definition = validateCapabilities(YAML.parse(shown.stdout));
-    const tree = capabilityTree(definition);
+    const catalog = await capabilityCatalogFromText(
+      shown.stdout, portfolioText.status === 0 ? portfolioText.stdout : null, {
+        capabilitiesPath, branch, commit: authorityCommit
+      }
+    );
+    const objectFormat = run('git', ['rev-parse', '--show-object-format'], {
+      cwd: scratch, env: transport.env
+    }).stdout.trim();
+    const capabilitiesObject = run('git', ['rev-parse', `HEAD:${capabilitiesPath}`], {
+      cwd: scratch, env: transport.env
+    }).stdout.trim();
+    const portfolioObject = portfolioText.status === 0
+      ? run('git', ['rev-parse', `HEAD:${portfolioPath}`], {
+          cwd: scratch, env: transport.env
+        }).stdout.trim()
+      : null;
+    if (persistentStore) {
+      // The invocation-only alias is deliberately unresolvable in another process. Persist the
+      // reviewed credential-free authority only after every lazy object read has completed.
+      run('git', ['remote', 'set-url', 'origin', '--', transport.url], {
+        cwd: scratch, env: transport.env
+      });
+    }
     return {
-      capabilities: tree,
-      // Flat, because the caller's next question is always "which repositories is that?" — and one
-      // row per repository rather than per capability, because a capability may ship from several
-      // and a list with one row for two repositories answers that question wrongly.
-      deliveries: flattenCapabilityTree(tree)
-        .flatMap((row) => (row.repositories?.length
-          ? row.repositories
-          : (row.repository ? [row.repository] : [])).map((repository) => ({ row, repository })))
-        .map(({ row, repository }) => ({
-          id: row.id,
-          name: row.name,
-          repository,
-          lead: repository === (row.leadRepository ?? repository),
-          ancestors: row.ancestors,
-          // Null when the capability names a repository the portfolio does not declare — a real
-          // state, and one the person choosing needs to see rather than discover at clone time.
-          url: portfolio[repository]?.url ?? null,
-          defaultBranch: portfolio[repository]?.defaultBranch ?? 'main'
-        })),
-      reason: null,
-      path: capabilitiesPath,
-      branch,
-      commit: authorityCommit
+      ...catalog,
+      proof: persistentStore ? {
+        schemaVersion: currentSchemaVersion('workspace-capability-catalog-proof'),
+        kind: 'workspace-capability-catalog-proof',
+        authorityRemoteFingerprint: remoteFingerprint(remote),
+        branch,
+        commit: authorityCommit,
+        objectFormat,
+        capabilitiesPath,
+        capabilitiesObject,
+        portfolioPath,
+        portfolioObject
+      } : null
     };
   } finally {
-    await rm(scratch, { recursive: true, force: true });
+    if (!persistentStore) await rm(scratch, { recursive: true, force: true });
   }
+}
+
+async function capabilityCatalogFromText(capabilitiesText, portfolioText, {
+  capabilitiesPath = 'singularity/capabilities.yml',
+  branch = 'sflow/config',
+  commit
+} = {}) {
+  const { capabilityTree, flattenCapabilityTree, validateCapabilities } =
+    await import('./capabilities.mjs');
+  const portfolio = portfolioText ? (YAML.parse(portfolioText)?.repositories ?? {}) : {};
+  const definition = validateCapabilities(YAML.parse(capabilitiesText));
+  const tree = capabilityTree(definition);
+  return {
+    capabilities: tree,
+    deliveries: flattenCapabilityTree(tree)
+      .flatMap((row) => (row.repositories?.length
+        ? row.repositories
+        : (row.repository ? [row.repository] : [])).map((repository) => ({ row, repository })))
+      .map(({ row, repository }) => ({
+        id: row.id,
+        name: row.name,
+        repository,
+        lead: repository === (row.leadRepository ?? repository),
+        ancestors: row.ancestors,
+        url: portfolio[repository]?.url ?? null,
+        defaultBranch: portfolio[repository]?.defaultBranch ?? 'main'
+      })),
+    reason: null,
+    path: capabilitiesPath,
+    branch,
+    commit
+  };
 }
 
 function catalogCapabilityIds(nodes, output = new Set()) {
@@ -1391,9 +1460,130 @@ export async function validateWorkspaceCapabilityRegistration(manifest, {
     path: catalog.path ?? 'singularity/capabilities.yml',
     commit: catalog.commit ?? null,
     bindingSha256,
+    catalogProof: catalog.proof ? structuredClone(catalog.proof) : null,
     reused: false
   };
   liveCapabilityValidationReceipts.set(validation, immutableCapabilityValidationClaims(validation));
+  return validation;
+}
+
+/**
+ * Recreate the process-private validation receipt from retained Git objects.
+ *
+ * The serialized bootstrap record is diagnostic only. The current remote ref is still observed by
+ * createWorkspace when it consumes the returned branded receipt; this function proves that the
+ * retained catalog bytes are the exact objects reachable from the recorded commit.
+ */
+export async function rehydrateWorkspaceCapabilityValidation(manifest, {
+  objectStoreDirectory,
+  expected,
+  env = process.env
+} = {}) {
+  const gitEnv = enterpriseGitEnvironment(env);
+  const store = path.resolve(String(objectStoreDirectory ?? ''));
+  const info = await lstat(store).catch(() => null);
+  if (!info?.isDirectory() || info.isSymbolicLink()
+      || !/^catalog-bst_[a-f0-9-]{20,64}\.git$/.test(path.basename(store))) {
+    throw new SingularityFlowError('Workspace capability object receipt is unavailable or unsafe.', {
+      code: 'WORKSPACE_CAPABILITY_RECEIPT_INVALID'
+    });
+  }
+  const proof = readRecord(
+    'workspace-capability-catalog-proof', expected?.catalogProof
+  ).record;
+  const authorityUrl = manifest.capabilityAuthority?.url
+    ?? manifest.repositories?.[manifest.leadRepository]?.url;
+  const authority = assertCredentialFreeRemote(authorityUrl);
+  const storedRemote = run('git', ['config', '--local', '--get', 'remote.origin.url'], {
+    cwd: store, env: gitEnv, allowFailure: true
+  }).stdout.trim();
+  let storedRemoteFingerprint = null;
+  try { storedRemoteFingerprint = remoteFingerprint(assertCredentialFreeRemote(storedRemote)); }
+  catch { /* The structured invalid-receipt diagnostic below owns this refusal. */ }
+  const objectFormat = run('git', ['rev-parse', '--show-object-format'], {
+    cwd: store, env: gitEnv, allowFailure: true
+  }).stdout.trim();
+  const commit = run('git', [
+    'rev-parse', '--verify', String(proof.commit) + '^{commit}'
+  ], { cwd: store, env: gitEnv, allowFailure: true }).stdout.trim();
+  const validOidLength = objectFormat === 'sha256' ? 64 : objectFormat === 'sha1' ? 40 : 0;
+  const oid = new RegExp('^[a-f0-9]{' + validOidLength + '}$');
+  if (proof.kind !== 'workspace-capability-catalog-proof'
+      || proof.authorityRemoteFingerprint !== remoteFingerprint(authority)
+      || storedRemoteFingerprint !== remoteFingerprint(authority)
+      || proof.objectFormat !== objectFormat
+      || !oid.test(commit) || commit !== proof.commit
+      || expected?.commit !== proof.commit
+      || expected?.branch !== proof.branch) {
+    throw new SingularityFlowError('Workspace capability object receipt does not match its authority.', {
+      code: 'WORKSPACE_CAPABILITY_RECEIPT_INVALID',
+      details: {
+        kindMatches: proof.kind === 'workspace-capability-catalog-proof',
+        authorityMatches: proof.authorityRemoteFingerprint === remoteFingerprint(authority),
+        storedRemoteMatches: storedRemoteFingerprint === remoteFingerprint(authority),
+        objectFormatMatches: proof.objectFormat === objectFormat,
+        commitMatches: commit === proof.commit,
+        expectedCommitMatches: expected?.commit === proof.commit,
+        expectedBranchMatches: expected?.branch === proof.branch
+      }
+    });
+  }
+  const connected = run('git', ['fsck', '--connectivity-only', '--no-dangling'], {
+    cwd: store, env: gitEnv, allowFailure: true, timeoutMs: 30_000
+  });
+  if (connected.status !== 0) throw new SingularityFlowError(
+    'Workspace capability object receipt failed Git connectivity verification.', {
+      code: 'WORKSPACE_CAPABILITY_RECEIPT_INVALID'
+    }
+  );
+  const capabilitiesObject = run('git', [
+    'rev-parse', commit + ':' + proof.capabilitiesPath
+  ], { cwd: store, env: gitEnv, allowFailure: true }).stdout.trim();
+  const portfolioObject = proof.portfolioObject == null ? null : run('git', [
+    'rev-parse', commit + ':' + proof.portfolioPath
+  ], { cwd: store, env: gitEnv, allowFailure: true }).stdout.trim();
+  if (capabilitiesObject !== proof.capabilitiesObject
+      || portfolioObject !== proof.portfolioObject
+      || !oid.test(capabilitiesObject)
+      || (portfolioObject != null && !oid.test(portfolioObject))) {
+    throw new SingularityFlowError('Workspace capability object receipt has changed or is incomplete.', {
+      code: 'WORKSPACE_CAPABILITY_RECEIPT_INVALID'
+    });
+  }
+  const capabilitiesText = run('git', [
+    'show', commit + ':' + proof.capabilitiesPath
+  ], { cwd: store, env: gitEnv }).stdout;
+  const portfolioText = portfolioObject == null ? null : run('git', [
+    'show', commit + ':' + proof.portfolioPath
+  ], { cwd: store, env: gitEnv }).stdout;
+  const catalog = await capabilityCatalogFromText(capabilitiesText, portfolioText, {
+    capabilitiesPath: proof.capabilitiesPath,
+    branch: proof.branch,
+    commit
+  });
+  const validation = await validateWorkspaceCapabilityRegistration(manifest, {
+    env: gitEnv,
+    readCapabilities: async (requestedAuthority) => {
+      if (remoteFingerprint(assertCredentialFreeRemote(requestedAuthority))
+          !== remoteFingerprint(authority)) {
+        throw new SingularityFlowError(
+          'Workspace capability receipt was requested for another authority.', {
+            code: 'WORKSPACE_CAPABILITY_RECEIPT_INVALID'
+          }
+        );
+      }
+      return catalog;
+    }
+  });
+  if (validation.bindingSha256 !== expected?.bindingSha256
+      || validation.commit !== expected?.commit
+      || JSON.stringify(validation.requested) !== JSON.stringify(expected?.requested ?? [])) {
+    throw new SingularityFlowError(
+      'Workspace capability receipt no longer matches the reviewed plan.', {
+        code: 'WORKSPACE_CAPABILITY_RECEIPT_INVALID'
+      }
+    );
+  }
   return validation;
 }
 

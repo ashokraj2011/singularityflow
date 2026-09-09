@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -276,6 +277,65 @@ test('capability preflight reuses the lead inventory before its single catalog t
     'capability authority lookup must reuse the repository inventory');
   assert.equal(counters['git.remote.command.clone'], 1,
     'preflight transfers the approved capability catalog exactly once');
+});
+
+test('a separate confirmed process reuses retained capability objects and clones only the application', async () => {
+  if (process.platform === 'win32') return;
+  const fixture = await remoteFixture('trunk');
+  await ensureConfigurationBranch(fixture.remote, {
+    capability: {
+      capabilityId: 'declared-capability', capabilityName: 'Declared capability',
+      kind: 'delivery', repositoryId: 'application', jiraProject: null, teams: []
+    }
+  });
+  const env = environment(fixture.root);
+  const createInput = input(fixture.root, fixture.remote, 'trunk');
+  createInput.id = 'cross-process';
+  createInput.name = 'Cross process';
+  createInput.capabilities = ['declared-capability'];
+  createInput.repositories.application.capabilities = ['declared-capability'];
+  const prepared = await prepareWorkspaceBootstrap({
+    source: { kind: 'manifest', reference: fixture.remote }, createInput
+  }, { env });
+  assert.equal(prepared.preflight.ready, true, JSON.stringify(prepared.preflight.findings));
+
+  const wrapperDirectory = path.join(fixture.root, 'git-wrapper');
+  const counter = path.join(fixture.root, 'clone-count.txt');
+  await mkdir(wrapperDirectory);
+  const wrapper = path.join(wrapperDirectory, 'git');
+  await writeFile(wrapper, `#!/usr/bin/env node
+const fs = require('node:fs');
+const { spawnSync } = require('node:child_process');
+if (process.argv.slice(2).includes('clone')) fs.appendFileSync(process.env.SFLOW_TEST_CLONE_COUNTER, 'clone\\n');
+const child = spawnSync(process.env.SFLOW_TEST_REAL_GIT, process.argv.slice(2), { stdio: 'inherit', env: process.env });
+process.exit(child.status == null ? 1 : child.status);
+`);
+  await chmod(wrapper, 0o700);
+  const realGit = spawnSync('which', ['git'], { encoding: 'utf8' }).stdout.trim();
+  assert.ok(realGit);
+  const cli = path.resolve('bin/singularity-flow.mjs');
+  const resumed = spawnSync(process.execPath, [
+    cli, 'workspace', 'bootstrap', 'resume', prepared.bootstrapId,
+    '--confirm', prepared.plan.workspace.confirmation, '--json'
+  ], {
+    cwd: fixture.root,
+    env: {
+      ...env,
+      PATH: `${wrapperDirectory}${path.delimiter}${env.PATH}`,
+      SFLOW_TEST_CLONE_COUNTER: counter,
+      SFLOW_TEST_REAL_GIT: realGit
+    },
+    encoding: 'utf8'
+  });
+  assert.equal(resumed.status, 0, resumed.stderr);
+  assert.equal(JSON.parse(resumed.stdout).status, 'ready');
+  assert.equal((await readFile(counter, 'utf8')).trim().split('\n').length, 1,
+    'resume transfers the application once and does not clone the capability catalog again');
+  const catalog = path.join(
+    workspaceBootstrapRoot(env), 'catalogs', `catalog-${prepared.bootstrapId}.git`
+  );
+  assert.equal(await stat(catalog).catch(() => null), null,
+    'a ready bootstrap clears its private retained catalog objects');
 });
 
 test('bootstrap probes and materialization cannot be redirected away from the exact reviewed URL', async () => {

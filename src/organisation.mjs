@@ -70,7 +70,7 @@ import {
 } from './lead-repositories.mjs';
 import { normalizeCapabilityAutoPolicy } from './auto/auto-policy.mjs';
 import {
-  CAPABILITY_AUTHORITY_BRANCH, DEFAULT_CAPABILITY_STATE_BRANCH,
+  capabilityAuthorityId, CAPABILITY_AUTHORITY_BRANCH, DEFAULT_CAPABILITY_STATE_BRANCH,
   publishCapabilityAuthorityLinkSet, readCapabilityAuthorityLink
 } from './capability-authority-link.mjs';
 
@@ -377,6 +377,8 @@ function proposalRepositoryInspection(root, ref, repositoryUrl, {
       return { complete: true, matches: entries.map(([repositoryId, declaration]) => ({
         repositoryId,
         repositoryUrl: declaration.url,
+        defaultBranch: declaration.defaultBranch ?? 'main',
+        stateBranch: declaration.stateBranch ?? DEFAULT_CAPABILITY_STATE_BRANCH,
         capabilities: rows
           .filter((capability) => (capability.repositories ?? []).includes(repositoryId))
           .map((capability) => capability.id).sort(),
@@ -1314,6 +1316,36 @@ function proposalTransportFailuresForInspection(proposals, lead) {
   return [...unique.values()];
 }
 
+function classifyRepositoryAuthorityConflicts(matches) {
+  if ((matches ?? []).length < 2) return [];
+  const authorities = [...new Map(matches.map((match) => [match.authorityId, {
+    id: match.authorityId,
+    remote: match.lead,
+    branch: match.sourceBranch,
+    commit: match.sourceCommit,
+    capabilityMapSha256: match.capabilityMapSha256,
+    bindings: []
+  }])).values()];
+  for (const match of matches) {
+    authorities.find((authority) => authority.id === match.authorityId)?.bindings.push({
+      repositoryId: match.repositoryId,
+      capabilityIds: [...(match.capabilities ?? [])].sort()
+    });
+  }
+  authorities.sort((left, right) => left.id.localeCompare(right.id));
+  return [{
+    kind: authorities.length > 1
+      ? 'independent-approved-authorities'
+      : 'duplicate-approved-repository-bindings',
+    severity: 'blocking',
+    authorityCount: authorities.length,
+    authorities,
+    remediation: authorities.length > 1
+      ? 'Choose the canonical approved authority and run capability reconcile with its exact plan.'
+      : 'Remove the duplicate repository binding through a reviewed capability-map proposal.'
+  }];
+}
+
 export async function inspectCapabilityRepository(repositoryUrl, {
   leadUrl = null, leadUrls = [], refresh = false,
   proposalRemoteCommand = runRemoteGitAsync,
@@ -1377,6 +1409,8 @@ export async function inspectCapabilityRepository(repositoryUrl, {
         governed: organisation.governed,
         sourceBranch: organisation.sourceBranch ?? null,
         sourceCommit: organisation.sourceCommit ?? null,
+        capabilityMapSha256: organisation.capabilityMapSha256 ?? null,
+        authorityId: capabilityAuthorityId(url),
         cached: Boolean(organisation.cached),
         stale: Boolean(organisation.stale)
       }));
@@ -1480,6 +1514,7 @@ export async function inspectCapabilityRepository(repositoryUrl, {
     }
   });
   const matches = inspected.flatMap((entry) => entry.matches);
+  const conflicts = classifyRepositoryAuthorityConflicts(matches);
   const pendingMatches = inspected.flatMap((entry) => entry.pendingMatches ?? []);
   const failures = [
     ...registeredLeadFailures,
@@ -1540,7 +1575,7 @@ export async function inspectCapabilityRepository(repositoryUrl, {
     ? 'inconclusive'
     : pendingMatches.length
     ? 'inconclusive'
-    : matches.length > 1
+    : conflicts.length
       ? 'ambiguous'
       : matches.length === 1
         ? (matches[0].capabilities.length ? 'already-mapped' : 'known-repository-unassigned')
@@ -1554,7 +1589,7 @@ export async function inspectCapabilityRepository(repositoryUrl, {
           ? 'inconclusive'
           : 'not-onboarded';
   return {
-    status, repositoryUrl: repository, matches, pendingMatches,
+    status, repositoryUrl: repository, matches, conflicts, pendingMatches,
     checkedLeads, candidateLeads, staleLeads, failures,
     authorityScope,
     completeness: noAuthoritiesConfirmed ? 'no-authorities'
@@ -1573,6 +1608,118 @@ export async function inspectCapabilityRepository(repositoryUrl, {
       authorityId: authorityLink.link?.authority?.id ?? null,
       status: authorityLinkMismatch ? 'stale' : authorityLink.status
     }
+  };
+}
+
+function capabilityReconciliationPlan(repository, canonicalLead, inspection) {
+  const selected = inspection.matches.find((match) => match.lead === canonicalLead);
+  if (!selected?.sourceCommit || !selected.capabilityMapSha256) {
+    throw new SingularityFlowError(
+      `The selected canonical authority '${sanitizeRemote(canonicalLead)}' does not contain a current approved mapping for '${sanitizeRemote(repository)}'. Nothing was changed.`, {
+        code: 'CAPABILITY_AUTHORITY_CONFLICT',
+        details: { inspection }
+      }
+    );
+  }
+  const core = {
+    schemaVersion: currentSchemaVersion('capability-reconciliation-plan'),
+    kind: 'capability-reconciliation-plan',
+    repository: assertCredentialFreeRemote(repository),
+    repositoryIdentity: `sha256:${remoteFingerprint(repository)}`,
+    canonicalAuthority: {
+      id: selected.authorityId,
+      remote: canonicalLead,
+      branch: CAPABILITY_AUTHORITY_BRANCH,
+      commit: selected.sourceCommit,
+      capabilityMapSha256: selected.capabilityMapSha256,
+      capabilityIds: [...selected.capabilities].sort()
+    },
+    observedAuthorities: inspection.matches.map((match) => ({
+      id: match.authorityId,
+      remote: match.lead,
+      branch: match.sourceBranch,
+      commit: match.sourceCommit,
+      capabilityMapSha256: match.capabilityMapSha256,
+      capabilityIds: [...match.capabilities].sort()
+    })).sort((left, right) => left.id.localeCompare(right.id)),
+    writes: [{
+      repository: assertCredentialFreeRemote(repository),
+      branch: selected.stateBranch ?? DEFAULT_CAPABILITY_STATE_BRANCH,
+      path: 'singularity/capability-authority.json',
+      operation: 'publish-canonical-authority-link'
+    }],
+    preserved: ['application branches', 'independent capability maps', 'workspace checkouts']
+  };
+  return Object.freeze({
+    ...core,
+    planId: `capr_${recordSha256(core).slice(0, 32)}`,
+    confirmationRequired: true
+  });
+}
+
+/** Build an exact, read-only choice between competing capability authorities. */
+export async function previewCapabilityReconciliation(repositoryUrl, canonicalLeadUrl, {
+  refresh = true
+} = {}) {
+  const repository = assertCredentialFreeRemote(repositoryUrl);
+  const canonicalLead = assertCredentialFreeRemote(canonicalLeadUrl);
+  const known = [];
+  for (const record of await listLeadRepositoryRegistryRecords()) {
+    try { known.push(assertCredentialFreeRemote(record?.url)); } catch { /* diagnosed elsewhere */ }
+  }
+  const inspection = await inspectCapabilityRepository(repository, {
+    leadUrls: [...new Set([canonicalLead, ...known])],
+    refresh,
+    searchKnown: false,
+    includeProposals: false
+  });
+  return {
+    plan: capabilityReconciliationPlan(repository, canonicalLead, inspection),
+    inspection
+  };
+}
+
+/** Apply only the reviewed routing-link write; no competing authority map is rewritten or deleted. */
+export async function applyCapabilityReconciliation(repositoryUrl, canonicalLeadUrl, {
+  confirmPlan
+} = {}) {
+  const preview = await previewCapabilityReconciliation(repositoryUrl, canonicalLeadUrl, {
+    refresh: true
+  });
+  if (String(confirmPlan ?? '').trim() !== preview.plan.planId) {
+    throw new SingularityFlowError(
+      `Capability reconciliation confirmation must equal the current plan '${preview.plan.planId}'. Nothing was changed.`, {
+        code: 'CAPABILITY_RECONCILIATION_CONFIRMATION_REQUIRED',
+        details: { plan: preview.plan }
+      }
+    );
+  }
+  const selected = preview.inspection.matches.find((match) =>
+    match.lead === preview.plan.canonicalAuthority.remote);
+  const publication = await publishCapabilityAuthorityLinkSet([{
+    authorityRemote: preview.plan.canonicalAuthority.remote,
+    authorityBranch: CAPABILITY_AUTHORITY_BRANCH,
+    repositoryRemote: preview.plan.repository,
+    capabilityIds: preview.plan.canonicalAuthority.capabilityIds,
+    defaultBranch: selected?.defaultBranch ?? 'main',
+    stateBranch: selected?.stateBranch ?? DEFAULT_CAPABILITY_STATE_BRANCH
+  }]);
+  const outcome = publication.outcomes?.find((entry) =>
+    entry.repository === sanitizeRemote(repositoryUrl));
+  if (!outcome || outcome.status !== 'current') {
+    throw new SingularityFlowError(
+      'The approved map was preserved, but its canonical repository authority link is still pending.', {
+        code: 'CAPABILITY_PORTABILITY_PENDING',
+        details: { plan: preview.plan, publication }
+      }
+    );
+  }
+  return {
+    status: 'reconciled',
+    plan: preview.plan,
+    publication,
+    unresolvedIndependentAuthorities: Math.max(0,
+      new Set(preview.plan.observedAuthorities.map((entry) => entry.id)).size - 1)
   };
 }
 
@@ -2406,7 +2553,9 @@ function capabilityFsckCheck(id, status, summary, {
 }
 
 /** Verify the approved capability authority and every retained proposal without changing a ref. */
-export async function capabilityFsck(url, { workspaces = [] } = {}) {
+export async function capabilityFsck(url, {
+  workspaces = [], portableDiscovery = false
+} = {}) {
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A lead repository URL is required.', {
     code: 'CAPABILITY_LEAD_REQUIRED'
@@ -2456,6 +2605,64 @@ export async function capabilityFsck(url, { workspaces = [] } = {}) {
       'approved-capability-map', 'fail', redactDiagnosticText(error?.message ?? String(error)),
       { remediation: `singularity-flow capability organisation ${quoted(lead)} --refresh --json` }
     ));
+  }
+
+  if (portableDiscovery && organisation?.governed && !organisation.stale) {
+    const rows = flattenTree(organisation.capabilities ?? []);
+    const expectedAuthorityId = capabilityAuthorityId(leadIdentity);
+    const deliveries = Object.entries(organisation.repositories ?? {}).map(([repositoryId, entry]) => ({
+      repositoryId,
+      url: entry?.url,
+      capabilityIds: rows
+        .filter((capability) => (capability.repositories ?? []).includes(repositoryId))
+        .map((capability) => capability.id).sort()
+    })).filter((entry) => entry.url && entry.capabilityIds.length);
+    const portability = await mapLimit(deliveries, Math.max(1, Math.min(4, deliveries.length || 1)),
+      async (delivery) => {
+        let repositoryIdentityMatches = false;
+        try { repositoryIdentityMatches = assertCredentialFreeRemote(delivery.url) === leadIdentity; }
+        catch { /* The ordinary invalid-map check owns unsafe repository URLs. */ }
+        if (repositoryIdentityMatches) return capabilityFsckCheck(
+          `portable-discovery:${delivery.repositoryId}`, 'pass',
+          'The capability authority is hosted by this repository and needs no routing link.',
+          { details: { repositoryId: delivery.repositoryId, capabilities: delivery.capabilityIds } }
+        );
+        const link = await readCapabilityAuthorityLink(delivery.url, {
+          stateBranch: DEFAULT_CAPABILITY_STATE_BRANCH
+        });
+        const linkCapabilities = link.link?.subject?.capabilityIds ?? [];
+        const missing = delivery.capabilityIds.filter((id) => !linkCapabilities.includes(id));
+        const current = link.status === 'current'
+          && link.link.authority.id === expectedAuthorityId
+          && link.link.authority.remote === leadIdentity
+          && missing.length === 0;
+        const invalid = ['invalid', 'stale'].includes(link.status)
+          || (link.status === 'current' && !current);
+        const summary = current
+          ? `Portable authority discovery is current on '${link.stateBranch}'.`
+          : invalid
+            ? `The portable authority link is invalid, stale, or does not match the approved capability map.`
+            : link.status === 'unavailable'
+              ? 'Portable authority discovery could not be checked because the delivery repository is unavailable.'
+              : 'The capability is active, but this delivery repository has no portable authority link yet.';
+        return capabilityFsckCheck(
+          `portable-discovery:${delivery.repositoryId}`,
+          current ? 'pass' : invalid ? 'fail' : 'warn', summary,
+          current ? {
+            branch: link.stateBranch, commit: link.stateCommit,
+            details: { repositoryId: delivery.repositoryId, capabilities: delivery.capabilityIds }
+          } : {
+            remediation: capabilityCommand('publish', { remote }),
+            details: {
+              repositoryId: delivery.repositoryId,
+              expectedCapabilities: delivery.capabilityIds,
+              linkedCapabilities: linkCapabilities,
+              linkStatus: link.status
+            }
+          }
+        );
+      });
+    checks.push(...portability);
   }
 
   const capabilityIds = (nodes, output = new Set()) => {

@@ -2,15 +2,41 @@
 
 **Plan ID:** `CAD-WSP-PLAN-v1`
 
-**Status:** proposed; validated against the current implementation; no behavior in this plan is
-implemented merely by checking in this document
+**Status:** core implementation complete; controlled office/platform rollout evidence remains
 
 **Parent tracks:** Fast Onboarding and Safe Git (`FOS`) and Developer Experience Performance
 (`DXP`)
 
 **Code baseline reviewed:** `main@98ea750c988e1f55706e92d177b7842dc310f410`
 
+**Implementation checkpoints:** `d1f8b387` (reviewed plan), `db2d5f1c` (portable authority and
+cross-process bootstrap foundation), plus the current delivery checkpoint
+
 **Last reviewed:** 2026-09-09
+
+## Delivery status
+
+The ordinary capability journey now starts with the exact Git URL, follows a subject-bound link
+from the delivery repository's state branch, verifies the selected lead's current approved
+`sflow/config` map, and does not scan the laptop's lead cache or enumerate proposal refs unless the
+user explicitly asks. Activation publishes these links, while `capability fsck` diagnoses missing
+or stale portability without making a change.
+
+Workspace preflight retains a bounded private Git catalog across the separate confirmation
+process. Confirmation revalidates the exact authority ref, reuses those objects, clones the
+application once, and clears the private catalog on completion or abandonment. The VS Code form is
+URL-first, recommends a blobless Smart clone for new mappings, explains the authority/state/cache
+choices, offers explicit compatibility search, and exposes a credential-free terminal
+continuation after a remote failure.
+
+Independent approved authorities are classified as a blocking conflict. `capability reconcile`
+first returns an exact confirmation-bound plan and, after confirmation, changes only the chosen
+delivery repository's routing link. It never deletes or rewrites the competing approved map.
+
+The remaining work is release evidence rather than hidden product behavior: run the controlled
+office proxy/certificate, Windows, macOS, Linux, minimum/current VS Code, protected-state-branch,
+and high-latency Git matrix in M6. Portable link absence remains a diagnosed legacy state until
+that rollout is approved.
 
 ## Executive decision
 
@@ -149,7 +175,7 @@ Add a migration-registry family such as `capability-authority-link`. Its durable
 Publish the canonical JSON document under the repository's configured state branch, at a path that
 the state publisher owns and preserves, for example:
 
-`singularity/configuration/capability-authority.json`
+`singularity/capability-authority.json`
 
 The first schema should contain only bounded, credential-free facts:
 
@@ -331,18 +357,15 @@ The capability form and workspace creation surface should expose one coherent jo
 Add information icons for authority, approved map, state branch, clone mode, fallback, and local
 lead cache. Their text must explain consequence and ownership, not internal implementation jargon.
 
-## Proposed public interfaces
-
-Prefer extending existing commands over adding aliases. Exact names can be finalized during M0
-registry review.
+## Public interfaces
 
 ```text
 singularity-flow capability inspect-repository <URL> [--lead <URL>] [--search-known] --json
-singularity-flow capability authority-status <URL> [--lead <URL>] --json
-singularity-flow capability reconcile <URL> --canonical-lead <URL> --preview --json
-singularity-flow capability reconcile <URL> --confirm-plan <PLAN-ID> --json
+singularity-flow capability reconcile <URL> --canonical-lead <URL> --json
+singularity-flow capability reconcile <URL> --canonical-lead <URL> --confirm-plan <PLAN-ID> --json
 singularity-flow capability fsck [--repository <URL>] [--portable-discovery] --json
-singularity-flow workspace create ... --bootstrap-receipt <ID> --confirm-plan <PLAN-ID>
+singularity-flow workspace prepare <REMOTE> --id <WORKSPACE-ID> --base <DIRECTORY> --json
+singularity-flow workspace bootstrap resume <BOOTSTRAP-ID> --confirm <WORKSPACE-ID> --json
 ```
 
 JSON additions should be additive and versioned:

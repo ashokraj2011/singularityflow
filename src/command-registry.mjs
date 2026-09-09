@@ -275,7 +275,8 @@ const CAPABILITY_READ_SUBCOMMANDS = Object.freeze([
   'inspect-repository'
 ]);
 const CAPABILITY_MUTATION_SUBCOMMANDS = Object.freeze([
-  'add', 'protect', 'depend', 'adopt-managed', 'set', 'remove', 'map', 'edit', 'publish', 'activate', 'discard-proposal', 'repository'
+  'add', 'protect', 'depend', 'adopt-managed', 'set', 'remove', 'map', 'edit', 'publish',
+  'activate', 'discard-proposal', 'reconcile', 'repository'
 ]);
 const CAPABILITY_SUBCOMMANDS = Object.freeze([
   ...CAPABILITY_READ_SUBCOMMANDS, ...CAPABILITY_MUTATION_SUBCOMMANDS

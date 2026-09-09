@@ -79,6 +79,8 @@ export interface RepositoryInspectionMatch {
   lead?: string;
   repositoryId?: string;
   repositoryUrl?: string;
+  defaultBranch?: string;
+  stateBranch?: string;
   capabilities?: string[];
   governed?: boolean;
   sourceBranch?: string | null;
@@ -102,6 +104,11 @@ export interface RepositoryInspectionPendingMatch {
 /** The same closed structural vocabulary used by the engine and schema. */
 export { CAPABILITY_KINDS };
 
+function fieldInfo(label: string, explanation: string): string {
+  return `<span class="field-info" role="img" tabindex="0" title="${escape(explanation)}"
+    aria-label="${escape(`${label}: ${explanation}`)}" data-help="${escape(explanation)}">${icon('info', { size: 14 })}</span>`;
+}
+
 export interface MapCapabilityForm {
   lead: string;
   leads: string[];
@@ -115,6 +122,7 @@ export interface MapCapabilityForm {
   inspectionMatches: RepositoryInspectionMatch[];
   inspectionPendingMatches: RepositoryInspectionPendingMatch[];
   inspectionMessage: string | null;
+  inspectionRecoveryCommand: string | null;
   inspectionFailures: string[];
   inspectionCompleteness: string | null;
   inspectionAuthorityScope: string | null;
@@ -147,6 +155,7 @@ export const EMPTY_MAP_FORM: MapCapabilityForm = {
   lead: '', leads: [], capabilityId: '', name: '', kind: 'delivery',
   parent: '', parents: [], repositoryUrl: '', sourceRoots: '', sharedRoots: '',
   inspectionStatus: 'idle', inspectionMatches: [], inspectionPendingMatches: [], inspectionMessage: null,
+  inspectionRecoveryCommand: null,
   inspectionFailures: [],
   inspectionCompleteness: null, inspectionAuthorityScope: null, inspectionCheckedLeadCount: 0,
   inspectionProposalCoverage: null,
@@ -154,7 +163,7 @@ export const EMPTY_MAP_FORM: MapCapabilityForm = {
   inspectionLeadUrl: '',
   inspectionBoundRepositoryUrl: null, inspectionBoundLeadUrl: null,
   inspectionComplete: false, collectionWithoutRepository: false,
-  cloneMode: 'full', sparseCone: '', cloneFallback: 'refuse', metadata: [], jiraProject: '', teams: '',
+  cloneMode: 'blobless', sparseCone: '', cloneFallback: 'refuse', metadata: [], jiraProject: '', teams: '',
   loaded: false, busy: false, notice: null, error: null
 };
 
@@ -382,7 +391,7 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
     ? `<p class="muted">Checked ${form.inspectionCheckedLeadCount} capability-map ${form.inspectionCheckedLeadCount === 1 ? 'authority' : 'authorities'} (${escape(form.inspectionCompleteness ?? 'unknown completeness')}, ${escape(form.inspectionAuthorityScope ?? 'unknown scope')}).${escape(proposalScope)}</p>`
     : '';
   const inspectionResult = form.inspectionStatus === 'checking'
-    ? `<p class="muted">${icon('waiting')}Checking repository ownership and onboarding…</p>`
+    ? `<p class="muted">${icon('waiting')}Finding its authority and reading the approved capability map…</p>`
     : form.inspectionStatus === 'not-onboarded'
       ? `<p class="ok-text">${icon('ok')}This repository was not found in the capability maps checked. Describe its first capability below.</p>`
       : form.inspectionStatus === 'known-repository-unassigned'
@@ -405,6 +414,9 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
                     : 'Repository ownership could not be determined safely.'))}${form.inspectionFailures.length
                     ? `<ul>${form.inspectionFailures.map((failure) => `<li>${escape(failure)}</li>`).join('')}</ul>` : ''}
                     ${pendingInspectionMatches ? `<ul>${pendingInspectionMatches}</ul>` : ''}
+                    ${form.inspectionRecoveryCommand
+                      ? `<p><button type="button" class="secondary" data-map-copy-command="${escape(form.inspectionRecoveryCommand)}">Copy terminal continuation</button></p>`
+                      : ''}
                     ${form.inspectionStatus === 'inconclusive' && form.inspectionCompleteness === 'no-authorities'
                       ? `<div class="form-grid">
                           <label class="field full"><span>Existing capability-map Git URL</span>
@@ -412,6 +424,9 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
                             <small>Use this when another repository already owns the organisation map.</small></label>
                         </div>
                         <p><button type="button" class="secondary" data-map-inspect-lead${form.inspectionLeadUrl.trim() ? '' : ' disabled'}>Check existing capability map</button>
+                          ${form.leads.length
+                            ? `<button type="button" class="secondary" data-map-search-known>Search ${form.leads.length} known ${form.leads.length === 1 ? 'authority' : 'authorities'}</button>`
+                            : ''}
                           ${form.inspectionProposalCoverage === 'complete'
                             ? '<button type="button" class="secondary" data-map-first-authority>Use this repository as the first capability map</button>'
                             : ''}</p>` : ''}</div>`
@@ -432,7 +447,7 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
   <section>
     <h2>${icon('git')}Git repository</h2>
     <p class="muted">Start with the repository so Flow can tell whether it is already onboarded before another capability is proposed.</p>
-    <label class="field full"><span>Clone URL</span><input type="text" value="${escape(form.repositoryUrl)}" data-map="repositoryUrl"
+    <label class="field full"><span>Clone URL ${fieldInfo('Clone URL', 'The credential-free Git identity of the repository that ships this capability. Authentication remains in Git or the operating system and is never stored in the capability map.')}</span><input type="text" value="${escape(form.repositoryUrl)}" data-map="repositoryUrl"
       ${form.collectionWithoutRepository ? 'disabled' : ''} placeholder="https://git.example.corp/acme/payments-api.git"></label>
     <p>
       <button type="button" data-map-inspect ${!form.repositoryUrl.trim() || form.inspectionStatus === 'checking' || form.collectionWithoutRepository ? 'disabled' : ''}>
@@ -476,20 +491,20 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
         <label class="field"><span>Value</span><input type="text" data-map-metadata-field="value" value="${escape(entry.value)}" placeholder="APP-1001"></label>
         <button type="button" class="icon-button danger" data-map-metadata-remove="${index}" title="Remove metadata" aria-label="Remove metadata pair">${icon('remove')}</button>
       </div>`).join('') : '<p class="muted">No additional metadata yet.</p>'}</div>
-    <p class="remedy">Stored in <code>singularity/capabilities.yml</code> in the lead repository.
-      The proposal uses a capability review branch and never writes to the application main branch.</p>
+    <p class="remedy">Stored in <code>singularity/capabilities.yml</code> on the lead repository's approved <code>sflow/config</code> branch ${fieldInfo('Approved map', 'This branch is the authority for capability membership. Review proposals do not become active until they are merged and acknowledged.')}.
+      A small routing link is projected to the delivery repository's <code>state</code> branch ${fieldInfo('State branch', 'The state branch lets another laptop find the approved map. The link is verified against the current sflow/config catalog and is never authority by itself.')} and never changes the application main branch.</p>
   </section>
 
   <section>
     <h2>${icon('git')}Repository it ships from</h2>
     ${form.kind === 'delivery' ? `<div class="form-grid">
       <p class="muted full">Repository checked: <code>${escape(form.repositoryUrl)}</code></p>
-      <label class="field"><span>Clone strategy</span><select data-map="cloneMode">
+      <label class="field"><span>Clone strategy ${fieldInfo('Clone strategy', 'Controls how a newly created workspace materializes this repository. Existing capability policies are preserved; this choice applies only to this new mapping.')}</span><select data-map="cloneMode">
         <option value="full"${form.cloneMode === 'full' ? ' selected' : ''}>Full clone</option>
-        <option value="blobless"${form.cloneMode === 'blobless' ? ' selected' : ''}>Blobless partial clone</option>
+        <option value="blobless"${form.cloneMode === 'blobless' ? ' selected' : ''}>Smart (recommended) — blobless partial clone</option>
         <option value="blobless-sparse"${form.cloneMode === 'blobless-sparse' ? ' selected' : ''}>Blobless + sparse checkout</option>
-      </select><small>Large monorepos should use blobless sparse after selecting the directories below.</small></label>
-      <label class="field"><span>Unsupported-server fallback</span><select data-map="cloneFallback">
+      </select><small>Smart transfers the selected commit and delays file contents until Git needs them. Large monorepos can use sparse checkout after reviewing the directories below.</small></label>
+      <label class="field"><span>Unsupported-server fallback ${fieldInfo('Unsupported-server fallback', 'Used only when the server explicitly refuses partial-clone filtering. Authentication, TLS, proxy, cancellation, and timeout failures are never retried as a full clone.')}</span><select data-map="cloneFallback">
         <option value="refuse"${form.cloneFallback === 'refuse' ? ' selected' : ''}>Refuse — never silently download everything</option>
         <option value="full"${form.cloneFallback === 'full' ? ' selected' : ''}>Allow an explicit full clone</option>
       </select></label>
@@ -500,13 +515,13 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
 
     <div class="editor-card">
       <p class="eyebrow">Capability map</p>
-      <h3>${icon('repository')}Where this capability is recorded</h3>
+      <h3>${icon('repository')}Where this capability is recorded ${fieldInfo('Capability-map authority', 'The lead repository whose sflow/config branch is the approved source of the capability map. The selected application repository may be different.')}</h3>
       ${form.leads.length > 1 ? `<label class="field"><span>Repository</span><select data-map="lead">
         <option value=""${knownLeadSelected || usesShippingRepository ? '' : ' selected'}>Choose a repository…</option>
         ${form.leads.map((choice) => `<option value="${escape(choice)}"${choice === lead ? ' selected' : ''}>${escape(choice)}</option>`).join('')}
         ${usesShippingRepository && !knownLeadSelected
     ? `<option value="${escape(lead)}" selected>${escape(lead)} (shipping repository)</option>` : ''}
-      </select><small>More than one capability map is available, so choose the one this belongs to.</small></label>` : ''}
+      </select><small>More than one capability map is available from this laptop's convenience cache, so choose the one this belongs to. ${fieldInfo('Local lead cache', 'This list is only a shortcut. It cannot approve a mapping, and a new laptop can restore an existing capability through the repository state link without this cache.')}</small></label>` : ''}
       ${form.leads.length === 1 ? `<label class="choice${knownLeadSelected ? ' chosen' : ''}">
         <input type="radio" name="capability-map-repository" value="${escape(form.leads[0])}" data-map="lead"${knownLeadSelected ? ' checked' : ''}
           aria-label="Only available capability-map repository">
@@ -589,6 +604,10 @@ export const MAP_CAPABILITY_SCRIPT = `
     if (inspectLead) return vscode.postMessage({ type: 'inspectSelectedLead' });
     const inspectAuthority = event.target.closest('[data-map-inspect-authority]');
     if (inspectAuthority) return vscode.postMessage({ type: 'inspectAuthority', value: inspectAuthority.dataset.mapInspectAuthority });
+    const searchKnown = event.target.closest('[data-map-search-known]');
+    if (searchKnown) return vscode.postMessage({ type: 'searchKnownAuthorities' });
+    const copyCommand = event.target.closest('[data-map-copy-command]');
+    if (copyCommand) return vscode.postMessage({ type: 'copyCommand', value: copyCommand.dataset.mapCopyCommand });
     const addMetadata = event.target.closest('[data-map-metadata-add]');
     if (addMetadata) return vscode.postMessage({ type: 'metadataAdd' });
     const removeMetadata = event.target.closest('[data-map-metadata-remove]');

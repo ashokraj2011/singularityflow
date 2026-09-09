@@ -1461,7 +1461,7 @@ export async function abandonWorkspaceBootstrap(bootstrapId, {
       });
     }
     if (session.status === 'abandoned') return session;
-    return writeSession(root, {
+    const abandoned = await writeSession(root, {
       ...session,
       status: 'abandoned',
       revision: session.revision + 1,
@@ -1469,6 +1469,8 @@ export async function abandonWorkspaceBootstrap(bootstrapId, {
       abandonReason: explanation.slice(0, 1_000),
       nextAction: null
     });
+    await rm(catalogStorePath(root, bootstrapId), { recursive: true, force: true });
+    return abandoned;
   });
 }
 

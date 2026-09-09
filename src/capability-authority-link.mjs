@@ -14,6 +14,7 @@ import path from 'node:path';
 import { frozenRemoteTransport, remoteFingerprint, sanitizeRemote,
   assertCredentialFreeRemote } from './git-remote-diagnostics.mjs';
 import { GitRemoteSession, requireRemoteObservation, runRemoteGitAsync } from './git-execution.mjs';
+import { enterpriseGitEnvironment } from './git-enterprise-environment.mjs';
 import { publishToStateBranch } from './ledger.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
@@ -152,7 +153,7 @@ export async function readCapabilityAuthorityLink(repositoryRemote, {
       code: 'CAPABILITY_AUTHORITY_LINK_INVALID'
     });
   }
-  const gitEnv = remoteSession?.env ?? env;
+  const gitEnv = remoteSession?.env ?? enterpriseGitEnvironment(env);
   const session = remoteSession ?? new GitRemoteSession({ env: gitEnv });
   const ref = `refs/heads/${branch}`;
   const observed = await session.observeAsync(repository, { includeHead: false, refs: [ref] });
@@ -218,10 +219,11 @@ export async function publishCapabilityAuthorityLink(repositoryRemote, link, {
 } = {}) {
   const repository = assertCredentialFreeRemote(repositoryRemote);
   const validated = validateCapabilityAuthorityLink(link, repository);
+  const gitEnv = enterpriseGitEnvironment(env);
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-link-publish-'));
   try {
     const { cloned, transport } = await cloneOneBranch(repository, defaultBranch, scratch, {
-      env, operation: 'remote-configuration'
+      env: gitEnv, operation: 'remote-configuration'
     });
     if (cloned.status !== 0) throw new SingularityFlowError(
       `Cannot prepare portable capability discovery for '${sanitizeRemote(repository)}'. ${cloned.failure?.advice ?? 'Git clone failed.'}`, {

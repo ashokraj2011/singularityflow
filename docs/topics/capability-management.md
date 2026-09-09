@@ -12,7 +12,7 @@ related:
   - workspaces-and-sessions
   - configuration
   - workflow-authoring
-version: 7
+version: 8
 ---
 Capability changes are proposed, reviewed as an exact diff, and activated through the configuration authority. Collection capabilities organize; delivery capabilities name the repositories that ship.
 
@@ -34,12 +34,14 @@ Use this topic when the current goal matches **capability management**. Start in
 
 ## Guided workflow
 
-1. Begin with the exact credential-free Git URL and run `sflow capability inspect-repository <GIT-URL> --json`. Add `--lead <LEAD-URL>` only when that authority was explicitly selected and `--refresh` when a fresh remote check is required.
+1. Begin with the exact credential-free Git URL and run `sflow capability inspect-repository <GIT-URL> --json`. This follows a verified repository state link or checks a self-hosted map; it does not fan out over the laptop cache. Add `--lead <LEAD-URL>` only when that authority was explicitly selected, `--search-known` only for an explicit compatibility search, and `--refresh` when a fresh remote check is required.
 2. Branch on the lookup result before asking for capability metadata. Reuse `already-mapped`; resolve every `ambiguous` match to one explicit lead; and treat `unreachable` or partial `inconclusive` results as unknown rather than new. With no registered authority, the target is also checked for a self-hosted approved map; an ungoverned target can become the first authority only after an explicit choice. `not-onboarded` is scoped to the approved maps reported in `checkedLeads`. `known-repository-unassigned` means the repository exists in the map but is not attached to a capability. A bounded pending-proposal scan returns matching unmerged proposals for review; partial or unavailable proposal coverage blocks a new mapping.
 3. Only after the contributor explicitly requests more detail, use `sflow capability add <ID> --owns <DIRECTORY>`, `capability protect <PATH>`, or `capability depend <TARGET>@<REFERENCE>`. These create governed proposals. Keep `capability map` and remote `capability edit` as expert multi-repository compatibility flows.
 4. Inspect the exact branch, commit, changed files, and diff with `sflow capability proposal` or **Configuration → Review proposals**.
-5. Activate the exact reviewed commit. A Git dry run does not execute receive hooks, so Flow never treats it as protection evidence. Merge through repository review, or explicitly add `--acknowledge-unprotected` before Flow attempts one real exact-CAS update to `sflow/config`.
-6. Verify the returned target commit, state projection, and activation-ledger receipt. Refresh the organisation view afterward.
+5. If inspection reports independent approved authorities, preview `sflow capability reconcile <DELIVERY-URL> --canonical-lead <URL> --json`. Review its exact commits, map digests, and single state-link write, then repeat with the returned `--confirm-plan` only after choosing the canonical authority. Reconciliation never deletes the competing map.
+6. Use `sflow capability fsck --repository <DELIVERY-URL> --json` to verify portable discovery from a delivery repository. Add `--search-known` only when no state link exists and an explicit compatibility search is intended.
+7. Activate the exact reviewed commit. A Git dry run does not execute receive hooks, so Flow never treats it as protection evidence. Merge through repository review, or explicitly add `--acknowledge-unprotected` before Flow attempts one real exact-CAS update to `sflow/config`.
+8. Verify the returned target commit, state projection, and activation-ledger receipt. Refresh the organisation view afterward.
 
 Run `singularity-flow capability fsck --lead <URL>` whenever proposal history or
 the state projection looks inconsistent, or a workspace says its selected capability

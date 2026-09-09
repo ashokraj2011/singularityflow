@@ -2769,10 +2769,15 @@ const capabilityFixture = [{
 
 test('mapping a capability defaults Kind to Delivery', () => {
   assert.equal(EMPTY_MAP_FORM.kind, 'delivery');
-  assert.equal(EMPTY_MAP_FORM.cloneMode, 'full');
+  assert.equal(EMPTY_MAP_FORM.cloneMode, 'blobless');
   assert.equal(EMPTY_MAP_FORM.cloneFallback, 'refuse');
-  assert.match(mapCapabilityHtml(EMPTY_MAP_FORM),
+  const html = mapCapabilityHtml(EMPTY_MAP_FORM);
+  assert.match(html,
     /<option value="delivery" selected>Delivery<\/option>/);
+  assert.match(html, /Smart \(recommended\) — blobless partial clone/);
+  assert.match(html, /aria-label="Clone URL:/);
+  assert.match(html, /aria-label="Clone strategy:/);
+  assert.match(html, /aria-label="State branch:/);
 });
 
 test('guided capability mapping is visibly the first step', () => {
@@ -3034,12 +3039,16 @@ test('only zero-authority discovery can explicitly establish the first capabilit
   const repositoryUrl = 'https://git.example/first.git';
   const noAuthorities = mapCapabilityHtml({
     ...EMPTY_MAP_FORM, repositoryUrl, inspectionStatus: 'inconclusive',
+    leads: ['https://git.example/platform.git'],
     inspectionCompleteness: 'no-authorities', inspectionAuthorityScope: 'repository-candidate',
     inspectionCheckedLeadCount: 0, inspectionProposalCoverage: 'complete'
   });
   assert.match(noAuthorities, /Checked 0 capability-map authorities/);
   assert.match(noAuthorities, /Existing capability-map Git URL/);
   assert.match(noAuthorities, /data-map-inspect-lead disabled/);
+  assert.match(noAuthorities, /Search 1 known authority/);
+  assert.match(noAuthorities, /data-map-search-known/);
+  assert.match(MAP_CAPABILITY_SCRIPT, /type: 'searchKnownAuthorities'/);
   assert.match(noAuthorities, /Use this repository as the first capability map/);
   assert.match(noAuthorities, /data-map-details hidden/);
 

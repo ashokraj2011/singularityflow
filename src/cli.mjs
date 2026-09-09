@@ -200,7 +200,7 @@ import { validateLedgerDeployment } from './ledger-deployment.mjs';
 import { CAPABILITY_KINDS, CAPABILITY_TYPES, CAPABILITIES_PATH, capabilityDeliveries, capabilityForRepository, capabilityTree, editCapability, flattenCapabilityTree, loadCapabilities, resolveCapabilityPolicy, resolveEffectiveCapabilityPolicy, validateCapabilities } from './capabilities.mjs';
 import { validateConfigurationSnapshotCapabilities } from './capability-context.mjs';
 import { bootstrapRepository, repositoryIdFromUrl } from './bootstrap.mjs';
-import { activateCapabilityProposal, addCapabilityRepository, capabilityFsck, capabilityProposalCommands, capabilityReadiness, composeCapabilityWorldModel, discardStaleCapabilityProposal, editCapabilityInOrganisation, inspectCapabilityProposal, inspectCapabilityRepository, listCapabilityProposals, initializeWorkspaceState, listLeadRepositories, mapCapability, publishOrganisationCapabilityMap, readOrganisation, rememberLeadRepository, resolveWorkspacePlan } from './organisation.mjs';
+import { activateCapabilityProposal, addCapabilityRepository, applyCapabilityReconciliation, capabilityFsck, capabilityProposalCommands, capabilityReadiness, composeCapabilityWorldModel, discardStaleCapabilityProposal, editCapabilityInOrganisation, inspectCapabilityProposal, inspectCapabilityRepository, listCapabilityProposals, initializeWorkspaceState, listLeadRepositories, mapCapability, previewCapabilityReconciliation, publishOrganisationCapabilityMap, readOrganisation, rememberLeadRepository, resolveWorkspacePlan } from './organisation.mjs';
 import { canonicalCommand, commandDefinition, operationById, SECRETS_SUBCOMMANDS, validateCommandHandlers } from './command-registry.mjs';
 // `action` is already a command name in this file, so the narration constructor is renamed rather
 // than shadowing it.
@@ -8458,6 +8458,10 @@ async function capabilityCommand(positionals, options) {
     for (const match of result.matches) {
       console.log(`  ${match.lead}: ${match.repositoryId}${match.capabilities.length ? ` (${match.capabilities.join(', ')})` : ''}`);
     }
+    for (const conflict of result.conflicts ?? []) {
+      console.warn(`  conflict: ${conflict.kind} (${conflict.authorityCount} approved ${conflict.authorityCount === 1 ? 'authority' : 'authorities'})`);
+      console.warn(`    ${conflict.remediation}`);
+    }
     for (const match of result.pendingMatches ?? []) {
       const commit = match.proposalCommit ? `@${match.proposalCommit.slice(0, 12)}` : '';
       const capabilities = match.capabilities?.length ? ` (${match.capabilities.join(', ')})` : '';
@@ -8475,6 +8479,35 @@ async function capabilityCommand(positionals, options) {
       }
     }
     return;
+  }
+
+  if (subcommandForWrite === 'reconcile') {
+    const repositoryUrl = requirePositional(positionals, 2, 'Git repository URL');
+    const canonicalLead = optionString(options, 'canonical-lead');
+    if (!canonicalLead) throw new SingularityFlowError(
+      'capability reconcile requires --canonical-lead <URL>. Nothing was changed.', {
+        code: 'CAPABILITY_RECONCILIATION_AUTHORITY_REQUIRED'
+      }
+    );
+    const confirmation = optionString(options, 'confirm-plan');
+    const result = confirmation
+      ? await applyCapabilityReconciliation(repositoryUrl, canonicalLead, {
+          confirmPlan: confirmation
+        })
+      : await previewCapabilityReconciliation(repositoryUrl, canonicalLead);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    if (!confirmation) {
+      console.log(`Capability authority reconciliation plan ${result.plan.planId}`);
+      console.log(`  canonical: ${result.plan.canonicalAuthority.remote}@${result.plan.canonicalAuthority.commit.slice(0, 12)}`);
+      console.log(`  observed authorities: ${result.plan.observedAuthorities.length}`);
+      console.log('  changes: publish one routing link; no capability map or application branch is changed');
+      return console.log(`Apply with --confirm-plan ${result.plan.planId}`);
+    }
+    console.log(`Capability authority routing reconciled to ${result.plan.canonicalAuthority.remote}.`);
+    if (result.unresolvedIndependentAuthorities) {
+      console.warn(`  ${result.unresolvedIndependentAuthorities} independent authority claim(s) remain visible for governance review; none was deleted.`);
+    }
+    return result;
   }
 
   if (subcommandForWrite === 'repository' && positionals[2] === 'add') {
@@ -8624,15 +8657,42 @@ async function capabilityCommand(positionals, options) {
   }
 
   if (subcommandForWrite === 'fsck') {
-    const leadUrl = optionString(options, 'lead') ?? (await listLeadRepositories())[0]?.url;
-    if (!leadUrl) throw new SingularityFlowError('No lead repository is known. Pass --lead <URL>.');
+    const repositoryUrl = optionString(options, 'repository');
+    let leadUrl = optionString(options, 'lead') ?? null;
+    let repositoryDiscovery = null;
+    if (repositoryUrl) {
+      repositoryDiscovery = await inspectCapabilityRepository(repositoryUrl, {
+        leadUrl,
+        searchKnown: optionBoolean(options, 'search-known'),
+        includeProposals: false,
+        refresh: true
+      });
+      if (!leadUrl && repositoryDiscovery.matches.length === 1) {
+        leadUrl = repositoryDiscovery.matches[0].lead;
+      }
+      if (!leadUrl) throw new SingularityFlowError(
+        `Capability authority could not be resolved safely for '${repositoryDiscovery.repositoryUrl}'. `
+        + `Run capability inspect-repository with --lead <URL>, or add --search-known to explicitly search this laptop's convenience cache.`, {
+          code: 'CAPABILITY_AUTHORITY_UNKNOWN',
+          details: { discovery: repositoryDiscovery }
+        }
+      );
+    }
+    leadUrl ??= (await listLeadRepositories())[0]?.url;
+    if (!leadUrl) throw new SingularityFlowError(
+      'No lead repository is known. Pass --lead <URL> or --repository <DELIVERY-URL>.'
+    );
     const registered = await readWorkspaceRegistry(workspaceRegistryFile());
     const workspaces = [];
     for (const entry of registered) {
       try { workspaces.push(await readWorkspace(entry.path)); }
       catch { /* A malformed workspace is reported by workspace doctor; fsck continues with readable peers. */ }
     }
-    const result = await capabilityFsck(leadUrl, { workspaces });
+    const checked = await capabilityFsck(leadUrl, {
+      workspaces,
+      portableDiscovery: repositoryUrl != null || optionBoolean(options, 'portable-discovery')
+    });
+    const result = repositoryDiscovery ? { ...checked, repositoryDiscovery } : checked;
     await rememberLeadRepository(leadUrl);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     for (const item of result.checks) {

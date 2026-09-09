@@ -4620,11 +4620,14 @@ test('capability mapping refuses credential-bearing URLs before command logging'
   const repositorySecret = 'repository-super-secret';
   const authoritySecret = 'authority-super-secret';
 
-  // Default discovery must let the CLI read the complete registry. Passing only the safe entries
-  // rendered in the form would silently erase the rejected legacy authority and could make a mixed
-  // registry look complete enough to authorize a duplicate proposal.
+  // Default discovery is portable and does not fan out through the machine-local convenience
+  // cache. The explicit Search known authorities action must still let the CLI account for the
+  // unsafe legacy entry without putting that URL in a command or webview.
   await panel.post({ type: 'field', field: 'repositoryUrl', value: repository });
   await panel.post({ type: 'inspectRepository' });
+  await until(() => panel.webview.html.includes('Search 1 known authority')
+    ? panel.webview.html : null);
+  await panel.post({ type: 'searchKnownAuthorities' });
   const incompleteRegistry = await until(() => panel.webview.html.includes('registered-lead:sha256:')
     ? panel.webview.html : null);
   assert.match(incompleteRegistry, /registered-lead:sha256:/);
@@ -4633,8 +4636,10 @@ test('capability mapping refuses credential-bearing URLs before command logging'
   const defaultInspection = registered.output
     .filter((line) => String(line).includes('capability inspect-repository')).at(-1);
   assert.ok(defaultInspection, 'the safe target reached the read-only inspector');
+  assert.match(defaultInspection, /--search-known/,
+    'only the explicit compatibility action fans out across registered authorities');
   assert.doesNotMatch(defaultInspection, /\s--lead\s/,
-    'default inspection lets the backend account for every registered authority');
+    'unsafe registry entries are never copied into a logged command argument');
 
   // A forged/queued explicit-authority message is guarded even before the no-authority controls
   // become visible. This proves the guard lives before run(), not only in HTML validation.
@@ -4657,7 +4662,7 @@ test('capability mapping refuses credential-bearing URLs before command logging'
 
   const output = registered.output.join('\n');
   assert.equal(registered.output
-    .filter((line) => String(line).includes('capability inspect-repository')).length, 1,
+    .filter((line) => String(line).includes('capability inspect-repository')).length, 2,
     'credential-bearing follow-up values never start another inspection command');
   assert.doesNotMatch(output, new RegExp(`${repositorySecret}|${authoritySecret}|${legacySecret}|token=hidden`));
 });

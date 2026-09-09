@@ -743,8 +743,10 @@ Usage:
     (--repository is repeatable and required for delivery; omit it for collection. --lead-repository
      says which delivery repository holds governed state when there are several. Remote mapping
      pushes a review branch against sflow/config and never writes an application branch.)
-  singularity-flow capability inspect-repository <GIT-URL> [--lead URL]... [--refresh] [--json]
-    (read-only exact-URL lookup across explicit or registered maps, plus a self-hosted target map)
+  singularity-flow capability inspect-repository <GIT-URL> [--lead URL]... [--search-known]
+    [--include-proposals] [--refresh] [--json]
+    (read-only portable state-link/self-hosted lookup by default; registered-map search and proposal
+     enumeration are explicit because they can add remote Git requests)
   singularity-flow capability edit <CAPABILITY-ID> [--lead URL] [--name TEXT] [--kind collection|delivery]
     [--mode add|set|remove]
     [--reparent-children-to ID]
@@ -761,9 +763,15 @@ Usage:
   those direct children to the top level; older reviewed map revisions remain available in Git.
   singularity-flow capability publish [--lead URL] [--json]
     (after a capability review branch is merged, refresh its orphan state projection)
-  singularity-flow capability fsck [--lead URL] [--json]
+  singularity-flow capability fsck [--lead URL | --repository DELIVERY-URL]
+    [--search-known] [--portable-discovery] [--json]
     (read-only verification of registered workspace bindings, approved configuration,
-     state projection, and proposal refs; returns exact remediation commands)
+     state projection, proposal refs, and optional cross-laptop authority links; returns exact
+     remediation commands)
+  singularity-flow capability reconcile <DELIVERY-URL> --canonical-lead <URL>
+    [--confirm-plan PLAN-ID] [--json]
+    (without confirmation, previews exact observed authorities and the one routing-link write;
+     confirmation never deletes or rewrites an independent capability map)
   singularity-flow capability proposals [--lead URL] [--all] [--json]
   singularity-flow capability proposal <REVIEW-BRANCH> [--lead URL] [--json]
   singularity-flow capability discard-proposal <REVIEW-BRANCH> [--lead URL]

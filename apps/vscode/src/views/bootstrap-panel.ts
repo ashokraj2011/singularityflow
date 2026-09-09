@@ -13,6 +13,7 @@ import {
   MAP_CAPABILITY_SCRIPT, type MapCapabilityForm, type ParentChoice
 } from './map-capability-form.ts';
 import type { StartWizardProgress } from './start-wizard.ts';
+import { formatCliArgsForDisplay } from '../cli/runner.ts';
 
 /** The map as `capability organisation --json` reports it. */
 export interface Organisation {
@@ -25,6 +26,7 @@ interface RepositoryInspection {
   repositoryUrl?: string;
   matches?: Array<{
     lead?: string; repositoryId?: string; repositoryUrl?: string; capabilities?: string[];
+    defaultBranch?: string; stateBranch?: string;
     governed?: boolean; sourceBranch?: string | null; sourceCommit?: string | null;
     cached?: boolean; stale?: boolean;
   }>;
@@ -177,6 +179,7 @@ export class BootstrapPanel {
     this.form.inspectionMatches = [];
     this.form.inspectionPendingMatches = [];
     this.form.inspectionMessage = null;
+    this.form.inspectionRecoveryCommand = null;
     this.form.inspectionFailures = [];
     this.form.inspectionCompleteness = null;
     this.form.inspectionAuthorityScope = null;
@@ -288,10 +291,13 @@ export class BootstrapPanel {
     // The first URL-only lookup is the portable approved-map fast path. Proposal enumeration is
     // deferred until the contributor explicitly selects the authority they are about to mutate.
     if (explicitLead) argv.push('--include-proposals');
+    if (options.includeKnownAuthorities) argv.push('--search-known', '--include-proposals');
+    const terminalCommand = `singularity-flow ${formatCliArgsForDisplay(argv)}`;
     const { result, error } = await this.run(argv);
     if (revision !== this.inspectionRevision || repositoryUrl !== this.form.repositoryUrl.trim()) return;
     if (error) return void this.update({ inspectionStatus: 'inconclusive', inspectionComplete: false,
-      inspectionMessage: error, inspectionFailures: [], inspectionCompleteness: null,
+      inspectionMessage: error, inspectionRecoveryCommand: terminalCommand,
+      inspectionFailures: [], inspectionCompleteness: null,
       inspectionAuthorityScope: null, inspectionProposalCoverage: null,
       inspectionCheckedLeadCount: 0 });
     const inspected = (result ?? {}) as RepositoryInspection;
@@ -309,6 +315,10 @@ export class BootstrapPanel {
         ? ` Diagnostic: ${failure.diagnosticAction.command}` : '';
       return `${failure?.lead ? `${failure.lead}: ` : ''}${message}${action}`;
     });
+    const recoveryCommand = (inspected.failures ?? [])
+      .flatMap((failure) => typeof failure === 'string'
+        ? [] : [failure?.diagnosticAction?.command])
+      .find((command): command is string => Boolean(command));
     const availableLeads = explicitLead
       ? [...new Set([...this.form.leads, explicitLead])]
       : this.form.leads;
@@ -325,6 +335,7 @@ export class BootstrapPanel {
     this.form = { ...this.form, leads: availableLeads,
       inspectionStatus: status, inspectionMatches: matches, inspectionPendingMatches: pendingMatches,
       inspectionMessage: null, inspectionFailures: failures,
+      inspectionRecoveryCommand: recoveryCommand ?? (failures.length ? terminalCommand : null),
       inspectionCompleteness: inspected.completeness ?? null,
       inspectionAuthorityScope: inspected.authorityScope ?? null,
       inspectionProposalCoverage: inspected.proposalCoverage ?? null,
@@ -455,6 +466,18 @@ export class BootstrapPanel {
     if (message?.type === 'redraw') return this.render();
 
     if (message?.type === 'inspectRepository') return void await this.inspectRepository();
+
+    if (message?.type === 'searchKnownAuthorities') {
+      await this.inspectRepository(null, { includeKnownAuthorities: true });
+      return;
+    }
+
+    if (message?.type === 'copyCommand' && typeof message.value === 'string'
+      && message.value === this.form.inspectionRecoveryCommand) {
+      await vscode.env.clipboard.writeText(message.value);
+      void vscode.window.showInformationMessage('Singularity Flow terminal continuation copied.');
+      return;
+    }
 
     if (message?.type === 'inspectSelectedLead') {
       const lead = this.form.inspectionLeadUrl.trim();

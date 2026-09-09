@@ -22,10 +22,12 @@ import YAML from 'yaml';
 import { removeTemporaryTree, run } from '../src/util.mjs';
 import { outsideBuilderScratch } from '../src/worldmodel.mjs';
 import {
-  activateCapabilityProposal, addCapabilityRepository, capabilityFsck, capabilityProposalCommands, discardStaleCapabilityProposal,
+  activateCapabilityProposal, addCapabilityRepository, applyCapabilityReconciliation,
+  capabilityFsck, capabilityProposalCommands, discardStaleCapabilityProposal,
   editCapabilityInOrganisation, initializeWorkspaceState,
   inspectCapabilityProposal, inspectCapabilityRepository, listCapabilityProposals, mapCapability, readOrganisation,
-  organisationCacheFile, proposeProgressiveCapabilityChange, publishOrganisationCapabilityMap, resolveWorkspacePlan
+  organisationCacheFile, previewCapabilityReconciliation, proposeProgressiveCapabilityChange,
+  publishOrganisationCapabilityMap, resolveWorkspacePlan
 } from '../src/organisation.mjs';
 import { listTransportIntents, retryTransportIntent } from '../src/transport-intents.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
@@ -833,6 +835,12 @@ test('an activated mapping is discoverable from the delivery state branch on a n
   assert.deepEqual(found.proposalInspection, {
     total: 0, inspected: 0, limitPerAuthority: 64
   });
+
+  const checked = await capabilityFsck(org.platform, { portableDiscovery: true });
+  const portability = checked.checks.find((entry) =>
+    entry.id === 'portable-discovery:service');
+  assert.equal(portability.status, 'pass');
+  assert.equal(portability.branch, 'state');
 });
 
 test('repository inspection reports ambiguity across registered organisations', async () => {
@@ -852,8 +860,61 @@ test('repository inspection reports ambiguity across registered organisations', 
   const result = await inspectCapabilityRepository(first.shared);
   assert.equal(result.status, 'ambiguous');
   assert.equal(result.matches.length, 2);
+  assert.equal(result.conflicts.length, 1);
+  assert.equal(result.conflicts[0].kind, 'independent-approved-authorities');
+  assert.equal(result.conflicts[0].authorityCount, 2);
   assert.deepEqual(result.matches.flatMap((match) => match.capabilities).sort(),
     ['first-capability', 'second-capability']);
+});
+
+test('duplicate capability authorities require an exact plan and reconcile only the portable routing link', async () => {
+  const first = await remotes('first-lead', 'shared');
+  const second = await remotes('second-lead');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(first.base);
+  await mapAndMerge(first['first-lead'], {
+    capabilityId: 'first-capability', kind: 'delivery', repositoryUrl: first.shared
+  });
+  await mapAndMerge(second['second-lead'], {
+    capabilityId: 'second-capability', kind: 'delivery', repositoryUrl: first.shared
+  });
+  const { rememberLeadRepository } = await import('../src/lead-repositories.mjs');
+  await rememberLeadRepository(first['first-lead']);
+  await rememberLeadRepository(second['second-lead']);
+
+  const preview = await previewCapabilityReconciliation(
+    first.shared, first['first-lead']
+  );
+  assert.match(preview.plan.planId, /^capr_[a-f0-9]{32}$/);
+  assert.equal(preview.plan.observedAuthorities.length, 2);
+  assert.deepEqual(preview.plan.writes.map((entry) => entry.path), [
+    'singularity/capability-authority.json'
+  ]);
+  const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
+  const cliPreview = JSON.parse(execFileSync(process.execPath, [
+    cli, 'capability', 'reconcile', first.shared,
+    '--canonical-lead', first['first-lead'], '--json'
+  ], {
+    cwd: first.base,
+    env: { ...process.env, SINGULARITY_FLOW_LEAD_REGISTRY: registry(first.base), NO_COLOR: '1' },
+    encoding: 'utf8'
+  }));
+  assert.equal(cliPreview.plan.planId, preview.plan.planId);
+  await assert.rejects(() => applyCapabilityReconciliation(
+    first.shared, first['first-lead'], { confirmPlan: 'capr_wrong' }
+  ), (error) => error?.code === 'CAPABILITY_RECONCILIATION_CONFIRMATION_REQUIRED');
+
+  const applied = await applyCapabilityReconciliation(
+    first.shared, first['first-lead'], { confirmPlan: preview.plan.planId }
+  );
+  assert.equal(applied.status, 'reconciled');
+  assert.equal(applied.unresolvedIndependentAuthorities, 1,
+    'the competing approved map remains visible and is never silently deleted');
+  const restored = await inspectCapabilityRepository(first.shared, {
+    searchKnown: false, includeProposals: false, refresh: true
+  });
+  assert.equal(restored.status, 'already-mapped');
+  assert.equal(restored.authorityScope, 'state-link');
+  assert.equal(restored.matches[0].lead, first['first-lead']);
 });
 
 test('repository inspection never treats stale cached absence as proof that a repository is new', async () => {

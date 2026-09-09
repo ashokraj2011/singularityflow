@@ -26,6 +26,7 @@ is not part of the current product.
 | Track deliberately deferred work and the next eligible increment | [Pending-work roadmap](PENDING-WORK-ROADMAP.md) |
 | Attach an existing checkout quickly and use safe Git acceleration | [Fast onboarding and Git performance](FAST-ONBOARDING-AND-GIT-PERFORMANCE.md) |
 | Review FOS design, milestones, evidence, and deferred release gates | [FOS implementation plan](FOS-IMPLEMENTATION-PLAN.md) |
+| Make capability discovery portable across laptops and remove workspace Git fan-out | [Capability authority discovery and workspace performance plan](CAPABILITY-AUTHORITY-DISCOVERY-AND-WORKSPACE-PERFORMANCE-PLAN.md) |
 | Plan Governed Delivery and Proof as reversible release milestones | [GDP milestone delivery roadmap](GDP-DELIVERY-ROADMAP.md) |
 | Track governed comprehension from its read-only pilot through future enforcement | [CMP roadmap](CMP-ROADMAP.md) |
 | Measure CMP safely across explicitly selected real repositories | [CMP real-repository corpus measurement](CMP-REAL-CORPUS-MEASUREMENT.md) |

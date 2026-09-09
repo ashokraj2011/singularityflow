@@ -102,6 +102,66 @@ function workspaceDetails(status: WorkspaceStatus | null, loading: boolean, deta
     `<p class="blockers">${escape(warning.message)}</p>`).join('')}` : ''}`;
 }
 
+/**
+ * One repository-scoped home for the fast-onboarding operations which otherwise live only in the
+ * Command Palette. The page sends an approved repository path from the status snapshot; the panel
+ * resolves it against that same snapshot before the extension invokes an existing command.
+ */
+function fastOnboardingHtml(row: WorkspaceRow, status: WorkspaceStatus | null, loading: boolean): string {
+  const repositories = (status?.repositories ?? []).filter((repository) =>
+    Boolean(repository.absolutePath ?? repository.path));
+  const lead = repositories.find((repository) =>
+    repository.id === status?.workspace.leadRepository || repository.role === 'lead') ?? repositories[0];
+  const selectedPath = lead?.absolutePath ?? lead?.path ?? '';
+  const authority = status?.workspace.capabilityAuthority?.url?.trim();
+  const disabled = loading || !repositories.length;
+  return `<h2>${icon('git')}Fast onboarding &amp; Git</h2>
+  <div class="card">
+    <div class="card-head"><strong>Repository setup and maintenance</strong><span class="grow"></span>
+      <span class="pill ${status?.healthy ? 'ok' : ''}">${status?.healthy ? 'workspace ready' : 'check required'}</span></div>
+    <p class="muted">These actions are repository-scoped because each checkout pins its own
+      reviewed <code>sflow/config</code> or <code>state</code> authority. Choose the checkout once;
+      SFlow will not ask you to find the Git folder again.</p>
+    <label class="field"><span>Repository</span>
+      <select data-fos-repository${disabled ? ' disabled' : ''}>
+        ${repositories.map((repository) => {
+          const repositoryPath = repository.absolutePath ?? repository.path ?? '';
+          return `<option value="${escape(repositoryPath)}"${repositoryPath === selectedPath ? ' selected' : ''}>${escape(repository.metadata?.name ?? repository.id)} · ${escape(repository.state ?? 'unknown')}${repository.branch ? ` · ${escape(repository.branch)}` : ''}</option>`;
+        }).join('')}
+      </select>
+    </label>
+    <p><strong>Configuration authority</strong><br>${authority
+      ? `<code>${escape(authority)}</code>`
+      : '<span class="muted">No workspace authority URL is recorded yet.</span>'}</p>
+    <div class="card-foot">
+      <button data-fos-action="attach" data-workspace-path="${escape(row.path)}"${disabled ? ' disabled' : ''}
+        title="Validate the selected repository and save an exact reviewed authority pin. Does not clone, scan source, build AST/world models, or change the application branch.">Verify &amp; attach</button>
+      <button class="secondary" data-fos-action="refresh-authority" data-workspace-path="${escape(row.path)}"${disabled ? ' disabled' : ''}
+        title="Re-read only the repository's previously selected authority route and update its reviewed pin.">Refresh authority pin</button>
+      <button class="secondary" data-fos-action="offline-authority" data-workspace-path="${escape(row.path)}"${disabled ? ' disabled' : ''}
+        title="Validate retained authority bytes without contacting a remote. Repository policy and expiry still apply.">Use offline pin</button>
+    </div>
+    <div class="card-foot">
+      <button class="secondary" data-fos-action="git-acceleration" data-workspace-path="${escape(row.path)}"${disabled ? ' disabled' : ''}
+        title="Inspect optional repository-local Git performance settings, then ask before enabling any supported setting.">Git acceleration…</button>
+      <button class="secondary" data-fos-action="clear-cache" data-workspace-path="${escape(row.path)}"${disabled ? ' disabled' : ''}
+        title="Clear only disposable derived onboarding data. Authority pins, receipts, Story state, and recovery checkpoints are preserved.">Clear derived cache…</button>
+      <button class="secondary" data-fos-action="local-authority" data-workspace-path="${escape(row.path)}"${disabled ? ' disabled' : ''}
+        title="For an unmanaged repository only: create a local-only authority without claiming organization approval.">Create local-only authority…</button>
+    </div>
+    <div class="card-foot">
+      <button class="secondary" data-fos-action="doctor" data-workspace-path="${escape(row.path)}"
+        title="Run read-only machine and interrupted-workspace diagnostics and show exact recovery commands.">Run workspace doctor</button>
+      <button class="secondary" data-fos-action="resume-bootstrap" data-workspace-path="${escape(row.path)}"
+        title="Choose and resume a preserved workspace-creation checkpoint after SFlow revalidates it.">Continue interrupted setup…</button>
+    </div>
+    <p class="muted"><strong>What the actions do:</strong> attach and refresh verify authority;
+      offline reuse never contacts Git; acceleration changes only reviewed repository-local Git
+      settings; cache clearing removes only derived data; doctor is read-only; resume continues an
+      explicitly selected recovery checkpoint.</p>
+  </div>`;
+}
+
 function detailHtml(
   row: WorkspaceRow,
   rows: WorkspaceRow[],
@@ -130,6 +190,8 @@ function detailHtml(
   <p class="muted">${icon('directory')}<code>${escape(row.directory)}</code></p>
 
   ${workspaceDetails(status, loading, detailError)}
+
+  ${fastOnboardingHtml(row, status, loading)}
 
   ${repairable ? `<div class="card blocked">
     <div class="card-head"><strong>${missingCheckout
@@ -467,7 +529,7 @@ export function workspacesHtml(
 export const WORKSPACES_SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-select],[data-switch],[data-rename],[data-duplicate],[data-forget],[data-create],[data-adopt],[data-edit],[data-edit-save],[data-edit-cancel],[data-capability-attach],[data-capability-detach],[data-capability-drop],[data-repair],[data-archive],[data-restore],[data-config-preview],[data-config-apply],[data-config-bundled],[data-config-agents],[data-help-topic]');
+    const target = event.target.closest('[data-select],[data-switch],[data-rename],[data-duplicate],[data-forget],[data-create],[data-adopt],[data-edit],[data-edit-save],[data-edit-cancel],[data-capability-attach],[data-capability-detach],[data-capability-drop],[data-repair],[data-archive],[data-restore],[data-config-preview],[data-config-apply],[data-config-bundled],[data-config-agents],[data-fos-action],[data-help-topic]');
     if (!target) return;
     event.preventDefault();
     const data = target.dataset;
@@ -485,6 +547,10 @@ export const WORKSPACES_SCRIPT = `
     else if (data.configApply !== undefined) vscode.postMessage({ type: 'configuration-apply' });
     else if (data.configBundled !== undefined) vscode.postMessage({ type: 'configuration-bundled-assets' });
     else if (data.configAgents !== undefined) vscode.postMessage({ type: 'configuration-packaged-agents' });
+    else if (data.fosAction !== undefined) vscode.postMessage({
+      type: 'fos-action', action: data.fosAction, path: data.workspacePath,
+      repository: document.querySelector('[data-fos-repository]')?.value ?? ''
+    });
     else if (data.rename !== undefined) vscode.postMessage({ type: 'rename', path: data.rename, name: value('name') });
     else if (data.edit !== undefined) vscode.postMessage({ type: 'edit', path: data.edit });
     else if (data.editCancel !== undefined) vscode.postMessage({ type: 'edit-cancel' });

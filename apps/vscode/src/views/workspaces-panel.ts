@@ -41,6 +41,12 @@ export type WorkspacesMessage =
       /** A panel-owned lease that expires when the visible workspace editor changes. */
       isCurrent: () => boolean;
     }
+  | {
+      type: 'fos-action'; row: WorkspaceRow;
+      action: 'attach' | 'refresh-authority' | 'offline-authority' | 'git-acceleration'
+        | 'clear-cache' | 'local-authority' | 'doctor' | 'resume-bootstrap';
+      repositoryPath: string | null;
+    }
   | { type: 'run'; command: string[]; title: string };
 
 export class WorkspacesPanel {
@@ -416,6 +422,25 @@ export class WorkspacesPanel {
       return this.previewConfiguration(this.configuration.scope);
     },
     'configuration-apply': () => this.applyConfiguration(),
+    'fos-action': (message) => this.withSelectedDetailsRow(message, (row) => {
+      const action = stringField(message, 'action');
+      const allowed = new Set([
+        'attach', 'refresh-authority', 'offline-authority', 'git-acceleration', 'clear-cache',
+        'local-authority', 'doctor', 'resume-bootstrap'
+      ]);
+      if (!action || !allowed.has(action)) return;
+      const machineWide = action === 'doctor' || action === 'resume-bootstrap';
+      const requestedRepository = stringField(message, 'repository');
+      const repositoryPath = machineWide ? null : (this.details?.repositories ?? [])
+        .map((repository) => repository.absolutePath ?? repository.path ?? '')
+        .find((candidate) => candidate === requestedRepository) ?? null;
+      if (!machineWide && !repositoryPath) return;
+      return this.onMessage({
+        type: 'fos-action', row,
+        action: action as Extract<WorkspacesMessage, { type: 'fos-action' }>['action'],
+        repositoryPath
+      }).then(() => undefined);
+    }),
     rename: (message) => this.withRow(message, (row) => this.rename(row, stringField(message, 'name'))),
     duplicate: (message) => this.withRow(message, (row) => this.duplicate(row, message))
   });

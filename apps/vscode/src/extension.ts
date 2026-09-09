@@ -1381,11 +1381,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
     return selected?.[0]?.fsPath ?? null;
   };
+  const resolveFosRepository = async (requested: unknown, title: string): Promise<string | null> => {
+    if (typeof requested === 'string' && requested.trim()) return path.resolve(requested.trim());
+    return chooseFosRepository(title);
+  };
   const fosPayload = <T,>(value: any): T => (value?.data?.result ?? value) as T;
 
   context.subscriptions.push(vscode.commands.registerCommand(
-    'singularityFlow.fastOnboardRepository', async () => {
-      const repository = await chooseFosRepository('Choose the existing repository to attach');
+    'singularityFlow.fastOnboardRepository', async (requestedRepository?: string) => {
+      const repository = await resolveFosRepository(requestedRepository, 'Choose the existing repository to attach');
       if (!repository) return;
       try {
         const { stdout } = await promisify(execFile)('git', ['remote'], {
@@ -1453,8 +1457,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   ));
 
   context.subscriptions.push(vscode.commands.registerCommand(
-    'singularityFlow.refreshAuthorityPin', async () => {
-      const repository = await chooseFosRepository('Choose the attached repository to refresh');
+    'singularityFlow.refreshAuthorityPin', async (requestedRepository?: string) => {
+      const repository = await resolveFosRepository(requestedRepository, 'Choose the attached repository to refresh');
       if (!repository) return;
       const confirmed = await vscode.window.showInformationMessage(
         'Refresh this repository’s reviewed authority pin?',
@@ -1481,8 +1485,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   ));
 
   context.subscriptions.push(vscode.commands.registerCommand(
-    'singularityFlow.bootstrapLocalAuthority', async () => {
-      const repository = await chooseFosRepository('Choose the unmanaged repository to initialize locally');
+    'singularityFlow.bootstrapLocalAuthority', async (requestedRepository?: string) => {
+      const repository = await resolveFosRepository(requestedRepository, 'Choose the unmanaged repository to initialize locally');
       if (!repository) return;
       const confirmed = await vscode.window.showWarningMessage(
         'Create a local-only Singularity Flow authority?',
@@ -1515,8 +1519,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   ));
 
   context.subscriptions.push(vscode.commands.registerCommand(
-    'singularityFlow.useOfflineAuthorityPin', async () => {
-      const repository = await chooseFosRepository('Choose the attached repository to use offline');
+    'singularityFlow.useOfflineAuthorityPin', async (requestedRepository?: string) => {
+      const repository = await resolveFosRepository(requestedRepository, 'Choose the attached repository to use offline');
       if (!repository) return;
       const confirmed = await vscode.window.showInformationMessage(
         'Use this repository’s approved offline authority pin?',
@@ -1546,8 +1550,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   ));
 
   context.subscriptions.push(vscode.commands.registerCommand(
-    'singularityFlow.configureGitAcceleration', async () => {
-      const repository = await chooseFosRepository('Choose the repository to inspect');
+    'singularityFlow.configureGitAcceleration', async (requestedRepository?: string) => {
+      const repository = await resolveFosRepository(requestedRepository, 'Choose the repository to inspect');
       if (!repository) return;
       try {
         const report = await fosClient(repository).run<any>(['doctor', '--git-speed', '--json']);
@@ -1600,8 +1604,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   ));
 
   context.subscriptions.push(vscode.commands.registerCommand(
-    'singularityFlow.clearDerivedCache', async () => {
-      const repository = await chooseFosRepository('Choose the repository whose disposable cache should be cleared');
+    'singularityFlow.clearDerivedCache', async (requestedRepository?: string) => {
+      const repository = await resolveFosRepository(requestedRepository, 'Choose the repository whose disposable cache should be cleared');
       if (!repository) return;
       const confirmed = await vscode.window.showWarningMessage(
         'Clear only the disposable FOS derived cache?',
@@ -2058,6 +2062,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           type: 'run', command: ['workspace', 'repair', message.row.directory, '--json'],
           title: `Repairing ${message.row.name}`
         };
+      }
+      if (message.type === 'fos-action') {
+        const commands: Record<typeof message.action, string> = {
+          attach: 'singularityFlow.fastOnboardRepository',
+          'refresh-authority': 'singularityFlow.refreshAuthorityPin',
+          'offline-authority': 'singularityFlow.useOfflineAuthorityPin',
+          'git-acceleration': 'singularityFlow.configureGitAcceleration',
+          'clear-cache': 'singularityFlow.clearDerivedCache',
+          'local-authority': 'singularityFlow.bootstrapLocalAuthority',
+          doctor: 'singularityFlow.workspaceDoctor',
+          'resume-bootstrap': 'singularityFlow.resumeWorkspaceBootstrap'
+        };
+        await vscode.commands.executeCommand(commands[message.action], message.repositoryPath ?? undefined);
+        return null;
       }
       if (message.type === 'attach-capability' || message.type === 'detach-capability') {
         if (!message.isCurrent()) return WORKSPACE_ACTION_CANCELLED;

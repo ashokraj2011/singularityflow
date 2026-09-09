@@ -4334,6 +4334,18 @@ test('workspace details show its directory, capabilities, repositories and Jira 
   assert.match(html, /Active work is protected/);
   assert.match(html, /PAY-123/);
   assert.match(html, /data-archive="\/work\/commerce" disabled/);
+  assert.match(html, /Fast onboarding &amp; Git/);
+  assert.match(html, /data-fos-repository/);
+  assert.match(html, /value="\/work\/commerce\/repos\/platform" selected/);
+  assert.match(html, /data-fos-action="attach"/);
+  assert.match(html, /data-fos-action="refresh-authority"/);
+  assert.match(html, /data-fos-action="offline-authority"/);
+  assert.match(html, /data-fos-action="git-acceleration"/);
+  assert.match(html, /data-fos-action="clear-cache"/);
+  assert.match(html, /data-fos-action="local-authority"/);
+  assert.match(html, /data-fos-action="doctor"/);
+  assert.match(html, /data-fos-action="resume-bootstrap"/);
+  assert.match(html, /each checkout pins its own/);
 
   const editStatus = {
     ...status,

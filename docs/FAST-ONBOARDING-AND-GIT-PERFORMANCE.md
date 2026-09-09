@@ -82,7 +82,14 @@ cross-platform shadow evidence.
 
 ## VS Code
 
-Open the Command Palette and run one of:
+Open **Singularity Flow → Workspaces**, select a workspace, then use **Fast onboarding & Git**.
+The repository dropdown is populated from that workspace's verified status, so these actions do
+not ask you to find the same checkout again. While an action is active the section shows a busy
+state and prevents competing actions. Its latest outcome remains in the panel with the repository,
+operation/receipt or authority details, timestamp, and recovery help; durable receipts remain in
+Git-owned SFlow storage and full diagnostics remain in the Singularity Flow output channel.
+
+The same actions remain available from the Command Palette:
 
 - **Singularity Flow: Fast Onboard Existing Repository**
 - **Singularity Flow: Refresh Repository Authority Pin**
@@ -91,10 +98,11 @@ Open the Command Palette and run one of:
 - **Singularity Flow: Inspect or Enable Safe Git Acceleration**
 - **Singularity Flow: Clear Disposable Derived Cache**
 
-The editor collects the repository and, when necessary, the remote choice. The CLI still owns
-validation, locking, receipts, recovery, and every mutation. These commands are registered even
-when the open folder is not initialized, because onboarding is the action that establishes that
-binding.
+The editor collects the repository and, when necessary, the remote choice. The Workspaces panel
+passes only a repository path from its current engine-owned status snapshot and rejects any path
+not in that workspace. The CLI still owns validation, locking, receipts, recovery, and every
+mutation. These commands are registered even when the open folder is not initialized, because
+onboarding is the action that establishes that binding.
 
 ## Optional acceleration
 

@@ -18,7 +18,8 @@ import {
   duplicateCommand, duplicateProblems, renameCommand, updateCommand, workspaceRows,
   WORKSPACE_ACTION_CANCELLED,
   type WorkspaceConfigurationRefreshResult, type WorkspaceConfigurationResolution,
-  type WorkspaceCapabilityAttachScope, type WorkspaceEntry, type WorkspaceRow, type WorkspaceStatus
+  type WorkspaceCapabilityAttachScope, type WorkspaceEntry, type WorkspaceRow, type WorkspaceStatus,
+  type WorkspaceFosAction, type WorkspaceFosOutcome
 } from './workspaces-model.ts';
 
 export type WorkspacesMessage =
@@ -41,13 +42,20 @@ export type WorkspacesMessage =
       /** A panel-owned lease that expires when the visible workspace editor changes. */
       isCurrent: () => boolean;
     }
-  | {
-      type: 'fos-action'; row: WorkspaceRow;
-      action: 'attach' | 'refresh-authority' | 'offline-authority' | 'git-acceleration'
-        | 'clear-cache' | 'local-authority' | 'doctor' | 'resume-bootstrap';
-      repositoryPath: string | null;
-    }
   | { type: 'run'; command: string[]; title: string };
+
+function fosActionName(action: WorkspaceFosAction): string {
+  return {
+    attach: 'Repository attachment',
+    'refresh-authority': 'Authority refresh',
+    'offline-authority': 'Offline authority validation',
+    'git-acceleration': 'Git acceleration',
+    'clear-cache': 'Derived-cache cleanup',
+    'local-authority': 'Local authority creation',
+    doctor: 'Workspace diagnosis',
+    'resume-bootstrap': 'Workspace setup recovery'
+  }[action];
+}
 
 export class WorkspacesPanel {
   private static current: WorkspacesPanel | null = null;
@@ -64,6 +72,9 @@ export class WorkspacesPanel {
       resolutions: Record<string, WorkspaceConfigurationResolution>;
     }
   ) => Promise<WorkspaceConfigurationRefreshResult>;
+  private readonly runFosAction: (
+    action: WorkspaceFosAction, repositoryPath: string | null
+  ) => Promise<WorkspaceFosOutcome | null>;
   private readonly disposables: vscode.Disposable[] = [];
   private rows: WorkspaceRow[] = [];
   private selected: string | null = null;
@@ -77,6 +88,8 @@ export class WorkspacesPanel {
   private manageRevision = 0;
   private disposed = false;
   private repairPath: string | null = null;
+  private fosBusy: WorkspaceFosAction | null = null;
+  private fosOutcome: WorkspaceFosOutcome | null = null;
   private requestedCapabilityIds: string[] = [];
   private attachScope: WorkspaceCapabilityAttachScope | null = null;
   private configuration: WorkspaceConfigurationRefreshView = {
@@ -90,6 +103,7 @@ export class WorkspacesPanel {
     onMessage: (message: WorkspacesMessage) => Promise<string | null>,
     loadDetails: (path: string) => Promise<WorkspaceStatus>,
     refreshConfiguration: WorkspacesPanel['refreshConfiguration'],
+    runFosAction: WorkspacesPanel['runFosAction'],
     selected: string | null,
     attachScope: WorkspaceCapabilityAttachScope | null = null
   ) {
@@ -98,6 +112,7 @@ export class WorkspacesPanel {
     this.onMessage = onMessage;
     this.loadDetails = loadDetails;
     this.refreshConfiguration = refreshConfiguration;
+    this.runFosAction = runFosAction;
     this.attachScope = attachScope;
     this.rows = this.scopedRows(entries);
     this.requestedCapabilityIds = [...new Set(attachScope?.capabilityIds ?? [])];
@@ -124,6 +139,7 @@ export class WorkspacesPanel {
     onMessage: (message: WorkspacesMessage) => Promise<string | null>,
     loadDetails: (path: string) => Promise<WorkspaceStatus>,
     refreshConfiguration: WorkspacesPanel['refreshConfiguration'],
+    runFosAction: WorkspacesPanel['runFosAction'],
     selected: string | null = null,
     upgradeScope: 'selected' | 'all' | null = null,
     attachScope: WorkspaceCapabilityAttachScope | null = null
@@ -154,8 +170,8 @@ export class WorkspacesPanel {
       ? selected ?? entries.find((entry) => !entry.archivedAt)?.path ?? null
       : selected;
     WorkspacesPanel.current = new WorkspacesPanel(
-      panel, entries, reload, onMessage, loadDetails, refreshConfiguration, upgradeSelection,
-      attachScope
+      panel, entries, reload, onMessage, loadDetails, refreshConfiguration, runFosAction,
+      upgradeSelection, attachScope
     );
     if (upgradeScope) {
       void WorkspacesPanel.current.refresh(upgradeSelection, true)
@@ -182,7 +198,7 @@ export class WorkspacesPanel {
       workspacesHtml(
         this.rows, this.selected, this.draft, this.error,
         this.details, this.detailsLoading, this.detailError, this.edit, this.configuration,
-        this.repairPath === this.selected, this.attachScope
+        this.repairPath === this.selected, this.attachScope, this.fosOutcome, this.fosBusy
       ),
       contentSecurityPolicy(this.panel.webview, token),
       token,
@@ -203,6 +219,7 @@ export class WorkspacesPanel {
     } else {
       this.selected = null;
       this.details = null;
+      this.fosOutcome = null;
       this.render();
     }
   }
@@ -223,6 +240,7 @@ export class WorkspacesPanel {
     this.detailRequest++;
     this.manageRevision++;
     this.edit = { ...EMPTY_EDIT_DRAFT };
+    this.fosOutcome = null;
     this.details = null;
     this.detailError = null;
     if (scope) {
@@ -239,6 +257,7 @@ export class WorkspacesPanel {
     preserveEdit = false
   }: { preserveError?: boolean; preserveEdit?: boolean } = {}): Promise<void> {
     if (!this.rows.some((row) => row.path === path)) return;
+    const workspaceChanged = this.selected !== path;
     this.manageRevision++;
     const request = ++this.detailRequest;
     this.selected = path;
@@ -249,6 +268,7 @@ export class WorkspacesPanel {
     this.details = null;
     this.detailsLoading = true;
     this.configuration = { ...EMPTY_CONFIGURATION_REFRESH, resolutions: {} };
+    if (workspaceChanged) this.fosOutcome = null;
     this.render();
     try {
       const details = await this.loadDetails(path);
@@ -302,7 +322,7 @@ export class WorkspacesPanel {
   private router = registerMessageRouter('singularityFlow.workspaces', {
     'open-help-topic': (message) => {
       const topic = stringField(message, 'topic');
-      if (!topic || !['configuration', 'workspaces-and-sessions'].includes(topic)) return;
+      if (!topic || !['configuration', 'fast-onboarding', 'workspaces-and-sessions'].includes(topic)) return;
       return vscode.commands.executeCommand('singularityFlow.explainError', topic);
     },
     select: (message) => {
@@ -435,11 +455,7 @@ export class WorkspacesPanel {
         .map((repository) => repository.absolutePath ?? repository.path ?? '')
         .find((candidate) => candidate === requestedRepository) ?? null;
       if (!machineWide && !repositoryPath) return;
-      return this.onMessage({
-        type: 'fos-action', row,
-        action: action as Extract<WorkspacesMessage, { type: 'fos-action' }>['action'],
-        repositoryPath
-      }).then(() => undefined);
+      return this.performFosAction(action as WorkspaceFosAction, repositoryPath);
     }),
     rename: (message) => this.withRow(message, (row) => this.rename(row, stringField(message, 'name'))),
     duplicate: (message) => this.withRow(message, (row) => this.duplicate(row, message))
@@ -582,6 +598,35 @@ export class WorkspacesPanel {
       this.configuration.error = (error as Error).message;
     } finally {
       this.configuration.applying = false;
+      this.render();
+    }
+  }
+
+  private async performFosAction(
+    action: WorkspaceFosAction,
+    repositoryPath: string | null
+  ): Promise<void> {
+    if (this.fosBusy) return;
+    const workspacePath = this.selected;
+    this.fosBusy = action;
+    this.fosOutcome = null;
+    this.render();
+    try {
+      const outcome = await this.runFosAction(action, repositoryPath);
+      if (this.selected === workspacePath) this.fosOutcome = outcome;
+    } catch (error) {
+      if (this.selected === workspacePath) {
+        this.fosOutcome = {
+          action,
+          status: 'attention',
+          headline: `${fosActionName(action)} did not complete`,
+          summary: (error as Error).message,
+          repositoryPath,
+          recordedAt: new Date().toISOString()
+        };
+      }
+    } finally {
+      this.fosBusy = null;
       this.render();
     }
   }

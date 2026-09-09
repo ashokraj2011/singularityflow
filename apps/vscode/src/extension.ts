@@ -45,7 +45,7 @@ import {
   type WorkspaceCapabilityChangePreview, type WorkspaceCapabilityChangeResult,
   type WorkspaceCapabilityAttachScope,
   type WorkspaceConfigurationRefreshResult,
-  type WorkspaceEntry, type WorkspaceStatus
+  type WorkspaceEntry, type WorkspaceStatus, type WorkspaceFosAction, type WorkspaceFosOutcome
 } from './views/workspaces-model.ts';
 import { capabilityChoices, type RemoteCapability } from './views/workspace-form.ts';
 import { gitRemoteProblem } from './views/map-capability-form.ts';
@@ -1386,6 +1386,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return chooseFosRepository(title);
   };
   const fosPayload = <T,>(value: any): T => (value?.data?.result ?? value) as T;
+  const fosOutcome = (
+    action: WorkspaceFosAction,
+    status: WorkspaceFosOutcome['status'],
+    headline: string,
+    summary: string,
+    repositoryPath: string | null,
+    details: Array<string | null | undefined> = []
+  ): WorkspaceFosOutcome => ({
+    action, status, headline, summary, repositoryPath, recordedAt: new Date().toISOString(),
+    details: details.filter((detail): detail is string => Boolean(detail))
+  });
+  const fosFailure = (
+    action: WorkspaceFosAction,
+    headline: string,
+    error: unknown,
+    repositoryPath: string | null
+  ): WorkspaceFosOutcome => fosOutcome(
+    action, 'attention', headline,
+    String((error as { message?: string })?.message ?? error), repositoryPath
+  );
 
   context.subscriptions.push(vscode.commands.registerCommand(
     'singularityFlow.fastOnboardRepository', async (requestedRepository?: string) => {
@@ -1450,8 +1470,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             ? 'Repository is already attached to this exact reviewed authority.'
             : 'Repository attached. Story start can now reuse the verified authority pin.'
         );
+        return fosOutcome(
+          'attach', 'completed',
+          result.status === 'already-attached' ? 'Repository already attached' : 'Repository attached',
+          result.status === 'already-attached'
+            ? 'The checkout already uses this exact reviewed configuration authority.'
+            : 'The reviewed authority pin is ready for Story start reuse.',
+          repository,
+          [
+            `Operation: ${result.operationId}`,
+            result.descriptor?.authority?.branch && result.descriptor?.authority?.commit
+              ? `Authority: ${result.descriptor.authority.branch}@${result.descriptor.authority.commit}` : null,
+            result.descriptor?.descriptorSha256 ? `Pin: ${result.descriptor.descriptorSha256}` : null
+          ]
+        );
       } catch (error) {
         showRefusal(error, { headline: 'Fast repository onboarding did not complete' });
+        return fosFailure('attach', 'Repository attachment needs attention', error, repository);
       }
     }
   ));
@@ -1478,8 +1513,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         output.appendLine(`FOS authority refresh: ${result.status} · ${result.operationId}`);
         output.show(true);
         void vscode.window.showInformationMessage(`Authority pin ${result.status}.`);
+        return fosOutcome(
+          'refresh-authority', 'completed', 'Authority pin refreshed',
+          `The previously selected authority route reported ${result.status}.`, repository,
+          [`Operation: ${result.operationId}`]
+        );
       } catch (error) {
         showRefusal(error, { headline: 'Authority refresh did not complete' });
+        return fosFailure('refresh-authority', 'Authority refresh needs attention', error, repository);
       }
     }
   ));
@@ -1512,8 +1553,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         output.appendLine(`Scope: ${result.bootstrap?.scope ?? 'local-only'} · authority ${result.bootstrap?.authorityCommit ?? 'unknown'}`);
         output.show(true);
         void vscode.window.showInformationMessage('Local-only authority created and attached.');
+        return fosOutcome(
+          'local-authority', 'completed', 'Local-only authority created',
+          'The unmanaged checkout now has a local authority; this does not claim organization approval.',
+          repository,
+          [
+            result.bootstrap?.operationId ? `Operation: ${result.bootstrap.operationId}` : null,
+            `Scope: ${result.bootstrap?.scope ?? 'local-only'}`,
+            result.bootstrap?.authorityCommit ? `Authority commit: ${result.bootstrap.authorityCommit}` : null
+          ]
+        );
       } catch (error) {
         showRefusal(error, { headline: 'Local-only authority creation did not complete' });
+        return fosFailure('local-authority', 'Local authority creation needs attention', error, repository);
       }
     }
   ));
@@ -1543,8 +1595,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         output.appendLine(`Policy: ${result.freshness?.policyId ?? 'unknown'} · age ${result.freshness?.ageMilliseconds ?? 'unknown'} ms · expires ${result.freshness?.expiresAt ?? 'unknown'}`);
         output.show(true);
         void vscode.window.showInformationMessage('Approved pinned authority is available offline. It is not reported as current or latest.');
+        return fosOutcome(
+          'offline-authority', 'completed', 'Offline authority pin validated',
+          'The retained authority is usable under its pinned policy without contacting the remote.',
+          repository,
+          [
+            `Status: ${result.status}`,
+            result.freshness?.policyId ? `Policy: ${result.freshness.policyId}` : null,
+            result.freshness?.expiresAt ? `Expires: ${result.freshness.expiresAt}` : null
+          ]
+        );
       } catch (error) {
         showRefusal(error, { headline: 'Offline authority reuse was refused' });
+        return fosFailure('offline-authority', 'Offline authority needs attention', error, repository);
       }
     }
   ));
@@ -1576,11 +1639,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           output.appendLine(`Git speed inspection: ${repository}`);
           for (const item of choices) output.appendLine(`  ${item.label}: ${item.description} · ${item.detail}`);
           output.show(true);
-          return;
+          return fosOutcome(
+            'git-acceleration', 'completed', 'Git acceleration inspected',
+            'No repository-local setting was changed. The complete inspection is in the output channel.',
+            repository, [`Git: ${report.gitVersion ?? 'unknown'}`]
+          );
         }
         const enable = selected.filter((item) => !item.picked).map((item) => item.label);
         if (!enable.length) {
-          return void vscode.window.showInformationMessage('The selected Git accelerators are already enabled.');
+          void vscode.window.showInformationMessage('The selected Git accelerators are already enabled.');
+          return fosOutcome(
+            'git-acceleration', 'completed', 'Git accelerators already enabled',
+            'Every selected repository-local accelerator was already active.', repository,
+            selected.map((item) => item.label)
+          );
         }
         const confirmed = await vscode.window.showInformationMessage(
           'Enable the selected repository-local Git accelerators?',
@@ -1597,8 +1669,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         output.appendLine(`Git acceleration receipt: ${applied.receipt?.receiptId ?? 'unavailable'}`);
         output.show(true);
         void vscode.window.showInformationMessage('Selected Git accelerators were verified and enabled for this repository.');
+        return fosOutcome(
+          'git-acceleration', 'completed', 'Git acceleration updated',
+          'The selected repository-local settings were written and verified.', repository,
+          [
+            `Enabled: ${enable.join(', ')}`,
+            applied.receipt?.receiptId ? `Receipt: ${applied.receipt.receiptId}` : null
+          ]
+        );
       } catch (error) {
         showRefusal(error, { headline: 'Git acceleration could not be inspected or changed' });
+        return fosFailure('git-acceleration', 'Git acceleration needs attention', error, repository);
       }
     }
   ));
@@ -1622,8 +1703,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ]);
         const result = fosPayload<{ removedEntries: number }>(envelope);
         void vscode.window.showInformationMessage(`Cleared ${result.removedEntries} disposable cache entr${result.removedEntries === 1 ? 'y' : 'ies'}.`);
+        return fosOutcome(
+          'clear-cache', 'completed', 'Derived cache cleared',
+          `Removed ${result.removedEntries} disposable cache ${result.removedEntries === 1 ? 'entry' : 'entries'}.`,
+          repository, ['Authority pins, receipts, Story state, and recovery checkpoints were preserved.']
+        );
       } catch (error) {
         showRefusal(error, { headline: 'Derived cache was not cleared' });
+        return fosFailure('clear-cache', 'Cache cleanup needs attention', error, repository);
       }
     }
   ));
@@ -1651,8 +1738,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       void vscode.window.showInformationMessage(result.healthy
         ? 'Workspace setup checks passed. Details are in Singularity Flow output.'
         : 'Workspace setup needs attention. Review the Singularity Flow output.');
+      const findings = (result.machine?.findings ?? []).slice(0, 8).map((finding: any) =>
+        `${finding.severity}: ${finding.message}`);
+      const sessions = (result.sessions ?? []).slice(0, 8).map((session: any) =>
+        `${session.bootstrapId}: ${session.status}${session.nextAction?.command
+          ? ` · Recover: ${session.nextAction.command}` : ''}`);
+      return fosOutcome(
+        'doctor', result.healthy ? 'completed' : 'attention',
+        result.healthy ? 'Workspace checks passed' : 'Workspace setup needs attention',
+        result.healthy
+          ? 'No workspace setup blocker was reported.'
+          : 'Review the findings and exact recovery commands below.',
+        null, [...findings, ...sessions]
+      );
     } catch (error) {
       showRefusal(error, { headline: 'Workspace diagnostics could not run' });
+      return fosFailure('doctor', 'Workspace diagnosis needs attention', error, null);
     }
   }));
 
@@ -1662,7 +1763,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     try {
       location = resolveCli({ extensionPath: context.extensionPath });
     } catch (error) {
-      return showRefusal(error);
+      showRefusal(error);
+      return fosFailure('resume-bootstrap', 'Workspace setup recovery is unavailable', error, null);
     }
     const client = new SingularityFlowClient({
       location, repository: process.cwd(), onOutput: (text) => output.append(text)
@@ -1673,7 +1775,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         showRefusal('No resumable workspace setup was found. Start a new workspace setup instead.', {
           headline: 'No setup to continue'
         });
-        return;
+        return fosOutcome(
+          'resume-bootstrap', 'attention', 'No setup to continue',
+          'No preserved workspace setup checkpoint was found. Start a new workspace setup instead.',
+          null
+        );
       }
       const choices = sessions.map((entry) => ({
         label: entry.plan?.workspace?.name ?? entry.request?.workspaceName ?? entry.bootstrapId,
@@ -1692,7 +1798,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         showRefusal('The preserved setup has no valid confirmation identity. Run workspace doctor before retrying.', {
           headline: 'Setup record needs repair'
         });
-        return;
+        return fosOutcome(
+          'resume-bootstrap', 'attention', 'Setup record needs repair',
+          'The preserved setup has no valid confirmation identity. Run workspace doctor before retrying.',
+          null
+        );
       }
       const confirmation = await vscode.window.showInputBox({
         title: `Resume ${selected.label}`,
@@ -1709,6 +1819,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (result.status === 'ready') {
         void vscode.window.showInformationMessage(`${selected.label} is ready.`);
         await vscode.commands.executeCommand('singularityFlow.openWorkspaces');
+        return fosOutcome(
+          'resume-bootstrap', 'completed', 'Workspace setup completed',
+          `${selected.label} is ready.`, null,
+          [selected.entry.bootstrapId ? `Bootstrap: ${selected.entry.bootstrapId}` : null]
+        );
       } else {
         const blockers = (result.preflight?.findings ?? [])
           .filter((finding: any) => finding.severity === 'blocker')
@@ -1725,9 +1840,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         showRefusal(detail || 'Workspace setup still needs attention. No reviewed plan was widened.', {
           headline: `Setup is ${result.status}`
         });
+        return fosOutcome(
+          'resume-bootstrap', 'attention', `Setup is ${result.status}`,
+          result.fault?.message ?? 'Workspace setup still needs attention. No reviewed plan was widened.',
+          null, [...blockers, ...actions]
+        );
       }
     } catch (error) {
       showRefusal(error, { headline: 'Could not resume workspace setup' });
+      return fosFailure('resume-bootstrap', 'Workspace setup recovery needs attention', error, null);
     }
   }));
 
@@ -2063,20 +2184,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           title: `Repairing ${message.row.name}`
         };
       }
-      if (message.type === 'fos-action') {
-        const commands: Record<typeof message.action, string> = {
-          attach: 'singularityFlow.fastOnboardRepository',
-          'refresh-authority': 'singularityFlow.refreshAuthorityPin',
-          'offline-authority': 'singularityFlow.useOfflineAuthorityPin',
-          'git-acceleration': 'singularityFlow.configureGitAcceleration',
-          'clear-cache': 'singularityFlow.clearDerivedCache',
-          'local-authority': 'singularityFlow.bootstrapLocalAuthority',
-          doctor: 'singularityFlow.workspaceDoctor',
-          'resume-bootstrap': 'singularityFlow.resumeWorkspaceBootstrap'
-        };
-        await vscode.commands.executeCommand(commands[message.action], message.repositoryPath ?? undefined);
-        return null;
-      }
       if (message.type === 'attach-capability' || message.type === 'detach-capability') {
         if (!message.isCurrent()) return WORKSPACE_ACTION_CANCELLED;
         const action = message.type === 'attach-capability' ? 'attach' : 'detach';
@@ -2253,6 +2360,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         throw error;
       }
     };
+    const runFosAction = async (
+      action: WorkspaceFosAction,
+      repositoryPath: string | null
+    ): Promise<WorkspaceFosOutcome | null> => {
+      const commands: Record<WorkspaceFosAction, string> = {
+        attach: 'singularityFlow.fastOnboardRepository',
+        'refresh-authority': 'singularityFlow.refreshAuthorityPin',
+        'offline-authority': 'singularityFlow.useOfflineAuthorityPin',
+        'git-acceleration': 'singularityFlow.configureGitAcceleration',
+        'clear-cache': 'singularityFlow.clearDerivedCache',
+        'local-authority': 'singularityFlow.bootstrapLocalAuthority',
+        doctor: 'singularityFlow.workspaceDoctor',
+        'resume-bootstrap': 'singularityFlow.resumeWorkspaceBootstrap'
+      };
+      return await vscode.commands.executeCommand<WorkspaceFosOutcome | null>(
+        commands[action], repositoryPath ?? undefined
+      ) ?? null;
+    };
     WorkspacesPanel.show(context, entries, list, async (message) => {
       const failure = await onMessage(message);
       // Anything that changes the registry changes the tree beside it.
@@ -2263,7 +2388,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         void refreshWorkspaceTree();
       }
       return failure;
-    }, details, refreshConfiguration, workspacePathOf(node) ?? node?.path ?? null,
+    }, details, refreshConfiguration, runFosAction, workspacePathOf(node) ?? node?.path ?? null,
     upgrade ? 'all' : null, attachScope);
   }));
 

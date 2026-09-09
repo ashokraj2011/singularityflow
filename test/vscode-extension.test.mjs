@@ -4101,7 +4101,8 @@ const {
   renameCommand, restoreCommand, updateCommand, workspaceRows
 } =
   await import(source('views/workspaces-model.ts'));
-const { workspacesHtml, EMPTY_DRAFT: EMPTY_COPY } = await import(source('views/workspaces-page.ts'));
+const { workspacesHtml, WORKSPACES_SCRIPT, EMPTY_DRAFT: EMPTY_COPY } =
+  await import(source('views/workspaces-page.ts'));
 
 const REGISTRY = [
   { id: 'local--commerce', path: '/work/commerce', name: 'commerce', anchorKey: 'commerce',
@@ -4386,6 +4387,53 @@ test('workspace details show its directory, capabilities, repositories and Jira 
   );
   assert.match(repairing, /data-repair="\/work\/commerce" disabled>Repairing…<\/button>/,
     'a running repair disables its button before another click can start');
+});
+
+test('fast onboarding keeps its latest structured result and busy state inside the workspace page', () => {
+  const rows = workspaceRows(REGISTRY);
+  const status = {
+    healthy: true,
+    leadRepositoryPath: '/work/commerce/repos/platform',
+    workspace: {
+      id: 'local--commerce', name: 'commerce', path: '/work/commerce',
+      leadRepository: 'platform', capabilityAuthority: { url: '/git/platform.git' }
+    },
+    repositories: [{
+      id: 'platform', role: 'lead', absolutePath: '/work/commerce/repos/platform',
+      state: 'ready', branch: 'main', dirty: false
+    }]
+  };
+  const outcome = {
+    action: 'attach', status: 'completed', headline: 'Repository attached',
+    summary: 'The reviewed authority pin is ready for Story start reuse.',
+    repositoryPath: '/work/commerce/repos/platform', recordedAt: '2026-09-09T12:00:00.000Z',
+    details: ['Operation: fos-123', 'Pin: sha256:abc']
+  };
+  const completed = workspacesHtml(
+    rows, '/work/commerce', EMPTY_COPY, null, status, false, null, undefined, undefined,
+    false, null, outcome, null
+  );
+  assert.match(completed, /Repository attached/);
+  assert.match(completed, /fos-123/);
+  assert.match(completed, /sha256:abc/);
+  assert.match(completed, /2026-09-09T12:00:00.000Z/);
+  assert.match(completed, /Durable receipts remain in the repository/);
+
+  const attention = workspacesHtml(
+    rows, '/work/commerce', EMPTY_COPY, null, status, false, null, undefined, undefined,
+    false, null, { ...outcome, status: 'attention', headline: 'Attachment refused' }, null
+  );
+  assert.match(attention, /role="alert"/);
+  assert.match(attention, /data-help-topic="fast-onboarding"/);
+
+  const busy = workspacesHtml(
+    rows, '/work/commerce', EMPTY_COPY, null, status, false, null, undefined, undefined,
+    false, null, null, 'attach'
+  );
+  assert.match(busy, /Waiting for the guarded command/);
+  assert.match(busy, /Attaching…/);
+  assert.match(busy, /data-fos-action="refresh-authority"[^>]* disabled/);
+  assert.doesNotThrow(() => new Function(WORKSPACES_SCRIPT));
 });
 
 test('an attach-existing handoff explains its authority scope and has a distinct no-match state', () => {

@@ -9,7 +9,8 @@ import {
   duplicateDirectory, duplicateProblems, type WorkspaceRow, type WorkspaceStatus,
   type WorkspaceRepositoryStatus, type WorkspaceCapabilityChoice,
   type WorkspaceConfigurationConflict, type WorkspaceConfigurationRefreshResult,
-  type WorkspaceConfigurationResolution, type WorkspaceCapabilityAttachScope
+  type WorkspaceConfigurationResolution, type WorkspaceCapabilityAttachScope,
+  type WorkspaceFosAction, type WorkspaceFosOutcome
 } from './workspaces-model.ts';
 import { escape, icon } from './webview.ts';
 
@@ -107,14 +108,22 @@ function workspaceDetails(status: WorkspaceStatus | null, loading: boolean, deta
  * Command Palette. The page sends an approved repository path from the status snapshot; the panel
  * resolves it against that same snapshot before the extension invokes an existing command.
  */
-function fastOnboardingHtml(row: WorkspaceRow, status: WorkspaceStatus | null, loading: boolean): string {
+function fastOnboardingHtml(
+  row: WorkspaceRow,
+  status: WorkspaceStatus | null,
+  loading: boolean,
+  outcome: WorkspaceFosOutcome | null,
+  busy: WorkspaceFosAction | null
+): string {
   const repositories = (status?.repositories ?? []).filter((repository) =>
     Boolean(repository.absolutePath ?? repository.path));
   const lead = repositories.find((repository) =>
     repository.id === status?.workspace.leadRepository || repository.role === 'lead') ?? repositories[0];
   const selectedPath = lead?.absolutePath ?? lead?.path ?? '';
   const authority = status?.workspace.capabilityAuthority?.url?.trim();
-  const disabled = loading || !repositories.length;
+  const disabled = loading || !repositories.length || Boolean(busy);
+  const outcomeClass = outcome?.status === 'completed' ? 'ok' : 'error';
+  const outcomeIcon = outcome?.status === 'completed' ? 'ok' : 'bad';
   return `<h2>${icon('git')}Fast onboarding &amp; Git</h2>
   <div class="card">
     <div class="card-head"><strong>Repository setup and maintenance</strong><span class="grow"></span>
@@ -133,9 +142,22 @@ function fastOnboardingHtml(row: WorkspaceRow, status: WorkspaceStatus | null, l
     <p><strong>Configuration authority</strong><br>${authority
       ? `<code>${escape(authority)}</code>`
       : '<span class="muted">No workspace authority URL is recorded yet.</span>'}</p>
+    ${busy ? `<div class="notice" role="status" aria-live="polite">
+      ${icon('wait')}<strong>${escape(fosActionLabel(busy))}</strong>
+      <p>Waiting for the guarded command, confirmation, or repository response…</p>
+    </div>` : ''}
+    ${outcome ? `<div class="notice ${outcomeClass}" role="${outcome.status === 'completed' ? 'status' : 'alert'}" aria-live="polite">
+      <div class="card-head">${icon(outcomeIcon)}<strong>${escape(outcome.headline)}</strong>
+        <span class="grow"></span><span class="pill ${outcome.status === 'completed' ? 'ok' : 'bad'}">${escape(outcome.status)}</span></div>
+      <p>${escape(outcome.summary)}</p>
+      ${outcome.repositoryPath ? `<p class="muted">Repository <code>${escape(outcome.repositoryPath)}</code></p>` : ''}
+      ${(outcome.details ?? []).length ? `<ul>${outcome.details!.map((detail) => `<li>${escape(detail)}</li>`).join('')}</ul>` : ''}
+      <p class="muted">Recorded in this panel at ${escape(outcome.recordedAt)}. Durable receipts remain in the repository and complete diagnostics remain in the Singularity Flow output channel.</p>
+      ${outcome.status === 'attention' ? '<button class="secondary" data-help-topic="fast-onboarding">Explain and recover</button>' : ''}
+    </div>` : ''}
     <div class="card-foot">
       <button data-fos-action="attach" data-workspace-path="${escape(row.path)}"${disabled ? ' disabled' : ''}
-        title="Validate the selected repository and save an exact reviewed authority pin. Does not clone, scan source, build AST/world models, or change the application branch.">Verify &amp; attach</button>
+        title="Validate the selected repository and save an exact reviewed authority pin. Does not clone, scan source, build AST/world models, or change the application branch.">${busy === 'attach' ? 'Attaching…' : 'Verify &amp; attach'}</button>
       <button class="secondary" data-fos-action="refresh-authority" data-workspace-path="${escape(row.path)}"${disabled ? ' disabled' : ''}
         title="Re-read only the repository's previously selected authority route and update its reviewed pin.">Refresh authority pin</button>
       <button class="secondary" data-fos-action="offline-authority" data-workspace-path="${escape(row.path)}"${disabled ? ' disabled' : ''}
@@ -151,15 +173,28 @@ function fastOnboardingHtml(row: WorkspaceRow, status: WorkspaceStatus | null, l
     </div>
     <div class="card-foot">
       <button class="secondary" data-fos-action="doctor" data-workspace-path="${escape(row.path)}"
-        title="Run read-only machine and interrupted-workspace diagnostics and show exact recovery commands.">Run workspace doctor</button>
+        title="Run read-only machine and interrupted-workspace diagnostics and show exact recovery commands."${busy ? ' disabled' : ''}>${busy === 'doctor' ? 'Checking…' : 'Run workspace doctor'}</button>
       <button class="secondary" data-fos-action="resume-bootstrap" data-workspace-path="${escape(row.path)}"
-        title="Choose and resume a preserved workspace-creation checkpoint after SFlow revalidates it.">Continue interrupted setup…</button>
+        title="Choose and resume a preserved workspace-creation checkpoint after SFlow revalidates it."${busy ? ' disabled' : ''}>${busy === 'resume-bootstrap' ? 'Continuing…' : 'Continue interrupted setup…'}</button>
     </div>
-    <p class="muted"><strong>What the actions do:</strong> attach and refresh verify authority;
+    <p class="muted">${icon('info')}<strong>What the actions do:</strong> attach and refresh verify authority;
       offline reuse never contacts Git; acceleration changes only reviewed repository-local Git
       settings; cache clearing removes only derived data; doctor is read-only; resume continues an
       explicitly selected recovery checkpoint.</p>
   </div>`;
+}
+
+function fosActionLabel(action: WorkspaceFosAction): string {
+  return {
+    attach: 'Verifying and attaching repository',
+    'refresh-authority': 'Refreshing authority pin',
+    'offline-authority': 'Validating offline authority pin',
+    'git-acceleration': 'Inspecting Git acceleration',
+    'clear-cache': 'Clearing disposable derived cache',
+    'local-authority': 'Creating local-only authority',
+    doctor: 'Running workspace doctor',
+    'resume-bootstrap': 'Continuing workspace setup'
+  }[action];
 }
 
 function detailHtml(
@@ -171,7 +206,9 @@ function detailHtml(
   loading: boolean,
   detailError: string | null,
   configuration: WorkspaceConfigurationRefreshView,
-  repairBusy: boolean
+  repairBusy: boolean,
+  fosOutcome: WorkspaceFosOutcome | null,
+  fosBusy: WorkspaceFosAction | null
 ): string {
   const problems = duplicateProblems(row, draft.id, draft.base, rows);
   const target = duplicateDirectory(row, draft.id || '<identifier>', draft.base);
@@ -191,7 +228,7 @@ function detailHtml(
 
   ${workspaceDetails(status, loading, detailError)}
 
-  ${fastOnboardingHtml(row, status, loading)}
+  ${fastOnboardingHtml(row, status, loading, fosOutcome, fosBusy)}
 
   ${repairable ? `<div class="card blocked">
     <div class="card-head"><strong>${missingCheckout
@@ -475,7 +512,9 @@ export function workspacesHtml(
   edit: WorkspaceEditDraft = EMPTY_EDIT_DRAFT,
   configuration: WorkspaceConfigurationRefreshView = EMPTY_CONFIGURATION_REFRESH,
   repairBusy = false,
-  attachScope: WorkspaceCapabilityAttachScope | null = null
+  attachScope: WorkspaceCapabilityAttachScope | null = null,
+  fosOutcome: WorkspaceFosOutcome | null = null,
+  fosBusy: WorkspaceFosAction | null = null
 ): string {
   const row = rows.find((entry) => entry.path === selected) ?? null;
   const collisions = rows.filter((entry) => entry.collides);
@@ -516,7 +555,8 @@ export function workspacesHtml(
   </section>
 
   <section>${row
-    ? detailHtml(row, rows, draft, edit, status, loading, detailError, configuration, repairBusy)
+    ? detailHtml(row, rows, draft, edit, status, loading, detailError, configuration, repairBusy,
+      fosOutcome, fosBusy)
     : attachScope
       ? '<p class="muted">Nothing was selected outside the verified capability authority.</p>'
       : '<p class="muted">Choose a workspace name to see its working directory, repositories, capabilities and Jira context.</p>'}</section>

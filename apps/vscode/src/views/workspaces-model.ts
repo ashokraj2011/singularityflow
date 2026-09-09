@@ -166,6 +166,20 @@ export interface WorkspaceRepositoryStatus {
   worldModel?: { state?: string; warning?: string | null } | null;
 }
 
+export type WorkspaceFosAction = 'attach' | 'refresh-authority' | 'offline-authority'
+  | 'git-acceleration' | 'clear-cache' | 'local-authority' | 'doctor' | 'resume-bootstrap';
+
+/** Transient presentation result returned by an existing guarded FOS command to the Workspaces UI. */
+export interface WorkspaceFosOutcome {
+  action: WorkspaceFosAction;
+  status: 'completed' | 'attention';
+  headline: string;
+  summary: string;
+  repositoryPath: string | null;
+  recordedAt: string;
+  details?: string[];
+}
+
 export type WorkspaceConfigurationResolution = 'local' | 'bundled' | 'merge';
 
 export interface WorkspaceConfigurationConflict {

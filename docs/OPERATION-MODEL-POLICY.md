@@ -547,6 +547,9 @@ Every public operation is classified before its implementation module is importe
 | wm.migrate.deterministic | mutation | never | — | — |
 | wm.plan | read | never | — | — |
 | wm.prompt | read | never | — | — |
+| wm.read | read | never | — | — |
+| wm.read-contract | read | never | — | — |
+| wm.read-views | read | never | — | — |
 | wm.recovery.inspect | read | never | — | — |
 | wm.recovery.list | read | never | — | — |
 | wm.recovery.publish | mutation | never | — | — |

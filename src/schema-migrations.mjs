@@ -2580,6 +2580,17 @@ const families = [
   family({ id: 'world-model-refusal', currentVersion: 1, immutable: true, paths: [/^singularity\/world-model\/refusals\/.+\.json$/] }),
   family({ id: 'world-model-view-retry-receipt', currentVersion: 1, immutable: true, paths: [/^\$git\/world-model-cache\/v4\/objects\/(?:retry-receipts|retry-edges)\/.+\.json$/] }),
   family({ id: 'world-model-migration-receipt', currentVersion: 1, immutable: true, paths: [/^singularity\/world-model\/migrations\/.+\.json$/] }),
+  // Future-proof World Model (FWM) read contracts are release-owned immutable metadata over the
+  // existing AST/WMM owners. They intentionally have no repository path matcher: the built-in
+  // package is shipped with this runtime and read results are transient unless a consumer retains
+  // them through its existing packet/evidence owner.
+  family({ id: 'world-model-input-binding', currentVersion: 1, immutable: true }),
+  family({ id: 'world-model-record-origin', currentVersion: 1, immutable: true }),
+  family({ id: 'world-model-read-view-descriptor', currentVersion: 1, immutable: true }),
+  family({ id: 'world-model-read-registry', currentVersion: 1, immutable: true }),
+  family({ id: 'world-model-read-consumer', currentVersion: 1, immutable: true }),
+  family({ id: 'world-model-read-activation', currentVersion: 1, immutable: true }),
+  family({ id: 'world-model-read-result', currentVersion: 1, immutable: true }),
   family({ id: 'mcp-authorization', currentVersion: 1 }),
   family({ id: 'work-item-telemetry', currentVersion: 1 }),
   family({ id: 'artifact-authorship', currentVersion: 1 }),

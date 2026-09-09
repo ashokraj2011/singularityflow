@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/world-model-read-registry.schema.json",
+  "title": "FWM immutable read registry",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "packageId", "packageRevision", "descriptors", "registrySha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "world-model-read-registry" },
+    "packageId": { "$ref": "#/$defs/lower" },
+    "packageRevision": { "type": "integer", "minimum": 1 },
+    "descriptors": { "type": "array", "minItems": 1, "maxItems": 256, "items": { "$ref": "world-model-read-view-descriptor.schema.json" } },
+    "registrySha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "lower": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" }
+  },
+  "additionalProperties": false
+}

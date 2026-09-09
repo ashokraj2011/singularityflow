@@ -133,7 +133,11 @@ export function commandDefinition(name) {
 }
 
 const WM_MODEL_OPERATIONS = new Set(['build']);
-const WM_NEVER_OPERATIONS = new Set(['init', 'inject', 'compose', 'show-prompt', 'cleanup', 'prompt', 'context', 'budget', 'facts', 'check', 'cache', 'light', 'availability', 'status', 'design-inventory']);
+const WM_NEVER_OPERATIONS = new Set([
+  'init', 'inject', 'compose', 'show-prompt', 'cleanup', 'prompt', 'context', 'budget',
+  'facts', 'check', 'cache', 'light', 'availability', 'status', 'design-inventory',
+  'read', 'read-views', 'read-contract'
+]);
 // The registered-v4 dispatcher has its own closed public surface. Keep it here as well as in the
 // handler: command admission happens before that handler is imported, so an omitted entry makes a
 // fully implemented command unreachable from the CLI. The registry test compares this vocabulary
@@ -172,7 +176,8 @@ const WORKSPACE_READ_OPERATIONS = new Set([
   'branches', 'list', 'current', 'prompt', 'archive-status', 'inspect', 'capabilities', 'status', 'documents', 'doctor'
 ]);
 const WM_READ_OPERATIONS = new Set([
-  'show-prompt', 'prompt', 'context', 'budget', 'facts', 'check', 'availability', 'status', 'design-inventory'
+  'show-prompt', 'prompt', 'context', 'budget', 'facts', 'check', 'availability', 'status',
+  'design-inventory', 'read', 'read-views', 'read-contract'
 ]);
 const WORKSPACE_IMPACT_READ_OPERATIONS = new Set(['list', 'show']);
 /** Scanning for credentials is pattern matching. A model in this path would be both slower and a way to leak the thing being looked for. */

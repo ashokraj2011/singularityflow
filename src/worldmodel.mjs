@@ -95,6 +95,9 @@ import {
   resumeWorldModelPublication
 } from './world-model/recovery.mjs';
 import {
+  fwmReadCommand, fwmReadContractCommand, fwmReadViewsCommand
+} from './world-model/fwm/read.mjs';
+import {
   isWorldModelAvailabilityError, worldModelAvailabilityReasonCode
 } from './world-model-availability.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
@@ -4940,6 +4943,21 @@ export async function worldModelCommand(root, positionals, options) {
   ]);
   const explicitV4 = ['v4', 'wmb-v4', 'registered-v4'].includes(optionString(options, 'format'));
   if (command === 'ast') return astCommand(root, positionals.slice(2), options);
+  if (command === 'read') {
+    const reference = positionals[2];
+    if (!reference) {
+      throw new SingularityFlowError(
+        'Usage: singularity-flow wm read <ncg.skeleton|ncg.callers|ncg.map> [--paths ROOT] [--symbol ID] [--json]'
+      );
+    }
+    return fwmReadCommand(root, reference, options);
+  }
+  if (command === 'read-views') return fwmReadViewsCommand(options);
+  if (command === 'read-contract') {
+    const reference = positionals[2];
+    if (!reference) throw new SingularityFlowError('Usage: singularity-flow wm read-contract <view> [--json]');
+    return fwmReadContractCommand(reference, options);
+  }
   if (command === 'recovery') return worldModelRecoveryCommand(root, positionals.slice(2), options);
   if (command === 'cache') {
     const action = positionals[2] ?? 'status';
@@ -4987,7 +5005,7 @@ export async function worldModelCommand(root, positionals, options) {
   ]);
   if (!legacyCommands.has(command) && !WORLD_MODEL_V4_COMMANDS.has(command)) {
     throw new SingularityFlowError(
-      'Usage: singularity-flow wm init|plan|snapshot|refresh-authority|build|light|ensure|availability|status|manifest|show <view>|facts [view]|evidence <id>|derivation <id>|views|view-contract <view>|extractors|validate|validate-view <view>|verify-cache|regenerate <view>|context <phase>|doctor|migrate <legacy-view>|prompt|budget|compose|show-prompt|inject|check|cleanup|recovery list|inspect|publish|cache status|clear'
+      'Usage: singularity-flow wm init|plan|snapshot|refresh-authority|build|light|ensure|availability|status|manifest|show <view>|facts [view]|evidence <id>|derivation <id>|views|view-contract <view>|read <ncg-view>|read-views|read-contract <ncg-view>|extractors|validate|validate-view <view>|verify-cache|regenerate <view>|context <phase>|doctor|migrate <legacy-view>|prompt|budget|compose|show-prompt|inject|check|cleanup|recovery list|inspect|publish|cache status|clear'
     );
   }
   if (command === 'build' || command === 'light') await cleanupStaleWorldModelWorktrees(root);

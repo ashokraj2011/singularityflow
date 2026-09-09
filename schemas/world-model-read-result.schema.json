@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/world-model-read-result.schema.json",
+  "title": "FWM bounded structural read result",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "resolvedView", "inputBinding", "semanticQueryId", "freshness", "originSummary", "admissibilityProfile", "coverage", "resultStatus", "items", "origins", "evidenceRefs", "partial", "reasons", "continuation", "semanticResultDigest", "deliveredSliceDigest", "resultSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "world-model-read-result" },
+    "resolvedView": { "type": "object", "required": ["reference", "descriptorSha256", "registrySha256", "activationSha256"], "properties": { "reference": { "$ref": "#/$defs/exactView" }, "descriptorSha256": { "$ref": "#/$defs/hash" }, "registrySha256": { "$ref": "#/$defs/hash" }, "activationSha256": { "$ref": "#/$defs/hash" } }, "additionalProperties": false },
+    "inputBinding": { "$ref": "world-model-input-binding.schema.json" },
+    "semanticQueryId": { "$ref": "#/$defs/hash" },
+    "freshness": { "type": "object", "required": ["sourceKind", "status", "bindingSha256"], "properties": { "sourceKind": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" }, "status": { "enum": ["fresh", "captured", "stale", "unavailable"] }, "bindingSha256": { "$ref": "#/$defs/hash" } }, "additionalProperties": false },
+    "originSummary": { "type": "array", "uniqueItems": true, "items": { "enum": ["parsed", "declared", "signed", "computed"] } },
+    "admissibilityProfile": { "$ref": "#/$defs/ref" },
+    "coverage": { "type": "object", "required": ["analysis", "scan", "traversal", "delivery"], "properties": { "analysis": { "$ref": "#/$defs/coverage" }, "scan": { "$ref": "#/$defs/coverage" }, "traversal": { "$ref": "#/$defs/coverage" }, "delivery": { "$ref": "#/$defs/coverage" } }, "additionalProperties": false },
+    "resultStatus": { "enum": ["found", "absent-in-complete-scope", "unknown", "unavailable"] },
+    "items": { "type": "array", "items": { "type": "object", "required": ["record", "originSha256"], "properties": { "record": { "type": "object" }, "originSha256": { "$ref": "#/$defs/hash" } }, "additionalProperties": false } },
+    "origins": { "type": "array", "items": { "$ref": "world-model-record-origin.schema.json" } },
+    "evidenceRefs": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/hash" } },
+    "partial": { "type": "boolean" },
+    "reasons": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "continuation": { "type": ["string", "null"] },
+    "semanticResultDigest": { "$ref": "#/$defs/hash" },
+    "deliveredSliceDigest": { "$ref": "#/$defs/hash" },
+    "resultSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "exactView": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9-]*)+@[1-9][0-9]*$" },
+    "ref": { "type": "string", "pattern": "^(?:handler|profile|schema|freshness|admissibility|coverage|order|budget|render|validation):[a-z0-9][a-z0-9.-]*@[1-9][0-9]*$" },
+    "coverage": { "enum": ["complete", "partial", "unavailable", "not-required"] }
+  },
+  "additionalProperties": false
+}

@@ -61,6 +61,9 @@ semantic AST, VS Code visualization, and measured reuse, follow the
 For deterministic registered facts, evidence-bound views, exact cache reuse, atomic state-branch
 publication, and explicit v3 migration, see the
 [Governed World-Model Builder v4 guide](./docs/WORLD-MODEL-BUILDER-V4.md).
+For the additive, model-free structural read registry, provenance and coverage contracts, active
+view inventory, and deliberately deferred FWM stages, see
+[Future-proof world-model read contracts](./docs/FUTURE-PROOF-WORLD-MODEL.md).
 The read-only return experience is documented in
 [Developer Home and Story Return](./docs/DEVELOPER-HOME.md).
 The shared Home routing, readiness evidence, compact submission receipt, and cross-clone return

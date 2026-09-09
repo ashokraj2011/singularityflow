@@ -20,6 +20,7 @@
     "./fos": "./src/fos-api.mjs",
     "./sgos": "./src/sgos/index.mjs",
     "./local-mode": "./src/local-mode/index.mjs",
+    "./fwm": "./src/world-model/fwm/index.mjs",
     "./package.json": "./package.json"
   },
   "files": [

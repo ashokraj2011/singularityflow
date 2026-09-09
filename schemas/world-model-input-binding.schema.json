@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/world-model-input-binding.schema.json",
+  "title": "FWM immutable input binding",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "sourceDomainId", "sourceKind", "sourceRefs", "generationRefs", "candidateRef", "policyRef", "capabilityRef", "ledgerPins", "recordRoots", "evaluationBoundary", "coverage", "consistency", "bindingSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "world-model-input-binding" },
+    "sourceDomainId": { "$ref": "#/$defs/hash" },
+    "sourceKind": { "enum": ["git-commit", "product-candidate", "working-tree", "loc-candidate", "loc-bundle", "recorded-domain-snapshot"] },
+    "sourceRefs": { "$ref": "#/$defs/refs" },
+    "generationRefs": { "$ref": "#/$defs/refs" },
+    "candidateRef": { "type": "object", "required": ["status"], "properties": { "status": { "enum": ["required", "not-required", "unavailable"] }, "id": { "type": "string", "minLength": 1 }, "sha256": { "$ref": "#/$defs/hash" } }, "additionalProperties": false },
+    "policyRef": { "anyOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] },
+    "capabilityRef": { "anyOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] },
+    "ledgerPins": { "$ref": "#/$defs/refs" },
+    "recordRoots": { "$ref": "#/$defs/refs" },
+    "evaluationBoundary": { "type": "object", "required": ["kind", "value"], "properties": { "kind": { "$ref": "#/$defs/lower" }, "value": { "type": "string", "minLength": 1 } }, "additionalProperties": false },
+    "coverage": { "type": "object", "required": ["status", "limitations"], "properties": { "status": { "enum": ["complete", "partial", "unavailable"] }, "limitations": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } } }, "additionalProperties": false },
+    "consistency": { "type": "object", "required": ["kind", "sha256"], "properties": { "kind": { "$ref": "#/$defs/lower" }, "sha256": { "$ref": "#/$defs/hash" } }, "additionalProperties": false },
+    "bindingSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "lower": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" },
+    "ref": { "type": "object", "required": ["kind", "id", "sha256"], "properties": { "kind": { "$ref": "#/$defs/lower" }, "id": { "type": "string", "minLength": 1 }, "sha256": { "$ref": "#/$defs/hash" } }, "additionalProperties": false },
+    "refs": { "type": "array", "items": { "$ref": "#/$defs/ref" } }
+  },
+  "additionalProperties": false
+}

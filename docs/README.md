@@ -46,6 +46,7 @@ is not part of the current product.
 | Audit model policy for every operation | [Operation model-policy catalog](OPERATION-MODEL-POLICY.md) |
 | Use bounded optional structural intelligence | [AST Intelligence](AST-INTELLIGENCE.md) |
 | Build reusable evidence-bound registered repository views | [Governed World-Model Builder v4](WORLD-MODEL-BUILDER-V4.md) |
+| Use versioned model-free structural read contracts with explicit provenance and coverage | [Future-proof world-model read contracts](FUTURE-PROOF-WORLD-MODEL.md) |
 | Capture privacy-safe provider usage for SFlow-owned launches | [Self-provisioning usage telemetry](SELF-PROVISIONING-USAGE-TELEMETRY.md) |
 
 ## Architecture and governance
@@ -54,6 +55,7 @@ is not part of the current product.
 |---|---|
 | Golden developer journey and current implementation boundary | [Golden developer journey](GOLDEN-JOURNEY.md) |
 | System components and data flow | [Architecture](../ARCHITECTURE.md) |
+| Review the staged FWM read-contract architecture and implementation boundary | [Future-proof world-model read contracts](FUTURE-PROOF-WORLD-MODEL.md) |
 | Runtime internals and prompt composition | [Under the hood](UNDER-THE-HOOD.md) |
 | Additive intent compiler and bounded governed runtime | [SGOS](SGOS.md) |
 | Which state plane owns each fact | [State authority](STATE-AUTHORITY.md) |

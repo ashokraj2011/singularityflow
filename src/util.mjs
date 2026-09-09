@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { link, lstat, mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { incrementCommandCounter } from './dx-timing-context.mjs';
 import { configurationReadRootForPath } from './configuration-read-scope.mjs';
 import {
   isFullyQualifiedWindowsPath, resolvePlatformProcess, resolveWindowsPathExecutable,
@@ -379,8 +380,16 @@ export const SUBPROCESS_MAX_BUFFER_BYTES = Number(
 );
 
 /** The bound a command gets when the caller does not name one. Exported so it can be asserted. */
-export function defaultTimeoutFor(command) {
-  return NETWORK_COMMANDS.has(command) ? NETWORK_TIMEOUT_MS : undefined;
+export function defaultTimeoutFor(command, { timeoutClass = null, env = process.env } = {}) {
+  if (NETWORK_COMMANDS.has(command)) return NETWORK_TIMEOUT_MS;
+  // Only typed local reads receive this default. Clone/fetch/push and build/hook execution retain
+  // their operation-specific remote bounds (or an explicit caller bound), so a slow repository
+  // cannot turn an unbounded UI refresh into a hang without truncating legitimate long mutations.
+  if (command === 'git' && timeoutClass === 'local-read') {
+    const configured = Number(env.SINGULARITY_FLOW_GIT_LOCAL_TIMEOUT_MS ?? 30_000);
+    return Number.isFinite(configured) && configured > 0 ? Math.trunc(configured) : 30_000;
+  }
+  return undefined;
 }
 
 const TRUE = new Set(['1', 'true', 'yes', 'on']);
@@ -493,7 +502,8 @@ export function run(command, args = [], {
   allowFailure = false,
   shell = false,
   stdio = 'pipe',
-  timeoutMs = defaultTimeoutFor(command),
+  timeoutClass = null,
+  timeoutMs = defaultTimeoutFor(command, { timeoutClass, env }),
   killSignal = 'SIGTERM',
   platform = process.platform,
   spawnSyncCommand = spawnSync,
@@ -519,7 +529,15 @@ export function run(command, args = [], {
    * wrong the first time an entry contains a non-Latin character — so the caller that needs offsets
    * asks for bytes.
    */
-  encoding = 'utf8'
+  encoding = 'utf8',
+  /**
+   * Whether this call is the timing owner for its Git child.
+   *
+   * Higher-level typed/remote adapters already count an injected runner and pass false here when
+   * they delegate to this primitive. Raw local callers retain the default, giving every physical
+   * Git spawn one owner without double-counting adapter + primitive layers.
+   */
+  recordGitTiming = true
 } = {}) {
   /**
    * A blocked network command is refused here rather than attempted and failed.
@@ -550,19 +568,32 @@ export function run(command, args = [], {
     });
     return { status: 1, stdout: '', stderr: '', error, signal: null, timedOut: false, blocked: false };
   }
-  const result = spawnSyncCommand(launch.executable, launch.arguments, {
-    cwd, env, encoding, stdio, timeout: timeoutMs, killSignal,
-    ...launch.spawnOptions,
-    ...(maxBuffer === undefined ? {} : { maxBuffer }),
-    /**
-     * Always bytes.
-     *
-     * `spawnSync` applies `encoding` to stdin as well as stdout, so handing it a string alongside
-     * `encoding: 'buffer'` fails with "Unknown encoding: buffer" — the input is never ambiguous
-     * once it is already a Buffer.
-     */
-    ...(input === undefined ? {} : { input: Buffer.isBuffer(input) ? input : Buffer.from(String(input), 'utf8') })
-  });
+  const ownsGitTiming = command === 'git' && recordGitTiming;
+  const serviceStarted = ownsGitTiming ? performance.now() : 0;
+  if (ownsGitTiming) {
+    incrementCommandCounter('git.requests');
+    incrementCommandCounter('git.spawns');
+  }
+  let result;
+  try {
+    result = spawnSyncCommand(launch.executable, launch.arguments, {
+      cwd, env, encoding, stdio, timeout: timeoutMs, killSignal,
+      ...launch.spawnOptions,
+      ...(maxBuffer === undefined ? {} : { maxBuffer }),
+      /**
+       * Always bytes.
+       *
+       * `spawnSync` applies `encoding` to stdin as well as stdout, so handing it a string alongside
+       * `encoding: 'buffer'` fails with "Unknown encoding: buffer" — the input is never ambiguous
+       * once it is already a Buffer.
+       */
+      ...(input === undefined ? {} : { input: Buffer.isBuffer(input) ? input : Buffer.from(String(input), 'utf8') })
+    });
+  } finally {
+    if (ownsGitTiming) {
+      incrementCommandCounter('git.service-ms', Math.max(0, Math.round(performance.now() - serviceStarted)));
+    }
+  }
   if (probe) recordSubprocessProbe(command, args, performance.now() - probe);
   /**
    * Buffers pass through; everything else keeps the string contract every existing caller relies on.

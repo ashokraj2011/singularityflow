@@ -1,13 +1,12 @@
 import { createHash } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
-import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import YAML from 'yaml';
 import { authoredArtifactText } from './publication-preflight.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { repoRoot } from './git.mjs';
-import { nowIso, secureRepositoryPath, SingularityFlowError, snapshot, writeText } from './util.mjs';
+import { nowIso, run, secureRepositoryPath, SingularityFlowError, snapshot, writeText } from './util.mjs';
 import { normalizeWorkItemRoot } from './work-item-location.mjs';
 
 export const HARNESS_IMPORTS_HARD_MAXIMUM_BYTES = 65_536;
@@ -309,10 +308,11 @@ function assertModelSafeArtifact(subjectRoot, artifact) {
 }
 
 function readObjectAtCommit(root, commitSha, artifactPath) {
-  const result = spawnSync('git', ['show', `${commitSha}:${artifactPath}`], {
+  const result = run('git', ['show', `${commitSha}:${artifactPath}`], {
     cwd: root,
-    encoding: null,
-    maxBuffer: 128 * 1024 * 1024
+    encoding: 'buffer',
+    maxBuffer: 128 * 1024 * 1024,
+    allowFailure: true
   });
   if (result.status !== 0) return null;
   return Buffer.from(result.stdout ?? []);
@@ -331,7 +331,9 @@ export function referenceRevision(root, commitSha, artifactPath) {
 }
 
 function commitExists(root, commitSha) {
-  return spawnSync('git', ['cat-file', '-e', `${commitSha}^{commit}`], { cwd: root, stdio: 'ignore' }).status === 0;
+  return run('git', ['cat-file', '-e', `${commitSha}^{commit}`], {
+    cwd: root, stdio: 'ignore', allowFailure: true
+  }).status === 0;
 }
 
 export async function registerReference(root, input) {

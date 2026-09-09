@@ -1,4 +1,3 @@
-import { spawnSync } from 'node:child_process';
 import { constants as fsConstants } from 'node:fs';
 import {
   closeSync, fstatSync, lstatSync, mkdtempSync, openSync, readFileSync, realpathSync,
@@ -8,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { gitCommonDir } from '../../git.mjs';
+import { run } from '../../util.mjs';
 import { readPrivateSidecar, writeImmutablePrivateSidecar } from '../../private-sidecar.mjs';
 import { currentSchemaVersion } from '../../schema-migrations.mjs';
 import {
@@ -25,8 +25,9 @@ function git(root, args, {
   binary = false, maxBuffer = 512 * 1024 * 1024, input = undefined, env = undefined,
   allowFailure = false
 } = {}) {
-  const result = spawnSync('git', args, {
-    cwd: path.resolve(root), encoding: binary ? null : 'utf8', maxBuffer, input,
+  const result = run('git', args, {
+    cwd: path.resolve(root), encoding: binary ? 'buffer' : 'utf8', maxBuffer, input,
+    allowFailure: true,
     ...(env ? { env: { ...process.env, ...env } } : {})
   });
   if (result.error || (result.status !== 0 && !allowFailure)) {

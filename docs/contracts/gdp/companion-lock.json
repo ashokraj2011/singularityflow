@@ -12,17 +12,17 @@
     {
       "id": "sgos-portable-schema",
       "path": "schemas/sgos-contract.schema.json",
-      "sha256": "sha256:b657ad54d00d8d56d350b751b492015710c3dffef48489ebd2e18745ff7279d5"
+      "sha256": "sha256:40bf2a1702ab5ecbd1b9ab835c7bcbefd6701f2adda95c0a42b3879beecf9b07"
     },
     {
       "id": "sgos-contract",
       "path": "docs/SGOS.md",
-      "sha256": "sha256:3e1c1c98e1d9bbeeebe3eaf5c61f67c37040623942507bc402fa20f9585d3244"
+      "sha256": "sha256:d70606dc4c9a87d2776c8f64958178c53ac315f9056004e9496f9552aa35f880"
     },
     {
       "id": "sgos-delivery-status",
       "path": "docs/SGOS-PENDING-WORK.md",
-      "sha256": "sha256:95bfe8575f0a9fc24ff442cd29213e583b48a3f4bfe994c9a70003cbbda817a4"
+      "sha256": "sha256:9276736321ccee3800d01428de1a87043c9d62448625ba502ff33be7f5a281e2"
     },
     {
       "id": "world-model-v4",
@@ -67,7 +67,7 @@
     {
       "id": "sgos-record-contracts",
       "path": "src/sgos/contracts.mjs",
-      "sha256": "sha256:deca639dc213c427815170ba58b07b9792654d35559ff0209688e059edb9692e"
+      "sha256": "sha256:416ffdd49e64d036d01f165d6e495961fff0dff64c3c980ca735e1653a38b081"
     },
     {
       "id": "sgos-execution-unit-v1",
@@ -82,7 +82,7 @@
     {
       "id": "publication-unit-of-work",
       "path": "src/publication-unit-of-work.mjs",
-      "sha256": "sha256:3e3c92b78ea9012fb7b4c2bdff3162ca0840e95820934040a2aaf16bf3acb58b"
+      "sha256": "sha256:4d9d4dec1d7156c00a439119c60acead0d6c77210c25fd4ff7ff1ab3b8535642"
     },
     {
       "id": "action-authorization",
@@ -92,7 +92,7 @@
     {
       "id": "migration-registry",
       "path": "src/schema-migrations.mjs",
-      "sha256": "sha256:9d6fdd3e03b8db60ae5f30c939ccefd9ad885284942ca4c489edce16e06bcce3"
+      "sha256": "sha256:a2d7c83c5cba02a94e7c6db3b58c6322421fcb57e42a97b01e9581fbda32f60c"
     },
     {
       "id": "smart-initialization-v1",

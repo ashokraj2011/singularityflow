@@ -19,6 +19,7 @@ import type { RepositorySnapshot, SnapshotSlice } from './snapshot.ts';
 export const CORE_SNAPSHOT_SLICES: readonly SnapshotSlice[] = Object.freeze([
   'repository', 'lifecycle', 'capabilities'
 ]);
+const READ_RESULT_CACHE_TTL_MS = 250;
 
 interface SnapshotEnvelope {
   included?: SnapshotSlice[];
@@ -145,7 +146,8 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (args[0] === 'visual') return (args[1] ?? 'status') === 'status' ? 'read' : 'mutation';
   if (args[0] === 'capabilities' && args[1] === 'doctor') return 'read';
   if (args[0] === 'capability') {
-    return ['tree', 'show', 'of', 'proposals', 'proposal', 'fsck', 'world-model', 'organisation', 'leads']
+    return ['tree', 'show', 'of', 'proposals', 'proposal', 'fsck', 'world-model', 'organisation',
+      'leads', 'inspect-repository']
       .includes(args[1] ?? 'tree') ? 'read' : 'mutation';
   }
   if (args[0] === 'session') {
@@ -301,6 +303,9 @@ export interface ClientOptions {
  */
 export class SingularityFlowClient {
   private readonly options: ClientOptions;
+  private readonly readResults = new Map<string, { expiresAt: number; value: unknown }>();
+  private readonly readInFlight = new Map<string, Promise<unknown>>();
+  private readEpoch = 0;
   constructor(options: ClientOptions) { this.options = options; }
 
   get repository(): string { return this.options.repository; }
@@ -318,7 +323,18 @@ export class SingularityFlowClient {
    * own, because it cannot know what a caller is holding.
    */
   useRepository(repository: string): void {
+    if (repository !== this.options.repository) this.invalidateReadResults();
     this.options.repository = repository;
+  }
+
+  private invalidateReadResults(): void {
+    this.readEpoch += 1;
+    this.readResults.clear();
+    this.readInFlight.clear();
+  }
+
+  private readResultKey(args: string[]): string {
+    return JSON.stringify([this.options.repository, args]);
   }
 
   private invoke<T>(args: string[], timeoutMs: number, signal?: AbortSignal, json = true,
@@ -332,7 +348,23 @@ export class SingularityFlowClient {
           if (stream === 'stderr') this.options.onOutput?.(text, stream);
         }
       : this.options.onOutput;
-    return invokeCli<T>({
+    const classification = commandClass(args);
+    if (classification !== 'read') this.invalidateReadResults();
+    const cacheable = json && input == null && classification === 'read';
+    const cacheKey = cacheable ? this.readResultKey(args) : null;
+    if (cacheKey && !signal?.aborted) {
+      const cached = this.readResults.get(cacheKey);
+      if (cached && cached.expiresAt >= Date.now()) {
+        return Promise.resolve(structuredClone(cached.value) as T);
+      }
+      if (cached) this.readResults.delete(cacheKey);
+      // An aborted subscriber must retain independent cancellation. Calls without a signal can
+      // safely share the exact same read process and receive independent result objects.
+      const active = signal == null ? this.readInFlight.get(cacheKey) : null;
+      if (active) return active.then((value) => structuredClone(value) as T);
+    }
+    const epoch = this.readEpoch;
+    const pending = invokeCli<T>({
       executable: this.options.location.executable,
       cli: this.options.location.cli,
       repository: this.options.repository,
@@ -341,7 +373,7 @@ export class SingularityFlowClient {
       input,
       env: this.options.environment,
       timeoutMs,
-      commandClass: commandClass(args),
+      commandClass: classification,
       onOutput: visibleOutput,
       onTiming: (event) => {
         try {
@@ -353,6 +385,23 @@ export class SingularityFlowClient {
       },
       signal
     });
+    if (!cacheKey) return pending;
+    const retained = pending.then((value) => {
+      if (epoch === this.readEpoch) {
+        this.readResults.set(cacheKey, {
+          expiresAt: Date.now() + READ_RESULT_CACHE_TTL_MS,
+          value: structuredClone(value)
+        });
+      }
+      return value;
+    });
+    if (signal == null) {
+      this.readInFlight.set(cacheKey, retained);
+      void retained.finally(() => {
+        if (this.readInFlight.get(cacheKey) === retained) this.readInFlight.delete(cacheKey);
+      }).catch(() => {});
+    }
+    return retained;
   }
 
   /** A coherent, bounded read model. Heavy domains are added only when their surface opens. */

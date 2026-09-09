@@ -1212,7 +1212,7 @@ export async function startCommand(positionals, options) {
   if (!materializedSeed && configurationAuthority?.branch === CONFIGURATION_BRANCH
       && config.approvalSecurity?.autoEnrollNewIdentities !== false) {
     const enrollment = await publishCurrentIdentityToConfiguration(root, {
-      target: '*', automatic: true
+      target: '*', automatic: true, configurationSnapshot: approvedConfigurationSnapshot
     });
     automaticEnrollment = enrollment;
     if (enrollment.changed && !enrollment.pushed) {
@@ -8845,7 +8845,6 @@ async function capabilityCommand(positionals, options) {
     const organisation = await readOrganisation(leadUrl, {
       refresh: optionBoolean(options, 'refresh')
     });
-    await rememberLeadRepository(leadUrl);
     // Asked of the remotes, so it costs an ls-remote per repository — worth it on request, not on
     // every read of the map.
     const readiness = withReadiness ? await capabilityReadiness(leadUrl) : null;
@@ -10628,9 +10627,19 @@ async function workspaceBootstrapInput(source, options) {
   const chosen = optionStrings(options, 'capability');
   if (chosen.length) {
     const organisation = await readOrganisation(source);
+    const sparseCone = optionStrings(options, 'sparse-cone')
+      .flatMap((entry) => entry.split(','))
+      .map((entry) => entry.trim()).filter(Boolean);
+    const hasCloneOverride = options['clone-mode'] !== undefined
+      || options['sparse-cone'] !== undefined || options['clone-fallback'] !== undefined;
     const derived = resolveWorkspacePlan(organisation, {
       capabilities: chosen,
-      leadCapability: optionString(options, 'lead-capability')
+      leadCapability: optionString(options, 'lead-capability'),
+      clone: hasCloneOverride ? {
+        mode: optionString(options, 'clone-mode', sparseCone.length ? 'blobless-sparse' : 'full'),
+        sparseCone,
+        fallback: optionString(options, 'clone-fallback', 'refuse')
+      } : null
     });
     await rememberLeadRepository(source);
     const id = optionString(options, 'id');

@@ -245,6 +245,9 @@ export async function buildWorkspaceContext(registryFile, reference, {
   const entry = await resolveWorkspaceReference(registryFile, reference);
   const workspace = await readWorkspace(entry.path);
   const status = await workspaceStatus(workspace.path, {
+    // Context selection needs identity/readiness, branch and HEAD. It does not need dirty-path
+    // enumeration, world-model manifests, or staged-document inspection.
+    level: 'readiness',
     gitReadMode,
     onGitShadowComparison
   });
@@ -258,10 +261,7 @@ export async function buildWorkspaceContext(registryFile, reference, {
   }
   const selectedStoryId = portableStoryId(storyId)
     ?? (detectStory ? await detectedStory(repository.absolutePath, repository.branch) : null);
-  let repositoryHead = null;
-  if (repository.state === 'ready') {
-    try { repositoryHead = head(repository.absolutePath); } catch { /* An unborn clone is reported by readiness. */ }
-  }
+  const repositoryHead = repository.state === 'ready' ? repository.head || null : null;
   const context = {
     schemaVersion: ACTIVE_WORKSPACE_SCHEMA_VERSION,
     workspaceId: workspace.id,

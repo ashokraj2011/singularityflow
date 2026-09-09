@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
@@ -201,10 +200,11 @@ async function witnessReviewSnapshot(root, config, workflow, phase) {
 }
 
 function gitBlobAtCommit(root, commit, relativePath) {
-  const result = spawnSync('git', ['show', `${commit}:${relativePath}`], {
+  const result = run('git', ['show', `${commit}:${relativePath}`], {
     cwd: root,
-    encoding: null,
-    maxBuffer: 128 * 1024 * 1024
+    encoding: 'buffer',
+    maxBuffer: 128 * 1024 * 1024,
+    allowFailure: true
   });
   return { status: result.status, bytes: result.stdout ?? Buffer.alloc(0), error: String(result.stderr ?? '') };
 }

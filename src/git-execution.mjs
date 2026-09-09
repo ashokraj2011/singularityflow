@@ -167,6 +167,9 @@ export function runRemoteGit(args, {
       env: nonInteractiveGitEnvironment(env),
       timeoutMs,
       allowFailure: true,
+      // This adapter owns the logical-request, physical-spawn and service-time counters. The shared
+      // runner owns raw local Git calls; naming the owner prevents the two layers counting one child.
+      recordGitTiming: false,
       ...(maxBuffer === undefined ? {} : { maxBuffer })
     });
   } finally {

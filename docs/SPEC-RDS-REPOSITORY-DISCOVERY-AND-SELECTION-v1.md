@@ -24,7 +24,7 @@ The first release provides:
 - a native **Choose repository** picker in **Map a capability** and **Create workspace**;
 - `singularity-flow repositories providers|list|search|status|cache` CLI commands;
 - SFlow-known repositories without a network request;
-- an explicitly invoked authenticated provider catalog, beginning with GitHub.com and GitHub
+- an explicitly invoked authenticated provider catalog, beginning with GitHub SaaS and GitHub
   Enterprise through the installed `gh` session;
 - bounded pagination and search instead of cloning or probing every returned repository;
 - onboarding status for facts SFlow already knows, followed by exact inspection only after the user
@@ -87,7 +87,7 @@ Provider membership is not an onboarding verdict. A `provider-only` repository r
 ### 3.3 Provider adapter
 
 A provider adapter is a reviewed executable implementation that lists repositories for one host and
-account without handling raw credentials itself. V1 includes GitHub.com and GitHub Enterprise using
+account without handling raw credentials itself. V1 includes GitHub SaaS and GitHub Enterprise using
 the installed `gh` authentication session. The contract is provider-neutral so separately reviewed
 GitLab, Bitbucket, and Azure DevOps adapters can be added later without changing catalog semantics.
 
@@ -152,7 +152,7 @@ Install one model-free skill:
 ```text
 /sf-repositories
 /sf-repositories payments
-/sf-repositories --provider github --host github.company.example payments
+/sf-repositories --provider github --host code.company.example payments
 ```
 
 The skill performs this deterministic journey:
@@ -340,7 +340,7 @@ Every durable writer stamps `currentSchemaVersion(family)`.
   "request": {
     "scope": "provider",
     "provider": "github",
-    "host": "github.company.example",
+    "host": "code.company.example",
     "accountId": "sha256:<content-free-account-binding>",
     "querySha256": "sha256:<normalized-query>",
     "limit": 50
@@ -351,8 +351,8 @@ Every durable writer stamps `currentSchemaVersion(family)`.
       "ownerPath": "payments/payments-api",
       "displayName": "payments-api",
       "cloneUrls": {
-        "https": "https://github.company.example/payments/payments-api.git",
-        "ssh": "git@github.company.example:payments/payments-api.git"
+        "https": "https://code.company.example/payments/payments-api.git",
+        "ssh": "git@code.company.example:payments/payments-api.git"
       },
       "visibility": "internal",
       "permission": "write",
@@ -506,7 +506,7 @@ indefinitely.
 - **RDS:AC-001** — With no workspace and no provider enabled, `/sf-repositories` returns the bounded
   SFlow-known list or an explicit empty result without searching the filesystem.
 - **RDS:AC-002** — Default known listing causes zero Git/provider requests and zero model calls.
-- **RDS:AC-003** — One authenticated GitHub.com account returns the first page with exact host,
+- **RDS:AC-003** — One authenticated GitHub SaaS account returns the first page with exact host,
   account binding, normalized fields, and a continuation cursor.
 - **RDS:AC-004** — One authenticated GHE account cannot leak results into or authenticate a request
   for another host.
@@ -608,7 +608,7 @@ hosts, authentication, or mutations.
 
 **Estimate:** 3–5 engineering days plus provider access
 
-- Execute GitHub.com and office GHE lanes on macOS, Linux, and Windows.
+- Execute GitHub SaaS and office GHE lanes on macOS, Linux, and Windows.
 - Test office proxy, CA, SSO, multiple accounts, rate limiting, revoked access, archived repositories,
   large organizations, and CLI upgrades.
 - Run minimum/current VS Code and Copilot-host journeys.
@@ -623,7 +623,7 @@ providers remain an explicit paste-URL path.
 ### Deterministic unit and integration tests
 
 - empty, one, and multiple provider accounts;
-- GitHub.com and GHE exact-host isolation;
+- GitHub SaaS and GHE exact-host isolation;
 - public, private, internal, archived, forked, and read-only repositories;
 - exact HTTPS/SSH identity and unsafe/credentialed remote refusal;
 - 1, 50, 100, 500, and 10,000 result fixtures;
@@ -639,7 +639,7 @@ providers remain an explicit paste-URL path.
 ### Controlled evidence
 
 - named physical macOS, Linux, and Windows runners;
-- GitHub.com and organization-approved GHE;
+- GitHub SaaS and organization-approved GHE;
 - office proxy/CA/SSO/GCM or provider CLI credential path;
 - cold and warm provider/cache runs;
 - large organization with pagination and search;
@@ -676,7 +676,7 @@ marketing promise.
 | “All” causes slow or rate-limited enumeration | Local-first UX, search, pagination, hard totals, cancellation, partial results, cache |
 | Provider membership is mistaken for SFlow authority | Closed `provider-only`/`inspection-required` states and selected-only existing authority resolver |
 | Two remote spellings are incorrectly merged | Provider immutable ID or exact validated SFlow identity required |
-| Office GHE differs from GitHub.com | Exact host/account binding and physical office evidence before support claim |
+| Office GHE differs from GitHub SaaS | Exact host/account binding and physical office evidence before support claim |
 | Provider CLI changes output or behavior | Versioned adapter contract, schema parser, capability negotiation, fail-closed diagnostics |
 | Cached access outlives revoked permission | Short TTL, explicit cached label, refresh on selection where needed, cache never authorizes work |
 | Copilot executes an action from a result | Follow-ups prefill only; all mutations retain existing confirmation and governance gates |
@@ -703,11 +703,10 @@ RDS-v1 is complete only when:
 
 - every requirement and acceptance ID maps to an exact implementation and test;
 - CLI, Copilot, and VS Code share one normalized catalog service;
-- GitHub.com/GHE provider enumeration is bounded, cancellable, and credential-safe;
+- GitHub SaaS/GHE provider enumeration is bounded, cancellable, and credential-safe;
 - selection enters existing capability/workspace flows without weakening authority;
 - package and VSIX isolation pass;
 - controlled platform/office evidence and independent review exist;
 - help and operator documentation state what “all,” “known,” provider access, caching, privacy, and
   onboarding status mean;
 - provider discovery can be disabled without breaking any existing SFlow journey.
-

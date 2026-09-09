@@ -10,6 +10,44 @@ Audited improvements that are deliberately deferred are tracked with stable IDs 
 the [pending-work roadmap](PENDING-WORK-ROADMAP.md). That backlog does not change the current
 budgets or authorize implementation.
 
+## Git-heavy onboarding journeys
+
+Capability mapping, workspace creation, and Story intake are model-free, AST-free, and
+world-model-free. Their timing counters include root/dispatch probes as well as handler work, and
+every physical Git process is counted once. `git.requests` describes logical requests,
+`git.spawns` physical one-shot processes, and `git.child-spawns` retained Git children such as the
+FOS object service. `SINGULARITY_FLOW_SUBPROCESS_PROBE=1` remains the independent process-level
+cross-check.
+
+The optimized paths preserve exact-ref authority and mutation preflights:
+
+- delivery-repository capability links use a bounded, machine-private bare object cache keyed by
+  credential-free repository identity and observed state-branch commit. The remote ref is still
+  observed on every operation; a warm cache never authorizes offline work. Set
+  `SINGULARITY_FLOW_AUTHORITY_CACHE=off` to disable it or
+  `SINGULARITY_FLOW_AUTHORITY_CACHE_MAX_BYTES` to a value from 1 MiB through 2 GiB to bound each
+  derived object store (the default is 256 MiB);
+- capability proposals read the approved and proposed workflow, portfolio, and capability map in
+  one bounded `git cat-file --batch` operation per proposal;
+- publication secret admission and SGOS Candidate reconstruction batch exact retained blob IDs,
+  while retaining both independent admission scans and verify-time reconstruction;
+- an explicit Story base skips the broad branch advertisement, but the mutation preflight still
+  prune-fetches and proves the selected branch and dry-run push in every required repository;
+- automatic identity enrollment uses the hash-verified configuration snapshot to prove a no-op and
+  opens a push checkout only when a change is actually required;
+- `workspace current` asks for readiness rather than a full dirty-path inventory and bounds
+  repository fan-out;
+- the VS Code client briefly coalesces identical read-only requests and invalidates that memory on
+  every repository switch or mutation, preventing parallel panels from spawning the same CLI read;
+- capability-driven workspace preparation accepts the advanced `--clone-mode`, repeated or
+  comma-separated `--sparse-cone`, and `--clone-fallback` override. The resulting plan records
+  whether clone policy was `portfolio-declared` or `workspace-override` without rewriting the
+  organisation policy.
+
+Partial-clone shape changes and moving registered-v4 world-model refreshes outside the Story
+transaction remain measurement-gated. They are not enabled merely to improve a synthetic clock,
+because either change could alter object availability or the authority observation boundary.
+
 ## Budgets
 
 On the pinned CI runtime and reference fixture, warm-command p50 must be at most 150 ms for all

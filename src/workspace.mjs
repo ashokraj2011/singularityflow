@@ -195,6 +195,14 @@ function normalizeRepository(id, input) {
         ? new Date(supplied.reviewedAt).toISOString() : nowIso()
     };
   }
+  const clonePolicySource = repository.clonePolicySource == null
+    ? null : String(repository.clonePolicySource);
+  if (clonePolicySource != null
+      && !['portfolio-declared', 'workspace-override'].includes(clonePolicySource)) {
+    throw new SingularityFlowError(
+      `Workspace repository '${id}' has an unsupported clone policy source.`
+    );
+  }
   return {
     id,
     url: repositoryUrl,
@@ -205,6 +213,7 @@ function normalizeRepository(id, input) {
     path: relativePath,
     role: repository.role === 'lead' ? 'lead' : 'participant',
     clone: normalizeCloneStrategy(repository.clone, `Workspace repository '${id}' clone strategy`),
+    ...(clonePolicySource ? { clonePolicySource } : {}),
     capabilities,
     adoption
   };
@@ -823,6 +832,7 @@ export function previewWorkspace({
       branch: repository.defaultBranch,
       required: repository.required,
       clone: repository.clone,
+      clonePolicySource: repository.clonePolicySource ?? null,
       adoption: repository.adoption
     }))
   };
@@ -4675,10 +4685,14 @@ export async function workspaceStatus(workspacePath, {
     });
   }
   const workspace = await readWorkspace(workspacePath);
-  const repositories = await Promise.all(Object.values(workspace.repositories).map((repository) =>
-    repositoryStatus(workspace.path, repository, {
+  const repositoryValues = Object.values(workspace.repositories);
+  const repositories = await mapLimit(
+    repositoryValues,
+    gitWorkerCount(repositoryValues.length, { env }),
+    (repository) => repositoryStatus(workspace.path, repository, {
       level, env, gitReadMode, onGitShadowComparison
-    })));
+    })
+  );
   const staged = level === 'full' ? await listWorkspaceDocuments(workspace.path) : [];
   const warnings = repositories
     .filter((repository) => repository.state === 'ready' && repository.worldModel?.warning)

@@ -1,13 +1,13 @@
 import path from 'node:path';
 
 import {
-  activeWorkspaceFile, discardUnsupportedWorkflowWorkspaces, readActiveWorkspaceContext,
-  workspacePromptLabel, workspaceRegistryFile
+  activateWorkspaceContext, activeWorkspaceFile, discardUnsupportedWorkflowWorkspaces,
+  readActiveWorkspaceContext, workspacePromptLabel, workspaceRegistryFile
 } from '../workspace-context.mjs';
 import { readWorkspaceRegistry } from '../workspace.mjs';
-import { optionBoolean, table } from '../util.mjs';
+import { optionBoolean, optionString, table } from '../util.mjs';
 
-const HOT_READS = new Set(['list', 'current', 'prompt']);
+const HOT_ACTIONS = new Set(['list', 'current', 'prompt', 'use', 'switch']);
 let legacy = null;
 
 function subcommand(context = {}) {
@@ -22,17 +22,33 @@ async function loadLegacy() {
 
 /** Keep timing attribution accurate for non-hot workspace commands that still use the monolith. */
 export async function load(context = {}) {
-  if (!HOT_READS.has(subcommand(context))) await loadLegacy();
+  if (!HOT_ACTIONS.has(subcommand(context))) await loadLegacy();
 }
 
 export async function run(argv, context = {}) {
   const action = subcommand(context);
-  if (!HOT_READS.has(action)) return (await loadLegacy()).run(argv);
+  if (!HOT_ACTIONS.has(action)) return (await loadLegacy()).run(argv);
 
   const { options = {} } = context;
   const registry = workspaceRegistryFile();
   const selectionFile = activeWorkspaceFile();
   await discardUnsupportedWorkflowWorkspaces(registry, selectionFile);
+
+  if (action === 'use' || action === 'switch') {
+    const activeContext = await activateWorkspaceContext(registry, selectionFile, context.positionals?.[2], {
+      repositoryId: optionString(options, 'repository'),
+      storyId: optionString(options, 'story')
+    });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(activeContext, null, 2));
+    console.log(`\nActive context: ${workspacePromptLabel(activeContext)}`);
+    console.log(`Repository: ${activeContext.repositoryPath}`);
+    if (activeContext.repositoryState !== 'ready') {
+      console.log(`Repository state: ${activeContext.repositoryState}. Run workspace repair before starting Copilot.`);
+    }
+    console.log('Start Copilot here: singularity-flow workspace copilot');
+    console.log(`Shell directory: cd ${JSON.stringify(activeContext.repositoryPath)}`);
+    return;
+  }
 
   if (action === 'list') {
     const workspaces = await readWorkspaceRegistry(registry);

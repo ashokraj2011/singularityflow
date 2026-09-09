@@ -97,6 +97,31 @@ export function hasWorkingTreeGovernance(root) {
 export function hasLocalGovernanceAuthority(root) {
   if (hasWorkingTreeGovernance(root)) return true;
   if (!root) return false;
+  // The common application-branch case has an approved configuration/state ref locally. Ask that
+  // bounded ref namespace first; walking the tracked index and then grepping every candidate
+  // aggregate is fallback work for damaged/custom layouts, not the price of every invocation.
+  const refs = run('git', [
+    'for-each-ref', '--format=%(refname)',
+    'refs/heads/sflow/config', 'refs/remotes/*/sflow/config',
+    'refs/heads/state', 'refs/remotes/*/state'
+  ], { cwd: root, allowFailure: true });
+  if (refs.status === 0 && refs.stdout.split(/\r?\n/).some((entry) => entry.trim())) return true;
+
+  // A lifecycle branch is self-contained after Story creation. Its immutable configuration
+  // snapshot remains authoritative even when the shared configuration/state branches are
+  // temporarily unavailable. Batch-check every local branch tip in one Git process.
+  const lifecycleRefs = run('git', [
+    'for-each-ref', '--format=%(refname)', 'refs/heads', 'refs/remotes'
+  ], { cwd: root, allowFailure: true }).stdout
+    .split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
+  if (lifecycleRefs.length) {
+    const checked = run('git', ['cat-file', '--batch-check'], {
+      cwd: root, allowFailure: true,
+      input: `${lifecycleRefs.map((ref) => `${ref}:singularity/workflow.yml`).join('\n')}\n`
+    });
+    if (checked.status === 0 && checked.stdout.split(/\r?\n/)
+      .some((line) => /\sblob\s\d+$/.test(line.trim()))) return true;
+  }
   // A checked-out lifecycle aggregate is itself an unambiguous repository claim. Recovery and
   // read-only review commands must stay with it even if its configuration snapshot is damaged or
   // absent; redirecting those commands to the machine's last selected workspace makes the Story
@@ -119,29 +144,7 @@ export function hasLocalGovernanceAuthority(root) {
     '--', ':(glob)**/workflow.json', ':(glob)**/state.json'
   ], { cwd: root, allowFailure: true });
   if (configuredSubjects.status === 0 && configuredSubjects.stdout.trim()) return true;
-  const refs = run('git', [
-    'for-each-ref', '--format=%(refname)',
-    'refs/heads/sflow/config', 'refs/remotes/*/sflow/config',
-    'refs/heads/state', 'refs/remotes/*/state'
-  ], { cwd: root, allowFailure: true });
-  if (refs.status === 0 && refs.stdout.split(/\r?\n/).some((entry) => entry.trim())) return true;
-
-  // A lifecycle branch is self-contained after Story creation. Its immutable configuration
-  // snapshot remains authoritative even when the shared configuration/state branches are
-  // temporarily unavailable. Batch-check every local branch tip in one Git process so an active
-  // workspace elsewhere on the laptop cannot redirect `resume` away from the repository that
-  // actually carries the requested Story.
-  const lifecycleRefs = run('git', [
-    'for-each-ref', '--format=%(refname)', 'refs/heads', 'refs/remotes'
-  ], { cwd: root, allowFailure: true }).stdout
-    .split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
-  if (!lifecycleRefs.length) return false;
-  const checked = run('git', ['cat-file', '--batch-check'], {
-    cwd: root, allowFailure: true,
-    input: `${lifecycleRefs.map((ref) => `${ref}:singularity/workflow.yml`).join('\n')}\n`
-  });
-  return checked.status === 0 && checked.stdout.split(/\r?\n/)
-    .some((line) => /\sblob\s\d+$/.test(line.trim()));
+  return false;
 }
 
 /**
@@ -253,7 +256,7 @@ export async function main(argv) {
   // Product reinstall is intentionally not a repository operation. Resolving a root would invoke
   // Git before the command even reached its strict no-repository transaction boundary.
   const localOnlyRequest = effectiveArgv[0] === 'reinstall';
-  let root = localOnlyRequest ? null : rootIfAvailable();
+  let root = null;
   const argvSha256 = createHash('sha256').update(JSON.stringify(effectiveArgv)).digest('hex');
   /**
    * Which build this is, on its own flag rather than folded into `--version`.
@@ -278,6 +281,7 @@ export async function main(argv) {
   const { positionals, options } = parseArgs(effectiveArgv);
   const requested = positionals[0];
   if (!requested || ['--help', '-h'].includes(requested)) {
+    root = localOnlyRequest ? null : rootIfAvailable();
     return withOperationContext({
       operation: { id: 'help.root', modelPolicy: 'never', classification: 'read', output: 'human' },
       modelMode,
@@ -307,36 +311,47 @@ export async function main(argv) {
   // would have attempted an approval. Asking a governance tool what a command does must never be the
   // thing that performs it.
   if (options.help === true || options.h === true) {
+    root = localOnlyRequest ? null : rootIfAvailable();
     const { renderCommandHelp } = await import('./help-pages.mjs');
     return withOperationContext({
       operation: { id: 'help.command', modelPolicy: 'never', classification: 'read', output: 'human' },
       modelMode, root, argvSha256, argvHash: `sha256:${argvSha256}`, command: 'help', startedAt: new Date().toISOString()
     }, () => console.log(renderCommandHelp(definition.name)));
   }
+  const timingInput = {
+    started: globalThis.__SINGULARITY_FLOW_PROCESS_STARTED_AT ?? process.hrtime.bigint(),
+    commandClass: 'unknown', operationId: null, mode: timingMode(options)
+  };
+  const timer = commandTimer(definition.name, timingInput);
+  // Root discovery is part of the command. Bind the timing context before the first Git probe so
+  // --timings and durable events no longer omit dispatch work performed ahead of module loading.
+  root = localOnlyRequest ? null : withCommandTiming(timer, () => rootIfAvailable());
   const subcommand = positionals[1] ?? null;
   const routingExcluded = excludesActiveWorkspaceRouting(definition.name, subcommand, options);
-  if (!routingExcluded && (!root || !hasLocalGovernanceAuthority(root))) {
-    const selectedRoot = await activeWorkspaceRepositoryRoot(definition.name, { subcommand, options });
-    const selectedDiffers = selectedRoot && (!root || path.resolve(selectedRoot) !== path.resolve(root));
-    const currentClaimsAuthority = selectedDiffers && root
-      ? await hasRemoteGovernanceAuthority(root) : false;
-    if (selectedRoot && !currentClaimsAuthority) {
-      // All existing repository services resolve relative paths from process.cwd(). Moving this
-      // short-lived CLI process is the compatibility bridge that makes the selected workspace
-      // authoritative without teaching dozens of commands about machine-local workspace state.
-      process.chdir(selectedRoot);
-      root = selectedRoot;
+  await withCommandTiming(timer, async () => {
+    if (!routingExcluded && (!root || !hasLocalGovernanceAuthority(root))) {
+      const selectedRoot = await activeWorkspaceRepositoryRoot(definition.name, { subcommand, options });
+      const selectedDiffers = selectedRoot && (!root || path.resolve(selectedRoot) !== path.resolve(root));
+      const currentClaimsAuthority = selectedDiffers && root
+        ? await hasRemoteGovernanceAuthority(root) : false;
+      if (selectedRoot && !currentClaimsAuthority) {
+        // All existing repository services resolve relative paths from process.cwd(). Moving this
+        // short-lived CLI process is the compatibility bridge that makes the selected workspace
+        // authoritative without teaching dozens of commands about machine-local workspace state.
+        process.chdir(selectedRoot);
+        root = selectedRoot;
+      }
     }
-  }
+  });
   if (!root && !routingExcluded) {
     throw new SingularityFlowError(
       "Run Singularity Flow from inside a Git repository, or select one with 'singularity-flow workspace use <WORKSPACE>'.",
       { code: 'REPOSITORY_CONTEXT_REQUIRED' }
     );
   }
-  const resolutionContext = await operationResolutionContext(
+  const resolutionContext = await withCommandTiming(timer, () => operationResolutionContext(
     root, definition, subcommand
-  );
+  ));
   const requestedOperation = resolveOperation({
     requestedCommand: requested,
     positionals: [definition.name, ...positionals.slice(1)],
@@ -354,16 +369,10 @@ export async function main(argv) {
       code: 'MODEL_UNAVAILABLE', details: { operationId: operation.id, fallback: operation.fallback ?? null }
     });
   }
-  const timer = commandTimer(definition.name, {
-    started: globalThis.__SINGULARITY_FLOW_PROCESS_STARTED_AT ?? process.hrtime.bigint(),
-    // The resolved operation, not the command. `report`, `telemetry`, `review`, `inputs`, `spec` and
-    // `visual` each carry both read and mutating subcommands, so the command-level value calls every
-    // one of them a mutation and mis-partitions the DX timing dataset. The VS Code adapter already
-    // classifies per subcommand; this keeps the two surfaces telling the same story.
-    commandClass: operation.classification,
-    operationId: operation.id,
-    mode: timingMode(options)
-  });
+  // The resolved operation, not the command. Some command nouns carry both read and mutating
+  // subcommands; classification is known only after the now-measured dispatch probes complete.
+  timingInput.commandClass = operation.classification;
+  timingInput.operationId = operation.id;
   const smartInitDryRun = definition.name === 'init'
     && optionBoolean(options, 'smart-detect') && optionBoolean(options, 'dry-run');
   const durableTimingStart = process.env.SINGULARITY_FLOW_DX_DURABLE_START === '1'
@@ -373,7 +382,7 @@ export async function main(argv) {
   }
   timer.stage('root-dispatch');
   try {
-    const module = await import(definition.modulePath);
+    const module = await withCommandTiming(timer, () => import(definition.modulePath));
     /**
      * A module that defers the rest of its own graph reports that cost here, not inside `execute`.
      *
@@ -381,7 +390,7 @@ export async function main(argv) {
      * measures nothing and the 110 ms it fronts landed in `execute` alongside the command's real
      * work. Optional, because command modules with no deferred graph have nothing to declare.
      */
-    await module.load?.({
+    await withCommandTiming(timer, () => module.load?.({
       argv: effectiveArgv,
       positionals: [definition.name, ...positionals.slice(1)],
       options,
@@ -389,7 +398,7 @@ export async function main(argv) {
       operation,
       requestedOperation,
       modelMode
-    });
+    }));
     timer.stage('module-load');
     const startedAt = new Date().toISOString();
     const result = await withCommandTiming(timer, () => withOperationContext({

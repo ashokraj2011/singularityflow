@@ -697,22 +697,20 @@ restore_build_info_and_release_activation_lease() {
   release_activation_lease || cleanup_status=$?
   return "$cleanup_status"
 }
-if [[ "$VSCODE_ONLY" != "on" ]]; then
-  if [[ -f "$PROJECT_DIR/scripts/stamp-build-info.mjs" ]]; then
-    printf '%s\n' 'Stamping build provenance...'
-    BUILD_INFO_BACKUP="$(mktemp "${TMPDIR:-/tmp}/sflow-build-info.XXXXXX")"
-    cp "$PROJECT_DIR/src/build-info.mjs" "$BUILD_INFO_BACKUP"
-    trap restore_build_info_and_release_activation_lease EXIT
-    node "$PROJECT_DIR/scripts/stamp-build-info.mjs"
-  elif [[ -f "$PROJECT_DIR/src/build-info.mjs" ]]; then
-    printf '%s\n' 'Error: build provenance stamper is missing; refusing to package an unidentified build.' >&2
-    exit 1
-  fi
+if [[ -f "$PROJECT_DIR/scripts/stamp-build-info.mjs" ]]; then
+  printf '%s\n' 'Stamping build provenance...'
+  BUILD_INFO_BACKUP="$(mktemp "${TMPDIR:-/tmp}/sflow-build-info.XXXXXX")"
+  cp "$PROJECT_DIR/src/build-info.mjs" "$BUILD_INFO_BACKUP"
+  trap restore_build_info_and_release_activation_lease EXIT
+  node "$PROJECT_DIR/scripts/stamp-build-info.mjs"
+elif [[ -f "$PROJECT_DIR/src/build-info.mjs" ]]; then
+  printf '%s\n' 'Error: build provenance stamper is missing; refusing to package an unidentified build.' >&2
+  exit 1
+fi
 
+if [[ "$VSCODE_ONLY" != "on" ]]; then
   printf '%s\n' 'Creating the distribution tarball...'
   PACK_OUTPUT="$(npm pack --json)"
-  restore_build_info
-  trap release_activation_lease EXIT
   TARBALL="$(PACK_OUTPUT="$PACK_OUTPUT" node -e '
     const result = JSON.parse(process.env.PACK_OUTPUT);
     if (!result?.[0]?.filename) throw new Error('"'"'npm pack did not report a tarball filename.'"'"');
@@ -756,6 +754,12 @@ if [[ "$CLI_ONLY" != "on" && "$SKIP_VSCODE" != "on" ]]; then
   fi
   [[ -f "$VSIX_PATH" ]] || { printf 'Error: VS Code packaging did not produce expected archive: %s\n' "$VSIX_PATH" >&2; exit 1; }
 fi
+
+# The extension packages the same CLI engine after the npm tarball. Keep the provenance stamp in
+# place until both artifacts have captured it; restoring after `npm pack` left every VSIX claiming
+# to be an unidentified development checkout, and --vscode-only never stamped it at all.
+restore_build_info
+trap release_activation_lease EXIT
 
 # Validate the version join before the first active surface changes. Packaging each surface first
 # is not enough if their manifests disagree: a successful sequence would still activate an

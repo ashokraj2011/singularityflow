@@ -116,15 +116,25 @@
         "a 1.59x growth, and the scale tier's own wall clock from 6,151ms to 1,855ms.",
         "What remains is linear in refs and not in Stories, which is correct: twelve branches",
         "genuinely hold twelve trees to read. 2.0 locks that in with room for one more per-ref call",
-        "and refuses any return to per-Story work. The VS Code slice adds exactly one bounded read",
-        "per additional branch (37 vs 29); 1.3 records that current shape without allowing file- or",
-        "Story-proportional fan-out. Never raise either allowance."
+        "and refuses any return to per-Story work. Ratio gates are unsuitable for an additive",
+        "per-ref cost, so snapshotUi is governed by subprocessMarginal below."
       ],
       "status": 1.2,
       "nextsteps": 1.2,
       "snapshot": 1.2,
       "snapshotUi": 1.3,
       "snapshotFull": 2.0
+    },
+    "subprocessMarginal": {
+      "why": [
+        "Maximum additional subprocesses per added topology unit. This expresses the actual",
+        "complexity contract for bounded per-ref reads without making the allowed ratio depend",
+        "on the arbitrary fixed cost of the reference fixture."
+      ],
+      "snapshotUi": {
+        "dimension": "localBranches",
+        "maximumPerAdditionalUnit": 1
+      }
     },
     "budgets": {
       "why": [

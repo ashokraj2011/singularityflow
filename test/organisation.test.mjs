@@ -33,6 +33,7 @@ import { listTransportIntents, retryTransportIntent } from '../src/transport-int
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 import { readConfigurationSource } from '../src/configuration-branch.mjs';
 import { runRemoteGitAsync } from '../src/git-execution.mjs';
+import { readCapabilityAuthorityLink } from '../src/capability-authority-link.mjs';
 
 /** Bare repositories with one commit each, standing in for an organisation's remotes. */
 async function remotes(...names) {
@@ -822,6 +823,51 @@ test('an activated mapping is discoverable from the delivery state branch on a n
   assert.equal(stored.kind, 'capability-authority-link');
   assert.equal(stored.authority.remote, org.platform);
   assert.deepEqual(stored.subject.capabilityIds, ['portable-service']);
+
+  const authorityCache = path.join(org.base, 'authority-cache');
+  const authorityEnv = {
+    ...process.env,
+    SINGULARITY_FLOW_AUTHORITY_CACHE: authorityCache
+  };
+  const firstCommands = [];
+  const firstLink = await readCapabilityAuthorityLink(org.service, {
+    env: authorityEnv,
+    async runRemoteCommand(args, options) {
+      firstCommands.push([...args]);
+      return runRemoteGitAsync(args, options);
+    }
+  });
+  assert.equal(firstLink.status, 'current');
+  assert.equal(firstCommands.filter((args) => args[0] === 'fetch').length, 1);
+  assert.equal(firstCommands.some((args) => args[0] === 'clone'), false);
+
+  const warmCommands = [];
+  const warmLink = await readCapabilityAuthorityLink(org.service, {
+    env: authorityEnv,
+    async runRemoteCommand(args, options) {
+      warmCommands.push([...args]);
+      return runRemoteGitAsync(args, options);
+    }
+  });
+  assert.equal(warmLink.status, 'current');
+  assert.equal(warmLink.stateCommit, firstLink.stateCommit);
+  assert.deepEqual(warmCommands, [], 'same-ref cache hit must not fetch or clone');
+
+  const receiptName = (await readdir(authorityCache)).find((name) => name.endsWith('.json'));
+  assert.ok(receiptName, 'the exact-ref cache writes one validated receipt');
+  await writeFile(path.join(authorityCache, receiptName), '{"forged":true}\n');
+  const repairCommands = [];
+  const repairedLink = await readCapabilityAuthorityLink(org.service, {
+    env: authorityEnv,
+    async runRemoteCommand(args, options) {
+      repairCommands.push([...args]);
+      return runRemoteGitAsync(args, options);
+    }
+  });
+  assert.equal(repairedLink.status, 'current');
+  assert.equal(repairCommands.filter((args) => args[0] === 'fetch').length, 1,
+    'a corrupt receipt is never authority and is rebuilt from the observed ref');
+  assert.equal(repairCommands.some((args) => args[0] === 'clone'), false);
 
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(path.join(org.base, 'fresh-machine'));
   const found = await inspectCapabilityRepository(org.service, {
@@ -2556,7 +2602,19 @@ test('a workspace plan is what the chosen capabilities ship from, not a second l
   const whole = resolveWorkspacePlan(organisation, { capabilities: ['commerce'] });
   assert.deepEqual(Object.keys(whole.repositories).sort(), ['api', 'web']);
   assert.equal(whole.repositories.web.defaultBranch, 'trunk');
+  assert.equal(whole.repositories.web.clonePolicySource, 'portfolio-declared');
   assert.deepEqual(whole.capabilities, ['commerce'], 'the selection is recorded, not its expansion');
+
+  const economical = resolveWorkspacePlan(organisation, {
+    capabilities: ['commerce'],
+    clone: { mode: 'blobless-sparse', sparseCone: ['src', 'test'], fallback: 'full' }
+  });
+  assert.deepEqual(economical.repositories.api.clone, {
+    mode: 'blobless-sparse', filter: 'blob:none',
+    sparseCone: ['.github/agents', 'singularity', 'src', 'test'], fallback: 'full'
+  });
+  assert.equal(economical.repositories.api.clonePolicySource, 'workspace-override');
+  assert.equal(economical.repositories.web.clonePolicySource, 'workspace-override');
 
   const part = resolveWorkspacePlan(organisation, { capabilities: ['payments'] });
   assert.deepEqual(Object.keys(part.repositories), ['api']);

@@ -5,6 +5,7 @@ import {
   existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync
 } from 'node:fs';
 import { SingularityFlowError, invariant, run } from './util.mjs';
+import { readLocalGitBlobs } from './git-blob-batch.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
 import {
   classifyGitRemoteFailure, frozenRemoteTransport, safeGitDiagnosticReference
@@ -603,15 +604,27 @@ function prospectiveGovernedTreeAndSecretScan(root, scope, expectedHead) {
       'diff', '--cached', '--name-only', '-z', '--diff-filter=ACMRT', expectedHead,
       '--', ...scope
     ], { cwd: root, env }).stdout.split('\0').filter(Boolean);
-    const entries = listed.map((item) => {
-      const indexEntry = git(['ls-files', '--stage', '-z', '--', item], {
+    const stagedByPath = new Map();
+    for (let offset = 0; offset < listed.length; offset += 512) {
+      const stagedResult = git(['ls-files', '--stage', '-z', '--', ...listed.slice(offset, offset + 512)], {
         cwd: root, env, allowFailure: true
       });
-      const staged = indexEntry.status === 0
-        ? indexEntry.stdout.split('\0').filter(Boolean) : [];
-      const mode = staged.length === 1
-        ? staged[0].match(/^(100644|100755|120000|160000)\s/)?.[1] ?? null
-        : null;
+      if (stagedResult.status !== 0) continue;
+      for (const record of stagedResult.stdout.split('\0').filter(Boolean)) {
+        const tab = record.indexOf('\t');
+        const match = tab < 0 ? null
+          : record.slice(0, tab).match(/^(100644|100755|120000|160000) ([a-f0-9]{40,64}) ([0-3])$/);
+        if (!match) continue;
+        const item = record.slice(tab + 1);
+        const values = stagedByPath.get(item) ?? [];
+        values.push({ mode: match[1], oid: match[2], stage: match[3] });
+        stagedByPath.set(item, values);
+      }
+    }
+    const descriptors = listed.map((item) => {
+      const staged = stagedByPath.get(item) ?? [];
+      const selected = staged.length === 1 && staged[0].stage === '0' ? staged[0] : null;
+      const mode = selected?.mode ?? null;
       if (!mode) {
         throw new SingularityFlowError(
           `Cannot scan '${item}' for secrets: its prospective Git entry mode is unavailable.`,
@@ -623,25 +636,31 @@ function prospectiveGovernedTreeAndSecretScan(root, scope, expectedHead) {
       // textual target and must be scanned, while a gitlink or any future entry kind remains
       // unreadable rather than being mistaken for approved binary evidence.
       const forceScan = mode === '120000';
-      if (['100644', '100755'].includes(mode) && !scannablePath(item)) {
-        return { path: item };
-      }
       if (mode === '160000') {
         throw new SingularityFlowError(
           `Cannot scan '${item}' for secrets: governed gitlinks are not admitted as binary evidence.`,
           { code: 'SECRET_SCAN_UNREADABLE' }
         );
       }
-      const shown = git(['show', `:${item}`], {
-        cwd: root, env, allowFailure: true, encoding: 'buffer'
-      });
-      if (shown.status !== 0 || !Buffer.isBuffer(shown.stdout)) {
+      return { path: item, mode, oid: selected.oid, forceScan };
+    });
+    const blobIds = descriptors.filter(({ mode, path: item }) =>
+      mode === '120000' || scannablePath(item)).map(({ oid }) => oid);
+    const blobs = readLocalGitBlobs(root, blobIds, {
+      env,
+      maximumObjectBytes: 64 * 1024 * 1024,
+      code: 'SECRET_SCAN_UNREADABLE',
+      label: 'Prospective publication secret scan'
+    });
+    const entries = descriptors.map(({ path: item, mode, oid, forceScan }) => {
+      if (['100644', '100755'].includes(mode) && !scannablePath(item)) return { path: item };
+      const bytes = blobs.get(oid);
+      if (!bytes) {
         throw new SingularityFlowError(
           `Cannot scan '${item}' for secrets from the prospective publication tree.`,
           { code: 'SECRET_SCAN_UNREADABLE' }
         );
       }
-      const bytes = shown.stdout;
       const content = bytes.toString('utf8');
       // Secret matching is a text operation. NUL-bearing or invalid UTF-8 bytes must never be
       // silently interpreted as clean merely because a path extension was unfamiliar.

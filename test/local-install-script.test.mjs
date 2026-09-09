@@ -149,6 +149,9 @@ test('local installer performs a safe ordered pull, pack, global install, and pl
   assert.ok(script.indexOf('git pull --ff-only') < script.indexOf('npm ci --registry="$REGISTRY"'));
   assert.ok(script.indexOf('npm ci --registry="$REGISTRY"') < script.indexOf('npm pack --json'));
   assert.ok(script.indexOf('scripts/stamp-build-info.mjs') < script.indexOf('npm pack --json'));
+  assert.ok(script.indexOf('scripts/stamp-build-info.mjs') < script.indexOf('npm run vscode:package'));
+  assert.ok(script.lastIndexOf('restore_build_info') > script.indexOf('npm run vscode:package'),
+    'the source stamp must remain present until the VSIX has packaged its bundled CLI');
   assert.ok(script.indexOf('npm pack --json') < script.indexOf('npm install --global "$TARBALL_PATH"'));
   assert.ok(script.indexOf('node "$INSTALL_ARTIFACT_HELPER" create') < script.indexOf('code --install-extension "$VSIX_PATH" --force'),
     'the exact artifacts and previous identities must be journaled before an active surface changes');

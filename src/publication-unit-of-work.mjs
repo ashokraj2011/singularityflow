@@ -107,10 +107,12 @@ export class GitPublicationUnitOfWork {
       );
     }
   return withSubjectLock(root, subject, async (lockOwner) => {
-    if (branch(root) !== publication.branch) {
-      throw new SingularityFlowError(`Current branch ${branch(root)} must match ${subject.kind} branch ${publication.branch}.`);
+    const transactionBranch = branch(root);
+    const publicationHead = head(root);
+    if (transactionBranch !== publication.branch) {
+      throw new SingularityFlowError(`Current branch ${transactionBranch} must match ${subject.kind} branch ${publication.branch}.`);
     }
-    if (expectedRevision?.head && head(root) !== expectedRevision.head) {
+    if (expectedRevision?.head && publicationHead !== expectedRevision.head) {
       throw new SingularityFlowError(`${subject.kind} '${subject.id}' changed before publication. Reload it and retry.`);
     }
     // HEAD only moves on a commit, and plenty of commands write the aggregate without committing —
@@ -149,7 +151,6 @@ export class GitPublicationUnitOfWork {
      * to the append-only capability ledger: an approval nobody gave, in the record that exists to
      * be trusted.
     */
-    const publicationHead = head(root);
     if (publication.expectedLocalHead !== undefined
       && String(publication.expectedLocalHead).toLowerCase() !== publicationHead.toLowerCase()) {
       throw new SingularityFlowError(

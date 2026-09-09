@@ -1,10 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
 import { link, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { FOS_FEATURE_DEFAULTS } from './fos-features.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { run } from './util.mjs';
 
 function sha256(value) {
   return `sha256:${createHash('sha256').update(value).digest('hex')}`;
@@ -35,25 +35,23 @@ function containsSensitiveLocator(value) {
 }
 
 function currentCommit(root) {
-  return execFileSync('git', ['rev-parse', 'HEAD'], {
-    cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']
-  }).trim();
+  return run('git', ['rev-parse', 'HEAD'], { cwd: root, timeoutClass: 'local-read' }).stdout.trim();
 }
 
 function manifestAtCommit(root, commit) {
-  try {
-    return execFileSync('git', ['show', `${commit}:benchmarks/fos/benchmark-manifest.json`], {
-      cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 4 * 1024 * 1024
-    });
-  } catch {
-    refuse('The FOS evidence does not bind a commit containing its benchmark manifest.');
-  }
+  const shown = run('git', ['show', `${commit}:benchmarks/fos/benchmark-manifest.json`], {
+    cwd: root, allowFailure: true, maxBuffer: 4 * 1024 * 1024, timeoutClass: 'local-read'
+  });
+  if (shown.status !== 0) refuse(
+    'The FOS evidence does not bind a commit containing its benchmark manifest.'
+  );
+  return shown.stdout;
 }
 
 function cleanCheckout(root) {
-  return execFileSync('git', ['status', '--porcelain=v1', '--untracked-files=all'], {
-    cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']
-  }).trim() === '';
+  return run('git', ['status', '--porcelain=v1', '--untracked-files=all'], {
+    cwd: root, timeoutClass: 'local-read'
+  }).stdout.trim() === '';
 }
 
 function p95(values) {

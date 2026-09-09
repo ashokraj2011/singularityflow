@@ -894,12 +894,30 @@ try {
         const growth = reference ? subprocesses / reference : null;
         scaled[name] = { ...summarizeSamples(values), subprocesses, referenceSubprocesses: reference, subprocessGrowth: growth };
 
-        const allowed = scale.subprocessGrowth?.[name];
-        if (allowed !== undefined && growth !== null && growth > allowed) {
+        const marginal = scale.subprocessMarginal?.[name];
+        if (marginal) {
+          const referenceUnits = fixtureManifest.topology[marginal.dimension];
+          const scaleUnits = scale.topology[marginal.dimension];
+          const additionalUnits = scaleUnits - referenceUnits;
+          const additionalSubprocesses = subprocesses - reference;
+          const allowedAdditional = additionalUnits * marginal.maximumPerAdditionalUnit;
+          if (!Number.isFinite(additionalUnits) || additionalUnits <= 0
+            || !Number.isFinite(marginal.maximumPerAdditionalUnit)
+            || marginal.maximumPerAdditionalUnit < 0) {
+            failures.push(`scale.${name} declares an invalid subprocessMarginal contract`);
+          } else if (additionalSubprocesses > allowedAdditional) {
+            failures.push(`scale.${name} added ${additionalSubprocesses} subprocesses for`
+              + ` ${additionalUnits} additional ${marginal.dimension} units; allowed`
+              + ` ${marginal.maximumPerAdditionalUnit} per unit (${allowedAdditional} total).`);
+          }
+        } else {
+          const allowed = scale.subprocessGrowth?.[name];
+          if (allowed !== undefined && growth !== null && growth > allowed) {
           failures.push(`scale.${name} ran ${subprocesses} subprocesses against ${reference} on the`
             + ` reference fixture (${growth.toFixed(2)}x, allowed ${allowed}x) while the repository grew`
             + ` ${(scale.topology.trackedFiles / fixtureManifest.topology.trackedFiles).toFixed(0)}x.`
             + ' A read whose subprocess count follows the repository is superlinear.');
+          }
         }
         if (scale.budgets?.[name]) {
           failures.push(...evaluateLatency(`scale.${name}`, scaled[name], scale.budgets[name], null));

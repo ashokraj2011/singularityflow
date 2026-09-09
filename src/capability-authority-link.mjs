@@ -7,7 +7,7 @@
  * approved catalog before using it.
  */
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -19,11 +19,16 @@ import { publishToStateBranch } from './ledger.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { partialCloneConfigured, partialCloneFallbackDecision } from './clone-strategy.mjs';
-import { mapLimit, run, SingularityFlowError } from './util.mjs';
+import { readRefTreeResult } from './git-ref-tree.mjs';
+import { mapLimit, run, SingularityFlowError, writeAtomic } from './util.mjs';
 
 export const CAPABILITY_AUTHORITY_LINK_PATH = 'singularity/capability-authority.json';
 export const CAPABILITY_AUTHORITY_BRANCH = 'sflow/config';
 export const DEFAULT_CAPABILITY_STATE_BRANCH = 'state';
+const AUTHORITY_CACHE_REF = 'refs/sflow/cache/state';
+const AUTHORITY_CACHE_FAMILY = 'capability-authority-cache-entry';
+const DEFAULT_AUTHORITY_CACHE_MAX_BYTES = 256 * 1024 * 1024;
+const AUTHORITY_LINK_FETCH_BLOB_LIMIT = 256 * 1024;
 
 function sha256(value) {
   return `sha256:${createHash('sha256').update(value).digest('hex')}`;
@@ -31,6 +36,154 @@ function sha256(value) {
 
 function repositoryIdentity(remote) {
   return `sha256:${remoteFingerprint(assertCredentialFreeRemote(remote))}`;
+}
+
+function authorityCachePaths(repository, branch, env) {
+  const key = recordSha256({ repositoryIdentity: repositoryIdentity(repository), stateBranch: branch });
+  const configured = String(env.SINGULARITY_FLOW_AUTHORITY_CACHE ?? '').trim();
+  if (configured.toLowerCase() === 'off') return null;
+  const registry = String(env.SINGULARITY_FLOW_LEAD_REGISTRY ?? '').trim();
+  const root = configured
+    ? path.resolve(configured)
+    : registry
+      ? path.join(path.dirname(path.resolve(registry)), '.cache', 'capability-authority', 'v1')
+      : path.join(os.homedir(), '.singularity-flow', 'cache', 'capability-authority', 'v1');
+  return Object.freeze({ root, directory: path.join(root, key), record: path.join(root, `${key}.json`) });
+}
+
+async function refuseAuthorityCacheSymlinks(cache) {
+  for (const candidate of [cache.root, cache.directory, cache.record]) {
+    const info = await lstat(candidate).catch((error) => {
+      if (error?.code === 'ENOENT') return null;
+      throw error;
+    });
+    if (info?.isSymbolicLink()) throw new SingularityFlowError(
+      'The capability-authority cache contains a symbolic link and was refused.', {
+        code: 'CAPABILITY_AUTHORITY_CACHE_PATH_INVALID'
+      }
+    );
+  }
+}
+
+function createAuthorityCacheEntry(repository, branch, stateCommit, link) {
+  const core = {
+    schemaVersion: currentSchemaVersion(AUTHORITY_CACHE_FAMILY),
+    kind: AUTHORITY_CACHE_FAMILY,
+    repositoryIdentity: repositoryIdentity(repository),
+    stateBranch: branch,
+    stateCommit,
+    link
+  };
+  return Object.freeze({ ...core, cacheSha256: `sha256:${recordSha256(core)}` });
+}
+
+function validateAuthorityCacheEntry(value, repository, branch, stateCommit) {
+  const record = readRecord(AUTHORITY_CACHE_FAMILY, value).record;
+  const core = record && typeof record === 'object' ? { ...record } : null;
+  if (core) delete core.cacheSha256;
+  const valid = record?.kind === AUTHORITY_CACHE_FAMILY
+    && record.repositoryIdentity === repositoryIdentity(repository)
+    && record.stateBranch === branch
+    && record.stateCommit === stateCommit
+    && /^[0-9a-f]{40,64}$/i.test(record.stateCommit ?? '')
+    && record.cacheSha256 === `sha256:${recordSha256(core)}`;
+  if (!valid) throw new Error('Capability authority cache entry does not match the observed ref.');
+  return validateCapabilityAuthorityLink(record.link, repository);
+}
+
+async function cachedAuthorityLink(file, repository, branch, stateCommit) {
+  try {
+    const bytes = await readFile(file, 'utf8');
+    return validateAuthorityCacheEntry(bytes, repository, branch, stateCommit);
+  } catch {
+    return null;
+  }
+}
+
+function initializeAuthorityObjectStore(directory, stateCommit, env) {
+  const existing = run('git', ['rev-parse', '--is-bare-repository'], {
+    cwd: directory, env, allowFailure: true, timeoutClass: 'local-read'
+  });
+  if (existing.status === 0 && existing.stdout.trim() === 'true') return;
+  run('git', [
+    'init', '--quiet', '--bare',
+    ...(stateCommit.length === 64 ? ['--object-format=sha256'] : []),
+    directory
+  ], { env });
+}
+
+function authorityCacheMaximumBytes(env) {
+  const configured = Number(env.SINGULARITY_FLOW_AUTHORITY_CACHE_MAX_BYTES);
+  return Number.isSafeInteger(configured) && configured >= 1024 * 1024
+    ? Math.min(configured, 2 * 1024 * 1024 * 1024)
+    : DEFAULT_AUTHORITY_CACHE_MAX_BYTES;
+}
+
+function authorityObjectStoreBytes(directory, env) {
+  const measured = run('git', ['count-objects', '-v'], {
+    cwd: directory, env, allowFailure: true, timeoutClass: 'local-read'
+  });
+  if (measured.status !== 0) return null;
+  const values = new Map(String(measured.stdout ?? '').split('\n').map((row) => {
+    const [key, value] = row.trim().split(/:\s*/, 2);
+    return [key, Number(value)];
+  }));
+  const looseKiB = values.get('size');
+  const packedKiB = values.get('size-pack');
+  return Number.isFinite(looseKiB) && Number.isFinite(packedKiB)
+    ? (looseKiB + packedKiB) * 1024
+    : null;
+}
+
+async function enforceAuthorityObjectStoreQuota(directory, env) {
+  const info = await lstat(directory).catch((error) => {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  });
+  if (!info) return;
+  const bytes = authorityObjectStoreBytes(directory, env);
+  if (bytes != null && bytes > authorityCacheMaximumBytes(env)) {
+    // This is a derived, identity-keyed cache directory and the caller holds its record lease.
+    // Removing it cannot remove an application checkout or any authoritative configuration.
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+async function fetchAuthorityLink(repository, branch, stateCommit, directory, {
+  env, runRemoteCommand
+}) {
+  await mkdir(directory, { recursive: true });
+  initializeAuthorityObjectStore(directory, stateCommit, env);
+  const transport = frozenRemoteTransport(repository, { env });
+  const fetched = await runRemoteCommand([
+    'fetch', '--quiet', '--no-tags', '--depth', '1',
+    `--filter=blob:limit=${AUTHORITY_LINK_FETCH_BLOB_LIMIT}`,
+    transport.remote,
+    `+refs/heads/${branch}:${AUTHORITY_CACHE_REF}`
+  ], { cwd: directory, operation: 'remote-configuration', env: transport.env });
+  if (fetched.status !== 0) return { status: 'unavailable', failure: fetched.failure ?? null };
+  const fetchedCommit = run('git', ['rev-parse', '--verify', AUTHORITY_CACHE_REF], {
+    cwd: directory, env: transport.env, allowFailure: true, timeoutClass: 'local-read'
+  }).stdout.trim();
+  if (fetchedCommit !== stateCommit) return { status: 'stale', observedCommit: fetchedCommit };
+  const tree = readRefTreeResult(directory, AUTHORITY_CACHE_REF, [CAPABILITY_AUTHORITY_LINK_PATH], {
+    env: transport.env, maxBatchBytes: 1024 * 1024, maxObjectBytes: 256 * 1024
+  });
+  if (tree.status !== 'ok') return {
+    status: 'unavailable', failure: { code: 'CAPABILITY_AUTHORITY_LINK_READ_FAILED', message: tree.errors[0]?.message }
+  };
+  const bytes = tree.contents.get(CAPABILITY_AUTHORITY_LINK_PATH);
+  if (bytes == null) return { status: 'missing' };
+  try {
+    return { status: 'current', link: validateCapabilityAuthorityLink(bytes, repository) };
+  } catch (error) {
+    return {
+      status: 'invalid', failure: {
+        code: error?.code ?? 'CAPABILITY_AUTHORITY_LINK_INVALID',
+        message: error?.message ?? String(error)
+      }
+    };
+  }
 }
 
 export function capabilityAuthorityId(remote, branch = CAPABILITY_AUTHORITY_BRANCH) {
@@ -168,47 +321,58 @@ export async function readCapabilityAuthorityLink(repositoryRemote, {
     status: 'missing', repository: sanitizeRemote(repository), stateBranch: branch,
     stateCommit: null, link: null, failure: null
   });
+  const cache = authorityCachePaths(repository, branch, gitEnv);
+  const hit = cache
+    ? await refuseAuthorityCacheSymlinks(cache)
+      .then(() => cachedAuthorityLink(cache.record, repository, branch, stateCommit))
+      .catch(() => null)
+    : null;
+  if (hit) return Object.freeze({
+    status: 'current', repository: sanitizeRemote(repository), stateBranch: branch,
+    stateCommit, link: hit, failure: null
+  });
 
-  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-authority-'));
+  let materialized;
   try {
-    const { cloned, transport } = await cloneOneBranch(repository, branch, scratch, {
-      env: gitEnv, runRemoteCommand
-    });
-    if (cloned.status !== 0) return Object.freeze({
-      status: 'unavailable', repository: sanitizeRemote(repository), stateBranch: branch,
-      stateCommit, link: null, failure: cloned.failure ?? null
-    });
-    const clonedCommit = run('git', ['rev-parse', 'HEAD'], {
-      cwd: scratch, env: transport.env
-    }).stdout.trim();
-    if (clonedCommit !== stateCommit) return Object.freeze({
-      status: 'stale', repository: sanitizeRemote(repository), stateBranch: branch,
-      stateCommit, observedCommit: clonedCommit, link: null, failure: null
-    });
-    const shown = run('git', ['show', `HEAD:${CAPABILITY_AUTHORITY_LINK_PATH}`], {
-      cwd: scratch, env: transport.env, allowFailure: true
-    });
-    if (shown.status !== 0) return Object.freeze({
-      status: 'missing', repository: sanitizeRemote(repository), stateBranch: branch,
-      stateCommit, link: null, failure: null
-    });
+    if (!cache) throw new Error('Capability-authority cache is disabled.');
+    await refuseAuthorityCacheSymlinks(cache);
+    const { withRegistryFileLease } = await import('./workspace.mjs');
+    materialized = await withRegistryFileLease(cache.record, async () => {
+      await refuseAuthorityCacheSymlinks(cache);
+      const concurrent = await cachedAuthorityLink(cache.record, repository, branch, stateCommit);
+      if (concurrent) return { status: 'current', link: concurrent };
+      await enforceAuthorityObjectStoreQuota(cache.directory, gitEnv);
+      const fetched = await fetchAuthorityLink(repository, branch, stateCommit, cache.directory, {
+        env: gitEnv, runRemoteCommand
+      });
+      if (fetched.status === 'current') {
+        const entry = createAuthorityCacheEntry(repository, branch, stateCommit, fetched.link);
+        await writeAtomic(cache.record, canonicalJson(entry), { mode: 0o600 }).catch(() => {});
+      }
+      return fetched;
+    }, { timeoutMs: 10_000 });
+  } catch {
+    // Cache storage is a performance aid, never authority and never a reason to hide a readable
+    // state link. A private one-shot object store preserves the exact-ref proof if the cache is
+    // unavailable, corrupted, or contended.
+    const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-authority-'));
     try {
-      return Object.freeze({
-        status: 'current', repository: sanitizeRemote(repository), stateBranch: branch,
-        stateCommit, link: validateCapabilityAuthorityLink(shown.stdout, repository), failure: null
+      materialized = await fetchAuthorityLink(repository, branch, stateCommit, scratch, {
+        env: gitEnv, runRemoteCommand
       });
-    } catch (error) {
-      return Object.freeze({
-        status: 'invalid', repository: sanitizeRemote(repository), stateBranch: branch,
-        stateCommit, link: null, failure: {
-          code: error?.code ?? 'CAPABILITY_AUTHORITY_LINK_INVALID',
-          message: error?.message ?? String(error)
-        }
-      });
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
     }
-  } finally {
-    await rm(scratch, { recursive: true, force: true });
   }
+  return Object.freeze({
+    status: materialized.status,
+    repository: sanitizeRemote(repository),
+    stateBranch: branch,
+    stateCommit,
+    ...(materialized.observedCommit ? { observedCommit: materialized.observedCommit } : {}),
+    link: materialized.link ?? null,
+    failure: materialized.failure ?? null
+  });
 }
 
 /** Publish one canonical link through the ordinary exact state-branch CAS. */

@@ -711,8 +711,12 @@ export async function createWorkflow(root, config, {
   await secureRepositoryPath(root, config.workItemRoot ?? 'singularity/work-items', {
     label: 'Story state root'
   });
-  if (branch(root) !== canonicalBranch) {
-    throw new SingularityFlowError(`Current branch ${branch(root)} must match the canonical Story branch ${canonicalBranch}.`);
+  // Story creation does not switch branches. Capture this mutable repository fact once so the
+  // aggregate, lineage, diagnostic, and history all bind to the same observed branch without four
+  // redundant Git processes or a mixed answer if an external checkout races this operation.
+  const currentBranch = branch(root);
+  if (currentBranch !== canonicalBranch) {
+    throw new SingularityFlowError(`Current branch ${currentBranch} must match the canonical Story branch ${canonicalBranch}.`);
   }
   if (await exists(workflowPath(root, config, id))) throw new SingularityFlowError(`${id} already exists. Use singularity-flow resume ${id}.`);
   const selectedType = workType ?? Object.keys(config.workTypes)[0];
@@ -814,7 +818,7 @@ export async function createWorkflow(root, config, {
     } : {},
     workItem: {
       id, title: title || id, workType: selectedType, workTypeLabel: resolution.label,
-      branch: branch(root), baseBranch,
+      branch: currentBranch, baseBranch,
       ...(baseCommit ? { baseCommit } : {}),
       ...(baseRemote ? { baseRemote } : {}),
       createdAt, createdBy: actor, source: {
@@ -838,7 +842,7 @@ export async function createWorkflow(root, config, {
     },
     lineage: {
       schemaVersion: currentSchemaVersion('story-lineage'),
-      canonicalBranch: branch(root),
+      canonicalBranch: currentBranch,
       parentStoryId: id,
       epicId: source.epicId ?? source.parent?.key ?? null,
       planId: source.planId ?? null,
@@ -881,7 +885,7 @@ export async function createWorkflow(root, config, {
     collaboration: { assignments: {}, notifications: [] },
     sequenceOverrides: [],
     changeRequests: [],
-    history: [{ at: createdAt, actor: actorKey(actor), agent: agent ?? null, event: 'work_started', phase: phases[0]?.id ?? null, detail: `Created ${selectedType} branch ${branch(root)}` }]
+    history: [{ at: createdAt, actor: actorKey(actor), agent: agent ?? null, event: 'work_started', phase: phases[0]?.id ?? null, detail: `Created ${selectedType} branch ${currentBranch}` }]
   };
   if (capability?.policy?.maxDocumentBytes) {
     workflow.resolution.documents.maxFileBytes = Math.min(

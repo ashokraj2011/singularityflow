@@ -44,6 +44,7 @@ interface RepositoryInspection {
   completeness?: string;
   proposalCoverage?: string;
   proposalInspection?: { total?: number; inspected?: number; limitPerAuthority?: number };
+  organisations?: Array<{ lead?: string; stale?: boolean; organisation?: Organisation }>;
 }
 
 export interface Mapped {
@@ -84,6 +85,7 @@ export class BootstrapPanel {
   private journey: StartWizardProgress | null = null;
   private mapLoadRevision = 0;
   private inspectionRevision = 0;
+  private readonly inspectedOrganisations = new Map<string, Organisation>();
 
   private constructor(
     panel: vscode.WebviewPanel, leads: string[], run: Run,
@@ -174,6 +176,7 @@ export class BootstrapPanel {
   /** Revoke every result whose repository/authority pair may no longer match the form. */
   private invalidateInspection(): void {
     this.inspectionRevision++;
+    this.inspectedOrganisations.clear();
     this.form.inspectionStatus = 'idle';
     this.form.inspectionComplete = false;
     this.form.inspectionMatches = [];
@@ -214,7 +217,12 @@ export class BootstrapPanel {
     }
     const revision = ++this.mapLoadRevision;
     this.update({ busy: true, loaded: false, parents: [], parent: '', notice: null, error: null });
-    const { result, error } = await this.run(['capability', 'organisation', selectedLead, '--json']);
+    const retained = this.inspectionIsBound(this.form.repositoryUrl, selectedLead)
+      ? this.inspectedOrganisations.get(selectedLead) ?? null : null;
+    const loaded = retained
+      ? { result: retained, error: null }
+      : await this.run(['capability', 'organisation', selectedLead, '--json']);
+    const { result, error } = loaded;
     // A quick second selection must not put the first repository's parents under the second one.
     if (revision !== this.mapLoadRevision || selectedLead !== this.form.lead.trim()) return;
     if (error) return void this.update({ busy: false, error });
@@ -288,10 +296,12 @@ export class BootstrapPanel {
       error: null });
     const argv = ['capability', 'inspect-repository', repositoryUrl, '--json'];
     for (const lead of inspectionLeads) argv.push('--lead', lead);
-    // The first URL-only lookup is the portable approved-map fast path. Proposal enumeration is
-    // deferred until the contributor explicitly selects the authority they are about to mutate.
+    // Resolve the portable state link first and fall back to the bounded local authority registry
+    // when that link is absent. Proposal enumeration remains deferred until the contributor
+    // explicitly selects the authority they are about to mutate.
+    argv.push('--search-known');
     if (explicitLead) argv.push('--include-proposals');
-    if (options.includeKnownAuthorities) argv.push('--search-known', '--include-proposals');
+    if (options.includeKnownAuthorities) argv.push('--include-proposals');
     const terminalCommand = `singularity-flow ${formatCliArgsForDisplay(argv)}`;
     const { result, error } = await this.run(argv);
     if (revision !== this.inspectionRevision || repositoryUrl !== this.form.repositoryUrl.trim()) return;
@@ -301,6 +311,12 @@ export class BootstrapPanel {
       inspectionAuthorityScope: null, inspectionProposalCoverage: null,
       inspectionCheckedLeadCount: 0 });
     const inspected = (result ?? {}) as RepositoryInspection;
+    this.inspectedOrganisations.clear();
+    for (const entry of inspected.organisations ?? []) {
+      if (entry.lead && !entry.stale && entry.organisation) {
+        this.inspectedOrganisations.set(entry.lead, entry.organisation);
+      }
+    }
     const matches = inspected.matches ?? [];
     const pendingMatches = inspected.pendingMatches ?? [];
     const raw = inspected.status ?? 'inconclusive';

@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { run as runCommand } from './util.mjs';
 
 const ACCEPTANCE_COUNT = 50;
 const ACCEPTANCE = Object.freeze(Array.from({ length: ACCEPTANCE_COUNT }, (_, index) =>
@@ -129,11 +130,10 @@ export async function collectFosWitnesses(repositoryRoot) {
 }
 
 function git(root, arguments_) {
-  try {
-    return execFileSync('git', arguments_, {
-      cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']
-    }).trim();
-  } catch { return null; }
+  const result = runCommand('git', arguments_, {
+    cwd: root, allowFailure: true, timeoutClass: 'local-read'
+  });
+  return result.status === 0 ? result.stdout.trim() : null;
 }
 
 export async function buildFosEvidenceInventory(repositoryRoot) {

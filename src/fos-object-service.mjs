@@ -83,6 +83,10 @@ export class FosGitObjectService {
     this.#child = child;
     this.#spawns += 1;
     incrementCommandCounter('git.spawns');
+    // Unlike one-shot Git processes, this child serves many logical object requests. Keep the
+    // distinct counter meaningful so timing evidence can prove whether pooling is actually reusing
+    // a process instead of permanently reporting a structural zero.
+    incrementCommandCounter('git.child-spawns');
     child.stdout.on('data', (chunk) => {
       this.#buffer = Buffer.concat([this.#buffer, chunk]);
       if (this.#buffer.length > this.#maxObjectBytes + 8192) {

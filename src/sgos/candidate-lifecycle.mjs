@@ -24,7 +24,8 @@ import {
 } from '../publication-machine-integrity.mjs';
 import { canonicalJson } from '../records.mjs';
 import { buildRepositorySubjectIndex } from '../repository-subject-index.mjs';
-import { SingularityFlowError, nowIso } from '../util.mjs';
+import { run, SingularityFlowError, nowIso } from '../util.mjs';
+import { readLocalGitBlobs } from '../git-blob-batch.mjs';
 import { resolvePlatformProcess, tryWindowsTaskkill } from '../platform-process.mjs';
 import { withTrustedSgosConfigurationRead } from './authority-trust.mjs';
 import {
@@ -110,13 +111,13 @@ function publicationTransportReceiptPath(root, candidateId, packetSha256) {
 }
 
 function gitResult(root, args, { env = process.env, input = null, maximumBytes = 32 * 1024 * 1024 } = {}) {
-  const result = spawnSync('git', args, {
+  const result = run('git', args, {
     cwd: root,
     env: { ...env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'Never' },
     input,
-    encoding: null,
+    encoding: 'buffer',
     maxBuffer: maximumBytes,
-    windowsHide: true
+    allowFailure: true
   });
   if (result.error || result.status !== 0) {
     const diagnostic = Buffer.from(result.stderr ?? '').toString('utf8').slice(0, 4096).trim();
@@ -127,13 +128,13 @@ function gitResult(root, args, { env = process.env, input = null, maximumBytes =
 }
 
 function tryGitResult(root, args, { env = process.env, input = null, maximumBytes = 32 * 1024 * 1024 } = {}) {
-  return spawnSync('git', args, {
+  return run('git', args, {
     cwd: root,
     env: { ...env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'Never' },
     input,
-    encoding: null,
+    encoding: 'buffer',
     maxBuffer: maximumBytes,
-    windowsHide: true
+    allowFailure: true
   });
 }
 
@@ -163,24 +164,35 @@ function parseNameStatus(buffer) {
   return changes;
 }
 
-function treeEntry(root, tree, relative, { env = process.env } = {}) {
-  const raw = gitResult(root, ['ls-tree', '-z', tree, '--', relative], { env }).toString('utf8');
-  if (!raw) return null;
-  const tab = raw.indexOf('\t');
-  const header = raw.slice(0, tab).split(' ');
-  const actual = raw.slice(tab + 1).replace(/\0$/, '');
-  if (header.length !== 3 || actual !== relative) {
-    fail('Candidate tree returned an ambiguous path entry.', 'SGOS_CANDIDATE_GIT_INVALID', { path: relative });
+function treeEntries(root, tree, paths, { env = process.env } = {}) {
+  if (!paths.length) return new Map();
+  const expectedPaths = new Set(paths);
+  const entries = new Map();
+  // Bound both argv length and process count. Exact paths avoid the old whole-tree traversal while
+  // groups avoid exceeding Windows/macOS command-line limits on very large Candidates.
+  for (let offset = 0; offset < paths.length; offset += 512) {
+    const raw = gitResult(root, ['ls-tree', '-z', tree, '--', ...paths.slice(offset, offset + 512)], {
+      env
+    }).toString('utf8');
+    for (const record of raw.split('\0').filter(Boolean)) {
+      const tab = record.indexOf('\t');
+      const header = tab < 0 ? [] : record.slice(0, tab).split(' ');
+      const relative = tab < 0 ? '' : record.slice(tab + 1);
+      if (header.length !== 3 || !expectedPaths.has(relative) || entries.has(relative)) {
+        fail('Candidate tree returned an ambiguous path entry.', 'SGOS_CANDIDATE_GIT_INVALID', {
+          path: relative || null
+        });
+      }
+      const [mode, objectType, object] = header;
+      if (!['100644', '100755', '120000'].includes(mode)
+          || objectType !== 'blob' || !GIT_OBJECT.test(object)) {
+        fail(`Candidate path '${relative}' has unsupported Git type or mode.`,
+          'SGOS_CANDIDATE_RESOURCE_UNSUPPORTED', { path: relative, mode, objectType });
+      }
+      entries.set(relative, { mode, object });
+    }
   }
-  const [mode, objectType, object] = header;
-  if (!['100644', '100755', '120000'].includes(mode) || objectType !== 'blob' || !GIT_OBJECT.test(object)) {
-    fail(`Candidate path '${relative}' has unsupported Git type or mode.`,
-      'SGOS_CANDIDATE_RESOURCE_UNSUPPORTED', { path: relative, mode, objectType });
-  }
-  const bytes = gitResult(root, ['cat-file', 'blob', object], {
-    env, maximumBytes: MAX_CANDIDATE_BYTES
-  });
-  return { mode, object, bytes };
+  return entries;
 }
 
 function candidateResources(root, baseline, tree, { env = process.env } = {}) {
@@ -192,10 +204,21 @@ function candidateResources(root, baseline, tree, { env = process.env } = {}) {
       files: changes.length, maximumFiles: MAX_CANDIDATE_FILES
     });
   }
+  const deletedPaths = changes.filter(({ kind }) => kind === 'D').map(({ path: item }) => item);
+  const retainedPaths = changes.filter(({ kind }) => kind !== 'D').map(({ path: item }) => item);
+  const baselineEntries = treeEntries(root, baseline, deletedPaths, { env });
+  const retainedEntries = treeEntries(root, tree, retainedPaths, { env });
+  const blobs = readLocalGitBlobs(root, [...retainedEntries.values()].map(({ object }) => object), {
+    env,
+    maximumBytes: MAX_CANDIDATE_BYTES,
+    maximumObjectBytes: MAX_CANDIDATE_BYTES,
+    code: 'SGOS_CANDIDATE_LIMIT',
+    label: 'Candidate resource set'
+  });
   let totalBytes = 0;
   const resources = changes.map((change) => {
     if (change.kind === 'D') {
-      const prior = treeEntry(root, baseline, change.path, { env });
+      const prior = baselineEntries.get(change.path);
       if (!prior) {
         fail(`Deleted Candidate path '${change.path}' is absent from its bound baseline.`,
           'SGOS_CANDIDATE_GIT_INVALID');
@@ -206,9 +229,11 @@ function candidateResources(root, baseline, tree, { env = process.env } = {}) {
         operation: 'deleted', renameFrom: null, renameTo: null, deletion: true
       };
     }
-    const entry = treeEntry(root, tree, change.path, { env });
+    const entry = retainedEntries.get(change.path);
     if (!entry) fail(`Candidate path '${change.path}' disappeared from its retained tree.`, 'SGOS_CANDIDATE_GIT_INVALID');
-    totalBytes += entry.bytes.length;
+    const bytes = blobs.get(entry.object);
+    if (!bytes) fail(`Candidate path '${change.path}' has no retained blob.`, 'SGOS_CANDIDATE_GIT_INVALID');
+    totalBytes += bytes.length;
     if (totalBytes > MAX_CANDIDATE_BYTES) {
       fail('Candidate exceeds the installed byte ceiling.', 'SGOS_CANDIDATE_LIMIT', {
         bytes: totalBytes, maximumBytes: MAX_CANDIDATE_BYTES
@@ -224,7 +249,7 @@ function candidateResources(root, baseline, tree, { env = process.env } = {}) {
       path: change.path,
       type: entry.mode === '120000' ? 'symlink' : 'file',
       mode: entry.mode,
-      contentSha256: digestBytes(entry.bytes),
+      contentSha256: digestBytes(bytes),
       operation,
       renameFrom: operation === 'renamed' ? change.from : null,
       renameTo: operation === 'renamed' ? change.path : null,

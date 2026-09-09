@@ -128,6 +128,7 @@ test('VS Code classifies configuration publication as a mutation', () => {
   assert.equal(commandClass(['workspace', 'attach-capability', '/work/a', 'payments', '--dry-run']), 'read');
   assert.equal(commandClass(['workspace', 'attach-capability', '/work/a', 'payments', '--confirm-plan', 'wscp-1']), 'mutation');
   assert.equal(commandClass(['workspace', 'detach-capability', '/work/a', 'payments', '--drop-local', '--dry-run']), 'read');
+  assert.equal(commandClass(['capability', 'inspect-repository', 'https://code.example/repo.git']), 'read');
 });
 
 test('VS Code command audit classification follows mixed read and mutation subcommands', () => {
@@ -568,6 +569,40 @@ test('the VS Code client keeps structured stdout out of the Output channel', asy
     assert.equal(await client.runText(['status', '--prose']), 'visible prose');
     assert.match(seen.map(([, text]) => text).join(''), /visible prose/,
       'human-readable stdout disappeared with structured stdout');
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('the VS Code client coalesces identical short-lived reads and invalidates them on mutation', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-vscode-read-memo-'));
+  const cli = path.join(directory, 'fake-cli.mjs');
+  const counter = path.join(directory, 'count.txt');
+  await writeFile(counter, '0');
+  await writeFile(cli, `
+    import { readFileSync, writeFileSync } from 'node:fs';
+    const counter = ${JSON.stringify(counter)};
+    const count = Number(readFileSync(counter, 'utf8')) + 1;
+    writeFileSync(counter, String(count));
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    process.stdout.write(JSON.stringify({ count }));
+  `);
+  const client = new SingularityFlowClient({
+    location: { executable: process.execPath, cli, source: 'setting' },
+    repository: directory
+  });
+  try {
+    const [first, second] = await Promise.all([
+      client.run(['status', '--json']), client.run(['status', '--json'])
+    ]);
+    assert.deepEqual(first, { count: 1 });
+    assert.deepEqual(second, { count: 1 });
+    assert.equal(await readFile(counter, 'utf8'), '1', 'one CLI process served the in-flight read');
+    assert.deepEqual(await client.run(['status', '--json']), { count: 1 },
+      'the just-completed exact read was retained briefly');
+    await client.run(['capability', 'map', 'payments']);
+    assert.deepEqual(await client.run(['status', '--json']), { count: 3 },
+      'a mutation prevented the earlier read result from surviving');
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

@@ -164,7 +164,8 @@ export function executeGitQuery(root, id, params = {}, { env = process.env, runn
   try {
     result = runner(entry.executable, argv, {
       cwd: path.resolve(root), env, allowFailure: entry.allowFailure,
-      operation: entry.id, network: entry.network
+      operation: entry.id, network: entry.network, timeoutClass: entry.timeoutClass,
+      recordGitTiming: false
     });
   } finally {
     incrementCommandCounter('git.service-ms', Math.max(0, Math.round(performance.now() - started)));

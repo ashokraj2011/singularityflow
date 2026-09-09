@@ -1,5 +1,5 @@
-import { spawnSync } from 'node:child_process';
 import path from 'node:path';
+import { run } from '../../../util.mjs';
 
 import {
   SOURCE_LIKE, adapterFiles, evidenceDescriptor, factDraft, implementationSha256,
@@ -23,10 +23,11 @@ const MAXIMUM_STRUCTURAL_SCAN_BYTES = 512 * 1024;
 
 function git(root, args, { allowFailure = false, observer = null } = {}) {
   if (observer != null) observer(Object.freeze([...args]));
-  const resultValue = spawnSync('git', args, {
+  const resultValue = run('git', args, {
     cwd: root,
     encoding: 'utf8',
-    maxBuffer: 32 * 1024 * 1024
+    maxBuffer: 32 * 1024 * 1024,
+    allowFailure: true
   });
   if ((resultValue.error || resultValue.status !== 0) && !allowFailure) {
     const error = new Error(resultValue.error?.message ?? resultValue.stderr.trim() ?? 'git failed');

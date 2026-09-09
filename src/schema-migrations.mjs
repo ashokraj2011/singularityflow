@@ -2983,6 +2983,10 @@ const families = [
     id: 'capability-authority-link', currentVersion: 1,
     paths: [/^\$state\/singularity\/capability-authority\.json$/]
   }),
+  family({
+    id: 'capability-authority-cache-entry', currentVersion: 1,
+    paths: [/^\$local\/capability-authority\/v1\/[a-f0-9]{64}\.json$/]
+  }),
   family({ id: 'capability-authority-resolution', currentVersion: 1 }),
   family({ id: 'workspace-capability-catalog-proof', currentVersion: 1 }),
   family({ id: 'workspace-capability-bootstrap-receipt', currentVersion: 1 }),

@@ -2,10 +2,9 @@
 import {
   createHash, createPrivateKey, createPublicKey, sign as signBytes, verify as verifyBytes
 } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
 
 import { canonicalJson } from './records.mjs';
-import { SingularityFlowError } from './util.mjs';
+import { run, SingularityFlowError } from './util.mjs';
 import { MCP_SCAFFOLD_VERSIONS } from './mcp-host.mjs';
 import {
   isWelBenchmarkEvidenceSha256, validateWelBenchmarkEvidence
@@ -245,7 +244,7 @@ function nodeMajor(value) {
 function matrixKey(value) { return `${value.platform}/node-${value.nodeMajor}`; }
 
 function gitValue(root, args, label) {
-  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+  const result = run('git', args, { cwd: root, encoding: 'utf8', allowFailure: true });
   if (result.error || result.status !== 0) {
     const detail = String(result.stderr || result.error?.message || 'unknown Git failure').trim().slice(-8_192);
     throw new SingularityFlowError(`${label} could not inspect the release checkout${detail ? `: ${detail}` : '.'}`, {

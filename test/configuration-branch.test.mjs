@@ -1185,9 +1185,19 @@ test('automatic identity enrollment obeys the approved configuration switch', as
     run('git', ['clone', '-q', fixture.remote, checkout], { cwd: fixture.root });
     run('git', ['config', 'user.name', 'Unlisted Developer'], { cwd: checkout });
     run('git', ['config', 'user.email', 'unlisted@example.com'], { cwd: checkout });
-    const result = await publishCurrentIdentityToConfiguration(checkout, { automatic: true });
+    const authority = await resolveRemoteStoryConfigurationAuthority(fixture.remote);
+    const snapshot = await loadStoryConfigurationSnapshot(authority);
+    // Prove the common no-op path consumes the exact verified bytes and performs no clone. An
+    // implementation that contacts origin here will fail against this deliberately unreachable URL.
+    const configuredOrigin = run('git', ['config', '--get', 'remote.origin.url'], { cwd: checkout }).stdout.trim();
+    run('git', ['remote', 'set-url', 'origin', path.join(fixture.root, 'unreachable.git')], { cwd: checkout });
+    const result = await publishCurrentIdentityToConfiguration(checkout, {
+      automatic: true, configurationSnapshot: snapshot
+    });
+    run('git', ['remote', 'set-url', 'origin', configuredOrigin], { cwd: checkout });
     assert.equal(result.changed, false);
     assert.equal(result.skipped, 'automatic-enrollment-disabled');
+    assert.equal(result.commit, snapshot.sourceCommit);
 
     const after = YAML.parse(run('git', [
       'show', `${CONFIGURATION_BRANCH}:singularity/workflow.yml`

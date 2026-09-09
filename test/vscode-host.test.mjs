@@ -4493,6 +4493,8 @@ test('a window with nothing open can map a capability from scratch', async (t) =
   assert.notEqual(second, panel, 'the screen reopened rather than reusing a disposed panel');
   assert.match(second.webview.html, /data-map-details hidden/,
     'a known map is still not read until the repository URL is checked');
+  const organisationReadsBeforeInspection = registered.output
+    .filter((line) => String(line).includes('capability organisation')).length;
   await second.post({ type: 'field', field: 'repositoryUrl', value: bare });
   await second.post({ type: 'inspectRepository' });
   // The repository is already declared by the first authority, but no delivery capability uses it
@@ -4500,6 +4502,10 @@ test('a window with nothing open can map a capability from scratch', async (t) =
   const reloaded = await until(() =>
     (second.webview.html.includes('<option value="commerce"') ? second.webview.html : null));
   assert.ok(reloaded, 'the map was read back, with the capability just mapped in it');
+  assert.equal(registered.output
+    .filter((line) => String(line).includes('capability organisation')).length,
+    organisationReadsBeforeInspection,
+    'the exact-revision organisation returned by inspection is reused in the same form');
   assert.match(reloaded, /known, but is not assigned to a capability/);
 
   const panel2 = second;

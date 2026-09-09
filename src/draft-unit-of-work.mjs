@@ -82,10 +82,12 @@ export class DraftUnitOfWork {
     if (!operation) throw new SingularityFlowError('Draft transaction requires an operation name.');
     if (typeof write !== 'function') throw new SingularityFlowError('Draft transaction requires a write function.');
     return withSubjectLock(root, subject, async (lockOwner) => {
-      if (branch(root) !== subject.branch) {
-        throw new SingularityFlowError(`Current branch ${branch(root)} must match ${subject.kind} branch ${subject.branch}.`);
+      const transactionBranch = branch(root);
+      const expectedHead = head(root);
+      if (transactionBranch !== subject.branch) {
+        throw new SingularityFlowError(`Current branch ${transactionBranch} must match ${subject.kind} branch ${subject.branch}.`);
       }
-      if (expectedRevision?.head && head(root) !== expectedRevision.head) {
+      if (expectedRevision?.head && expectedHead !== expectedRevision.head) {
         throw new SingularityFlowError(`${subject.kind} '${subject.id}' changed before ${operation}. Reload it and retry.`);
       }
       if (expectedRevision?.statePath && expectedRevision.stateSha256 !== undefined
@@ -97,7 +99,6 @@ export class DraftUnitOfWork {
       if (await readPendingPublication(root, { kind: subject.kind, id: subject.id })) {
         throw new SingularityFlowError(`${subject.kind} '${subject.id}' has pending recovery. Synchronize it before ${operation}.`);
       }
-      const expectedHead = head(root);
       const recoveryPreimage = await capturePublicationPreimage(root, allowedPaths, {
         refPrefixes: [publicationReworkRefNamespace(subject)]
       });

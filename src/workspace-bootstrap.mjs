@@ -94,6 +94,7 @@ function planHashFor(plan) {
       required: repository.required,
       targetPath: path.resolve(repository.targetPath),
       clone: repository.clone,
+      clonePolicySource: repository.clonePolicySource ?? null,
       capabilities: [...(plan.createInput.repositories?.[repository.id]?.capabilities ?? [])].sort()
     })),
     initialization: plan.initialization
@@ -427,6 +428,8 @@ function normalizeCreateInput(input) {
       required: repository.required,
       path: repository.path,
       clone: repository.clone,
+      ...(repository.clonePolicySource
+        ? { clonePolicySource: repository.clonePolicySource } : {}),
       metadata: repository.metadata,
       jira: repository.jira,
       capabilities: repository.capabilities
@@ -472,7 +475,8 @@ function planFromInput(input, { initialize = false, stateBranch = 'state', infer
       defaultBranch: operation.branch,
       required: operation.required,
       targetPath: operation.target,
-      clone: operation.clone
+      clone: operation.clone,
+      clonePolicySource: operation.clonePolicySource ?? null
     })),
     createInput,
     inferDefaultRepositories: [...new Set(inferDefaultRepositories)],
@@ -1100,6 +1104,12 @@ export async function resumeWorkspaceBootstrap(bootstrapId, {
   if (!session.preflight?.ready) return session;
 
   const root = workspaceBootstrapRoot(env, home);
+  // Materialization and retained-catalog rehydration share one branded enterprise environment.
+  // Passing the raw source environment to both made each layer repeat the same system/global Git
+  // configuration probes during an office bootstrap.
+  const gitEnv = runCommand === run
+    ? enterpriseGitEnvironment(env)
+    : withoutGitProcessOverrides(env);
   return withLease(root, bootstrapId, async () => {
     session = await readWorkspaceBootstrap(bootstrapId, { env, home });
     let budgets;
@@ -1147,7 +1157,7 @@ export async function resumeWorkspaceBootstrap(bootstrapId, {
           capabilityValidation = await rehydrateWorkspaceCapabilityValidation(manifest, {
             objectStoreDirectory: catalogStorePath(root, bootstrapId),
             expected: serializedCapabilityValidation,
-            env
+            env: gitEnv
           });
         } catch {
           // A serialized bootstrap record is diagnostic, not authority. If its retained Git
@@ -1159,7 +1169,7 @@ export async function resumeWorkspaceBootstrap(bootstrapId, {
         confirmation: session.plan.workspace.confirmation,
         clone: true,
         bootstrapId,
-        env,
+        env: gitEnv,
         capabilityValidation
       });
       const journalPath = path.join(

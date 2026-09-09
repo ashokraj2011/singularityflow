@@ -163,8 +163,19 @@ test('the growth tier measures what follows the repository', { timeout: 600_000 
     assert.ok(result, `the growth tier did not measure ${name}`);
     assert.ok(Number.isInteger(result.subprocesses) && result.subprocesses > 0,
       `${name} reported no subprocess count, so nothing was gated`);
-    assert.ok(result.subprocessGrowth <= manifest.scale.subprocessGrowth[name],
-      `${name} grew ${result.subprocessGrowth}x, past the declared ${manifest.scale.subprocessGrowth[name]}x`);
+    const marginal = manifest.scale.subprocessMarginal?.[name];
+    if (marginal) {
+      const additionalUnits = manifest.scale.topology[marginal.dimension]
+        - manifest.topology[marginal.dimension];
+      const additionalSubprocesses = result.subprocesses - result.referenceSubprocesses;
+      assert.ok(additionalUnits > 0, `${name} has no additional ${marginal.dimension} to measure`);
+      assert.ok(additionalSubprocesses <= additionalUnits * marginal.maximumPerAdditionalUnit,
+        `${name} added ${additionalSubprocesses} subprocesses for ${additionalUnits} additional`
+        + ` ${marginal.dimension}; allowed ${marginal.maximumPerAdditionalUnit} per unit`);
+    } else {
+      assert.ok(result.subprocessGrowth <= manifest.scale.subprocessGrowth[name],
+        `${name} grew ${result.subprocessGrowth}x, past the declared ${manifest.scale.subprocessGrowth[name]}x`);
+    }
   }
   assert.ok(scale.commands.snapshotUi,
     'the scale tier omitted the repository/lifecycle/capabilities snapshot used by VS Code');

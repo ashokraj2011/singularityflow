@@ -1,6 +1,7 @@
 /** Publish approval membership to the shared configuration authority without touching a Story checkout. */
 import os from 'node:os';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import YAML from 'yaml';
 
@@ -126,6 +127,60 @@ function configurationRemoteName(root, remoteUrl) {
   return name;
 }
 
+function snapshotDocument(snapshot, relative, label) {
+  const entry = snapshot?.assets?.find((candidate) => candidate.relative === relative);
+  if (!entry) return null;
+  if (createHash('sha256').update(entry.contents).digest('hex') !== entry.sha256) {
+    throw new SingularityFlowError(
+      `Verified Story configuration snapshot changed in memory: ${relative}.`,
+      { code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID' }
+    );
+  }
+  return parseDocument(Buffer.from(entry.contents).toString('utf8'), label);
+}
+
+/** Return the existing result when the verified snapshot proves enrollment is already a no-op. */
+function snapshotEnrollmentResult(snapshot, actor, member, {
+  target, solo, allowSelfApproval, autoEnrollNewIdentities, automatic
+}) {
+  if (!snapshot?.assets || !snapshot?.sourceCommit) return null;
+  const workflow = snapshotDocument(snapshot, WORKFLOW_PATH, WORKFLOW_PATH);
+  if (!workflow) return null;
+  const currentSecurity = normalizeApprovalSecurity(workflow.toJS()?.approvalSecurity ?? {});
+  if (automatic && !currentSecurity.autoEnrollNewIdentities) {
+    return {
+      changed: false, pushed: false, branch: CONFIGURATION_BRANCH, commit: snapshot.sourceCommit,
+      identity: member, groups: [], profile: currentSecurity.profile,
+      approvalSecurity: currentSecurity, automatic: true, skipped: 'automatic-enrollment-disabled'
+    };
+  }
+  if (!member.email && !member.githubLogin) {
+    throw new SingularityFlowError(
+      'No usable Git email or authenticated GitHub login was resolved. Configure git user.email and try again.'
+    );
+  }
+  const portfolio = snapshotDocument(snapshot, PORTFOLIO_PATH, PORTFOLIO_PATH);
+  const selected = selectedAuthorities(
+    authorityRows(workflow, 'story'), portfolio ? authorityRows(portfolio, 'initiative') : [], target
+  );
+  const membershipChanged = selected.some((entry) =>
+    mergeMember(entry.authority?.members, actor, entry.scope).changed);
+  const desiredSelfApproval = allowSelfApproval == null ? (solo ? true : null) : Boolean(allowSelfApproval);
+  const desiredAutoEnrollment = autoEnrollNewIdentities == null ? null : Boolean(autoEnrollNewIdentities);
+  const settingsChanged = (solo && currentSecurity.profile !== 'poc')
+    || (desiredSelfApproval != null
+      && workflow.getIn(['approvalSecurity', 'allowSelfApproval']) !== desiredSelfApproval)
+    || (desiredAutoEnrollment != null
+      && workflow.getIn(['approvalSecurity', 'autoEnrollNewIdentities']) !== desiredAutoEnrollment);
+  if (membershipChanged || settingsChanged) return null;
+  return {
+    changed: false, pushed: false, branch: CONFIGURATION_BRANCH, commit: snapshot.sourceCommit,
+    identity: member, groups: selected.map(({ id, scope }) => ({ id, scope })),
+    profile: currentSecurity.profile, approvalSecurity: currentSecurity,
+    automatic: Boolean(automatic), source: 'verified-configuration-snapshot'
+  };
+}
+
 /**
  * Add the caller's current Git identity to approved authority groups and publish one exact commit.
  *
@@ -135,7 +190,8 @@ function configurationRemoteName(root, remoteUrl) {
  */
 export async function publishCurrentIdentityToConfiguration(root, {
   target = '*', solo = false, allowSelfApproval = null,
-  autoEnrollNewIdentities = null, automatic = false, transport = {}
+  autoEnrollNewIdentities = null, automatic = false, transport = {},
+  configurationSnapshot = null
 } = {}) {
   for (const [name, value] of Object.entries({ allowSelfApproval, autoEnrollNewIdentities })) {
     if (value != null && typeof value !== 'boolean') {
@@ -144,6 +200,10 @@ export async function publishCurrentIdentityToConfiguration(root, {
   }
   const actor = identity(root);
   const member = normalizedMember(actor);
+  const snapshotResult = snapshotEnrollmentResult(configurationSnapshot, actor, member, {
+    target, solo, allowSelfApproval, autoEnrollNewIdentities, automatic
+  });
+  if (snapshotResult) return snapshotResult;
   const remoteUrl = await resolveConfigurationRemote(root);
   if (!remoteUrl) {
     throw new SingularityFlowError(

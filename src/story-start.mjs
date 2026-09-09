@@ -336,7 +336,7 @@ export async function startStory(root, {
     if (configurationAuthority?.branch === CONFIGURATION_BRANCH
         && initialDefinition.approvalSecurity?.autoEnrollNewIdentities !== false) {
       const enrollment = await publishCurrentIdentityToConfiguration(root, {
-        target: '*', automatic: true
+        target: '*', automatic: true, configurationSnapshot: approvedConfigurationSnapshot
       });
       if (enrollment.changed && !enrollment.pushed) {
         throw new SingularityFlowError(

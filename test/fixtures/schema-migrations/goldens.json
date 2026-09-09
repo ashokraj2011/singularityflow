@@ -8,6 +8,7 @@
   "smart-init-precheck-receipt": [{ "schemaVersion": 1 }],
   "effective-capability-resolution": [{ "schemaVersion": 1 }],
   "capability-authority-link": [{ "schemaVersion": 1 }],
+  "capability-authority-cache-entry": [{ "schemaVersion": 1 }],
   "capability-authority-resolution": [{ "schemaVersion": 1 }],
   "workspace-capability-catalog-proof": [{ "schemaVersion": 1 }],
   "workspace-capability-bootstrap-receipt": [{ "schemaVersion": 1 }],

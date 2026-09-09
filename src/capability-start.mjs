@@ -217,7 +217,7 @@ export async function publishedBranchesAsync(repositories, {
  * catalog keeps one remote-derived contract for every surface and deliberately reports an
  * unreachable remote instead of substituting local refs.
  */
-export async function storyBaseCatalog(root, {
+async function storyRepositoryPlan(root, {
   remote = 'origin',
   defaultBranch = 'main',
   capabilityId = null,
@@ -252,17 +252,13 @@ export async function storyBaseCatalog(root, {
     assertApprovedCapabilityRepositoryPlan(
       repositories, approvedCapability, configurationSnapshot
     );
-    const { published, unreachable } = await publishedBranchesAsync(repositories);
     return {
       scope: 'capability',
       capability,
       remote,
       workspaceRoot: workspace.path,
       repositoryId: context.repositoryId,
-      repositories,
-      published,
-      unreachable,
-      choices: branchChoices(published)
+      repositories
     };
   }
 
@@ -280,23 +276,33 @@ export async function storyBaseCatalog(root, {
     return {
       scope: 'repository', capability: null, remote, workspaceRoot: null,
       repositoryId: repository.id, repositories: [repository],
-      published: { [repository.id]: [] },
-      unreachable: [{
+      identityFailure: {
         repository: repository.id,
         url: '',
         detail: remoteIdentity.ambiguous
           ? `Remote '${remote}' has multiple configured fetch URLs.`
           : `Remote '${remote}' is not configured.`
-      }],
+      }
+    };
+  }
+  return {
+    scope: 'repository', capability: null, remote, workspaceRoot: null,
+    repositoryId: repository.id, repositories: [repository]
+  };
+}
+
+export async function storyBaseCatalog(root, options = {}) {
+  const plan = await storyRepositoryPlan(root, options);
+  if (plan.identityFailure) {
+    return {
+      ...plan,
+      published: { [plan.repositoryId]: [] },
+      unreachable: [plan.identityFailure],
       choices: []
     };
   }
-  const { published, unreachable } = await publishedBranchesAsync([repository]);
-  return {
-    scope: 'repository', capability: null, remote, workspaceRoot: null,
-    repositoryId: repository.id, repositories: [repository], published, unreachable,
-    choices: branchChoices(published)
-  };
+  const { published, unreachable } = await publishedBranchesAsync(plan.repositories);
+  return { ...plan, published, unreachable, choices: branchChoices(published) };
 }
 
 /**
@@ -351,9 +357,44 @@ export async function storyBaseForRepository(root, {
   // render the choices alongside the result. Reusing those immutable bytes inside the same command
   // avoids asking every capability remote the identical question twice. Mutation-time Story start
   // still obtains its own fresh catalog and re-fetches every selected ref before changing a checkout.
-  const catalog = suppliedCatalog ?? await storyBaseCatalog(root, {
-    remote, defaultBranch, capabilityId, configurationSnapshot
-  });
+  let selection = parseBaseSelection(values);
+  let catalog;
+  if (suppliedCatalog) {
+    catalog = suppliedCatalog;
+  } else if (values.length) {
+    // An explicit base is a decision, not a request for a branch catalog. Build the repository set
+    // from the verified workspace/configuration snapshot and let preflight's exact prune fetch prove
+    // that each selected branch is published before any checkout or Story write. This removes one
+    // broad ls-remote per repository without turning a cached/local observation into authority.
+    const plan = await storyRepositoryPlan(root, {
+      remote, defaultBranch, capabilityId, configurationSnapshot
+    });
+    if (plan.identityFailure) {
+      catalog = {
+        ...plan, published: { [plan.repositoryId]: [] },
+        unreachable: [plan.identityFailure], choices: []
+      };
+    } else {
+      const defaults = Object.fromEntries(plan.repositories.map((repository) => [
+        repository.id, repository.defaultBranch ?? defaultBranch
+      ]));
+      const assumed = Object.fromEntries(plan.repositories.map((repository) => {
+        const selected = selection.overrides[repository.id] ?? selection.all ?? defaults[repository.id];
+        return [repository.id, selected ? [selected] : []];
+      }));
+      catalog = {
+        ...plan,
+        published: assumed,
+        unreachable: [],
+        choices: branchChoices(assumed),
+        selectionProof: 'preflight-fetch-required'
+      };
+    }
+  } else {
+    catalog = await storyBaseCatalog(root, {
+      remote, defaultBranch, capabilityId, configurationSnapshot
+    });
+  }
   if (catalog.unreachable.length) {
     const first = catalog.unreachable[0];
     throw new SingularityFlowError(
@@ -364,7 +405,6 @@ export async function storyBaseForRepository(root, {
   }
 
   const usableChoices = catalog.choices.filter((choice) => choice.everywhere);
-  let selection = parseBaseSelection(values);
   if (!selection.all && !Object.keys(selection.overrides).length && interactive) {
     const chosen = await askForBaseBranch(usableChoices, {
       capability: catalog.capability,

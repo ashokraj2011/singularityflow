@@ -41,6 +41,10 @@ test('a command that reaches the network gets a bound, and a timeout is not a re
   assert.ok(NETWORK_TIMEOUT_MS > 0);
   // A fetch against a large repository legitimately takes minutes; a shorter deadline is not the fix.
   assert.equal(defaultTimeoutFor('git'), undefined);
+  assert.equal(defaultTimeoutFor('git', {
+    timeoutClass: 'local-read', env: { SINGULARITY_FLOW_GIT_LOCAL_TIMEOUT_MS: '4321' }
+  }), 4321);
+  assert.equal(defaultTimeoutFor('git', { timeoutClass: 'remote-read' }), undefined);
   assert.equal(defaultTimeoutFor('node'), undefined);
 
   const started = Date.now();

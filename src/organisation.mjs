@@ -52,9 +52,7 @@ import {
   readConfigurationSource, retainStateConfigurationHistory, stateConfigurationHistoryBranch,
 } from './configuration-branch.mjs';
 import { configurationAssetPolicy, mergeConfigurationAssetPolicies } from './configuration-assets.mjs';
-import {
-  normalizeCloneStrategy, partialCloneConfigured, partialCloneFallbackDecision
-} from './clone-strategy.mjs';
+import { normalizeCloneStrategy } from './clone-strategy.mjs';
 import { createAndPushTransportIntent } from './transport-intents.mjs';
 import {
   assertCredentialFreeRemote, classifyGitRemoteFailure, frozenRemoteTransport, remoteFingerprint,
@@ -556,7 +554,7 @@ async function recoverMergedProposalRef(root, expectedCommit, proposalBranch, {
     // branch. Ask only for the caller-confirmed full object ID; if the server no longer exposes it,
     // recovery stays fail-closed rather than guessing from the target tree.
     const recovered = await runRemoteGitAsync([
-      'fetch', '--quiet', '--no-tags', '--filter=blob:none', 'origin',
+      'fetch', '--quiet', '--no-tags', 'origin',
       `${commit}:${ref}`
     ], { cwd: root, operation: 'remote-configuration', env });
     if (recovered.status !== 0 || !available()) return null;
@@ -609,25 +607,10 @@ async function withCapabilityProposalCheckout(url, branch, operation, { expected
     // `--branch` alone still negotiates every remote branch. On a monorepo that made a capability
     // approval transfer application history it never reads. The authority branch is orphaned, so
     // this branch plus the exact proposal ref fetched below is the complete review input.
-    const clone = (filtered) => runRemoteGitAsync([
+    const cloned = await runRemoteGitAsync([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch',
-      ...(filtered ? ['--filter=blob:none'] : []),
       '--branch', CONFIGURATION_BRANCH, transport.remote, scratch
     ], { operation: 'remote-configuration', env: transport.env });
-    let cloned = await clone(true);
-    const partial = partialCloneFallbackDecision(cloned, {
-      configured: cloned.status === 0
-        ? partialCloneConfigured(scratch, 'origin', (args, options) => run('git', args, {
-            ...options, env: transport.env
-          }))
-        : null,
-      fallback: 'full'
-    });
-    if (partial.action === 'retry-full') {
-      await removeTemporaryTree(scratch);
-      await mkdir(scratch, { recursive: true });
-      cloned = await clone(false);
-    }
     if (cloned.status !== 0) {
       throw new SingularityFlowError(
         `Cannot read '${sanitizeRemote(remote)}'. Correct Git access, then retry the same capability review.`, {
@@ -639,16 +622,10 @@ async function withCapabilityProposalCheckout(url, branch, operation, { expected
           })
         });
     }
-    let fetched = await runRemoteGitAsync(['fetch', '--quiet', '--no-tags', '--filter=blob:none', 'origin',
+    const fetched = await runRemoteGitAsync(['fetch', '--quiet', '--no-tags', 'origin',
       `refs/heads/${proposalBranch}:refs/remotes/origin/${proposalBranch}`], {
       cwd: scratch, operation: 'remote-configuration', env: transport.env
     });
-    if (partialCloneFallbackDecision(fetched, { fallback: 'full' }).action === 'retry-full') {
-      fetched = await runRemoteGitAsync(['fetch', '--quiet', '--no-tags', 'origin',
-        `refs/heads/${proposalBranch}:refs/remotes/origin/${proposalBranch}`], {
-        cwd: scratch, operation: 'remote-configuration', env: transport.env
-      });
-    }
     const proposalRef = fetched.status === 0
       ? `refs/remotes/origin/${proposalBranch}`
       : await recoverMergedProposalRef(scratch, expectedCommit, proposalBranch, {
@@ -751,25 +728,11 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
     const transport = frozenRemoteTransport(remote, {
       push: true, env: operationSession.env
     });
-    const clone = (filtered) => runRemoteGitAsync([
+    const cloned = await runRemoteGitAsync([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
-      ...(filtered ? ['--filter=blob:none'] : []), '--branch', baseBranch,
+      '--branch', baseBranch,
       transport.remote, scratch
     ], { operation: 'remote-configuration', env: transport.env });
-    let cloned = await clone(true);
-    const partial = partialCloneFallbackDecision(cloned, {
-      configured: cloned.status === 0
-        ? partialCloneConfigured(scratch, 'origin', (args, options) => run('git', args, {
-            ...options, env: transport.env
-          }))
-        : null,
-      fallback: 'full'
-    });
-    if (partial.action === 'retry-full') {
-      await removeTemporaryTree(scratch);
-      await mkdir(scratch, { recursive: true });
-      cloned = await clone(false);
-    }
     if (cloned.status !== 0) {
       throw new SingularityFlowError(
         `Cannot read '${sanitizeRemote(remote)}'. Correct Git access, then retry the same capability proposal.`, {
@@ -967,25 +930,11 @@ async function loadCapabilityStateSnapshot(remote, branch, commit, { env = proce
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-read-custom-state-'));
   try {
     const transport = frozenRemoteTransport(remote, { env: gitEnv });
-    const clone = (filtered) => runRemoteGitAsync([
+    const cloned = await runRemoteGitAsync([
       '-c', 'core.autocrlf=false', 'clone', '--quiet', '--no-local', '--no-tags', '--single-branch',
-      '--depth', '1', ...(filtered ? ['--filter=blob:none'] : []),
+      '--depth', '1',
       '--branch', branch, transport.remote, scratch
     ], { operation: 'remote-configuration', env: transport.env });
-    let cloned = await clone(true);
-    const partial = partialCloneFallbackDecision(cloned, {
-      configured: cloned.status === 0
-        ? partialCloneConfigured(scratch, 'origin', (args, options) => run('git', args, {
-            ...options, env: transport.env
-          }))
-        : null,
-      fallback: 'full'
-    });
-    if (partial.action === 'retry-full') {
-      await removeTemporaryTree(scratch);
-      await mkdir(scratch, { recursive: true });
-      cloned = await clone(false);
-    }
     if (cloned.status !== 0) {
       throw new SingularityFlowError(
         `Cannot read configured state branch '${branch}'. ${cloned.failure?.advice ?? 'Git clone failed.'}`,
@@ -1206,25 +1155,10 @@ export async function readOrganisation(url, { refresh = false } = {}) {
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-read-'));
   try {
     const transport = frozenRemoteTransport(remote, { env: gitEnv });
-    const clone = (filtered) => runRemoteGitAsync([
+    const cloned = await runRemoteGitAsync([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
-      ...(filtered ? ['--filter=blob:none'] : []),
       '--no-checkout', '--branch', branch, transport.remote, scratch
     ], { operation: 'remote-configuration', env: transport.env });
-    let cloned = await clone(true);
-    const partial = partialCloneFallbackDecision(cloned, {
-      configured: cloned.status === 0
-        ? partialCloneConfigured(scratch, 'origin', (args, options) => run('git', args, {
-            ...options, env: transport.env
-          }))
-        : null,
-      fallback: 'full'
-    });
-    if (partial.action === 'retry-full') {
-      await removeTemporaryTree(scratch);
-      await mkdir(scratch, { recursive: true });
-      cloned = await clone(false);
-    }
     if (cloned.status !== 0) {
       const remoteFailure = publicRemoteFailure(cloned.failure);
       const diagnosis = remoteFailure
@@ -2344,25 +2278,10 @@ export async function publishOrganisationCapabilityMap(url) {
   }
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-publish-map-'));
   try {
-    const clone = (filtered) => runRemoteGitAsync([
+    const cloned = await runRemoteGitAsync([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
-      ...(filtered ? ['--filter=blob:none'] : []),
       '--branch', baseBranch, transport.remote, scratch
     ], { operation: 'remote-configuration', env: transport.env });
-    let cloned = await clone(true);
-    const partial = partialCloneFallbackDecision(cloned, {
-      configured: cloned.status === 0
-        ? partialCloneConfigured(scratch, 'origin', (args, options) => run('git', args, {
-            ...options, env: transport.env
-          }))
-        : null,
-      fallback: 'full'
-    });
-    if (partial.action === 'retry-full') {
-      await removeTemporaryTree(scratch);
-      await mkdir(scratch, { recursive: true });
-      cloned = await clone(false);
-    }
     if (cloned.status !== 0) {
       const failure = cloned.failure ?? classifyGitRemoteFailure(cloned);
       throw new SingularityFlowError(
@@ -2459,25 +2378,11 @@ export async function listCapabilityProposals(url, {
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-list-'));
   const proposals = [];
   try {
-    const clone = (filtered) => runRemoteCommand([
+    const cloned = await runRemoteCommand([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch',
-      ...(filtered ? ['--filter=blob:none'] : []),
+      '--no-checkout',
       '--branch', CONFIGURATION_BRANCH, transport.remote, scratch
     ], { operation: 'remote-configuration', env: transport.env });
-    let cloned = await clone(true);
-    const partial = partialCloneFallbackDecision(cloned, {
-      configured: cloned.status === 0
-        ? partialCloneConfigured(scratch, 'origin', (args, options) => run('git', args, {
-            ...options, env: transport.env
-          }))
-        : null,
-      fallback: 'full'
-    });
-    if (partial.action === 'retry-full') {
-      await removeTemporaryTree(scratch);
-      await mkdir(scratch, { recursive: true });
-      cloned = await clone(false);
-    }
     if (cloned.status !== 0) {
       const remoteFailure = publicRemoteFailure(cloned.failure);
       throw new SingularityFlowError(`Cannot read '${sanitizeRemote(remote)}'. ${cloned.failure?.advice ?? 'Git clone failed.'}`, {
@@ -2494,14 +2399,9 @@ export async function listCapabilityProposals(url, {
     const proposalRefspecs = proposalLimit == null
       ? [`+refs/heads/${CAPABILITY_PROPOSAL_PREFIX}*:refs/remotes/origin/${CAPABILITY_PROPOSAL_PREFIX}*`]
       : branches.map((entry) => `+refs/heads/${entry.branch}:refs/remotes/origin/${entry.branch}`);
-    let fetched = await runRemoteCommand([
-      'fetch', '--quiet', '--no-tags', '--filter=blob:none', 'origin', ...proposalRefspecs
+    const fetched = await runRemoteCommand([
+      'fetch', '--quiet', '--no-tags', 'origin', ...proposalRefspecs
     ], { cwd: scratch, operation: 'remote-configuration', env: transport.env });
-    if (partialCloneFallbackDecision(fetched, { fallback: 'full' }).action === 'retry-full') {
-      fetched = await runRemoteCommand([
-        'fetch', '--quiet', '--no-tags', 'origin', ...proposalRefspecs
-      ], { cwd: scratch, operation: 'remote-configuration', env: transport.env });
-    }
     const sharedFailure = fetched.status === 0 ? null : new SingularityFlowError(
       `Capability proposals could not be fetched. ${fetched.failure?.advice ?? 'Git fetch failed.'}`,
       {

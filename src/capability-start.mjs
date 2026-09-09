@@ -32,6 +32,10 @@ import {
   activeWorkspaceFile, workspaceMemberContextForRepository, workspaceRegistryFile
 } from './workspace-context.mjs';
 import { resolveLifecycleCapability } from './capability-context.mjs';
+import { loadDefinition } from './config.mjs';
+import { isWorldModelV4 } from './world-model/commands.mjs';
+import { refreshWorldModelV4Authority } from './world-model/authority-refresh.mjs';
+import { worldModelStateAuthority } from './world-model/authority-config.mjs';
 import {
   resolveApprovedConfigurationCapability, resolveStoryConfigurationAuthority,
   resolveStoryConfigurationSnapshotCapability
@@ -50,6 +54,72 @@ import {
 } from './sgos/candidate-lifecycle.mjs';
 
 const DEFAULT_REMOTE_WORKERS = 4;
+
+function registeredWorldModelConfig(definition) {
+  if (!definition || !isWorldModelV4({ definition })) return null;
+  const authority = worldModelStateAuthority(definition);
+  return {
+    definition,
+    outputDir: definition.worldModel?.outputDir ?? 'singularity/world-model',
+    stateBranch: authority.branch,
+    remote: authority.remote
+  };
+}
+
+async function prefetchRegisteredWorldModelAuthority(root, definition, storyRemote) {
+  const config = registeredWorldModelConfig(definition);
+  if (!config) return null;
+  const remoteRef = `refs/remotes/${config.remote}/${config.stateBranch}`;
+  // The ordinary Story preflight has just prune-fetched every branch from this remote. Reuse that
+  // exact observation instead of issuing a second state fetch. An absent tracking ref is therefore
+  // positive evidence that the same reachable remote no longer publishes the state branch.
+  if (config.remote === storyRemote) {
+    const commit = refHead(root, remoteRef);
+    return Object.freeze({
+      attempted: true,
+      status: commit ? 'refreshed' : 'remote-absent',
+      remote: config.remote,
+      stateBranch: config.stateBranch,
+      commit: commit ?? null,
+      reusable: true
+    });
+  }
+  try {
+    const refreshed = await refreshWorldModelV4Authority(root, config, { refreshRemote: true });
+    return Object.freeze({
+      attempted: true,
+      status: refreshed.status,
+      remote: config.remote,
+      stateBranch: config.stateBranch,
+      commit: refreshed.commit
+        ?? refHead(root, `refs/remotes/${config.remote}/${config.stateBranch}`)
+        ?? null,
+      // The attempt itself belongs outside the Story transaction. A verified cached result keeps
+      // its existing semantics; an unavailable result becomes a bounded advisory without retrying.
+      reusable: true
+    });
+  } catch (error) {
+    // World-model availability is advisory for Story creation. Carry the bounded failure into the
+    // materializer so it can report the gap without retrying network I/O inside the transaction.
+    return Object.freeze({
+      attempted: true,
+      status: 'unavailable',
+      remote: config.remote,
+      stateBranch: config.stateBranch,
+      commit: null,
+      reusable: true,
+      errorCode: error?.code ?? 'WMB_STATE_AUTHORITY_REFRESH_FAILED',
+      errorMessage: error?.message ?? 'Registered World-Model authority refresh failed.'
+    });
+  }
+}
+
+/** Exact registered-v4 authority observations safe to reuse during Story materialization. */
+export function preflightWorldModelAuthorityRefreshes(preflight = []) {
+  return Object.fromEntries((preflight ?? [])
+    .filter((entry) => entry?.worldModelAuthorityRefresh?.attempted)
+    .map((entry) => [entry.repository, structuredClone(entry.worldModelAuthorityRefresh)]));
+}
 
 function assertCheckoutRemoteIdentity(root, repository, remote, { publishRequired }) {
   const expected = String(repository.url ?? '').trim();
@@ -565,7 +635,12 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
         { code: 'STORY_REMOTE_UNREACHABLE' }
       );
     }
-    candidates.push({ repository, root, fetchAuthority, pushAuthority });
+    const repositoryDefinition = configurationSnapshot?.definition
+      ?? await loadDefinition(root).catch(() => null);
+    candidates.push({
+      repository, root, fetchAuthority, pushAuthority,
+      worldModelDefinition: repositoryDefinition
+    });
   }
   // All repository identities are now proven as one set. Expanding the fetch refspec is a local
   // mutation, so defer it until a later sibling cannot fail identity validation and leave earlier
@@ -578,17 +653,24 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
   const fetched = await mapLimit(candidates, workers, async (candidate) => {
     incrementCommandCounter('git.remote-fetch');
     const transport = frozenRemoteTransport(candidate.fetchAuthority.url);
+    const result = await runGit([
+      'fetch', '--prune', transport.remote,
+      `+refs/heads/*:refs/remotes/${remote}/*`
+    ], {
+      cwd: candidate.root, operation: 'remote-configuration', allowFailure: true,
+      env: transport.env
+    });
+    const worldModelAuthorityRefresh = result.status === 0
+      ? await prefetchRegisteredWorldModelAuthority(
+          candidate.root, candidate.worldModelDefinition, remote
+        )
+      : null;
     return {
       ...candidate,
       // Bind the fetch to the exact URL captured above. The explicit destination refspec retains
       // the normal remote-tracking layout without letting a concurrent `remote set-url` redirect it.
-      result: await runGit([
-        'fetch', '--prune', transport.remote,
-        `+refs/heads/*:refs/remotes/${remote}/*`
-      ], {
-        cwd: candidate.root, operation: 'remote-configuration', allowFailure: true,
-        env: transport.env
-      })
+      result,
+      worldModelAuthorityRefresh
     };
   });
   const failedFetch = fetched.find((entry) => entry.result.status !== 0);
@@ -601,7 +683,7 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
   }
 
   const candidatesToProbe = [];
-  for (const { repository, root, pushAuthority } of fetched) {
+  for (const { repository, root, pushAuthority, worldModelAuthorityRefresh } of fetched) {
     const base = plan.resolution.resolved[repository.id];
     const sourceRef = `refs/remotes/${remote}/${base.branch}`;
     if (!refExists(root, sourceRef)) {
@@ -631,6 +713,7 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
       remoteFingerprint: pushAuthority?.fingerprint ?? null,
       transportRemote: pushAuthority?.url ?? null,
       publicationAuthority: pushAuthority,
+      worldModelAuthorityRefresh,
       publishRequired
     });
   }

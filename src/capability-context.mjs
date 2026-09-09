@@ -765,7 +765,8 @@ function modelFiles(manifest, views) {
 export async function resolveCapabilityWorldModelCandidate(repositoryRoot, definition, {
   sourceScope = null,
   views = [],
-  capabilityId = null
+  capabilityId = null,
+  authorityRefresh = null
 } = {}) {
   const groundingDefinition = withWorldModelSourceScope(definition ?? {}, sourceScope);
   const worldModel = groundingDefinition.worldModel ?? { outputDir: 'singularity/world-model' };
@@ -811,9 +812,48 @@ export async function resolveCapabilityWorldModelCandidate(repositoryRoot, defin
         }
       }
     };
+    if (authorityRefresh?.errorCode) {
+      throw new SingularityFlowError(
+        authorityRefresh.errorMessage ?? 'The registered World-Model authority could not be refreshed during Story preflight.',
+        { code: authorityRefresh.errorCode, details: { refresh: authorityRefresh.status } }
+      );
+    }
+    const reusePreflight = authorityRefresh?.attempted === true
+      && authorityRefresh?.reusable === true;
     const authority = await refreshWorldModelV4Authority(repositoryRoot, config, {
-      refreshRemote: true
+      refreshRemote: !reusePreflight
     });
+    if (reusePreflight && authorityRefresh.status === 'remote-absent') {
+      if (authority.status !== 'refresh-required') {
+        throw new SingularityFlowError(
+          'The capability repository registered World-Model tracking ref changed after Story preflight.',
+          { code: 'WMB_STATE_AUTHORITY_REFRESH_REQUIRED' }
+        );
+      }
+      throw new SingularityFlowError(
+        'The capability repository remote state branch has no registered World-Model projection.',
+        { code: 'world_model.capability_missing', details: { refresh: 'remote-absent' } }
+      );
+    }
+    if (authority.status === 'refresh-required') {
+      throw new SingularityFlowError(
+        'The registered World-Model state authority was not materialized by Story preflight.',
+        { code: 'WMB_STATE_AUTHORITY_REFRESH_REQUIRED' }
+      );
+    }
+    if (reusePreflight && authorityRefresh.commit
+        && authority.commit !== authorityRefresh.commit) {
+      throw new SingularityFlowError(
+        'The capability repository registered World-Model authority changed after Story preflight.',
+        {
+          code: 'WMB_STATE_AUTHORITY_REFRESH_REQUIRED',
+          details: {
+            expectedCommit: authorityRefresh.commit,
+            actualCommit: authority.commit ?? null
+          }
+        }
+      );
+    }
     if (authority.status === 'remote-absent') {
       throw new SingularityFlowError(
         'The capability repository remote state branch has no registered World-Model projection.',
@@ -924,7 +964,8 @@ export function isLocalCapabilityRepository(repositoryId, sourceRepositoryId, re
 export async function materializeCapabilityWorldModelPack(root, capability, {
   itemDirectory,
   itemRelative,
-  views = []
+  views = [],
+  authorityRefreshes = {}
 } = {}) {
   if (!capability) return null;
   const source = await sourceForRepository(root);
@@ -962,7 +1003,8 @@ export async function materializeCapabilityWorldModelPack(root, capability, {
       resolved = await resolveCapabilityWorldModelCandidate(repositoryRoot, repositoryDefinition, {
         sourceScope: capability.sourceScope ?? null,
         views,
-        capabilityId: capability.id
+        capabilityId: capability.id,
+        authorityRefresh: authorityRefreshes?.[repositoryId] ?? null
       });
     }
     catch (error) {

@@ -1227,6 +1227,53 @@ test('Capability context resolves exact registered-v4 sibling views without lega
   assert.notEqual(resolved.sourceState.commit, resolved.located.commit);
 });
 
+test('Capability context reuses exact Story-preflight authority without an in-transaction refresh', async (t) => {
+  const root = await registeredRepository(t);
+  const remoteParent = await mkdtemp(path.join(os.tmpdir(), 'sflow-wmb-v4-preflight-'));
+  t.after(() => rm(remoteParent, { recursive: true, force: true }));
+  const remote = path.join(remoteParent, 'origin.git');
+  git(root, ['init', '--bare', '-q', remote]);
+  git(root, ['remote', 'add', 'origin', remote]);
+  git(root, ['push', '-q', 'origin', 'main']);
+  await quiet(() => worldModelCommand(root, ['wm', 'build'], {
+    format: 'registered-v4', views: 'dev.impact', composer: 'deterministic'
+  }));
+  const config = await loadWorldModelConfig(root);
+  git(root, ['fetch', 'origin', '+refs/heads/state:refs/remotes/origin/state']);
+  const stateCommit = git(root, ['rev-parse', 'refs/remotes/origin/state']);
+  const reused = await resolveCapabilityWorldModelCandidate(root, config.definition, {
+    views: ['dev.impact'],
+    authorityRefresh: {
+      attempted: true, reusable: true, status: 'refreshed',
+      remote: 'origin', stateBranch: 'state', commit: stateCommit
+    }
+  });
+  assert.equal(reused.located.commit, stateCommit);
+  await assert.rejects(
+    resolveCapabilityWorldModelCandidate(root, config.definition, {
+      views: ['dev.impact'],
+      authorityRefresh: {
+        attempted: true, reusable: true, status: 'refreshed',
+        remote: 'origin', stateBranch: 'state', commit: 'f'.repeat(40)
+      }
+    }),
+    (error) => error.code === 'WMB_STATE_AUTHORITY_REFRESH_REQUIRED'
+  );
+
+  git(root, ['update-ref', '-d', 'refs/remotes/origin/state']);
+  git(root, ['remote', 'set-url', 'origin', path.join(remoteParent, 'must-not-be-contacted.git')]);
+  await assert.rejects(
+    resolveCapabilityWorldModelCandidate(root, config.definition, {
+      views: ['dev.impact'],
+      authorityRefresh: {
+        attempted: true, reusable: true, status: 'remote-absent',
+        remote: 'origin', stateBranch: 'state', commit: null
+      }
+    }),
+    (error) => error.code === 'world_model.capability_missing'
+  );
+});
+
 test('the editor visualizes registered-v4 state even when no Story is active', async (t) => {
   const root = await registeredRepository(t);
   await quiet(() => worldModelCommand(root, ['wm', 'build'], {

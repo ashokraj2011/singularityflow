@@ -703,7 +703,8 @@ export async function createWorkflow(root, config, {
   id, title, source, baseBranch, baseCommit = null, baseRemote = null,
   canonicalBranch = id, workType, agent, resolved, capabilityId = null,
   capabilityMapSha256 = null,
-  executionOrigin = null
+  executionOrigin = null,
+  worldModelAuthorityRefreshes = {}
 } = {}) {
   validateId(config, id);
   // Prove the configured storage boundary before any capability materialization or generated
@@ -903,7 +904,8 @@ export async function createWorkflow(root, config, {
     const context = await materializeCapabilityWorldModelPack(root, capability, {
       itemDirectory: workDir(root, config, id),
       itemRelative: workDirRelative(config, id),
-      views: [...new Set(resolution.phases.flatMap((phase) => phase.worldModel?.views ?? []))]
+      views: [...new Set(resolution.phases.flatMap((phase) => phase.worldModel?.views ?? []))],
+      authorityRefreshes: worldModelAuthorityRefreshes
     });
     workflow.resolution.capability = { ...capability, context };
   }

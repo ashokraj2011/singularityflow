@@ -1124,8 +1124,6 @@ export async function workspaceRemoteCapabilities(url, {
   const scratch = persistentStore
     ?? await mkdtemp(path.join(os.tmpdir(), 'sflow-lead-map-'));
   try {
-    // Partial clones are refused by some servers and by older Git; without the filter this still
-    // works, it just fetches one commit's blobs.
     // Organisation configuration is intentionally independent of application `main`. Workspaces
     // must therefore read the approved configuration branch, never whichever application branch
     // the remote happens to advertise as HEAD.
@@ -1145,41 +1143,18 @@ export async function workspaceRemoteCapabilities(url, {
     const branch = configurationBranch;
     const authorityCommit = configured.refs.get(`refs/heads/${configurationBranch}`);
     const transport = frozenRemoteTransport(remote, { env: gitEnv });
-    const clone = (extra) => runRemoteGitAsync([
-      'clone', '--quiet', '--depth', '1', '--no-checkout', '--branch', branch, ...extra,
+    const cloned = await runRemoteGitAsync([
+      'clone', '--quiet', '--depth', '1', '--no-checkout', '--branch', branch,
       transport.remote, scratch
     ], { operation: 'remote-configuration', env: transport.env });
-    let cloned = await clone(['--filter=blob:none']);
-    let partial = partialCloneFallbackDecision(cloned, {
-      configured: cloned.status === 0
-        ? partialCloneConfigured(scratch, 'origin', (args, options) => run('git', args, {
-            ...options, env: transport.env
-          }))
-        : null,
-      // Catalog reads are disposable, bounded to one shallow authority commit, and historically
-      // permit a full transfer when the server explicitly lacks filter support. The shared
-      // decision still prevents auth/proxy/TLS/cancel/timeout failures from taking that fallback.
-      fallback: 'full'
-    });
-    // Retry only a server's explicit filter-capability refusal. Replaying authentication, proxy,
-    // TLS, timeout, or generic network failures as a full clone doubles the office wait and cannot
-    // make those failures succeed. A successful clone that ignored the filter is already the full
-    // catalog checkout we need, so retain it rather than downloading it again.
-    if (partial.action === 'retry-full') {
-      await rm(scratch, { recursive: true, force: true });
-      await mkdir(scratch, { recursive: true });
-      cloned = await clone([]);
-      partial = Object.freeze({ kind: 'full-requested', action: 'retain-full' });
-    }
     if (cloned.status !== 0) {
       throw new SingularityFlowError(
         `Cannot read '${sanitizeRemote(remote)}'. ${cloned.failure?.advice ?? 'Git remote access failed.'}`,
         { code: cloned.failure?.code ?? 'REMOTE_UNKNOWN' }
       );
     }
-    // This checkout is disposable. Keep its invocation alias active through every object read: a
-    // blobless clone may lazy-fetch the catalog during `git show`, and restoring the literal URL
-    // before those reads would let ambient insteadOf rules redirect that second transport.
+    // This checkout is disposable and complete for the one shallow authority commit, so object
+    // reads cannot trigger a hidden promisor fetch through a different transport boundary.
     const clonedCommit = run('git', ['rev-parse', 'HEAD'], {
       cwd: scratch, env: transport.env
     }).stdout.trim();

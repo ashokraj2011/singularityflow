@@ -32,9 +32,6 @@ import {
 } from './git-remote-diagnostics.mjs';
 import { enterpriseGitEnvironment } from './git-enterprise-environment.mjs';
 import {
-  partialCloneConfigured, partialCloneFallbackDecision
-} from './clone-strategy.mjs';
-import {
   createAndPushTransportIntent, listTransportIntents, retryTransportIntent
 } from './transport-intents.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
@@ -604,25 +601,10 @@ export async function ensureConfigurationBranch(remote, {
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-bootstrap-'));
   const seed = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-seed-'));
   try {
-    const cloneBranch = (filtered) => runRemoteGitAsync([
+    const clone = await runRemoteGitAsync([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
-      ...(filtered ? ['--filter=blob:none'] : []),
       '--no-checkout', '--branch', importBranch, frozen.remote, scratch
     ], { operation: 'remote-configuration', env: frozen.env });
-    let clone = await cloneBranch(true);
-    const partial = partialCloneFallbackDecision(clone, {
-      configured: clone.status === 0
-        ? partialCloneConfigured(scratch, 'origin', (args, options) => run('git', args, {
-            ...options, env: frozen.env
-          }))
-        : null,
-      fallback: 'full'
-    });
-    if (partial.action === 'retry-full') {
-      await removeTemporaryTree(scratch);
-      await mkdir(scratch, { recursive: true });
-      clone = await cloneBranch(false);
-    }
     if (clone.status !== 0) {
       throw new SingularityFlowError(
         `Cannot read '${sanitizeRemote(url)}'. ${clone.failure?.advice ?? 'Git remote access failed.'}`,
@@ -755,25 +737,12 @@ export async function ensureConfigurationBranch(remote, {
 async function cloneConfiguration(remote, target, { env = process.env } = {}) {
   const gitEnv = enterpriseGitEnvironment(env);
   const frozen = frozenRemoteTransport(remote, { env: gitEnv });
-  const cloneBranch = (filtered) => runRemoteGitAsync([
+  // This checkout is mutated or copied immediately. A blobless depth-one clone only defers the
+  // exact configuration blobs into a second negotiation, so fetch them in the single clone.
+  const clone = await runRemoteGitAsync([
     '-c', 'core.autocrlf=false', 'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
-    ...(filtered ? ['--filter=blob:none'] : []),
     '--branch', CONFIGURATION_BRANCH, frozen.remote, target
   ], { operation: 'remote-configuration', env: frozen.env });
-  let clone = await cloneBranch(true);
-  const partial = partialCloneFallbackDecision(clone, {
-    configured: clone.status === 0
-      ? partialCloneConfigured(target, 'origin', (args, options) => run('git', args, {
-          ...options, env: frozen.env
-        }))
-      : null,
-    fallback: 'full'
-  });
-  if (partial.action === 'retry-full') {
-    await removeTemporaryTree(target);
-    await mkdir(target, { recursive: true });
-    clone = await cloneBranch(false);
-  }
   if (clone.status !== 0) {
     throw new SingularityFlowError(
       `Cannot read approved configuration from '${sanitizeRemote(remote)}' branch '${CONFIGURATION_BRANCH}'. `
@@ -792,25 +761,10 @@ async function copyVerifiedStateConfiguration(remote, destination, branch = STAT
   try {
     const gitEnv = enterpriseGitEnvironment(env);
     const frozen = frozenRemoteTransport(remote, { env: gitEnv });
-    const cloneBranch = (filtered) => runRemoteGitAsync([
+    const clone = await runRemoteGitAsync([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
-      ...(filtered ? ['--filter=blob:none'] : []),
       '--no-checkout', '--branch', branch, frozen.remote, source
     ], { operation: 'remote-configuration', env: frozen.env });
-    let clone = await cloneBranch(true);
-    const partial = partialCloneFallbackDecision(clone, {
-      configured: clone.status === 0
-        ? partialCloneConfigured(source, 'origin', (args, options) => run('git', args, {
-            ...options, env: frozen.env
-          }))
-        : null,
-      fallback: 'full'
-    });
-    if (partial.action === 'retry-full') {
-      await removeTemporaryTree(source);
-      await mkdir(source, { recursive: true });
-      clone = await cloneBranch(false);
-    }
     if (clone.status !== 0) {
       throw new SingularityFlowError(
         `Cannot read configuration recovery mirror from '${sanitizeRemote(remote)}' branch '${branch}'. `

@@ -18,7 +18,6 @@ import { enterpriseGitEnvironment } from './git-enterprise-environment.mjs';
 import { publishToStateBranch } from './ledger.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
-import { partialCloneConfigured, partialCloneFallbackDecision } from './clone-strategy.mjs';
 import { readRefTreeResult } from './git-ref-tree.mjs';
 import { mapLimit, run, SingularityFlowError, writeAtomic } from './util.mjs';
 
@@ -270,25 +269,10 @@ async function cloneOneBranch(remote, branch, scratch, {
   runRemoteCommand = runRemoteGitAsync
 } = {}) {
   const transport = frozenRemoteTransport(remote, { env });
-  const clone = (filtered) => runRemoteCommand([
+  const cloned = await runRemoteCommand([
     'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
-    ...(filtered ? ['--filter=blob:none'] : []),
     '--no-checkout', '--branch', branch, transport.remote, scratch
   ], { operation, env: transport.env });
-  let cloned = await clone(true);
-  const partial = partialCloneFallbackDecision(cloned, {
-    configured: cloned.status === 0
-      ? partialCloneConfigured(scratch, 'origin', (args, options) => run('git', args, {
-          ...options, env: transport.env
-        }))
-      : null,
-    fallback: 'full'
-  });
-  if (partial.action === 'retry-full') {
-    await rm(scratch, { recursive: true, force: true });
-    await mkdir(scratch, { recursive: true });
-    cloned = await clone(false);
-  }
   return { cloned, transport };
 }
 

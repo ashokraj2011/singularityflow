@@ -157,7 +157,7 @@ async function withWorkflowProposalCheckout(root, requestedBranch, operation) {
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-workflow-review-'));
   try {
     const cloned = await runRemoteGitAsync([
-      'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--filter=blob:none',
+      'clone', '--quiet', '--no-local', '--no-tags', '--single-branch',
       '--branch', CONFIGURATION_BRANCH, remote, scratch
     ], { operation: 'remote-configuration' });
     if (cloned.status !== 0) {
@@ -167,7 +167,7 @@ async function withWorkflowProposalCheckout(root, requestedBranch, operation) {
       );
     }
     const fetched = await runRemoteGitAsync([
-      'fetch', '--quiet', '--no-tags', '--filter=blob:none', 'origin',
+      'fetch', '--quiet', '--no-tags', 'origin',
       `+refs/heads/${branch}:refs/remotes/origin/${branch}`
     ], { cwd: scratch, operation: 'remote-configuration' });
     if (fetched.status !== 0) {
@@ -205,12 +205,12 @@ export async function listWorkflowConfigurationProposals(root, {
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-workflow-proposals-'));
   try {
     const cloned = await runRemoteGitAsync([
-      'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--filter=blob:none',
+      'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--no-checkout',
       '--branch', CONFIGURATION_BRANCH, remote, scratch
     ], { operation: 'remote-configuration' });
     if (cloned.status !== 0) throw new SingularityFlowError(cloned.failure?.advice ?? 'Workflow authority clone failed.');
     const fetched = await runRemoteGitAsync([
-      'fetch', '--quiet', '--no-tags', '--filter=blob:none', 'origin',
+      'fetch', '--quiet', '--no-tags', 'origin',
       `+refs/heads/${REVIEW_PREFIX}*:refs/remotes/origin/${REVIEW_PREFIX}*`
     ], { cwd: scratch, operation: 'remote-configuration' });
     if (fetched.status !== 0) throw new SingularityFlowError(fetched.failure?.advice ?? 'Workflow proposals could not be fetched.');
@@ -513,7 +513,7 @@ export async function proposeConfigurationChange(root, {
   try {
     const cloned = await runRemoteGitAsync([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
-      '--filter=blob:none', '--branch', CONFIGURATION_BRANCH, remoteUrl, scratch
+      '--branch', CONFIGURATION_BRANCH, remoteUrl, scratch
     ], { operation: 'remote-configuration' });
     if (cloned.status !== 0) {
       throw new SingularityFlowError(

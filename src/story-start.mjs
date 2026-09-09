@@ -16,7 +16,8 @@ import {
 } from './git.mjs';
 import {
   capabilityPublicationPlan, preflightStoryRepositories, prepareCapabilityRepositories,
-  preflightIncludesRepository, preflightPublicationAuthority, storyBaseForRepository
+  preflightIncludesRepository, preflightPublicationAuthority,
+  preflightWorldModelAuthorityRefreshes, storyBaseForRepository
 } from './capability-start.mjs';
 import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
 import { loadCopilotSession, loadSession, setAgentSession } from './session.mjs';
@@ -300,6 +301,7 @@ export async function startStory(root, {
   let storyBase = null;
   let baseCommit = null;
   let capabilityRepositoriesPrepared = null;
+  let capabilityPreflight = null;
   let capabilityPublications = [];
   let publicationAuthority = null;
   let startJournal = null;
@@ -364,7 +366,7 @@ export async function startStory(root, {
       }
     }
     const publishRequired = (initialDefinition.git?.publish ?? 'required') !== 'off';
-    const capabilityPreflight = storyBase.scope === 'capability'
+    capabilityPreflight = storyBase.scope === 'capability'
       ? await preflightStoryRepositories(storyBase.workspaceRoot, storyBase.plan, id, {
           remote, publishRequired, lifecycleRoot: root, capabilityId: storyBase.capability,
           configurationSnapshot: approvedConfigurationSnapshot
@@ -553,7 +555,8 @@ export async function startStory(root, {
         // creation guard applies it only when resolution selected a capability, so a valid
         // collection-only catalog remains capability-free.
         capabilityMapSha256: configurationSnapshot?.files?.['singularity/capabilities.yml'] ?? null,
-        executionOrigin: auto?.executionOrigin ?? null
+        executionOrigin: auto?.executionOrigin ?? null,
+        worldModelAuthorityRefreshes: preflightWorldModelAuthorityRefreshes(capabilityPreflight)
       });
       if (flightPlan) await pinAcceptedChangeFlightPlan(root, definition, workflow, flightPlan);
       if (auto) await pinAcceptedAutoPlan(root, definition, workflow, auto);

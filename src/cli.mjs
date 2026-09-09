@@ -1146,7 +1146,8 @@ export async function startCommand(positionals, options) {
   const {
     storyBaseForRepository, preflightStoryRepositories,
     capabilityPublicationPlan, prepareCapabilityRepositories, printCapabilityBase,
-    preflightIncludesRepository, preflightPublicationAuthority
+    preflightIncludesRepository, preflightPublicationAuthority,
+    preflightWorldModelAuthorityRefreshes
   } = await import('./capability-start.mjs');
   if (materializedSeed && requestedBase.length
     && requestedBase.some((value) => value !== materializedSeed.parentBranch)) {
@@ -1531,7 +1532,8 @@ export async function startCommand(positionals, options) {
           // Always carry the verified catalog digest across the preflight/creation boundary. The
           // creation guard applies it only when resolution selected a capability, including one
           // inferred from the approved map; collection-only catalogs remain capability-free.
-          capabilityMapSha256: configurationSnapshot?.files?.[CAPABILITIES_PATH] ?? null
+          capabilityMapSha256: configurationSnapshot?.files?.[CAPABILITIES_PATH] ?? null,
+          worldModelAuthorityRefreshes: preflightWorldModelAuthorityRefreshes(capabilityPreflight)
         });
         returnLocator = await writeReturnLocator(root, config, workflow);
         publication = await commitAndPublish(

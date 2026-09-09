@@ -6,7 +6,7 @@ import path from 'node:path';
 
 import {
   capabilityPublicationPlan, preflightStoryRepositories, publishCapabilityRepositories,
-  publishedBranchesAsync, prepareCapabilityRepositories
+  preflightWorldModelAuthorityRefreshes, publishedBranchesAsync, prepareCapabilityRepositories
 } from '../src/capability-start.mjs';
 import { parseBaseSelection, resolveCapabilityBase } from '../src/capability-branches.mjs';
 import { run } from '../src/util.mjs';
@@ -471,6 +471,58 @@ test('publication dry-run probes use bounded concurrency and preserve repository
   assert.equal(pushes, repositories.length);
   assert.equal(maximum, 2);
   assert.deepEqual(checked.map((entry) => entry.repository), repositories.map((entry) => entry.id));
+});
+
+test('Story preflight materializes registered-v4 state authority and clears an absent remote ref', async () => {
+  const base = await mkdtemp(path.join(tmpdir(), 'sflow-capability-v4-preflight-'));
+  const repositoryEntry = await repository(base, 'payments-api', ['main', 'state']);
+  const root = path.join(base, repositoryEntry.path);
+  const resolution = resolveCapabilityBase({
+    repositories: { 'payments-api': ['main', 'state'] },
+    selection: parseBaseSelection(['main'])
+  });
+  const configurationSnapshot = {
+    definition: {
+      worldModel: { format: 'registered-v4', outputDir: 'singularity/world-model' },
+      ledger: { branch: 'state', remote: 'origin' }
+    }
+  };
+  const first = await preflightStoryRepositories(
+    base, { repositories: [repositoryEntry], resolution }, 'S-V4-FIRST', {
+      publishRequired: false, configurationSnapshot
+    }
+  );
+  const stateCommit = git(root, 'rev-parse', 'refs/remotes/origin/state').stdout.trim();
+  assert.deepEqual(preflightWorldModelAuthorityRefreshes(first), {
+    'payments-api': {
+      attempted: true,
+      status: 'refreshed',
+      remote: 'origin',
+      stateBranch: 'state',
+      commit: stateCommit,
+      reusable: true
+    }
+  });
+
+  git(root, 'push', '--quiet', 'origin', ':refs/heads/state');
+  const second = await preflightStoryRepositories(
+    base, { repositories: [repositoryEntry], resolution }, 'S-V4-SECOND', {
+      publishRequired: false, configurationSnapshot
+    }
+  );
+  assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/remotes/origin/state'], {
+    cwd: root, allowFailure: true
+  }).status, 1, 'prune removes the deleted remote state authority');
+  assert.deepEqual(preflightWorldModelAuthorityRefreshes(second), {
+    'payments-api': {
+      attempted: true,
+      status: 'remote-absent',
+      remote: 'origin',
+      stateBranch: 'state',
+      commit: null,
+      reusable: true
+    }
+  });
 });
 
 test('publication preflight refuses a required repository that is not cloned', async () => {

@@ -779,3 +779,27 @@ test('the aggregate runner checkpoints exact shards and retries only incomplete 
   assert.match(aggregate, /SINGULARITY_FLOW_TEST_CONCURRENCY_PER_SHARD/);
   assert.equal(JSON.parse(manifest).scripts['test:all'], 'node scripts/run-test-aggregate.mjs all');
 });
+
+test('configuration scratch clones avoid hidden blob fetches while workspace clone policy remains explicit', async () => {
+  const [configuration, proposals, organisation, authorityLink, workspace] = await Promise.all([
+    readFile(path.join(root, 'src/configuration-branch.mjs'), 'utf8'),
+    readFile(path.join(root, 'src/configuration-proposal.mjs'), 'utf8'),
+    readFile(path.join(root, 'src/organisation.mjs'), 'utf8'),
+    readFile(path.join(root, 'src/capability-authority-link.mjs'), 'utf8'),
+    readFile(path.join(root, 'src/workspace.mjs'), 'utf8')
+  ]);
+  for (const [name, source] of Object.entries({
+    configuration, proposals, organisation, authorityLink
+  })) {
+    assert.doesNotMatch(source, /filter=blob:none/,
+      `${name} reintroduced a blobless scratch clone that immediately reads configuration blobs`);
+  }
+  assert.match(proposals, /sflow-workflow-proposals-[\s\S]{0,500}--no-checkout/,
+    'read-only workflow proposal inventory must not populate a disposable checkout');
+  assert.match(organisation, /sflow-capability-list-[\s\S]{0,900}--no-checkout/,
+    'read-only capability proposal inventory must not populate a disposable checkout');
+  assert.match(workspace, /cloneStrategyArguments/,
+    'G8 must not remove the approved partial-clone policy for application workspaces');
+  assert.match(workspace, /partialCloneFallbackDecision/,
+    'workspace partial clones must retain the centralized safety classifier');
+});

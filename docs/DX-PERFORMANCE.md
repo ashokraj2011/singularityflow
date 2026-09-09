@@ -44,9 +44,16 @@ The optimized paths preserve exact-ref authority and mutation preflights:
   whether clone policy was `portfolio-declared` or `workspace-override` without rewriting the
   organisation policy.
 
-Partial-clone shape changes and moving registered-v4 world-model refreshes outside the Story
-transaction remain measurement-gated. They are not enabled merely to improve a synthetic clock,
-because either change could alter object availability or the authority observation boundary.
+Short-lived configuration clones now fetch the one required shallow commit completely whenever a
+working tree is consumed, rather than advertising `blob:none` and immediately negotiating the same
+blobs lazily. Read-only proposal inventories use `--no-checkout`. Application workspace clone mode
+remains an explicit approved policy and retains the centralized partial-clone fallback classifier.
+
+Capability Story preflight also refreshes each registered-v4 sibling state authority before the
+Story transaction. Materialization reuses only the exact observed tracking-ref commit; a moved,
+deleted, unavailable, or unmaterialized authority becomes an advisory World-Model gap without a
+second network attempt or stale-cache fallback inside Story creation. Initiative materialization
+keeps its independent refresh boundary.
 
 ## Budgets
 

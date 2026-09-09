@@ -294,6 +294,16 @@ Every public operation is classified before its implementation module is importe
 | learn.workspace | read | never | — | — |
 | ledger | mutation | never | — | — |
 | local-reset | mutation | never | — | — |
+| local.audit | read | never | — | — |
+| local.freeze | mutation | never | — | — |
+| local.list | read | never | — | — |
+| local.publish | mutation | never | — | — |
+| local.review | mutation | never | — | — |
+| local.signer-create | mutation | never | — | — |
+| local.start | mutation | never | — | — |
+| local.status | read | never | — | — |
+| local.trust-export | mutation | never | — | — |
+| local.verify | mutation | never | — | — |
 | logs | read | never | — | — |
 | mcp.attest | mutation | never | — | — |
 | mcp.auth.clear | mutation | never | — | — |

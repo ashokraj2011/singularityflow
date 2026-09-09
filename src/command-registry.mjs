@@ -5,7 +5,7 @@ const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge'
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['init', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['init', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local']);
 
 const LAZY_MODULES = Object.freeze({
   // The five verbs share one dispatcher; each is a registered command in its own right so the
@@ -57,7 +57,8 @@ const LAZY_MODULES = Object.freeze({
   precheck: './commands/precheck.mjs',
   onboard: './commands/fos.mjs',
   authority: './commands/fos.mjs',
-  cache: './commands/fos.mjs'
+  cache: './commands/fos.mjs',
+  local: './commands/local.mjs'
 });
 
 function operation(id, modelPolicy = 'never', overrides = {}) {
@@ -93,7 +94,7 @@ function command([name, aliases = []]) {
 export const COMMAND_REGISTRY = Object.freeze([
   ['specify'], ['plan'], ['implement'], ['verify'], ['converge'],
   ['about'], ['help'], ['explain', ['docs']], ['show'], ['why'], ['harness'], ['init'], ['precheck'], ['onboard'], ['authority'], ['cache'], ['factory-reset'], ['reset-all'], ['local-reset'], ['fresh-install'], ['reinstall'], ['choices'], ['start'], ['resume'], ['return'], ['agent'], ['session'],
-  ['adhoc'], ['land'],
+  ['adhoc'], ['land'], ['local'],
   ['intent'], ['program'], ['process'], ['policy'], ['task'], ['request'], ['evidence'],
   ['candidate'], ['execution-unit'], ['device'], ['authority-store'], ['pack'], ['learn'], ['memory'], ['meta-tool'],
   ['inbox'], ['finalize'], ['status'], ['approvals', ['approval-chain']], ['progress'], ['report'], ['receipt'], ['impact'], ['telemetry'], ['context'], ['tokens'], ['prompt-log'], ['help-metrics'], ['guide'], ['refresh-branch'],
@@ -321,6 +322,10 @@ const SGOS_SUBCOMMANDS = Object.freeze({
   'meta-tool': Object.freeze({
     read: ['list'],
     mutation: ['propose', 'evaluation', 'promote', 'activate', 'observe', 'revoke', 'rollback']
+  }),
+  local: Object.freeze({
+    read: ['list', 'status', 'audit'],
+    mutation: ['start', 'freeze', 'verify', 'signer-create', 'trust-export', 'review', 'publish']
   })
 });
 

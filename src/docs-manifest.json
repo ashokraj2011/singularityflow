@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "db2d5f1cbe1613be07c0a19095c69e451371ad64",
-  "topicCount": 62,
-  "contentSha256": "e0420e78a71a6c8808f7f6c729bedd17f6822031fd3edd175c44984728fc26ad",
+  "sourceCommit": "db858bec0614949bc7d0da35bd8085bfb0e9bf91",
+  "topicCount": 63,
+  "contentSha256": "a16b9e8545ed51143161febe31555cff645623104eaca64ff275f6e1bb9f92a7",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -260,6 +260,14 @@
       "sha256": "beb1fa3782f22e34e0a87604448d47e7a1f68f004b0a5cda7c19179b910fdb82",
       "routingSha256": "5de7ecfacea848dfccdd7f9c2771989a9c24812024081eb515b4f8c73383eaf0",
       "file": "knowledge-and-remote-assets.md"
+    },
+    {
+      "id": "local-signed-deliverables",
+      "title": "Local signed deliverables",
+      "version": 1,
+      "sha256": "9d820e32370e5b0351582d545e9e609cbad2e7f1c8e25b7fbdc4c0835512192e",
+      "routingSha256": "93ddb8bde49fb58891074c91623d098b6a9ff4ac7d331b1405b1f33ec750a206",
+      "file": "local-signed-deliverables.md"
     },
     {
       "id": "local-work-journal",

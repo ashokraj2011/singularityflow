@@ -10,6 +10,17 @@ This is the one-page control plane for deliberately deferred product work. It do
 detailed domain roadmaps and it does not authorize implementation. It names the current boundary,
 the next eligible increment, and the source document that owns each acceptance contract.
 
+The repository-independent LOC L1 code path is implemented in the current increment. `local start`
+captures only explicit inputs into a private per-Story Git ledger; freeze/verify bind an exact
+Candidate; review and release use the existing protected Ed25519 signer; publication writes a
+deterministic DSSE-signed STORE-only ZIP through a journaled create-only local-filesystem effect;
+and `local audit` validates a retained archive handle with independently supplied trust bytes and
+separate integrity, trust, evidence, historical-policy, completeness, and rerun states. The built-in
+witness proves exact frozen bytes, not semantic correctness. LOC is not release-complete until its
+official JCS/DSSE/archive goldens, malicious archive corpus, physical Windows/macOS/Linux matrix,
+fault-injected operation reconciliation, and measured resource profiles are independently retained.
+Remote devices/folders remain L2; repository adoption, target policy re-entry, and lineage are L3.
+
 The first performance remediation checkpoint landed on 2026-08-30 at `main@96bb55f8`. Universal
 Candidate publication and the next office-Git hardening slice landed on 2026-09-01 at
 `main@cb278ca6`. GDP M0 through M8, the M9 observe surface, M10 provider-neutral contracts, M11

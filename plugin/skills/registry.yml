@@ -137,6 +137,7 @@ skills:
   sflow-fault: { class: mutation }
   sflow-fresh-install: { class: mutation, executionBoundary: machine }
   sflow-local-reset: { class: mutation, executionBoundary: machine }
+  sflow-local: { class: interactive, executionBoundary: machine }
   sflow-reinstall: { class: mutation, executionBoundary: machine }
   sflow-finalize: { class: mutation }
   sflow-fix: { class: interactive }

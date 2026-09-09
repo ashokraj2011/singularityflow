@@ -32,6 +32,7 @@ is not part of the current product.
 | Measure CMP safely across explicitly selected real repositories | [CMP real-repository corpus measurement](CMP-REAL-CORPUS-MEASUREMENT.md) |
 | Review the staged Code Assurance Bridge trust and rollout contract | [CAB v0.2](CAB-V0.2.md), [threat model](CAB-THREAT-MODEL.md), and [roadmap](CAB-ROADMAP.md) |
 | Land bounded work that began without a Story | [Ad hoc work and governed landing](../README-AD-HOC-WORK.md) |
+| Create, sign, publish, recover, and audit a deliverable without a product repository | [Local signed deliverables](LOCAL-SIGNED-DELIVERABLES.md) |
 | Understand the terms | [Glossary](GLOSSARY.md) |
 | Use the VS Code extension | [VS Code guide](VS-CODE.md) |
 | Return to work through the read-only developer home | [Developer Home and Story Return](DEVELOPER-HOME.md) |

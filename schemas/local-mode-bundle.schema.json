@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/local-mode-bundle.schema.json",
+  "title": "Singularity Flow local signed bundle manifest",
+  "type": "object",
+  "required": [
+    "schemaVersion", "schema", "mode", "authorityDomainId", "trustScope",
+    "storyId", "generationId", "candidate", "inputs", "outputs", "intent",
+    "workflow", "policy", "classification", "disclosurePlan", "verificationPlan",
+    "claims", "evidence", "reviewSubject", "approvals", "authoritySnapshot",
+    "authorizationReceipt", "releaseContentRoot", "inventory", "externalReferences",
+    "assurance", "producers", "signatureProfile", "packagingProfile", "preparedAt"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "schema": { "const": "loc.bundle.v1" },
+    "mode": { "const": "local-bundle" },
+    "authorityDomainId": { "pattern": "^standalone:LOC-[0-9A-F]{32}$" },
+    "trustScope": { "const": "standalone" },
+    "storyId": { "pattern": "^LOC-[0-9A-F]{32}$" },
+    "generationId": { "pattern": "^generation-[1-9][0-9]*$" },
+    "candidate": { "$ref": "#/$defs/artifactRef" },
+    "inputs": { "$ref": "#/$defs/artifactRef" },
+    "outputs": { "$ref": "#/$defs/artifactRef" },
+    "intent": { "$ref": "#/$defs/artifactRef" },
+    "workflow": { "$ref": "#/$defs/artifactRef" },
+    "policy": { "$ref": "#/$defs/artifactRef" },
+    "classification": { "$ref": "#/$defs/artifactRef" },
+    "disclosurePlan": { "$ref": "#/$defs/artifactRef" },
+    "verificationPlan": { "$ref": "#/$defs/artifactRef" },
+    "claims": { "$ref": "#/$defs/artifactRef" },
+    "evidence": { "$ref": "#/$defs/artifactRef" },
+    "reviewSubject": { "$ref": "#/$defs/artifactRef" },
+    "approvals": { "$ref": "#/$defs/artifactRef" },
+    "authoritySnapshot": { "$ref": "#/$defs/artifactRef" },
+    "authorizationReceipt": { "$ref": "#/$defs/artifactRef" },
+    "releaseContentRoot": { "$ref": "#/$defs/sha256" },
+    "inventory": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10000,
+      "items": { "$ref": "#/$defs/inventoryEntry" }
+    },
+    "externalReferences": { "type": "array", "maxItems": 0 },
+    "assurance": {
+      "type": "object",
+      "required": ["auditProfile", "auditClosure", "rerunClosure", "recovery"],
+      "properties": {
+        "auditProfile": { "const": "record-audit-v1" },
+        "auditClosure": { "const": "embedded" },
+        "rerunClosure": { "const": "unsupported" },
+        "recovery": { "const": "deliverable-only" }
+      },
+      "additionalProperties": false
+    },
+    "producers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["component", "version", "digest"],
+        "properties": {
+          "component": { "type": "string", "minLength": 1 },
+          "version": { "type": "string", "minLength": 1 },
+          "digest": { "$ref": "#/$defs/sha256" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "signatureProfile": { "const": "loc.ed25519.dsse.v1" },
+    "packagingProfile": { "const": "loc.zip.store.v1" },
+    "preparedAt": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "portablePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*\\\\).+$"
+    },
+    "artifactRef": {
+      "type": "object",
+      "required": ["path", "sha256", "sizeBytes"],
+      "properties": {
+        "path": { "$ref": "#/$defs/portablePath" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "sizeBytes": { "type": "integer", "minimum": 0, "maximum": 536870912 }
+      },
+      "additionalProperties": false
+    },
+    "inventoryEntry": {
+      "allOf": [
+        { "$ref": "#/$defs/artifactRef" },
+        {
+          "type": "object",
+          "required": ["role", "fileKind", "mode"],
+          "properties": {
+            "role": {
+              "enum": [
+                "output", "input", "spec", "policy", "claim", "evidence",
+                "approval", "authority", "metadata"
+              ]
+            },
+            "fileKind": { "const": "regular" },
+            "mode": { "enum": ["0644", "0755"] }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    }
+  }
+}

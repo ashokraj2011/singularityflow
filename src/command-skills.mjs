@@ -31,6 +31,7 @@ const entries = {
   'factory-reset': ['sf-factory-reset'],
   'reset-all': ['sf-reset-all'],
   'local-reset': ['sf-local-reset'],
+  local: ['sf-local'],
   'fresh-install': ['sf-fresh-install'],
   reinstall: ['sf-reinstall'],
   choices: ['sf-start', 'sf-approve'],

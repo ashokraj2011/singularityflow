@@ -36,6 +36,7 @@ Then, on a repository you care about:
 | Execute or inspect the governed next step | `singularity-flow next` / `singularity-flow nextsteps WORK-123` |
 | Orient yourself or return to a Story without changing state | `sflow home` / `sflow story return WORK-123` |
 | Land a small change without creating a Story first | `singularity-flow adhoc start` / `singularity-flow land` |
+| Create and audit a signed deliverable without a product repository | `singularity-flow local start` / `singularity-flow local audit` |
 | See what a command does, with examples | `singularity-flow <command> --help` |
 
 `init` deliberately asks no organisation question and writes no capability map. Until a reviewed
@@ -51,6 +52,9 @@ For a practical walkthrough covering normal Story usage, explicit Intent-to-Proc
 recovery, and Git-trusted Capability Pack sharing, read [How to use SGOS](./docs/SGOS-USAGE-GUIDE.md).
 For bounded work that begins without a Story, follow the
 [ad hoc work and governed landing guide](./README-AD-HOC-WORK.md).
+For a private output Story that has no product repository, follow the
+[local signed-deliverables guide](./docs/LOCAL-SIGNED-DELIVERABLES.md). The L1 profile is model-free,
+publishes a create-only signed archive, and keeps remote delivery and repository adoption disabled.
 For a complete Java/Maven demonstration of reusable deep world-model generation, optional JDT
 semantic AST, VS Code visualization, and measured reuse, follow the
 [Java/Maven world-model and semantic AST demo](./README-JAVA-MAVEN-WORLD-MODEL-DEMO.md).

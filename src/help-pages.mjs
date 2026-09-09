@@ -128,6 +128,37 @@ const PAGES = Object.freeze({
     examples: [['sflow cache clear --derived --repo . --json', 'Clear only disposable FOS cache entries.']],
     seeAlso: ['doctor', 'onboard']
   },
+  local: {
+    summary: 'Create and audit a signed local deliverable without a product repository.',
+    description: [
+      'Local mode stores each LOC Story in a private per-Story Git ledger, captures only explicit',
+      'inputs, and never discovers a workspace, probes a remote, invokes a model, or builds AST or',
+      'world-model data. The L1 profile freezes exact regular-file outputs, records deterministic',
+      'integrity evidence, signs explicit standalone review and release records, and installs one',
+      'deterministic ZIP with create-only local-filesystem semantics. Offline audit never extracts',
+      'or executes content. It proves exact bytes and recorded evidence, not semantic correctness,',
+      'current enterprise permission, delivery proof, or a rerun. Remote devices and repository',
+      'adoption are deliberately unavailable until their later acceptance gates are complete.'
+    ],
+    options: [
+      ['--story LOC-ID', 'Select one private local Story; it never selects a product repository.'],
+      ['--input ABSOLUTE-PATH', 'Capture one explicit input; repeat for additional files or trees.'],
+      ['--classification LEVEL', 'Required explicit public, internal, confidential, or restricted classification.'],
+      ['--candidate SHA256', 'Bind verify, review, and publish to the exact frozen Candidate.'],
+      ['--signer KEY-ID', 'Use an explicit lower-case standalone Ed25519 signer.'],
+      ['--destination DIRECTORY', 'Publish only below the approved local export root.'],
+      ['--trust-key ABSOLUTE-FILE', 'Supply independent public-key bytes to offline audit.'],
+      ['--json', 'Emit exact Story, Candidate, operation, bundle, archive, and audit identities.']
+    ],
+    examples: [
+      ['sflow local start conversion --intent "Convert reviewed SQL" --input /data/sql --classification internal --json',
+        'Create a private Story and capture only the selected bytes.'],
+      ['sflow local status --story LOC-... --json', 'Inspect a local Story without repository discovery.'],
+      ['sflow local audit --bundle /exports/LOC-....zip --trust-key /trust/owner.pem --signer local-owner --offline --json',
+        'Validate the signed recorded-evidence closure without extraction, execution, or network access.']
+    ],
+    seeAlso: ['help', 'candidate', 'authority-store']
+  },
   'authority-store': {
     summary: 'Inspect local SGOS authority and move reviewed Capability Pack authority between laptops.',
     description: [

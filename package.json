@@ -19,6 +19,7 @@
     "./src/api.mjs": "./src/api.mjs",
     "./fos": "./src/fos-api.mjs",
     "./sgos": "./src/sgos/index.mjs",
+    "./local-mode": "./src/local-mode/index.mjs",
     "./package.json": "./package.json"
   },
   "files": [

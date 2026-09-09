@@ -222,10 +222,14 @@ The boundaries are deliberate:
 - Binary and hostile path fixtures remain byte-correct and shell-free.
 
 **Rollout:** facade active only for explicitly registered migrated queries; command reuse remains
-`off` for all other operations. `workspace current --git-shadow` is the first migration probe: it
-executes the typed repository-status projection after the established reader, reports content-free
-equivalence counts, returns only the established result, and is never enabled by default. Candidate
-failure cannot change selection, readiness, Story detection, or command exit status.
+`off` for all other operations. `workspace current`, `snapshot`, `status`, and `capability show`
+accept an explicit `--git-shadow` migration probe; Story-start preflight exercises the same boundary
+through its acceptance harness. Each probe executes the typed projection after the established
+reader, reports content-free equivalence counts, returns only the established result, and is never
+enabled by default. Candidate failure cannot change selection, readiness, Story detection,
+capability resolution, or command exit status. The editor snapshot actively reuses the reference
+coordinator revision and therefore avoids duplicate branch, HEAD, and changed-path reads without
+making the typed candidate authoritative.
 
 ### M2 — verified fast attachment and a bounded Story start
 

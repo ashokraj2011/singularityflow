@@ -95,17 +95,35 @@ function explanationRecord(capability, subject, config, { currentSchemaVersion, 
   return { ...core, explanationSha256: `sha256:${recordSha256(core)}` };
 }
 
-export async function showCapability(root, subject = '', { json = false, verbose = false } = {}) {
+export async function showCapability(root, subject = '', {
+  json = false,
+  verbose = false,
+  gitShadow = false
+} = {}) {
   const support = await loadExplanationSupport();
   const relative = subject || path.relative(root, process.cwd()).replaceAll('\\', '/') || '.';
+  const gitShadowObservations = [];
   const capability = await support.resolveLifecycleCapability(root, {
     subjectPath: relative === '.' ? '' : relative,
-    required: true
+    required: true,
+    ...(gitShadow ? {
+      gitReadMode: 'shadow',
+      onGitShadowComparison(value) { gitShadowObservations.push(value); }
+    } : {})
   });
   const config = await support.loadDefinition(root);
   const record = explanationRecord(capability, relative, config, support);
+  let gitShadowSummary = null;
+  if (gitShadow) {
+    const { summarizeFosGitShadowObservations } = await import('../fos-git-shadow.mjs');
+    gitShadowSummary = summarizeFosGitShadowObservations(gitShadowObservations);
+  }
   if (json) {
-    console.log(JSON.stringify(verbose ? { ...record, effectiveCapability: capability } : record, null, 2));
+    console.log(JSON.stringify({
+      ...record,
+      ...(verbose ? { effectiveCapability: capability } : {}),
+      ...(gitShadowSummary ? { gitShadow: gitShadowSummary } : {})
+    }, null, 2));
     return record;
   }
   const implicit = capability.mode === 'implicit';
@@ -127,6 +145,9 @@ export async function showCapability(root, subject = '', { json = false, verbose
     console.log(`\nMode: ${capability.mode}`);
     console.log(`Resolution: ${record.resolutionSha256 ?? 'unavailable'}`);
     console.log(`Explanation: ${record.explanationSha256}`);
+  }
+  if (gitShadowSummary) {
+    console.log(`Git shadow: ${gitShadowSummary.equivalent}/${gitShadowSummary.comparisons} equivalent · reference remains authoritative`);
   }
   return record;
 }
@@ -277,7 +298,8 @@ export async function run(argv, context = {}) {
     const support = await loadExplanationSupport();
     return showCapability(support.repoRoot(), context.positionals?.[2] ?? '', {
       json: optionBoolean(context.options ?? {}, 'json'),
-      verbose: optionBoolean(context.options ?? {}, 'verbose')
+      verbose: optionBoolean(context.options ?? {}, 'verbose'),
+      gitShadow: optionBoolean(context.options ?? {}, 'git-shadow')
     });
   }
   if (subcommand === 'adopt-managed') {

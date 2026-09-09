@@ -4,7 +4,11 @@ import { incrementCommandCounter } from './dx-timing-context.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export const FOS_GIT_SHADOW_OPERATIONS = Object.freeze([
-  'workspace.repository-status'
+  'workspace.repository-status',
+  'snapshot.repository-revision',
+  'status.repository-branch',
+  'capability.authority-provenance',
+  'story-start.repository-preflight'
 ]);
 
 function safeErrorCode(error) {

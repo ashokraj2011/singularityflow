@@ -10119,11 +10119,11 @@ async function snapshotCommand(positionals, options) {
   const included = optionStrings(options, 'include');
   const timings = optionBoolean(options, 'timings');
   const result = await new SnapshotCoordinator(root).capture(
-    ({ included: requested }) => repositorySnapshot(
+    ({ included: requested, revision }) => repositorySnapshot(
       root,
       positionals[1],
       optionString(options, 'initiative'),
-      { included: requested }
+      { included: requested, revision }
     ),
     {
       included: included.length ? included : undefined,

@@ -62,6 +62,7 @@ test('FOS:AC-016 onboarding and Story intake avoid discovery, composition, AST a
     parentEpicId: 'EPIC-42'
   });
   const forbiddenLaunches = [];
+  const gitShadowObservations = [];
   const forbiddenLauncher = async (name) => { forbiddenLaunches.push(name); };
   const forbiddenDependencies = {
     organizationEnumerator: () => forbiddenLauncher('organization-discovery'),
@@ -84,6 +85,8 @@ test('FOS:AC-016 onboarding and Story intake avoid discovery, composition, AST a
     files: [sourceFile],
     urls: ['https://example.com/export-reference'],
     ...forbiddenDependencies,
+    gitReadMode: 'shadow',
+    onGitShadowComparison(value) { gitShadowObservations.push(value); },
     astWarmLauncher: (repositoryRoot, workId) => {
       astWarmLaunch = { repositoryRoot, workId };
       return { pid: 1234 };
@@ -98,6 +101,17 @@ test('FOS:AC-016 onboarding and Story intake avoid discovery, composition, AST a
   assert.equal(created.astWarm.launched, false);
   assert.equal(astWarmLaunch, null);
   assert.deepEqual(forbiddenLaunches, []);
+  assert.equal(gitShadowObservations.length, 1);
+  assert.equal(gitShadowObservations[0].operation, 'story-start.repository-preflight');
+  assert.equal(gitShadowObservations[0].outcome, 'equivalent');
+  const status = JSON.parse(run(process.execPath, [
+    path.resolve('bin/singularity-flow.mjs'), 'status', '--git-shadow', '--json'
+  ], root).stdout);
+  assert.equal(status.workItem.id, 'WORK-901');
+  assert.deepEqual(status.gitShadow, {
+    mode: 'shadow', authoritativePath: 'reference', comparisons: 1,
+    equivalent: 1, semanticMismatch: 0, candidateError: 0, valuesRecorded: false
+  });
   assert.equal(created.astWarm.command, 'singularity-flow wm ast build --all');
   const workRoot = path.join(root, 'singularity/work-items/WORK-901');
   const workflow = JSON.parse(await readFile(path.join(workRoot, 'workflow.json'), 'utf8'));

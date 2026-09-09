@@ -57,18 +57,28 @@ For a diagnostic reference run, add `--no-cache`. It disables only the invocatio
 singularity-flow onboard /absolute/path/to/repository --no-cache
 ```
 
-The first high-count legacy reader can now collect migration evidence explicitly:
+The high-count read-only surfaces can collect migration evidence explicitly:
 
 ```bash
 singularity-flow workspace current --git-shadow --json
+singularity-flow snapshot --git-shadow --json
+singularity-flow status --git-shadow --json
+singularity-flow capability show --git-shadow --json
 ```
 
 The established workspace Git reads run first and remain authoritative. The typed candidate then
-reads the same dirty/branch/origin/HEAD projection, and the response reports only equivalent,
-mismatch, and candidate-error counts. It never records paths, branches, remotes, object IDs, or
-the compared values. Candidate and evidence-recorder failures cannot change or block the reference
-result. Without `--git-shadow`, the candidate module is not loaded or executed. There is no
-optimized mode yet; promotion requires reviewed cross-platform shadow evidence.
+reads the same bounded projection, and the response reports only equivalent, mismatch, and
+candidate-error counts. Snapshot comparisons cover both revision boundaries; capability inspection
+covers its working-tree authority provenance; Story-start preflight uses the same shadow boundary in
+its executable acceptance harness. It never records paths, branches, remotes, object IDs, or the
+compared values. Candidate and evidence-recorder failures cannot change or block the reference
+result. Without `--git-shadow`, the candidate module is not loaded or executed.
+
+The snapshot loader also reuses the already established revision for branch, HEAD, and changed-path
+fields instead of spawning duplicate Git reads while assembling editor slices. That is an active
+bounded optimization because the value comes from the same reference coordinator, not from the
+candidate path. There is no candidate-authoritative mode yet; promotion requires reviewed
+cross-platform shadow evidence.
 
 ## VS Code
 

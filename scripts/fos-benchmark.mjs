@@ -149,7 +149,9 @@ async function fixture(definition) {
 const QUERIES = Object.freeze([
   ['repository.paths', {}], ['repository.root', {}], ['repository.object-format', {}],
   ['repository.bare', {}], ['repository.head', {}], ['repository.branch', {}],
-  ['repository.status', {}], ['repository.tracked-paths', {}], ['repository.remotes', {}]
+  ['repository.local-branch-exists', { branch: 'main' }],
+  ['repository.status', {}], ['repository.revision', {}],
+  ['repository.tracked-paths', {}], ['repository.remotes', {}]
 ]);
 
 async function observe(context) {

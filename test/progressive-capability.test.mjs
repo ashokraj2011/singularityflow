@@ -41,6 +41,32 @@ test('ordinary initialization keeps capability authority implicit and clone-stab
   assert.deepEqual(first.sourceScope, { sourceRoots: [], sharedRoots: [] });
 });
 
+test('capability inspection can shadow typed Git provenance without changing resolved authority', async () => {
+  const root = await repository();
+  await writeFile(path.join(root, 'singularity/capabilities.yml'), `version: 2
+management:
+  mode: sflow-cli
+capabilities:
+  repository-root:
+    name: This repository
+    kind: delivery
+    repository: payments-service
+    sourceRoots: []
+`, 'utf8');
+  const observations = [];
+  const reference = await resolveLifecycleCapability(root, { required: true });
+  const shadow = await resolveLifecycleCapability(root, {
+    required: true,
+    gitReadMode: 'shadow',
+    onGitShadowComparison(value) { observations.push(value); }
+  });
+  assert.deepEqual(shadow, reference);
+  assert.equal(observations.length, 1);
+  assert.equal(observations[0].operation, 'capability.authority-provenance');
+  assert.equal(observations[0].outcome, 'equivalent');
+  assert.equal(observations[0].valuesRecorded, false);
+});
+
 test('implicit materialization retains repository-root and produces a managed v2 map', () => {
   const implicit = resolveImplicitCapability({
     repositoryId: 'payments-service',

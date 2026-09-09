@@ -81,7 +81,10 @@ async function situationHere() {
     const { SnapshotCoordinator } = await import('../snapshot-coordinator.mjs');
     const { repositorySnapshot } = await import('../editor.mjs');
     const snapshot = await new SnapshotCoordinator(root).capture(
-      ({ included }) => repositorySnapshot(root, undefined, undefined, { included }),
+      ({ included, revision }) => repositorySnapshot(root, undefined, undefined, {
+        included,
+        revision
+      }),
       { included: ['lifecycle'], consistency: 'best-effort' }
     );
     const workflow = snapshot?.lifecycle?.workflow;

@@ -582,7 +582,7 @@ async function initiativeEditorSnapshot(root, portfolio, initiativeId) {
   };
 }
 
-async function fullRepositorySnapshot(root, requestedWorkId = null, requestedInitiativeId = null) {
+async function fullRepositorySnapshot(root, requestedWorkId = null, requestedInitiativeId = null, revision = null) {
   const definition = await loadDefinition(root);
   const portfolio = await loadPortfolio(root, { required: false });
   const workflowFile = await secureRepositoryPath(root, WORKFLOW_PATH, {
@@ -590,9 +590,9 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
   });
   const items = await workItems(root, definition);
   const initiatives = portfolio ? await listInitiatives(root, portfolio) : [];
-  const currentBranch = branch(root);
+  const currentBranch = revision?.branch ?? branch(root);
   const subjectIndex = await buildRepositorySubjectIndex(root, { definition, portfolio });
-  const changes = changedFiles(root);
+  const changes = revision?.changedFiles ?? changedFiles(root);
   const changeScope = configurationChangeScope(root, definition, portfolio, changes);
   const selectedStory = resolveContext(subjectIndex, {
     reference: requestedWorkId ?? currentBranch,
@@ -715,7 +715,14 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
     // HEAD is carried so a surface can tell that a planning context was built against a different
     // commit. Promotion refuses a stale pack, and without this the only way to discover that was to
     // have the promotion fail after the work was done.
-    repository: { root, branch: currentBranch, head: head(root), controlRoot: 'singularity', changes, ...changeScope },
+    repository: {
+      root,
+      branch: currentBranch,
+      head: revision?.head ?? head(root),
+      controlRoot: 'singularity',
+      changes,
+      ...changeScope
+    },
     identities: {
       git: gitIdentity,
       github,
@@ -889,15 +896,15 @@ const SNAPSHOT_SLICES = new Set([
   'comprehension'
 ]);
 
-async function repositorySlice(root) {
+async function repositorySlice(root, revision = null) {
   const definition = await loadDefinition(root);
   const portfolio = await loadPortfolio(root, { required: false });
-  const currentBranch = branch(root);
-  const changes = changedFiles(root);
+  const currentBranch = revision?.branch ?? branch(root);
+  const changes = revision?.changedFiles ?? changedFiles(root);
   return {
     root,
     branch: currentBranch,
-    head: head(root),
+    head: revision?.head ?? head(root),
     controlRoot: 'singularity',
     changes,
     ...configurationChangeScope(root, definition, portfolio, changes),
@@ -905,10 +912,10 @@ async function repositorySlice(root) {
   };
 }
 
-async function lifecycleSlice(root, requestedWorkId, requestedInitiativeId) {
+async function lifecycleSlice(root, requestedWorkId, requestedInitiativeId, revision = null) {
   const definition = await loadDefinition(root);
   const portfolio = await loadPortfolio(root, { required: false });
-  const currentBranch = branch(root);
+  const currentBranch = revision?.branch ?? branch(root);
   const subjectIndex = await buildRepositorySubjectIndex(root, { definition, portfolio });
   const selectedStory = resolveContext(subjectIndex, {
     reference: requestedWorkId ?? currentBranch,
@@ -1350,7 +1357,10 @@ async function comprehensionSlice(root) {
  * and calls `repositorySnapshot` in-process, and a cache that only the terminal opened would miss
  * the surface the latency budget is actually about.
  */
-export async function repositorySnapshot(root, requestedWorkId = null, requestedInitiativeId = null, { included = null } = {}) {
+export async function repositorySnapshot(root, requestedWorkId = null, requestedInitiativeId = null, {
+  included = null,
+  revision = null
+} = {}) {
   // Configuration Center edits the shared authority used by future work. An active Story carries
   // an intentionally immutable configuration copy, so using the ordinary lifecycle read scope for
   // the configuration slice made a successfully activated workflow remain invisible until the
@@ -1360,7 +1370,10 @@ export async function repositorySnapshot(root, requestedWorkId = null, requested
     const other = [...new Set(included)].filter((slice) => slice !== 'configuration');
     const result = other.length
       ? await withApprovedConfigurationRead(root, () => withDefinitionCache(
-          () => repositorySnapshotInScope(root, requestedWorkId, requestedInitiativeId, { included: other })
+          () => repositorySnapshotInScope(root, requestedWorkId, requestedInitiativeId, {
+            included: other,
+            revision
+          })
         ))
       : {};
     const configuration = await withApprovedConfigurationRead(root, () => withDefinitionCache(
@@ -1369,12 +1382,14 @@ export async function repositorySnapshot(root, requestedWorkId = null, requested
     return { ...result, configuration };
   }
   return withApprovedConfigurationRead(root, () => withDefinitionCache(
-    () => repositorySnapshotInScope(root, requestedWorkId, requestedInitiativeId, { included })
+    () => repositorySnapshotInScope(root, requestedWorkId, requestedInitiativeId, { included, revision })
   ));
 }
 
-async function repositorySnapshotInScope(root, requestedWorkId, requestedInitiativeId, { included }) {
-  if (!included?.length) return fullRepositorySnapshot(root, requestedWorkId, requestedInitiativeId);
+async function repositorySnapshotInScope(root, requestedWorkId, requestedInitiativeId, { included, revision }) {
+  if (!included?.length) {
+    return fullRepositorySnapshot(root, requestedWorkId, requestedInitiativeId, revision);
+  }
   const requested = [...new Set(included)];
   const unknown = requested.filter((slice) => !SNAPSHOT_SLICES.has(slice));
   if (unknown.length) {
@@ -1382,8 +1397,10 @@ async function repositorySnapshotInScope(root, requestedWorkId, requestedInitiat
   }
   const result = {};
   for (const slice of requested) {
-    if (slice === 'repository') result.repository = await repositorySlice(root);
-    else if (slice === 'lifecycle') result.lifecycle = await lifecycleSlice(root, requestedWorkId, requestedInitiativeId);
+    if (slice === 'repository') result.repository = await repositorySlice(root, revision);
+    else if (slice === 'lifecycle') {
+      result.lifecycle = await lifecycleSlice(root, requestedWorkId, requestedInitiativeId, revision);
+    }
     else if (slice === 'configuration') result.configuration = await configurationSlice(root);
     else if (slice === 'capabilities') result.capabilities = await capabilitySlice(root);
     else if (slice === 'integrations') result.integrations = await integrationSlice(root);

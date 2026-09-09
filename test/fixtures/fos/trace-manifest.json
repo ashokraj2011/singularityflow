@@ -24,8 +24,8 @@
     },
     "M1": {
       "requirements": ["FOS:REQ-001", "FOS:REQ-020", "FOS:REQ-021", "FOS:REQ-022", "FOS:REQ-023", "FOS:REQ-024", "FOS:REQ-025"],
-      "modules": ["src/git-query.mjs", "src/repo-context.mjs", "src/fos-git-shadow.mjs", "src/workspace.mjs", "src/workspace-context.mjs", "src/commands/workspace.mjs"],
-      "tests": ["test/fos-git-query.test.mjs", "test/fos-git-shadow.test.mjs"]
+      "modules": ["src/git-query.mjs", "src/git-status-projection.mjs", "src/repo-context.mjs", "src/fos-git-shadow.mjs", "src/snapshot-coordinator.mjs", "src/editor.mjs", "src/workspace.mjs", "src/workspace-context.mjs", "src/capability-context.mjs", "src/story-start.mjs", "src/commands/workspace.mjs", "src/commands/snapshot.mjs", "src/commands/status.mjs", "src/commands/capability.mjs"],
+      "tests": ["test/fos-git-query.test.mjs", "test/fos-git-shadow.test.mjs", "test/snapshot.test.mjs", "test/progressive-capability.test.mjs", "test/story-start.test.mjs"]
     },
     "M2": {
       "requirements": ["FOS:REQ-002", "FOS:REQ-003", "FOS:REQ-004", "FOS:REQ-005", "FOS:REQ-006", "FOS:REQ-007", "FOS:REQ-008", "FOS:REQ-009", "FOS:REQ-010", "FOS:REQ-011", "FOS:REQ-012", "FOS:REQ-013", "FOS:REQ-014", "FOS:REQ-015", "FOS:REQ-016", "FOS:REQ-017", "FOS:REQ-018", "FOS:REQ-019"],

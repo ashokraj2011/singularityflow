@@ -43,8 +43,8 @@ test('FOS local benchmark compares cached and uncached semantics without authori
     assert.equal(fixture.summary.semanticEquivalent, true);
     assert.deepEqual(fixture.summary.optimizedWarmGitRequests, [0]);
     assert.deepEqual(fixture.summary.optimizedWarmGitSpawns, [0]);
-    assert.deepEqual(fixture.summary.noCacheWarmGitRequests, [9]);
-    assert.deepEqual(fixture.summary.noCacheWarmGitSpawns, [9]);
+    assert.deepEqual(fixture.summary.noCacheWarmGitRequests, [11]);
+    assert.deepEqual(fixture.summary.noCacheWarmGitSpawns, [11]);
   }
   assert.equal(report.fixtures[2].summary.semanticEquivalent, true);
 });

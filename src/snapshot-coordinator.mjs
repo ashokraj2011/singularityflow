@@ -1,36 +1,32 @@
 import { createHash } from 'node:crypto';
 import { TimingCollector } from './dx-timings.mjs';
+import { parsePorcelainV2Revision } from './git-status-projection.mjs';
 import { SingularityFlowError, run } from './util.mjs';
 import { worktreeFingerprint } from './worktree-fingerprint.mjs';
 
-function parseStatus(value) {
-  const tokens = value.split('\0').filter(Boolean);
-  const changedFiles = [];
-  const untrackedFiles = [];
-  let branchName = null;
-  let commit = null;
-  for (const token of tokens) {
-    if (token.startsWith('# branch.head ')) branchName = token.slice('# branch.head '.length).trim();
-    else if (token.startsWith('# branch.oid ')) commit = token.slice('# branch.oid '.length).trim();
-    else if (token.startsWith('? ')) {
-      const file = token.slice(2);
-      changedFiles.push(file);
-      untrackedFiles.push(file);
-    } else if (/^[12u] /.test(token)) {
-      const fieldsBeforePath = token[0] === '2' ? 9 : 8;
-      const file = token.split(' ').slice(fieldsBeforePath).join(' ');
-      if (file) changedFiles.push(file);
-    }
-  }
-  return { branchName, commit, changedFiles: [...new Set(changedFiles)].sort(), untrackedFiles: untrackedFiles.sort() };
-}
-
-async function worktreeRevision(root) {
+async function worktreeRevision(root, { gitReadMode = 'reference', onGitShadowComparison = null } = {}) {
   // Porcelain v2 carries the branch, HEAD, and changed-path catalog in one process. The shared Git
   // tree fingerprint supplies the exact bytes and modes; every surface now means the same thing
   // when it calls a value `worktreeHash`.
-  const status = run('git', ['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all'], { cwd: root });
-  const parsed = parseStatus(status.stdout);
+  const reference = () => {
+    const status = run('git', ['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all'], { cwd: root });
+    return parsePorcelainV2Revision(status.stdout);
+  };
+  let parsed;
+  if (gitReadMode === 'shadow') {
+    const [{ runFosGitShadowRead }, { executeGitQuery }] = await Promise.all([
+      import('./fos-git-shadow.mjs'), import('./git-query.mjs')
+    ]);
+    ({ value: parsed } = await runFosGitShadowRead({
+      operation: 'snapshot.repository-revision',
+      mode: 'shadow',
+      reference,
+      candidate: () => executeGitQuery(root, 'repository.revision'),
+      record: onGitShadowComparison
+    }));
+  } else {
+    parsed = reference();
+  }
   const fingerprint = worktreeFingerprint(root, {
     fresh: true,
     // The coordinator already paid for a complete porcelain status. Reusing it avoids a second
@@ -82,6 +78,20 @@ export class SnapshotCoordinator {
   constructor(root, options = {}) {
     this.root = root;
     this.clock = options.clock;
+    this.gitReadMode = options.gitReadMode ?? 'reference';
+    this.onGitShadowComparison = options.onGitShadowComparison ?? null;
+    if (!['reference', 'shadow'].includes(this.gitReadMode)) {
+      throw new SingularityFlowError(`Unsupported snapshot Git read mode '${this.gitReadMode}'.`, {
+        code: 'FOS_GIT_SHADOW_MODE_INVALID'
+      });
+    }
+  }
+
+  async #revision() {
+    return worktreeRevision(this.root, {
+      gitReadMode: this.gitReadMode,
+      onGitShadowComparison: this.onGitShadowComparison
+    });
   }
 
   async capture(loader, {
@@ -96,9 +106,9 @@ export class SnapshotCoordinator {
 
     // `revision` is always the moment the surviving load *started* from, which is the only moment the
     // returned value can honestly claim to describe.
-    let revision = await timer.measure('revisionBefore', async () => worktreeRevision(this.root));
+    let revision = await timer.measure('revisionBefore', async () => this.#revision());
     let value = await timer.measure('load', async () => read({ revision }));
-    let after = await timer.measure('revisionAfter', async () => worktreeRevision(this.root));
+    let after = await timer.measure('revisionAfter', async () => this.#revision());
 
     if (!sameRevision(revision, after)) {
       if (consistency === 'exact') throw new SingularityFlowError(DISTURBED);
@@ -106,7 +116,7 @@ export class SnapshotCoordinator {
       // landing mid-read — without turning a repository under continuous write into a spin.
       revision = after;
       value = await timer.measure('reload', async () => read({ revision }));
-      after = await timer.measure('revisionAfterReload', async () => worktreeRevision(this.root));
+      after = await timer.measure('revisionAfterReload', async () => this.#revision());
       if (!sameRevision(revision, after)) {
         // Still moving: something is writing continuously, which during a running phase is normal
         // rather than exceptional. Return the read and say what it is, because a slightly stale view

@@ -143,7 +143,7 @@ Usage:
   singularity-flow adhoc promote [SESSION-ID] [--json]
   singularity-flow adhoc close [SESSION-ID] --local-only [--json]
   singularity-flow inbox [--offline] [--json]
-  singularity-flow status [WORK-ID] [--json]
+  singularity-flow status [WORK-ID] [--git-shadow] [--json]
   singularity-flow progress [WORK-ID] [--json|--markdown]
   singularity-flow report [WORK-ID] [--format md|html|json] [--out FILE] [--timings]
   singularity-flow report [WORK-ID] --recap [--length brief|standard|full] [--locale TAG] [--timezone ZONE]
@@ -584,7 +584,7 @@ Usage:
   singularity-flow jira comment <WORK-ID> --text TEXT --confirm <WORK-ID> [--json]
   singularity-flow plugin install                     Installs plugin plus direct /sf-* personal skills
   singularity-flow plugin uninstall | list | path
-  singularity-flow snapshot [WORK-ID] [--include SLICE] [--if-revision HASH] [--timings] --json
+  singularity-flow snapshot [WORK-ID] [--include SLICE] [--if-revision HASH] [--timings] [--git-shadow] --json
   singularity-flow configuration validate --json
   singularity-flow configuration explain [--pointer JSON-POINTER] [--json]
   singularity-flow configuration save <PATH> [--propose]    Reads replacement content from stdin
@@ -719,7 +719,7 @@ Usage:
   singularity-flow workspace duplicate <DIRECTORY> --id NEW-ID [--name TEXT] [--base DIRECTORY]
     [--no-clone] [--json]
   singularity-flow capability [tree] [--json]
-  singularity-flow capability show [PATH] [--verbose] [--json]
+  singularity-flow capability show [PATH] [--verbose] [--git-shadow] [--json]
   singularity-flow why [PATH] [--verbose] [--json]
   singularity-flow capability add <ID> --owns <DIRECTORY|DIRECTORY/**> [--name TEXT] [--team TEXT]... [--parent ID]
   singularity-flow capability protect <PATH> [--capability ID] [--approver GROUP] [--reason TEXT]
@@ -799,7 +799,8 @@ Usage:
   singularity-flow workspace prune [--json]
   singularity-flow workspace current [--git-shadow] [--json]
     (--git-shadow compares the typed Git reader without changing the authoritative result or
-     recording repository values; intended for migration evidence, not ordinary use)
+     recording repository values; the same evidence-only option is available on status, snapshot,
+     and capability show; intended for migration evidence, not ordinary use)
   singularity-flow workspace use [ID|NAME|JIRA|DIRECTORY] [--repository ID] [--story ID] [--json]
   singularity-flow workspace refresh-configuration [WORKSPACE] [--repository ID] [--dry-run]
   singularity-flow workspace copilot [ID|NAME|JIRA|DIRECTORY]

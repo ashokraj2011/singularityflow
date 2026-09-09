@@ -11,6 +11,7 @@ import {
 } from '../src/fos-git-shadow.mjs';
 import { rememberWorkspace, workspaceStatus } from '../src/workspace.mjs';
 import { activateWorkspaceContext } from '../src/workspace-context.mjs';
+import { SnapshotCoordinator } from '../src/snapshot-coordinator.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
@@ -131,6 +132,42 @@ test('workspace Git shadow comparison matches the legacy projection for a real r
   assert.deepEqual(output.gitShadow, {
     mode: 'shadow', authoritativePath: 'reference', comparisons: 1,
     equivalent: 1, semanticMismatch: 0, candidateError: 0, valuesRecorded: false
+  });
+});
+
+test('snapshot Git shadow compares each revision boundary and leaves the reference snapshot authoritative', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-fos-snapshot-shadow-'));
+  git(['init', '-q', '-b', 'main'], root);
+  git(['config', 'user.name', 'FOS Shadow'], root);
+  git(['config', 'user.email', 'shadow@example.com'], root);
+  await writeFile(path.join(root, 'tracked.txt'), 'tracked\n');
+  git(['add', '.'], root);
+  git(['commit', '-qm', 'initial'], root);
+  await writeFile(path.join(root, 'untracked δ.txt'), 'untracked\n');
+  const observations = [];
+  const result = await new SnapshotCoordinator(root, {
+    gitReadMode: 'shadow',
+    onGitShadowComparison(value) { observations.push(value); }
+  }).capture(async ({ revision }) => ({ repository: {
+    branch: revision.branch,
+    head: revision.head,
+    changedFiles: revision.changedFiles
+  } }), { included: ['repository'], consistency: 'best-effort' });
+  assert.equal(result.repository.branch, 'main');
+  assert.deepEqual(result.repository.changedFiles, ['untracked δ.txt']);
+  assert.equal(observations.length, 2);
+  assert.ok(observations.every((entry) => entry.operation === 'snapshot.repository-revision'));
+  assert.ok(observations.every((entry) => entry.outcome === 'equivalent'));
+  assert.deepEqual(summarizeFosGitShadowObservations(observations), {
+    mode: 'shadow', authoritativePath: 'reference', comparisons: 2,
+    equivalent: 2, semanticMismatch: 0, candidateError: 0, valuesRecorded: false
+  });
+  const cliResult = JSON.parse(execFileSync(process.execPath, [
+    cli, 'snapshot', '--include', 'repository', '--git-shadow', '--json'
+  ], { cwd: root, encoding: 'utf8' }));
+  assert.deepEqual(cliResult.gitShadow, {
+    mode: 'shadow', authoritativePath: 'reference', comparisons: 2,
+    equivalent: 2, semanticMismatch: 0, candidateError: 0, valuesRecorded: false
   });
 });
 

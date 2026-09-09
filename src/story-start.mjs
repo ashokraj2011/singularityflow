@@ -3,6 +3,7 @@ import { assertPlannedClaimsReady, loadDefinition, resolveWorkType } from './con
 import {
   assertClean,
   branch,
+  changes,
   checkout,
   fastForwardTo,
   fetchRemote,
@@ -210,13 +211,48 @@ export async function startStory(root, {
   expectedBaseCommit = null,
   flightPlan = null,
   auto = null,
+  gitReadMode = 'reference',
+  onGitShadowComparison = null,
   astWarmLauncher = undefined,
   afterPublicationAuthorityCapture = null,
   afterPublicationPreflight = null
 } = {}) {
   assertSafeStoryId(id);
+  if (!['reference', 'shadow'].includes(gitReadMode)) {
+    throw new SingularityFlowError(`Unsupported Story-start Git read mode '${gitReadMode}'.`, {
+      code: 'FOS_GIT_SHADOW_MODE_INVALID'
+    });
+  }
   await recoverStoryStart(root, id);
   const localExisted = refExists(root, `refs/heads/${id}`);
+  if (gitReadMode === 'shadow') {
+    const [{ runFosGitShadowRead }, { executeGitQuery }] = await Promise.all([
+      import('./fos-git-shadow.mjs'), import('./git-query.mjs')
+    ]);
+    await runFosGitShadowRead({
+      operation: 'story-start.repository-preflight',
+      mode: 'shadow',
+      reference: () => ({
+        localExisted,
+        branch: branch(root),
+        head: head(root),
+        dirty: Boolean(changes(root).trim())
+      }),
+      candidate: async () => {
+        const [revision, candidateLocalExisted] = await Promise.all([
+          executeGitQuery(root, 'repository.revision'),
+          executeGitQuery(root, 'repository.local-branch-exists', { branch: id })
+        ]);
+        return {
+          localExisted: candidateLocalExisted,
+          branch: revision.branchName,
+          head: revision.commit,
+          dirty: revision.changedFiles.length > 0
+        };
+      },
+      record: onGitShadowComparison
+    });
+  }
   // A local Story is already governed by the exact configuration materialized when it started.
   // Resume it without consulting today's workspace authority or Git network, then verify that its
   // full asset catalog and workflow bind the same immutable pin before opening a session.

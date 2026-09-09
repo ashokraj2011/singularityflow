@@ -21,8 +21,14 @@ async function lightweightRepositorySlice(root, revision) {
 export async function run(argv, { positionals, options }) {
   const root = repoRoot();
   const included = optionStrings(options, 'include');
+  const gitShadow = optionBoolean(options, 'git-shadow');
+  const gitShadowObservations = [];
+  const coordinator = new SnapshotCoordinator(root, gitShadow ? {
+    gitReadMode: 'shadow',
+    onGitShadowComparison(value) { gitShadowObservations.push(value); }
+  } : undefined);
   if (included.length === 1 && included[0] === 'repository') {
-    const result = await new SnapshotCoordinator(root).capture(
+    const result = await coordinator.capture(
       async ({ revision }) => ({ repository: await lightweightRepositorySlice(root, revision) }),
       {
         included,
@@ -33,6 +39,10 @@ export async function run(argv, { positionals, options }) {
         consistency: 'best-effort'
       }
     );
+    if (gitShadow) {
+      const { summarizeFosGitShadowObservations } = await import('../fos-git-shadow.mjs');
+      result.gitShadow = summarizeFosGitShadowObservations(gitShadowObservations);
+    }
     return console.log(JSON.stringify(result, null, 2));
   }
   /**
@@ -72,12 +82,12 @@ export async function run(argv, { positionals, options }) {
    * re-validating the same file for each was measured at seven parses for a single snapshot.
    */
   return withDefinitionCache(async () => {
-    const result = await new SnapshotCoordinator(root).capture(
-      ({ included: requested }) => repositorySnapshot(
+    const result = await coordinator.capture(
+      ({ included: requested, revision }) => repositorySnapshot(
         root,
         positionals[1],
         optionString(options, 'initiative'),
-        { included: requested }
+        { included: requested, revision }
       ),
       {
         included: included.length ? included : undefined,
@@ -86,6 +96,10 @@ export async function run(argv, { positionals, options }) {
         consistency: 'best-effort'
       }
     );
+    if (gitShadow) {
+      const { summarizeFosGitShadowObservations } = await import('../fos-git-shadow.mjs');
+      result.gitShadow = summarizeFosGitShadowObservations(gitShadowObservations);
+    }
     console.log(JSON.stringify(result, null, 2));
     // Timings go to stderr, so the JSON on stdout is the same either way. Preserved exactly as the
     // legacy handler had it: the human form adds the timing line, it does not replace the payload.

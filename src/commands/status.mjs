@@ -24,16 +24,44 @@ function summary(workflow) {
 
 export async function run(_argv, { positionals, options }) {
   const root = repoRoot();
-  const reference = positionals[1] ?? branch(root);
+  const gitShadow = optionBoolean(options, 'git-shadow');
+  const gitShadowObservations = [];
+  let currentBranch = null;
+  if (!positionals[1]) {
+    if (gitShadow) {
+      const [{ runFosGitShadowRead }, { executeGitQuery }] = await Promise.all([
+        import('../fos-git-shadow.mjs'), import('../git-query.mjs')
+      ]);
+      ({ value: currentBranch } = await runFosGitShadowRead({
+        operation: 'status.repository-branch',
+        mode: 'shadow',
+        reference: () => branch(root),
+        candidate: () => executeGitQuery(root, 'repository.branch'),
+        record(value) { gitShadowObservations.push(value); }
+      }));
+    } else currentBranch = branch(root);
+  }
+  const reference = positionals[1] ?? currentBranch;
   const selected = resolveContext(await buildRepositorySubjectIndex(root), {
     reference,
     kind: 'story',
     required: true
   });
   const workflow = selected.state;
-  if (optionBoolean(options, 'json')) return console.log(JSON.stringify(workflow, null, 2));
+  let gitShadowSummary = null;
+  if (gitShadow) {
+    const { summarizeFosGitShadowObservations } = await import('../fos-git-shadow.mjs');
+    gitShadowSummary = summarizeFosGitShadowObservations(gitShadowObservations);
+  }
+  if (optionBoolean(options, 'json')) return console.log(JSON.stringify({
+    ...workflow,
+    ...(gitShadowSummary ? { gitShadow: gitShadowSummary } : {})
+  }, null, 2));
 
   summary(workflow);
+  if (gitShadowSummary) {
+    console.log(`Git shadow: ${gitShadowSummary.equivalent}/${gitShadowSummary.comparisons} equivalent · reference remains authoritative`);
+  }
   console.log(`\n${table(workflow.phaseOrder.map((id, index) => {
     const phase = workflow.phases[id];
     return { index: index + 1, phase: id, agent: phase.defaultAgent ?? '', status: phase.status, artifacts: phase.artifacts.length };

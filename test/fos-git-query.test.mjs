@@ -110,6 +110,43 @@ test('typed status supports the reviewed summary projection without reading untr
   assert.equal(executeGitQuery(root, 'repository.status', { untracked: 'all' }).length, 1);
 });
 
+test('typed revision and local-branch queries preserve branch, HEAD, dirty paths, and literal inputs', async () => {
+  const root = await repository();
+  await writeFile(path.join(root, 'alpha.txt'), 'changed\n');
+  await writeFile(path.join(root, 'space and δ.txt'), 'untracked\n');
+  const revision = executeGitQuery(root, 'repository.revision');
+  assert.equal(revision.branchName, 'main');
+  assert.equal(revision.commit, git(['rev-parse', 'HEAD'], root));
+  assert.deepEqual(revision.changedFiles, ['alpha.txt', 'space and δ.txt']);
+  assert.deepEqual(revision.untrackedFiles, ['space and δ.txt']);
+  assert.equal(executeGitQuery(root, 'repository.local-branch-exists', { branch: 'main' }), true);
+  assert.equal(executeGitQuery(root, 'repository.local-branch-exists', { branch: 'missing' }), false);
+  assert.throws(() => executeGitQuery(root, 'repository.local-branch-exists', {
+    branch: '../unsafe'
+  }), (error) => error.code === 'GIT_QUERY_INPUT_INVALID');
+});
+
+test('FOS:AC-024 porcelain revision parsing preserves hostile literal paths and rename destinations', async () => {
+  const root = await repository();
+  const tabbed = 'tab\tname.txt';
+  const newline = 'line\nname.txt';
+  const renamed = 'renamed\tδ.txt';
+  await writeFile(path.join(root, tabbed), 'tabbed\n');
+  await writeFile(path.join(root, newline), 'newline\n');
+  git(['add', '--', tabbed, newline], root);
+  git(['commit', '-qm', 'hostile paths'], root);
+  git(['mv', '--', tabbed, renamed], root);
+  await writeFile(path.join(root, newline), 'changed\n');
+  await writeFile(path.join(root, '-untracked.txt'), 'leading dash\n');
+  const revision = executeGitQuery(root, 'repository.revision');
+  assert.ok(revision.changedFiles.includes(renamed));
+  assert.ok(revision.changedFiles.includes(newline));
+  assert.ok(revision.changedFiles.includes('-untracked.txt'));
+  assert.equal(revision.changedFiles.includes(tabbed), false,
+    'the rename source is not a second changed destination');
+  assert.deepEqual(revision.untrackedFiles, ['-untracked.txt']);
+});
+
 test('FOS:AC-006 remote identity reads the repository-local literal without URL rewrites', async () => {
   const root = await repository();
   git(['remote', 'add', 'origin', 'https://example.test/repository.git'], root);

@@ -373,8 +373,15 @@ export async function resolveLifecycleCapability(root, {
   required = false,
   offline = false,
   expectedMapSha256 = null,
-  refuseAmbiguous = false
+  refuseAmbiguous = false,
+  gitReadMode = 'reference',
+  onGitShadowComparison = null
 } = {}) {
+  if (!['reference', 'shadow'].includes(gitReadMode)) {
+    throw new SingularityFlowError(`Unsupported capability Git read mode '${gitReadMode}'.`, {
+      code: 'FOS_GIT_SHADOW_MODE_INVALID'
+    });
+  }
   const source = await sourceForRepository(root);
   const applicationRoot = path.resolve(root);
   const scopedConfigurationRoot = configurationReadRoot(root);
@@ -515,7 +522,7 @@ export async function resolveLifecycleCapability(root, {
   // An explicit approved read overlay describes current configuration for new-work surfaces such
   // as Auto planning. Its bytes and provenance must move together even when the launch checkout is
   // an older pinned Story. Ordinary lifecycle calls have no overlay and continue to use the pin.
-  const authorityProvenance = hasApprovedReadScope && approvedReadAuthority
+  let authorityProvenance = hasApprovedReadScope && approvedReadAuthority
     ? {
         // The approved reader freezes this credential-free identity when it selects the ref.
         // Do not reconstruct provenance later from mutable local Git configuration.
@@ -532,18 +539,41 @@ export async function resolveLifecycleCapability(root, {
         commit: pinnedConfiguration.commit,
         authority: 'pinned-story-configuration'
       }
-    : {
-          repository: run('git', ['config', '--get', 'remote.origin.url'], {
-            cwd: mapRoot, allowFailure: true
-          }).stdout.trim() || null,
-          branch: run('git', ['branch', '--show-current'], {
-            cwd: mapRoot, allowFailure: true
-          }).stdout.trim() || null,
-          commit: run('git', ['rev-parse', '--verify', 'HEAD'], {
-            cwd: mapRoot, allowFailure: true
-          }).stdout.trim() || null,
-          authority: 'working-tree'
-      };
+    : null;
+  if (!authorityProvenance) {
+    const reference = () => ({
+      repository: run('git', ['config', '--get', 'remote.origin.url'], {
+        cwd: mapRoot, allowFailure: true
+      }).stdout.trim() || null,
+      branch: run('git', ['branch', '--show-current'], {
+        cwd: mapRoot, allowFailure: true
+      }).stdout.trim() || null,
+      commit: run('git', ['rev-parse', '--verify', 'HEAD'], {
+        cwd: mapRoot, allowFailure: true
+      }).stdout.trim() || null
+    });
+    let projection;
+    if (gitReadMode === 'shadow') {
+      const [{ runFosGitShadowRead }, { executeGitQuery }] = await Promise.all([
+        import('./fos-git-shadow.mjs'), import('./git-query.mjs')
+      ]);
+      ({ value: projection } = await runFosGitShadowRead({
+        operation: 'capability.authority-provenance',
+        mode: 'shadow',
+        reference,
+        candidate: async () => {
+          const [repository, branchName, commit] = await Promise.all([
+            executeGitQuery(mapRoot, 'repository.remote-url', { remote: 'origin' }),
+            executeGitQuery(mapRoot, 'repository.branch'),
+            executeGitQuery(mapRoot, 'repository.head')
+          ]);
+          return { repository, branch: branchName, commit };
+        },
+        record: onGitShadowComparison
+      }));
+    } else projection = reference();
+    authorityProvenance = { ...projection, authority: 'working-tree' };
+  }
   const mode = definition.version === 2 && definition.management?.mode === 'sflow-cli'
     ? 'explicit-managed' : 'explicit-legacy';
   const sourceScope = resolveCapabilitySourceScope(definition, selected);

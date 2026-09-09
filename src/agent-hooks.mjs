@@ -273,7 +273,8 @@ function isConsumedGenerationTerminalCallAllowed(payload, phase) {
   const flow = '(?:singularity-flow|sflow)';
   const id = '[A-Za-z0-9._-]+';
   const safeFlow = [
-    `^${flow} (?:nextsteps|status)(?: ${id})?(?: --json)?$`,
+    `^${flow} nextsteps(?: ${id})?(?: --json)?$`,
+    `^${flow} status(?: ${id})?(?: --git-shadow)?(?: --json)?$`,
     `^${flow} recover ${id}(?: --phase ${id})?(?: --json)?$`,
     `^${flow} phase begin ${phase.id}(?: --adopt-existing --confirm sha256:[a-f0-9]{64})?(?: --json)?$`,
     `^${flow} phase rollover ${phase.id}(?: --json| --confirm sha256:[a-f0-9]{64})?$`,
@@ -285,6 +286,8 @@ function isConsumedGenerationTerminalCallAllowed(payload, phase) {
     `^${flow} choices (?:begin|answer|status)(?: [A-Za-z0-9._:/-]+)*?(?: --json)?$`,
     `^${flow} (?:approve|reject|cancel) (?:[^;&|]+)$`,
     `^${flow} workspace current(?: --git-shadow)?(?: --json)?$`,
+    `^${flow} snapshot(?: ${id})?(?: --include ${id})*(?: --if-revision sha256:[a-f0-9]{64})?(?: --timings)?(?: --git-shadow)? --json$`,
+    `^${flow} capability show(?: [A-Za-z0-9._/-]+)?(?: --verbose)?(?: --git-shadow)?(?: --json)?$`,
     `^${flow} session status(?: --json)?$`
   ];
   if (safeFlow.some((pattern) => new RegExp(pattern).test(command))) return true;

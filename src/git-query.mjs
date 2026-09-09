@@ -1,6 +1,7 @@
 import path from 'node:path';
 
 import { incrementCommandCounter } from './dx-timing-context.mjs';
+import { parsePorcelainV2Revision } from './git-status-projection.mjs';
 import { run, SingularityFlowError } from './util.mjs';
 
 function freezeDeep(value) {
@@ -31,6 +32,18 @@ function descriptor(id, {
     id, executable: 'git', argv, parser, dependency, allowFailure,
     network, effects, environment: [...environment], timeoutClass: network ? 'remote-read' : 'local-read'
   });
+}
+
+function localBranchName(params) {
+  const branch = String(params?.branch ?? '');
+  if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{0,255}$/.test(branch)
+      || branch.endsWith('.') || branch.endsWith('/') || branch.includes('..')
+      || branch.includes('//') || branch.includes('@{') || branch.includes('/.')) {
+    throw new SingularityFlowError('Local branch names must be a safe literal Git branch.', {
+      code: 'GIT_QUERY_INPUT_INVALID'
+    });
+  }
+  return branch;
 }
 
 const descriptors = [
@@ -64,6 +77,11 @@ const descriptors = [
     argv: () => ['symbolic-ref', '--quiet', '--short', 'HEAD'], allowFailure: true,
     parser: (result) => result.status === 0 ? text(result) : null
   }),
+  descriptor('repository.local-branch-exists', {
+    argv: (params) => ['show-ref', '--verify', '--quiet', `refs/heads/${localBranchName(params)}`],
+    allowFailure: true,
+    parser: (result) => result.status === 0
+  }),
   descriptor('repository.status', {
     argv(params) {
       const untracked = params?.untracked ?? 'all';
@@ -75,6 +93,10 @@ const descriptors = [
       return ['status', '--porcelain=v2', '-z', `--untracked-files=${untracked}`];
     },
     parser: nul
+  }),
+  descriptor('repository.revision', {
+    argv: () => ['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all'],
+    parser: (result) => parsePorcelainV2Revision(result.stdout)
   }),
   descriptor('repository.tracked-paths', {
     argv: () => ['ls-files', '-z'], parser: nul

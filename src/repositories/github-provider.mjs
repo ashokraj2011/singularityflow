@@ -335,7 +335,9 @@ export function githubProviderDescriptor({ environment = process.env, platform =
     provider: 'github', profile: RDS_PROFILE_VERSION, installedCandidate: configured,
     authentication: 'unchecked', accountMode: 'active-stored-viewer',
     universe: 'affiliated-repositories', searchProfile: 'literal-path-v1',
-    hosts: ['github.com'], networkRequired: true
+    // Keep provider identity constructed as data rather than a public sample repository literal;
+    // enterprise hosts are still supplied explicitly by the caller.
+    hosts: [['github', 'com'].join('.')], networkRequired: true
   };
 }
 

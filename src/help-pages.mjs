@@ -1033,6 +1033,8 @@ const PAGES = Object.freeze({
       ['--title TEXT', 'Story title, when there is no tracker to read it from.'],
       ['--jira', 'Read the Story from Jira instead of the command line.'],
       ['--story-file FILE', 'Read the Story from a YAML file.'],
+      ['--reference-repository ID=URL', 'Repeatable read-only source repository. Pair every entry with the same ID in --reference-branch.'],
+      ['--reference-branch ID=BRANCH', 'Branch to resolve and freeze as an exact reference commit before Story mutation.'],
       ['--target-url URL', 'Exact authorized browser target. Required by the POC workflow and pinned into Story state.'],
       ['--base BRANCH', 'Cut from this branch instead of the configured default.'],
       ['--fetch', 'Fetch the remote before creating the branch.'],
@@ -1687,12 +1689,18 @@ const PAGES = Object.freeze({
     description: [
       'New Stories carry an immutable workflow snapshot containing the exact effective policy,',
       'phase templates, and selected governed-agent bytes. The workflow show, verify, and drift',
-      'actions inspect that closure without fetching a remote or changing lifecycle state.'
+      'actions inspect that closure without fetching a remote or changing lifecycle state.',
+      '',
+      'Reference repositories are separate from capability delivery repositories. Their branch is',
+      'resolved at intake, the exact commit is pinned, and each laptop materializes a detached,',
+      'ignored checkout. SFlow never creates branches, commits, or pushes in those repositories.'
     ],
     examples: [
       ['singularity-flow story workflow show --work-id PAY-1', 'Show the accepted snapshot reference and closure summary.'],
       ['singularity-flow story workflow verify --work-id PAY-1 --json', 'Verify every content-addressed blob and the effective-policy fold.'],
       ['singularity-flow story workflow drift --work-id PAY-1', 'Compare pinned provenance with the locally approved configuration observation.'],
+      ['singularity-flow story references verify --work-id PAY-1 --json', 'Verify every local reference is clean, detached, and at its pinned commit.'],
+      ['singularity-flow story references materialize --work-id PAY-1', 'Recreate only missing local reference checkouts from immutable Story pins.'],
       ['singularity-flow story branch create --parent PAY-1 --name PAY-1-ui', 'Create a governed child branch.'],
       ['singularity-flow story intent-amendment propose --file amended-spec.md --reason "Retry policy changed"', 'Propose corrected intent for an update-intent finding without editing the approved specification.'],
       ['singularity-flow story checks PAY-1', 'Record configured repository-check evidence against the submitted packet.']

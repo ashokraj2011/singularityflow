@@ -1589,6 +1589,22 @@ singularity-flow start WORK-123 \
 
 `--document` and `--document-url` may be repeated. A story file may also declare a `documents` list containing paths, URLs, optional labels, and kinds. Relative document paths are resolved from the story file's directory. The command creates and pushes `source.json`, a readable `USER-STORY.md`, the workflow state, and each copied document with a stable `DOC-nnn` identifier. It still asks the contributor to choose the workflow template; the phase agent is automatic interactively.
 
+When existing code is reference-only, attach its repository and branch without making it a writable
+Capability member:
+
+```sh
+singularity-flow start SPARK-RULES-1 --from-branch main \
+  --work-type reference-driven-build \
+  --title "Create PySpark batch rule evaluation" \
+  --description "Use the Java API as reference; deliver only to this PySpark repository" \
+  --reference-repository java-rule-engine=https://github.example/office/java-rule-engine.git \
+  --reference-branch java-rule-engine=release/2026-q3
+```
+
+SFlow resolves the branch to an exact SHA before Story mutation, stores that immutable pin in the
+Story, and materializes a detached, ignored checkout for generation. It never branches, commits, or
+pushes the reference repository. See [Reference repositories at Story intake](docs/REFERENCE-REPOSITORIES.md).
+
 For a short manual request without a story file:
 
 ```bash

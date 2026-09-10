@@ -195,7 +195,7 @@ export class IntakePanel {
           profileReason?: string | null;
           storyWorkflows?: {
             id?: string; label?: string; description?: string; phases?: string[]; governs?: string;
-            installed?: boolean;
+            installed?: boolean; references?: 'off' | 'optional' | 'required';
           }[];
           workflowReason?: string | null;
         };
@@ -209,7 +209,7 @@ export class IntakePanel {
       const storyWorkflows: ProfileChoice[] = (listed.intake?.storyWorkflows ?? []).filter((entry) =>
         entry.id && entry.governs === 'story' && entry.installed !== false).map((entry) => ({
         id: entry.id!, label: entry.label ?? entry.id!, description: entry.description ?? '',
-        phases: entry.phases ?? []
+        phases: entry.phases ?? [], referenceMode: entry.references ?? 'optional'
       }));
       const unreachable = listed.unreachable ?? [];
       if (listed.intake?.profileReason) {
@@ -292,7 +292,10 @@ export class IntakePanel {
   }
 
   /** The fields this form will write. Anything else named by the page is refused. */
-  private static readonly WRITABLE = Object.freeze(['key', 'id', 'title', 'description', 'goal', 'acceptanceCriteria', 'targetUrl']);
+  private static readonly WRITABLE = Object.freeze([
+    'key', 'id', 'title', 'description', 'goal', 'acceptanceCriteria', 'targetUrl',
+    'referenceRepositories'
+  ]);
 
   /**
    * The eight messages this panel speaks, enumerated. `[UXH:REQ-134]` `[UXH:AC-014]`

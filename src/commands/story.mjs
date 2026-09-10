@@ -79,6 +79,9 @@ import { capabilityBaseForRepository, prepareCapabilityRepositories, printCapabi
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
 import { recordSha256 } from '../records.mjs';
 import { verifyWorkflowSnapshot, workflowSnapshotDrift } from '../workflow-snapshots.mjs';
+import {
+  materializeReferenceRepositories, storyReferenceRepositories, verifyReferenceRepositories
+} from '../reference-repositories.mjs';
 
 /**
  * Commands this service delegates to that still live in the router. Dynamic so the cycle stays
@@ -441,6 +444,40 @@ export async function storyCommand(positionals, options) {
   if (subcommand === 'inbox') return storyInboxCommand(options);
   if (subcommand === 'fetch') return storyFetchCommand(positionals, options);
   const config = await loadConfig(root);
+  if (subcommand === 'references') {
+    const action = positionals[2] ?? 'list';
+    const workId = positionals[3] ?? optionString(options, 'work-id');
+    const workflow = await loadStoryAggregate(root, config, workId);
+    const references = await storyReferenceRepositories(root, config, workflow);
+    if (action === 'materialize') {
+      await materializeReferenceRepositories(root, references);
+    } else if (!['list', 'verify'].includes(action)) {
+      throw new SingularityFlowError(`Unknown Story references action '${action}'.`);
+    }
+    const verification = await verifyReferenceRepositories(root, references);
+    const result = {
+      workId: workflow.workItem.id,
+      immutable: true,
+      deliveryRepositoriesChanged: false,
+      ...verification
+    };
+    if (action === 'verify' && verification.status === 'blocked') {
+      throw new SingularityFlowError(
+        `Story '${workflow.workItem.id}' reference repositories are not ready. ${verification.nextAction
+          ? `Run: ${verification.nextAction.replace('<WORK-ID>', workflow.workItem.id)}` : 'Inspect the reported local checkout.'}`,
+        { code: 'REFERENCE_REPOSITORIES_NOT_READY', details: result }
+      );
+    }
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`Story reference repositories — ${workflow.workItem.id}`);
+    if (!references.length) return console.log('No reference repositories were pinned at intake.');
+    for (const entry of verification.repositories) {
+      console.log(`${entry.status === 'ready' ? '✓' : entry.status === 'missing' ? '○' : '✗'} ${entry.id} · ${entry.requestedBranch} @ ${entry.commit.slice(0, 12)} · ${entry.localPath}`);
+      if (entry.reason) console.warn(`  ${entry.reason}`);
+    }
+    if (verification.nextAction) console.log(`Next: ${verification.nextAction.replace('<WORK-ID>', workflow.workItem.id)}`);
+    return;
+  }
   if (subcommand === 'workflow') {
     const action = positionals[2] ?? 'show';
     const workId = positionals[3] ?? optionString(options, 'work-id');

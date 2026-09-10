@@ -145,6 +145,7 @@
   "adhoc-promotion-checkpoint": [{ "schemaVersion": 1 }],
   "harness-event": [{ "schemaVersion": 1 }],
   "workflow-snapshot-reference": [{ "schemaVersion": 1 }],
+  "story-reference-repository-set": [{ "schemaVersion": 1 }],
   "workflow-snapshot": [{ "schemaVersion": 1 }],
   "story-workflow": [{ "schemaVersion": 1, "workItem": { "id": "OLD-1", "branch": "OLD-1" }, "phaseOrder": [], "phases": {} }, { "schemaVersion": 2 }, { "schemaVersion": 3 }, { "schemaVersion": 4 }, { "schemaVersion": 5, "workflowSnapshot": null }],
   "action-plan": [{ "schemaVersion": 1, "workId": "OLD-1", "revision": {}, "actions": [] }, { "schemaVersion": 2 }],

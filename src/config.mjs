@@ -93,6 +93,21 @@ export const SEQUENCE_GATE_IDS = [
   'generationCommit', 'remoteGeneration', 'publicationPending', 'documentPhase', 'binding'
 ];
 const SEQUENCE_GATE_MODES = new Set(['hard', 'soft']);
+const REFERENCE_REPOSITORY_MODES = new Set(['off', 'optional', 'required']);
+
+export function normalizeReferenceRepositoryPolicy(value = null, label = 'Reference repository policy') {
+  const source = typeof value === 'string' ? { mode: value } : value ?? {};
+  if (!source || typeof source !== 'object' || Array.isArray(source)) {
+    throw new SingularityFlowError(`${label} must be off, optional, required, or an object with mode.`);
+  }
+  const unknown = Object.keys(source).filter((key) => key !== 'mode');
+  if (unknown.length) throw new SingularityFlowError(`${label} contains unknown field '${unknown[0]}'.`);
+  const mode = source.mode ?? 'optional';
+  if (!REFERENCE_REPOSITORY_MODES.has(mode)) {
+    throw new SingularityFlowError(`${label}.mode must be off, optional, or required.`);
+  }
+  return { mode };
+}
 
 /**
  * Exact packaged version-2 profiles that predate the planned-claim topology contract.
@@ -913,6 +928,9 @@ export function validateDefinition(definition) {
     workType.verification = normalizeVerificationPolicy(workType.verification, { phases: workType.phases });
     workType.intelligence = normalizeWorkTypeIntelligence(workType.intelligence, `Work type '${id}' intelligence`);
     workType.auto = normalizeAutoWorkTypePolicy(workType.auto, `Work type '${id}' auto`, workType.phases);
+    workType.references = normalizeReferenceRepositoryPolicy(
+      workType.references, `Work type '${id}' references`
+    );
     workType.spec = normalizeSpecPolicy({ ...(definition.spec ?? {}), ...(workType.spec ?? {}) });
   }
   if (definition.noModel != null) {
@@ -1516,6 +1534,9 @@ export function resolveWorkType(definition, workTypeId) {
     contextPolicy,
     tokenEconomy,
     intelligence,
+    referenceRepositoryPolicy: normalizeReferenceRepositoryPolicy(
+      workType.references, `Work type '${workTypeId}' references`
+    ),
     worldModelGrounding: worldModelModeForIntelligence(groundingMode(definition), intelligence),
     ledger: normalizeLedgerConfig(definition.ledger ?? {}),
     // Pinned into the Story's resolution like every other policy `[SPK:REQ-110]`, so a later edit to
@@ -1615,6 +1636,9 @@ export async function snapshotResolution(root, definition, resolved) {
     artifactSets: structuredClone(resolved.artifactSets ?? normalizeArtifactSets(definition.artifactSets)),
     harnessImports: structuredClone(resolved.harnessImports ?? normalizeHarnessImports(definition.harnessImports)),
     intelligence: structuredClone(resolved.intelligence ?? normalizeWorkTypeIntelligence()),
+    referenceRepositoryPolicy: structuredClone(
+      resolved.referenceRepositoryPolicy ?? normalizeReferenceRepositoryPolicy()
+    ),
     impact: impact ? structuredClone(impact) : null,
     agents,
     mcpServers: structuredClone(definition.mcpServers ?? {}),

@@ -1236,6 +1236,30 @@ singularity-flow start WORK-123 --title "Add customer search" \
 /sf-start WORK-123
 ```
 
+### New repository built from existing repositories
+
+Use the `reference-driven-build` workflow when the current repository is the new
+delivery target and one or more existing repositories are read-only design or
+behavioral inputs. Each reference requires an explicit credential-free Git URL
+and branch. Intake resolves the branch once to an exact commit, creates a local
+detached checkout under `.singularity-flow/reference-repositories/`, and pins it
+in the Story. SFlow never creates a branch, commit, or push in a reference.
+
+```bash
+singularity-flow start SPARK-RULES-1 \
+  --from-branch main \
+  --work-type reference-driven-build \
+  --title "Create the PySpark batch rule engine" \
+  --description "Reproduce approved Java rule behavior in a new PySpark repository" \
+  --acceptance-criteria "Batch evaluation matches the approved reference cases" \
+  --reference-repository java-rule-engine=https://git.example.test/rules/java-rule-engine.git \
+  --reference-branch java-rule-engine=release/2026-q3
+```
+
+Inspect or reproduce the exact inputs with `singularity-flow story references
+list|verify|materialize --work-id SPARK-RULES-1`. See
+`docs/REFERENCE-REPOSITORIES.md` for multiple references and recovery behavior.
+
 After intake, use `/sf-nextsteps`, `/sf-phase`, `/sf-submit`, and `/sf-progress`.
 Generated artifacts and approvals appear in the VS Code **Inbox** and **Lifecycle**
 views. A developer finishes with `singularity-flow story finalize`; an Epic owner
@@ -2930,7 +2954,7 @@ singularity-flow fresh-install [--checkout DIRECTORY] [--yes] [--registry URL] [
 singularity-flow choices begin|answer|status ...
 singularity-flow clarification status [PHASE] [--json]
 singularity-flow clarification record [PHASE] (--question TEXT --answer TEXT | --response-file FILE) [--json]
-singularity-flow start <WORK-ID> --from-branch BRANCH [--jira | --story-file FILE] [--work-type ID] [--agent ID] [--ref CANONICAL-BRANCH] [--isolated-worktree]
+singularity-flow start <WORK-ID> --from-branch BRANCH [--jira | --story-file FILE] [--work-type ID] [--agent ID] [--ref CANONICAL-BRANCH] [--reference-repository ID=URL --reference-branch ID=BRANCH]... [--isolated-worktree]
 singularity-flow resume <WORK-ID|BRANCH> [--fetch]
 singularity-flow return <WORK-ID> [--apply --confirm WORK-ID] [--remote REMOTE] [--json]
 singularity-flow agent [WORK-ID]
@@ -3263,6 +3287,7 @@ singularity-flow home [--workspace ID] [--request TEXT] [--json]
 singularity-flow journal today|refresh|settings|pause|resume|delete|export|doctor ...
 singularity-flow recommend [--workspace ID] [--json]
 singularity-flow workspace list|current|use|prompt|copilot
+singularity-flow repositories providers|list|search|status|select|cache ...
 singularity-flow knowledge list|show|record|import|harvest|resolve ...
 singularity-flow knowledge import <REPOSITORY-RELATIVE-MANIFEST.json|yaml|yml> [--dry-run] [--json]
 singularity-flow capability tree|show|of|add|set|remove|map|edit|world-model|organisation|leads
@@ -3272,6 +3297,7 @@ singularity-flow secrets protect [--force]
 singularity-flow bootstrap <REPOSITORY-URL> --capability ID [--name TEXT] [--kind collection|delivery] [--into DIR] [--no-push]
 singularity-flow story branch create|attach|status|promote
 singularity-flow story interval status|checkpoint|reconcile|escalate
+singularity-flow story references list|verify|materialize [--work-id WORK-ID] [--json]
 singularity-flow story start|inbox|fetch|checks|finalize
 singularity-flow story return [WORK-ID] [--json]
 singularity-flow story submit

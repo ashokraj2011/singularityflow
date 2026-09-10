@@ -58,11 +58,15 @@ async function write(root, relative, contents) {
 
 test('no spec-driven policy hangs off a phase a legacy work type also runs', async () => {
   const definition = YAML.parse(await readFile(path.join(packageRoot, 'templates/workflow.yml'), 'utf8'));
-  const specDriven = new Set(definition.workTypes['spec-driven-standard'].phases);
+  const specDrivenWorkTypes = new Set(Object.entries(definition.workTypes)
+    .filter(([workType, config]) => workType === 'spec-driven-standard' || config.spec?.mode === 'enforce')
+    .map(([workType]) => workType));
+  const specDriven = new Set([...specDrivenWorkTypes]
+    .flatMap((workType) => definition.workTypes[workType].phases));
 
   const shared = new Set();
   for (const [workType, config] of Object.entries(definition.workTypes)) {
-    if (workType === 'spec-driven-standard') continue;
+    if (specDrivenWorkTypes.has(workType)) continue;
     for (const phase of config.phases ?? []) if (specDriven.has(phase)) shared.add(phase);
   }
   // If this is ever empty the test has stopped testing anything — the work types would have to have
@@ -87,7 +91,7 @@ test('no spec-driven policy hangs off a phase a legacy work type also runs', asy
 
   // And the fast path stays a property of the work type that declares it.
   for (const [workType, config] of Object.entries(definition.workTypes)) {
-    if (workType === 'spec-driven-standard') continue;
+    if (specDrivenWorkTypes.has(workType)) continue;
     assert.equal(config.fastPath, undefined, `work type '${workType}' declares a fast path`);
   }
 });

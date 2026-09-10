@@ -692,6 +692,27 @@ workTypes:
       poc-validation: { inputs: [poc-impact-analysis, poc-ui-exploration, poc-test-generation] }
       poc-publication-review: { inputs: [poc-intake, poc-impact-analysis, poc-ui-exploration, poc-test-generation, poc-validation] }
 
+  reference-driven-build:
+    label: Reference-driven build
+    description: Creates a new implementation in the delivery repository from one or more immutable, read-only repository branches pinned at Story intake.
+    references: { mode: required }
+    phases: [specification, planning, implementation, convergence, verification, release]
+    spec: { mode: enforce }
+    plannedClaims:
+      mode: required
+      clausePhases: [specification]
+      owners: { implementation: planning }
+    templateOverrides:
+      specification: spec-driven/spec.md
+      planning: spec-driven/plan.md
+      convergence: spec-driven/convergence.md
+    phaseOverrides:
+      planning: { inputs: [specification] }
+      implementation: { inputs: [specification, planning] }
+      convergence: { inputs: [specification, planning, implementation] }
+      verification: { inputs: [specification, planning, implementation] }
+      release: { inputs: [verification] }
+
   spec-driven-standard:
     label: Spec-Driven Standard
     # This profile promises clause-level continuity. Display-only labels such as "AC-001" must be

@@ -13,6 +13,7 @@ import {
   normalizeArtifactTemplateCompatibility,
   normalizePhaseInputs,
   normalizePlannedClaimsPolicy,
+  normalizeReferenceRepositoryPolicy,
   normalizePlanning,
   normalizeSequenceGates,
   normalizeSessionPolicy,
@@ -180,6 +181,7 @@ test('every shipped workflow profile resolves an explicit safe code-delivery con
     'poc-lite/poc-lite-act',
     'poc-workflow/poc-test-generation',
     'quick-fix/implement',
+    'reference-driven-build/implementation',
     'spec-driven-standard/implementation'
   ]);
   assert.equal(
@@ -187,6 +189,21 @@ test('every shipped workflow profile resolves an explicit safe code-delivery con
     'analyze',
     'the explicitly non-code chore profile must not be silently reclassified'
   );
+});
+
+test('reference repository policy is explicit, validated, and pinned by each work type', async () => {
+  const definition = YAML.parse(await readFile(new URL('../templates/workflow.yml', import.meta.url), 'utf8'));
+  validateDefinition(definition);
+  assert.deepEqual(resolveWorkType(definition, 'feature').referenceRepositoryPolicy, { mode: 'optional' });
+  assert.deepEqual(
+    resolveWorkType(definition, 'reference-driven-build').referenceRepositoryPolicy,
+    { mode: 'required' }
+  );
+  assert.deepEqual(normalizeReferenceRepositoryPolicy('off'), { mode: 'off' });
+  assert.throws(() => normalizeReferenceRepositoryPolicy({ mode: 'sometimes' }), /off, optional, or required/);
+  const invalid = structuredClone(definition);
+  invalid.workTypes.feature.references = { mode: 'optional', mutable: true };
+  assert.throws(() => validateDefinition(invalid), /unknown field 'mutable'/);
 });
 
 test('convergence cannot be configured as a generation-free phase', async () => {
@@ -252,7 +269,7 @@ test('every shipped Story workflow phase renders a contract-consistent guarded a
   const example = YAML.parse(await readFile(new URL('../examples/workflow-with-quality-gates.yml', import.meta.url), 'utf8'));
   validateDefinition(example);
   const matrices = [
-    { name: 'starter', definition: starter, expectedProfiles: 10, expectedPhases: 53 },
+    { name: 'starter', definition: starter, expectedProfiles: 11, expectedPhases: 59 },
     { name: 'quality-gates-example', definition: example, expectedProfiles: 1, expectedPhases: 6 }
   ];
 

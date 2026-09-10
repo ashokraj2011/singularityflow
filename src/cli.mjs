@@ -121,6 +121,10 @@ import { GitRemoteSession, runRemoteGitAsync } from './git-execution.mjs';
 import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
 import { createReviewBundle, reviewHtml, reviewMarkdown, witnessMappingReview } from './review.mjs';
 import { readRecord } from './schema-migrations.mjs';
+import {
+  materializeReferenceRepositories, parseReferenceRepositoryOptions,
+  resolveReferenceRepositoryPins
+} from './reference-repositories.mjs';
 
 import { installWorkflow, simulateWorkflow, simulationText, validateWorkflowCatalog, workflowCatalog, workflowDiff } from './workflow-catalog.mjs';
 import { applyRecovery, assignPhase, recoveryPlan, recoveryText, watchSnapshot, watchText } from './collaboration.mjs';
@@ -881,6 +885,9 @@ export async function startCommand(positionals, options) {
   const acceptanceCriteria = optionString(options, 'acceptance-criteria');
   const explicitFiles = optionStrings(options, 'document');
   const explicitUrls = optionStrings(options, 'document-url');
+  const referenceRequests = parseReferenceRepositoryOptions(
+    optionStrings(options, 'reference-repository'), optionStrings(options, 'reference-branch')
+  );
   const hasManualInput = Boolean(storyFile || title || description || acceptanceCriteria || explicitFiles.length || explicitUrls.length);
   const declaredSource = githubReference ? 'github-issue' : jira ? 'jira' : hasManualInput ? 'manual' : null;
   let externalSourcePromise = null;
@@ -934,6 +941,12 @@ export async function startCommand(positionals, options) {
     ? await durableStoryAtRef(localStoryRef, canonicalBranch)
     : null;
   if (localStory) {
+    if (referenceRequests.length) {
+      throw new SingularityFlowError(
+        `Story '${id}' already exists. Reference repositories are immutable intake inputs; inspect its pinned set with singularity-flow story references list --work-id ${id}.`,
+        { code: 'REFERENCE_REPOSITORY_STORY_EXISTS' }
+      );
+    }
     const requested = await externalSource();
     const existingIdentity = workflowSourceIdentity(localStory.state);
     if (requested?.stableId && existingIdentity && requested.stableId !== existingIdentity) {
@@ -1039,6 +1052,12 @@ export async function startCommand(positionals, options) {
     await fetchRemote(root, remote);
     const remoteStory = await durableStoryAtRef(remoteStoryRef, canonicalBranch);
     if (remoteStory) {
+      if (referenceRequests.length) {
+        throw new SingularityFlowError(
+          `Published Story '${id}' already exists. Reference repositories cannot be added during resume.`,
+          { code: 'REFERENCE_REPOSITORY_STORY_EXISTS' }
+        );
+      }
       const requested = await externalSource();
       const existingIdentity = workflowSourceIdentity(remoteStory.state);
       if (requested?.stableId && existingIdentity && requested.stableId !== existingIdentity) {
@@ -1076,6 +1095,13 @@ export async function startCommand(positionals, options) {
       reference: requestedExternalSource.stableId, kind: 'story', required: false
     });
     if (existing) {
+      if (referenceRequests.length) {
+        throw new SingularityFlowError(
+          `Source ${requestedExternalSource.stableId} is already governed as Story '${existing.id}'. `
+          + 'Reference repositories are immutable intake inputs and cannot be added while attaching.',
+          { code: 'REFERENCE_REPOSITORY_STORY_EXISTS' }
+        );
+      }
       if (!optionBoolean(options, 'json')) {
         console.log(`Source ${requestedExternalSource.stableId} is already governed as ${existing.id}; attaching instead of creating ${id}.`);
       }
@@ -1267,6 +1293,9 @@ export async function startCommand(positionals, options) {
     const startDefinition = approvedConfigurationSnapshot?.definition ?? config;
     if (startDefinition) await selectWorkType(startDefinition, { selection: preselectedWorkType });
   }
+  // A reference branch is observed before the Story branch, session, or working tree changes. The
+  // exact advertised object ID—not the moving branch name—is the input carried into creation.
+  const referencePins = await resolveReferenceRepositoryPins(referenceRequests);
   capabilityPreflight = storyBase.scope === 'capability'
     ? await preflightStoryRepositories(storyBase.workspaceRoot, storyBase.plan, canonicalBranch, {
         remote, publishRequired, lifecycleRoot: root, capabilityId: storyBase.capability,
@@ -1481,6 +1510,25 @@ export async function startCommand(positionals, options) {
   });
   if (targetOrigin) source = { ...source, targetOrigin };
   const resolvedWorkType = assertPlannedClaimsReady(resolveWorkType(config, workType));
+  // Materialize only after the user has selected a work type and its policy has resolved. This
+  // prevents an interactive cancellation or a reference-forbidden workflow from leaving an
+  // orphaned checkout. The checkout remains machine-local, ignored and detached; it is never a
+  // delivery repository and SFlow never resets, branches, commits, or pushes it.
+  const referenceMode = resolvedWorkType.referenceRepositoryPolicy?.mode ?? 'optional';
+  if (referenceMode === 'off' && referencePins.length) {
+    throw new SingularityFlowError(
+      `Work type '${workType}' does not allow reference repositories.`,
+      { code: 'REFERENCE_REPOSITORIES_NOT_ALLOWED' }
+    );
+  }
+  if (referenceMode === 'required' && !referencePins.length) {
+    throw new SingularityFlowError(
+      `Work type '${workType}' requires at least one read-only reference repository at intake. `
+      + 'Pass paired --reference-repository ID=URL and --reference-branch ID=BRANCH options.',
+      { code: 'REFERENCE_REPOSITORIES_REQUIRED' }
+    );
+  }
+  const referenceRepositories = await materializeReferenceRepositories(root, referencePins);
   const selectedAgent = await activatePhaseAgent(
     root, config, id, resolvedWorkType.phases[0], optionString(options, 'agent') ?? null
   );
@@ -1533,6 +1581,7 @@ export async function startCommand(positionals, options) {
           // creation guard applies it only when resolution selected a capability, including one
           // inferred from the approved map; collection-only catalogs remain capability-free.
           capabilityMapSha256: configurationSnapshot?.files?.[CAPABILITIES_PATH] ?? null,
+          referenceRepositories,
           worldModelAuthorityRefreshes: preflightWorldModelAuthorityRefreshes(capabilityPreflight)
         });
         returnLocator = await writeReturnLocator(root, config, workflow);
@@ -10862,7 +10911,8 @@ async function workspaceCommand(positionals, options) {
           // pin from this already-validated approved definition. Re-reading the packaged workflow
           // catalog would load configuration again only to filter every uninstalled row back out.
           storyWorkflows: Object.entries(definition.workTypes).map(([id, workflow]) => ({
-            id, label: workflow.label ?? id, phases: workflow.phases ?? [],
+            id, label: workflow.label ?? id, description: workflow.description ?? '',
+            phases: workflow.phases ?? [], references: workflow.references?.mode ?? 'optional',
             governs: 'story', installed: true
           })),
           workflowReason: null

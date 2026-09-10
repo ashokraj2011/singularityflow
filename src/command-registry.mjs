@@ -272,8 +272,10 @@ const STORY_INTERVAL_ACTIONS = Object.freeze(['status', 'checkpoint', 'reconcile
 const STORY_BRANCH_ACTIONS = Object.freeze(['status', 'create', 'attach', 'promote']);
 const STORY_INTENT_AMENDMENT_ACTIONS = Object.freeze(['status', 'propose', 'decide', 'acknowledge']);
 const STORY_WORKFLOW_ACTIONS = Object.freeze(['show', 'verify', 'drift']);
+const STORY_REFERENCE_ACTIONS = Object.freeze(['list', 'verify', 'materialize']);
 const STORY_SUBCOMMANDS = Object.freeze([
-  'converge', 'interval', 'branch', 'intent-amendment', 'workflow', ...STORY_READ_SUBCOMMANDS, ...STORY_MUTATION_SUBCOMMANDS
+  'converge', 'interval', 'branch', 'intent-amendment', 'workflow', 'references',
+  ...STORY_READ_SUBCOMMANDS, ...STORY_MUTATION_SUBCOMMANDS
 ]);
 const SESSION_READ_SUBCOMMANDS = Object.freeze(['current', 'doctor', 'context', 'candidates', 'status']);
 const SESSION_MUTATION_SUBCOMMANDS = Object.freeze(['workspace', 'attach', 'repair-selection']);
@@ -606,6 +608,13 @@ function resolveStoryOperation(definition, positionals, options) {
       return unknownSubcommand('story workflow', action, STORY_WORKFLOW_ACTIONS, 'action');
     }
     return never(`story.workflow.${action}`, definition, 'read');
+  }
+  if (subcommand === 'references') {
+    const action = positionals[2] ?? 'list';
+    if (!STORY_REFERENCE_ACTIONS.includes(action)) {
+      return unknownSubcommand('story references', action, STORY_REFERENCE_ACTIONS, 'action');
+    }
+    return never(`story.references.${action}`, definition, action === 'materialize' ? 'mutation' : 'read');
   }
   if (subcommand === 'interval') {
     const action = positionals[2] ?? 'status';
@@ -1389,6 +1398,9 @@ export function operationCatalog() {
       .map((name) => never(`story.intent-amendment.${name}`, storyDefinition, name === 'status' ? 'read' : 'mutation')),
     ...STORY_WORKFLOW_ACTIONS
       .map((name) => never(`story.workflow.${name}`, storyDefinition, 'read')),
+    ...STORY_REFERENCE_ACTIONS
+      .map((name) => never(`story.references.${name}`, storyDefinition,
+        name === 'materialize' ? 'mutation' : 'read')),
     ...SESSION_READ_SUBCOMMANDS.map((name) => never(`session.${name}`, sessionDefinition, 'read')),
     ...SESSION_MUTATION_SUBCOMMANDS.map((name) => never(`session.${name}`, sessionDefinition, 'mutation')),
     ...CAPABILITY_READ_SUBCOMMANDS.map((name) => never(`capability.${name}`, capabilityDefinition, 'read')),

@@ -56,7 +56,7 @@ const REFRESH_CACHE_PROCESS_TOKEN = randomUUID();
 // These profiles are part of the executable product contract, not optional catalog samples. They
 // may remain unused, but an upgraded approved configuration must keep them available so the CLI,
 // Copilot skills and VS Code all expose the same standard product surface.
-const REQUIRED_PACKAGED_WORK_TYPES = Object.freeze(['spec-driven-standard']);
+const REQUIRED_PACKAGED_WORK_TYPES = Object.freeze(['spec-driven-standard', 'reference-driven-build']);
 
 const FIXED_PACKAGE_ASSETS = Object.freeze([
   ['agent-mappings.yml', 'singularity/agent-mappings.yml'],

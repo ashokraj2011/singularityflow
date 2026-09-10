@@ -134,6 +134,10 @@ import {
   captureWorkflowSnapshot, finalizeDraftWorkflowSnapshot, verifyWorkflowSnapshot
 } from './workflow-snapshots.mjs';
 import {
+  referenceRepositoryContextMarkdown, storyReferenceRepositories, verifyReferenceRepositories,
+  writeReferenceRepositoryManifest
+} from './reference-repositories.mjs';
+import {
   assertAutoCandidateMatches, autoCandidatePublicationFromEnvironment,
   observeAutoCandidateWorktree
 } from './auto/auto-candidate.mjs';
@@ -636,6 +640,11 @@ export function storyStatusMarkdown(workflow) {
     ...(workflow.measurement?.plan?.kind === 'prompt-set-randomized'
       ? [`- Prompt study: **${workflow.measurement.plan.variantId}** · \`${workflow.measurement.plan.studyRunId}\``]
       : []),
+    ...((workflow.resolution?.referenceRepositories ?? []).length
+      ? [`- Read-only references: ${(workflow.resolution.referenceRepositories)
+          .map((reference) => `**${reference.id}** \`${reference.requestedBranch}@${reference.commit.slice(0, 12)}\``)
+          .join(', ')}`]
+      : []),
     `- Overall status: **${workflow.status}**`,
     `- Current phase: **${workflow.currentPhase ?? (workflow.status === 'cancelled' ? 'cancelled and archived' : 'complete')}**`,
     ...(workflow.cancellation ? [
@@ -706,6 +715,7 @@ export async function createWorkflow(root, config, {
   id, title, source, baseBranch, baseCommit = null, baseRemote = null,
   canonicalBranch = id, workType, agent, resolved, capabilityId = null,
   capabilityMapSha256 = null,
+  referenceRepositories = [],
   executionOrigin = null,
   worldModelAuthorityRefreshes = {}
 } = {}) {
@@ -741,6 +751,20 @@ export async function createWorkflow(root, config, {
     { ...selectedResolution, storage: structuredClone(config.storage ?? null) },
     capability
   );
+  const referenceMode = resolution.referenceRepositoryPolicy?.mode ?? 'optional';
+  if (referenceMode === 'off' && referenceRepositories.length) {
+    throw new SingularityFlowError(
+      `Work type '${selectedType}' does not allow reference repositories.`,
+      { code: 'REFERENCE_REPOSITORIES_NOT_ALLOWED' }
+    );
+  }
+  if (referenceMode === 'required' && !referenceRepositories.length) {
+    throw new SingularityFlowError(
+      `Work type '${selectedType}' requires at least one read-only reference repository at intake. `
+      + 'Pass paired --reference-repository ID=URL and --reference-branch ID=BRANCH options.',
+      { code: 'REFERENCE_REPOSITORIES_REQUIRED' }
+    );
+  }
   const snapshotState = await snapshotResolution(root, config, resolution);
   const creator = identity(root);
   const pinnedApprovalAuthorities = structuredClone(snapshotState.approvalAuthorities
@@ -775,6 +799,11 @@ export async function createWorkflow(root, config, {
   snapshotState.worldModelStaleness = resolution.worldModelStaleness ?? config.worldModel?.staleness ?? 'warn';
   snapshotState.storage = structuredClone(resolution.storage ?? null);
   snapshotState.capability = capability;
+  snapshotState.referenceRepositories = structuredClone(referenceRepositories.map((reference) => {
+    const durable = { ...reference };
+    delete durable.materialization;
+    return durable;
+  }));
   /**
    * Pin the constitution this Story is held to `[SPK:REQ-091]`.
    *
@@ -912,6 +941,9 @@ export async function createWorkflow(root, config, {
     });
     workflow.resolution.capability = { ...capability, context };
   }
+  const referenceManifest = await writeReferenceRepositoryManifest(
+    root, config, id, workflow.resolution.referenceRepositories ?? []
+  );
   await initializeStoryImpact(root, config, workflow, source);
   for (const [phaseId, template] of Object.entries(workflow.resolution.templates ?? {})) {
     if (template.source !== 'agent' || !template.cachePath) continue;
@@ -925,7 +957,7 @@ export async function createWorkflow(root, config, {
   workflow.workflowSnapshot = await captureWorkflowSnapshot(root, config, workflow);
   await writeJson(sourcePath(root, config, id), source);
   await writeText(userStoryPath(root, config, id), sourceMarkdown(source));
-  await writeText(path.join(workDir(root, config, id), 'README.md'), `# ${id} — ${workflow.workItem.title}\n\nDurable ${selectedType} workflow state for branch \`${id}\`.\n\n- [workflow.json](./workflow.json) — machine state and accepted workflow-snapshot reference\n- [config/wfa/](./config/wfa/) — immutable effective policy, phase templates, and governed-agent bytes\n- [STATUS.md](./STATUS.md) — human status\n- [source.json](./source.json) — source context\n- [USER-STORY.md](./USER-STORY.md) — ${source.type === 'jira' ? 'Jira' : 'manual'} story snapshot\n- [documents.json](./documents.json) — supporting-document catalog (created on first upload)\n- [inputs/](./inputs/) — uploaded files (created on first upload)\n- [context/](./context/) — per-generation prompt-grounding audit records\n- [telemetry/](./telemetry/) — sanitized per-generation model, token, and cost records\n- [artifacts/](./artifacts/) — generated phase artifacts\n- [approvals/](./approvals/) — append-only decisions\n`);
+  await writeText(path.join(workDir(root, config, id), 'README.md'), `# ${id} — ${workflow.workItem.title}\n\nDurable ${selectedType} workflow state for branch \`${id}\`.\n\n- [workflow.json](./workflow.json) — machine state and accepted workflow-snapshot reference\n- [config/wfa/](./config/wfa/) — immutable effective policy, phase templates, and governed-agent bytes\n- [STATUS.md](./STATUS.md) — human status\n- [source.json](./source.json) — source context\n- [USER-STORY.md](./USER-STORY.md) — ${source.type === 'jira' ? 'Jira' : 'manual'} story snapshot\n${referenceManifest ? '- [context/reference-repositories.json](./context/reference-repositories.json) — immutable read-only source repository pins\n' : ''}- [documents.json](./documents.json) — supporting-document catalog (created on first upload)\n- [inputs/](./inputs/) — uploaded files (created on first upload)\n- [context/](./context/) — per-generation prompt-grounding audit records\n- [telemetry/](./telemetry/) — sanitized per-generation model, token, and cost records\n- [artifacts/](./artifacts/) — generated phase artifacts\n- [approvals/](./approvals/) — append-only decisions\n`);
   await ensureWorkIntervalBaseline(root, config, workflow, {
     phaseId: phases[0]?.id,
     itemDirectory: workDir(root, config, id),
@@ -1479,6 +1511,21 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
 } = {}) {
   if (!dryRun) await assertNoPendingPublication(root, config, workflow, 'prepare or change phase inputs');
   const phase = await assertPhaseSequence(root, workflow, 'prepare', { requestedPhase: requested });
+  let references = [];
+  if (!dryRun) {
+    references = await storyReferenceRepositories(root, config, workflow);
+    const referenceStatus = await verifyReferenceRepositories(root, references);
+    if (referenceStatus.status === 'blocked') {
+      const materialize = referenceStatus.nextAction?.replace('<WORK-ID>', workflow.workItem.id);
+      throw new SingularityFlowError(
+        `Phase ${phase.id} reference repositories are not ready. ${materialize
+          ? `Run: ${materialize}`
+          : 'Inspect them with singularity-flow story references list --work-id '
+            + `${workflow.workItem.id}.`}`,
+        { code: 'REFERENCE_REPOSITORIES_NOT_READY', details: referenceStatus }
+      );
+    }
+  }
   const explicitlyReopened = (workflow.changeRequests ?? []).some((request) =>
     request.status === 'open' && request.targetPhase === phase.id)
     || (phase.intentAmendmentRevalidation && !phase.intentAmendmentRevalidation.revalidatedAt);
@@ -1641,6 +1688,12 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
       templateSnapshot: workflow.resolution.templates?.[phase.id]
     });
     text = applyInputsBlock(text, rendered.text, inputs.mode);
+    // The immutable reference set is already captured by the WFA snapshot and its Story manifest.
+    // Put only its bounded identifiers and local detached paths into a newly created phase artifact
+    // so every authoring surface can find the sources without searching home or copying content
+    // into prompts. Never inject this block into an existing, user-authored artifact on a retry.
+    const referenceContext = referenceRepositoryContextMarkdown(references);
+    if (!artifactExistedBeforePreparation && referenceContext) text = `${referenceContext}\n\n${text}`;
     if (!/^<!-- singularity-flow:metadata\n[\s\S]*?\n-->/.test(text)) text = `${artifactMetadataBlock(storyArtifactMetadata(workflow, phase))}\n\n${text}`;
     await writeText(target, text);
     const targetGeneration = Number(phase.generation) + 1;

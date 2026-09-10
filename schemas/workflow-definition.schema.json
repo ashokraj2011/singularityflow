@@ -325,6 +325,7 @@
           "phases": { "type": "array", "minItems": 1, "items": { "type": "string" }, "uniqueItems": true },
           "intelligence": { "$ref": "#/$defs/workTypeIntelligence" },
           "auto": { "$ref": "#/$defs/autoWorkTypePolicy" },
+          "references": { "$ref": "#/$defs/referenceRepositoryPolicy" },
           "plannedClaims": { "$ref": "#/$defs/plannedClaimsPolicy" },
           "templateOverrides": { "type": "object", "additionalProperties": { "type": "string" } },
           "phaseOverrides": {
@@ -712,6 +713,16 @@
         "inventoryDigest": { "enum": ["off", "optional", "required"] }
       },
       "additionalProperties": false
+    },
+    "referenceRepositoryPolicy": {
+      "oneOf": [
+        { "enum": ["off", "optional", "required"] },
+        {
+          "type": "object",
+          "properties": { "mode": { "enum": ["off", "optional", "required"] } },
+          "additionalProperties": false
+        }
+      ]
     },
     "mcpServer": {
       "type": "object",

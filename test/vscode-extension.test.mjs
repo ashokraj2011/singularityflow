@@ -3810,7 +3810,7 @@ test('a failure shows the sentence, not the log line that carries it', () => {
 
 const {
   EMPTY_INTAKE_FORM, SHAPES, intakeCommand, intakeHtml, intakeIdentifier, intakeProblems,
-  mintsIdentifier, needsProfile
+  mintsIdentifier, needsProfile, referenceRepositoryEntries
 } = await import(source('views/intake-form.ts'));
 
 const INTAKE_CHOICES = {
@@ -3986,6 +3986,35 @@ test('a Story is the one shape that asks how it will be judged done', () => {
   assert.match(intakeHtml(form), /Story workflow/);
   assert.match(intakeHtml(form), /data-work-type="feature"/);
   assert.match(intakeHtml(form), /reproduction/);
+});
+
+test('Story intake carries explicit read-only repository URLs and branches without making them delivery repos', () => {
+  const form = intake({
+    shape: 'story', tracker: 'none', id: 'spark-rules', title: 'PySpark rule engine',
+    description: 'Generate a new batch engine from a Java reference',
+    workType: 'reference-driven-build',
+    storyWorkflows: [...INTAKE_CHOICES.storyWorkflows, {
+      id: 'reference-driven-build', label: 'Reference-driven build', description: 'Read-only source',
+      phases: ['specification', 'planning', 'implementation', 'convergence', 'verification', 'release'],
+      referenceMode: 'required'
+    }],
+    referenceRepositories: 'java-rule-engine | https://git.example.test/rules.git | release/2026-q3'
+  });
+  assert.deepEqual(referenceRepositoryEntries(form.referenceRepositories), [{
+    id: 'java-rule-engine', repository: 'https://git.example.test/rules.git', branch: 'release/2026-q3'
+  }]);
+  assert.deepEqual(intakeProblems(form), []);
+  assert.deepEqual(intakeCommand(form).slice(-4), [
+    '--reference-repository', 'java-rule-engine=https://git.example.test/rules.git',
+    '--reference-branch', 'java-rule-engine=release/2026-q3'
+  ]);
+  const html = intakeHtml(form);
+  assert.match(html, /Reference repositories/);
+  assert.match(html, /never receive[\s\S]*branches, commits, or pushes/);
+  assert.match(intakeProblems({ ...form, referenceRepositories: 'Java Rules | URL | main' }).join(' '),
+    /lower-case kebab case/);
+  assert.match(intakeProblems({ ...form, referenceRepositories: '' }).join(' '),
+    /requires at least one read-only reference repository/);
 });
 
 test('a Story requires an explicit base even when only one remote branch is available', () => {

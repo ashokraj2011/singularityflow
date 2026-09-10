@@ -28,6 +28,8 @@ export interface ProfileChoice {
   description: string;
   /** The phases this profile runs, which is what actually differs between them. */
   phases: string[];
+  /** Story reference policy exposed by the approved workflow definition. */
+  referenceMode?: 'off' | 'optional' | 'required';
 }
 
 /** Something already started, so nobody starts it twice. */
@@ -57,6 +59,8 @@ export interface IntakeForm {
   goal: string;
   /** How it will be judged done. A Story asks for it. */
   acceptanceCriteria: string;
+  /** Optional read-only source repositories, one `id | URL | branch` tuple per line. */
+  referenceRepositories: string;
   /** Exact browser origin pinned for the POC workflow. */
   targetUrl: string;
   profile: string | null;
@@ -109,6 +113,7 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   targetWorkspace: null, targetRepository: null, targetBranch: null,
   shape: 'epic', tracker: 'none', key: '', id: '', title: '', description: '', goal: '',
   acceptanceCriteria: '', targetUrl: '', profile: null, profiles: [], workType: null, storyWorkflows: [],
+  referenceRepositories: '',
   baseBranch: null, baseBranchChoices: [], baseRemote: null, baseBranchReason: null,
   basePreflightPassed: false, basePreflightChecking: false, basePreflightReason: null,
   workflowReason: null,
@@ -201,6 +206,17 @@ export function intakeProblems(form: IntakeForm): string[] {
     problems.push('Choose the delivery profile, which decides the phases this runs.');
   }
   if (form.shape === 'story') {
+    let references: ReferenceRepositoryEntry[] = [];
+    try { references = referenceRepositoryEntries(form.referenceRepositories); } catch (error) {
+      problems.push((error as Error).message);
+    }
+    const selectedWorkflow = form.storyWorkflows.find((workflow) => workflow.id === form.workType);
+    if (selectedWorkflow?.referenceMode === 'required' && references.length === 0) {
+      problems.push(`Workflow '${selectedWorkflow.label}' requires at least one read-only reference repository.`);
+    }
+    if (selectedWorkflow?.referenceMode === 'off' && references.length > 0) {
+      problems.push(`Workflow '${selectedWorkflow.label}' does not allow reference repositories.`);
+    }
     if (form.storyWorkflows.length && !form.workType) {
       problems.push('Choose the Story workflow, which decides the phases this runs.');
     } else if (!form.storyWorkflows.length) {
@@ -274,20 +290,53 @@ export function intakeCommand(form: IntakeForm): string[] {
   // One base for the whole capability. Omitted entirely when nothing was chosen, so the
   // single-repository default is reached by the same code path it always was.
   const capabilityBase = form.baseBranch ? ['--from-branch', form.baseBranch] : [];
+  const references = referenceRepositoryEntries(form.referenceRepositories)
+    .flatMap((entry) => ['--reference-repository', `${entry.id}=${entry.repository}`,
+      '--reference-branch', `${entry.id}=${entry.branch}`]);
   const target = form.workType === 'poc-workflow' ? ['--target-url', form.targetUrl.trim()] : [];
   const isolated = ['--isolated-worktree'];
-  if (tracked) return ['story', 'start', identifier, '--json', '--fetch', '--work-type', form.workType!, ...isolated, ...target, ...capabilityBase];
+  if (tracked) return ['story', 'start', identifier, '--json', '--fetch', '--work-type', form.workType!, ...isolated, ...target, ...capabilityBase, ...references];
   if (form.tracker === 'github') {
     return ['start', identifier, '--json', '--fetch', '--github', form.key.trim(),
-      '--work-type', form.workType!, ...isolated, ...target, ...capabilityBase];
+      '--work-type', form.workType!, ...isolated, ...target, ...capabilityBase, ...references];
   }
   const args = ['start', identifier, '--json', '--fetch',
     '--title', form.title.trim(), '--description', form.description.trim(),
-    '--work-type', form.workType!, ...isolated, ...target, ...capabilityBase];
+    '--work-type', form.workType!, ...isolated, ...target, ...capabilityBase, ...references];
   if (form.acceptanceCriteria.trim()) {
     args.push('--acceptance-criteria', form.acceptanceCriteria.trim());
   }
   return args;
+}
+
+interface ReferenceRepositoryEntry { id: string; repository: string; branch: string }
+
+/** Parse the intentionally visible UI tuple; the engine repeats every trust check before mutation. */
+export function referenceRepositoryEntries(value: string): ReferenceRepositoryEntry[] {
+  const entries: ReferenceRepositoryEntry[] = [];
+  const ids = new Set<string>();
+  for (const [index, line] of value.split(/\r?\n/).entries()) {
+    if (!line.trim()) continue;
+    const parts = line.split('|').map((part) => part.trim());
+    if (parts.length !== 3 || parts.some((part) => !part)) {
+      throw new Error(`Reference repository line ${index + 1} must be: lower-kebab-id | Git URL | branch.`);
+    }
+    const [id, repository, branch] = parts as [string, string, string];
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)) {
+      throw new Error(`Reference repository '${id}' must use lower-case kebab case.`);
+    }
+    if (ids.has(id)) throw new Error(`Reference repository '${id}' is listed more than once.`);
+    if (repository.startsWith('-') || /[\u0000-\u001f\u007f]/.test(repository)) {
+      throw new Error(`Reference repository '${id}' has an unsafe Git URL.`);
+    }
+    if (!branch || branch.startsWith('-') || /[\s~^:?*\\\[]/.test(branch) || branch.includes('..')) {
+      throw new Error(`Reference repository '${id}' has an invalid branch.`);
+    }
+    ids.add(id);
+    entries.push({ id, repository, branch });
+  }
+  if (entries.length > 16) throw new Error('A Story may use at most 16 reference repositories.');
+  return entries;
 }
 
 function shapeHtml(form: IntakeForm): string {
@@ -502,6 +551,25 @@ singularity-flow mcp smoke playwright --url ${escape(form.targetUrl || '<AUTHORI
   </section>`;
 }
 
+function referenceRepositoriesHtml(form: IntakeForm): string {
+  if (form.shape !== 'story') return '';
+  const mode = form.storyWorkflows.find((workflow) => workflow.id === form.workType)?.referenceMode
+    ?? 'optional';
+  const requirement = mode === 'required' ? 'required' : mode === 'off' ? 'not used' : 'optional';
+  return `<section>
+    <h2>${icon('repository')}Reference repositories <span class="muted">(${requirement})</span></h2>
+    <p class="question">Pin source that may be inspected during generation but must never receive
+      this Story's branches, commits, or pushes. SFlow resolves the named branch to an exact commit
+      before start and checks out that commit read-only inside the Story workspace.</p>
+    <p><label>One repository per line<br>
+      <textarea data-field="referenceRepositories" rows="4" cols="84"${mode === 'off' ? ' disabled' : ''}
+        placeholder="java-rule-engine | https://github.example/team/rule-engine.git | release/2026-q3">${escape(form.referenceRepositories)}</textarea></label></p>
+    <p class="muted">Format: <code>lower-kebab-id | Git URL | branch</code>. The branch name is
+      recorded for provenance; generation uses the pinned SHA, so later branch changes cannot alter
+      this Story. Reference checkouts are detached, locally ignored, and never delivery targets.</p>
+  </section>`;
+}
+
 /** A workflow reads left-to-right, while wrapping whole steps together on narrow editor columns. */
 function phaseRailHtml(phases: string[]): string {
   const label = `Ordered phases: ${phases.join(', ')}`;
@@ -574,6 +642,7 @@ export function intakeHtml(form: IntakeForm, journey: StartWizardProgress | null
   ${profileHtml(form)}
   ${storyWorkflowHtml(form)}
   ${pocReadinessHtml(form)}
+  ${referenceRepositoriesHtml(form)}
   ${baseBranchHtml(form)}
   ${inFlightHtml(form)}
 

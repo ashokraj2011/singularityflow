@@ -356,5 +356,8 @@ test('explicit remote templates are copied into immutable work-item context', as
   const loaded = await loadDefinition(root); await setAgentSession(root, loaded, { name: 'Agent Tester', email: 'agent@example.com' }, 'architecture', 'ARCH-2'); await syncAgent(root, 'architecture', { fetchImpl });
   const created = await createWorkflow(root, loaded, { id: 'ARCH-2', title: 'Pinned remote template', source: { type: 'manual', key: 'ARCH-2', title: 'Pinned remote template', description: 'Verify immutable template delivery.', acceptanceCriteria: [] }, baseBranch: 'main', workType: 'feature', agent: 'architecture', resolved: resolveWorkType(loaded, 'feature') });
   const template = created.resolution.templates.design;
-  assert.equal(template.source, 'agent'); assert.match(template.path, /context\/agent-templates\/architecture/); assert.equal(await readFile(path.join(root, template.path), 'utf8'), values['https://cdn.example.com/design.md']);
+  assert.equal(template.source, 'workflow-snapshot');
+  assert.match(template.sourcePath, /context\/agent-templates\/architecture/);
+  assert.match(template.path, /config\/wfa\/blobs\/sha256\/[a-f0-9]{64}$/);
+  assert.equal(await readFile(path.join(root, template.path), 'utf8'), values['https://cdn.example.com/design.md']);
 });

@@ -86,7 +86,7 @@ function displayIsSecretOptionKey(value: string): boolean {
   const key = value.replace(/^--/, '');
   return DISPLAY_SECRET_KEY.test(key) || /(?:selection[-_]?receipt|action[-_]?authorization)/i.test(key);
 }
-const DISPLAY_REMOTE_OPTION = /^--(?:repository|repository-url|lead|lead-repository|organisation|url|target-url|output-url|document-url|jira-url|remote|source-remote|origin)$/i;
+const DISPLAY_REMOTE_OPTION = /^--(?:repository|repository-url|reference-repository|lead|lead-repository|organisation|url|target-url|output-url|document-url|jira-url|remote|source-remote|origin)$/i;
 const DISPLAY_CAPABILITY_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DISPLAYABLE_REMOTE_PROTOCOLS = new Set([
   'http:', 'https:', 'ssh:', 'git+ssh:', 'ssh+git:', 'git:', 'file:', 'ftp:', 'ftps:'
@@ -185,13 +185,16 @@ function displayRemoteIsAccepted(value: string): boolean {
 
 function displayRemoteOperand(value: string, allowKeyedPrefix = true): string {
   const normalized = value.trim();
+  const keyed = allowKeyedPrefix ? /^([A-Za-z0-9][A-Za-z0-9._-]*)=(.+)$/s.exec(normalized) : null;
+  if (keyed) return displayIsSecretOptionKey(keyed[1]!)
+    ? '[redacted-remote]'
+    : `${keyed[1]}=${displayRemoteOperand(keyed[2]!, false)}`;
   if (/[\u0000-\u001f\u007f]/.test(normalized) || normalized.startsWith('-') || /^[a-z][a-z0-9+.-]*::/i.test(normalized)
       || /^[^/@\s]*:[^/@\s]*@[^:\s]+:.+/.test(normalized)) return '[redacted-remote]';
   if (normalized.length > MAX_DISPLAY_ARG_CHARS) {
     const prefix = /^([A-Za-z0-9][A-Za-z0-9._-]*)=/.exec(normalized)?.[1];
     return prefix ? `${prefix}=[redacted-remote]` : '[redacted-remote]';
   }
-  void allowKeyedPrefix;
   const scpWithSuffix = !normalized.includes('://') && !normalized.startsWith('//')
     && /^(?:[^/@\s]+@)?[^/:\\\s]+:.+[?#]/.test(normalized);
   if (!scpWithSuffix && displayRemoteIsAccepted(normalized)) {

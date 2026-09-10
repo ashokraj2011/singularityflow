@@ -13,7 +13,9 @@ import { detectorRegistrySha256 } from './detectors.mjs';
 const PRESET_ID = 'sflow.outcome-standard';
 const PRESET_VERSION = 1;
 const RENDERER_ID = 'smart-init-renderer@1';
-const STANDARD_WORK_TYPES = Object.freeze(['feature', 'bugfix', 'chore', 'quick-fix', 'spec-driven-standard']);
+const STANDARD_WORK_TYPES = Object.freeze([
+  'feature', 'bugfix', 'chore', 'quick-fix', 'spec-driven-standard', 'reference-driven-build'
+]);
 
 function sha(bytes) {
   return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;

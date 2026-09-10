@@ -2400,6 +2400,12 @@ const families = [
   family({ id: 'harness-event', currentVersion: 1, paths: [/^\$git\/harness-events\/[0-9a-f-]{36}\.json$/], immutable: true }),
   family({ id: 'workflow-snapshot-reference', currentVersion: 1, immutable: true }),
   family({
+    id: 'story-reference-repository-set', currentVersion: 1, immutable: true,
+    paths: [
+      /^(?:singularity|\.sdlc)\/work-items\/[^/]+\/context\/reference-repositories\.json$/
+    ]
+  }),
+  family({
     id: 'workflow-snapshot', currentVersion: 1, immutable: true,
     paths: [
       /^(?:singularity|\.sdlc)\/work-items\/[^/]+\/config\/wfa\/snapshots\/\d{6}\/manifest\.json$/

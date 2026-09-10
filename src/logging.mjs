@@ -112,7 +112,7 @@ function isSecretOptionKey(value) {
   const key = String(value).replace(/^--/, '');
   return SECRET_KEY.test(key) || /(?:selection[-_]?receipt|action[-_]?authorization)/i.test(key);
 }
-const REMOTE_OPTION = /^--(?:repository|repository-url|lead|lead-repository|organisation|url|target-url|output-url|document-url|jira-url|remote|source-remote|origin)$/i;
+const REMOTE_OPTION = /^--(?:repository|repository-url|reference-repository|lead|lead-repository|organisation|url|target-url|output-url|document-url|jira-url|remote|source-remote|origin)$/i;
 const REMOTE_FIELD = /^(?:remote|url|repository(?:url)?|repository-url|lead(?:repository|url)?|lead-repository|organisation|origin|target-url|output-url|document-url|jira-url|source-remote)$/i;
 const CAPABILITY_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DISPLAYABLE_REMOTE_PROTOCOLS = new Set([
@@ -245,6 +245,10 @@ function redactRemoteOperand(value, allowKeyedPrefix = true) {
   // Remote-consuming command paths normalize surrounding whitespace before validation. Do the
   // same here so a positional URL cannot evade classification by adding one leading space.
   const text = String(value).trim();
+  const keyed = allowKeyedPrefix ? /^([A-Za-z0-9][A-Za-z0-9._-]*)=(.+)$/s.exec(text) : null;
+  if (keyed) return isSecretOptionKey(keyed[1])
+    ? '[redacted-remote]'
+    : `${keyed[1]}=${redactRemoteOperand(keyed[2], false)}`;
   if (/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/.test(text)) return '[redacted-remote]';
   if (text.length > MAX_VALUE_CHARS) {
     const prefix = /^([A-Za-z0-9][A-Za-z0-9._-]*)=/.exec(text)?.[1];
@@ -255,7 +259,6 @@ function redactRemoteOperand(value, allowKeyedPrefix = true) {
   }
   const hierarchicalSyntax = /^(?:[a-z][a-z0-9+.-]*:)?\/\//i.test(text);
   if (!hierarchicalSyntax && remoteOperandContainsSensitiveMaterial(text)) return '[redacted-remote]';
-  void allowKeyedPrefix;
   const scpWithSuffix = !text.includes('://') && !text.startsWith('//')
     && /^(?:[^/@\s]+@)?[^/:\\\s]+:.+[?#]/.test(text);
   // The engine's trust boundary is authoritative. When it accepts an operand, preserve its exact

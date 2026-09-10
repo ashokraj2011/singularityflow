@@ -16,7 +16,7 @@ argument-hint: "<JIRA-STORY-KEY>"
 2. Run `singularity-flow jira pull <STORY-KEY> --json`; show its details before mutation.
 3. Verify its Jira project routes to this repository or active workspace; otherwise switch first.
 4. Run `git status --short`; stop for unrelated changes.
-5. Run `singularity-flow workspace branches --json`. Present branches published by every required repository and require a choice; stop if a remote fails. Start `singularity-flow story start <STORY-KEY> --fetch --from-branch <SELECTED-BRANCH>` interactively and bridge workflow choices through `ask_user`. For `poc-workflow`, ask for the exact authorized target and pass `--target-url <AUTHORIZED-URL>`.
+5. Run `singularity-flow workspace branches --json`. Present branches published by every required delivery repository and require a choice; stop if a remote fails. Ask separately for optional **read-only reference repositories**. Each requires an explicit lower-kebab ID, credential-free Git URL, and branch and becomes paired `--reference-repository ID=URL --reference-branch ID=BRANCH` options. Never infer one or describe it as a delivery repository. Start `singularity-flow story start <STORY-KEY> --fetch --from-branch <SELECTED-BRANCH>` interactively and bridge workflow choices through `ask_user`. For `poc-workflow`, ask for the exact authorized target and pass `--target-url <AUTHORIZED-URL>`.
 6. If persistent terminal input is unavailable:
    - Run `singularity-flow choices begin start <STORY-KEY> --json`.
    - Present and record `base-branch`; never preselect it.

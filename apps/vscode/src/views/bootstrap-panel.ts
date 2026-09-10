@@ -530,10 +530,10 @@ export class BootstrapPanel {
       error: null });
     const argv = ['capability', 'inspect-repository', repositoryUrl, '--json'];
     for (const lead of inspectionLeads) argv.push('--lead', lead);
-    // Resolve the portable state link first and fall back to the bounded local authority registry
-    // when that link is absent. Proposal enumeration remains deferred until the contributor
-    // explicitly selects the authority they are about to mutate.
-    argv.push('--search-known');
+    // Resolve the portable state link first. Reading the machine-local authority registry can fan
+    // out to several remotes, so it is a separate, explicit action offered after this bounded
+    // inspection reports that no portable authority was found.
+    if (options.includeKnownAuthorities) argv.push('--search-known');
     if (explicitLead) argv.push('--include-proposals');
     if (options.includeKnownAuthorities) argv.push('--include-proposals');
     const terminalCommand = `singularity-flow ${formatCliArgsForDisplay(argv)}`;

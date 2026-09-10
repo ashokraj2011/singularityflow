@@ -1639,7 +1639,7 @@ export function normalizeArtifactTemplateCompatibility(text, variables) {
 }
 
 export async function renderArtifactTemplate(root, definition, resolvedPhase, variables) {
-  const relative = variables.templateSnapshot?.source === 'agent'
+  const relative = variables.templateSnapshot?.path
     ? path.join(root, variables.templateSnapshot.path)
     : path.join(root, definition.templatesRoot, resolvedPhase.template);
   const file = await secureRepositoryPath(root, relative, {

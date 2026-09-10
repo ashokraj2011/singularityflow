@@ -485,6 +485,9 @@ Every public operation is classified before its implementation module is importe
 | story.start | mutation | never | — | — |
 | story.status | read | never | — | — |
 | story.submit | mutation | never | — | — |
+| story.workflow.drift | read | never | — | — |
+| story.workflow.show | read | never | — | — |
+| story.workflow.verify | read | never | — | — |
 | submit | mutation | never | — | — |
 | sync | mutation | never | — | — |
 | task.evidence | read | never | — | — |

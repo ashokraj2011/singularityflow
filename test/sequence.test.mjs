@@ -242,7 +242,7 @@ test('sequence gate policy is immutable after work-item creation', async () => {
   await writeFile(workflowFile, `${JSON.stringify(workflow, null, 2)}\n`);
   const validation = flow(root, ['validate'], { allowFailure: true });
   assert.equal(validation.status, 2);
-  assert.match(validation.stderr, /Sequence gate policy differs from the immutable work-type configuration snapshot/);
+  assert.match(validation.stderr, /Workflow compatibility projection differs from its accepted snapshot policy/);
 });
 
 test('Copilot session agent policy is immutable after work-item creation', async () => {
@@ -253,7 +253,7 @@ test('Copilot session agent policy is immutable after work-item creation', async
   await writeFile(workflowFile, `${JSON.stringify(workflow, null, 2)}\n`);
   const validation = flow(root, ['validate'], { allowFailure: true });
   assert.equal(validation.status, 2);
-  assert.match(validation.stderr, /Session governed-agent policy differs from the immutable configuration snapshot/);
+  assert.match(validation.stderr, /Workflow compatibility projection differs from its accepted snapshot policy/);
 });
 
 test('incomplete schema-2 session snapshots are rejected instead of migrated', async () => {
@@ -264,7 +264,20 @@ test('incomplete schema-2 session snapshots are rejected instead of migrated', a
   await writeFile(workflowFile, `${JSON.stringify(workflow, null, 2)}\n`);
   const validation = flow(root, ['validate'], { allowFailure: true });
   assert.equal(validation.status, 2);
-  assert.match(validation.stderr, /Session governed-agent policy differs from the immutable configuration snapshot/);
+  assert.match(validation.stderr, /Workflow compatibility projection differs from its accepted snapshot policy/);
+});
+
+test('an accepted workflow snapshot is not reinterpreted through later workspace defaults', async () => {
+  const root = await repository();
+  const configPath = path.join(root, 'singularity/workflow.yml');
+  const config = YAML.parse(await readFile(configPath, 'utf8'));
+  config.session.requireBeforeTools = !config.session.requireBeforeTools;
+  await writeFile(configPath, YAML.stringify(config));
+
+  const validation = flow(root, ['validate']);
+  assert.equal(validation.status, 0, validation.stderr);
+  assert.doesNotMatch(validation.stderr,
+    /Session governed-agent policy differs from the immutable configuration snapshot/);
 });
 
 test('submitted work blocks generation mutations and rejection requires regeneration', async () => {

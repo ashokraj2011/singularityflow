@@ -1222,6 +1222,16 @@ function storyWorkflowV3ToV4(source) {
   return migrated;
 }
 
+function storyWorkflowV4ToV5(source) {
+  return {
+    ...clone(source),
+    schemaVersion: 5,
+    // A migration cannot manufacture missing historical dependency bytes or acceptance proof.
+    // Only a v5 creation transaction writes an enrolled reference.
+    workflowSnapshot: source.workflowSnapshot ?? null
+  };
+}
+
 function actionPlanV1ToV2(source) {
   const worktreeHash = source.revision?.worktreeHash ?? null;
   return {
@@ -2388,12 +2398,20 @@ const families = [
     paths: [/^\$git\/adhoc\/AHS-[^/]+\/promotion-checkpoint\.json$/]
   }),
   family({ id: 'harness-event', currentVersion: 1, paths: [/^\$git\/harness-events\/[0-9a-f-]{36}\.json$/], immutable: true }),
+  family({ id: 'workflow-snapshot-reference', currentVersion: 1, immutable: true }),
   family({
-    id: 'story-workflow', currentVersion: 4,
+    id: 'workflow-snapshot', currentVersion: 1, immutable: true,
+    paths: [
+      /^(?:singularity|\.sdlc)\/work-items\/[^/]+\/config\/wfa\/snapshots\/\d{6}\/manifest\.json$/
+    ]
+  }),
+  family({
+    id: 'story-workflow', currentVersion: 5,
     steps: [
       migration(1, 2, storyWorkflowV1ToV2),
       migration(2, 3, identity(3)),
-      migration(3, 4, storyWorkflowV3ToV4)
+      migration(3, 4, storyWorkflowV3ToV4),
+      migration(4, 5, storyWorkflowV4ToV5)
     ],
     paths: [/^(?:singularity|\.sdlc)\/work-items\/[^/]+\/workflow\.json$/], unversionedAs: 1
   }),

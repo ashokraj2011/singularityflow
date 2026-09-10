@@ -78,6 +78,7 @@ import { STORY_LINEAGE_PROPERTY, activatePhaseAgent, activeActionContext, confir
 import { capabilityBaseForRepository, prepareCapabilityRepositories, printCapabilityBase } from '../capability-start.mjs';
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
 import { recordSha256 } from '../records.mjs';
+import { verifyWorkflowSnapshot, workflowSnapshotDrift } from '../workflow-snapshots.mjs';
 
 /**
  * Commands this service delegates to that still live in the router. Dynamic so the cycle stays
@@ -440,6 +441,49 @@ export async function storyCommand(positionals, options) {
   if (subcommand === 'inbox') return storyInboxCommand(options);
   if (subcommand === 'fetch') return storyFetchCommand(positionals, options);
   const config = await loadConfig(root);
+  if (subcommand === 'workflow') {
+    const action = positionals[2] ?? 'show';
+    const workId = positionals[3] ?? optionString(options, 'work-id');
+    const workflow = await loadStoryAggregate(root, config, workId);
+    if (action === 'show' || action === 'verify') {
+      const verification = await verifyWorkflowSnapshot(root, config, workflow);
+      const result = {
+        workId: workflow.workItem.id,
+        reference: workflow.workflowSnapshot ?? null,
+        verification
+      };
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+      console.log(`Story workflow snapshot — ${workflow.workItem.id}`);
+      console.log(`Status: ${verification.status} · closure: ${verification.closure}`);
+      if (!verification.enrolled) {
+        console.log('This is a legacy Story. Its current compatibility projection remains readable, but its historical dependency closure is unproven.');
+        return;
+      }
+      console.log(`Revision: ${verification.revision} · ${verification.snapshotHash}`);
+      console.log(`Manifest: ${verification.manifestPath}`);
+      console.log(`Captured assets: ${verification.assets} · ${verification.bytes} bytes`);
+      if (verification.executionDependencies.length) {
+        console.log(`Execution dependencies: ${verification.executionDependencies.length} declared; remote bytes are never fetched by verification.`);
+      }
+      return;
+    }
+    if (action === 'drift') {
+      if (optionBoolean(options, 'refresh')) {
+        throw new SingularityFlowError(
+          'story workflow drift does not fetch remotes. Refresh approved workspace configuration explicitly, then rerun this read-only comparison.',
+          { code: 'WFA_REFRESH_EXPLICITLY_REQUIRED' }
+        );
+      }
+      const observed = await readConfigurationSource(root, { verify: true }).catch(() => null);
+      const result = await workflowSnapshotDrift(root, config, workflow, observed);
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ workId: workflow.workItem.id, ...result }, null, 2));
+      console.log(`Story workflow drift — ${workflow.workItem.id}`);
+      console.log(`Snapshot: ${result.status} · drift: ${result.drift}`);
+      if (result.drift === 'unavailable') console.log('No approved configuration observation is available; the Story snapshot itself remains verified.');
+      return;
+    }
+    throw new SingularityFlowError(`Unknown Story workflow action '${action}'.`);
+  }
   if (subcommand === 'interval') {
     const action = positionals[2] ?? 'status';
     const workflow = await loadStoryAggregate(root, config, optionString(options, 'parent'));

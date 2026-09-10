@@ -188,7 +188,7 @@ test('an honestly anchored v3 Story survives the deterministic convergence polic
   git(root, 'commit', '-m', 'anchored v3 Story creation');
 
   const migrated = await loadWorkflow(root, config, 'V3-UPGRADE-1');
-  assert.equal(migrated.schemaVersion, 4);
+  assert.equal(migrated.schemaVersion, 5);
   assert.equal(migrated.phases.convergence.generationPolicy.requirement, 'required');
   assert.deepEqual(migrated.phases.convergence.generationPolicy.allowedProducers, ['deterministic']);
   const validation = await validateWorkflow(root, config, migrated);

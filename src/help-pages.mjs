@@ -1684,7 +1684,15 @@ const PAGES = Object.freeze({
   },
   story: {
     summary: 'Story-level operations: branches, intervals, convergence, intent amendments, checks, and finalisation.',
+    description: [
+      'New Stories carry an immutable workflow snapshot containing the exact effective policy,',
+      'phase templates, and selected governed-agent bytes. The workflow show, verify, and drift',
+      'actions inspect that closure without fetching a remote or changing lifecycle state.'
+    ],
     examples: [
+      ['singularity-flow story workflow show --work-id PAY-1', 'Show the accepted snapshot reference and closure summary.'],
+      ['singularity-flow story workflow verify --work-id PAY-1 --json', 'Verify every content-addressed blob and the effective-policy fold.'],
+      ['singularity-flow story workflow drift --work-id PAY-1', 'Compare pinned provenance with the locally approved configuration observation.'],
       ['singularity-flow story branch create --parent PAY-1 --name PAY-1-ui', 'Create a governed child branch.'],
       ['singularity-flow story intent-amendment propose --file amended-spec.md --reason "Retry policy changed"', 'Propose corrected intent for an update-intent finding without editing the approved specification.'],
       ['singularity-flow story checks PAY-1', 'Record configured repository-check evidence against the submitted packet.']

@@ -2712,4 +2712,6 @@ The `sf-` prefix prevents collisions with generic skills such as `/start`,
 `singularity-flow plugin install`, close existing Copilot sessions, and confirm
 that `copilot plugins list --kind skill` reports `sf-*` personal skills.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for invariants and [VERIFICATION.md](VERIFICATION.md) for the release checklist.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for invariants,
+[workflow snapshots and the WFA roadmap](docs/WFA-WORKFLOW-SNAPSHOTS.md), and
+[VERIFICATION.md](VERIFICATION.md) for the release checklist.

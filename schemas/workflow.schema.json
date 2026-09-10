@@ -5,7 +5,25 @@
   "type": "object",
   "required": ["schemaVersion", "workItem", "status", "currentPhase", "phaseOrder", "phases", "history"],
   "properties": {
-    "schemaVersion": { "enum": [1, 2, 3] },
+    "schemaVersion": { "enum": [1, 2, 3, 4, 5] },
+    "workflowSnapshot": {
+      "anyOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["enrollment", "schemaVersion", "revision", "snapshotHash", "manifestPath", "genesisSnapshotHash"],
+          "properties": {
+            "enrollment": { "const": "wfa" },
+            "schemaVersion": { "const": 1 },
+            "revision": { "type": "integer", "minimum": 1 },
+            "snapshotHash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+            "manifestPath": { "type": "string", "minLength": 1, "maxLength": 4096 },
+            "genesisSnapshotHash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
     "executionOrigin": {
       "type": "object",
       "required": ["schemaVersion", "mode", "flightId", "planId", "planSha256"],

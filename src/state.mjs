@@ -131,6 +131,9 @@ import { normalizeTokenEconomy } from './token-economy.mjs';
 import { canonicalJson } from './records.mjs';
 import { buildWelEnrollment, validateWelEnrollment } from './wel-policy.mjs';
 import {
+  captureWorkflowSnapshot, finalizeDraftWorkflowSnapshot, verifyWorkflowSnapshot
+} from './workflow-snapshots.mjs';
+import {
   assertAutoCandidateMatches, autoCandidatePublicationFromEnvironment,
   observeAutoCandidateWorktree
 } from './auto/auto-candidate.mjs';
@@ -917,10 +920,12 @@ export async function createWorkflow(root, config, {
     template.path = posix(path.relative(root, destination)); delete template.cachePath;
     workflow.resolution.phases.find((phase) => phase.id === phaseId).templateSnapshot = { ...template };
   }
-  workflow.resolution.policySha256 = resolutionPolicySha256(workflow.resolution);
+  // Capture before accepted Story state is written. This rewrites phase-template references to
+  // immutable blobs and stamps the exact resulting effective-policy digest.
+  workflow.workflowSnapshot = await captureWorkflowSnapshot(root, config, workflow);
   await writeJson(sourcePath(root, config, id), source);
   await writeText(userStoryPath(root, config, id), sourceMarkdown(source));
-  await writeText(path.join(workDir(root, config, id), 'README.md'), `# ${id} — ${workflow.workItem.title}\n\nDurable ${selectedType} workflow state for branch \`${id}\`.\n\n- [workflow.json](./workflow.json) — machine state\n- [STATUS.md](./STATUS.md) — human status\n- [source.json](./source.json) — source context\n- [USER-STORY.md](./USER-STORY.md) — ${source.type === 'jira' ? 'Jira' : 'manual'} story snapshot\n- [documents.json](./documents.json) — supporting-document catalog (created on first upload)\n- [inputs/](./inputs/) — uploaded files (created on first upload)\n- [context/](./context/) — per-generation prompt-grounding audit records\n- [telemetry/](./telemetry/) — sanitized per-generation model, token, and cost records\n- [artifacts/](./artifacts/) — generated phase artifacts\n- [approvals/](./approvals/) — append-only decisions\n`);
+  await writeText(path.join(workDir(root, config, id), 'README.md'), `# ${id} — ${workflow.workItem.title}\n\nDurable ${selectedType} workflow state for branch \`${id}\`.\n\n- [workflow.json](./workflow.json) — machine state and accepted workflow-snapshot reference\n- [config/wfa/](./config/wfa/) — immutable effective policy, phase templates, and governed-agent bytes\n- [STATUS.md](./STATUS.md) — human status\n- [source.json](./source.json) — source context\n- [USER-STORY.md](./USER-STORY.md) — ${source.type === 'jira' ? 'Jira' : 'manual'} story snapshot\n- [documents.json](./documents.json) — supporting-document catalog (created on first upload)\n- [inputs/](./inputs/) — uploaded files (created on first upload)\n- [context/](./context/) — per-generation prompt-grounding audit records\n- [telemetry/](./telemetry/) — sanitized per-generation model, token, and cost records\n- [artifacts/](./artifacts/) — generated phase artifacts\n- [approvals/](./approvals/) — append-only decisions\n`);
   await ensureWorkIntervalBaseline(root, config, workflow, {
     phaseId: phases[0]?.id,
     itemDirectory: workDir(root, config, id),
@@ -5328,6 +5333,9 @@ export async function commitAndPublish(root, config, workflow, event, message, e
   // lacks a STATE_REVISION receipt must not silently move onto a different local parent while this
   // transaction is checking pending publication and ledger state.
   const invocationHead = head(root);
+  // The revision-one closure becomes immutable only with the Story creation commit. Creation
+  // callers may add other already-reviewed pins to the draft before this locked transaction.
+  const unacceptedWorkflowSnapshot = initialWorkflowRecord(root, config, workflow.workItem.id) == null;
   if (await storyPublicationPending(root, config, workflow.workItem.id)) await assertNoPendingPublication(root, config, workflow, 'create another lifecycle commit');
   const ledgerConfig = normalizeLedgerConfig(workflow.resolution?.ledger ?? config.ledger ?? {});
   const requestedPhaseId = event?.phaseId ?? workflow.currentPhase ?? null;
@@ -5534,6 +5542,9 @@ export async function commitAndPublish(root, config, workflow, event, message, e
               });
             }
           }
+        }
+        if (unacceptedWorkflowSnapshot) {
+          await finalizeDraftWorkflowSnapshot(root, config, workflow);
         }
         recordPublicationProjection(workflow, publicationEvent, ledgerIntent);
         await saveWorkflow(root, config, workflow);
@@ -5876,6 +5887,21 @@ export async function syncPublication(root, config, workflow, { fault = null } =
  */
 export async function validateWorkflow(root, config, workflow, { strict = false, offline = false } = {}) {
   const errors = [], warnings = []; if (!workflowBranchAllowed(workflow, branch(root))) errors.push(`Current branch ${branch(root)} is not registered for Story ${workflow.workItem.id}.`);
+  let workflowSnapshotStatus = null;
+  try {
+    workflowSnapshotStatus = await verifyWorkflowSnapshot(root, config, workflow);
+    if (workflowSnapshotStatus.enrolled) {
+      const initial = initialWorkflowRecord(root, config, workflow.workItem.id);
+      const genesisReference = initial?.record?.workflowSnapshot ?? null;
+      if (genesisReference && canonicalJson(genesisReference) !== canonicalJson(workflow.workflowSnapshot)) {
+        errors.push('Workflow snapshot reference differs from the immutable Story creation commit.');
+      }
+    } else {
+      warnings.push('Story has no captured WFA closure; portability is unproven.');
+    }
+  } catch (error) {
+    errors.push(`Workflow snapshot: ${error.message}`);
+  }
   const currentPolicySha256 = resolutionPolicySha256(workflow.resolution);
   let creationPolicySha256 = null;
   try {
@@ -5892,21 +5918,30 @@ export async function validateWorkflow(root, config, workflow, { strict = false,
       const pinned = workflow.resolution.configurationSource;
       if (!currentSource || currentSource.commit !== pinned.commit
         || currentSource.repository !== pinned.repository) {
-        errors.push('Configuration provenance differs from the immutable Story snapshot.');
+        const message = 'Current workspace configuration provenance differs from the accepted Story snapshot.';
+        if (workflowSnapshotStatus?.enrolled) warnings.push(message);
+        else errors.push(message);
       } else if (pinned.filesSha256 && currentSource.filesSha256 !== pinned.filesSha256) {
         // Only `commit` and `repository` used to be pinned, so the asset hash map could be rewritten
         // wholesale — change `approval.minimum`, repaste its hash — and both the self-check and this
         // comparison passed while the record still attested to the approved commit.
-        errors.push('Configuration asset set differs from the immutable Story snapshot.');
+        const message = 'Current workspace configuration asset set differs from the accepted Story snapshot.';
+        if (workflowSnapshotStatus?.enrolled) warnings.push(message);
+        else errors.push(message);
       }
     } catch (error) {
-      errors.push(`Configuration provenance: ${error.message}`);
+      const message = `Current workspace configuration provenance is unavailable: ${error.message}`;
+      if (workflowSnapshotStatus?.enrolled) warnings.push(message);
+      else errors.push(message);
     }
   }
   if (workflow.resolution?.workType !== workflow.workItem.workType) errors.push('Work type differs from the immutable profile snapshot.');
   const resolvedOrder = workflow.resolution?.phases?.map((phase) => phase.id);
   if (resolvedOrder?.length && JSON.stringify(resolvedOrder) !== JSON.stringify(workflow.phaseOrder)) errors.push('Phase order differs from the immutable profile snapshot.');
-  if (config.workTypes?.[workflow.workItem.workType]) {
+  // A WFA-enrolled Story is interpreted from its verified, content-closed policy. Comparing it to
+  // today's mutable workspace defaults would turn an ordinary configuration refresh into a false
+  // lifecycle failure. Legacy Stories retain the old comparison because they have no closed input.
+  if (!workflowSnapshotStatus?.enrolled && config.workTypes?.[workflow.workItem.workType]) {
     const expectedGates = resolveWorkType(config, workflow.workItem.workType).sequenceGates;
     const pinnedGates = normalizeSequenceGates(workflow.resolution?.sequenceGates ?? {});
     if (JSON.stringify(pinnedGates) !== JSON.stringify(expectedGates)) errors.push('Sequence gate policy differs from the immutable work-type configuration snapshot.');

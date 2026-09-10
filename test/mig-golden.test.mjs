@@ -94,7 +94,7 @@ test('legacy Story convergence policy migrates to the kernel-owned deterministic
       }]
     }
   }).record;
-  assert.equal(migrated.schemaVersion, 4);
+  assert.equal(migrated.schemaVersion, 5);
   assert.equal(migrated.phases.convergence.generationPolicy.requirement, 'required');
   assert.deepEqual(migrated.phases.convergence.generationPolicy.allowedProducers, ['deterministic']);
   assert.equal(migrated.phases.convergence.generationPolicy.defaultProducer, 'deterministic');

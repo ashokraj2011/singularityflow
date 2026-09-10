@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/workflow-snapshot.schema.json",
+  "title": "Immutable Story workflow snapshot",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "story", "revision", "parentSnapshotHash", "policy", "assets", "executionDependencies", "provenance", "semantics", "configFoldHash", "createdAt", "limits", "snapshotHash"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "workflow-snapshot" },
+    "story": {
+      "type": "object",
+      "required": ["repositoryId", "workId"],
+      "properties": {
+        "repositoryId": { "$ref": "#/$defs/sha256" },
+        "workId": { "type": "string", "minLength": 1, "maxLength": 128 }
+      },
+      "additionalProperties": false
+    },
+    "revision": { "type": "integer", "minimum": 1 },
+    "parentSnapshotHash": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+    "policy": { "$ref": "#/$defs/blob" },
+    "assets": { "type": "array", "maxItems": 2048, "items": { "$ref": "#/$defs/asset" } },
+    "executionDependencies": { "type": "array", "maxItems": 2048, "items": { "type": "object" } },
+    "provenance": { "type": "object" },
+    "semantics": { "type": "object" },
+    "configFoldHash": { "$ref": "#/$defs/sha256" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "limits": {
+      "type": "object",
+      "required": ["assets", "bytes"],
+      "properties": {
+        "assets": { "type": "integer", "minimum": 0, "maximum": 2048 },
+        "bytes": { "type": "integer", "minimum": 0, "maximum": 16777216 }
+      },
+      "additionalProperties": false
+    },
+    "snapshotHash": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "blob": {
+      "type": "object",
+      "required": ["sha256", "bytes", "mediaType", "path"],
+      "properties": {
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "bytes": { "type": "integer", "minimum": 0, "maximum": 16777216 },
+        "mediaType": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "path": { "type": "string", "minLength": 1, "maxLength": 4096 }
+      },
+      "additionalProperties": false
+    },
+    "asset": {
+      "type": "object",
+      "required": ["logicalId", "purpose", "dependencies", "blob", "source"],
+      "properties": {
+        "logicalId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "purpose": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "dependencies": { "type": "array", "maxItems": 256, "items": { "type": "string" } },
+        "blob": { "$ref": "#/$defs/blob" },
+        "source": { "type": "object" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

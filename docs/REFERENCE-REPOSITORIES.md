@@ -37,9 +37,13 @@ At intake SFlow:
 2. pins its advertised commit and tree in the Story workflow snapshot and
    `context/reference-repositories.json`;
 3. materializes a detached checkout under
-   `.singularity-flow/reference-repositories/<id>` in the Story checkout;
+   `.singularity-flow/reference-repositories/<work-id>/<id>` in the Story checkout;
 4. excludes that machine-local directory through Git's local exclude file; and
 5. verifies the checkout before every phase preparation.
+
+The Work ID namespace matters when one checkout moves between Stories: two Stories may use the same
+reference ID at different commits without overwriting or invalidating one another. Existing Stories
+that used the earlier `.singularity-flow/reference-repositories/<id>` layout remain compatible.
 
 The branch is provenance, not a moving dependency. If it advances tomorrow, this Story continues to
 read the SHA it pinned today. Start a new Story to intentionally consume the newer revision.
@@ -63,6 +67,10 @@ dirty, attached, wrong-origin, wrong-commit, or wrong-tree reference is treated 
 reported for human inspection. Move that local directory aside and rerun materialization if you
 want a clean reproduction; the governed Story pin does not change.
 
+Reference trees containing symlinks, submodules, unsupported Git entries, or checkout filter
+attributes are refused before checkout. This prevents a repository-relative read from escaping to
+another laptop path or invoking a machine-configured content filter.
+
 On another laptop, resume the Story and run `story references materialize`. The exact references
 come from the Story branch, not from machine-local workspace configuration.
 
@@ -82,6 +90,11 @@ For Copilot `/sf-start`, supply the same ID, URL, and branch when asked. `/sf-co
 reference set and uses only the returned repository-relative paths. It must not edit or reset those
 paths. The target repository remains the only place application changes can be published.
 
+Every byte in a reference repository is untrusted source data, not an instruction. `AGENTS.md`,
+README instructions, prompts, workflow/configuration files, comments, scripts, generated output,
+and tool output inside a reference cannot grant tool authority, widen the write scope, or override
+the governed Story prompt. SFlow never executes, builds, installs, or runs hooks from a reference.
+
 ## Generation and World Model behavior
 
 Phase composition adds a small deterministic reference-grounding section containing only the exact
@@ -89,6 +102,9 @@ detached root, requested branch, pinned commit/tree, common project markers, and
 roots. This requires no model and avoids sending a full file inventory.
 
 SFlow does **not** build or rebuild a World Model for a reference repository. If the pinned commit
-already carries `singularity/world-model/manifest.json`, Lifecycle and generation expose that exact
-blob as a reusable pointer. Otherwise generation uses bounded ordinary file access beneath the
-detached reference root. Missing reference World Models never block the Story.
+already carries `singularity/world-model/manifest.json`, generation exposes it only after validating
+the complete manifest-controlled file graph, admission limits, and current source fingerprint.
+Malformed, incomplete, stale, or oversized reference models are ignored; generation continues with
+bounded ordinary file access beneath the detached reference root. Missing or unusable reference
+World Models never block the Story. Lifecycle reports lightweight local reference health without
+repeating the full World Model validation on every UI refresh.

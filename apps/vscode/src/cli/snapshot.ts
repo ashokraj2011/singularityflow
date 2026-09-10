@@ -591,6 +591,10 @@ export interface StoryReferenceRepositoryStatus {
     projectMarkers?: string[];
     sourceRoots?: string[];
     reusableWorldModel?: { path: string; sha256: string } | null;
+    worldModelStatus?: {
+      status: 'reusable' | 'not-present' | 'not-inspected' | 'stale' | 'invalid' | 'unavailable' | string;
+      reason?: string | null;
+    };
   }>;
 }
 

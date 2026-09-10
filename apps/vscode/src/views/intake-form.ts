@@ -15,6 +15,7 @@
  */
 import { escape, icon } from './webview.ts';
 import { startWizardProgress, type StartWizardProgress } from './start-wizard.ts';
+import { gitRemoteProblem } from './map-capability-form.ts';
 
 /** What is being started. The order is the order they nest in. */
 export type Shape = 'initiative' | 'epic' | 'story';
@@ -346,9 +347,8 @@ export function referenceRepositoryEntries(
       throw new Error(`Reference repository '${id}' must use lower-case kebab case.`);
     }
     if (ids.has(id)) throw new Error(`Reference repository '${id}' is listed more than once.`);
-    if (repository.startsWith('-') || /[\u0000-\u001f\u007f]/.test(repository)) {
-      throw new Error(`Reference repository '${id}' has an unsafe Git URL.`);
-    }
+    const remoteProblem = gitRemoteProblem(repository, `Reference repository '${id}'`);
+    if (remoteProblem) throw new Error(remoteProblem);
     if (!branch || branch.startsWith('-') || /[\s~^:?*\\\[]/.test(branch) || branch.includes('..')) {
       throw new Error(`Reference repository '${id}' has an invalid branch.`);
     }

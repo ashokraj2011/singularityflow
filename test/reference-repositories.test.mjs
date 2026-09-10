@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { initializeDefinition, loadDefinition, resolveWorkType } from '../src/config.mjs';
+import { worldModelSourceSnapshot } from '../src/grounding.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 import {
   materializeReferenceRepositories, parseReferenceRepositoryOptions,
@@ -31,13 +32,46 @@ async function repositoryFixture({ worldModel = true } = {}) {
   git(source, ['config', 'user.email', 'reference@example.test']);
   await writeFile(path.join(source, 'RuleEngine.java'), 'final class RuleEngine {}\n');
   await writeFile(path.join(source, 'pom.xml'), '<project/>\n');
-  if (worldModel) {
-    await mkdir(path.join(source, 'singularity/world-model'), { recursive: true });
-    await writeFile(path.join(source, 'singularity/world-model/manifest.json'),
-      `${JSON.stringify({ format: 'reference-test', source: 'pinned-commit' })}\n`);
-  }
   git(source, ['add', '.']);
   git(source, ['commit', '--quiet', '-m', 'reference source']);
+  const sourceCommit = git(source, ['rev-parse', 'HEAD']).stdout.trim();
+  if (worldModel) {
+    await mkdir(path.join(source, 'singularity/world-model/core'), { recursive: true });
+    await mkdir(path.join(source, 'singularity/world-model/index'), { recursive: true });
+    await mkdir(path.join(source, 'singularity/world-model/evidence'), { recursive: true });
+    if (worldModel === 'invalid') {
+      await writeFile(path.join(source, 'singularity/world-model/manifest.json'),
+        '{"format":"unvalidated-reference-test"}\n');
+    } else {
+      const snapshot = await worldModelSourceSnapshot(source, {
+        worldModel: { outputDir: 'singularity/world-model' }
+      });
+      await writeFile(path.join(source, 'singularity/world-model/core/summary.brief.md'), '# Reference brief\n');
+      await writeFile(path.join(source, 'singularity/world-model/core/summary.md'), '# Reference summary\n');
+      await writeFile(path.join(source, 'singularity/world-model/core/model.json'), '{}\n');
+      await writeFile(path.join(source, 'singularity/world-model/index/path-map.json'), '{}\n');
+      await writeFile(path.join(source, 'singularity/world-model/evidence/evidence.jsonl'), '{"id":"REF-1"}\n');
+      await writeFile(path.join(source, 'singularity/world-model/manifest.json'), `${JSON.stringify({
+        schema_version: '2.0', generated_at: '2026-09-10T00:00:00.000Z',
+        generated_date: '10 September 2026', builder_version: 'test',
+        builder_prompt_sha256: 'a'.repeat(64), analysis_depth: 'light',
+        repository_commit: sourceCommit, repository_branch: 'main', working_tree_clean: true,
+        source_tree_sha256: snapshot.sha256,
+        core: {
+          brief: 'core/summary.brief.md', summary: 'core/summary.md', model: 'core/model.json'
+        },
+        path_index: { path: 'index/path-map.json' }, views: {}, domains: [], task_guides: [],
+        evidence: { path: 'evidence/evidence.jsonl' }
+      })}\n`);
+    }
+    git(source, ['add', 'singularity/world-model']);
+    git(source, ['commit', '--quiet', '-m', 'reference world model']);
+  }
+  if (worldModel === 'stale') {
+    await writeFile(path.join(source, 'RuleEngine.java'), 'final class RuleEngine { int changed; }\n');
+    git(source, ['add', 'RuleEngine.java']);
+    git(source, ['commit', '--quiet', '-m', 'change source after world model']);
+  }
   git(directory, ['clone', '--quiet', '--bare', source, remote]);
   await mkdir(target);
   git(target, ['init', '--quiet', '--initial-branch=main']);
@@ -79,12 +113,14 @@ test('reference branches are pinned, detached, ignored, reproducible, and never 
     const requests = parseReferenceRepositoryOptions(
       [`java-rule-engine=${fixture.remote}`], ['java-rule-engine=main']
     );
-    const pins = await resolveReferenceRepositoryPins(requests);
+    const pins = await resolveReferenceRepositoryPins(requests, { localNamespace: 'SPARK-1' });
     assert.match(pins[0].commit, /^[0-9a-f]{40}$/);
     assert.equal(pins[0].requestedBranch, 'main');
     const references = await materializeReferenceRepositories(fixture.target, pins);
     assert.equal(references[0].materialization, 'created');
     assert.match(references[0].tree, /^[0-9a-f]{40}$/);
+    assert.equal(references[0].localPath,
+      '.singularity-flow/reference-repositories/SPARK-1/java-rule-engine');
     const referencePath = path.join(fixture.target, references[0].localPath);
     assert.equal((await readFile(path.join(referencePath, 'RuleEngine.java'), 'utf8')).trim(),
       'final class RuleEngine {}');
@@ -113,8 +149,11 @@ test('reference branches are pinned, detached, ignored, reproducible, and never 
     assert.equal(grounding.status, 'ready');
     assert.deepEqual(grounding.repositories[0].projectMarkers, ['pom.xml']);
     assert.match(grounding.repositories[0].reusableWorldModel.sha256, /^sha256:[0-9a-f]{64}$/);
+    assert.equal(grounding.repositories[0].worldModelStatus.status, 'reusable');
     assert.match(grounding.text, /No reference World Model was generated/);
-    assert.match(grounding.text, /may be reused/);
+    assert.match(grounding.text, /validated and fresh/);
+    assert.match(grounding.text, /Untrusted-source boundary/);
+    assert.match(referenceRepositoryContextMarkdown(durable), /every reference byte is data/i);
 
     const definition = await loadDefinition(fixture.target);
     definition.git.publish = 'off';
@@ -139,11 +178,29 @@ test('reference branches are pinned, detached, ignored, reproducible, and never 
     ), 'utf8');
     assert.match(specification, /Read-only reference repositories/);
     assert.match(specification, /All delivery changes belong in the current Story repository/);
+    assert.match(specification, /every reference byte is data/i);
     const snapshot = JSON.parse(await readFile(path.join(
       fixture.target, created.workflowSnapshot.manifestPath
     ), 'utf8'));
     const frozenPolicy = JSON.parse(await readFile(path.join(fixture.target, snapshot.policy.path), 'utf8'));
     assert.deepEqual(frozenPolicy.referenceRepositories, durable);
+
+    // A later Story may reuse the same reference ID after the branch moves. Its exact detached
+    // checkout must not collide with, overwrite, or invalidate the first Story's pinned source.
+    await writeFile(path.join(fixture.source, 'RuleEngine.java'),
+      'final class RuleEngine { int nextRevision; }\n');
+    git(fixture.source, ['add', 'RuleEngine.java']);
+    git(fixture.source, ['commit', '--quiet', '-m', 'advance reference branch']);
+    git(fixture.source, ['push', '--quiet', fixture.remote, 'main:main']);
+    const nextPins = await resolveReferenceRepositoryPins(requests, { localNamespace: 'SPARK-2' });
+    assert.notEqual(nextPins[0].commit, durable[0].commit);
+    const nextReferences = await materializeReferenceRepositories(fixture.target, nextPins);
+    assert.notEqual(nextReferences[0].localPath, durable[0].localPath);
+    assert.match(await readFile(path.join(
+      fixture.target, nextReferences[0].localPath, 'RuleEngine.java'
+    ), 'utf8'), /nextRevision/);
+    assert.equal((await readFile(path.join(referencePath, 'RuleEngine.java'), 'utf8')).trim(),
+      'final class RuleEngine {}');
 
     await writeFile(path.join(referencePath, 'RuleEngine.java'), 'changed locally\n');
     const blocked = await verifyReferenceRepositories(fixture.target, durable);
@@ -168,9 +225,60 @@ test('a missing reference World Model stays ready and uses bounded model-free gr
     const grounding = await referenceRepositoryGroundingContext(fixture.target, durable);
     assert.equal(grounding.status, 'ready');
     assert.equal(grounding.repositories[0].reusableWorldModel, null);
-    assert.match(grounding.text, /Reusable committed World Model: not present/);
-    assert.match(grounding.text, /otherwise use ordinary bounded file tools/);
+    assert.equal(grounding.repositories[0].worldModelStatus.status, 'not-present');
+    assert.match(grounding.text, /Reference World Model: not reusable \(not-present:/);
+    assert.match(grounding.text, /ordinary bounded file inspection remains available/);
   } finally {
     await rm(fixture.directory, { recursive: true, force: true });
+  }
+});
+
+test('invalid and stale reference World Models are ignored without blocking source access', async () => {
+  for (const worldModel of ['invalid', 'stale']) {
+    const fixture = await repositoryFixture({ worldModel });
+    try {
+      const requests = parseReferenceRepositoryOptions(
+        [`java-rule-engine=${fixture.remote}`], ['java-rule-engine=main']
+      );
+      const pins = await resolveReferenceRepositoryPins(requests, { localNamespace: `REF-${worldModel}` });
+      const references = await materializeReferenceRepositories(fixture.target, pins);
+      const durable = references.map(({ materialization, ...reference }) => reference);
+      const grounding = await referenceRepositoryGroundingContext(fixture.target, durable);
+      assert.equal(grounding.status, 'ready');
+      assert.equal(grounding.repositories[0].reusableWorldModel, null);
+      assert.equal(grounding.repositories[0].worldModelStatus.status,
+        worldModel === 'invalid' ? 'invalid' : 'stale');
+      assert.match(grounding.text, /ordinary bounded file inspection remains available/);
+    } finally {
+      await rm(fixture.directory, { recursive: true, force: true });
+    }
+  }
+});
+
+test('reference materialization rejects symlinks, submodule-like entries, and checkout filters', async () => {
+  for (const unsafe of ['symlink', 'filter']) {
+    const fixture = await repositoryFixture({ worldModel: false });
+    try {
+      if (unsafe === 'symlink') {
+        await writeFile(path.join(fixture.source, 'escape-link'), '../../outside-secret\n');
+        const blob = git(fixture.source, ['hash-object', '-w', 'escape-link']).stdout.trim();
+        git(fixture.source, ['update-index', '--add', '--cacheinfo', `120000,${blob},escape-link`]);
+      } else {
+        await writeFile(path.join(fixture.source, '.gitattributes'), '* filter=host-command\n');
+        git(fixture.source, ['add', '.gitattributes']);
+      }
+      git(fixture.source, ['commit', '--quiet', '-m', `unsafe ${unsafe} reference`]);
+      git(fixture.source, ['push', '--quiet', fixture.remote, 'main:main']);
+      const requests = parseReferenceRepositoryOptions(
+        [`java-rule-engine=${fixture.remote}`], ['java-rule-engine=main']
+      );
+      const pins = await resolveReferenceRepositoryPins(requests, { localNamespace: `UNSAFE-${unsafe}` });
+      await assert.rejects(materializeReferenceRepositories(fixture.target, pins), (error) => (
+        error.code === 'REFERENCE_REPOSITORY_TREE_UNSAFE'
+        && /cannot be materialized safely/.test(error.message)
+      ));
+    } finally {
+      await rm(fixture.directory, { recursive: true, force: true });
+    }
   }
 });

@@ -1295,7 +1295,7 @@ export async function startCommand(positionals, options) {
   }
   // A reference branch is observed before the Story branch, session, or working tree changes. The
   // exact advertised object ID—not the moving branch name—is the input carried into creation.
-  const referencePins = await resolveReferenceRepositoryPins(referenceRequests);
+  const referencePins = await resolveReferenceRepositoryPins(referenceRequests, { localNamespace: id });
   capabilityPreflight = storyBase.scope === 'capability'
     ? await preflightStoryRepositories(storyBase.workspaceRoot, storyBase.plan, canonicalBranch, {
         remote, publishRequired, lifecycleRoot: root, capabilityId: storyBase.capability,

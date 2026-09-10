@@ -891,6 +891,13 @@ function storyReferenceRepositoryNodes(
   const ready = status.repositories.filter((entry) => entry.status === 'ready').length;
   const repositories: TreeNode[] = status.repositories.map((entry) => {
     const worldModel = entry.reusableWorldModel;
+    const worldModelStatus = entry.worldModelStatus?.status ?? (worldModel ? 'reusable' : 'not-present');
+    const worldModelDetail = worldModel
+      ? `Reusable World Model: ${worldModel.path} (${worldModel.sha256})`
+      : worldModelStatus === 'not-inspected'
+        ? 'World Model reuse: integrity and freshness are checked during generation composition'
+        : `Reusable World Model: unavailable (${worldModelStatus}${entry.worldModelStatus?.reason
+          ? ` · ${entry.worldModelStatus.reason}` : ''})`;
     const details = [
       `Requested branch: ${entry.requestedBranch}`,
       `Pinned commit: ${entry.commit}`,
@@ -899,7 +906,7 @@ function storyReferenceRepositoryNodes(
       entry.projectMarkers?.length ? `Project markers: ${entry.projectMarkers.join(', ')}` : null,
       entry.sourceRoots?.length ? `Source roots: ${entry.sourceRoots.join(', ')}` : null,
       entry.reason ?? null,
-      worldModel ? `Reusable World Model: ${worldModel.path} (${worldModel.sha256})` : 'Reusable World Model: not present'
+      worldModelDetail
     ].filter(Boolean).join('\n');
     return {
       kind: 'repository',
@@ -918,6 +925,13 @@ function storyReferenceRepositoryNodes(
         tooltip: `${worldModel.path}\n${worldModel.sha256}`,
         path: worldModel.path,
         readOnly: true,
+        icon: 'worldModel'
+      }] : worldModelStatus === 'not-inspected' ? [{
+        kind: 'message',
+        id: `story:reference:${entry.id}:world-model-check`,
+        label: 'World Model reuse check',
+        description: 'validated at generation composition',
+        tooltip: 'Lifecycle keeps refreshes fast. Before reference World Model bytes enter a governed prompt, SFlow validates the complete committed graph, admission limits, and current source fingerprint.',
         icon: 'worldModel'
       }] : [{
         kind: 'message',

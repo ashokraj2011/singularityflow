@@ -1423,6 +1423,16 @@ test('a reference-driven Story shows immutable reference health and explicit rec
     ['story', 'references', 'verify', '--work-id', 'STORY-42', '--json']);
   assert.deepEqual(find(tree, 'story:reference-repositories:materialize').command,
     ['story', 'references', 'materialize', '--work-id', 'STORY-42', '--json']);
+
+  active.referenceRepositories.repositories[1].status = 'ready';
+  active.referenceRepositories.repositories[1].worldModelStatus = {
+    status: 'not-inspected', reason: 'local-status-projection'
+  };
+  const lightweight = buildTree(active);
+  assert.match(find(lightweight, 'story:reference:shared-contracts').tooltip,
+    /checked during generation composition/);
+  assert.match(find(lightweight, 'story:reference:shared-contracts:world-model-check').description,
+    /validated at generation composition/);
 });
 
 test('an open stakeholder change request is visible beside the reopened Story', () => {
@@ -4058,6 +4068,20 @@ test('Story intake carries explicit read-only repository URLs and branches witho
     id: 'Java Rules', repository: 'URL', branch: 'main', status: 'idle'
   }] }).join(' '),
     /lower-case kebab case/);
+  for (const repository of [
+    'https://alice:LEAKMARK@git.example.test/rules.git',
+    'https://git.example.test/rules.git?token=LEAKMARK',
+    'ext::sh -c echo LEAKMARK'
+  ]) {
+    const problem = intakeProblems({ ...form, referenceRepositories: [{
+      id: 'java-rule-engine', repository, branch: 'main', status: 'idle'
+    }] }).join(' ');
+    assert.match(problem, /credential-free Git URL/);
+    assert.doesNotMatch(problem, /LEAKMARK|ext::/);
+    assert.throws(() => intakeCommand({ ...form, referenceRepositories: [{
+      id: 'java-rule-engine', repository, branch: 'main', status: 'idle'
+    }] }), /credential-free Git URL/);
+  }
   assert.match(intakeProblems({ ...form, referenceRepositories: [] }).join(' '),
     /requires at least one read-only reference repository/);
 });

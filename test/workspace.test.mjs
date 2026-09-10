@@ -101,6 +101,12 @@ test('repository commands can route through the explicitly selected workspace', 
     'workspace administration must not be redirected into its current selection');
   assert.equal(await activeWorkspaceRepositoryRoot('capability', { env, subcommand: 'map' }), null,
     'organisation capability onboarding must work before a workspace exists');
+  for (const subcommand of [
+    'inspect-repository', 'fsck', 'reconcile', 'repository', 'discard-proposal', 'adopt-managed'
+  ]) {
+    assert.equal(await activeWorkspaceRepositoryRoot('capability', { env, subcommand }), null,
+      `URL-addressed capability ${subcommand} must not require or borrow a workspace checkout`);
+  }
   assert.equal(await activeWorkspaceRepositoryRoot('capability', { env, subcommand: 'tree' }), await realpath(repository),
     'repository-local capability reads still use the explicitly selected workspace');
   assert.equal(await activeWorkspaceRepositoryRoot('doctor', { env }), await realpath(repository),

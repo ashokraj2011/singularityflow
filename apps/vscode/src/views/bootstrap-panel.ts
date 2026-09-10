@@ -494,7 +494,14 @@ export class BootstrapPanel {
   ): Promise<void> {
     const repositoryUrl = this.form.repositoryUrl.trim();
     if (!repositoryUrl) return;
-    const explicitLead = explicitLeadUrl?.trim() || null;
+    // A sole known authority at this exact repository URL is already an unambiguous, bounded
+    // choice supplied by the workspace bootstrap. Inspect it immediately so a first capability
+    // map does not stall behind a second button press. A different or one of several authorities
+    // still requires an explicit selection or the separately consented --search-known traversal.
+    const soleKnownLead = this.form.leads.length === 1 ? this.form.leads[0]?.trim() : null;
+    const explicitLead = explicitLeadUrl?.trim()
+      || (soleKnownLead === repositoryUrl ? soleKnownLead : null)
+      || null;
     const repositoryProblem = gitRemoteProblem(repositoryUrl, 'Repository');
     const inspectionLeads = explicitLead
       ? options.includeKnownAuthorities
@@ -530,9 +537,9 @@ export class BootstrapPanel {
       error: null });
     const argv = ['capability', 'inspect-repository', repositoryUrl, '--json'];
     for (const lead of inspectionLeads) argv.push('--lead', lead);
-    // Resolve the portable state link first. Reading the machine-local authority registry can fan
-    // out to several remotes, so it is a separate, explicit action offered after this bounded
-    // inspection reports that no portable authority was found.
+    // Resolve the portable state link first. Reading several machine-local authorities can fan out
+    // to several remotes, so it remains a separate, explicit action. A sole known authority above
+    // is safe to inspect directly and avoids a circular first-map onboarding flow.
     if (options.includeKnownAuthorities) argv.push('--search-known');
     if (explicitLead) argv.push('--include-proposals');
     if (options.includeKnownAuthorities) argv.push('--include-proposals');

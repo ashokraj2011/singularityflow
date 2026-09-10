@@ -37,6 +37,9 @@ const SHIPPED_STORY_CONTRACTS = Object.freeze({
   'poc-workflow': {
     mode: 'required', clausePhases: ['poc-intake'], owners: { 'poc-test-generation': 'poc-ui-exploration' }
   },
+  'reference-driven-build': {
+    mode: 'required', clausePhases: ['specification'], owners: { implementation: 'planning' }
+  },
   'spec-driven-standard': {
     mode: 'required', clausePhases: ['specification'], owners: { implementation: 'planning' }
   }
@@ -108,7 +111,10 @@ test('workflow catalog validation reports the complete bundle and one requested 
   assert.equal(report.workflows.find((entry) => entry.id === 'quick-fix').status, 'explicit-opt-out');
   assert.equal(report.workflows.find((entry) => entry.id === 'poc-lite').status, 'explicit-opt-out');
   assert.equal(report.workflows.find((entry) => entry.id === 'chore').status, 'not-applicable');
-  assert.ok(report.workflows.filter((entry) => entry.status === 'protected').length === 7);
+  assert.equal(
+    report.workflows.filter((entry) => entry.status === 'protected').length,
+    Object.values(SHIPPED_STORY_CONTRACTS).filter((contract) => contract.mode === 'required').length
+  );
 
   const one = await validateWorkflowCatalog(root, 'poc-workflow');
   assert.equal(one.valid, true);

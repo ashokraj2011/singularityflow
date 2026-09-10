@@ -56,9 +56,11 @@ function required(positionals, index, label) {
 async function mutationLead(root, options) {
   const explicit = optionString(options, 'lead');
   if (explicit) return explicit;
-  const { configuredRemoteIdentity } = await import('../git-remote-diagnostics.mjs');
-  const current = configuredRemoteIdentity(root, 'origin');
-  if (current.url) return current.url;
+  if (root) {
+    const { configuredRemoteIdentity } = await import('../git-remote-diagnostics.mjs');
+    const current = configuredRemoteIdentity(root, 'origin');
+    if (current.url) return current.url;
+  }
   const [known] = await listLeadRepositories();
   if (known?.url) return known.url;
   throw new SingularityFlowError(
@@ -304,7 +306,8 @@ export async function run(argv, context = {}) {
   }
   if (subcommand === 'adopt-managed') {
     const { repoRoot } = await import('../git.mjs');
-    const root = repoRoot();
+    let root = null;
+    try { root = repoRoot(); } catch { /* --lead and the known-authority registry are rootless */ }
     const options = context.options ?? {};
     const lead = await mutationLead(root, options);
     const confirm = optionString(options, 'confirm');

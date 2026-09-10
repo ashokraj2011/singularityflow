@@ -38,8 +38,9 @@ export const ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS = new Set([
  * read the selected repository. The subcommand boundary preserves both behaviours.
  */
 export const REPOSITORY_INDEPENDENT_CAPABILITY_SUBCOMMANDS = new Set([
-  'map', 'edit', 'publish', 'proposals', 'proposal', 'activate',
-  'world-model', 'organisation', 'leads', 'inspect-repository', 'adopt-managed'
+  'map', 'edit', 'publish', 'proposals', 'proposal', 'activate', 'discard-proposal',
+  'world-model', 'organisation', 'leads', 'inspect-repository', 'fsck', 'reconcile',
+  'repository', 'adopt-managed'
 ]);
 
 export function excludesActiveWorkspaceRouting(command, subcommand = null, options = {}) {

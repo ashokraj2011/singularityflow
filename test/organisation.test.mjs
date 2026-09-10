@@ -1090,6 +1090,22 @@ test('capability proposal transport failures emit structured JSON diagnostics', 
   assert.equal(JSON.parse(lastFlagWins.stderr).error.code, 'REMOTE_REMOTE_NOT_FOUND');
 });
 
+test('managed capability adoption with an explicit authority is rootless', async () => {
+  const org = await remotes('platform');
+  const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
+  const result = spawnSync(process.execPath, [
+    cli, 'capability', 'adopt-managed', '--preview', '--lead', org.platform, '--json'
+  ], {
+    cwd: org.base,
+    env: { ...process.env, SINGULARITY_FLOW_LEAD_REGISTRY: registry(org.base), NO_COLOR: '1' },
+    encoding: 'utf8'
+  });
+  assert.notEqual(result.status, 0);
+  const failure = JSON.parse(result.stderr);
+  assert.equal(failure.error.code, 'PCD_MANAGED_ADOPTION_UNAVAILABLE');
+  assert.doesNotMatch(result.stderr, /REPOSITORY_CONTEXT_REQUIRED|inside a Git repository/);
+});
+
 test('an exact capability proposal can be reviewed, activated, and projected without touching main', async () => {
   const org = await remotes('platform');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);

@@ -8,7 +8,8 @@ import { initializeDefinition, loadDefinition, resolveWorkType } from '../src/co
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 import {
   materializeReferenceRepositories, parseReferenceRepositoryOptions,
-  readReferenceRepositoryManifest, referenceRepositoryContextMarkdown, resolveReferenceRepositoryPins,
+  readReferenceRepositoryManifest, referenceRepositoryContextMarkdown,
+  referenceRepositoryGroundingContext, resolveReferenceRepositoryPins,
   storyReferenceRepositories, verifyReferenceRepositories, writeReferenceRepositoryManifest
 } from '../src/reference-repositories.mjs';
 import { setAgentSession } from '../src/session.mjs';
@@ -19,7 +20,7 @@ function git(cwd, args) {
   return run('git', args, { cwd });
 }
 
-async function repositoryFixture() {
+async function repositoryFixture({ worldModel = true } = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-reference-'));
   const source = path.join(directory, 'source');
   const target = path.join(directory, 'target');
@@ -29,7 +30,13 @@ async function repositoryFixture() {
   git(source, ['config', 'user.name', 'Reference Author']);
   git(source, ['config', 'user.email', 'reference@example.test']);
   await writeFile(path.join(source, 'RuleEngine.java'), 'final class RuleEngine {}\n');
-  git(source, ['add', 'RuleEngine.java']);
+  await writeFile(path.join(source, 'pom.xml'), '<project/>\n');
+  if (worldModel) {
+    await mkdir(path.join(source, 'singularity/world-model'), { recursive: true });
+    await writeFile(path.join(source, 'singularity/world-model/manifest.json'),
+      `${JSON.stringify({ format: 'reference-test', source: 'pinned-commit' })}\n`);
+  }
+  git(source, ['add', '.']);
   git(source, ['commit', '--quiet', '-m', 'reference source']);
   git(directory, ['clone', '--quiet', '--bare', source, remote]);
   await mkdir(target);
@@ -102,6 +109,12 @@ test('reference branches are pinned, detached, ignored, reproducible, and never 
     assert.deepEqual(await storyReferenceRepositories(fixture.target, config, workflow), durable);
     assert.match(referenceRepositoryContextMarkdown(durable), /java-rule-engine/);
     assert.match(referenceRepositoryContextMarkdown(durable), new RegExp(durable[0].commit));
+    const grounding = await referenceRepositoryGroundingContext(fixture.target, durable);
+    assert.equal(grounding.status, 'ready');
+    assert.deepEqual(grounding.repositories[0].projectMarkers, ['pom.xml']);
+    assert.match(grounding.repositories[0].reusableWorldModel.sha256, /^sha256:[0-9a-f]{64}$/);
+    assert.match(grounding.text, /No reference World Model was generated/);
+    assert.match(grounding.text, /may be reused/);
 
     const definition = await loadDefinition(fixture.target);
     definition.git.publish = 'off';
@@ -138,6 +151,25 @@ test('reference branches are pinned, detached, ignored, reproducible, and never 
     assert.equal(blocked.repositories[0].status, 'invalid');
     await assert.rejects(materializeReferenceRepositories(fixture.target, durable),
       (error) => error.code === 'REFERENCE_REPOSITORY_TAMPERED');
+  } finally {
+    await rm(fixture.directory, { recursive: true, force: true });
+  }
+});
+
+test('a missing reference World Model stays ready and uses bounded model-free grounding', async () => {
+  const fixture = await repositoryFixture({ worldModel: false });
+  try {
+    const requests = parseReferenceRepositoryOptions(
+      [`java-rule-engine=${fixture.remote}`], ['java-rule-engine=main']
+    );
+    const pins = await resolveReferenceRepositoryPins(requests);
+    const references = await materializeReferenceRepositories(fixture.target, pins);
+    const durable = references.map(({ materialization, ...reference }) => reference);
+    const grounding = await referenceRepositoryGroundingContext(fixture.target, durable);
+    assert.equal(grounding.status, 'ready');
+    assert.equal(grounding.repositories[0].reusableWorldModel, null);
+    assert.match(grounding.text, /Reusable committed World Model: not present/);
+    assert.match(grounding.text, /otherwise use ordinary bounded file tools/);
   } finally {
     await rm(fixture.directory, { recursive: true, force: true });
   }

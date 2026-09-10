@@ -480,6 +480,7 @@ Every public operation is classified before its implementation module is importe
 | story.interval.escalate | mutation | never | — | — |
 | story.interval.reconcile | mutation | never | — | — |
 | story.interval.status | read | never | — | — |
+| story.references.inspect | read | never | — | — |
 | story.references.list | read | never | — | — |
 | story.references.materialize | mutation | never | — | — |
 | story.references.verify | read | never | — | — |

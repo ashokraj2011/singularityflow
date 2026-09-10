@@ -16,7 +16,7 @@ import {
   packsWithMembers, phasesInOrder, storiesByRepository,
   type BreakdownStory, type FastPathProjection, type InitiativeOutput, type InitiativeSnapshot,
   type RepositorySnapshot, type PhaseStatus, type StoryArtifact, type StoryPhase,
-  type StoryWorkflow
+  type StoryReferenceRepositoryStatus, type StoryWorkflow
 } from '../cli/snapshot.ts';
 import { commandArgv } from '../commands.ts';
 import { buildCapabilityTree, type CapabilityReadiness } from './navigation-trees.ts';
@@ -314,7 +314,8 @@ export function buildLifecycleTree(snapshot: RepositorySnapshot | null, error: E
       snapshot.documents ?? [],
       snapshot.detachedDocuments ?? [],
       snapshot.fastPath ?? null,
-      identityOf(snapshot.identities?.git)
+      identityOf(snapshot.identities?.git),
+      snapshot.referenceRepositories ?? null
     ),
       ...(activeStories ? [activeStories] : []), ...(completedArchive ? [completedArchive] : []),
       ...(cancelledArchive ? [cancelledArchive] : []), workspaceImpact];
@@ -877,12 +878,106 @@ function fastPathRailNode(fastPath: FastPathProjection | null | undefined, workf
   }];
 }
 
+/**
+ * Reference inputs are first-class lifecycle state, not a hidden folder beside the Story checkout.
+ * Every row is derived from the engine's local, read-only verification projection; the actions do
+ * not fetch unless the person explicitly chooses Materialize.
+ */
+function storyReferenceRepositoryNodes(
+  status: StoryReferenceRepositoryStatus | null,
+  workId: string
+): TreeNode[] {
+  if (!status) return [];
+  const ready = status.repositories.filter((entry) => entry.status === 'ready').length;
+  const repositories: TreeNode[] = status.repositories.map((entry) => {
+    const worldModel = entry.reusableWorldModel;
+    const details = [
+      `Requested branch: ${entry.requestedBranch}`,
+      `Pinned commit: ${entry.commit}`,
+      entry.tree ? `Pinned tree: ${entry.tree}` : null,
+      `Detached path: ${entry.localPath}`,
+      entry.projectMarkers?.length ? `Project markers: ${entry.projectMarkers.join(', ')}` : null,
+      entry.sourceRoots?.length ? `Source roots: ${entry.sourceRoots.join(', ')}` : null,
+      entry.reason ?? null,
+      worldModel ? `Reusable World Model: ${worldModel.path} (${worldModel.sha256})` : 'Reusable World Model: not present'
+    ].filter(Boolean).join('\n');
+    return {
+      kind: 'repository',
+      id: `story:reference:${entry.id}`,
+      label: entry.id,
+      description: `${entry.status} · ${entry.requestedBranch} @ ${entry.commit.slice(0, 12)}`,
+      tooltip: details,
+      icon: entry.status === 'ready' ? 'statusSuccess'
+        : entry.status === 'missing' ? 'statusIdle' : 'statusBlocked',
+      contextValue: `sflow.story.reference.${entry.status}`,
+      children: worldModel ? [{
+        kind: 'artifact',
+        id: `story:reference:${entry.id}:world-model`,
+        label: 'Reusable World Model manifest',
+        description: 'existing · never regenerated here',
+        tooltip: `${worldModel.path}\n${worldModel.sha256}`,
+        path: worldModel.path,
+        readOnly: true,
+        icon: 'worldModel'
+      }] : [{
+        kind: 'message',
+        id: `story:reference:${entry.id}:grounding`,
+        label: 'Bounded file grounding',
+        description: 'model-free · no World Model build',
+        tooltip: 'Generation receives the immutable local root, project markers, and shallow source roots. It uses ordinary bounded file access for detail.',
+        icon: 'references'
+      }]
+    };
+  });
+  const needsMaterialization = status.repositories.some((entry) => entry.status === 'missing');
+  return [{
+    kind: 'group',
+    id: 'story:reference-repositories',
+    label: 'Reference repositories',
+    description: `${ready}/${status.repositories.length} ready · immutable inputs`,
+    tooltip: 'Pinned read-only repositories used for generation grounding. They are never delivery targets and do not trigger World Model generation.',
+    icon: 'references',
+    contextValue: `sflow.story.references.${status.status}`,
+    children: [
+      ...(repositories.length ? repositories : [{
+        kind: 'message' as const,
+        id: 'story:reference-repositories:error',
+        label: 'Reference state could not be read',
+        description: status.reason ?? 'blocked',
+        tooltip: status.reason ?? undefined,
+        icon: 'statusBlocked'
+      }]),
+      {
+        kind: 'action',
+        id: 'story:reference-repositories:verify',
+        label: 'Verify references',
+        description: 'local read-only check',
+        tooltip: 'Verify detached HEAD, exact commit/tree, clean state, and repository identity without network access.',
+        icon: 'refresh',
+        command: ['story', 'references', 'verify', '--work-id', workId, '--json'],
+        runCommand: 'singularityFlow.runAction'
+      },
+      ...(needsMaterialization ? [{
+        kind: 'action' as const,
+        id: 'story:reference-repositories:materialize',
+        label: 'Materialize missing references',
+        description: 'fetch exact pinned commits',
+        tooltip: 'Create only the missing detached, locally ignored reference checkouts. No application repository is changed.',
+        icon: 'cloud-download',
+        command: ['story', 'references', 'materialize', '--work-id', workId, '--json'],
+        runCommand: 'singularityFlow.runAction'
+      }] : [])
+    ]
+  }];
+}
+
 function storyWorkflowNode(
   workflow: StoryWorkflow,
   documents: StoryArtifact[],
   detachedDocuments: StoryArtifact[],
   fastPath: FastPathProjection | null = null,
-  actor = ''
+  actor = '',
+  referenceRepositories: StoryReferenceRepositoryStatus | null = null
 ): TreeNode {
   const phases = workflow.phaseOrder.map((id) => workflow.phases[id])
     .filter((phase): phase is StoryPhase => Boolean(phase));
@@ -912,7 +1007,8 @@ function storyWorkflowNode(
       kind: 'action', id: 'story:manage-evidence', label: 'Manage evidence & designs',
       description: 'list · preview · detach', icon: 'references',
       runCommand: 'singularityFlow.manageEvidence', contextValue: 'sflow.evidence.manage'
-    }, storyGeneratedArtifacts(workflow, documents), {
+    }, ...storyReferenceRepositoryNodes(referenceRepositories, workflow.workItem.id),
+    storyGeneratedArtifacts(workflow, documents), {
       kind: 'action', id: 'story:cancel', label: 'Cancel and archive work',
       description: 'reason required · artifacts preserved', icon: 'archive',
       runCommand: 'singularityFlow.cancelWork', contextValue: 'sflow.story.cancel'

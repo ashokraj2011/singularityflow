@@ -1256,8 +1256,12 @@ singularity-flow start SPARK-RULES-1 \
   --reference-branch java-rule-engine=release/2026-q3
 ```
 
-Inspect or reproduce the exact inputs with `singularity-flow story references
-list|verify|materialize --work-id SPARK-RULES-1`. See
+Preflight a URL/branch with `singularity-flow story references inspect
+--reference-repository ID=URL --reference-branch ID=BRANCH --json`. Inspect or reproduce the exact
+Story inputs with `singularity-flow story references list|verify|materialize --work-id
+SPARK-RULES-1`. The VS Code form provides separate ID, URL, and branch fields plus a read-only
+**Check reference** action; Lifecycle then shows the immutable pins and local health. Reference
+grounding is deterministic and never builds or rebuilds a World Model. See
 `docs/REFERENCE-REPOSITORIES.md` for multiple references and recovery behavior.
 
 After intake, use `/sf-nextsteps`, `/sf-phase`, `/sf-submit`, and `/sf-progress`.
@@ -3297,6 +3301,7 @@ singularity-flow secrets protect [--force]
 singularity-flow bootstrap <REPOSITORY-URL> --capability ID [--name TEXT] [--kind collection|delivery] [--into DIR] [--no-push]
 singularity-flow story branch create|attach|status|promote
 singularity-flow story interval status|checkpoint|reconcile|escalate
+singularity-flow story references inspect --reference-repository ID=URL --reference-branch ID=BRANCH [--json]
 singularity-flow story references list|verify|materialize [--work-id WORK-ID] [--json]
 singularity-flow story start|inbox|fetch|checks|finalize
 singularity-flow story return [WORK-ID] [--json]

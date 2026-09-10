@@ -9,10 +9,12 @@ import * as vscode from 'vscode';
 import {
   contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
-import { registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
+import { integerField, registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import {
-  EMPTY_INTAKE_FORM, intakeCommand, intakeHtml, intakeIdentifier, intakeProblems, INTAKE_SCRIPT, SHAPES,
-  type BaseBranchChoice, type InFlight, type IntakeForm, type ProfileChoice, type Shape, type Tracker
+  EMPTY_INTAKE_FORM, intakeCommand, intakeHtml, intakeIdentifier, intakeProblems, INTAKE_SCRIPT,
+  referenceRepositoryEntries, SHAPES,
+  type BaseBranchChoice, type InFlight, type IntakeForm, type ProfileChoice,
+  type ReferenceRepositoryDraft, type Shape, type Tracker
 } from './intake-form.ts';
 import { SingularityFlowClient } from '../cli/client.ts';
 import { CliTimeoutError, redactCliArgsForDisplay, terminalCommand } from '../cli/runner.ts';
@@ -84,6 +86,7 @@ export class IntakePanel {
   private form: IntakeForm;
   private preflightVersion = 0;
   private preflightController: AbortController | null = null;
+  private referenceCheckRevision = 0;
   private trackerChosen = false;
   private disposed = false;
 
@@ -293,8 +296,7 @@ export class IntakePanel {
 
   /** The fields this form will write. Anything else named by the page is refused. */
   private static readonly WRITABLE = Object.freeze([
-    'key', 'id', 'title', 'description', 'goal', 'acceptanceCriteria', 'targetUrl',
-    'referenceRepositories'
+    'key', 'id', 'title', 'description', 'goal', 'acceptanceCriteria', 'targetUrl'
   ]);
 
   /**
@@ -350,6 +352,27 @@ export class IntakePanel {
       const workflow = this.form.storyWorkflows.find((entry) => entry.id === stringField(message, 'value'));
       if (workflow) this.update({ workType: workflow.id, error: null });
     },
+    referenceAdd: () => {
+      if (this.form.referenceRepositories.length >= 16) return;
+      this.update({
+        referenceRepositories: [...this.form.referenceRepositories, {
+          id: '', repository: '', branch: '', status: 'idle'
+        }],
+        error: null
+      });
+    },
+    referenceRemove: (message) => {
+      const index = this.referenceIndex(message);
+      if (index === null) return;
+      this.referenceCheckRevision += 1;
+      this.update({
+        referenceRepositories: this.form.referenceRepositories.filter((_, row) => row !== index),
+        error: null
+      });
+    },
+    referenceDraft: (message) => this.updateReferenceDraft(message, false),
+    referenceField: (message) => this.updateReferenceDraft(message, true),
+    referenceCheck: (message) => this.checkReference(message),
     draft: (message) => {
       const field = this.writableField(message);
       const value = stringField(message, 'value');
@@ -406,6 +429,82 @@ export class IntakePanel {
   private writableField(message: InboundMessage): string | null {
     const field = stringField(message, 'field');
     return field && IntakePanel.WRITABLE.includes(field) ? field : null;
+  }
+
+  private referenceIndex(message: InboundMessage): number | null {
+    const index = integerField(message, 'index');
+    return index !== null && index < this.form.referenceRepositories.length ? index : null;
+  }
+
+  private replaceReference(index: number, entry: ReferenceRepositoryDraft, render = true): void {
+    const references = this.form.referenceRepositories.map((current, row) => row === index ? entry : current);
+    if (render) this.update({ referenceRepositories: references, error: null });
+    else this.form.referenceRepositories = references;
+  }
+
+  /** Keep typing local to one row; the engine remains the authority for URL/ref validation. */
+  private updateReferenceDraft(message: InboundMessage, render: boolean): void {
+    const index = this.referenceIndex(message);
+    const field = stringField(message, 'field');
+    const value = typeof message.value === 'string' ? message.value : null;
+    const referenceField = field === 'id' || field === 'repository' || field === 'branch' ? field : null;
+    if (index === null || value === null || !referenceField) return;
+    const current = this.form.referenceRepositories[index];
+    if (!current) return;
+    this.referenceCheckRevision += 1;
+    this.replaceReference(index, {
+      ...current,
+      [referenceField]: value,
+      status: 'idle', commit: null, message: null
+    }, render);
+  }
+
+  /** Read-only provisional check. Story start resolves the branch again before creating state. */
+  private async checkReference(message: InboundMessage): Promise<void> {
+    const index = this.referenceIndex(message);
+    if (index === null) return;
+    const draft = this.form.referenceRepositories[index];
+    if (!draft) return;
+    let reference: { id: string; repository: string; branch: string };
+    try {
+      const parsed = referenceRepositoryEntries([draft]);
+      const resolved = parsed[0];
+      if (!resolved) throw new Error('Enter a reference ID, Git clone URL, and branch.');
+      reference = resolved;
+    } catch (error) {
+      this.replaceReference(index, {
+        ...draft, status: 'error', commit: null, message: (error as Error).message
+      });
+      return;
+    }
+    const revision = ++this.referenceCheckRevision;
+    this.replaceReference(index, { ...draft, status: 'checking', commit: null, message: null });
+    try {
+      const result = await this.client.run<{
+        repositories?: Array<{ id?: string; commit?: string }>;
+      }>([
+        'story', 'references', 'inspect',
+        '--reference-repository', `${reference.id}=${reference.repository}`,
+        '--reference-branch', `${reference.id}=${reference.branch}`,
+        '--json'
+      ]);
+      if (revision !== this.referenceCheckRevision) return;
+      const current = this.form.referenceRepositories[index];
+      if (!current || current.id !== reference.id || current.repository !== reference.repository
+          || current.branch !== reference.branch) return;
+      const resolved = result.repositories?.find((entry) => entry.id === reference.id);
+      if (!resolved?.commit) throw new Error('The read-only check returned no pinned commit.');
+      this.replaceReference(index, {
+        ...current, status: 'ready', commit: resolved.commit, message: null
+      });
+    } catch (error) {
+      if (revision !== this.referenceCheckRevision) return;
+      const current = this.form.referenceRepositories[index];
+      if (!current) return;
+      this.replaceReference(index, {
+        ...current, status: 'error', commit: null, message: (error as Error).message
+      });
+    }
   }
 
   /**

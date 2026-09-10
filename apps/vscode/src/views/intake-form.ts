@@ -32,6 +32,15 @@ export interface ProfileChoice {
   referenceMode?: 'off' | 'optional' | 'required';
 }
 
+export interface ReferenceRepositoryDraft {
+  id: string;
+  repository: string;
+  branch: string;
+  status: 'idle' | 'checking' | 'ready' | 'error';
+  commit?: string | null;
+  message?: string | null;
+}
+
 /** Something already started, so nobody starts it twice. */
 export interface InFlight {
   shape: Shape;
@@ -59,8 +68,8 @@ export interface IntakeForm {
   goal: string;
   /** How it will be judged done. A Story asks for it. */
   acceptanceCriteria: string;
-  /** Optional read-only source repositories, one `id | URL | branch` tuple per line. */
-  referenceRepositories: string;
+  /** Structured read-only source repositories. The engine revalidates every claim at start. */
+  referenceRepositories: ReferenceRepositoryDraft[];
   /** Exact browser origin pinned for the POC workflow. */
   targetUrl: string;
   profile: string | null;
@@ -113,7 +122,7 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   targetWorkspace: null, targetRepository: null, targetBranch: null,
   shape: 'epic', tracker: 'none', key: '', id: '', title: '', description: '', goal: '',
   acceptanceCriteria: '', targetUrl: '', profile: null, profiles: [], workType: null, storyWorkflows: [],
-  referenceRepositories: '',
+  referenceRepositories: [],
   baseBranch: null, baseBranchChoices: [], baseRemote: null, baseBranchReason: null,
   basePreflightPassed: false, basePreflightChecking: false, basePreflightReason: null,
   workflowReason: null,
@@ -312,12 +321,23 @@ export function intakeCommand(form: IntakeForm): string[] {
 interface ReferenceRepositoryEntry { id: string; repository: string; branch: string }
 
 /** Parse the intentionally visible UI tuple; the engine repeats every trust check before mutation. */
-export function referenceRepositoryEntries(value: string): ReferenceRepositoryEntry[] {
+export function referenceRepositoryEntries(
+  value: string | readonly Partial<ReferenceRepositoryDraft>[]
+): ReferenceRepositoryEntry[] {
   const entries: ReferenceRepositoryEntry[] = [];
   const ids = new Set<string>();
-  for (const [index, line] of value.split(/\r?\n/).entries()) {
-    if (!line.trim()) continue;
-    const parts = line.split('|').map((part) => part.trim());
+  const rows = typeof value === 'string'
+    ? value.split(/\r?\n/).map((line) => {
+        const parts = line.split('|').map((part) => part.trim());
+        return { parts, empty: !line.trim() };
+      })
+    : value.map((entry) => ({
+        parts: [entry.id ?? '', entry.repository ?? '', entry.branch ?? ''].map((part) => part.trim()),
+        empty: !entry.id?.trim() && !entry.repository?.trim() && !entry.branch?.trim()
+      }));
+  for (const [index, row] of rows.entries()) {
+    if (row.empty) continue;
+    const parts = row.parts;
     if (parts.length !== 3 || parts.some((part) => !part)) {
       throw new Error(`Reference repository line ${index + 1} must be: lower-kebab-id | Git URL | branch.`);
     }
@@ -556,17 +576,39 @@ function referenceRepositoriesHtml(form: IntakeForm): string {
   const mode = form.storyWorkflows.find((workflow) => workflow.id === form.workType)?.referenceMode
     ?? 'optional';
   const requirement = mode === 'required' ? 'required' : mode === 'off' ? 'not used' : 'optional';
+  const rows = form.referenceRepositories.map((entry, index) => {
+    const status = entry.status === 'ready'
+      ? `<span class="pill ok">Verified at <code>${escape(entry.commit?.slice(0, 12) ?? '')}</code></span>`
+      : entry.status === 'checking'
+        ? '<span class="pill wait">Checking repository and branch…</span>'
+        : entry.status === 'error'
+          ? `<span class="pill bad">${escape(entry.message ?? 'Could not verify')}</span>`
+          : '<span class="pill">Not checked yet</span>';
+    return `<div class="card reference-repository-row" data-reference-row="${index}">
+      <div class="form-grid">
+        <label class="field"><span>Reference ID</span><input type="text" value="${escape(entry.id)}"
+          data-reference-field="id" data-reference-index="${index}" placeholder="java-rule-engine"></label>
+        <label class="field"><span>Branch</span><input type="text" value="${escape(entry.branch)}"
+          data-reference-field="branch" data-reference-index="${index}" placeholder="main"></label>
+        <label class="field full"><span>Git clone URL</span><input type="text" value="${escape(entry.repository)}"
+          data-reference-field="repository" data-reference-index="${index}" placeholder="https://git.example/team/rules.git"></label>
+      </div>
+      <p>${status}</p>
+      <p><button type="button" class="secondary" data-reference-check="${index}"${entry.status === 'checking' ? ' disabled' : ''}>Check reference</button>
+        <button type="button" class="secondary" data-reference-remove="${index}">Remove</button></p>
+    </div>`;
+  }).join('');
   return `<section>
     <h2>${icon('repository')}Reference repositories <span class="muted">(${requirement})</span></h2>
     <p class="question">Pin source that may be inspected during generation but must never receive
       this Story's branches, commits, or pushes. SFlow resolves the named branch to an exact commit
       before start and checks out that commit read-only inside the Story workspace.</p>
-    <p><label>One repository per line<br>
-      <textarea data-field="referenceRepositories" rows="4" cols="84"${mode === 'off' ? ' disabled' : ''}
-        placeholder="java-rule-engine | https://github.example/team/rule-engine.git | release/2026-q3">${escape(form.referenceRepositories)}</textarea></label></p>
-    <p class="muted">Format: <code>lower-kebab-id | Git URL | branch</code>. The branch name is
+    ${rows || '<p class="muted">No reference repositories added.</p>'}
+    <p><button type="button" class="secondary" data-reference-add${mode === 'off' || form.referenceRepositories.length >= 16 ? ' disabled' : ''}>Add reference repository</button></p>
+    <p class="muted">The ID uses lower-case kebab case. The branch name is
       recorded for provenance; generation uses the pinned SHA, so later branch changes cannot alter
-      this Story. Reference checkouts are detached, locally ignored, and never delivery targets.</p>
+      this Story. “Check reference” is read-only and provisional; Story start resolves it again
+      immediately before mutation. Reference checkouts are detached, locally ignored, and never delivery targets.</p>
   </section>`;
 }
 
@@ -669,6 +711,12 @@ export function intakeHtml(form: IntakeForm, journey: StartWizardProgress | null
 export const INTAKE_SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
+    const addReference = event.target.closest('[data-reference-add]');
+    if (addReference) return vscode.postMessage({ type: 'referenceAdd' });
+    const removeReference = event.target.closest('[data-reference-remove]');
+    if (removeReference) return vscode.postMessage({ type: 'referenceRemove', index: Number(removeReference.dataset.referenceRemove) });
+    const checkReference = event.target.closest('[data-reference-check]');
+    if (checkReference) return vscode.postMessage({ type: 'referenceCheck', index: Number(checkReference.dataset.referenceCheck) });
     const target = event.target.closest('[data-submit]');
     if (target) vscode.postMessage({ type: target.dataset.submit === 'recover-start' ? 'recover-start' : 'start' });
   });
@@ -684,9 +732,14 @@ export const INTAKE_SCRIPT = `
     if (el.dataset?.profile) return vscode.postMessage({ type: 'profile', value: el.dataset.profile });
     if (el.dataset?.workType) return vscode.postMessage({ type: 'workType', value: el.dataset.workType });
     if (el.dataset?.baseBranch) return vscode.postMessage({ type: 'baseBranch', value: el.dataset.baseBranch });
+    if (el.dataset?.referenceField) return vscode.postMessage({ type: 'referenceField',
+      index: Number(el.dataset.referenceIndex), field: el.dataset.referenceField, value: el.value });
     if (el.dataset?.field) vscode.postMessage({ type: 'field', field: el.dataset.field, value: el.value });
   });
   document.addEventListener('input', (event) => {
+    if (event.target.dataset?.referenceField) return vscode.postMessage({ type: 'referenceDraft',
+      index: Number(event.target.dataset.referenceIndex), field: event.target.dataset.referenceField,
+      value: event.target.value });
     const field = event.target.dataset?.field;
     if (field) vscode.postMessage({ type: 'draft', field, value: event.target.value });
   });

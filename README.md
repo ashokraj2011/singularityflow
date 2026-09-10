@@ -1603,7 +1603,11 @@ singularity-flow start SPARK-RULES-1 --from-branch main \
 
 SFlow resolves the branch to an exact SHA before Story mutation, stores that immutable pin in the
 Story, and materializes a detached, ignored checkout for generation. It never branches, commits, or
-pushes the reference repository. See [Reference repositories at Story intake](docs/REFERENCE-REPOSITORIES.md).
+pushes the reference repository. VS Code provides structured ID/URL/branch fields, a provisional
+read-only check, and a Lifecycle health section. Generation receives a bounded model-free navigation
+overlay and reuses a World Model already committed in the reference SHA when present; it never builds
+one for a reference or blocks because one is absent. See
+[Reference repositories at Story intake](docs/REFERENCE-REPOSITORIES.md).
 
 For a short manual request without a story file:
 

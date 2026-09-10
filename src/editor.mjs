@@ -98,6 +98,9 @@ import { listVisualComparisons } from './visual-compare.mjs';
 import { verifyMcpEvidence } from './mcp-evidence.mjs';
 import { IMPACT_CONFIG_PATH, loadImpactDefinition, normalizeImpactDefinition } from './impact-config.mjs';
 import { modelFreedomSnapshot } from './model-freedom.mjs';
+import {
+  referenceRepositoryGroundingContext, storyReferenceRepositories
+} from './reference-repositories.mjs';
 import { operationContext } from './operation-context.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
@@ -582,6 +585,22 @@ async function initiativeEditorSnapshot(root, portfolio, initiativeId) {
   };
 }
 
+/** Reference health is a local projection. It never fetches, warms AST, or builds a World Model. */
+async function storyReferenceRepositoryStatus(root, definition, workflow) {
+  if (!workflow) return null;
+  try {
+    const references = await storyReferenceRepositories(root, definition, workflow);
+    if (!references.length) return null;
+    return await referenceRepositoryGroundingContext(root, references);
+  } catch (error) {
+    return {
+      status: 'blocked', repositories: [],
+      reason: error?.message ?? String(error),
+      nextAction: `singularity-flow story references verify --work-id ${workflow.workItem.id}`
+    };
+  }
+}
+
 async function fullRepositorySnapshot(root, requestedWorkId = null, requestedInitiativeId = null, revision = null) {
   const definition = await loadDefinition(root);
   const portfolio = await loadPortfolio(root, { required: false });
@@ -622,6 +641,7 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
     review = await createReviewBundle(root, definition, workflow);
     review.markdown = reviewMarkdown(review);
   }
+  const referenceRepositories = await storyReferenceRepositoryStatus(root, definition, workflow);
   const activeSession = await loadSession(root, { required: false });
   let worldModelReadiness = null;
   if (workflow?.currentPhase && selectedStory?.branches.includes(currentBranch)) {
@@ -863,6 +883,7 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
     approvalInbox: { remote: definition.git?.remote ?? 'origin', fetched: false, generatedAt: null, count: 0, items: [] },
     selectedWorkId: selectedId,
     workflow,
+    referenceRepositories,
     progress,
     report,
     documents,
@@ -945,12 +966,14 @@ async function lifecycleSlice(root, requestedWorkId, requestedInitiativeId, revi
     review = await createReviewBundle(root, definition, workflow);
     review.markdown = reviewMarkdown(review);
   }
+  const referenceRepositories = await storyReferenceRepositoryStatus(root, definition, workflow);
   return {
     workItems: await workItems(root, definition),
     initiatives: portfolio ? await listInitiatives(root, portfolio) : [],
     selectedWorkId,
     selectedInitiativeId,
     workflow,
+    referenceRepositories,
     progress,
     report,
     documents,

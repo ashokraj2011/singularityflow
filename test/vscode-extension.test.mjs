@@ -159,6 +159,9 @@ test('VS Code command audit classification follows mixed read and mutation subco
   assert.equal(commandClass(['session', 'doctor', '--json']), 'read');
   assert.equal(commandClass(['session', 'attach', 'CFA-STORY', '--json']), 'mutation');
   assert.equal(commandClass(['session', 'repair-selection', 'CFA-STORY']), 'mutation');
+  assert.equal(commandClass(['story', 'references', 'inspect', '--json']), 'read');
+  assert.equal(commandClass(['story', 'references', 'verify', '--json']), 'read');
+  assert.equal(commandClass(['story', 'references', 'materialize', '--json']), 'mutation');
 });
 
 test('every VS Code CLI completion reports one privacy-safe timing envelope', async () => {
@@ -1385,6 +1388,41 @@ test('a checked-out Story gets a phase rail with named prepare publish and submi
   assert.equal(find(generated.children, 'story:STORY-42:artifacts:design').label, 'Design');
   assert.equal(find(generated.children, 'story-document:design:PHASE-DESIGN').path,
     'singularity/work-items/STORY-42/artifacts/design/design.md');
+});
+
+test('a reference-driven Story shows immutable reference health and explicit recovery actions', () => {
+  const active = storySnapshot({ generation: 1 });
+  active.referenceRepositories = {
+    status: 'blocked',
+    repositories: [{
+      id: 'java-rule-engine', status: 'ready', required: true,
+      localPath: '.singularity-flow/reference-repositories/java-rule-engine',
+      requestedBranch: 'release/2026-q3', commit: 'a'.repeat(40), tree: 'b'.repeat(40),
+      projectMarkers: ['pom.xml'], sourceRoots: ['src'],
+      reusableWorldModel: {
+        path: '.singularity-flow/reference-repositories/java-rule-engine/singularity/world-model/manifest.json',
+        sha256: `sha256:${'c'.repeat(64)}`
+      }
+    }, {
+      id: 'shared-contracts', status: 'missing', required: true,
+      localPath: '.singularity-flow/reference-repositories/shared-contracts',
+      requestedBranch: 'main', commit: 'd'.repeat(40),
+      projectMarkers: [], sourceRoots: [], reusableWorldModel: null
+    }],
+    nextAction: 'singularity-flow story references materialize --work-id <WORK-ID>'
+  };
+  const tree = buildTree(active);
+  const group = find(tree, 'story:reference-repositories');
+  assert.equal(group.description, '1/2 ready · immutable inputs');
+  assert.match(find(tree, 'story:reference:java-rule-engine').tooltip, /pom\.xml/);
+  assert.match(find(tree, 'story:reference:java-rule-engine:world-model').description,
+    /never regenerated/);
+  assert.match(find(tree, 'story:reference:shared-contracts:grounding').description,
+    /model-free/);
+  assert.deepEqual(find(tree, 'story:reference-repositories:verify').command,
+    ['story', 'references', 'verify', '--work-id', 'STORY-42', '--json']);
+  assert.deepEqual(find(tree, 'story:reference-repositories:materialize').command,
+    ['story', 'references', 'materialize', '--work-id', 'STORY-42', '--json']);
 });
 
 test('an open stakeholder change request is visible beside the reopened Story', () => {
@@ -3998,7 +4036,10 @@ test('Story intake carries explicit read-only repository URLs and branches witho
       phases: ['specification', 'planning', 'implementation', 'convergence', 'verification', 'release'],
       referenceMode: 'required'
     }],
-    referenceRepositories: 'java-rule-engine | https://git.example.test/rules.git | release/2026-q3'
+    referenceRepositories: [{
+      id: 'java-rule-engine', repository: 'https://git.example.test/rules.git',
+      branch: 'release/2026-q3', status: 'ready', commit: 'a'.repeat(40)
+    }]
   });
   assert.deepEqual(referenceRepositoryEntries(form.referenceRepositories), [{
     id: 'java-rule-engine', repository: 'https://git.example.test/rules.git', branch: 'release/2026-q3'
@@ -4011,9 +4052,13 @@ test('Story intake carries explicit read-only repository URLs and branches witho
   const html = intakeHtml(form);
   assert.match(html, /Reference repositories/);
   assert.match(html, /never receive[\s\S]*branches, commits, or pushes/);
-  assert.match(intakeProblems({ ...form, referenceRepositories: 'Java Rules | URL | main' }).join(' '),
+  assert.match(html, /data-reference-field="repository"/);
+  assert.match(html, /data-reference-check="0"/);
+  assert.match(intakeProblems({ ...form, referenceRepositories: [{
+    id: 'Java Rules', repository: 'URL', branch: 'main', status: 'idle'
+  }] }).join(' '),
     /lower-case kebab case/);
-  assert.match(intakeProblems({ ...form, referenceRepositories: '' }).join(' '),
+  assert.match(intakeProblems({ ...form, referenceRepositories: [] }).join(' '),
     /requires at least one read-only reference repository/);
 });
 

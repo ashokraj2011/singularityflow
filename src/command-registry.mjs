@@ -272,7 +272,7 @@ const STORY_INTERVAL_ACTIONS = Object.freeze(['status', 'checkpoint', 'reconcile
 const STORY_BRANCH_ACTIONS = Object.freeze(['status', 'create', 'attach', 'promote']);
 const STORY_INTENT_AMENDMENT_ACTIONS = Object.freeze(['status', 'propose', 'decide', 'acknowledge']);
 const STORY_WORKFLOW_ACTIONS = Object.freeze(['show', 'verify', 'drift']);
-const STORY_REFERENCE_ACTIONS = Object.freeze(['list', 'verify', 'materialize']);
+const STORY_REFERENCE_ACTIONS = Object.freeze(['list', 'verify', 'materialize', 'inspect']);
 const STORY_SUBCOMMANDS = Object.freeze([
   'converge', 'interval', 'branch', 'intent-amendment', 'workflow', 'references',
   ...STORY_READ_SUBCOMMANDS, ...STORY_MUTATION_SUBCOMMANDS

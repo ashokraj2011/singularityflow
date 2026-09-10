@@ -574,6 +574,26 @@ export interface SgosCommandCenterSnapshot {
   unavailable: SgosUnavailableProcessCard[];
 }
 
+/** Local, read-only health of the immutable repositories pinned by the selected Story. */
+export interface StoryReferenceRepositoryStatus {
+  status: 'ready' | 'blocked' | 'not-configured' | string;
+  reason?: string | null;
+  nextAction?: string | null;
+  repositories: Array<{
+    id: string;
+    status: 'ready' | 'missing' | 'invalid' | string;
+    required?: boolean;
+    requestedBranch: string;
+    commit: string;
+    tree?: string | null;
+    localPath: string;
+    reason?: string | null;
+    projectMarkers?: string[];
+    sourceRoots?: string[];
+    reusableWorldModel?: { path: string; sha256: string } | null;
+  }>;
+}
+
 export interface RepositorySnapshot {
   /** Read-model slices currently present in this projection. */
   included?: SnapshotSlice[];
@@ -602,6 +622,8 @@ export interface RepositorySnapshot {
   selectedInitiativeId: string | null;
   initiative: InitiativeSnapshot | null;
   workflow: StoryWorkflow | null;
+  /** Immutable reference inputs and their local detached-checkout health for this Story. */
+  referenceRepositories?: StoryReferenceRepositoryStatus | null;
   /** Lazy projection-only SGOS Process inventory; absent until Command Center acquires the slice. */
   sgos?: SgosCommandCenterSnapshot;
   /**

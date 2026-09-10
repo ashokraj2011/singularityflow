@@ -680,6 +680,7 @@ Usage:
   singularity-flow story branch attach|status|promote --parent <STORY-KEY> [--mode pr|direct]
   singularity-flow story start <STORY-KEY> --from-branch BRANCH [--target-url AUTHORIZED-URL] [--selection-receipt TOKEN] [--fetch]
     [--reference-repository ID=URL --reference-branch ID=BRANCH]...
+  singularity-flow story references inspect --reference-repository ID=URL --reference-branch ID=BRANCH [--json]
   singularity-flow story references [list|verify|materialize] [--work-id WORK-ID] [--json]
   singularity-flow story inbox [--assigned-to-me] [--project KEY] [--json]
   singularity-flow story fetch <STORY-KEY> [--directory PATH] [--json]

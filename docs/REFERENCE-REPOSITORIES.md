@@ -47,10 +47,16 @@ read the SHA it pinned today. Start a new Story to intentionally consume the new
 ## Inspect and recover
 
 ```sh
+singularity-flow story references inspect \
+  --reference-repository java-rule-engine=https://github.example/office/java-rule-engine.git \
+  --reference-branch java-rule-engine=release/2026-q3 --json
 singularity-flow story references list --work-id SPARK-RULES-1
 singularity-flow story references verify --work-id SPARK-RULES-1 --json
 singularity-flow story references materialize --work-id SPARK-RULES-1
 ```
+
+`inspect` is a provisional read-only branch check for intake forms. It performs no Story mutation;
+Story start resolves the branch again and records that final result.
 
 `materialize` creates missing checkouts only. It never resets or deletes an existing checkout. A
 dirty, attached, wrong-origin, wrong-commit, or wrong-tree reference is treated as tampering and
@@ -62,12 +68,27 @@ come from the Story branch, not from machine-local workspace configuration.
 
 ## VS Code and Copilot
 
-The **Start work** form shows **Reference repositories** for Stories. Enter one line per source:
+The **Start work** form shows **Reference repositories** for Stories. Choose **Add reference
+repository**, then enter its stable ID, clone URL, and branch in separate fields. **Check reference**
+performs the provisional read-only check and shows the resolved commit before Story start. The
+engine repeats the check at start, so the green status is useful feedback, not authority.
 
-```text
-java-rule-engine | https://github.example/office/java-rule-engine.git | release/2026-q3
-```
+After start, **Lifecycle → Reference repositories** shows each immutable pin, detached-checkout
+health, project markers, shallow source roots, and whether the pinned commit already contains a
+reusable World Model. It also offers **Verify references** and, when needed, **Materialize missing
+references**.
 
 For Copilot `/sf-start`, supply the same ID, URL, and branch when asked. `/sf-code` verifies the
 reference set and uses only the returned repository-relative paths. It must not edit or reset those
 paths. The target repository remains the only place application changes can be published.
+
+## Generation and World Model behavior
+
+Phase composition adds a small deterministic reference-grounding section containing only the exact
+detached root, requested branch, pinned commit/tree, common project markers, and shallow source
+roots. This requires no model and avoids sending a full file inventory.
+
+SFlow does **not** build or rebuild a World Model for a reference repository. If the pinned commit
+already carries `singularity/world-model/manifest.json`, Lifecycle and generation expose that exact
+blob as a reusable pointer. Otherwise generation uses bounded ordinary file access beneath the
+detached reference root. Missing reference World Models never block the Story.

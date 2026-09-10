@@ -101,6 +101,9 @@ import {
   isWorldModelAvailabilityError, worldModelAvailabilityReasonCode
 } from './world-model-availability.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
+import {
+  referenceRepositoryGroundingContext, storyReferenceRepositories
+} from './reference-repositories.mjs';
 
 const configRelative = 'singularity/worldmodel.json';
 const CHECKPOINT_SCHEMA_VERSION = currentSchemaVersion('worldmodel-checkpoint');
@@ -4520,6 +4523,11 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
   const rulePaths = new Set(injection.sections.map((section) => section.path));
   const requiredText = groundingSectionsText(mandatory, rulePaths);
   const governed = await workflowPromptContext(root, definition, workflow, phase, workItemRoot);
+  const referenceRepositories = workflow
+    ? await referenceRepositoryGroundingContext(
+      root, await storyReferenceRepositories(root, definition, workflow)
+    )
+    : { status: 'not-configured', text: '', repositories: [] };
   const clauseCapsule = workflow && phase
     ? await activeClauseCapsule(
       path.join(root, workItemRoot, workflow.workItem.id), workflow, phase, source, { root }
@@ -4591,6 +4599,11 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
     { id: 'design-sources', text: designSources.markdown, mandatory: true, priority: 5 },
     { id: 'world-model-status', text: groundingStatus, mandatory: true, priority: 0 },
     { id: 'world-model-grounding', text: requiredText, mandatory: config.grounding === 'enforce', priority: 40 },
+    // This is a small deterministic navigation overlay, not a second model build. Keep it mandatory
+    // when present so token trimming cannot leave the authoring model unaware of the immutable
+    // source boundary or accidentally treat a reference as a delivery repository.
+    { id: 'reference-repository-grounding', text: referenceRepositories.text,
+      mandatory: Boolean(referenceRepositories.repositories.length), priority: 0 },
     { id: 'capability-world-model', text: capability.text, priority: 50 },
     { id: 'optional-ast-context', text: structural.text, priority: 70 },
     { id: 'agent-skills', text: remote.text, mandatory: true, priority: 5 },
@@ -4631,6 +4644,7 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
     }
   };
   promptComposition.structuralContext = structural.record;
+  promptComposition.referenceRepositories = referenceRepositories.repositories;
   promptComposition.workSource = workSource.record;
   promptComposition.activeClauseCapsule = clauseCapsule.capsule
     ? {
@@ -4717,6 +4731,7 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
     requiredSelections: plan.selections,
     workSource: workSource.record,
     structuralContext: structural.record,
+    referenceRepositories: referenceRepositories.repositories,
     clarification: clarificationPolicy,
     files: files.map((file) => ({ path: file.path, sha256: file.sha256, injectedBytes: file.injectedBytes })),
     remoteSkills: remote.skills.map((skill) => ({ id: skill.id, sha256: skill.sha256 })),
@@ -4738,7 +4753,7 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
   if (cacheEnabled) console.error(`Composition cache: ${cached.hit ? 'hit' : 'miss'} ${cached.key.slice(0, 12)}.`);
 
   if (dryRun) {
-    console.log(`phase: ${signals.phase}  governed agent: ${agent}  prompt: ${promptStudy ? `${promptStudy.variant.id} · ${promptStudy.studyRunId}` : 'agent default'}  clarification: ${clarificationPolicy.mode}  change requests: ${openChangeRequests.length}  required files: ${mandatory.length}  capability files: ${capability.files.length}  AST facts: ${structural.record?.factsReturned ?? 0}  rules matched: ${injection.matchedRules}  rule files: ${injection.sections.length}  agent skills: ${remote.skills.length}  fresh: ${required.freshness.fresh ? 'yes' : 'no'}`);
+    console.log(`phase: ${signals.phase}  governed agent: ${agent}  prompt: ${promptStudy ? `${promptStudy.variant.id} · ${promptStudy.studyRunId}` : 'agent default'}  clarification: ${clarificationPolicy.mode}  change requests: ${openChangeRequests.length}  required files: ${mandatory.length}  capability files: ${capability.files.length}  reference repositories: ${referenceRepositories.repositories.length}  AST facts: ${structural.record?.factsReturned ?? 0}  rules matched: ${injection.matchedRules}  rule files: ${injection.sections.length}  agent skills: ${remote.skills.length}  fresh: ${required.freshness.fresh ? 'yes' : 'no'}`);
     files.forEach((section) => console.log(`  ${section.category}:${section.path} (${section.injectedBytes}/${section.bytes} bytes)${section.truncated ? ' (truncated)' : ''}`));
     remote.skills.forEach((skill) => console.log(`  agent:${session?.agent ?? 'unknown'}/${skill.id} (${skill.size} bytes) @${skill.sha256.slice(0, 12)}`));
     return;

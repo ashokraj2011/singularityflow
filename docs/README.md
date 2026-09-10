@@ -41,6 +41,7 @@ is not part of the current product.
 | Create and manage workspaces | [Workspaces](../WORKSPACES.md) |
 | Refresh configuration and state branches in older workspaces | [Existing-workspace configuration refresh](../README-REFRESH-EXISTING-WORKSPACES.md) |
 | Configure workflows, agents, prompts, skills, and templates | [Framework guide](../FRAMEWORK-GUIDE.md) |
+| Browse and share every packaged Copilot skill offline | [Singularity Flow Skill Catalog](SINGULARITY-FLOW-SKILLS.html) |
 | Look up commands and configuration keys | [Help reference](../HELP.md) |
 | Run without a model or publish human-authored artifacts | [Model independence](MODEL-INDEPENDENCE.md) |
 | Audit model policy for every operation | [Operation model-policy catalog](OPERATION-MODEL-POLICY.md) |

@@ -141,6 +141,7 @@ const externalAudits = [
   ['scripts/audit-model-boundary.mjs', 'Model-boundary audit'],
   ['scripts/schema-migration-lint.mjs', 'Schema migration boundary'],
   ['scripts/vocabulary-lint.mjs', 'Closed vocabulary producer boundary'],
+  ['scripts/generate-skills-html.mjs', 'Shareable skill HTML catalog'],
   // A stamp that drifts from the mapping is one agent quietly pinned to a model nobody
   // approved — the exact thing the indirection exists to prevent. `[ADP:CON-008]`
   ['scripts/stamp-agent-models.mjs', 'Agent model stamps', ['--check']],

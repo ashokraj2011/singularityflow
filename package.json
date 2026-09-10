@@ -80,6 +80,8 @@
     "check": "node scripts/check.mjs",
     "audit:skills": "node scripts/audit-skills.mjs",
     "audit:skills:write": "node scripts/audit-skills.mjs --write",
+    "skills-html:generate": "node scripts/generate-skills-html.mjs --write",
+    "skills-html:check": "node scripts/generate-skills-html.mjs",
     "audit:model-boundary": "node scripts/audit-model-boundary.mjs",
     "operation-catalog:generate": "node scripts/generate-operation-catalog.mjs --write",
     "operation-catalog:check": "node scripts/generate-operation-catalog.mjs",

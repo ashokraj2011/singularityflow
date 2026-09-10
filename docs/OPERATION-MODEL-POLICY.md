@@ -414,6 +414,13 @@ Every public operation is classified before its implementation module is importe
 | repair.status | read | never | — | — |
 | report.render | read | never | — | — |
 | report.write | mutation | never | — | — |
+| repositories.cache.clear | mutation | never | — | — |
+| repositories.cache.status | read | never | — | — |
+| repositories.list | read | never | — | — |
+| repositories.providers | read | never | — | — |
+| repositories.search | read | never | — | — |
+| repositories.select | read | never | — | — |
+| repositories.status | read | never | — | — |
 | request.list | read | never | — | — |
 | request.respond | mutation | never | — | — |
 | request.show | read | never | — | — |

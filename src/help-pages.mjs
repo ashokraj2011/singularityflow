@@ -1424,6 +1424,47 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['capability', 'session', 'bootstrap']
   },
+  repositories: {
+    summary: 'Find repositories before a workspace or capability exists, without cloning or mapping them.',
+    description: [
+      'The default known scope reads only bounded machine-local SFlow registries and retained approved-map',
+      'observations. It runs no Git command, provider request, model, AST, world model, directory scan,',
+      'or cleanup. Provider discovery begins only when a GitHub host is explicitly selected.',
+      '',
+      'GitHub and GitHub Enterprise reads use the active stored gh identity through a fixed, bounded',
+      'GraphQL stdin request. Tokens, debug overrides, raw stderr, and provider response bodies are',
+      'not retained. Results report source completeness and use expiring cursors rather than silently',
+      'claiming that a limited page is the complete account inventory.',
+      '',
+      'A row is only a discovery observation. Selecting it creates no authority and performs no clone,',
+      'mapping, proposal, or workspace mutation. The opaque selection reference is revalidated before',
+      'its credential-free URL can enter the existing capability inspection flow. Paste URL remains',
+      'available when the provider is absent, restricted, offline, or failing.'
+    ],
+    options: [
+      ['--scope known|provider|all', 'Choose local-only sources, one explicit provider, or their bounded union. Default: known.'],
+      ['--provider github', 'Select the reviewed GitHub provider adapter; no provider is contacted implicitly.'],
+      ['--host HOST', 'Bind the request to one exact GitHub or GitHub Enterprise host.'],
+      ['--account BINDING', 'Continue or read retained observations only for the exact content-free account binding.'],
+      ['--limit N', 'Bound returned rows; defaults to 25, with stricter native/model ceilings.'],
+      ['--cursor CURSOR', 'Continue the exact host/account/query/audience snapshot before it expires.'],
+      ['--query-stdin', 'Read a bounded literal query from stdin instead of shell history.'],
+      ['--offline', 'Use an eligible retained provider observation, explicitly labeled historical and possibly partial.'],
+      ['--check', 'For status only, explicitly verify the active provider identity over the network.'],
+      ['--audience terminal|native|model', 'Apply the destination disclosure and output budget before returning records.'],
+      ['--surface cli|copilot|vscode', 'Label the content-free local timing observation without storing repository, query, path, account, or URL text.'],
+      ['--disclose-provider-results', 'For an explicit model-facing provider request, admit bounded provider names and report the private/internal count. Continue cursors with the same flag.'],
+      ['--json', 'Emit the versioned catalog, source states, usage counters, and opaque references.']
+    ],
+    examples: [
+      ['singularity-flow repositories list --scope known', 'List repositories already named by strict local SFlow sources.'],
+      ['singularity-flow repositories search payments --scope known --json', 'Apply deterministic literal matching without a provider request.'],
+      ['singularity-flow repositories list --scope provider --provider github --host git.example.corp --json', 'Explicitly read one bounded GitHub page.'],
+      ['singularity-flow repositories select rdssel_… --action inspect --json', 'Revalidate one selected row and prepare, but do not run, capability inspection.'],
+      ['singularity-flow repositories cache clear --json', 'Clear only RDS observations, selections, and cursors.']
+    ],
+    seeAlso: ['capability', 'workspace', 'onboard']
+  },
   capability: {
     summary: 'Map, review, and publish the capabilities an organisation governs.',
     description: [

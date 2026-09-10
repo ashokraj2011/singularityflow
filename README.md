@@ -499,6 +499,26 @@ creates the canonical Story branch, repository world-model generation becomes
 an explicit CLI or Copilot-skill operation, and its commit is pushed on that Story
 branch before phase work begins.
 
+## Repository discovery before onboarding
+
+Use the model-free repository catalog when you know a repository by account membership but do not
+yet have its clone URL or a workspace:
+
+```bash
+singularity-flow repositories list --scope known
+singularity-flow repositories search payments --scope provider --provider github --host git.example.corp
+```
+
+The default `known` scope reads only saved SFlow registries and retained approved-map observations;
+it performs no Git or provider request. Provider scope is an explicit bounded read through the
+active stored `gh` identity for the selected host. Listing never clones, maps, proposes, or creates
+a workspace. Each row has an expiring opaque selection reference; `repositories select <REF>
+--action inspect` revalidates it and prepares the existing onboarding inspection. In VS Code, use
+**Map a capability → Choose repository…** or **Create workspace → Choose repository…**. Pasting a
+credential-free clone URL remains available. Copilot exposes the same journey as
+`/sf-repositories`; it discloses provider-backed names only after an explicit provider/host request
+and labels the private/internal count. Without that request, use the native picker or direct CLI.
+
 ## Capabilities, and the workspaces made of them
 
 What an organisation builds is a forest of one or more **capability trees**. Capability `kind` is a

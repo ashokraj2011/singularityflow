@@ -450,6 +450,9 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
     <label class="field full"><span>Clone URL ${fieldInfo('Clone URL', 'The credential-free Git identity of the repository that ships this capability. Authentication remains in Git or the operating system and is never stored in the capability map.')}</span><input type="text" value="${escape(form.repositoryUrl)}" data-map="repositoryUrl"
       ${form.collectionWithoutRepository ? 'disabled' : ''} placeholder="https://git.example.corp/acme/payments-api.git"></label>
     <p>
+      <button type="button" class="secondary" data-map-choose-repository ${form.collectionWithoutRepository || form.inspectionStatus === 'checking' ? 'disabled' : ''}>
+        ${icon('repository')}Choose repository…
+      </button>
       <button type="button" data-map-inspect ${!form.repositoryUrl.trim() || form.inspectionStatus === 'checking' || form.collectionWithoutRepository ? 'disabled' : ''}>
         ${form.inspectionStatus === 'checking' ? 'Checking…' : 'Check repository'}
       </button>
@@ -590,6 +593,8 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
 export const MAP_CAPABILITY_SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
+    const chooseRepository = event.target.closest('[data-map-choose-repository]');
+    if (chooseRepository) return vscode.postMessage({ type: 'chooseRepository' });
     const inspect = event.target.closest('[data-map-inspect]');
     if (inspect) return vscode.postMessage({ type: 'inspectRepository' });
     const collection = event.target.closest('[data-map-collection]');

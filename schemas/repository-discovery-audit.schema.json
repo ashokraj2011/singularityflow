@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/repository-discovery-audit.schema.json",
+  "title": "RDS content-free local observation",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "timestamp", "surface", "operation", "scope", "provider", "hostFingerprint", "cacheOutcome", "enumeration", "resultCount", "providerRequestCount", "latencyMs", "failureCode", "selectedAction"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "repository-discovery-audit" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "surface": { "enum": ["cli", "copilot", "vscode"] },
+    "operation": { "type": "string", "minLength": 1, "maxLength": 32 },
+    "scope": { "enum": ["known", "provider", "all"] },
+    "provider": { "enum": ["github", null] },
+    "hostFingerprint": { "type": ["string", "null"], "pattern": "^local-hmac:[a-f0-9]{64}$" },
+    "cacheOutcome": { "enum": ["hit", "miss", "not-used"] },
+    "enumeration": { "enum": ["exhausted", "more", "limited", "failed", "cancelled"] },
+    "resultCount": { "type": "integer", "minimum": 0, "maximum": 500 },
+    "providerRequestCount": { "type": "integer", "minimum": 0, "maximum": 16 },
+    "latencyMs": { "type": "integer", "minimum": 0, "maximum": 65000 },
+    "failureCode": { "type": ["string", "null"] },
+    "selectedAction": { "enum": ["none", "inspect", "copy-url"] }
+  },
+  "additionalProperties": false
+}

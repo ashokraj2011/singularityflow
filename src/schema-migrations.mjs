@@ -2747,6 +2747,26 @@ const families = [
   }),
   family({ id: 'workspace-registry', currentVersion: 1, paths: [/^\$local\/workspaces\.json$/] }),
   family({
+    id: 'repository-catalog-cursor', currentVersion: 1,
+    paths: [/^\$local\/repository-catalog\/v1\/sessions\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'repository-catalog-cache-entry', currentVersion: 1,
+    paths: [/^\$local\/repository-catalog\/v1\/cache\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'repository-catalog-epoch', currentVersion: 1,
+    paths: [/^\$local\/repository-catalog\/v1\/epoch\.json$/]
+  }),
+  family({
+    id: 'repository-catalog-selection', currentVersion: 1,
+    paths: [/^\$local\/repository-catalog\/v1\/selections\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'repository-discovery-audit', currentVersion: 1,
+    paths: [/^\$local\/repository-catalog\/v1\/audit\/events\.jsonl$/], immutable: true
+  }),
+  family({
     id: 'workspace-capability-drop-transaction', currentVersion: 1,
     paths: [/^(?:\$workspace\/)?\.singularity-flow\/workspace-capability-drop\/wscp-[0-9a-f]{24}\/transaction\.json$/]
   }),

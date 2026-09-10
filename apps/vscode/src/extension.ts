@@ -1251,7 +1251,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           workspaceName: created.name
         });
       }
-    }, async () => {
+    }, async (options?: { chooseRepository?: boolean }) => {
       // Keep the workspace draft open. Capability setup creates a review proposal; the proposal
       // review panel activates it on the protected configuration branch and then reloads this draft.
       await vscode.commands.executeCommand(
@@ -1259,7 +1259,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         { journey: guidedStart ? {
           step: 'capability' as const,
           capabilityId: request?.capabilityId ?? null
-        } : null },
+        } : null, chooseRepository: options?.chooseRepository === true },
         async (mapped: Mapped) => {
           if (guidedStart) {
             await context.globalState.update(START_WIZARD_KEY, startWizardState('workspace', {
@@ -1864,12 +1864,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     async (
       requestOrReturn?: {
         parent?: string;
+        chooseRepository?: boolean;
         journey?: { step: 'capability' | 'workspace' | 'work'; capabilityId?: string | null; workspaceName?: string | null } | null;
       } | ((mapped: Mapped) => Promise<void>),
       returnAfterMapping?: (mapped: Mapped) => Promise<void>
     ) => {
     const initial = typeof requestOrReturn === 'object' && requestOrReturn
-      ? { parent: requestOrReturn.parent, journey: requestOrReturn.journey }
+      ? {
+          parent: requestOrReturn.parent,
+          journey: requestOrReturn.journey,
+          chooseRepository: requestOrReturn.chooseRepository === true
+        }
       : {};
     const returnToWorkspace = typeof requestOrReturn === 'function'
       ? requestOrReturn
@@ -1885,10 +1890,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const registry = new SingularityFlowClient({
       location, repository: process.cwd(), onOutput: (text) => output.append(text)
     });
-    const run = async (argv: string[]): Promise<{ result: unknown; error: string | null }> => {
+    const run = async (argv: string[], signal?: AbortSignal): Promise<{ result: unknown; error: string | null }> => {
       output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(argv)}`);
       try {
-        return { result: await registry.run<unknown>(argv), error: null };
+        return { result: await registry.run<unknown>(argv, signal), error: null };
       } catch (error) {
         output.appendLine(`  failed: ${(error as Error).message}`);
         return { result: null, error: (error as Error).message };

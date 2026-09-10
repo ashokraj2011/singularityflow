@@ -186,6 +186,7 @@ skills:
   sflow-prompt-log: { class: mutation, executionBoundary: repository }
   sflow-quickstart: { class: echo, executionBoundary: machine }
   sflow-recommend: { class: conversational, executionBoundary: machine }
+  sflow-repositories: { class: interactive, executionBoundary: machine }
   sflow-receipt: { class: echo }
   sflow-refresh-branch: { class: mutation }
   sflow-regression-investigate: { class: generative }

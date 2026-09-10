@@ -11,10 +11,11 @@ commands:
   - authority
   - cache
   - doctor
+  - repositories
 related:
   - getting-started
   - starting-work
-version: 3
+version: 4
 ---
 Fast onboarding attaches an existing Git checkout to one exact reviewed configuration authority.
 It performs no clone, source scan, AST or World-Model build, model call, application checkout, or

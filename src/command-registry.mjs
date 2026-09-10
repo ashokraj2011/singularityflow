@@ -5,7 +5,7 @@ const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge'
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['init', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['init', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local']);
 
 const LAZY_MODULES = Object.freeze({
   // The five verbs share one dispatcher; each is a registered command in its own right so the
@@ -45,6 +45,7 @@ const LAZY_MODULES = Object.freeze({
   'meta-tool': './commands/sgos-extensions.mjs',
   workspace: './commands/workspace.mjs',
   capability: './commands/capability.mjs',
+  repositories: './commands/repositories.mjs',
   why: './commands/why.mjs',
   comprehension: './commands/comprehension.mjs',
   change: './commands/change.mjs',
@@ -104,7 +105,7 @@ export const COMMAND_REGISTRY = Object.freeze([
   ['clarification'], ['comprehension'], ['change'], ['proof'], ['delivery'],
   ['approve'], ['reject'], ['reopen'], ['cancel'], ['sync'], ['ledger'], ['capabilities'], ['state'],
   ['validate'], ['gate'], ['wm', ['world-model']], ['jira'], ['plugin'], ['snapshot'], ['configuration', ['config']], ['constitution'], ['initiative'], ['epic'],
-  ['story'], ['workspace'], ['copilot'], ['knowledge'], ['capability'], ['hook'], ['bootstrap'], ['secrets'],
+  ['story'], ['workspace'], ['copilot'], ['knowledge'], ['capability'], ['repositories', ['repos']], ['hook'], ['bootstrap'], ['secrets'],
   // The first-run walkthrough already existed as `guide --first-run` and was the best teaching asset
   // in the product, buried behind a flag on a verb that also means something else. This is the front
   // door; the flag still works.
@@ -287,6 +288,9 @@ const CAPABILITY_MUTATION_SUBCOMMANDS = Object.freeze([
 const CAPABILITY_SUBCOMMANDS = Object.freeze([
   ...CAPABILITY_READ_SUBCOMMANDS, ...CAPABILITY_MUTATION_SUBCOMMANDS
 ]);
+const REPOSITORIES_READ_SUBCOMMANDS = Object.freeze(['providers', 'status', 'list', 'search', 'select']);
+const REPOSITORIES_CACHE_SUBCOMMANDS = Object.freeze(['status', 'clear']);
+const REPOSITORIES_SUBCOMMANDS = Object.freeze([...REPOSITORIES_READ_SUBCOMMANDS, 'cache']);
 const SGOS_SUBCOMMANDS = Object.freeze({
   intent: Object.freeze({
     read: ['show', 'validate', 'workflow-guide'],
@@ -357,6 +361,7 @@ export const RESOLVER_SUBCOMMANDS = Object.freeze({
   story: STORY_SUBCOMMANDS,
   session: SESSION_SUBCOMMANDS,
   capability: CAPABILITY_SUBCOMMANDS,
+  repositories: REPOSITORIES_SUBCOMMANDS,
   ...Object.fromEntries(Object.entries(SGOS_SUBCOMMANDS)
     .map(([name, actions]) => [name, Object.freeze([...actions.read, ...actions.mutation])])),
   wm: Object.freeze([...new Set([
@@ -981,6 +986,19 @@ function resolveCapabilityOperation(definition, positionals) {
   );
 }
 
+function resolveRepositoriesOperation(definition, positionals) {
+  const subcommand = positionals[1] ?? 'list';
+  if (!REPOSITORIES_SUBCOMMANDS.includes(subcommand)) {
+    return unknownSubcommand('repositories', subcommand, REPOSITORIES_SUBCOMMANDS);
+  }
+  if (subcommand !== 'cache') return never(`repositories.${subcommand}`, definition, 'read');
+  const action = positionals[2] ?? 'status';
+  if (!REPOSITORIES_CACHE_SUBCOMMANDS.includes(action)) {
+    return unknownSubcommand('repositories cache', action, REPOSITORIES_CACHE_SUBCOMMANDS, 'action');
+  }
+  return never(`repositories.cache.${action}`, definition, action === 'status' ? 'read' : 'mutation');
+}
+
 function resolveSgosOperation(definition, positionals, options) {
   const vocabulary = SGOS_SUBCOMMANDS[definition.name];
   const subcommand = positionals[1] ?? vocabulary.read[0] ?? vocabulary.mutation[0];
@@ -1094,6 +1112,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   if (definition.name === 'story') return resolveStoryOperation(definition, positionals, options);
   if (definition.name === 'session') return resolveSessionOperation(definition, positionals);
   if (definition.name === 'capability') return resolveCapabilityOperation(definition, positionals);
+  if (definition.name === 'repositories') return resolveRepositoriesOperation(definition, positionals);
   if (definition.name === 'constitution') return resolveConstitutionOperation(definition, positionals);
   if (SGOS_SUBCOMMANDS[definition.name]) return resolveSgosOperation(definition, positionals, options);
   return unclassified(definition.name);
@@ -1176,6 +1195,7 @@ export function operationCatalog() {
   const storyDefinition = commandDefinition('story');
   const sessionDefinition = commandDefinition('session');
   const capabilityDefinition = commandDefinition('capability');
+  const repositoriesDefinition = commandDefinition('repositories');
   const constitutionDefinition = commandDefinition('constitution');
   const visualDefinition = commandDefinition('visual');
   const mcpDefinition = commandDefinition('mcp');
@@ -1363,6 +1383,9 @@ export function operationCatalog() {
     ...SESSION_MUTATION_SUBCOMMANDS.map((name) => never(`session.${name}`, sessionDefinition, 'mutation')),
     ...CAPABILITY_READ_SUBCOMMANDS.map((name) => never(`capability.${name}`, capabilityDefinition, 'read')),
     ...CAPABILITY_MUTATION_SUBCOMMANDS.map((name) => never(`capability.${name}`, capabilityDefinition, 'mutation')),
+    ...REPOSITORIES_READ_SUBCOMMANDS.map((name) => never(`repositories.${name}`, repositoriesDefinition, 'read')),
+    never('repositories.cache.status', repositoriesDefinition, 'read'),
+    never('repositories.cache.clear', repositoriesDefinition, 'mutation'),
     ...CONSTITUTION_READ_SUBCOMMANDS.map((name) => never(`constitution.${name}`, constitutionDefinition, 'read')),
     ...CONSTITUTION_MUTATION_SUBCOMMANDS.map((name) => never(`constitution.${name}`, constitutionDefinition, 'mutation')),
     ...sgos

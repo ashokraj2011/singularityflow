@@ -47,6 +47,28 @@ interface RepositoryInspection {
   organisations?: Array<{ lead?: string; stale?: boolean; organisation?: Organisation }>;
 }
 
+interface RepositoryCatalogRecord {
+  selectionRef?: string;
+  display?: { nameWithOwner?: string };
+  locators?: { https?: string | null; ssh?: string | null };
+  providerFacts?: { visibility?: string | null; permission?: string | null } | null;
+  knownAssociations?: unknown[];
+}
+
+interface RepositoryCatalogPage {
+  repositories?: RepositoryCatalogRecord[];
+  enumeration?: string;
+  reasons?: string[];
+  nextCursor?: string | null;
+  request?: { accountBinding?: string | null };
+  usage?: { providerQueries?: number; providerDurationMs?: number };
+}
+
+interface RepositorySelectionPreparation {
+  status?: string;
+  locator?: string;
+}
+
 export interface Mapped {
   capabilityId: string;
   repositoryId: string | null;
@@ -60,9 +82,10 @@ export interface Mapped {
 export interface MapCapabilityLaunch {
   parent?: string;
   journey?: StartWizardProgress | null;
+  chooseRepository?: boolean;
 }
 
-type Run = (argv: string[]) => Promise<{ result: unknown; error: string | null }>;
+type Run = (argv: string[], signal?: AbortSignal) => Promise<{ result: unknown; error: string | null }>;
 
 /** Flatten the map into the parents a new capability may sit under. */
 function parentChoices(nodes: Organisation['capabilities'], depth = 0): ParentChoice[] {
@@ -133,6 +156,7 @@ export class BootstrapPanel {
       BootstrapPanel.current.onMapped = onMapped;
       BootstrapPanel.current.prefill(initial);
       BootstrapPanel.current.panel.reveal(vscode.ViewColumn.Active);
+      if (initial.chooseRepository) void BootstrapPanel.current.chooseRepository();
       return BootstrapPanel.current;
     }
     const panel = vscode.window.createWebviewPanel(
@@ -142,6 +166,7 @@ export class BootstrapPanel {
         localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
       });
     BootstrapPanel.current = new BootstrapPanel(panel, leads, run, onMapped, initial);
+    if (initial.chooseRepository) void BootstrapPanel.current.chooseRepository();
     return BootstrapPanel.current;
   }
 
@@ -252,6 +277,215 @@ export class BootstrapPanel {
     }
     if (!lead) return void this.render();
     await this.loadSelectedMap();
+  }
+
+  private async chooseRepository(): Promise<void> {
+    const readCatalog = async (argv: string[], title: string) => {
+      let cancelled = false;
+      const response = await vscode.window.withProgress({
+        location: vscode.ProgressLocation.Notification,
+        title,
+        cancellable: true
+      }, async (_progress, token) => {
+        const controller = new AbortController();
+        const subscription = token.onCancellationRequested(() => {
+          cancelled = true;
+          controller.abort();
+        });
+        try { return await this.run(argv, controller.signal); }
+        finally { subscription.dispose(); }
+      });
+      return cancelled ? null : response;
+    };
+    const knownRead = await readCatalog([
+      'repositories', 'list', '--scope', 'known', '--audience', 'native', '--surface', 'vscode', '--limit', '100', '--json'
+    ], 'Reading repositories already known to Singularity Flow…');
+    if (!knownRead) return;
+    if (knownRead.error) {
+      void vscode.window.showErrorMessage(`Singularity Flow could not read known repositories: ${knownRead.error}`);
+      return;
+    }
+    const known = knownRead.result as RepositoryCatalogPage;
+    type CatalogPick = vscode.QuickPickItem & {
+      selectionRef?: string;
+      activateProvider?: boolean;
+      loadMore?: boolean;
+      information?: boolean;
+      pasteUrl?: boolean;
+    };
+    const repositoryItems = (page: RepositoryCatalogPage, source: 'known' | 'provider'): CatalogPick[] =>
+      (page.repositories ?? []).map((record) => ({
+        label: `$(repo) ${record.display?.nameWithOwner ?? 'Repository'}`,
+        description: source === 'known'
+          ? record.knownAssociations?.length
+            ? `known to SFlow · ${record.knownAssociations.length} association(s)` : 'known to SFlow'
+          : [record.providerFacts?.visibility, record.providerFacts?.permission]
+            .filter(Boolean).join(' · '),
+        detail: source === 'known'
+          ? record.locators?.https ?? record.locators?.ssh ?? undefined
+          : 'Selection is revalidated before onboarding inspection.',
+        selectionRef: record.selectionRef
+      }));
+    const informationItem: CatalogPick = {
+      label: '$(info) How repository discovery works',
+      description: 'Provider access, privacy, caching, and what selection does'
+    };
+    informationItem.information = true;
+    const pasteItem: CatalogPick = {
+      label: '$(link) Paste clone URL instead',
+      description: 'Keep using the clone URL field; no provider request is required',
+      pasteUrl: true
+    };
+    const showInformation = async () => {
+      await vscode.window.showInformationMessage(
+        'Known results come only from bounded local Singularity Flow records. Git-provider search is an explicit, cancellable read using the active stored gh identity for the host you enter. SFlow never reads or stores the token. Results may be cached privately for 15 minutes. Choosing one repository only revalidates it and opens the existing inspection flow—it does not clone, map, create a workspace, or grant authority.',
+        { modal: true }
+      );
+    };
+
+    let knownPage = known;
+    const knownItems: CatalogPick[] = repositoryItems(knownPage, 'known');
+    let picked: CatalogPick | undefined;
+    while (!picked) {
+      const choice = await vscode.window.showQuickPick<CatalogPick>([
+        ...knownItems,
+        ...(knownPage.nextCursor ? [{
+          label: '$(chevron-down) Load more known repositories',
+          description: 'Continue the exact bounded local catalog read', loadMore: true
+        } satisfies CatalogPick] : []),
+        { label: '$(github) Search Git provider…',
+          description: 'Explicit network read using the active stored gh identity',
+          detail: 'No repository is cloned, inspected, mapped, or added by this search.',
+          activateProvider: true },
+        informationItem,
+        pasteItem
+      ], {
+        title: 'Choose repository',
+        placeHolder: knownPage.enumeration === 'exhausted'
+          ? 'Choose one known to SFlow, or explicitly search a Git provider'
+          : 'Known results are bounded; load more or explicitly search a Git provider',
+        matchOnDescription: true,
+        matchOnDetail: true
+      });
+      if (!choice || choice.pasteUrl) return;
+      if (choice.information) { await showInformation(); continue; }
+      if (choice.loadMore && knownPage.nextCursor) {
+        const more = await readCatalog([
+          'repositories', 'list', '--scope', 'known', '--audience', 'native', '--surface', 'vscode', '--limit', '100',
+          '--cursor', knownPage.nextCursor, '--json'
+        ], 'Reading the next known-repository page…');
+        if (!more) return;
+        if (more.error) {
+          void vscode.window.showErrorMessage(`The known-repository continuation failed safely: ${more.error}`);
+          continue;
+        }
+        knownPage = more.result as RepositoryCatalogPage;
+        knownItems.push(...repositoryItems(knownPage, 'known'));
+        continue;
+      }
+      picked = choice;
+    }
+
+    let selected = picked;
+    if (picked.activateProvider) {
+      const host = await vscode.window.showInputBox({
+        title: 'Git provider host',
+        prompt: 'The exact GitHub or GitHub Enterprise host to query with the active stored gh identity.',
+        value: '',
+        validateInput: (value) => value.trim() ? null : 'Enter the Git provider host.'
+      });
+      if (!host) return;
+      const query = await vscode.window.showInputBox({
+        title: `Search repositories on ${host.trim()}`,
+        prompt: 'Optional literal owner/name text. Leave empty to show the first bounded page.',
+        placeHolder: 'payments'
+      });
+      if (query === undefined) return;
+      const baseArgv = query.trim()
+        ? ['repositories', 'search', query.trim(), '--scope', 'provider']
+        : ['repositories', 'list', '--scope', 'provider'];
+      baseArgv.push('--provider', 'github', '--host', host.trim(),
+        '--audience', 'native', '--surface', 'vscode', '--limit', '100', '--json');
+      let providerPage: RepositoryCatalogPage | null = null;
+      const providerItems: CatalogPick[] = [];
+      let loadProviderPage = true;
+      while (!selected.selectionRef) {
+        if (loadProviderPage) {
+          const argv = [...baseArgv];
+          if (providerPage?.nextCursor) {
+            const accountBinding = providerPage.request?.accountBinding;
+            if (!accountBinding) {
+              void vscode.window.showErrorMessage('The provider continuation omitted its account binding and was refused. Start a fresh search.');
+              return;
+            }
+            argv.splice(argv.length - 1, 0,
+              '--account', accountBinding, '--cursor', providerPage.nextCursor);
+          }
+          const providerRead = await readCatalog(argv,
+            providerPage ? 'Reading the next Git-provider page…' : `Reading repositories from ${host.trim()}…`);
+          if (!providerRead) return;
+          if (providerRead.error) {
+            void vscode.window.showErrorMessage(
+              `Git provider repository discovery did not complete: ${providerRead.error}`,
+              'Paste clone URL instead'
+            );
+            return;
+          }
+          providerPage = providerRead.result as RepositoryCatalogPage;
+          providerItems.push(...repositoryItems(providerPage, 'provider'));
+          loadProviderPage = false;
+        }
+        const visiblePage = providerPage;
+        if (!visiblePage) return;
+        const choice = await vscode.window.showQuickPick<CatalogPick>([
+          ...providerItems,
+          ...(visiblePage.nextCursor ? [{
+            label: '$(chevron-down) Load more provider repositories',
+            description: 'Continue the exact host, account-bound provider traversal', loadMore: true
+          } satisfies CatalogPick] : []),
+          informationItem,
+          pasteItem
+        ], {
+          title: `Repositories on ${host.trim()}`,
+          placeHolder: visiblePage.enumeration === 'more'
+            ? 'Choose a repository or load the next bounded page'
+            : 'Choose a repository',
+          matchOnDescription: true,
+          matchOnDetail: true
+        });
+        if (!choice || choice.pasteUrl) return;
+        if (choice.information) { await showInformation(); continue; }
+        if (choice.loadMore && visiblePage.nextCursor) {
+          loadProviderPage = true;
+          continue;
+        }
+        selected = choice;
+      }
+    }
+
+    if (!selected.selectionRef) return;
+    const prepared = await this.run([
+      'repositories', 'select', selected.selectionRef, '--action', 'inspect', '--surface', 'vscode', '--json'
+    ]);
+    if (prepared.error) {
+      void vscode.window.showWarningMessage(
+        `Repository selection changed or expired: ${prepared.error}`,
+        'Choose again'
+      );
+      return;
+    }
+    const selection = prepared.result as RepositorySelectionPreparation;
+    const repositoryUrl = selection.locator?.trim() ?? '';
+    const problem = gitRemoteProblem(repositoryUrl, 'Repository');
+    if (!repositoryUrl || problem) {
+      void vscode.window.showErrorMessage(problem ?? 'The selected repository has no safe clone URL.');
+      return;
+    }
+    this.invalidateInspection();
+    this.form.repositoryUrl = repositoryUrl;
+    this.form.lead = this.form.leads.length ? '' : repositoryUrl;
+    this.render();
+    await this.inspectRepository();
   }
 
   private async inspectRepository(
@@ -480,6 +714,8 @@ export class BootstrapPanel {
     }
 
     if (message?.type === 'redraw') return this.render();
+
+    if (message?.type === 'chooseRepository') return void await this.chooseRepository();
 
     if (message?.type === 'inspectRepository') return void await this.inspectRepository();
 

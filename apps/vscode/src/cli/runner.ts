@@ -71,11 +71,11 @@ export const DISPLAY_BOOLEAN_OPTIONS = new Set([
   'accept-bundled-conflicts', 'accept-partial', 'acknowledge-self-approval', 'acknowledge-unprotected', 'active', 'adopt-current-interval', 'adopt-existing', 'all', 'allow-dirty', 'allow-model', 'apply', 'assigned-to-me', 'ast',
   'assisted', 'auto', 'automatic', 'blocking', 'bootstrap', 'check', 'churn', 'cli-only', 'clipboard', 'clone', 'concat',
   'confirm-pin-retention', 'confirm-protected', 'confirm-push-policy', 'create', 'derived', 'dry-run', 'evidence',
-  'diagnose-only', 'drop-local', 'experimental', 'fetch', 'first-run', 'force', 'forget-only', 'for-start', 'from-records', 'gate-recovery', 'here', 'include-prompt', 'include-proposals', 'initialize', 'intake', 'json',
+  'diagnose-only', 'disclose-provider-results', 'drop-local', 'experimental', 'fetch', 'first-run', 'force', 'forget-only', 'for-start', 'from-records', 'gate-recovery', 'here', 'include-prompt', 'include-proposals', 'initialize', 'intake', 'json',
   'include-existing', 'independent', 'isolated-worktree',
   'git-shadow', 'git-speed', 'keep', 'local', 'local-only', 'make-lead', 'markdown', 'migrate-legacy', 'network', 'offline', 'once', 'open', 'performance', 'plan-only',
   'opt-out', 'optional', 'parallel', 'polish', 'portable-discovery', 'preview', 'probe', 'propose', 'publish', 'push',
-  'quick', 'raw', 'readiness', 'rebuild', 'recap', 'record', 'record-audit', 'recover', 'refresh', 'release', 'render-only', 'repair', 'repair-on-fault', 'restore-remote', 'run',
+  'query-stdin', 'quick', 'raw', 'readiness', 'rebuild', 'recap', 'record', 'record-audit', 'recover', 'refresh', 'release', 'render-only', 'repair', 'repair-on-fault', 'restore-remote', 'run',
   'repair-projections', 'replace', 'replace-server', 'resume', 'set', 'sign', 'solo',
   'search-known', 'semantic', 'shadow', 'skip-checks', 'smart-detect', 'staged', 'stale', 'strict', 'terminal', 'timings', 'today', 'update', 'write',
   'yes', 'verbose', 'show-artifact', 'brief'

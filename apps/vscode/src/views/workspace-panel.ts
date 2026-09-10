@@ -73,7 +73,7 @@ export class WorkspacePanel {
   private readonly output: vscode.OutputChannel;
   private readonly context: vscode.ExtensionContext;
   private readonly onCreated: (created: WorkspaceCreated) => Promise<void>;
-  private readonly onOpenCapabilities: () => Promise<void>;
+  private readonly onOpenCapabilities: (options?: { chooseRepository?: boolean }) => Promise<void>;
   private readonly disposables: vscode.Disposable[] = [];
   private disposed = false;
   private form: WorkspaceForm = { ...EMPTY_WORKSPACE_FORM };
@@ -87,7 +87,7 @@ export class WorkspacePanel {
     location: CliLocation,
     output: vscode.OutputChannel,
     onCreated: (created: WorkspaceCreated) => Promise<void>,
-    onOpenCapabilities: () => Promise<void>,
+    onOpenCapabilities: (options?: { chooseRepository?: boolean }) => Promise<void>,
     initial: WorkspaceLaunch = {}
   ) {
     this.panel = panel;
@@ -124,7 +124,7 @@ export class WorkspacePanel {
     location: CliLocation,
     output: vscode.OutputChannel,
     onCreated: (created: WorkspaceCreated) => Promise<void>,
-    onOpenCapabilities: () => Promise<void> = async () => {},
+    onOpenCapabilities: (options?: { chooseRepository?: boolean }) => Promise<void> = async () => {},
     initial: WorkspaceLaunch = {}
   ): WorkspacePanel {
     if (WorkspacePanel.current) {
@@ -274,7 +274,9 @@ export class WorkspacePanel {
       if (stringField(message, 'what') === 'base') void this.chooseBase();
     },
     open: (message) => {
-      if (stringField(message, 'what') === 'capabilities') void this.onOpenCapabilities();
+      const target = stringField(message, 'what');
+      if (target === 'capabilities') void this.onOpenCapabilities();
+      if (target === 'repository') void this.onOpenCapabilities({ chooseRepository: true });
     },
     capability: (message) => {
       const id = stringField(message, 'id');

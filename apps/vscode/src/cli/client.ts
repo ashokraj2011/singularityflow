@@ -136,6 +136,9 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (args[0] === 'report' || args[0] === 'review') return hasOption(args, 'out') ? 'mutation' : 'read';
   if (args[0] === 'telemetry') return (args[1] ?? 'status') === 'status' ? 'read' : 'mutation';
   if (args[0] === 'help-metrics') return (args[1] ?? 'status') === 'status' ? 'read' : 'mutation';
+  if (args[0] === 'repositories') {
+    return args[1] === 'cache' && (args[2] ?? 'status') === 'clear' ? 'mutation' : 'read';
+  }
   if (args[0] === 'inputs') return enabledBooleanOption(args, 'dry-run') ? 'read' : 'mutation';
   if (args[0] === 'spec') {
     const action = args[1] ?? 'trace';

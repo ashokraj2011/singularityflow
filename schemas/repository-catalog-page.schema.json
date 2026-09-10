@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/repository-catalog-page.schema.json",
+  "title": "RDS bounded repository catalog page",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "sessionRef", "pageRef", "request", "sources", "repositories", "recordUpdates", "enumeration", "consistency", "delivery", "reasons", "usage", "nextCursor"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "repository-catalog-page" },
+    "sessionRef": { "type": "string", "pattern": "^rdss_[A-Za-z0-9_-]{20,80}$" },
+    "pageRef": { "type": "string", "pattern": "^rdsp_[a-f0-9]{24}$" },
+    "request": {
+      "type": "object",
+      "required": ["scope", "provider", "providerInstanceId", "accountBinding", "queryProfile", "queryFingerprint", "limit", "audience", "offline", "providerDisclosure"],
+      "properties": {
+        "scope": { "enum": ["known", "provider", "all"] },
+        "provider": { "type": ["string", "null"] },
+        "providerInstanceId": { "type": ["string", "null"] },
+        "accountBinding": { "type": ["string", "null"] },
+        "queryProfile": { "const": "literal-path-v1" },
+        "queryFingerprint": { "type": ["string", "null"] },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 500 },
+        "audience": { "enum": ["terminal", "native", "model"] },
+        "offline": { "type": "boolean" },
+        "providerDisclosure": { "enum": ["explicit", "withheld", "not_applicable"] }
+      },
+      "additionalProperties": false
+    },
+    "sources": { "type": "array", "items": { "$ref": "#/$defs/source" } },
+    "repositories": { "type": "array", "maxItems": 500, "items": { "$ref": "#/$defs/repository" } },
+    "recordUpdates": { "type": "array", "maxItems": 500 },
+    "enumeration": { "$ref": "#/$defs/enumeration" },
+    "consistency": { "enum": ["captured_local_inputs", "live_provider_traversal", "retained_observation", "mixed-source-observations"] },
+    "delivery": {
+      "type": "object",
+      "required": ["state", "returned", "withheld", "privateOrInternal"],
+      "properties": {
+        "state": { "enum": ["complete_page", "partial_page", "withheld"] },
+        "returned": { "type": "integer", "minimum": 0, "maximum": 500 },
+        "withheld": { "type": "integer", "minimum": 0, "maximum": 500 },
+        "privateOrInternal": { "type": "integer", "minimum": 0, "maximum": 500 }
+      },
+      "additionalProperties": false
+    },
+    "reasons": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "usage": { "type": "object" },
+    "nextCursor": { "type": ["string", "null"], "pattern": "^rdsc_[A-Za-z0-9_-]{20,80}$" }
+  },
+  "$defs": {
+    "enumeration": { "enum": ["exhausted", "more", "limited", "failed", "cancelled"] },
+    "source": {
+      "type": "object",
+      "required": ["sourceRef", "sourceKind", "sourceAvailability", "enumeration", "consistency", "freshness", "acceptedRecords", "omittedRecords", "reasons"],
+      "properties": {
+        "sourceRef": { "type": "string", "minLength": 1 },
+        "sourceKind": { "type": "string", "minLength": 1 },
+        "sourceAvailability": { "enum": ["available", "absent", "unavailable", "unsupported"] },
+        "enumeration": { "$ref": "#/$defs/enumeration" },
+        "consistency": { "type": "string", "minLength": 1 },
+        "freshness": { "type": "object" },
+        "acceptedRecords": { "type": "integer", "minimum": 0 },
+        "omittedRecords": { "type": "integer", "minimum": 0 },
+        "reasons": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+      },
+      "additionalProperties": false
+    },
+    "repository": {
+      "type": "object",
+      "required": ["recordRef", "recordRevision", "selectionRef", "repositoryIdentity", "display", "locators", "providerFacts", "knownAssociations", "inspection", "limitations", "conflicts", "sourceRefs"],
+      "properties": {
+        "recordRef": { "type": "string", "minLength": 1 },
+        "recordRevision": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "selectionRef": { "type": "string", "pattern": "^rdssel_[A-Za-z0-9_-]{20,80}$" },
+        "repositoryIdentity": { "type": "object" },
+        "display": { "type": "object" },
+        "locators": { "type": "object" },
+        "providerFacts": { "type": ["object", "null"] },
+        "knownAssociations": { "type": "array" },
+        "inspection": { "const": "required" },
+        "limitations": { "type": "array" },
+        "conflicts": { "type": "array" },
+        "sourceRefs": { "type": "array", "uniqueItems": true, "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

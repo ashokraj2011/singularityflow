@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/repository-selection-preparation.schema.json",
+  "title": "RDS selected repository preparation",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "selectionRef", "action", "status", "repositoryIdentity", "locator", "revalidatedAt", "inspection", "effects"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "repository-selection-preparation" },
+    "selectionRef": { "type": "string", "pattern": "^rdssel_[A-Za-z0-9_-]{20,80}$" },
+    "action": { "enum": ["inspect", "copy-url"] },
+    "status": { "const": "ready" },
+    "repositoryIdentity": { "type": "object" },
+    "locator": { "type": "string", "minLength": 1, "maxLength": 4096 },
+    "revalidatedAt": { "type": "string", "format": "date-time" },
+    "inspection": { "type": "object" },
+    "effects": {
+      "type": "object",
+      "required": ["mapped", "cloned", "workspaceCreated", "proposalCreated"],
+      "properties": {
+        "mapped": { "const": false },
+        "cloned": { "const": false },
+        "workspaceCreated": { "const": false },
+        "proposalCreated": { "const": false }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

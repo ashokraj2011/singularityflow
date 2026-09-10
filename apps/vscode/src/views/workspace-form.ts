@@ -240,7 +240,8 @@ function organisationHtml(form: WorkspaceForm): string {
   if (!form.organisations.length) {
     return `<p class="muted">No organisation has been mapped yet. Map a capability to a Git
       repository from the Capabilities screen — that is what creates the map this form reads.</p>
-      <p><button class="secondary" data-open="capabilities">Open Capabilities</button></p>`;
+      <p><button class="secondary" data-open="repository">${icon('repository')}Choose repository and map capability…</button>
+      <button class="secondary" data-open="capabilities">Open Capabilities</button></p>`;
   }
   if (form.organisations.length === 1 && form.organisation === form.organisations[0]) {
     return `<p><code>${escape(form.organisation)}</code>
@@ -271,7 +272,8 @@ function capabilityHtml(form: WorkspaceForm): string {
   if (!hasCapabilityMap(form)) {
     return `<p class="muted">${escape(form.capabilitiesReason ?? 'This organisation does not describe what it builds yet.')}
       Create its first capability here; this form will refresh when it has been mapped.</p>
-      <p><button class="secondary" data-open="capabilities">${icon('capability')}Create first capability</button></p>`;
+      <p><button class="secondary" data-open="repository">${icon('repository')}Choose repository and create capability…</button>
+      <button class="secondary" data-open="capabilities">${icon('capability')}Create first capability manually</button></p>`;
   }
 
   const covered = coveredCapabilities(form);
@@ -423,6 +425,7 @@ export function workspaceFormHtml(form: WorkspaceForm, journey: StartWizardProgr
   <section>
     <h2>${icon('git')}Repositories</h2>
     <p class="question">What the chosen capabilities ship from. Cloned when the workspace is created.</p>
+    <p><button class="secondary" data-open="repository">${icon('repository')}Choose another repository to map…</button></p>
     <table>
       <thead><tr><th></th><th>Identifier</th><th>Origin</th><th>Branch</th><th>Clone strategy</th></tr></thead>
       <tbody>${repositoryRows(form)}</tbody>

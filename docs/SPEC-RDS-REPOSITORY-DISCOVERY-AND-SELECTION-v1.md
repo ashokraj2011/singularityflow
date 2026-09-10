@@ -2,13 +2,21 @@
 
 **Specification ID:** `RDS-v1`
 
-**Status:** Draft; reviewed design proposal; no behavior is implemented by this document
+**Status:** Implemented code-local baseline; physical office-network/provider evidence remains an external release gate
 
-**Version:** `1.0.0-draft.1`
+**Version:** `1.1.0-implemented.2`
 
-**Code baseline:** `main@7508665ee62c6c32db72ea802bdd39b16d52df08`
+**Code baseline:** implementation commit recorded in Git history
 
-**Date:** 2026-09-09
+**Date:** 2026-09-10
+
+Implementation note: the revised 1.1 contract is implemented by `src/repositories/`, the
+machine-scoped `repositories` command, `/sf-repositories`, and the VS Code **Choose repository…**
+flow. The provider path uses fixed stdin GraphQL through `gh`, opaque expiring selections, and
+selected-node revalidation. The local path is strict and performs no Git/provider/model work.
+Platform claims still require the separately identified physical Windows, enterprise-host,
+proxy/certificate, large-account, SSO, cancellation, and release-evidence runs; their absence does
+not disable URL paste or local-known discovery.
 
 **Related work:** Fast Onboarding and Safe Git (`FOS`), Capability Authority Discovery
 (`CAD-WSP-PLAN-v1`), Progressive Capability Disclosure (`PCD`), and intent-based SFlow help
@@ -323,11 +331,16 @@ heuristics.
 
 Register migration families before any durable writer:
 
-- `repository-provider-status`;
-- `repository-catalog-page`;
 - `repository-catalog-cursor`;
 - `repository-catalog-cache-entry`;
+- `repository-catalog-epoch`;
+- `repository-catalog-selection`;
 - `repository-discovery-audit`.
+
+Provider status, catalog pages, and selection preparations are read-only transport envelopes with
+closed public JSON Schemas; they are not durable families and therefore do not use a migration
+registry version. This amendment keeps the repository-wide durable-writer invariant exact rather
+than registering fictional storage that no writer owns.
 
 Every durable writer stamps `currentSchemaVersion(family)`.
 

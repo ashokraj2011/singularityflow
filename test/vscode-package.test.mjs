@@ -3,13 +3,15 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { chmod, copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import {
+  chmod, copyFile, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile
+} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   CLI_PAYLOAD, PACKAGING_NPM_CLI_ENV, VSCE_TOOLCHAIN, assertPortablePackageCheckout, assertVscePackageInputs,
-  configureLocalDemoWorkflow, resolveVsce, stageCli, vscodePackagingEnvironment,
+  configureLocalDemoWorkflow, isExecutedVscodeDevModule, resolveVsce, stageCli, vscodePackagingEnvironment,
   vscePackageArguments, vsceToolManifest
 } from '../scripts/vscode-dev.mjs';
 import {
@@ -19,6 +21,23 @@ import {
 import { stampBuildInfo } from '../src/build-info-stamp.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+test('the VS Code builder recognizes an entrypoint reached through a directory alias', async () => {
+  const realDirectory = await mkdtemp(path.join(os.tmpdir(), 'sflow-vscode-entry-real-'));
+  const aliasDirectory = `${realDirectory}-alias`;
+  const moduleFile = path.join(realDirectory, 'builder.mjs');
+  await writeFile(moduleFile, '// fixture\n');
+  await symlink(realDirectory, aliasDirectory, process.platform === 'win32' ? 'junction' : 'dir');
+  try {
+    assert.equal(
+      isExecutedVscodeDevModule(path.join(aliasDirectory, 'builder.mjs'), moduleFile),
+      true
+    );
+  } finally {
+    await rm(aliasDirectory, { force: true });
+    await rm(realDirectory, { recursive: true, force: true });
+  }
+});
 
 async function descendantsNamed(directory, wanted) {
   const matches = [];

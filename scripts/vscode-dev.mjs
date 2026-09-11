@@ -20,7 +20,7 @@
  * when a result disagrees with a globally installed CLI.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   chmod, copyFile, link, lstat, mkdtemp, mkdir, readdir, readFile, rename, rm, writeFile
@@ -36,6 +36,23 @@ import {
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const extension = path.join(root, 'apps', 'vscode');
 const cli = path.join(root, 'bin', 'singularity-flow.mjs');
+
+/**
+ * Node canonicalizes an executed module URL, while argv can retain an OS alias such as macOS's
+ * `/var` -> `/private/var`. Compare filesystem identity so a release worktree below the aliased
+ * temporary directory cannot silently be mistaken for an imported module.
+ */
+export function isExecutedVscodeDevModule(
+  entry = process.argv[1],
+  moduleFile = fileURLToPath(import.meta.url)
+) {
+  if (!entry || !moduleFile) return false;
+  try {
+    return realpathSync(entry) === realpathSync(moduleFile);
+  } catch {
+    return path.resolve(entry) === path.resolve(moduleFile);
+  }
+}
 const VSCODE_GENERATED_FILES = new Set([
   'dist/extension.cjs',
   'dist/gateway-context-runtime.cjs',
@@ -1351,7 +1368,7 @@ async function main() {
   ].join('\n'));
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isExecutedVscodeDevModule()) {
   main().catch((error) => {
     console.error(`\n${error.message}`);
     process.exitCode = 1;

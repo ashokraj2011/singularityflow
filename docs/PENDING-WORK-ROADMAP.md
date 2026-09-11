@@ -1,10 +1,10 @@
 # Singularity Flow pending-work roadmap
 
-**Status:** authoritative cross-product tracker; bounded exact-tree aggregate and the latest code-local asynchronous Git migration are complete, while platform release evidence remains active
+**Status:** authoritative cross-product tracker; the code-local feature inventory is reconciled through the current clean baseline, while platform release evidence and explicitly deferred authority work remain active
 
-**Baseline:** `main@98ea750c`
+**Baseline:** `main@ef6a4529`
 
-**Last reviewed:** 2026-09-09
+**Last reviewed:** 2026-09-11
 
 This is the one-page control plane for deliberately deferred product work. It does not replace the
 detailed domain roadmaps and it does not authorize implementation. It names the current boundary,
@@ -46,6 +46,27 @@ has no durable path or writer. Tampered and unknown-newer inputs fail closed, mi
 rewrites the source bytes, and the isolated npm and VSIX-contained engines execute the same
 preview. This closes only CMP's code-local preview/migration deliverable; it does not approve a
 storage/privacy policy or change any Story default.
+
+Repository Discovery and Selection v1 landed at `main@baca8ed1`. The machine-scoped
+`repositories` CLI, model-free `/sf-repositories` route, and native VS Code repository picker now
+share one bounded catalog and opaque selection contract. Known repositories remain offline;
+provider enumeration is explicitly invoked, uses the installed `gh` session, and revalidates the
+selected node before handoff. RDS is therefore no longer a proposed product increment. Physical
+office-network/provider evidence and additional provider adapters remain external or deferred
+work.
+
+The Workflow Adapters and Story Snapshots foundation landed at `main@1c6d172e`. New Stories capture
+an immutable, bounded workflow closure, and the CLI can show, verify, and compare that accepted
+snapshot without network access. This closes the WFA snapshot-portability foundation only;
+amendment snapshots, cross-machine Story handoff, and external workflow import/export adapters
+remain deliberately deferred because they introduce new authority and dialect semantics.
+
+The deterministic FINOS CALM 1.2 World-Model projection landed at `main@3fd49e98`, was hardened at
+`main@4f9bb1e5`, and completed its governed projection lifecycle at `main@e5f84ae6`. The shared
+state-branch product, packaged offline validator, source maps, architecture commands, Copilot route,
+VS Code views, Story-local planned intent, and fulfilment comparison are code-local implemented
+features. CALM is not pending feature work; only the common signed package/platform evidence and
+any separately proposed future projection contracts remain open.
 
 The privacy-safe CMP real-repository corpus runner landed at `main@ec1b5c88`. It measures 1–16
 explicit Git roots through the production exact-change/coverage path, refuses concurrent state
@@ -309,13 +330,13 @@ digest is `sha256:4c46cd2938b5dba6086a20bf200502e54fda74f3328645cbd6bd012ebc0c70
 Both editor-profile cells are therefore complete on macOS; Linux child RSS, Windows,
 office-network, pinned-runner baseline, and signed package/platform evidence remain open.
 
-## 2026-09-07 reconciliation snapshot
+## 2026-09-11 reconciliation snapshot
 
 This snapshot resolves conflicts between older domain roadmaps and the executable baseline. A
 shared primitive does not complete a higher-assurance track: for example, the developer-local
 signed runner is useful M9 evidence, but it is not an authenticated independent CAB/WEL verifier.
 
-| Area | Implemented boundary through `0a2ffb39` | Still open |
+| Area | Implemented boundary through `ef6a4529` | Still open |
 |---|---|---|
 | Auto v2 | Dependency-free Story profile, P0/P1 controls, interval pacing, provenance-preserving direct Ad Hoc Candidate adoption, and an exact registered Flow Impact comparison projection | Optional SGOS execution profile plus collection and independent review of qualifying comparison cohorts |
 | CMP | Model-free, read-only `comprehension regions`, `check`, experimental source-free record preview/in-memory migration, bounded privacy-safe real-repository measurement, Candidate-bound bounded exact before/after source expansion, ephemeral intent graph, exact clause/file/change explanation, content-free normalized Story replay, resource-level `intent.trace` through the existing five gateway tools, release-gated synthetic benchmark, deterministic resource walkthrough drafts, typed validation, selective observe-only revalidation, a leased read-only VS Code Comprehension Center with bounded exact tracked-diff and on-demand source inspection, per-file/hunk indexing, cache-only current-symbol navigation, keyboard semantics, built-host/repository-switch fencing, an exact-region join to recorded delivery/test references, guarded `/sf-learn` routing, and a no-full-backfill touched-area/historical-proposal diagnostic with a native Brownfield tab | Independently reviewed corpus results and storage/privacy decision, durable cause authority/index, cause-backed gateway query, authoritative structural/evidence expansion, SGOS/cause replay joins, governed causal provenance, optional model drafting, authoritative walkthrough validators/receipts, lifecycle enforcement, remaining physical production evidence, reviewed CMP lessons, and governed historical persistence/review |
@@ -325,6 +346,9 @@ signed runner is useful M9 evidence, but it is not an authenticated independent 
 | GDP | M0–M8 implemented; M9 local observe/developer-local signed runner, M10 contracts, and M11 readiness report implemented as partial milestones | Authenticated runner and verifier, provider pilots, enforce enrollment, migration/support-window exercises, signed package/platform receipts, and GA decision |
 | VS Code UI remediation | Multi-Story navigation, timeout recovery, responsive layout, visual regression contract, native developer-local runner review, and the initial read-only CMP Comprehension Center are complete code-local increments | CMP Center physical-host accessibility/performance evidence and its future authoritative expansion remain product-roadmap work, not defects left in the closed remediation plan |
 | WMB v4 | Release receipt generator, merger, artifact binding, and refusal gate; unsigned local macOS Node 20/22 aggregates are green | Reviewed signed macOS/Linux/Windows by Node 20/22 aggregate bound to the selected npm/VSIX artifacts |
+| CALM projection | Deterministic `arch.calm@1` projection, packaged offline FINOS CALM 1.2 validation, exact source maps, atomic state-branch publication, CLI/Copilot/VS Code inspection, Story-local planned intent, export, and fulfilment comparison are implemented through `e5f84ae6` | Shared signed npm/VSIX and supported-platform release evidence; any new projection contract requires a separately reviewed increment |
+| Repository discovery | Bounded offline-known and explicitly invoked GitHub/GitHub Enterprise repository catalogs, opaque expiring selections, selected-node revalidation, `/sf-repositories`, and the native VS Code picker are implemented through `baca8ed1` | Physical office proxy/certificate/SSO, cancellation, large-account, and supported-platform evidence; additional provider adapters remain separate increments |
+| Workflow adapters | Immutable bounded Story workflow capture plus model-free `show`, `verify`, and `drift` inspection are implemented through `1c6d172e` | Amendment snapshots, proven cross-machine Story handoff, GitHub Actions proposal import, checks export with round-trip equivalence, and later dialect adapters |
 
 ### Release baseline health
 
@@ -407,7 +431,7 @@ matrix cell.
 | Governed comprehension | Read-only, non-authoritative P0 contract, closed registries, authority ADR, mutation tripwires, isolated npm/VSIX proof, deterministic corpus/matrix command, content-free P1 benchmark, bounded privacy-safe real-repository measurement, experimental source-free record preview/in-memory migration, bounded ephemeral P3 graph/exact explanation reads, normalized Story replay, an existing-five-tool resource-level gateway trace, and code-local incremental brownfield diagnostics with a leased native view exist | Execute and sign the unchanged `CMP-P0-001` matrix on Windows and Linux, independently review collected corpus results, complete the P1 storage/privacy and rollout decision, add P2-backed durable graph/causal authority plus SGOS joins, then integrate governed historical review before enforcement | [CMP roadmap](CMP-ROADMAP.md) |
 | Governed Delivery and Proof | M0–M8 are implemented; M9–M11 have code-local partial surfaces and remain non-GA | Authenticated M9 runner/verifier and signed release evidence before provider pilots or enforcement | [GDP milestone roadmap](GDP-DELIVERY-ROADMAP.md) |
 | Auto v2 | Story P0/P1, model/AST optionality, direct Ad Hoc Candidate adoption, and guarded registered comparative-quality projection are implemented | Optional SGOS profile after its independent acceptance contract; execute and independently review a real qualifying comparison study | [Auto v2 roadmap](AUT-V2-IMPLEMENTATION-ROADMAP.md) |
-| Fast onboarding and safe Git | M0–M5 code-local contracts are active. Portable delivery-state authority discovery, URL-first approved-map inspection, explicit registered-lead search, deferred proposal enumeration, exact conflict reconciliation, cross-process verified capability-catalog reuse, Smart clone defaults, and the VS Code explanation/recovery slice landed through `main@7508665e`; controlled release evidence remains open | Complete `CAD-WSP-PLAN-v1` M6 office/platform evidence, FOS AC-035, and external M5 adapter certification. The proposed `RDS-v1` then adds explicit, model-free provider repository enumeration without making it an onboarding prerequisite | [Operator guide](FAST-ONBOARDING-AND-GIT-PERFORMANCE.md), [FOS implementation plan](FOS-IMPLEMENTATION-PLAN.md), [capability/workspace extension plan](CAPABILITY-AUTHORITY-DISCOVERY-AND-WORKSPACE-PERFORMANCE-PLAN.md), and [repository discovery specification](SPEC-RDS-REPOSITORY-DISCOVERY-AND-SELECTION-v1.md) |
+| Fast onboarding and safe Git | M0–M5 code-local contracts are active. Portable delivery-state authority discovery, URL-first approved-map inspection, explicit registered-lead search, deferred proposal enumeration, exact conflict reconciliation, cross-process verified capability-catalog reuse, Smart clone defaults, and the VS Code explanation/recovery slice landed through `main@7508665e`. RDS v1's explicit model-free provider catalog and repository selection flow subsequently landed at `main@baca8ed1`; controlled release evidence remains open | Complete `CAD-WSP-PLAN-v1` M6 office/platform evidence, FOS AC-035, external M5 adapter certification, and RDS physical office/provider evidence | [Operator guide](FAST-ONBOARDING-AND-GIT-PERFORMANCE.md), [FOS implementation plan](FOS-IMPLEMENTATION-PLAN.md), [capability/workspace extension plan](CAPABILITY-AUTHORITY-DISCOVERY-AND-WORKSPACE-PERFORMANCE-PLAN.md), and [repository discovery specification](SPEC-RDS-REPOSITORY-DISCOVERY-AND-SELECTION-v1.md) |
 
 Completed work is not repeated in this tracker. In particular, the
 [VS Code UI remediation contract](UI-REMEDIATION-PLAN.md) is implemented and regression-backed; a

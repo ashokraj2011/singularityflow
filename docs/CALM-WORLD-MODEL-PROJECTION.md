@@ -101,4 +101,3 @@ missing observation cannot be presented as successful delivery.
 - The writer repeats strict official validation immediately before the state commit.
 - Export requires an explicit repository-relative destination and never changes World Model or Story
   authority.
-

@@ -2,12 +2,11 @@ import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
-import { loadCapabilities } from '../capabilities.mjs';
 import {
   optionBoolean, optionNumber, optionString, secureRepositoryPath, SingularityFlowError
 } from '../util.mjs';
 import { inspectWorldModelViewCache } from './cache.mjs';
-import { canonicalJson, sha256 } from './canonicalize.mjs';
+import { canonicalJson, compareText, sha256 } from './canonicalize.mjs';
 import { createWorldModelMigrationReceipt } from './migration/v3-to-v4.mjs';
 import { readLegacyWorldModelView } from './migration/v3-reader.mjs';
 import {
@@ -21,9 +20,8 @@ import {
   BUILTIN_PROJECTION_REGISTRY, resolveProjectionContract
 } from './registry/projections.mjs';
 import {
-  createArchitectureCapabilitySnapshot, createArchitectureConfigurationSnapshot
-} from './projections/calm/projection.mjs';
-import { createCalmToolchainLock } from './projections/calm/validator.mjs';
+  architectureProjectionInputIdentity, resolveCurrentArchitectureProjectionInputs
+} from './projections/calm/authority.mjs';
 import {
   WMB_V4_CANDIDATE_SCHEMA_SHA256, WMB_V4_DETERMINISTIC_EXECUTION_SHA256,
   WMB_V4_VALIDATOR_SHA256
@@ -142,7 +140,7 @@ export function configuredWorldModelV4ViewSelections(config, options = {}, phase
   const configured = normalize(configuredRaw, 'configuration');
   const configuredById = new Map(configured.map((entry) => [entry.viewId, entry]));
   if (explicit) return normalize(String(explicit).split(','), 'CLI selection', configuredById)
-    .sort((left, right) => left.viewId.localeCompare(right.viewId));
+    .sort((left, right) => compareText(left.viewId, right.viewId));
   const phaseRaw = phase && config.phases?.[phase]?.declaredViews?.length
     ? config.phases[phase].declaredViews : [];
   const phaseViews = normalize(phaseRaw, `phase '${phase}'`, configuredById);
@@ -157,7 +155,7 @@ export function configuredWorldModelV4ViewSelections(config, options = {}, phase
   }
   if (!values.length) values = all;
   return [...new Map(values.map((entry) => [entry.viewId, entry])).values()]
-    .sort((left, right) => left.viewId.localeCompare(right.viewId));
+    .sort((left, right) => compareText(left.viewId, right.viewId));
 }
 
 /** Resolve validated registered-view references to their canonical manifest IDs. */
@@ -201,7 +199,7 @@ export function configuredWorldModelV4ProjectionSelections(config, options = {})
       required: policy.required === true, contract, profile: Object.freeze({ ...policy.profile }),
       budgets: Object.freeze({ ...contract.budgets, ...policy.budgets })
     });
-  }).sort((left, right) => left.projectionId.localeCompare(right.projectionId));
+  }).sort((left, right) => compareText(left.projectionId, right.projectionId));
 }
 
 function composer(config, options) {
@@ -346,6 +344,7 @@ function commonBuildOptions(root, config, options, { views = null, cachePolicy =
  */
 export function worldModelV4GatewayDefaults(root, config) {
   const projections = configuredWorldModelV4ProjectionSelections(config);
+  const projectionInputs = config.architectureProjectionInputs ?? null;
   return Object.freeze({
     ...commonBuildOptions(root, config, {}, {
       views: configuredWorldModelV4ViewIds(config)
@@ -359,11 +358,10 @@ export function worldModelV4GatewayDefaults(root, config) {
     allowUnavailableOptionalViews: true,
     projections,
     projectionRegistry: BUILTIN_PROJECTION_REGISTRY,
-    configurationSnapshot: projections.length
-      ? createArchitectureConfigurationSnapshot(config.definition, {
-          sourceSha256: sha256(config.definition)
-        })
-      : null
+    ...(projections.length && projectionInputs ? projectionInputs : {}),
+    ...(projections.length && config.architectureProjectionSetupError ? {
+      projectionSetupError: config.architectureProjectionSetupError
+    } : {})
   });
 }
 
@@ -376,18 +374,16 @@ async function resolvedBuildOptions(root, config, options, overrides = {}) {
   const projectionSelections = configuredWorldModelV4ProjectionSelections(config, options);
   if (projectionSelections.length) {
     try {
-      const [capabilities, toolchain] = await Promise.all([
-        loadCapabilities(root, { required: true }), createCalmToolchainLock()
-      ]);
+      if (config.architectureProjectionSetupError) {
+        throw new SingularityFlowError(config.architectureProjectionSetupError.message, {
+          code: config.architectureProjectionSetupError.code
+        });
+      }
+      const inputs = config.architectureProjectionInputs
+        ?? await resolveCurrentArchitectureProjectionInputs(root, config.definition);
       result.projections = projectionSelections;
       result.projectionRegistry = BUILTIN_PROJECTION_REGISTRY;
-      result.capabilitySnapshot = createArchitectureCapabilitySnapshot(capabilities, {
-        sourceSha256: sha256(capabilities)
-      });
-      result.configurationSnapshot = createArchitectureConfigurationSnapshot(config.definition, {
-        sourceSha256: sha256(config.definition)
-      });
-      result.toolchainLock = toolchain.lock;
+      Object.assign(result, inputs);
     } catch (error) {
       const explicit = optionString(options, 'projections') != null;
       if (explicit || projectionSelections.some((entry) => entry.required)) throw error;
@@ -416,12 +412,16 @@ async function resolvedBuildOptions(root, config, options, overrides = {}) {
 
 function storeOptions(root, config, { views = null, options = {} } = {}) {
   const ledger = ledgerConfig(config);
+  const projections = configuredWorldModelV4ProjectionSelections(config, options);
   const expectedReusableIdentity = resolveWorldModelV4ReusableIdentity(
     {
       ...commonBuildOptions(root, config, options, {
         views: views ?? configuredWorldModelV4ViewIds(config)
       }),
-      projections: configuredWorldModelV4ProjectionSelections(config, options)
+      projections,
+      ...(projections.length
+        ? architectureProjectionInputIdentity(config.architectureProjectionInputs)
+        : {})
     }
   ).identity;
   return {
@@ -626,8 +626,15 @@ export function resolveWorldModelV4Grounding(root, config, {
   // larger repository catalog). Source, scope, policy, registry and composer changes still stale
   // the view. This keeps `wm build --phase X` from making its own output immediately unusable.
   const requestOnlyIdentityFields = new Set(['requestedViews', 'outputBudgetSha256']);
+  const projectionIdentityFields = new Set([
+    'requestedProjections', 'projectionRegistrySha256', 'capabilitySnapshotSha256',
+    'configurationSnapshotSha256', 'toolchainLockSha256'
+  ]);
+  const projectionRequired = configuredWorldModelV4ProjectionSelections(config, options)
+    .some((entry) => entry.required);
   const groundingChanges = (store.freshness?.changes ?? []).filter(
     (change) => !requestOnlyIdentityFields.has(change.field)
+      && (projectionRequired || !projectionIdentityFields.has(change.field))
   );
   const primaryGroundingChange = groundingChanges[0] ?? null;
   const groundingFreshness = Object.freeze({

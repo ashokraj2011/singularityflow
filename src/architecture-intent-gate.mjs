@@ -1,11 +1,15 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { exists } from './util.mjs';
+import { exists, run } from './util.mjs';
+import { canonicalJson } from './world-model/canonicalize.mjs';
 import { worldModelStateAuthority } from './world-model/authority-config.mjs';
 import {
   validateArchitectureIntent, validateArchitectureIntentFulfilment
 } from './world-model/projections/calm/projection.mjs';
+import {
+  assertCurrentArchitectureProjection, resolveCurrentArchitectureProjectionInputs
+} from './world-model/projections/calm/authority.mjs';
 import { resolvePublishedWorldModelV4 } from './world-model/store.mjs';
 
 const EMPTY = Object.freeze({ applies: false, errors: [], warnings: [], passes: [] });
@@ -49,6 +53,45 @@ export async function evaluateArchitectureIntentGate(root, definition, workflow,
   if (!policy.allowedPhases?.includes(intent.phase)) {
     errors.push(`architecture intent phase '${intent.phase}' is not allowed by the pinned Story policy`);
   }
+  const intentPhase = workflow.phases?.[intent.phase];
+  let intentApproval = null;
+  if (!intentPhase) {
+    errors.push(`architecture intent phase '${intent.phase}' is not present in the pinned Story workflow`);
+  } else {
+    intentApproval = (intentPhase.approvals ?? []).find((approval) =>
+      approval.decision === 'approved'
+      && !approval.invalidatedAt
+      && Number(approval.generation) === Number(intent.generation));
+    if (!intentApproval) {
+      errors.push(
+        `architecture intent generation ${intent.generation} is not approved in phase '${intent.phase}'`
+      );
+    }
+  }
+  if (intentApproval) {
+    const evidenceCommit = String(intentApproval.evidenceCommit ?? '');
+    const relativeIntentPath = path.relative(root, intentPath).replaceAll('\\', '/');
+    if (!/^[a-f0-9]{40,64}$/.test(evidenceCommit)) {
+      errors.push('architecture intent approval has no exact evidence commit');
+    } else {
+      const committed = run('git', ['show', `${evidenceCommit}:${relativeIntentPath}`], {
+        cwd: root, allowFailure: true
+      });
+      if (committed.status !== 0) {
+        errors.push('architecture intent was not present in its approval evidence commit');
+      } else {
+        try {
+          const approvedIntent = validateArchitectureIntent(JSON.parse(committed.stdout));
+          if (approvedIntent.intentSha256 !== intent.intentSha256
+              || committed.stdout !== canonicalJson(intent)) {
+            errors.push('architecture intent bytes changed after their phase approval');
+          }
+        } catch {
+          errors.push('architecture intent in the approval evidence commit is invalid');
+        }
+      }
+    }
+  }
 
   const reportPath = storyArchitecturePath(root, definition, workflow, 'intent-fulfilment.json');
   if (!(await exists(reportPath))) {
@@ -73,6 +116,9 @@ export async function evaluateArchitectureIntentGate(root, definition, workflow,
         ?? definition.worldModel?.outputDir ?? 'singularity/world-model',
       stateBranch: authority.branch, remote: authority.remote
     });
+    assertCurrentArchitectureProjection(
+      store, await resolveCurrentArchitectureProjectionInputs(root, definition)
+    );
     const current = store.projections?.find((entry) => entry.projectionId === 'arch.calm'
       && entry.status === 'available');
     if (!current) errors.push('the current reusable World Model has no available arch.calm projection');

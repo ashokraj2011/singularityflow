@@ -1,8 +1,9 @@
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { publishToStateBranch } from '../../ledger.mjs';
 import { readRecord } from '../../schema-migrations.mjs';
-import { SingularityFlowError } from '../../util.mjs';
+import { secureRepositoryPath, SingularityFlowError } from '../../util.mjs';
 import { canonicalJson, isPlainRecord, sha256 } from '../canonicalize.mjs';
 import { assembleWmbV4PromptSync } from '../compose/pinned-core.mjs';
 import { assertSelfHash } from '../contracts.mjs';
@@ -568,6 +569,39 @@ export function validateStagedWorldModelPublication(publication) {
   });
 }
 
+/** Recheck mutable non-source authority immediately before retaining or publishing a projection. */
+export async function validateStagedProjectionAuthorityAgainstSource(root, publication) {
+  const verified = validateStagedWorldModelPublication(publication);
+  if (!(verified.projections ?? []).some((projection) => projection.status === 'available')) {
+    return verified;
+  }
+  for (const [relative, label] of [
+    ['inputs/capability-snapshot.json', 'Capability'],
+    ['inputs/configuration-snapshot.json', 'Configuration']
+  ]) {
+    const snapshot = canonicalRecord(verified.files, verified.outputDir, relative);
+    const located = await secureRepositoryPath(root, snapshot.source?.path, {
+      label: `${label} projection authority`, mustExist: true, type: 'file'
+    });
+    const currentSha256 = sha256({ utf8: await readFile(located.absolute, 'utf8') });
+    if (currentSha256 !== snapshot.source?.sha256) {
+      throw new SingularityFlowError(
+        `${label} authority changed after the CALM projection build was planned. Nothing was published.`,
+        {
+          code: 'WMC_PROJECTION_INPUT_CHANGED',
+          details: {
+            path: snapshot.source?.path ?? null,
+            plannedSha256: snapshot.source?.sha256 ?? null,
+            currentSha256,
+            nextAction: 'singularity-flow wm build --format registered-v4 --projections arch.calm'
+          }
+        }
+      );
+    }
+  }
+  return verified;
+}
+
 /**
  * Reproduce the authoritative Fact graph from the target repository before its state branch can
  * accept staged bytes. Canonical/self hashes prove integrity, not that an approved extractor
@@ -744,7 +778,7 @@ export async function publishWorldModelTransaction(root, ledgerConfig, publicati
   publisher = publishToStateBranch,
   ...publicationOptions
 } = {}) {
-  const verified = validateStagedWorldModelPublication(publication);
+  const verified = await validateStagedProjectionAuthorityAgainstSource(root, publication);
   validateStagedRegistrationAgainstSource(root, verified);
   for (const projection of verified.projections ?? []) {
     if (projection.status !== 'available') continue;

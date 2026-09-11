@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import YAML from 'yaml';
 
-import { initializeDefinition } from '../src/config.mjs';
+import { initializeDefinition, loadDefinition } from '../src/config.mjs';
 import { run } from '../src/util.mjs';
 import { worldModelCommand } from '../src/worldmodel.mjs';
 import { evaluateArchitectureIntentGate } from '../src/architecture-intent-gate.mjs';
@@ -14,6 +14,7 @@ import {
 } from '../src/world-model/projections/calm/projection.mjs';
 import { canonicalJson } from '../src/world-model/canonicalize.mjs';
 import { resolvePublishedWorldModelV4 } from '../src/world-model/store.mjs';
+import { validateStagedProjectionAuthorityAgainstSource } from '../src/world-model/publish/transaction.mjs';
 
 function git(root, args) { return run('git', args, { cwd: root }).stdout.trim(); }
 
@@ -105,13 +106,22 @@ test('a configured lifecycle gate requires current exact architecture-intent ful
   const directory = path.join(root, 'singularity', 'work-items', 'WRK-CALM', 'context', 'architecture');
   await mkdir(directory, { recursive: true });
   await writeFile(path.join(directory, 'architecture-intent.json'), canonicalJson(intent));
+  git(root, ['add', 'singularity/work-items/WRK-CALM/context/architecture/architecture-intent.json']);
+  git(root, ['commit', '-q', '-m', 'approve architecture intent evidence']);
+  const evidenceCommit = git(root, ['rev-parse', 'HEAD']);
   const policy = {
     enabled: true, allowedPhases: ['planning'], blockRequiredUnfulfilledAt: ['verification']
   };
-  const definition = { worldModel: { outputDir: 'singularity/world-model' }, architectureIntent: policy };
+  const definition = await loadDefinition(root);
+  definition.architectureIntent = policy;
   const workflow = {
     workItem: { id: 'WRK-CALM' },
-    resolution: { workItemRoot: 'singularity/work-items', worldModelOutputDir: 'singularity/world-model', architectureIntent: policy }
+    resolution: { workItemRoot: 'singularity/work-items', worldModelOutputDir: 'singularity/world-model', architectureIntent: policy },
+    phases: {
+      planning: {
+        approvals: [{ decision: 'approved', generation: 1, evidenceCommit }]
+      }
+    }
   };
   const missing = await evaluateArchitectureIntentGate(root, definition, workflow, 'verification');
   assert.match(missing.errors.join('\n'), /has no fulfilment receipt/);
@@ -123,4 +133,36 @@ test('a configured lifecycle gate requires current exact architecture-intent ful
   const satisfied = await evaluateArchitectureIntentGate(root, definition, workflow, 'verification');
   assert.deepEqual(satisfied.errors, []);
   assert.match(satisfied.passes[0], /architecture intent fulfilled/);
+});
+
+test('capability authority changes stale a reusable CALM projection without source changes', async (t) => {
+  const root = await repository(t);
+  await worldModelCommand(root, ['wm', 'build'], { format: 'registered-v4', views: 'dev.impact' });
+  const publishedPaths = git(root, [
+    'ls-tree', '-r', '--name-only', 'state', '--', 'singularity/world-model'
+  ]).split('\n').filter(Boolean);
+  const files = Object.fromEntries(publishedPaths.map((target) => [
+    target, run('git', ['show', `state:${target}`], { cwd: root }).stdout
+  ]));
+  const publication = {
+    outputDir: 'singularity/world-model',
+    manifestPath: 'singularity/world-model/manifest.json',
+    manifest: JSON.parse(files['singularity/world-model/manifest.json']),
+    files,
+    replaceRoots: ['singularity/world-model']
+  };
+  const capabilityPath = path.join(root, 'singularity', 'capabilities.yml');
+  const capabilities = YAML.parse(await readFile(capabilityPath, 'utf8'));
+  capabilities.capabilities.platform.name = 'Renamed platform';
+  await writeFile(capabilityPath, YAML.stringify(capabilities));
+
+  const status = await worldModelCommand(root, ['wm', 'status'], { json: true });
+  assert.equal(status.fresh, false);
+  assert.ok(status.freshness.changes.some(
+    (change) => change.reason === 'capability-snapshot-changed'
+  ));
+  await assert.rejects(
+    () => validateStagedProjectionAuthorityAgainstSource(root, publication),
+    (error) => error.code === 'WMC_PROJECTION_INPUT_CHANGED'
+  );
 });

@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { SingularityFlowError } from '../util.mjs';
-import { sealRecord, sha256 } from './canonicalize.mjs';
+import { compareText, sealRecord, sha256 } from './canonicalize.mjs';
 import { createScopeManifest } from './scope/manifest.mjs';
 import {
   assertInstalledExtractorRegistry, BUILTIN_EXTRACTOR_REGISTRY, DEFAULT_EXTRACTOR_REFERENCES
@@ -86,7 +86,7 @@ function normalizedViews(viewRegistry, values, { required = true } = {}) {
       contract
     });
   }
-  return [...unique.values()].sort((left, right) => left.viewId.localeCompare(right.viewId));
+  return [...unique.values()].sort((left, right) => compareText(left.viewId, right.viewId));
 }
 
 function normalizedProjections(projectionRegistry, values = []) {
@@ -116,7 +116,7 @@ function normalizedProjections(projectionRegistry, values = []) {
       budgets: typeof raw === 'object' && raw?.budgets ? structuredClone(raw.budgets) : {}
     });
   }
-  return [...selected.values()].sort((left, right) => left.projectionId.localeCompare(right.projectionId));
+  return [...selected.values()].sort((left, right) => compareText(left.projectionId, right.projectionId));
 }
 
 export function createWorldModelConsumerProfile({
@@ -145,7 +145,7 @@ export function createWorldModelConsumerProfile({
 }
 
 export function createWorldModelOutputBudget(contracts, { totalMaximumOutputTokens = null } = {}) {
-  const sorted = [...contracts].sort((left, right) => left.id.localeCompare(right.id));
+  const sorted = [...contracts].sort((left, right) => compareText(left.id, right.id));
   const viewBudgets = Object.fromEntries(sorted.map((contract) => [contract.id, {
     maximumNarrativeWords: contract.narrative.totalMaximumWords,
     maximumSelectedFacts: contract.facts.maximumSelectedFacts,
@@ -369,7 +369,10 @@ export function resolveWorldModelV4ReusableIdentity({
   viewRegistry = BUILTIN_VIEW_REGISTRY,
   extractorRegistry = BUILTIN_EXTRACTOR_REGISTRY,
   projections = [],
-  projectionRegistry = BUILTIN_PROJECTION_REGISTRY
+  projectionRegistry = BUILTIN_PROJECTION_REGISTRY,
+  capabilitySnapshotSha256 = null,
+  configurationSnapshotSha256 = null,
+  toolchainLockSha256 = null
 } = {}) {
   viewRegistry = assertInstalledViewRegistry(viewRegistry);
   extractorRegistry = assertInstalledExtractorRegistry(extractorRegistry);
@@ -411,11 +414,17 @@ export function resolveWorldModelV4ReusableIdentity({
       composerProfileSha256: consumerProfile.profileSha256,
       outputBudgetSha256: outputBudget.budgetSha256,
       ...(requestedProjections.length ? {
-        requestedProjections: Object.freeze(requestedProjections.map(({ projectionId, required: projectionRequired, contract }) => Object.freeze({
+        requestedProjections: Object.freeze(requestedProjections.map(({
+          projectionId, required: projectionRequired, contract, profile, budgets
+        }) => Object.freeze({
           projectionId, projectionVersion: contract.version,
-          projectionSpecSha256: contract.contractSha256, required: projectionRequired
+          projectionSpecSha256: contract.contractSha256, required: projectionRequired,
+          profile: structuredClone(profile), budgets: structuredClone(budgets)
         }))),
-        projectionRegistrySha256: projectionRegistry.registrySha256
+        projectionRegistrySha256: projectionRegistry.registrySha256,
+        capabilitySnapshotSha256,
+        configurationSnapshotSha256,
+        toolchainLockSha256
       } : {})
     })
   });
@@ -465,7 +474,10 @@ export function planWorldModelV4(root, {
     viewRegistry,
     extractorRegistry,
     projections,
-    projectionRegistry
+    projectionRegistry,
+    capabilitySnapshotSha256: capabilitySnapshot?.snapshotSha256 ?? null,
+    configurationSnapshotSha256: configurationSnapshot?.snapshotSha256 ?? null,
+    toolchainLockSha256: toolchainLock?.lockSha256 ?? null
   });
   const {
     scopeManifest, requestedViews, consumerProfile, outputBudget, requestedProjections

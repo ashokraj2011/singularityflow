@@ -226,7 +226,14 @@ function architectureProjectionExplorer(view: ConfigurationCenterView): string {
     <p class="notice warning">${escape(entry?.refusalCode ?? 'The projection has not been generated yet.')}</p>
   </section>`;
 
-  const counts = entry.counts!;
+  const counts = entry.counts ?? {
+    nodes: entry.nodes?.length ?? 0,
+    interfaces: 0,
+    relationships: entry.relationships?.length ?? 0,
+    controls: entry.controls?.length ?? 0,
+    unavailable: 0,
+    contradictions: 0
+  };
   const workflowUse = view.worldModelStatus.workflows.flatMap((workflow) => workflow.phases
     .filter((phase) => phase.views.length && workflow.mode !== 'off')
     .map((phase) => `${workflow.label} · ${phase.label}`));
@@ -242,7 +249,7 @@ function architectureProjectionExplorer(view: ConfigurationCenterView): string {
   return `<section class="wm-architecture">
     <div class="section-heading"><div><p class="eyebrow">Architecture projection · FINOS CALM 1.2</p><h2>${icon('impact')}System architecture</h2><p class="muted">One exact, reusable state-branch projection. It is derived without a model and never rebuilt per Story while its inputs remain unchanged.</p></div>${entry.expansion ? `<button class="secondary" data-open-world-model-ref="${escape(entry.expansion.ref)}">Open exact CALM JSON</button>` : ''}</div>
     <div class="summary-grid wm-summary"><div class="summary-card"><strong>${counts.nodes}</strong><span>nodes</span></div><div class="summary-card"><strong>${counts.interfaces}</strong><span>interfaces</span></div><div class="summary-card"><strong>${counts.relationships}</strong><span>relationships</span></div><div class="summary-card"><strong>${counts.controls}</strong><span>controls</span></div><div class="summary-card ${counts.unavailable || counts.contradictions ? 'governance-warning' : ''}"><strong>${counts.unavailable} / ${counts.contradictions}</strong><span>gaps / contradictions</span></div></div>
-    <dl class="wm-provenance"><div><dt>Projection</dt><dd><code>arch.calm@${entry.version}</code></dd></div><div><dt>Policy</dt><dd>${entry.required ? 'required' : 'optional'}</dd></div><div><dt>Validation</dt><dd>official CALM CLI · strict · offline</dd></div><div><dt>Receipt</dt><dd><code>${escape((entry.receiptSha256 ?? '').slice(0, 19))}</code></dd></div><div><dt>Workflow use</dt><dd>${workflowUse.length} phase assignment${workflowUse.length === 1 ? '' : 's'}</dd></div></dl>
+    <dl class="wm-provenance"><div><dt>Projection</dt><dd><code>arch.calm@${entry.version}</code></dd></div><div><dt>Policy</dt><dd>${entry.required ? 'required' : 'optional'}</dd></div><div><dt>Validation</dt><dd>official CALM CLI · ${configured.strict ? 'strict' : 'schema'} · offline</dd></div><div><dt>Receipt</dt><dd><code>${escape((entry.receiptSha256 ?? '').slice(0, 19))}</code></dd></div><div><dt>Workflow use</dt><dd>${workflowUse.length} phase assignment${workflowUse.length === 1 ? '' : 's'}</dd></div></dl>
     <div class="wm-filter-bar"><label>Layer <select id="wm-architecture-layer-filter"><option value="all">All</option><option value="delivery">Delivery</option><option value="data">Data</option><option value="governance">Governance</option></select></label><label>Evidence <select id="wm-architecture-status-filter"><option value="all">All</option><option value="confirmed">Confirmed</option><option value="declared-only">Declared</option><option value="observed-only">Observed</option><option value="planned">Planned</option><option value="contradicted">Contradictions</option><option value="unavailable">Unavailable</option></select></label><span class="muted">Each row carries a bounded provenance preview; open the exact projection for the complete content-addressed product.</span></div>
     <details open><summary>Components · ${counts.nodes}</summary><div class="wm-catalog-wrap"><table class="configuration-table"><thead><tr><th>Component</th><th>CALM type</th><th>Layer</th><th>Confidence</th><th>Exact provenance</th></tr></thead><tbody>${nodeRows}</tbody></table></div>${entry.truncated?.nodes ? '<p class="muted">Preview is bounded. Open the exact CALM JSON for every component.</p>' : ''}</details>
     <details><summary>Connections · ${counts.relationships}</summary><div class="wm-catalog-wrap"><table class="configuration-table"><thead><tr><th>From</th><th>Relationship</th><th>To</th><th>Evidence state</th><th>Exact provenance</th></tr></thead><tbody>${relationRows || '<tr><td colspan="5" class="muted">No architecture connections were derived.</td></tr>'}</tbody></table></div>${entry.truncated?.relationships ? '<p class="muted">Preview is bounded. Open the exact CALM JSON for every relationship.</p>' : ''}</details>

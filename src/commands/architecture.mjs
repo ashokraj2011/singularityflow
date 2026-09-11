@@ -3,7 +3,11 @@ import path from 'node:path';
 
 import { loadDefinition } from '../config.mjs';
 import { repoRoot } from '../git.mjs';
-import { optionBoolean, optionString, requirePositional, SingularityFlowError } from '../util.mjs';
+import { loadWorkflow } from '../state.mjs';
+import {
+  ensureSecureRepositoryDirectory, optionBoolean, optionString, requirePositional,
+  secureRepositoryPath, SingularityFlowError
+} from '../util.mjs';
 import { canonicalJson, sha256 } from '../world-model/canonicalize.mjs';
 import { worldModelStateAuthority } from '../world-model/authority-config.mjs';
 import {
@@ -11,6 +15,9 @@ import {
   explainArchitectureElement, renderPlannedArchitecture, validateArchitectureIntent,
   validateCalmProjection, verifyArchitectureIntent
 } from '../world-model/projections/calm/projection.mjs';
+import {
+  assertCurrentArchitectureProjection, resolveCurrentArchitectureProjectionInputs
+} from '../world-model/projections/calm/authority.mjs';
 import { validateCalmWithOfficialToolchain } from '../world-model/projections/calm/validator.mjs';
 import { resolvePublishedWorldModelV4 } from '../world-model/store.mjs';
 
@@ -26,26 +33,49 @@ function workId(value) {
   return normalized;
 }
 
-function architectureDirectory(root, id) {
-  return path.join(root, 'singularity', 'work-items', workId(id), 'context', 'architecture');
+function architectureRelativeDirectory(definition, id) {
+  return path.posix.join(
+    definition.workItemRoot ?? 'singularity/work-items', workId(id), 'context', 'architecture'
+  );
 }
 
-function safeOutput(root, value) {
+async function architectureDirectory(root, definition, id, { create = false } = {}) {
+  const relative = architectureRelativeDirectory(definition, id);
+  const located = create
+    ? await ensureSecureRepositoryDirectory(root, relative, { label: 'Story architecture directory' })
+    : await secureRepositoryPath(root, relative, {
+        label: 'Story architecture directory', mustExist: true, type: 'directory'
+      });
+  return located.absolute;
+}
+
+async function safeOutput(root, value, {
+  mustExist = false, type = null, governedOutputDir = 'singularity/world-model'
+} = {}) {
   const supplied = String(value ?? '').trim().replaceAll('\\', '/');
+  const governed = String(governedOutputDir ?? 'singularity/world-model')
+    .trim().replaceAll('\\', '/').replace(/^\.\//, '').replace(/\/$/, '');
   if (!supplied || path.posix.isAbsolute(supplied) || /^[A-Za-z]:\//.test(supplied)
-      || supplied.split('/').includes('..') || supplied.startsWith('singularity/world-model/')) {
+      || supplied.split('/').includes('..')
+      || supplied === governed || supplied.startsWith(`${governed}/`)) {
     fail('CALM export target must be a repository-relative path outside governed World-Model authority.',
       'WMC_EXPORT_TARGET_UNSAFE', { target: supplied || null });
   }
-  return path.join(root, supplied);
+  const located = await secureRepositoryPath(root, supplied, {
+    label: 'CALM repository path', mustExist, type
+  });
+  return located.absolute;
 }
 
-async function baseProjection(root) {
-  const definition = await loadDefinition(root);
+async function baseProjection(root, definition = null) {
+  definition ??= await loadDefinition(root);
+  const inputs = await resolveCurrentArchitectureProjectionInputs(root, definition);
   const authority = worldModelStateAuthority(definition, {});
   const store = resolvePublishedWorldModelV4(root, {
-    outputDir: 'singularity/world-model', stateBranch: authority.branch, remote: authority.remote
+    outputDir: definition.worldModel?.outputDir ?? 'singularity/world-model',
+    stateBranch: authority.branch, remote: authority.remote
   });
+  assertCurrentArchitectureProjection(store, inputs);
   const built = store.projections?.find((entry) => entry.projectionId === 'arch.calm');
   if (!built || built.status !== 'available') {
     fail('The reusable state authority does not contain an available arch.calm projection.',
@@ -53,11 +83,13 @@ async function baseProjection(root) {
         nextAction: 'singularity-flow wm build --projections arch.calm'
       });
   }
-  return { definition, store, built };
+  return { definition, store, built, inputs };
 }
 
-async function readIntent(root, id) {
-  const target = path.join(architectureDirectory(root, id), 'architecture-intent.json');
+async function readIntent(root, definition, id) {
+  const target = path.join(
+    await architectureDirectory(root, definition, id), 'architecture-intent.json'
+  );
   let parsed;
   try { parsed = JSON.parse(await readFile(target, 'utf8')); }
   catch (error) {
@@ -66,11 +98,12 @@ async function readIntent(root, id) {
   return { target, intent: validateArchitectureIntent(parsed) };
 }
 
-async function selectedProjection(root, options) {
-  const base = await baseProjection(root);
+async function selectedProjection(root, options, suppliedDefinition = null) {
+  const definition = suppliedDefinition ?? await loadDefinition(root);
+  const base = await baseProjection(root, definition);
   if (!optionBoolean(options, 'planned')) return { ...base, selected: base.built, planned: false };
   const id = workId(optionString(options, 'work-id'));
-  const { intent } = await readIntent(root, id);
+  const { intent } = await readIntent(root, definition, id);
   const selected = renderPlannedArchitecture({
     projection: base.built.projection,
     projectionSha256: base.built.projectionSha256,
@@ -126,14 +159,47 @@ function printSummary(value) {
 async function intentCommand(root, positionals, options, json) {
   const action = positionals[2] ?? 'validate';
   const id = workId(optionString(options, 'work-id') ?? positionals[3]);
+  const definition = await loadDefinition(root);
+  const workflow = await loadWorkflow(root, definition, id);
+  const intentPolicy = workflow.resolution?.architectureIntent ?? definition.architectureIntent ?? {};
+  if (intentPolicy.enabled !== true) {
+    fail(`Architecture intent is disabled for Story '${id}'.`, 'WMC_INTENT_DISABLED');
+  }
   if (action === 'init') {
     const from = optionString(options, 'from');
     if (!from) fail('Architecture intent init requires --from <reviewed-json-file>.', 'WMC_INTENT_INVALID');
-    const source = safeOutput(root, from);
+    const source = await safeOutput(root, from, {
+      mustExist: true, type: 'file', governedOutputDir: definition.worldModel?.outputDir
+    });
     let candidate;
     try { candidate = JSON.parse(await readFile(source, 'utf8')); }
     catch (error) { fail(`Cannot read architecture intent candidate: ${error.message}`, 'WMC_INTENT_INVALID'); }
-    const base = await baseProjection(root);
+    if (candidate == null || typeof candidate !== 'object' || Array.isArray(candidate)) {
+      fail('Architecture intent candidate must be a JSON object.', 'WMC_INTENT_INVALID');
+    }
+    const ownerPhase = workflow.phases?.[candidate.phase];
+    if (!ownerPhase || !intentPolicy.allowedPhases?.includes(candidate.phase)) {
+      fail(
+        `Architecture intent phase '${candidate.phase ?? 'missing'}' is not allowed by the pinned Story policy.`,
+        'WMC_INTENT_PHASE_INVALID'
+      );
+    }
+    if (Number(candidate.generation) !== Number(ownerPhase.generation)) {
+      fail(
+        `Architecture intent generation ${candidate.generation ?? 'missing'} does not match current ${candidate.phase} generation ${ownerPhase.generation}.`,
+        'WMC_INTENT_GENERATION_STALE'
+      );
+    }
+    if (ownerPhase.status === 'approved' || (ownerPhase.approvals ?? []).some(
+      (approval) => approval.decision === 'approved' && !approval.invalidatedAt
+        && Number(approval.generation) === Number(ownerPhase.generation)
+    )) {
+      fail(
+        `Phase '${candidate.phase}' generation ${candidate.generation} is already approved; reopen that phase before creating a different architecture intent.`,
+        'WMC_INTENT_GENERATION_CLOSED'
+      );
+    }
+    const base = await baseProjection(root, definition);
     const intent = createArchitectureIntent({
       workId: id,
       phase: candidate.phase,
@@ -144,8 +210,7 @@ async function intentCommand(root, positionals, options, json) {
       },
       clauses: candidate.clauses
     });
-    const directory = architectureDirectory(root, id);
-    await mkdir(directory, { recursive: true });
+    const directory = await architectureDirectory(root, definition, id, { create: true });
     const target = path.join(directory, 'architecture-intent.json');
     await writeFile(target, canonicalJson(intent), { flag: 'wx', mode: 0o600 });
     const result = { status: 'created', workId: id, path: path.relative(root, target), intentSha256: intent.intentSha256 };
@@ -153,13 +218,13 @@ async function intentCommand(root, positionals, options, json) {
     else console.log(`Architecture intent created: ${result.path}\n${result.intentSha256}\nIt is not approved; publish it through the normal Story phase.`);
     return result;
   }
-  const { target, intent } = await readIntent(root, id);
+  const { target, intent } = await readIntent(root, definition, id);
   if (action === 'validate') {
     const result = { status: 'valid', workId: id, path: path.relative(root, target), intentSha256: intent.intentSha256 };
     if (json) console.log(JSON.stringify(result, null, 2)); else console.log(`Architecture intent: valid\n${result.intentSha256}`);
     return result;
   }
-  const base = await baseProjection(root);
+  const base = await baseProjection(root, definition);
   if (action === 'render') {
     const planned = renderPlannedArchitecture({
       projection: base.built.projection,
@@ -168,7 +233,7 @@ async function intentCommand(root, positionals, options, json) {
       intent
     });
     await validateCalmWithOfficialToolchain(planned.projection);
-    const directory = architectureDirectory(root, id);
+    const directory = await architectureDirectory(root, definition, id);
     await writeFile(path.join(directory, 'arch.calm.planned.json'), canonicalJson(planned.projection), { mode: 0o600 });
     await writeFile(path.join(directory, 'planned-projection-receipt.json'), canonicalJson(planned.receipt), { mode: 0o600 });
     const result = { status: 'rendered', workId: id, projectionSha256: planned.projectionSha256,
@@ -179,9 +244,10 @@ async function intentCommand(root, positionals, options, json) {
   }
   if (action === 'verify') {
     const report = verifyArchitectureIntent({
-      intent, baseAfter: base.built.projection, baseAfterSha256: base.built.projectionSha256
+      intent, baseAfter: base.built.projection, baseAfterSha256: base.built.projectionSha256,
+      sourceMap: base.built.sourceMap
     });
-    const directory = architectureDirectory(root, id);
+    const directory = await architectureDirectory(root, definition, id);
     await writeFile(path.join(directory, 'intent-fulfilment.json'), canonicalJson(report), { mode: 0o600 });
     if (json) console.log(JSON.stringify(report, null, 2));
     else console.log(`Architecture intent fulfilment: ${report.blocking ? 'blocking' : 'satisfied'}\n${report.reportSha256}`);
@@ -248,8 +314,11 @@ export async function run(_argv, { positionals, options } = {}) {
   if (action === 'export') {
     const format = optionString(options, 'format', 'calm');
     if (format !== 'calm') fail("Initial WMC export supports only '--format calm'.", 'WMC_EXPORT_TARGET_UNSAFE');
-    const target = safeOutput(root, optionString(options, 'out'));
-    const value = await selectedProjection(root, options);
+    const definition = await loadDefinition(root);
+    const target = await safeOutput(root, optionString(options, 'out'), {
+      governedOutputDir: definition.worldModel?.outputDir
+    });
+    const value = await selectedProjection(root, options, definition);
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(target, canonicalJson(value.selected.projection), { flag: 'wx', mode: 0o600 });
     const result = { status: 'exported', path: path.relative(root, target),
@@ -259,8 +328,13 @@ export async function run(_argv, { positionals, options } = {}) {
     return result;
   }
   if (action === 'diff') {
-    const fromPath = safeOutput(root, optionString(options, 'from'));
-    const toPath = safeOutput(root, optionString(options, 'to'));
+    const definition = await loadDefinition(root);
+    const fromPath = await safeOutput(root, optionString(options, 'from'), {
+      mustExist: true, type: 'file', governedOutputDir: definition.worldModel?.outputDir
+    });
+    const toPath = await safeOutput(root, optionString(options, 'to'), {
+      mustExist: true, type: 'file', governedOutputDir: definition.worldModel?.outputDir
+    });
     const [from, to] = await Promise.all([readFile(fromPath, 'utf8'), readFile(toPath, 'utf8')]);
     const result = { identical: from === to, fromSha256: sha256({ utf8: from }), toSha256: sha256({ utf8: to }) };
     if (json) console.log(JSON.stringify(result, null, 2)); else console.log(result.identical ? 'Architecture projections are byte-identical.' : `Architecture changed: ${result.fromSha256} -> ${result.toSha256}`);

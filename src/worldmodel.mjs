@@ -48,6 +48,7 @@ import { operationContext } from './operation-context.mjs';
 import {
   renderCapabilityWorldModelPack, resolveLifecycleCapability
 } from './capability-context.mjs';
+import { resolveCurrentArchitectureProjectionInputs } from './world-model/projections/calm/authority.mjs';
 import { worldModelDisabledForWorkflow } from './intelligence-policy.mjs';
 import { artifactContentContractLines } from './publication-preflight.mjs';
 import { requiredStructuralPromptContext } from './structural-prompt-context.mjs';
@@ -571,6 +572,23 @@ export async function loadWorldModelConfig(root, {
         evidence: phaseWorldModel.evidence ?? false
       }];
     }));
+    const architectureProjectionEnabled = Object.values(
+      definition.worldModel?.projections ?? {}
+    ).some((projection) => projection.enabled === true);
+    let architectureProjectionInputs = null;
+    let architectureProjectionSetupError = null;
+    if (architectureProjectionEnabled) {
+      try {
+        architectureProjectionInputs = await resolveCurrentArchitectureProjectionInputs(
+          root, configuredDefinition
+        );
+      } catch (error) {
+        architectureProjectionSetupError = Object.freeze({
+          code: error?.code ?? 'WMC_PROJECTION_UNAVAILABLE',
+          message: error?.message ?? 'Architecture projection inputs are unavailable.'
+        });
+      }
+    }
     return {
       definition,
       workflow: activeState,
@@ -605,7 +623,9 @@ export async function loadWorldModelConfig(root, {
         includeDomains: definition.worldModel?.context?.includeDomains ?? 'matched',
         includeEvidence: definition.worldModel?.context?.includeEvidence ?? false
       },
-      agentPrompt: agent && definition.agents[agent] ? definition.agents[agent].source : null
+      agentPrompt: agent && definition.agents[agent] ? definition.agents[agent].source : null,
+      architectureProjectionInputs,
+      architectureProjectionSetupError
     };
   }
   const file = path.join(root, configRelative);

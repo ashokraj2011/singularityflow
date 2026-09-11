@@ -61,6 +61,10 @@ function normalizedOptions(root, args, defaults = {}, {
 
 async function projectionOptions(root, options) {
   if (!options.projections?.length) return options;
+  if (options.projectionSetupError
+      || (options.capabilitySnapshot && options.configurationSnapshot && options.toolchainLock)) {
+    return options;
+  }
   try {
     const [capabilities, toolchain] = await Promise.all([
       loadCapabilities(root, { required: true }), createCalmToolchainLock()

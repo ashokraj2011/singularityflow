@@ -7,7 +7,7 @@ import { PACKAGE_ROOT } from '../../../package-root.mjs';
 import { runQualityCommand } from '../../../quality-command-runner.mjs';
 import { currentSchemaVersion, readRecord } from '../../../schema-migrations.mjs';
 import { SingularityFlowError } from '../../../util.mjs';
-import { canonicalJson, sealRecord, sha256, sha256Bytes } from '../../canonicalize.mjs';
+import { canonicalJson, compareText, sealRecord, sha256, sha256Bytes } from '../../canonicalize.mjs';
 
 // Resolve both executable dependencies and packaged schemas through the shared package boundary.
 // The VS Code host replaces that boundary with its staged `cli/` directory while Node ESM resolves
@@ -28,7 +28,7 @@ async function filesBelow(root, relative = '') {
   const directory = path.join(root, relative);
   const entries = await readdir(directory, { withFileTypes: true });
   const files = [];
-  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+  for (const entry of entries.sort((left, right) => compareText(left.name, right.name))) {
     const child = path.posix.join(relative.replaceAll('\\', '/'), entry.name);
     if (entry.isDirectory()) files.push(...await filesBelow(root, child));
     else if (entry.isFile()) files.push(child);
@@ -104,9 +104,9 @@ export async function createCalmToolchainLock({ schemaRoot = DEFAULT_SCHEMA_ROOT
 
 function normalizedDiagnostic(value) {
   if (Array.isArray(value)) return value.map(normalizedDiagnostic)
-    .sort((left, right) => canonicalJson(left).localeCompare(canonicalJson(right)));
+    .sort((left, right) => compareText(canonicalJson(left), canonicalJson(right)));
   if (!value || typeof value !== 'object') return typeof value === 'string'
-    ? value.replaceAll('\\', '/').replace(/(?:[A-Za-z]:)?\/[\w./-]*sflow-calm-[\w-]+/gu, '<temporary>')
+    ? stableDiagnosticText(value)
     : value;
   const result = {};
   for (const key of Object.keys(value).sort()) {
@@ -116,10 +116,48 @@ function normalizedDiagnostic(value) {
   return result;
 }
 
+function stableDiagnosticText(value) {
+  return String(value ?? '')
+    .replace(/\u001B(?:\[[0-?]*[ -/]*[@-~]|\][^\u0007]*(?:\u0007|\u001B\\))/gu, '')
+    .replaceAll('\\', '/')
+    .replace(/(?:[A-Za-z]:)?\/[\w./-]*sflow-calm-[\w-]+/gu, '<temporary>');
+}
+
 function diagnosticText(result) {
   const joined = [result.stderr, result.stdout].filter(Boolean).join('\n').trim();
-  return joined.replaceAll('\\', '/').replace(/(?:[A-Za-z]:)?\/[\w./-]*sflow-calm-[\w-]+/gu, '<temporary>')
-    .slice(0, 8_192);
+  return stableDiagnosticText(joined).slice(0, 8_192);
+}
+
+function validatorEnvironment(temporary, source = process.env) {
+  const isolatedHome = path.join(temporary, 'home');
+  const environment = {
+    HOME: isolatedHome,
+    USERPROFILE: isolatedHome,
+    XDG_CACHE_HOME: path.join(isolatedHome, 'cache'),
+    XDG_CONFIG_HOME: path.join(isolatedHome, 'config'),
+    TMPDIR: temporary,
+    TMP: temporary,
+    TEMP: temporary,
+    TZ: 'UTC',
+    LANG: 'C',
+    LC_ALL: 'C',
+    NO_COLOR: '1',
+    FORCE_COLOR: '0',
+    HTTP_PROXY: '',
+    HTTPS_PROXY: '',
+    ALL_PROXY: '',
+    http_proxy: '',
+    https_proxy: '',
+    all_proxy: '',
+    NO_PROXY: '*',
+    no_proxy: '*'
+  };
+  // Node needs these platform variables on Windows. Do not forward arbitrary ambient
+  // variables: validator subprocesses must never inherit credentials or user tokens.
+  for (const key of ['SystemRoot', 'WINDIR', 'ComSpec', 'PATHEXT']) {
+    if (typeof source[key] === 'string' && source[key]) environment[key] = source[key];
+  }
+  return environment;
 }
 
 /** Validate one canonical projection with the reviewed CALM CLI and only packaged schemas. */
@@ -138,12 +176,7 @@ export async function validateCalmWithOfficialToolchain(projection, {
   try {
     await mkdir(isolatedHome, { recursive: true, mode: 0o700 });
     await writeFile(architecturePath, canonicalJson(projection), { mode: 0o600 });
-    const environment = {
-      ...process.env, HOME: isolatedHome, USERPROFILE: isolatedHome,
-      XDG_CACHE_HOME: path.join(isolatedHome, 'cache'), XDG_CONFIG_HOME: path.join(isolatedHome, 'config'),
-      HTTP_PROXY: '', HTTPS_PROXY: '', ALL_PROXY: '', http_proxy: '', https_proxy: '', all_proxy: '',
-      NO_PROXY: '*', no_proxy: '*'
-    };
+    const environment = validatorEnvironment(temporary);
     const result = await runCommand(process.execPath, [
       toolchain.entryPath, 'validate', '--architecture', architecturePath,
       '--schema-directory', toolchain.schemaRoot,

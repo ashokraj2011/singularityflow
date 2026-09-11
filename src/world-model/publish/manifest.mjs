@@ -1,7 +1,7 @@
 import { currentSchemaVersion, readRecord } from '../../schema-migrations.mjs';
 import { SingularityFlowError } from '../../util.mjs';
 import {
-  canonicalJson, isPlainRecord, sealRecord, sha256
+  canonicalJson, compareText, isPlainRecord, sealRecord, sha256
 } from '../canonicalize.mjs';
 import {
   VIEW_ID_PATTERN, assertCanonicalOrder, assertExactKeys, assertInteger,
@@ -334,7 +334,9 @@ export function buildWorldModelManifest({
   const dependencies = assertDependencyDigests(dependencyValue);
   if (!Array.isArray(viewValues) || !viewValues.length) fail('World-model manifest requires at least one requested view.');
   const views = viewValues.map((value) => normalizeView(value, dependencies))
-    .sort((left, right) => `${left.viewId}@${left.viewVersion}`.localeCompare(`${right.viewId}@${right.viewVersion}`));
+    .sort((left, right) => compareText(
+      `${left.viewId}@${left.viewVersion}`, `${right.viewId}@${right.viewVersion}`
+    ));
   const identities = views.map((view) => `${view.viewId}@${view.viewVersion}`);
   if (new Set(identities).size !== identities.length) fail('World-model manifest repeats an exact view identity.');
   const unavailableRequired = views.filter((view) => view.required && view.status !== 'available');
@@ -352,7 +354,10 @@ export function buildWorldModelManifest({
   const registry = projectionValues.length ? validateProjectionRegistry(projectionRegistry) : null;
   const projections = projectionValues.length
     ? projectionValues.map((value) => normalizeProjection(value, registry))
-      .sort((left, right) => `${left.projectionId}@${left.projectionVersion}`.localeCompare(`${right.projectionId}@${right.projectionVersion}`))
+      .sort((left, right) => compareText(
+        `${left.projectionId}@${left.projectionVersion}`,
+        `${right.projectionId}@${right.projectionVersion}`
+      ))
     : [];
   if (new Set(projections.map((entry) => `${entry.projectionId}@${entry.projectionVersion}`)).size !== projections.length) {
     fail('World-model manifest repeats an exact projection identity.', 'WMC_PROJECTION_CONTRACT_INVALID');

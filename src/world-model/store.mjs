@@ -3,7 +3,7 @@ import path from 'node:path';
 import { hasRemote } from '../git.mjs';
 import { readRecord } from '../schema-migrations.mjs';
 import { SingularityFlowError, run } from '../util.mjs';
-import { canonicalJson, sha256 } from './canonicalize.mjs';
+import { canonicalJson, compareText, sha256 } from './canonicalize.mjs';
 import { createConservativeWorldModelStalenessReceipt } from './cache.mjs';
 import { assembleWmbV4PromptSync } from './compose/pinned-core.mjs';
 import {
@@ -31,11 +31,22 @@ import { materializeWorldModelView } from './materialize/view.mjs';
 import { parseWorldModelViewKernelStamp } from './materialize/stamp.mjs';
 import { validateCompositionCandidate } from './validate/candidate.mjs';
 
+const PROJECTION_REUSABLE_FIELDS = new Set([
+  'requestedProjections', 'projectionRegistrySha256', 'capabilitySnapshotSha256',
+  'configurationSnapshotSha256', 'toolchainLockSha256'
+]);
+
 function conservativeStalenessReceipts(manifest, records, freshness) {
   if (freshness.fresh || !freshness.current) return Object.freeze([]);
-  const change = freshness.changes?.[0] ?? {
+  // A CALM-only input change stales the projection, not the independently reusable view outputs.
+  // Issuing view staleness receipts for it would both overstate the blast radius and use a cause
+  // that the closed receipt vocabulary cannot represent.
+  const change = (freshness.changes ?? []).find(
+    (candidate) => !PROJECTION_REUSABLE_FIELDS.has(candidate.field)
+  ) ?? (freshness.source?.fresh === false ? {
     kind: 'source-change', previousSha256: freshness.built, currentSha256: freshness.current
-  };
+  } : null);
+  if (!change) return Object.freeze([]);
   const ledgers = new Map(
     records.viewFactLedgers.map((ledger) => [ledger.viewId, ledger])
   );
@@ -65,7 +76,7 @@ function reusableIdentityFromPublished(records, scopeManifest) {
       viewSpecSha256: planned?.viewSpecSha256 ?? null,
       required: entry.required
     };
-  }).sort((left, right) => left.viewId.localeCompare(right.viewId));
+  }).sort((left, right) => compareText(left.viewId, right.viewId));
   return Object.freeze({
     scopeManifestSha256: scopeManifest.scopeSha256,
     policySnapshotSha256: request.policySnapshotSha256,
@@ -77,9 +88,13 @@ function reusableIdentityFromPublished(records, scopeManifest) {
     ...(request.requestedProjections?.length ? {
       requestedProjections: Object.freeze(request.requestedProjections.map((entry) => ({
         projectionId: entry.projectionId, projectionVersion: entry.projectionVersion,
-        projectionSpecSha256: entry.contractSha256, required: entry.required
+        projectionSpecSha256: entry.contractSha256, required: entry.required,
+        profile: structuredClone(entry.profile), budgets: structuredClone(entry.budgets)
       }))),
-      projectionRegistrySha256: request.projectionRegistrySha256
+      projectionRegistrySha256: request.projectionRegistrySha256,
+      capabilitySnapshotSha256: request.capabilitySnapshotSha256,
+      configurationSnapshotSha256: request.configurationSnapshotSha256,
+      toolchainLockSha256: request.toolchainLockSha256
     } : {})
   });
 }
@@ -92,8 +107,11 @@ const REUSABLE_IDENTITY_FIELDS = Object.freeze([
   ['extractorRegistrySha256', 'extractor-registry-changed', 'fact-ledger-change'],
   ['composerProfileSha256', 'consumer-profile-changed', 'consumer-profile-change'],
   ['outputBudgetSha256', 'output-budget-changed', 'budget-change'],
-  ['requestedProjections', 'projection-selection-changed', 'projection-contract-change'],
-  ['projectionRegistrySha256', 'projection-registry-changed', 'projection-contract-change']
+  ['requestedProjections', 'projection-selection-changed', 'view-contract-change'],
+  ['projectionRegistrySha256', 'projection-registry-changed', 'view-contract-change'],
+  ['capabilitySnapshotSha256', 'capability-snapshot-changed', 'scope-change'],
+  ['configurationSnapshotSha256', 'configuration-snapshot-changed', 'scope-change'],
+  ['toolchainLockSha256', 'calm-toolchain-changed', 'validator-change']
 ]);
 
 function reusableIdentityChanges(built, current) {
@@ -557,7 +575,7 @@ function validateBuildRecords(records, {
     }
   }
   const requested = [...request.requestedViews]
-    .sort((left, right) => left.viewId.localeCompare(right.viewId));
+    .sort((left, right) => compareText(left.viewId, right.viewId));
   const published = manifest.views.map(({ viewId, required }) => ({ viewId, required }));
   if (canonicalJson(requested) !== canonicalJson(published)) {
     recordFailure('Published WMB v4 manifest views do not match the exact Build Request.',
@@ -766,7 +784,7 @@ function verifiedPublishedProjections(manifest, records, {
   const values = [
     ...records.projections,
     ...records.projectionRefusals.map((entry) => ({ ...entry, status: 'unavailable' }))
-  ].sort((left, right) => left.projectionId.localeCompare(right.projectionId));
+  ].sort((left, right) => compareText(left.projectionId, right.projectionId));
   for (const value of values) {
     if (value.status === 'unavailable') {
       const refusal = readRecord('world-model-projection-refusal', value.refusal).record;

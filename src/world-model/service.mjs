@@ -4,7 +4,8 @@ import {
   buildWorldModelManifest, deriveWorldModelManifestDependencies
 } from './publish/manifest.mjs';
 import {
-  publishWorldModelTransaction, stageWorldModelPublication
+  publishWorldModelTransaction, stageWorldModelPublication,
+  validateStagedProjectionAuthorityAgainstSource
 } from './publish/transaction.mjs';
 import {
   clearWorldModelPublicationRecovery, prepareWorldModelPublicationRecovery
@@ -25,6 +26,7 @@ import {
   buildCalmProjection, createCalmProjectionRefusal, enforceProjectionBudgets,
   validateCalmProjectionCandidate
 } from './projections/calm/projection.mjs';
+import { compareText } from './canonicalize.mjs';
 
 function manifestView(runtime, entry) {
   if (!entry.markdown) {
@@ -522,7 +524,7 @@ export async function buildAndPublishWorldModelV4(root, {
     factLedger: runtime.registration.factLedger
   });
   const views = runtime.executions.map((entry) => manifestView(runtime, entry))
-    .sort((left, right) => left.viewId.localeCompare(right.viewId));
+    .sort((left, right) => compareText(left.viewId, right.viewId));
   const built = buildWorldModelManifest({
     subject: runtime.planned.sourceSnapshot.subject,
     dependencies,
@@ -540,6 +542,7 @@ export async function buildAndPublishWorldModelV4(root, {
     projections,
     allowUnavailableOptionalViews
   });
+  if (publish) await validateStagedProjectionAuthorityAgainstSource(root, staged);
   const queryIndex = await retainQueryIndex(root, built.manifest, runtime);
   let publication = null;
   let publicationRecovery = null;

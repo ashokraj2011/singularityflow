@@ -3797,9 +3797,11 @@ test('timeout aborts and awaits an in-process handler before releasing its lease
   ]);
   const started = await start(fixture.root, fixture.storyId, compiled);
   let observedSignal = null;
+  let reportHandlerStarted;
   let reportAbort;
   let releaseHandler;
   let lateMutations = 0;
+  const handlerStarted = new Promise((resolve) => { reportHandlerStarted = resolve; });
   const aborted = new Promise((resolve) => { reportAbort = resolve; });
   const held = new Promise((resolve) => {
     releaseHandler = () => {
@@ -3810,6 +3812,7 @@ test('timeout aborts and awaits an in-process handler before releasing its lease
   const running = runNextSgosTask(fixture.root, started.process.processId, {
     handlers: { kernel: { [operation]: async ({ signal }) => {
       observedSignal = signal;
+      reportHandlerStarted();
       if (signal.aborted) reportAbort();
       else signal.addEventListener('abort', reportAbort, { once: true });
       return held;
@@ -3820,10 +3823,20 @@ test('timeout aborts and awaits an in-process handler before releasing its lease
     }) },
     clock: T1
   });
+  let handlerStartTimer;
+  await Promise.race([
+    handlerStarted,
+    new Promise((_resolve, reject) => {
+      handlerStartTimer = setTimeout(() => reject(new Error('handler did not start')), 10_000);
+    })
+  ]).finally(() => clearTimeout(handlerStartTimer));
+  let abortTimer;
   await Promise.race([
     aborted,
-    new Promise((resolve, reject) => setTimeout(() => reject(new Error('handler was not abort-signaled')), 1_000))
-  ]);
+    new Promise((_resolve, reject) => {
+      abortTimer = setTimeout(() => reject(new Error('handler was not abort-signaled')), 1_000);
+    })
+  ]).finally(() => clearTimeout(abortTimer));
   assert.equal(observedSignal.aborted, true);
 
   const active = await readSgosProcess(fixture.root, started.process.processId);

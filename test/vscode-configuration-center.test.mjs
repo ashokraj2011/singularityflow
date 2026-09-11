@@ -645,6 +645,27 @@ test('registered-v4 Explorer opens exact state references and keeps full catalog
           ref: `sfref:world-model:${kind}:all:${'a'.repeat(64)}`
         }))
       ],
+      projections: [{
+        id: 'arch.calm', version: 1, required: false, status: 'available',
+        path: 'projections/arch.calm.json', sha256: digest,
+        receiptSha256: digest, toolchainLockSha256: digest,
+        counts: { nodes: 2, interfaces: 1, relationships: 1, controls: 1, unavailable: 0, contradictions: 0 },
+        nodes: [
+          { id: 'payments', name: 'Payments', type: 'service', layer: 'delivery', status: 'confirmed',
+            sources: [{ kind: 'capability', reference: 'singularity/capabilities.yml', assurance: 'human-confirmed' }], sourceCount: 1 },
+          { id: 'ledger', name: 'Ledger', type: 'database', layer: 'delivery', status: 'confirmed' }
+        ],
+        relationships: [{
+          id: 'payments-ledger', kind: 'connects', source: 'payments', destinations: ['ledger'], status: 'confirmed'
+        }],
+        controls: [{ id: 'protected-configuration', description: 'Protected policy', mode: 'hard', paths: 3 }],
+        truncated: { nodes: false, relationships: false, controls: false },
+        expansion: {
+          kind: 'projection', id: 'arch.calm', sha256: digest,
+          path: 'projections/arch.calm.json',
+          ref: `sfref:world-model:projection:arch.calm:${'a'.repeat(64)}`
+        }
+      }],
       views: [{
         id: 'dev.impact', viewId: 'dev.impact', viewVersion: 4, status: 'available',
         required: true, path: 'views/dev.impact.md', viewSha256: digest, cache: 'hit',
@@ -667,6 +688,15 @@ test('registered-v4 Explorer opens exact state references and keeps full catalog
   assert.match(html, /Contradictions/);
   assert.match(html, /Staleness receipts/);
   assert.match(html, /Cache &amp; economics/);
+  assert.match(html, /System architecture/);
+  assert.match(html, /Payments/);
+  assert.match(html, /payments-ledger/);
+  assert.match(html, /wm-architecture-layer-filter/);
+  assert.match(html, /wm-architecture-status-filter/);
+  assert.match(html, /singularity\/capabilities\.yml/);
+  assert.match(html, /Exact provenance/);
+  assert.match(html, /official CALM CLI · strict · offline/);
+  assert.match(html, /Open exact CALM JSON/);
   assert.match(CONFIGURATION_CENTER_SCRIPT, /type: 'open-world-model-ref'/);
   assert.match(extensionSource, /message\.type === 'open-world-model-ref'/);
   assert.match(extensionSource, /show registered world model/);

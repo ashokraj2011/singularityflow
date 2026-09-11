@@ -34,6 +34,17 @@ Every public operation is classified before its implementation module is importe
 | agents | mutation | never | — | — |
 | approvals | read | never | — | — |
 | approve | mutation | never | — | — |
+| architecture.diff | read | never | — | — |
+| architecture.doctor | read | never | — | — |
+| architecture.explain | read | never | — | — |
+| architecture.export | mutation | never | — | — |
+| architecture.intent.init | mutation | never | — | — |
+| architecture.intent.render | mutation | never | — | — |
+| architecture.intent.validate | read | never | — | — |
+| architecture.intent.verify | mutation | never | — | — |
+| architecture.show | read | never | — | — |
+| architecture.sources | read | never | — | — |
+| architecture.validate | read | never | — | — |
 | artifact | mutation | never | — | — |
 | assign | mutation | never | — | — |
 | authority | mutation | never | — | — |

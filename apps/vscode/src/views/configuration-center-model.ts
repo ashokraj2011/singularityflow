@@ -83,6 +83,9 @@ export interface WorldModelSettingsView {
     cachePolicy: 'reuse-valid' | 'rebuild';
     totalMaximumOutputTokens: number;
   };
+  projections: {
+    archCalm: { enabled: boolean; required: boolean; schemaRelease: '1.2'; strict: boolean };
+  };
   materialization: {
     mode: 'explicit' | 'on-demand' | 'disabled'; publish: 'governed' | 'local';
     lookahead: 'none' | 'next-phase'; depth: 'light' | 'phase';
@@ -153,6 +156,7 @@ export interface ConfigurationCenterView {
       expansion: Array<{ kind: string; id: string; sha256: string; path?: string | null; ref: string }>;
     }>;
     workflows: WorldModelWorkflowUsage[];
+    projections: NonNullable<NonNullable<RepositorySnapshot['worldModel']>['projections']>;
   };
   /** Validated configuration edits waiting to be published, and anything blocking that. */
   publish: { changes: string[]; unrelated: string[]; branch: string };
@@ -172,11 +176,13 @@ export interface ConfigurationCenterView {
 
 export interface McpDraft extends Omit<McpServerView, 'configured' | 'sources'> { previousId?: string; }
 export interface AuthorityDraft extends AuthorityView { previousId?: string; }
-export type WorldModelDraft = Omit<WorldModelSettingsView, 'format' | 'v4' | 'injection'> & {
+export type WorldModelDraft = Omit<WorldModelSettingsView, 'format' | 'v4' | 'projections' | 'injection'> & {
   /** Optional so older extension messages preserve rather than erase the new policy. */
   format?: WorldModelSettingsView['format'];
   /** Optional so drafts created before registered-v4 remain valid and non-destructive. */
   v4?: Partial<WorldModelSettingsView['v4']>;
+  /** Optional so an older webview cannot turn off a governed projection while saving another field. */
+  projections?: WorldModelSettingsView['projections'];
   injection: Omit<WorldModelSettingsView['injection'], 'rulesCount'>;
 };
 export interface AutoDraft {
@@ -400,7 +406,8 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
           expansion: [...(snapshotView?.expansion ?? [])]
         };
       }),
-      workflows: workflowUsage
+      workflows: workflowUsage,
+      projections: [...(snapshot.worldModel?.projections ?? [])]
     },
     ledger: ledgerStatus(snapshot),
     publish: {
@@ -461,6 +468,14 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
         consumer: worldModel.v4?.consumer ?? 'developer',
         cachePolicy: worldModel.v4?.cachePolicy ?? 'reuse-valid',
         totalMaximumOutputTokens: worldModel.v4?.totalMaximumOutputTokens ?? 5600
+      },
+      projections: {
+        archCalm: {
+          enabled: worldModel.projections?.['arch.calm']?.enabled === true,
+          required: worldModel.projections?.['arch.calm']?.required === true,
+          schemaRelease: '1.2',
+          strict: worldModel.projections?.['arch.calm']?.calm?.strict !== false
+        }
       },
       materialization: {
         mode: materialization.mode ?? 'explicit', publish: materialization.publish ?? 'governed',
@@ -535,6 +550,9 @@ export function validateWorldModelDraft(draft: WorldModelDraft): string[] {
   if (!Number.isInteger(v4.totalMaximumOutputTokens)
       || v4.totalMaximumOutputTokens < 1 || v4.totalMaximumOutputTokens > 1_000_000) {
     errors.push('Registered-v4 total output budget must be from 1 through 1000000 tokens.');
+  }
+  if (draft.projections?.archCalm.required && !draft.projections.archCalm.enabled) {
+    errors.push('The CALM architecture projection must be enabled before it can be required.');
   }
   if (!draft.views.length) errors.push('Declare at least one world-model view.');
   if (new Set(draft.views).size !== draft.views.length) errors.push('World-model views must not contain duplicates.');
@@ -716,6 +734,13 @@ export function updateWorldModelYaml(text: string, draft: WorldModelDraft): stri
     if (draft.v4.totalMaximumOutputTokens !== undefined) {
       parsed.setIn(['worldModel', 'v4', 'totalMaximumOutputTokens'], draft.v4.totalMaximumOutputTokens);
     }
+  }
+  if (draft.projections !== undefined) {
+    parsed.setIn(['worldModel', 'projections', 'arch.calm', 'enabled'], draft.projections.archCalm.enabled);
+    parsed.setIn(['worldModel', 'projections', 'arch.calm', 'required'], draft.projections.archCalm.required);
+    parsed.setIn(['worldModel', 'projections', 'arch.calm', 'contract'], 'arch.calm@1');
+    parsed.setIn(['worldModel', 'projections', 'arch.calm', 'calm', 'schemaRelease'], '1.2');
+    parsed.setIn(['worldModel', 'projections', 'arch.calm', 'calm', 'strict'], draft.projections.archCalm.strict);
   }
   parsed.setIn(['worldModel', 'views'], draft.views);
   // Callers from before scoped world models omit these fields. Preserve the existing YAML in that

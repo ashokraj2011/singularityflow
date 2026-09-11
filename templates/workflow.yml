@@ -187,6 +187,19 @@ planning:
 
 worldModel:
   views: [business, architecture, development, testing, release, operations, security]
+  # Typed architecture products are deterministic and model-free. The initial rollout is opt-in
+  # and non-blocking so existing World Model publication trees remain byte-for-byte unchanged.
+  projections:
+    arch.calm:
+      enabled: false
+      required: false
+      contract: arch.calm@1
+      calm: { schemaRelease: "1.2", strict: true }
+      profile:
+        includeGovernanceActors: true
+        includeControls: true
+        includeFlows: true
+        includeExternalDependencies: direct-architecture-only
   # Large monorepos should list only the application directories this repository models. Shared
   # contracts may be listed separately. Omit both settings to model the whole application tree.
   # sourceRoots: [apps/payments, services/checkout]
@@ -239,6 +252,13 @@ worldModel:
     #   include: [domains/api.md]
     # - when: { labels: security }
     #   include: [views/security.md]
+
+# Reviewed Story architecture intent is independent from the shared base projection and is also
+# opt-in during rollout. It never writes a planned projection to the shared state branch.
+architectureIntent:
+  enabled: false
+  allowedPhases: [design, planning]
+  blockRequiredUnfulfilledAt: [verification, release]
 
 # Optional structural intelligence. The kernel always retains a bounded text-assurance fallback;
 # syntax and semantic assurance require an explicitly installed out-of-process adapter. Text

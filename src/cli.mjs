@@ -13194,6 +13194,7 @@ async function dispatch(command, positionals, options) {
     knowledge: () => knowledgeCommand(positionals, options),
     capability: () => capabilityCommand(positionals, options),
     repositories: async () => (await import('./commands/repositories.mjs')).run(argv, { positionals, options }),
+    architecture: async () => (await import('./commands/architecture.mjs')).run(argv, { positionals, options }),
     epic: () => epicCommand(positionals, options),
     story: async () => (await import('./commands/story.mjs')).storyCommand(positionals, options),
     secrets: () => secretsCommand(positionals, options),

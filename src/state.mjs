@@ -38,6 +38,7 @@ import {
   evaluateApprovalChecklist, evaluateSpecificationGate, markerSummary,
   resolvedSpecificationQualityPolicy
 } from './specification-gate.mjs';
+import { evaluateArchitectureIntentGate } from './architecture-intent-gate.mjs';
 import { beginTelemetryCapture, collectCopilotUsage, recordPhaseTelemetry } from './telemetry.mjs';
 import { contextBoundaryHandoff, normalizeContextPolicy } from './context-policy.mjs';
 import {
@@ -2466,6 +2467,14 @@ export async function publishGeneration(root, config, workflow, {
       + `Answer each question and record it with singularity-flow clarification record ${phase.id} --marker "<question>" --answer "..." before regenerating.`
     );
   }
+  const architectureGate = await evaluateArchitectureIntentGate(root, config, workflow, phase.id);
+  architectureGate.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
+  if (architectureGate.errors.length) {
+    throw new SingularityFlowError(
+      `Phase ${phase.id} is not publishable:\n- ${architectureGate.errors.join('\n- ')}`,
+      { code: 'WMC_INTENT_UNFULFILLED' }
+    );
+  }
 
   /**
    * Constitution citations `[SPK:REQ-101]`.
@@ -3239,6 +3248,14 @@ async function submitPhaseTransition(root, config, workflow, {
   gate.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
   if (gate.errors.length) {
     throw new SingularityFlowError(`Phase ${phase.id} cannot be submitted for approval:\n- ${gate.errors.join('\n- ')}`);
+  }
+  const architectureGate = await evaluateArchitectureIntentGate(root, config, workflow, phase.id);
+  architectureGate.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
+  if (architectureGate.errors.length) {
+    throw new SingularityFlowError(
+      `Phase ${phase.id} cannot be submitted for approval:\n- ${architectureGate.errors.join('\n- ')}`,
+      { code: 'WMC_INTENT_UNFULFILLED' }
+    );
   }
 
   // Legacy AST receipts are observed diagnostically. Their absence or invalidity cannot prevent

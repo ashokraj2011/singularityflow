@@ -122,6 +122,7 @@ const entries = {
   validate: ['sf-doctor'],
   gate: ['sf-gate'],
   wm: ['sf-worldmodel', 'sf-show-prompt'],
+  architecture: ['sf-architecture'],
   jira: ['sf-jira-work', 'sf-jira-status', 'sf-jira-board', 'sf-jira-update', 'sf-jira-initiative'],
   plugin: ['sf-plugin'],
   snapshot: ['sf-snapshot'],

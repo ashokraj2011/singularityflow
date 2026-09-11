@@ -13,8 +13,19 @@ export const MAX_WORLD_MODEL_EXPANSION_BYTES = 65_536;
 
 const EXPANSION_KINDS = new Set([
   'manifest', 'view', 'facts', 'evidence', 'derivations', 'unavailable',
-  'contradictions', 'staleness', 'economics', 'source'
+  'contradictions', 'staleness', 'economics', 'source', 'projection'
 ]);
+
+const MAX_ARCHITECTURE_PREVIEW_ROWS = 100;
+const MAX_ARCHITECTURE_PREVIEW_SOURCES = 3;
+
+function architecturePreviewSources(sources = []) {
+  return sources.slice(0, MAX_ARCHITECTURE_PREVIEW_SOURCES).map((source) => Object.freeze({
+    kind: source.sourceKind,
+    reference: source.path ?? source.factId ?? source.recordId ?? null,
+    assurance: source.assurance ?? null
+  }));
+}
 
 function failExpansion(message, code, details = {}) {
   const error = new TypeError(message);
@@ -120,6 +131,13 @@ function trustedExpansionRecord(store, parsed) {
     const loaded = store.views.find((entry) => entry.viewId === parsed.id);
     if (!manifest?.viewSha256 || !loaded?.markdown) return null;
     return { digest: manifest.viewSha256, value: loaded.markdown, contentType: 'text/markdown' };
+  }
+  if (parsed.kind === 'projection') {
+    const loaded = store.projections?.find((entry) => entry.projectionId === parsed.id
+      && entry.status === 'available');
+    return loaded
+      ? { digest: loaded.projectionSha256, value: loaded.projection, contentType: 'application/json' }
+      : null;
   }
   if (parsed.kind === 'facts') {
     const ledger = parsed.id === 'all'
@@ -409,6 +427,60 @@ export function projectWorldModelIdeSlice(store, {
       references: Object.freeze([])
     });
   });
+  const projections = (store.projections ?? []).map((entry) => {
+    if (entry.status !== 'available') return Object.freeze({
+      id: entry.projectionId,
+      version: entry.projectionVersion,
+      required: entry.required === true,
+      status: 'unavailable',
+      path: entry.path ?? null,
+      refusalCode: entry.refusal?.code ?? 'WMC_PROJECTION_UNAVAILABLE'
+    });
+    const facts = entry.factSet;
+    const nodes = facts.nodes.slice(0, MAX_ARCHITECTURE_PREVIEW_ROWS).map((node) => Object.freeze({
+      id: node.id, name: node.name, type: node.nodeType, layer: node.layer, status: node.status,
+      sources: Object.freeze(architecturePreviewSources(node.sources)), sourceCount: (node.sources ?? []).length
+    }));
+    const relationships = facts.relationships.slice(0, MAX_ARCHITECTURE_PREVIEW_ROWS).map((relation) => Object.freeze({
+      id: relation.id,
+      kind: relation.kind,
+      source: relation.source,
+      destinations: relation.kind === 'composed-of' ? [...relation.destinations] : [relation.destination],
+      status: relation.status,
+      sources: Object.freeze(architecturePreviewSources(relation.sources)), sourceCount: (relation.sources ?? []).length
+    }));
+    const controls = facts.controls.slice(0, MAX_ARCHITECTURE_PREVIEW_ROWS).map((control) => Object.freeze({
+      id: control.id, description: control.description, mode: control.mode, paths: control.paths.length,
+      sources: Object.freeze(architecturePreviewSources(control.sources)), sourceCount: (control.sources ?? []).length
+    }));
+    return Object.freeze({
+      id: entry.projectionId,
+      version: entry.projectionVersion,
+      required: entry.required === true,
+      status: 'available',
+      path: entry.path,
+      sha256: entry.projectionSha256,
+      receiptSha256: entry.receipt.receiptSha256,
+      toolchainLockSha256: entry.receipt.validation.toolchainLockSha256,
+      counts: Object.freeze({
+        nodes: facts.nodes.length,
+        interfaces: facts.interfaces.length,
+        relationships: facts.relationships.length,
+        controls: facts.controls.length,
+        unavailable: facts.unavailable.length,
+        contradictions: facts.contradictions.length
+      }),
+      nodes: Object.freeze(nodes),
+      relationships: Object.freeze(relationships),
+      controls: Object.freeze(controls),
+      truncated: Object.freeze({
+        nodes: facts.nodes.length > nodes.length,
+        relationships: facts.relationships.length > relationships.length,
+        controls: facts.controls.length > controls.length
+      }),
+      expansion: expansion('projection', entry.projectionId, entry.projectionSha256, entry.path)
+    });
+  });
   const payload = {
     schemaVersion: WORLD_MODEL_IDE_SLICE_VERSION,
     kind: 'world-model-ide-slice',
@@ -444,6 +516,7 @@ export function projectWorldModelIdeSlice(store, {
       cacheHits: store.manifest.views.filter((view) => view.cache === 'hit').length
     },
     views,
+    projections: Object.freeze(projections),
     expansion: Object.freeze([
       expansion('manifest', 'manifest', store.manifest.manifestSha256, 'manifest.json'),
       expansion('facts', 'all', store.factLedger.ledgerSha256, 'catalogs/facts.json'),
@@ -480,6 +553,7 @@ export function loadWorldModelIdeSlice(root, {
       readiness: { status: 'missing', ready: false, source: null, command: 'singularity-flow world-model build' },
       summary: { views: 0, facts: 0, evidence: 0, derivations: 0, unavailable: 0, contradictions: 0, cacheHits: 0 },
       views: [],
+      projections: [],
       expansion: [],
       revision: sha256({ format: 'wmb-v4', status: 'unavailable', reason: 'WMB_MANIFEST_MISSING', outputDir })
     });
@@ -499,6 +573,7 @@ export function loadWorldModelIdeSlice(root, {
       readiness: { status: 'invalid', ready: false, source: null, command: 'singularity-flow world-model doctor' },
       summary: { views: 0, facts: 0, evidence: 0, derivations: 0, unavailable: 0, contradictions: 0, cacheHits: 0 },
       views: [],
+      projections: [],
       expansion: [],
       revision: sha256({ format: 'wmb-v4', status: 'unavailable', reason: error?.code ?? 'WMB_IDE_SLICE_UNAVAILABLE', outputDir })
     });

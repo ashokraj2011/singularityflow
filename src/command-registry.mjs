@@ -1,11 +1,11 @@
 import { didYouMean, nearestNames, optionBoolean, optionString, SingularityFlowError } from './util.mjs';
 
 const READ_ONLY = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'why', 'choices', 'inbox', 'home', 'recommend', 'status', 'approvals', 'progress', 'receipt', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'explain', 'comprehension', 'precheck']);
-const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'why', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'run', 'auto', 'adhoc', 'land', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'comprehension', 'change', 'proof', 'delivery', 'init', 'precheck', 'configuration', 'onboard', 'authority', 'cache']);
+const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'why', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'run', 'auto', 'adhoc', 'land', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'comprehension', 'change', 'proof', 'delivery', 'init', 'precheck', 'configuration', 'onboard', 'authority', 'cache', 'architecture']);
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['init', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['init', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'architecture']);
 
 const LAZY_MODULES = Object.freeze({
   // The five verbs share one dispatcher; each is a registered command in its own right so the
@@ -59,7 +59,8 @@ const LAZY_MODULES = Object.freeze({
   onboard: './commands/fos.mjs',
   authority: './commands/fos.mjs',
   cache: './commands/fos.mjs',
-  local: './commands/local.mjs'
+  local: './commands/local.mjs',
+  architecture: './commands/architecture.mjs'
 });
 
 function operation(id, modelPolicy = 'never', overrides = {}) {
@@ -105,7 +106,7 @@ export const COMMAND_REGISTRY = Object.freeze([
   ['clarification'], ['comprehension'], ['change'], ['proof'], ['delivery'],
   ['approve'], ['reject'], ['reopen'], ['cancel'], ['sync'], ['ledger'], ['capabilities'], ['state'],
   ['validate'], ['gate'], ['wm', ['world-model']], ['jira'], ['plugin'], ['snapshot'], ['configuration', ['config']], ['constitution'], ['initiative'], ['epic'],
-  ['story'], ['workspace'], ['copilot'], ['knowledge'], ['capability'], ['repositories', ['repos']], ['hook'], ['bootstrap'], ['secrets'],
+  ['story'], ['workspace'], ['copilot'], ['knowledge'], ['capability'], ['repositories', ['repos']], ['architecture'], ['hook'], ['bootstrap'], ['secrets'],
   // The first-run walkthrough already existed as `guide --first-run` and was the best teaching asset
   // in the product, buried behind a flag on a verb that also means something else. This is the front
   // door; the flag still works.
@@ -241,6 +242,12 @@ const CONTEXT_READ_SUBCOMMANDS = Object.freeze(['xray', 'doctor']);
 const CONTEXT_MUTATION_SUBCOMMANDS = Object.freeze(['compile', 'expand']);
 const CONTEXT_SUBCOMMANDS = Object.freeze([...CONTEXT_READ_SUBCOMMANDS, ...CONTEXT_MUTATION_SUBCOMMANDS]);
 const TOKENS_SUBCOMMANDS = Object.freeze(['status', 'report', 'compare']);
+const ARCHITECTURE_READ_SUBCOMMANDS = Object.freeze([
+  'show', 'explain', 'sources', 'validate', 'diff', 'doctor'
+]);
+const ARCHITECTURE_MUTATION_SUBCOMMANDS = Object.freeze(['export']);
+const ARCHITECTURE_INTENT_READ_ACTIONS = Object.freeze(['validate']);
+const ARCHITECTURE_INTENT_MUTATION_ACTIONS = Object.freeze(['init', 'render', 'verify']);
 const AUTO_SUBCOMMANDS = Object.freeze([
   'plan', 'show-plan', 'start', 'list', 'status', 'report', 'compare',
   'pause', 'resume', 'stop', 'halt', 'takeover', 'discard', 'flight-step',
@@ -355,6 +362,9 @@ export const RESOLVER_SUBCOMMANDS = Object.freeze({
   impact: IMPACT_SUBCOMMANDS,
   context: CONTEXT_SUBCOMMANDS,
   tokens: TOKENS_SUBCOMMANDS,
+  architecture: Object.freeze([
+    ...ARCHITECTURE_READ_SUBCOMMANDS, ...ARCHITECTURE_MUTATION_SUBCOMMANDS, 'intent'
+  ]),
   auto: AUTO_SUBCOMMANDS,
   adhoc: ADHOC_SUBCOMMANDS,
   constitution: CONSTITUTION_SUBCOMMANDS,
@@ -432,6 +442,29 @@ function resolveTokensOperation(definition, positionals) {
   const subcommand = positionals[1] ?? 'status';
   if (TOKENS_SUBCOMMANDS.includes(subcommand)) return never(`tokens.${subcommand}`, definition, 'read');
   return unknownSubcommand('tokens', subcommand, TOKENS_SUBCOMMANDS);
+}
+
+function resolveArchitectureOperation(definition, positionals) {
+  const subcommand = positionals[1] ?? 'show';
+  if (ARCHITECTURE_READ_SUBCOMMANDS.includes(subcommand)) {
+    return never(`architecture.${subcommand}`, definition, 'read');
+  }
+  if (ARCHITECTURE_MUTATION_SUBCOMMANDS.includes(subcommand)) {
+    return never(`architecture.${subcommand}`, definition, 'mutation');
+  }
+  if (subcommand === 'intent') {
+    const action = positionals[2] ?? 'validate';
+    if (ARCHITECTURE_INTENT_READ_ACTIONS.includes(action)) {
+      return never(`architecture.intent.${action}`, definition, 'read');
+    }
+    if (ARCHITECTURE_INTENT_MUTATION_ACTIONS.includes(action)) {
+      return never(`architecture.intent.${action}`, definition, 'mutation');
+    }
+    return unknownSubcommand('architecture intent', action, [
+      ...ARCHITECTURE_INTENT_READ_ACTIONS, ...ARCHITECTURE_INTENT_MUTATION_ACTIONS
+    ], 'action');
+  }
+  return unknownSubcommand('architecture', subcommand, RESOLVER_SUBCOMMANDS.architecture);
 }
 
 function resolveDoctorOperation(definition, options) {
@@ -1123,6 +1156,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   if (definition.name === 'impact') return resolveImpactOperation(definition, positionals);
   if (definition.name === 'context') return resolveContextOperation(definition, positionals);
   if (definition.name === 'tokens') return resolveTokensOperation(definition, positionals);
+  if (definition.name === 'architecture') return resolveArchitectureOperation(definition, positionals);
   if (definition.name === 'auto') return resolveAutoOperation(definition, positionals, options);
   if (definition.name === 'adhoc') return resolveAdhocOperation(definition, positionals);
   if (definition.name === 'return') return resolveReturnOperation(definition, options);
@@ -1230,6 +1264,7 @@ export function operationCatalog() {
   const impactDefinition = commandDefinition('impact');
   const contextDefinition = commandDefinition('context');
   const tokensDefinition = commandDefinition('tokens');
+  const architectureDefinition = commandDefinition('architecture');
   const autoDefinition = commandDefinition('auto');
   const initDefinition = commandDefinition('init');
   const precheckDefinition = commandDefinition('precheck');
@@ -1381,6 +1416,10 @@ export function operationCatalog() {
     ...CONTEXT_READ_SUBCOMMANDS.map((name) => never(`context.${name}`, contextDefinition, 'read')),
     ...CONTEXT_MUTATION_SUBCOMMANDS.map((name) => never(`context.${name}`, contextDefinition, 'mutation')),
     ...TOKENS_SUBCOMMANDS.map((name) => never(`tokens.${name}`, tokensDefinition, 'read')),
+    ...ARCHITECTURE_READ_SUBCOMMANDS.map((name) => never(`architecture.${name}`, architectureDefinition, 'read')),
+    ...ARCHITECTURE_MUTATION_SUBCOMMANDS.map((name) => never(`architecture.${name}`, architectureDefinition, 'mutation')),
+    ...ARCHITECTURE_INTENT_READ_ACTIONS.map((name) => never(`architecture.intent.${name}`, architectureDefinition, 'read')),
+    ...ARCHITECTURE_INTENT_MUTATION_ACTIONS.map((name) => never(`architecture.intent.${name}`, architectureDefinition, 'mutation')),
     ...['list', 'show', 'prompt-hash'].map((name) => never(`impact.study.${name}`, impactDefinition, 'read')),
     never('impact.exposure.status', impactDefinition, 'read'),
     never('impact.exposure.attest', impactDefinition, 'mutation'),

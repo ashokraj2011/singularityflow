@@ -10,6 +10,9 @@ import {
 import {
   assertInstalledViewRegistry, BUILTIN_VIEW_REGISTRY, resolveViewContract
 } from './registry/views.mjs';
+import {
+  BUILTIN_PROJECTION_REGISTRY, resolveProjectionContract, validateProjectionRegistry
+} from './registry/projections.mjs';
 import { createExactSourceSnapshot, verifyExactSourceSnapshot } from './source/snapshot.mjs';
 
 const CONSUMERS = new Set([
@@ -84,6 +87,36 @@ function normalizedViews(viewRegistry, values, { required = true } = {}) {
     });
   }
   return [...unique.values()].sort((left, right) => left.viewId.localeCompare(right.viewId));
+}
+
+function normalizedProjections(projectionRegistry, values = []) {
+  const registry = validateProjectionRegistry(projectionRegistry);
+  const selected = new Map();
+  for (const raw of values ?? []) {
+    const reference = typeof raw === 'string' ? raw : raw?.reference ?? raw?.projectionId;
+    const exact = String(reference ?? '').includes('@') ? String(reference) : `${reference}@1`;
+    let contract;
+    try { contract = resolveProjectionContract(registry, exact); }
+    catch (error) {
+      throw new SingularityFlowError(error.message, {
+        code: error.code ?? 'WMC_PROJECTION_NOT_CONFIGURED', details: error.details
+      });
+    }
+    const prior = selected.get(contract.id);
+    if (prior && prior.contract.version !== contract.version) {
+      throw new SingularityFlowError(`Projection '${contract.id}' was requested with conflicting versions.`, {
+        code: 'WMC_PROJECTION_CONTRACT_INVALID'
+      });
+    }
+    selected.set(contract.id, {
+      projectionId: contract.id,
+      required: prior?.required === true || (typeof raw === 'string' ? false : raw?.required === true),
+      contract,
+      profile: typeof raw === 'object' && raw?.profile ? structuredClone(raw.profile) : {},
+      budgets: typeof raw === 'object' && raw?.budgets ? structuredClone(raw.budgets) : {}
+    });
+  }
+  return [...selected.values()].sort((left, right) => left.projectionId.localeCompare(right.projectionId));
 }
 
 export function createWorldModelConsumerProfile({
@@ -193,12 +226,23 @@ export function createWorldModelBuildRequest({
   consumerProfile,
   outputBudget,
   policySnapshotSha256,
-  cachePolicy = 'reuse-valid'
+  cachePolicy = 'reuse-valid',
+  requestedProjections = [],
+  projectionRegistry = BUILTIN_PROJECTION_REGISTRY,
+  capabilitySnapshotSha256 = null,
+  configurationSnapshotSha256 = null,
+  toolchainLockSha256 = null
 }) {
   if (!CACHE_POLICIES.has(cachePolicy)) {
     throw new SingularityFlowError(`Unknown WMB v4 cache policy '${cachePolicy}'.`, { code: 'WMB_CACHE_POLICY_INVALID' });
   }
   const viewRequests = requestedViews.map(({ viewId, required }) => ({ viewId, required }));
+  const projectionRequests = requestedProjections.map(({ projectionId, required, contract }) => ({
+    projectionId, projectionVersion: contract.version, required,
+    contractSha256: contract.contractSha256,
+    profile: structuredClone(requestedProjections.find((entry) => entry.projectionId === projectionId)?.profile ?? {}),
+    budgets: structuredClone(requestedProjections.find((entry) => entry.projectionId === projectionId)?.budgets ?? {})
+  }));
   const identity = {
     sourceManifestSha256: sourceSnapshot.sourceManifestSha256,
     scopeManifestSha256: scopeManifest.scopeSha256,
@@ -208,7 +252,14 @@ export function createWorldModelBuildRequest({
     extractorRegistrySha256: extractorRegistry.registrySha256,
     composerProfileSha256: consumerProfile.profileSha256,
     outputBudgetSha256: outputBudget.budgetSha256,
-    cachePolicy
+    cachePolicy,
+    ...(projectionRequests.length ? {
+      projections: projectionRequests,
+      projectionRegistrySha256: projectionRegistry.registrySha256,
+      capabilitySnapshotSha256,
+      configurationSnapshotSha256,
+      toolchainLockSha256
+    } : {})
   };
   const base = {
     schemaVersion: currentSchemaVersion('world-model-build-request'),
@@ -229,7 +280,14 @@ export function createWorldModelBuildRequest({
     composerProfileSha256: consumerProfile.profileSha256,
     outputBudgetSha256: outputBudget.budgetSha256,
     consistency: 'exact',
-    cachePolicy
+    cachePolicy,
+    ...(projectionRequests.length ? {
+      requestedProjections: projectionRequests,
+      projectionRegistrySha256: projectionRegistry.registrySha256,
+      capabilitySnapshotSha256,
+      configurationSnapshotSha256,
+      toolchainLockSha256
+    } : {})
   };
   return schemaRecord('world-model-build-request', sealRecord(base, 'requestSha256'));
 }
@@ -240,7 +298,8 @@ export function createWorldModelBuildPlan({
   scopeManifest,
   requestedViews,
   extractorReferences = DEFAULT_EXTRACTOR_REFERENCES,
-  outputBudget
+  outputBudget,
+  requestedProjections = []
 }) {
   const contracts = requestedViews.map((entry) => entry.contract);
   const factRequirements = [...new Set(contracts.flatMap((contract) => [
@@ -274,7 +333,13 @@ export function createWorldModelBuildPlan({
       views: contracts.length,
       deterministicExtractors: extractorReferences.length,
       maximumCompositionCalls: contracts.filter((contract) => contract.model.mode !== 'never').length
-    }
+    },
+    ...(requestedProjections.length ? { projections: requestedProjections.map(({ projectionId, required, contract }) => ({
+      projectionId, projectionVersion: contract.version,
+      projectionSpecSha256: contract.contractSha256, required, cacheStatus: 'miss',
+      profile: structuredClone(requestedProjections.find((entry) => entry.projectionId === projectionId)?.profile ?? {}),
+      budgets: structuredClone(requestedProjections.find((entry) => entry.projectionId === projectionId)?.budgets ?? {})
+    })) } : {})
   };
   return schemaRecord('world-model-build-plan', sealRecord(base, 'planSha256'));
 }
@@ -302,7 +367,9 @@ export function resolveWorldModelV4ReusableIdentity({
   policySnapshotSha256 = sha256({ id: 'sflow-wmb-v4-policy', version: 1 }),
   totalMaximumOutputTokens = null,
   viewRegistry = BUILTIN_VIEW_REGISTRY,
-  extractorRegistry = BUILTIN_EXTRACTOR_REGISTRY
+  extractorRegistry = BUILTIN_EXTRACTOR_REGISTRY,
+  projections = [],
+  projectionRegistry = BUILTIN_PROJECTION_REGISTRY
 } = {}) {
   viewRegistry = assertInstalledViewRegistry(viewRegistry);
   extractorRegistry = assertInstalledExtractorRegistry(extractorRegistry);
@@ -318,6 +385,7 @@ export function resolveWorldModelV4ReusableIdentity({
     policySourceSha256: policySnapshotSha256
   });
   const requestedViews = normalizedViews(viewRegistry, views, { required });
+  const requestedProjections = normalizedProjections(projectionRegistry, projections);
   const consumerProfile = createWorldModelConsumerProfile({ consumer, depth });
   const outputBudget = createWorldModelOutputBudget(
     requestedViews.map((entry) => entry.contract), { totalMaximumOutputTokens }
@@ -325,6 +393,7 @@ export function resolveWorldModelV4ReusableIdentity({
   return Object.freeze({
     scopeManifest,
     requestedViews,
+    requestedProjections,
     consumerProfile,
     outputBudget,
     identity: Object.freeze({
@@ -340,7 +409,14 @@ export function resolveWorldModelV4ReusableIdentity({
       viewRegistrySha256: viewRegistry.registrySha256,
       extractorRegistrySha256: extractorRegistry.registrySha256,
       composerProfileSha256: consumerProfile.profileSha256,
-      outputBudgetSha256: outputBudget.budgetSha256
+      outputBudgetSha256: outputBudget.budgetSha256,
+      ...(requestedProjections.length ? {
+        requestedProjections: Object.freeze(requestedProjections.map(({ projectionId, required: projectionRequired, contract }) => Object.freeze({
+          projectionId, projectionVersion: contract.version,
+          projectionSpecSha256: contract.contractSha256, required: projectionRequired
+        }))),
+        projectionRegistrySha256: projectionRegistry.registrySha256
+      } : {})
     })
   });
 }
@@ -365,7 +441,13 @@ export function planWorldModelV4(root, {
   viewRegistry = BUILTIN_VIEW_REGISTRY,
   extractorRegistry = BUILTIN_EXTRACTOR_REGISTRY,
   extractorReferences = DEFAULT_EXTRACTOR_REFERENCES,
-  candidateSnapshot = null
+  candidateSnapshot = null,
+  projections = [],
+  projectionRegistry = BUILTIN_PROJECTION_REGISTRY,
+  capabilitySnapshot = null,
+  configurationSnapshot = null,
+  toolchainLock = null,
+  projectionSetupError = null
 } = {}) {
   const reusable = resolveWorldModelV4ReusableIdentity({
     views,
@@ -381,10 +463,12 @@ export function planWorldModelV4(root, {
     policySnapshotSha256,
     totalMaximumOutputTokens,
     viewRegistry,
-    extractorRegistry
+    extractorRegistry,
+    projections,
+    projectionRegistry
   });
   const {
-    scopeManifest, requestedViews, consumerProfile, outputBudget
+    scopeManifest, requestedViews, consumerProfile, outputBudget, requestedProjections
   } = reusable;
   // Dirty bytes are never selected implicitly. A caller must first capture a content-addressed
   // Candidate Snapshot and supply that exact record/ref through the public command boundary.
@@ -400,7 +484,12 @@ export function planWorldModelV4(root, {
     consumerProfile,
     outputBudget,
     policySnapshotSha256,
-    cachePolicy
+    cachePolicy,
+    requestedProjections,
+    projectionRegistry,
+    capabilitySnapshotSha256: capabilitySnapshot?.snapshotSha256 ?? null,
+    configurationSnapshotSha256: configurationSnapshot?.snapshotSha256 ?? null,
+    toolchainLockSha256: toolchainLock?.lockSha256 ?? null
   });
   const plan = createWorldModelBuildPlan({
     request,
@@ -408,7 +497,8 @@ export function planWorldModelV4(root, {
     scopeManifest,
     requestedViews,
     extractorReferences,
-    outputBudget
+    outputBudget,
+    requestedProjections
   });
   return Object.freeze({
     request,
@@ -420,6 +510,12 @@ export function planWorldModelV4(root, {
     outputBudget,
     viewRegistry,
     extractorRegistry,
+    projectionRegistry,
+    requestedProjections,
+    capabilitySnapshot,
+    configurationSnapshot,
+    toolchainLock,
+    projectionSetupError,
     extractorReferences: Object.freeze([...extractorReferences])
   });
 }

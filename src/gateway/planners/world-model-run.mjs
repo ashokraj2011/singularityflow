@@ -1,7 +1,10 @@
 import { canonicalJson } from '../../specifications.mjs';
+import { loadCapabilities } from '../../capabilities.mjs';
 import { SingularityFlowError } from '../../util.mjs';
 import { planWorldModelV4 } from '../../world-model/plan.mjs';
 import { sha256 } from '../../world-model/canonicalize.mjs';
+import { createArchitectureCapabilitySnapshot } from '../../world-model/projections/calm/projection.mjs';
+import { createCalmToolchainLock } from '../../world-model/projections/calm/validator.mjs';
 import {
   assertWorldModelV4BuildCompleted, buildAndPublishWorldModelV4,
   resolveWorldModelV4BuildViews
@@ -56,6 +59,31 @@ function normalizedOptions(root, args, defaults = {}, {
   };
 }
 
+async function projectionOptions(root, options) {
+  if (!options.projections?.length) return options;
+  try {
+    const [capabilities, toolchain] = await Promise.all([
+      loadCapabilities(root, { required: true }), createCalmToolchainLock()
+    ]);
+    return {
+      ...options,
+      capabilitySnapshot: createArchitectureCapabilitySnapshot(capabilities, {
+        sourceSha256: sha256(capabilities)
+      }),
+      toolchainLock: toolchain.lock
+    };
+  } catch (error) {
+    if (options.projections.some((entry) => entry.required)) throw error;
+    return {
+      ...options,
+      projectionSetupError: Object.freeze({
+        code: error?.code ?? 'WMC_PROJECTION_UNAVAILABLE',
+        message: error?.message ?? 'Architecture projection setup is unavailable.'
+      })
+    };
+  }
+}
+
 /** Build the exact review record a host displays before it asks for confirmation. */
 export async function worldModelBuildPlanDescriptor({ root, arguments: args, defaults = {}, policy = null } = {}) {
   if (!root) {
@@ -63,11 +91,13 @@ export async function worldModelBuildPlanDescriptor({ root, arguments: args, def
       code: 'WMB_GATEWAY_REPOSITORY_REQUIRED'
     });
   }
-  const requestedOptions = normalizedOptions(root, args, defaults);
+  const requestedOptions = await projectionOptions(root, normalizedOptions(root, args, defaults));
   const publication = await captureWorldModelPublicationReview(root, requestedOptions);
   let options;
   try {
-    options = normalizedOptions(root, args, defaults, { forPlanning: true, publication });
+    options = await projectionOptions(
+      root, normalizedOptions(root, args, defaults, { forPlanning: true, publication })
+    );
   } catch (error) {
     if (error?.code !== 'WMB_GATEWAY_PUBLICATION_AUTHORITY_UNAVAILABLE') throw error;
     throw new SingularityFlowError(
@@ -101,6 +131,9 @@ export async function worldModelBuildPlanDescriptor({ root, arguments: args, def
     scopeManifestSha256: planned.scopeManifest.scopeSha256,
     requestedViews: Object.freeze([...args.views]),
     effectiveViews: Object.freeze(planned.plan.views.map((entry) => `${entry.viewId}@${entry.viewVersion}`)),
+    requestedProjections: Object.freeze(
+      (planned.plan.projections ?? []).map((entry) => `${entry.projectionId}@${entry.projectionVersion}`)
+    ),
     depth: options.depth,
     consumer: options.consumer,
     composer: options.composer,
@@ -140,7 +173,7 @@ export async function executeWorldModelBuildPlan({
       }
     });
   }
-  const buildOptions = normalizedOptions(root, args, defaults);
+  const buildOptions = await projectionOptions(root, normalizedOptions(root, args, defaults));
   // Gateway Plans always publish. A local-only build is a distinct operation and is not smuggled
   // through defaults or model-authored arguments.
   const result = assertWorldModelV4BuildCompleted(await buildAndPublishWorldModelV4(root, {
@@ -163,7 +196,10 @@ export async function executeWorldModelBuildPlan({
     operation: { id: 'world-model.build', classification: 'mutation' },
     outcome: {
       status: 'succeeded', messageId: 'gateway.completed',
-      slots: { views: result.views.length, manifestSha256: result.manifestSha256 }
+      slots: {
+        views: result.views.length, projections: result.projections?.length ?? 0,
+        manifestSha256: result.manifestSha256
+      }
     },
     effects: {
       ...EFFECTS,
@@ -179,6 +215,7 @@ export async function executeWorldModelBuildPlan({
       planSha256: result.runtime.planned.plan.planSha256,
       manifestSha256: result.manifestSha256,
       views: result.views,
+      projections: result.projections ?? [],
       publication: result.publication
     }
   });

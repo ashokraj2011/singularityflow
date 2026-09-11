@@ -230,3 +230,4 @@ skills:
   sflow-workspace-session: { class: interactive, executionBoundary: machine }
   sflow-workspaces: { class: echo, executionBoundary: machine }
   sflow-worldmodel: { class: interactive, kernelModelPolicy: conditional, executionBoundary: repository }
+  sflow-architecture: { class: interactive, kernelModelPolicy: never, executionBoundary: repository }

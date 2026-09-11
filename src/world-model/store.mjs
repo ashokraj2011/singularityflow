@@ -20,6 +20,8 @@ import { validateEvidenceCatalog } from './extract/evidence-catalog.mjs';
 import { validateFactLedger, validateViewFactLedger } from './extract/index.mjs';
 import { assertInstalledExtractorRegistry } from './registry/extractors.mjs';
 import { assertInstalledViewRegistry, resolveViewContract } from './registry/views.mjs';
+import { validateProjectionRegistry } from './registry/projections.mjs';
+import { buildCalmProjection, enforceProjectionBudgets } from './projections/calm/projection.mjs';
 import { createWorldModelViewOutputBudget } from './plan.mjs';
 import { validateScopeManifest } from './scope/manifest.mjs';
 import {
@@ -71,7 +73,14 @@ function reusableIdentityFromPublished(records, scopeManifest) {
     viewRegistrySha256: request.viewRegistrySha256,
     extractorRegistrySha256: request.extractorRegistrySha256,
     composerProfileSha256: request.composerProfileSha256,
-    outputBudgetSha256: request.outputBudgetSha256
+    outputBudgetSha256: request.outputBudgetSha256,
+    ...(request.requestedProjections?.length ? {
+      requestedProjections: Object.freeze(request.requestedProjections.map((entry) => ({
+        projectionId: entry.projectionId, projectionVersion: entry.projectionVersion,
+        projectionSpecSha256: entry.contractSha256, required: entry.required
+      }))),
+      projectionRegistrySha256: request.projectionRegistrySha256
+    } : {})
   });
 }
 
@@ -82,20 +91,24 @@ const REUSABLE_IDENTITY_FIELDS = Object.freeze([
   ['viewRegistrySha256', 'view-registry-changed', 'view-contract-change'],
   ['extractorRegistrySha256', 'extractor-registry-changed', 'fact-ledger-change'],
   ['composerProfileSha256', 'consumer-profile-changed', 'consumer-profile-change'],
-  ['outputBudgetSha256', 'output-budget-changed', 'budget-change']
+  ['outputBudgetSha256', 'output-budget-changed', 'budget-change'],
+  ['requestedProjections', 'projection-selection-changed', 'projection-contract-change'],
+  ['projectionRegistrySha256', 'projection-registry-changed', 'projection-contract-change']
 ]);
 
 function reusableIdentityChanges(built, current) {
   if (!current) return [];
   const changes = [];
   for (const [field, reason, kind] of REUSABLE_IDENTITY_FIELDS) {
-    if (canonicalJson(built[field]) === canonicalJson(current[field])) continue;
+    if (!Object.hasOwn(built, field) && !Object.hasOwn(current, field)) continue;
+    if (canonicalJson(built[field] ?? null) === canonicalJson(current[field] ?? null)) continue;
+    const collection = ['requestedViews', 'requestedProjections'].includes(field);
     changes.push(Object.freeze({
       field,
       reason,
       kind,
-      previousSha256: field === 'requestedViews' ? sha256(built[field]) : built[field],
-      currentSha256: field === 'requestedViews' ? sha256(current[field]) : current[field]
+      previousSha256: collection ? sha256(built[field] ?? null) : built[field] ?? null,
+      currentSha256: collection ? sha256(current[field] ?? null) : current[field] ?? null
     }));
   }
   return changes;
@@ -248,6 +261,22 @@ function exactProjectionAllowlist(root, ref, outputDir, manifest, viewRegistry) 
       expected.add(`receipts/execution/${entry.viewId}.json`);
       expected.add(`usage/${entry.viewId}.json`);
     } else expected.add(`refusals/${entry.viewId}.json`);
+  }
+  if (manifest.projections?.length) {
+    expected.add('registries/projections.json');
+    if (manifest.projections.some((entry) => entry.status === 'available')) {
+      expected.add('inputs/capability-snapshot.json');
+      expected.add('inputs/configuration-snapshot.json');
+      expected.add('toolchains/calm.json');
+    }
+    for (const entry of manifest.projections) {
+      if (entry.status === 'available') {
+        expected.add(entry.path);
+        expected.add(`catalogs/projections/${entry.projectionId}.facts.json`);
+        expected.add(`catalogs/projections/${entry.projectionId}.sources.json`);
+        expected.add(`receipts/projections/${entry.projectionId}.json`);
+      } else expected.add(`refusals/projections/${entry.projectionId}.json`);
+    }
   }
   const actual = new Set(entries.map((entry) => entry.relative));
   const missing = [...expected].filter((relative) => !actual.has(relative)).sort();
@@ -419,10 +448,12 @@ export function validateWorldModelUsageObservation(value) {
   return Object.freeze(record);
 }
 
-function loadProjectionRecords(root, ref, outputDir, viewEntries, viewRegistry, migrationPaths) {
+function loadProjectionRecords(root, ref, outputDir, viewEntries, viewRegistry, migrationPaths, projectionEntries = []) {
   const required = (relative) => jsonAt(root, ref, path.posix.join(outputDir, relative));
   const available = viewEntries.filter((entry) => entry.status === 'available');
   const unavailable = viewEntries.filter((entry) => entry.status === 'unavailable');
+  const projectionAvailable = projectionEntries.filter((entry) => entry.status === 'available');
+  const projectionUnavailable = projectionEntries.filter((entry) => entry.status === 'unavailable');
   return {
     buildRequest: required('requests/build-request.json'),
     buildPlan: required('plans/build-plan.json'),
@@ -433,16 +464,31 @@ function loadProjectionRecords(root, ref, outputDir, viewEntries, viewRegistry, 
       .map((contract) => required(`catalogs/views/${contract.id}.facts.json`)),
     contextManifests: available.map((entry) => required(`contexts/${entry.viewId}.json`)),
     refusals: unavailable.map((entry) => required(`refusals/${entry.viewId}.json`)),
-    migrations: migrationPaths.map((relative) => ({ relative, record: required(relative) }))
+    migrations: migrationPaths.map((relative) => ({ relative, record: required(relative) })),
+    projectionRegistry: projectionEntries.length ? required('registries/projections.json') : null,
+    capabilitySnapshot: projectionAvailable.length ? required('inputs/capability-snapshot.json') : null,
+    configurationSnapshot: projectionAvailable.length ? required('inputs/configuration-snapshot.json') : null,
+    toolchainLock: projectionAvailable.length ? required('toolchains/calm.json') : null,
+    projections: projectionAvailable.map((entry) => ({
+      ...structuredClone(entry),
+      projection: required(entry.path),
+      projectionBytes: readAt(root, ref, path.posix.join(outputDir, entry.path)),
+      factSet: required(`catalogs/projections/${entry.projectionId}.facts.json`),
+      sourceMap: required(`catalogs/projections/${entry.projectionId}.sources.json`),
+      receipt: required(`receipts/projections/${entry.projectionId}.json`)
+    })),
+    projectionRefusals: projectionUnavailable.map((entry) => ({
+      ...structuredClone(entry), refusal: required(`refusals/projections/${entry.projectionId}.json`)
+    }))
   };
 }
 
 function validateSealedRecord(value, {
-  family, kind, hashField, fields, label
+  family, kind, hashField, fields, optional = [], label
 }) {
   const record = readRecord(family, value).record;
   assertPlainRecord(record, label);
-  assertExactKeys(record, { required: fields, label });
+  assertExactKeys(record, { required: fields, optional, label });
   assertSchemaKind(record, kind, label);
   assertSha256(record[hashField], `${label} ${hashField}`);
   assertSelfHash(record, hashField, label);
@@ -470,6 +516,10 @@ function validateBuildRecords(records, {
       'requestedViews', 'policySnapshotSha256', 'viewRegistrySha256',
       'extractorRegistrySha256', 'composerProfileSha256', 'outputBudgetSha256',
       'consistency', 'cachePolicy', 'requestSha256'
+    ],
+    optional: [
+      'requestedProjections', 'projectionRegistrySha256', 'capabilitySnapshotSha256',
+      'configurationSnapshotSha256', 'toolchainLockSha256'
     ]
   });
   const plan = validateSealedRecord(records.buildPlan, {
@@ -479,7 +529,8 @@ function validateBuildRecords(records, {
       'schemaVersion', 'kind', 'requestSha256', 'sourceManifestSha256',
       'scopeManifestSha256', 'views', 'extractors', 'factRequirements', 'bodyAccess',
       'budgets', 'estimatedWork', 'planSha256'
-    ]
+    ],
+    optional: ['projections']
   });
   if (request.source.snapshotSha256 !== sourceSnapshot.sourceManifestSha256
       || request.scopeManifestSha256 !== scopeManifest.scopeSha256
@@ -493,6 +544,17 @@ function validateBuildRecords(records, {
       || plan.scopeManifestSha256 !== scopeManifest.scopeSha256) {
     recordFailure('Published WMB v4 build records do not bind the exact dependency graph.',
       'WMB_MANIFEST_DEPENDENCY_MISMATCH');
+  }
+  if (manifest.projections?.length) {
+    const summary = (values = []) => values.map(
+      ({ projectionId, projectionVersion, required }) => ({ projectionId, projectionVersion, required })
+    );
+    if (request.projectionRegistrySha256 !== manifest.projectionRegistrySha256
+        || canonicalJson(summary(request.requestedProjections)) !== canonicalJson(summary(manifest.projections))
+        || canonicalJson(summary(plan.projections)) !== canonicalJson(summary(manifest.projections))) {
+      recordFailure('Published WMB v4 projection plan does not bind the manifest products.',
+        'WMB_MANIFEST_DEPENDENCY_MISMATCH');
+    }
   }
   const requested = [...request.requestedViews]
     .sort((left, right) => left.viewId.localeCompare(right.viewId));
@@ -667,6 +729,89 @@ function publishedViewStamp(markdown, viewId) {
   return stamp;
 }
 
+function verifiedPublishedProjections(manifest, records, {
+  sourceSnapshot, scopeManifest, factLedger
+}) {
+  if (!manifest.projections?.length) return Object.freeze([]);
+  const registry = validateProjectionRegistry(records.projectionRegistry);
+  if (registry.registrySha256 !== manifest.projectionRegistrySha256) {
+    recordFailure('Published projection registry does not match the World-Model manifest.',
+      'WMB_MANIFEST_DEPENDENCY_MISMATCH');
+  }
+  const available = manifest.projections.some((entry) => entry.status === 'available');
+  let capabilitySnapshot = null;
+  let configurationSnapshot = null;
+  let toolchainLock = null;
+  if (available) {
+    capabilitySnapshot = readRecord('architecture-fact-set', records.capabilitySnapshot).record;
+    configurationSnapshot = readRecord('architecture-fact-set', records.configurationSnapshot).record;
+    toolchainLock = readRecord('calm-toolchain-lock', records.toolchainLock).record;
+    assertSelfHash(capabilitySnapshot, 'snapshotSha256', 'Architecture capability snapshot');
+    assertSelfHash(configurationSnapshot, 'snapshotSha256', 'Architecture configuration snapshot');
+    assertSelfHash(toolchainLock, 'lockSha256', 'CALM toolchain lock');
+    if (capabilitySnapshot.kind !== 'architecture-capability-snapshot'
+        || configurationSnapshot.kind !== 'architecture-configuration-snapshot'
+        || toolchainLock.kind !== 'calm-toolchain-lock') {
+      recordFailure('Published projection inputs have unexpected record kinds.', 'WMB_PUBLICATION_PARTIAL');
+    }
+  }
+  const request = records.buildRequest;
+  if (request.projectionRegistrySha256 !== registry.registrySha256
+      || request.capabilitySnapshotSha256 !== (capabilitySnapshot?.snapshotSha256 ?? null)
+      || request.configurationSnapshotSha256 !== (configurationSnapshot?.snapshotSha256 ?? null)
+      || request.toolchainLockSha256 !== (toolchainLock?.lockSha256 ?? null)) {
+    recordFailure('Published projection inputs do not match the sealed Build Request.',
+      'WMB_MANIFEST_DEPENDENCY_MISMATCH');
+  }
+  const values = [
+    ...records.projections,
+    ...records.projectionRefusals.map((entry) => ({ ...entry, status: 'unavailable' }))
+  ].sort((left, right) => left.projectionId.localeCompare(right.projectionId));
+  for (const value of values) {
+    if (value.status === 'unavailable') {
+      const refusal = readRecord('world-model-projection-refusal', value.refusal).record;
+      assertSelfHash(refusal, 'refusalSha256', `Projection '${value.projectionId}' refusal`);
+      value.refusal = refusal;
+      continue;
+    }
+    if (canonicalJson(value.projection) !== value.projectionBytes) {
+      recordFailure(`Projection '${value.projectionId}' is not canonical JSON.`, 'WMB_PUBLICATION_PARTIAL');
+    }
+    const factSet = readRecord('architecture-fact-set', value.factSet).record;
+    const sourceMap = readRecord('world-model-projection-source-map', value.sourceMap).record;
+    const receipt = readRecord('world-model-projection-receipt', value.receipt).record;
+    assertSelfHash(factSet, 'factSetSha256', `Projection '${value.projectionId}' fact set`);
+    assertSelfHash(sourceMap, 'sourceMapSha256', `Projection '${value.projectionId}' source map`);
+    assertSelfHash(receipt, 'receiptSha256', `Projection '${value.projectionId}' receipt`);
+    const policy = request.requestedProjections.find(
+      (entry) => entry.projectionId === value.projectionId
+    );
+    const rebuilt = buildCalmProjection({
+      subject: manifest.subject,
+      subjectLabel: manifest.subject.id,
+      sourceManifestSha256: sourceSnapshot.sourceManifestSha256,
+      scopeSha256: scopeManifest.scopeSha256,
+      factLedger,
+      capabilitySnapshot,
+      configurationSnapshot,
+      includeGovernanceActors: policy?.profile?.includeGovernanceActors !== false,
+      includeControls: policy?.profile?.includeControls !== false
+    });
+    enforceProjectionBudgets(rebuilt.projection, policy?.budgets ?? {});
+    if (canonicalJson(rebuilt.factSet) !== canonicalJson(factSet)
+        || rebuilt.projectionBytes !== value.projectionBytes
+        || canonicalJson(rebuilt.sourceMap) !== canonicalJson(sourceMap)
+        || receipt.validation?.toolchainLockSha256 !== toolchainLock.lockSha256) {
+      recordFailure(`Projection '${value.projectionId}' cannot be reproduced from its governed inputs.`,
+        'WMB_MANIFEST_DEPENDENCY_MISMATCH');
+    }
+    value.factSet = factSet;
+    value.sourceMap = sourceMap;
+    value.receipt = receipt;
+  }
+  return Object.freeze(values.map((value) => Object.freeze(value)));
+}
+
 /** Read and independently verify one complete state/application WMB v4 projection. */
 export function readPublishedWorldModelV4(root, {
   ref,
@@ -732,15 +877,21 @@ export function readPublishedWorldModelV4(root, {
       usageObservation: jsonAt(root, readRef, path.posix.join(target, `usage/${entry.viewId}.json`))
     };
   });
+  const allowlist = exactProjectionAllowlist(root, readRef, target, manifest, viewRegistry);
+  const records = loadProjectionRecords(
+    root, readRef, target, manifest.views, viewRegistry, allowlist.migrationPaths,
+    manifest.projections ?? []
+  );
+  const projections = verifiedPublishedProjections(manifest, records, {
+    sourceSnapshot, scopeManifest, factLedger
+  });
   const verified = verifyWorldModelManifest(manifest, {
     dependencies,
     views,
+    projectionRegistry: records.projectionRegistry,
+    projections,
     allowUnavailableOptionalViews: manifest.completeness.unavailableOptionalViews > 0
   });
-  const allowlist = exactProjectionAllowlist(root, readRef, target, manifest, viewRegistry);
-  const records = loadProjectionRecords(
-    root, readRef, target, manifest.views, viewRegistry, allowlist.migrationPaths
-  );
   assertOptionalRecords(records, manifest, {
     views: verified.views, viewRegistry, extractorRegistry, factLedger, scopeManifest,
     sourceSnapshot, evidenceCatalog, derivationCatalog
@@ -816,6 +967,7 @@ export function readPublishedWorldModelV4(root, {
     manifest: verified.manifest,
     dependencies,
     views: verified.views,
+    projections: verified.projections,
     sourceSnapshot,
     scopeManifest,
     viewRegistry,
@@ -1018,6 +1170,14 @@ export function worldModelV4StoreSummary(store) {
       required: entry.required,
       cache: entry.cache,
       viewSha256: entry.viewSha256
+    })),
+    projections: (store.manifest.projections ?? []).map((entry) => ({
+      projectionId: entry.projectionId,
+      projectionVersion: entry.projectionVersion,
+      status: entry.status,
+      required: entry.required,
+      projectionSha256: entry.projectionSha256,
+      refusalSha256: entry.refusalSha256
     })),
     facts: store.factLedger.facts.length,
     evidence: store.evidenceCatalog.items.length,

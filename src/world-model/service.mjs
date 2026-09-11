@@ -21,6 +21,10 @@ import {
 import {
   resolvePublishedWorldModelV4, resolvePublishedWorldModelV4Authority
 } from './store.mjs';
+import {
+  buildCalmProjection, createCalmProjectionRefusal, enforceProjectionBudgets,
+  validateCalmProjectionCandidate
+} from './projections/calm/projection.mjs';
 
 function manifestView(runtime, entry) {
   if (!entry.markdown) {
@@ -48,7 +52,7 @@ function manifestView(runtime, entry) {
   };
 }
 
-function publicationRecords(runtime) {
+function publicationRecords(runtime, projections = []) {
   return {
     sourceSnapshot: runtime.planned.sourceSnapshot,
     scopeManifest: runtime.planned.scopeManifest,
@@ -63,8 +67,94 @@ function publicationRecords(runtime) {
     outputBudget: runtime.planned.outputBudget,
     viewFactLedgers: runtime.registration.viewFactLedgers,
     contextManifests: runtime.availableViews.map((entry) => entry.contextManifest),
-    refusals: runtime.refusals
+    refusals: runtime.refusals,
+    projectionRegistry: runtime.planned.projectionRegistry,
+    capabilitySnapshot: runtime.planned.capabilitySnapshot,
+    configurationSnapshot: runtime.planned.configurationSnapshot,
+    toolchainLock: runtime.planned.toolchainLock,
+    architectureFactSet: projections.find((entry) => entry.factSet)?.factSet ?? null,
+    projectionRefusals: projections.filter((entry) => entry.refusal).map((entry) => entry.refusal)
   };
+}
+
+function projectionPreserved(runtime) {
+  return {
+    sourceManifestSha256: runtime.planned.sourceSnapshot.sourceManifestSha256,
+    scopeSha256: runtime.planned.scopeManifest.scopeSha256,
+    factLedgerSha256: runtime.registration.factLedger.ledgerSha256,
+    capabilitySnapshotSha256: runtime.planned.capabilitySnapshot?.snapshotSha256 ?? null,
+    configurationSnapshotSha256: runtime.planned.configurationSnapshot?.snapshotSha256 ?? null,
+    toolchainLockSha256: runtime.planned.toolchainLock?.lockSha256 ?? null
+  };
+}
+
+async function buildRequestedProjections(runtime) {
+  const requested = runtime.planned.requestedProjections ?? [];
+  if (!requested.length) return Object.freeze([]);
+  const outputs = [];
+  for (const selection of requested) {
+    try {
+      if (runtime.planned.projectionSetupError) {
+        throw new SingularityFlowError(runtime.planned.projectionSetupError.message, {
+          code: runtime.planned.projectionSetupError.code
+        });
+      }
+      if (selection.projectionId !== 'arch.calm') {
+        throw new SingularityFlowError(`Projection '${selection.projectionId}' has no installed mapper.`, {
+          code: 'WMC_PROJECTION_NOT_CONFIGURED'
+        });
+      }
+      const candidate = buildCalmProjection({
+        subject: runtime.planned.sourceSnapshot.subject,
+        subjectLabel: runtime.planned.sourceSnapshot.subject.id,
+        sourceManifestSha256: runtime.planned.sourceSnapshot.sourceManifestSha256,
+        scopeSha256: runtime.planned.scopeManifest.scopeSha256,
+        factLedger: runtime.registration.factLedger,
+        capabilitySnapshot: runtime.planned.capabilitySnapshot,
+        configurationSnapshot: runtime.planned.configurationSnapshot,
+        includeGovernanceActors: selection.profile?.includeGovernanceActors !== false,
+        includeControls: selection.profile?.includeControls !== false,
+        projectionContract: selection.contract
+      });
+      enforceProjectionBudgets(candidate.projection, {
+        ...selection.contract.budgets, ...selection.budgets
+      });
+      const validated = await validateCalmProjectionCandidate(candidate);
+      if (validated.validationResult.toolchainLock.lockSha256 !== runtime.planned.toolchainLock.lockSha256) {
+        throw new SingularityFlowError('CALM toolchain changed after the build plan was sealed.', {
+          code: 'WMC_CALM_VALIDATOR_UNAVAILABLE'
+        });
+      }
+      outputs.push(Object.freeze({
+        projectionId: selection.projectionId,
+        projectionVersion: selection.contract.version,
+        required: selection.required,
+        status: 'available',
+        path: selection.contract.output.path,
+        projection: validated.projection,
+        projectionBytes: validated.projectionBytes,
+        projectionSha256: validated.projectionSha256,
+        sourceMap: validated.sourceMap,
+        receipt: validated.receipt,
+        factSet: validated.factSet,
+        refusal: null
+      }));
+    } catch (error) {
+      const refusal = createCalmProjectionRefusal({
+        code: error?.code ?? 'WMC_PROJECTION_UNAVAILABLE', error,
+        preserved: projectionPreserved(runtime)
+      });
+      outputs.push(Object.freeze({
+        projectionId: selection.projectionId,
+        projectionVersion: selection.contract.version,
+        required: selection.required,
+        status: 'unavailable',
+        path: null, projection: null, projectionBytes: null, projectionSha256: null,
+        sourceMap: null, receipt: null, factSet: null, refusal
+      }));
+    }
+  }
+  return Object.freeze(outputs);
 }
 
 function viewId(value) {
@@ -398,6 +488,29 @@ export async function buildAndPublishWorldModelV4(root, {
     });
   }
 
+  const projections = await buildRequestedProjections(runtime);
+  const requiredProjectionFailures = projections.filter(
+    (entry) => entry.required && entry.status !== 'available'
+  );
+  if (requiredProjectionFailures.length) {
+    return Object.freeze({
+      schemaVersion: 1, resultType: 'world-model-build-result',
+      requestSha256: runtime.planned.request.requestSha256, status: 'refused', manifestSha256: null,
+      views: Object.freeze(runtime.executions.map((entry) => ({
+        viewId: entry.viewId, status: entry.markdown ? 'available' : 'unavailable',
+        viewSha256: entry.viewSha256 ?? null, cache: entry.cache ?? 'miss'
+      }))),
+      projections: Object.freeze(projections.map((entry) => ({
+        projectionId: entry.projectionId, status: entry.status,
+        projectionSha256: entry.projectionSha256, refusalSha256: entry.refusal?.refusalSha256 ?? null
+      }))),
+      refusals: Object.freeze(requiredProjectionFailures.map((entry) => entry.refusal)),
+      warnings: Object.freeze(cacheWarnings(runtime)),
+      next: Object.freeze([{ command: 'singularity-flow architecture doctor --json' }]),
+      runtime, publication: null
+    });
+  }
+
   const dependencies = deriveWorldModelManifestDependencies({
     sourceSnapshot: runtime.planned.sourceSnapshot,
     scopeManifest: runtime.planned.scopeManifest,
@@ -414,14 +527,17 @@ export async function buildAndPublishWorldModelV4(root, {
     subject: runtime.planned.sourceSnapshot.subject,
     dependencies,
     views,
-    allowUnavailableOptionalViews
+    allowUnavailableOptionalViews,
+    projectionRegistry: projections.length ? runtime.planned.projectionRegistry : null,
+    projections
   });
   const staged = stageWorldModelPublication({
     outputDir,
     manifest: built.manifest,
     dependencies,
     views,
-    records: publicationRecords(runtime),
+    records: publicationRecords(runtime, projections),
+    projections,
     allowUnavailableOptionalViews
   });
   const queryIndex = await retainQueryIndex(root, built.manifest, runtime);
@@ -483,6 +599,11 @@ export async function buildAndPublishWorldModelV4(root, {
       status: entry.status,
       viewSha256: entry.viewSha256,
       cache: entry.cache
+    }))),
+    projections: Object.freeze(built.projections.map((entry) => ({
+      projectionId: entry.projectionId, status: entry.status,
+      projectionSha256: entry.projectionSha256,
+      refusalSha256: entry.refusal?.refusalSha256 ?? null
     }))),
     refusals: runtime.refusals,
     warnings: Object.freeze([

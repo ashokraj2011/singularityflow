@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
+import { loadCapabilities } from '../capabilities.mjs';
 import {
   optionBoolean, optionNumber, optionString, secureRepositoryPath, SingularityFlowError
 } from '../util.mjs';
@@ -16,6 +17,13 @@ import { BUILTIN_EXTRACTOR_REGISTRY } from './registry/extractors.mjs';
 import {
   BUILTIN_VIEW_REGISTRY, normalizeBuiltInViewReference, resolveBuiltInViewContract
 } from './registry/views.mjs';
+import {
+  BUILTIN_PROJECTION_REGISTRY, resolveProjectionContract
+} from './registry/projections.mjs';
+import {
+  createArchitectureCapabilitySnapshot, createArchitectureConfigurationSnapshot
+} from './projections/calm/projection.mjs';
+import { createCalmToolchainLock } from './projections/calm/validator.mjs';
 import {
   WMB_V4_CANDIDATE_SCHEMA_SHA256, WMB_V4_DETERMINISTIC_EXECUTION_SHA256,
   WMB_V4_VALIDATOR_SHA256
@@ -155,6 +163,45 @@ export function configuredWorldModelV4ViewSelections(config, options = {}, phase
 /** Resolve validated registered-view references to their canonical manifest IDs. */
 export function configuredWorldModelV4ViewIds(config, options = {}, phase = null) {
   return configuredWorldModelV4ViewSelections(config, options, phase).map((entry) => entry.viewId);
+}
+
+/** Resolve explicit/configured deterministic products separately from narrative views. */
+export function configuredWorldModelV4ProjectionSelections(config, options = {}) {
+  const explicit = optionString(options, 'projections');
+  const configured = config.definition?.worldModel?.projections ?? {};
+  const names = explicit
+    ? String(explicit).split(',').map((value) => value.trim()).filter(Boolean)
+    : Object.entries(configured).filter(([, value]) => value.enabled).map(([id]) => id);
+  if (names.length === 1 && names[0] === 'none') return [];
+  const selected = names.includes('all') ? Object.keys(configured) : names;
+  if (names.length === 1 && names[0] === 'all' && selected.length === 0) {
+    throw new SingularityFlowError(
+      "WMB v4 --projections all requires at least one projection in approved worldModel.projections configuration.",
+      { code: 'WMC_PROJECTION_NOT_CONFIGURED', details: { configuredProjections: [] } }
+    );
+  }
+  if (selected.includes('all') || (names.includes('all') && names.length !== 1)) {
+    throw new SingularityFlowError("WMB v4 --projections all cannot be combined with named projections.", {
+      code: 'WMC_PROJECTION_NOT_CONFIGURED'
+    });
+  }
+  return [...new Set(selected)].map((id) => {
+    const policy = configured[id];
+    if (!policy) {
+      throw new SingularityFlowError(
+        `Projection '${id}' is not declared in approved worldModel.projections configuration.`,
+        { code: 'WMC_PROJECTION_NOT_CONFIGURED', details: { projectionId: id } }
+      );
+    }
+    const contract = resolveProjectionContract(
+      BUILTIN_PROJECTION_REGISTRY, policy.contract ?? `${id}@1`
+    );
+    return Object.freeze({
+      projectionId: contract.id, reference: `${contract.id}@${contract.version}`,
+      required: policy.required === true, contract, profile: Object.freeze({ ...policy.profile }),
+      budgets: Object.freeze({ ...contract.budgets, ...policy.budgets })
+    });
+  }).sort((left, right) => left.projectionId.localeCompare(right.projectionId));
 }
 
 function composer(config, options) {
@@ -298,6 +345,7 @@ function commonBuildOptions(root, config, options, { views = null, cachePolicy =
  * publication work can begin.
  */
 export function worldModelV4GatewayDefaults(root, config) {
+  const projections = configuredWorldModelV4ProjectionSelections(config);
   return Object.freeze({
     ...commonBuildOptions(root, config, {}, {
       views: configuredWorldModelV4ViewIds(config)
@@ -308,7 +356,14 @@ export function worldModelV4GatewayDefaults(root, config) {
     // selected capability can be replayed as a CLI option after a gateway refusal.
     selectedCapabilityId: explicitWorldModelV4CapabilityId(config),
     sharedCacheDirectory: process.env.SINGULARITY_FLOW_WMB_SHARED_CACHE ?? null,
-    allowUnavailableOptionalViews: true
+    allowUnavailableOptionalViews: true,
+    projections,
+    projectionRegistry: BUILTIN_PROJECTION_REGISTRY,
+    configurationSnapshot: projections.length
+      ? createArchitectureConfigurationSnapshot(config.definition, {
+          sourceSha256: sha256(config.definition)
+        })
+      : null
   });
 }
 
@@ -318,6 +373,32 @@ function candidateSnapshotsAllowed(config) {
 
 async function resolvedBuildOptions(root, config, options, overrides = {}) {
   const result = commonBuildOptions(root, config, options, overrides);
+  const projectionSelections = configuredWorldModelV4ProjectionSelections(config, options);
+  if (projectionSelections.length) {
+    try {
+      const [capabilities, toolchain] = await Promise.all([
+        loadCapabilities(root, { required: true }), createCalmToolchainLock()
+      ]);
+      result.projections = projectionSelections;
+      result.projectionRegistry = BUILTIN_PROJECTION_REGISTRY;
+      result.capabilitySnapshot = createArchitectureCapabilitySnapshot(capabilities, {
+        sourceSha256: sha256(capabilities)
+      });
+      result.configurationSnapshot = createArchitectureConfigurationSnapshot(config.definition, {
+        sourceSha256: sha256(config.definition)
+      });
+      result.toolchainLock = toolchain.lock;
+    } catch (error) {
+      const explicit = optionString(options, 'projections') != null;
+      if (explicit || projectionSelections.some((entry) => entry.required)) throw error;
+      result.projections = projectionSelections;
+      result.projectionRegistry = BUILTIN_PROJECTION_REGISTRY;
+      result.projectionSetupError = Object.freeze({
+        code: error?.code ?? 'WMC_PROJECTION_UNAVAILABLE',
+        message: error?.message ?? 'Architecture projection setup is unavailable.'
+      });
+    }
+  }
   const reference = optionString(options, 'candidate-snapshot');
   if (!reference) return result;
   if (!candidateSnapshotsAllowed(config)) {
@@ -336,9 +417,12 @@ async function resolvedBuildOptions(root, config, options, overrides = {}) {
 function storeOptions(root, config, { views = null, options = {} } = {}) {
   const ledger = ledgerConfig(config);
   const expectedReusableIdentity = resolveWorldModelV4ReusableIdentity(
-    commonBuildOptions(root, config, options, {
-      views: views ?? configuredWorldModelV4ViewIds(config)
-    })
+    {
+      ...commonBuildOptions(root, config, options, {
+        views: views ?? configuredWorldModelV4ViewIds(config)
+      }),
+      projections: configuredWorldModelV4ProjectionSelections(config, options)
+    }
   ).identity;
   return {
     outputDir: config.outputDir,
@@ -362,7 +446,10 @@ export async function planWorldModelV4Command(root, config, options) {
     sourceSnapshot: planned.sourceSnapshot,
     scopeManifest: planned.scopeManifest,
     consumerProfile: planned.consumerProfile,
-    outputBudget: planned.outputBudget
+    outputBudget: planned.outputBudget,
+    requestedProjections: planned.requestedProjections,
+    projectionRegistry: planned.requestedProjections.length ? planned.projectionRegistry : null,
+    toolchainLock: planned.toolchainLock
   };
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
   else {
@@ -371,6 +458,9 @@ export async function planWorldModelV4Command(root, config, options) {
       + (planned.sourceSnapshot.authority ? ' · immutable Candidate Snapshot' : ''));
     console.log(`  Scope: ${planned.scopeManifest.capabilityId} · ${planned.sourceSnapshot.files.length} exact file(s)`);
     console.log(`  Views: ${planned.plan.views.map((entry) => `${entry.viewId}@${entry.viewVersion}`).join(', ')}`);
+    if (planned.plan.projections?.length) {
+      console.log(`  Projections: ${planned.plan.projections.map((entry) => `${entry.projectionId}@${entry.projectionVersion}`).join(', ')} · deterministic`);
+    }
     console.log(`  Extractors: ${planned.plan.extractors.length} deterministic · model calls: at most ${planned.plan.estimatedWork.maximumCompositionCalls}`);
   }
   return result;
@@ -417,6 +507,7 @@ export async function buildWorldModelV4Command(root, config, options, {
     status: result.status,
     manifestSha256: result.manifestSha256,
     views: result.views,
+    projections: result.projections ?? [],
     refusals: result.refusals,
     warnings: result.warnings,
     next: result.next,
@@ -425,6 +516,9 @@ export async function buildWorldModelV4Command(root, config, options, {
   else if (!silent && result.status === 'completed') {
     const hits = result.views.filter((entry) => entry.cache === 'hit').length;
     console.log(`WMB v4 complete: ${result.views.length} view(s), ${hits} exact cache hit(s).`);
+    if (result.projections?.length) {
+      console.log(`  Projections: ${result.projections.map((entry) => `${entry.projectionId}=${entry.status}`).join(', ')}`);
+    }
     console.log(`  Manifest: ${result.manifestSha256}`);
     console.log(result.publication
       ? `  Published atomically to ${result.publication.branch}@${result.publication.commit ?? 'current'}.`

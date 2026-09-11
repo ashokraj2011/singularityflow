@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.dev/schemas/architecture-fact-set.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "subject", "inputs", "nodes", "interfaces", "relationships", "controls", "flows", "unavailable", "contradictions", "factSetSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "architecture-fact-set" },
+    "subject": { "type": "object" }, "inputs": { "type": "object" },
+    "nodes": { "type": "array" }, "interfaces": { "type": "array" }, "relationships": { "type": "array" },
+    "controls": { "type": "array" }, "flows": { "type": "array" }, "unavailable": { "type": "array" },
+    "contradictions": { "type": "array" }, "factSetSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": { "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } }
+}

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { publishToStateBranch } from '../../ledger.mjs';
 import { readRecord } from '../../schema-migrations.mjs';
 import { SingularityFlowError } from '../../util.mjs';
-import { canonicalJson, isPlainRecord } from '../canonicalize.mjs';
+import { canonicalJson, isPlainRecord, sha256 } from '../canonicalize.mjs';
 import { assembleWmbV4PromptSync } from '../compose/pinned-core.mjs';
 import { assertSelfHash } from '../contracts.mjs';
 import { runDeterministicRegistration } from '../extract/index.mjs';
@@ -18,6 +18,10 @@ import { assertInstalledExtractorRegistry } from '../registry/extractors.mjs';
 import {
   assertInstalledViewRegistry, resolveViewContract
 } from '../registry/views.mjs';
+import { validateProjectionRegistry } from '../registry/projections.mjs';
+import {
+  buildCalmProjection, enforceProjectionBudgets, validateCalmProjectionCandidate
+} from '../projections/calm/projection.mjs';
 import {
   validateWorldModelContextManifest, validateWorldModelUsageObservation
 } from '../store.mjs';
@@ -71,6 +75,44 @@ function incomplete(message, details = null) {
   throw new SingularityFlowError(message, { code: 'WMB_PUBLICATION_PARTIAL', details });
 }
 
+function changedArchitectureElement(expected, received) {
+  for (const [kind, expectedValues, receivedValues, id] of [
+    ['node', expected.nodes ?? [], received.nodes ?? [], (value) => value?.['unique-id']],
+    ['relationship', expected.relationships ?? [], received.relationships ?? [], (value) => value?.['unique-id']],
+    ['control', Object.entries(expected.controls ?? {}), Object.entries(received.controls ?? {}), (value) => value?.[0]]
+  ]) {
+    const left = new Map(expectedValues.map((value) => [id(value), value]));
+    const right = new Map(receivedValues.map((value) => [id(value), value]));
+    for (const key of [...new Set([...left.keys(), ...right.keys()])].sort()) {
+      if (canonicalJson(left.get(key) ?? null) !== canonicalJson(right.get(key) ?? null)) {
+        return { elementKind: kind, elementId: key };
+      }
+    }
+  }
+  return { elementKind: 'projection', elementId: 'arch.calm' };
+}
+
+function generatedProjectionEdit(expected, received, sourceMap) {
+  const changed = changedArchitectureElement(expected, received);
+  const source = sourceMap.elements.find((entry) => entry.elementKind === changed.elementKind
+    && entry.elementId === changed.elementId);
+  throw new SingularityFlowError(
+    `CALM projection refused — arch.calm.json is generated evidence. Element changed: ${changed.elementId}. `
+      + 'Change the authoritative capability, policy, contract, or implementation source and rebuild; nothing was published.',
+    {
+      code: 'WMC_GENERATED_OUTPUT_EDIT',
+      details: {
+        ...changed,
+        sources: source?.sources ?? [],
+        nextAction: changed.elementId === 'arch.calm'
+          ? 'singularity-flow wm build --projections arch.calm'
+          : `singularity-flow architecture explain ${changed.elementId}`,
+        published: false
+      }
+    }
+  );
+}
+
 function canonicalRecord(files, outputDir, relative) {
   const target = path.posix.join(outputDir, relative);
   if (!Object.hasOwn(files, target)) {
@@ -116,6 +158,22 @@ function exactProjectionPaths(manifest, viewRegistry, migrationPaths = []) {
       expected.add(`receipts/execution/${view.viewId}.json`);
       expected.add(`usage/${view.viewId}.json`);
     } else expected.add(`refusals/${view.viewId}.json`);
+  }
+  if (manifest.projections?.length) {
+    expected.add('registries/projections.json');
+    if (manifest.projections.some((entry) => entry.status === 'available')) {
+      expected.add('inputs/capability-snapshot.json');
+      expected.add('inputs/configuration-snapshot.json');
+      expected.add('toolchains/calm.json');
+    }
+    for (const projection of manifest.projections) {
+      if (projection.status === 'available') {
+        expected.add(projection.path);
+        expected.add(`catalogs/projections/${projection.projectionId}.facts.json`);
+        expected.add(`catalogs/projections/${projection.projectionId}.sources.json`);
+        expected.add(`receipts/projections/${projection.projectionId}.json`);
+      } else expected.add(`refusals/projections/${projection.projectionId}.json`);
+    }
   }
   return expected;
 }
@@ -187,7 +245,111 @@ function validateBuildRecords(files, outputDir, manifest, records) {
       || plan.scopeManifestSha256 !== records.scopeManifest.scopeSha256) {
     incomplete('World-model publication build records do not bind the exact complete projection.');
   }
+  if (manifest.projections?.length) {
+    const requestedProjections = manifest.projections.map(
+      ({ projectionId, projectionVersion, required }) => ({ projectionId, projectionVersion, required })
+    );
+    const requestProjectionSummary = (request.requestedProjections ?? []).map(
+      ({ projectionId, projectionVersion, required }) => ({ projectionId, projectionVersion, required })
+    );
+    if (request.projectionRegistrySha256 !== manifest.projectionRegistrySha256
+        || request.capabilitySnapshotSha256 !== (records.capabilitySnapshot?.snapshotSha256 ?? null)
+        || request.configurationSnapshotSha256 !== (records.configurationSnapshot?.snapshotSha256 ?? null)
+        || request.toolchainLockSha256 !== (records.toolchainLock?.lockSha256 ?? null)
+        || canonicalJson(requestProjectionSummary) !== canonicalJson(requestedProjections)
+        || canonicalJson(plan.projections?.map(({ projectionId, projectionVersion, required }) => ({
+          projectionId, projectionVersion, required
+        })) ?? []) !== canonicalJson(requestedProjections)) {
+      incomplete('World-model projection build records do not bind the exact projection inputs.');
+    }
+  }
   return { consumerProfile, outputBudget, request, plan };
+}
+
+function validateStagedProjections(files, outputDir, manifest, records) {
+  if (!manifest.projections?.length) return [];
+  records.projectionRegistry = validateProjectionRegistry(canonicalRecord(
+    files, outputDir, 'registries/projections.json'
+  ));
+  if (manifest.projections.some((entry) => entry.status === 'available')) {
+    records.capabilitySnapshot = sealedRecord(
+      files, outputDir, 'inputs/capability-snapshot.json',
+      'architecture-fact-set', 'architecture-capability-snapshot', 'snapshotSha256'
+    );
+    records.configurationSnapshot = sealedRecord(
+      files, outputDir, 'inputs/configuration-snapshot.json',
+      'architecture-fact-set', 'architecture-configuration-snapshot', 'snapshotSha256'
+    );
+    records.toolchainLock = sealedRecord(
+      files, outputDir, 'toolchains/calm.json',
+      'calm-toolchain-lock', 'calm-toolchain-lock', 'lockSha256'
+    );
+  }
+  if (records.projectionRegistry.registrySha256 !== manifest.projectionRegistrySha256) {
+    incomplete('World-model projection registry does not match the manifest.');
+  }
+  const buildRequest = canonicalRecord(files, outputDir, 'requests/build-request.json');
+  return manifest.projections.map((entry) => {
+    if (entry.status === 'unavailable') {
+      const refusal = sealedRecord(
+        files, outputDir, `refusals/projections/${entry.projectionId}.json`,
+        'world-model-projection-refusal', 'world-model-projection-refusal', 'refusalSha256'
+      );
+      if (refusal.refusalSha256 !== entry.refusalSha256 || refusal.projectionId !== entry.projectionId) {
+        incomplete(`Projection refusal '${entry.projectionId}' does not match the manifest.`);
+      }
+      return { ...structuredClone(entry), refusal };
+    }
+    const raw = files[path.posix.join(outputDir, entry.path)];
+    if (typeof raw !== 'string') incomplete(`Projection '${entry.projectionId}' bytes are missing.`);
+    const projection = canonicalRecord(files, outputDir, entry.path);
+    const factSet = sealedRecord(
+      files, outputDir, `catalogs/projections/${entry.projectionId}.facts.json`,
+      'architecture-fact-set', 'architecture-fact-set', 'factSetSha256'
+    );
+    const sourceMap = sealedRecord(
+      files, outputDir, `catalogs/projections/${entry.projectionId}.sources.json`,
+      'world-model-projection-source-map', 'world-model-projection-source-map', 'sourceMapSha256'
+    );
+    const receipt = sealedRecord(
+      files, outputDir, `receipts/projections/${entry.projectionId}.json`,
+      'world-model-projection-receipt', 'world-model-projection-receipt', 'receiptSha256'
+    );
+    if (sha256({ utf8: raw }) !== entry.projectionSha256
+        || sourceMap.sourceMapSha256 !== entry.sourceMapSha256
+        || receipt.receiptSha256 !== entry.receiptSha256
+        || receipt.validation?.toolchainLockSha256 !== records.toolchainLock.lockSha256) {
+      incomplete(`Projection '${entry.projectionId}' artifacts do not bind the manifest.`);
+    }
+    const rebuilt = buildCalmProjection({
+      subject: manifest.subject,
+      subjectLabel: manifest.subject.id,
+      sourceManifestSha256: records.sourceSnapshot.sourceManifestSha256,
+      scopeSha256: records.scopeManifest.scopeSha256,
+      factLedger: records.factLedger,
+      capabilitySnapshot: records.capabilitySnapshot,
+      configurationSnapshot: records.configurationSnapshot,
+      includeGovernanceActors: buildRequest.requestedProjections?.find(
+        (value) => value.projectionId === entry.projectionId
+      )?.profile?.includeGovernanceActors !== false,
+      includeControls: buildRequest.requestedProjections?.find(
+        (value) => value.projectionId === entry.projectionId
+      )?.profile?.includeControls !== false
+    });
+    const requested = buildRequest.requestedProjections?.find(
+      (value) => value.projectionId === entry.projectionId
+    );
+    enforceProjectionBudgets(rebuilt.projection, requested?.budgets ?? {});
+    if (canonicalJson(rebuilt.factSet) !== canonicalJson(factSet)
+        || rebuilt.projectionBytes !== raw
+        || canonicalJson(rebuilt.sourceMap) !== canonicalJson(sourceMap)) {
+      generatedProjectionEdit(rebuilt.projection, projection, sourceMap);
+    }
+    return {
+      ...structuredClone(entry), projection, projectionBytes: raw,
+      projectionSha256: entry.projectionSha256, factSet, sourceMap, receipt
+    };
+  });
 }
 
 function materializationStamp(markdown, viewId) {
@@ -295,6 +457,7 @@ export function validateStagedWorldModelPublication(publication) {
     derivationCatalog: canonicalRecord(files, outputDir, 'catalogs/derivations.json'),
     factLedger: canonicalRecord(files, outputDir, 'catalogs/facts.json')
   };
+  const projections = validateStagedProjections(files, outputDir, manifest, records);
   const dependencies = deriveWorldModelManifestDependencies({
     ...records,
     policySnapshotSha256: manifest.policySnapshotSha256
@@ -391,6 +554,8 @@ export function validateStagedWorldModelPublication(publication) {
   verifyWorldModelManifest(manifest, {
     dependencies,
     views,
+    projectionRegistry: records.projectionRegistry ?? null,
+    projections,
     allowUnavailableOptionalViews: manifest.completeness.unavailableOptionalViews > 0
   });
   return Object.freeze({
@@ -398,7 +563,8 @@ export function validateStagedWorldModelPublication(publication) {
     manifestPath,
     manifest: Object.freeze(manifest),
     files,
-    replaceRoots: Object.freeze([outputDir])
+    replaceRoots: Object.freeze([outputDir]),
+    projections: Object.freeze(projections)
   });
 }
 
@@ -506,11 +672,13 @@ export function stageWorldModelMigrationPublication(publication, migrationReceip
  */
 export function stageWorldModelPublication({
   outputDir = 'singularity/world-model', manifest, dependencies, views,
-  records = {}, allowUnavailableOptionalViews = false
+  records = {}, allowUnavailableOptionalViews = false, projections = []
 } = {}) {
   const target = safeOutputDirectory(outputDir);
   const verified = verifyWorldModelManifest(manifest, {
-    dependencies, views, allowUnavailableOptionalViews
+    dependencies, views, allowUnavailableOptionalViews,
+    projectionRegistry: projections.length ? records.projectionRegistry : null,
+    projections
   });
   const files = {};
   recordFile(files, target, 'source/source-snapshot.json', records.sourceSnapshot);
@@ -524,6 +692,24 @@ export function stageWorldModelPublication({
   recordFile(files, target, 'plans/build-plan.json', records.buildPlan);
   recordFile(files, target, 'profiles/consumer.json', records.consumerProfile);
   recordFile(files, target, 'profiles/output-budget.json', records.outputBudget);
+  if (verified.projections.length) {
+    recordFile(files, target, 'registries/projections.json', records.projectionRegistry);
+    if (verified.projections.some((entry) => entry.status === 'available')) {
+      recordFile(files, target, 'inputs/capability-snapshot.json', records.capabilitySnapshot);
+      recordFile(files, target, 'inputs/configuration-snapshot.json', records.configurationSnapshot);
+      recordFile(files, target, 'toolchains/calm.json', records.toolchainLock);
+    }
+    for (const projection of verified.projections) {
+      if (projection.status === 'unavailable') {
+        recordFile(files, target, `refusals/projections/${projection.projectionId}.json`, projection.refusal);
+        continue;
+      }
+      addFile(files, path.posix.join(target, projection.path), projection.projectionBytes);
+      recordFile(files, target, `catalogs/projections/${projection.projectionId}.facts.json`, projection.factSet);
+      recordFile(files, target, `catalogs/projections/${projection.projectionId}.sources.json`, projection.sourceMap);
+      recordFile(files, target, `receipts/projections/${projection.projectionId}.json`, projection.receipt);
+    }
+  }
   for (const ledger of records.viewFactLedgers ?? []) {
     recordFile(files, target, `catalogs/views/${ledger.viewId}.facts.json`, ledger);
   }
@@ -560,6 +746,19 @@ export async function publishWorldModelTransaction(root, ledgerConfig, publicati
 } = {}) {
   const verified = validateStagedWorldModelPublication(publication);
   validateStagedRegistrationAgainstSource(root, verified);
+  for (const projection of verified.projections ?? []) {
+    if (projection.status !== 'available') continue;
+    const validated = await validateCalmProjectionCandidate({
+      factSet: projection.factSet,
+      projection: projection.projection,
+      projectionBytes: projection.projectionBytes,
+      projectionSha256: projection.projectionSha256,
+      sourceMap: projection.sourceMap
+    });
+    if (canonicalJson(validated.receipt) !== canonicalJson(projection.receipt)) {
+      incomplete(`Projection '${projection.projectionId}' did not reproduce its official validator receipt at publication.`);
+    }
+  }
   const result = await publisher(root, ledgerConfig, verified.files, message, {
     ...publicationOptions,
     replaceRoots: verified.replaceRoots

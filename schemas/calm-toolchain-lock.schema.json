@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.dev/schemas/calm-toolchain-lock.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "schema", "validator", "urlMappingSha256", "lockSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "calm-toolchain-lock" },
+    "schema": { "type": "object" }, "validator": { "type": "object" },
+    "urlMappingSha256": { "$ref": "#/$defs/hash" },
+    "lockSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": { "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } }
+}

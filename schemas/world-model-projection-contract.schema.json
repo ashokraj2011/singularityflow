@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.dev/schemas/world-model-projection-contract.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "id", "version", "publisher", "format", "output", "inputs", "assurance", "model", "budgets", "validity", "contractSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "world-model-projection-contract" },
+    "id": { "const": "arch.calm" }, "version": { "const": 1 }, "format": { "const": "finos-calm" },
+    "publisher": { "type": "object" }, "output": { "type": "object" },
+    "inputs": { "type": "object" }, "assurance": { "type": "object" },
+    "model": { "type": "object", "required": ["mode"], "properties": { "mode": { "const": "never" } }, "additionalProperties": false },
+    "budgets": { "type": "object" }, "validity": { "type": "object" },
+    "contractSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": { "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } }
+}

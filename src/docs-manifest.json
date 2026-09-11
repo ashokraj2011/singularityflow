@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "3eb12f661935a282f6ab7a22f7d5cf5908ab6d10",
-  "topicCount": 63,
-  "contentSha256": "20297377073c5fb91abf3e69f951c40e83d594f1e1d0f2ac9016d9063dfba43d",
+  "sourceCommit": "be11056ae4604624730149b830aede17d6cd18cf",
+  "topicCount": 64,
+  "contentSha256": "85c95e1a5866fa8da3b7aa7975087921ff2a0e52e7e2180304791b1207da07af",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -68,6 +68,14 @@
       "sha256": "090c4e41d809e9f68f883b5f08f71a8f5ce86aadf8d3f200a53ef1af0b9711cb",
       "routingSha256": "5e13fc1070186507fd232923db25b8e09b8e47b869690d71ee880dc9b95eed1f",
       "file": "auto-mode.md"
+    },
+    {
+      "id": "calm-architecture",
+      "title": "Deterministic CALM architecture projection",
+      "version": 1,
+      "sha256": "e82839400e9df32b7458b40b72a937b08dee8992003962cae0769927632abfc9",
+      "routingSha256": "a328fc6710beee4193b1202bb5acdaabf252f5d808396604f61f01aa56363c55",
+      "file": "calm-architecture.md"
     },
     {
       "id": "capability-management",

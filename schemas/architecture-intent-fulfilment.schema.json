@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.dev/schemas/architecture-intent-fulfilment.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "workId", "intentSha256", "baseBeforeSha256", "baseAfterSha256", "clauses", "blocking", "reportSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "architecture-intent-fulfilment" },
+    "workId": { "type": "string", "minLength": 1 },
+    "intentSha256": { "$ref": "#/$defs/hash" },
+    "baseBeforeSha256": { "$ref": "#/$defs/hash" },
+    "baseAfterSha256": { "$ref": "#/$defs/hash" },
+    "clauses": { "type": "array" },
+    "blocking": { "type": "boolean" }, "reportSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": { "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } }
+}

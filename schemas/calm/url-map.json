@@ -1,0 +1,14 @@
+{
+  "https://calm.finos.org/release/1.2/meta/calm-timeline.json": "release/1.2/meta/calm-timeline.json",
+  "https://calm.finos.org/release/1.2/meta/calm.json": "release/1.2/meta/calm.json",
+  "https://calm.finos.org/release/1.2/meta/control-requirement.json": "release/1.2/meta/control-requirement.json",
+  "https://calm.finos.org/release/1.2/meta/control.json": "release/1.2/meta/control.json",
+  "https://calm.finos.org/release/1.2/meta/core.json": "release/1.2/meta/core.json",
+  "https://calm.finos.org/release/1.2/meta/decorators.json": "release/1.2/meta/decorators.json",
+  "https://calm.finos.org/release/1.2/meta/evidence.json": "release/1.2/meta/evidence.json",
+  "https://calm.finos.org/release/1.2/meta/flow.json": "release/1.2/meta/flow.json",
+  "https://calm.finos.org/release/1.2/meta/interface.json": "release/1.2/meta/interface.json",
+  "https://calm.finos.org/release/1.2/meta/timeline.json": "release/1.2/meta/timeline.json",
+  "https://calm.finos.org/release/1.2/meta/units.json": "release/1.2/meta/units.json",
+  "https://singularity-flow.dev/schemas/calm/enforcement-control-v1.json": "sflow/enforcement-control-v1.json"
+}

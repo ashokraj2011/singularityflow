@@ -35,6 +35,7 @@ import { applicationPathContext } from './application-paths.mjs';
 import { classifyStoryGateFailures } from './gate-recovery.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
 import { publishedGenerationCommit } from './generation-publication-store.mjs';
+import { evaluateArchitectureIntentGate } from './architecture-intent-gate.mjs';
 
 function trackedFiles(root) { return run('git', ['ls-files', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean); }
 function ids(text, pattern) { return [...new Set([...text.matchAll(pattern)].map((match) => match[0]))]; }
@@ -417,6 +418,17 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     }
     for (const id of required) if (!bound.has(id)) errors.push(`AC coverage: ${id} has no module test-source binding`);
     if (required.size && [...required].every((id) => bound.has(id))) passes.push(`acceptance coverage: ${required.size} namespaced criteria mapped`);
+  }
+
+  if (terminal) {
+    const configuredArchitectureGates = workflow.resolution?.architectureIntent?.blockRequiredUnfulfilledAt
+      ?? config.architectureIntent?.blockRequiredUnfulfilledAt ?? [];
+    for (const phaseId of configuredArchitectureGates) {
+      const result = await evaluateArchitectureIntentGate(root, config, workflow, phaseId);
+      errors.push(...result.errors.map((message) => `${phaseId}: ${message}`));
+      warnings.push(...result.warnings.map((message) => `${phaseId}: ${message}`));
+      passes.push(...result.passes);
+    }
   }
 
   if (workflow.phases.conformance?.generation > 0) {

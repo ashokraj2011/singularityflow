@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.dev/schemas/architecture-planned-projection-receipt.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "workId", "intentSha256", "baseProjectionSha256", "plannedProjectionSha256", "validationStatus", "receiptSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "architecture-planned-projection-receipt" },
+    "workId": { "type": "string", "minLength": 1 },
+    "intentSha256": { "$ref": "#/$defs/hash" },
+    "baseProjectionSha256": { "$ref": "#/$defs/hash" },
+    "plannedProjectionSha256": { "$ref": "#/$defs/hash" },
+    "validationStatus": { "const": "passed" }, "receiptSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": { "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } }
+}

@@ -214,6 +214,43 @@ function modelRouting(view: ConfigurationCenterView): string {
     </div></section>`;
 }
 
+function architectureProjectionExplorer(view: ConfigurationCenterView): string {
+  const configured = view.worldModel.projections.archCalm;
+  const entry = view.worldModelStatus.projections.find((projection) => projection.id === 'arch.calm');
+  if (!configured.enabled && !entry) return `<section class="wm-architecture">
+    <div class="section-heading"><div><p class="eyebrow">Architecture projection</p><h2>${icon('impact')}CALM architecture</h2><p class="muted">A deterministic, model-free architecture view derived from the exact World Model and capability map.</p></div></div>
+    <p class="empty">Not enabled. Turn on <strong>Generate CALM architecture</strong> below, publish the configuration, then build the World Model.</p>
+  </section>`;
+  if (!entry || entry.status !== 'available') return `<section class="wm-architecture">
+    <div class="section-heading"><div><p class="eyebrow">Architecture projection</p><h2>${icon('impact')}CALM architecture</h2><p class="muted">Configured as ${configured.required ? 'required' : 'optional'}, but the current state-branch World Model contains no usable projection.</p></div><button class="secondary" data-action="build-world-model">Build / refresh</button></div>
+    <p class="notice warning">${escape(entry?.refusalCode ?? 'The projection has not been generated yet.')}</p>
+  </section>`;
+
+  const counts = entry.counts!;
+  const workflowUse = view.worldModelStatus.workflows.flatMap((workflow) => workflow.phases
+    .filter((phase) => phase.views.length && workflow.mode !== 'off')
+    .map((phase) => `${workflow.label} · ${phase.label}`));
+  const sourceCell = (sources: Array<{ kind: string; reference: string | null; assurance: string | null }> = [], total = sources.length) => sources.length
+    ? `${sources.map((source) => `<span class="wm-source"><strong>${escape(source.kind)}</strong><code>${escape(source.reference ?? 'exact record')}</code><small>${escape(source.assurance ?? '')}</small></span>`).join('')}${total > sources.length ? `<small>+ ${total - sources.length} more in the exact source map</small>` : ''}`
+    : '<span class="muted">No bounded source preview</span>';
+  const nodeRows = (entry.nodes ?? []).map((node) => {
+    const layer = node.type === 'database' ? 'data' : node.type === 'actor' || node.layer === 'governance' ? 'governance' : 'delivery';
+    return `<tr data-arch-row data-arch-layer="${layer}" data-arch-status="${escape(node.status)}"><td><strong>${escape(node.name)}</strong><small><code>${escape(node.id)}</code></small></td><td>${escape(node.type)}</td><td>${escape(node.layer)}</td><td><span class="wm-state ${node.status === 'confirmed' ? 'ready' : 'missing'}">${escape(node.status)}</span></td><td>${sourceCell(node.sources, node.sourceCount)}</td></tr>`;
+  }).join('');
+  const relationRows = (entry.relationships ?? []).map((relation) => `<tr data-arch-row data-arch-layer="delivery" data-arch-status="${escape(relation.status)}"><td><code>${escape(relation.source)}</code></td><td><strong>${escape(relation.kind)}</strong><small><code>${escape(relation.id)}</code></small></td><td>${relation.destinations.map((destination) => `<code>${escape(destination)}</code>`).join(' ')}</td><td>${escape(relation.status)}</td><td>${sourceCell(relation.sources, relation.sourceCount)}</td></tr>`).join('');
+  const controlRows = (entry.controls ?? []).map((control) => `<tr data-arch-row data-arch-layer="governance" data-arch-status="confirmed"><td><strong>${escape(control.id)}</strong><small>${escape(control.description)}</small></td><td>${escape(control.mode)}</td><td>${control.paths}</td><td>${sourceCell(control.sources, control.sourceCount)}</td></tr>`).join('');
+  return `<section class="wm-architecture">
+    <div class="section-heading"><div><p class="eyebrow">Architecture projection · FINOS CALM 1.2</p><h2>${icon('impact')}System architecture</h2><p class="muted">One exact, reusable state-branch projection. It is derived without a model and never rebuilt per Story while its inputs remain unchanged.</p></div>${entry.expansion ? `<button class="secondary" data-open-world-model-ref="${escape(entry.expansion.ref)}">Open exact CALM JSON</button>` : ''}</div>
+    <div class="summary-grid wm-summary"><div class="summary-card"><strong>${counts.nodes}</strong><span>nodes</span></div><div class="summary-card"><strong>${counts.interfaces}</strong><span>interfaces</span></div><div class="summary-card"><strong>${counts.relationships}</strong><span>relationships</span></div><div class="summary-card"><strong>${counts.controls}</strong><span>controls</span></div><div class="summary-card ${counts.unavailable || counts.contradictions ? 'governance-warning' : ''}"><strong>${counts.unavailable} / ${counts.contradictions}</strong><span>gaps / contradictions</span></div></div>
+    <dl class="wm-provenance"><div><dt>Projection</dt><dd><code>arch.calm@${entry.version}</code></dd></div><div><dt>Policy</dt><dd>${entry.required ? 'required' : 'optional'}</dd></div><div><dt>Validation</dt><dd>official CALM CLI · strict · offline</dd></div><div><dt>Receipt</dt><dd><code>${escape((entry.receiptSha256 ?? '').slice(0, 19))}</code></dd></div><div><dt>Workflow use</dt><dd>${workflowUse.length} phase assignment${workflowUse.length === 1 ? '' : 's'}</dd></div></dl>
+    <div class="wm-filter-bar"><label>Layer <select id="wm-architecture-layer-filter"><option value="all">All</option><option value="delivery">Delivery</option><option value="data">Data</option><option value="governance">Governance</option></select></label><label>Evidence <select id="wm-architecture-status-filter"><option value="all">All</option><option value="confirmed">Confirmed</option><option value="declared-only">Declared</option><option value="observed-only">Observed</option><option value="planned">Planned</option><option value="contradicted">Contradictions</option><option value="unavailable">Unavailable</option></select></label><span class="muted">Each row carries a bounded provenance preview; open the exact projection for the complete content-addressed product.</span></div>
+    <details open><summary>Components · ${counts.nodes}</summary><div class="wm-catalog-wrap"><table class="configuration-table"><thead><tr><th>Component</th><th>CALM type</th><th>Layer</th><th>Confidence</th><th>Exact provenance</th></tr></thead><tbody>${nodeRows}</tbody></table></div>${entry.truncated?.nodes ? '<p class="muted">Preview is bounded. Open the exact CALM JSON for every component.</p>' : ''}</details>
+    <details><summary>Connections · ${counts.relationships}</summary><div class="wm-catalog-wrap"><table class="configuration-table"><thead><tr><th>From</th><th>Relationship</th><th>To</th><th>Evidence state</th><th>Exact provenance</th></tr></thead><tbody>${relationRows || '<tr><td colspan="5" class="muted">No architecture connections were derived.</td></tr>'}</tbody></table></div>${entry.truncated?.relationships ? '<p class="muted">Preview is bounded. Open the exact CALM JSON for every relationship.</p>' : ''}</details>
+    <details><summary>Governance controls · ${counts.controls}</summary><div class="wm-catalog-wrap"><table class="configuration-table"><thead><tr><th>Control</th><th>Mode</th><th>Protected paths</th><th>Exact provenance</th></tr></thead><tbody>${controlRows || '<tr><td colspan="4" class="muted">No architecture controls were derived.</td></tr>'}</tbody></table></div></details>
+    ${workflowUse.length ? `<details><summary>Where this architecture is used</summary><ul class="plain-list">${workflowUse.map((usage) => `<li>${escape(usage)}</li>`).join('')}</ul></details>` : '<p class="muted">No enabled workflow phase currently consumes World Model context.</p>'}
+  </section>`;
+}
+
 function worldModelExplorer(view: ConfigurationCenterView): string {
   const status = view.worldModelStatus;
   const workflowsUsingGrounding = status.workflows.filter((workflow) =>
@@ -302,6 +339,7 @@ function worldModel(view: ConfigurationCenterView): string {
   const model = view.worldModel;
   return `<section class="plain world-model-settings">
     ${worldModelExplorer(view)}
+    ${architectureProjectionExplorer(view)}
     ${view.worldModelStatus.rebuildReason
     ? `<p class="notice warning">${escape(view.worldModelStatus.rebuildReason)}<span class="grow"></span><button class="secondary" data-action="build-world-model">Review explicit refresh</button></p>`
     : view.worldModelStatus.built
@@ -342,6 +380,18 @@ function worldModel(view: ConfigurationCenterView): string {
           <label><span>v4 total output-token budget</span><input name="v4TotalMaximumOutputTokens" type="number" min="1" max="1000000" step="1" value="${model.v4.totalMaximumOutputTokens}"><small>Operation-level maximum. Every independent view retains its stricter registered contract ceiling.</small></label>
         </div>
         <div class="notice"><strong>Provider boundary:</strong> <code>--model</code> chooses a concrete model only after the composer requires one. It does not enable model composition by itself.</div>
+      </div>
+
+      <div class="editor-card">
+        <h2>${icon('impact')}Architecture projection</h2>
+        <p class="muted">Generate an exact FINOS CALM 1.2 architecture product in the same state-branch transaction as the World Model. It uses deterministic governed facts and zero model tokens.</p>
+        <div class="form-grid">
+          <label class="check"><input name="archCalmEnabled" type="checkbox"${model.projections.archCalm.enabled ? ' checked' : ''}>Generate CALM architecture</label>
+          <label class="check"><input name="archCalmRequired" type="checkbox"${model.projections.archCalm.required ? ' checked' : ''}>Require a valid projection for World Model publication</label>
+          <label class="check"><input name="archCalmStrict" type="checkbox"${model.projections.archCalm.strict ? ' checked' : ''}>Run strict offline CALM validation</label>
+          <label><span>Schema release</span><input type="text" value="1.2" disabled><small>Schema and validator are locked and packaged with SFlow.</small></label>
+        </div>
+        <div class="notice"><strong>Safe default:</strong> enabled + optional. If projection generation is unavailable, narrative World Model publication and Story work continue with a visible refusal receipt.</div>
       </div>
 
       <div class="editor-card">
@@ -504,6 +554,14 @@ export const CONFIGURATION_CENTER_SCRIPT = `
       cell.hidden = view !== 'all' && cell.dataset.wmViewColumn !== view;
     });
   };
+  const applyArchitectureFilters = () => {
+    const layer = document.getElementById('wm-architecture-layer-filter')?.value || 'all';
+    const status = document.getElementById('wm-architecture-status-filter')?.value || 'all';
+    document.querySelectorAll('[data-arch-row]').forEach((row) => {
+      row.hidden = (layer !== 'all' && row.dataset.archLayer !== layer)
+        || (status !== 'all' && row.dataset.archStatus !== status);
+    });
+  };
   document.addEventListener('input', (event) => { if (event.target?.closest('form')) markDirty(); });
   document.addEventListener('click', (event) => {
     const help = event.target.closest('[data-help-topic]'); if (help) return vscode.postMessage({ type: 'open-help-topic', topic: help.dataset.helpTopic });
@@ -521,11 +579,12 @@ export const CONFIGURATION_CENTER_SCRIPT = `
     if (form.id === 'authority-form') vscode.postMessage({ type: 'save-authority', previousId: form.dataset.previousId, scope: data.get('scope'), id: data.get('id'), label: data.get('label'), allowAnyGitIdentity: data.get('allowAnyGitIdentity') === 'on', members: members(data.get('members')) });
     if (form.id === 'mcp-form') vscode.postMessage({ type: 'save-mcp', previousId: form.dataset.previousId, id: data.get('id'), label: data.get('label'), hostReference: data.get('hostReference'), agents: csv(data.get('agents')), phases: csv(data.get('phases')), tools: csv(data.get('tools')), approval: data.get('approval'), required: data.get('required') === 'on', captureToolCalls: data.get('captureToolCalls') === 'on', captureResults: data.get('captureResults') === 'on' });
     if (form.id === 'auto-form') vscode.postMessage({ type: 'save-auto', enabled: data.get('enabled') === 'true', workTypes: Array.from(form.querySelectorAll('[data-auto-work-type]')).map((field) => ({ id: field.dataset.autoWorkType, eligibility: field.value })) });
-    if (form.id === 'world-model-form') vscode.postMessage({ type: 'save-world-model', format: data.get('format'), v4: { composer: data.get('v4Composer'), consumer: data.get('v4Consumer'), cachePolicy: data.get('v4CachePolicy'), totalMaximumOutputTokens: Number(data.get('v4TotalMaximumOutputTokens')) }, views: csv(data.get('views')), sourceRoots: csv(data.get('sourceRoots')), sharedRoots: csv(data.get('sharedRoots')), outputDir: data.get('outputDir'), promptSource: data.get('promptSource'), stateFetchTimeoutMs: Number(data.get('stateFetchTimeoutMs')), generation: { parallel: data.get('generationParallel') === 'on', maxWorkers: Number(data.get('generationMaxWorkers')), strategy: 'view' }, materialization: { mode: data.get('materializationMode'), publish: data.get('materializationPublish'), lookahead: data.get('materializationLookahead'), depth: data.get('materializationDepth'), confirmation: data.get('materializationConfirmation') }, grounding: data.get('grounding'), staleness: data.get('staleness'), injection: { placeholder: data.get('injectionPlaceholder'), mode: data.get('injectionMode'), maxBytes: Number(data.get('injectionMaxBytes')) } });
+    if (form.id === 'world-model-form') vscode.postMessage({ type: 'save-world-model', format: data.get('format'), v4: { composer: data.get('v4Composer'), consumer: data.get('v4Consumer'), cachePolicy: data.get('v4CachePolicy'), totalMaximumOutputTokens: Number(data.get('v4TotalMaximumOutputTokens')) }, projections: { archCalm: { enabled: data.get('archCalmEnabled') === 'on', required: data.get('archCalmRequired') === 'on', schemaRelease: '1.2', strict: data.get('archCalmStrict') === 'on' } }, views: csv(data.get('views')), sourceRoots: csv(data.get('sourceRoots')), sharedRoots: csv(data.get('sharedRoots')), outputDir: data.get('outputDir'), promptSource: data.get('promptSource'), stateFetchTimeoutMs: Number(data.get('stateFetchTimeoutMs')), generation: { parallel: data.get('generationParallel') === 'on', maxWorkers: Number(data.get('generationMaxWorkers')), strategy: 'view' }, materialization: { mode: data.get('materializationMode'), publish: data.get('materializationPublish'), lookahead: data.get('materializationLookahead'), depth: data.get('materializationDepth'), confirmation: data.get('materializationConfirmation') }, grounding: data.get('grounding'), staleness: data.get('staleness'), injection: { placeholder: data.get('injectionPlaceholder'), mode: data.get('injectionMode'), maxBytes: Number(data.get('injectionMaxBytes')) } });
   });
   document.addEventListener('change', (event) => {
     if (event.target?.closest('form')) markDirty();
     if (event.target?.id === 'wm-workflow-filter' || event.target?.id === 'wm-view-filter') applyWorldModelFilters();
+    if (event.target?.id === 'wm-architecture-layer-filter' || event.target?.id === 'wm-architecture-status-filter') applyArchitectureFilters();
     if (event.target && event.target.id === 'world-model-confirmation' && event.target.value === 'automatic') {
       const depth = document.getElementById('world-model-depth'); if (depth) depth.value = 'light';
     }

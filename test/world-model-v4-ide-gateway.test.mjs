@@ -106,6 +106,43 @@ test('the IDE projection is bounded and exposes references instead of complete c
   );
 });
 
+test('the IDE exposes a bounded CALM architecture preview and exact expansion', () => {
+  const registered = {
+    ...store(),
+    projections: [{
+      projectionId: 'arch.calm', projectionVersion: 1, status: 'available', required: false,
+      path: 'projections/arch.calm.json', projectionSha256: digest('f'),
+      projection: { $schema: 'https://calm.finos.org/release/1.2/meta/calm.json', nodes: [] },
+      receipt: { receiptSha256: digest('d'), validation: { toolchainLockSha256: digest('e') } },
+      factSet: {
+        nodes: [{ id: 'service-a', name: 'Service A', nodeType: 'service', layer: 'delivery', status: 'confirmed',
+          sources: [{ sourceKind: 'capability', path: 'singularity/capabilities.yml', assurance: 'human-confirmed' }] }],
+        interfaces: [],
+        relationships: [{
+          id: 'contains-a', kind: 'composed-of', source: 'platform', destinations: ['service-a'],
+          status: 'confirmed'
+        }],
+        controls: [{ id: 'protected', description: 'Protected paths', mode: 'hard', paths: ['singularity/workflow.yml'] }],
+        unavailable: [], contradictions: []
+      }
+    }]
+  };
+  const slice = projectWorldModelIdeSlice(registered);
+  const projection = slice.projections[0];
+  assert.deepEqual(projection.counts, {
+    nodes: 1, interfaces: 0, relationships: 1, controls: 1, unavailable: 0, contradictions: 0
+  });
+  assert.deepEqual(projection.nodes.map(({ id, type }) => ({ id, type })), [
+    { id: 'service-a', type: 'service' }
+  ]);
+  assert.deepEqual(projection.nodes[0].sources, [{
+    kind: 'capability', reference: 'singularity/capabilities.yml', assurance: 'human-confirmed'
+  }]);
+  const page = readWorldModelIdeExpansion(process.cwd(), registered, projection.expansion.ref);
+  assert.equal(page.entity, 'projection');
+  assert.deepEqual(JSON.parse(Buffer.from(page.content, 'base64').toString('utf8')), registered.projections[0].projection);
+});
+
 test('the IDE exposes separate exact drill-downs for gaps, staleness, and cache economics', () => {
   const registered = {
     ...store(),

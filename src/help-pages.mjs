@@ -1347,6 +1347,33 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['phase', 'doctor', 'capability']
   },
+  architecture: {
+    summary: 'Read, explain, validate, plan, and export the deterministic FINOS CALM architecture projection.',
+    description: [
+      'The CALM document is computed from the exact published WMB v4 fact ledger plus approved',
+      'capability and configuration authority. It is derived evidence, never an editable source.',
+      'Generation is deterministic, offline, and consumes zero model tokens.',
+      '',
+      'A Story may carry a clause-bearing architecture intent. --planned renders that delta over',
+      'the exact base projection without changing the shared repository world model. Intent files',
+      'are still approved through the normal Story lifecycle.'
+    ],
+    options: [
+      ['--work-id ID', 'Select the Story that owns an architecture intent.'],
+      ['--planned', 'Read the selected Story planned overlay instead of shared base reality.'],
+      ['--from FILE', 'Reviewed repository-relative JSON candidate used to initialize Story intent.'],
+      ['--format calm', 'Export the exact CALM document without adding target-specific fields.'],
+      ['--out FILE', 'New repository-relative export destination outside World-Model authority.'],
+      ['--json', 'Emit structured output; show includes the complete CALM document.']
+    ],
+    examples: [
+      ['singularity-flow architecture show', 'Show bounded counts and top-level architecture.'],
+      ['singularity-flow architecture explain payments', 'Show exact provenance and where to make a change.'],
+      ['singularity-flow architecture show --work-id PAY-142 --planned', 'Show one Story-scoped future projection.'],
+      ['singularity-flow architecture export --format calm --out dist/architecture/system.json', 'Copy the exact projection without changing authority.']
+    ],
+    seeAlso: ['wm', 'capability', 'phase']
+  },
   epic: {
     summary: 'Run an Epic: sources, planning, Story creation, merge order, and completion.',
     description: [

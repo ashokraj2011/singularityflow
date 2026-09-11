@@ -364,6 +364,16 @@ export const STYLE = `
   .configuration-advanced-tools[open] > summary { margin-bottom: var(--sf-space-3); }
   .wm-explorer > .section-heading { align-items: flex-start; }
   .wm-explorer > .section-heading h2 { margin: .15rem 0; font-size: 1.15rem; }
+  .wm-architecture { margin: var(--sf-space-6) 0; padding-top: var(--sf-space-5); border-top: var(--sf-border); }
+  .wm-architecture > details { margin-top: var(--sf-space-3); border: var(--sf-border); border-radius: var(--sf-radius); padding: .7rem .85rem; background: var(--sf-surface); }
+  .wm-architecture > details > summary { cursor: pointer; font-weight: 650; }
+  .wm-architecture > details[open] > summary { margin-bottom: .7rem; }
+  .wm-filter-bar { display: flex; flex-wrap: wrap; align-items: end; gap: .75rem; margin: .8rem 0; padding: .7rem .85rem; border: var(--sf-border); border-radius: var(--sf-radius); background: var(--sf-surface); }
+  .wm-filter-bar label { display: grid; gap: .3rem; min-width: 9rem; font-weight: 600; }
+  .wm-filter-bar .muted { flex: 1 1 18rem; }
+  .wm-source { display: grid; gap: .08rem; max-width: 22rem; margin-bottom: .35rem; }
+  .wm-source code { overflow-wrap: anywhere; white-space: normal; }
+  .wm-source small { color: var(--sf-dim); }
   .wm-summary { margin-bottom: var(--sf-space-4); }
   .wm-summary .summary-card strong { font-size: 1.25rem; }
   .wm-provenance { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; margin: 0 0 var(--sf-space-5); overflow: hidden; border: var(--sf-border); border-radius: var(--sf-radius); background: var(--sf-border-color); }

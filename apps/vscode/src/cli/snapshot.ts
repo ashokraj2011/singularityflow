@@ -699,6 +699,32 @@ export interface RepositorySnapshot {
       preview?: { text: string; bytes: number; truncated: boolean };
       expansion?: Array<{ kind: string; id: string; sha256: string; path?: string | null; ref: string }>;
     }>;
+    projections?: Array<{
+      id: string; version: number; required: boolean; status: 'available' | 'unavailable';
+      path?: string | null; sha256?: string; receiptSha256?: string; toolchainLockSha256?: string;
+      refusalCode?: string;
+      counts?: {
+        nodes: number; interfaces: number; relationships: number; controls: number;
+        unavailable: number; contradictions: number;
+      };
+      nodes?: Array<{
+        id: string; name: string; type: string; layer: string; status: string;
+        sources?: Array<{ kind: string; reference: string | null; assurance: string | null }>;
+        sourceCount?: number;
+      }>;
+      relationships?: Array<{
+        id: string; kind: string; source: string; destinations: string[]; status: string;
+        sources?: Array<{ kind: string; reference: string | null; assurance: string | null }>;
+        sourceCount?: number;
+      }>;
+      controls?: Array<{
+        id: string; description: string; mode: string; paths: number;
+        sources?: Array<{ kind: string; reference: string | null; assurance: string | null }>;
+        sourceCount?: number;
+      }>;
+      truncated?: { nodes: boolean; relationships: boolean; controls: boolean };
+      expansion?: { kind: string; id: string; sha256: string; path?: string | null; ref: string };
+    }>;
     expansion?: Array<{ kind: string; id: string; sha256: string; path?: string | null; ref: string }>;
     workflows?: Array<{
       id: string; label: string; mode: string;
@@ -805,6 +831,16 @@ export interface RepositorySnapshot {
         consumer?: 'developer' | 'architect' | 'tester' | 'business' | 'operations' | 'security' | 'release';
         cachePolicy?: 'reuse-valid' | 'rebuild';
         totalMaximumOutputTokens?: number;
+      };
+      projections?: {
+        'arch.calm'?: {
+          enabled?: boolean;
+          required?: boolean;
+          contract?: string;
+          calm?: { schemaRelease?: '1.2'; strict?: boolean };
+          profile?: Record<string, unknown>;
+          budgets?: Record<string, number>;
+        };
       };
       materialization?: {
         mode?: 'explicit' | 'on-demand' | 'disabled';

@@ -7,23 +7,21 @@
  * `vscode` is external: it is injected by the host and has no npm package to bundle.
  */
 import { build, context } from 'esbuild';
-import { execSync } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { vscodeBuildIdentity } from '../../scripts/reproducible-build.mjs';
 
 /**
  * A stamp identifying this build, injected at compile time.
  *
  * The extension's version never changes between reinstalls during development, so VS Code, the
  * person reloading, and whoever is helping them have no way to tell two builds apart — which turns
- * "did the fix land?" into guesswork on both sides. The commit and the build time answer it.
+ * "did the fix land?" into guesswork on both sides. The commit and source timestamp answer it.
+ * SOURCE_DATE_EPOCH is the explicit reproducible-build authority; otherwise the exact HEAD commit
+ * timestamp keeps clean builds byte-identical across release hosts. Dirty builds retain `+local`.
  */
-const describe = (command, fallback) => {
-  try { return execSync(command, { encoding: 'utf8' }).trim(); } catch { return fallback; }
-};
-// Never inherit Git's configurable abbreviation length (`core.abbrev`). The build label is a
-// user-visible package identity and its seven-character shape is consumed by diagnostics and host
-// tests, so two machines must not package the same commit as seven and eight characters.
-const BUILD = `${describe('git rev-parse --short=7 HEAD', 'unknown')}${
-  describe('git status --porcelain', '') ? '+local' : ''} ${new Date().toISOString().slice(0, 16)}Z`;
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const BUILD = vscodeBuildIdentity(root).stamp;
 
 /**
  * Core resolves its installed assets from ESM `import.meta.url`. The extension is CommonJS and

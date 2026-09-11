@@ -80,6 +80,13 @@ test('local installer performs a safe ordered pull, pack, global install, and pl
   assert.match(script, /export NPM_CONFIG_REGISTRY="\$REGISTRY"/);
   assert.match(script, /npm run vscode:build/);
   assert.match(script, /scripts\/stamp-build-info\.mjs/);
+  assert.match(script, /SOURCE_DATE_EPOCH="\$\(git show -s --format=%ct HEAD\)"/);
+  assert.match(script, /export SOURCE_DATE_EPOCH/);
+  assert.match(script, /unset SINGULARITY_FLOW_PACKAGING_COMMIT SINGULARITY_FLOW_PACKAGING_TREE/);
+  assert.match(script, /SINGULARITY_FLOW_PACKAGING_COMMIT="\$\(git rev-parse --verify HEAD\)"/);
+  assert.match(script, /SINGULARITY_FLOW_PACKAGING_TREE="\$\(git rev-parse 'HEAD\^\{tree\}'\)"/);
+  assert.match(script, /SINGULARITY_FLOW_STAMPED_BUILD_INFO_SHA256="\$\(node -e/);
+  assert.doesNotMatch(script, /SINGULARITY_FLOW_STAMPED_BUILD_INFO=1/);
   assert.match(script, /BUILD_INFO_BACKUP/);
   assert.doesNotMatch(script, /git[^\n]*checkout[^\n]*build-info\.mjs/,
     'restoration must use the byte backup rather than rewriting through Git');
@@ -148,6 +155,7 @@ test('local installer performs a safe ordered pull, pack, global install, and pl
   assert.match(script, /Prompt and response content capture remains disabled/);
   assert.ok(script.indexOf('git pull --ff-only') < script.indexOf('npm ci --registry="$REGISTRY"'));
   assert.ok(script.indexOf('npm ci --registry="$REGISTRY"') < script.indexOf('npm pack --json'));
+  assert.ok(script.indexOf('export SOURCE_DATE_EPOCH') < script.indexOf('npm ci --registry="$REGISTRY"'));
   assert.ok(script.indexOf('scripts/stamp-build-info.mjs') < script.indexOf('npm pack --json'));
   assert.ok(script.indexOf('scripts/stamp-build-info.mjs') < script.indexOf('npm run vscode:package'));
   assert.ok(script.lastIndexOf('restore_build_info') > script.indexOf('npm run vscode:package'),
@@ -284,9 +292,13 @@ test('standalone install script executes the complete workflow with one invocati
   };
   await fake('git', `
 if [[ "$*" == "status --porcelain" ]]; then exit 0; fi
+if [[ "$*" == "show -s --format=%ct HEAD" ]]; then printf '%s\\n' '946684800'; exit 0; fi
 if [[ "\${1:-}" == "-C" && "\${3:-}" == "rev-parse" && "\${4:-}" == "--show-toplevel" ]]; then printf '%s\\n' "\${2}"; exit 0; fi
 if [[ "\${1:-}" == "-C" && "\${3:-}" == "status" && "\${4:-}" == "--porcelain" ]]; then exit 0; fi`);
   await fake('npm', `
+if [[ "$*" == "pack --json" || "$*" == "run vscode:package" ]]; then
+  [[ "\${SOURCE_DATE_EPOCH:-}" == "946684800" ]] || { printf '%s\\n' 'missing shared source epoch' >&2; exit 91; }
+fi
 if [[ "$*" == "config get registry" ]]; then printf '%s\\n' 'https://registry.npmjs.org/'; exit 0; fi
 if [[ "$*" == "pack --json" ]]; then
   cp "$INSTALL_TEST_TARBALL" "$PWD/singularity-flow-test.tgz"

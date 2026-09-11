@@ -7,3 +7,9 @@ coverage/
 apps/desktop/dist/
 apps/desktop/release/
 dist/
+# Reserved same-parent scratch/recovery names for crash-safe dist/ promotion. They are intentionally
+# ignored so the next release invocation can reach its narrowly scoped recovery before clean-tree
+# admission; unjournaled candidates are never trusted or promoted.
+/.dist-candidate-*/
+/.dist.release-previous/
+/.dist.release-promotion.json

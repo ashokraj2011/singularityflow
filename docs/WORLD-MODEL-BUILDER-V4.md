@@ -378,35 +378,55 @@ shell-only transport path.
 
 ## Release matrix
 
-Ordinary development remains a one-machine workflow. Release promotion is stricter: it requires
-individually signed clean-checkout receipts for macOS, Linux, and Windows on Node 20 and Node 22,
-merged and reviewed into one signed aggregate for the exact commit. One explicitly selected
-artifact receipt binds the npm/VSIX bytes promoted by the release.
+Ordinary development remains a one-machine workflow. Release promotion is stricter: one clean exact-
+commit builder produces and signs the npm/VSIX pair once. Individually signed clean-checkout cells
+on physical macOS, Linux, and Windows hosts under Node 20 and Node 22 consume those retained bytes,
+and a reviewer merges all six into one signed aggregate. Promotion verifies both trust roots and
+byte-copies that same pair; it never rebuilds either artifact.
 
-**Evidence status — pending as of 2026-09-01.** The receipt generator, merger, verifier, and release
-gate are implemented, but no reviewed six-cell aggregate is recorded for the current final release
-commit. Local Node 25 validation and simulated platform tests satisfy none of the required Node
-20/22 cells.
+Physical evidence is an external operator-supplied prerequisite and is deliberately not manufactured
+or retained in this repository. Local validation and simulated platform tests satisfy none of the
+six required cells.
 
 ```bash
+npm run release:artifacts -- \
+  --signing-key /secure/release-artifact-builder-private.pem \
+  --identity artifact-builder@example.com \
+  --out-dir /retained/release-candidate
+
+# Repeat receipt generation on each required physical host/runtime:
 npm run verification:receipt -- \
-  --signing-key runner.pem \
-  --platform-evidence reviewed-darwin-node20.json \
-  --out darwin-node20.json
-# Repeat on each required host/runtime, then on the release verifier machine:
+  --artifact-receipt /retained/release-candidate/RELEASE-ARTIFACT-RECEIPT.json \
+  --artifact-key /trusted/release-artifact-builder-public.pem \
+  --package /retained/release-candidate/singularity-flow-0.9.0.tgz \
+  --vsix /retained/release-candidate/singularity-flow-vscode-0.9.0.vsix \
+  --signing-key /secure/platform-runner-private.pem \
+  --platform-evidence /reviewed/reviewed-darwin-node20.json \
+  --identity darwin-node20-reviewer@example.com \
+  --out /retained/cells/darwin-node20.json
+
+# On the release-reviewer machine after all six cells complete:
 npm run verification:receipt:merge -- \
-  --receipt darwin-node20.json --receipt darwin-node22.json \
-  --receipt linux-node20.json --receipt linux-node22.json \
-  --receipt windows-node20.json --receipt windows-node22.json \
-  --artifact-receipt linux-node22.json \
-  --signing-key release.pem --identity release-reviewer@example.com \
-  --out verification-matrix-receipt.json
+  --receipt /retained/cells/darwin-node20.json \
+  --receipt /retained/cells/darwin-node22.json \
+  --receipt /retained/cells/linux-node20.json \
+  --receipt /retained/cells/linux-node22.json \
+  --receipt /retained/cells/win32-node20.json \
+  --receipt /retained/cells/win32-node22.json \
+  --artifact-receipt /retained/release-candidate/RELEASE-ARTIFACT-RECEIPT.json \
+  --artifact-key /trusted/release-artifact-builder-public.pem \
+  --signing-key /secure/release-reviewer-private.pem \
+  --identity release-reviewer@example.com \
+  --out /retained/verification-matrix-receipt.json
 ```
 
-The merge refuses mixed commits or trees and records the original signed payload behind every cell.
-The real release command refuses a single-host or incomplete aggregate and verifies its packaged
-bytes against the selected artifact receipt; `release:dry` and normal test/check commands do not
-require it.
+The merge refuses mixed commits, trees, artifacts, or artifact authorities and records every
+original signed cell. Real promotion and `release:dry` both require the signed artifact receipt,
+explicit builder trust root, retained tarball/VSIX, complete matrix receipt, and reviewer trust root.
+Dry-run promotion may first reconcile a previously interrupted `dist/` directory promotion; when no
+such recovery state exists, it validates without writing a new `dist/`. The full command sequence,
+key-custody boundary, and retained output contract are in
+[`RELEASE-ARTIFACT-HANDOFF.md`](RELEASE-ARTIFACT-HANDOFF.md).
 
 ## Troubleshooting
 

@@ -1,0 +1,10 @@
+{
+  "name": "singularity-flow-npm-pack-toolchain",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Exact npm packer used only for canonical Singularity Flow release artifacts.",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "npm": "11.8.0"
+  }
+}

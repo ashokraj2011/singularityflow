@@ -6,6 +6,7 @@ import {
   mergeSignedVerificationReceipts, REQUIRED_RELEASE_PLATFORM_MATRIX,
   signVerificationReceipt, validateReleasePlatformEvidence, verifyVerificationReceipt
 } from '../src/verification-receipt.mjs';
+import { signReleaseArtifactReceipt } from '../src/release-artifact-receipt.mjs';
 import {
   validateWelBenchmarkEvidence, WEL_BENCHMARK_ASSURANCE, WEL_BENCHMARK_CAPABILITIES,
   WEL_BENCHMARK_EXCLUDED_CONTENT, WEL_BENCHMARK_SCHEMA
@@ -166,6 +167,53 @@ function evidence(options = {}) {
   };
 }
 
+function artifactReceipt(pair, {
+  packageSha256 = evidence().packageSha256,
+  vsixSha256 = evidence().vsixSha256,
+  identity = 'artifact-builder@example.test'
+} = {}) {
+  return signReleaseArtifactReceipt({
+    schemaVersion: 1,
+    kind: 'singularity-flow-release-artifact-receipt',
+    generatedAt: '2026-09-01T00:00:00.000Z',
+    sourceCommit: evidence().commit,
+    sourceTree: evidence().tree,
+    packageEntryManifestSha256: `sha256:${'e'.repeat(64)}`,
+    packagingProfile: {
+      nodeVersion: '22.18.0', npmVersion: '11.8.0', zlibVersion: '1.3.1',
+      sourceDateEpoch: '1788220800',
+      npmToolchainLockSha256: `sha256:${'f'.repeat(64)}`,
+      productionDependencyLockSha256: `sha256:${'0'.repeat(64)}`,
+      vsceToolchainLockSha256: `sha256:${'1'.repeat(64)}`
+    },
+    artifacts: [
+      {
+        kind: 'cli-and-copilot-plugin', name: 'singularity-flow-0.9.0.tgz',
+        sizeBytes: 100, sha256: packageSha256
+      },
+      {
+        kind: 'vscode-extension', name: 'singularity-flow-vscode-0.9.0.vsix',
+        sizeBytes: 200, sha256: vsixSha256
+      }
+    ]
+  }, pair.privateKey, identity);
+}
+
+function currentEvidence(artifact, options = {}) {
+  const value = evidence(options);
+  delete value.vscodeBuild;
+  return {
+    ...value,
+    schemaVersion: 6,
+    artifactConsumption: 'passed',
+    artifactAuthority: {
+      payloadSha256: artifact.signature.payloadSha256,
+      signerKeySha256: artifact.signature.publicKeySha256,
+      builderIdentity: artifact.builderIdentity
+    }
+  };
+}
+
 test('a trusted signed receipt binds the exact commit, tree, package, and observed platform', () => {
   const pair = keys();
   const receipt = signVerificationReceipt(evidence(), pair.privateKey, 'release@example.test');
@@ -286,6 +334,65 @@ test('release promotion accepts only a reviewed signed aggregate covering the ex
     && /one of the reviewed/.test(error.message));
 });
 
+test('current platform and matrix receipts consume one separately trusted artifact authority', () => {
+  const builder = keys();
+  const artifact = artifactReceipt(builder);
+  const runner = keys();
+  const release = keys();
+  const cells = REQUIRED_RELEASE_PLATFORM_MATRIX.map(({ platform, nodeMajor }) => (
+    signVerificationReceipt(currentEvidence(artifact, {
+      platform,
+      nodeVersion: `${nodeMajor}.18.0`,
+      reviewerIdentity: `${platform}-node-${nodeMajor}@example.test`
+    }), runner.privateKey, `${platform}-node-${nodeMajor}@example.test`)
+  ));
+  const aggregate = mergeSignedVerificationReceipts(
+    cells, release.privateKey, 'release-matrix@example.test', {
+      generatedAt: '2026-09-02T00:00:00.000Z',
+      artifactReceipt: artifact,
+      trustedArtifactPublicKeyPem: builder.publicKey,
+      requireSgosEndToEnd: true
+    }
+  );
+  assert.equal(aggregate.schemaVersion, 7);
+  assert.equal(aggregate.artifactAuthority.payloadSha256, artifact.signature.payloadSha256);
+  assert.equal(verifyVerificationReceipt(aggregate, {
+    trustedPublicKeyPem: release.publicKey,
+    artifactReceipt: artifact,
+    trustedArtifactPublicKeyPem: builder.publicKey,
+    requiredPlatformMatrix: REQUIRED_RELEASE_PLATFORM_MATRIX,
+    requireSgosEndToEnd: true
+  }).valid, true);
+
+  const untrusted = keys();
+  assert.throws(() => verifyVerificationReceipt(cells[0], {
+    trustedPublicKeyPem: runner.publicKey,
+    artifactReceipt: artifact,
+    trustedArtifactPublicKeyPem: untrusted.publicKey
+  }), (error) => error.code === 'VERIFICATION_RECEIPT_REJECTED'
+    && error.details.failures.some((failure) => failure.includes('trusted builder key')));
+
+  const otherArtifact = artifactReceipt(builder, {
+    packageSha256: `sha256:${'9'.repeat(64)}`
+  });
+  assert.throws(() => mergeSignedVerificationReceipts(
+    cells, release.privateKey, 'release-matrix@example.test', {
+      artifactReceipt: otherArtifact,
+      trustedArtifactPublicKeyPem: builder.publicKey
+    }
+  ), (error) => error.code === 'VERIFICATION_RECEIPT_REJECTED');
+
+  const foreignCell = signVerificationReceipt(currentEvidence(otherArtifact, {
+    reviewerIdentity: 'foreign@example.test'
+  }), runner.privateKey, 'foreign@example.test');
+  assert.throws(() => mergeSignedVerificationReceipts(
+    [cells[0], foreignCell], release.privateKey, 'release-matrix@example.test', {
+      artifactReceipt: artifact,
+      trustedArtifactPublicKeyPem: builder.publicKey
+    }
+  ), (error) => error.code === 'VERIFICATION_RECEIPT_REJECTED');
+});
+
 test('physical platform evidence is strict, digest-only, and platform-aware', () => {
   const valid = reviewedPlatformEvidence();
   assert.match(validateReleasePlatformEvidence(valid, {
@@ -381,7 +488,7 @@ test('old or missing physical evidence cannot authorize merge or promotion', () 
   const signedOld = signVerificationReceipt(old, pair.privateKey, 'release@example.test');
   assert.throws(() => verifyVerificationReceipt(signedOld, { trustedPublicKeyPem: pair.publicKey }),
     (error) => error.code === 'VERIFICATION_RECEIPT_REJECTED'
-      && error.details.failures.some((failure) => failure.includes('schemaVersion must be 5'))
+      && error.details.failures.some((failure) => failure.includes('schemaVersion must be 6'))
       && error.details.failures.some((failure) => failure.includes('platform evidence'))
       && error.details.failures.some((failure) => failure.includes('WEL benchmark evidence')));
   assert.throws(() => mergeSignedVerificationReceipts(

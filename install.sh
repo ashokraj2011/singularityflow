@@ -614,6 +614,18 @@ else
   printf '%s\n' 'Using the exact current clean checkout (--no-update); no Git fetch or pull was run.'
 fi
 
+# Resolve one source timestamp before any build step mutates generated or stamped files. Preserve an
+# explicit reproducible-build authority; otherwise the selected clean commit time is authoritative.
+# Caller-provided capture values are never authority: this process creates and verifies its own.
+unset SINGULARITY_FLOW_PACKAGING_COMMIT SINGULARITY_FLOW_PACKAGING_TREE
+unset SINGULARITY_FLOW_STAMPED_BUILD_INFO_SHA256 SINGULARITY_FLOW_STAMPED_BUILD_INFO
+SINGULARITY_FLOW_PACKAGING_COMMIT="$(git rev-parse --verify HEAD)"
+SINGULARITY_FLOW_PACKAGING_TREE="$(git rev-parse 'HEAD^{tree}')"
+if [[ -z "${SOURCE_DATE_EPOCH+x}" ]]; then
+  SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+fi
+export SOURCE_DATE_EPOCH
+
 # Office-safe distribution boundary: this installer must never provision Git-host automation.
 # `npm run check` repeats this invariant, while this early guard fails before dependency install or
 # packaging if a hosted workflow is accidentally reintroduced into the tracked checkout.
@@ -703,6 +715,16 @@ if [[ -f "$PROJECT_DIR/scripts/stamp-build-info.mjs" ]]; then
   cp "$PROJECT_DIR/src/build-info.mjs" "$BUILD_INFO_BACKUP"
   trap restore_build_info_and_release_activation_lease EXIT
   node "$PROJECT_DIR/scripts/stamp-build-info.mjs"
+  SINGULARITY_FLOW_STAMPED_BUILD_INFO_SHA256="$(node -e '
+    const fs = require("node:fs");
+    const crypto = require("node:crypto");
+    const digest = crypto.createHash("sha256").update(fs.readFileSync(process.argv[1])).digest("hex");
+    process.stdout.write(`sha256:${digest}`);
+  ' "$PROJECT_DIR/src/build-info.mjs")"
+  # Packaging subprocesses accept the one intentional tracked mutation only when all three
+  # captured values still match HEAD, the index, the remaining worktree, and these exact bytes.
+  export SINGULARITY_FLOW_PACKAGING_COMMIT SINGULARITY_FLOW_PACKAGING_TREE
+  export SINGULARITY_FLOW_STAMPED_BUILD_INFO_SHA256
 elif [[ -f "$PROJECT_DIR/src/build-info.mjs" ]]; then
   printf '%s\n' 'Error: build provenance stamper is missing; refusing to package an unidentified build.' >&2
   exit 1
@@ -759,6 +781,8 @@ fi
 # place until both artifacts have captured it; restoring after `npm pack` left every VSIX claiming
 # to be an unidentified development checkout, and --vscode-only never stamped it at all.
 restore_build_info
+unset SINGULARITY_FLOW_PACKAGING_COMMIT SINGULARITY_FLOW_PACKAGING_TREE
+unset SINGULARITY_FLOW_STAMPED_BUILD_INFO_SHA256
 trap release_activation_lease EXIT
 
 # Validate the version join before the first active surface changes. Packaging each surface first

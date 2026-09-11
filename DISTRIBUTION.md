@@ -13,18 +13,35 @@ The retired Electron app is preserved at Git tag `desktop-final-v0.9.0` and bran
 
 ## Cut a release
 
+The installed product supports Node.js 20 or newer. The locked artifact-building toolchains are
+narrower: build with Node.js 20.18.1 through 20.x, or Node.js 22.9.0 or newer; collect the declared
+physical release matrix on Node 20 and Node 22.
+
 ```bash
-npm run release:dry
+npm ci
+npm run release:artifacts -- \
+  --signing-key /secure/artifact-builder-private.pem \
+  --identity artifact-builder@example.com \
+  --out-dir /retained/release-candidate
+# After the six physical cells below have consumed that exact retained pair and their
+# receipts have been merged into /retained/verification-matrix-receipt.json:
 npm run release -- \
-  --verification-receipt verification-matrix-receipt.json \
-  --verification-key trusted-release-public.pem
+  --artifact-receipt /retained/release-candidate/RELEASE-ARTIFACT-RECEIPT.json \
+  --artifact-key /trusted/artifact-builder-public.pem \
+  --package /retained/release-candidate/singularity-flow-0.9.0.tgz \
+  --vsix /retained/release-candidate/singularity-flow-vscode-0.9.0.vsix \
+  --verification-receipt /retained/verification-matrix-receipt.json \
+  --verification-key /trusted/release-reviewer-public.pem
 ```
 
-`scripts/release.mjs` refuses a dirty tree, runs `npm run check` (which asserts one version across
-every manifest) and the full test suite, packs the CLI tarball, builds the VSIX through the staging
-script, and leaves `dist/` holding both artifacts, a `SHA256SUMS` file, a `RELEASE.json`, and a
-`RELEASE-CHANNEL.json`. The release-channel record binds the version and source commit to the
-minimum Node/VS Code versions and the SHA-256 of each installable artifact.
+The artifact builder refuses a dirty source tree, materializes npm inputs from exact Git blobs and
+modes, uses the locked npm and VSCE toolchains, builds the pair once, and signs their provenance.
+`scripts/release.mjs` never repacks or rebuilds that signed pair. Its broader source tests and
+bundle-budget check can create disposable diagnostic packs or extension bundles, but none can become
+a promoted artifact. Promotion verifies the artifact authority plus the signed platform matrix and
+byte-copies the exact pair into `dist/` with `SHA256SUMS`, `RELEASE.json`,
+`RELEASE-CHANNEL.json`, `ARTIFACT-RECEIPT.json`, and `VERIFICATION-RECEIPT.json`. See
+[`docs/RELEASE-ARTIFACT-HANDOFF.md`](docs/RELEASE-ARTIFACT-HANDOFF.md).
 
 Real promotion requires a reviewed signed aggregate of the clean-checkout receipts from the
 supported macOS/Linux/Windows and Node 20/22 matrix. Before signing a cell, exercise the exact npm
@@ -34,14 +51,18 @@ tarball and VSIX on that physical host and create a reviewed JSON record conform
 intentionally invalid until every observation is supplied. On Windows, replace the template's
 `windowsNpmNpxRoundTrip` object with `passed`, a retained evidence digest, and `reasonCode: null`.
 Generate the receipt on the same host/runtime with
-`npm run verification:receipt -- --signing-key <runner.pem> --platform-evidence
-<outside-checkout/platform-evidence.json> --out <cell.json>`, then merge the six receipts with
-`npm run verification:receipt:merge -- --receipt <cell.json> ...
---artifact-receipt <selected-cell.json> --signing-key <release.pem> --identity <reviewer>`. Mixed
-commits, trees, npm tarballs, or VSIX bytes are refused; the selected signed artifact receipt binds
-the identical artifacts that every matrix cell verified. Old receipts without reviewed platform
-evidence are refused by merge and promotion. Dry runs and ordinary developer checks remain
-single-machine operations.
+`npm run verification:receipt -- --artifact-receipt <retained/artifact-receipt.json>
+--artifact-key <trusted/builder-public.pem> --package <retained/release.tgz>
+--vsix <retained/release.vsix> --signing-key <secure/runner-private.pem>
+--platform-evidence <reviewed/platform-evidence.json> --out <retained/cell.json>`, then merge the six
+receipts with `npm run verification:receipt:merge -- --receipt <retained/cell.json> ...
+--artifact-receipt <retained/artifact-receipt.json> --artifact-key <trusted/builder-public.pem>
+--signing-key <secure/release-reviewer-private.pem> --identity <reviewer>
+--out <retained/verification-matrix-receipt.json>`. Mixed commits, trees, artifact authorities, npm
+tarballs, or VSIX bytes are refused. Historical receipt formats remain readable but cannot be mixed
+into newly generated build-once release authority. Keep every retained path, signing key, and public
+trust root outside the checkout. Dry runs and ordinary developer checks remain single-machine
+operations.
 
 The platform-evidence input is intentionally digest-only. It names the exact commit, tree, npm
 tarball SHA-256, VSIX SHA-256, platform, Node version, reviewer identity, and review time. It then
@@ -56,6 +77,12 @@ records `passed` plus the SHA-256 of separately retained evidence for:
 - a real npm/npx round trip on Windows. macOS and Linux must record this last check as
   `not-applicable`, with reason code `non-windows-platform`; Windows cannot waive it.
 
+Schema v2 additionally requires six distinct retained evidence digests for the SGOS software-
+conversion and hypothesis-analysis journeys, interruption recovery, counterfeit-authority refusal,
+cross-machine authority round trip, and the reviewed performance budget. The last also binds the
+separate budget-profile digest. Historical schema-v1 evidence remains readable for audit but cannot
+authorize a new cell, merge, or promotion.
+
 The JSON accepts no transcript, command, filesystem path, host name, registry URL, credential, or
 other free-form observation. Keep raw evidence in the approved release evidence store and place only
 its `sha256:` digest in this input. `reviewerIdentity` must equal `--identity` (or the Git email used
@@ -67,14 +94,16 @@ masquerade as physical release evidence.
 The release command deliberately stops after local artifact collection. Uploading to the approved internal registry is the one step that
 differs per organization, so it is left to whoever knows the destination.
 
-Build the VSIX through `npm run vscode:package` or the release script — never `vsce package`
-directly, which produces a `.vsix` with no CLI staged inside it. That extension installs cleanly and
-then cannot run a single command.
+For a developer-only VSIX, use `npm run vscode:package`—never `vsce package` directly, which
+produces a `.vsix` with no CLI staged inside it. A release-candidate VSIX is produced only by
+`npm run release:artifacts`; `scripts/release.mjs` verifies and promotes retained bytes and never
+builds it again.
 
 ## Installing — Windows, macOS, and Linux
 
-Both artifacts install with the same two commands on every platform. Prerequisites are Node.js 20 or
-newer, Git, and VS Code.
+The complete CLI/plugin and VSIX installation uses the same three commands on every platform.
+Prerequisites are Node.js 20 or newer, Git, VS Code, and GitHub Copilot CLI when installing the
+bundled Copilot plugin.
 
 ```bash
 npm install --global <registry-or-path>/singularity-flow-<version>.tgz
@@ -170,7 +199,7 @@ script. Installing Git for Windows provides the shell both want. `singularity-fl
 this as its `platform` check, so a machine that cannot build models says so rather than failing
 later.
 
-## Build and verify
+## Developer build and verify
 
 Select the approved registry once for every npm subprocess in the build:
 
@@ -195,7 +224,7 @@ The smoke validates the staged CLI and public Home/Start/Return commands, instal
 temporary profile, checks the installed version, and drives the built extension through its fresh
 repository Home fixture. The temporary profile is deleted afterward.
 
-## Build the VSIX
+## Build a developer VSIX
 
 ```bash
 npm run vscode:package
@@ -213,11 +242,11 @@ Install or replace it locally:
 code --install-extension apps/vscode/singularity-flow-vscode-0.9.0.vsix --force
 ```
 
-For corporate distribution, upload the VSIX and npm tarball to the approved internal
-Artifactory/registry. A VSIX is platform-neutral and requires no DMG, NSIS installer, code-signing
-certificate, notarization, or custom auto-updater.
+The command above creates a developer-only VSIX. For corporate distribution, upload only the exact
+tarball and VSIX promoted into `dist/` by the signed build-once flow. A VSIX is platform-neutral and
+requires no DMG, NSIS installer, code-signing certificate, notarization, or custom auto-updater.
 
-## Build the CLI tarball
+## Build a developer CLI tarball
 
 ```bash
 npm pack

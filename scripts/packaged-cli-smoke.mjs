@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** Install the just-packed npm artifact into an isolated prefix and execute that installed CLI. */
+/** Install an exact npm artifact into an isolated prefix and execute that installed CLI. */
 import { spawnSync } from 'node:child_process';
 import { lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -50,7 +50,11 @@ function requireCondition(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-export async function runPackagedCliSmoke({ root = sourceRoot, tempRoot = os.tmpdir() } = {}) {
+export async function runPackagedCliSmoke({
+  root = sourceRoot,
+  tempRoot = os.tmpdir(),
+  packagePath = null
+} = {}) {
   const sandbox = await mkdtemp(path.join(tempRoot, 'sflow-packaged-cli-smoke-'));
   const artifacts = path.join(sandbox, 'artifacts');
   const installRoot = path.join(sandbox, 'consumer');
@@ -61,18 +65,23 @@ export async function runPackagedCliSmoke({ root = sourceRoot, tempRoot = os.tmp
     await mkdir(artifacts, { recursive: true });
     await mkdir(installRoot, { recursive: true });
     await writeFile(path.join(installRoot, 'package.json'), '{"name":"sflow-release-smoke","private":true}\n');
-    const packed = JSON.parse(run(npm, ['pack', '--json', '--pack-destination', artifacts], {
-      cwd: root, env: environment
-    }));
-    const filename = packed?.[0]?.filename;
-    if (typeof filename !== 'string' || path.basename(filename) !== filename) {
-      throw new Error('npm pack did not return one safe artifact filename.');
+    let tarball;
+    if (packagePath) {
+      tarball = path.resolve(packagePath);
+    } else {
+      const packed = JSON.parse(run(npm, ['pack', '--json', '--pack-destination', artifacts], {
+        cwd: root, env: environment
+      }));
+      const filename = packed?.[0]?.filename;
+      if (typeof filename !== 'string' || path.basename(filename) !== filename) {
+        throw new Error('npm pack did not return one safe artifact filename.');
+      }
+      tarball = path.join(artifacts, filename);
     }
-    const tarball = path.join(artifacts, filename);
     await regularFile(tarball, 'npm tarball');
     run(npm, [
       'install', '--prefix', installRoot, '--ignore-scripts', '--no-audit', '--no-fund',
-      '--package-lock=false', '--omit=dev', tarball
+      '--package-lock=false', '--omit=dev', '--offline', tarball
     ], { cwd: installRoot, env: environment });
 
     const installedRoot = path.join(installRoot, 'node_modules', 'singularity-flow');
@@ -198,6 +207,7 @@ export async function runPackagedCliSmoke({ root = sourceRoot, tempRoot = os.tmp
 
     return {
       package: `${installedManifest.name}@${installedManifest.version}`,
+      packagePath: tarball,
       version,
       cmpRecordPreview: true,
       welParserPackaged: true
@@ -208,7 +218,12 @@ export async function runPackagedCliSmoke({ root = sourceRoot, tempRoot = os.tmp
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  runPackagedCliSmoke().then((result) => {
+  const packageIndex = process.argv.indexOf('--package');
+  const packagePath = packageIndex === -1 ? null : process.argv[packageIndex + 1];
+  if (packageIndex !== -1 && (!packagePath || packagePath.startsWith('--'))) {
+    console.error('Packaged CLI smoke failed: --package requires an exact npm tarball path.');
+    process.exitCode = 1;
+  } else runPackagedCliSmoke({ packagePath }).then((result) => {
     console.log(`Packaged CLI smoke passed: ${result.package}`);
   }).catch((error) => {
     console.error(`Packaged CLI smoke failed: ${error.message}`);

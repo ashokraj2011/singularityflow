@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.dev/schemas/release-artifact-receipt.schema.json",
+  "title": "Singularity Flow release artifact receipt",
+  "type": "object",
+  "required": [
+    "schemaVersion", "kind", "generatedAt", "sourceCommit", "sourceTree",
+    "packageEntryManifestSha256", "packagingProfile", "artifacts", "builderIdentity", "signature"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "singularity-flow-release-artifact-receipt" },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "sourceCommit": { "$ref": "#/$defs/gitObject" },
+    "sourceTree": { "$ref": "#/$defs/gitObject" },
+    "packageEntryManifestSha256": { "$ref": "#/$defs/sha256" },
+    "packagingProfile": {
+      "type": "object",
+      "required": [
+        "nodeVersion", "npmVersion", "zlibVersion", "sourceDateEpoch",
+        "npmToolchainLockSha256", "productionDependencyLockSha256", "vsceToolchainLockSha256"
+      ],
+      "properties": {
+        "nodeVersion": { "$ref": "#/$defs/version" },
+        "npmVersion": { "$ref": "#/$defs/version" },
+        "zlibVersion": { "type": "string", "minLength": 1 },
+        "sourceDateEpoch": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$" },
+        "npmToolchainLockSha256": { "$ref": "#/$defs/sha256" },
+        "productionDependencyLockSha256": { "$ref": "#/$defs/sha256" },
+        "vsceToolchainLockSha256": { "$ref": "#/$defs/sha256" }
+      },
+      "additionalProperties": false
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "required": ["kind", "name", "sizeBytes", "sha256"],
+        "properties": {
+          "kind": { "enum": ["cli-and-copilot-plugin", "vscode-extension"] },
+          "name": { "type": "string", "maxLength": 255, "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$" },
+          "sizeBytes": { "type": "integer", "minimum": 1, "maximum": 536870912 },
+          "sha256": { "$ref": "#/$defs/sha256" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "builderIdentity": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "signature": {
+      "type": "object",
+      "required": ["algorithm", "publicKeySpki", "publicKeySha256", "payloadSha256", "value"],
+      "properties": {
+        "algorithm": { "const": "ed25519" },
+        "publicKeySpki": { "type": "string", "minLength": 1 },
+        "publicKeySha256": { "$ref": "#/$defs/sha256" },
+        "payloadSha256": { "$ref": "#/$defs/sha256" },
+        "value": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "gitObject": { "type": "string", "pattern": "^[a-f0-9]{40}([a-f0-9]{24})?$" },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.-]+)?$" }
+  }
+}

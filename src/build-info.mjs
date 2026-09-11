@@ -27,7 +27,7 @@ export const BUILD_INFO = Object.freeze({
   commit: null,
   /** Exact validated source digest when the packager deliberately has no Git authority. */
   sourceSha256: null,
-  /** Branch that commit was on at pack time. Informational: branches move, commits do not. */
+  /** Optional local context; reproducible commit-based packagers leave mutable branch names null. */
   branch: null,
   /** Whether Git observed uncommitted changes; null for a content-digest-only build. */
   dirty: null,

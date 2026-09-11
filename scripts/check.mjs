@@ -17,6 +17,7 @@ import { auditSkillPolicy } from './skill-policy.mjs';
 import { validateNarrationMigrationStatus } from '../src/narration/migration-status.mjs';
 import { currentSchemaVersion, migrationRegistrySnapshot } from '../src/schema-migrations.mjs';
 import { MCP_SCAFFOLD_VERSIONS } from '../src/mcp-host.mjs';
+import { releaseDependencyLockProblems } from '../src/release-dependency-lock.mjs';
 import {
   ASSURANCE_LEVELS, DERIVATION_STATUSES, EVIDENCE_KINDS, FACT_STATUSES, FACT_TYPES,
   MODEL_MODES, SECTION_KINDS, SUBJECT_KINDS, SCOPE_SUBJECT_KINDS,
@@ -68,7 +69,21 @@ const vscodeJson = JSON.parse(await readFile(path.join(root, 'apps', 'vscode', '
 const pluginJson = JSON.parse(await readFile(path.join(root, 'plugin', 'plugin.json'), 'utf8'));
 const marketplaceJson = JSON.parse(await readFile(path.join(root, '.github', 'plugin', 'marketplace.json'), 'utf8'));
 const lockJson = JSON.parse(await readFile(path.join(root, 'package-lock.json'), 'utf8'));
-checked.push('package.json', 'apps/vscode/package.json', 'plugin/plugin.json', '.github/plugin/marketplace.json', 'package-lock.json');
+const npmPackPackageJson = JSON.parse(await readFile(path.join(root, 'toolchains', 'npm-pack', 'package.json'), 'utf8'));
+const npmPackLockJson = JSON.parse(await readFile(path.join(root, 'toolchains', 'npm-pack', 'package-lock.json'), 'utf8'));
+const vsceToolchainPackageJson = JSON.parse(await readFile(path.join(root, 'toolchains', 'vsce', 'package.json'), 'utf8'));
+const vsceToolchainLockJson = JSON.parse(await readFile(path.join(root, 'toolchains', 'vsce', 'package-lock.json'), 'utf8'));
+checked.push(
+  'package.json',
+  'apps/vscode/package.json',
+  'plugin/plugin.json',
+  '.github/plugin/marketplace.json',
+  'package-lock.json',
+  'toolchains/npm-pack/package.json',
+  'toolchains/npm-pack/package-lock.json',
+  'toolchains/vsce/package.json',
+  'toolchains/vsce/package-lock.json'
+);
 
 if (packageJson.version !== pluginJson.version) fail(`Version mismatch: package ${packageJson.version}, plugin ${pluginJson.version}`);
 for (const [name, version] of Object.entries({
@@ -77,6 +92,26 @@ for (const [name, version] of Object.entries({
   lockVscode: lockJson.packages?.['apps/vscode']?.version
 })) {
   if (version !== packageJson.version) fail(`Version mismatch: package ${packageJson.version}, ${name} ${version ?? 'missing'}`);
+}
+{
+  const productionDependencies = Object.keys(packageJson.dependencies ?? {}).sort();
+  for (const problem of releaseDependencyLockProblems(packageJson, lockJson, {
+    label: 'root release package',
+    requireBundled: true,
+    registryEntries: 'all',
+    allowedLinks: ['node_modules/singularity-flow-vscode']
+  })) fail(problem);
+  for (const problem of releaseDependencyLockProblems(npmPackPackageJson, npmPackLockJson, {
+    label: 'npm-pack toolchain',
+    requirePrivate: true,
+    registryEntries: 'all',
+    allowNpmBundledClosure: true
+  })) fail(problem);
+  for (const problem of releaseDependencyLockProblems(vsceToolchainPackageJson, vsceToolchainLockJson, {
+    label: 'VSCE toolchain', requirePrivate: true, registryEntries: 'all', validateOverrides: true
+  })) fail(problem);
+  checked.push(`offline release dependency closure (${productionDependencies.length} bundled roots)`);
+  checked.push('exact npm-pack and VSCE packaging toolchain locks');
 }
 if (pluginJson.name !== 'singularity-flow') fail('plugin.json name must be singularity-flow');
 for (const forbidden of ['mcpServers']) {
@@ -725,6 +760,7 @@ const baselineSchemaFiles = [
   'schemas/design-source-provenance.schema.json',
   'schemas/mcp-readiness-attestation.schema.json',
   'schemas/mcp-preflight.schema.json',
+  'schemas/release-artifact-receipt.schema.json',
   'schemas/release-platform-evidence.schema.json',
   'schemas/reference-envelope.schema.json',
   'schemas/reference-record.schema.json',

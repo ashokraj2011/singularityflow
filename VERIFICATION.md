@@ -89,14 +89,14 @@ The current packaged diagnostic tutorials are `sflow explain diagnostics-and-reg
 
 ## Release commands
 
-For a POC release candidate, run the dedicated packaged smoke gate:
+For a developer POC packaged-smoke check, run:
 
 ```bash
 npm run poc:release-gate
 ```
 
-It type-checks and packages the VS Code extension, validates the seeded POC workflow and Playwright
-MCP policy, runs the guided SGOS workflow creator on the invoking supported Node runtime, installs
+In its default developer mode, it type-checks and creates a diagnostic VS Code package, validates
+the seeded POC workflow and Playwright MCP policy, runs the guided SGOS workflow creator on the invoking supported Node runtime, installs
 the packed CLI into an isolated prefix and executes that installed copy, and drives the built
 CommonJS extension bundle through a real Git journey under an isolated **stub** VS Code host. The
 journey explicitly selects `origin/main`, creates and publishes only an isolated POC Story branch,
@@ -116,7 +116,9 @@ Every direct `node --test` stage uses the strict release reporter, including the
 and the gate-contract tests. Those self-tests inspect an inert stage manifest and never invoke the
 release gate recursively. Every stage has an explicit operation deadline plus bounded graceful and
 forced process-tree cleanup; a timeout fails the gate even if a wrapper later exits successfully.
-The gate also proves the selected base ref never changes and finishes with the npm package dry run.
+The default developer gate also proves the selected base ref never changes and finishes with an npm
+package dry run. In artifact-consumer mode, used by signed verification and promotion, those
+diagnostic packaging stages are omitted and the retained signed pair is supplied explicitly.
 On Node 20 it uses the repository's bounded TypeScript test loader for the guided creator; newer
 runtimes use native type stripping. Supported Node 20 developer and release runs execute the same
 selected files; release and signed verification-receipt runs additionally fail if a future
@@ -124,8 +126,9 @@ compatibility branch ever attempts to skip one.
 
 Release promotion still requires the signed six-cell macOS/Linux/Windows by Node 20/22 matrix,
 including real installed-VSIX activation, Windows npm/npx execution, and authenticated/offline MCP
-evidence. A local `poc:release-gate` run is code-level evidence for its one invoking platform and
-runtime, not a substitute for those six receipts.
+evidence. A local default `poc:release-gate` run is code-level diagnostic evidence for its one
+invoking platform and runtime. It neither creates release authority nor substitutes for those six
+receipts.
 
 Each single-platform receipt now requires `--platform-evidence <json-path>`. The reviewed JSON must
 conform to `schemas/release-platform-evidence.schema.json` and bind the observed commit, tree, npm
@@ -146,14 +149,24 @@ or promoted as current release authority. See
 
 Only check outcomes, lower-kebab mechanism names, and SHA-256 references to externally retained raw
 evidence enter the receipt. Raw logs, commands, paths, host names, URLs, and credentials are rejected
-as unknown fields. Single-host receipt schema v5 and aggregate schema v6 carry both the physical
-platform evidence and the exact content-free WEL benchmark report plus its canonical digest in every
-matrix cell. The report binds parser, ingestion, receipt and Context X-Ray timing, byte growth,
+as unknown fields. Historical single-host receipt schema v5 and aggregate schema v6 remain readable.
+New single-host schema v6 and aggregate schema v7 additionally bind one separately signed artifact
+receipt, and carry both the physical platform evidence and the exact content-free WEL benchmark
+report plus its canonical digest in every matrix cell. The report binds parser, ingestion, receipt
+and Context X-Ray timing, byte growth,
 exact/inexact counts, Story-start timing, exact publication recovery, offline/fresh-clone recovery,
 interrupted-write restoration, and cancellation behavior. A non-observed, incomplete, host-mismatched,
-content-bearing, or digest-mismatched benchmark cannot authorize a receipt. Merge and promotion reject
-older schemas, missing evidence, a mismatched artifact subject, or a selected artifact receipt that
-is not one of the reviewed cells. The local suite deliberately does not manufacture physical evidence.
+content-bearing, or digest-mismatched benchmark cannot authorize a receipt. New merge and promotion
+reject missing evidence, a mismatched artifact subject, an untrusted builder key, changed artifact
+bytes, or cells naming different artifact-receipt payloads. Verification cells and promotion never
+rebuild the npm package or VSIX. Each cell first snapshots descriptor-verified artifact bytes into a
+private directory, installs the exact snapshot tarball, executes the CLI engine extracted from the
+exact snapshot VSIX, and removes that snapshot after re-verification. Its consumer-mode POC gate
+does not package a VSIX, build a source extension bundle, or run npm package inventory. Broader
+source validation may create disposable diagnostic packs or bundles; those outputs cannot enter or
+replace the signed artifact subject. See
+[`docs/RELEASE-ARTIFACT-HANDOFF.md`](docs/RELEASE-ARTIFACT-HANDOFF.md). The local suite deliberately
+does not manufacture physical evidence.
 
 The portable `npm run test:platform:cmp-wel` contract executes the closed local witness profiles for
 JUnit/Surefire plus the bounded `jest-static-v1` and `vitest-static-v1` adapters. The JavaScript
@@ -173,7 +186,7 @@ The journey uses deterministic light grounding for its Copilot handoff so this g
 model or spends tokens. `test/poc-workflow.test.mjs` separately holds the shipped POC workflow's
 standard/deep grounding, MCP evidence, validation, repair-budget, and publication-review contracts.
 
-The complete general release checks remain:
+The following standalone source checks remain useful developer prerequisites:
 
 ```bash
 npm run test:release:aggregate
@@ -184,11 +197,19 @@ npm run test:vscode
 npm pack --dry-run
 ```
 
+These commands are not the release artifact authority: the dry run uses the invoking npm, and the
+bundle is a developer output. The canonical procedure builds and signs one pair with
+`npm run release:artifacts`, exercises those retained bytes in the external six-cell matrix, and
+promotes them without rebuilding; see
+[`docs/RELEASE-ARTIFACT-HANDOFF.md`](docs/RELEASE-ARTIFACT-HANDOFF.md).
+
 The test aggregate is split into deterministic weighted shards with process-tree deadlines. Exact
 passing shard receipts live under `.git/singularity-flow/test-runs/`, so a retry on the same clean
 commit runs only incomplete shards. Release mode requires a clean checkout and refuses skipped,
 cancelled, failed, or todo outcomes; the merged summary still uses Node's standard counters and is
 consumed by the signed receipt generator.
 
-Acceptance requires a complete clean-checkout aggregate, deterministic checks, a clean worktree
-after packaging, and successful branch publication without force-pushes.
+Source-validation acceptance requires a complete clean-checkout aggregate, deterministic checks, a
+clean worktree after diagnostic packaging, and successful branch publication without force-pushes.
+Release acceptance additionally requires the separately signed artifact receipt, the exact retained
+tarball and VSIX, and the complete externally reviewed six-cell aggregate.

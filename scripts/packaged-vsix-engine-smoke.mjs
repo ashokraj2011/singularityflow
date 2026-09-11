@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * Execute the CLI engine contained in the exact VSIX produced by `vscode:package`.
+ * Execute the CLI engine contained in an exact supplied or locally produced VSIX.
  *
  * This is deliberately not a VS Code-host activation test. It closes a narrower release gap: the
  * VSIX's own `extension/cli` tree is safely extracted, then Node's loader refuses every file-module
  * resolution outside that extracted tree. A green source checkout therefore cannot hide a missing
- * or stale engine file inside the generated VSIX.
+ * or stale engine file inside the release VSIX.
  */
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
@@ -41,6 +41,10 @@ async function regularBytes(file) {
   }
   try {
     const opened = await handle.stat();
+    if (!opened.isFile() || opened.size !== before.size
+        || opened.size < 1 || opened.size > MAX_VSIX_BYTES) {
+      refuse('the VSIX changed type or size before it could be read.');
+    }
     const bytes = await handle.readFile();
     const after = await lstat(absolute).catch(() => null);
     if (!opened.isFile() || !after?.isFile() || after.isSymbolicLink()
@@ -292,14 +296,18 @@ function requireCondition(condition, message) {
   if (!condition) refuse(message);
 }
 
-export async function runVsixContainedEngineSmoke({ root = sourceRoot, tempRoot = os.tmpdir() } = {}) {
+export async function runVsixContainedEngineSmoke({
+  root = sourceRoot,
+  tempRoot = os.tmpdir(),
+  vsixPath = null
+} = {}) {
   const extensionManifest = JSON.parse(await readFile(
     path.join(root, 'apps', 'vscode', 'package.json'), 'utf8'
   ));
   const sourceManifest = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
-  const vsix = path.join(
-    root, 'apps', 'vscode', `${extensionManifest.name}-${extensionManifest.version}.vsix`
-  );
+  const vsix = vsixPath
+    ? path.resolve(vsixPath)
+    : path.join(root, 'apps', 'vscode', `${extensionManifest.name}-${extensionManifest.version}.vsix`);
   const sandbox = await mkdtemp(path.join(tempRoot, 'sflow-vsix-engine-smoke-'));
   try {
     const extracted = await extractVsixCli(vsix, path.join(sandbox, 'engine'));
@@ -468,7 +476,12 @@ export async function runVsixContainedEngineSmoke({ root = sourceRoot, tempRoot 
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === moduleFile) {
-  runVsixContainedEngineSmoke().then((result) => {
+  const vsixIndex = process.argv.indexOf('--vsix');
+  const vsixPath = vsixIndex === -1 ? null : process.argv[vsixIndex + 1];
+  if (vsixIndex !== -1 && (!vsixPath || vsixPath.startsWith('--'))) {
+    console.error('VSIX-contained engine smoke failed: --vsix requires an exact VSIX path.');
+    process.exitCode = 1;
+  } else runVsixContainedEngineSmoke({ vsixPath }).then((result) => {
     console.log([
       `VSIX-contained engine smoke passed: ${result.extension} contains ${result.engine}`,
       `(${result.fileCount} files; ${result.engineSha256}; ${result.vsixSha256}).`,

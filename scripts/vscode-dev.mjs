@@ -20,17 +20,32 @@
  * when a result disagrees with a globally installed CLI.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { createHash } from 'node:crypto';
-import { cp, mkdtemp, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import {
+  chmod, copyFile, link, lstat, mkdtemp, mkdir, readdir, readFile, rename, rm, writeFile
+} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolvePlatformProcess } from '../src/platform-process.mjs';
+import {
+  exactGitRoot, reproducibleBuildEnvironment, verifiedPackagingProvenance, vscodeBuildIdentity
+} from './reproducible-build.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const extension = path.join(root, 'apps', 'vscode');
 const cli = path.join(root, 'bin', 'singularity-flow.mjs');
+const VSCODE_GENERATED_FILES = new Set([
+  'dist/extension.cjs',
+  'dist/gateway-context-runtime.cjs',
+  'dist/gateway-runtime.cjs',
+  'dist/gateway-status-worker.cjs',
+  'dist/help-runtime.cjs',
+  'dist/lazy-panels-runtime.cjs',
+  'dist/support-runtime.cjs',
+  'dist/world-model-build.cjs'
+]);
 
 const argv = process.argv.slice(2);
 const flag = (name) => argv.includes(`--${name}`);
@@ -420,6 +435,7 @@ async function demoRepository({ github = false } = {}) {
  * A missing index would at least have shown an empty list. 128 KB against a 6.3 MB payload.
  */
 export const CLI_PAYLOAD = ['bin', 'src', 'docs', 'templates', 'plugin', 'schemas', 'package.json', 'HELP.md', 'LICENSE'];
+export const PACKAGING_NPM_CLI_ENV = 'SINGULARITY_FLOW_PACKAGING_NPM_CLI';
 
 /**
  * A packaging toolchain that is present in both the public registry and the company mirror.
@@ -428,33 +444,150 @@ export const CLI_PAYLOAD = ['bin', 'src', 'docs', 'templates', 'plugin', 'schema
  * releases, and msal-node 5.5.0 hard-pins msal-common 16.12.0. A mirror that has synchronized only
  * through 16.11.3 then fails with ETARGET even though none of this repository's dependencies are at
  * fault. Node 5.1.0 and browser 5.5.0 are the compatible release pair: both require exactly common
- * 16.3.0. Keep all four versions explicit so a public-registry build and a mirrored build resolve
- * the same compatible MSAL graph.
+ * 16.3.0. The same identity ranges now admit Azure core releases requiring Node 22, while this
+ * product supports Node 20; the committed toolchain manifest pins the last compatible core graph.
+ * The lock then binds the complete closure for public-registry and mirrored builds alike.
  */
-export const VSCE_TOOLCHAIN = Object.freeze({
-  vsce: '3.9.2',
-  identity: '4.13.1',
-  msalNode: '5.1.0',
-  msalBrowser: '5.5.0',
-  msalCommon: '16.3.0'
-});
+const VSCE_TOOLCHAIN_DIRECTORY = path.join(root, 'toolchains', 'vsce');
+const VSCE_TOOLCHAIN_MANIFEST = path.join(VSCE_TOOLCHAIN_DIRECTORY, 'package.json');
+const VSCE_TOOLCHAIN_LOCK = path.join(VSCE_TOOLCHAIN_DIRECTORY, 'package-lock.json');
+const VSCE_TOOLCHAIN_SEAL = '.singularity-flow-vsce-seal.json';
 
 export function vsceToolManifest() {
-  return {
-    private: true,
-    dependencies: { '@vscode/vsce': VSCE_TOOLCHAIN.vsce },
-    overrides: {
-      '@azure/identity': VSCE_TOOLCHAIN.identity,
-      '@azure/msal-node': VSCE_TOOLCHAIN.msalNode,
-      '@azure/msal-browser': VSCE_TOOLCHAIN.msalBrowser,
-      '@azure/msal-common': VSCE_TOOLCHAIN.msalCommon
-    }
-  };
+  return JSON.parse(readFileSync(VSCE_TOOLCHAIN_MANIFEST, 'utf8'));
 }
+
+const vsceToolManifestSource = vsceToolManifest();
+export const VSCE_TOOLCHAIN = Object.freeze({
+  vsce: vsceToolManifestSource.dependencies['@vscode/vsce'],
+  identity: vsceToolManifestSource.overrides['@azure/identity'],
+  msalNode: vsceToolManifestSource.overrides['@azure/msal-node'],
+  msalBrowser: vsceToolManifestSource.overrides['@azure/msal-browser'],
+  msalCommon: vsceToolManifestSource.overrides['@azure/msal-common']
+});
 
 async function installedPackageVersion(directory, name) {
   const manifest = path.join(directory, 'node_modules', ...name.split('/'), 'package.json');
   return JSON.parse(await readFile(manifest, 'utf8')).version;
+}
+
+function platformAllowed(values, current) {
+  if (!Array.isArray(values) || values.length === 0) return true;
+  if (values.includes(`!${current}`)) return false;
+  const positive = values.filter((value) => !value.startsWith('!'));
+  return positive.length === 0 || positive.includes(current);
+}
+
+function lockedPhysicalPackages(lock) {
+  return new Map(Object.entries(lock.packages ?? {}).filter(([relative, metadata]) => relative
+    && metadata?.link !== true
+    && metadata?.dev !== true
+    && platformAllowed(metadata?.os, process.platform)
+    && platformAllowed(metadata?.cpu, process.arch)));
+}
+
+function installedPhysicalPackages(directory) {
+  const found = new Set();
+  const visit = (nodeModules, relativeNodeModules) => {
+    if (!existsSync(nodeModules)) return;
+    for (const entry of readdirSync(nodeModules, { withFileTypes: true })) {
+      if (entry.name === '.bin' || entry.name === '.package-lock.json') continue;
+      if (!entry.isDirectory() || entry.isSymbolicLink()) {
+        throw new Error(`Cached VSCE package entry is not an ordinary directory: ${relativeNodeModules}/${entry.name}.`);
+      }
+      if (entry.name.startsWith('@')) {
+        for (const child of readdirSync(path.join(nodeModules, entry.name), { withFileTypes: true })) {
+          const relative = `${relativeNodeModules}/${entry.name}/${child.name}`;
+          if (!child.isDirectory() || child.isSymbolicLink()) {
+            throw new Error(`Cached VSCE package entry is not an ordinary directory: ${relative}.`);
+          }
+          found.add(relative);
+          visit(path.join(nodeModules, entry.name, child.name, 'node_modules'), `${relative}/node_modules`);
+        }
+        continue;
+      }
+      const relative = `${relativeNodeModules}/${entry.name}`;
+      found.add(relative);
+      visit(path.join(nodeModules, entry.name, 'node_modules'), `${relative}/node_modules`);
+    }
+  };
+  visit(path.join(directory, 'node_modules'), 'node_modules');
+  return found;
+}
+
+function verifyLockedVsceClosure(directory) {
+  const manifestBytes = readFileSync(path.join(directory, 'package.json'));
+  const lockBytes = readFileSync(path.join(directory, 'package-lock.json'));
+  if (!manifestBytes.equals(readFileSync(VSCE_TOOLCHAIN_MANIFEST))
+    || !lockBytes.equals(readFileSync(VSCE_TOOLCHAIN_LOCK))) {
+    throw new Error('Cached VSCE manifest or lock differs from the committed install authority.');
+  }
+  const expected = lockedPhysicalPackages(JSON.parse(lockBytes));
+  const actual = installedPhysicalPackages(directory);
+  const missing = [...expected.keys()].filter((relative) => !actual.has(relative));
+  const extra = [...actual].filter((relative) => !expected.has(relative));
+  if (missing.length > 0 || extra.length > 0) {
+    throw new Error(`Cached VSCE physical closure differs from its lock (missing: ${missing.join(', ') || '-'}; extra: ${extra.join(', ') || '-'}).`);
+  }
+  for (const [relative, metadata] of expected) {
+    const installed = JSON.parse(readFileSync(path.join(directory, relative, 'package.json'), 'utf8'));
+    if (installed.version !== metadata.version) {
+      throw new Error(`Locked VSCE closure expected ${relative}@${metadata.version}, installed ${installed.version}.`);
+    }
+  }
+}
+
+function vsceTreeDigest(directory) {
+  const digest = createHash('sha256');
+  const visit = (absolute, relative) => {
+    const metadata = lstatSync(absolute);
+    if (metadata.isSymbolicLink()) {
+      throw new Error(`VSCE toolchain contains a symbolic link: ${relative}.`);
+    }
+    if (metadata.isDirectory()) {
+      digest.update(`D\0${relative}\0`);
+      const entries = readdirSync(absolute);
+      entries.sort((left, right) => left < right ? -1 : left > right ? 1 : 0);
+      for (const entry of entries) visit(path.join(absolute, entry), `${relative}/${entry}`);
+      return;
+    }
+    if (!metadata.isFile()) throw new Error(`VSCE toolchain contains a special file: ${relative}.`);
+    const bytes = readFileSync(absolute);
+    digest.update(`F\0${relative}\0${metadata.mode & 0o777}\0${bytes.length}\0`);
+    digest.update(bytes);
+    digest.update('\0');
+  };
+  for (const entry of ['package.json', 'package-lock.json', 'node_modules']) {
+    visit(path.join(directory, entry), entry);
+  }
+  return `sha256:${digest.digest('hex')}`;
+}
+
+async function sealVsceToolchain(directory) {
+  verifyLockedVsceClosure(directory);
+  const lockSha256 = `sha256:${createHash('sha256')
+    .update(readFileSync(path.join(directory, 'package-lock.json'))).digest('hex')}`;
+  await writeFile(path.join(directory, VSCE_TOOLCHAIN_SEAL), `${JSON.stringify({
+    schemaVersion: 1,
+    lockSha256,
+    platform: process.platform,
+    architecture: process.arch,
+    nodeMajor: process.versions.node.split('.')[0],
+    treeSha256: vsceTreeDigest(directory)
+  }, null, 2)}\n`);
+}
+
+function verifyVsceToolchainSeal(directory) {
+  verifyLockedVsceClosure(directory);
+  const seal = JSON.parse(readFileSync(path.join(directory, VSCE_TOOLCHAIN_SEAL), 'utf8'));
+  const expectedLock = `sha256:${createHash('sha256')
+    .update(readFileSync(VSCE_TOOLCHAIN_LOCK)).digest('hex')}`;
+  if (seal.schemaVersion !== 1 || seal.lockSha256 !== expectedLock
+    || seal.platform !== process.platform || seal.architecture !== process.arch
+    || seal.nodeMajor !== process.versions.node.split('.')[0]
+    || seal.treeSha256 !== vsceTreeDigest(directory)) {
+    throw new Error('Cached VSCE toolchain seal does not match its locked physical tree.');
+  }
 }
 
 /**
@@ -474,19 +607,20 @@ function vsceToolchainRoot() {
 }
 
 /**
- * The cache key: everything that can change what an install of the manifest produces.
- *
- * The manifest carries the five pins, so bumping any pin is automatically a new key. The registry
- * is part of the key because the same pins from a different registry are a different trust
- * decision (the Artifactory case). The Node major is included because node-gyp-free as this tree
- * is, npm's own tree shaping differs across majors.
+ * The lock digest binds the complete package graph and every tarball integrity. Registry remains a
+ * trust boundary; Node major and host platform/architecture remain physical-tree boundaries.
  */
 export function vsceToolchainKey() {
   const registry = String(
     process.env.NPM_CONFIG_REGISTRY ?? process.env.npm_config_registry ?? 'https://registry.npmjs.org/'
   ).trim();
+  const lockDigest = createHash('sha256').update(readFileSync(VSCE_TOOLCHAIN_LOCK)).digest('hex');
   const seed = JSON.stringify({
-    manifest: vsceToolManifest(), registry, node: process.versions.node.split('.')[0]
+    lockDigest,
+    registry,
+    nodeMajor: process.versions.node.split('.')[0],
+    platform: process.platform,
+    architecture: process.arch
   });
   return createHash('sha256').update(seed).digest('hex').slice(0, 12);
 }
@@ -499,6 +633,7 @@ export function vsceToolchainKey() {
  * proves exactly what a cold install proves.
  */
 async function verifiedVsceEntry(directory) {
+  verifyVsceToolchainSeal(directory);
   const expected = new Map([
     ['@vscode/vsce', VSCE_TOOLCHAIN.vsce],
     ['@azure/identity', VSCE_TOOLCHAIN.identity],
@@ -518,39 +653,154 @@ async function verifiedVsceEntry(directory) {
   return path.join(directory, 'node_modules', '@vscode', 'vsce', relativeEntry);
 }
 
-/** Keep the current key plus one predecessor, so a pin bump does not strand gigabytes forever. */
-async function pruneVsceToolchains(rootDir, keep) {
+function processMayBeAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    // EPERM means the process may belong to another user; it is not proof of death.
+    return error?.code !== 'ESRCH';
+  }
+}
+
+/** Sweep only abandoned install work; immutable final generations may be in use elsewhere. */
+async function sweepAbandonedVsceWork(rootDir) {
   const entries = await readdir(rootDir, { withFileTypes: true }).catch(() => []);
-  const keys = [];
   for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    if (entry.name.includes('.staging-')) {
+    if (entry.isDirectory() && entry.name.includes('.staging-')) {
       /**
        * Sweep only staging whose owner is gone. The first draft removed every staging directory it
        * saw, and the concurrency test failed with `ENOENT: uv_cwd` inside the stub npm — the
        * winner's prune had deleted the *loser's live working directory* mid-install. "A staging
        * directory is a crashed install" is only true when the pid in its name is dead.
        */
-      const owner = Number(entry.name.split('.staging-').pop());
-      let alive = false;
-      if (Number.isInteger(owner) && owner > 0) {
-        try { process.kill(owner, 0); alive = true; } catch { alive = false; }
+      const owner = Number(entry.name.match(/\.staging-(\d+)-/)?.[1]);
+      if (!Number.isSafeInteger(owner) || owner <= 0 || !processMayBeAlive(owner)) {
+        await rm(path.join(rootDir, entry.name), { recursive: true, force: true });
       }
-      if (!alive) await rm(path.join(rootDir, entry.name), { recursive: true, force: true });
       continue;
     }
-    if (/^[0-9a-f]{12}$/.test(entry.name) && entry.name !== keep) keys.push(entry.name);
+    if (entry.isFile() && entry.name.includes('.publish-owner-')) {
+      const owner = Number(entry.name.match(/\.publish-owner-(\d+)-/)?.[1]);
+      if (!Number.isSafeInteger(owner) || owner <= 0 || !processMayBeAlive(owner)) {
+        await rm(path.join(rootDir, entry.name), { force: true });
+      }
+    }
   }
-  // Newest survivor stays; everything older goes. mtime is good enough for a cache.
-  const stats = await Promise.all(keys.map(async (name) => ({
-    name, mtime: (await stat(path.join(rootDir, name))).mtimeMs
-  })));
-  stats.sort((a, b) => b.mtime - a.mtime);
-  for (const { name } of stats.slice(1)) await rm(path.join(rootDir, name), { recursive: true, force: true });
+}
+
+const VSCE_PUBLISH_LOCK_TIMEOUT_MS = 60_000;
+
+/**
+ * Claim one content digest before publishing it.
+ *
+ * Node has no portable rename-if-absent operation for directories: POSIX rename can replace an
+ * existing empty directory. A hard link from a fully-written unique owner file is the
+ * cross-platform no-clobber arbiter; unlike opening and then filling a lock, it has no interval in
+ * which another process can mistake a live but empty lock for abandoned state. A dead owner's lock
+ * is renamed aside before removal, so two recovery attempts cannot both believe they acquired it.
+ * Live, malformed, or permission-inaccessible owners are never disturbed.
+ */
+async function acquireVscePublishLock(rootDir, generationName) {
+  const lockPath = path.join(rootDir, `${generationName}.publish-lock`);
+  const token = randomUUID();
+  const ownerName = `${generationName}.publish-owner-${process.pid}-${token}`;
+  const ownerPath = path.join(rootDir, ownerName);
+  await writeFile(ownerPath, `${JSON.stringify({
+    pid: process.pid, token, ownerName, createdAt: Date.now()
+  })}\n`, { flag: 'wx', mode: 0o600 });
+  const deadline = Date.now() + VSCE_PUBLISH_LOCK_TIMEOUT_MS;
+  try {
+    while (Date.now() < deadline) {
+      try {
+        await link(ownerPath, lockPath);
+        return async () => {
+          try {
+            const owner = JSON.parse(await readFile(lockPath, 'utf8'));
+            if (owner.token === token) await rm(lockPath, { force: true });
+          } catch (error) {
+            if (error?.code !== 'ENOENT') throw error;
+          } finally {
+            await rm(ownerPath, { force: true });
+          }
+        };
+      } catch (error) {
+        if (error?.code !== 'EEXIST') throw error;
+      }
+
+      let owner = null;
+      try {
+        owner = JSON.parse(await readFile(lockPath, 'utf8'));
+      } catch (error) {
+        if (error?.code === 'ENOENT') continue;
+        // A malformed lock cannot safely be distinguished from a live writer; fail closed below.
+      }
+      const pid = Number(owner?.pid);
+      const validOwner = Number.isSafeInteger(pid) && pid > 0
+        && typeof owner?.token === 'string' && typeof owner?.ownerName === 'string';
+      if (validOwner && !processMayBeAlive(pid)) {
+        const abandoned = `${lockPath}.abandoned-${randomUUID()}`;
+        try {
+          await rename(lockPath, abandoned);
+          await rm(abandoned, { force: true });
+          if (path.basename(owner.ownerName) === owner.ownerName) {
+            await rm(path.join(rootDir, owner.ownerName), { force: true });
+          }
+          continue;
+        } catch (error) {
+          if (error?.code === 'ENOENT') continue;
+          throw error;
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    throw new Error(`Timed out waiting to publish the VSCE toolchain generation ${generationName}.`);
+  } catch (error) {
+    await rm(ownerPath, { force: true });
+    throw error;
+  }
+}
+
+async function verifiedVsceGeneration(rootDir, key) {
+  const entries = await readdir(rootDir, { withFileTypes: true }).catch(() => []);
+  const immutableName = new RegExp(`^${key}-[0-9a-f]{64}(?:-recovery-[0-9a-f-]{36})?$`);
+  const names = entries.filter((entry) => entry.isDirectory()
+    && immutableName.test(entry.name))
+    .map((entry) => entry.name)
+    .sort((left, right) => left < right ? -1 : left > right ? 1 : 0);
+  for (const name of names) {
+    const directory = path.join(rootDir, name);
+    try {
+      return { directory, entry: await verifiedVsceEntry(directory) };
+    } catch {
+      // Immutable corrupt generations are ignored, never moved out from under a possible reader.
+    }
+  }
+  return null;
+}
+
+async function verifiedVsceGenerationForDigest(rootDir, key, treeDigest) {
+  const base = `${key}-${treeDigest}`;
+  const entries = await readdir(rootDir, { withFileTypes: true }).catch(() => []);
+  const names = entries.filter((entry) => entry.isDirectory()
+    && (entry.name === base || entry.name.startsWith(`${base}-recovery-`)))
+    .map((entry) => entry.name)
+    .sort((left, right) => left < right ? -1 : left > right ? 1 : 0);
+  for (const name of names) {
+    const directory = path.join(rootDir, name);
+    try {
+      const entry = await verifiedVsceEntry(directory);
+      const seal = JSON.parse(await readFile(path.join(directory, VSCE_TOOLCHAIN_SEAL), 'utf8'));
+      if (seal.treeSha256 === `sha256:${treeDigest}`) return { directory, entry };
+    } catch {
+      // Preserve corrupt generations for possible readers, and look for a healthy recovery.
+    }
+  }
+  return null;
 }
 
 /**
- * Resolve the pinned VSCE toolchain, installing it at most once per (pins, registry, Node major).
+ * Resolve the pinned VSCE toolchain once per lock, registry, Node major, and host platform.
  *
  * The previous version installed into a fresh `mkdtemp` directory on every run and deleted it
  * afterwards — 292 registry fetches and about five minutes per install, to re-create a tree whose
@@ -558,34 +808,34 @@ async function pruneVsceToolchains(rootDir, keep) {
  * time of `./install.sh --skip-tests`. The pinning goal (no npx drift, registry-honoring, never
  * touching this repository's lockfile) is kept; only the re-download is gone.
  *
- * Concurrency: installs land in a per-pid staging directory and take the final name with an
- * atomic rename. The loser of a race finds the winner's verified tree and uses it.
+ * Concurrency: installs land in a per-pid staging directory, then claim their full tree digest
+ * before publication. The loser of a race finds the winner's verified tree and uses it.
  */
 export async function resolveVsce({ refresh = undefined } = {}) {
   const wantRefresh = refresh ?? (flag('refresh-vsce-toolchain')
     || String(process.env[VSCE_TOOLCHAIN_REFRESH_ENV] ?? '') === '1');
   const rootDir = vsceToolchainRoot();
   const key = vsceToolchainKey();
-  const directory = path.join(rootDir, key);
-
-  if (!wantRefresh) {
-    try {
-      return { directory, entry: await verifiedVsceEntry(directory), cached: true };
-    } catch {
-      // Miss, or a corrupted/partial tree: fall through and rebuild it.
-    }
-  }
 
   await mkdir(rootDir, { recursive: true });
-  await rm(directory, { recursive: true, force: true });
-  const staging = `${directory}.staging-${process.pid}`;
-  await rm(staging, { recursive: true, force: true });
-  await mkdir(staging, { recursive: true });
+  await chmod(rootDir, 0o700);
+  await sweepAbandonedVsceWork(rootDir);
+
+  if (!wantRefresh) {
+    const generation = await verifiedVsceGeneration(rootDir, key);
+    if (generation != null) return { ...generation, cached: true };
+  }
+
+  const staging = await mkdtemp(path.join(rootDir, `${key}.staging-${process.pid}-`));
   try {
-    await writeFile(path.join(staging, 'package.json'), `${JSON.stringify(vsceToolManifest(), null, 2)}\n`);
+    await Promise.all([
+      copyFile(VSCE_TOOLCHAIN_MANIFEST, path.join(staging, 'package.json')),
+      copyFile(VSCE_TOOLCHAIN_LOCK, path.join(staging, 'package-lock.json'))
+    ]);
     const npm = 'npm';
     const launch = resolvePlatformProcess(npm, [
-      'install', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false', '--prefer-offline'
+      'ci', '--ignore-scripts', '--no-audit', '--no-fund', '--prefer-offline',
+      '--include=peer', '--include=optional', '--omit=dev'
     ]);
     // --prefer-offline: a cold cache key still reuses npm's content cache for tarballs it has.
     const install = spawnSync(launch.executable, launch.arguments, {
@@ -594,61 +844,392 @@ export async function resolveVsce({ refresh = undefined } = {}) {
     if (install.status !== 0) {
       throw new Error(`npm could not install the pinned VSCE toolchain${install.error ? `: ${install.error.message}` : ''}`);
     }
+    // VSCE is invoked by its direct JavaScript entry. npm's command shims are unnecessary links,
+    // and hidden install locks are npm-version-specific metadata rather than executable closure.
+    await pruneNpmInstallMetadata(path.join(staging, 'node_modules'));
+    await sealVsceToolchain(staging);
     await verifiedVsceEntry(staging);
-    try {
-      await rename(staging, directory);
-    } catch {
-      // Another process won the rename race; its tree passed the same verification. Use it.
-      await rm(staging, { recursive: true, force: true });
-      return { directory, entry: await verifiedVsceEntry(directory), cached: true };
+    const seal = JSON.parse(await readFile(path.join(staging, VSCE_TOOLCHAIN_SEAL), 'utf8'));
+    const treeDigest = String(seal.treeSha256).replace(/^sha256:/, '');
+    if (!/^[0-9a-f]{64}$/.test(treeDigest)) {
+      throw new Error('VSCE toolchain seal has an invalid tree digest.');
     }
-    await pruneVsceToolchains(rootDir, key);
-    return { directory, entry: await verifiedVsceEntry(directory), cached: false };
+    const generationName = `${key}-${treeDigest}`;
+    const releasePublishLock = await acquireVscePublishLock(rootDir, generationName);
+    try {
+      const winner = await verifiedVsceGenerationForDigest(rootDir, key, treeDigest);
+      if (winner != null) {
+        await rm(staging, { recursive: true, force: true });
+        return { ...winner, cached: !wantRefresh };
+      }
+      let directory = path.join(rootDir, generationName);
+      if (existsSync(directory)) {
+        // The content name is occupied but unverified. Never replace a path a caller may be using.
+        directory = path.join(rootDir, `${generationName}-recovery-${randomUUID()}`);
+      }
+      await rename(staging, directory);
+      return { directory, entry: await verifiedVsceEntry(directory), cached: false };
+    } finally {
+      await releasePublishLock();
+    }
   } catch (error) {
     await rm(staging, { recursive: true, force: true });
     throw error;
   }
 }
 
-export async function stageCli({ rootDir = root, extensionDir = extension } = {}) {
-  const staged = path.join(extensionDir, 'cli');
-  await rm(staged, { recursive: true, force: true });
-  await mkdir(staged, { recursive: true });
-  for (const entry of CLI_PAYLOAD) {
-    await cp(path.join(rootDir, entry), path.join(staged, entry), { recursive: true });
+function gitPayloadRecords(rootDir) {
+  const listed = spawnSync('git', ['ls-files', '--stage', '-z', '--', ...CLI_PAYLOAD], {
+    cwd: rootDir,
+    encoding: 'buffer'
+  });
+  if (listed.error || listed.status !== 0) {
+    const detail = String(listed.stderr || listed.error?.message || '').trim();
+    throw new Error(`Could not enumerate tracked CLI payload${detail ? `: ${detail}` : '.'}`);
   }
-  // The CLI now has more than one runtime dependency. Copying a hand-maintained package name made
-  // the source checkout pass while the VSIX failed only after installation. The lockfile is the
-  // authoritative production closure; preserve its node_modules-relative layout verbatim.
-  const lock = JSON.parse(await readFile(path.join(rootDir, 'package-lock.json'), 'utf8'));
-  const production = Object.entries(lock.packages ?? {})
-    // npm records local workspaces beneath node_modules as link entries. They are development
-    // topology, not installable production packages, and copying the symlink makes VSCE try to
-    // archive a path that points back outside the staged CLI. Only real locked packages belong in
-    // the standalone runtime closure.
-    .filter(([relative, metadata]) => relative.startsWith('node_modules/')
-      && metadata?.dev !== true
-      && metadata?.link !== true)
-    .map(([relative, metadata]) => ({ relative, metadata }))
-    .sort((left, right) => left.relative.split('/').length - right.relative.split('/').length
-      || left.relative.localeCompare(right.relative));
-  for (const { relative, metadata } of production) {
-    const source = path.join(rootDir, relative);
-    if (!existsSync(source)) {
-      // npm can retain an optional peer resolution in package-lock even though a clean `npm ci`
-      // does not install that peer. It is not part of the physical runtime closure. Ordinary
-      // production packages remain fail-closed so a partial install can never produce a VSIX.
-      if (metadata?.peer === true) continue;
-      throw new Error(`Locked production dependency is not installed: ${relative}`);
+  const records = [];
+  for (const raw of listed.stdout.toString('utf8').split('\0')) {
+    if (!raw) continue;
+    const tab = raw.indexOf('\t');
+    const header = raw.slice(0, tab).split(' ');
+    const relative = raw.slice(tab + 1);
+    if (tab < 0 || header.length !== 3 || header[2] !== '0'
+      || !['100644', '100755'].includes(header[0])
+      || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(header[1])) {
+      throw new Error(`CLI payload must contain only ordinary stage-zero Git files: ${relative}.`);
     }
-    await cp(source, path.join(staged, relative), { recursive: true });
+    if (relative.includes('\n') || relative.includes('\r') || path.isAbsolute(relative)
+      || relative.split('/').includes('..')) {
+      throw new Error(`Unsafe tracked CLI payload path: ${JSON.stringify(relative)}.`);
+    }
+    records.push({ mode: header[0], oid: header[1], relative });
   }
-  return staged;
+  return records;
 }
 
-async function packageExtension() {
+function indexPayloadBlobs(rootDir, records) {
+  const input = Buffer.from(records.map(({ oid }) => `${oid}\n`).join(''));
+  const result = spawnSync('git', ['cat-file', '--batch'], {
+    cwd: rootDir,
+    input,
+    encoding: 'buffer',
+    maxBuffer: 256 * 1024 * 1024
+  });
+  if (result.error || result.status !== 0) {
+    const detail = String(result.stderr || result.error?.message || '').trim();
+    throw new Error(`Could not read exact Git blobs for the CLI payload${detail ? `: ${detail}` : '.'}`);
+  }
+  let offset = 0;
+  return records.map((record) => {
+    const newline = result.stdout.indexOf(0x0a, offset);
+    if (newline < 0) throw new Error(`Git omitted blob metadata for ${record.relative}.`);
+    const header = result.stdout.subarray(offset, newline).toString('utf8').split(' ');
+    const size = Number(header[2]);
+    if (header[1] !== 'blob' || !Number.isSafeInteger(size) || size < 0) {
+      throw new Error(`Tracked CLI payload is not a Git blob: ${record.relative}.`);
+    }
+    const start = newline + 1;
+    const end = start + size;
+    if (end >= result.stdout.length || result.stdout[end] !== 0x0a) {
+      throw new Error(`Git returned a truncated blob for ${record.relative}.`);
+    }
+    offset = end + 1;
+    return { ...record, bytes: result.stdout.subarray(start, end) };
+  });
+}
+
+async function writePayloadFile(destination, bytes, mode) {
+  await mkdir(path.dirname(destination), { recursive: true });
+  await writeFile(destination, bytes);
+  await chmod(destination, mode === '100755' ? 0o755 : 0o644);
+}
+
+async function copyRegularTree(source, destination) {
+  const metadata = await lstat(source);
+  if (metadata.isSymbolicLink()) {
+    throw new Error(`Packaging refuses symbolic links: ${source}`);
+  }
+  if (metadata.isDirectory()) {
+    await mkdir(destination, { recursive: true });
+    const entries = await readdir(source, { withFileTypes: true });
+    entries.sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
+    for (const entry of entries) {
+      await copyRegularTree(path.join(source, entry.name), path.join(destination, entry.name));
+    }
+    return;
+  }
+  if (!metadata.isFile()) throw new Error(`Packaging accepts only ordinary files: ${source}`);
+  await mkdir(path.dirname(destination), { recursive: true });
+  await copyFile(source, destination);
+}
+
+async function stageTrackedPayload({ rootDir, staged, environment }) {
+  const records = gitPayloadRecords(rootDir);
+  const provenance = verifiedPackagingProvenance(rootDir, environment);
+  const identity = provenance == null ? vscodeBuildIdentity(rootDir, environment) : null;
+  if (provenance != null || identity?.local === false) {
+    for (const { relative, mode, bytes } of indexPayloadBlobs(rootDir, records)) {
+      await writePayloadFile(path.join(staged, relative), bytes, mode);
+    }
+    if (provenance != null) {
+      const stamped = records.find(({ relative }) => relative === provenance.stampedBuildInfo);
+      if (stamped == null) throw new Error('Stamped build provenance is not a tracked CLI payload file.');
+      await mkdir(path.dirname(path.join(staged, stamped.relative)), { recursive: true });
+      await copyFile(path.join(rootDir, stamped.relative), path.join(staged, stamped.relative));
+      await chmod(path.join(staged, stamped.relative), stamped.mode === '100755' ? 0o755 : 0o644);
+      const stagedDigest = `sha256:${createHash('sha256')
+        .update(await readFile(path.join(staged, stamped.relative))).digest('hex')}`;
+      if (stagedDigest !== provenance.stampedBuildInfoSha256) {
+        throw new Error('Staged build provenance bytes changed while the CLI payload was copied.');
+      }
+      verifiedPackagingProvenance(rootDir, environment);
+    } else if (vscodeBuildIdentity(rootDir, environment).local) {
+      throw new Error('Clean CLI source changed while its exact Git blobs were staged.');
+    }
+    return true;
+  }
+  // Dirty developer builds may package tracked edits, but ignored and untracked files never enter
+  // the archive. Release builds take the exact index-blob path above.
+  for (const { relative, mode } of records) {
+    const source = path.join(rootDir, relative);
+    const metadata = await lstat(source);
+    if (!metadata.isFile() || metadata.isSymbolicLink()) {
+      throw new Error(`Tracked CLI payload must be an ordinary working-tree file: ${relative}.`);
+    }
+    await mkdir(path.dirname(path.join(staged, relative)), { recursive: true });
+    await copyFile(source, path.join(staged, relative));
+    await chmod(path.join(staged, relative), mode === '100755' ? 0o755 : 0o644);
+  }
+  return false;
+}
+
+function gitIndexFile(rootDir, relative) {
+  const result = spawnSync('git', ['show', `:${relative}`], { cwd: rootDir, encoding: null });
+  if (result.error || result.status !== 0) {
+    const detail = String(result.stderr || result.error?.message || '').trim();
+    throw new Error(`Could not read exact Git index file ${relative}${detail ? `: ${detail}` : '.'}`);
+  }
+  return result.stdout;
+}
+
+async function pruneNpmInstallMetadata(directory) {
+  const entries = await readdir(directory, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    const target = path.join(directory, entry.name);
+    if (entry.name === '.bin' || entry.name === '.package-lock.json') {
+      await rm(target, { recursive: true, force: true });
+    } else if (entry.isDirectory()) {
+      await pruneNpmInstallMetadata(target);
+    }
+  }
+}
+
+function verifiedPackagingNpmCli(rootDir, environment) {
+  const explicit = String(environment[PACKAGING_NPM_CLI_ENV] ?? '').trim();
+  if (!explicit) return null;
+  if (verifiedPackagingProvenance(rootDir, environment) == null) {
+    throw new Error(`${PACKAGING_NPM_CLI_ENV} requires complete verified packaging provenance.`);
+  }
+  const entry = path.resolve(explicit);
+  const relative = path.relative(path.resolve(rootDir), entry);
+  if (relative === '' || (!relative.startsWith(`..${path.sep}`)
+    && relative !== '..' && !path.isAbsolute(relative))) {
+    throw new Error(`${PACKAGING_NPM_CLI_ENV} must point outside the packaging checkout.`);
+  }
+  const metadata = lstatSync(entry);
+  if (!metadata.isFile() || metadata.isSymbolicLink()
+    || path.basename(entry) !== 'npm-cli.js' || path.basename(path.dirname(entry)) !== 'bin') {
+    throw new Error(`${PACKAGING_NPM_CLI_ENV} must name an ordinary npm bin/npm-cli.js file.`);
+  }
+  const packageRoot = path.dirname(path.dirname(entry));
+  if (path.basename(packageRoot) !== 'npm' || path.basename(path.dirname(packageRoot)) !== 'node_modules') {
+    throw new Error(`${PACKAGING_NPM_CLI_ENV} must come from a private node_modules/npm package.`);
+  }
+  const installedManifest = path.join(packageRoot, 'package.json');
+  const installedMetadata = lstatSync(installedManifest);
+  if (!installedMetadata.isFile() || installedMetadata.isSymbolicLink()) {
+    throw new Error(`${PACKAGING_NPM_CLI_ENV} npm package manifest must be an ordinary file.`);
+  }
+  const expectedManifest = JSON.parse(readFileSync(
+    path.join(rootDir, 'toolchains', 'npm-pack', 'package.json'), 'utf8'
+  ));
+  const installed = JSON.parse(readFileSync(installedManifest, 'utf8'));
+  const expectedVersion = expectedManifest.dependencies?.npm;
+  if (installed.name !== 'npm' || installed.version !== expectedVersion
+    || !/^\d+\.\d+\.\d+$/.test(String(expectedVersion ?? ''))) {
+    throw new Error(`Pinned packaging npm expected npm@${expectedVersion}, found ${installed.name}@${installed.version}.`);
+  }
+  return Object.freeze({
+    entry,
+    sha256: createHash('sha256').update(readFileSync(entry)).digest('hex')
+  });
+}
+
+async function installLockedProductionClosure({ rootDir, staged, exact, environment }) {
+  const lockBytes = exact
+    ? gitIndexFile(rootDir, 'package-lock.json')
+    : await readFile(path.join(rootDir, 'package-lock.json'));
+  await writeFile(path.join(staged, 'package-lock.json'), lockBytes);
+  try {
+    const npmArguments = [
+      'ci', '--workspaces=false', '--ignore-scripts', '--no-audit', '--no-fund',
+      '--omit=dev', '--omit=peer', '--include=optional', '--prefer-offline'
+    ];
+    const pinnedNpm = verifiedPackagingNpmCli(rootDir, environment);
+    const launch = pinnedNpm == null
+      ? resolvePlatformProcess('npm', npmArguments)
+      : { executable: process.execPath, arguments: [pinnedNpm.entry, ...npmArguments] };
+    const installed = spawnSync(launch.executable, launch.arguments, {
+      cwd: staged,
+      encoding: 'utf8',
+      env: { ...process.env, ...environment },
+      ...launch.spawnOptions
+    });
+    if (pinnedNpm != null && createHash('sha256').update(readFileSync(pinnedNpm.entry)).digest('hex')
+      !== pinnedNpm.sha256) {
+      throw new Error('Pinned packaging npm CLI changed while materializing the production closure.');
+    }
+    if (installed.error || installed.status !== 0) {
+      const detail = `${installed.stdout ?? ''}${installed.stderr ?? ''}`.trim();
+      throw new Error(`npm could not materialize the locked CLI production closure${detail ? `:\n${detail}` : '.'}`);
+    }
+    // npm's command shims and hidden install lock differ by operating system/npm version and are
+    // not runtime module inputs. Remove them wherever npm placed them before VSCE enumerates files.
+    await pruneNpmInstallMetadata(path.join(staged, 'node_modules'));
+  } finally {
+    await rm(path.join(staged, 'package-lock.json'), { force: true });
+  }
+}
+
+export async function stageCli({
+  rootDir = root,
+  extensionDir = extension,
+  environment = process.env
+} = {}) {
+  const staged = path.join(extensionDir, 'cli');
+  await rm(staged, { recursive: true, force: true });
+  try {
+    await mkdir(staged, { recursive: true });
+    let exact = false;
+    if (exactGitRoot(rootDir) != null) {
+      exact = await stageTrackedPayload({ rootDir, staged, environment });
+    } else {
+      // Published/Git-less source exports have no index to materialize. Keep this compatibility
+      // path bounded to the declared payload and refuse links that could escape it.
+      for (const entry of CLI_PAYLOAD) {
+        await copyRegularTree(path.join(rootDir, entry), path.join(staged, entry));
+      }
+    }
+    // Re-materialize from lock integrity rather than trusting mutable/ignored repository
+    // node_modules bytes. The preceding full npm ci primes the configured registry/cache, so this
+    // bounded production-only install is normally local and closes an otherwise unverifiable leak.
+    await installLockedProductionClosure({ rootDir, staged, exact, environment });
+    return staged;
+  } catch (error) {
+    await rm(staged, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+/** Reject checkout conversions that would make VSCE read host-specific text bytes. */
+export function assertPortablePackageCheckout(rootDir = root) {
+  if (exactGitRoot(rootDir) == null) return;
+  const result = spawnSync('git', [
+    'ls-files', '--eol', '--', ...CLI_PAYLOAD, 'apps/vscode'
+  ], { cwd: rootDir, encoding: 'utf8' });
+  if (result.error || result.status !== 0) {
+    const detail = String(result.stderr || result.error?.message || '').trim();
+    throw new Error(`Could not validate package checkout line endings${detail ? `: ${detail}` : '.'}`);
+  }
+  const unsafe = result.stdout.split(/\r?\n/).filter((line) => /(?:^|\s)[iw]\/(?:crlf|mixed)(?:\s|$)/.test(line));
+  if (unsafe.length > 0) {
+    throw new Error([
+      'Package inputs contain CRLF or mixed Git/worktree bytes; use a fresh LF-normalized checkout.',
+      ...unsafe.map((line) => `  ${line}`)
+    ].join('\n'));
+  }
+}
+
+export function vscodePackagingEnvironment({
+  rootDir = root,
+  environment = process.env,
+  now = Date.now
+} = {}) {
+  assertPortablePackageCheckout(rootDir);
+  const reproducible = reproducibleBuildEnvironment(rootDir, environment, { now });
+  const sourceSeconds = Number(reproducible.SOURCE_DATE_EPOCH);
+  // ZIP's DOS timestamp has no representation before 1980 or after 2107. Reject instead of
+  // allowing yazl/platform coercion to produce a different archive or a late opaque failure.
+  if (sourceSeconds < 315532800 || sourceSeconds >= 4354819200) {
+    throw new Error('VSIX SOURCE_DATE_EPOCH must resolve to a UTC instant from 1980 through 2107.');
+  }
+  return {
+    ...reproducible,
+    // Pinned VSCE passes SOURCE_DATE_EPOCH to yazl, whose DOS timestamp encoder uses local-time
+    // getters. Fixing the subprocess timezone is therefore part of the artifact hash contract.
+    TZ: 'Etc/UTC',
+    CI: '1'
+  };
+}
+
+export function vscePackageArguments(entry, { rootDir = root } = {}) {
+  return [
+    '--require', path.join(rootDir, 'scripts', 'vsce-reproducible-preload.cjs'),
+    entry, 'package', '--no-dependencies', '--allow-missing-repository'
+  ];
+}
+
+/** Ensure VSCE cannot discover ignored, stale, or linked files outside the two owned build trees. */
+export async function assertVscePackageInputs({
+  entry,
+  rootDir = root,
+  extensionDir = extension,
+  environment = process.env
+}) {
+  if (exactGitRoot(rootDir) == null) {
+    throw new Error('VSIX packaging requires the exact Git repository root.');
+  }
+  const trackedResult = spawnSync('git', ['ls-files', '-z', '--', 'apps/vscode'], {
+    cwd: rootDir,
+    encoding: 'buffer'
+  });
+  if (trackedResult.error || trackedResult.status !== 0) {
+    throw new Error('Could not enumerate tracked VS Code package inputs.');
+  }
+  const tracked = new Set(trackedResult.stdout.toString('utf8').split('\0').filter(Boolean)
+    .map((relative) => relative.slice('apps/vscode/'.length)));
+  const listed = spawnSync(process.execPath, [
+    '--require', path.join(rootDir, 'scripts', 'vsce-reproducible-preload.cjs'),
+    entry, 'ls', '--no-dependencies'
+  ], { cwd: extensionDir, encoding: 'utf8', env: environment, maxBuffer: 32 * 1024 * 1024 });
+  if (listed.error || listed.status !== 0) {
+    const detail = `${listed.stdout ?? ''}${listed.stderr ?? ''}`.trim();
+    throw new Error(`VSCE could not enumerate package inputs${detail ? `:\n${detail}` : '.'}`);
+  }
+  const files = listed.stdout.split(/\r?\n/).filter(Boolean);
+  for (const relative of files) {
+    if (path.isAbsolute(relative) || relative.split('/').includes('..')) {
+      throw new Error(`VSCE selected an unsafe package path: ${relative}.`);
+    }
+    const metadata = await lstat(path.join(extensionDir, ...relative.split('/')));
+    if (!metadata.isFile() || metadata.isSymbolicLink()) {
+      throw new Error(`VSCE package input must be an ordinary file: ${relative}.`);
+    }
+    if (relative.startsWith('cli/')) continue;
+    if (relative.startsWith('dist/')) {
+      if (VSCODE_GENERATED_FILES.has(relative)) continue;
+      throw new Error(`VSCE selected an unexpected generated file: ${relative}.`);
+    }
+    if (!tracked.has(relative)) {
+      throw new Error(`VSCE selected an ignored or untracked package input: ${relative}.`);
+    }
+  }
+  return files;
+}
+
+async function packageExtension(packagingEnvironment = vscodePackagingEnvironment()) {
   step('Staging the CLI inside the extension');
-  const staged = await stageCli();
+  const staged = await stageCli({ environment: packagingEnvironment });
   let vsce = null;
   try {
     step('Resolving the pinned VSCE toolchain');
@@ -664,12 +1245,13 @@ async function packageExtension() {
       return;
     }
     step('Packaging a .vsix');
+    await assertVscePackageInputs({ entry: vsce.entry, environment: packagingEnvironment });
     // CI=1 suppresses vsce's own "is there a newer vsce" registry probe — the pin table is the
     // authority on which vsce runs here, so the probe is a network round-trip that can only slow
     // an install down or contradict a decision already made.
-    const pack = spawnSync(process.execPath, [vsce.entry, 'package',
-      '--no-dependencies', '--allow-missing-repository'],
-    { cwd: extension, stdio: 'inherit', env: { ...process.env, CI: '1' } });
+    const pack = spawnSync(process.execPath, vscePackageArguments(vsce.entry), {
+      cwd: extension, stdio: 'inherit', env: packagingEnvironment
+    });
     if (pack.status !== 0) {
       console.error('\nPackaging could not run the pinned @vscode/vsce toolchain.');
       console.error('Without it, use the development host instead: node scripts/vscode-dev.mjs');
@@ -707,14 +1289,16 @@ async function main() {
     return;
   }
 
+  const packagingEnvironment = flag('package') ? vscodePackagingEnvironment() : process.env;
+  if (flag('package')) await rm(path.join(extension, 'dist'), { recursive: true, force: true });
   step('Building the extension');
   const build = spawnSync(process.execPath, [path.join(extension, 'esbuild.mjs')], {
-    cwd: extension, stdio: 'inherit'
+    cwd: extension, stdio: 'inherit', env: packagingEnvironment
   });
   if (build.status !== 0) throw new Error('The extension bundle failed to build.');
 
   if (flag('package')) {
-    await packageExtension();
+    await packageExtension(packagingEnvironment);
     return;
   }
 

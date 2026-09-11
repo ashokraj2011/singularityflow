@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { pocReleaseStages, runPocReleaseStage } from '../scripts/poc-release-gate.mjs';
+import {
+  parsePocReleaseArguments, pocReleaseStages, runPocReleaseGate, runPocReleaseStage
+} from '../scripts/poc-release-gate.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -92,6 +95,59 @@ test('every direct node:test release stage uses the strict reporter and gate sel
     'a release stage recursively invokes the npm release-gate script');
 });
 
+test('exact-artifact consumer mode executes supplied artifacts and schedules zero packaging work', async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-poc-artifact-consumer-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const packageArtifact = path.join(directory, 'singularity-flow-0.0.0.tgz');
+  const vsixArtifact = path.join(directory, 'singularity-flow-vscode-0.0.0.vsix');
+  await Promise.all([
+    writeFile(packageArtifact, 'exact package bytes'),
+    writeFile(vsixArtifact, 'exact vsix bytes')
+  ]);
+
+  const observed = [];
+  const result = await runPocReleaseGate({
+    rootDir: root,
+    artifactPackage: packageArtifact,
+    artifactVsix: vsixArtifact,
+    async runStage(stage) {
+      observed.push(stage);
+      return { status: 0, signal: null, error: null, timedOut: false };
+    }
+  });
+  assert.equal(result.artifactConsumption, 'passed');
+  assert.equal(observed.some((stage) => stage.args.join(' ').includes('vscode:package')), false);
+  assert.equal(observed.some((stage) => stage.command === 'npm'
+    && stage.args[0] === 'pack'), false);
+  assert.equal(observed.some((stage) => stage.args.includes('test/vscode-host.test.mjs')), false,
+    'consumer mode must not load the source-host test, whose module prelude can run esbuild');
+  assert.deepEqual(
+    observed.find((stage) => stage.args.includes('scripts/packaged-cli-smoke.mjs'))?.args,
+    ['scripts/packaged-cli-smoke.mjs', '--package', packageArtifact]
+  );
+  assert.deepEqual(
+    observed.find((stage) => stage.args.includes('scripts/packaged-vsix-engine-smoke.mjs'))?.args,
+    ['scripts/packaged-vsix-engine-smoke.mjs', '--vsix', vsixArtifact]
+  );
+});
+
+test('artifact-consumer arguments are an explicit fail-closed pair', () => {
+  const cwd = path.join(path.parse(root).root, 'release-fixture');
+  assert.deepEqual(parsePocReleaseArguments([
+    '--artifact-package', 'release.tgz', '--artifact-vsix', 'release.vsix'
+  ], { cwd }), {
+    artifactPackage: path.join(cwd, 'release.tgz'),
+    artifactVsix: path.join(cwd, 'release.vsix')
+  });
+  assert.throws(() => parsePocReleaseArguments(['--artifact-package', 'release.tgz'], { cwd }),
+    /requires both --artifact-package and --artifact-vsix/);
+  assert.throws(() => parsePocReleaseArguments(['--artifact-vsix']), /requires a path/);
+  assert.throws(() => parsePocReleaseArguments(['--unknown', 'value']), /Unknown POC release-gate option/);
+  assert.throws(() => parsePocReleaseArguments([
+    '--artifact-package', 'release.zip', '--artifact-vsix', 'release.vsix'
+  ], { cwd }), /requires one \.tgz package and one \.vsix extension/);
+});
+
 test('a stage deadline force-cleans the process tree and settles without a child close event', async () => {
   const child = new EventEmitter();
   child.pid = 4242;
@@ -136,10 +192,17 @@ test('the exact VSIX smoke extracts a bounded engine and enforces a source-modul
     'the contained engine must load the JavaScript WEL adapter registry');
   assert.match(smoke, /hostActivation: false/,
     'the code-level smoke must not claim real VS Code-host activation');
+  assert.match(smoke, /vsixPath\s*\?\s*path\.resolve\(vsixPath\)/,
+    'artifact-consumer mode must select the explicitly supplied VSIX');
+  assert.match(smoke, /process\.argv\.indexOf\('--vsix'\)/,
+    'the isolated VSIX smoke must accept an exact artifact path');
 });
 
 test('packaged CLI smoke installs the tarball into an isolated prefix before executing it', async () => {
-  const smoke = await readFile(path.join(root, 'scripts', 'packaged-cli-smoke.mjs'), 'utf8');
+  const [smoke, manifest] = await Promise.all([
+    readFile(path.join(root, 'scripts', 'packaged-cli-smoke.mjs'), 'utf8'),
+    readFile(path.join(root, 'package.json'), 'utf8').then(JSON.parse)
+  ]);
   assert.match(smoke, /resolvePlatformProcess/);
   assert.match(smoke, /'install', '--prefix', installRoot/);
   assert.match(smoke, /node_modules', 'singularity-flow'/);
@@ -159,6 +222,20 @@ test('packaged CLI smoke installs the tarball into an isolated prefix before exe
     'the installed package must load the JavaScript WEL adapter registry');
   assert.match(smoke, /await rm\(sandbox, \{ recursive: true, force: true \}\)/,
     'the isolated install must always be removed');
+  assert.match(smoke, /if \(packagePath\)/,
+    'artifact-consumer mode must bypass npm pack when an exact package is supplied');
+  assert.match(smoke, /process\.argv\.indexOf\('--package'\)/,
+    'the isolated package smoke must accept an exact artifact path');
+  assert.match(smoke, /'--offline', tarball/,
+    'the exact package must install without consulting a mutable registry');
+  assert.deepEqual(
+    [...manifest.bundleDependencies].sort(), Object.keys(manifest.dependencies).sort(),
+    'every direct production dependency must be embedded in the signed npm artifact'
+  );
+  for (const version of Object.values(manifest.dependencies)) {
+    assert.match(version, /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/,
+      'release production dependencies must use exact versions');
+  }
 });
 
 test('Node 20 executes TypeScript tests and release authorities still refuse future skips', async () => {
@@ -176,8 +253,12 @@ test('Node 20 executes TypeScript tests and release authorities still refuse fut
     'a supported Node release must execute, rather than omit, the selected test file');
   assert.match(release, /SINGULARITY_FLOW_RELEASE_FAIL_ON_SKIPPED_TEST_FILES: '1'/);
   assert.match(receipt, /SINGULARITY_FLOW_RELEASE_FAIL_ON_SKIPPED_TEST_FILES: '1'/);
-  assert.match(release, /\['run', 'poc:release-gate'\]/,
-    'release promotion must execute the complete packaged POC gate');
-  assert.match(receipt, /\['run', 'poc:release-gate'\]/,
-    'the signed verification receipt must bind the complete packaged POC gate');
+  for (const [label, source] of [['release promotion', release], ['verification receipt', receipt]]) {
+    assert.match(source, /'run', 'poc:release-gate', '--'/,
+      `${label} must execute the complete packaged POC gate`);
+    assert.match(source, /'--artifact-package'/,
+      `${label} must pass the exact npm artifact to consumer mode`);
+    assert.match(source, /'--artifact-vsix'/,
+      `${label} must pass the exact VSIX artifact to consumer mode`);
+  }
 });

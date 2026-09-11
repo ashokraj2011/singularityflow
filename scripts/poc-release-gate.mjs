@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { lstatSync, mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,7 +20,27 @@ export const POC_RELEASE_TERMINATION_GRACE_MS = 5_000;
  * Every direct `node --test` stage carries the same strict reporter. Keeping this as data makes it
  * possible for the gate's own tests to inspect the contract without recursively running the gate.
  */
-export function pocReleaseStages({ rootDir = root, nodeVersion = process.versions.node } = {}) {
+function artifactConsumerInputs({ artifactPackage = null, artifactVsix = null } = {}) {
+  if (!artifactPackage && !artifactVsix) return null;
+  if (!artifactPackage || !artifactVsix) {
+    throw new Error('Artifact-consumer mode requires both --artifact-package and --artifact-vsix.');
+  }
+  if (!path.isAbsolute(artifactPackage) || !path.isAbsolute(artifactVsix)) {
+    throw new Error('Artifact-consumer paths must be absolute.');
+  }
+  if (!artifactPackage.endsWith('.tgz') || !artifactVsix.endsWith('.vsix')) {
+    throw new Error('Artifact-consumer mode requires one .tgz package and one .vsix extension.');
+  }
+  return Object.freeze({ packagePath: artifactPackage, vsixPath: artifactVsix });
+}
+
+export function pocReleaseStages({
+  rootDir = root,
+  nodeVersion = process.versions.node,
+  artifactPackage = null,
+  artifactVsix = null
+} = {}) {
+  const artifactConsumer = artifactConsumerInputs({ artifactPackage, artifactVsix });
   const typescriptTestFlags = nodeTypeScriptFlags(rootDir, nodeVersion);
   const releaseReporterFlags = [
     '--test-reporter', path.join(rootDir, 'scripts', 'release-test-reporter.mjs')
@@ -38,12 +58,12 @@ export function pocReleaseStages({ rootDir = root, nodeVersion = process.version
       args: ['run', 'vscode:typecheck'],
       timeoutMs: 5 * 60_000
     }),
-    Object.freeze({
+    ...(!artifactConsumer ? [Object.freeze({
       label: 'Packaged VS Code extension',
       command: npm,
       args: ['run', 'vscode:package'],
       timeoutMs: 15 * 60_000
-    }),
+    })] : []),
     Object.freeze({
       label: 'POC workflows, installers, Windows launch policy, MCP readiness, guided SGOS, CMP, and WEL',
       command: process.execPath,
@@ -69,7 +89,7 @@ export function pocReleaseStages({ rootDir = root, nodeVersion = process.version
       ]),
       timeoutMs: 30 * 60_000
     }),
-    Object.freeze({
+    ...(!artifactConsumer ? [Object.freeze({
       label: 'Built extension bundle POC journey (isolated stub host)',
       command: process.execPath,
       args: Object.freeze([
@@ -79,17 +99,21 @@ export function pocReleaseStages({ rootDir = root, nodeVersion = process.version
         'test/vscode-host.test.mjs'
       ]),
       timeoutMs: 15 * 60_000
-    }),
+    })] : []),
     Object.freeze({
       label: 'Exact VSIX-contained CLI engine (isolated process; no VS Code host activation)',
       command: process.execPath,
-      args: ['scripts/packaged-vsix-engine-smoke.mjs'],
+      args: artifactConsumer
+        ? ['scripts/packaged-vsix-engine-smoke.mjs', '--vsix', artifactConsumer.vsixPath]
+        : ['scripts/packaged-vsix-engine-smoke.mjs'],
       timeoutMs: 5 * 60_000
     }),
     Object.freeze({
       label: 'Isolated packaged CLI installation',
       command: process.execPath,
-      args: ['scripts/packaged-cli-smoke.mjs'],
+      args: artifactConsumer
+        ? ['scripts/packaged-cli-smoke.mjs', '--package', artifactConsumer.packagePath]
+        : ['scripts/packaged-cli-smoke.mjs'],
       timeoutMs: 15 * 60_000
     }),
     Object.freeze({
@@ -110,12 +134,12 @@ export function pocReleaseStages({ rootDir = root, nodeVersion = process.version
       args: ['run', 'benchmark:wel'],
       timeoutMs: 5 * 60_000
     }),
-    Object.freeze({
+    ...(!artifactConsumer ? [Object.freeze({
       label: 'npm package inventory',
       command: npm,
       args: ['pack', '--dry-run'],
       timeoutMs: 5 * 60_000
-    })
+    })] : [])
   ]);
 }
 
@@ -257,10 +281,28 @@ function isolatedEnvironment(machineState, source = process.env) {
   return environment;
 }
 
-export async function runPocReleaseGate({ rootDir = root, runStage = runPocReleaseStage } = {}) {
+export async function runPocReleaseGate({
+  rootDir = root,
+  runStage = runPocReleaseStage,
+  artifactPackage = null,
+  artifactVsix = null
+} = {}) {
+  const artifactConsumer = artifactConsumerInputs({ artifactPackage, artifactVsix });
+  if (artifactConsumer) {
+    for (const [label, file] of Object.entries({ package: artifactPackage, VSIX: artifactVsix })) {
+      const info = lstatSync(file, { throwIfNoEntry: false });
+      if (!info?.isFile() || info.isSymbolicLink()) {
+        throw new Error(`Artifact-consumer ${label} is not an exact ordinary file: ${file}`);
+      }
+    }
+  }
   const machineState = mkdtempSync(path.join(os.tmpdir(), 'sflow-poc-release-gate-'));
   const environment = isolatedEnvironment(machineState);
-  const stages = pocReleaseStages({ rootDir });
+  const stages = pocReleaseStages({
+    rootDir,
+    artifactPackage: artifactConsumer?.packagePath,
+    artifactVsix: artifactConsumer?.vsixPath
+  });
   try {
     for (const [index, stage] of stages.entries()) {
       process.stdout.write(`\n[POC ${index + 1}/${stages.length}] ${stage.label}\n`);
@@ -279,17 +321,54 @@ export async function runPocReleaseGate({ rootDir = root, runStage = runPocRelea
   } finally {
     rmSync(machineState, { recursive: true, force: true });
   }
-  console.log([
+  console.log(artifactConsumer ? [
+    '',
+    'POC release gate passed in exact-artifact consumer mode. The supplied npm tarball was installed',
+    'and its command executed from an isolated prefix. The CLI engine from the supplied VSIX was',
+    'extracted and executed from an isolated directory without source-tree module access. No package,',
+    'VSIX, source bundle, or package inventory was rebuilt. This is not real VS Code host activation;',
+    'real-host and supported-platform receipts remain separate release evidence.'
+  ].join(' ') : [
     '',
     'POC release gate passed. The built extension bundle completed the governed POC lifecycle',
     'under an isolated stub host. The exact CLI engine extracted from the generated VSIX also ran',
     'from an isolated directory without source-tree module access. This does not prove real VS Code',
     'host activation. Real-host and supported-platform receipts remain separate release evidence.'
   ].join(' '));
+  return Object.freeze({
+    artifactConsumption: artifactConsumer ? 'passed' : 'not-requested',
+    stageCount: stages.length
+  });
+}
+
+export function parsePocReleaseArguments(values, { cwd = process.cwd() } = {}) {
+  const remaining = [...values];
+  const parsed = { artifactPackage: null, artifactVsix: null };
+  while (remaining.length) {
+    const name = remaining.shift();
+    const field = name === '--artifact-package'
+      ? 'artifactPackage'
+      : (name === '--artifact-vsix' ? 'artifactVsix' : null);
+    if (!field) throw new Error(`Unknown POC release-gate option '${name}'.`);
+    const value = remaining.shift();
+    if (!value || value.startsWith('--')) throw new Error(`${name} requires a path.`);
+    if (parsed[field]) throw new Error(`${name} was provided more than once.`);
+    parsed[field] = path.resolve(cwd, value);
+  }
+  // Apply the pair, extension, and absolute-path contract before any test process starts.
+  artifactConsumerInputs(parsed);
+  return Object.freeze(parsed);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === moduleFile) {
-  runPocReleaseGate().catch((error) => {
+  let invocation;
+  try {
+    invocation = parsePocReleaseArguments(process.argv.slice(2));
+  } catch (error) {
+    console.error(`\n${error.message}`);
+    process.exitCode = 1;
+  }
+  if (invocation) runPocReleaseGate(invocation).catch((error) => {
     console.error(`\n${error.message}`);
     process.exitCode = error.exitCode || 1;
   });

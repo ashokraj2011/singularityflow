@@ -95,6 +95,16 @@ test('a dirty packing tree is disclosed, because that build is not reproducible'
   assert.match(buildDescription({ commit: 'abcdef1234', dirty: true }), /dirty tree/);
 });
 
+test('build provenance uses the exported source date epoch', () => {
+  const facts = buildInfoFacts({ SOURCE_DATE_EPOCH: '946684800' });
+  assert.equal(facts.builtAt, '2000-01-01T00:00:00.000Z');
+  assert.equal(facts.branch, null, 'mutable checkout branch names must not change package bytes');
+  assert.throws(
+    () => buildInfoFacts({ SOURCE_DATE_EPOCH: 'not-an-epoch' }),
+    /SOURCE_DATE_EPOCH/
+  );
+});
+
 test('the no-Git reinstall packager stamps the validated source digest into the real tarball', async () => {
   const { temp, checkout } = await provenancePackageFixture('sflow-build-info-package-');
   const sourceSha256 = await reinstallSourceDigest(checkout);

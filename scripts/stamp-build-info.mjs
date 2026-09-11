@@ -20,6 +20,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { stampBuildInfo, stampBuildInfoFile } from '../src/build-info-stamp.mjs';
+import { resolveSourceDateEpoch } from './reproducible-build.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const target = path.join(root, 'src', 'build-info.mjs');
@@ -35,21 +36,24 @@ function git(...args) {
   return { ok: true, value: result.stdout.trim() };
 }
 
-export function buildInfoFacts() {
+export function buildInfoFacts(environment = process.env, options = {}) {
   const commitResult = git('rev-parse', 'HEAD');
   const commit = commitResult.ok && commitResult.value ? commitResult.value : null;
-  const status = commit ? git('status', '--porcelain') : { ok: false, value: null };
-  const branch = commit ? git('rev-parse', '--abbrev-ref', 'HEAD') : { ok: false, value: null };
+  const status = commit
+    ? git('status', '--porcelain=v1', '--untracked-files=all')
+    : { ok: false, value: null };
   return {
     commit,
     /** Reinstall uses a content digest instead because it deliberately executes no Git command. */
     sourceSha256: null,
-    branch: branch.ok && branch.value ? branch.value : null,
+    // Branch names are mutable and checkout-specific. The immutable commit is the package subject,
+    // so two clean checkouts of that commit must stamp identical provenance bytes.
+    branch: null,
     // `--porcelain` is empty exactly when the tree is clean. Untracked files count: they can be
     // imported by the build even though Git is not tracking them. A failed read is unknown, not
     // clean, so it is represented as null.
     dirty: status.ok ? Boolean(status.value) : null,
-    builtAt: new Date().toISOString()
+    builtAt: new Date(Number(resolveSourceDateEpoch(root, environment, options)) * 1_000).toISOString()
   };
 }
 

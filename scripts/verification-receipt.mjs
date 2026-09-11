@@ -4,16 +4,17 @@
  *
  * Usage:
  *   node scripts/verification-receipt.mjs --signing-key <private.pem>
- *     --platform-evidence <reviewed-evidence.json> [--identity <reviewer>] [--out <receipt.json>]
+ *     --platform-evidence <reviewed-evidence.json>
+ *     --artifact-receipt <receipt.json> --artifact-key <builder-public.pem>
+ *     --package <release.tgz> --vsix <release.vsix>
+ *     [--identity <reviewer>] [--out <receipt.json>]
  *
  * Physical host evidence is collected outside this script. Requiring it as an explicit input keeps
  * a source-level or simulated test from being mislabeled as real VS Code, installer, network, MCP,
  * or Windows execution evidence.
  */
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,7 +24,14 @@ import {
   validateReleasePlatformEvidence
 } from '../src/verification-receipt.mjs';
 import { resolvePlatformProcess } from '../src/platform-process.mjs';
+import {
+  createVerifiedReleaseArtifactSnapshot, verifyReleaseArtifactReceipt
+} from '../src/release-artifact-receipt.mjs';
 import { validateWelBenchmarkEvidence } from '../src/wel-benchmark-evidence.mjs';
+import { readSecurePrivateKey, readSecurePublicKey } from '../src/secure-private-key.mjs';
+import {
+  readStableReleaseJson, writeReleaseJsonNoClobber
+} from '../src/secure-release-files.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -33,6 +41,10 @@ function option(name) {
 }
 const signingKey = option('--signing-key');
 const platformEvidenceOption = option('--platform-evidence');
+const artifactReceiptOption = option('--artifact-receipt');
+const artifactKeyOption = option('--artifact-key');
+const packageOption = option('--package');
+const vsixOption = option('--vsix');
 const defaultOutput = spawnSync(
   'git', ['rev-parse', '--path-format=absolute', '--git-path', 'singularity-flow/verification-receipt.json'],
   { cwd: root, encoding: 'utf8' }
@@ -62,17 +74,23 @@ function run(command, commandArgs, { releaseTests = false, environment = {} } = 
   return result.stdout ?? '';
 }
 
-async function runReleaseGateAndCollectWelBenchmark() {
+async function runReleaseGateAndCollectWelBenchmark({ packagePath, vsixPath }) {
   const evidenceDirectory = await mkdtemp(path.join(os.tmpdir(), 'sflow-wel-release-evidence-'));
   const benchmarkPath = path.join(evidenceDirectory, 'wel-benchmark.json');
   try {
-    run('npm', ['run', 'poc:release-gate'], {
+    run('npm', [
+      'run', 'poc:release-gate', '--',
+      '--artifact-package', packagePath,
+      '--artifact-vsix', vsixPath
+    ], {
       releaseTests: true,
       environment: { SINGULARITY_FLOW_WEL_BENCHMARK_OUT: benchmarkPath }
     });
     let report;
     try {
-      report = JSON.parse(await readFile(benchmarkPath, 'utf8'));
+      report = (await readStableReleaseJson(benchmarkPath, {
+        label: 'WEL benchmark evidence', maxBytes: 8 * 1024 * 1024
+      })).value;
     } catch (error) {
       throw new Error(`POC release gate did not retain valid WEL benchmark evidence: ${error.message}`);
     }
@@ -86,14 +104,19 @@ async function runReleaseGateAndCollectWelBenchmark() {
   }
 }
 
-function digest(file) { return readFile(file).then((bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`); }
 function count(outputText, expression) {
   const match = [...outputText.matchAll(expression)].at(-1);
   return match ? Number(match[1]) : null;
 }
 
 async function main() {
-  if (!signingKey || !existsSync(signingKey)) throw new Error('Provide an Ed25519 private key with --signing-key <path>.');
+  if (!signingKey) throw new Error('Provide an Ed25519 private key with --signing-key <path>.');
+  if (!artifactReceiptOption || !artifactKeyOption || !packageOption || !vsixOption) {
+    throw new Error(
+      'Provide the immutable build output with --artifact-receipt <path> --artifact-key '
+      + '<trusted-builder-public.pem> --package <path> --vsix <path>. Verification cells never rebuild artifacts.'
+    );
+  }
   if (!platformEvidenceOption) {
     throw new Error(
       'Provide reviewed physical evidence with --platform-evidence <json-path>. '
@@ -101,20 +124,45 @@ async function main() {
     );
   }
   const platformEvidencePath = path.resolve(root, platformEvidenceOption);
-  if (!existsSync(platformEvidencePath)) throw new Error(`Platform evidence does not exist: ${platformEvidencePath}`);
-  let platformEvidenceInput;
-  try {
-    platformEvidenceInput = JSON.parse(await readFile(platformEvidencePath, 'utf8'));
-  } catch (error) {
-    throw new Error(`Platform evidence is not valid JSON: ${error.message}`);
-  }
+  const platformEvidenceInput = (await readStableReleaseJson(platformEvidencePath, {
+    label: 'Platform evidence', maxBytes: 1024 * 1024
+  })).value;
   const baseline = assertReleaseCheckoutClean(root, { label: 'Verification start' });
   const { commit, tree } = baseline;
+  const signingAuthority = await readSecurePrivateKey(signingKey, {
+    repository: root, label: 'Verification signing key'
+  });
+  if (output === signingAuthority.path) {
+    throw new Error('Verification receipt output must not overwrite its signing key.');
+  }
+  const artifactReceiptPath = path.resolve(root, artifactReceiptOption);
+  const artifactKeyPath = path.resolve(root, artifactKeyOption);
+  const sourcePackagePath = path.resolve(root, packageOption);
+  const sourceVsixPath = path.resolve(root, vsixOption);
+  const artifactReceipt = (await readStableReleaseJson(artifactReceiptPath, {
+    label: 'Release artifact receipt', maxBytes: 1024 * 1024
+  })).value;
+  const artifactKey = (await readSecurePublicKey(artifactKeyPath, {
+    repository: root, label: 'Trusted artifact-builder public key'
+  })).bytes;
+  const artifactSnapshot = await createVerifiedReleaseArtifactSnapshot(artifactReceipt, {
+    trustedPublicKeyPem: artifactKey,
+    expectedCommit: commit,
+    expectedTree: tree,
+    packagePath: sourcePackagePath,
+    vsixPath: sourceVsixPath
+  });
+  try {
+  const packagePath = artifactSnapshot.packagePath;
+  const vsixPath = artifactSnapshot.vsixPath;
+  const artifactAuthority = artifactSnapshot;
   validateReleasePlatformEvidence(platformEvidenceInput, {
     platform: process.platform,
     nodeVersion: process.versions.node,
     commit,
     tree,
+    packageSha256: artifactAuthority.packageSha256,
+    vsixSha256: artifactAuthority.vsixSha256,
     reviewerIdentity: identity,
     requireSgosEndToEnd: true
   });
@@ -122,39 +170,42 @@ async function main() {
   const checkOutput = run('npm', ['run', 'check']);
   const testOutput = run('npm', ['test'], { releaseTests: true });
   const npmTest = parseReleaseTestSummary(testOutput);
-  const welBenchmark = await runReleaseGateAndCollectWelBenchmark();
-  run('npm', ['run', 'vscode:package']);
+  const welBenchmark = await runReleaseGateAndCollectWelBenchmark({ packagePath, vsixPath });
   assertReleaseCheckoutClean(root, {
-    expectedCommit: commit, expectedTree: tree, label: 'Verification pre-pack check'
+    expectedCommit: commit, expectedTree: tree, label: 'Verification post-test check'
   });
-  const packed = JSON.parse(run('npm', ['pack', '--json']));
-  const packageFile = path.join(root, packed[0].filename);
-  const extensionManifest = JSON.parse(await readFile(path.join(root, 'apps', 'vscode', 'package.json'), 'utf8'));
-  const vsixFile = path.join(
-    root, 'apps', 'vscode', `${extensionManifest.name}-${extensionManifest.version}.vsix`
-  );
-  if (!existsSync(vsixFile)) throw new Error(`VSIX packaging did not produce ${vsixFile}.`);
-  assertReleaseCheckoutClean(root, {
-    expectedCommit: commit, expectedTree: tree, label: 'Verification packaged-artifact check'
+  const finalArtifactAuthority = await verifyReleaseArtifactReceipt(artifactReceipt, {
+    trustedPublicKeyPem: artifactKey,
+    expectedCommit: commit,
+    expectedTree: tree,
+    packagePath,
+    vsixPath
+  });
+  // A mutation of the handoff files cannot affect executed bytes because the smokes used the
+  // private snapshot. Still refuse it so operators do not retain a changed artifact pair.
+  await verifyReleaseArtifactReceipt(artifactReceipt, {
+    trustedPublicKeyPem: artifactKey,
+    expectedCommit: commit,
+    expectedTree: tree,
+    packagePath: sourcePackagePath,
+    vsixPath: sourceVsixPath
   });
   const checkCount = count(checkOutput, /(\d+) checks passed/g);
   if (!Number.isInteger(checkCount) || checkCount < 1) {
     throw new Error('Could not extract the passing governance-check count; no receipt was written.');
   }
-  const packageSha256 = await digest(packageFile);
-  const vsixSha256 = await digest(vsixFile);
   const platformEvidence = validateReleasePlatformEvidence(platformEvidenceInput, {
     platform: process.platform,
     nodeVersion: process.versions.node,
     commit,
     tree,
-    packageSha256,
-    vsixSha256,
+    packageSha256: finalArtifactAuthority.packageSha256,
+    vsixSha256: finalArtifactAuthority.vsixSha256,
     reviewerIdentity: identity,
     requireSgosEndToEnd: true
   });
   const receipt = signVerificationReceipt({
-    schemaVersion: 5, // schema-transient: externally signed release receipt, not a migration-registry record
+    schemaVersion: 6, // schema-transient: externally signed release receipt, not a migration-registry record
     generatedAt: new Date().toISOString(),
     commit,
     tree,
@@ -165,19 +216,26 @@ async function main() {
     pocReleaseGate: 'passed',
     platforms: [process.platform],
     nodeVersions: [process.versions.node],
-    vscodeBuild: 'passed',
-    packageSha256,
-    vsixSha256,
+    artifactConsumption: 'passed',
+    artifactAuthority: {
+      payloadSha256: finalArtifactAuthority.payloadSha256,
+      signerKeySha256: finalArtifactAuthority.signerKeySha256,
+      builderIdentity: finalArtifactAuthority.builderIdentity
+    },
+    packageSha256: finalArtifactAuthority.packageSha256,
+    vsixSha256: finalArtifactAuthority.vsixSha256,
     welBenchmark: welBenchmark.evidence,
     welBenchmarkSha256: welBenchmark.evidenceSha256,
     platformEvidence: platformEvidence.evidence,
     platformEvidenceSha256: platformEvidence.evidenceSha256
-  }, await readFile(signingKey), identity);
+  }, signingAuthority.bytes, identity);
   await mkdir(path.dirname(output), { recursive: true, mode: 0o700 });
-  await writeFile(output, `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600 });
-  await rm(packageFile, { force: true });
+  await writeReleaseJsonNoClobber(output, receipt);
   console.log(`\nSigned verification receipt: ${output}`);
-  console.log(`Verified VSIX retained for exact promotion: ${vsixFile}`);
+  console.log(`Verified immutable artifact receipt: ${artifactReceiptPath}`);
+  } finally {
+    await rm(artifactSnapshot.snapshotDirectory, { recursive: true, force: true });
+  }
 }
 
 main().catch((error) => { console.error(`\nVerification failed: ${error.message}`); process.exitCode = 1; });

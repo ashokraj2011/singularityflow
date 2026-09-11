@@ -89,24 +89,75 @@ test('release test summary requires every explicit zero-outcome counter', () => 
   }
 });
 
-test('release and receipt scripts recheck the exact checkout around packaging and signing', async () => {
-  const [release, receipt] = await Promise.all([
+test('artifacts build once while platform verification and promotion consume exact bytes', async () => {
+  const [release, receipt, mergedReceipt, builder, vsixSmoke, gitignore] = await Promise.all([
     readFile(path.join(root, 'scripts/release.mjs'), 'utf8'),
-    readFile(path.join(root, 'scripts/verification-receipt.mjs'), 'utf8')
+    readFile(path.join(root, 'scripts/verification-receipt.mjs'), 'utf8'),
+    readFile(path.join(root, 'scripts/merge-verification-receipts.mjs'), 'utf8'),
+    readFile(path.join(root, 'scripts/build-release-artifacts.mjs'), 'utf8'),
+    readFile(path.join(root, 'scripts/packaged-vsix-engine-smoke.mjs'), 'utf8'),
+    readFile(path.join(root, '.gitignore'), 'utf8')
   ]);
-  assert.ok((release.match(/assertReleaseCheckoutClean\(/g) ?? []).length >= 4,
-    'release must check at start, before packing, and after both package surfaces');
-  assert.ok(release.indexOf("label: 'Release pre-pack check'") < release.indexOf("must('npm', ['pack', '--json']"));
-  assert.ok(release.indexOf("label: 'Release npm-package check'") > release.indexOf("must('npm', ['pack', '--json']"));
-  assert.ok(release.indexOf("label: 'Release VSIX-package check'") > release.indexOf("'--package'"));
+  assert.ok(release.indexOf('recoverReleaseDirectoryPromotion(dist)')
+      < release.indexOf('assertReleaseCheckoutClean(root'),
+  'interrupted dist recovery must run before clean-tree admission can observe its journal');
+  for (const reserved of [
+    '/.dist-candidate-*/', '/.dist.release-previous/', '/.dist.release-promotion.json'
+  ]) assert.match(gitignore, new RegExp(reserved.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.ok((release.match(/assertReleaseCheckoutClean\(/g) ?? []).length >= 2,
+    'promotion must check the source before and after exact artifact consumption');
+  assert.match(release, /verifyReleaseArtifactReceipt\(/);
+  assert.match(release, /createVerifiedReleaseArtifactSnapshot\(/,
+    'promotion must execute and copy only private descriptor-verified snapshots');
+  assert.match(release, /promoteReleaseDirectory\(candidateDist, dist\)/,
+    'promotion must publish its complete candidate through the crash-recoverable swap journal');
+  assert.match(receipt, /createVerifiedReleaseArtifactSnapshot\(/,
+    'platform verification must execute only private descriptor-verified snapshots');
+  assert.ok((release.match(/readStableReleaseJson\(/g) ?? []).length >= 2,
+    'promotion must read signed handoff JSON through bounded no-follow descriptors');
+  assert.ok((receipt.match(/readStableReleaseJson\(/g) ?? []).length >= 3,
+    'platform verification must read handoff evidence through bounded no-follow descriptors');
+  assert.ok((mergedReceipt.match(/readStableReleaseJson\(/g) ?? []).length >= 2,
+    'matrix merge must read every signed handoff through bounded no-follow descriptors');
+  assert.match(receipt, /writeReleaseJsonNoClobber\(output, receipt\)/,
+    'a platform receipt must publish complete bytes through an atomic no-clobber claim');
+  assert.match(mergedReceipt, /writeReleaseJsonNoClobber\(output, aggregate\)/,
+    'a matrix receipt must publish complete bytes through an atomic no-clobber claim');
+  assert.doesNotMatch(release, /must\('npm', \['pack'/,
+    'promotion must never repackage the npm artifact');
+  assert.doesNotMatch(release, /vscode-dev\.mjs[^\n]*--package/,
+    'promotion must never rebuild the VSIX');
 
-  assert.ok((receipt.match(/assertReleaseCheckoutClean\(/g) ?? []).length >= 3,
-    'signed evidence must check at start, immediately before pack, and after packaging');
+  assert.ok((receipt.match(/verifyReleaseArtifactReceipt\(/g) ?? []).length >= 2,
+    'a platform cell must verify the immutable pair before and after its tests');
+  assert.doesNotMatch(receipt, /run\('npm', \['pack'/,
+    'platform verification must never repackage the npm artifact');
+  assert.doesNotMatch(receipt, /vscode:package/,
+    'platform verification must never rebuild the VSIX');
+  assert.match(builder, /materializeExactHead\(/,
+    'the one artifact builder must materialize exact Git blobs');
+  assert.equal((builder.match(/'pack', '--ignore-scripts'/g) ?? []).length, 1,
+    'the canonical builder contains one npm pack operation');
+  assert.match(builder, /packer\.entry, 'ci',[\s\S]*?'--omit=dev'/,
+    'the canonical builder must materialize the locked production closure before packing');
+  assert.match(builder, /new Set\(pack\.bundled \?\? \[\]\)/,
+    'the canonical builder must prove every declared bundle entered the tarball');
+  assert.equal((builder.match(/'--package'/g) ?? []).length, 1,
+    'the canonical builder contains one VSIX package operation');
+  assert.match(builder, /SINGULARITY_FLOW_PACKAGING_NPM_CLI: packer\.entry/,
+    'the VSIX builder must consume the same private exact npm toolchain');
+  assert.doesNotMatch(builder, /worktree', 'prune'/,
+    'artifact cleanup must not mutate unrelated stale-worktree metadata');
+  assert.match(builder, /new TextDecoder\('utf-8', \{ fatal: true \}\)/,
+    'exact tree paths must reject invalid UTF-8 rather than replacing bytes');
+  assert.ok(vsixSmoke.indexOf('opened.size > MAX_VSIX_BYTES') < vsixSmoke.indexOf('handle.readFile()'),
+    'the standalone VSIX smoke must fstat and bound the opened descriptor before allocating its bytes');
+
   assert.match(receipt, /const npmTest = parseReleaseTestSummary\(testOutput\)/);
   assert.match(receipt, /--platform-evidence/,
     'a signed receipt must require separately reviewed physical platform evidence');
   assert.ok((receipt.match(/validateReleasePlatformEvidence\(/g) ?? []).length >= 2,
-    'physical evidence must be checked before execution and rebound to the produced artifact digests');
+    'physical evidence must be checked before execution and rebound to the consumed artifact digests');
   assert.ok((receipt.match(/requireSgosEndToEnd: true/g) ?? []).length >= 2,
     'new signed release evidence must bind SGOS end-to-end journeys before and after packaging');
   assert.match(release, /requireSgosEndToEnd: true/,

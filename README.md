@@ -16,9 +16,11 @@ untouched — it builds a throwaway one, takes a work item through every governe
 step, and removes it. It is the fastest way to see what the rest of this document
 describes.
 
-Before a POC demo or release candidate, run `npm run poc:release-gate`. It packages the actual VS
-Code extension and proves the seeded POC workflow against a throwaway real Git remote, independent
-reviewer, native Copilot handoff, and restart recovery without invoking a model. See
+Before a POC demo, run `npm run poc:release-gate`. It builds diagnostic local artifacts and proves
+the seeded POC workflow against a throwaway real Git remote, independent reviewer, native Copilot
+handoff, and restart recovery without invoking a model. It is not release authority; a release
+candidate uses the retained build-once artifact pair and signed physical-host matrix described in
+[`docs/RELEASE-ARTIFACT-HANDOFF.md`](docs/RELEASE-ARTIFACT-HANDOFF.md). See
 [the verification checklist](./VERIFICATION.md) for the evidence boundary and the
 [Playwright POC runbook](./docs/PLAYWRIGHT-POC-RUNBOOK.md) for real-machine host setup, authorized
 target smoke testing, evidence capture, and day-of-demo rehearsal.
@@ -1204,11 +1206,14 @@ requested workspace configuration refresh, recovery leaves that separate Git ope
 pending and prints its command. Successful activation does not delete the retained version set;
 the deliberate machine reset boundary removes the installation store.
 
-The VSCE packaging toolchain is installed once and cached, content-addressed by its pins, the npm
-registry, and the Node major, under `~/.singularity-flow/toolchains/vsce/`. Every later install
-verifies the cached tree against the pin table and reuses it — the step that used to re-download
-the toolchain on each run now takes seconds. `./install.sh --refresh-vsce-toolchain` forces a
-reinstall of the toolchain; each step of the installer prints its own elapsed time.
+The VSCE packaging toolchain is installed once and cached from its committed lock, content-addressed
+by that lock, the npm registry, Node major, platform, architecture, and sealed physical tree, under
+`~/.singularity-flow/toolchains/vsce/`. Every later install verifies the complete cached tree and
+reuses it — the step that used to re-download the toolchain on each run now takes seconds.
+`./install.sh --refresh-vsce-toolchain` forces a verified reinstall. Published generations are
+immutable and retained because another installer may still be using them; cleanup is deliberately
+manual rather than an unsafe automatic deletion. Each step of the installer prints its own elapsed
+time.
 
 A normal install also checks the repository selected by the active workspace. If the new package
 contains workflows that repository does not have yet, the installer adds only those missing
@@ -1370,7 +1375,13 @@ before retrying the same verified candidate. If any restoration cannot be verifi
 success or guessing from version labels. Post-install PATH or version mismatches use this same recovery
 path and cannot leave an unexplained `activating` record.
 
-The script refuses a checkout with uncommitted changes and never resets, rebases, or force-pushes. It keeps the generated `singularity-flow-<version>.tgz` in the repository root for distribution and prints the installed CLI and Copilot plugin versions. Fully exit any running Copilot CLI process, then open a new terminal and start Copilot from the repository after installation; environment variables cannot be injected into a process that was already running.
+The script refuses a checkout with uncommitted changes and never resets, rebases, or force-pushes.
+It keeps the generated `singularity-flow-<version>.tgz` in the repository root for local recovery or
+reinstallation and prints the installed CLI and Copilot plugin versions. That source-install tarball
+is not a promotable release artifact; corporate distribution uses the retained, signed build-once
+pair. Fully exit any running Copilot CLI process, then open a new terminal and start Copilot from the
+repository after installation; environment variables cannot be injected into a process that was
+already running.
 
 `--factory-reset` is the deliberate exception to the installer's normal
 non-destructive behavior. Without `--yes` it is preview-only. With `--yes`, it

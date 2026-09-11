@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "be11056ae4604624730149b830aede17d6cd18cf",
+  "sourceCommit": "4f9bb1e5f70e09836753035cb513bd524d27bc50",
   "topicCount": 64,
-  "contentSha256": "85c95e1a5866fa8da3b7aa7975087921ff2a0e52e7e2180304791b1207da07af",
+  "contentSha256": "c8db386d4411a6e5190a42fb48ab634b8b256b0569047bfb98e5912f3dcfc419",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -72,8 +72,8 @@
     {
       "id": "calm-architecture",
       "title": "Deterministic CALM architecture projection",
-      "version": 1,
-      "sha256": "e82839400e9df32b7458b40b72a937b08dee8992003962cae0769927632abfc9",
+      "version": 2,
+      "sha256": "cab69d9ed8f1393a539d5e1735be5c99225f0b7587289ae4181831c6f4f0ba15",
       "routingSha256": "a328fc6710beee4193b1202bb5acdaabf252f5d808396604f61f01aa56363c55",
       "file": "calm-architecture.md"
     },

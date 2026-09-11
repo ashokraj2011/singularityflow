@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { publishToStateBranch } from '../../ledger.mjs';
+import { loadDefinition } from '../../config.mjs';
 import { readRecord } from '../../schema-migrations.mjs';
 import { secureRepositoryPath, SingularityFlowError } from '../../util.mjs';
 import { canonicalJson, isPlainRecord, sha256 } from '../canonicalize.mjs';
@@ -23,6 +24,10 @@ import { validateProjectionRegistry } from '../registry/projections.mjs';
 import {
   buildCalmProjection, enforceProjectionBudgets, validateCalmProjectionCandidate
 } from '../projections/calm/projection.mjs';
+import { validateCalmWithOfficialToolchain } from '../projections/calm/validator.mjs';
+import {
+  assertArchitectureProjectionAuthoritySnapshots, resolveCurrentArchitectureProjectionInputs
+} from '../projections/calm/authority.mjs';
 import {
   validateWorldModelContextManifest, validateWorldModelUsageObservation
 } from '../store.mjs';
@@ -335,11 +340,21 @@ function validateStagedProjections(files, outputDir, manifest, records) {
       )?.profile?.includeGovernanceActors !== false,
       includeControls: buildRequest.requestedProjections?.find(
         (value) => value.projectionId === entry.projectionId
-      )?.profile?.includeControls !== false
+      )?.profile?.includeControls !== false,
+      includeFlows: buildRequest.requestedProjections?.find(
+        (value) => value.projectionId === entry.projectionId
+      )?.profile?.includeFlows !== false,
+      includeExternalDependencies: buildRequest.requestedProjections?.find(
+        (value) => value.projectionId === entry.projectionId
+      )?.profile?.includeExternalDependencies ?? 'direct-architecture-only'
     });
     const requested = buildRequest.requestedProjections?.find(
       (value) => value.projectionId === entry.projectionId
     );
+    if (requested?.validation
+        && receipt.validation?.strict !== requested.validation.strict) {
+      incomplete(`Projection '${entry.projectionId}' validation receipt does not bind its strictness policy.`);
+    }
     enforceProjectionBudgets(rebuilt.projection, requested?.budgets ?? {});
     if (canonicalJson(rebuilt.factSet) !== canonicalJson(factSet)
         || rebuilt.projectionBytes !== raw
@@ -599,6 +614,25 @@ export async function validateStagedProjectionAuthorityAgainstSource(root, publi
       );
     }
   }
+  for (const projection of verified.projections.filter((entry) => entry.status === 'available')) {
+    const repeated = await validateCalmWithOfficialToolchain(projection.projection, {
+      strict: projection.receipt.validation?.strict !== false
+    });
+    if (repeated.toolchainLock.lockSha256 !== projection.receipt.validation.toolchainLockSha256
+        || repeated.normalizedResultSha256
+          !== projection.receipt.validation.normalizedResultSha256) {
+      incomplete(`Projection '${projection.projectionId}' validation cannot be reproduced at publication.`);
+    }
+  }
+  const current = await resolveCurrentArchitectureProjectionInputs(root, await loadDefinition(root));
+  assertArchitectureProjectionAuthoritySnapshots({
+    capabilitySnapshot: canonicalRecord(
+      verified.files, verified.outputDir, 'inputs/capability-snapshot.json'
+    ),
+    configurationSnapshot: canonicalRecord(
+      verified.files, verified.outputDir, 'inputs/configuration-snapshot.json'
+    )
+  }, current);
   return verified;
 }
 

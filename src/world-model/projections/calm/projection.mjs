@@ -35,9 +35,15 @@ function exactHash(value, label) {
 function text(value, fallback = '') {
   const result = String(value ?? fallback)
     .replace(/[\u0000-\u001f\u007f]/gu, ' ')
-    .replace(/https?:\/\/[^\s/]+@[^\s]+/giu, '[credentialed-url-omitted]')
+    .replace(/https?:\/\/[^\s/@]+(?::[^\s/@]*)?@[^\s]+/giu, '[credentialed-url-omitted]')
     .replace(/https?:\/\/[^\s?]+\?[^\s]*(?:token|secret|password|api[_-]?key)=[^\s&]+[^\s]*/giu,
       '[credentialed-url-omitted]')
+    .replace(/\b(token|secret|password|passphrase|api[_-]?key|access[_-]?key)\s*[:=]\s*["']?[^\s,;"']+/giu,
+      '$1=[redacted]')
+    .replace(/(^|[\s('"`])\/(?:Users|home|private|var\/folders|tmp)\/[^\s)'"`,;]+/giu,
+      '$1[local-path-omitted]')
+    .replace(/\b[A-Za-z]:[\\/](?:Users|Documents and Settings|Temp)[\\/][^\s)'"`,;]+/giu,
+      '[local-path-omitted]')
     .trim();
   return result;
 }
@@ -174,7 +180,8 @@ function parseClaim(claim) {
 
 export function createArchitectureFactSet({
   subject, sourceManifestSha256, scopeSha256, factLedger, capabilitySnapshot,
-  configurationSnapshot, includeGovernanceActors = true, includeControls = true
+  configurationSnapshot, includeGovernanceActors = true, includeControls = true,
+  includeFlows = true, includeExternalDependencies = 'direct-architecture-only'
 }) {
   const sourceHash = exactHash(sourceManifestSha256, 'Source manifest digest');
   const scopeHash = exactHash(scopeSha256, 'Scope digest');
@@ -185,11 +192,13 @@ export function createArchitectureFactSet({
   const interfaces = [];
   const relationships = [];
   const controls = [];
+  const flows = [];
   const unavailable = [];
   const contradictions = [];
   const nodeIds = new Set();
   const interfaceById = new Map();
   const contradictedInterfaceIds = new Set();
+  const pendingFlows = [];
   const capabilityById = new Map(capabilitySnapshot.capabilities.map((item) => [item.id, item]));
   const addNode = (record) => {
     if (nodeIds.has(record.id)) fail(`Architecture element id '${record.id}' collides.`, 'WMC_ELEMENT_ID_COLLISION');
@@ -262,6 +271,20 @@ export function createArchitectureFactSet({
       continue;
     }
     const claim = parseClaim(fact.claim);
+    if (includeExternalDependencies !== 'off'
+        && ['import-dependency', 'consumer-dependency'].includes(fact.factType)
+        && claim?.external === true && claim?.source && claim?.destination
+        && nodeIds.has(claim.source) && !nodeIds.has(claim.destination)) {
+      const destination = safeId(claim.destination, 'External dependency id');
+      addNode({
+        id: destination, nodeType: 'system', name: text(claim.name, destination),
+        description: text(claim.description, `External dependency ${destination}.`),
+        layer: 'external', status: 'observed-only', repositories: [],
+        sources: [sourceRef('world-model-fact', fact.factSha256, {
+          assurance: fact.assurance, factId: fact.id, evidenceIds: clone(fact.evidenceIds ?? [])
+        })]
+      });
+    }
     if (['interface', 'schema-contract', 'protocol-field'].includes(fact.factType) && claim?.node && claim?.id
         && nodeIds.has(claim.node)) {
       const interfaceId = safeId(claim.id, 'Interface id');
@@ -316,6 +339,45 @@ export function createArchitectureFactSet({
         declared: false, observed: true, sources: [observedSource]
       });
     }
+    if (includeFlows && fact.factType === 'runtime-guarantee' && claim?.architectureFlow) {
+      pendingFlows.push({ fact, supplied: claim.architectureFlow });
+    }
+  }
+  const knownRelationships = new Set(relationships.map((entry) => entry.id));
+  for (const { fact, supplied } of pendingFlows) {
+    const flowId = safeId(supplied.id, 'Flow id');
+    const transitions = Array.isArray(supplied.transitions) ? supplied.transitions : [];
+    if (!transitions.length || transitions.some((transition) =>
+      !knownRelationships.has(transition.relationshipId)
+      || !Number.isSafeInteger(transition.sequence) || transition.sequence < 1)) {
+      unavailable.push({
+        subject: `flow:${flowId}`, factId: fact.id,
+        reason: 'ordered-transition-evidence-invalid'
+      });
+      continue;
+    }
+    const orderedTransitions = [...transitions].sort((left, right) =>
+      left.sequence - right.sequence || compareText(left.relationshipId, right.relationshipId));
+    if (orderedTransitions.some((transition, index) => transition.sequence !== index + 1)) {
+      unavailable.push({
+        subject: `flow:${flowId}`, factId: fact.id,
+        reason: 'ordered-transition-sequence-incomplete'
+      });
+      continue;
+    }
+    flows.push({
+      id: flowId, name: text(supplied.name, flowId),
+      description: text(supplied.description, `Observed architecture flow ${flowId}.`),
+      transitions: orderedTransitions.map((transition) => ({
+        relationshipId: transition.relationshipId, sequence: transition.sequence,
+        description: text(transition.description, `Transition ${transition.sequence}.`),
+        direction: transition.direction === 'destination-to-source'
+          ? 'destination-to-source' : 'source-to-destination'
+      })),
+      sources: [sourceRef('world-model-fact', fact.factSha256, {
+        assurance: fact.assurance, factId: fact.id, evidenceIds: clone(fact.evidenceIds ?? [])
+      })]
+    });
   }
   if (includeControls && configurationSnapshot.protectedPaths.length) {
     controls.push({
@@ -351,7 +413,9 @@ export function createArchitectureFactSet({
     controls: ordered(controls, (entry) => entry.id).map((entry) => ({
       ...entry, sources: orderedSources(entry.sources)
     })),
-    flows: [], unavailable: ordered(unavailable, (entry) => `${entry.subject}/${entry.factId ?? ''}`),
+    flows: ordered(flows, (entry) => entry.id).map((entry) => ({
+      ...entry, sources: orderedSources(entry.sources)
+    })), unavailable: ordered(unavailable, (entry) => `${entry.subject}/${entry.factId ?? ''}`),
     contradictions: ordered(contradictions, (entry) => `${entry.subject}/${entry.factId ?? ''}`)
   }, 'factSetSha256');
 }
@@ -405,6 +469,19 @@ export function renderCalmProjection(factSet, {
       }
     }]
   }]));
+  const flows = factSet.flows.map((flow) => ({
+    'unique-id': flow.id, name: flow.name, description: flow.description,
+    transitions: flow.transitions.map((transition) => ({
+      'relationship-unique-id': transition.relationshipId,
+      'sequence-number': transition.sequence,
+      description: transition.description,
+      direction: transition.direction
+    })),
+    metadata: { sflow: {
+      status: 'observed-only',
+      sourceFactIds: flow.sources.map((source) => source.factId).filter(Boolean)
+    } }
+  }));
   const projection = {
     $schema: CALM_SCHEMA_URI,
     $id: `urn:singularity-flow:world-model:${factSet.subject.id}:arch.calm:${factSet.inputs.sourceManifestSha256.slice(7)}`,
@@ -415,7 +492,7 @@ export function renderCalmProjection(factSet, {
       projectionContractSha256: projectionContract.contractSha256,
       mapperSha256: sha256('sflow-calm-projection:v1')
     } },
-    nodes, relationships, controls, flows: [], adrs: []
+    nodes, relationships, controls, flows, adrs: []
   };
   enforceProjectionBudgets(projection, projectionContract.budgets);
   validateCalmProjection(projection);
@@ -436,7 +513,8 @@ export function renderCalmProjection(factSet, {
           },
       sources: clone(item.sources)
     })),
-    ...factSet.controls.map((item) => ({ elementId: item.id, elementKind: 'control', status: 'confirmed', sources: clone(item.sources) }))
+    ...factSet.controls.map((item) => ({ elementId: item.id, elementKind: 'control', status: 'confirmed', sources: clone(item.sources) })),
+    ...factSet.flows.map((item) => ({ elementId: item.id, elementKind: 'flow', status: 'observed-only', sources: clone(item.sources) }))
   ].map((entry) => ({ ...entry, sources: orderedSources(entry.sources) }))
     .sort((left, right) => compareText(
       `${left.elementKind}/${left.elementId}`, `${right.elementKind}/${right.elementId}`
@@ -483,8 +561,10 @@ export function validateCalmProjection(projection) {
     }
     interfacesByNode.set(nodeId, ownedInterfaces);
   }
+  const relationshipIds = new Set();
   for (const relationship of projection.relationships) {
-    claimElementId(relationship['unique-id'], 'relationship');
+    const relationshipId = claimElementId(relationship['unique-id'], 'relationship');
+    relationshipIds.add(relationshipId);
     const type = relationship['relationship-type'];
     if (type?.['composed-of']) {
       if (!nodeIds.has(type['composed-of'].container)
@@ -509,7 +589,16 @@ export function validateCalmProjection(projection) {
     } else fail(`CALM relationship '${relationship['unique-id']}' has no supported type.`, 'WMC_CALM_SCHEMA_INVALID');
   }
   for (const controlId of Object.keys(projection.controls)) claimElementId(controlId, 'control');
-  for (const flow of projection.flows) claimElementId(flow?.['unique-id'], 'flow');
+  for (const flow of projection.flows) {
+    claimElementId(flow?.['unique-id'], 'flow');
+    if (!Array.isArray(flow.transitions) || !flow.transitions.length
+        || flow.transitions.some((transition, index) =>
+          transition['sequence-number'] !== index + 1
+          || !relationshipIds.has(transition['relationship-unique-id']))) {
+      fail(`CALM flow '${flow?.['unique-id']}' does not bind an ordered sequence of known relationships.`,
+        'WMC_CALM_SCHEMA_INVALID');
+    }
+  }
   return { status: 'passed' };
 }
 
@@ -554,7 +643,8 @@ export async function validateCalmProjectionCandidate(candidate, options = {}) {
       bytes: Buffer.byteLength(candidate.projectionBytes), sourceMapSha256: candidate.sourceMap.sourceMapSha256
     },
     validation: {
-      status: 'passed', toolchainLockSha256: validationResult.toolchainLock.lockSha256,
+      status: 'passed', strict: validationResult.strict,
+      toolchainLockSha256: validationResult.toolchainLock.lockSha256,
       normalizedResultSha256: validationResult.normalizedResultSha256
     }
   }, 'receiptSha256');
@@ -741,14 +831,37 @@ function architectureSourceReference(source) {
   return `${source.sourceKind}:${identity}@${source.sourceSha256}`;
 }
 
-export function verifyArchitectureIntent({ intent, baseAfter, baseAfterSha256, sourceMap = null }) {
+function semanticInventory(projection) {
+  return new Map([
+    ...projection.nodes.map((value) => [`node/${itemId(value)}`, value]),
+    ...projection.nodes.flatMap((node) => (node.interfaces ?? []).map((value) => [
+      `interface/${itemId(value)}`, { owner: itemId(node), ...value }
+    ])),
+    ...projection.relationships.map((value) => [`relationship/${itemId(value)}`, value]),
+    ...Object.entries(projection.controls).map(([id, value]) => [`control/${id}`, value]),
+    ...projection.flows.map((value) => [`flow/${itemId(value)}`, value])
+  ]);
+}
+
+function clauseSemanticTarget(clause) {
+  return `${clause.operation.replace(/^(add|remove|change|apply)-/, '')}/${clause.elementId}`;
+}
+
+export function verifyArchitectureIntent({
+  intent, baseAfter, baseAfterSha256, sourceMap = null,
+  baseBefore = null, baseBeforeSourceMap = null, unavailable = []
+}) {
   const checked = validateArchitectureIntent(intent);
   validateCalmProjection(baseAfter);
   const clauses = checked.clauses.map((clause) => {
     const element = semanticElement(baseAfter, clause);
     let verdict;
     if (clause.operation.startsWith('remove-')) verdict = element ? 'deviated' : 'fulfilled';
-    else if (!element) verdict = 'missing';
+    else if (!element) {
+      const subject = clauseSemanticTarget(clause).replace('/', ':');
+      verdict = unavailable.some((entry) => entry?.subject === subject)
+        ? 'not-observable' : 'missing';
+    }
     else {
       const expected = expectedIntentFields(clause);
       const mismatched = Object.entries(expected).some(([key, value]) => canonicalJson(element[key]) !== canonicalJson(value));
@@ -763,9 +876,30 @@ export function verifyArchitectureIntent({ intent, baseAfter, baseAfterSha256, s
         : []
     };
   });
+  if (baseBefore) {
+    validateCalmProjection(baseBefore);
+    const before = semanticInventory(baseBefore);
+    const after = semanticInventory(baseAfter);
+    const plannedTargets = new Set(checked.clauses.map(clauseSemanticTarget));
+    for (const key of [...new Set([...before.keys(), ...after.keys()])].sort(compareText)) {
+      if (plannedTargets.has(key)
+          || canonicalJson(before.get(key) ?? null) === canonicalJson(after.get(key) ?? null)) continue;
+      const [kind, ...idParts] = key.split('/');
+      const elementId = idParts.join('/');
+      const row = sourceMap?.elements?.find((entry) => entry.elementId === elementId)
+        ?? baseBeforeSourceMap?.elements?.find((entry) => entry.elementId === elementId);
+      clauses.push({
+        clauseId: `${checked.workId}:UNPLANNED-${sha256(key).slice(7, 19).toUpperCase()}`,
+        verdict: 'unplanned', elementIds: [elementId],
+        sourceRefs: ordered((row?.sources ?? []).map(architectureSourceReference)),
+        elementKind: kind
+      });
+    }
+  }
   const blocking = clauses.some((result) => {
     const source = checked.clauses.find((clause) => clause.clauseId === result.clauseId);
-    return source.required && ['missing', 'deviated'].includes(result.verdict);
+    return result.verdict === 'unplanned'
+      || (source?.required && ['missing', 'deviated', 'not-observable'].includes(result.verdict));
   });
   return selfHash('architecture-intent-fulfilment', {
     schemaVersion: currentSchemaVersion('architecture-intent-fulfilment'),

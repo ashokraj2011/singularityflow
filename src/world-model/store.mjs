@@ -89,7 +89,8 @@ function reusableIdentityFromPublished(records, scopeManifest) {
       requestedProjections: Object.freeze(request.requestedProjections.map((entry) => ({
         projectionId: entry.projectionId, projectionVersion: entry.projectionVersion,
         projectionSpecSha256: entry.contractSha256, required: entry.required,
-        profile: structuredClone(entry.profile), budgets: structuredClone(entry.budgets)
+        profile: structuredClone(entry.profile), budgets: structuredClone(entry.budgets),
+        validation: structuredClone(entry.validation ?? { strict: true })
       }))),
       projectionRegistrySha256: request.projectionRegistrySha256,
       capabilitySnapshotSha256: request.capabilitySnapshotSha256,

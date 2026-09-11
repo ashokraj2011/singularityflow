@@ -116,12 +116,17 @@ async function buildRequestedProjections(runtime) {
         configurationSnapshot: runtime.planned.configurationSnapshot,
         includeGovernanceActors: selection.profile?.includeGovernanceActors !== false,
         includeControls: selection.profile?.includeControls !== false,
+        includeFlows: selection.profile?.includeFlows !== false,
+        includeExternalDependencies: selection.profile?.includeExternalDependencies
+          ?? 'direct-architecture-only',
         projectionContract: selection.contract
       });
       enforceProjectionBudgets(candidate.projection, {
         ...selection.contract.budgets, ...selection.budgets
       });
-      const validated = await validateCalmProjectionCandidate(candidate);
+      const validated = await validateCalmProjectionCandidate(candidate, {
+        strict: selection.validation?.strict !== false
+      });
       if (validated.validationResult.toolchainLock.lockSha256 !== runtime.planned.toolchainLock.lockSha256) {
         throw new SingularityFlowError('CALM toolchain changed after the build plan was sealed.', {
           code: 'WMC_CALM_VALIDATOR_UNAVAILABLE'

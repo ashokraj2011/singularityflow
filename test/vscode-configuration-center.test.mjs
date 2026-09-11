@@ -630,6 +630,14 @@ test('registered-v4 Explorer opens exact state references and keeps full catalog
   const factsRef = `sfref:world-model:facts:all:${'a'.repeat(64)}`;
   const registered = {
     ...snapshot,
+    architectureIntent: {
+      workId: 'WRK-CALM', enabled: true, present: true, status: 'approved',
+      phase: 'planning', generation: 2, approved: true, reasons: [],
+      fulfilment: {
+        status: 'recorded-blocking', blocking: true, reportSha256: digest, baseAfterSha256: digest,
+        counts: { fulfilled: 2, missing: 1, unplanned: 1 }
+      }
+    },
     worldModel: {
       kind: 'world-model-ide-slice', format: 'wmb-v4', status: 'ready',
       root: 'singularity/world-model', generatedAt: null, rebuildReason: null,
@@ -697,10 +705,23 @@ test('registered-v4 Explorer opens exact state references and keeps full catalog
   assert.match(html, /Exact provenance/);
   assert.match(html, /official CALM CLI · strict · offline/);
   assert.match(html, /Open exact CALM JSON/);
+  assert.match(html, /Story plan/);
+  assert.match(html, /approved Story-local architecture overlay/);
+  assert.match(html, /Active Story architecture · <code>WRK-CALM<\/code>/);
+  assert.match(html, /Fulfilment: <strong>blocking<\/strong>/);
+  assert.match(html, /fulfilled 2 · missing 1 · unplanned 1/);
+  assert.match(html, /Prepare export/);
+  assert.match(html, /Compare/);
+  assert.match(html, /Ordered flows/);
+  assert.match(html, /Evidence gaps and contradictions/);
   assert.match(CONFIGURATION_CENTER_SCRIPT, /type: 'open-world-model-ref'/);
   assert.match(extensionSource, /message\.type === 'open-world-model-ref'/);
   assert.match(extensionSource, /show registered world model/);
   assert.match(extensionSource, /Buffer\.from\(page\.content, 'base64'\)/);
+  assert.match(extensionSource, /architecture-export/);
+  assert.match(extensionSource, /architecture-planned/);
+  assert.match(extensionSource, /approved planned architecture for the active Story/);
+  assert.match(extensionSource, /isPartialQuery: true/);
 });
 
 test('a stale world model offers the rebuild the engine asked for, in its own words', () => {

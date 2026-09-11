@@ -197,7 +197,8 @@ export function configuredWorldModelV4ProjectionSelections(config, options = {})
     return Object.freeze({
       projectionId: contract.id, reference: `${contract.id}@${contract.version}`,
       required: policy.required === true, contract, profile: Object.freeze({ ...policy.profile }),
-      budgets: Object.freeze({ ...contract.budgets, ...policy.budgets })
+      budgets: Object.freeze({ ...contract.budgets, ...policy.budgets }),
+      validation: Object.freeze({ strict: policy.calm?.strict !== false })
     });
   }).sort((left, right) => compareText(left.projectionId, right.projectionId));
 }

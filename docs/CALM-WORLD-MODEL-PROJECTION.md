@@ -51,8 +51,10 @@ the packaged `@finos/calm-cli` and packaged CALM 1.2 schemas; no schema download
 ## Inspect it
 
 In VS Code, open **Configuration Center → World model → System architecture**. The Explorer provides
-separate component, connection, and governance-control tables, shows gaps and contradictions, lists
-workflow phase usage, and opens the exact content-addressed CALM JSON on demand.
+separate component, connection, ordered-flow, governance-control, and evidence-gap tables. It lists
+workflow phase usage, opens the exact content-addressed CALM JSON, and prepares reviewed export or
+comparison prompts without executing them. **Story plan** prepares a read-only Copilot request for
+the active Story's approved planned overlay; candidate or unapproved intent is refused.
 
 The equivalent model-free commands are:
 
@@ -76,6 +78,7 @@ reviewed JSON candidate containing `phase`, `generation`, and explicit clauses, 
 ```sh
 singularity-flow architecture intent init --work-id WRK-123 --from design/architecture-intent.json
 singularity-flow architecture intent validate --work-id WRK-123
+# publish and approve the owning phase generation before rendering governed planned output
 singularity-flow architecture intent render --work-id WRK-123
 singularity-flow architecture show --work-id WRK-123 --planned
 ```
@@ -88,8 +91,9 @@ and a refreshed deterministic World Model, record the comparison with:
 singularity-flow architecture intent verify --work-id WRK-123
 ```
 
-The fulfilment receipt keeps `fulfilled`, `missing`, `deviated`, and `not-observable` distinct so a
-missing observation cannot be presented as successful delivery.
+The fulfilment receipt keeps `fulfilled`, `missing`, `deviated`, `not-observable`, and `unplanned`
+distinct. It resolves the intent base from bounded local state-branch history, so unrelated
+architectural drift cannot be presented as successful delivery.
 
 ## Trust and privacy boundaries
 
@@ -97,7 +101,9 @@ missing observation cannot be presented as successful delivery.
   facts remain visible as gaps but cannot become nodes or relationships.
 - Source maps use repository-relative paths and exact hashes. They exclude absolute machine paths,
   credentials, and individual approval-group members.
-- The state-branch reader reconstructs the projection from its sealed inputs before accepting it.
-- The writer repeats strict official validation immediately before the state commit.
-- Export requires an explicit repository-relative destination and never changes World Model or Story
-  authority.
+- The state-branch writer regenerates normalized snapshots from current approved source bytes,
+  reconstructs the projection, and repeats the configured official validation before committing.
+- Validator credentials and proxy settings are removed and a process bootstrap denies direct socket,
+  DNS, HTTP, HTTPS, datagram, and `fetch` access.
+- Export requires an explicit repository-relative destination plus confirmation of an exact preflight
+  digest. It never changes World Model or Story authority.

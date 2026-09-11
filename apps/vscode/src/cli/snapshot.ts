@@ -626,6 +626,17 @@ export interface RepositorySnapshot {
   selectedInitiativeId: string | null;
   initiative: InitiativeSnapshot | null;
   workflow: StoryWorkflow | null;
+  architectureIntent?: {
+    workId: string; enabled: boolean; present: boolean;
+    status: 'disabled' | 'absent' | 'invalid' | 'candidate' | 'approved';
+    phase: string | null; generation: number | null; approved: boolean; reasons: string[];
+    fulfilment: null | {
+      status: 'recorded-satisfied' | 'recorded-blocking' | 'stale' | 'invalid'; blocking: boolean;
+      reportSha256: string | null; baseAfterSha256?: string;
+      counts: Partial<Record<'fulfilled' | 'missing' | 'deviated' | 'unplanned' | 'not-observable', number>>;
+      reason?: string;
+    };
+  } | null;
   /** Immutable reference inputs and their local detached-checkout health for this Story. */
   referenceRepositories?: StoryReferenceRepositoryStatus | null;
   /** Lazy projection-only SGOS Process inventory; absent until Command Center acquires the slice. */
@@ -704,7 +715,7 @@ export interface RepositorySnapshot {
       path?: string | null; sha256?: string; receiptSha256?: string; toolchainLockSha256?: string;
       refusalCode?: string;
       counts?: {
-        nodes: number; interfaces: number; relationships: number; controls: number;
+        nodes: number; interfaces: number; relationships: number; controls: number; flows?: number;
         unavailable: number; contradictions: number;
       };
       nodes?: Array<{
@@ -722,7 +733,17 @@ export interface RepositorySnapshot {
         sources?: Array<{ kind: string; reference: string | null; assurance: string | null }>;
         sourceCount?: number;
       }>;
-      truncated?: { nodes: boolean; relationships: boolean; controls: boolean };
+      flows?: Array<{
+        id: string; name: string; description: string; transitions: number;
+        sources?: Array<{ kind: string; reference: string | null; assurance: string | null }>;
+        sourceCount?: number;
+      }>;
+      unavailable?: Array<{ subject: string; reason: string; factId: string | null }>;
+      contradictions?: Array<{ subject: string; factId: string | null; conflictsWith: string[] }>;
+      truncated?: {
+        nodes: boolean; relationships: boolean; controls: boolean; flows?: boolean;
+        unavailable?: boolean; contradictions?: boolean;
+      };
       expansion?: { kind: string; id: string; sha256: string; path?: string | null; ref: string };
     }>;
     expansion?: Array<{ kind: string; id: string; sha256: string; path?: string | null; ref: string }>;

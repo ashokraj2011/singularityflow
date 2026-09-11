@@ -103,6 +103,7 @@ import {
 } from './reference-repositories.mjs';
 import { operationContext } from './operation-context.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
+import { projectArchitectureIntentStatus } from './architecture-intent-gate.mjs';
 import { withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
 import { loadSgosCommandCenter } from './sgos/command-center.mjs';
 
@@ -886,6 +887,7 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
     referenceRepositories,
     progress,
     report,
+    architectureIntent: await projectArchitectureIntentStatus(root, definition, workflow),
     documents,
     detachedDocuments,
     review,
@@ -976,6 +978,7 @@ async function lifecycleSlice(root, requestedWorkId, requestedInitiativeId, revi
     referenceRepositories,
     progress,
     report,
+    architectureIntent: await projectArchitectureIntentStatus(root, definition, workflow),
     documents,
     detachedDocuments,
     review,

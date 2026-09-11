@@ -46,6 +46,23 @@ test('arch.calm is byte deterministic and environment-free', () => {
   assert.doesNotMatch(first.projectionBytes, /person@example|\/Users\/|[A-Za-z]:\\/);
 });
 
+test('architecture text strips credentials, secrets, and machine-local paths', () => {
+  const input = fixture();
+  input.capabilitySnapshot = createArchitectureCapabilitySnapshot({
+    version: 2,
+    capabilities: {
+      private: {
+        kind: 'delivery', parent: null, architecture: { nodeType: 'service' },
+        label: 'Private token=cleartext',
+        description: 'At /Users/alice/private C:\\Users\\alice\\src https://user:pass@corp.example/repo'
+      }
+    }
+  });
+  const bytes = buildCalmProjection(input).projectionBytes;
+  assert.doesNotMatch(bytes, /cleartext|alice|user:pass/);
+  assert.match(bytes, /\[redacted\]|\[local-path-omitted\]|\[credentialed-url-omitted\]/);
+});
+
 test('capabilities, composition, dependencies, actors, controls and provenance map deterministically', () => {
   const result = buildCalmProjection(fixture());
   assert.equal(result.projection.nodes.find((node) => node['unique-id'] === 'payments')['node-type'], 'service');
@@ -138,6 +155,60 @@ test('architecture element IDs are globally unambiguous for explain and provenan
     () => validateCalmProjection(projection),
     (error) => error.code === 'WMC_ELEMENT_ID_COLLISION'
   );
+});
+
+test('projection profile includes exact external dependencies only when enabled', () => {
+  const input = fixture();
+  input.factLedger = {
+    ledgerSha256: sha256('external-ledger'),
+    facts: [{
+      id: 'FACT-EXTERNAL-DEPENDENCY-0001', factType: 'import-dependency',
+      subject: { kind: 'dependency-edge', id: 'checkout->tax-service' },
+      claim: JSON.stringify({
+        source: 'checkout', destination: 'tax-service', external: true,
+        name: 'Tax service', description: 'Reviewed direct architecture dependency.'
+      }),
+      status: 'available', assurance: 'source-exact', evidenceIds: ['EVIDENCE-EXTERNAL-1'],
+      factSha256: sha256('external-fact')
+    }]
+  };
+  const included = buildCalmProjection({
+    ...input, includeExternalDependencies: 'direct-architecture-only'
+  });
+  const excluded = buildCalmProjection({ ...input, includeExternalDependencies: 'off' });
+  assert.ok(included.projection.nodes.some((node) => node['unique-id'] === 'tax-service'));
+  assert.ok(included.projection.relationships.some((relationship) =>
+    relationship['relationship-type'].connects?.destination?.node === 'tax-service'));
+  assert.equal(excluded.projection.nodes.some((node) => node['unique-id'] === 'tax-service'), false);
+});
+
+test('projection profile renders only exact ordered flow evidence when enabled', () => {
+  const input = fixture();
+  const relationshipId = buildCalmProjection(input).projection.relationships.find(
+    (relationship) => relationship['relationship-type'].connects
+  )['unique-id'];
+  input.factLedger = {
+    ledgerSha256: sha256('flow-ledger'),
+    facts: [{
+      id: 'FACT-RUNTIME-GUARANTEE-0001', factType: 'runtime-guarantee',
+      subject: { kind: 'runtime-guarantee', id: 'checkout-flow' },
+      claim: JSON.stringify({ architectureFlow: {
+        id: 'checkout-flow', name: 'Checkout flow', description: 'Reviewed transition order.',
+        transitions: [{
+          relationshipId, sequence: 1, description: 'Submit payment.',
+          direction: 'source-to-destination'
+        }]
+      } }),
+      status: 'available', assurance: 'runtime-observed', evidenceIds: ['EVIDENCE-FLOW-1'],
+      factSha256: sha256('flow-fact')
+    }]
+  };
+  const included = buildCalmProjection({ ...input, includeFlows: true });
+  const excluded = buildCalmProjection({ ...input, includeFlows: false });
+  assert.deepEqual(included.projection.flows.map((flow) => flow['unique-id']), ['checkout-flow']);
+  assert.ok(included.sourceMap.elements.some((element) =>
+    element.elementKind === 'flow' && element.elementId === 'checkout-flow'));
+  assert.deepEqual(excluded.projection.flows, []);
 });
 
 test('the reviewed offline FINOS validator seals the exact deterministic projection', async () => {

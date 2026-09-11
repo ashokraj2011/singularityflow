@@ -160,10 +160,31 @@ function validatorEnvironment(temporary, source = process.env) {
   return environment;
 }
 
+/** Bootstrap loaded by Node before the third-party validator entry point. */
+export function calmOfflineBootstrapSource() {
+  return `'use strict';
+const deny = () => { const error = new Error('Singularity Flow denied validator network access.'); error.code = 'SFLOW_NETWORK_DISABLED'; throw error; };
+for (const name of ['net', 'tls']) {
+  const api = require(name);
+  for (const member of ['connect', 'createConnection']) if (typeof api[member] === 'function') api[member] = deny;
+  if (api.Socket && typeof api.Socket.prototype.connect === 'function') api.Socket.prototype.connect = deny;
+}
+for (const name of ['http', 'https']) {
+  const api = require(name);
+  for (const member of ['request', 'get']) if (typeof api[member] === 'function') api[member] = deny;
+}
+const dns = require('dns');
+for (const member of Object.keys(dns)) if (/^(lookup|resolve)/u.test(member) && typeof dns[member] === 'function') dns[member] = deny;
+const dgram = require('dgram');
+if (typeof dgram.createSocket === 'function') dgram.createSocket = deny;
+globalThis.fetch = async () => deny();
+`;
+}
+
 /** Validate one canonical projection with the reviewed CALM CLI and only packaged schemas. */
 export async function validateCalmWithOfficialToolchain(projection, {
   schemaRoot = DEFAULT_SCHEMA_ROOT, timeoutMs = 30_000, signal = null,
-  runCommand = runQualityCommand
+  runCommand = runQualityCommand, strict = true
 } = {}) {
   const toolchain = await createCalmToolchainLock({ schemaRoot });
   if (projection?.$schema !== CALM_SCHEMA_URI) {
@@ -173,15 +194,18 @@ export async function validateCalmWithOfficialToolchain(projection, {
   const isolatedHome = path.join(temporary, 'home');
   const architecturePath = path.join(temporary, 'architecture.json');
   const outputPath = path.join(temporary, 'validation.json');
+  const offlineBootstrapPath = path.join(temporary, 'offline-network-deny.cjs');
   try {
     await mkdir(isolatedHome, { recursive: true, mode: 0o700 });
     await writeFile(architecturePath, canonicalJson(projection), { mode: 0o600 });
+    await writeFile(offlineBootstrapPath, calmOfflineBootstrapSource(), { mode: 0o600 });
     const environment = validatorEnvironment(temporary);
     const result = await runCommand(process.execPath, [
-      toolchain.entryPath, 'validate', '--architecture', architecturePath,
+      '--require', offlineBootstrapPath, toolchain.entryPath,
+      'validate', '--architecture', architecturePath,
       '--schema-directory', toolchain.schemaRoot,
       '--url-to-local-file-mapping', toolchain.mappingPath,
-      '--strict', '--format', 'json', '--output', outputPath
+      ...(strict ? ['--strict'] : []), '--format', 'json', '--output', outputPath
     ], { cwd: temporary, env: environment, timeoutMs, captureBytes: 64 * 1024, signal, killTree: true });
     if (result.timedOut || result.aborted || result.error) {
       fail(result.aborted ? 'CALM validation was cancelled.'
@@ -206,7 +230,7 @@ export async function validateCalmWithOfficialToolchain(projection, {
         'WMC_CALM_SCHEMA_INVALID', { validation: normalizedResult, diagnostic: diagnosticText(result) });
     }
     return Object.freeze({
-      status: 'passed', toolchainLock: toolchain.lock,
+      status: 'passed', strict, toolchainLock: toolchain.lock,
       normalizedResult, normalizedResultSha256: sha256(normalizedResult)
     });
   } finally {

@@ -74,3 +74,50 @@ test('changed existing elements retain base provenance in fulfilment and explana
     'architecture-intent', 'capability'
   ]);
 });
+
+test('intent fulfilment keeps not-observable evidence and unplanned architecture drift distinct', () => {
+  const base = buildCalmProjection({
+    subject: { id: 'drift' }, sourceManifestSha256: sha256('source'),
+    scopeSha256: sha256('scope'), factLedger: { ledgerSha256: sha256('ledger'), facts: [] },
+    capabilitySnapshot: createArchitectureCapabilitySnapshot({
+      version: 2, capabilities: {
+        payments: { kind: 'delivery', parent: null, architecture: { nodeType: 'service' } }
+      }
+    }), configurationSnapshot: createArchitectureConfigurationSnapshot({})
+  });
+  const intent = createArchitectureIntent({
+    workId: 'PAY-144', phase: 'planning', generation: 1,
+    base: {
+      worldModelManifestSha256: sha256('manifest'),
+      calmProjectionSha256: base.projectionSha256
+    },
+    clauses: [{
+      clauseId: 'PAY-144:ARCH-001', operation: 'add-node', elementId: 'cache', required: true,
+      value: { 'node-type': 'database', name: 'Cache', description: 'Cache' }
+    }]
+  });
+  const unobservable = verifyArchitectureIntent({
+    intent, baseAfter: base.projection, baseAfterSha256: base.projectionSha256,
+    unavailable: [{ subject: 'node:cache', reason: 'producer-unavailable' }]
+  });
+  assert.equal(unobservable.clauses[0].verdict, 'not-observable');
+
+  const after = renderPlannedArchitecture({
+    projection: base.projection, projectionSha256: base.projectionSha256,
+    worldModelManifestSha256: sha256('manifest'), intent
+  }).projection;
+  after.nodes.push({
+    'unique-id': 'surprise', 'node-type': 'system', name: 'Surprise',
+    description: 'Unplanned component.', interfaces: []
+  });
+  after.nodes.sort((left, right) => left['unique-id'].localeCompare(right['unique-id']));
+  const drift = verifyArchitectureIntent({
+    intent, baseBefore: base.projection, baseAfter: after,
+    baseAfterSha256: sha256({ utf8: JSON.stringify(after) })
+  });
+  assert.equal(drift.clauses.find((clause) => clause.clauseId === 'PAY-144:ARCH-001').verdict,
+    'fulfilled');
+  assert.equal(drift.clauses.find((clause) => clause.verdict === 'unplanned').elementIds[0],
+    'surprise');
+  assert.equal(drift.blocking, true);
+});

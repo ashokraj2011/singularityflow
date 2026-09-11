@@ -453,6 +453,20 @@ export function projectWorldModelIdeSlice(store, {
       id: control.id, description: control.description, mode: control.mode, paths: control.paths.length,
       sources: Object.freeze(architecturePreviewSources(control.sources)), sourceCount: (control.sources ?? []).length
     }));
+    const flowFacts = facts.flows ?? [];
+    const flows = flowFacts.slice(0, MAX_ARCHITECTURE_PREVIEW_ROWS).map((flow) => Object.freeze({
+      id: flow.id, name: flow.name, description: flow.description,
+      transitions: flow.transitions.length,
+      sources: Object.freeze(architecturePreviewSources(flow.sources)),
+      sourceCount: (flow.sources ?? []).length
+    }));
+    const unavailable = facts.unavailable.slice(0, MAX_ARCHITECTURE_PREVIEW_ROWS).map((gap) =>
+      Object.freeze({ subject: gap.subject, reason: gap.reason, factId: gap.factId ?? null }));
+    const contradictions = facts.contradictions.slice(0, MAX_ARCHITECTURE_PREVIEW_ROWS).map((gap) =>
+      Object.freeze({
+        subject: gap.subject, factId: gap.factId ?? null,
+        conflictsWith: Object.freeze([...(gap.conflictsWith ?? [])])
+      }));
     return Object.freeze({
       id: entry.projectionId,
       version: entry.projectionVersion,
@@ -467,16 +481,23 @@ export function projectWorldModelIdeSlice(store, {
         interfaces: facts.interfaces.length,
         relationships: facts.relationships.length,
         controls: facts.controls.length,
+        flows: flowFacts.length,
         unavailable: facts.unavailable.length,
         contradictions: facts.contradictions.length
       }),
       nodes: Object.freeze(nodes),
       relationships: Object.freeze(relationships),
       controls: Object.freeze(controls),
+      flows: Object.freeze(flows),
+      unavailable: Object.freeze(unavailable),
+      contradictions: Object.freeze(contradictions),
       truncated: Object.freeze({
         nodes: facts.nodes.length > nodes.length,
         relationships: facts.relationships.length > relationships.length,
-        controls: facts.controls.length > controls.length
+        controls: facts.controls.length > controls.length,
+        flows: flowFacts.length > flows.length,
+        unavailable: facts.unavailable.length > unavailable.length,
+        contradictions: facts.contradictions.length > contradictions.length
       }),
       expansion: expansion('projection', entry.projectionId, entry.projectionSha256, entry.path)
     });

@@ -11,7 +11,7 @@ related:
   - world-model
   - capability-management
   - evidence-and-ledger
-version: 1
+version: 2
 ---
 The `arch.calm@1` product is a deterministic, model-free FINOS CALM projection of the exact
 capability, configuration, and World Model facts admitted by Singularity Flow. It is derived
@@ -44,8 +44,10 @@ The planned file never replaces the shared base projection. Fulfilment compares 
 with a later deterministic base projection and keeps `missing`, `deviated`, `not-observable`, and
 `fulfilled` outcomes distinct.
 
-Use `sflow architecture export` only with an explicit repository-relative destination. Plain CALM
-export copies the governed bytes and does not mutate the World Model, Story state, or authority.
+Use `sflow architecture export` only with an explicit repository-relative destination. The first
+call is a mutation-free preflight that reports the destination, exact projection digest, effects,
+and confirmation digest. Review it and repeat the command with the returned `--confirm` value.
+The confirmed export copies the governed bytes and does not mutate World Model, Story state, or authority.
 Generated files under `singularity/world-model/projections`, their source maps, and receipts must
 not be edited by hand; change the cited capability declaration, policy, contract, or source fact
 and rebuild instead.

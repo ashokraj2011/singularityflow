@@ -113,7 +113,9 @@ function normalizedProjections(projectionRegistry, values = []) {
       required: prior?.required === true || (typeof raw === 'string' ? false : raw?.required === true),
       contract,
       profile: typeof raw === 'object' && raw?.profile ? structuredClone(raw.profile) : {},
-      budgets: typeof raw === 'object' && raw?.budgets ? structuredClone(raw.budgets) : {}
+      budgets: typeof raw === 'object' && raw?.budgets ? structuredClone(raw.budgets) : {},
+      validation: typeof raw === 'object' && raw?.validation
+        ? structuredClone(raw.validation) : { strict: true }
     });
   }
   return [...selected.values()].sort((left, right) => compareText(left.projectionId, right.projectionId));
@@ -241,7 +243,10 @@ export function createWorldModelBuildRequest({
     projectionId, projectionVersion: contract.version, required,
     contractSha256: contract.contractSha256,
     profile: structuredClone(requestedProjections.find((entry) => entry.projectionId === projectionId)?.profile ?? {}),
-    budgets: structuredClone(requestedProjections.find((entry) => entry.projectionId === projectionId)?.budgets ?? {})
+    budgets: structuredClone(requestedProjections.find((entry) => entry.projectionId === projectionId)?.budgets ?? {}),
+    validation: structuredClone(requestedProjections.find(
+      (entry) => entry.projectionId === projectionId
+    )?.validation ?? { strict: true })
   }));
   const identity = {
     sourceManifestSha256: sourceSnapshot.sourceManifestSha256,
@@ -338,7 +343,10 @@ export function createWorldModelBuildPlan({
       projectionId, projectionVersion: contract.version,
       projectionSpecSha256: contract.contractSha256, required, cacheStatus: 'miss',
       profile: structuredClone(requestedProjections.find((entry) => entry.projectionId === projectionId)?.profile ?? {}),
-      budgets: structuredClone(requestedProjections.find((entry) => entry.projectionId === projectionId)?.budgets ?? {})
+      budgets: structuredClone(requestedProjections.find((entry) => entry.projectionId === projectionId)?.budgets ?? {}),
+      validation: structuredClone(requestedProjections.find(
+        (entry) => entry.projectionId === projectionId
+      )?.validation ?? { strict: true })
     })) } : {})
   };
   return schemaRecord('world-model-build-plan', sealRecord(base, 'planSha256'));
@@ -415,11 +423,12 @@ export function resolveWorldModelV4ReusableIdentity({
       outputBudgetSha256: outputBudget.budgetSha256,
       ...(requestedProjections.length ? {
         requestedProjections: Object.freeze(requestedProjections.map(({
-          projectionId, required: projectionRequired, contract, profile, budgets
+          projectionId, required: projectionRequired, contract, profile, budgets, validation
         }) => Object.freeze({
           projectionId, projectionVersion: contract.version,
           projectionSpecSha256: contract.contractSha256, required: projectionRequired,
-          profile: structuredClone(profile), budgets: structuredClone(budgets)
+          profile: structuredClone(profile), budgets: structuredClone(budgets),
+          validation: structuredClone(validation)
         }))),
         projectionRegistrySha256: projectionRegistry.registrySha256,
         capabilitySnapshotSha256,

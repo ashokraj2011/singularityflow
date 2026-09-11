@@ -1370,7 +1370,7 @@ const PAGES = Object.freeze({
       ['singularity-flow architecture show', 'Show bounded counts and top-level architecture.'],
       ['singularity-flow architecture explain payments', 'Show exact provenance and where to make a change.'],
       ['singularity-flow architecture show --work-id PAY-142 --planned', 'Show one Story-scoped future projection.'],
-      ['singularity-flow architecture export --format calm --out dist/architecture/system.json', 'Copy the exact projection without changing authority.']
+      ['singularity-flow architecture export --format calm --out dist/architecture/system.json', 'Preview the exact destination and digest; rerun with the returned --confirm digest to copy without changing authority.']
     ],
     seeAlso: ['wm', 'capability', 'phase']
   },

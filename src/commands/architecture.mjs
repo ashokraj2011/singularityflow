@@ -3,12 +3,12 @@ import path from 'node:path';
 
 import { loadDefinition } from '../config.mjs';
 import { repoRoot } from '../git.mjs';
-import { loadWorkflow } from '../state.mjs';
+import { loadStoryAggregate } from '../state-stores.mjs';
 import {
   ensureSecureRepositoryDirectory, optionBoolean, optionString, requirePositional,
-  secureRepositoryPath, SingularityFlowError
+  run as runCommand, secureRepositoryPath, SingularityFlowError
 } from '../util.mjs';
-import { canonicalJson, sha256 } from '../world-model/canonicalize.mjs';
+import { canonicalJson, compareText, sha256 } from '../world-model/canonicalize.mjs';
 import { worldModelStateAuthority } from '../world-model/authority-config.mjs';
 import {
   createArchitectureIntent,
@@ -20,6 +20,7 @@ import {
 } from '../world-model/projections/calm/authority.mjs';
 import { validateCalmWithOfficialToolchain } from '../world-model/projections/calm/validator.mjs';
 import { resolvePublishedWorldModelV4 } from '../world-model/store.mjs';
+import { assertApprovedArchitectureIntent } from '../architecture-intent-gate.mjs';
 
 const WORK_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
@@ -86,6 +87,56 @@ async function baseProjection(root, definition = null) {
   return { definition, store, built, inputs };
 }
 
+function gitText(root, args) {
+  const result = runCommand('git', args, { cwd: root, allowFailure: true });
+  return result.status === 0 ? result.stdout : null;
+}
+
+/** Resolve the exact intent base from bounded local state history; never fetch or infer. */
+export function resolveArchitectureIntentBase(root, definition, intent) {
+  const authority = worldModelStateAuthority(definition, {});
+  const outputDir = definition.worldModel?.outputDir ?? 'singularity/world-model';
+  const manifestPath = path.posix.join(outputDir, 'manifest.json');
+  const projectionPath = path.posix.join(outputDir, 'projections/arch.calm.json');
+  const sourceMapPath = path.posix.join(outputDir, 'catalogs/projections/arch.calm.sources.json');
+  const refs = [
+    `refs/remotes/${authority.remote}/${authority.branch}`,
+    `refs/heads/${authority.branch}`
+  ];
+  for (const ref of refs) {
+    if (!gitText(root, ['rev-parse', '--verify', ref])) continue;
+    const history = gitText(root, [
+      'log', '--format=%H', '--max-count=256', ref, '--', manifestPath
+    ])?.trim().split('\n').filter(Boolean) ?? [];
+    for (const commit of history) {
+      const manifestBytes = gitText(root, ['show', `${commit}:${manifestPath}`]);
+      const projectionBytes = gitText(root, ['show', `${commit}:${projectionPath}`]);
+      if (manifestBytes == null || projectionBytes == null) continue;
+      try {
+        const manifest = JSON.parse(manifestBytes);
+        const projection = JSON.parse(projectionBytes);
+        if (manifest.manifestSha256 !== intent.base.worldModelManifestSha256
+            || sha256({ utf8: projectionBytes }) !== intent.base.calmProjectionSha256) continue;
+        validateCalmProjection(projection);
+        const sourceMapBytes = gitText(root, ['show', `${commit}:${sourceMapPath}`]);
+        return Object.freeze({
+          commit, projection,
+          sourceMap: sourceMapBytes == null ? null : JSON.parse(sourceMapBytes)
+        });
+      } catch { /* Continue through bounded local history. */ }
+    }
+  }
+  fail(
+    'The exact CALM base approved by this architecture intent is unavailable in local state history.',
+    'WMC_INTENT_BASE_STALE',
+    {
+      worldModelManifestSha256: intent.base.worldModelManifestSha256,
+      calmProjectionSha256: intent.base.calmProjectionSha256,
+      nextAction: 'Fetch the configured state branch, then retry architecture intent verify.'
+    }
+  );
+}
+
 async function readIntent(root, definition, id) {
   const target = path.join(
     await architectureDirectory(root, definition, id), 'architecture-intent.json'
@@ -103,7 +154,9 @@ async function selectedProjection(root, options, suppliedDefinition = null) {
   const base = await baseProjection(root, definition);
   if (!optionBoolean(options, 'planned')) return { ...base, selected: base.built, planned: false };
   const id = workId(optionString(options, 'work-id'));
-  const { intent } = await readIntent(root, definition, id);
+  const { target, intent } = await readIntent(root, definition, id);
+  const workflow = await loadStoryAggregate(root, definition, id);
+  assertApprovedArchitectureIntent(root, workflow, intent, target);
   const selected = renderPlannedArchitecture({
     projection: base.built.projection,
     projectionSha256: base.built.projectionSha256,
@@ -142,6 +195,48 @@ function summary(value) {
   };
 }
 
+export function createArchitectureExportPlan({ target, projectionSha256, planned = false }) {
+  const plan = {
+    schemaVersion: 1, kind: 'architecture-export-plan', target,
+    projectionSha256, planned: planned === true,
+    effects: ['create-one-repository-file', 'leave-world-model-authority-unchanged']
+  };
+  return Object.freeze({ ...plan, planSha256: sha256(plan) });
+}
+
+function architectureElements(projection) {
+  return [
+    ...projection.nodes.map((value) => ({ kind: 'node', id: value['unique-id'], value })),
+    ...projection.nodes.flatMap((node) => (node.interfaces ?? []).map((value) => ({
+      kind: 'interface', id: value['unique-id'], value: { owner: node['unique-id'], ...value }
+    }))),
+    ...projection.relationships.map((value) => ({
+      kind: 'relationship', id: value['unique-id'], value
+    })),
+    ...Object.entries(projection.controls).map(([id, value]) => ({ kind: 'control', id, value })),
+    ...projection.flows.map((value) => ({ kind: 'flow', id: value['unique-id'], value }))
+  ];
+}
+
+export function architectureProjectionDiff(from, to) {
+  validateCalmProjection(from);
+  validateCalmProjection(to);
+  const before = new Map(architectureElements(from).map((entry) => [`${entry.kind}/${entry.id}`, entry]));
+  const after = new Map(architectureElements(to).map((entry) => [`${entry.kind}/${entry.id}`, entry]));
+  const added = []; const removed = []; const changed = [];
+  for (const key of [...new Set([...before.keys(), ...after.keys()])].sort(compareText)) {
+    const left = before.get(key); const right = after.get(key);
+    const identity = { kind: (left ?? right).kind, id: (left ?? right).id };
+    if (!left) added.push(identity);
+    else if (!right) removed.push(identity);
+    else if (canonicalJson(left.value) !== canonicalJson(right.value)) changed.push(identity);
+  }
+  return Object.freeze({
+    identical: !added.length && !removed.length && !changed.length,
+    added: Object.freeze(added), removed: Object.freeze(removed), changed: Object.freeze(changed)
+  });
+}
+
 function printSummary(value) {
   console.log(`Architecture ${value.projection}: ${value.validation}`);
   console.log(`Projection: ${value.projectionSha256}`);
@@ -160,7 +255,7 @@ async function intentCommand(root, positionals, options, json) {
   const action = positionals[2] ?? 'validate';
   const id = workId(optionString(options, 'work-id') ?? positionals[3]);
   const definition = await loadDefinition(root);
-  const workflow = await loadWorkflow(root, definition, id);
+  const workflow = await loadStoryAggregate(root, definition, id);
   const intentPolicy = workflow.resolution?.architectureIntent ?? definition.architectureIntent ?? {};
   if (intentPolicy.enabled !== true) {
     fail(`Architecture intent is disabled for Story '${id}'.`, 'WMC_INTENT_DISABLED');
@@ -224,6 +319,7 @@ async function intentCommand(root, positionals, options, json) {
     if (json) console.log(JSON.stringify(result, null, 2)); else console.log(`Architecture intent: valid\n${result.intentSha256}`);
     return result;
   }
+  assertApprovedArchitectureIntent(root, workflow, intent, target);
   const base = await baseProjection(root, definition);
   if (action === 'render') {
     const planned = renderPlannedArchitecture({
@@ -243,9 +339,12 @@ async function intentCommand(root, positionals, options, json) {
     return result;
   }
   if (action === 'verify') {
+    const before = resolveArchitectureIntentBase(root, definition, intent);
     const report = verifyArchitectureIntent({
       intent, baseAfter: base.built.projection, baseAfterSha256: base.built.projectionSha256,
-      sourceMap: base.built.sourceMap
+      sourceMap: base.built.sourceMap,
+      baseBefore: before.projection, baseBeforeSourceMap: before.sourceMap,
+      unavailable: base.built.factSet.unavailable
     });
     const directory = await architectureDirectory(root, definition, id);
     await writeFile(path.join(directory, 'intent-fulfilment.json'), canonicalJson(report), { mode: 0o600 });
@@ -319,10 +418,27 @@ export async function run(_argv, { positionals, options } = {}) {
       governedOutputDir: definition.worldModel?.outputDir
     });
     const value = await selectedProjection(root, options, definition);
+    const relativeTarget = path.relative(root, target).replaceAll('\\', '/');
+    const plan = createArchitectureExportPlan({
+      target: relativeTarget,
+      projectionSha256: value.selected.projectionSha256,
+      planned: value.planned
+    });
+    if (optionString(options, 'confirm') !== plan.planSha256) {
+      fail(
+        `CALM export requires confirmation of exact destination and bytes. Review '${relativeTarget}' and retry with --confirm ${plan.planSha256}.`,
+        'WMC_EXPORT_CONFIRMATION_REQUIRED',
+        {
+          plan,
+          nextAction: `singularity-flow architecture export --format calm --out ${JSON.stringify(relativeTarget)} --confirm ${plan.planSha256}`
+        }
+      );
+    }
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(target, canonicalJson(value.selected.projection), { flag: 'wx', mode: 0o600 });
-    const result = { status: 'exported', path: path.relative(root, target),
-      projectionSha256: value.selected.projectionSha256, stateChanged: false };
+    const result = { status: 'exported', path: relativeTarget,
+      projectionSha256: value.selected.projectionSha256, planSha256: plan.planSha256,
+      stateChanged: false };
     if (json) console.log(JSON.stringify(result, null, 2));
     else console.log(`CALM exported without changing SFlow authority: ${result.path}\n${result.projectionSha256}`);
     return result;
@@ -335,9 +451,17 @@ export async function run(_argv, { positionals, options } = {}) {
     const toPath = await safeOutput(root, optionString(options, 'to'), {
       mustExist: true, type: 'file', governedOutputDir: definition.worldModel?.outputDir
     });
-    const [from, to] = await Promise.all([readFile(fromPath, 'utf8'), readFile(toPath, 'utf8')]);
-    const result = { identical: from === to, fromSha256: sha256({ utf8: from }), toSha256: sha256({ utf8: to }) };
-    if (json) console.log(JSON.stringify(result, null, 2)); else console.log(result.identical ? 'Architecture projections are byte-identical.' : `Architecture changed: ${result.fromSha256} -> ${result.toSha256}`);
+    const [fromBytes, toBytes] = await Promise.all([readFile(fromPath, 'utf8'), readFile(toPath, 'utf8')]);
+    let from; let to;
+    try { from = JSON.parse(fromBytes); to = JSON.parse(toBytes); }
+    catch (error) { fail(`Architecture diff input is not valid JSON: ${error.message}`, 'WMC_CALM_SCHEMA_INVALID'); }
+    const semantic = architectureProjectionDiff(from, to);
+    const result = {
+      ...semantic, fromSha256: sha256({ utf8: fromBytes }), toSha256: sha256({ utf8: toBytes })
+    };
+    if (json) console.log(JSON.stringify(result, null, 2));
+    else if (result.identical) console.log('Architecture projections are semantically identical.');
+    else console.log(`Architecture changed: +${result.added.length} -${result.removed.length} ~${result.changed.length}\n${result.fromSha256} -> ${result.toSha256}`);
     return result;
   }
   fail(`Unknown architecture action '${action}'.`, 'UNKNOWN_SUBCOMMAND');

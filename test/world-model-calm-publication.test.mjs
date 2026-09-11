@@ -8,13 +8,19 @@ import YAML from 'yaml';
 import { initializeDefinition, loadDefinition } from '../src/config.mjs';
 import { run } from '../src/util.mjs';
 import { worldModelCommand } from '../src/worldmodel.mjs';
-import { evaluateArchitectureIntentGate } from '../src/architecture-intent-gate.mjs';
+import {
+  assertApprovedArchitectureIntent, evaluateArchitectureIntentGate, projectArchitectureIntentStatus
+} from '../src/architecture-intent-gate.mjs';
 import {
   createArchitectureIntent, verifyArchitectureIntent
 } from '../src/world-model/projections/calm/projection.mjs';
-import { canonicalJson } from '../src/world-model/canonicalize.mjs';
+import { canonicalJson, sealRecord } from '../src/world-model/canonicalize.mjs';
 import { resolvePublishedWorldModelV4 } from '../src/world-model/store.mjs';
 import { validateStagedProjectionAuthorityAgainstSource } from '../src/world-model/publish/transaction.mjs';
+import {
+  assertArchitectureProjectionAuthoritySnapshots, resolveCurrentArchitectureProjectionInputs
+} from '../src/world-model/projections/calm/authority.mjs';
+import { resolveArchitectureIntentBase } from '../src/commands/architecture.mjs';
 
 function git(root, args) { return run('git', args, { cwd: root }).stdout.trim(); }
 
@@ -114,6 +120,10 @@ test('a configured lifecycle gate requires current exact architecture-intent ful
   };
   const definition = await loadDefinition(root);
   definition.architectureIntent = policy;
+  const historicalBase = resolveArchitectureIntentBase(root, definition, intent);
+  assert.equal(historicalBase.projection.$id, current.projection.$id);
+  assert.equal(historicalBase.commit, store.commit);
+  assert.ok(historicalBase.sourceMap);
   const workflow = {
     workItem: { id: 'WRK-CALM' },
     resolution: { workItemRoot: 'singularity/work-items', worldModelOutputDir: 'singularity/world-model', architectureIntent: policy },
@@ -123,6 +133,21 @@ test('a configured lifecycle gate requires current exact architecture-intent ful
       }
     }
   };
+  const candidateStatus = await projectArchitectureIntentStatus(root, definition, {
+    ...workflow, phases: { planning: { approvals: [] } }
+  });
+  assert.equal(candidateStatus.status, 'candidate');
+  assert.equal(candidateStatus.approved, false);
+  assert.throws(
+    () => assertApprovedArchitectureIntent(root, {
+      ...workflow, phases: { planning: { approvals: [] } }
+    }, intent, path.join(directory, 'architecture-intent.json')),
+    (error) => error.code === 'WMC_INTENT_NOT_APPROVED'
+  );
+  assert.equal(assertApprovedArchitectureIntent(
+    root, workflow, intent, path.join(directory, 'architecture-intent.json')
+  ).approved, true);
+  assert.equal((await projectArchitectureIntentStatus(root, definition, workflow)).status, 'approved');
   const missing = await evaluateArchitectureIntentGate(root, definition, workflow, 'verification');
   assert.match(missing.errors.join('\n'), /has no fulfilment receipt/);
 
@@ -130,6 +155,10 @@ test('a configured lifecycle gate requires current exact architecture-intent ful
     intent, baseAfter: current.projection, baseAfterSha256: current.projectionSha256
   });
   await writeFile(path.join(directory, 'intent-fulfilment.json'), canonicalJson(report));
+  const fulfilledStatus = await projectArchitectureIntentStatus(root, definition, workflow);
+  assert.equal(fulfilledStatus.fulfilment.status, 'recorded-satisfied');
+  assert.equal(fulfilledStatus.fulfilment.baseAfterSha256, current.projectionSha256);
+  assert.equal(fulfilledStatus.fulfilment.counts.fulfilled, 1);
   const satisfied = await evaluateArchitectureIntentGate(root, definition, workflow, 'verification');
   assert.deepEqual(satisfied.errors, []);
   assert.match(satisfied.passes[0], /architecture intent fulfilled/);
@@ -164,5 +193,21 @@ test('capability authority changes stale a reusable CALM projection without sour
   await assert.rejects(
     () => validateStagedProjectionAuthorityAgainstSource(root, publication),
     (error) => error.code === 'WMC_PROJECTION_INPUT_CHANGED'
+  );
+});
+
+test('publication refuses a self-consistent normalized snapshot forged from genuine source bytes', async (t) => {
+  const root = await repository(t);
+  const current = await resolveCurrentArchitectureProjectionInputs(root, await loadDefinition(root));
+  const forged = structuredClone(current);
+  forged.capabilitySnapshot.capabilities[0].label = 'Forged label';
+  forged.capabilitySnapshot = sealRecord({
+    ...forged.capabilitySnapshot, snapshotSha256: undefined
+  }, 'snapshotSha256');
+
+  assert.throws(
+    () => assertArchitectureProjectionAuthoritySnapshots(forged, current),
+    (error) => error.code === 'WMC_PROJECTION_INPUT_CHANGED'
+      && error.details.changes[0].authority === 'capability'
   );
 });

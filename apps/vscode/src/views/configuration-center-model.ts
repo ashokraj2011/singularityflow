@@ -84,7 +84,11 @@ export interface WorldModelSettingsView {
     totalMaximumOutputTokens: number;
   };
   projections: {
-    archCalm: { enabled: boolean; required: boolean; schemaRelease: '1.2'; strict: boolean };
+    archCalm: {
+      enabled: boolean; required: boolean; schemaRelease: '1.2'; strict: boolean;
+      includeGovernanceActors: boolean; includeControls: boolean; includeFlows: boolean;
+      includeExternalDependencies: 'off' | 'direct-architecture-only';
+    };
   };
   materialization: {
     mode: 'explicit' | 'on-demand' | 'disabled'; publish: 'governed' | 'local';
@@ -158,6 +162,7 @@ export interface ConfigurationCenterView {
     workflows: WorldModelWorkflowUsage[];
     projections: NonNullable<NonNullable<RepositorySnapshot['worldModel']>['projections']>;
   };
+  storyArchitecture: RepositorySnapshot['architectureIntent'];
   /** Validated configuration edits waiting to be published, and anything blocking that. */
   publish: { changes: string[]; unrelated: string[]; branch: string };
   /**
@@ -409,6 +414,7 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
       workflows: workflowUsage,
       projections: [...(snapshot.worldModel?.projections ?? [])]
     },
+    storyArchitecture: snapshot.architectureIntent ?? null,
     ledger: ledgerStatus(snapshot),
     publish: {
       changes: [...(snapshot.repository?.configurationChanges ?? [])],
@@ -474,7 +480,12 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
           enabled: worldModel.projections?.['arch.calm']?.enabled === true,
           required: worldModel.projections?.['arch.calm']?.required === true,
           schemaRelease: '1.2',
-          strict: worldModel.projections?.['arch.calm']?.calm?.strict !== false
+          strict: worldModel.projections?.['arch.calm']?.calm?.strict !== false,
+          includeGovernanceActors: worldModel.projections?.['arch.calm']?.profile?.includeGovernanceActors !== false,
+          includeControls: worldModel.projections?.['arch.calm']?.profile?.includeControls !== false,
+          includeFlows: worldModel.projections?.['arch.calm']?.profile?.includeFlows !== false,
+          includeExternalDependencies: worldModel.projections?.['arch.calm']?.profile?.includeExternalDependencies === 'off'
+            ? 'off' : 'direct-architecture-only'
         }
       },
       materialization: {
@@ -553,6 +564,12 @@ export function validateWorldModelDraft(draft: WorldModelDraft): string[] {
   }
   if (draft.projections?.archCalm.required && !draft.projections.archCalm.enabled) {
     errors.push('The CALM architecture projection must be enabled before it can be required.');
+  }
+  if (draft.projections?.archCalm.includeExternalDependencies != null
+      && !['off', 'direct-architecture-only'].includes(
+        draft.projections.archCalm.includeExternalDependencies
+      )) {
+    errors.push('CALM external dependencies must be off or direct-architecture-only.');
   }
   if (!draft.views.length) errors.push('Declare at least one world-model view.');
   if (new Set(draft.views).size !== draft.views.length) errors.push('World-model views must not contain duplicates.');
@@ -741,6 +758,24 @@ export function updateWorldModelYaml(text: string, draft: WorldModelDraft): stri
     parsed.setIn(['worldModel', 'projections', 'arch.calm', 'contract'], 'arch.calm@1');
     parsed.setIn(['worldModel', 'projections', 'arch.calm', 'calm', 'schemaRelease'], '1.2');
     parsed.setIn(['worldModel', 'projections', 'arch.calm', 'calm', 'strict'], draft.projections.archCalm.strict);
+    if (typeof draft.projections.archCalm.includeGovernanceActors === 'boolean') {
+      parsed.setIn(['worldModel', 'projections', 'arch.calm', 'profile', 'includeGovernanceActors'],
+        draft.projections.archCalm.includeGovernanceActors);
+    }
+    if (typeof draft.projections.archCalm.includeControls === 'boolean') {
+      parsed.setIn(['worldModel', 'projections', 'arch.calm', 'profile', 'includeControls'],
+        draft.projections.archCalm.includeControls);
+    }
+    if (typeof draft.projections.archCalm.includeFlows === 'boolean') {
+      parsed.setIn(['worldModel', 'projections', 'arch.calm', 'profile', 'includeFlows'],
+        draft.projections.archCalm.includeFlows);
+    }
+    if (['off', 'direct-architecture-only'].includes(
+      draft.projections.archCalm.includeExternalDependencies
+    )) {
+      parsed.setIn(['worldModel', 'projections', 'arch.calm', 'profile', 'includeExternalDependencies'],
+        draft.projections.archCalm.includeExternalDependencies);
+    }
   }
   parsed.setIn(['worldModel', 'views'], draft.views);
   // Callers from before scoped world models omit these fields. Preserve the existing YAML in that

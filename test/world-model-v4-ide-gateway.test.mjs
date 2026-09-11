@@ -130,7 +130,8 @@ test('the IDE exposes a bounded CALM architecture preview and exact expansion', 
   const slice = projectWorldModelIdeSlice(registered);
   const projection = slice.projections[0];
   assert.deepEqual(projection.counts, {
-    nodes: 1, interfaces: 0, relationships: 1, controls: 1, unavailable: 0, contradictions: 0
+    nodes: 1, interfaces: 0, relationships: 1, controls: 1, flows: 0,
+    unavailable: 0, contradictions: 0
   });
   assert.deepEqual(projection.nodes.map(({ id, type }) => ({ id, type })), [
     { id: 'service-a', type: 'service' }

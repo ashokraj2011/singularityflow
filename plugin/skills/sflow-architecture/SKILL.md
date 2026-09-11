@@ -15,6 +15,6 @@ argument-hint: "show|explain <ELEMENT-ID>|sources <ELEMENT-ID>|validate|doctor|e
 2. For a base overview run `singularity-flow architecture show`. For one element run `architecture explain <ELEMENT-ID>` or `architecture sources <ELEMENT-ID>`.
 3. Use `--work-id <ID> --planned` only when the user explicitly asks for a Story's approved planned overlay.
 4. Use `architecture validate` or `architecture doctor` for read-only diagnosis.
-5. Export only when the user explicitly supplies a repository-relative destination: `singularity-flow architecture export --format calm --out <FILE>`.
+5. Export only when the user explicitly supplies a repository-relative destination. Run `singularity-flow architecture export --format calm --out <FILE>` as a mutation-free preflight, show its exact destination, projection digest, and effects, then ask the user to confirm. Only after that confirmation rerun with the returned `--confirm <SHA256>` value.
 6. Never edit `singularity/world-model/projections/arch.calm.json`, its source map, a planned projection, or a receipt. Direct the user to the exact source returned by `architecture explain`.
 7. Never call a model, approve an intent, publish a Story phase, or execute a returned lifecycle action.

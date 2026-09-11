@@ -7,7 +7,13 @@ import {
 } from '../src/world-model/projections/calm/projection.mjs';
 import { configuredWorldModelV4ProjectionSelections } from '../src/world-model/commands.mjs';
 import { resolveWorldModelV4ReusableIdentity } from '../src/world-model/plan.mjs';
-import { validateCalmWithOfficialToolchain } from '../src/world-model/projections/calm/validator.mjs';
+import {
+  calmOfflineBootstrapSource, validateCalmWithOfficialToolchain
+} from '../src/world-model/projections/calm/validator.mjs';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { runQualityCommand } from '../src/quality-command-runner.mjs';
 
 test('heuristic and model-advisory facts cannot create CALM elements', () => {
   const capabilitySnapshot = createArchitectureCapabilitySnapshot({
@@ -41,9 +47,10 @@ test("--projections all refuses an empty approved projection catalog", () => {
 });
 
 test('CALM profile, budget, authority snapshots and toolchain are part of reusable identity', () => {
-  const selection = (profile = {}, budgets = {}) => configuredWorldModelV4ProjectionSelections({
+  const selection = (profile = {}, budgets = {}, calm = {}) => configuredWorldModelV4ProjectionSelections({
     definition: { worldModel: { projections: { 'arch.calm': {
       enabled: true,
+      calm: { schemaRelease: '1.2', strict: true, ...calm },
       profile: {
         includeGovernanceActors: true, includeControls: true, includeFlows: true,
         includeExternalDependencies: 'direct-architecture-only', ...profile
@@ -67,6 +74,7 @@ test('CALM profile, budget, authority snapshots and toolchain are part of reusab
   assert.notDeepEqual(baseline, identity({ toolchainLockSha256: sha256('moved') }));
   assert.notDeepEqual(baseline, identity({ projections: selection({ includeControls: false }) }));
   assert.notDeepEqual(baseline, identity({ projections: selection({}, { maximumNodes: 9 }) }));
+  assert.notDeepEqual(baseline, identity({ projections: selection({}, {}, { strict: false }) }));
 });
 
 test('the CALM validator subprocess receives no ambient credentials and strips terminal escapes', async () => {
@@ -80,11 +88,13 @@ test('the CALM validator subprocess receives no ambient credentials and strips t
     capabilitySnapshot, configurationSnapshot: createArchitectureConfigurationSnapshot({})
   }).projection;
   let execution;
+  let invocation;
   process.env.SFLOW_WMC_TEST_SECRET = 'must-not-cross';
   try {
     const result = await validateCalmWithOfficialToolchain(projection, {
-      runCommand: async (_command, _args, options) => {
+      runCommand: async (_command, args, options) => {
         execution = options;
+        invocation = args;
         return {
           status: 0, stdout: JSON.stringify({ hasErrors: false, diagnostic: '\u001b[31mwarning\u001b[0m' }),
           stderr: '', timedOut: false, aborted: false, error: null
@@ -94,8 +104,36 @@ test('the CALM validator subprocess receives no ambient credentials and strips t
     assert.equal(execution.env.SFLOW_WMC_TEST_SECRET, undefined);
     assert.equal(execution.env.HTTPS_PROXY, '');
     assert.equal(execution.env.NO_COLOR, '1');
+    assert.equal(invocation[0], '--require');
+    assert.match(invocation[1], /offline-network-deny\.cjs$/);
     assert.equal(result.normalizedResult.diagnostic, 'warning');
+
+    await validateCalmWithOfficialToolchain(projection, {
+      strict: false,
+      runCommand: async (_command, args, options) => {
+        invocation = args;
+        return {
+          status: 0, stdout: JSON.stringify({ hasErrors: false }), stderr: '',
+          timedOut: false, aborted: false, error: null
+        };
+      }
+    });
+    assert.equal(invocation.includes('--strict'), false);
   } finally {
     delete process.env.SFLOW_WMC_TEST_SECRET;
   }
+});
+
+test('the CALM offline bootstrap prevents a real child process from opening a socket', async (t) => {
+  const temporary = await mkdtemp(path.join(os.tmpdir(), 'sflow-calm-offline-test-'));
+  t.after(() => rm(temporary, { recursive: true, force: true }));
+  const bootstrap = path.join(temporary, 'deny.cjs');
+  const probe = path.join(temporary, 'probe.cjs');
+  await writeFile(bootstrap, calmOfflineBootstrapSource());
+  await writeFile(probe, "require('net').connect(443, 'example.com');\n");
+  const result = await runQualityCommand(process.execPath, ['--require', bootstrap, probe], {
+    cwd: temporary, timeoutMs: 2_000, captureBytes: 8_192
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(`${result.stderr}\n${result.stdout}`, /SFLOW_NETWORK_DISABLED|denied validator network access/);
 });

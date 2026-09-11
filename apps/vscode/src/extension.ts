@@ -5028,6 +5028,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await vscode.commands.executeCommand('singularityFlow.buildWorldModel');
       return null;
     }
+    else if (message.action === 'architecture-export') {
+      await vscode.commands.executeCommand('workbench.action.chat.open', {
+        query: '/sf-architecture export the current CALM projection to ', isPartialQuery: true
+      });
+      return null;
+    }
+    else if (message.action === 'architecture-planned') {
+      await vscode.commands.executeCommand('workbench.action.chat.open', {
+        query: '/sf-architecture show the approved planned architecture for the active Story',
+        isPartialQuery: true
+      });
+      return null;
+    }
+    else if (message.action === 'architecture-compare') {
+      await vscode.commands.executeCommand('workbench.action.chat.open', {
+        query: '/sf-architecture compare these two CALM projection files: ', isPartialQuery: true
+      });
+      return null;
+    }
     else if (message.action === 'diagnose-monorepo') {
       output.appendLine('\n$ singularity-flow doctor --performance --offline');
       output.show(true);

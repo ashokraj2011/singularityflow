@@ -18,7 +18,7 @@
     },
     "scopeManifestSha256": { "$ref": "#/$defs/hash" },
     "requestedViews": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "object", "required": ["viewId", "required"], "properties": { "viewId": { "$ref": "#/$defs/view" }, "required": { "type": "boolean" } }, "additionalProperties": false } },
-    "requestedProjections": { "type": "array", "uniqueItems": true, "items": { "type": "object", "required": ["projectionId", "projectionVersion", "required", "contractSha256", "profile", "budgets"], "properties": { "projectionId": { "$ref": "#/$defs/view" }, "projectionVersion": { "type": "integer", "minimum": 1 }, "required": { "type": "boolean" }, "contractSha256": { "$ref": "#/$defs/hash" }, "profile": { "type": "object" }, "budgets": { "type": "object" } }, "additionalProperties": false } },
+    "requestedProjections": { "type": "array", "uniqueItems": true, "items": { "type": "object", "required": ["projectionId", "projectionVersion", "required", "contractSha256", "profile", "budgets"], "properties": { "projectionId": { "$ref": "#/$defs/view" }, "projectionVersion": { "type": "integer", "minimum": 1 }, "required": { "type": "boolean" }, "contractSha256": { "$ref": "#/$defs/hash" }, "profile": { "type": "object" }, "budgets": { "type": "object" }, "validation": { "type": "object", "required": ["strict"], "properties": { "strict": { "type": "boolean" } }, "additionalProperties": false } }, "additionalProperties": false } },
     "projectionRegistrySha256": { "$ref": "#/$defs/hash" },
     "capabilitySnapshotSha256": { "anyOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] },
     "configurationSnapshotSha256": { "anyOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] },

@@ -580,7 +580,7 @@ Usage:
   singularity-flow architecture validate [--json]
   singularity-flow architecture doctor [--json]
   singularity-flow architecture diff --from FILE --to FILE [--json]
-  singularity-flow architecture export --format calm --out REPOSITORY-FILE [--work-id ID --planned] [--json]
+  singularity-flow architecture export --format calm --out REPOSITORY-FILE [--work-id ID --planned] [--confirm SHA256] [--json]
   singularity-flow architecture intent init --work-id ID --from REVIEWED-JSON [--json]
   singularity-flow architecture intent validate|render|verify --work-id ID [--json]
   singularity-flow jira status [--json]

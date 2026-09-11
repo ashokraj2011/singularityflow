@@ -22,6 +22,10 @@ import { vscodeBuildIdentity } from '../../scripts/reproducible-build.mjs';
  */
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const BUILD = vscodeBuildIdentity(root).stamp;
+const isolatedTestOutdir = process.env.SINGULARITY_FLOW_VSCODE_TEST_OUTDIR;
+if (isolatedTestOutdir && process.env.NODE_ENV !== 'test') {
+  throw new Error('SINGULARITY_FLOW_VSCODE_TEST_OUTDIR is available only to isolated tests.');
+}
 
 /**
  * Core resolves its installed assets from ESM `import.meta.url`. The extension is CommonJS and
@@ -62,7 +66,7 @@ const options = {
     'world-model-build': 'src/world-model-build.ts'
   },
   bundle: true,
-  outdir: 'dist',
+  outdir: isolatedTestOutdir ? path.resolve(isolatedTestOutdir) : 'dist',
   outExtension: { '.js': '.cjs' },
   platform: 'node',
   target: 'node20',

@@ -6,15 +6,30 @@
  * invoked. That matters here more than usual: the whole question is whether the core survives being
  * bundled into CommonJS, and only the bundle can answer it.
  */
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { codeOnly } from './source-text.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const extension = path.join(root, 'apps', 'vscode');
+const isolatedBundle = await mkdtemp(path.join(os.tmpdir(), 'sflow-vscode-gateway-bundle-'));
+const build = spawnSync(process.execPath, ['esbuild.mjs'], {
+  cwd: extension,
+  encoding: 'utf8',
+  env: {
+    ...process.env,
+    NODE_ENV: 'test',
+    SINGULARITY_FLOW_VSCODE_TEST_OUTDIR: isolatedBundle
+  }
+});
+assert.equal(build.status, 0, `isolated VS Code gateway build failed:\n${build.stdout}${build.stderr}`);
+after(async () => { await rm(isolatedBundle, { recursive: true, force: true }); });
 
 test('the packaged lazy gateway runtime contains the in-process handle authority', async () => {
   /**
@@ -22,7 +37,7 @@ test('the packaged lazy gateway runtime contains the in-process handle authority
    * the moment of use; it cannot survive a process that exits after every command. Either the
    * kernel is in this bundle or nothing in the editor re-resolves anything.
    */
-  const bundle = await readFile(path.join(root, 'apps', 'vscode', 'dist', 'gateway-runtime.cjs'), 'utf8');
+  const bundle = await readFile(path.join(isolatedBundle, 'gateway-runtime.cjs'), 'utf8');
   assert.ok(bundle.includes('sflow-result'), 'the result contract is bundled');
   assert.ok(bundle.includes('A handle requires the operation it resolved to'),
     'the handle authority is bundled');
@@ -49,7 +64,7 @@ test('the editor bundles the shared docs planner with a verified package root', 
    * Center `require`s at runtime from a computed path and which is data, not a bundled module. A
    * substring of a filename cannot tell "this code is here" from "this name is mentioned".
    */
-  const bundle = await readFile(path.join(root, 'apps', 'vscode', 'dist', 'extension.cjs'), 'utf8');
+  const bundle = await readFile(path.join(isolatedBundle, 'extension.cjs'), 'utf8');
   const topics = await readFile(path.join(root, 'src', 'docs-topics.mjs'), 'utf8');
   const marker = topics.match(/export function (\w+)/)?.[1];
   assert.ok(marker, 'docs-topics.mjs exports something to look for');

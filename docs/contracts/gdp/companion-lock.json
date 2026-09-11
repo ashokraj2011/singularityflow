@@ -77,7 +77,7 @@
     {
       "id": "candidate-custody",
       "path": "src/auto/auto-candidate.mjs",
-      "sha256": "sha256:9d3ad8dabf927f3841162620db9a94b992681db1dbcd94a8f9f92f1c536b93b0"
+      "sha256": "sha256:04ea5a1783ffe9b1878125be9f99883336a6c188883bcb1c0fd008b42c601c5c"
     },
     {
       "id": "publication-unit-of-work",

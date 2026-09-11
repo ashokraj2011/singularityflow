@@ -3272,6 +3272,12 @@ singularity-flow wm context|check [--branch BRANCH] [--remote REMOTE]
 singularity-flow wm inject
 singularity-flow wm cleanup [--force] [--json]
 singularity-flow wm cache status|clear [--json]
+singularity-flow architecture show [--json]
+singularity-flow architecture explain <ELEMENT-ID> [--json]
+singularity-flow architecture sources <ELEMENT-ID> [--json]
+singularity-flow architecture validate|doctor [--json]
+singularity-flow architecture intent [--work-id WORK-ID] [--json]
+singularity-flow architecture export --out <REPOSITORY-RELATIVE-PATH> [--json]
 singularity-flow jira assigned|list|pull|fields
 singularity-flow jira status|projects|epics|children|permissions|boards|board
 singularity-flow jira transitions|transition|assign|priority|sprint|comment

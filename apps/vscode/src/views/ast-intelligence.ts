@@ -522,7 +522,11 @@ export class AstIntelligencePanel {
   private async saveMachine(mode: AstMode): Promise<void> {
     try {
       await this.client.run(['wm', 'ast', 'preference', 'set', mode, '--json']);
-      this.notice = `Machine AST preference set to ${mode}.`; this.error = null; await this.refresh();
+      this.notice = `Machine AST preference set to ${mode}.`; this.error = null;
+      // The preference is already persisted. Acknowledge it before the independent doctor and
+      // workspace probes so slow Git access cannot make a successful save appear to time out.
+      this.render();
+      await this.refresh();
     } catch (error) { this.error = (error as Error).message; this.render(); }
   }
   private draft(message: InboundMessage): AstPolicyDraft {

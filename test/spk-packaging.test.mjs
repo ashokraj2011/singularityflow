@@ -11,7 +11,7 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, readdir, symlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -30,10 +30,9 @@ function run(command, args, cwd, { allowFailure = false } = {}) {
 /**
  * Pack the CLI and unpack it, so what runs below is what an install would place on disk.
  *
- * Dependencies are linked rather than installed. The property under test is whether the *package*
- * contains every file its own code imports — the defect class this exists for is a source file that
- * an ignore rule stripped, not a missing third-party module, and `npm install` here would add a
- * minute to every run to re-prove something npm already guarantees.
+ * Production dependencies are now carried by the exact release archive. Exercise that bundled
+ * closure directly: linking the checkout's node_modules both hid an incomplete offline artifact and
+ * started failing with EEXIST once the package correctly began shipping its own dependency tree.
  */
 async function installedCli() {
   const staging = await mkdtemp(path.join(os.tmpdir(), 'sflow-pack-'));
@@ -42,7 +41,11 @@ async function installedCli() {
   const tarball = packed.stdout.trim().split('\n').at(-1);
   run('tar', ['-xzf', path.join(staging, tarball)], staging);
   const root = path.join(staging, 'package');
-  await symlink(path.join(packageRoot, 'node_modules'), path.join(root, 'node_modules'), 'dir');
+  const bundledDependencies = await lstat(path.join(root, 'node_modules')).catch(() => null);
+  assert.ok(
+    bundledDependencies?.isDirectory() && !bundledDependencies.isSymbolicLink(),
+    'the installed CLI archive must contain an ordinary bundled production dependency tree'
+  );
   return { root, staging };
 }
 

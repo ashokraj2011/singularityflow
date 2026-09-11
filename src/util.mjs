@@ -587,7 +587,11 @@ export function run(command, args = [], {
        * `encoding: 'buffer'` fails with "Unknown encoding: buffer" — the input is never ambiguous
        * once it is already a Buffer.
        */
-      ...(input === undefined ? {} : { input: Buffer.isBuffer(input) ? input : Buffer.from(String(input), 'utf8') })
+      // `null` is the established "no stdin" default at several higher-level process adapters.
+      // Passing it through as the four bytes `null` races commands that do not read stdin: a fast
+      // Git process can exit while spawnSync is still writing, which Node reports as EPIPE. Only an
+      // explicitly supplied non-null value opens and writes the child stdin pipe.
+      ...(input == null ? {} : { input: Buffer.isBuffer(input) ? input : Buffer.from(String(input), 'utf8') })
     });
   } finally {
     if (ownsGitTiming) {

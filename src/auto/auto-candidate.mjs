@@ -127,7 +127,7 @@ async function remoteGit(root, args, { operation = 'remote-probe', allowFailure 
   return runRemoteGitAsync(args, { cwd: root, operation, allowFailure });
 }
 
-function git(root, args, { env = process.env, input = null, allowFailure = false } = {}) {
+function git(root, args, { env = process.env, input = undefined, allowFailure = false } = {}) {
   const result = run('git', args, {
     cwd: root, env: { ...env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'Never' },
     input, allowFailure, encoding: 'buffer'

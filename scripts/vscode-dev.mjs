@@ -629,11 +629,18 @@ export async function stageCli({ rootDir = root, extensionDir = extension } = {}
     .filter(([relative, metadata]) => relative.startsWith('node_modules/')
       && metadata?.dev !== true
       && metadata?.link !== true)
-    .map(([relative]) => relative)
-    .sort((left, right) => left.split('/').length - right.split('/').length || left.localeCompare(right));
-  for (const relative of production) {
+    .map(([relative, metadata]) => ({ relative, metadata }))
+    .sort((left, right) => left.relative.split('/').length - right.relative.split('/').length
+      || left.relative.localeCompare(right.relative));
+  for (const { relative, metadata } of production) {
     const source = path.join(rootDir, relative);
-    if (!existsSync(source)) throw new Error(`Locked production dependency is not installed: ${relative}`);
+    if (!existsSync(source)) {
+      // npm can retain an optional peer resolution in package-lock even though a clean `npm ci`
+      // does not install that peer. It is not part of the physical runtime closure. Ordinary
+      // production packages remain fail-closed so a partial install can never produce a VSIX.
+      if (metadata?.peer === true) continue;
+      throw new Error(`Locked production dependency is not installed: ${relative}`);
+    }
     await cp(source, path.join(staged, relative), { recursive: true });
   }
   return staged;

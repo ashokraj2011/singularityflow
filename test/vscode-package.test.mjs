@@ -43,6 +43,8 @@ test('the installed VS Code CLI carries the canonical Help manual', async () => 
   assert.match(sourceDigestImport.stdout, /^sha256:[a-f0-9]{64}$/);
   assert.equal(existsSync(path.join(staged, 'node_modules', 'singularity-flow-vscode')), false,
     'the staged production closure must exclude npm workspace links');
+  assert.equal(existsSync(path.join(staged, 'node_modules', '@types', 'node')), false,
+    'a lockfile-only optional peer must not become a staged runtime dependency');
 });
 
 test('the CommonJS extension build uses a host-safe package root without import.meta warnings', () => {

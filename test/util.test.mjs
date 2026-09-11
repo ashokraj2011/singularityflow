@@ -130,3 +130,22 @@ test('a read big enough to matter is not a crash, and a read too big says so', (
   assert.equal(allowed.blocked, false);
   assert.equal(allowed.timedOut, false);
 });
+
+test('null subprocess input means no stdin while explicit bytes are preserved', () => {
+  const observed = [];
+  const spawnSyncCommand = (_command, _args, options) => {
+    observed.push(options);
+    return { status: 0, stdout: Buffer.from('ok'), stderr: Buffer.alloc(0) };
+  };
+
+  run('git', ['rev-parse', 'HEAD'], {
+    allowFailure: true, encoding: 'buffer', input: null, spawnSyncCommand
+  });
+  run('git', ['commit-tree', 'deadbeef'], {
+    allowFailure: true, encoding: 'buffer', input: Buffer.from('message\n'), spawnSyncCommand
+  });
+
+  assert.equal(Object.hasOwn(observed[0], 'input'), false,
+    'a null default must not open a child stdin pipe');
+  assert.deepEqual(observed[1].input, Buffer.from('message\n'));
+});

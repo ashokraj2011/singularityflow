@@ -110,7 +110,7 @@ function publicationTransportReceiptPath(root, candidateId, packetSha256) {
     `transport-${packetSha256.slice('sha256:'.length)}.json`);
 }
 
-function gitResult(root, args, { env = process.env, input = null, maximumBytes = 32 * 1024 * 1024 } = {}) {
+function gitResult(root, args, { env = process.env, input = undefined, maximumBytes = 32 * 1024 * 1024 } = {}) {
   const result = run('git', args, {
     cwd: root,
     env: { ...env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'Never' },
@@ -121,13 +121,24 @@ function gitResult(root, args, { env = process.env, input = null, maximumBytes =
   });
   if (result.error || result.status !== 0) {
     const diagnostic = Buffer.from(result.stderr ?? '').toString('utf8').slice(0, 4096).trim();
-    fail(`Git candidate operation failed${diagnostic ? `: ${diagnostic}` : '.'}`,
-      'SGOS_CANDIDATE_GIT_FAILED', { status: result.status, signal: result.signal ?? null });
+    // `spawnSync` failures such as EAGAIN and ENOBUFS often have no stderr. Retaining only the
+    // status made a loaded-host resource failure indistinguishable from a missing Candidate ref.
+    // The Git verb and closed runtime error code are safe diagnostics; argv, paths and stderr stay
+    // out of structured details.
+    const operation = /^[a-z][a-z0-9-]*$/.test(String(args[0] ?? '')) ? args[0] : 'unknown';
+    const errorCode = /^[A-Z][A-Z0-9_]*$/.test(String(result.error?.code ?? ''))
+      ? result.error.code : null;
+    const failure = diagnostic || (errorCode ? `${operation} could not start (${errorCode})` : '');
+    fail(`Git candidate operation failed${failure ? `: ${failure}` : '.'}`,
+      'SGOS_CANDIDATE_GIT_FAILED', {
+        operation, errorCode, status: result.status, signal: result.signal ?? null,
+        timedOut: result.timedOut === true
+      });
   }
   return Buffer.from(result.stdout ?? '');
 }
 
-function tryGitResult(root, args, { env = process.env, input = null, maximumBytes = 32 * 1024 * 1024 } = {}) {
+function tryGitResult(root, args, { env = process.env, input = undefined, maximumBytes = 32 * 1024 * 1024 } = {}) {
   return run('git', args, {
     cwd: root,
     env: { ...env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'Never' },

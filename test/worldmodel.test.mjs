@@ -1541,15 +1541,16 @@ test('a lease loser refetches and preserves both view fragments without a second
   const cloneA = clone('clone-a');
   const cloneB = clone('clone-b');
   const providerLog = path.join(base, 'provider.jsonl');
-  const barrier = path.join(base, 'synthesis-barrier');
   const loserReady = path.join(base, 'loser-ready');
   const releaseLoser = path.join(base, 'release-loser');
+  const raceReadyTimeoutMs = 5 * 60_000;
+  const raceChildTimeoutMs = raceReadyTimeoutMs + 30_000;
   const hookSource = ({ ready = null, waitFor }) => `#!/usr/bin/env node
 const fs = require('node:fs');
 const input = fs.readFileSync(0, 'utf8');
 if (!input.includes('refs/heads/state')) process.exit(0);
 ${ready ? `fs.writeFileSync(${JSON.stringify(ready)}, 'ready\\n');` : ''}
-const deadline = Date.now() + 15000;
+const deadline = Date.now() + ${raceReadyTimeoutMs};
 while (!fs.existsSync(${JSON.stringify(waitFor)})) {
   if (Date.now() >= deadline) { console.error('state publication hook timed out'); process.exit(1); }
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
@@ -1561,23 +1562,34 @@ while (!fs.existsSync(${JSON.stringify(waitFor)})) {
   await chmod(path.join(cloneB, '.git/hooks/pre-push'), 0o755);
   const environment = {
     ...process.env,
-    SFLOW_PARALLEL_TEST_LOG: providerLog,
-    SFLOW_MOCK_SYNTHESIS_BARRIER_DIR: barrier
+    SFLOW_PARALLEL_TEST_LOG: providerLog
   };
   const architecturePromise = resultAsync(
-    process.execPath, [bin, 'wm', 'build', '--view', 'architecture', '--tier', 'full'], cloneA, environment
+    process.execPath, [bin, 'wm', 'build', '--view', 'architecture', '--tier', 'full'], cloneA,
+    environment, raceChildTimeoutMs
   );
   const securityPromise = resultAsync(
-    process.execPath, [bin, 'wm', 'build', '--view', 'security', '--tier', 'full'], cloneB, environment
+    process.execPath, [bin, 'wm', 'build', '--view', 'security', '--tier', 'full'], cloneB,
+    environment, raceChildTimeoutMs
   );
-  const readyDeadline = Date.now() + 15_000;
-  while (!existsSync(loserReady)) {
-    if (Date.now() >= readyDeadline) throw new Error('lease-loser publication did not reach its pre-push hook');
-    await new Promise((resolve) => setTimeout(resolve, 25));
+  let architecture;
+  let security;
+  try {
+    const readyDeadline = Date.now() + raceReadyTimeoutMs;
+    while (!existsSync(loserReady)) {
+      if (Date.now() >= readyDeadline) throw new Error('lease-loser publication did not reach its pre-push hook');
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    architecture = await architecturePromise;
+    await writeFile(releaseLoser, 'release\n');
+    security = await securityPromise;
+  } finally {
+    // Always release the deliberately blocked publisher and await both supervised children. A
+    // failed assertion or a saturated test host must not strand Git/provider descendants in the
+    // remaining suite.
+    await writeFile(releaseLoser, 'release\n').catch(() => {});
+    await Promise.allSettled([architecturePromise, securityPromise]);
   }
-  const architecture = await architecturePromise;
-  await writeFile(releaseLoser, 'release\n');
-  const security = await securityPromise;
   assert.equal(architecture.status, 0, `${architecture.stdout}\n${architecture.stderr}`);
   assert.equal(security.status, 0, `${security.stdout}\n${security.stderr}`);
 

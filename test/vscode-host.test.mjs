@@ -134,7 +134,9 @@ function requireBundle(t) {
  * otherwise report the consequence — `expected /Commerce/, got null` — and say nothing at all about
  * the wait that actually failed.
  */
-async function until(read, { attempts = 600, everyMs = 50, what = '' } = {}) {
+// This is only the host test's observation ceiling. Product command deadlines remain owned by the
+// extension runner; the extra wait lets their completion event be observed on a loaded host.
+async function until(read, { attempts = 3_000, everyMs = 50, what = '' } = {}) {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const value = read();
     if (value) return value;
@@ -172,7 +174,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 400));
 
 /** Enough of the VS Code API for activation to complete and for the tree to be read. */
 function stubVscode() {
-  const registered = { commands: new Map(), trees: new Map(), webviewViews: new Map(), chatParticipants: [], clipboard: [], statusBars: [], terminals: [], errors: [], warnings: [], output: [], inputBoxes: [], panels: [], quickPicks: [], openDialogs: [], openedDocuments: [], answers: [], warningAnswers: [], infos: [], diagnostics: new Map(), saveListeners: [], watchers: [], executedCommands: [], pickedFile: null, pickedFolder: null, pickedFavorites: undefined };
+  const registered = { commands: new Map(), trees: new Map(), webviewViews: new Map(), chatParticipants: [], clipboard: [], statusBars: [], terminals: [], errors: [], warnings: [], output: [], inputBoxes: [], panels: [], quickPicks: [], openDialogs: [], openedDocuments: [], answers: [], warningAnswers: [], infos: [], diagnostics: new Map(), diagnosticEvents: [], saveListeners: [], watchers: [], executedCommands: [], pickedFile: null, pickedFolder: null, pickedFavorites: undefined };
 
   class EventEmitter {
     constructor() { this.listeners = new Set(); }
@@ -278,8 +280,16 @@ function stubVscode() {
     },
     languages: {
       createDiagnosticCollection: () => ({
-        set: (uri, items) => registered.diagnostics.set(String(uri?.fsPath ?? uri), items),
-        delete: (uri) => registered.diagnostics.delete(String(uri?.fsPath ?? uri)),
+        set: (uri, items) => {
+          const target = String(uri?.fsPath ?? uri);
+          registered.diagnostics.set(target, items);
+          registered.diagnosticEvents.push({ kind: 'set', target });
+        },
+        delete: (uri) => {
+          const target = String(uri?.fsPath ?? uri);
+          registered.diagnostics.delete(target);
+          registered.diagnosticEvents.push({ kind: 'delete', target });
+        },
         dispose() {}
       })
     },
@@ -2599,8 +2609,11 @@ test('saving governed configuration asks the engine, and a broken file is report
   const document = { uri: { fsPath: workflow } };
 
   // Valid to begin with: no diagnostic.
+  const validSaveEvent = registered.diagnosticEvents.length;
   registered.saveListeners[0](document);
-  await settle();
+  await until(() => registered.diagnosticEvents.slice(validSaveEvent)
+    .some((event) => event.kind === 'delete' && event.target === workflow) ? true : null,
+  { what: 'the valid configuration save diagnostic completion' });
   assert.equal(registered.diagnostics.get(workflow), undefined);
 
   // Break it, and the engine's own complaint appears against the file. The save listener is

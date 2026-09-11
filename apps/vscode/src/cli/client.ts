@@ -119,6 +119,19 @@ function enabledBooleanOption(args: string[], name: string): boolean {
   return false;
 }
 
+/**
+ * Whether an otherwise read-only invocation may reuse bytes from the short-lived client cache.
+ *
+ * Configuration validation is deliberately excluded: the editor writes candidate bytes to disk
+ * immediately before invoking it, and a second save can replace those bytes well inside the
+ * ordinary 250 ms read TTL. Reusing or coalescing that result would validate the previous save
+ * while presenting it as the current one. It remains classified as a read for timeout and mutation
+ * policy; only result reuse is forbidden.
+ */
+function cacheableRead(args: string[]): boolean {
+  return !(args[0] === 'configuration' && args[1] === 'validate');
+}
+
 export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (!args[0]) return 'unknown';
   if (args[0] === 'init' && enabledBooleanOption(args, 'smart-detect')
@@ -356,7 +369,7 @@ export class SingularityFlowClient {
       : this.options.onOutput;
     const classification = commandClass(args);
     if (classification !== 'read') this.invalidateReadResults();
-    const cacheable = json && input == null && classification === 'read';
+    const cacheable = json && input == null && classification === 'read' && cacheableRead(args);
     const cacheKey = cacheable ? this.readResultKey(args) : null;
     if (cacheKey && !signal?.aborted) {
       const cached = this.readResults.get(cacheKey);

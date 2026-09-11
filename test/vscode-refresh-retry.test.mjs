@@ -21,6 +21,9 @@ import { nodeTypeScriptFlags } from '../scripts/typescript-runtime.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const storeModule = pathToFileURL(path.join(packageRoot, 'apps/vscode/src/state.ts')).href;
+// Child scenarios retain their own product retry budgets. This outer timeout only detects a
+// process that never settles, so use one consistent ceiling with scheduler headroom.
+const CHILD_PROCESS_TIMEOUT_MS = 60_000;
 
 const DISTURBED = 'Repository state changed while the snapshot was being assembled. Refresh and retry.';
 
@@ -78,7 +81,7 @@ function drive({ failures, recovers = true, attemptWorkMs = 0 }) {
     }));
   `;
   const result = spawnSync(process.execPath, [...nodeTypeScriptFlags(packageRoot), '--input-type=module', '-e', source], {
-    encoding: 'utf8', cwd: packageRoot, timeout: 60_000
+    encoding: 'utf8', cwd: packageRoot, timeout: CHILD_PROCESS_TIMEOUT_MS
   });
   assert.equal(result.status, 0, `child failed: ${result.stderr}`);
   return JSON.parse(result.stdout);
@@ -119,7 +122,7 @@ test('a real fault is reported at once, not four seconds later', () => {
   // Retrying a broken lifecycle definition only delays the error someone needs to repair it.
   assert.equal(outcome.attempts, 1, 'a non-transient failure must not consume the retry budget');
   assert.match(outcome.error, /unknown phase/);
-  assert.ok(outcome.elapsed < 400, `took ${outcome.elapsed}ms — it backed off on a real fault`);
+  assert.deepEqual(outcome.retryWaits, [], 'a real fault consumed a retry delay');
 });
 
 test('when nothing answers, the failure is still the one worth showing', () => {
@@ -188,7 +191,7 @@ test('overlapping refreshes coalesce without aborting paid work or fanning out s
     process.stdout.write(JSON.stringify({ calls, aborted, events, marker: store.current.snapshot?.marker }));
   `;
   const result = spawnSync(process.execPath, [...nodeTypeScriptFlags(packageRoot), '--input-type=module', '-e', source], {
-    encoding: 'utf8', cwd: packageRoot, timeout: 10_000
+    encoding: 'utf8', cwd: packageRoot, timeout: CHILD_PROCESS_TIMEOUT_MS
   });
   assert.equal(result.status, 0, result.stderr);
   const outcome = JSON.parse(result.stdout);
@@ -223,7 +226,7 @@ test('loading a new snapshot slice cannot reuse a revision from a smaller projec
     process.stdout.write(JSON.stringify({ calls, definitionText: store.current.snapshot?.definitionText }));
   `;
   const result = spawnSync(process.execPath, [...nodeTypeScriptFlags(packageRoot), '--input-type=module', '-e', source], {
-    encoding: 'utf8', cwd: packageRoot, timeout: 10_000
+    encoding: 'utf8', cwd: packageRoot, timeout: CHILD_PROCESS_TIMEOUT_MS
   });
   assert.equal(result.status, 0, result.stderr);
   const outcome = JSON.parse(result.stdout);
@@ -252,7 +255,7 @@ test('loading a missing slice reports that it already refreshed, so Start Work d
     process.stdout.write(JSON.stringify({ calls, firstRefreshed, secondRefreshed }));
   `;
   const result = spawnSync(process.execPath, [...nodeTypeScriptFlags(packageRoot), '--input-type=module', '-e', source], {
-    encoding: 'utf8', cwd: packageRoot, timeout: 10_000
+    encoding: 'utf8', cwd: packageRoot, timeout: CHILD_PROCESS_TIMEOUT_MS
   });
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout), {
@@ -289,7 +292,7 @@ test('a cached heavy panel does not make the next activation reload every heavy 
     process.stdout.write(JSON.stringify({ requested }));
   `;
   const result = spawnSync(process.execPath, [...nodeTypeScriptFlags(packageRoot), '--input-type=module', '-e', source], {
-    encoding: 'utf8', cwd: packageRoot, timeout: 10_000
+    encoding: 'utf8', cwd: packageRoot, timeout: CHILD_PROCESS_TIMEOUT_MS
   });
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout).requested, ['repository', 'lifecycle', 'capabilities']);

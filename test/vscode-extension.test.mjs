@@ -611,6 +611,37 @@ test('the VS Code client coalesces identical short-lived reads and invalidates t
   }
 });
 
+test('configuration validation always reads current bytes while ordinary status reads stay cached', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-vscode-validation-cache-'));
+  const cli = path.join(directory, 'fake-cli.mjs');
+  const counter = path.join(directory, 'count.txt');
+  await writeFile(counter, '0');
+  await writeFile(cli, `
+    import { readFileSync, writeFileSync } from 'node:fs';
+    const counter = ${JSON.stringify(counter)};
+    const count = Number(readFileSync(counter, 'utf8')) + 1;
+    writeFileSync(counter, String(count));
+    process.stdout.write(JSON.stringify({ count }));
+  `);
+  const client = new SingularityFlowClient({
+    location: { executable: process.execPath, cli, source: 'setting' },
+    repository: directory
+  });
+  try {
+    assert.deepEqual(await client.run(['configuration', 'validate', '--json']), { count: 1 });
+    assert.deepEqual(await client.run(['configuration', 'validate', '--json']), { count: 2 },
+      'a second immediate validation must spawn against the current on-disk candidate');
+    assert.equal(await readFile(counter, 'utf8'), '2');
+
+    assert.deepEqual(await client.run(['status', '--json']), { count: 3 });
+    assert.deepEqual(await client.run(['status', '--json']), { count: 3 },
+      'ordinary identical reads should retain the short-lived cache optimization');
+    assert.equal(await readFile(counter, 'utf8'), '3');
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test('VS Code preserves UTF-8 split across CLI output chunks', async () => {
   const value = JSON.stringify({ message: 'नमस्ते 🌍' });
   const bytes = Buffer.from(value);

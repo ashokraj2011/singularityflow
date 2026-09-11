@@ -8,6 +8,10 @@ import { fileURLToPath } from 'node:url';
 import { validateWelBenchmarkEvidence } from '../src/wel-benchmark-evidence.mjs';
 
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+// This child exercises several complete local Git publication and recovery journeys. The product
+// operations retain their own tighter deadlines; this outer ceiling exists only to reap a wedged
+// test process and must leave enough scheduler headroom on a loaded supported host.
+const BENCHMARK_PROCESS_TIMEOUT_MS = 5 * 60_000;
 
 test('WEL benchmark emits and privately retains bounded content-free local measurements', async (t) => {
   const evidenceDirectory = await mkdtemp(path.join(os.tmpdir(), 'sflow-wel-benchmark-test-'));
@@ -16,9 +20,10 @@ test('WEL benchmark emits and privately retains bounded content-free local measu
   const result = spawnSync(process.execPath, ['scripts/wel-benchmark.mjs', '--samples=1'], {
     cwd: repository,
     encoding: 'utf8',
-    timeout: 60_000,
+    timeout: BENCHMARK_PROCESS_TIMEOUT_MS,
     env: { ...process.env, SINGULARITY_FLOW_WEL_BENCHMARK_OUT: evidencePath }
   });
+  assert.equal(result.error, undefined, result.error?.message);
   assert.equal(result.status, 0, result.stderr);
   const report = JSON.parse(result.stdout);
   const retained = JSON.parse(await readFile(evidencePath, 'utf8'));

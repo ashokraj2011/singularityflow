@@ -189,6 +189,16 @@ export async function populateExactWorktree(materialized, worktree, entries) {
       || !gitMarker?.isFile() || gitMarker.isSymbolicLink()) {
     throw new Error('No-checkout VSIX worktree contains unexpected files or unsafe Git metadata.');
   }
+  // `git worktree add --no-checkout` deliberately leaves this worktree's index empty. Populate the
+  // index directly from its detached HEAD before copying verified blobs. `read-tree` changes only
+  // Git's index; it cannot invoke checkout/smudge filters or replace any materialized file bytes.
+  const index = spawnSync('git', ['read-tree', 'HEAD'], {
+    cwd: worktree, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024
+  });
+  if (index.error || index.status !== 0) {
+    const detail = String(index.stderr || index.error?.message || '').trim();
+    throw new Error(`Could not bind the exact VSIX worktree index to HEAD${detail ? `: ${detail}` : '.'}`);
+  }
   for (const entry of entries) {
     if (!SAFE_MODE.has(entry.mode)) throw new Error(`Exact worktree refuses mode ${entry.mode}: ${entry.relative}.`);
     const source = path.join(materialized, ...entry.relative.split('/'));

@@ -217,6 +217,11 @@ test('exact VSIX worktree population never invokes repository-local checkout fil
 
   git(repository, ['worktree', 'add', '--detach', '--no-checkout', exact, source.commit]);
   await populateExactWorktree(materialized, exact, source.entries);
+  const indexComparison = spawnSync('git', ['diff', '--cached', '--quiet', 'HEAD', '--'], {
+    cwd: exact, encoding: 'utf8'
+  });
+  assert.equal(indexComparison.status, 0,
+    'the no-checkout worktree index must be bound to its verified detached HEAD');
   assert.equal(await readFile(path.join(exact, 'src', 'value.txt'), 'utf8'),
     'line-one\nline-two\n');
   assert.equal(await readFile(path.join(exact, 'src', 'build-info.mjs'), 'utf8'),

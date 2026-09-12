@@ -4,7 +4,9 @@ import path from 'node:path';
 import {
   approvalRequirementsMet, matchApprovalAuthority
 } from './approval-authority.mjs';
-import { publishedGenerationCommit } from './generation-publication-store.mjs';
+import {
+  generationPublicationRelative, publishedGenerationCommit
+} from './generation-publication-store.mjs';
 import { canonicalJson as recordCanonicalJson, recordSha256 } from './records.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { run, secureRepositoryPath, SingularityFlowError } from './util.mjs';
@@ -61,6 +63,23 @@ function repositoryRelativeIntentPath(root, intentPath) {
 
 function sameIntentBinding(left, right) {
   return canonicalJson(left ?? null) === canonicalJson(right ?? null);
+}
+
+function exactIntentAtCommit(root, commit, relativeIntentPath, intent) {
+  if (!commit || !relativeIntentPath) return false;
+  const shown = run('git', ['show', `${commit}:${relativeIntentPath}`], {
+    cwd: root, allowFailure: true
+  });
+  if (shown.status !== 0 || shown.stdout !== canonicalJson(intent)) return false;
+  try {
+    const stored = validateArchitectureIntent(JSON.parse(shown.stdout));
+    return stored.workId === intent.workId
+      && stored.phase === intent.phase
+      && Number(stored.generation) === Number(intent.generation)
+      && stored.intentSha256 === intent.intentSha256;
+  } catch {
+    return false;
+  }
 }
 
 function jsonAtCommit(root, commit, relativePath, family = null) {
@@ -134,9 +153,13 @@ function immutableStoryCreation(root, workflow, workflowPath, approvalCommit) {
  * commit trailer that were published together.
  */
 async function verifyArchitectureApproval(root, definition, workflow, intent, relativeIntentPath,
-  binding, decision, publicationCommit) {
+  binding, decision, publicationCommit, { legacyPublication = null } = {}) {
   const paths = approvalDecisionPath(relativeIntentPath, intent.phase, decision);
-  if (!paths || !sameIntentBinding(decision.architectureIntent ?? null, binding)
+  const legacy = legacyPublication != null;
+  if (!paths
+      || (legacy
+        ? decision.architectureIntent != null
+        : !sameIntentBinding(decision.architectureIntent ?? null, binding))
       || typeof decision.reviewPacketSha256 !== 'string'
       || typeof decision.authorityGroup !== 'string') return null;
   const candidates = run('git', [
@@ -197,15 +220,56 @@ async function verifyArchitectureApproval(root, definition, workflow, intent, re
     } catch {
       continue;
     }
+    const packetIntent = packet.submissionEvidence?.architectureIntent ?? null;
     if (packet.evidenceCommit !== evidenceCommit
         || packet.workId !== intent.workId
         || packet.phase !== intent.phase
         || Number(packet.generation) !== Number(intent.generation)
-        || !sameIntentBinding(packet.submissionEvidence?.architectureIntent ?? null, binding)
+        || (legacy ? packetIntent != null : !sameIntentBinding(packetIntent, binding))
         || decision.artifactSetSha256 !== packet.submissionEvidence?.artifactSetSha256) continue;
+    if (legacy && (packet.submissionCommit !== publicationCommit
+        || !exactIntentAtCommit(root, publicationCommit, relativeIntentPath, intent)
+        || !exactIntentAtCommit(root, evidenceCommit, relativeIntentPath, intent)
+        || !exactIntentAtCommit(root, commit, relativeIntentPath, intent))) continue;
     valid.push({ commit, creationPhase });
   }
   return valid.length === 1 ? valid[0] : null;
+}
+
+/**
+ * Prove a pre-v2 generation publication without manufacturing the binding added by v2.
+ *
+ * The raw record version is checked at its authenticated publication commit. A current v2 record
+ * with a missing/null binding never enters this path, so deleting new evidence cannot downgrade it
+ * into legacy compatibility. The returned object is an internal proof marker only; callers keep
+ * `publicationBinding` null because migration must not claim that historical bytes stored one.
+ */
+function legacyArchitectureIntentPublication(root, workflow, phase, intent, relativeIntentPath) {
+  const publication = (phase.generationPublications ?? []).find((entry) =>
+    Number(entry.generation) === Number(intent.generation));
+  const recordPath = publication?.record?.path
+    ?? (Number(phase.generationIntent?.generation) === Number(intent.generation)
+      ? phase.generationIntent?.publication?.record?.path : null)
+    ?? generationPublicationRelative(phase, intent.generation);
+  if (!recordPath) return null;
+  const commit = publishedGenerationCommit(root, workflow, phase, intent.generation);
+  if (!commit) return null;
+  const raw = jsonAtCommit(root, commit, recordPath);
+  if (!raw) return null;
+  let loaded;
+  try { loaded = readRecord('generation-publication', raw); }
+  catch { return null; }
+  if (loaded.storedVersion !== 1
+      || loaded.record.architectureIntent !== null
+      || loaded.record.architectureDecision !== null) return null;
+  if (!exactIntentAtCommit(root, commit, relativeIntentPath, intent)) {
+    fail(
+      'Legacy architecture intent bytes do not match their exact owning generation commit.',
+      'WMC_INTENT_NOT_APPROVED',
+      { publicationCommit: commit, path: relativeIntentPath }
+    );
+  }
+  return Object.freeze({ commit, recordPath });
 }
 
 /** The immutable binding carried by one accepted owning-phase publication. */
@@ -290,6 +354,7 @@ export async function architectureIntentApprovalStatus(
   let approvals = [];
   let publicationBinding = null;
   let publicationCommit = null;
+  let legacyPublication = null;
   let relativeIntentPath = null;
   let creationApprovalPolicy = null;
   if (!intentPhase) {
@@ -308,7 +373,19 @@ export async function architectureIntentApprovalStatus(
     catch (error) { errors.push(error.message); }
     publicationBinding = publishedArchitectureIntentBinding(intentPhase, intent.generation);
     if (!publicationBinding) {
-      errors.push('architecture intent has no owning generation-publication binding');
+      if (relativeIntentPath) {
+        try {
+          legacyPublication = legacyArchitectureIntentPublication(
+            root, workflow, intentPhase, intent, relativeIntentPath
+          );
+          publicationCommit = legacyPublication?.commit ?? null;
+        } catch (error) {
+          errors.push(`legacy architecture intent publication cannot be proven: ${error.message}`);
+        }
+      }
+      if (!legacyPublication) {
+        errors.push('architecture intent has no owning generation-publication binding');
+      }
     } else if (relativeIntentPath) {
       const expected = {
         workId: intent.workId,
@@ -338,11 +415,11 @@ export async function architectureIntentApprovalStatus(
         errors.push(`architecture intent generation publication cannot be proven: ${error.message}`);
       }
     }
-    if (publicationBinding && publicationCommit && relativeIntentPath) {
+    if ((publicationBinding || legacyPublication) && publicationCommit && relativeIntentPath) {
       for (const candidate of candidates) {
         const verified = await verifyArchitectureApproval(
           root, definition, workflow, intent, relativeIntentPath, publicationBinding,
-          candidate, publicationCommit
+          candidate, publicationCommit, { legacyPublication }
         );
         if (!verified) {
           errors.push('architecture intent approval is not authenticated by its lifecycle commit, review packet, and pinned authority');
@@ -589,10 +666,15 @@ export async function evaluateArchitectureIntentEvidence(
     intentSha256: intent.intentSha256,
     intentPhase: intent.phase,
     intentGeneration: intent.generation,
-    approvalEvidenceCommit: approved.approval.evidenceCommit,
+    // `resolveApprovedIntent` retains the complete authenticated approval status so callers can
+    // inspect every policy-satisfying decision. The selected decision is its nested `approval`.
+    approvalEvidenceCommit: approved.approval.approval.evidenceCommit,
     beforeManifestSha256: intent.base.worldModelManifestSha256,
     beforeProjectionSha256: before.projectionSha256,
-    afterAuthorityCommit: store.commit,
+    // Story/ledger records share the state branch and can advance its tip without changing the
+    // verified World Model. Bind approval to the commit that actually published these manifest
+    // bytes; otherwise the act of submitting a phase invalidates its own architecture decision.
+    afterAuthorityCommit: store.publicationCommit,
     afterManifestSha256: store.manifest.manifestSha256,
     afterProjectionSha256: current.projectionSha256,
     sourceManifestSha256: store.manifest.sourceManifestSha256,

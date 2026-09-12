@@ -123,6 +123,11 @@ test('Benchmark B composes a generic governed prompt without a world-model snaps
     baseBranch: 'main', workType: 'benchmarking-b', agent: 'product-owner',
     resolved: resolveWorkType(config, 'benchmarking-b')
   });
+  // Prompt composition is a separate operation. Accept the Story's revision-one execution
+  // closure first so this fixture exercises the same immutable boundary as a real started Story,
+  // rather than relying on mutable draft bytes that exist only inside its creation transaction.
+  git(root, 'add', '.');
+  git(root, 'commit', '-m', 'accept benchmark Story execution closure');
 
   assert.equal(workflow.resolution.worldModelGrounding, 'off');
   const composed = await worldModelCommand(root, ['wm', 'compose'], {
@@ -130,7 +135,8 @@ test('Benchmark B composes a generic governed prompt without a world-model snaps
     out: '.git/benchmark-generic-prompt.md'
   });
   assert.match(composed, /Active Story phase contract: Intake/);
-  assert.match(composed, new RegExp('Repository root: `' + root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '`'));
+  assert.match(composed, /Repository root: `\.` \(the verified current repository checkout\)/);
+  assert.doesNotMatch(composed, new RegExp(root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.match(composed, /Work-item directory: `singularity\/work-items\/BENCH-B-1`/);
   assert.match(composed, /Required artifact: `singularity\/work-items\/BENCH-B-1\/artifacts\/intake\/intake\.md`/);
   assert.match(composed, /Never search the filesystem outside this repository/);

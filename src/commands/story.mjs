@@ -21,6 +21,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 
 import { amendmentChurn, amendmentRecap, blastRadius, clauseDiff } from '../amendment.mjs';
+import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { assistedConvergencePrompt, assistedConvergenceRelative, buildAssistedConvergenceRecord, parseConvergenceCandidates, serializeAssistedConvergence, unknownReferences } from '../assisted-convergence.mjs';
 import { unwrapProviderLineBreaks } from '../assisted-quality.mjs';
 import { CAPABILITIES_PATH } from '../capabilities.mjs';
@@ -1121,8 +1122,9 @@ export async function prepareDeterministicConvergence(root, config, workId = nul
  */
 export async function storyConvergeCommand(positionals, options) {
   const root = repoRoot();
-  const config = await loadConfig(root);
-  const result = await prepareDeterministicConvergence(root, config, optionString(options, 'work-id'), {
+  const requestedWorkId = optionString(options, 'work-id');
+  const accepted = await loadAcceptedStoryExecution(root, requestedWorkId);
+  const result = await prepareDeterministicConvergence(root, accepted.definition, requestedWorkId, {
     assisted: optionBoolean(options, 'assisted'),
     model: optionString(options, 'model'),
     migrateLegacy: optionBoolean(options, 'migrate-legacy'),

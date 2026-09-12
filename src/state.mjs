@@ -165,7 +165,9 @@ import {
 import {
   assertConvergencePublicationReady, loadVerifiedConvergenceProjection
 } from './convergence-context.mjs';
-import { resolveStoryExecutionContext } from './story-execution-context.mjs';
+import {
+  resolveStoryExecutionCatalog, resolveStoryExecutionContext
+} from './story-execution-context.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;
@@ -1067,11 +1069,19 @@ export async function loadWorkflow(root, config, id = undefined) {
     // A state file that exists but will not parse is the likeliest reason a Story "does not exist",
     // and saying so is the difference between fixing a file and hunting for a missing directory.
     const unreadable = index.unreadable ?? [];
+    const requestedStateUnreadable = unreadable.some((entry) => (
+      path.posix.basename(path.posix.dirname(String(entry.path ?? '').replaceAll('\\', '/')))
+        === requested
+    ));
     throw new SingularityFlowError(
       `No workflow found for ${requested}. The repository subject index contains no matching Story ID or registered branch alias.`
       + (unreadable.length
         ? ` These state files exist but could not be read: ${unreadable.map((entry) => `${entry.path} (${entry.reason})`).join('; ')}.`
-        : '')
+        : ''),
+      {
+        code: requestedStateUnreadable ? 'STORY_STATE_UNREADABLE' : 'STORY_NOT_FOUND',
+        details: { requested }
+      }
     );
   }
   const file = path.join(root, selected.location.path);
@@ -1575,9 +1585,12 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
   const target = securedTarget.absolute;
   const artifactExistedBeforePreparation = securedTarget.exists;
   const session = await loadSession(root, { required: false });
-  const executionContext = workflow.workflowSnapshot && session?.agent
+  const executionCatalog = workflow.workflowSnapshot
+    ? await resolveStoryExecutionCatalog(root, config, workflow)
+    : null;
+  const executionContext = executionCatalog && session?.agent
     ? await resolveStoryExecutionContext(root, config, workflow, {
-        agentId: session.agent, phaseId: phase.id
+        agentId: session.agent, phaseId: phase.id, executionCatalog
       })
     : null;
   const inputs = await collectInputs(root, workflow, phase, { itemDirectory, itemRelative });
@@ -1704,7 +1717,8 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
       title: workflow.workItem.title,
       workType: workflow.workItem.workType,
       inputs: rendered.text,
-      templateSnapshot: workflow.resolution.templates?.[phase.id]
+      templateSnapshot: workflow.resolution.templates?.[phase.id],
+      retainedTemplate: executionCatalog?.phaseTemplates?.[phase.id]
     });
     text = applyInputsBlock(text, rendered.text, inputs.mode);
     // The immutable reference set is already captured by the WFA snapshot and its Story manifest.
@@ -3791,6 +3805,7 @@ export async function approvePhase(root, config, workflow, {
   actionContext = null,
   checklist = [],
   witnessMappings = [],
+  architectureCandidateSnapshot = null,
   persist = true
 } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'approve');
@@ -3840,6 +3855,32 @@ export async function approvePhase(root, config, workflow, {
     throw new SingularityFlowError(
       `Phase '${phase.id}' review packet does not bind the architecture decision checked at submission. Submit again.`,
       { code: 'STORY_REVIEW_EVIDENCE_STALE' }
+    );
+  }
+  // Submission records what the reviewer was asked to approve, but state/source authority can move
+  // after that commit and before the approval command begins. A commit stability guard only proves
+  // that the observation made at the start of *this* approval stays stable; it must not turn an
+  // already-stale or already-blocking observation into authority. Recompute through the shared gate,
+  // require success, and bind the current decision to the exact submitted identity before making any
+  // approval mutation. The publication guard still repeats this observation around the commit.
+  const currentArchitectureGate = await evaluateArchitectureIntentGate(
+    root, config, workflow, phase.id,
+    { candidateSnapshot: architectureCandidateSnapshot }
+  );
+  if (currentArchitectureGate.errors.length) {
+    throw new SingularityFlowError(
+      `Phase '${phase.id}' architecture evidence changed after submission and is not approvable:\n- ${currentArchitectureGate.errors.join('\n- ')}`,
+      {
+        code: currentArchitectureGate.code ?? 'WMC_INTENT_UNFULFILLED',
+        details: { reasonCodes: currentArchitectureGate.reasonCodes ?? [] }
+      }
+    );
+  }
+  if (canonicalJson(currentArchitectureGate.architectureDecision ?? null)
+      !== canonicalJson(submittedArchitectureDecision)) {
+    throw new SingularityFlowError(
+      `Phase '${phase.id}' architecture decision changed after submission. Submit a fresh immutable review packet before approval.`,
+      { code: 'WMC_INTENT_STATE_CHANGED' }
     );
   }
   const currentArtifacts = [];

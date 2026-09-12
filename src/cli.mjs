@@ -2090,8 +2090,9 @@ async function agentCommand(positionals, options = {}) {
 
 export async function statusCommand(positionals, options) {
   const root = repoRoot();
-  const config = await loadConfig(root);
-  const workflow = await loadStoryAggregate(root, config, positionals[1]);
+  // Story diagnostics must remain readable from the accepted execution closure even when a
+  // later configuration refresh moves the work-item root or removes a live custom agent.
+  const { config, workflow } = await loadAcceptedStoryExecution(root, positionals[1]);
   const wel = storyWelEnrollmentStatus(root, config, workflow.workItem.id);
   if (optionBoolean(options, 'json')) {
     console.log(JSON.stringify({ ...workflow, welStatus: wel }, null, 2));
@@ -2119,7 +2120,9 @@ export async function statusCommand(positionals, options) {
 }
 
 async function progressCommand(positionals, options) {
-  const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config, positionals[1]); const progress = progressSnapshot(workflow);
+  const root = repoRoot();
+  const { workflow } = await loadAcceptedStoryExecution(root, positionals[1]);
+  const progress = progressSnapshot(workflow);
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(progress, null, 2));
   if (optionBoolean(options, 'markdown')) return console.log(progressMarkdown(progress));
   console.log(`\n${progress.workId} — ${progress.workType}`);
@@ -2137,8 +2140,11 @@ async function reportCommand(positionals, options) {
   const timingsEnabled = optionBoolean(options, 'timings');
   const timer = new TimingCollector({ enabled: timingsEnabled });
   const root = repoRoot();
-  const config = await timer.measure('configuration', () => loadConfig(root));
-  const workflow = await timer.measure('workflow', () => loadStoryAggregate(root, config, positionals[1]));
+  const accepted = await timer.measure(
+    'accepted-story-execution',
+    () => loadAcceptedStoryExecution(root, positionals[1])
+  );
+  const { config, workflow } = accepted;
   // `report --recap` is the same account the pull-request body carries, from the same beats. Kept on
   // `report` rather than given its own verb: it answers "what happened here", which is the question
   // report already exists to answer, and one surface is one thing to keep true.
@@ -2565,11 +2571,18 @@ async function guideCommand(positionals, options) {
     return;
   }
   const root = repoRoot();
-  const config = await loadConfig(root);
-  const workflow = await loadStoryAggregate(root, config, positionals[1]);
+  const { workflow } = await loadAcceptedStoryExecution(root, positionals[1]);
   const guide = workflowGuide(workflow);
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(guide, null, 2));
   else process.stdout.write(guideText(guide));
+}
+
+async function acceptedStoryExecutionIfPresent(root, reference = null) {
+  try { return await loadAcceptedStoryExecution(root, reference); }
+  catch (error) {
+    if (error?.code === 'STORY_NOT_FOUND') return null;
+    throw error;
+  }
 }
 
 async function resolveNextStepsSnapshot(positionals, options) {
@@ -2586,12 +2599,15 @@ async function resolveNextStepsSnapshotInScope(root, positionals, options, appro
   let snapshot;
   if (!initialized) snapshot = nextStepsSnapshot({ initialized: false, branch: branch(root) });
   else {
-    const config = await loadConfig(root);
-    const portfolio = await loadPortfolio(root, { required: false });
     const requestedWorkId = positionals[1] ?? null;
     const id = requestedWorkId ?? branch(root);
-    const index = await buildRepositorySubjectIndex(root, { definition: config, portfolio });
-    const selected = resolveContext(index, { reference: id, required: false });
+    const accepted = await acceptedStoryExecutionIfPresent(root, id);
+    const config = accepted?.definition ?? await loadConfig(root);
+    const portfolio = await loadPortfolio(root, { required: false });
+    const index = accepted ? null : await buildRepositorySubjectIndex(root, { definition: config, portfolio });
+    const selected = accepted
+      ? { kind: 'story', id: accepted.workflow.workItem.id, state: accepted.workflow }
+      : resolveContext(index, { reference: id, required: false });
     if (selected?.kind === 'initiative') {
       const initiative = selected.state;
       snapshot = {
@@ -2608,7 +2624,7 @@ async function resolveNextStepsSnapshotInScope(root, positionals, options, appro
         }))
       };
     } else if (selected?.kind === 'story') {
-      const workflow = await loadStoryAggregate(root, config, selected.id);
+      const workflow = accepted?.workflow ?? await loadStoryAggregate(root, config, selected.id);
       const prerequisites = [];
       const active = currentPhase(workflow); const session = await loadSession(root, { required: false });
       const activeSessionAgent = session?.workId === workflow.workItem.id
@@ -2656,11 +2672,16 @@ async function resolveNextStepsSnapshotInScope(root, positionals, options, appro
         }
       }
       if (active?.status === 'in_progress' && activeSessionAgent && !deterministicConvergence) {
-        const status = (await agentStatus(root, activeSessionAgent))[0];
-        if (!status) prerequisites.push({ timing: 'now', skill: null, command: 'singularity-flow agents list', reason: `Active agent '${activeSessionAgent}' is no longer available; choose and sync an available pack.` });
-        else if (status.status === 'unlocked') prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow agents lock ${activeSessionAgent}`, reason: `Review and trust the active agent's remote Markdown before generation.` });
-        else if (status.status === 'stale') prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow agents lock ${session.agent} --update`, reason: 'The active agent Markdown changed after it was locked; review the new dependency hashes.' });
-        if (status && !['ready', 'local-only'].includes(status.status)) prerequisites.push({ timing: ['unlocked', 'stale'].includes(status.status) ? 'then' : 'now', skill: null, command: `singularity-flow agents sync ${session.agent}`, reason: 'Verify the pinned hashes and materialize the active agent cache.' });
+        // Accepted Story agents execute from their verified portable closure. Reopening the live
+        // pack status here would turn an intentionally removed/updated live agent into a false
+        // blocker. Legacy Stories retain the existing synchronizer diagnostics.
+        if (!accepted?.executionCatalog?.agents?.[activeSessionAgent]) {
+          const status = (await agentStatus(root, activeSessionAgent))[0];
+          if (!status) prerequisites.push({ timing: 'now', skill: null, command: 'singularity-flow agents list', reason: `Active agent '${activeSessionAgent}' is no longer available; choose and sync an available pack.` });
+          else if (status.status === 'unlocked') prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow agents lock ${activeSessionAgent}`, reason: `Review and trust the active agent's remote Markdown before generation.` });
+          else if (status.status === 'stale') prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow agents lock ${session.agent} --update`, reason: 'The active agent Markdown changed after it was locked; review the new dependency hashes.' });
+          if (status && !['ready', 'local-only'].includes(status.status)) prerequisites.push({ timing: ['unlocked', 'stale'].includes(status.status) ? 'then' : 'now', skill: null, command: `singularity-flow agents sync ${session.agent}`, reason: 'Verify the pinned hashes and materialize the active agent cache.' });
+        }
         for (const conflict of await remoteOutputConflicts(active, { itemDirectory: workDir(root, config, workflow.workItem.id) })) prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow agents refresh-output ${conflict.resource}`, reason: `Remote output ${conflict.target} has local changes; review them before deciding whether to add --replace.` });
       }
       snapshot = nextStepsSnapshot({
@@ -2988,10 +3009,10 @@ async function nextCommand(options) {
 }
 
 async function documentsCommand(positionals, options) {
-  const subcommand = requirePositional(positionals, 1, 'documents subcommand'); const root = repoRoot(); const config = await loadConfig(root);
+  const subcommand = requirePositional(positionals, 1, 'documents subcommand'); const root = repoRoot();
   if (subcommand === 'list') {
     if (optionBoolean(options, 'active') && optionBoolean(options, 'all')) throw new SingularityFlowError('Choose either --active or --all, not both.');
-    const workflow = await loadStoryAggregate(root, config, positionals[2]);
+    const { config, workflow } = await loadAcceptedStoryExecution(root, positionals[2]);
     const records = await documentCatalog(root, config, workflow, { includeDetached: optionBoolean(options, 'all') });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(records, null, 2));
     if (!records.length) return console.log('No documents found.');
@@ -3000,7 +3021,9 @@ async function documentsCommand(positionals, options) {
     ]));
   }
   if (subcommand === 'view') {
-    const reference = requirePositional(positionals, 2, 'document ID or path'); const workflow = await loadStoryAggregate(root, config, optionString(options, 'work-id')); const result = await viewDocument(root, config, workflow, reference, { includeDetached: optionBoolean(options, 'all') });
+    const reference = requirePositional(positionals, 2, 'document ID or path');
+    const { config, workflow } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
+    const result = await viewDocument(root, config, workflow, reference, { includeDetached: optionBoolean(options, 'all') });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`${result.record.id} — ${result.record.label}`); console.log(`Type: ${result.record.type}${result.record.mimeType ? ` (${result.record.mimeType})` : ''}`);
     if (result.record.url) console.log(`URL: ${result.record.url}`);
@@ -3010,6 +3033,7 @@ async function documentsCommand(positionals, options) {
     return;
   }
   if (subcommand === 'detach') {
+    const config = await loadConfig(root);
     const documentId = requirePositional(positionals, 2, 'document ID');
     const reason = optionString(options, 'reason');
     if (!reason?.trim()) throw new SingularityFlowError('Document detachment requires --reason "<reason>".');
@@ -3058,7 +3082,7 @@ async function documentsCommand(positionals, options) {
   }
   if (subcommand === 'preview') {
     const reference = requirePositional(positionals, 2, 'document ID or path');
-    const workflow = await loadStoryAggregate(root, config, optionString(options, 'work-id'));
+    const { config, workflow } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
     const result = await previewDocument(root, config, workflow, reference);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`${result.record.id} — ${result.record.label}`);
@@ -3069,6 +3093,7 @@ async function documentsCommand(positionals, options) {
     return;
   }
   if (['upload', 'add'].includes(subcommand)) {
+    const config = await loadConfig(root);
     const workflow = await loadStoryAggregate(root, config);
     let records = [];
     const result = await commitAndPublish(
@@ -3099,7 +3124,7 @@ async function documentsCommand(positionals, options) {
     records.forEach((record) => console.log(`${record.id}\t${record.type}\t${record.url ?? record.path}`)); console.log(`Committed ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`); return;
   }
   if (subcommand === 'browse') {
-    const workflow = await loadStoryAggregate(root, config, optionString(options, 'work-id'));
+    const { config, workflow } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
     const result = await listRemoteDocuments(config, { providerId: optionString(options, 'provider'), path: optionString(options, 'path', ''), workflow });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`${result.providerId} (${result.providerType})`);
@@ -3109,6 +3134,7 @@ async function documentsCommand(positionals, options) {
     ]));
   }
   if (subcommand === 'fetch') {
+    const config = await loadConfig(root);
     const workflow = await loadStoryAggregate(root, config);
     let records = [];
     const result = await commitAndPublish(
@@ -3303,9 +3329,14 @@ async function prepareCommand(positionals, options) {
 
 async function clarificationCommand(positionals, options) {
   const root = repoRoot();
-  const config = await loadConfig(root);
-  const workflow = await loadStoryAggregate(root, config);
   const subcommand = positionals[1] ?? 'status';
+  let config;
+  let workflow;
+  if (subcommand === 'status') ({ config, workflow } = await loadAcceptedStoryExecution(root));
+  else {
+    config = await loadConfig(root);
+    workflow = await loadStoryAggregate(root, config);
+  }
   const phaseId = positionals[2] ?? workflow.currentPhase;
   const phase = workflow.phases[phaseId];
   if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
@@ -3843,14 +3874,26 @@ async function agentsCommand(positionals, options) {
   }
   if (subcommand === 'refresh-output') {
     const resourceId = requirePositional(positionals, 2, 'resource ID');
-    const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config); const phase = currentPhase(workflow);
+    // Refreshing a generated dependency is Story execution, not repository-level agent
+    // management. Resolve the accepted Story first so a removed/updated live agent cannot replace
+    // the declaration captured for this generation.
+    const accepted = await loadAcceptedStoryExecution(root);
+    const config = accepted.definition;
+    const workflow = accepted.workflow;
+    const phase = currentPhase(workflow);
     await assertNoPendingPublication(root, config, workflow, 'refresh remote generated output');
     await assertPhaseSequence(root, workflow, 'refresh remote generated output');
     const session = await loadSession(root);
+    const executionContext = await resolveStoryExecutionContext(root, config, workflow, {
+      agentId: session.agent,
+      phaseId: phase.id,
+      executionCatalog: accepted.executionCatalog
+    });
     const itemDirectory = workDir(root, config, workflow.workItem.id);
     const refreshed = await storyDraftTransaction(root, config, workflow, `agent-output-refresh:${phase.id}`, async () => {
       const prepared = await prepareRemoteOutputs(root, workflow, phase, session, {
-        itemDirectory, refresh: true, replace: optionBoolean(options, 'replace'), resourceId
+        itemDirectory, refresh: true, replace: optionBoolean(options, 'replace'), resourceId,
+        executionContext
       });
       phase.remoteOutputs = [...(phase.remoteOutputs ?? []).filter((entry) => !prepared.outputs.some((output) => output.resource === entry.resource && output.generation === entry.generation)), ...prepared.outputs];
       await preparePhaseInputs(root, config, workflow, phase.id);
@@ -5230,7 +5273,12 @@ async function telemetryCommand(positionals, options) {
   const status = await copilotTelemetryStatus(root);
   if (subcommand === 'status') {
     let workflow = null;
-    try { const config = await loadConfig(root); workflow = await loadStoryAggregate(root, config); } catch { /* Diagnostics remain useful without an active work item. */ }
+    try { workflow = (await loadAcceptedStoryExecution(root)).workflow; }
+    catch (error) {
+      // No active Story is an ordinary telemetry status. Snapshot corruption is not: concealing it
+      // as zero pending telemetry would turn a damaged accepted closure into a healthy report.
+      if (error?.code !== 'STORY_NOT_FOUND') throw error;
+    }
     const pending = workflow
       ? workflow.phaseOrder.flatMap((phaseId) => (workflow.phases[phaseId].telemetry ?? []).filter((item) => item.status === 'pending').map((item) => ({ phase: phaseId, generation: item.generation, path: item.path })))
       : [];
@@ -5333,11 +5381,11 @@ async function telemetryCommand(positionals, options) {
 
 async function xrayProjection(positionals, options, { defaultToCurrentPhase = true } = {}) {
   const root = repoRoot();
-  const config = await loadConfig(root);
   const workId = optionString(options, 'work-id', positionals[2] ?? null);
   let workflow;
-  try { workflow = await loadStoryAggregate(root, config, workId); }
+  try { workflow = (await loadAcceptedStoryExecution(root, workId)).workflow; }
   catch (error) {
+    if (error?.code !== 'STORY_NOT_FOUND') throw error;
     throw new SingularityFlowError(
       workId
         ? `Context X-Ray could not resolve governed work '${workId}'.`
@@ -5696,6 +5744,7 @@ async function approveCommand(positionals, options) {
       actionContext: activeActionContext() ?? receipt?.approvalContext ?? null,
       checklist,
       witnessMappings,
+      architectureCandidateSnapshot: optionString(options, 'candidate-snapshot'),
       persist: false
     }),
     {
@@ -6610,7 +6659,8 @@ async function doctorCommand(positionals, options) {
 }
 
 async function reviewCommand(positionals, options) {
-  const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config);
+  const root = repoRoot();
+  const { config, workflow } = await loadAcceptedStoryExecution(root);
   const bundle = await createReviewBundle(root, config, workflow, selectedPhaseArgument(positionals, options, 'review'));
   const format = optionString(options, 'format', 'md').toLowerCase();
   if (!['md', 'html', 'json'].includes(format)) throw new SingularityFlowError('Review format must be md, html, or json.');
@@ -6631,9 +6681,8 @@ async function receiptCommand(positionals, options) {
   const subcommand = positionals[1] ?? 'show';
   if (subcommand !== 'show') throw new SingularityFlowError("receipt supports only 'show'.");
   const root = repoRoot();
-  const config = await loadConfig(root);
   const workId = positionals[2] ?? optionString(options, 'work-id');
-  const workflow = await loadStoryAggregate(root, config, workId);
+  const { config, workflow } = await loadAcceptedStoryExecution(root, workId);
   const packet = await readStoryReviewPacket(root, config, workflow, optionString(options, 'packet'));
   const receipt = await composeEvidenceReceipt(root, config, workflow, packet);
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(receipt, null, 2));
@@ -6969,7 +7018,9 @@ async function assignCommand(positionals) {
 }
 
 async function watchCommand(positionals, options) {
-  const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config, positionals[1]);
+  const root = repoRoot();
+  let accepted = await loadAcceptedStoryExecution(root, positionals[1]);
+  let workflow = accepted.workflow;
   const once = optionBoolean(options, 'once') || !output.isTTY; const interval = Math.max(2, optionNumber(options, 'interval', 15));
   let previous = '';
   do {
@@ -6978,7 +7029,9 @@ async function watchCommand(positionals, options) {
       await fetchOrigin(root);
       await pullFastForward(root);
     }
-    const fresh = await loadStoryAggregate(root, config, workflow.workItem.id); const snapshot = watchSnapshot(fresh); const serialized = JSON.stringify(snapshot);
+    accepted = await loadAcceptedStoryExecution(root, workflow.workItem.id);
+    workflow = accepted.workflow;
+    const snapshot = watchSnapshot(workflow); const serialized = JSON.stringify(snapshot);
     if (serialized !== previous) {
       if (optionBoolean(options, 'json')) console.log(JSON.stringify(snapshot, null, 2)); else process.stdout.write(watchText(snapshot));
       previous = serialized;
@@ -7281,12 +7334,12 @@ async function cockpitCommand() {
     }
     return;
   }
-  const config = await loadConfig(root); let workflow;
-  try { workflow = await loadStoryAggregate(root, config); }
-  catch {
+  const accepted = await acceptedStoryExecutionIfPresent(root);
+  if (!accepted) {
     console.log(`Singularity Flow cockpit\nRepository: ${root}\nBranch: ${branch(root)}\n\nNo work item is active on this branch.`);
     console.log('Start: singularity-flow start <WORK-ID>\nResume: singularity-flow resume <WORK-ID> --fetch\nDiagnostics: singularity-flow doctor'); return;
   }
+  const { config, workflow } = accepted;
   const progress = progressSnapshot(workflow); const session = await loadSession(root, { required: false }); const active = currentPhase(workflow);
   console.log(`Singularity Flow cockpit — ${workflow.workItem.id}`);
   console.log(`${progressBar(progress.percentage)} ${progress.percentage}% · ${progress.approvedPhases}/${progress.totalPhases} phases`);
@@ -7820,7 +7873,9 @@ async function sessionCommand(positionals, options) {
     };
     return console.log(optionBoolean(options, 'json') ? JSON.stringify(empty, null, 2) : `No Singularity Flow repository is active. ${resolved.detail}`);
   }
-  const discovery = await sessionDiscoveryConfiguration(root, resolved.authority);
+  const discovery = await sessionDiscoveryConfiguration(root, resolved.authority, {
+    storyBootstrap: subcommand === 'status'
+  });
   const config = discovery.definition;
   if (subcommand === 'context') {
     const expandHandle = optionString(options, 'expand-handle');
@@ -7990,7 +8045,12 @@ async function sessionCommand(positionals, options) {
   }
   if (subcommand !== 'status') throw new SingularityFlowError(`Unknown session subcommand: ${subcommand}`);
   let workflow;
-  try { workflow = await loadStoryAggregate(root, config); } catch { workflow = null; }
+  let statusConfig = config;
+  const accepted = await acceptedStoryExecutionIfPresent(root);
+  if (accepted) {
+    workflow = accepted.workflow;
+    statusConfig = accepted.definition;
+  } else workflow = null;
   /**
    * The repository this answer is about, and how it was chosen.
    *
@@ -7999,7 +8059,7 @@ async function sessionCommand(positionals, options) {
    * confidence before anything is written.
    */
   const status = {
-    ...await agentSessionStatus(root, config, workflow),
+    ...await agentSessionStatus(root, statusConfig, workflow),
     repositoryPath: root,
     resolvedFrom: resolved.resolvedFrom,
     workspaceId: resolved.workspaceId
@@ -8024,7 +8084,19 @@ async function inboxCommand(options) {
 
 async function validateCommand(options) {
   const root = repoRoot();
-  const accepted = await loadAcceptedStoryExecution(root);
+  let accepted;
+  try {
+    accepted = await loadAcceptedStoryExecution(root);
+  } catch (error) {
+    // Snapshot integrity is part of workflow validation. Preserve validate's established exit-2
+    // contract even though the saved-policy resolver now runs at the command boundary.
+    if (String(error?.code ?? '').startsWith('WFA_')) {
+      throw new SingularityFlowError(error.message, {
+        code: error.code, exitCode: 2, details: error.details, cause: error
+      });
+    }
+    throw error;
+  }
   const config = accepted.definition;
   const workflow = accepted.workflow;
   const result = await validateWorkflow(root, config, workflow, { strict: optionBoolean(options, 'strict') });

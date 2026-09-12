@@ -1257,6 +1257,15 @@ function storyWorkflowV5ToV6(source) {
 }
 
 function generationPublicationV1ToV2(source) {
+  // v1 predates both architecture bindings. Reject records that merely relabel a v2-shaped
+  // publication as v1; the migration is a compatibility reader, not a downgrade escape hatch.
+  if (Object.hasOwn(source, 'architectureIntent')
+      || Object.hasOwn(source, 'architectureDecision')) {
+    throw new SingularityFlowError(
+      'Generation publication v1 contains fields introduced by v2.',
+      { code: 'SCHEMA_MIGRATION_INVALID' }
+    );
+  }
   return {
     ...clone(source),
     schemaVersion: 2,

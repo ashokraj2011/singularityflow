@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
 import { initializeDefinition, resolveWorkType } from '../src/config.mjs';
+import { compositionCacheStatus } from '../src/composition-cache.mjs';
 import { sessionStartAgentHook } from '../src/agent-hooks.mjs';
 import { setAgentSession } from '../src/session.mjs';
 import { createWorkflow, loadConfig } from '../src/state.mjs';
@@ -287,13 +288,19 @@ test('an active Story session hook uses the immutable non-default work-item root
   assert.doesNotMatch(result.additionalContext, /singularity\/work-items\/GROUND-CUSTOM|different\/live-configuration/);
 });
 
-test('prepare, inputs, and compose replay complete repository-rooted paths without truncation', async () => {
+test('prepare, inputs, and compose replay complete repository-rooted paths without truncation', async (t) => {
   const repository = await mkdtemp(path.join(os.tmpdir(), 'sflow-path-replay-'));
+  const cloneParent = await mkdtemp(path.join(os.tmpdir(), 'sflow-path-replay-clone-'));
+  const clone = path.join(cloneParent, 'checkout-at-another-absolute-path');
+  t.after(() => removeTemporaryTree(repository));
+  t.after(() => removeTemporaryTree(cloneParent));
   git(repository, 'init', '-b', 'main');
   git(repository, 'config', 'user.name', 'Path Grounding Test');
   git(repository, 'config', 'user.email', 'path-grounding@example.invalid');
   await writeFile(path.join(repository, 'README.md'), '# Path grounding fixture\n');
   await initializeDefinition(repository);
+  await writeFile(path.join(repository, '.gitattributes'),
+    'singularity/work-items/**/config/wfa/blobs/** text eol=crlf\n');
   git(repository, 'add', '.');
   git(repository, 'commit', '-m', 'initialize path grounding fixture');
   git(repository, 'switch', '-c', 'GROUND-1');
@@ -373,6 +380,11 @@ test('prepare, inputs, and compose replay complete repository-rooted paths witho
   workflow.currentPhase = 'implementation';
   workflow.phases.implementation.status = 'in_progress';
   await saveStoryDraft(repository, config, workflow);
+  // The following commands execute in fresh CLI processes. Accept the Story closure first so
+  // those processes verify immutable Git authority rather than relying on the creator process's
+  // deliberately non-transferable in-memory draft capability.
+  git(repository, 'add', itemRelative);
+  git(repository, 'commit', '-m', 'accept repository-rooted path replay Story');
 
   const prepared = sflow(repository, 'prepare', 'implementation', '--json');
   assert.equal(prepared.status, 0, prepared.stderr);
@@ -396,12 +408,19 @@ test('prepare, inputs, and compose replay complete repository-rooted paths witho
   for (let index = firstPathLine + 1; /^ {8}\S/.test(lines[index] ?? ''); index += 1) renderedPath.push(lines[index].slice(8));
   assert.equal(renderedPath.join(''), repositoryPath);
 
+  // Freeze the exact post-preparation Story inputs before comparing two independent checkouts.
+  // The second checkout deliberately materializes a captured WFA blob with Windows line endings;
+  // accepted Git bytes, not those converted worktree files, remain the rendering authority.
+  git(repository, 'add', '-A');
+  git(repository, 'commit', '-m', 'accept prepared portable prompt inputs');
+
   const promptRelative = '.git/path-grounding-prompt.md';
   const composed = sflow(repository, 'wm', 'compose', '--phase', 'implementation', '--agent', 'developer', '--render-only', '--out', promptRelative);
   assert.equal(composed.status, 0, composed.stderr);
   const prompt = await readFile(path.join(repository, promptRelative), 'utf8');
   const canonicalRepository = git(repository, 'rev-parse', '--show-toplevel');
-  assert.match(prompt, new RegExp('Repository root: `' + canonicalRepository.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '`'));
+  assert.match(prompt, /Repository root: `\.` \(the verified current repository checkout\)/);
+  assert.doesNotMatch(prompt, new RegExp(canonicalRepository.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.match(prompt, new RegExp('Work-item directory: `' + itemRelative + '`'));
   assert.match(prompt, new RegExp('Required artifact: `' + itemRelative + '/artifacts/implementation/implementation-summary\\.md`'));
   assert.match(prompt, /Authored content: at least 250 UTF-8 bytes/);
@@ -409,4 +428,36 @@ test('prepare, inputs, and compose replay complete repository-rooted paths witho
   assert.match(prompt, /unchanged prepared template is refused/);
   assert.match(prompt, new RegExp(`source=${repositoryPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
   assert.doesNotMatch(prompt, /- Required artifact: `artifacts\//);
+
+  const firstCache = await compositionCacheStatus(repository);
+  assert.equal(firstCache.entries, 1);
+  git(repository, '-c', 'core.autocrlf=false', 'clone', '-q', repository, clone);
+  const clonedWorkflow = JSON.parse(await readFile(path.join(
+    clone, itemRelative, 'workflow.json'
+  ), 'utf8'));
+  const clonedManifest = JSON.parse(await readFile(path.join(
+    clone, clonedWorkflow.workflowSnapshot.manifestPath
+  ), 'utf8'));
+  const clonedTemplatePath = clonedManifest.assets.find(
+    (asset) => asset.logicalId === 'template:implementation'
+  ).blob.path;
+  const clonedTemplateBytes = await readFile(path.join(clone, clonedTemplatePath), 'utf8');
+  await writeFile(path.join(clone, clonedTemplatePath), clonedTemplateBytes.replaceAll('\n', '\r\n'));
+  assert.match(await readFile(path.join(clone, clonedTemplatePath), 'utf8'), /\r\n/,
+    'the portability fixture really materializes the accepted template with CRLF');
+  const cloned = sflow(clone, 'wm', 'compose', '--phase', 'implementation', '--agent', 'developer',
+    '--render-only', '--out', promptRelative);
+  assert.equal(cloned.status, 0, cloned.stderr);
+  const clonedPrompt = await readFile(path.join(clone, promptRelative), 'utf8');
+  const secondCache = await compositionCacheStatus(clone);
+  assert.equal(secondCache.entries, 1);
+  assert.equal(clonedPrompt, prompt,
+    'SFlow-controlled instruction bytes are independent of checkout path and CRLF materialization');
+  assert.equal(secondCache.records[0].key, firstCache.records[0].key);
+  assert.equal(secondCache.records[0].promptSha256, firstCache.records[0].promptSha256);
+  assert.deepEqual(secondCache.records[0].inputs, firstCache.records[0].inputs);
+  assert.doesNotMatch(clonedPrompt,
+    new RegExp(clone.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.doesNotMatch(JSON.stringify(secondCache.records[0].inputs),
+    new RegExp(clone.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 });

@@ -540,7 +540,7 @@ Usage:
   singularity-flow pr describe [WORK-ID] [--format markdown|json] [--clipboard] [--write] [--yes]
   singularity-flow pr [WORK-ID] [--json] [--create] [--yes]
   singularity-flow submit [PHASE] [--phase PHASE] [--skip-checks] [--candidate-snapshot SHA256]
-  singularity-flow approve [PHASE] [--work-id WORK-ID] [--fetch] [--phase PHASE] [--yes]
+  singularity-flow approve [PHASE] [--work-id WORK-ID] [--fetch] [--phase PHASE] [--yes] [--candidate-snapshot SHA256]
     [--article ID=satisfied|exception|not-applicable]... [--article-reason TEXT]... [--checklist FILE]
     [--witness-mapping SHA256=satisfied|exception|not-applicable]...
     [--witness-mapping-reason TEXT]... [--witness-mapping-expires YYYY-MM-DD]...

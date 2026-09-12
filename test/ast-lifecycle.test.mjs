@@ -23,7 +23,8 @@ function git(root, ...args) {
 }
 
 async function fixture({
-  predicatePath = 'README.md', predicateSymbol = null, predicateMode = 'required', astMode = 'auto'
+  predicatePath = 'README.md', predicateSymbol = null, predicateMode = 'required', astMode = 'auto',
+  intelligence = null
 } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-ast-lifecycle-'));
   git(root, 'init', '-b', 'main');
@@ -53,6 +54,7 @@ async function fixture({
   const config = await loadConfig(root);
   config.git.publish = 'off';
   const resolved = resolveWorkType(config, 'feature');
+  if (intelligence) resolved.intelligence = structuredClone(intelligence);
   resolved.phases = [{
     ...resolved.phases[0], order: 0,
     approval: { mode: 'none', authorities: [], minimum: 0, rejectTo: ['intake'] }
@@ -127,8 +129,10 @@ test('a required AST predicate remains an optional diagnostic during publication
 });
 
 test('an explicit generic intelligence profile skips repository AST lifecycle gates', async () => {
-  const { root, config, workflow, phase, authorship } = await fixture({ predicatePath: 'missing.ts' });
-  workflow.resolution.intelligence = { worldModel: 'off', ast: 'off', agentBriefs: 'off' };
+  const { root, config, workflow, phase, authorship } = await fixture({
+    predicatePath: 'missing.ts',
+    intelligence: { worldModel: 'off', ast: 'off', agentBriefs: 'off' }
+  });
   await inContext(root, async () => {
     await publishGeneration(root, config, workflow, { phaseId: phase.id, authorship });
     assert.equal(phase.generation, 1);

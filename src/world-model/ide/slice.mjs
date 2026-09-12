@@ -87,6 +87,37 @@ function parseSourceExpansionIdentity(value) {
   return match?.groups ?? null;
 }
 
+function worldModelRebuildReason(freshness) {
+  if (freshness.fresh) return null;
+  const status = freshness.status ?? 'stale';
+  if (status === 'unavailable') {
+    return 'The current source cannot be compared safely. Commit it or capture an explicit Candidate Snapshot.';
+  }
+  const kinds = new Set((freshness.changes ?? []).map((change) => change.kind));
+  if (kinds.has('source-change')) {
+    return 'The registered source snapshot changed after this world model was built.';
+  }
+  if (kinds.has('scope-change')) {
+    return 'The approved World-Model source scope or configuration changed after this model was built.';
+  }
+  if (kinds.has('view-contract-change')) {
+    return 'The approved World-Model view selection or contract changed after this model was built.';
+  }
+  if (kinds.has('consumer-profile-change')) {
+    return 'The approved World-Model consumer profile changed after this model was built.';
+  }
+  if (kinds.has('budget-change')) {
+    return 'The approved World-Model output budget changed after this model was built.';
+  }
+  if (kinds.has('fact-ledger-change')) {
+    return 'The approved World-Model extractor registry changed after this model was built.';
+  }
+  if (kinds.has('validator-change')) {
+    return 'The approved World-Model validation toolchain changed after this model was built.';
+  }
+  return 'The approved reusable World-Model identity changed after this model was built.';
+}
+
 /**
  * Turn a verified Evidence locator into an opaque, content-addressed exact-source reference.
  *
@@ -528,11 +559,7 @@ export function projectWorldModelIdeSlice(store, {
     },
     generatedAt: null,
     root: store.outputDir,
-    rebuildReason: store.freshness.fresh
-      ? null
-      : freshnessStatus === 'unavailable'
-        ? 'The current source cannot be compared safely. Commit it or capture an explicit Candidate Snapshot.'
-        : 'The registered source snapshot changed after this world model was built.',
+    rebuildReason: worldModelRebuildReason(store.freshness),
     readiness: {
       status: freshnessStatus,
       ready: store.freshness.fresh,
@@ -571,12 +598,13 @@ export function projectWorldModelIdeSlice(store, {
 /** Load no authority bytes when v4 is not selected, and never convert a legacy model implicitly. */
 export function loadWorldModelIdeSlice(root, {
   outputDir = 'singularity/world-model', stateBranch = 'state', remote = 'origin', required = false,
+  expectedReusableIdentity = null,
   maximumPreviewBytes = DEFAULT_WORLD_MODEL_PREVIEW_BYTES,
   maximumViews = MAX_WORLD_MODEL_IDE_VIEWS
 } = {}) {
   try {
     const store = resolvePublishedWorldModelV4(root, {
-      outputDir, stateBranch, remote, required
+      outputDir, stateBranch, remote, required, expectedReusableIdentity
     });
     if (!store) return Object.freeze({
       schemaVersion: WORLD_MODEL_IDE_SLICE_VERSION,

@@ -2,8 +2,8 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { loadDefinition } from '../config.mjs';
 import { applicationPathContext } from '../application-paths.mjs';
+import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { activatePhaseAgent } from '../commands/kernel.mjs';
 import { branch, gitCommonDir, head } from '../git.mjs';
 import {
@@ -13,7 +13,7 @@ import { runRemoteGitAsync } from '../git-execution.mjs';
 import { canonicalJson, recordSha256 } from '../records.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
-import { loadStoryAggregate, transactStory } from '../state-stores.mjs';
+import { transactStory } from '../state-stores.mjs';
 import { nowIso, posix, run, SingularityFlowError, writeAtomic } from '../util.mjs';
 import { readVerifiedAcceptedAutoBinding } from './auto-origin.mjs';
 import {
@@ -440,9 +440,13 @@ function checkpointRelative(definition, state, record) {
 
 /** Publish one checkpoint as Story evidence in the ordinary transactional commit/push path. */
 export async function publishAutoBoundaryCheckpoint(storyRoot, state, checkpointClass, options = {}) {
-  const definition = options.definition ?? await loadDefinition(storyRoot);
-  const workflow = options.workflow
-    ?? await loadStoryAggregate(storyRoot, definition, state.story.workId);
+  // Checkpoint authority belongs to the accepted Story rather than today's mutable root/agents.
+  // Callers may pass the already-resolved objects to avoid duplicate work, but the default path
+  // must always discover and validate the saved portable closure first.
+  const accepted = options.definition && options.workflow
+    ? null : await loadAcceptedStoryExecution(storyRoot, state.story.workId);
+  const definition = options.definition ?? accepted.definition;
+  const workflow = options.workflow ?? accepted.workflow;
   const candidateBinding = state.candidate
     ? await readAutoCandidateBinding(storyRoot, {
       flightId: state.flightId, candidateId: state.candidate.candidateId
@@ -687,16 +691,14 @@ export async function rebuildAutoFlightState(controlRoot, {
   let definition;
   let workflow;
   try {
-    definition = await loadDefinition(storyRoot);
-    workflow = await loadStoryAggregate(storyRoot, definition, workId);
+    ({ definition, workflow } = await loadAcceptedStoryExecution(storyRoot, workId));
   } catch (error) {
     if (path.resolve(storyRoot) !== path.resolve(controlRoot)) throw error;
     // A fresh clone normally has only the application base branch. Materialize the exact Story
     // branch first; its committed execution origin and checkpoint evidence are the authority used
     // below, not any reconstructed local Plan bytes.
     storyRoot = await bootstrapRecoveryCheckout(controlRoot, workId, flightId);
-    definition = await loadDefinition(storyRoot);
-    workflow = await loadStoryAggregate(storyRoot, definition, workId);
+    ({ definition, workflow } = await loadAcceptedStoryExecution(storyRoot, workId));
   }
   const pointer = await discoverLatestGovernedAutoCheckpoint(storyRoot, workflow, flightId);
   const record = pointer.record;
@@ -713,8 +715,7 @@ export async function rebuildAutoFlightState(controlRoot, {
     controlRoot, storyRoot, pointer, acceptedBinding.acceptedPlan
   );
   if (managed !== storyRoot) {
-    definition = await loadDefinition(managed);
-    workflow = await loadStoryAggregate(managed, definition, workId);
+    ({ definition, workflow } = await loadAcceptedStoryExecution(managed, workId));
   }
   acceptedBinding = await readVerifiedAcceptedAutoBinding(managed, definition, workflow, {
     flightId: record.flightId, planId: record.planId, planSha256: record.planSha256,

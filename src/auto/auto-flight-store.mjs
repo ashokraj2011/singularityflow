@@ -1239,10 +1239,12 @@ function phaseApprovalSnapshot(workflow) {
 
 async function currentApprovalSnapshot(state) {
   try {
-    const [{ loadDefinition }, { loadStoryAggregate }, { workflowPath }] = await Promise.all([
-      import('../config.mjs'), import('../state-stores.mjs'), import('../state.mjs')
+    const [{ loadAcceptedStoryExecution }, { workflowPath }] = await Promise.all([
+      import('../accepted-story-execution.mjs'), import('../state.mjs')
     ]);
-    const definition = await loadDefinition(state.worktree);
+    const { definition, workflow } = await loadAcceptedStoryExecution(
+      state.worktree, state.story.workId
+    );
     const authorityPath = workflowPath(state.worktree, definition, state.story.workId);
     const relative = path.relative(state.worktree, authorityPath);
     if (!relative || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
@@ -1258,7 +1260,6 @@ async function currentApprovalSnapshot(state) {
         || statusResult.status !== 0 || statusResult.stdout.trim()) {
       throw new Error('Story approval authority is not a clean branch-backed record');
     }
-    const workflow = await loadStoryAggregate(state.worktree, definition, state.story.workId);
     if (workflow.workItem?.id !== state.story.workId) throw new Error('Story authority mismatch');
     return { source: 'story-authority', approvals: phaseApprovalSnapshot(workflow) };
   } catch {

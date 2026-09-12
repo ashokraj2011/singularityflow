@@ -2,6 +2,7 @@
 import path from 'node:path';
 
 import { adhocStatus, updateAdhocSession } from '../adhoc/session.mjs';
+import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { clearActiveSession } from '../adhoc/session-store.mjs';
 import { branch, gitCommonDir } from '../git.mjs';
 import { activeGoalWorkspace, findGoal, readGoalState } from '../goals.mjs';
@@ -10,7 +11,6 @@ import {
   buildRepositoryChangeSet, verifyRepositoryChangeSetIntegrity
 } from '../repository-change-set.mjs';
 import { recordSha256 } from '../records.mjs';
-import { loadStoryAggregate } from '../state-stores.mjs';
 import { SingularityFlowError } from '../util.mjs';
 
 function digest(value) { return `sha256:${recordSha256(value)}`; }
@@ -216,9 +216,12 @@ function continuationAction(workflow, flight) {
 }
 
 /** Read an existing Story and return one exact next-segment proposal without continuing it. */
-export async function buildAutoContinuationProposal(root, definition, workId) {
-  const id = String(workId ?? '').trim();
-  const workflow = await loadStoryAggregate(root, definition, id);
+export async function buildAutoContinuationProposal(root, definitionOrWorkId, requestedWorkId = null) {
+  // Keep the former `(root, definition, workId)` shape compatible for internal/third-party
+  // callers, but never use that mutable definition to read an already-accepted Story. A live
+  // configuration refresh may move the Story root or replace its agent catalog after start.
+  const id = String(requestedWorkId ?? definitionOrWorkId ?? '').trim();
+  const { workflow } = await loadAcceptedStoryExecution(root, id);
   // Keep Goal-source revalidation independent of the flight-store -> continuation -> Plan cycle.
   const { autoFlightProductProjection, findAutoFlightForStory } = await import('./auto-p1-control.mjs');
   let flight = null;

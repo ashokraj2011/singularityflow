@@ -357,11 +357,23 @@ export function validateGitCommitIdentity(value) {
       || !['configured', 'service-fallback'].includes(value.source)) {
     throw commitIdentityError('identity', 'the frozen operation value is incomplete');
   }
-  return Object.freeze({
+  const normalized = Object.freeze({
     name: normalizedCommitIdentityField(value.name, 'user.name'),
     email: normalizedCommitIdentityField(value.email, 'user.email'),
     source: value.source
   });
+  // `source` is evidence about how the value was obtained, not a caller-controlled label.  The
+  // compatibility fallback has one deliberately low-assurance representation; accepting arbitrary
+  // names under that label would let a reconstructed/replayed operation disguise configured
+  // metadata as the service identity (or vice versa).
+  if (normalized.source === 'service-fallback'
+      && (normalized.name !== FALLBACK_COMMIT_IDENTITY.name
+        || normalized.email !== FALLBACK_COMMIT_IDENTITY.email)) {
+    throw commitIdentityError(
+      'identity', 'the service fallback must use the canonical Singularity Flow metadata'
+    );
+  }
+  return normalized;
 }
 
 /** Command-scoped Git configuration for a frozen identity. */

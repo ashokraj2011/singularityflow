@@ -16,6 +16,7 @@ import { exists, run, SingularityFlowError } from './util.mjs';
 import { matchApprovalAuthority } from './approval-authority.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
+import { createArchitectureIntentStabilityGuard } from './architecture-intent-gate.mjs';
 import {
   DEFAULT_WORK_ITEM_ROOT, workItemRootFromDefinitionText, workItemWorkflowRelative
 } from './work-item-location.mjs';
@@ -258,6 +259,16 @@ export async function epicReviewDecision(root, initiativeId, storyReference, {
     selected.workflow.workItem.id
   );
   const workflowBeforeDecision = structuredClone(selected.workflow);
+  const architectureApprovalStabilityGuard = decision === 'approve'
+    ? await createArchitectureIntentStabilityGuard(
+      selected.clone,
+      selected.config,
+      workflowBeforeDecision,
+      workflowBeforeDecision.phases[preview.phase],
+      workflowBeforeDecision.phases[preview.phase].generation,
+      { operation: 'the Epic review approval commit' }
+    )
+    : null;
   // Approval defers its durable writes to the state write's `phase-approved` branch, so `persist:
   // false` outside the unit is correct and matches the CLI. Rejection has no such branch —
   // `rejectPhase` writes its own decision file, artifact metadata and workflow.json — so it has to
@@ -283,6 +294,7 @@ export async function epicReviewDecision(root, initiativeId, storyReference, {
     [],
     {
       rollbackWorkflow: workflowBeforeDecision,
+      stabilityGuard: architectureApprovalStabilityGuard,
       beforeStateWrite: async () => {
         if (decision === 'approve') return;
         outcome = await rejectPhase(selected.clone, selected.config, selected.workflow, {

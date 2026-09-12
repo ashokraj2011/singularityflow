@@ -86,7 +86,9 @@ async function fixture(name) {
   return { root, config, workflow, phase, target, statePath };
 }
 
-async function codeFixture(name, { acceptance = true, trackedResult = false } = {}) {
+async function codeFixture(name, {
+  acceptance = true, trackedResult = false, intelligenceAst = null
+} = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), `sflow-code-delivery-${name}-`));
   git(root, 'init', '-b', 'main');
   git(root, 'config', 'user.name', ACTOR.name);
@@ -122,9 +124,9 @@ async function codeFixture(name, { acceptance = true, trackedResult = false } = 
   };
   resolved.spec = { ...resolved.spec, acceptance: 'off' };
   const implementation = resolved.phases.find((phase) => phase.id === 'implementation');
-  resolved.phases = [{
+  const implementationPhase = {
     ...implementation,
-    order: 0,
+    order: acceptance ? 1 : 0,
     inputs: [],
     clarification: { ...implementation.clarification, mode: 'off' },
     approval: { mode: 'none', authorities: [], minimum: 0, rejectTo: ['implementation'] },
@@ -133,7 +135,22 @@ async function codeFixture(name, { acceptance = true, trackedResult = false } = 
       workingDirectory: '.', affectedRoots: ['.'], modelPolicy: 'never',
       result: { adapter: 'sflow-test-result-v1', path: '.sflow/results/unit.json', minimumDiscovered: 1 }
     }]
-  }];
+  };
+  // This fixture's approved requirements owner is part of the accepted execution policy. Older
+  // setup appended it to workflow.resolution after snapshot capture, which correctly looks like
+  // policy tampering now that accepted Stories execute only their saved closure.
+  const requirementsPhase = acceptance ? {
+    ...implementationPhase,
+    id: 'requirements', label: 'Requirements', order: 0,
+    artifact: { ...implementationPhase.artifact, path: 'artifacts/requirements/requirements.md', kind: 'requirements' },
+    qualityCommands: []
+  } : null;
+  resolved.phases = acceptance
+    ? [requirementsPhase, implementationPhase]
+    : [implementationPhase];
+  if (intelligenceAst) resolved.intelligence = {
+    ...resolved.intelligence, ast: intelligenceAst
+  };
   await setAgentSession(root, config, ACTOR, 'developer', 'DELIVERY-1', { phaseId: 'implementation', source: 'test' });
   const workflow = await createWorkflow(root, config, {
     id: 'DELIVERY-1',
@@ -151,6 +168,7 @@ async function codeFixture(name, { acceptance = true, trackedResult = false } = 
   const phase = workflow.phases.implementation;
   const item = path.join(root, 'singularity', 'work-items', 'DELIVERY-1');
   const target = path.join(item, phase.requiredArtifact.path);
+  await mkdir(path.dirname(target), { recursive: true });
   await writeFile(target, [
     '# Implementation', '',
     'Implemented the bounded product change and its acceptance-mapped tests.', '',
@@ -164,17 +182,16 @@ async function codeFixture(name, { acceptance = true, trackedResult = false } = 
     const requirementsPath = path.join(item, 'artifacts', 'requirements', 'requirements.md');
     await mkdir(path.dirname(requirementsPath), { recursive: true });
     await writeFile(requirementsPath, '# Requirements\n\nThe delivery is covered by [DELIVERY-1:AC-001].\n');
-    workflow.phases.requirements = {
-      id: 'requirements', label: 'Requirements', order: 0, status: 'approved', generation: 1,
-      requiredArtifact: { path: 'artifacts/requirements/requirements.md', kind: 'requirements' },
-      artifacts: [], approvals: [], usage: [], qualityCommands: []
-    };
-    phase.order = 1;
-    workflow.phaseOrder = ['requirements', 'implementation'];
-    workflow.resolution.phases = [
-      { id: 'requirements', order: 0 },
-      ...workflow.resolution.phases.map((entry) => ({ ...entry, order: Number(entry.order) + 1 }))
-    ];
+    workflow.phases.requirements.status = 'approved';
+    workflow.phases.requirements.generation = 1;
+    workflow.phases.requirements.artifacts = [{
+      path: 'singularity/work-items/DELIVERY-1/artifacts/requirements/requirements.md',
+      kind: 'requirements', status: 'approved'
+    }];
+    workflow.currentPhase = 'implementation';
+    phase.status = 'in_progress';
+    phase.startedAt ??= '2026-08-22T00:00:00.000Z';
+    await preparePhaseInputs(root, config, workflow, 'implementation');
   }
   return { root, config, workflow, phase, target };
 }
@@ -733,11 +750,7 @@ test('an AST-off code phase publishes through normal non-AST file access', async
 });
 
 test('an AST-off workflow profile bypasses AST without weakening ordinary delivery checks', async () => {
-  const context = await codeFixture('unsupported-language-profile-off');
-  context.workflow.resolution.intelligence = {
-    ...context.workflow.resolution.intelligence,
-    ast: 'off'
-  };
+  const context = await codeFixture('unsupported-language-profile-off', { intelligenceAst: 'off' });
   await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
   await writeFile(path.join(context.root, 'src', 'app.cpp'), 'int answer() { return 42; }\n');
   await writeFile(path.join(context.root, 'src', 'test', 'app.test.cpp'), '// @ac:DELIVERY-1:AC-001\nint main() { return answer() == 42 ? 0 : 1; }\n');

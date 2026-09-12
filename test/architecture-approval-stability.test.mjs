@@ -108,4 +108,17 @@ test('approval aborts when architecture intent changes after validation and befo
   assert.equal(injected, true);
   assert.equal(git(root, ['rev-parse', 'HEAD']), before);
   assert.equal(await readFile(target, 'utf8'), canonicalJson(accepted));
+
+  const unavailableGuard = await createArchitectureIntentStabilityGuard(
+    root, definition, workflow, phase, 1, { operation: 'the approval commit' }
+  );
+  await writeFile(target, '{"incomplete":');
+  await assert.rejects(
+    unavailableGuard,
+    (error) => error?.code === 'PUBLICATION_SNAPSHOT_CHANGED'
+      && Object.hasOwn(error.details ?? {}, 'causeCode')
+      && !Object.hasOwn(error.details ?? {}, 'cause')
+  );
+  await writeFile(target, canonicalJson(accepted));
+  assert.equal(git(root, ['rev-parse', 'HEAD']), before);
 });

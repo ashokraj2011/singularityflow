@@ -106,6 +106,7 @@ import {
   referenceRepositoryGroundingContext, storyReferenceRepositories
 } from './reference-repositories.mjs';
 import { resolveStoryExecutionContext } from './story-execution-context.mjs';
+import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
 
 const configRelative = 'singularity/worldmodel.json';
 const CHECKPOINT_SCHEMA_VERSION = currentSchemaVersion('worldmodel-checkpoint');
@@ -523,14 +524,19 @@ export async function loadWorldModelConfig(root, {
     // Locate an accepted Story without requiring its mutable live agent/template sources. Once a
     // snapshot is found, its verified closure supplies those bytes. A repository-level operation
     // or a legacy Story still takes the normal strict definition path.
-    let configuredDefinition = await loadDefinition(root, { storyBootstrap: true });
     const session = await loadSession(root, { required: false });
-    const activeId = workId ?? run('git', ['branch', '--show-current'], { cwd: root, allowFailure: true }).stdout.trim();
-    const activeStatePath = path.join(root, configuredDefinition.workItemRoot ?? 'singularity/work-items', activeId, 'workflow.json');
-    const activeState = existsSync(activeStatePath)
-      ? readRecord('story-workflow', await readFile(activeStatePath)).record
-      : null;
-    if (!activeState?.workflowSnapshot) configuredDefinition = await loadDefinition(root);
+    const activeReference = workId ?? branch(root);
+    let accepted = null;
+    try {
+      accepted = await loadAcceptedStoryExecution(root, activeReference);
+    } catch (error) {
+      // A repository-level World-Model operation on a non-Story branch remains valid. An explicit
+      // Story selection or any snapshot/integrity failure must propagate; otherwise the command
+      // would silently replace accepted Story policy with today's live configuration.
+      if (workId || error?.code !== 'STORY_NOT_FOUND') throw error;
+    }
+    const activeState = accepted?.workflow ?? null;
+    const configuredDefinition = accepted?.definition ?? await loadDefinition(root);
     // Resolve repository ownership even before a Story exists. A storyless build previously used
     // the checkout basename as its scope capability, then the first Story used its mapped
     // capability ID and made the just-published model stale. This offline lookup reads the same
@@ -541,17 +547,14 @@ export async function loadWorldModelConfig(root, {
       offline: true,
       refuseAmbiguous: configuredDefinition.worldModel?.format === 'registered-v4'
     });
-    const scopedDefinition = withWorldModelSourceScope(
-      configuredDefinition,
-      activeState?.resolution?.worldModelSourceScope
+    const selectedSourceScope = activeState?.resolution?.worldModelSourceScope
         ?? activeState?.resolution?.capability?.sourceScope
         // The implicit repository-root boundary is the absence of a narrower capability policy;
         // it must not replace explicit worldModel.sourceRoots from approved configuration with
         // its broad `**` fallback. Reviewed mapped capabilities still narrow the shared model.
         ?? (repositoryCapability?.mode === 'implicit' ? null : repositoryCapability?.sourceScope)
-        ?? null
-    );
-    const stateAuthority = worldModelStateAuthority(scopedDefinition);
+        ?? null;
+    const scopedDefinition = withWorldModelSourceScope(configuredDefinition, selectedSourceScope);
     const phaseEntries = activeState?.resolution?.phases?.length
       ? activeState.resolution.phases.map((phase) => [phase.id, phase])
       : Object.entries(scopedDefinition.phases);
@@ -562,11 +565,20 @@ export async function loadWorldModelConfig(root, {
     const agent = selectedAgent ?? (sessionAgentApplies ? session.agent : null)
       ?? activeState?.phases?.[activePhaseId]?.defaultAgent ?? null;
     const executionContext = activeState && agent
-      ? await resolveStoryExecutionContext(root, scopedDefinition, activeState, {
-          agentId: agent, phaseId: activePhaseId
+      ? await resolveStoryExecutionContext(root, configuredDefinition, activeState, {
+          agentId: agent, phaseId: activePhaseId,
+          executionCatalog: accepted?.executionCatalog ?? null
         })
       : null;
-    const definition = executionContext?.effectiveDefinition ?? scopedDefinition;
+    // Source scope is part of this Story's saved capability resolution, but it is projected onto
+    // the effective definition rather than the execution catalog itself. Apply it after selecting
+    // the already-verified saved agent so a scope projection cannot discard the catalog capability
+    // and trigger a second manifest/policy/blob verification.
+    const definition = withWorldModelSourceScope(
+      executionContext?.effectiveDefinition ?? scopedDefinition,
+      selectedSourceScope
+    );
+    const stateAuthority = worldModelStateAuthority(definition);
     const agentViewMode = definition.worldModel?.agentViews ?? 'fallback';
     const phases = Object.fromEntries(phaseEntries.map(([id, phase]) => {
       // A v1 Story migration can reconstruct the lifecycle phase without inventing a historical
@@ -4179,7 +4191,7 @@ export function phasePromptExecutionContract(definition, workflow, phase) {
   });
 }
 
-async function workflowPromptContext(root, definition, workflow, phase, workItemRoot) {
+async function workflowPromptContext(root, definition, workflow, phase, workItemRoot, executionContext = null) {
   if (!workflow || !phase) return { contract: '', inputs: '', inputRecords: [], evidence: '', evidenceFiles: [], evidenceEntries: [], warnings: [] };
   const itemDirectory = path.join(root, workItemRoot, workflow.workItem.id);
   const itemRelative = posix(path.join(workItemRoot, workflow.workItem.id));
@@ -4206,7 +4218,8 @@ async function workflowPromptContext(root, definition, workflow, phase, workItem
       title: workflow.workItem.title,
       workType: workflow.workItem.workType,
       inputs: '',
-      templateSnapshot
+      templateSnapshot,
+      retainedTemplate: executionContext?.phaseTemplates?.[phase.id]
     });
   }
   const contract = [
@@ -4217,7 +4230,7 @@ async function workflowPromptContext(root, definition, workflow, phase, workItem
     `- Phase: \`${phase.id}\``,
     `- Generation to author: ${Number(phase.generation ?? 0) + 1}`,
     ...executionContract.lines,
-    `- Repository root: \`${root}\``,
+    '- Repository root: `.` (the verified current repository checkout)',
     `- Work-item directory: \`${itemRelative}\``,
     `- Required artifact: \`${requiredArtifact}\``,
     ...artifactContentContractLines(phase.requiredArtifact),
@@ -4593,7 +4606,9 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
   }
   const rulePaths = new Set(injection.sections.map((section) => section.path));
   const requiredText = groundingSectionsText(mandatory, rulePaths);
-  const governed = await workflowPromptContext(root, definition, workflow, phase, workItemRoot);
+  const governed = await workflowPromptContext(
+    root, definition, workflow, phase, workItemRoot, config.executionContext
+  );
   const referenceRepositories = workflow
     ? await referenceRepositoryGroundingContext(
       root, await storyReferenceRepositories(root, definition, workflow)
@@ -4998,7 +5013,7 @@ async function showPrompt(root, options) {
   const prefix = [
     '# Singularity Flow governed Story handoff',
     '',
-    `Working directory: ${root}`,
+    'Working directory: . (the verified current repository checkout)',
     ...(selectedWorkId ? [`Story: ${selectedWorkId}`] : []),
     '',
     'Use this repository as the working directory for every file and shell operation.',

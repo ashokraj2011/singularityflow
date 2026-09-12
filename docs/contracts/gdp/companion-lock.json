@@ -7,7 +7,7 @@
     {
       "id": "workflow-configuration",
       "path": "templates/workflow.yml",
-      "sha256": "sha256:dcf3b343db353d3bb8e3b179f54f041ed9b7b0e5e9e7035d4b0e17d33dfb0275"
+      "sha256": "sha256:a40dcb3d99e3b60391e7f3543f90a9d48569033a7a59e7b455c2489405518900"
     },
     {
       "id": "sgos-portable-schema",
@@ -92,7 +92,7 @@
     {
       "id": "migration-registry",
       "path": "src/schema-migrations.mjs",
-      "sha256": "sha256:6ac4625b40b5b5450fec3c5bca18fd35e07f018cb21525b5eefd26d4e74b90cc"
+      "sha256": "sha256:92d9ebee0fd84ff3733ba50c81fbb49e51b5af6e598f246cb0bcfbfefaac1a62"
     },
     {
       "id": "smart-initialization-v1",

@@ -12,7 +12,7 @@ disable-model-invocation: true
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
-- **Bare `/sf-worldmodel` is read-only.** Run only `singularity-flow wm status --json` and `singularity-flow wm ast status --json`; report freshness, source, assurance, views, and blockers. Never infer build, initialization, warming, pack, cache, or local-publication consent.
+- **Bare `/sf-worldmodel` is read-only.** Run only `singularity-flow wm status --json` and `singularity-flow wm ast status --json`; report freshness, source, assurance, views, and blockers. When freshness is `unavailable`, preserve its reason, `current: null`, and **source comparison unavailable** label; never call it fresh/stale or rebuild/capture source to answer status. Never infer build, initialization, warming, pack, cache, or local-publication consent.
 - Before mutation show revision, views, depth, routing, writes, and target; require confirmation.
 - Configure/inventory: `wm init`; `wm light [--phase PHASE] [--local]`. `--local` is a private rehearsal and is not reusable from the shared state branch.
 - Build: `singularity-flow wm build [--phase PHASE] [--views VIEW,...] [--depth light|quick|standard|deep] [--workers N]`. Check readiness with `wm availability --json`.

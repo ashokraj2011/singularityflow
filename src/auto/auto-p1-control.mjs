@@ -1,9 +1,8 @@
 /** AUT v2 review-first product operations layered over the existing Story flight. */
-import { loadDefinition } from '../config.mjs';
 import { globToRegExp } from '../inject.mjs';
 import { recordSha256 } from '../records.mjs';
-import { loadStoryAggregate } from '../state-stores.mjs';
 import { SingularityFlowError } from '../util.mjs';
+import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import {
   mutateAutoFlightState, readAutoFlightState, listAutoFlights
 } from './auto-flight-store.mjs';
@@ -151,8 +150,11 @@ async function records(root, family, flightId) {
 }
 
 async function loadPinnedStoryAuthority(state) {
-  const definition = await loadDefinition(state.worktree);
-  const workflow = await loadStoryAggregate(state.worktree, definition, state.story.workId);
+  // Auto controls belong to the already-accepted Story. Resolve its portable closure before the
+  // mutable live root or agent catalog can reject a still-valid flight.
+  const { definition, workflow } = await loadAcceptedStoryExecution(
+    state.worktree, state.story.workId
+  );
   const expectedConfig = state.configuration?.storyConfigSha256 ?? null;
   const actualConfig = workflow.resolution?.configSha256 ?? null;
   if (expectedConfig && actualConfig !== expectedConfig) {

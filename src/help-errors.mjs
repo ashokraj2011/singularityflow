@@ -8,6 +8,21 @@ const EXACT_CODES = Object.freeze({
   HELP_METRICS_LOCK_BUSY: 'activity-and-prompt-audit',
   HELP_METRICS_SETTINGS_INVALID: 'activity-and-prompt-audit',
   AST_WARM_TIMEOUT: 'ast-intelligence',
+  GIT_COMMIT_IDENTITY_INVALID: 'capability-management',
+  CAPABILITY_ACTIVATION_RECOVERY_CONFLICT: 'capability-management',
+  CAPABILITY_ACTIVATION_AUDIT_PENDING: 'capability-management',
+  CAPABILITY_PROJECTION_AUTHORITY_MOVED: 'capability-management',
+  WFA_DEPENDENCY_UNAVAILABLE: 'repository-state-and-snapshots',
+  WFA_RUNTIME_INCOMPATIBLE: 'repository-state-and-snapshots',
+  WMC_INTENT_REPORT_MISMATCH: 'calm-architecture',
+  WMC_INTENT_ALREADY_EXISTS: 'calm-architecture',
+  WMC_INTENT_REVISION_CONFLICT: 'calm-architecture',
+  WMC_INTENT_POLICY_INVALID: 'calm-architecture',
+  WMC_INTENT_GENERATION_STALE: 'calm-architecture',
+  WMC_INTENT_NOT_APPROVED: 'calm-architecture',
+  WMC_INTENT_UNFULFILLED: 'calm-architecture',
+  WMB_SOURCE_SNAPSHOT_REQUIRED: 'world-model',
+  WMB_CACHE_INPUT_INVALID: 'world-model',
   UNKNOWN_COMMAND: 'help-and-docs'
 });
 

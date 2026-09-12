@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import { loadDefinition } from './config.mjs';
 import { loadStoryAggregate } from './state-stores.mjs';
-import { resolveStoryExecutionDefinition } from './story-execution-context.mjs';
+import { resolveStoryExecutionCatalog } from './story-execution-context.mjs';
 import { branch } from './git.mjs';
 import { SingularityFlowError, run } from './util.mjs';
 
@@ -25,7 +25,12 @@ function trackedStoryRoots(root) {
     maxBuffer: 4 * 1024 * 1024,
     env: { ...process.env, GIT_NO_LAZY_FETCH: '1' }
   });
-  if (listed.status !== 0) return [];
+  if (listed.status !== 0) {
+    throw new SingularityFlowError(
+      'Tracked Story roots could not be inspected without fetching or searching outside the repository.',
+      { code: 'WFA_DEPENDENCY_UNAVAILABLE' }
+    );
+  }
   const files = listed.stdout.split('\0').filter(Boolean);
   if (files.length > MAXIMUM_TRACKED_WORKFLOWS) {
     throw new SingularityFlowError(
@@ -69,7 +74,8 @@ async function locateAcceptedStory(root, definition, reference = null) {
       if (matchesReference(workflow, reference)) matches.push({
         definition: candidateDefinition, workflow
       });
-    } catch {
+    } catch (error) {
+      if (error?.code !== 'STORY_NOT_FOUND') throw error;
       // Another tracked root may contain no matching Story. Only a unique validated match wins.
     }
   }
@@ -95,14 +101,18 @@ export async function loadAcceptedStoryExecution(root, workId = null) {
   const bootstrap = await loadDefinition(root, { storyBootstrap: true });
   const located = await locateAcceptedStory(root, bootstrap, workId);
   if (located.workflow.workflowSnapshot) {
-    const definition = await resolveStoryExecutionDefinition(
+    const executionCatalog = await resolveStoryExecutionCatalog(
       root, located.definition, located.workflow
     );
-    return Object.freeze({ definition, config: definition, workflow: located.workflow });
+    const definition = executionCatalog.effectiveDefinition;
+    return Object.freeze({
+      definition, config: definition, workflow: located.workflow, executionCatalog
+    });
   }
   const current = await loadDefinition(root);
   const legacy = await locateAcceptedStory(root, current, workId);
   return Object.freeze({
-    definition: legacy.definition, config: legacy.definition, workflow: legacy.workflow
+    definition: legacy.definition, config: legacy.definition, workflow: legacy.workflow,
+    executionCatalog: null
   });
 }

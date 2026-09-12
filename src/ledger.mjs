@@ -1326,10 +1326,31 @@ async function fetchExpectedPin(root, remote, pinRef, expectedCommit, observed =
 }
 
 async function appendOnce(root, config, intent, publishedCommit, {
-  env = process.env, transportRemote = undefined, commitIdentity, commitSigning
+  env = process.env, transportRemote = undefined, commitIdentity, commitSigning,
+  requireFreshRemoteAuthority = false
 } = {}) {
   const idempotency = ledgerIdempotencyKey(intent, publishedCommit);
-  await ensureRemoteBranchFetchedAsync(root, config, { env, transportRemote });
+  const remoteView = await ensureRemoteBranchFetchedAsync(root, config, {
+    env, transportRemote
+  });
+  // A failed push can mean either "the remote refused it" or "the remote accepted it and the
+  // response was lost".  The next attempt must distinguish those states from a successful remote
+  // observation before it consults an idempotency pointer or constructs another commit.  A cached
+  // tracking ref—even when it happens to contain the winning event—is not that observation.
+  if (requireFreshRemoteAuthority && remoteView !== LEDGER_REMOTE_VIEW.REFRESHED) {
+    throw new SingularityFlowError(
+      `The ${config.branch} branch could not be re-observed after an uncertain ledger publication. `
+      + 'No replacement append was attempted. Refresh ledger status, then retry the original operation.', {
+        code: 'state_branch.publication_observation_unavailable',
+        details: {
+          branch: config.branch,
+          phase: 'ledger-append-retry',
+          remoteView,
+          nextAction: { command: 'singularity-flow ledger status --json' }
+        }
+      }
+    );
+  }
   let ref = ledgerHead(root, config, { env });
   if (!ref) {
     // The fetch above already proved there is no usable state ref locally. Initialization uses an
@@ -1437,7 +1458,10 @@ export async function appendLedgerIntent(root, rawConfig, intent, publishedCommi
       return await appendOnce(root, config, intent, publishedCommit, {
         env, transportRemote,
         commitIdentity: operation.commitIdentity,
-        commitSigning: operation.commitSigning
+        commitSigning: operation.commitSigning,
+        // Every failure emitted after a remote ledger push is deliberately marked uncertain. A
+        // later attempt may proceed only after it has refreshed the exact state authority.
+        requireFreshRemoteAuthority: attempt > 1
       });
     } catch (error) {
       lastError = error;

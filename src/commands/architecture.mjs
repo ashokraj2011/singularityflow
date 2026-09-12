@@ -5,7 +5,7 @@ import { loadDefinition } from '../config.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { branch as currentBranch, repoRoot } from '../git.mjs';
 import { runDraftTransaction } from '../draft-unit-of-work.mjs';
-import { loadStoryAggregate } from '../state-stores.mjs';
+import { assertNoPendingPublication, loadStoryAggregate } from '../state-stores.mjs';
 import {
   evaluateArchitectureIntentEvidence, resolveArchitectureIntentBase
 } from '../architecture-intent-service.mjs';
@@ -434,10 +434,20 @@ async function intentCommand(root, positionals, options, json) {
   const definition = accepted.definition;
   const workflow = accepted.workflow;
   const intentPolicy = workflow.resolution?.architectureIntent ?? definition.architectureIntent ?? {};
+  const mutatesIntent = action === 'init' || action === 'revise';
+  if (mutatesIntent) {
+    // Use the Story's pinned sequence policy before entering the draft transaction so the refusal
+    // keeps the normal publication-pending code and remediation. DraftUnitOfWork repeats the
+    // machine-local observation while holding the non-reentrant Story lock, closing the race
+    // between this policy check and the first write without reacquiring that lock here.
+    await assertNoPendingPublication(
+      root, definition, workflow, `${action} architecture intent`
+    );
+  }
   if (intentPolicy.enabled !== true) {
     fail(`Architecture intent is disabled for Story '${id}'.`, 'WMC_INTENT_DISABLED');
   }
-  if (action === 'init' || action === 'revise') {
+  if (mutatesIntent) {
     const result = await writeIntentDraft(root, definition, workflow, intentPolicy, {
       action,
       id,

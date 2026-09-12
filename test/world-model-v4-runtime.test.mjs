@@ -1085,6 +1085,28 @@ test('Story metadata does not rebuild a repository view, while scoped source cha
   assert.deepEqual(rebuilt.warnings, []);
 });
 
+test('unrelated state transactions preserve the immutable World-Model publication identity', async (t) => {
+  const { root } = await repository(t);
+  await buildAndPublishWorldModelV4(root, buildOptions());
+  const before = resolvePublishedWorldModelV4(root, {
+    outputDir: 'singularity/world-model', stateBranch: 'state', remote: 'origin'
+  });
+  assert.equal(before.publicationCommit, before.commit);
+
+  await publishToStateBranch(root, LEDGER, {
+    'singularity/work-items/WMB-DECISION/state.json': '{"phase":"submitted"}\n'
+  }, '[test] unrelated Story state transaction');
+  const after = resolvePublishedWorldModelV4(root, {
+    outputDir: 'singularity/world-model', stateBranch: 'state', remote: 'origin'
+  });
+
+  assert.notEqual(after.commit, before.commit, 'the shared state authority tip must advance');
+  assert.equal(after.publicationCommit, before.publicationCommit,
+    'unrelated state writes must not change the World-Model publication identity');
+  assert.equal(after.manifest.manifestSha256, before.manifest.manifestSha256);
+  assert.equal(after.views[0].viewSha256, before.views[0].viewSha256);
+});
+
 test('dirty current source is reported as unavailable without inventing a digest or receipt', async (t) => {
   const { root } = await repository(t);
   await buildAndPublishWorldModelV4(root, buildOptions());
@@ -1155,6 +1177,35 @@ test('dirty current source is reported as unavailable without inventing a digest
   );
   assert.equal(configurationOnly.freshness.source.status, 'fresh');
   assert.notEqual(configurationOnly.freshness.current, configurationOnly.freshness.source.current);
+
+  const projectionOnlyIdentity = {
+    ...structuredClone(baseline.freshness.reusableIdentity.built),
+    requestedProjections: [{
+      projectionId: 'arch.calm', projectionVersion: 1,
+      projectionSpecSha256: sha256({ projection: 'arch.calm@1' }),
+      required: false, profile: {}, budgets: {}, validation: { strict: true }
+    }],
+    projectionRegistrySha256: sha256({ registry: 'architecture-projections' }),
+    capabilitySnapshotSha256: sha256({ capability: 'current' }),
+    configurationSnapshotSha256: sha256({ configuration: 'current' }),
+    toolchainLockSha256: sha256({ toolchain: 'current' })
+  };
+  const projectionOnly = resolvePublishedWorldModelV4(root, {
+    outputDir: 'singularity/world-model', stateBranch: 'state', remote: 'origin',
+    expectedReusableIdentity: projectionOnlyIdentity
+  });
+  assert.equal(projectionOnly.freshness.status, 'stale');
+  assert.equal(projectionOnly.freshness.source.status, 'fresh');
+  assert.deepEqual(projectionOnly.stalenessReceipts, [],
+    'projection-only policy changes must not stale independently reusable view facts');
+  assert.deepEqual(
+    projectionOnly.freshness.changes.map((entry) => entry.field),
+    [
+      'requestedProjections', 'projectionRegistrySha256', 'capabilitySnapshotSha256',
+      'configurationSnapshotSha256', 'toolchainLockSha256'
+    ],
+    'all projection-only diagnostics remain visible in the stable identity order'
+  );
 });
 
 test('a required view failure preserves registered facts but cannot publish a manifest', async (t) => {

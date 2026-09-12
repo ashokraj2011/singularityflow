@@ -1764,6 +1764,7 @@ export async function snapshotResolution(root, definition, resolved) {
     // context, view, and agent-view semantics so a later configuration refresh cannot rewrite an
     // in-flight Story's instructions. Machine provider credentials remain outside this object.
     worldModelPolicy: structuredClone(definition.worldModel ?? {}),
+    planning: structuredClone(normalizePlanning(definition.planning ?? {})),
     architectureIntent: structuredClone(resolved.architectureIntent
       ?? definition.architectureIntent
       ?? { enabled: false, allowedPhases: [], blockRequiredUnfulfilledAt: [] }),
@@ -1820,19 +1821,45 @@ export function normalizeArtifactTemplateCompatibility(text, variables) {
 }
 
 export async function renderArtifactTemplate(root, definition, resolvedPhase, variables) {
-  const relative = variables.templateSnapshot?.path
-    ? path.join(root, variables.templateSnapshot.path)
-    : path.join(root, definition.templatesRoot, resolvedPhase.template);
-  const file = await secureRepositoryPath(root, relative, {
-    label: `Artifact template for phase '${resolvedPhase.id}'`,
-    mustExist: true,
-    type: 'file'
-  });
-  const current = await snapshot(file.absolute);
-  if (variables.templateSnapshot?.sha256 && current.sha256 !== variables.templateSnapshot.sha256) {
-    throw new SingularityFlowError(`Artifact template for phase '${resolvedPhase.id}' changed after this work item was created. Restore ${file.relative} to ${variables.templateSnapshot.sha256} or start a new work item.`);
+  let sourceText;
+  if (variables.retainedTemplate) {
+    const retained = variables.retainedTemplate;
+    const expectedSha256 = String(variables.templateSnapshot?.sha256 ?? '').replace(/^sha256:/, '');
+    const actualBytes = Buffer.from(String(retained.text ?? ''), 'utf8');
+    const actualSha256 = createHash('sha256').update(actualBytes).digest('hex');
+    if (!expectedSha256
+        || retained.logicalId !== `template:${resolvedPhase.id}`
+        || retained.sha256 !== expectedSha256
+        || actualSha256 !== expectedSha256
+        || retained.bytes !== actualBytes.byteLength) {
+      throw new SingularityFlowError(
+        `Retained artifact template for phase '${resolvedPhase.id}' does not match this Story's accepted execution closure.`,
+        { code: 'WFA_SNAPSHOT_INVALID' }
+      );
+    }
+    sourceText = retained.text;
+  } else {
+    if (variables.templateSnapshot?.source === 'workflow-snapshot') {
+      throw new SingularityFlowError(
+        `Saved artifact template for phase '${resolvedPhase.id}' was not retained by the verified Story execution operation.`,
+        { code: 'WFA_DEPENDENCY_UNAVAILABLE' }
+      );
+    }
+    const relative = variables.templateSnapshot?.path
+      ? path.join(root, variables.templateSnapshot.path)
+      : path.join(root, definition.templatesRoot, resolvedPhase.template);
+    const file = await secureRepositoryPath(root, relative, {
+      label: `Artifact template for phase '${resolvedPhase.id}'`,
+      mustExist: true,
+      type: 'file'
+    });
+    const current = await snapshot(file.absolute);
+    if (variables.templateSnapshot?.sha256 && current.sha256 !== variables.templateSnapshot.sha256) {
+      throw new SingularityFlowError(`Artifact template for phase '${resolvedPhase.id}' changed after this work item was created. Restore ${file.relative} to ${variables.templateSnapshot.sha256} or start a new work item.`);
+    }
+    sourceText = await readFile(file.absolute, 'utf8');
   }
-  let text = normalizeArtifactTemplateCompatibility(await readFile(file.absolute, 'utf8'), variables);
+  let text = normalizeArtifactTemplateCompatibility(sourceText, variables);
   const replacements = {
     [ARTIFACT_TEMPLATE_TOKENS.workId]: variables.id,
     [ARTIFACT_TEMPLATE_TOKENS.workTitle]: variables.title,

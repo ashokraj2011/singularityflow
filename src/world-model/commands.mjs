@@ -427,7 +427,14 @@ async function resolvedBuildOptions(root, config, options, overrides = {}) {
   };
 }
 
-function storeOptions(root, config, { views = null, options = {} } = {}) {
+/**
+ * Resolve the complete read identity for a published WMB v4 store.
+ *
+ * This is deliberately shared by CLI and native IDE reads: both surfaces must compare a
+ * published model with the same approved scope, view, consumer, budget, and projection policy.
+ * Computing the identity is deterministic and performs no model, network, or publication work.
+ */
+export function worldModelV4StoreOptions(root, config, { views = null, options = {} } = {}) {
   const ledger = ledgerConfig(config);
   const projections = configuredWorldModelV4ProjectionSelections(config, options);
   const expectedReusableIdentity = resolveWorldModelV4ReusableIdentity(
@@ -578,7 +585,7 @@ async function captureCandidateSnapshotCommand(root, config, options) {
 }
 
 function currentStore(root, config) {
-  return resolvePublishedWorldModelV4(root, storeOptions(root, config));
+  return resolvePublishedWorldModelV4(root, worldModelV4StoreOptions(root, config));
 }
 
 function selectedStoreView(store, viewId) {
@@ -630,7 +637,7 @@ export function resolveWorldModelV4Grounding(root, config, {
   const requestedSelections = configuredWorldModelV4ViewSelections(config, options, phase);
   const store = suppliedStore
     ?? resolvePublishedWorldModelV4(root, {
-      ...storeOptions(root, config, {
+      ...worldModelV4StoreOptions(root, config, {
         views: requestedSelections.map((selection) => selection.reference),
         options
       }),
@@ -1571,7 +1578,7 @@ export async function handleWorldModelV4Command(root, config, command, positiona
     let store = null;
     let state = 'not-built';
     let detail = null;
-    try { store = resolvePublishedWorldModelV4(root, { ...storeOptions(root, config), required: false }); state = store ? 'valid' : state; }
+    try { store = resolvePublishedWorldModelV4(root, { ...worldModelV4StoreOptions(root, config), required: false }); state = store ? 'valid' : state; }
     catch (error) { state = 'invalid'; detail = { code: error.code ?? null, message: error.message }; }
     const result = {
       status: state === 'invalid' ? 'fail' : 'pass',

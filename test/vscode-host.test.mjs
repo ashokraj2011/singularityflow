@@ -2371,7 +2371,10 @@ test('the packaged POC release candidate journey survives publication, review, C
     .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 2_000);
   assert.ok(handoff, `the native Copilot handoff opens from the packaged extension; result: ${copilotResult}; output: ${reviewHost.registered.output.slice(-8).map((entry) => entry.slice(0, 500)).join(' | ')}`);
   assert.match(handoff.args[0].query, /Story: POC-RC-1/);
-  assert.ok(handoff.args[0].query.includes(`Working directory: ${canonicalRoot}`));
+  assert.match(handoff.args[0].query,
+    /Working directory: \. \(the verified current repository checkout\)/);
+  assert.doesNotMatch(handoff.args[0].query,
+    new RegExp(canonicalRoot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.match(handoff.args[0].query, /poc-impact-analysis/i);
 
   // A fresh activation with the persisted one-shot handoff is the deterministic extension-host
@@ -4340,7 +4343,10 @@ test('a pending Copilot handoff resumes in a fresh chat after the repository win
   assert.ok(fresh, 'an unrelated previous Copilot agent conversation is not reused');
   assert.ok(opened, 'the governed prompt opens after the owning repository is active');
   const canonicalRoot = await realpath(root);
-  assert.ok(opened.args[0].query.includes(`Working directory: ${canonicalRoot}`));
+  assert.match(opened.args[0].query,
+    /Working directory: \. \(the verified current repository checkout\)/);
+  assert.doesNotMatch(opened.args[0].query,
+    new RegExp(canonicalRoot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.match(opened.args[0].query, /Story: STORY-001/);
   assert.match(opened.args[0].query, /Do not inspect or modify another repository/);
   assert.equal(values.get('singularityFlow.pendingCopilotHandoff'), undefined,

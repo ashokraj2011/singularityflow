@@ -112,6 +112,10 @@ test('the IDE keeps source freshness separate from aggregate configuration fresh
     ...base,
     freshness: {
       status: 'stale', fresh: false, reason: 'composer-profile-changed',
+      changes: [{
+        field: 'composerProfileSha256', reason: 'consumer-profile-changed',
+        kind: 'consumer-profile-change', previousSha256: digest('1'), currentSha256: digest('2')
+      }],
       source: {
         status: 'fresh', fresh: true, built: base.sourceSnapshot.sourceManifestSha256,
         current: base.sourceSnapshot.sourceManifestSha256, reason: null
@@ -120,6 +124,8 @@ test('the IDE keeps source freshness separate from aggregate configuration fresh
   });
   assert.equal(configurationStale.readiness.status, 'stale');
   assert.equal(configurationStale.source.status, 'fresh');
+  assert.match(configurationStale.rebuildReason, /consumer profile changed/i);
+  assert.doesNotMatch(configurationStale.rebuildReason, /source snapshot changed/i);
   assert.equal(
     configurationStale.source.currentSourceManifestSha256,
     base.sourceSnapshot.sourceManifestSha256

@@ -1,16 +1,14 @@
 /** Verify the governed identities required before an Auto flight can continue. */
 import path from 'node:path';
 
-import { loadDefinition } from '../config.mjs';
 import { branch, gitCommonDir, head } from '../git.mjs';
-import { loadStoryAggregate } from '../state-stores.mjs';
 import { posix, run, SingularityFlowError } from '../util.mjs';
 import {
   assertCredentialFreeRemote, configuredRemoteIdentity, remoteFingerprint
 } from '../git-remote-diagnostics.mjs';
 import { readVerifiedAcceptedAutoBinding } from './auto-origin.mjs';
 import { readAutoPlan } from './auto-plan.mjs';
-import { resolveStoryExecutionCatalog } from '../story-execution-context.mjs';
+import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 
 function contained(parent, child) {
   const relative = path.relative(path.resolve(parent), path.resolve(child));
@@ -43,19 +41,12 @@ export async function verifyAutoFlightContinuation(root, state) {
     });
   }
 
-  // Locate the Story before validating today's mutable agent catalog. An accepted Auto flight
-  // executes the exact portable closure carried by its Story; deleting or replacing a live agent
-  // after start cannot revoke that accepted execution identity.
-  let definition = await loadDefinition(state.worktree, { storyBootstrap: true });
-  let workflow = await loadStoryAggregate(state.worktree, definition, state.story.workId);
-  if (workflow.workflowSnapshot) {
-    definition = (await resolveStoryExecutionCatalog(
-      state.worktree, definition, workflow
-    )).effectiveDefinition;
-  } else {
-    definition = await loadDefinition(state.worktree);
-    workflow = await loadStoryAggregate(state.worktree, definition, state.story.workId);
-  }
+  // Locate the Story before validating today's mutable root or agent catalog. An accepted Auto
+  // flight executes the exact portable closure carried by its Story; moving the live work-item
+  // root, or deleting/replacing a live agent after start, cannot revoke that accepted identity.
+  const { definition, workflow } = await loadAcceptedStoryExecution(
+    state.worktree, state.story.workId
+  );
   const binding = await readVerifiedAcceptedAutoBinding(
     state.worktree, definition, workflow, state
   );

@@ -1330,7 +1330,12 @@ const PAGES = Object.freeze({
       '',
       'If a phase refuses to publish with "grounding is not ready", this is the command that fixes',
       'it — and note that the grounding policy is pinned from the configuration branch, not from the',
-      'branch you are standing on.'
+      'branch you are standing on.',
+      '',
+      'A verified stored model can remain reusable when the current source cannot be compared.',
+      '`wm status` then reports `freshness.status: unavailable`, `fresh: false`, `current: null`,',
+      'and the original source error. It never relabels that result as fresh or stale and never',
+      'rebuilds, commits, or captures a Candidate Snapshot merely to answer a status request.'
     ],
     examples: [
       ['singularity-flow wm build --depth quick', 'Build the world model at quick depth.'],
@@ -1356,12 +1361,19 @@ const PAGES = Object.freeze({
       '',
       'A Story may carry a clause-bearing architecture intent. --planned renders that delta over',
       'the exact base projection without changing the shared repository world model. Intent files',
-      'are still approved through the normal Story lifecycle.'
+      'are still approved through the normal Story lifecycle.',
+      '',
+      'An omitted candidate generation means the owning phase\'s next publication (P+1). Init makes',
+      'only a draft. Replacement is an exact-digest compare-and-swap with `intent revise`; the actual',
+      'governed order is phase publish, submit, then approve. A saved fulfilment report is recomputed',
+      'at enforcement; `WMC_INTENT_REPORT_MISMATCH` requires another explicit intent verification,',
+      'not a hand edit or an inferred approval.'
     ],
     options: [
       ['--work-id ID', 'Select the Story that owns an architecture intent.'],
       ['--planned', 'Read the selected Story planned overlay instead of shared base reality.'],
       ['--from FILE', 'Reviewed repository-relative JSON candidate used to initialize Story intent.'],
+      ['--expect-intent SHA256', 'For revision, require the exact current intent digest; reload after a conflict instead of substituting a newer digest.'],
       ['--candidate-snapshot SHA256', 'For intent verification or a lifecycle gate, bind the exact reviewed Candidate Snapshot to the current source. A historical Candidate that no longer matches is refused.'],
       ['--format calm', 'Export the exact CALM document without adding target-specific fields.'],
       ['--out FILE', 'New repository-relative export destination outside World-Model authority.'],
@@ -1371,6 +1383,8 @@ const PAGES = Object.freeze({
       ['singularity-flow architecture show', 'Show bounded counts and top-level architecture.'],
       ['singularity-flow architecture explain payments', 'Show exact provenance and where to make a change.'],
       ['singularity-flow architecture show --work-id PAY-142 --planned', 'Show one Story-scoped future projection.'],
+      ['singularity-flow architecture intent init --work-id PAY-142 --from design/architecture-intent.json', 'Create an unapproved draft for the owning phase next publication.'],
+      ['singularity-flow architecture intent revise --work-id PAY-142 --from design/revised-intent.json --expect-intent sha256:<DIGEST>', 'Replace only the exact current draft under the Story lock.'],
       ['singularity-flow architecture intent verify --work-id PAY-142 --candidate-snapshot sha256:<DIGEST>', 'Verify against one explicitly reviewed Candidate only when it still exactly matches the current source.'],
       ['singularity-flow architecture export --format calm --out dist/architecture/system.json', 'Preview the exact destination and digest; rerun with the returned --confirm digest to copy without changing authority.']
     ],
@@ -1531,7 +1545,12 @@ const PAGES = Object.freeze({
       'and every retained proposal.',
       'An unrelated-history proposal is never merged or rebased. `discard-proposal` removes only a',
       'stale proposal ref after its full current commit and a reason are supplied; a moved or valid',
-      'proposal is refused and approved configuration and application branches remain untouched.'
+      'proposal is refused and approved configuration and application branches remain untouched.',
+      '',
+      'Activation is staged. `CAPABILITY_ACTIVATION_AUDIT_PENDING` means configuration is already',
+      'active and the returned exact activation repairs only its missing audit. Projection- or',
+      'portability-pending results use the returned `capability publish` action; they must not repeat',
+      'the configuration merge or be reported as complete.'
     ],
     options: [
       ['--lead URL', 'Configuration-authority repository to inspect or update.'],
@@ -1543,6 +1562,8 @@ const PAGES = Object.freeze({
       ['singularity-flow capability inspect-repository https://git.example/payments.git --json', 'Check every registered capability authority before proposing a repository mapping.'],
       ['singularity-flow capability map payments --repository payments-api', 'Propose a capability.'],
       ['singularity-flow capability map payments --repository <URL> --source-roots apps/payments --clone-mode blobless-sparse --sparse-cone apps/payments --clone-fallback refuse', 'Propose a scoped capability and safe monorepo clone policy.'],
+      ['singularity-flow capability activate <REVIEW-BRANCH> --lead <URL> --confirm <FULL-COMMIT>', 'Activate the exact reviewed proposal, or resume its missing audit after verified partial completion.'],
+      ['singularity-flow capability publish --lead <URL>', 'Repair only a pending state projection or delivery portability link after activation.'],
       ['singularity-flow capability edit legacy --lead <URL> --mode remove --reparent-children-to platform', 'Remove a capability and atomically relink its direct children.'],
       ['singularity-flow capability organisation --refresh', 'Refresh the approved organisation map.'],
       ['singularity-flow capability fsck --lead <URL>', 'Detect stale projections and broken proposal history without changing a ref.'],

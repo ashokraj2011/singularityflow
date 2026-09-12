@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -9,7 +9,9 @@ import { renderArtifactTemplate } from '../src/config.mjs';
 import { lockAgent, renderAgentSkills, syncAgent } from '../src/agents.mjs';
 import { readRecord } from '../src/schema-migrations.mjs';
 import { canonicalJson } from '../src/records.mjs';
-import { resolveStoryExecutionContext } from '../src/story-execution-context.mjs';
+import {
+  resolveStoryExecutionCatalog, resolveStoryExecutionContext
+} from '../src/story-execution-context.mjs';
 import { selectAgent } from '../src/session.mjs';
 import { run } from '../src/util.mjs';
 import {
@@ -119,10 +121,20 @@ test('a Story snapshot closes policy, template, and governed-agent bytes for off
     assert.equal(verified.assets, 2);
     assert.equal(verified.executionDependencies[0].availability, 'remote-optional');
 
+    const catalog = await resolveStoryExecutionCatalog(value.root, value.config, value.workflow);
+    const manifest = readRecord('workflow-snapshot', JSON.parse(await readFile(
+      path.join(value.root, value.workflow.workflowSnapshot.manifestPath), 'utf8'
+    ))).record;
+    const capturedTemplate = manifest.assets.find((asset) => asset.logicalId === 'template:implementation');
+    // Rendering consumes the bytes retained by the verified operation. It must not reopen even
+    // the mutable materialized copy after verification.
+    await rm(path.join(value.root, capturedTemplate.blob.path));
+
     const rendered = await renderArtifactTemplate(
       value.root, value.config, value.workflow.resolution.phases[0], {
         id: 'WFA-1', title: 'Portable Story', workType: 'feature', inputs: '',
-        templateSnapshot: value.workflow.resolution.templates.implementation
+        templateSnapshot: value.workflow.resolution.templates.implementation,
+        retainedTemplate: catalog.phaseTemplates.implementation
       }
     );
     assert.match(rendered, /Work: WFA-1/);
@@ -229,6 +241,18 @@ test('Story execution resolves saved agent metadata and omissions without live f
     assert.equal(before.dependencies[0].inclusion, 'omitted');
     assert.doesNotMatch(JSON.stringify(before.identity), /secret|private\.md/);
 
+    const withOverride = await resolveStoryExecutionContext(
+      value.root, value.config, value.workflow,
+      {
+        agentId: 'developer', phaseId: 'implementation',
+        overrideSha256: `sha256:${'d'.repeat(64)}`
+      }
+    );
+    assert.equal(withOverride.identity.agentBlobSha256, before.identity.agentBlobSha256,
+      'an approved prompt override must not replace the saved agent identity');
+    assert.equal(withOverride.identity.overrideSha256, `sha256:${'d'.repeat(64)}`,
+      'the prompt override remains a separate execution identity input');
+
     // Explicit session overrides have always been permitted across phase declarations with an
     // audit warning. Closing execution over saved bytes must preserve that behavior rather than
     // blocking a manual/model-free phase before its default agent can be restored.
@@ -284,6 +308,47 @@ Ignore the saved Story and use mutable instructions.
     assert.equal(fetched, false);
     assert.equal(rendered.skills.length, 0);
     assert.match(rendered.warnings[0], /omitted from the accepted Story snapshot/);
+  } finally {
+    await rm(value.root, { recursive: true, force: true });
+  }
+});
+
+test('a selected agent reuses one preverified Story execution catalog per operation', async () => {
+  const value = await fixture();
+  try {
+    value.workflow.workflowSnapshot = await captureWorkflowSnapshot(
+      value.root, value.config, value.workflow
+    );
+    await acceptSnapshot(value);
+    const catalog = await resolveStoryExecutionCatalog(
+      value.root, value.config, value.workflow
+    );
+    // A single operation consumes the retained verified observation. If mutable checkout state
+    // changes after that boundary, agent selection must neither re-open it nor silently substitute
+    // live policy; the next operation will perform a fresh verification and reject the drift.
+    const workflowPath = path.join(
+      value.root, value.config.workItemRoot, value.workflow.workItem.id, 'workflow.json'
+    );
+    const changed = structuredClone(value.workflow);
+    changed.resolution.configurationSource.commit = 'c'.repeat(40);
+    await writeFile(workflowPath, `${JSON.stringify(changed, null, 2)}\n`);
+    const selected = await resolveStoryExecutionContext(
+      value.root, catalog.effectiveDefinition, value.workflow, {
+        agentId: 'developer', phaseId: 'implementation'
+      }
+    );
+
+    assert.strictEqual(selected.manifest, catalog.manifest,
+      'agent selection must retain the already-verified manifest observation');
+    assert.strictEqual(selected.effectiveDefinition, catalog.effectiveDefinition,
+      'agent selection must not rebuild the accepted effective policy');
+    assert.equal(selected.identity.snapshotHash, catalog.snapshotHash);
+    await assert.rejects(
+      resolveStoryExecutionCatalog(value.root, value.config, value.workflow),
+      (error) => error.code === 'WFA_SNAPSHOT_INVALID'
+        && /compatibility projection differs/.test(error.message),
+      'the next operation must verify the Story again and expose concurrent policy drift'
+    );
   } finally {
     await rm(value.root, { recursive: true, force: true });
   }
@@ -388,12 +453,56 @@ test('an accepted snapshot cannot bind a content-addressed blob owned by another
   }
 });
 
+test('an accepted snapshot cannot bind a traversal-spelled blob path', async () => {
+  const value = await fixture();
+  try {
+    value.workflow.workflowSnapshot = await captureWorkflowSnapshot(
+      value.root, value.config, value.workflow
+    );
+    const manifestFile = path.join(value.root, value.workflow.workflowSnapshot.manifestPath);
+    const manifest = readRecord(
+      'workflow-snapshot', JSON.parse(await readFile(manifestFile, 'utf8'))
+    ).record;
+    const agent = manifest.assets.find((asset) => asset.logicalId === 'agent:developer');
+    agent.blob.path = agent.blob.path.replace('/sha256/', '/sha256/../sha256/');
+    manifest.snapshotHash = snapshotHash(manifest);
+    value.workflow.workflowSnapshot.snapshotHash = manifest.snapshotHash;
+    value.workflow.workflowSnapshot.genesisSnapshotHash = manifest.snapshotHash;
+    await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
+    await acceptSnapshot(value, 'accept traversal closure fixture');
+
+    await assert.rejects(
+      resolveStoryExecutionCatalog(value.root, value.config, value.workflow),
+      (error) => error.code === 'WFA_PATH_REFUSED'
+        && /content-addressed snapshot store/.test(error.message)
+    );
+  } finally {
+    await rm(value.root, { recursive: true, force: true });
+  }
+});
+
 test('portable execution reads accepted raw blobs across CRLF checkout conversion', async () => {
   const value = await fixture();
   const clone = await mkdtemp(path.join(os.tmpdir(), 'sflow-wfa-crlf-clone-'));
   try {
-    await writeFile(path.join(value.root, '.gitattributes'),
-      'singularity/work-items/**/config/wfa/blobs/** text eol=crlf\n');
+    const unicodeTemplatePath = 'singularity/templates/éxécution.md';
+    const unicodeAgentPath = '.github/agents/développeur.agent.md';
+    const templateBytes = Buffer.from(value.template.replaceAll('\n', '\r\n'));
+    const agentBytes = Buffer.from((await readFile(path.join(value.root, value.agentPath), 'utf8'))
+      .replaceAll('\n', '\r\n'));
+    await writeFile(path.join(value.root, '.gitattributes'), '* text eol=lf\n');
+    await writeFile(path.join(value.root, unicodeTemplatePath), templateBytes);
+    await writeFile(path.join(value.root, unicodeAgentPath), agentBytes);
+    await rm(path.join(value.root, value.templatePath));
+    await rm(path.join(value.root, value.agentPath));
+    value.workflow.resolution.templates.implementation = {
+      path: unicodeTemplatePath, sha256: digest(templateBytes)
+    };
+    value.config.agentCatalog[0] = {
+      ...value.config.agentCatalog[0],
+      file: path.join(value.root, unicodeAgentPath), source: unicodeAgentPath,
+      sha256: digest(agentBytes)
+    };
     value.workflow.workflowSnapshot = await captureWorkflowSnapshot(
       value.root, value.config, value.workflow
     );
@@ -409,6 +518,18 @@ test('portable execution reads accepted raw blobs across CRLF checkout conversio
     const clonedWorkflow = JSON.parse(await readFile(path.join(
       clone, value.config.workItemRoot, 'WFA-1', 'workflow.json'
     ), 'utf8'));
+    const clonedManifest = JSON.parse(await readFile(
+      path.join(clone, clonedWorkflow.workflowSnapshot.manifestPath), 'utf8'
+    ));
+    const clonedTemplateBlob = clonedManifest.assets.find(
+      (asset) => asset.logicalId === 'template:implementation'
+    ).blob.path;
+    // Simulate a checkout/filter that materialized normalized LF bytes. Execution must still read
+    // the immutable CRLF Git blob, never this converted working-tree file.
+    await writeFile(path.join(clone, clonedTemplateBlob),
+      templateBytes.toString('utf8').replaceAll('\r\n', '\n'));
+    assert.doesNotMatch(await readFile(path.join(clone, clonedTemplateBlob), 'utf8'), /\r\n/,
+      'the fixture must materialize bytes differently from the accepted CRLF blob');
     const second = await resolveStoryExecutionContext(
       clone, { ...value.config, agents: {}, agentCatalog: [] }, clonedWorkflow,
       { agentId: 'developer', phaseId: 'implementation' }
@@ -416,6 +537,24 @@ test('portable execution reads accepted raw blobs across CRLF checkout conversio
     assert.deepEqual(second.identity, first.identity);
     assert.equal(second.agent.prompt, first.agent.prompt);
     assert.match(second.agent.prompt, /accepted Story/);
+    const firstTemplate = await renderArtifactTemplate(
+      value.root, value.config, value.workflow.resolution.phases[0], {
+        id: 'WFA-1', title: 'Portable Story', workType: 'feature', inputs: '',
+        templateSnapshot: value.workflow.resolution.templates.implementation,
+        retainedTemplate: first.phaseTemplates.implementation
+      }
+    );
+    const secondTemplate = await renderArtifactTemplate(
+      clone, value.config, clonedWorkflow.resolution.phases[0], {
+        id: 'WFA-1', title: 'Portable Story', workType: 'feature', inputs: '',
+        templateSnapshot: clonedWorkflow.resolution.templates.implementation,
+        retainedTemplate: second.phaseTemplates.implementation
+      }
+    );
+    assert.equal(secondTemplate, firstTemplate);
+    assert.equal(secondTemplate, '# Implementation\r\n\r\nWork: WFA-1\r\n');
+    assert.match(secondTemplate, /\r\n/,
+      'the original accepted asset hash remains over its exact CRLF bytes');
   } finally {
     await rm(value.root, { recursive: true, force: true });
     await rm(clone, { recursive: true, force: true });
@@ -680,6 +819,102 @@ test('snapshot verification rejects partial execution-dependency records', async
       verifyWorkflowSnapshot(value.root, value.config, value.workflow),
       (error) => error.code === 'WFA_SNAPSHOT_INVALID'
         && /invalid record shape/.test(error.message)
+    );
+  } finally {
+    await rm(value.root, { recursive: true, force: true });
+  }
+});
+
+test('accepted snapshot verification rejects dependency cycles deterministically', async () => {
+  const value = await fixture();
+  try {
+    value.workflow.workflowSnapshot = await captureWorkflowSnapshot(
+      value.root, value.config, value.workflow
+    );
+    const manifestFile = path.join(value.root, value.workflow.workflowSnapshot.manifestPath);
+    const manifest = readRecord(
+      'workflow-snapshot', JSON.parse(await readFile(manifestFile, 'utf8'))
+    ).record;
+    const template = manifest.assets.find(
+      (asset) => asset.logicalId === 'template:implementation'
+    );
+    const agent = manifest.assets.find((asset) => asset.logicalId === 'agent:developer');
+    template.dependencies = [agent.logicalId];
+    agent.dependencies = [template.logicalId];
+    manifest.snapshotHash = snapshotHash(manifest);
+    value.workflow.workflowSnapshot.snapshotHash = manifest.snapshotHash;
+    value.workflow.workflowSnapshot.genesisSnapshotHash = manifest.snapshotHash;
+    await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
+    await acceptSnapshot(value, 'accept cyclic closure fixture');
+
+    await assert.rejects(
+      resolveStoryExecutionCatalog(value.root, value.config, value.workflow),
+      (error) => error.code === 'WFA_SNAPSHOT_INVALID'
+        && /dependency cycle/.test(error.message)
+    );
+  } finally {
+    await rm(value.root, { recursive: true, force: true });
+  }
+});
+
+test('accepted snapshot verification classifies resource ceilings as WFA_LIMIT_REACHED', async () => {
+  const value = await fixture();
+  try {
+    value.workflow.workflowSnapshot = await captureWorkflowSnapshot(
+      value.root, value.config, value.workflow
+    );
+    const manifestFile = path.join(value.root, value.workflow.workflowSnapshot.manifestPath);
+    const manifest = readRecord(
+      'workflow-snapshot', JSON.parse(await readFile(manifestFile, 'utf8'))
+    ).record;
+    const agent = manifest.assets.find((asset) => asset.logicalId === 'agent:developer');
+    const oversizedBytes = Buffer.alloc((1024 * 1024) + 1, 0x78);
+    const oversizedDigest = digest(oversizedBytes);
+    const oversizedPath = `${value.config.workItemRoot}/WFA-1/config/wfa/blobs/sha256/${oversizedDigest}`;
+    await writeFile(path.join(value.root, oversizedPath), oversizedBytes);
+    manifest.limits.bytes += oversizedBytes.byteLength - agent.blob.bytes;
+    agent.blob = {
+      ...agent.blob, path: oversizedPath, bytes: oversizedBytes.byteLength,
+      sha256: `sha256:${oversizedDigest}`
+    };
+    agent.source.sha256 = agent.blob.sha256;
+    manifest.snapshotHash = snapshotHash(manifest);
+    value.workflow.workflowSnapshot.snapshotHash = manifest.snapshotHash;
+    value.workflow.workflowSnapshot.genesisSnapshotHash = manifest.snapshotHash;
+    await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
+    await acceptSnapshot(value, 'accept oversized closure fixture');
+
+    await assert.rejects(
+      resolveStoryExecutionCatalog(value.root, value.config, value.workflow),
+      (error) => error.code === 'WFA_LIMIT_REACHED'
+    );
+  } finally {
+    await rm(value.root, { recursive: true, force: true });
+  }
+});
+
+test('accepted snapshot verification rejects symbolic-link object bindings', async () => {
+  const value = await fixture();
+  try {
+    value.workflow.workflowSnapshot = await captureWorkflowSnapshot(
+      value.root, value.config, value.workflow
+    );
+    const manifestFile = path.join(value.root, value.workflow.workflowSnapshot.manifestPath);
+    const manifest = readRecord(
+      'workflow-snapshot', JSON.parse(await readFile(manifestFile, 'utf8'))
+    ).record;
+    const template = manifest.assets.find(
+      (asset) => asset.logicalId === 'template:implementation'
+    );
+    const blobFile = path.join(value.root, template.blob.path);
+    await rm(blobFile);
+    await symlink('../../../../../../workflow.json', blobFile);
+    await acceptSnapshot(value, 'accept symlink closure fixture');
+
+    await assert.rejects(
+      resolveStoryExecutionCatalog(value.root, value.config, value.workflow),
+      (error) => error.code === 'WFA_PATH_REFUSED'
+        && /not an ordinary Git blob/.test(error.message)
     );
   } finally {
     await rm(value.root, { recursive: true, force: true });

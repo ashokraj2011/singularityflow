@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { sha256 } from '../src/world-model/canonicalize.mjs';
+import { sealRecord, sha256 } from '../src/world-model/canonicalize.mjs';
+import { assertArchitectureIntentReportMatches } from '../src/architecture-intent-service.mjs';
 import {
   buildCalmProjection, createArchitectureCapabilitySnapshot, createArchitectureConfigurationSnapshot,
   createArchitectureIntent, explainArchitectureElement, renderPlannedArchitecture,
@@ -120,6 +121,19 @@ test('intent fulfilment keeps not-observable evidence and unplanned architecture
   assert.equal(drift.clauses.find((clause) => clause.verdict === 'unplanned').elementIds[0],
     'surprise');
   assert.equal(drift.blocking, true);
+
+  // A report remains untrusted even when an editor recomputes its self-hash. In particular,
+  // deleting the independently discovered unplanned row must not turn drift into an acceptable
+  // result at a lifecycle gate.
+  const suppressed = sealRecord({
+    ...drift,
+    clauses: drift.clauses.filter((clause) => clause.verdict !== 'unplanned'),
+    blocking: false
+  }, 'reportSha256');
+  assert.throws(
+    () => assertArchitectureIntentReportMatches(suppressed, drift),
+    (error) => error.code === 'WMC_INTENT_REPORT_MISMATCH'
+  );
 });
 
 test('an unobservable absence never proves a required architecture removal', () => {

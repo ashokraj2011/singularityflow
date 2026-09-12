@@ -1,9 +1,9 @@
-import { loadDefinition } from '../../config.mjs';
 import {
   projectWorldModelIdeSlice, readWorldModelIdeExpansion, worldModelSourceExpansionReference
 } from '../../world-model/ide/slice.mjs';
+import { worldModelV4StoreOptions } from '../../world-model/commands.mjs';
 import { resolvePublishedWorldModelV4 } from '../../world-model/store.mjs';
-import { worldModelStateAuthority } from '../../world-model/authority-config.mjs';
+import { loadWorldModelConfig } from '../../worldmodel.mjs';
 import { noEffects, preservedAll, sflowResult } from '../result.mjs';
 
 const MAX_CLAIM_BYTES = 4_096;
@@ -33,13 +33,13 @@ function boundedText(value, maximumBytes = MAX_CLAIM_BYTES) {
 }
 
 async function authority(root) {
-  const definition = await loadDefinition(root);
-  const state = worldModelStateAuthority(definition);
-  return resolvePublishedWorldModelV4(root, {
-    outputDir: definition.worldModel?.outputDir ?? 'singularity/world-model',
-    stateBranch: state.branch,
-    remote: state.remote
-  });
+  // Gateway reads are another public status surface, not a provenance-free manifest browser.
+  // Resolve the same normalized approved identity as the CLI and native IDE so a configuration-
+  // only change cannot make `world-model.next` call an old projection current. This remains a
+  // deterministic read: loading the approved configuration neither refreshes authority nor
+  // captures a Candidate Snapshot.
+  const config = await loadWorldModelConfig(root);
+  return resolvePublishedWorldModelV4(root, worldModelV4StoreOptions(root, config));
 }
 
 function selectEntity(store, entity, id, {

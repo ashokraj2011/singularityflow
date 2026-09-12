@@ -937,6 +937,12 @@ export interface RepositorySnapshot {
     id: string; scope: string; path: string; packagePath?: string | null; editable?: boolean;
     content?: string; sha256?: string; remoteResources?: number;
   }>;
+  /** Accepted Story agent authority used by lifecycle surfaces; configuration slices stay live. */
+  storyExecutionClosure?: {
+    mode: 'workflow-snapshot' | 'legacy-live';
+    status: 'verified' | 'unproven';
+    agents: string[];
+  } | null;
   agentStatus?: Array<{
     id: string; scope: string; source: string; sourceSha256: string; locked: boolean;
     sourceChanged: boolean; status: 'local-only' | 'unlocked' | 'stale' | 'needs-sync' | 'ready';

@@ -7,6 +7,7 @@ import { canonicalJson } from './records.mjs';
 import { readLocalGitBlobs } from './git-blob-batch.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { syncAgent } from './agents.mjs';
+import { PACKAGE_ROOT } from './package-root.mjs';
 import { assertCredentialFreeRemote, sanitizeRemote } from './git-remote-diagnostics.mjs';
 import {
   SingularityFlowError, posix, readJson, run, secureRepositoryPath, writeBytes, writeJson
@@ -32,6 +33,14 @@ const LEGACY_DEPENDENCY_FIELDS = Object.freeze([
 // option would let any caller weaken accepted execution; a WeakMap entry cannot survive reload,
 // cloning, or process restart and cannot be manufactured outside this module.
 const RETAINED_CREATION_DRAFTS = new WeakMap();
+const DEFAULT_PLANNING_PROMPT = 'singularity/prompts/copilot-planning.md';
+// Snapshot objects are opaque bytes, not checkout text. Without a nearer attribute rule,
+// core.autocrlf or a repository-wide `text` rule can rewrite a CRLF agent/template while `git
+// add` accepts the new Story. The manifest would then name the captured bytes but the immutable
+// creation commit would contain different bytes, making a Story created on Windows impossible to
+// resume. Keep the generated object store binary; readers still use accepted Git blobs so a
+// machine-local higher-precedence attribute cannot affect execution.
+const SNAPSHOT_BLOB_ATTRIBUTES = Buffer.from('* -text\n');
 
 function fail(message, code = 'WFA_SNAPSHOT_INVALID', details = undefined) {
   throw new SingularityFlowError(message, { code, ...(details ? { details } : {}) });
@@ -111,6 +120,26 @@ async function stableFile(file, label) {
 }
 
 async function installBlob(root, config, workId, captured) {
+  const attributesRelative = storyRelative(
+    config, workId, 'config/wfa/blobs/.gitattributes'
+  );
+  const attributes = await secureRepositoryPath(root, attributesRelative, {
+    label: 'Workflow snapshot blob attributes'
+  });
+  if (attributes.exists) {
+    const current = await stableFile(
+      attributes.absolute, 'Workflow snapshot blob attributes'
+    );
+    if (!current.bytes.equals(SNAPSHOT_BLOB_ATTRIBUTES)) {
+      fail(
+        'Workflow snapshot blob attributes must preserve exact opaque bytes.',
+        'WFA_SOURCE_STALE'
+      );
+    }
+  } else {
+    await mkdir(path.dirname(attributes.absolute), { recursive: true });
+    await writeBytes(attributes.absolute, SNAPSHOT_BLOB_ATTRIBUTES);
+  }
   const relative = storyRelative(config, workId, `config/wfa/blobs/sha256/${captured.sha256}`);
   const target = await secureRepositoryPath(root, relative, {
     label: 'Workflow snapshot blob'
@@ -146,6 +175,22 @@ async function captureRepositoryAsset(root, config, workId, {
   return {
     logicalId, purpose, dependencies, blob,
     source: { kind: 'repository-path', path: posix(relativePath), sha256: blob.sha256 }
+  };
+}
+
+async function capturePackagedPlanningPrompt(root, config, workId) {
+  const captured = await stableFile(
+    path.join(PACKAGE_ROOT, 'templates', 'copilot-planning.md'),
+    'Packaged default planning prompt'
+  );
+  const blob = await installBlob(root, config, workId, {
+    ...captured, mediaType: 'text/markdown; charset=utf-8'
+  });
+  return {
+    logicalId: 'prompt:planning', purpose: 'planning-prompt', dependencies: [], blob,
+    source: {
+      kind: 'packaged-default', source: 'templates/copilot-planning.md', sha256: blob.sha256
+    }
   };
 }
 
@@ -294,6 +339,29 @@ export async function captureWorkflowSnapshot(root, config, workflow) {
     workflow.resolution.templates[phaseId] = capturedTemplate;
     const resolvedPhase = (workflow.resolution.phases ?? []).find((phase) => phase.id === phaseId);
     if (resolvedPhase) resolvedPhase.templateSnapshot = structuredClone(capturedTemplate);
+  }
+
+  const planning = workflow.resolution.planning ?? null;
+  if (planning?.enabled !== false && planning?.promptSource) {
+    const source = await secureRepositoryPath(root, planning.promptSource, {
+      label: 'Planning prompt', type: 'file'
+    });
+    const asset = source.exists
+      ? await captureRepositoryAsset(root, config, workId, {
+          logicalId: 'prompt:planning', purpose: 'planning-prompt',
+          relativePath: planning.promptSource
+        })
+      : planning.promptSource === DEFAULT_PLANNING_PROMPT
+        ? await capturePackagedPlanningPrompt(root, config, workId)
+        : fail(`Planning prompt is unavailable: ${planning.promptSource}`,
+          'WFA_DEPENDENCY_UNAVAILABLE');
+    assets.push(asset);
+    workflow.resolution.planningPromptSnapshot = {
+      source: 'workflow-snapshot',
+      sourcePath: asset.source.kind === 'repository-path' ? asset.source.path : asset.source.source,
+      path: asset.blob.path,
+      sha256: digestHex(asset.blob.sha256, 'Planning prompt')
+    };
   }
 
   // `resolution.agents` is the captured selection catalog. A Story must never advertise a live
@@ -475,6 +543,7 @@ function gitTreeEntries(root, commit, paths, label) {
     maximumBytes: MAXIMUM_BUNDLE_BYTES,
     maximumObjectBytes: MAXIMUM_ASSET_BYTES,
     code: 'WFA_DEPENDENCY_UNAVAILABLE',
+    limitCode: 'WFA_LIMIT_REACHED',
     label
   });
   return new Map([...entries].map(([relative, entry]) => [relative, blobs.get(entry.oid)]));
@@ -503,13 +572,18 @@ function initialSnapshotAuthority(root, config, workId) {
   return { commit, workflow, workflowRelative };
 }
 
-async function verifyBlob(root, config, workId, blob, label, { acceptedBytes = null } = {}) {
+function validateBlobReference(config, workId, blob, label) {
   if (!blob || typeof blob !== 'object') fail(`${label} has no blob reference.`);
   const digest = digestHex(blob.sha256, `${label} blob`);
   const expectedPath = exactStoryBlobPath(config, workId, digest);
   if (String(blob.path ?? '') !== expectedPath) {
     fail(`${label} points outside the content-addressed snapshot store.`, 'WFA_PATH_REFUSED');
   }
+  return { digest, expectedPath };
+}
+
+async function verifyBlob(root, config, workId, blob, label, { acceptedBytes = null } = {}) {
+  const { digest, expectedPath } = validateBlobReference(config, workId, blob, label);
   if (acceptedBytes) {
     const bytes = acceptedBytes.get(expectedPath);
     if (!bytes || sha256(bytes) !== digest || bytes.byteLength !== blob.bytes) {
@@ -728,6 +802,19 @@ export async function verifyWorkflowSnapshot(root, config, workflow, {
     const source = accepted
       ? JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(manifestBytes))
       : await readJson(safe.absolute);
+    // JSON Schema enforces these ceilings too, but classifying a hostile/self-rehashed oversized
+    // closure as a runtime incompatibility hides the actual recovery. Inspect only the bounded
+    // cardinality/accounting fields before schema projection; all semantic validation remains in
+    // the registered immutable reader below.
+    const tooManyAssets = Array.isArray(source?.assets)
+      && source.assets.length > MAXIMUM_ASSETS;
+    const tooManyDependencies = Array.isArray(source?.executionDependencies)
+      && source.executionDependencies.length > MAXIMUM_ASSETS;
+    const tooManyDeclaredBytes = Number.isFinite(source?.limits?.bytes)
+      && source.limits.bytes > MAXIMUM_BUNDLE_BYTES;
+    if (tooManyAssets || tooManyDependencies || tooManyDeclaredBytes) {
+      fail('Workflow snapshot exceeds its accepted resource limits.', 'WFA_LIMIT_REACHED');
+    }
     manifest = readRecord(SNAPSHOT_FAMILY, source).record;
   }
   catch (error) {
@@ -743,11 +830,22 @@ export async function verifyWorkflowSnapshot(root, config, workflow, {
   if (manifest.revision === 1 && manifest.parentSnapshotHash !== null) {
     fail('Workflow snapshot genesis has an unexpected parent.');
   }
+  const closureReferences = [
+    { blob: manifest.policy, label: 'Effective workflow policy' },
+    ...(manifest.assets ?? []).map((asset) => ({
+      blob: asset?.blob,
+      label: `Workflow snapshot asset '${asset?.logicalId ?? 'unknown'}'`
+    }))
+  ];
+  // Validate the portable path grammar before giving any caller-controlled path to Git. Otherwise
+  // `ls-tree` may normalize a traversal spelling and turn the precise path refusal into a generic
+  // missing/invalid-object error.
+  for (const entry of closureReferences) {
+    validateBlobReference(config, workflow.workItem.id, entry.blob, entry.label);
+  }
   const acceptedBlobBytes = accepted
-    ? gitTreeEntries(root, accepted.commit, [
-        manifest.policy?.path,
-        ...(manifest.assets ?? []).map((asset) => asset?.blob?.path)
-      ].filter(Boolean), 'Workflow snapshot closure')
+    ? gitTreeEntries(root, accepted.commit,
+        closureReferences.map((entry) => entry.blob.path), 'Workflow snapshot closure')
     : null;
   const policy = await verifyBlob(
     root, config, workflow.workItem.id, manifest.policy, 'Effective workflow policy',
@@ -756,7 +854,32 @@ export async function verifyWorkflowSnapshot(root, config, workflow, {
   let capturedPolicy;
   try { capturedPolicy = JSON.parse(policy.bytes.toString('utf8')); }
   catch { fail('Captured workflow policy is not valid JSON.'); }
-  if (canonicalJson(capturedPolicy) !== canonicalJson(clonePolicy(workflow.resolution))
+  // Accepted Story policy is durable data, not a compatibility projection of today's runtime.
+  // `workflow` has already passed through the current story-record reader, which may add safe
+  // schema defaults in memory. Comparing the captured closure to that migrated object made an
+  // unchanged historical Story fail whenever the runtime learned a new default. Instead prove:
+  //   1. the captured policy is exactly what the immutable creation commit accepted; and
+  //   2. the raw policy currently persisted for the Story has not been edited since capture.
+  // This ignores mutable live workflow.yml defaults but still rejects both a changed closure and
+  // direct edits to immutable resolution fields such as sequence gates or session policy.
+  let compatibilityPolicy = clonePolicy(workflow.resolution);
+  let creationPolicy = compatibilityPolicy;
+  if (accepted) {
+    creationPolicy = clonePolicy(accepted.workflow?.resolution);
+    let persisted;
+    try {
+      const currentWorkflow = await secureRepositoryPath(root, accepted.workflowRelative, {
+        label: 'Current Story workflow record', mustExist: true, type: 'file'
+      });
+      persisted = await readJson(currentWorkflow.absolute);
+    } catch (error) {
+      if (error instanceof SingularityFlowError) throw error;
+      fail(`Current Story workflow record cannot be read: ${error.message}`);
+    }
+    compatibilityPolicy = clonePolicy(persisted?.resolution);
+  }
+  if (canonicalJson(capturedPolicy) !== canonicalJson(creationPolicy)
+      || canonicalJson(capturedPolicy) !== canonicalJson(compatibilityPolicy)
       || manifest.configFoldHash !== domainHash('wfa.fold.v1', capturedPolicy)) {
     fail('Workflow compatibility projection differs from its accepted snapshot policy.');
   }

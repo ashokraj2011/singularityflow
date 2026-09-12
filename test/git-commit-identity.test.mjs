@@ -6,7 +6,8 @@ import path from 'node:path';
 
 import {
   gitCommitIdentityArgs, gitCommitIdentityEnvironment, gitCommitSigningArgs,
-  preflightGitCommitIdentity, resolveGitCommitIdentity, resolveGitCommitSigning
+  preflightGitCommitIdentity, resolveGitCommitIdentity, resolveGitCommitSigning,
+  validateGitCommitIdentity
 } from '../src/git.mjs';
 import { run } from '../src/util.mjs';
 
@@ -70,6 +71,36 @@ test('commit identity uses a labelled fallback only for absence and rejects malf
     assert.equal(error.details?.field, 'user.name');
     return true;
   });
+
+  assert.throws(() => validateGitCommitIdentity({
+    name: 'Invented Service', email: 'invented@example.test', source: 'service-fallback'
+  }), (error) => {
+    assert.equal(error.code, 'GIT_COMMIT_IDENTITY_INVALID');
+    assert.match(error.message, /service fallback must use the canonical/i);
+    return true;
+  });
+  assert.deepEqual(validateGitCommitIdentity({
+    name: 'Singularity Flow', email: 'unknown@invalid', source: 'service-fallback'
+  }), {
+    name: 'Singularity Flow', email: 'unknown@invalid', source: 'service-fallback'
+  });
+  assert.deepEqual(validateGitCommitIdentity({
+    name: '  审核者 Zoë  ', email: '  reviewer@example.test  ', source: 'configured'
+  }), {
+    name: '审核者 Zoë', email: 'reviewer@example.test', source: 'configured'
+  }, 'valid Unicode is retained while surrounding whitespace is normalized');
+  for (const [field, value] of [
+    ['name', `Reviewer${'x'.repeat(513)}`],
+    ['name', 'Reviewer\nInjected'],
+    ['email', 'reviewer\r@example.test'],
+    ['email', 'reviewer<alias>@example.test']
+  ]) {
+    assert.throws(() => validateGitCommitIdentity({
+      name: field === 'name' ? value : 'Reviewer',
+      email: field === 'email' ? value : 'reviewer@example.test',
+      source: 'configured'
+    }), (error) => error.code === 'GIT_COMMIT_IDENTITY_INVALID');
+  }
 });
 
 test('frozen signing preserves Git alias order and a custom signer through isolation', async () => {

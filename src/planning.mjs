@@ -67,6 +67,7 @@ import { isWorldModelAvailabilityError } from './world-model-availability.mjs';
 import {
   resolveStoryExecutionCatalog, resolveStoryExecutionContext
 } from './story-execution-context.mjs';
+import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
 
 const SESSION_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 const INITIATIVE_METADATA = /^<!-- singularity-flow:initiative-metadata[\s\S]*?-->/;
@@ -104,8 +105,35 @@ function planningDirectory(root, sessionId) {
   return path.join(gitDir(root), 'singularity-flow', 'planning', sessionId);
 }
 
-async function planningPrompt(root, definition) {
+async function planningPrompt(root, definition, {
+  retainedPrompt = null, requireRetained = false
+} = {}) {
   const config = normalizePlanning(definition.planning ?? {});
+  if (retainedPrompt) {
+    const expected = String(definition.planningPromptSnapshot?.sha256 ?? '')
+      .replace(/^sha256:/, '');
+    const bytes = Buffer.from(String(retainedPrompt.text ?? ''), 'utf8');
+    const actual = sha256(bytes);
+    if (!expected || retainedPrompt.logicalId !== 'prompt:planning'
+        || retainedPrompt.sha256 !== expected || actual !== expected
+        || retainedPrompt.bytes !== bytes.byteLength) {
+      throw new SingularityFlowError(
+        'Retained planning prompt does not match this Story\'s accepted execution closure.',
+        { code: 'WFA_SNAPSHOT_INVALID' }
+      );
+    }
+    return {
+      config, absolute: null, path: 'snapshot:prompt:planning',
+      content: retainedPrompt.text, builtin: false,
+      sha256: actual, size: bytes.byteLength
+    };
+  }
+  if (requireRetained) {
+    throw new SingularityFlowError(
+      'This Story snapshot does not retain the planning prompt required to create a planning context.',
+      { code: 'WFA_DEPENDENCY_UNAVAILABLE' }
+    );
+  }
   const prompt = await secureRepositoryPath(root, config.promptSource, {
     label: 'Planning prompt',
     type: 'file'
@@ -631,14 +659,9 @@ export async function planningTargetCatalog(root, { workId = null, initiativeId 
   let definition = await loadDefinition(root, { storyBootstrap: Boolean(workId) });
   const targets = [];
   if (workId) {
-    let workflow = await loadWorkflow(root, definition, workId);
-    if (workflow.workflowSnapshot) {
-      definition = (await resolveStoryExecutionCatalog(root, definition, workflow))
-        .effectiveDefinition;
-    } else {
-      definition = await loadDefinition(root);
-      workflow = await loadWorkflow(root, definition, workId);
-    }
+    const accepted = await loadAcceptedStoryExecution(root, workId);
+    definition = accepted.definition;
+    const workflow = accepted.workflow;
     targets.push({
       scope: 'work-item',
       id: workId,
@@ -710,18 +733,20 @@ export async function createPlanningContext(root, {
     const selectedPhase = phaseId ?? initiative.currentPhase;
     selectedAgent = initiative.resolution.phases.find((candidate) => candidate.id === selectedPhase)?.agents?.[0] ?? null;
   } else if (scope === 'work-item') {
-    workflow = await loadWorkflow(root, definition, id);
-    if (!workflow.workflowSnapshot) {
-      definition = await loadDefinition(root);
-      workflow = await loadWorkflow(root, definition, id);
-    }
+    const accepted = await loadAcceptedStoryExecution(root, id);
+    workflow = accepted.workflow;
+    definition = accepted.definition;
     selectedAgent ??= workflow.phases[phaseId ?? workflow.currentPhase]?.defaultAgent ?? null;
     executionContext = await resolveStoryExecutionContext(root, definition, workflow, {
-      agentId: selectedAgent, phaseId: phaseId ?? workflow.currentPhase
+      agentId: selectedAgent, phaseId: phaseId ?? workflow.currentPhase,
+      executionCatalog: accepted.executionCatalog
     });
     definition = executionContext.effectiveDefinition;
   }
-  const prompt = await planningPrompt(root, definition);
+  const prompt = await planningPrompt(root, definition, {
+    retainedPrompt: executionContext?.planningPrompt ?? null,
+    requireRetained: Boolean(workflow?.workflowSnapshot)
+  });
   if (!prompt.config.enabled) throw new SingularityFlowError('Governed Copilot planning is disabled by workflow.yml.');
   if (!definition.agents[selectedAgent]) throw new SingularityFlowError(`No governed agent is configured for planning phase '${phaseId ?? 'current'}'.`);
   const parts = scope === 'initiative'
@@ -817,7 +842,7 @@ async function loadPlanningPack(root, sessionId, { requireCurrentHead = true } =
   ];
   const changedSources = [];
   for (const source of pinnedFiles) {
-    if (!source.path || !source.sha256 || /^(?:agent:|https?:)/.test(source.path)) continue;
+    if (!source.path || !source.sha256 || /^(?:agent:|snapshot:|https?:)/.test(source.path)) continue;
     if (source.kind === 'world-model' && /^[0-9a-f]{40}$/.test(source.commit ?? '')) {
       const committed = run('git', ['show', `${source.commit}:${source.path}`], {
         cwd: root, allowFailure: true
@@ -1034,15 +1059,9 @@ export async function promotePlanningArtifacts(root, { sessionId, artifacts = []
   // A work item has exactly one required artifact per phase, so a set is not meaningful there.
   if (artifacts.length > 1) throw new SingularityFlowError('A work-item phase promotes exactly one artifact.');
   const content = artifacts[0].content;
-  let definition = await loadDefinition(root, { storyBootstrap: true });
-  let workflow = await loadWorkflow(root, definition, pack.manifest.id);
-  if (workflow.workflowSnapshot) {
-    definition = (await resolveStoryExecutionCatalog(root, definition, workflow))
-      .effectiveDefinition;
-  } else {
-    definition = await loadDefinition(root);
-    workflow = await loadWorkflow(root, definition, pack.manifest.id);
-  }
+  const accepted = await loadAcceptedStoryExecution(root, pack.manifest.id);
+  const definition = accepted.definition;
+  const workflow = accepted.workflow;
   const phase = workflow.phases[pack.manifest.phase.id];
   if (workflow.currentPhase !== phase.id || phase.status !== 'in_progress') throw new SingularityFlowError(`Work item advanced to '${workflow.currentPhase ?? 'complete'}'; rebuild the planning context.`);
   await preparePhaseInputs(root, definition, workflow, phase.id);

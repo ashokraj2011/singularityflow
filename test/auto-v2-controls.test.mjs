@@ -17,12 +17,16 @@ import {
 } from '../src/auto/auto-phase-contract.mjs';
 import {
   assertAutoCheckpointAcceptedBinding, readGovernedAutoCheckpoint, rebuildAutoFlightState,
-  validateAutoBoundaryCheckpoint
+  publishAutoBoundaryCheckpoint, validateAutoBoundaryCheckpoint
 } from '../src/auto/auto-checkpoint.mjs';
+import { verifyAutoFlightContinuation } from '../src/auto/auto-continuation.mjs';
+import { buildAutoContinuationProposal } from '../src/auto/auto-entry-modes.mjs';
+import { planAutoExecutionUnitSwitch } from '../src/auto/auto-p1-control.mjs';
+import { buildAutoAttempt, persistAutoAttempt } from '../src/auto/auto-p1-records.mjs';
 import {
   buildAutoFlightReport, createAutoFlightState, discardAutoFlight, haltAutoFlight,
   mutateAutoFlightState, pauseAutoFlight, readAutoFlightReport, readAutoFlightState,
-  renderAutoFlightReport, resumeAutoFlight, takeoverAutoFlight
+  projectAutoFlightReport, renderAutoFlightReport, resumeAutoFlight, takeoverAutoFlight
 } from '../src/auto/auto-flight-store.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import { withSubjectLock } from '../src/subject-lock.mjs';
@@ -143,6 +147,84 @@ test('human control prefill is fenced by the rendered flight checkpoint', async 
   );
   assert.deepEqual(await readAutoFlightState(root, flightId), state,
     'a stale card cannot record a stop request or change the flight');
+});
+
+test('Auto continuation, P1 controls, and checkpoints use the accepted Story root and agent closure', async (t) => {
+  const { root, flight, story } = await governedFixture(t, 'SAVED-CLOSURE');
+  const workflowPath = path.join(story.worktree, 'singularity/workflow.yml');
+  const storyWorkflowPath = path.join(
+    story.worktree, 'singularity/work-items', flight.story.workId, 'workflow.json'
+  );
+  const acceptedWorkflow = JSON.parse(await readFile(storyWorkflowPath, 'utf8'));
+  const savedPhase = acceptedWorkflow.phases[flight.story.phase];
+  const savedAgent = savedPhase.defaultAgent;
+  const agentRelative = `.github/agents/${savedAgent}.agent.md`;
+  const agentPath = path.join(story.worktree, agentRelative);
+
+  const attempt = buildAutoAttempt({
+    flightId: flight.flightId, phase: flight.story.phase, attemptNumber: 1,
+    attemptKind: 'initial', parentAttemptId: null, reason: 'saved-closure-regression',
+    generationIntentSha256: `sha256:${'1'.repeat(64)}`,
+    taskContractSha256: `sha256:${'2'.repeat(64)}`,
+    contextManifestSha256: `sha256:${'3'.repeat(64)}`,
+    executionUnitManifestSha256: `sha256:${'4'.repeat(64)}`,
+    status: 'completed', budgetImpact: { modelInvocations: 1 },
+    result: { status: 'completed' }
+  });
+  await persistAutoAttempt(root, attempt);
+  const paused = await mutateAutoFlightState(root, flight.flightId, (draft) => {
+    draft.status = 'paused';
+    draft.stopReason = 'saved-closure-regression';
+    draft.stopRequested = null;
+    draft.activeAttemptId = attempt.attemptId;
+    draft.attemptIds = [attempt.attemptId];
+    draft.executionUnit = {
+      id: 'retired-live-provider', manifestSha256: `sha256:${'4'.repeat(64)}`
+    };
+  }, { expectedCheckpoint: flight.checkpointSha256 });
+
+  // Model a later configuration refresh without dirtying the governed Story transaction. The
+  // working-tree files are deliberately hidden from Git's application-change projection: only
+  // their live loader behavior is under test, while the committed Story snapshot remains exact.
+  run('git', ['update-index', '--skip-worktree', '--', 'singularity/workflow.yml', agentRelative], story.worktree);
+  const liveDefinition = YAML.parse(await readFile(workflowPath, 'utf8'));
+  liveDefinition.workItemRoot = 'governed/live-story-root';
+  await writeFile(workflowPath, YAML.stringify(liveDefinition));
+  await rm(agentPath);
+  assert.equal(run('git', ['status', '--porcelain'], story.worktree).stdout.trim(), '');
+
+  const proposal = await buildAutoContinuationProposal(
+    story.worktree, flight.story.workId
+  );
+  assert.equal(proposal.flight.flightId, flight.flightId);
+  assert.equal(proposal.proposal.proposal.status, 'ready-for-explicit-resume');
+  for (const args of [
+    ['auto', 'plan', '--story', flight.story.workId, '--json'],
+    ['auto', 'continue', flight.story.workId, '--json']
+  ]) {
+    const surfaced = JSON.parse(run(process.execPath, [cli, ...args], story.worktree).stdout);
+    assert.equal(surfaced.data.value.flight.flightId, flight.flightId);
+    assert.equal(surfaced.data.value.proposal.proposal.status, 'ready-for-explicit-resume');
+  }
+
+  const continued = await verifyAutoFlightContinuation(root, paused);
+  assert.equal(continued.definition.workItemRoot, 'singularity/work-items');
+  assert.ok(continued.definition.agents[savedAgent], 'the saved phase agent remains executable');
+
+  const report = await projectAutoFlightReport(root, paused);
+  assert.equal(report.approvalSource, 'story-authority',
+    'report projection must read the accepted Story instead of silently falling back after live drift');
+
+  const switched = await planAutoExecutionUnitSwitch(
+    root, flight.flightId, 'copilot-cli', 'reuse the accepted provider'
+  );
+  assert.equal(switched.switchPlan.toExecutionUnit, 'copilot-cli');
+
+  const pointer = await publishAutoBoundaryCheckpoint(
+    story.worktree, paused, 'human-boundary', { operationalRoot: root }
+  );
+  assert.match(pointer.path, /^singularity\/work-items\//);
+  assert.doesNotMatch(pointer.path, /^governed\/live-story-root\//);
 });
 
 test('predicted glob paths become concrete task-scope roots', async (t) => {

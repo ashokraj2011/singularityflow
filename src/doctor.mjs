@@ -61,7 +61,8 @@ async function appendPerformanceCheck(checks, root, definition = null, workflow 
 }
 
 export async function doctorSnapshot(root, {
-  workId = null, offline = false, performance = false, probeModelProvider = true
+  workId = null, offline = false, performance = false, probeModelProvider = true,
+  execution = null
 } = {}) {
   const checks = [];
   let performanceReport = null;
@@ -193,7 +194,10 @@ export async function doctorSnapshot(root, {
   }
   let definition;
   try {
-    definition = await loadDefinition(root);
+    // Editor lifecycle reads already verified the accepted Story closure. Reuse that exact
+    // definition instead of reopening today's mutable agent catalog and work-item root inside a
+    // nested diagnostic. Standalone doctor remains a live-configuration diagnostic by default.
+    definition = execution?.definition ?? await loadDefinition(root);
     checks.push(check('configuration', 'pass', `${WORKFLOW_PATH} is valid (${Object.keys(definition.workTypes).length} workflows, ${Object.keys(definition.agents).length} agents).`));
   } catch (error) {
     checks.push(check('configuration', 'fail', error.message, `Repair ${WORKFLOW_PATH} or restore it from version control.`));
@@ -329,7 +333,7 @@ export async function doctorSnapshot(root, {
   // continues to reject detached HEAD; doctor merely reports the state instead of crashing.
   const currentBranch = diagnosticBranch(root);
   const requested = workId ?? currentBranch;
-  let workflow = null;
+  let workflow = execution?.workflow ?? null;
   const subjectIndex = await buildRepositorySubjectIndex(root, { definition });
   // With an explicit --work-id, doctor remains Story-specific. Without one, resolve the current
   // branch across both lifecycle kinds so an active Initiative is not misreported as a missing
@@ -342,7 +346,9 @@ export async function doctorSnapshot(root, {
   const selected = activeSubject?.kind === 'story' ? activeSubject : null;
   if (selected) {
     try {
-      workflow = await loadStoryAggregate(root, definition, selected.id);
+      if (workflow?.workItem?.id !== selected.id) {
+        workflow = await loadStoryAggregate(root, definition, selected.id);
+      }
       // Carry the caller's offline choice into validation. `doctorSnapshot` already accepts it and
       // the read model already passes it; stopping it here is what put 42 network fetches behind
       // every snapshot.

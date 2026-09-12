@@ -353,7 +353,11 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
       if (pushed.status !== 0) {
         const failure = pushed.failure ?? classifyGitRemoteFailure(pushed);
         const diagnostic = `${pushed.stderr ?? ''}\n${pushed.stdout ?? ''}`;
-        const reviewRequired = ['authorization-denied', 'unknown'].includes(failure.classification)
+        // A receive hook is classified as policy-rejected by the shared Git boundary. Keep a
+        // generic hook refusal pending, but recognize explicit protected-branch/review language as
+        // evidence that the repository's normal review path is the required recovery action.
+        const reviewRequired = ['authorization-denied', 'policy-rejected', 'unknown']
+          .includes(failure.classification)
           && /protected branch|branch protection|review required|pull request|required reviews?/i
             .test(diagnostic);
         protection = reviewRequired

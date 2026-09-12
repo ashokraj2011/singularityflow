@@ -104,6 +104,7 @@ import {
 import { operationContext } from './operation-context.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { projectArchitectureIntentStatus } from './architecture-intent-gate.mjs';
+import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
 import { withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
 import { loadSgosCommandCenter } from './sgos/command-center.mjs';
 
@@ -603,14 +604,22 @@ async function storyReferenceRepositoryStatus(root, definition, workflow) {
 }
 
 async function fullRepositorySnapshot(root, requestedWorkId = null, requestedInitiativeId = null, revision = null) {
-  const definition = await loadDefinition(root);
+  const currentBranch = revision?.branch ?? branch(root);
+  let acceptedStory = null;
+  try {
+    acceptedStory = await loadAcceptedStoryExecution(root, requestedWorkId ?? currentBranch);
+  } catch (error) {
+    // A repository-level view on a non-Story branch still uses current configuration. Explicit
+    // Story selection and any saved-closure integrity error remain fail-closed.
+    if (requestedWorkId || error?.code !== 'STORY_NOT_FOUND') throw error;
+  }
+  const definition = acceptedStory?.definition ?? await loadDefinition(root);
   const portfolio = await loadPortfolio(root, { required: false });
   const workflowFile = await secureRepositoryPath(root, WORKFLOW_PATH, {
     label: 'Workflow configuration', type: 'file', mustExist: true
   });
   const items = await workItems(root, definition);
   const initiatives = portfolio ? await listInitiatives(root, portfolio) : [];
-  const currentBranch = revision?.branch ?? branch(root);
   const subjectIndex = await buildRepositorySubjectIndex(root, { definition, portfolio });
   const changes = revision?.changedFiles ?? changedFiles(root);
   const changeScope = configurationChangeScope(root, definition, portfolio, changes);
@@ -633,7 +642,9 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
   let review = null;
   let report = null;
   if (selectedId) {
-    workflow = await loadStoryAggregate(root, definition, selectedId);
+    workflow = acceptedStory?.workflow?.workItem?.id === selectedId
+      ? acceptedStory.workflow
+      : await loadStoryAggregate(root, definition, selectedId);
     progress = progressSnapshot(workflow);
     report = deriveReport(workflow, { pricing: definition.tokens?.pricing ?? null });
     const completeDocumentCatalog = await documentCatalog(root, definition, workflow, { includeDetached: true });
@@ -674,7 +685,10 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
       };
     }
   }
-  const agents = await discoverAgents(root);
+  // The full compatibility projection doubles as a Story surface. When a Story is selected its
+  // runnable choices come from the verified accepted closure; Configuration Center has a separate
+  // current-authority slice and intentionally continues to discover live agents there.
+  const agents = acceptedStory?.executionCatalog?.agentCatalog ?? await discoverAgents(root);
   const mappingStatus = await agentMappingStatus(root);
   const telemetry = await copilotTelemetryStatus(root);
   let ledger;
@@ -860,7 +874,8 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
       id: agent.id,
       scope: agent.scope,
       path: agent.source,
-      packagePath: agent.scope === 'repository' ? null : posix(path.relative(PACKAGE_ROOT, agent.file)),
+      packagePath: agent.scope === 'repository' || !agent.file
+        ? null : posix(path.relative(PACKAGE_ROOT, agent.file)),
       content: agent.text,
       sha256: agent.sha256,
       editable: agent.scope === 'repository' && !agent.source.startsWith('..'),
@@ -883,6 +898,11 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
     initiative: await initiativeEditorSnapshot(root, portfolio, selectedInitiativeId),
     approvalInbox: { remote: definition.git?.remote ?? 'origin', fetched: false, generatedAt: null, count: 0, items: [] },
     selectedWorkId: selectedId,
+    storyExecutionClosure: acceptedStory ? {
+      mode: acceptedStory.executionCatalog?.mode ?? 'legacy-live',
+      status: acceptedStory.executionCatalog?.closure ?? 'unproven',
+      agents: agents.map((agent) => agent.id)
+    } : null,
     workflow,
     referenceRepositories,
     progress,
@@ -900,7 +920,8 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
     fastPath: fastPathProjection(definition, workflow),
     visualAssurance: await visualAssuranceSnapshot(root, definition, workflow),
     diagnostics: await doctorSnapshot(root, {
-      workId: selectedId, offline: true, probeModelProvider: false
+      workId: selectedId, offline: true, probeModelProvider: false,
+      execution: acceptedStory
     }),
     workflowSimulations: await simulateWorkflow(root),
     session: activeSession
@@ -936,9 +957,15 @@ async function repositorySlice(root, revision = null) {
 }
 
 async function lifecycleSlice(root, requestedWorkId, requestedInitiativeId, revision = null) {
-  const definition = await loadDefinition(root);
-  const portfolio = await loadPortfolio(root, { required: false });
   const currentBranch = revision?.branch ?? branch(root);
+  let acceptedStory = null;
+  try {
+    acceptedStory = await loadAcceptedStoryExecution(root, requestedWorkId ?? currentBranch);
+  } catch (error) {
+    if (requestedWorkId || error?.code !== 'STORY_NOT_FOUND') throw error;
+  }
+  const definition = acceptedStory?.definition ?? await loadDefinition(root);
+  const portfolio = await loadPortfolio(root, { required: false });
   const subjectIndex = await buildRepositorySubjectIndex(root, { definition, portfolio });
   const selectedStory = resolveContext(subjectIndex, {
     reference: requestedWorkId ?? currentBranch,
@@ -959,7 +986,9 @@ async function lifecycleSlice(root, requestedWorkId, requestedInitiativeId, revi
   let review = null;
   let report = null;
   if (selectedWorkId) {
-    workflow = await loadStoryAggregate(root, definition, selectedWorkId);
+    workflow = acceptedStory?.workflow?.workItem?.id === selectedWorkId
+      ? acceptedStory.workflow
+      : await loadStoryAggregate(root, definition, selectedWorkId);
     progress = progressSnapshot(workflow);
     report = deriveReport(workflow, { pricing: definition.tokens?.pricing ?? null });
     const completeDocumentCatalog = await documentCatalog(root, definition, workflow, { includeDetached: true });
@@ -973,6 +1002,12 @@ async function lifecycleSlice(root, requestedWorkId, requestedInitiativeId, revi
     workItems: await workItems(root, definition),
     initiatives: portfolio ? await listInitiatives(root, portfolio) : [],
     selectedWorkId,
+    storyExecutionClosure: acceptedStory ? {
+      mode: acceptedStory.executionCatalog?.mode ?? 'legacy-live',
+      status: acceptedStory.executionCatalog?.closure ?? 'unproven',
+      agents: (acceptedStory.executionCatalog?.agentCatalog
+        ?? Object.values(definition.agents ?? {})).map((agent) => agent.id)
+    } : null,
     selectedInitiativeId,
     workflow,
     referenceRepositories,
@@ -1325,10 +1360,22 @@ async function sgosSlice(root) {
  * view prose. The projection contains bounded previews and content-addressed expansion handles,
  * while full Facts/Evidence/Derivations remain behind explicit reads.
  */
-async function worldModelSlice(root) {
-  const definition = await loadDefinition(root);
-  const state = worldModelStateAuthority(definition);
-  const outputDir = posix(definition.worldModel?.outputDir ?? 'singularity/world-model');
+async function worldModelSlice(root, requestedWorkId = null) {
+  const [
+    { loadWorldModelConfig },
+    { worldModelV4StoreOptions },
+    { loadWorldModelIdeSlice }
+  ] = await Promise.all([
+    import('./worldmodel.mjs'),
+    import('./world-model/commands.mjs'),
+    import('./world-model/ide/slice.mjs')
+  ]);
+  // Normalize once at the editor operation boundary. This keeps an accepted Story on its saved
+  // execution definition while repository-level reads use current approved configuration, exactly
+  // like CLI WMB v4 reads. Both normalization and slice loading are local, read-only operations.
+  const config = await loadWorldModelConfig(root, requestedWorkId ? { workId: requestedWorkId } : {});
+  const definition = config.definition;
+  const outputDir = posix(config.outputDir ?? definition.worldModel?.outputDir ?? 'singularity/world-model');
   if (definition.worldModel?.format !== 'registered-v4') {
     return {
       schemaVersion: 1,
@@ -1345,12 +1392,7 @@ async function worldModelSlice(root) {
       expansion: []
     };
   }
-  const { loadWorldModelIdeSlice } = await import('./world-model/ide/slice.mjs');
-  const slice = loadWorldModelIdeSlice(root, {
-    outputDir,
-    stateBranch: state.branch,
-    remote: state.remote
-  });
+  const slice = loadWorldModelIdeSlice(root, worldModelV4StoreOptions(root, config));
   return {
     ...slice,
     // Policy-to-phase usage is configuration metadata, not authority content. It joins only after
@@ -1434,7 +1476,7 @@ async function repositorySnapshotInScope(root, requestedWorkId, requestedInitiat
       workId: requestedWorkId, offline: true, probeModelProvider: false
     });
     else if (slice === 'sgos') result.sgos = await sgosSlice(root);
-    else if (slice === 'worldModel') result.worldModel = await worldModelSlice(root);
+    else if (slice === 'worldModel') result.worldModel = await worldModelSlice(root, requestedWorkId);
     else if (slice === 'comprehension') result.comprehension = await comprehensionSlice(root);
   }
   return result;
@@ -1878,10 +1920,11 @@ export async function publishEditorConfiguration(root, message = 'Configure Sing
 }
 
 export async function selectEditorAgent(root, workId, agent) {
-  const definition = await loadDefinition(root);
   if (workId) {
-    const workflow = await loadStoryAggregate(root, definition, workId);
+    const { definition, workflow } = await loadAcceptedStoryExecution(root, workId);
     if (branch(root) !== workflow.workItem.branch) throw new SingularityFlowError(`Current branch is ${branch(root)}; resume ${workflow.workItem.branch} before overriding its phase agent.`);
+    return setAgentSession(root, definition, identity(root), agent, workId);
   }
+  const definition = await loadDefinition(root);
   return setAgentSession(root, definition, identity(root), agent, workId || null);
 }

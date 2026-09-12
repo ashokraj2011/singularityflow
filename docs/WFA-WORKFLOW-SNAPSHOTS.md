@@ -68,7 +68,8 @@ verification and prompt composition never fetch them.
 Machine capabilities remain local. Git credentials, provider credentials, executable locations,
 toolchains, and project bindings are resolved and authorized on the laptop that resumes the Story.
 They are not portable policy and are never copied into snapshot blobs. The same saved instructions
-therefore still require compatible local bindings; `WFA_RUNTIME_INCOMPATIBLE` identifies an
+therefore still require compatible local capability bindings, which are checked again on resume;
+the snapshot never claims that its source laptop satisfied them. `WFA_RUNTIME_INCOMPATIBLE` identifies an
 unsupported parser/composer profile rather than pretending the old laptop's runtime moved with the
 Story.
 

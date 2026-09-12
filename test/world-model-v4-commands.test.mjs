@@ -12,6 +12,8 @@ import { resolveCapabilityWorldModelCandidate } from '../src/capability-context.
 import { initializeDefinition, resolveWorkType } from '../src/config.mjs';
 import { composeContextBrief } from '../src/context-broker.mjs';
 import { compileEvidencePacket } from '../src/evidence-packet.mjs';
+import { gatewayRegistry } from '../src/gateway/operations.mjs';
+import { worldModelNext } from '../src/gateway/planners/world-model.mjs';
 import { verifyGroundingRecord } from '../src/grounding.mjs';
 import { repositorySnapshot } from '../src/editor.mjs';
 import { composeInitiativeContext } from '../src/initiative-context.mjs';
@@ -236,6 +238,43 @@ test('the canonical configuration loader accepts and normalizes exact @4 view re
   assert.deepEqual(worldModelV4GatewayDefaults(root, config).views, ['dev.impact']);
 });
 
+test('World-Model Story routing keeps the accepted tracked root after live configuration moves it', async (t) => {
+  const root = await registeredRepository(t);
+  const workId = 'WMB-SAVED-ROOT';
+  git(root, ['switch', '-q', '-c', workId]);
+  const config = await loadConfig(root);
+  config.git.publish = 'off';
+  await setAgentSession(root, config, {
+    name: 'WMB Test', email: 'wmb@example.invalid', login: null
+  }, 'product-owner', workId, { phaseId: 'intake', source: 'test' });
+  await createWorkflow(root, config, {
+    id: workId, title: 'Retain accepted Story storage root',
+    source: {
+      type: 'manual', key: workId, title: 'Retain accepted Story storage root',
+      description: 'Prove World-Model routing follows the immutable Story root after configuration changes.',
+      acceptanceCriteria: ['The accepted Story remains available from its tracked saved root.']
+    },
+    baseBranch: 'main', workType: 'feature', agent: 'product-owner',
+    resolved: resolveWorkType(config, 'feature')
+  });
+  git(root, ['add', '--', 'singularity/work-items']);
+  git(root, ['commit', '-q', '-m', 'accept Story at original root']);
+
+  const workflowPath = path.join(root, 'singularity', 'workflow.yml');
+  const live = YAML.parse(await readFile(workflowPath, 'utf8'));
+  live.workItemRoot = 'singularity/reconfigured-work-items';
+  await writeFile(workflowPath, YAML.stringify(live));
+  git(root, ['add', '--', 'singularity/workflow.yml']);
+  git(root, ['commit', '-q', '-m', 'move live Story root']);
+
+  const loaded = await loadWorldModelConfig(root, { workId, phase: 'intake' });
+  assert.equal(loaded.workflow.workItem.id, workId);
+  assert.equal(loaded.workItemRoot, 'singularity/work-items');
+  assert.equal(loaded.definition.workItemRoot, 'singularity/work-items');
+  assert.equal(loaded.executionContext.identity.mode, 'workflow-snapshot');
+  assert.equal(loaded.executionContext.agent.source, 'agent:product-owner');
+});
+
 test('omitted registered-v4 catalog means every active contract across canonical loading and prompt validation', async (t) => {
   const root = await registeredRepository(t);
   const workflowPath = path.join(root, 'singularity', 'workflow.yml');
@@ -329,6 +368,115 @@ test('status and availability report dirty source as unavailable without changin
   assert.equal(await readFile(source, 'utf8'), changed,
     'diagnostic reads must preserve the contributor source bytes');
   assert.match(git(root, ['status', '--short', '--', 'payments.mjs']), /^M payments\.mjs$/);
+});
+
+test('dirty-source diagnostics perform no Git mutation, network access, snapshot capture, or model call', async (t) => {
+  const root = await registeredRepository(t);
+  await quiet(() => worldModelCommand(root, ['wm', 'build'], {
+    format: 'registered-v4', views: 'dev.impact', composer: 'deterministic', json: true
+  }));
+  const source = path.join(root, 'payments.mjs');
+  await writeFile(source, `${await readFile(source, 'utf8')}\n// diagnostic-only dirty source\n`);
+
+  const spyRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-wmb-read-spy-'));
+  t.after(() => rm(spyRoot, { recursive: true, force: true }));
+  const gitLog = path.join(spyRoot, 'git.log');
+  const modelLog = path.join(spyRoot, 'model.log');
+  const gitWrapper = path.join(spyRoot, 'git');
+  const modelWrapper = path.join(spyRoot, 'copilot');
+  await writeFile(gitWrapper, `#!/usr/bin/env node
+const { appendFileSync } = require('node:fs');
+const { spawnSync } = require('node:child_process');
+const args = process.argv.slice(2);
+appendFileSync(process.env.SFLOW_WMB_GIT_LOG, JSON.stringify(args) + '\\n');
+const forbidden = new Set(['add', 'commit', 'commit-tree', 'fetch', 'hash-object', 'ls-remote', 'mktree', 'push', 'update-ref', 'worktree']);
+if (forbidden.has(args[0])) process.exit(97);
+const result = spawnSync('git', args, {
+  stdio: 'inherit', env: { ...process.env, PATH: process.env.SFLOW_WMB_REAL_PATH }
+});
+process.exit(result.status == null ? 98 : result.status);
+`);
+  await writeFile(modelWrapper, `#!/usr/bin/env node
+require('node:fs').appendFileSync(process.env.SFLOW_WMB_MODEL_LOG, 'invoked\\n');
+process.exit(97);
+`);
+  run('chmod', ['+x', gitWrapper, modelWrapper], { cwd: root });
+
+  const before = {
+    head: git(root, ['rev-parse', 'HEAD']),
+    state: git(root, ['rev-parse', 'state']),
+    refs: git(root, ['for-each-ref', '--format=%(refname) %(objectname)']),
+    status: git(root, ['status', '--porcelain=v1', '--untracked-files=all']),
+    source: await readFile(source, 'utf8')
+  };
+  const inspected = spawnSync(process.execPath, [
+    executable, 'wm', 'status', '--format', 'registered-v4', '--json'
+  ], {
+    cwd: root, encoding: 'utf8',
+    env: {
+      ...process.env,
+      PATH: `${spyRoot}${path.delimiter}${process.env.PATH}`,
+      SFLOW_WMB_REAL_PATH: process.env.PATH,
+      SFLOW_WMB_GIT_LOG: gitLog,
+      SFLOW_WMB_MODEL_LOG: modelLog,
+      NODE_ENV: 'test'
+    }
+  });
+  assert.equal(inspected.status, 0, inspected.stderr);
+  const result = JSON.parse(inspected.stdout);
+  assert.equal(result.freshness.status, 'unavailable');
+  assert.equal(result.freshness.current, null);
+  assert.deepEqual(result.stalenessReceipts, []);
+
+  const observedGit = (await readFile(gitLog, 'utf8')).trim().split('\n')
+    .filter(Boolean).map((line) => JSON.parse(line));
+  assert.ok(observedGit.length > 0, 'the diagnostic must still verify its Git authority');
+  assert.equal(observedGit.some(([command]) => [
+    'add', 'commit', 'commit-tree', 'fetch', 'hash-object', 'ls-remote', 'mktree',
+    'push', 'update-ref', 'worktree'
+  ].includes(command)), false);
+  const modelCalls = await readFile(modelLog, 'utf8').catch((error) => {
+    if (error.code === 'ENOENT') return '';
+    throw error;
+  });
+  assert.equal(modelCalls, '');
+  assert.deepEqual({
+    head: git(root, ['rev-parse', 'HEAD']),
+    state: git(root, ['rev-parse', 'state']),
+    refs: git(root, ['for-each-ref', '--format=%(refname) %(objectname)']),
+    status: git(root, ['status', '--porcelain=v1', '--untracked-files=all']),
+    source: await readFile(source, 'utf8')
+  }, before);
+});
+
+test('the IDE loader reports approved view-policy staleness while repository source stays fresh', async (t) => {
+  const root = await registeredRepository(t);
+  await quiet(() => worldModelCommand(root, ['wm', 'build'], {
+    format: 'registered-v4', views: 'dev.impact', composer: 'deterministic', json: true
+  }));
+  const baseline = await repositorySnapshot(root, null, null, { included: ['worldModel'] });
+  assert.equal(baseline.worldModel.readiness.status, 'fresh');
+  assert.equal(baseline.worldModel.source.status, 'fresh');
+
+  const stateBefore = git(root, ['rev-parse', 'state']);
+  const workflowPath = path.join(root, 'singularity', 'workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
+  workflow.worldModel.views = ['dev.impact', 'biz.rules'];
+  workflow.worldModel.v4.totalMaximumOutputTokens = 2800;
+  await writeFile(workflowPath, YAML.stringify(workflow));
+  const worktreeBefore = git(root, ['status', '--porcelain=v1']);
+
+  const snapshot = await repositorySnapshot(root, null, null, { included: ['worldModel'] });
+  assert.equal(snapshot.worldModel.readiness.status, 'stale');
+  assert.equal(snapshot.worldModel.readiness.ready, false);
+  assert.equal(snapshot.worldModel.source.status, 'fresh');
+  assert.equal(snapshot.worldModel.source.fresh, true);
+  assert.match(snapshot.worldModel.rebuildReason, /view selection or contract changed/i);
+  assert.doesNotMatch(snapshot.worldModel.rebuildReason, /source snapshot changed/i);
+  assert.equal(git(root, ['rev-parse', 'state']), stateBefore,
+    'an IDE freshness read must not publish or move World-Model authority');
+  assert.equal(git(root, ['status', '--porcelain=v1']), worktreeBefore,
+    'an IDE freshness read must not change repository files or index state');
 });
 
 test('the canonical World-Model config loader preserves every CLI and VS Code build input', async (t) => {
@@ -1187,6 +1335,27 @@ test('registered-v4 fail staleness policy blocks reuse without replacing state',
   assert.equal(git(root, ['rev-parse', 'state']), stateBefore);
 });
 
+test('gateway guidance uses current approved identity for configuration-only staleness', async (t) => {
+  const root = await registeredRepository(t);
+  await quiet(() => worldModelCommand(root, ['wm', 'build'], {
+    format: 'registered-v4', views: 'dev.impact', composer: 'deterministic', json: true
+  }));
+
+  const workflowPath = path.join(root, 'singularity', 'workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
+  workflow.worldModel.v4.consumer = 'architect';
+  await writeFile(workflowPath, YAML.stringify(workflow));
+  const sourceStatusBefore = git(root, ['status', '--porcelain=v1']);
+
+  const operation = gatewayRegistry().operations.find((entry) => entry.id === 'world-model.next');
+  const result = await worldModelNext({ operation, root });
+  assert.equal(result.data.worldModel.recommendation.status, 'regeneration-required');
+  assert.equal(result.data.worldModel.recommendation.reason, 'consumer-profile-changed');
+  assert.equal(result.effects.stateChanged, false);
+  assert.equal(git(root, ['status', '--porcelain=v1']), sourceStatusBefore,
+    'gateway diagnosis must not mutate source or approved state');
+});
+
 test('a phase-scoped registered-v4 build remains exact for that phase when the repository catalog is broader', async (t) => {
   const root = await registeredRepository(t, { staleness: 'fail' });
   const workflowPath = path.join(root, 'singularity', 'workflow.yml');
@@ -1495,6 +1664,63 @@ test('phase composition reads exact state-backed registered views and never rebu
   });
   assert.equal(git(root, ['rev-parse', 'state']), stateBefore);
   assert.equal(git(root, ['ls-tree', '-r', '--name-only', 'HEAD', 'singularity/world-model']).trim(), '');
+});
+
+test('advisory composition labels a verified historical model when current source is unavailable', async (t) => {
+  const root = await registeredRepository(t);
+  await quiet(() => worldModelCommand(root, ['wm', 'build'], {
+    format: 'registered-v4', views: 'dev.impact', composer: 'deterministic'
+  }));
+  const stateBefore = git(root, ['rev-parse', 'state']);
+  git(root, ['switch', '-q', '-c', 'WMB-V4-HISTORICAL']);
+  const config = await loadConfig(root);
+  config.git.publish = 'off';
+  await setAgentSession(root, config, {
+    name: 'WMB Test', email: 'wmb@example.invalid', login: null
+  }, 'product-owner', 'WMB-V4-HISTORICAL', { phaseId: 'intake', source: 'test' });
+  const workflow = await createWorkflow(root, config, {
+    id: 'WMB-V4-HISTORICAL', title: 'Label historical registered grounding',
+    source: {
+      type: 'manual', key: 'WMB-V4-HISTORICAL',
+      title: 'Label historical registered grounding',
+      description: 'Advisory composition must not claim an unavailable source comparison is current.',
+      acceptanceCriteria: ['The prompt labels verified historical grounding and retains a null current source identity.']
+    },
+    baseBranch: 'main', workType: 'feature', agent: 'product-owner',
+    resolved: resolveWorkType(config, 'feature')
+  });
+  git(root, ['add', '--', 'singularity/work-items/WMB-V4-HISTORICAL']);
+  git(root, ['commit', '-q', '-m', 'accept advisory grounding Story']);
+
+  const source = path.join(root, 'payments.mjs');
+  await writeFile(source, `${await readFile(source, 'utf8')}\n// reviewed working-tree candidate\n`);
+  const sourceBefore = await readFile(source, 'utf8');
+  const composed = await composePhasePrompt(root, {
+    workId: 'WMB-V4-HISTORICAL', phase: 'intake', agent: 'product-owner'
+  });
+  assert.match(composed, /Source comparison: `unavailable` \(`WMB_SOURCE_SNAPSHOT_REQUIRED`\)/);
+  assert.match(composed, /injected model is historical context/i);
+  assert.match(composed, /SFlow World-Model View/,
+    'warn policy may use verified historical model bytes when they are labeled honestly');
+
+  const verified = await verifyGroundingRecord(
+    root, config, workflow, workflow.phases.intake,
+    { generation: 1, agent: 'product-owner' }
+  );
+  assert.deepEqual(verified.errors, []);
+  assert.match(verified.warnings.join('\n'), /source comparison was unavailable/i);
+  assert.deepEqual(verified.record.sourceComparison, {
+    status: 'unavailable', reasonCode: 'WMB_SOURCE_SNAPSHOT_REQUIRED'
+  });
+  assert.deepEqual(verified.record.groundingAvailability, {
+    status: 'available', reasonCode: null
+  });
+  assert.equal(verified.record.fresh, false);
+  assert.equal(verified.record.composedSourceTreeSha256, null);
+  assert.match(verified.record.modelSourceTreeSha256, /^sha256:[a-f0-9]{64}$/);
+  assert.equal(verified.record.worldModelCommit, stateBefore);
+  assert.equal(await readFile(source, 'utf8'), sourceBefore);
+  assert.equal(git(root, ['rev-parse', 'state']), stateBefore);
 });
 
 test('advisory registered-v4 absence records a verifiable prompt without inventing world-model authority', async (t) => {

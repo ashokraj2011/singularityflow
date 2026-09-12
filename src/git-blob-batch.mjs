@@ -21,6 +21,7 @@ export function readLocalGitBlobs(root, objectIds, {
   maximumObjectBytes = maximumBytes,
   maximumBatchBytes = DEFAULT_BATCH_BYTES,
   code = 'GIT_BLOB_BATCH_INVALID',
+  limitCode = code,
   label = 'Git blob batch'
 } = {}) {
   const unique = [...new Set(objectIds)];
@@ -48,15 +49,21 @@ export function readLocalGitBlobs(root, objectIds, {
   const sized = rows.map((row, index) => {
     const [oid, type, rawSize] = row.trim().split(' ');
     const size = Number(rawSize);
-    if (oid !== unique[index] || type !== 'blob' || !Number.isSafeInteger(size) || size < 0
-        || size > maximumObjectBytes) {
+    if (oid !== unique[index] || type !== 'blob' || !Number.isSafeInteger(size) || size < 0) {
       refusal(`${label} contains an unavailable, unsupported, or oversized object.`, code, {
         object: unique[index], maximumObjectBytes
       });
     }
+    if (size > maximumObjectBytes) {
+      refusal(`${label} contains an object larger than its byte ceiling.`, limitCode, {
+        object: unique[index], bytes: size, maximumObjectBytes
+      });
+    }
     totalBytes += size;
     if (totalBytes > maximumBytes) {
-      refusal(`${label} exceeds its aggregate byte ceiling.`, code, { bytes: totalBytes, maximumBytes });
+      refusal(`${label} exceeds its aggregate byte ceiling.`, limitCode, {
+        bytes: totalBytes, maximumBytes
+      });
     }
     return { oid, size };
   });

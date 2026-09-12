@@ -301,31 +301,31 @@ export async function run(_argv, { positionals, options }) {
   if (subcommand === 'plan') {
     // The shorthand is planning only. It deliberately reaches the same exact Plan path and never
     // treats invoking `auto` as confirmation to create a Story or start a flight.
+    if (storyId) {
+      const suppliedRequirement = String(positionals[shorthand ? 1 : 2] ?? '').trim();
+      const conflictingOptions = [
+        'capability', 'work-type', 'work-id', 'from-branch', 'profile', 'pace', 'interval', 'until'
+      ].filter((name) => optionString(options, name) != null);
+      if (suppliedRequirement || conflictingOptions.length) {
+        throw new SingularityFlowError(
+          '--story reads the exact next segment of an existing Story and cannot be combined with a new requirement or new-Story options.',
+          {
+            code: 'AUTO_ARGUMENT_CONFLICT',
+            details: { storyId, conflictingOptions }
+          }
+        );
+      }
+      const result = await buildAutoContinuationProposal(root, storyId);
+      return emitAuto(result, {
+        operation: 'auto.plan.story', state: result.flight,
+        card: continuationCard(result), json
+      });
+    }
     return withApprovedConfigurationRead(root, async (authority) => {
       if (!authority) throw new SingularityFlowError('Auto Plan requires approved Singularity Flow configuration.', {
         code: 'APPROVED_CONFIGURATION_UNAVAILABLE'
       });
       const definition = await loadDefinition(root);
-      if (storyId) {
-        const suppliedRequirement = String(positionals[shorthand ? 1 : 2] ?? '').trim();
-        const conflictingOptions = [
-          'capability', 'work-type', 'work-id', 'from-branch', 'profile', 'pace', 'interval', 'until'
-        ].filter((name) => optionString(options, name) != null);
-        if (suppliedRequirement || conflictingOptions.length) {
-          throw new SingularityFlowError(
-            '--story reads the exact next segment of an existing Story and cannot be combined with a new requirement or new-Story options.',
-            {
-              code: 'AUTO_ARGUMENT_CONFLICT',
-              details: { storyId, conflictingOptions }
-            }
-          );
-        }
-        const result = await buildAutoContinuationProposal(root, definition, storyId);
-        return emitAuto(result, {
-          operation: 'auto.plan.story', state: result.flight,
-          card: continuationCard(result), json
-        });
-      }
       const goalSeed = goalId ? await resolveAutoGoalSeed(root, goalId, { definition }) : null;
       const suppliedRequirement = String(positionals[shorthand ? 1 : 2] ?? '').trim();
       if (goalSeed && suppliedRequirement) throw new SingularityFlowError(
@@ -401,9 +401,8 @@ export async function run(_argv, { positionals, options }) {
   }
 
   if (subcommand === 'continue') {
-    const definition = await loadDefinition(root);
     const result = await buildAutoContinuationProposal(
-      root, definition, required(positionals, 2, 'a Story ID')
+      root, required(positionals, 2, 'a Story ID')
     );
     return emitAuto(result, {
       operation: 'auto.continue', state: result.flight,

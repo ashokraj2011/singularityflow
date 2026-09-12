@@ -28,7 +28,7 @@ const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
 // spawnSync buffer, which terminates an otherwise successful full snapshot with ENOBUFS.
 const FULL_SNAPSHOT_MAX_BUFFER = 40 * 1024 * 1024;
 
-function run(command, args, cwd) {
+function run(command, args, cwd, { allowFailure = false } = {}) {
   const env = {
     ...process.env,
     NODE_ENV: 'test',
@@ -37,7 +37,7 @@ function run(command, args, cwd) {
     SINGULARITY_FLOW_TEST_INITIATIVE_SELECTION: JSON.stringify({ profile: 'initiative-lite' })
   };
   const result = spawnSync(command, args, { cwd, encoding: 'utf8', env });
-  if (result.status !== 0) throw new Error(`${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
+  if (!allowFailure && result.status !== 0) throw new Error(`${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
   return result;
 }
 
@@ -764,6 +764,97 @@ test('visual editor agent selection remains local and requires the active work b
   assert.equal(session.agent, 'architect');
   assert.equal(session.workId, 'DESK-2');
   await assert.rejects(() => selectEditorAgent(root, 'DESK-2', 'unknown'), /Unknown governed agent/);
+});
+
+test('Story diagnostics and editor lifecycle reads survive live root and agent removal', async () => {
+  const root = await repository();
+  run(process.execPath, [bin, 'start', 'DESK-SAVED', '--from-branch', 'main'], root);
+
+  const originalSession = await selectEditorAgent(root, 'DESK-SAVED', 'product-owner');
+  const workflowPath = path.join(root, 'singularity/workflow.yml');
+  const liveWorkflow = YAML.parse(await readFile(workflowPath, 'utf8'));
+  liveWorkflow.workItemRoot = 'governed/live-story-root';
+  await writeFile(workflowPath, YAML.stringify(liveWorkflow));
+  await unlink(path.join(root, '.github/agents/product-owner.agent.md'));
+
+  // These are independent public entry points. Each must locate the accepted Story under its
+  // saved root before loading policy; today's mutable root and agent catalog are not Story truth.
+  const status = JSON.parse(run(
+    process.execPath, [bin, 'status', 'DESK-SAVED', '--json'], root
+  ).stdout);
+  const progress = JSON.parse(run(
+    process.execPath, [bin, 'progress', 'DESK-SAVED', '--json'], root
+  ).stdout);
+  const report = JSON.parse(run(
+    process.execPath, [bin, 'report', 'DESK-SAVED', '--format', 'json'], root
+  ).stdout);
+  assert.equal(status.workItem.id, 'DESK-SAVED');
+  assert.equal(status.resolution.workItemRoot, 'singularity/work-items');
+  assert.equal(progress.workId, 'DESK-SAVED');
+  assert.equal(report.workItem.id, 'DESK-SAVED');
+
+  const diagnosticCommands = [
+    ['guide', 'DESK-SAVED', '--json'],
+    ['nextsteps', 'DESK-SAVED', '--json'],
+    ['action', 'plan', 'DESK-SAVED', '--json'],
+    ['documents', 'list', 'DESK-SAVED', '--json'],
+    ['documents', 'view', 'SYS-WORKFLOW', '--work-id', 'DESK-SAVED', '--json'],
+    ['documents', 'preview', 'SYS-WORKFLOW', '--work-id', 'DESK-SAVED', '--json'],
+    ['clarification', 'status', '--json'],
+    ['telemetry', 'status', '--json'],
+    ['context', 'xray', '--work-id', 'DESK-SAVED', '--json'],
+    ['review', '--format', 'json'],
+    ['watch', 'DESK-SAVED', '--once', '--json'],
+    ['session', 'status', '--json']
+  ];
+  for (const args of diagnosticCommands) {
+    const result = run(process.execPath, [bin, ...args], root);
+    assert.ok(result.stdout.trim(), `${args.join(' ')} returned a readable result`);
+  }
+  // These readers have no successful value in the minimal fixture: no external document provider
+  // and no submitted review packet exist. They must nevertheless get past accepted-Story loading
+  // and reach that precise domain refusal instead of failing on today's moved root/deleted agent.
+  const boundedFailures = [
+    {
+      args: ['documents', 'browse', '--work-id', 'DESK-SAVED', '--json'],
+      expected: /storage provider|document provider/i
+    },
+    {
+      args: ['receipt', 'show', 'DESK-SAVED', '--json'],
+      expected: /review packet/i
+    }
+  ];
+  for (const { args, expected } of boundedFailures) {
+    const result = run(process.execPath, [bin, ...args], root, { allowFailure: true });
+    assert.notEqual(result.status, 0, `${args.join(' ')} unexpectedly succeeded`);
+    assert.match(`${result.stdout}\n${result.stderr}`, expected);
+    assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /Unknown governed agent|Missing singularity\/workflow\.yml/);
+  }
+  assert.match(run(process.execPath, [bin], root).stdout, /DESK-SAVED/);
+
+  const lifecycle = await repositorySnapshot(root, 'DESK-SAVED', null, {
+    included: ['lifecycle']
+  });
+  const complete = await repositorySnapshot(root, 'DESK-SAVED');
+  assert.equal(lifecycle.lifecycle.selectedWorkId, 'DESK-SAVED');
+  assert.equal(lifecycle.lifecycle.workflow.resolution.workItemRoot, 'singularity/work-items');
+  assert.equal(lifecycle.lifecycle.storyExecutionClosure.mode, 'workflow-snapshot');
+  assert.ok(lifecycle.lifecycle.storyExecutionClosure.agents.includes('product-owner'));
+  assert.equal(complete.selectedWorkId, 'DESK-SAVED');
+  assert.equal(complete.definition.workItemRoot, 'singularity/work-items');
+  assert.equal(complete.definition.agents['product-owner'].sha256, originalSession.agentSha256);
+  assert.equal(complete.storyExecutionClosure.mode, 'workflow-snapshot');
+  assert.equal(complete.storyExecutionClosure.status, 'verified');
+  assert.ok(complete.storyExecutionClosure.agents.includes('product-owner'));
+  assert.equal(
+    complete.agents.find((agent) => agent.id === 'product-owner')?.sha256,
+    originalSession.agentSha256,
+    'the selected-Story compatibility surface must not rediscover the deleted live agent'
+  );
+
+  const selected = await selectEditorAgent(root, 'DESK-SAVED', 'product-owner');
+  assert.equal(selected.agent, 'product-owner');
+  assert.equal(selected.agentSha256, originalSession.agentSha256);
 });
 
 test('configuration publish --json emits machine-readable stdout even when git commits and pushes', async () => {

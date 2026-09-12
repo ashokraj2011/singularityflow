@@ -334,6 +334,27 @@ function candidateRefs(root, { stateBranch, remote }) {
 
 const AUTHORITY_COMMIT = /^[a-f0-9]{40,64}$/;
 
+function worldModelPublicationCommit(root, authorityCommit, manifestPath) {
+  // The state branch also carries Story and ledger records. Those unrelated transactions move
+  // its tip after a World Model has been verified, including the submission transaction whose
+  // architecture decision is later approved. Bind evidence to the immutable commit that last
+  // changed the registered manifest, not to the mutable branch tip; every subordinate WMB byte is
+  // already transitively sealed by that manifest. This keeps the decision stable across unrelated
+  // state writes while a real World-Model publication still produces a new authority identity.
+  const result = run('git', [
+    'log', '--format=%H', '--max-count=1', authorityCommit, '--', safeRelative(manifestPath)
+  ], { cwd: root, allowFailure: true });
+  const commit = result.status === 0 ? result.stdout.trim() : '';
+  if (!AUTHORITY_COMMIT.test(commit)) {
+    recordFailure(
+      'The registered WMB v4 manifest cannot be bound to its immutable publication commit.',
+      'WMB_PUBLICATION_PARTIAL',
+      { authorityCommit, manifestPath }
+    );
+  }
+  return commit;
+}
+
 function recordFailure(message, code, details = null) {
   throw new SingularityFlowError(message, { code, details });
 }
@@ -876,6 +897,7 @@ export function readPublishedWorldModelV4(root, {
   const readRef = authorityCommit;
   const target = safeOutputDirectory(outputDir);
   const manifestPath = path.posix.join(target, 'manifest.json');
+  const publicationCommit = worldModelPublicationCommit(root, authorityCommit, manifestPath);
   const manifest = readWorldModelV4Manifest(readAt(root, readRef, manifestPath));
   const sourceSnapshot = validateSourceSnapshot(jsonAt(root, readRef, path.posix.join(target, 'source/source-snapshot.json')));
   const scopeManifest = validateScopeManifest(jsonAt(root, readRef, path.posix.join(target, 'scope/scope-manifest.json')));
@@ -1054,6 +1076,7 @@ export function readPublishedWorldModelV4(root, {
   return Object.freeze({
     ref: authorityRef,
     commit: authorityCommit,
+    publicationCommit,
     outputDir: target,
     manifest: verified.manifest,
     dependencies,

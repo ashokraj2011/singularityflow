@@ -1165,7 +1165,7 @@ Never edit state to bypass a gate. Git identity—not the governed agent—must 
           <span class="pill">interactive</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~756 body tokens</span>
+          <span class="pill">~758 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-architecture</code></dd></div>
@@ -1197,7 +1197,7 @@ argument-hint: &quot;show|explain &lt;ELEMENT-ID&gt;|sources &lt;ELEMENT-ID&gt;|
 5. Export only to an explicitly supplied repository-relative destination. Run `singularity-flow architecture export --format calm --out &lt;FILE&gt;` as preflight, show destination, digest and effects, then ask for confirmation. Only then rerun with its `--confirm &lt;SHA256&gt;`.
 6. When the user explicitly asks to create an architecture intent, require an exact Work ID and repository-relative candidate file, show the exact mutation, then run `singularity-flow architecture intent init --work-id &lt;ID&gt; --from &lt;FILE&gt;`. The candidate must name the active owner phase and may omit `generation`; omission means the owner&#39;s next publication (`P+1`). Report whether the draft was created or already identical. Do not hand-edit the managed intent.
 7. When the user explicitly asks to revise an existing intent, first show its current digest, require the exact `--expect-intent sha256:&lt;DIGEST&gt;` value and a repository-relative candidate file, then run `singularity-flow architecture intent revise --work-id &lt;ID&gt; --from &lt;FILE&gt; --expect-intent sha256:&lt;DIGEST&gt;`. Revision is a compare-and-swap under the Story lock and cannot change the owner phase or generation. On conflict, re-read and ask the user to review the newer intent; never retry with a substituted digest.
-8. For an explicit intent-verification request, run `singularity-flow architecture intent verify --work-id &lt;ID&gt;`. If exact source comparison refuses a dirty worktree, stop without capturing anything. Only when the user already supplied the exact reviewed reference returned by `wm snapshot`, append `--candidate-snapshot sha256:&lt;DIGEST&gt;`; an older Candidate that does not still match current source is never substituted or retried.
+8. For explicit verification, run `singularity-flow architecture intent verify --work-id &lt;ID&gt;`. On dirty-source refusal, stop without capture. Append `--candidate-snapshot sha256:&lt;DIGEST&gt;` only when the user supplied the exact reviewed current Candidate; never substitute an older one. For `WMC_INTENT_REPORT_MISMATCH`, preserve the report, repair the named input, rerun verification, and review the replacement before retrying the gate.
 9. Init/revise creates only an unapproved draft. Governed order is owner-phase publish, submit, approve; enforcement consumes only that publication-bound approval.
 10. Never edit `singularity/world-model/projections/arch.calm.json`, its source map, a planned projection, a managed architecture intent, or a receipt. Direct the user to the exact source returned by `architecture explain`.
 11. Never call a model, approve an intent, publish or submit a Story phase, or execute a returned lifecycle action.
@@ -1629,7 +1629,7 @@ offline and must not be represented as remote publication proof.
           <span class="pill">interactive</span>
           <span class="pill">organisation boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~744 body tokens</span>
+          <span class="pill">~766 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-capability-map</code></dd></div>
@@ -1655,17 +1655,17 @@ disable-model-invocation: true
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story or repository required; use only the selected lead URL. Resolve local checks with `singularity-flow workspace current --json`; never search `$HOME`.
 
-1. Ask first and only for the exact credential-free Git URL. Do not collect capability metadata yet.
-2. Run `singularity-flow capability inspect-repository &lt;GIT-URL&gt; --json`; use `--lead &lt;LEAD-URL&gt;` only after explicit selection. Preserve its full result.
+1. Ask only for the exact credential-free Git URL; do not collect metadata yet.
+2. Run `singularity-flow capability inspect-repository &lt;GIT-URL&gt; --json`; add `--lead &lt;LEAD-URL&gt;` only after explicit selection. Preserve the result.
 3. Branch before collecting details:
-   - `already-mapped`: show lead, repository ID, and capabilities; stop without proposing a duplicate. Offer `/sf-workspace` or `/sf-capabilities`.
+   - `already-mapped`: show lead/repository/capabilities; stop without proposing a duplicate.
    - `known-repository-unassigned`: ask whether to create a capability for it.
-   - `not-onboarded`: name `checkedLeads`; only a complete result permits mapping.
-   - `ambiguous`: show all matches, ask for one lead, and inspect again with `--lead`.
-   - `unreachable`: show failures and stop. Do not reinterpret an unverified absence as a new repository; retry with `--refresh` after repair.
-   - `inconclusive`: show `pendingMatches` first and offer review of an existing proposal. Otherwise stop unless `completeness` is `no-authorities`, `proposalCoverage` is `complete`, and the target is a reachable candidate. Then ask: use it as the first map, or supply an existing lead and inspect again. Never infer either choice.
+   - `not-onboarded`: name `checkedLeads`; mapping requires complete coverage.
+   - `ambiguous`: show matches, select one lead, and inspect again with `--lead`.
+   - `unreachable`: show failures and stop. Do not reinterpret an unverified absence as a new repository.
+   - `inconclusive`: show `pendingMatches` and offer review. Otherwise stop unless there are no authorities, proposal coverage is complete, and the target is reachable; ask whether it is the first map or another lead should be inspected.
    - Unknown: report and stop.
-4. Continue only after an explicit request for a new mapping. Select the lead, run `capability organisation &lt;LEAD-URL&gt; --json`, show parents, then ask only for missing ID, name, kind, parent, Jira/team, roots, and clone policy. `delivery` uses the URL; `collection` confirms it will not.
+4. Continue only after an explicit request for a new mapping. Run `capability organisation &lt;LEAD-URL&gt; --json`, show parents, then ask only for missing ID, name, kind, parent, Jira/team, roots, and clone policy. `delivery` uses the URL; `collection` does not.
 5. Run:
 
    `singularity-flow capability map &lt;ID&gt; --lead &lt;LEAD-URL&gt; --kind &lt;KIND&gt; [--name TEXT] [--parent ID] [--repository URL] [--jira-project KEY] [--teams A,B] --json`
@@ -1675,8 +1675,9 @@ disable-model-invocation: true
 
    `singularity-flow capability activate &lt;REVIEW-BRANCH&gt; --lead &lt;LEAD-URL&gt; --confirm &lt;FULL-PROPOSAL-COMMIT&gt; --json`
 
-8. `CAPABILITY_CONFIGURATION_UNPROTECTED` needs acceptance before `--acknowledge-unprotected`. If protection rejects activation, preserve it for external review; after merge, run the same exact-hash `capability activate` command again. For invalid history, run `capability fsck` and offer its safe choices.
-9. Refresh `capability organisation` and report the active tree.
+8. `CAPABILITY_CONFIGURATION_UNPROTECTED` needs acceptance before `--acknowledge-unprotected`. Preserve refusal for external review; after merge, run the same exact-hash `capability activate` command again. Run `capability fsck` for invalid history.
+9. Activation is staged. `CAPABILITY_ACTIVATION_AUDIT_PENDING` means configuration is active: retry the returned exact activation only for its audit. Projection/portability pending uses returned `capability publish`; never merge/reset again. `CAPABILITY_ACTIVATION_RECOVERY_CONFLICT` requires the exact reported history, not a newer head.
+10. Refresh organisation and report success only when configuration, audit, projection, and required links are complete.
 
 ## Boundaries
 
@@ -9077,7 +9078,7 @@ disable-model-invocation: true
           <span class="pill">interactive</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: conditional</span>
-          <span class="pill">~706 body tokens</span>
+          <span class="pill">~753 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-worldmodel</code></dd></div>
@@ -9103,7 +9104,7 @@ disable-model-invocation: true
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
-- **Bare `/sf-worldmodel` is read-only.** Run only `singularity-flow wm status --json` and `singularity-flow wm ast status --json`; report freshness, source, assurance, views, and blockers. Never infer build, initialization, warming, pack, cache, or local-publication consent.
+- **Bare `/sf-worldmodel` is read-only.** Run only `singularity-flow wm status --json` and `singularity-flow wm ast status --json`; report freshness, source, assurance, views, and blockers. When freshness is `unavailable`, preserve its reason, `current: null`, and **source comparison unavailable** label; never call it fresh/stale or rebuild/capture source to answer status. Never infer build, initialization, warming, pack, cache, or local-publication consent.
 - Before mutation show revision, views, depth, routing, writes, and target; require confirmation.
 - Configure/inventory: `wm init`; `wm light [--phase PHASE] [--local]`. `--local` is a private rehearsal and is not reusable from the shared state branch.
 - Build: `singularity-flow wm build [--phase PHASE] [--views VIEW,...] [--depth light|quick|standard|deep] [--workers N]`. Check readiness with `wm availability --json`.

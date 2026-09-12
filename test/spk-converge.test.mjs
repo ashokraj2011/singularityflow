@@ -618,6 +618,8 @@ test('same-iteration convergence writes are serialized by the Story mutation lea
   const adjudicate = await commandFunction('storyAdjudicateCommand');
   const advance = await commandFunction('storyAdvanceCommand');
   assert.match(converge, /prepareDeterministicConvergence\(/);
+  assert.match(converge, /loadAcceptedStoryExecution\(/,
+    'direct convergence can still bootstrap from mutable live Story policy');
   assert.match(service, /withConvergenceDraft\(/);
   assert.match(service, /await preparePhase\(/,
     'the shared service can emit a projection without refreshing managed phase inputs');

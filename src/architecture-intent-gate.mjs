@@ -15,12 +15,12 @@ import { resolveStoryExecutionDefinition } from './story-execution-context.mjs';
 
 const EMPTY = Object.freeze({
   applies: false, errors: [], warnings: [], passes: [], code: null, reasonCodes: [],
-  architectureDecision: null
+  architectureDecision: null, authorityObservationCommit: null
 });
 
 function gateResult({
   applies = true, errors = [], warnings = [], passes = [], reasonCodes = [],
-  architectureDecision = null
+  architectureDecision = null, authorityObservationCommit = null
 }) {
   const uniqueReasons = [...new Set(reasonCodes.filter(Boolean))];
   return Object.freeze({
@@ -30,7 +30,11 @@ function gateResult({
     passes: Object.freeze(passes),
     code: uniqueReasons[0] ?? null,
     reasonCodes: Object.freeze(uniqueReasons),
-    architectureDecision: errors.length ? null : architectureDecision
+    architectureDecision: errors.length ? null : architectureDecision,
+    // The stable decision binds the WMB publication commit. The mutable state tip remains a
+    // separate operation-scoped observation so a ref move *during* validation is still detected
+    // without making later unrelated Story ledger writes invalidate unchanged model evidence.
+    authorityObservationCommit
   });
 }
 
@@ -64,7 +68,8 @@ export function architectureIntentGateIdentity(result) {
     warnings: [...(result?.warnings ?? [])],
     passes: [...(result?.passes ?? [])],
     reasonCodes: [...(result?.reasonCodes ?? [])],
-    architectureDecision: result?.architectureDecision ?? null
+    architectureDecision: result?.architectureDecision ?? null,
+    authorityObservationCommit: result?.authorityObservationCommit ?? null
   });
 }
 
@@ -109,9 +114,28 @@ export async function createArchitectureIntentStabilityGuard(
     root, definition, workflow, phase, generation, { candidateSnapshot }
   );
   return async () => {
-    const current = await architectureIntentStabilityIdentity(
-      root, definition, workflow, phase, generation, { candidateSnapshot }
-    );
+    let current;
+    try {
+      current = await architectureIntentStabilityIdentity(
+        root, definition, workflow, phase, generation, { candidateSnapshot }
+      );
+    } catch (error) {
+      // The initial observation above remains authoritative for ordinary readiness errors. Once
+      // that observation succeeded, however, losing any of its Story/source/state inputs during
+      // the publication window is a concurrency change, not permission to surface a different
+      // gate result from mixed revisions. Keep diagnostics bounded and make the retry contract
+      // consistent with an identity change that can still be represented canonically.
+      throw new SingularityFlowError(
+        `Architecture intent evidence became unavailable after validation and before ${operation}. Nothing was committed; retry against the current evidence.`,
+        {
+          code: 'PUBLICATION_SNAPSHOT_CHANGED',
+          details: {
+            causeCode: error?.code ?? null,
+            nextAction: 'Retry the lifecycle action against one current Story, source, and state authority observation.'
+          }
+        }
+      );
+    }
     if (current !== expected) {
       throw new SingularityFlowError(
         `Architecture intent evidence changed after validation and before ${operation}. Nothing was committed; retry against the current evidence.`,
@@ -285,6 +309,7 @@ export async function evaluateArchitectureIntentGate(
     errors,
     reasonCodes,
     passes: errors.length ? [] : [`architecture intent fulfilled: ${evaluation.report.reportSha256.slice(0, 19)}`],
-    architectureDecision: evaluation?.decision ?? null
+    architectureDecision: evaluation?.decision ?? null,
+    authorityObservationCommit: evaluation?.store?.commit ?? null
   });
 }

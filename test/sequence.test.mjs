@@ -241,7 +241,7 @@ test('sequence gate policy is immutable after work-item creation', async () => {
   workflow.resolution.sequenceGates.phaseStatus = 'hard';
   await writeFile(workflowFile, `${JSON.stringify(workflow, null, 2)}\n`);
   const validation = flow(root, ['validate'], { allowFailure: true });
-  assert.equal(validation.status, 2);
+  assert.equal(validation.status, 2, validation.stderr);
   assert.match(validation.stderr, /Workflow compatibility projection differs from its accepted snapshot policy/);
 });
 
@@ -252,7 +252,7 @@ test('Copilot session agent policy is immutable after work-item creation', async
   workflow.resolution.session.requireBeforeTools = true;
   await writeFile(workflowFile, `${JSON.stringify(workflow, null, 2)}\n`);
   const validation = flow(root, ['validate'], { allowFailure: true });
-  assert.equal(validation.status, 2);
+  assert.equal(validation.status, 2, validation.stderr);
   assert.match(validation.stderr, /Workflow compatibility projection differs from its accepted snapshot policy/);
 });
 
@@ -263,7 +263,7 @@ test('incomplete schema-2 session snapshots are rejected instead of migrated', a
   delete workflow.resolution.session.workItemSelection;
   await writeFile(workflowFile, `${JSON.stringify(workflow, null, 2)}\n`);
   const validation = flow(root, ['validate'], { allowFailure: true });
-  assert.equal(validation.status, 2);
+  assert.equal(validation.status, 2, validation.stderr);
   assert.match(validation.stderr, /Workflow compatibility projection differs from its accepted snapshot policy/);
 });
 

@@ -306,6 +306,7 @@ test('wm inject renders matched agent context and records the generation audit',
   await mkdir(workDir, { recursive: true });
   await writeFile(path.join(workDir, 'workflow.json'), JSON.stringify({
     workItem: { id: 'WM-1', workType: 'feature' }, currentPhase: 'design',
+    phaseOrder: ['design'],
     resolution: { worldModelGrounding: 'enforce' },
     phases: { design: { id: 'design', status: 'in_progress', generation: 0 } },
     changeRequests: [{

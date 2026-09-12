@@ -139,3 +139,19 @@ test('generation-publication v1 migration preserves history with explicit null a
   assert.equal(migrated.architectureIntent, null);
   assert.equal(migrated.architectureDecision, null);
 });
+
+test('generation-publication migration refuses a v2 architecture shape relabelled as v1', () => {
+  assert.throws(
+    () => readRecord('generation-publication', {
+      schemaVersion: 1,
+      workId: 'OLD-1',
+      phase: 'planning',
+      generation: 1,
+      resultDigestVersion: 2,
+      resultDigest: 'sha256:legacy',
+      architectureIntent: null,
+      architectureDecision: null
+    }),
+    (error) => error.code === 'SCHEMA_MIGRATION_INVALID'
+  );
+});

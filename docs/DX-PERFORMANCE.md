@@ -284,6 +284,14 @@ pass. The release script runs this gate even when local tests are skipped in fav
 signed verification receipt. Bundle and module ceilings may be lowered after accepted evidence;
 they must not be raised merely to admit a regression.
 
+The reviewed Story-execution remediation closure contains 31,280,072 JavaScript bytes. Its four
+affected entries measure 7,273,382 bytes (`gateway-runtime.cjs`), 7,326,607 bytes
+(`gateway-status-worker.cjs`), 3,216,605 bytes (`support-runtime.cjs`), and 7,287,829 bytes
+(`world-model-build.cjs`). Their ceilings, along with the aggregate ceiling, are rounded only to
+the next 5,000-byte boundary, leaving 1,618, 3,393, 3,395, 2,171, and 4,928 bytes of headroom
+respectively. Module counts are 547, 551, 370, and 549 and remain inside the existing reviewed
+ceilings.
+
 ## Bounded aggregate verification
 
 `npm test` no longer starts one unbounded all-files process. It creates eight deterministic,

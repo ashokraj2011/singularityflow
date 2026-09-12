@@ -178,6 +178,183 @@ test('capability ledger is an orphan branch and verifies its content-addressed c
   );
 });
 
+test('a lost ledger push response requires successful authority re-observation before retry', {
+  skip: process.platform === 'win32'
+}, async () => {
+  const { parent, remote, root } = await repository();
+  await initializeLedger(root, enabled);
+  const publishedCommit = git(root, ['rev-parse', 'HEAD']).stdout.trim();
+  const intent = createLedgerIntent({
+    eventType: 'phase-approved',
+    capabilityId: 'story-WORK-UNCERTAIN',
+    subject: { workId: 'WORK-UNCERTAIN', phase: 'specification', generation: 1 },
+    actor: { name: 'Reviewer', email: 'reviewer@example.com' }
+  });
+  const wrappers = path.join(parent, 'uncertain-push-wrapper');
+  const wrapper = path.join(wrappers, 'git');
+  const pushLanded = path.join(parent, 'push-landed');
+  const pushCount = path.join(parent, 'state-push-count');
+  const failedFetchCount = path.join(parent, 'failed-refresh-count');
+  const realGit = run('which', ['git']).stdout.trim();
+  await mkdir(wrappers);
+  await writeFile(wrapper, `#!/usr/bin/env node
+const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+const realGit = ${JSON.stringify(realGit)};
+const pushLanded = ${JSON.stringify(pushLanded)};
+const pushCount = ${JSON.stringify(pushCount)};
+const failedFetchCount = ${JSON.stringify(failedFetchCount)};
+const bump = (file) => {
+  const current = fs.existsSync(file) ? Number(fs.readFileSync(file, 'utf8')) : 0;
+  fs.writeFileSync(file, String(current + 1));
+};
+const statePush = args[0] === 'push' && args.includes('HEAD:refs/heads/state');
+const stateFetch = args[0] === 'fetch'
+  && args.some((arg) => arg.includes('refs/heads/state:refs/remotes/origin/state'));
+if (stateFetch && fs.existsSync(pushLanded)) {
+  bump(failedFetchCount);
+  process.stderr.write('fatal: Could not resolve host: unavailable.example\\n');
+  process.exit(1);
+}
+if (statePush) {
+  bump(pushCount);
+  if (!fs.existsSync(pushLanded)) {
+    const landed = spawnSync(realGit, args, {
+      cwd: process.cwd(), env: process.env, encoding: 'utf8'
+    });
+    if (landed.stdout) process.stdout.write(landed.stdout);
+    if (landed.stderr) process.stderr.write(landed.stderr);
+    if (landed.status !== 0) process.exit(landed.status || 1);
+    fs.writeFileSync(pushLanded, 'yes');
+    process.stderr.write('fatal: connection closed after receive-pack accepted the update\\n');
+    process.exit(1);
+  }
+}
+const result = spawnSync(realGit, args, {
+  cwd: process.cwd(), env: process.env, encoding: 'utf8'
+});
+if (result.stdout) process.stdout.write(result.stdout);
+if (result.stderr) process.stderr.write(result.stderr);
+process.exit(result.status == null ? 1 : result.status);
+`);
+  await chmod(wrapper, 0o755);
+  const env = { ...process.env, PATH: `${wrappers}${path.delimiter}${process.env.PATH}` };
+
+  await assert.rejects(
+    appendLedgerIntent(root, enabled, intent, publishedCommit, { env }),
+    (error) => error.code === 'state_branch.publication_observation_unavailable'
+      && error.details?.phase === 'ledger-append-retry'
+      && error.details?.remoteView === 'offline-cached'
+  );
+  assert.equal(await readFile(pushCount, 'utf8'), '1',
+    'an unobserved retry must not issue a second state push');
+  assert.equal(await readFile(failedFetchCount, 'utf8'), '1',
+    'the retry attempted one exact state-authority refresh');
+
+  const pointer = JSON.parse(run('git', [
+    '--git-dir', remote, 'show', `state:ledger/events/${intent.eventId}.json`
+  ]).stdout);
+  assert.equal(pointer.eventId, intent.eventId,
+    'the first push really landed even though its response was lost');
+  const entries = run('git', [
+    '--git-dir', remote, 'ls-tree', '-r', '--name-only', 'state',
+    'ledger/entries/story-work-uncertain'
+  ]).stdout.trim().split(/\r?\n/).filter(Boolean);
+  assert.equal(entries.length, 1, 'uncertain recovery never duplicated the accepted event');
+});
+
+test('a lost ledger push response reuses the accepted event after a concurrent ledger append', {
+  skip: process.platform === 'win32'
+}, async () => {
+  const { parent, remote, root } = await repository();
+  await initializeLedger(root, enabled);
+  const publishedCommit = git(root, ['rev-parse', 'HEAD']).stdout.trim();
+  const accepted = createLedgerIntent({
+    eventType: 'phase-approved',
+    capabilityId: 'story-WORK-UNCERTAIN-RACE',
+    subject: { workId: 'WORK-UNCERTAIN-RACE', phase: 'specification', generation: 1 },
+    actor: { name: 'Reviewer', email: 'reviewer@example.com' }
+  });
+  const concurrentWorkId = 'WORK-CONCURRENT-WRITER';
+  const wrappers = path.join(parent, 'uncertain-race-wrapper');
+  const wrapper = path.join(wrappers, 'git');
+  const helper = path.join(parent, 'append-concurrent.mjs');
+  const pushLanded = path.join(parent, 'accepted-push-landed');
+  const statePushCount = path.join(parent, 'state-push-count');
+  const realGit = run('which', ['git']).stdout.trim();
+  const helperPath = (process.env.PATH ?? '').split(path.delimiter)
+    .filter((entry) => entry && path.resolve(entry) !== path.resolve(wrappers))
+    .join(path.delimiter);
+  await mkdir(wrappers);
+  await writeFile(helper, `
+import { appendLedgerIntent, createLedgerIntent } from ${JSON.stringify(new URL('../src/ledger.mjs', import.meta.url).href)};
+const intent = createLedgerIntent({
+  eventType: 'phase-approved',
+  capabilityId: 'story-${concurrentWorkId}',
+  subject: { workId: '${concurrentWorkId}', phase: 'planning', generation: 1 },
+  actor: { name: 'Concurrent Reviewer', email: 'concurrent@example.test' }
+});
+await appendLedgerIntent(${JSON.stringify(root)}, ${JSON.stringify(enabled)}, intent, ${JSON.stringify(publishedCommit)});
+`);
+  await writeFile(wrapper, `#!/usr/bin/env node
+const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+const realGit = ${JSON.stringify(realGit)};
+const statePush = args[0] === 'push' && args.includes('HEAD:refs/heads/state');
+if (statePush) {
+  const count = fs.existsSync(${JSON.stringify(statePushCount)})
+    ? Number(fs.readFileSync(${JSON.stringify(statePushCount)}, 'utf8')) : 0;
+  fs.writeFileSync(${JSON.stringify(statePushCount)}, String(count + 1));
+}
+if (statePush && !fs.existsSync(${JSON.stringify(pushLanded)})) {
+  const landed = spawnSync(realGit, args, {
+    cwd: process.cwd(), env: process.env, encoding: 'utf8'
+  });
+  if (landed.status !== 0) {
+    if (landed.stderr) process.stderr.write(landed.stderr);
+    process.exit(landed.status || 1);
+  }
+  fs.writeFileSync(${JSON.stringify(pushLanded)}, 'yes');
+  const raced = spawnSync(${JSON.stringify(process.execPath)}, [${JSON.stringify(helper)}], {
+    cwd: ${JSON.stringify(root)},
+    env: { ...process.env, PATH: ${JSON.stringify(helperPath)} },
+    encoding: 'utf8'
+  });
+  if (raced.status !== 0) {
+    if (raced.stdout) process.stderr.write(raced.stdout);
+    if (raced.stderr) process.stderr.write(raced.stderr);
+    process.exit(raced.status || 1);
+  }
+  process.stderr.write('fatal: connection closed after receive-pack accepted the update\\n');
+  process.exit(1);
+}
+const result = spawnSync(realGit, args, {
+  cwd: process.cwd(), env: process.env, encoding: 'utf8'
+});
+if (result.stdout) process.stdout.write(result.stdout);
+if (result.stderr) process.stderr.write(result.stderr);
+process.exit(result.status == null ? 1 : result.status);
+`);
+  await chmod(wrapper, 0o755);
+  const result = await appendLedgerIntent(root, enabled, accepted, publishedCommit, {
+    env: { ...process.env, PATH: `${wrappers}${path.delimiter}${process.env.PATH}` }
+  });
+
+  assert.equal(result.duplicate, true,
+    'the retry must reuse the exact event accepted before the response was lost');
+  assert.equal(await readFile(statePushCount, 'utf8'), '1',
+    'the uncertain operation itself must not push a replacement event');
+  const verified = await verifyLedger(root, enabled);
+  assert.equal(verified.valid, true);
+  assert.equal(verified.entries, 2,
+    'the accepted operation and unrelated concurrent append both remain reachable');
+  const entries = await ledgerLog(root, enabled);
+  assert.equal(entries.filter((entry) => entry.eventId === accepted.eventId).length, 1);
+  assert.equal(entries.filter((entry) => entry.subject.workId === concurrentWorkId).length, 1);
+});
+
 test('ledger bootstrap stays compatible with the supported pre-worktree-orphan Git floor', async () => {
   const source = await readFile(new URL('../src/ledger.mjs', import.meta.url), 'utf8');
   assert.doesNotMatch(source, /worktree', 'add', '--orphan'/u);

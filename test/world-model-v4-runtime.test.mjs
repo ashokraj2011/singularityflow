@@ -191,7 +191,7 @@ test('publication recovery cannot be redirected to a different Git endpoint', as
   assert.equal((await listWorldModelPublicationRecoveries(root)).total, 1);
 });
 
-test('publication recovery refuses an unrelated remote advance before invoking its publisher', async (t) => {
+test('publication recovery accepts a byte-identical winner without replaying its publisher', async (t) => {
   const { root } = await repository(t);
   let recoveryId = null;
   let attemptedFiles = null;
@@ -215,22 +215,19 @@ test('publication recovery refuses an unrelated remote advance before invoking i
     });
 
   let publisherCalls = 0;
-  await assert.rejects(
-    resumeWorldModelPublication(root, recoveryId, {
-      confirm: recoveryId,
-      publicationOptions: {
-        publisher: async () => {
-          publisherCalls += 1;
-          throw new Error('must not run');
-        }
+  const recovered = await resumeWorldModelPublication(root, recoveryId, {
+    confirm: recoveryId,
+    publicationOptions: {
+      publisher: async () => {
+        publisherCalls += 1;
+        throw new Error('must not run');
       }
-    }),
-    (error) => error.code === 'WMB_PUBLICATION_RECOVERY_REQUIRED'
-      && error.details.causeCode === 'WMB_PUBLICATION_RECOVERY_REMOTE_ADVANCED'
-  );
+    }
+  });
+  assert.equal(recovered.reconciled, true);
   assert.equal(publisherCalls, 0);
-  assert.equal((await listWorldModelPublicationRecoveries(root)).total, 1,
-    'unrelated authority cannot consume the exact immutable marker');
+  assert.equal((await listWorldModelPublicationRecoveries(root)).total, 0,
+    'a byte-identical winner consumes the exact immutable marker');
 });
 
 test('a crash after the exact state push reconciles the landed candidate without another write', async (t) => {
@@ -682,8 +679,26 @@ test('publication revalidates an exact complete projection before invoking its s
   assert.equal(built.status, 'completed');
   assert.ok(built.staged.files['singularity/world-model/source/source-snapshot.json']);
 
+  const retained = '# exact retained World-model view\n';
+  const retainedSha256 = sha256(Buffer.from(retained, 'utf8'));
+  const retainedPath = `singularity/world-model-history/objects/sha256/${retainedSha256.slice(7, 9)}/${retainedSha256.slice(7)}`;
+  const projectionPath = 'singularity/world-model/manifest.json';
+  const projectionSha256 = sha256(Buffer.from(built.staged.files[projectionPath], 'utf8'));
   const calls = [];
-  const published = await publishWorldModelTransaction(root, LEDGER, built.staged, {
+  const published = await publishWorldModelTransaction(root, LEDGER, {
+    ...built.staged,
+    historyDir: 'singularity/world-model-history',
+    historyAdditions: { [retainedPath]: retained },
+    historyExpectations: {
+      [retainedPath]: {
+        condition: 'absent-or-identical', sha256: retainedSha256,
+        bytes: Buffer.byteLength(retained), gitMode: '100644'
+      }
+    },
+    exactBlobSha256: { [retainedPath]: retainedSha256 }
+  }, {
+    exactBlobSha256: { [projectionPath]: projectionSha256 },
+    pathPreconditions: { [projectionPath]: { condition: 'absent' } },
     publisher: async (...args) => {
       calls.push(args);
       return {
@@ -695,6 +710,49 @@ test('publication revalidates an exact complete projection before invoking its s
   assert.equal(calls.length, 1);
   assert.equal(published.manifestSha256, built.manifestSha256);
   assert.deepEqual(calls[0][4].replaceRoots, ['singularity/world-model']);
+  assert.equal(calls[0][2][retainedPath], retained);
+  assert.deepEqual(calls[0][4].pathPreconditions[retainedPath], {
+    condition: 'absent-or-identical', sha256: retainedSha256,
+    bytes: Buffer.byteLength(retained), gitMode: '100644'
+  });
+  assert.equal(calls[0][4].exactBlobSha256[retainedPath], retainedSha256);
+  assert.equal(calls[0][4].exactBlobSha256[projectionPath], projectionSha256);
+  assert.deepEqual(calls[0][4].pathPreconditions[projectionPath], { condition: 'absent' });
+
+  await assert.rejects(
+    () => publishWorldModelTransaction(root, LEDGER, built.staged, {
+      removePaths: ['singularity/world-model-history/models/' + 'a'.repeat(64) + '.json'],
+      publisher: async () => {
+        calls.push('unexpected history deletion');
+        return {};
+      }
+    }),
+    (error) => error.code === 'WMP_HISTORY_DELETE_REFUSED'
+  );
+
+  const crafted = '{"not":"a history contract"}\n';
+  const craftedSha256 = sha256(Buffer.from(crafted, 'utf8'));
+  const craftedPath = 'singularity/world-model-history/arbitrary.json';
+  await assert.rejects(
+    () => publishWorldModelTransaction(root, LEDGER, {
+      ...built.staged,
+      historyDir: 'singularity/world-model-history',
+      historyAdditions: { [craftedPath]: crafted },
+      historyExpectations: {
+        [craftedPath]: {
+          condition: 'absent-or-identical', sha256: craftedSha256,
+          bytes: Buffer.byteLength(crafted), gitMode: '100644'
+        }
+      },
+      exactBlobSha256: { [craftedPath]: craftedSha256 }
+    }, {
+      publisher: async () => {
+        calls.push('unexpected crafted history');
+        return {};
+      }
+    }),
+    (error) => error.code === 'WMP_HISTORY_PATH_INVALID'
+  );
 
   const mutations = [
     (publication) => { delete publication.files['singularity/world-model/source/source-snapshot.json']; },
@@ -720,7 +778,7 @@ test('publication revalidates an exact complete projection before invoking its s
       (error) => error.code === 'WMB_PUBLICATION_PARTIAL'
     );
   }
-  assert.equal(calls.length, 1, 'no invalid projection reached the state writer');
+  assert.equal(calls.length, 1, 'no invalid projection or deletion reached the state writer');
 });
 
 test('publication reruns semantic validation instead of trusting a coherently rehashed receipt', async (t) => {

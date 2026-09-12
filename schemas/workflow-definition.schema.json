@@ -476,6 +476,7 @@
         "stateBranch": { "type": "string", "minLength": 1, "description": "Optional World-Model state branch override. The normalized ledger remains the publication authority." },
         "remote": { "type": "string", "minLength": 1, "description": "State-authority remote used only when ledger.remote is not explicitly authored." },
         "outputDir": { "type": "string", "minLength": 1 },
+        "historyDir": { "type": "string", "minLength": 1, "default": "singularity/world-model-history", "description": "Advanced immutable WMP history root on the configured state branch. It must be portable and disjoint from outputDir." },
         "promptSource": { "type": "string", "minLength": 1 },
         "stateFetchTimeoutMs": { "type": "integer", "minimum": 250, "maximum": 60000, "default": 10000 },
         "generation": {

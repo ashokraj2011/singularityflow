@@ -3267,6 +3267,8 @@ singularity-flow wm light [--branch BRANCH] [--remote REMOTE] [--phase PHASE] [-
 singularity-flow wm build [--depth light|quick|standard|deep] [--branch BRANCH] [--remote REMOTE] [--local] [--views LIST] [--focus TEXT] [--parallel|--no-parallel] [--workers N] [--resume|--no-resume]
 singularity-flow wm availability [--phase PHASE] [--view VIEW --tier brief|full] [--task TEXT] [--json]
 singularity-flow wm ensure [--phase PHASE] [--view VIEW --tier brief|full] [--task TEXT] [--json]
+singularity-flow wm history list --authority-commit <FULL-COMMIT> [--kind model|view] [--limit 1..500] [--cursor CURSOR] [--json]
+singularity-flow wm history show <KEY> --authority-commit <FULL-COMMIT> [--kind model|view] [--json]
 sflow-wm-minimal [--phase PHASE] [--views LIST] [--branch BRANCH] [--parallel] [--workers N] [--publish]
 singularity-flow wm context|check [--branch BRANCH] [--remote REMOTE]
 singularity-flow wm inject

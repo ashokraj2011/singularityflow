@@ -2,11 +2,16 @@
 import { lstat, readFile, readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
-import { gitCommonDir } from './git.mjs';
+import { gitCommonDir, refExists } from './git.mjs';
+import { configuredRemoteIdentity } from './git-remote-diagnostics.mjs';
+import { readRefTreeResult } from './git-ref-tree.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { familyForStoredPath, migrationRegistrySnapshot, readRecord } from './schema-migrations.mjs';
 import { loadDefinition } from './config.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
+import { worldModelStateAuthority } from './world-model/authority-config.mjs';
+
+const MAXIMUM_STATE_AUTHORITY_CENSUS_BYTES = 64 * 1024 * 1024;
 
 function isInside(boundary, candidate) {
   const relative = path.relative(boundary, candidate);
@@ -53,6 +58,7 @@ async function jsonFiles(base, prefix, files, {
   const scanBase = await verifiedScanRoot(base, boundary);
   if (!scanBase) return;
   const excluded = new Set(excludedDirectories.map((directory) => path.resolve(directory)));
+  if ([...excluded].some((directory) => isInside(directory, path.resolve(scanBase)))) return;
   async function visit(directory, relative = '') {
     const entries = (await readdir(directory, { withFileTypes: true }))
       .sort((left, right) => left.name.localeCompare(right.name));
@@ -111,6 +117,145 @@ function unreadableFile(pathname, code, reason) {
   return { path: pathname, code, reason };
 }
 
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Select the same local WMP authority namespace as persisted-history reads.
+ *
+ * A configured remote admits only its materialized remote-tracking ref. Falling back to a local
+ * state branch would let unpublished state masquerade as shared authority merely because the
+ * approved tracking ref is absent. A genuinely remote-less repository owns its local state
+ * branch. Neither selection observes or fetches a remote.
+ */
+function localWorldModelStateAuthority(root, definition) {
+  const { branch, remote } = worldModelStateAuthority(definition ?? {});
+  const required = definition?.worldModel?.format === 'registered-v4';
+  const explicitRef = String(branch).startsWith('refs/');
+  const remoteConfigured = !explicitRef && configuredRemoteIdentity(root, remote, {
+    direction: 'fetch'
+  }).configured;
+  const authorityRef = explicitRef
+    ? String(branch)
+    : remoteConfigured
+    ? `refs/remotes/${remote}/${branch}`
+    : `refs/heads/${branch}`;
+  return Object.freeze({
+    authorityRef,
+    present: refExists(root, authorityRef),
+    required
+  });
+}
+
+/**
+ * Read keyed WMP bindings straight from the configured local state-authority ref.
+ *
+ * The extensionless object store is deliberately outside these pathspecs. Those bytes acquire a
+ * schema family only through an exact ObjectRef and its semantic owner; a generic census cannot
+ * infer that context from a digest path. `readRefTreeResult` also sets GIT_NO_LAZY_FETCH, so a
+ * missing promisor object becomes an explicit census failure rather than undeclared network I/O.
+ */
+function stateAuthorityWorldModelFiles(root, authority, historyDir, {
+  maximumFiles, maximumFileBytes
+}) {
+  const { authorityRef, present, required } = authority;
+  if (!present) {
+    return Object.freeze({
+      authorityRef,
+      files: [],
+      failures: required ? [unreadableFile(
+        `$state/${historyDir}/`,
+        'SCHEMA_CENSUS_STATE_AUTHORITY_REFRESH_REQUIRED',
+        'registered-v4 state authority is not materialized locally; refresh it before migration readiness is evaluated'
+      )] : [],
+      status: required ? 'unavailable' : 'missing',
+      truncated: false
+    });
+  }
+  if (maximumFiles === 0) {
+    return Object.freeze({
+      authorityRef, files: [], failures: [], status: 'not-scanned', truncated: true
+    });
+  }
+  const directories = ['models', 'views', 'handoffs']
+    .map((directory) => `${historyDir}/${directory}`);
+  const bindingPath = new RegExp(
+    `^${escapeRegExp(historyDir)}/(?:models|views|handoffs)/[a-f0-9]{64}\\.json$`
+  );
+  let admittedFiles = 0;
+  let admittedBytes = 0;
+  let truncated = false;
+  const observed = readRefTreeResult(root, authorityRef, directories, {
+    filter: (relativePath, { size }) => {
+      if (!bindingPath.test(relativePath)) return false;
+      if (admittedFiles >= maximumFiles) {
+        truncated = true;
+        return false;
+      }
+      // Admit an oversized in-budget binding so the shared reader returns its explicit typed
+      // failure. The aggregate ceiling truncates only otherwise individually admissible blobs.
+      if (size > maximumFileBytes) {
+        admittedFiles += 1;
+        return true;
+      }
+      if (admittedBytes + size > MAXIMUM_STATE_AUTHORITY_CENSUS_BYTES) {
+        truncated = true;
+        return false;
+      }
+      admittedFiles += 1;
+      admittedBytes += size;
+      return true;
+    },
+    maxObjectBytes: maximumFileBytes
+  });
+  if (observed.status === 'missing') {
+    return Object.freeze({
+      authorityRef,
+      files: [],
+      failures: [unreadableFile(
+        `$state/${historyDir}/`,
+        'SCHEMA_CENSUS_STATE_AUTHORITY_UNAVAILABLE',
+        'configured local state-authority history could not be read completely'
+      )],
+      status: 'unavailable',
+      truncated: false
+    });
+  }
+  if (observed.status !== 'ok') {
+    const failures = observed.errors.length ? observed.errors : [{ code: 'REF_TREE_UNAVAILABLE' }];
+    return Object.freeze({
+      authorityRef,
+      files: [],
+      failures: failures.map((failure) => unreadableFile(
+        failure.path ? `$state/${failure.path}` : `$state/${historyDir}/`,
+        failure.code === 'REF_TREE_OBJECT_TOO_LARGE'
+          ? 'SCHEMA_CENSUS_FILE_TOO_LARGE'
+          : 'SCHEMA_CENSUS_STATE_AUTHORITY_UNAVAILABLE',
+        failure.code === 'REF_TREE_OBJECT_TOO_LARGE'
+          ? `file exceeds the ${maximumFileBytes}-byte census bound`
+          : 'configured local state-authority history could not be read completely'
+      )),
+      status: observed.status,
+      truncated
+    });
+  }
+  return Object.freeze({
+    authorityRef,
+    status: 'ok',
+    truncated,
+    failures: [],
+    files: [...observed.contents.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([relative, content]) => Object.freeze({
+        relative: `$state/${relative}`,
+        familyPath: relative,
+        content,
+        bytes: Buffer.byteLength(content, 'utf8')
+      }))
+  });
+}
+
 /**
  * Scan only governed and Git-local state roots. Application JSON is intentionally excluded: a
  * product data file that happens to say schemaVersion is not automatically an SFlow durable family.
@@ -134,14 +279,24 @@ export async function schemaCensus(root, { maximumFiles = 20_000, maximumRecords
   ]);
   const familyRoots = {
     workItemRoot: definition?.workItemRoot ?? null,
-    initiativeRoot: portfolio?.initiativeRoot ?? null
+    initiativeRoot: portfolio?.initiativeRoot ?? null,
+    worldModelHistoryDir: definition?.worldModel?.historyDir
+      ?? 'singularity/world-model-history'
   };
+  const stateAuthority = localWorldModelStateAuthority(root, definition);
+  const authoritativeHistory = stateAuthority.present || stateAuthority.required;
   const repositoryBoundary = path.resolve(root);
+  const repositoryHistoryRoot = path.resolve(root, familyRoots.worldModelHistoryDir);
+  const repositoryHistoryObjectsRoot = path.join(repositoryHistoryRoot, 'objects');
   const repositoryRoots = [
     { relative: 'singularity', absolute: path.join(root, 'singularity') },
     { relative: '.sdlc', absolute: path.join(root, '.sdlc') },
     ...(familyRoots.workItemRoot ? [{ relative: familyRoots.workItemRoot, absolute: path.resolve(root, familyRoots.workItemRoot) }] : []),
-    ...(familyRoots.initiativeRoot ? [{ relative: familyRoots.initiativeRoot, absolute: path.resolve(root, familyRoots.initiativeRoot) }] : [])
+    ...(familyRoots.initiativeRoot ? [{ relative: familyRoots.initiativeRoot, absolute: path.resolve(root, familyRoots.initiativeRoot) }] : []),
+    ...(!authoritativeHistory && familyRoots.worldModelHistoryDir ? [{
+      relative: familyRoots.worldModelHistoryDir,
+      absolute: repositoryHistoryRoot
+    }] : [])
   ].sort((left, right) => left.absolute.length - right.absolute.length);
   const selectedRoots = [];
   for (const candidate of repositoryRoots) {
@@ -150,8 +305,23 @@ export async function schemaCensus(root, { maximumFiles = 20_000, maximumRecords
     selectedRoots.push(candidate);
   }
   for (const selected of selectedRoots) {
+    // Persisted WMP history belongs to an admitted state ref whenever that ref exists. Do not let
+    // untracked or Story-branch copies double-count or falsely block the authority census. Without
+    // a materialized authority ref, retain the legacy checkout census but never descend into its
+    // context-free content-addressed object store.
+    const excludedDirectories = [repositoryHistoryObjectsRoot];
+    if (authoritativeHistory) {
+      // A configured history root may deliberately coincide with an existing governed root such
+      // as `.sdlc`. Exclude only the WMP-owned namespaces; excluding the root itself would hide
+      // unrelated lifecycle records from migration readiness.
+      excludedDirectories.push(
+        ...['models', 'views', 'handoffs']
+          .map((directory) => path.join(repositoryHistoryRoot, directory))
+      );
+    }
     await jsonFiles(selected.absolute, `${selected.relative.replaceAll('\\', '/').replace(/\/+$/, '')}/`, files, {
       maximumFiles,
+      excludedDirectories,
       boundary: repositoryBoundary
     });
   }
@@ -170,9 +340,18 @@ export async function schemaCensus(root, { maximumFiles = 20_000, maximumRecords
     boundary: gitBoundary
   });
 
+  const remainingFiles = Math.max(0, maximumFiles - files.length);
+  const stateHistory = stateAuthorityWorldModelFiles(
+    root, stateAuthority, familyRoots.worldModelHistoryDir, {
+      maximumFiles: Math.min(remainingFiles, maximumRecords),
+      maximumFileBytes
+    }
+  );
+  files.push(...stateHistory.files);
+
   const families = new Map(migrationRegistrySnapshot().map((entry) => [entry.id, resultFor(entry)]));
   const unregistered = [];
-  const unreadable = [];
+  const unreadable = [...stateHistory.failures];
   let scannedRecords = 0;
   let recordLimitReached = false;
   const recordFailure = (summary, error, familyId, storedVersion, filePath) => {
@@ -180,9 +359,18 @@ export async function schemaCensus(root, { maximumFiles = 20_000, maximumRecords
     summary.unreadable.push(failure);
     unreadable.push(failure);
   };
+  const historyRoot = familyRoots.worldModelHistoryDir.replace(/\/+$/, '');
+  const historyObjectPath = new RegExp(
+    `^${historyRoot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/objects/sha256/[a-f0-9]{2}/[a-f0-9]{64}$`
+  );
   const observe = (record, filePath, familyPath) => {
     if (scannedRecords >= maximumRecords) { recordLimitReached = true; return; }
     scannedRecords += 1;
+    // Content-addressed history objects do not encode their MIG family in the path. Their owning
+    // binding supplies an exact ObjectRef and the WMP reader validates canonical bytes, family,
+    // schema range and semantic owner as one closure. Guessing a family here would either
+    // misclassify an object or falsely block reinitialization as "unregistered".
+    if (historyObjectPath.test(familyPath)) return;
     const family = familyForStoredPath(familyPath, familyRoots);
     if (!record || typeof record !== 'object' || Array.isArray(record)) {
       if (!family) return;
@@ -250,8 +438,10 @@ export async function schemaCensus(root, { maximumFiles = 20_000, maximumRecords
       ));
       continue;
     }
-    let content;
-    try { content = await readFile(file.absolute, 'utf8'); }
+    let content = file.content;
+    try {
+      if (content === undefined) content = await readFile(file.absolute, 'utf8');
+    }
     catch {
       // OS errors may contain an absolute path, username, share name, or other machine-local
       // material. The bounded relative path already identifies the record for repair.
@@ -266,7 +456,9 @@ export async function schemaCensus(root, { maximumFiles = 20_000, maximumRecords
       for (const [index, line] of content.split(/\r?\n/).entries()) {
         if (!line.trim()) continue;
         if (scannedRecords >= maximumRecords) { recordLimitReached = true; break; }
-        try { observe(JSON.parse(line), `${file.relative}#L${index + 1}`, file.relative); }
+        try {
+          observe(JSON.parse(line), `${file.relative}#L${index + 1}`, file.familyPath ?? file.relative);
+        }
         catch {
           // Current Node versions include an excerpt of malformed input in JSON.parse messages.
           // Never copy that message into doctor/reinitialization diagnostics.
@@ -278,7 +470,7 @@ export async function schemaCensus(root, { maximumFiles = 20_000, maximumRecords
         }
       }
     } else {
-      try { observe(JSON.parse(content), file.relative, file.relative); }
+      try { observe(JSON.parse(content), file.relative, file.familyPath ?? file.relative); }
       catch {
         unreadable.push(unreadableFile(
           file.relative,
@@ -297,10 +489,14 @@ export async function schemaCensus(root, { maximumFiles = 20_000, maximumRecords
   return Object.freeze({
     schemaVersion: 1,
     resultType: 'schema-census',
-    roots: Object.freeze([...selectedRoots.map((entry) => `${entry.relative.replaceAll('\\', '/').replace(/\/+$/, '')}/`), '$git/']),
+    roots: Object.freeze([
+      ...selectedRoots.map((entry) => `${entry.relative.replaceAll('\\', '/').replace(/\/+$/, '')}/`),
+      '$git/',
+      ...(stateHistory.status === 'missing' ? [] : [`$state/${familyRoots.worldModelHistoryDir}/`])
+    ]),
     scanned: scannedRecords,
     scannedFiles: files.length,
-    truncated: files.length >= maximumFiles || recordLimitReached,
+    truncated: files.length >= maximumFiles || recordLimitReached || stateHistory.truncated,
     healthy: outsideRange === 0 && unreadable.length === 0,
     totals: Object.freeze({
       registeredFamilies: migrationRegistrySnapshot().length,

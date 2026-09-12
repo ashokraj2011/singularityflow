@@ -2,9 +2,9 @@
 
 **Status:** authoritative cross-product tracker; the code-local feature inventory is reconciled through the current clean baseline, while platform release evidence and explicitly deferred authority work remain active
 
-**Baseline:** `main@ef6a4529`
+**Baseline:** `main@11d85fde`
 
-**Last reviewed:** 2026-09-11
+**Last reviewed:** 2026-09-12
 
 This is the one-page control plane for deliberately deferred product work. It does not replace the
 detailed domain roadmaps and it does not authorize implementation. It names the current boundary,
@@ -781,6 +781,50 @@ Acceptance gates:
 - the generic `workspaceContains:workspace.json` activation marker is replaced with an SFlow-specific
   signal or proven not to activate in unrelated workspaces;
 - npm and VSIX packaging tests prove every lazy dependency is included without source-tree access.
+
+## Persisted World-Model views (WMP)
+
+The W0/W1 persistence preview and bounded W2 deterministic-view slice are implemented in the
+current increment. Exact history staging/read, one-CAS publication, history-bound recovery,
+historical source reads, and five pure overview renderers are code-local. The authoritative amended
+boundary is [Persisted World-Model views](PERSISTED-WORLD-MODEL-VIEWS.md).
+
+### P0 — complete truthful production reuse
+
+- define or extend semantic owners/adapters for repository-domain, extraction-policy,
+  extractor-registry, completeness-record, consumer-profile, output-budget,
+  view-validation-receipt, renderer-contract, validator-contract, and tokenizer when token
+  measurement applies; deferred grounding/handoff/adoption also require publication-receipt,
+  admission-proof, source-authority, origin-authority, target-authority, and
+  adoption-authorization owners; never satisfy any role with an unrelated registered record;
+- construct model/view bindings from a completed registered-v4 build and publish their complete
+  closure with its current projection;
+- connect every view binding's model-payload and selected-ledger identity to one accepted model
+  binding and retained source Fact Ledger before enabling saved-view publication or reads; also
+  correlate scope and the validation receipt's candidate digest, and enforce the graph across
+  existing-plus-staged authority during publication;
+- resolve an exact accepted model/view binding before extraction at Story start and grounding
+  preparation, with typed miss/refusal and no hidden build from a read;
+- emit the immutable Story grounding reference and replay its exact original bytes after current
+  source, policy, renderer, or reports change, using a compatible successor to the structural v1
+  preview that binds expansion handles, ordering/separators, and packet-composer identity.
+
+### P1 — portable continuation and consumer cutover
+
+- implement verified handoff and foreign Candidate adoption through their source/authority owners,
+  including exact candidate-snapshot revision, authority-scope correlation, and an object-closure
+  digest derived from verified transferred objects;
+- move CLI, phase preparation, prompt composition, gate/review, IDE/FWM, and recovery consumers to
+  the exact history service without stale worktree fallback;
+- add the native VS Code persisted-model/view explorer over that same read-only service;
+- implement incremental parse/derivation reuse and prove identical output to a full rebuild.
+
+### Release evidence
+
+- qualify race/lost-response, cache-free fresh-clone, historical replay, migration, archive limits,
+  and corruption/security fixtures;
+- retain real Windows/macOS/Linux, linked-worktree, long-path, capacity, and cold/warm performance
+  evidence before advertising full WMP conformance.
 
 ## Pickup checklist
 

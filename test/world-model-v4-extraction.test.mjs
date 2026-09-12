@@ -18,7 +18,9 @@ import { BUILTIN_EXTRACTOR_REGISTRY } from '../src/world-model/registry/extracto
 import { sealRecord, sha256 } from '../src/world-model/canonicalize.mjs';
 import { createScopeManifest } from '../src/world-model/scope/manifest.mjs';
 import { classifyScopePath } from '../src/world-model/scope/matcher.mjs';
-import { createExactSourceSnapshot } from '../src/world-model/source/snapshot.mjs';
+import {
+  createExactSourceSnapshot, createExactSourceSnapshotAtRevision
+} from '../src/world-model/source/snapshot.mjs';
 
 function git(root, ...args) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -129,6 +131,41 @@ test('exact source and normalized scope produce repeatable, body-free registered
     (error) => error.code === 'WMB_SOURCE_SNAPSHOT_REQUIRED'
   );
   await unlink(dirty);
+});
+
+test('an explicit historical source read uses pinned Git objects and ignores current checkout bytes', async (t) => {
+  const root = await fixture(t);
+  const firstCommit = (() => {
+    const result = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+  })();
+  await writeFile(path.join(root, 'src', 'a.mjs'), 'export const current = true;\n');
+  git(root, 'add', 'src/a.mjs');
+  git(root, 'commit', '-qm', 'new current source');
+  await writeFile(path.join(root, 'src', 'a.mjs'), 'dirty checkout bytes\n');
+
+  const historical = createExactSourceSnapshotAtRevision(root, firstCommit, {
+    subjectId: 'fixture'
+  });
+  assert.equal(historical.revision.commit, firstCommit);
+  assert.equal(
+    historical.files.find((entry) => entry.path === 'src/a.mjs').contentSha256,
+    createExactSourceSnapshotAtRevision(root, firstCommit, { subjectId: 'fixture' })
+      .files.find((entry) => entry.path === 'src/a.mjs').contentSha256
+  );
+  assert.throws(
+    () => createExactSourceSnapshot(root, { subjectId: 'fixture' }),
+    (error) => error.code === 'WMB_SOURCE_SNAPSHOT_REQUIRED'
+  );
+  assert.throws(
+    () => createExactSourceSnapshotAtRevision(root, 'HEAD', { subjectId: 'fixture' }),
+    (error) => error.code === 'WMB_SOURCE_REVISION_INVALID'
+  );
+  assert.throws(
+    () => createExactSourceSnapshotAtRevision(root, 'f'.repeat(40), { subjectId: 'fixture' }),
+    (error) => error.code === 'WMB_SOURCE_OBJECT_UNAVAILABLE'
+  );
 });
 
 test('Fact registration enforces the exact allowed subject set', async (t) => {

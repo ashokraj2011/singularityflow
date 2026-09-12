@@ -5,11 +5,11 @@
   "type": "object",
   "required": [
     "schemaVersion", "kind", "id", "createdAt", "requestSha256", "planSha256",
-    "manifestSha256", "projectionSha256", "ledger", "publicationOptions", "publication",
-    "recoverySha256"
+    "manifestSha256", "projectionSha256", "historySha256", "ledger",
+    "publicationOptions", "publication", "recoverySha256"
   ],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
     "kind": { "const": "world-model-publication-recovery" },
     "id": { "type": "string", "pattern": "^wmb4-[a-f0-9]{32}$" },
     "createdAt": { "type": "string", "format": "date-time" },
@@ -17,6 +17,12 @@
     "planSha256": { "$ref": "#/$defs/hash" },
     "manifestSha256": { "$ref": "#/$defs/hash" },
     "projectionSha256": { "$ref": "#/$defs/hash" },
+    "historySha256": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/hash" }
+      ]
+    },
     "ledger": {
       "type": "object",
       "required": [
@@ -77,7 +83,39 @@
         "manifestPath": { "type": "string" },
         "manifest": { "type": "object" },
         "files": { "type": "object", "additionalProperties": { "type": "string" } },
-        "replaceRoots": { "type": "array", "items": { "type": "string" } }
+        "replaceRoots": { "type": "array", "items": { "type": "string" } },
+        "historyDir": { "type": "string" },
+        "historyAdditions": {
+          "type": "object",
+          "maxProperties": 100000,
+          "additionalProperties": { "type": "string" }
+        },
+        "historyExpectations": {
+          "type": "object",
+          "maxProperties": 100000,
+          "additionalProperties": {
+            "type": "object",
+            "required": ["condition", "sha256", "bytes", "gitMode"],
+            "properties": {
+              "condition": { "const": "absent-or-identical" },
+              "sha256": { "$ref": "#/$defs/hash" },
+              "bytes": { "type": "integer", "minimum": 0 },
+              "gitMode": { "const": "100644" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "exactBlobSha256": {
+          "type": "object",
+          "maxProperties": 100000,
+          "additionalProperties": { "$ref": "#/$defs/hash" }
+        }
+      },
+      "dependentRequired": {
+        "historyDir": ["historyAdditions", "historyExpectations", "exactBlobSha256"],
+        "historyAdditions": ["historyDir", "historyExpectations", "exactBlobSha256"],
+        "historyExpectations": ["historyDir", "historyAdditions", "exactBlobSha256"],
+        "exactBlobSha256": ["historyDir", "historyAdditions", "historyExpectations"]
       },
       "additionalProperties": false
     },

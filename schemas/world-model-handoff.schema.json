@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/world-model-handoff.schema.json",
+  "title": "WMP immutable cross-machine handoff manifest",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "repositoryDomainSha256", "authorityCut", "sourceBindingSha256", "modelBindings", "viewBindings", "inputObjects", "sourceObjects", "missing", "readerRequirements", "confidentiality", "adoption", "handoffSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "world-model-handoff" },
+    "repositoryDomainSha256": { "$ref": "#/$defs/hash" }, "authorityCut": { "$ref": "#/$defs/authorityCut" },
+    "sourceBindingSha256": { "$ref": "#/$defs/hash" }, "modelBindings": { "$ref": "#/$defs/objectRefs" },
+    "viewBindings": { "$ref": "#/$defs/objectRefs" }, "inputObjects": { "$ref": "#/$defs/objectRefs" },
+    "sourceObjects": { "type": "array", "maxItems": 100000, "items": { "$ref": "#/$defs/gitObject" } },
+    "missing": { "type": "array", "maxItems": 10000, "items": { "$ref": "#/$defs/missing" } },
+    "readerRequirements": { "type": "array", "maxItems": 1024, "items": { "$ref": "#/$defs/reader" } },
+    "confidentiality": { "$ref": "#/$defs/confidentiality" }, "adoption": { "$ref": "#/$defs/adoption" },
+    "handoffSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "git": { "type": "string", "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$" },
+    "typeId": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$", "maxLength": 128 },
+    "reasonCode": { "type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$", "maxLength": 128 },
+    "objectRef": {
+      "type": "object", "required": ["role", "family", "mediaType", "sha256", "bytes"],
+      "properties": {
+        "role": { "$ref": "#/$defs/typeId" }, "family": { "type": ["string", "null"], "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$", "maxLength": 128 },
+        "mediaType": { "enum": ["application/json", "text/markdown"] }, "sha256": { "$ref": "#/$defs/hash" },
+        "bytes": { "type": "integer", "minimum": 1, "maximum": 33554432 }
+      }, "additionalProperties": false
+    },
+    "objectRefs": { "type": "array", "maxItems": 100000, "items": { "$ref": "#/$defs/objectRef" } },
+    "authorityCut": {
+      "type": "object", "required": ["stateRef", "commit", "publicationRef"],
+      "properties": { "stateRef": { "type": "string", "pattern": "^refs/[A-Za-z0-9._/-]+$", "maxLength": 512 }, "commit": { "$ref": "#/$defs/git" }, "publicationRef": { "$ref": "#/$defs/objectRef" } },
+      "additionalProperties": false
+    },
+    "gitObject": {
+      "type": "object", "required": ["oid", "objectFormat", "type", "bytes", "sha256"],
+      "properties": { "oid": { "$ref": "#/$defs/git" }, "objectFormat": { "enum": ["sha1", "sha256"] }, "type": { "enum": ["commit", "tree", "blob", "tag"] }, "bytes": { "type": "integer", "minimum": 0, "maximum": 33554432 }, "sha256": { "$ref": "#/$defs/hash" } },
+      "additionalProperties": false
+    },
+    "missing": {
+      "type": "object", "required": ["kind", "id", "required", "reasonCode"],
+      "properties": { "kind": { "$ref": "#/$defs/typeId" }, "id": { "type": "string", "minLength": 1, "maxLength": 512 }, "required": { "type": "boolean" }, "reasonCode": { "$ref": "#/$defs/reasonCode" } },
+      "additionalProperties": false
+    },
+    "reader": {
+      "type": "object", "required": ["family", "minimumVersion", "maximumVersion"],
+      "properties": { "family": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$", "maxLength": 128 }, "minimumVersion": { "type": "integer", "minimum": 1 }, "maximumVersion": { "type": "integer", "minimum": 1 } },
+      "additionalProperties": false
+    },
+    "confidentiality": {
+      "type": "object", "required": ["classification", "exportAllowed"],
+      "properties": { "classification": { "enum": ["repository-authorized", "private-candidate"] }, "exportAllowed": { "type": "boolean" } },
+      "additionalProperties": false
+    },
+    "adoption": {
+      "type": "object", "required": ["required", "targetRepositoryDomainSha256", "authorizationRef"],
+      "properties": { "required": { "type": "boolean" }, "targetRepositoryDomainSha256": { "oneOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] }, "authorizationRef": { "oneOf": [{ "$ref": "#/$defs/objectRef" }, { "type": "null" }] } },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

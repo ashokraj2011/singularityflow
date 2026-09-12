@@ -9,12 +9,16 @@ import {
   validateExtractorManifest, validateExtractorRegistry
 } from '../src/world-model/registry/extractors.mjs';
 import {
+  REQUIRED_FACT_COVERAGE_ID, REQUIRED_FACT_COVERAGE_VERSION
+} from '../src/world-model/extract/adapters/required-fact-coverage.mjs';
+import {
   BUILTIN_EXTRACTOR_CONFORMANCE_IDS, extractorConformanceDeclaration,
   extractorConformanceReceiptSha256, verifyBuiltInExtractorConformance
 } from '../src/world-model/registry/extractor-conformance.mjs';
 import {
   assertInstalledViewRegistry, BUILTIN_VIEW_REFERENCES, BUILTIN_VIEW_REGISTRY,
-  resolveBuiltInViewContract, resolveViewContract, validateViewRegistry
+  resolveBuiltInViewContract, resolveViewContract, resolveWmpOverviewViewContract,
+  validateViewRegistry
 } from '../src/world-model/registry/views.mjs';
 import { planWorldModelV4 } from '../src/world-model/plan.mjs';
 
@@ -66,6 +70,21 @@ test('Extractor Registry is closed and binds deterministic no-network/no-model i
   const tampered = structuredClone(BUILTIN_EXTRACTOR_REGISTRY);
   tampered.manifests[0].permissions.model = 'optional';
   assert.throws(() => validateExtractorRegistry(tampered));
+});
+
+test('testing overview preserves the frozen coverage extractor and keeps test-impact optional', () => {
+  const coverage = resolveExtractorManifest(
+    BUILTIN_EXTRACTOR_REGISTRY,
+    `${REQUIRED_FACT_COVERAGE_ID}@${REQUIRED_FACT_COVERAGE_VERSION}`
+  );
+  assert.equal(REQUIRED_FACT_COVERAGE_VERSION, '1.0.1');
+  assert.equal(coverage.manifestSha256, 'sha256:d84e2ffb158eb8619c259ade1f9a9990c7adec197680ddea20d1ab7688236a4d');
+  assert.equal(BUILTIN_EXTRACTOR_REGISTRY.registrySha256, 'sha256:6bd03090d0ec684a054ba404c92b09f6309cf996e9b18a9cdfc509dc3faa460e');
+  assert.equal(coverage.factTypes.includes('test-impact'), false);
+
+  const testing = resolveWmpOverviewViewContract('testing');
+  assert.ok(testing.factPolicy.optionalFactTypes.includes('test-impact'));
+  assert.deepEqual(testing.factPolicy.requiredUnavailableSubjects, ['runtime-frequency']);
 });
 
 test('governed registry authority rejects coherently resealed same-version substitutes', () => {

@@ -37,6 +37,15 @@ function git(root, args, {
   return allowFailure ? result : result.stdout;
 }
 
+function offlineGitEnvironment(env = process.env) {
+  return {
+    ...env,
+    GIT_NO_LAZY_FETCH: '1',
+    GIT_TERMINAL_PROMPT: '0',
+    GCM_INTERACTIVE: 'Never'
+  };
+}
+
 function repositoryIdentity(root) {
   const commonDirectory = realpathSync(gitCommonDir(root));
   const objectFormat = String(git(root, ['rev-parse', '--show-object-format'])).trim();
@@ -59,9 +68,13 @@ function candidateRecordPath(root, sourceManifestSha256) {
   );
 }
 
-function exactIdentity(root) {
-  const commit = String(git(root, ['rev-parse', 'HEAD'])).trim();
-  const tree = String(git(root, ['rev-parse', 'HEAD^{tree}'])).trim();
+function exactIdentity(root, revision = 'HEAD', { env = undefined } = {}) {
+  const requested = String(revision ?? '').trim();
+  if (!requested || requested.startsWith('-') || /[\0\r\n]/.test(requested)) {
+    contractFailure('Exact source revision is invalid.', 'WMB_SOURCE_REVISION_INVALID');
+  }
+  const commit = String(git(root, ['rev-parse', '--verify', `${requested}^{commit}`], { env })).trim();
+  const tree = String(git(root, ['rev-parse', '--verify', `${commit}^{tree}`], { env })).trim();
   if (!COMMIT_PATTERN.test(commit) || !COMMIT_PATTERN.test(tree)) {
     contractFailure('Exact source requires a valid Git commit and tree identity.', 'WMB_SOURCE_SNAPSHOT_REQUIRED');
   }
@@ -89,8 +102,8 @@ function assertClean(root, scopeManifest = null) {
   }
 }
 
-function treeEntries(root, revision = 'HEAD') {
-  const output = String(git(root, ['ls-tree', '-r', '-z', '--full-tree', revision]));
+function treeEntries(root, revision = 'HEAD', { env = undefined } = {}) {
+  const output = String(git(root, ['ls-tree', '-r', '-z', '--full-tree', revision], { env }));
   return output.split('\0').filter(Boolean).map((row) => {
     const tab = row.indexOf('\t');
     if (tab < 0) contractFailure('Git tree returned an invalid source entry.', 'WMB_SOURCE_SNAPSHOT_REQUIRED');
@@ -118,15 +131,15 @@ function gitScopePathspecs(scopeManifest) {
   return [...(include.length ? include : [':(top,glob)**']), ...exclude];
 }
 
-function scopedSourceCommit(root, scopeManifest) {
+function scopedSourceCommit(root, scopeManifest, revision = 'HEAD', { env = undefined } = {}) {
   const commit = String(git(root, [
-    'log', '-1', '--format=%H', 'HEAD', '--', ...gitScopePathspecs(scopeManifest)
-  ])).trim();
+    'log', '-1', '--format=%H', revision, '--', ...gitScopePathspecs(scopeManifest)
+  ], { env })).trim();
   return COMMIT_PATTERN.test(commit) ? commit : null;
 }
 
-function blobBytes(root, objectId) {
-  return Buffer.from(git(root, ['cat-file', 'blob', objectId], { binary: true }));
+function blobBytes(root, objectId, { env = undefined } = {}) {
+  return Buffer.from(git(root, ['cat-file', 'blob', objectId], { binary: true, env }));
 }
 
 function fileType(mode) {
@@ -340,6 +353,82 @@ export function createExactSourceSnapshot(root, {
     kind: 'world-model-source-snapshot',
     subject: { kind: 'repository', id: subjectId },
     revision: before,
+    files,
+    lineEndingPolicy,
+    pathNormalization: 'posix-relative'
+  }, 'sourceManifestSha256'));
+}
+
+/**
+ * Read one explicit committed revision through Git objects without switching branches or
+ * consulting working-tree bytes.
+ *
+ * This is deliberately a distinct entry point from createExactSourceSnapshot: the latter proves
+ * that current governed source is clean and stable, while a historical read must remain useful in
+ * a dirty checkout and must not reinterpret the selected commit through checkout filters.
+ */
+export function createExactSourceSnapshotAtRevision(root, revision, {
+  subjectId = path.basename(path.resolve(root)),
+  lineEndingPolicy = 'preserve-source',
+  scopeManifest = null,
+  env = process.env
+} = {}) {
+  assertString(subjectId, 'Source subject ID');
+  const scope = scopeManifest ? validateScopeManifest(scopeManifest) : null;
+  const selected = String(revision ?? '').trim().toLowerCase();
+  if (!COMMIT_PATTERN.test(selected)) {
+    contractFailure(
+      'Historical source capture requires an exact full Git commit identity.',
+      'WMB_SOURCE_REVISION_INVALID', { revision: selected || null }
+    );
+  }
+  const localEnv = offlineGitEnvironment(env);
+  let requested;
+  let effective;
+  let files;
+  try {
+    requested = exactIdentity(root, selected, { env: localEnv });
+    const effectiveCommit = scope
+      ? scopedSourceCommit(root, scope, requested.commit, { env: localEnv }) ?? requested.commit
+      : requested.commit;
+    effective = exactIdentity(root, effectiveCommit, { env: localEnv });
+    files = treeEntries(root, effective.commit, { env: localEnv })
+      .filter((entry) => !scope || pathInsideScope(entry.path, scope))
+      .map((entry) => {
+        const bytes = blobBytes(root, entry.gitObjectId, { env: localEnv });
+        return {
+          path: entry.path,
+          type: fileType(entry.mode),
+          mode: entry.mode,
+          contentSha256: `sha256:${sha256Bytes(bytes)}`,
+          bytes: bytes.length
+        };
+      });
+  } catch (error) {
+    if (error?.code === 'WMB_SOURCE_REVISION_INVALID') throw error;
+    contractFailure(
+      'The exact historical source is not fully available in the local Git object store. Refresh the admitted authority explicitly before retrying.',
+      'WMB_SOURCE_OBJECT_UNAVAILABLE', {
+        revision: selected,
+        cause: error?.code ?? 'WMB_SOURCE_SNAPSHOT_REQUIRED'
+      }
+    );
+  }
+  const sourceRevision = scope
+    ? {
+        commit: effective.commit,
+        tree: sha256Bytes(Buffer.from(JSON.stringify(files.map((file) => ({
+          path: file.path,
+          mode: file.mode,
+          contentSha256: file.contentSha256
+        })))))
+      }
+    : effective;
+  return validateSourceSnapshot(sealRecord({
+    schemaVersion: currentSchemaVersion('world-model-source-snapshot'),
+    kind: 'world-model-source-snapshot',
+    subject: { kind: 'repository', id: subjectId },
+    revision: sourceRevision,
     files,
     lineEndingPolicy,
     pathNormalization: 'posix-relative'

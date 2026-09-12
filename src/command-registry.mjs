@@ -151,6 +151,7 @@ const WMB_V4_READ_OPERATIONS = new Set([
 ]);
 const WMB_V4_EXECUTION_OPERATIONS = new Set(['build', 'regenerate', 'migrate']);
 const WMB_V4_MODEL_FREE_MUTATIONS = new Set(['snapshot', 'refresh-authority']);
+const WMB_V4_HISTORY_ACTIONS = Object.freeze(['list', 'show']);
 const WMB_V4_OPERATIONS = new Set([
   ...WMB_V4_READ_OPERATIONS, ...WMB_V4_EXECUTION_OPERATIONS, ...WMB_V4_MODEL_FREE_MUTATIONS
 ]);
@@ -379,7 +380,7 @@ export const RESOLVER_SUBCOMMANDS = Object.freeze({
     .map(([name, actions]) => [name, Object.freeze([...actions.read, ...actions.mutation])])),
   wm: Object.freeze([...new Set([
     ...WM_MODEL_OPERATIONS, ...WM_NEVER_OPERATIONS, ...WMB_V4_OPERATIONS,
-    'ensure', 'ast', 'recovery'
+    'ensure', 'ast', 'recovery', 'history'
   ])]),
   workspace: Object.freeze([
     'copilot', 'impact', 'bootstrap', 'refresh-configuration', 'reinitialize',
@@ -895,6 +896,13 @@ function resolveWorldModelOperation(definition, positionals, options, context = 
     if (!WM_RECOVERY_ACTIONS.includes(action)) return unknownSubcommand('wm recovery', action, WM_RECOVERY_ACTIONS, 'action');
     return never(`wm.recovery.${action}`, definition, action === 'publish' ? 'mutation' : 'read');
   }
+  if (subcommand === 'history') {
+    const action = positionals[2] ?? 'list';
+    if (!WMB_V4_HISTORY_ACTIONS.includes(action)) {
+      return unknownSubcommand('wm history', action, WMB_V4_HISTORY_ACTIONS, 'action');
+    }
+    return never(`wm.history.${action}`, definition, 'read');
+  }
   const id = `wm.${subcommand}`;
   // Rendering a handoff is observational, but --record-audit deliberately creates the immutable
   // generation prompt/receipt and appends the exact VS Code handoff to prompt audit. Give that
@@ -1204,6 +1212,9 @@ export function operationCatalog() {
     .concat(['show', 'set'].map((name) => never(`wm.ast.preference.${name}`, commandDefinition('wm'), name === 'show' ? 'read' : 'mutation')));
   wm.push(...WM_RECOVERY_ACTIONS.map((name) => never(
     `wm.recovery.${name}`, commandDefinition('wm'), name === 'publish' ? 'mutation' : 'read'
+  )));
+  wm.push(...WMB_V4_HISTORY_ACTIONS.map((name) => never(
+    `wm.history.${name}`, commandDefinition('wm'), 'read'
   )));
   const workspace = [...WORKSPACE_NEVER_OPERATIONS]
     .map((name) => never(`workspace.${name}`, commandDefinition('workspace'), WORKSPACE_READ_OPERATIONS.has(name) ? 'read' : 'mutation'))

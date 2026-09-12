@@ -564,6 +564,8 @@ Every public operation is classified before its implementation module is importe
 | wm.evidence | read | never | — | — |
 | wm.extractors | read | never | — | — |
 | wm.facts | read | never | — | — |
+| wm.history.list | read | never | — | — |
+| wm.history.show | read | never | — | — |
 | wm.init | mutation | never | — | — |
 | wm.inject | mutation | never | — | — |
 | wm.light | mutation | never | — | — |

@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/world-model-view-binding.schema.json",
+  "title": "WMP immutable deterministic view binding",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "viewKey", "inputs", "viewInputsRef", "selectedFactLedgerRef", "rendererContractRef", "validatorContractRef", "status", "gaps", "selection", "rendered", "measurement", "validatorReceiptRef", "bindingSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "world-model-view-binding" },
+    "viewKey": { "$ref": "#/$defs/hash" },
+    "inputs": { "$ref": "#/$defs/viewInputsKey" },
+    "viewInputsRef": { "$ref": "#/$defs/objectRef" },
+    "selectedFactLedgerRef": { "$ref": "#/$defs/objectRef" },
+    "rendererContractRef": { "$ref": "#/$defs/objectRef" },
+    "validatorContractRef": { "$ref": "#/$defs/objectRef" },
+    "status": { "enum": ["complete", "limited"] },
+    "gaps": { "type": "array", "maxItems": 10000, "items": { "$ref": "#/$defs/gap" } },
+    "selection": { "$ref": "#/$defs/selection" },
+    "rendered": { "$ref": "#/$defs/objectRef" },
+    "measurement": { "$ref": "#/$defs/measurement" },
+    "validatorReceiptRef": { "$ref": "#/$defs/objectRef" },
+    "bindingSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "factId": { "type": "string", "pattern": "^FACT-[a-f0-9]{16,64}$" },
+    "typeId": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$", "maxLength": 256 },
+    "reasonCode": { "type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$", "maxLength": 128 },
+    "objectRef": {
+      "type": "object",
+      "required": ["role", "family", "mediaType", "sha256", "bytes"],
+      "properties": {
+        "role": { "$ref": "#/$defs/typeId" },
+        "family": { "type": ["string", "null"], "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$", "maxLength": 128 },
+        "mediaType": { "enum": ["application/json", "text/markdown"] },
+        "sha256": { "$ref": "#/$defs/hash" },
+        "bytes": { "type": "integer", "minimum": 1, "maximum": 33554432 }
+      },
+      "additionalProperties": false
+    },
+    "viewInputsKey": {
+      "type": "object",
+      "required": ["identityVersion", "modelPayloadSha256", "viewInputsSha256", "viewId", "viewVersion", "viewContractSha256", "rendererSha256", "validatorSha256", "consumerProfileSha256", "selectionSha256", "outputBudgetSha256", "tokenizerSha256", "format", "variant"],
+      "properties": {
+        "identityVersion": { "const": 1 },
+        "modelPayloadSha256": { "$ref": "#/$defs/hash" },
+        "viewInputsSha256": { "$ref": "#/$defs/hash" },
+        "viewId": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9-]*)+$", "maxLength": 128 },
+        "viewVersion": { "type": "integer", "minimum": 1 },
+        "viewContractSha256": { "$ref": "#/$defs/hash" },
+        "rendererSha256": { "$ref": "#/$defs/hash" },
+        "validatorSha256": { "$ref": "#/$defs/hash" },
+        "consumerProfileSha256": { "$ref": "#/$defs/hash" },
+        "selectionSha256": { "$ref": "#/$defs/hash" },
+        "outputBudgetSha256": { "$ref": "#/$defs/hash" },
+        "tokenizerSha256": { "oneOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] },
+        "format": { "enum": ["md", "json"] },
+        "variant": { "enum": ["full", "brief"] }
+      },
+      "additionalProperties": false
+    },
+    "gap": {
+      "type": "object",
+      "required": ["code", "required", "subject", "reference"],
+      "properties": {
+        "code": { "$ref": "#/$defs/reasonCode" },
+        "required": { "type": "boolean" },
+        "subject": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "reference": { "oneOf": [{ "$ref": "#/$defs/objectRef" }, { "type": "null" }] }
+      },
+      "additionalProperties": false
+    },
+    "selection": {
+      "type": "object",
+      "required": ["mode", "selectedFactIds", "omittedFactIds", "manifestRef"],
+      "properties": {
+        "mode": { "enum": ["inline", "manifest"] },
+        "selectedFactIds": { "type": "array", "maxItems": 100000, "uniqueItems": true, "items": { "$ref": "#/$defs/factId" } },
+        "omittedFactIds": { "type": "array", "maxItems": 100000, "uniqueItems": true, "items": { "$ref": "#/$defs/factId" } },
+        "manifestRef": { "oneOf": [{ "$ref": "#/$defs/objectRef" }, { "type": "null" }] }
+      },
+      "additionalProperties": false
+    },
+    "measurement": {
+      "type": "object",
+      "required": ["bytes", "tokens", "tokenizerSha256"],
+      "properties": {
+        "bytes": { "type": "integer", "minimum": 1, "maximum": 33554432 },
+        "tokens": { "type": ["integer", "null"], "minimum": 0 },
+        "tokenizerSha256": { "oneOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

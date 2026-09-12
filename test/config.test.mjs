@@ -355,6 +355,37 @@ test('world-model on-demand policy permits automatic deterministic light builds 
   );
 });
 
+test('world-model immutable history root is portable and disjoint from the current projection', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-world-model-history-config-'));
+  await initializeDefinition(root);
+  const definition = await loadDefinition(root);
+  assert.equal(definition.worldModel.historyDir, 'singularity/world-model-history');
+  definition.worldModel.format = 'registered-v4';
+  definition.worldModel.historyDir = 'singularity/world-model/history';
+  assert.throws(
+    () => validateDefinition(definition),
+    (error) => error.code === 'WMP_HISTORY_ROOT_OVERLAP'
+  );
+  definition.worldModel.historyDir = 'C:\\world-model-history';
+  assert.throws(
+    () => validateDefinition(definition),
+    (error) => error.code === 'WMP_HISTORY_PATH_INVALID'
+  );
+
+  // A legacy-v3 repository created before immutable history existed keeps its previously valid
+  // output path even after packaged refresh adds historyDir. Selecting registered-v4 is the
+  // explicit transition into the stricter paired-root boundary.
+  definition.worldModel.format = 'legacy-v3';
+  definition.worldModel.outputDir = 'singularity';
+  definition.worldModel.historyDir = 'singularity/world-model-history';
+  assert.doesNotThrow(() => validateDefinition(definition));
+  definition.worldModel.format = 'registered-v4';
+  assert.throws(
+    () => validateDefinition(definition),
+    (error) => error.code === 'WMP_HISTORY_ROOT_OVERLAP'
+  );
+});
+
 test('design-source policy rejects inactive, duplicate, and invalid lifecycle declarations', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-design-source-config-'));
   await initializeDefinition(root);

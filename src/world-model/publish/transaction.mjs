@@ -14,6 +14,7 @@ import { materializeWorldModelView } from '../materialize/view.mjs';
 import {
   augmentRegistrationForMigrationReceipt, validateWorldModelMigrationReceipt
 } from '../migration/v3-to-v4.mjs';
+import { validateStagedWorldModelHistory } from '../history/publication.mjs';
 import { parseWorldModelViewKernelStamp } from '../materialize/stamp.mjs';
 import { createWorldModelViewOutputBudget } from '../plan.mjs';
 import { assertInstalledExtractorRegistry } from '../registry/extractors.mjs';
@@ -51,6 +52,13 @@ const REQUIRED_PROJECTION_FILES = Object.freeze([
   'profiles/output-budget.json'
 ]);
 const MIGRATION_PATH_PATTERN = /^migrations\/[a-f0-9]{64}\.json$/;
+// Publication recovery stores the complete canonical staged map in a 128 MiB immutable sidecar.
+// Keep a deliberate 32 MiB envelope margin for the recovery identity, authority and JSON framing.
+const MAXIMUM_RECOVERABLE_STAGED_PUBLICATION_BYTES = 96 * 1024 * 1024;
+// Recovery v1 predated the staged-publication sub-limit. Its complete sealed sidecar was already
+// bounded to 128 MiB, so a stored v1 marker inside that old envelope must remain readable even
+// when its projection is larger than the limit applied to newly created markers.
+const MAXIMUM_LEGACY_V1_STAGED_PUBLICATION_BYTES = 128 * 1024 * 1024;
 
 function safeOutputDirectory(value) {
   const original = String(value ?? 'singularity/world-model').trim().replaceAll('\\', '/').replace(/\/$/, '');
@@ -62,6 +70,26 @@ function safeOutputDirectory(value) {
     });
   }
   return normalized;
+}
+
+function validateStagedHistory(publication, outputDir) {
+  const fields = [
+    'historyDir', 'historyAdditions', 'historyExpectations', 'exactBlobSha256'
+  ];
+  const supplied = fields.filter((field) => Object.hasOwn(publication, field));
+  if (!supplied.length) return null;
+  if (supplied.length !== fields.length) {
+    incomplete('World-model history publication must supply its complete staged envelope.', {
+      required: fields, supplied
+    });
+  }
+  return validateStagedWorldModelHistory({
+    outputDir,
+    historyDir: publication.historyDir,
+    historyAdditions: publication.historyAdditions,
+    historyExpectations: publication.historyExpectations,
+    exactBlobSha256: publication.exactBlobSha256
+  });
 }
 
 function addFile(files, relative, contents) {
@@ -446,11 +474,12 @@ function validateStagedAvailableView({
  * Reconstruct and validate the complete in-memory projection before any state-branch mutation.
  * The returned copy contains only verified immutable strings, closing the validation/publish TOCTOU.
  */
-export function validateStagedWorldModelPublication(publication) {
+function validateStagedWorldModelPublicationWithLimit(publication, maximumRecoverableBytes) {
   if (!isPlainRecord(publication) || !isPlainRecord(publication.files)) {
     incomplete('World-model publication must be a staged plain-object projection.');
   }
   const outputDir = safeOutputDirectory(publication.outputDir);
+  const history = validateStagedHistory(publication, outputDir);
   const manifestPath = path.posix.join(outputDir, 'manifest.json');
   if (publication.manifestPath !== manifestPath
       || !Array.isArray(publication.replaceRoots)
@@ -574,19 +603,45 @@ export function validateStagedWorldModelPublication(publication) {
     projections,
     allowUnavailableOptionalViews: manifest.completeness.unavailableOptionalViews > 0
   });
-  return Object.freeze({
+  const result = Object.freeze({
     outputDir,
     manifestPath,
     manifest: Object.freeze(manifest),
     files,
     replaceRoots: Object.freeze([outputDir]),
-    projections: Object.freeze(projections)
+    projections: Object.freeze(projections),
+    ...(history ?? {})
   });
+  const stagedBytes = Buffer.byteLength(canonicalJson(result), 'utf8');
+  if (stagedBytes > maximumRecoverableBytes) {
+    incomplete(
+      'World-model publication exceeds the bounded recovery envelope; split retained history into smaller admitted publications.',
+      {
+        bytes: stagedBytes,
+        maximumBytes: maximumRecoverableBytes
+      }
+    );
+  }
+  return result;
 }
 
-/** Recheck mutable non-source authority immediately before retaining or publishing a projection. */
-export async function validateStagedProjectionAuthorityAgainstSource(root, publication) {
-  const verified = validateStagedWorldModelPublication(publication);
+export function validateStagedWorldModelPublication(publication) {
+  return validateStagedWorldModelPublicationWithLimit(
+    publication, MAXIMUM_RECOVERABLE_STAGED_PUBLICATION_BYTES
+  );
+}
+
+/** Read-only compatibility boundary for recovery sidecars stored by the v1 writer. */
+export function validateMigratedV1StagedWorldModelPublication(publication) {
+  return validateStagedWorldModelPublicationWithLimit(
+    publication, MAXIMUM_LEGACY_V1_STAGED_PUBLICATION_BYTES
+  );
+}
+
+async function validateStagedProjectionAuthorityAgainstSourceWith(
+  root, publication, validatePublication
+) {
+  const verified = validatePublication(publication);
   if (!(verified.projections ?? []).some((projection) => projection.status === 'available')) {
     return verified;
   }
@@ -634,6 +689,19 @@ export async function validateStagedProjectionAuthorityAgainstSource(root, publi
     )
   }, current);
   return verified;
+}
+
+/** Recheck mutable non-source authority immediately before retaining or publishing a projection. */
+export async function validateStagedProjectionAuthorityAgainstSource(root, publication) {
+  return validateStagedProjectionAuthorityAgainstSourceWith(
+    root, publication, validateStagedWorldModelPublication
+  );
+}
+
+async function validateMigratedV1ProjectionAuthorityAgainstSource(root, publication) {
+  return validateStagedProjectionAuthorityAgainstSourceWith(
+    root, publication, validateMigratedV1StagedWorldModelPublication
+  );
 }
 
 /**
@@ -740,7 +808,9 @@ export function stageWorldModelMigrationPublication(publication, migrationReceip
  */
 export function stageWorldModelPublication({
   outputDir = 'singularity/world-model', manifest, dependencies, views,
-  records = {}, allowUnavailableOptionalViews = false, projections = []
+  records = {}, allowUnavailableOptionalViews = false, projections = [],
+  historyDir = undefined, historyAdditions = undefined, historyExpectations = undefined,
+  exactBlobSha256 = undefined
 } = {}) {
   const target = safeOutputDirectory(outputDir);
   const verified = verifyWorldModelManifest(manifest, {
@@ -802,17 +872,35 @@ export function stageWorldModelPublication({
     manifestPath: path.posix.join(target, 'manifest.json'),
     manifest: verified.manifest,
     files: Object.freeze(files),
-    replaceRoots: Object.freeze([target])
+    replaceRoots: Object.freeze([target]),
+    ...(historyDir !== undefined || historyAdditions !== undefined
+      || historyExpectations !== undefined || exactBlobSha256 !== undefined ? {
+        historyDir, historyAdditions, historyExpectations, exactBlobSha256
+      } : {})
   });
 }
 
-/** Publish the already verified transaction with the existing exact-CAS state-branch writer. */
-export async function publishWorldModelTransaction(root, ledgerConfig, publication, {
-  message = '[world-model][wmb-v4] publish registered views',
-  publisher = publishToStateBranch,
-  ...publicationOptions
-} = {}) {
-  const verified = await validateStagedProjectionAuthorityAgainstSource(root, publication);
+async function publishWorldModelTransactionWith(
+  root, ledgerConfig, publication, options, validatePublicationAuthority
+) {
+  const {
+    message = '[world-model][wmb-v4] publish registered views',
+    publisher = publishToStateBranch,
+    ...publicationOptions
+  } = options;
+  const verified = await validatePublicationAuthority(root, publication);
+  // WMB publications replace only the compatible current projection. Immutable history is
+  // additive and can never be retired through the generic state-writer escape hatch. Keeping
+  // removePaths entirely outside this transaction also protects custom history roots which a
+  // projection-only caller did not include in its staged envelope.
+  if (publicationOptions.removePaths !== undefined
+      && (!Array.isArray(publicationOptions.removePaths)
+        || publicationOptions.removePaths.length !== 0)) {
+    throw new SingularityFlowError(
+      'World-model publication cannot remove state-branch paths; immutable history is append-only.',
+      { code: 'WMP_HISTORY_DELETE_REFUSED' }
+    );
+  }
   validateStagedRegistrationAgainstSource(root, verified);
   for (const projection of verified.projections ?? []) {
     if (projection.status !== 'available') continue;
@@ -827,13 +915,82 @@ export async function publishWorldModelTransaction(root, ledgerConfig, publicati
       incomplete(`Projection '${projection.projectionId}' did not reproduce its official validator receipt at publication.`);
     }
   }
-  const result = await publisher(root, ledgerConfig, verified.files, message, {
+  const mergePublicationMap = (label, supplied, retained) => {
+    if (supplied !== undefined && !isPlainRecord(supplied)) {
+      incomplete(`World-model publication ${label} must be a plain-object path map.`);
+    }
+    const merged = { ...(supplied ?? {}) };
+    for (const [target, value] of Object.entries(retained ?? {})) {
+      if (Object.hasOwn(merged, target)
+          && canonicalJson(merged[target]) !== canonicalJson(value)) {
+        incomplete(`World-model history conflicts with an existing ${label} entry at '${target}'.`, {
+          path: target
+        });
+      }
+      merged[target] = value;
+    }
+    return Object.freeze(merged);
+  };
+  const writerOptions = verified.historyAdditions ? {
+    ...publicationOptions,
+    replaceRoots: verified.replaceRoots,
+    pathPreconditions: mergePublicationMap(
+      'pathPreconditions', publicationOptions.pathPreconditions, verified.historyExpectations
+    ),
+    exactBlobSha256: mergePublicationMap(
+      'exactBlobSha256', publicationOptions.exactBlobSha256, verified.exactBlobSha256
+    )
+  } : {
     ...publicationOptions,
     replaceRoots: verified.replaceRoots
-  });
+  };
+  let result;
+  try {
+    result = await publisher(root, ledgerConfig, {
+      ...verified.files,
+      ...(verified.historyAdditions ?? {})
+    }, message, writerOptions);
+  } catch (error) {
+    if (error?.code === 'state_branch.path_precondition_failed'
+        && Object.hasOwn(verified.historyExpectations ?? {}, error.details?.path)) {
+      throw new SingularityFlowError(
+        `Immutable World-model history conflicts at '${error.details.path}'.`,
+        {
+          code: 'WMP_IDENTITY_CONFLICT',
+          details: {
+            path: error.details.path,
+            expectedSha256: error.details.expectedSha256 ?? null,
+            observed: error.details.observed ?? null
+          },
+          cause: error
+        }
+      );
+    }
+    throw error;
+  }
   return Object.freeze({
     ...result,
     manifestSha256: verified.manifest.manifestSha256,
     manifestPath: verified.manifestPath
   });
+}
+
+/** Publish the already verified transaction with the existing exact-CAS state-branch writer. */
+export async function publishWorldModelTransaction(
+  root, ledgerConfig, publication, options = {}
+) {
+  return publishWorldModelTransactionWith(
+    root, ledgerConfig, publication, options,
+    validateStagedProjectionAuthorityAgainstSource
+  );
+}
+
+/** Resume only an already authenticated recovery marker written by the v1 sidecar format. */
+export async function publishMigratedV1WorldModelRecoveryTransaction(
+  root, ledgerConfig, publication, options = {}
+) {
+  return publishWorldModelTransactionWith(
+    root, ledgerConfig, publication, options,
+    validateMigratedV1ProjectionAuthorityAgainstSource
+  );
 }

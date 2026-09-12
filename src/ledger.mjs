@@ -498,6 +498,148 @@ async function hashExactStateBlob(worktree, bytes, { env = process.env } = {}) {
   }
 }
 
+function normalizeStatePathPreconditions(value, safePath) {
+  if (value == null) return new Map();
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw new SingularityFlowError('State-branch path preconditions must be an object.', {
+      code: 'state_branch.path_precondition_invalid'
+    });
+  }
+  const normalized = new Map();
+  for (const [untrustedPath, untrustedCondition] of Object.entries(value)) {
+    const target = safePath(untrustedPath);
+    if (normalized.has(target)) {
+      throw new SingularityFlowError(
+        `State-branch path preconditions repeat normalized path '${target}'.`,
+        { code: 'state_branch.path_precondition_invalid', details: { path: target } }
+      );
+    }
+    if (!untrustedCondition || typeof untrustedCondition !== 'object'
+        || Array.isArray(untrustedCondition)) {
+      throw new SingularityFlowError(
+        `State-branch path precondition for '${target}' must be an object.`,
+        { code: 'state_branch.path_precondition_invalid', details: { path: target } }
+      );
+    }
+    const keys = Object.keys(untrustedCondition).sort();
+    const expectedKeys = untrustedCondition.condition === 'absent'
+      ? ['condition'] : ['bytes', 'condition', 'gitMode', 'sha256'];
+    if (JSON.stringify(keys) !== JSON.stringify(expectedKeys)) {
+      throw new SingularityFlowError(
+        `State-branch path precondition for '${target}' has an invalid shape.`,
+        { code: 'state_branch.path_precondition_invalid', details: { path: target } }
+      );
+    }
+    const condition = String(untrustedCondition.condition ?? '');
+    if (!['absent', 'exact', 'absent-or-identical'].includes(condition)) {
+      throw new SingularityFlowError(
+        `State-branch path precondition for '${target}' has unsupported condition '${condition}'.`,
+        { code: 'state_branch.path_precondition_invalid', details: { path: target } }
+      );
+    }
+    if (condition === 'absent') {
+      normalized.set(target, Object.freeze({ condition }));
+      continue;
+    }
+    const expectedSha256 = String(untrustedCondition.sha256 ?? '');
+    const expectedBytes = untrustedCondition.bytes;
+    const gitMode = String(untrustedCondition.gitMode ?? '');
+    if (!/^sha256:[a-f0-9]{64}$/.test(expectedSha256)
+        || !Number.isSafeInteger(expectedBytes) || expectedBytes < 0
+        || expectedBytes > 256 * 1024 * 1024
+        || gitMode !== '100644') {
+      throw new SingularityFlowError(
+        `State-branch path precondition for '${target}' has invalid bytes, digest, or Git mode.`,
+        { code: 'state_branch.path_precondition_invalid', details: { path: target } }
+      );
+    }
+    normalized.set(target, Object.freeze({
+      condition, sha256: expectedSha256, bytes: expectedBytes, gitMode
+    }));
+  }
+  return normalized;
+}
+
+function stateTreePath(root, commit, target, { env = process.env } = {}) {
+  const listed = git(root, ['ls-tree', '-z', commit, '--', target], { env }).stdout;
+  const exact = listed.split('\0').filter(Boolean).filter((row) => {
+    const tab = row.indexOf('\t');
+    return tab >= 0 && row.slice(tab + 1) === target;
+  });
+  if (!exact.length) return null;
+  if (exact.length !== 1) {
+    throw new SingularityFlowError(
+      `State-branch path '${target}' resolved ambiguously at the publication base.`,
+      { code: 'state_branch.path_precondition_failed', details: { path: target } }
+    );
+  }
+  const tab = exact[0].indexOf('\t');
+  const [mode, type, object] = exact[0].slice(0, tab).split(/\s+/);
+  return Object.freeze({ mode, type, object });
+}
+
+function statePathPreconditionFailure(target, expected, observed) {
+  return new SingularityFlowError(
+    `State-branch path precondition failed for '${target}'.`,
+    {
+      code: 'state_branch.path_precondition_failed',
+      details: {
+        path: target,
+        condition: expected.condition,
+        expectedSha256: expected.sha256 ?? null,
+        expectedBytes: expected.bytes ?? null,
+        expectedGitMode: expected.gitMode ?? null,
+        observed
+      }
+    }
+  );
+}
+
+function assertStatePathPreconditions(worktree, commit, preconditions, {
+  env = process.env
+} = {}) {
+  for (const [target, expected] of preconditions) {
+    const entry = stateTreePath(worktree, commit, target, { env });
+    if (entry == null) {
+      if (expected.condition === 'exact') {
+        throw statePathPreconditionFailure(target, expected, null);
+      }
+      continue;
+    }
+    if (expected.condition === 'absent') {
+      throw statePathPreconditionFailure(target, expected, {
+        gitMode: entry.mode, gitType: entry.type, object: entry.object
+      });
+    }
+    if (entry.type !== 'blob' || entry.mode !== expected.gitMode) {
+      throw statePathPreconditionFailure(target, expected, {
+        gitMode: entry.mode, gitType: entry.type, object: entry.object
+      });
+    }
+    const sizeResult = git(worktree, ['cat-file', '-s', entry.object], {
+      allowFailure: true, env
+    });
+    const observedBytes = sizeResult.status === 0 ? Number(sizeResult.stdout.trim()) : null;
+    if (observedBytes !== expected.bytes) {
+      throw statePathPreconditionFailure(target, expected, {
+        gitMode: entry.mode, gitType: entry.type, object: entry.object,
+        bytes: Number.isSafeInteger(observedBytes) ? observedBytes : null,
+        sha256: null
+      });
+    }
+    const bytes = git(worktree, ['cat-file', 'blob', entry.object], {
+      env, encoding: 'buffer', maxBuffer: expected.bytes + 1024
+    }).stdout;
+    const observedSha256 = Buffer.isBuffer(bytes) ? `sha256:${sha256(bytes)}` : null;
+    if (observedSha256 !== expected.sha256) {
+      throw statePathPreconditionFailure(target, expected, {
+        gitMode: entry.mode, gitType: entry.type, object: entry.object,
+        bytes: observedBytes, sha256: observedSha256
+      });
+    }
+  }
+}
+
 async function writeCanonicalJson(file, value) {
   await writeAtomic(file, canonicalJson(value));
 }
@@ -1218,12 +1360,13 @@ export async function appendLedgerIntent(root, rawConfig, intent, publishedCommi
  * `files` are removed. `removePaths` names additional exact managed files to retire. No path outside
  * an explicitly named replacement root or exact removal is ever pruned. `exactBlobSha256` maps
  * authority-bearing paths to their reviewed SHA-256; those bytes bypass worktree filters and are
- * verified in the temporary index and commit before any push.
+ * verified in the temporary index and commit before any push. `pathPreconditions` are checked
+ * against the exact publication-base tree before staging and share the branch compare-and-swap.
  */
 export async function publishToStateBranch(root, rawConfig, files, message, {
   replaceRoots = [], removePaths = [], expectedRemoteSha: suppliedExpectedRemoteSha = undefined,
   baseRef: suppliedBaseRef = null, refreshRemote = true, guardedRemoteRefs = {},
-  env = process.env, transportRemote = undefined, exactBlobSha256 = {}
+  env = process.env, transportRemote = undefined, exactBlobSha256 = {}, pathPreconditions = {}
 } = {}) {
   const config = normalizeLedgerConfig(rawConfig);
   const sourceGuards = normalizedGuardedRemoteRefs(root, guardedRemoteRefs, { env });
@@ -1246,6 +1389,7 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
   }
   const replacementRoots = [...new Set((replaceRoots ?? []).map(safePath))].sort();
   const exactRemovals = [...new Set((removePaths ?? []).map(safePath))].sort();
+  const preconditions = normalizeStatePathPreconditions(pathPreconditions, safePath);
   if (!exactBlobSha256 || typeof exactBlobSha256 !== 'object'
       || Array.isArray(exactBlobSha256)) {
     throw new SingularityFlowError('Exact state-branch blob expectations must be an object.');
@@ -1315,6 +1459,7 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
   }).stdout.trim();
 
   return temporaryWorktree(root, publicationBase, async (worktree) => {
+    assertStatePathPreconditions(worktree, publicationBaseCommit, preconditions, { env });
     const desired = new Set(entries.map(([file]) => file));
     const removed = new Set(exactRemovals.filter((file) => !desired.has(file)));
     for (const replacementRoot of replacementRoots) {

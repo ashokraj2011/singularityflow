@@ -18,12 +18,13 @@ function section(id, title, sectionKind = 'factual') {
 }
 
 function contract({ id, title, sections, requiredFactTypes, optionalFactTypes, requiredUnavailableSubjects,
-  maximumSelectedFacts, tldrMaximumWords, sectionMaximumWords, totalMaximumWords }) {
+  maximumSelectedFacts, tldrMaximumWords, sectionMaximumWords, totalMaximumWords,
+  version = 4, modelMode = 'optional' }) {
   return sealRecord({
     schemaVersion: currentSchemaVersion('world-model-view-contract'),
     kind: 'world-model-view-contract',
     id,
-    version: 4,
+    version,
     title,
     publisher: { id: 'sflow-core' },
     sections,
@@ -43,7 +44,7 @@ function contract({ id, title, sections, requiredFactTypes, optionalFactTypes, r
       factualUnitsRequireFactRefs: true
     },
     facts: { maximumSelectedFacts, canonicalBlock: 'kernel-materialized' },
-    model: { mode: 'optional', outputSchema: 'world-model-composition-candidate-v1' },
+    model: { mode: modelMode, outputSchema: 'world-model-composition-candidate-v1' },
     budgets: { maximumInputTokens: 8000, maximumOutputTokens: 1400 },
     risk: { class: 'low' },
     validity: { status: 'active' }
@@ -120,6 +121,138 @@ const BUILTINS = [
     tldrMaximumWords: 120,
     sectionMaximumWords: 250,
     totalMaximumWords: 700
+  })
+].map(validateViewContract);
+
+/*
+ * Persisted overview views are intentionally a separate namespace and registry. They are pure
+ * WMP projections and must not change the meaning, defaults, or aliases of the established WMB
+ * v4 contracts above. Their presentation aliases are resolved only by the WMP-specific resolver
+ * exported below.
+ */
+const WMP_OVERVIEW_BUILTINS = [
+  contract({
+    id: 'repository.business',
+    version: 1,
+    modelMode: 'never',
+    title: 'Repository business overview',
+    sections: [
+      section('declared-purpose', 'Declared purpose'),
+      section('documented-surfaces', 'Documented surfaces'),
+      section('observed-entry-points', 'Observed entry points and commands'),
+      section('capability-and-consumer-references', 'Capability and consumer references'),
+      section('input-provenance', 'Input provenance'),
+      section('unverified-business-context', 'Unverified business context', 'unavailable')
+    ],
+    requiredFactTypes: [],
+    optionalFactTypes: [
+      'business-glossary', 'business-meaning', 'configuration-object', 'consumer-dependency',
+      'export', 'file-exists', 'interface', 'language-detected', 'protocol-field',
+      'rule-definition', 'schema-contract'
+    ],
+    requiredUnavailableSubjects: ['business-meaning', 'consumer-dependency'],
+    maximumSelectedFacts: 80,
+    tldrMaximumWords: 80,
+    sectionMaximumWords: 180,
+    totalMaximumWords: 700
+  }),
+  contract({
+    id: 'repository.architecture',
+    version: 1,
+    modelMode: 'never',
+    title: 'Repository architecture overview',
+    sections: [
+      section('modules-and-boundaries', 'Modules and boundaries'),
+      section('imports-and-dependencies', 'Imports and dependencies'),
+      section('contracts-and-declarations', 'Contracts and declarations'),
+      section('unresolved-relationships', 'Unresolved relationships', 'unavailable'),
+      section('declared-observed-differences', 'Declared and observed differences', 'contradiction')
+    ],
+    requiredFactTypes: [],
+    optionalFactTypes: [
+      'configuration-object', 'consumer-dependency', 'dependency-analysis', 'dependency-edge',
+      'file-exists', 'implementation', 'import-dependency', 'interface', 'protocol-field',
+      'schema-contract', 'signature', 'symbol-index'
+    ],
+    requiredUnavailableSubjects: ['runtime-guarantee'],
+    maximumSelectedFacts: 100,
+    tldrMaximumWords: 80,
+    sectionMaximumWords: 180,
+    totalMaximumWords: 700
+  }),
+  contract({
+    id: 'repository.development',
+    version: 1,
+    modelMode: 'never',
+    title: 'Repository development overview',
+    sections: [
+      section('files-and-symbols', 'Files and symbols'),
+      section('signatures-and-dependencies', 'Signatures and dependencies'),
+      section('change-and-history', 'Change and history'),
+      section('parser-coverage', 'Parser coverage'),
+      section('evidence-limitations', 'Evidence limitations', 'unavailable')
+    ],
+    requiredFactTypes: [],
+    optionalFactTypes: [
+      'change-frequency', 'changed-symbol', 'complexity-metric', 'dependency-degree',
+      'dependency-edge', 'export', 'file-exists', 'import-dependency', 'language-detected',
+      'ownership-concentration', 'signature', 'structural-impact', 'symbol-exists', 'symbol-index'
+    ],
+    requiredUnavailableSubjects: ['runtime-frequency'],
+    maximumSelectedFacts: 100,
+    tldrMaximumWords: 80,
+    sectionMaximumWords: 180,
+    totalMaximumWords: 700
+  }),
+  contract({
+    id: 'repository.security',
+    version: 1,
+    modelMode: 'never',
+    title: 'Repository security overview',
+    sections: [
+      section('policy-classification-and-ownership', 'Policy, classification, and ownership'),
+      section('dependencies-and-effects', 'Dependencies and effects'),
+      section('admitted-security-observations', 'Admitted security observations'),
+      section('security-limitations', 'Security limitations', 'unavailable'),
+      section('contradictions', 'Contradictions', 'contradiction')
+    ],
+    requiredFactTypes: [],
+    optionalFactTypes: [
+      'configuration-object', 'consumer-dependency', 'dependency-edge', 'incident-mapping',
+      'interface', 'maintainer-record', 'ownership-concentration', 'runtime-frequency',
+      'runtime-guarantee', 'schema-contract'
+    ],
+    requiredUnavailableSubjects: ['runtime-guarantee'],
+    maximumSelectedFacts: 80,
+    tldrMaximumWords: 80,
+    sectionMaximumWords: 180,
+    totalMaximumWords: 650
+  }),
+  contract({
+    id: 'repository.testing',
+    version: 1,
+    modelMode: 'never',
+    title: 'Repository testing overview',
+    sections: [
+      section('test-identities', 'Test identities'),
+      section('test-relationships', 'Test relationships'),
+      section('clause-bindings', 'Clause bindings'),
+      section('execution-and-coverage', 'Execution and coverage observations'),
+      section('extraction-gaps', 'Extraction gaps', 'unavailable')
+    ],
+    requiredFactTypes: [],
+    optionalFactTypes: [
+      'clause-binding', 'dependency-edge', 'runtime-frequency', 'structural-impact',
+      'test-identity', 'test-impact'
+    ],
+    // Preserve the frozen required-fact-coverage@1.0.1 identity. test-impact remains optional and
+    // is included when the change-region producer has evidence; runtime-frequency is the
+    // established coverage-owned limitation shown when no execution observation exists.
+    requiredUnavailableSubjects: ['runtime-frequency'],
+    maximumSelectedFacts: 100,
+    tldrMaximumWords: 80,
+    sectionMaximumWords: 180,
+    totalMaximumWords: 650
   })
 ].map(validateViewContract);
 
@@ -252,6 +385,18 @@ export const BUILTIN_VIEW_IDS = Object.freeze(BUILTIN_VIEW_REGISTRY.contracts
   .filter((item) => item.validity.status === 'active')
   .map((item) => item.id));
 
+export const WMP_OVERVIEW_VIEW_ALIASES = deepFreeze({
+  architecture: 'repository.architecture@1',
+  business: 'repository.business@1',
+  development: 'repository.development@1',
+  security: 'repository.security@1',
+  testing: 'repository.testing@1'
+});
+export const WMP_OVERVIEW_VIEW_REGISTRY = deepFreeze(createViewRegistry(WMP_OVERVIEW_BUILTINS));
+export const WMP_OVERVIEW_VIEW_REFERENCES = Object.freeze(
+  WMP_OVERVIEW_VIEW_REGISTRY.contracts.map((item) => `${item.id}@${item.version}`)
+);
+
 /** Normalize an optional-version configured reference to one exact installed contract. */
 export function normalizeBuiltInViewReference(reference, { requireActive = true } = {}) {
   const parsed = /^(?<id>[a-z][a-z0-9]*(?:\.[a-z][a-z0-9-]*)+)(?:@(?<version>[1-9][0-9]*))?$/
@@ -291,6 +436,56 @@ export function normalizeBuiltInViewReference(reference, { requireActive = true 
   });
 }
 
+/** Resolve one presentation alias or exact WMP overview reference without touching WMB aliases. */
+export function normalizeWmpOverviewViewReference(reference, { requireActive = true } = {}) {
+  const requested = String(reference ?? '').trim();
+  const aliased = WMP_OVERVIEW_VIEW_ALIASES[requested] ?? requested;
+  const parsed = /^(?<id>repository\.[a-z][a-z0-9-]*)(?:@(?<version>[1-9][0-9]*))?$/
+    .exec(aliased)?.groups;
+  if (!parsed) {
+    contractFailure(
+      `Persisted overview view '${reference}' must be a WMP alias or repository.* exact reference.`,
+      'WMP_VIEW_UNKNOWN',
+      {
+        view: reference,
+        aliases: Object.keys(WMP_OVERVIEW_VIEW_ALIASES),
+        registeredViews: [...WMP_OVERVIEW_VIEW_REFERENCES]
+      }
+    );
+  }
+  const requestedVersion = parsed.version == null ? null : Number(parsed.version);
+  const matchingId = WMP_OVERVIEW_VIEW_REGISTRY.contracts.filter((item) => item.id === parsed.id);
+  if (!matchingId.length) {
+    contractFailure(`Persisted overview view '${parsed.id}' is not registered.`, 'WMP_VIEW_UNKNOWN', {
+      view: reference, registeredViews: [...WMP_OVERVIEW_VIEW_REFERENCES]
+    });
+  }
+  const contract = requestedVersion == null
+    ? matchingId.find((item) => !requireActive || item.validity.status === 'active')
+    : matchingId.find((item) => item.version === requestedVersion);
+  if (!contract) {
+    contractFailure(
+      `Persisted overview view '${parsed.id}@${requestedVersion}' does not match an installed exact version.`,
+      'WMP_VIEW_VERSION_UNSUPPORTED',
+      { view: reference, installedVersions: matchingId.map((item) => item.version) }
+    );
+  }
+  if (requireActive && contract.validity.status !== 'active') {
+    contractFailure(`Persisted overview view '${contract.id}@${contract.version}' is not active.`, 'WMP_VIEW_NOT_ACTIVE');
+  }
+  return Object.freeze({
+    alias: Object.hasOwn(WMP_OVERVIEW_VIEW_ALIASES, requested) ? requested : null,
+    viewId: contract.id,
+    version: contract.version,
+    reference: `${contract.id}@${contract.version}`,
+    contract
+  });
+}
+
+export function resolveWmpOverviewViewContract(reference, options) {
+  return normalizeWmpOverviewViewReference(reference, options).contract;
+}
+
 /**
  * A self-hash proves only that a registry is internally consistent. Governed WMB v4 execution
  * additionally requires the exact reviewed registry shipped by this build; otherwise a caller
@@ -307,6 +502,22 @@ export function assertInstalledViewRegistry(value) {
       'WMB_VIEW_REGISTRY_NOT_INSTALLED',
       {
         expectedRegistrySha256: BUILTIN_VIEW_REGISTRY.registrySha256,
+        receivedRegistrySha256: registry.registrySha256
+      }
+    );
+  }
+  return registry;
+}
+
+export function assertInstalledWmpOverviewViewRegistry(value) {
+  const registry = validateViewRegistry(value);
+  if (registry.registrySha256 !== WMP_OVERVIEW_VIEW_REGISTRY.registrySha256
+      || canonicalJson(registry) !== canonicalJson(WMP_OVERVIEW_VIEW_REGISTRY)) {
+    contractFailure(
+      'Persisted overview View Registry is not the exact reviewed registry installed by this build.',
+      'WMP_VIEW_REGISTRY_NOT_INSTALLED',
+      {
+        expectedRegistrySha256: WMP_OVERVIEW_VIEW_REGISTRY.registrySha256,
         receivedRegistrySha256: registry.registrySha256
       }
     );

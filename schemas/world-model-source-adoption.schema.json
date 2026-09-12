@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/world-model-source-adoption.schema.json",
+  "title": "WMP immutable foreign-candidate source adoption",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "originRepositoryDomainSha256", "targetRepositoryDomainSha256", "originAuthorityRef", "targetAuthorityRef", "sourceBindingSha256", "sourceSnapshotRef", "sourceManifestSha256", "scopeManifestSha256", "objectClosureSha256", "objects", "localBindingSha256", "admissionProofRef", "status", "adoptionSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "world-model-source-adoption" },
+    "originRepositoryDomainSha256": { "$ref": "#/$defs/hash" }, "targetRepositoryDomainSha256": { "$ref": "#/$defs/hash" },
+    "originAuthorityRef": { "$ref": "#/$defs/objectRef" }, "targetAuthorityRef": { "$ref": "#/$defs/objectRef" },
+    "sourceBindingSha256": { "$ref": "#/$defs/hash" }, "sourceSnapshotRef": { "$ref": "#/$defs/objectRef" },
+    "sourceManifestSha256": { "$ref": "#/$defs/hash" }, "scopeManifestSha256": { "$ref": "#/$defs/hash" },
+    "objectClosureSha256": { "$ref": "#/$defs/hash" },
+    "objects": { "type": "array", "maxItems": 100000, "items": { "$ref": "#/$defs/gitObject" } },
+    "localBindingSha256": { "$ref": "#/$defs/hash" }, "admissionProofRef": { "$ref": "#/$defs/objectRef" },
+    "status": { "const": "verified" }, "adoptionSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "git": { "type": "string", "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$" },
+    "objectRef": {
+      "type": "object", "required": ["role", "family", "mediaType", "sha256", "bytes"],
+      "properties": { "role": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$", "maxLength": 128 }, "family": { "type": ["string", "null"], "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$", "maxLength": 128 }, "mediaType": { "enum": ["application/json", "text/markdown"] }, "sha256": { "$ref": "#/$defs/hash" }, "bytes": { "type": "integer", "minimum": 1, "maximum": 33554432 } },
+      "additionalProperties": false
+    },
+    "gitObject": {
+      "type": "object", "required": ["oid", "objectFormat", "type", "bytes", "sha256"],
+      "properties": { "oid": { "$ref": "#/$defs/git" }, "objectFormat": { "enum": ["sha1", "sha256"] }, "type": { "enum": ["commit", "tree", "blob", "tag"] }, "bytes": { "type": "integer", "minimum": 0, "maximum": 33554432 }, "sha256": { "$ref": "#/$defs/hash" } },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

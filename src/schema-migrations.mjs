@@ -1821,6 +1821,43 @@ function gvmProcessV3ToV4(source) {
   return { ...source, schemaVersion: 4 };
 }
 
+function worldModelPublicationRecoveryV1ToV2(source) {
+  // v1 recovery IDs bound only the replaceable current projection. They never had authority to
+  // recover additive history, so refuse any such ambiguous marker rather than manufacturing a
+  // history identity during migration. Ordinary v1 projection-only markers retain their ID and
+  // are resealed with an explicit null history boundary.
+  if (Object.hasOwn(source, 'recoverySha256')) {
+    const sourceCore = clone(source);
+    delete sourceCore.recoverySha256;
+    if (source.recoverySha256 !== `sha256:${recordSha256(sourceCore)}`) {
+      throw new SingularityFlowError(
+        'World-model publication recovery v1 failed its integrity check and cannot be migrated.',
+        {
+          code: 'SCHEMA_MIGRATION_SOURCE_CORRUPT',
+          details: { family: 'world-model-publication-recovery', storedVersion: 1 }
+        }
+      );
+    }
+  }
+  const historyFields = [
+    'historyDir', 'historyAdditions', 'historyExpectations', 'exactBlobSha256'
+  ];
+  if (historyFields.some((field) => Object.hasOwn(source.publication ?? {}, field))) {
+    throw new SingularityFlowError(
+      'World-model publication recovery v1 cannot migrate an unbound history envelope.',
+      {
+        code: 'SCHEMA_MIGRATION_SOURCE_CORRUPT',
+        details: { family: 'world-model-publication-recovery', storedVersion: 1 }
+      }
+    );
+  }
+  const migratedCore = { ...clone(source), schemaVersion: 2, historySha256: null };
+  delete migratedCore.recoverySha256;
+  return Object.hasOwn(source, 'recoverySha256')
+    ? { ...migratedCore, recoverySha256: `sha256:${recordSha256(migratedCore)}` }
+    : migratedCore;
+}
+
 function sgosRecordReservationPath(familyId) {
   const escaped = familyId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return new RegExp(
@@ -2573,6 +2610,38 @@ const families = [
   family({ id: 'world-model-build-request', currentVersion: 1, immutable: true }),
   family({ id: 'world-model-build-plan', currentVersion: 1, immutable: true }),
   family({ id: 'world-model-source-snapshot', currentVersion: 1, immutable: true, paths: [/^singularity\/world-model\/source\/source-snapshot\.json$/] }),
+  // WMP history records are immutable content identities. They deliberately start at v1 with no
+  // migration steps: a future semantic shape creates a new identity family/version boundary
+  // rather than silently rewriting an accepted binding's bytes.
+  family({
+    id: 'world-model-model-binding', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity',
+    paths: [/^singularity\/world-model-history\/models\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'world-model-view-inputs', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity'
+  }),
+  family({
+    id: 'world-model-view-binding', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity',
+    paths: [/^singularity\/world-model-history\/views\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'world-model-grounding-reference', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity',
+    paths: [/^singularity\/work-items\/[^/]+\/context\/grounding\/wmp\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'world-model-handoff', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity',
+    paths: [/^singularity\/world-model-history\/handoffs\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'world-model-source-adoption', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity',
+    paths: [/^\$git\/world-model-source-adoptions\/v1\/[a-f0-9]{64}\.json$/]
+  }),
   family({ id: 'world-model-scope-manifest', currentVersion: 1, immutable: true, paths: [/^singularity\/world-model\/scope\/scope-manifest\.json$/] }),
   family({ id: 'world-model-runtime-observation-import', currentVersion: 1, immutable: true }),
   family({ id: 'world-model-runtime-observation', currentVersion: 1, immutable: true }),
@@ -2605,7 +2674,8 @@ const families = [
   family({ id: 'world-model-shared-cache-bundle', currentVersion: 1, immutable: true }),
   family({ id: 'world-model-query-index', currentVersion: 1, immutable: true }),
   family({
-    id: 'world-model-publication-recovery', currentVersion: 1, immutable: true,
+    id: 'world-model-publication-recovery', currentVersion: 2, minimumReadableVersion: 1,
+    steps: [migration(1, 2, worldModelPublicationRecoveryV1ToV2)], immutable: true,
     paths: [/^\$git\/world-model-v4-recovery\/wmb4-[a-f0-9]{32}\.json$/]
   }),
   family({ id: 'world-model-staleness-receipt', currentVersion: 1, immutable: true }),
@@ -3258,7 +3328,9 @@ export function readRecord(familyId, rawBytes) {
   return Object.freeze({ record, storedVersion, migratedThrough: Object.freeze(migratedThrough) });
 }
 
-export function familyForStoredPath(relativePath, { workItemRoot = null, initiativeRoot = null } = {}) {
+export function familyForStoredPath(relativePath, {
+  workItemRoot = null, initiativeRoot = null, worldModelHistoryDir = null
+} = {}) {
   const normalized = String(relativePath ?? '').replaceAll('\\', '/');
   const aliases = [normalized];
   const appendAlias = (configuredRoot, canonicalRoot) => {
@@ -3269,6 +3341,7 @@ export function familyForStoredPath(relativePath, { workItemRoot = null, initiat
   };
   appendAlias(workItemRoot, 'singularity/work-items');
   appendAlias(initiativeRoot, 'singularity/initiatives');
+  appendAlias(worldModelHistoryDir, 'singularity/world-model-history');
   return families.find((entry) => aliases.some((candidate) => entry.paths.some((pattern) => pattern.test(candidate)))) ?? null;
 }
 

@@ -72,6 +72,9 @@ import {
 } from './world-model/registry/projections.mjs';
 import { worldModelStateAuthority } from './world-model/authority-config.mjs';
 import {
+  DEFAULT_WORLD_MODEL_HISTORY_DIR, validateWorldModelHistoryRoots
+} from './world-model/history/paths.mjs';
+import {
   governedInitializationRoot, INITIALIZATION_MAPPINGS
 } from './initialization-assets.mjs';
 
@@ -858,6 +861,15 @@ export function validateDefinition(definition) {
     }
   }
   if (definition.worldModel?.outputDir) assertRelative(definition.worldModel.outputDir, 'worldModel.outputDir');
+  if (definition.worldModel?.historyDir) assertRelative(definition.worldModel.historyDir, 'worldModel.historyDir');
+  // Portable, disjoint WMP history roots are a registered-v4 contract. Packaged refresh may add
+  // the new default historyDir to an older legacy-v3 repository; that metadata must not
+  // retroactively invalidate an outputDir which legacy-v3 already accepted. Selecting
+  // registered-v4 is the explicit transition into this stricter paired-root boundary.
+  if (definition.worldModel?.format === 'registered-v4') validateWorldModelHistoryRoots({
+    outputDir: definition.worldModel.outputDir ?? 'singularity/world-model',
+    historyDir: definition.worldModel.historyDir ?? DEFAULT_WORLD_MODEL_HISTORY_DIR
+  });
   if (definition.worldModel?.promptSource && definition.worldModel.promptSource !== 'builtin') assertRelative(definition.worldModel.promptSource, 'worldModel.promptSource');
   if (definition.worldModel?.stateFetchTimeoutMs != null
       && (!Number.isInteger(definition.worldModel.stateFetchTimeoutMs)

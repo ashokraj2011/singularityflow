@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 import {
-  optionBoolean, optionNumber, optionString, secureRepositoryPath, SingularityFlowError
+  optionBoolean, optionNumber, optionString, run, secureRepositoryPath, SingularityFlowError
 } from '../util.mjs';
 import { inspectWorldModelViewCache } from './cache.mjs';
 import { canonicalJson, compareText, sha256 } from './canonicalize.mjs';
@@ -43,11 +43,26 @@ import {
   inspectWorldModelV4Authority, refreshWorldModelV4Authority
 } from './authority-refresh.mjs';
 import { worldModelStateAuthority } from './authority-config.mjs';
+import {
+  resolvePersistedWorldModel, resolvePersistedWorldModelView,
+  resolveWorldModelHistoryAuthority
+} from './history/store.mjs';
+import {
+  DEFAULT_WORLD_MODEL_HISTORY_DIR, validateWorldModelHistoryRoots
+} from './history/paths.mjs';
+import { configuredRemoteIdentity } from '../git-remote-diagnostics.mjs';
 
 const DEFAULT_EXCLUDED_ROOTS = Object.freeze([
   '.git/**', '.sflow/**', '.singularity-flow/**', 'singularity/**', '.github/agents/**'
 ]);
 const CAPABILITY_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const WMP_HISTORY_KEY = /^(?:sha256:)?([a-f0-9]{64})$/;
+const WMP_HISTORY_KINDS = Object.freeze(['model', 'view']);
+const WMP_HISTORY_LIST_DEFAULT_PAGE_SIZE = 100;
+const WMP_HISTORY_LIST_MAXIMUM_PAGE_SIZE = 500;
+const WMP_HISTORY_LIST_MAXIMUM_BINDINGS = 100_000;
+const WMP_HISTORY_LIST_MAXIMUM_OUTPUT_BYTES = 32 * 1024 * 1024;
+const WMP_HISTORY_CURSOR_PREFIX = 'wmp1.';
 
 /** Capability identity that must survive a storyless multi-capability recovery round trip. */
 export function configuredWorldModelV4CapabilityId(config) {
@@ -824,6 +839,420 @@ function registryViewsCommand(options) {
   return result;
 }
 
+function worldModelHistoryKind(options) {
+  const kind = optionString(options, 'kind') ?? null;
+  if (kind === null) return null;
+  if (!WMP_HISTORY_KINDS.includes(kind)) {
+    throw new SingularityFlowError(
+      `World-Model history --kind must be ${WMP_HISTORY_KINDS.join(' or ')}.`,
+      {
+        code: 'WMP_COMMAND_ARGUMENT_INVALID',
+        details: { option: 'kind', received: kind, allowed: WMP_HISTORY_KINDS }
+      }
+    );
+  }
+  return kind;
+}
+
+function worldModelHistoryKey(value) {
+  const received = String(value ?? '').trim();
+  const match = WMP_HISTORY_KEY.exec(received);
+  if (!match) {
+    throw new SingularityFlowError(
+      'Persisted World-Model history keys must be a full sha256:<64-lowercase-hex> identity (the prefix may be omitted).',
+      {
+        code: 'WMP_COMMAND_ARGUMENT_INVALID',
+        details: { argument: 'model-key-or-view-key', received: received || null }
+      }
+    );
+  }
+  return `sha256:${match[1]}`;
+}
+
+function worldModelHistoryConfig(config) {
+  const roots = validateWorldModelHistoryRoots({
+    outputDir: config.outputDir,
+    historyDir: config.historyDir ?? DEFAULT_WORLD_MODEL_HISTORY_DIR
+  });
+  return Object.freeze({
+    ...roots,
+    stateAuthority: worldModelStateAuthority(config.definition ?? {}, {
+      branch: config.stateBranch,
+      remote: config.remote
+    })
+  });
+}
+
+function configuredWorldModelHistoryAuthorityRef(root, config, env = process.env) {
+  const { branch, remote } = worldModelHistoryConfig(config).stateAuthority;
+  const explicitRef = String(branch).startsWith('refs/');
+  // A configured remote makes its remote-tracking state ref the admitted read authority. Falling
+  // back to refs/heads/<branch> in that case would let an unpublished local branch masquerade as
+  // shared governed state. Local fallback remains available only for genuinely remote-less
+  // repositories, while an explicitly configured full ref keeps its exact authored meaning.
+  const remoteConfigured = !explicitRef
+    && configuredRemoteIdentity(root, remote, { direction: 'fetch' }).configured;
+  const candidates = explicitRef
+    ? [String(branch)]
+    : remoteConfigured
+      ? [`refs/remotes/${remote}/${branch}`]
+      : [`refs/heads/${branch}`];
+  for (const ref of [...new Set(candidates)]) {
+    const format = run('git', ['check-ref-format', ref], {
+      cwd: root, allowFailure: true, env
+    });
+    if (format.status !== 0) continue;
+    const present = run('git', ['show-ref', '--verify', '--quiet', ref], {
+      cwd: root, allowFailure: true, env: {
+        ...env, GIT_NO_LAZY_FETCH: '1', GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'Never'
+      }
+    });
+    if (present.status === 0) return ref;
+  }
+  throw new SingularityFlowError(
+    'The configured World-Model state-authority ref is not available locally. Refresh approved state authority before inspecting persisted history.',
+    {
+      code: 'WMP_AUTHORITY_REFRESH_REQUIRED',
+      details: {
+        branch, remote, remoteConfigured,
+        command: 'singularity-flow wm refresh-authority --format registered-v4'
+      }
+    }
+  );
+}
+
+/**
+ * Enumerate only immutable key bindings already present in one exact local authority commit.
+ * `ls-tree` reads the selected Git tree; GIT_NO_LAZY_FETCH prevents a partial clone from turning
+ * this audit operation into an undeclared network fetch.
+ */
+function historyCursorFailure(message) {
+  throw new SingularityFlowError(message, { code: 'WMP_HISTORY_CURSOR_INVALID' });
+}
+
+function decodeWorldModelHistoryCursor(value) {
+  if (typeof value !== 'string' || value.length > 4096
+      || !value.startsWith(WMP_HISTORY_CURSOR_PREFIX)
+      || !/^[A-Za-z0-9_-]+$/.test(value.slice(WMP_HISTORY_CURSOR_PREFIX.length))) {
+    historyCursorFailure('Persisted World-Model history cursor is not a supported bounded cursor.');
+  }
+  let text;
+  let cursor;
+  try {
+    text = Buffer.from(value.slice(WMP_HISTORY_CURSOR_PREFIX.length), 'base64url').toString('utf8');
+    cursor = JSON.parse(text);
+  } catch {
+    historyCursorFailure('Persisted World-Model history cursor is malformed.');
+  }
+  if (!cursor || typeof cursor !== 'object' || Array.isArray(cursor)
+      || canonicalJson(cursor) !== text
+      || Object.keys(cursor).sort().join(',') !== [
+        'afterKey', 'afterKind', 'authorityCommit', 'historyDir', 'kinds', 'limit', 'version'
+      ].sort().join(',')) {
+    historyCursorFailure('Persisted World-Model history cursor is not canonical.');
+  }
+  if (cursor.version !== 1 || !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(cursor.authorityCommit)
+      || !Array.isArray(cursor.kinds) || !cursor.kinds.length
+      || cursor.kinds.some((kind) => !WMP_HISTORY_KINDS.includes(kind))
+      || [...new Set(cursor.kinds)].length !== cursor.kinds.length
+      || !cursor.kinds.includes(cursor.afterKind)
+      || !WMP_HISTORY_KEY.test(cursor.afterKey)
+      || typeof cursor.historyDir !== 'string'
+      || !Number.isSafeInteger(cursor.limit) || cursor.limit < 1
+      || cursor.limit > WMP_HISTORY_LIST_MAXIMUM_PAGE_SIZE) {
+    historyCursorFailure('Persisted World-Model history cursor has invalid identity fields.');
+  }
+  return Object.freeze(cursor);
+}
+
+function encodeWorldModelHistoryCursor({ authorityCommit, historyDir, kinds, limit, entry }) {
+  return `${WMP_HISTORY_CURSOR_PREFIX}${Buffer.from(canonicalJson({
+    version: 1,
+    authorityCommit,
+    historyDir,
+    kinds: [...kinds],
+    limit,
+    afterKind: entry.kind,
+    afterKey: entry.key
+  }), 'utf8').toString('base64url')}`;
+}
+
+function worldModelHistoryPage(entries, {
+  authorityCommit, historyDir, kinds, options
+}) {
+  const suppliedLimit = optionNumber(options, 'limit');
+  if (suppliedLimit !== undefined && (!Number.isSafeInteger(suppliedLimit)
+      || suppliedLimit < 1 || suppliedLimit > WMP_HISTORY_LIST_MAXIMUM_PAGE_SIZE)) {
+    throw new SingularityFlowError(
+      `World-Model history --limit must be an integer from 1 to ${WMP_HISTORY_LIST_MAXIMUM_PAGE_SIZE}.`,
+      { code: 'WMP_HISTORY_LIMIT', details: { received: suppliedLimit, maximum: WMP_HISTORY_LIST_MAXIMUM_PAGE_SIZE } }
+    );
+  }
+  const encodedCursor = optionString(options, 'cursor');
+  const cursor = encodedCursor ? decodeWorldModelHistoryCursor(encodedCursor) : null;
+  const limit = suppliedLimit ?? cursor?.limit ?? WMP_HISTORY_LIST_DEFAULT_PAGE_SIZE;
+  if (cursor && (cursor.authorityCommit !== authorityCommit
+      || cursor.historyDir !== historyDir
+      || canonicalJson(cursor.kinds) !== canonicalJson(kinds)
+      || cursor.limit !== limit)) {
+    historyCursorFailure('Persisted World-Model history cursor does not match the selected authority, kind, history root, or page size.');
+  }
+  let start = 0;
+  if (cursor) {
+    const prior = entries.findIndex((entry) => entry.kind === cursor.afterKind
+      && entry.key === cursor.afterKey);
+    if (prior < 0) historyCursorFailure('Persisted World-Model history cursor no longer identifies its exact prior binding.');
+    start = prior + 1;
+  }
+  const page = entries.slice(start, start + limit);
+  const hasMore = start + page.length < entries.length;
+  return Object.freeze({
+    entries: Object.freeze(page),
+    limit,
+    total: entries.length,
+    hasMore,
+    continuation: hasMore && page.length
+      ? encodeWorldModelHistoryCursor({
+          authorityCommit, historyDir, kinds, limit, entry: page.at(-1)
+        })
+      : null
+  });
+}
+
+function listPersistedWorldModelBindings(root, config, {
+  authorityCommit, authorityRef, kind = null, env = process.env
+} = {}) {
+  const commit = resolveWorldModelHistoryAuthority(root, authorityCommit, { authorityRef, env });
+  const { historyDir } = worldModelHistoryConfig(config);
+  const kinds = kind ? [kind] : WMP_HISTORY_KINDS;
+  const directories = {
+    model: `${historyDir}/models`,
+    view: `${historyDir}/views`
+  };
+  const localEnv = {
+    ...env,
+    GIT_NO_LAZY_FETCH: '1',
+    GIT_TERMINAL_PROMPT: '0',
+    GCM_INTERACTIVE: 'Never'
+  };
+  const listed = run('git', [
+    'ls-tree', '-r', '-z', '--full-tree', '--long', commit, '--',
+    ...kinds.map((entry) => directories[entry])
+  ], {
+    cwd: root,
+    allowFailure: true,
+    env: localEnv,
+    maxBuffer: WMP_HISTORY_LIST_MAXIMUM_OUTPUT_BYTES
+  });
+  if (listed.status !== 0) {
+    throw new SingularityFlowError(
+      'Persisted World-Model history could not inspect the selected local authority cut.',
+      {
+        code: 'WMP_AUTHORITY_UNAVAILABLE',
+        details: { authorityCommit: commit, historyDir }
+      }
+    );
+  }
+
+  const entries = String(listed.stdout ?? '').split('\0').filter(Boolean).map((row) => {
+    const match = /^([0-7]{6}) ([a-z]+) ([a-f0-9]{40,64}) +([0-9]+)\t(.+)$/.exec(row);
+    if (!match) {
+      throw new SingularityFlowError(
+        'Persisted World-Model history contains an unsupported Git tree entry.',
+        { code: 'WMP_INTEGRITY_FAILED', details: { authorityCommit: commit } }
+      );
+    }
+    const [, mode, type, oid, byteText, relativePath] = match;
+    const selectedKind = kinds.find((entry) => relativePath.startsWith(`${directories[entry]}/`));
+    const expected = selectedKind
+      ? new RegExp(`^${directories[selectedKind].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/([a-f0-9]{64})\\.json$`).exec(relativePath)
+      : null;
+    const bytes = Number(byteText);
+    if (!selectedKind || !expected || mode !== '100644' || type !== 'blob'
+        || !Number.isSafeInteger(bytes) || bytes < 1) {
+      throw new SingularityFlowError(
+        `Persisted World-Model history binding has an invalid path or Git object: ${relativePath}.`,
+        {
+          code: 'WMP_INTEGRITY_FAILED',
+          details: { authorityCommit: commit, path: relativePath, mode, type }
+        }
+      );
+    }
+    return Object.freeze({
+      kind: selectedKind,
+      key: `sha256:${expected[1]}`,
+      path: relativePath,
+      bytes,
+      gitObject: oid
+    });
+  }).sort((left, right) => compareText(`${left.kind}\0${left.key}`, `${right.kind}\0${right.key}`));
+
+  if (entries.length > WMP_HISTORY_LIST_MAXIMUM_BINDINGS) {
+    throw new SingularityFlowError(
+      `Persisted World-Model history contains more than ${WMP_HISTORY_LIST_MAXIMUM_BINDINGS} bindings.`,
+      {
+        code: 'WMP_HISTORY_LIMIT',
+        details: {
+          authorityCommit: commit,
+          observed: entries.length,
+          maximum: WMP_HISTORY_LIST_MAXIMUM_BINDINGS
+        }
+      }
+    );
+  }
+
+  return Object.freeze({
+    resultType: 'world-model-history-list',
+    authorityCommit: commit,
+    authorityRef,
+    historyDir,
+    kinds: Object.freeze([...kinds]),
+    count: entries.length,
+    entries: Object.freeze(entries)
+  });
+}
+
+function renderWorldModelHistoryList(result, options) {
+  if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+  else if (!result.entries.length) {
+    console.log(`No persisted World-Model ${result.kinds.join(' or ')} bindings exist at ${result.authorityCommit}.`);
+  } else {
+    console.log(`Persisted World-Model history at ${result.authorityCommit}: ${result.count} of ${result.total} binding(s)`);
+    result.entries.forEach((entry) => console.log(
+      `  ${entry.kind.padEnd(5)}  ${entry.key}  ${entry.bytes} bytes`
+    ));
+    if (result.continuation) console.log(`  Continue with: --cursor ${result.continuation}`);
+  }
+  return result;
+}
+
+function persistedHistoryResult(resolved, kind, key) {
+  return Object.freeze({
+    resultType: 'world-model-history-binding',
+    authorityCommit: resolved.authorityCommit,
+    authorityRef: resolved.authorityRef,
+    historyDir: resolved.historyDir,
+    kind,
+    key,
+    bindingPath: resolved.bindingPath,
+    bindingByteSha256: resolved.bindingByteSha256,
+    bindingBytes: resolved.bindingBytes.length,
+    binding: structuredClone(resolved.binding),
+    closure: Object.freeze(resolved.closure.map((entry) => Object.freeze({
+      ref: structuredClone(entry.ref),
+      recordKind: entry.record?.kind ?? null,
+      schemaVersion: entry.record?.schemaVersion ?? null,
+      verified: true
+    }))),
+    closureObjects: resolved.closure.length,
+    totalBytes: resolved.totalBytes
+  });
+}
+
+function renderWorldModelHistoryBinding(result, options) {
+  if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+  else {
+    console.log(`Persisted World-Model ${result.kind} verified: ${result.key}`);
+    console.log(`  Authority: ${result.authorityRef} @ ${result.authorityCommit}`);
+    console.log(`  Binding: ${result.bindingPath} · ${result.bindingByteSha256}`);
+    console.log(`  Closure: ${result.closureObjects} exact object(s) · ${result.totalBytes} bytes`);
+  }
+  return result;
+}
+
+export function historyWorldModelV4Command(root, config, positionals, options) {
+  if (optionString(options, 'branch')) {
+    throw new SingularityFlowError(
+      'Persisted World-Model history reads do not open or synchronize another branch. Select an exact locally available authority with --authority-commit.',
+      { code: 'WMP_AUTHORITY_CUT_REQUIRED' }
+    );
+  }
+  const action = positionals[2] ?? 'list';
+  const authorityCommit = requiredValue(
+    optionString(options, 'authority-commit'),
+    `singularity-flow wm history ${action}${action === 'show' ? ' <model-key-or-view-key>' : ''} --authority-commit <full-commit> [--kind model|view] [--json]`
+  );
+  const kind = worldModelHistoryKind(options);
+  const authorityRef = configuredWorldModelHistoryAuthorityRef(root, config);
+  if (action === 'list') {
+    const listed = listPersistedWorldModelBindings(root, config, {
+      authorityCommit, authorityRef, kind
+    });
+    const page = worldModelHistoryPage(listed.entries, {
+      authorityCommit: listed.authorityCommit,
+      historyDir: listed.historyDir,
+      kinds: listed.kinds,
+      options
+    });
+    return renderWorldModelHistoryList(Object.freeze({
+      ...listed,
+      entries: page.entries,
+      count: page.entries.length,
+      limit: page.limit,
+      total: page.total,
+      hasMore: page.hasMore,
+      continuation: page.continuation
+    }), options);
+  }
+  if (action !== 'show') {
+    throw new SingularityFlowError(
+      `Unknown World-Model history action '${action}'. Available: list, show.`,
+      {
+        code: 'UNKNOWN_SUBCOMMAND',
+        details: { command: 'wm history', action, available: ['list', 'show'] }
+      }
+    );
+  }
+  const key = worldModelHistoryKey(requiredValue(
+    positionals[3],
+    'singularity-flow wm history show <model-key-or-view-key> --authority-commit <full-commit> [--kind model|view] [--json]'
+  ));
+  let selectedKind = kind;
+  if (selectedKind === null) {
+    const candidates = listPersistedWorldModelBindings(root, config, {
+      authorityCommit, authorityRef
+    }).entries
+      .filter((entry) => entry.key === key);
+    if (candidates.length > 1) {
+      throw new SingularityFlowError(
+        `Persisted World-Model key '${key}' identifies both a model and a view; select --kind model or --kind view.`,
+        {
+          code: 'WMP_SELECTION_AMBIGUOUS',
+          details: {
+            authorityCommit,
+            key,
+            candidates: candidates.map((entry) => ({ kind: entry.kind, path: entry.path }))
+          }
+        }
+      );
+    }
+    if (!candidates.length) {
+      throw new SingularityFlowError(
+        `No persisted World-Model model or view binding exists for '${key}' at the selected authority cut.`,
+        {
+          code: 'WMP_MODEL_MISSING',
+          details: { authorityCommit, key, searchedKinds: WMP_HISTORY_KINDS }
+        }
+      );
+    }
+    selectedKind = candidates[0].kind;
+  }
+  const resolved = selectedKind === 'model'
+    ? resolvePersistedWorldModel(root, {
+        authorityCommit, authorityRef, modelKey: key,
+        outputDir: worldModelHistoryConfig(config).outputDir,
+        historyDir: worldModelHistoryConfig(config).historyDir
+      })
+    : resolvePersistedWorldModelView(root, {
+        authorityCommit, authorityRef, viewKey: key,
+        outputDir: worldModelHistoryConfig(config).outputDir,
+        historyDir: worldModelHistoryConfig(config).historyDir
+      });
+  return renderWorldModelHistoryBinding(
+    persistedHistoryResult(resolved, selectedKind, key), options
+  );
+}
+
 function viewContractCommand(options, viewId) {
   const contract = normalizeBuiltInViewReference(viewId).contract;
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(contract, null, 2));
@@ -967,6 +1396,9 @@ async function migrationCommand(root, config, options, legacyPath, viewId) {
 export async function handleWorldModelV4Command(root, config, command, positionals, options) {
   if (command === 'plan') return planWorldModelV4Command(root, config, options);
   if (command === 'snapshot') return captureCandidateSnapshotCommand(root, config, options);
+  if (command === 'history') return historyWorldModelV4Command(
+    root, config, positionals, options
+  );
   if (command === 'build') return buildWorldModelV4Command(root, config, options);
   if (command === 'status' || command === 'availability') return statusWorldModelV4Command(root, config, options);
   if (command === 'refresh-authority') {
@@ -1147,5 +1579,5 @@ export async function handleWorldModelV4Command(root, config, command, positiona
 export const WORLD_MODEL_V4_COMMANDS = Object.freeze(new Set([
   'plan', 'snapshot', 'build', 'status', 'availability', 'ensure', 'refresh-authority', 'manifest', 'show', 'facts', 'evidence',
   'derivation', 'validate', 'check', 'validate-view', 'verify-cache', 'regenerate',
-  'views', 'view-contract', 'extractors', 'doctor', 'context', 'migrate'
+  'views', 'view-contract', 'extractors', 'doctor', 'context', 'migrate', 'history'
 ]));

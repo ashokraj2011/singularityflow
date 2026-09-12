@@ -595,6 +595,7 @@ export async function loadWorldModelConfig(root, {
       repositoryCapability,
       workItemRoot: definition.workItemRoot ?? 'singularity/work-items',
       outputDir: definition.worldModel?.outputDir ?? 'singularity/world-model',
+      historyDir: definition.worldModel?.historyDir ?? 'singularity/world-model-history',
       promptSource: definition.worldModel?.promptSource ?? 'singularity/prompts/worldmodel-builder.md',
       provider: definition.models.defaultProvider,
       providerConfig: definition.models.providers[definition.models.defaultProvider],
@@ -4971,12 +4972,21 @@ export async function worldModelCommand(root, positionals, options) {
   const command = positionals[1];
   const v4OnlyCommands = new Set([
     'plan', 'snapshot', 'refresh-authority', 'manifest', 'show', 'evidence', 'derivation', 'validate', 'validate-view',
-    'verify-cache', 'regenerate', 'views', 'view-contract', 'extractors', 'doctor', 'migrate'
+    'verify-cache', 'regenerate', 'views', 'view-contract', 'extractors', 'doctor', 'migrate',
+    'history'
   ]);
   const versionedCommands = new Set([
     'build', 'status', 'availability', 'ensure', 'context', 'check', 'facts'
   ]);
   const explicitV4 = ['v4', 'wmb-v4', 'registered-v4'].includes(optionString(options, 'format'));
+  // An audit read is pinned to one exact local commit. Refuse --branch before the generic branch
+  // wrapper can synchronize a remote or create a temporary worktree as an undeclared side effect.
+  if (command === 'history' && optionString(options, 'branch')) {
+    throw new SingularityFlowError(
+      'Persisted World-Model history reads do not accept --branch. Use --authority-commit with an exact locally available commit.',
+      { code: 'WMP_AUTHORITY_CUT_REQUIRED' }
+    );
+  }
   if (command === 'ast') return astCommand(root, positionals.slice(2), options);
   if (command === 'read') {
     const reference = positionals[2];
@@ -5040,7 +5050,7 @@ export async function worldModelCommand(root, positionals, options) {
   ]);
   if (!legacyCommands.has(command) && !WORLD_MODEL_V4_COMMANDS.has(command)) {
     throw new SingularityFlowError(
-      'Usage: singularity-flow wm init|plan|snapshot|refresh-authority|build|light|ensure|availability|status|manifest|show <view>|facts [view]|evidence <id>|derivation <id>|views|view-contract <view>|read <ncg-view>|read-views|read-contract <ncg-view>|extractors|validate|validate-view <view>|verify-cache|regenerate <view>|context <phase>|doctor|migrate <legacy-view>|prompt|budget|compose|show-prompt|inject|check|cleanup|recovery list|inspect|publish|cache status|clear'
+      'Usage: singularity-flow wm init|plan|snapshot|refresh-authority|build|light|ensure|availability|status|manifest|show <view>|facts [view]|evidence <id>|derivation <id>|views|view-contract <view>|history list|show <key> --authority-commit <full-commit>|read <ncg-view>|read-views|read-contract <ncg-view>|extractors|validate|validate-view <view>|verify-cache|regenerate <view>|context <phase>|doctor|migrate <legacy-view>|prompt|budget|compose|show-prompt|inject|check|cleanup|recovery list|inspect|publish|cache status|clear'
     );
   }
   if (command === 'build' || command === 'light') await cleanupStaleWorldModelWorktrees(root);

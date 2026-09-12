@@ -50,6 +50,32 @@ test('aggregate ref state is chunked instead of overflowing one cat-file respons
     'no local object read may start an implicit promisor fetch');
 });
 
+test('a filter can bound blob admission from listed object sizes before materialization', () => {
+  const files = new Map([
+    ['history/models/one.json', '{"schemaVersion":1}'],
+    ['history/models/two.json', '{"schemaVersion":1,"padding":"larger"}']
+  ]);
+  const fake = fakeRepository(files);
+  const listed = [];
+  const observed = readRefTreeResult('/repository', 'state', ['history/models'], {
+    runCommand: fake.runCommand,
+    filter: (file, metadata) => {
+      listed.push({ file, ...metadata });
+      return file.endsWith('one.json');
+    }
+  });
+
+  assert.equal(observed.status, 'ok');
+  assert.equal(observed.objectsRequested, 1);
+  assert.deepEqual([...observed.contents.keys()], ['history/models/one.json']);
+  assert.deepEqual(listed.map(({ file, size }) => ({ file, size })), [...files].map(
+    ([file, contents]) => ({ file, size: Buffer.byteLength(contents) })
+  ));
+  const requested = fake.calls.find((call) => call.args[0] === 'cat-file').options.input;
+  assert.equal(requested.includes(String(2).padStart(40, '0')), false,
+    'a filtered blob must never be handed to cat-file');
+});
+
 test('a truncated batch is partial evidence and the strict reader refuses it', () => {
   const files = new Map([['one.json', '{"one":1}'], ['two.json', '{"two":2}']]);
   const partial = fakeRepository(files, { corruptAfter: 1 });

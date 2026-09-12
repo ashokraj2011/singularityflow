@@ -144,7 +144,9 @@ export function readRefTreeResult(root, ref, pathspecs = [], {
       errors.push(diagnostic('REF_TREE_LIST_INVALID', `Git returned an invalid tree entry at '${ref}'.`, { ref }));
       continue;
     }
-    if (filter && !filter(file)) continue;
+    // Size and object identity let bounded callers make an admission decision before any blob is
+    // materialized. Existing path-only filters remain source-compatible.
+    if (filter && !filter(file, Object.freeze({ oid, size }))) continue;
     if (size > maxObjectBytes) {
       errors.push(diagnostic('REF_TREE_OBJECT_TOO_LARGE', `${file} exceeds the governed-state object limit.`, {
         path: file, bytes: size, maximumBytes: maxObjectBytes

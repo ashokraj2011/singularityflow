@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/world-model-model-binding.schema.json",
+  "title": "WMP immutable model binding",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "modelKey", "inputs", "inputDescriptors", "inputObjects", "payloadObjects", "completeness", "modelPayloadSha256", "bindingSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "world-model-model-binding" },
+    "modelKey": { "$ref": "#/$defs/hash" },
+    "inputs": { "$ref": "#/$defs/modelInputs" },
+    "inputDescriptors": {
+      "type": "object",
+      "required": ["sourceBinding", "extractionProfile", "factRequirements", "extractionInputs"],
+      "properties": {
+        "sourceBinding": { "$ref": "#/$defs/sourceBinding" },
+        "extractionProfile": { "$ref": "#/$defs/extractionProfile" },
+        "factRequirements": { "$ref": "#/$defs/factRequirements" },
+        "extractionInputs": { "$ref": "#/$defs/extractionInputs" }
+      },
+      "additionalProperties": false
+    },
+    "inputObjects": { "$ref": "#/$defs/objectRefs" },
+    "payloadObjects": { "$ref": "#/$defs/objectRefs" },
+    "completeness": { "$ref": "#/$defs/completeness" },
+    "modelPayloadSha256": { "$ref": "#/$defs/hash" },
+    "bindingSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "git": { "type": "string", "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$" },
+    "typeId": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$", "maxLength": 256 },
+    "reasonCode": { "type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$", "maxLength": 128 },
+    "objectRef": {
+      "type": "object",
+      "required": ["role", "family", "mediaType", "sha256", "bytes"],
+      "properties": {
+        "role": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$", "maxLength": 128 },
+        "family": { "type": ["string", "null"], "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$", "maxLength": 128 },
+        "mediaType": { "enum": ["application/json", "text/markdown"] },
+        "sha256": { "$ref": "#/$defs/hash" },
+        "bytes": { "type": "integer", "minimum": 1, "maximum": 33554432 }
+      },
+      "additionalProperties": false
+    },
+    "objectRefs": { "type": "array", "maxItems": 100000, "items": { "$ref": "#/$defs/objectRef" } },
+    "modelInputs": {
+      "type": "object",
+      "required": ["identityVersion", "repositoryDomainSha256", "sourceBindingSha256", "sourceManifestSha256", "scopeManifestSha256", "extractionPolicySha256", "extractorRegistrySha256", "extractionProfileSha256", "factRequirementsSha256", "extractionInputsSha256"],
+      "properties": {
+        "identityVersion": { "const": 1 },
+        "repositoryDomainSha256": { "$ref": "#/$defs/hash" },
+        "sourceBindingSha256": { "$ref": "#/$defs/hash" },
+        "sourceManifestSha256": { "$ref": "#/$defs/hash" },
+        "scopeManifestSha256": { "$ref": "#/$defs/hash" },
+        "extractionPolicySha256": { "$ref": "#/$defs/hash" },
+        "extractorRegistrySha256": { "$ref": "#/$defs/hash" },
+        "extractionProfileSha256": { "$ref": "#/$defs/hash" },
+        "factRequirementsSha256": { "$ref": "#/$defs/hash" },
+        "extractionInputsSha256": { "$ref": "#/$defs/hash" }
+      },
+      "additionalProperties": false
+    },
+    "sourceBinding": {
+      "type": "object",
+      "required": ["kind", "version", "repositoryDomainRef", "repositoryDomainSha256", "sourceKind", "sourceSnapshotRef", "sourceManifestSha256", "scopeManifestSha256", "gitObjectFormat", "requestedRevision", "effectiveRevision", "sourceAuthorityRef"],
+      "properties": {
+        "kind": { "const": "wmp/source-binding" },
+        "version": { "const": 1 },
+        "repositoryDomainRef": { "$ref": "#/$defs/objectRef" },
+        "repositoryDomainSha256": { "$ref": "#/$defs/hash" },
+        "sourceKind": { "enum": ["committed", "candidate"] },
+        "sourceSnapshotRef": { "$ref": "#/$defs/objectRef" },
+        "sourceManifestSha256": { "$ref": "#/$defs/hash" },
+        "scopeManifestSha256": { "$ref": "#/$defs/hash" },
+        "gitObjectFormat": { "enum": ["sha1", "sha256"] },
+        "requestedRevision": { "$ref": "#/$defs/git" },
+        "effectiveRevision": { "$ref": "#/$defs/git" },
+        "sourceAuthorityRef": { "oneOf": [{ "$ref": "#/$defs/objectRef" }, { "type": "null" }] }
+      },
+      "additionalProperties": false
+    },
+    "extractor": {
+      "type": "object",
+      "required": ["id", "version", "manifestSha256", "grammarSha256", "parserSha256", "resolverSha256", "implementationSha256"],
+      "properties": {
+        "id": { "$ref": "#/$defs/typeId" },
+        "version": { "type": "integer", "minimum": 1 },
+        "manifestSha256": { "$ref": "#/$defs/hash" },
+        "grammarSha256": { "oneOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] },
+        "parserSha256": { "oneOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] },
+        "resolverSha256": { "oneOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] },
+        "implementationSha256": { "oneOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] }
+      },
+      "additionalProperties": false
+    },
+    "extractionProfile": {
+      "type": "object",
+      "required": ["kind", "version", "extractors", "parseSchemaSha256", "normalizationContractSha256", "configurationRefs"],
+      "properties": {
+        "kind": { "const": "wmp/extraction-profile" },
+        "version": { "const": 1 },
+        "extractors": { "type": "array", "maxItems": 1024, "items": { "$ref": "#/$defs/extractor" } },
+        "parseSchemaSha256": { "$ref": "#/$defs/hash" },
+        "normalizationContractSha256": { "$ref": "#/$defs/hash" },
+        "configurationRefs": { "$ref": "#/$defs/objectRefs" }
+      },
+      "additionalProperties": false
+    },
+    "factRequirements": {
+      "type": "object",
+      "required": ["kind", "version", "requiredFactTypes", "optionalFactTypes", "coverageRuleRefs", "requiredUnavailableSubjects"],
+      "properties": {
+        "kind": { "const": "wmp/fact-requirements" },
+        "version": { "const": 1 },
+        "requiredFactTypes": { "type": "array", "maxItems": 10000, "uniqueItems": true, "items": { "$ref": "#/$defs/typeId" } },
+        "optionalFactTypes": { "type": "array", "maxItems": 10000, "uniqueItems": true, "items": { "$ref": "#/$defs/typeId" } },
+        "coverageRuleRefs": { "$ref": "#/$defs/objectRefs" },
+        "requiredUnavailableSubjects": { "type": "array", "maxItems": 10000, "uniqueItems": true, "items": { "$ref": "#/$defs/typeId" } }
+      },
+      "additionalProperties": false
+    },
+    "captureReason": {
+      "type": "object",
+      "required": ["code", "observationBoundarySha256", "applicabilitySha256"],
+      "properties": {
+        "code": { "$ref": "#/$defs/reasonCode" },
+        "observationBoundarySha256": { "$ref": "#/$defs/hash" },
+        "applicabilitySha256": { "$ref": "#/$defs/hash" }
+      },
+      "additionalProperties": false
+    },
+    "capture": {
+      "type": "object",
+      "required": ["role", "subject", "status", "objectRef", "reason"],
+      "properties": {
+        "role": { "$ref": "#/$defs/typeId" },
+        "subject": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "status": { "enum": ["available", "unavailable", "not-applicable"] },
+        "objectRef": { "oneOf": [{ "$ref": "#/$defs/objectRef" }, { "type": "null" }] },
+        "reason": { "oneOf": [{ "$ref": "#/$defs/captureReason" }, { "type": "null" }] }
+      },
+      "additionalProperties": false
+    },
+    "extractionInputs": {
+      "type": "object",
+      "required": ["kind", "version", "captures"],
+      "properties": {
+        "kind": { "const": "wmp/extraction-inputs" },
+        "version": { "const": 1 },
+        "captures": { "type": "array", "maxItems": 10000, "items": { "$ref": "#/$defs/capture" } }
+      },
+      "additionalProperties": false
+    },
+    "requiredSubject": {
+      "type": "object",
+      "required": ["id", "status", "reasonCode"],
+      "properties": {
+        "id": { "$ref": "#/$defs/typeId" },
+        "status": { "enum": ["available", "partial", "unavailable", "contradicted"] },
+        "reasonCode": { "oneOf": [{ "$ref": "#/$defs/reasonCode" }, { "type": "null" }] }
+      },
+      "additionalProperties": false
+    },
+    "extractorCoverage": {
+      "type": "object",
+      "required": ["id", "version", "status", "processedPaths"],
+      "properties": {
+        "id": { "$ref": "#/$defs/typeId" },
+        "version": { "type": "integer", "minimum": 1 },
+        "status": { "enum": ["complete", "partial", "unavailable"] },
+        "processedPaths": { "type": "integer", "minimum": 0, "maximum": 50000 }
+      },
+      "additionalProperties": false
+    },
+    "completeness": {
+      "type": "object",
+      "required": ["totalPaths", "processedPaths", "unsupportedPaths", "failedPaths", "excludedPaths", "requiredSubjects", "extractorCoverage", "completenessRecord"],
+      "properties": {
+        "totalPaths": { "type": "integer", "minimum": 0, "maximum": 50000 },
+        "processedPaths": { "type": "integer", "minimum": 0, "maximum": 50000 },
+        "unsupportedPaths": { "type": "integer", "minimum": 0, "maximum": 50000 },
+        "failedPaths": { "type": "integer", "minimum": 0, "maximum": 50000 },
+        "excludedPaths": { "type": "integer", "minimum": 0, "maximum": 50000 },
+        "requiredSubjects": { "type": "array", "maxItems": 100000, "items": { "$ref": "#/$defs/requiredSubject" } },
+        "extractorCoverage": { "type": "array", "maxItems": 1024, "items": { "$ref": "#/$defs/extractorCoverage" } },
+        "completenessRecord": { "$ref": "#/$defs/objectRef" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

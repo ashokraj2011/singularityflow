@@ -7,7 +7,7 @@
  * approved catalog before using it.
  */
 import { createHash } from 'node:crypto';
-import { lstat, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -19,7 +19,9 @@ import { publishToStateBranch } from './ledger.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { readRefTreeResult } from './git-ref-tree.mjs';
-import { mapLimit, run, SingularityFlowError, writeAtomic } from './util.mjs';
+import {
+  mapLimit, removeTemporaryTree, run, SingularityFlowError, writeAtomic
+} from './util.mjs';
 
 export const CAPABILITY_AUTHORITY_LINK_PATH = 'singularity/capability-authority.json';
 export const CAPABILITY_AUTHORITY_BRANCH = 'sflow/config';
@@ -144,7 +146,7 @@ async function enforceAuthorityObjectStoreQuota(directory, env) {
   if (bytes != null && bytes > authorityCacheMaximumBytes(env)) {
     // This is a derived, identity-keyed cache directory and the caller holds its record lease.
     // Removing it cannot remove an application checkout or any authoritative configuration.
-    await rm(directory, { recursive: true, force: true });
+    await removeTemporaryTree(directory);
   }
 }
 
@@ -345,7 +347,7 @@ export async function readCapabilityAuthorityLink(repositoryRemote, {
         env: gitEnv, runRemoteCommand
       });
     } finally {
-      await rm(scratch, { recursive: true, force: true });
+      await removeTemporaryTree(scratch);
     }
   }
   return Object.freeze({
@@ -397,7 +399,128 @@ export async function publishCapabilityAuthorityLink(repositoryRemote, link, {
       linkSha256: validated.linkSha256
     });
   } finally {
-    await rm(scratch, { recursive: true, force: true });
+    await removeTemporaryTree(scratch);
+  }
+}
+
+/**
+ * Retire one obsolete routing hint through the state writer's exact branch CAS.
+ *
+ * This primitive deliberately knows nothing about capability policy. Its caller must first prove
+ * that the current approved authority no longer claims the repository. Here we bind that decision
+ * to the exact state commit and exact validated link that were reviewed, remove only that path,
+ * and preserve every other state-branch byte and ref.
+ */
+export async function retireCapabilityAuthorityLink(repositoryRemote, {
+  stateBranch = DEFAULT_CAPABILITY_STATE_BRANCH,
+  expectedStateCommit,
+  expectedLinkSha256,
+  env = process.env
+} = {}) {
+  const repository = assertCredentialFreeRemote(repositoryRemote);
+  const branch = String(stateBranch ?? '').trim();
+  if (!/^[0-9a-f]{40,64}$/i.test(String(expectedStateCommit ?? ''))
+      || !/^sha256:[0-9a-f]{64}$/.test(String(expectedLinkSha256 ?? ''))) {
+    throw new SingularityFlowError(
+      'Capability authority-link retirement requires the exact reviewed state commit and link digest.', {
+        code: 'CAPABILITY_AUTHORITY_LINK_RETIREMENT_STALE_PLAN'
+      }
+    );
+  }
+  const current = await readCapabilityAuthorityLink(repository, {
+    stateBranch: branch, env
+  });
+  if (current.status !== 'current'
+      || current.stateCommit !== expectedStateCommit
+      || current.link?.linkSha256 !== expectedLinkSha256) {
+    throw new SingularityFlowError(
+      'The delivery state branch or capability authority link changed after the retirement plan was reviewed. Nothing was changed.', {
+        code: 'CAPABILITY_AUTHORITY_LINK_RETIREMENT_STALE_PLAN',
+        details: {
+          stateBranch: branch,
+          expectedStateCommit,
+          observedStateCommit: current.stateCommit ?? null,
+          expectedLinkSha256,
+          observedLinkSha256: current.link?.linkSha256 ?? null,
+          linkStatus: current.status
+        }
+      }
+    );
+  }
+
+  const gitEnv = enterpriseGitEnvironment(env);
+  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-link-retire-'));
+  try {
+    const { cloned, transport } = await cloneOneBranch(repository, branch, scratch, {
+      env: gitEnv, operation: 'remote-configuration'
+    });
+    if (cloned.status !== 0) throw new SingularityFlowError(
+      `Cannot prepare stale capability-link retirement for '${sanitizeRemote(repository)}'. ${cloned.failure?.advice ?? 'Git clone failed.'}`, {
+        code: cloned.failure?.code ?? 'CAPABILITY_AUTHORITY_LINK_RETIREMENT_FAILED'
+      }
+    );
+    const clonedStateCommit = run('git', ['rev-parse', '--verify', 'HEAD'], {
+      cwd: scratch, env: transport.env
+    }).stdout.trim();
+    const clonedLink = run('git', [
+      'show', `HEAD:${CAPABILITY_AUTHORITY_LINK_PATH}`
+    ], { cwd: scratch, env: transport.env, allowFailure: true });
+    let validatedLink = null;
+    try {
+      if (clonedLink.status === 0) {
+        validatedLink = validateCapabilityAuthorityLink(clonedLink.stdout, repository);
+      }
+    } catch { /* the exact mismatch below owns the stable refusal */ }
+    if (clonedStateCommit !== expectedStateCommit
+        || validatedLink?.linkSha256 !== expectedLinkSha256) {
+      throw new SingularityFlowError(
+        'The delivery state bytes changed while the stale-link retirement was being prepared. Nothing was changed.', {
+          code: 'CAPABILITY_AUTHORITY_LINK_RETIREMENT_STALE_PLAN',
+          details: {
+            stateBranch: branch,
+            expectedStateCommit,
+            observedStateCommit: clonedStateCommit || null,
+            expectedLinkSha256,
+            observedLinkSha256: validatedLink?.linkSha256 ?? null
+          }
+        }
+      );
+    }
+    const publication = await publishToStateBranch(scratch, {
+      enabled: true,
+      branch,
+      remote: 'origin',
+      publication: 'warn'
+    }, {}, 'Retire stale capability authority link', {
+      removePaths: [CAPABILITY_AUTHORITY_LINK_PATH],
+      expectedRemoteSha: expectedStateCommit,
+      baseRef: expectedStateCommit,
+      refreshRemote: false,
+      env: transport.env,
+      transportRemote: repository
+    });
+    if (publication.changed !== true
+        || publication.removed?.length !== 1
+        || publication.removed[0] !== CAPABILITY_AUTHORITY_LINK_PATH
+        || publication.published?.length !== 0) {
+      throw new SingularityFlowError(
+        'The stale capability authority link was not retired as the exact one-path state update.', {
+          code: 'CAPABILITY_AUTHORITY_LINK_RETIREMENT_FAILED',
+          details: { publication }
+        }
+      );
+    }
+    return Object.freeze({
+      status: 'retired',
+      repository: sanitizeRemote(repository),
+      stateBranch: branch,
+      previousStateCommit: expectedStateCommit,
+      commit: publication.commit,
+      removed: Object.freeze([...publication.removed]),
+      preserved: Object.freeze(['all other state files', 'all other refs', 'application branches'])
+    });
+  } finally {
+    await removeTemporaryTree(scratch);
   }
 }
 
@@ -406,9 +529,15 @@ export async function publishCapabilityAuthorityLinkSet(entries, {
   workers = 4,
   env = process.env
 } = {}) {
-  const unique = [...new Map((entries ?? []).map((entry) => [
-    assertCredentialFreeRemote(entry.repositoryRemote), entry
-  ])).values()];
+  // A repository may use a custom runtime state branch. Publish the ordinary `state` discovery
+  // locator as well as the custom branch so a fresh laptop, which cannot know the custom branch
+  // before reading the locator, can still find the approved authority. Therefore de-duplicate by
+  // repository *and branch*, not repository alone.
+  const unique = [...new Map((entries ?? []).map((entry) => {
+    const repository = assertCredentialFreeRemote(entry.repositoryRemote);
+    const branch = entry.stateBranch ?? DEFAULT_CAPABILITY_STATE_BRANCH;
+    return [JSON.stringify([repository, branch]), entry];
+  })).values()];
   const outcomes = await mapLimit(unique, Math.max(1, Math.min(workers, unique.length || 1)),
     async (entry) => {
       try {

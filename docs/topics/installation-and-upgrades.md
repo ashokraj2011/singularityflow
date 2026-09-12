@@ -8,6 +8,7 @@ aliases:
 questions:
   - How do I reinstall SFlow on Windows?
   - How do I install SFlow on macOS?
+  - How do I safely reinitialize an existing workspace?
 commands:
   - init
   - bootstrap
@@ -20,7 +21,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 9
+version: 10
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing governed application history.
 
@@ -65,6 +66,14 @@ the exact candidate on the reported `sflow/config-refresh/*` review branch. Merg
 re-run the command to complete its state mirror. Reruns are idempotent and retry incomplete
 repositories while current repositories become no-ops.
 
+For the complete safe upgrade/recovery path, use `workspace reinitialize --dry-run`, review its
+configuration, schema, and capability-portability report, then apply the returned plan with
+`workspace reinitialize --confirm-plan <PLAN-ID>`. The apply is bound to the lead authority selected
+by the plan; a filtered delivery-only plan cannot publish capability links from an unreviewed lead
+revision and instead returns the exact lead-scoped preview command. This command never rewrites
+immutable historical records. Registered older records are migrated in memory by their readers;
+future or unreadable schema versions remain explicit blockers with upgrade guidance.
+
 Remote Git used by refresh is bounded and non-interactive. Exact ref observations are shared within
 one operation, independent repositories are prepared and published with up to four workers, and
 commit authorship reads `user.name`/`user.email` without contacting GitHub. Set
@@ -77,7 +86,7 @@ Code have no safe interactive terminal for them. A credential failure therefore 
 classified repair message instead of appearing to hang. Ledger compare-and-swap checks, exact
 transport-intent verification, and protected-branch recovery are not skipped or cached.
 
-In VS Code, run **Singularity Flow: Upgrade Capabilities & Workspaces** from the Command Palette.
+In VS Code, run **Singularity Flow: Safely Reinitialize Capabilities & Workspaces** from the Command Palette.
 It opens Workspaces and previews every registered repository. The same page can review only the
 selected workspace, exposes each conflict as a dropdown, and applies only a plan bound to that
 preview. When a preserved older agent leaves a phase without its required default, **Repair missing

@@ -11,7 +11,9 @@ import { localBranches, prepareRemoteBranchTracking, remoteBranches } from './gi
 import {
   buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs
 } from './repository-subject-index.mjs';
-import { gitWorkerCount, isGitRefName, mapLimit, SingularityFlowError, run } from './util.mjs';
+import {
+  gitWorkerCount, isGitRefName, mapLimit, portableIdentifier, SingularityFlowError, run
+} from './util.mjs';
 import {
   cloneStrategyArguments, normalizeCloneStrategy, partialCloneConfigured,
   partialCloneFallbackDecision
@@ -53,9 +55,7 @@ function object(value, label) {
 }
 
 function safeId(value, label) {
-  const id = String(value ?? '').trim();
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(id)) throw new SingularityFlowError(`${label} must be a portable identifier.`);
-  return id;
+  return portableIdentifier(value, label);
 }
 
 function safeRelative(value, label) {
@@ -2613,9 +2613,10 @@ export async function previewWorkspaceCapabilityChange(workspacePath, capability
     readOrganisation ??= organisationModule.readOrganisation;
     resolveWorkspacePlan ??= organisationModule.resolveWorkspacePlan;
   }
-  // readOrganisation always re-observes the approved ref. Its commit-validated cache avoids a
-  // second disposable configuration clone when preview and apply run back to back.
-  const organisation = suppliedOrganisation ?? await readOrganisation(authorityUrl, { refresh: false });
+  // Capability attachment changes local workspace membership and may clone or archive a checkout.
+  // Force an authoritative configuration read: a same-tip machine cache is useful for display, but
+  // its derived bytes must never authorize a filesystem mutation.
+  const organisation = suppliedOrganisation ?? await readOrganisation(authorityUrl, { refresh: true });
   if (organisation?.stale) {
     throw new SingularityFlowError(
       'The approved capability authority is unreachable, so only a stale cached map is available. Nothing was changed; restore Git access and preview again.',

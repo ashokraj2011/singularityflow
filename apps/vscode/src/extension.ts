@@ -40,7 +40,7 @@ import type { HelpDocument } from './views/help-page.ts';
 import type { WorkspacesMessage } from './views/workspaces-panel.ts';
 import type { Mapped } from './views/bootstrap-panel.ts';
 import {
-  archiveCommand, capabilityChangeCommand, configurationRefreshCommand, restoreCommand, workspaceRows,
+  archiveCommand, capabilityChangeCommand, restoreCommand, workspaceReinitializeCommand, workspaceRows,
   WORKSPACE_ACTION_CANCELLED,
   type WorkspaceCapabilityChangePreview, type WorkspaceCapabilityChangeResult,
   type WorkspaceCapabilityAttachScope,
@@ -2337,11 +2337,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!requestIsCurrent()) return;
     const refreshConfiguration = async (
       workspacePath: string | null,
-      request: Parameters<typeof configurationRefreshCommand>[1]
+      request: Parameters<typeof workspaceReinitializeCommand>[1]
     ): Promise<WorkspaceConfigurationRefreshResult> => {
       // The engine revalidates registry membership and the exact plan before mutation. Avoid a
       // second machine-wide `workspace list` process merely to recover the already-selected path.
-      const command = configurationRefreshCommand(
+      const command = workspaceReinitializeCommand(
         workspacePath ? { directory: workspacePath } : null,
         request
       );
@@ -2350,9 +2350,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return await vscode.window.withProgress(
           {
             location: vscode.ProgressLocation.Notification,
-            title: request.dryRun ? 'Checking SFlow configuration' : 'Refreshing SFlow configuration'
+            title: request.dryRun
+              ? 'Checking workspace reinitialization'
+              : 'Applying reviewed workspace reinitialization',
+            cancellable: true
           },
-          () => registry.run<WorkspaceConfigurationRefreshResult>(command)
+          async (_progress, token) => {
+            const cancellation = new AbortController();
+            const subscription = token.onCancellationRequested?.(() => cancellation.abort());
+            try {
+              return await registry.run<WorkspaceConfigurationRefreshResult>(
+                command, cancellation.signal
+              );
+            } finally {
+              subscription?.dispose();
+            }
+          }
         );
       } catch (error) {
         // This command deliberately exits non-zero for a blocked or partial multi-repository result.
@@ -2400,6 +2413,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   /** One discoverable post-install entry point: open the reviewed UI and check every workspace. */
   context.subscriptions.push(vscode.commands.registerCommand(
     'singularityFlow.upgradeWorkspaces',
+    () => vscode.commands.executeCommand('singularityFlow.openWorkspaces', { upgrade: true })
+  ));
+
+  /** Discoverable name for the same safe, plan-first workflow; kept separate from factory reset. */
+  context.subscriptions.push(vscode.commands.registerCommand(
+    'singularityFlow.reinitializeWorkspaces',
     () => vscode.commands.executeCommand('singularityFlow.openWorkspaces', { upgrade: true })
   ));
 
@@ -3093,7 +3112,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         onOutput: (text) => output.append(text)
       });
       const plan = await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: 'Preparing the workflow v2 reset preview' },
+        { location: vscode.ProgressLocation.Notification, title: 'Preparing the destructive factory-reset preview' },
         () => client.run<FactoryResetPlan>(['factory-reset', '--dry-run', '--json'])
       );
       if (plan.uncommittedResetPaths.length) {
@@ -3103,18 +3122,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         );
       }
       const review = await vscode.window.showWarningMessage(
-        'Reset and reinitialize this repository with workflow v2?',
+        'Factory reset this repository and install workflow v2?',
         {
           modal: true,
           detail: `Repository: ${plan.repository}\nBranch: ${plan.branch ?? 'detached'}\n\n`
             + `Remove: ${plan.remove.join('; ')}\n\nReplace: ${plan.replace.join('; ')}\n\n`
             + 'Application source and Git history are preserved. The replacement remains uncommitted for review.'
         },
-        'Reset and reinitialize'
+        'Factory reset repository'
       );
-      if (review !== 'Reset and reinitialize') return;
+      if (review !== 'Factory reset repository') return;
       const confirmation = await vscode.window.showInputBox({
-        title: 'Confirm repository reset',
+        title: 'Confirm destructive factory reset',
         prompt: `Type exactly: ${plan.confirmation}`,
         placeHolder: plan.confirmation,
         ignoreFocusOut: true,
@@ -3123,7 +3142,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (confirmation !== plan.confirmation) return;
 
       await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: 'Installing Singularity Flow workflow v2' },
+        { location: vscode.ProgressLocation.Notification, title: 'Factory resetting and installing workflow v2' },
         async () => {
           await client.run(['factory-reset', '--confirm', confirmation, '--json']);
           await client.run(['init', '--check', '--json']);
@@ -3136,7 +3155,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (next === 'Open Source Control') await vscode.commands.executeCommand('workbench.view.scm');
       else if (next === 'Reload Window') await vscode.commands.executeCommand('workbench.action.reloadWindow');
     } catch (error) {
-      showRefusal(error, { headline: 'Could not reset and reinitialize the repository' });
+      showRefusal(error, { headline: 'Could not factory reset the repository' });
     }
   }));
 

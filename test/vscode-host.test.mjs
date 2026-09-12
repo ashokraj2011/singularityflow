@@ -634,6 +634,8 @@ test('a legacy workflow blocks Lifecycle but leaves all repairable configuration
   assert.match(lifecycleProvider.getChildren()[0].label, /version must be 2/);
   const lifecycleReset = lifecycleProvider.getChildren()
     .find((node) => node.id === 'lifecycle:error:reinitialize');
+  assert.equal(lifecycleReset.label, 'Factory reset to workflow v2');
+  assert.match(lifecycleReset.tooltip, /Destructively replace/);
   assert.equal(lifecycleProvider.getTreeItem(lifecycleReset).command.command, 'singularityFlow.reinitialize');
 
   const configurationProvider = section(registered, 'configuration');
@@ -659,7 +661,7 @@ test('a legacy workflow blocks Lifecycle but leaves all repairable configuration
   assert.match(centerPanel.webview.html, /data-action="open-designer"/, 'workflow and phase design remains reachable');
   assert.ok(registered.commands.has('singularityFlow.reinitialize'), 'the no-migration recovery command is registered');
 
-  registered.selfApprovalAnswer = 'Reset and reinitialize';
+  registered.selfApprovalAnswer = 'Factory reset repository';
   registered.typed = `RESET ${path.basename(root)} ${run('git', ['rev-parse', '--short=7', 'HEAD'], { cwd: root }).stdout.trim()}`;
   await registered.commands.get('singularityFlow.reinitialize')();
   assert.equal(YAML.parse(await readFile(workflowFile, 'utf8')).version, 2,

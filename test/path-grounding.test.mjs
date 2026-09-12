@@ -69,7 +69,7 @@ test('the two broadest skill reads state their governed base and repository fenc
 test('the skill boundary lattice keeps entry points storyless without weakening lifecycle scope', async () => {
   const registry = YAML.parse(await readFile(path.join(root, 'plugin', 'skills', 'registry.yml'), 'utf8'));
   const machineEntry = [
-    'sflow-about', 'sflow-advise', 'sflow-docs', 'sflow-doctor', 'sflow-fresh-install',
+    'sflow-about', 'sflow-admin', 'sflow-advise', 'sflow-docs', 'sflow-doctor', 'sflow-fresh-install',
     'sflow-help', 'sflow-home', 'sflow-local-reset', 'sflow-plugin', 'sflow-quickstart',
     'sflow-recommend', 'sflow-reinstall', 'sflow-workspace', 'sflow-workspace-bootstrap',
     'sflow-workspace-session', 'sflow-workspaces'

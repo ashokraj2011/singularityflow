@@ -93,7 +93,7 @@ skills:
   sflow-advise: { class: conversational, executionBoundary: machine }
   sflow-agent: { class: interactive }
   sflow-agents: { class: echo, executionBoundary: repository }
-  sflow-admin: { class: conversational, executionBoundary: repository }
+  sflow-admin: { class: conversational, executionBoundary: machine }
   sflow-approvals: { class: echo }
   sflow-approve: { class: review }
   sflow-assign: { class: mutation }

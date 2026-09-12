@@ -124,10 +124,18 @@ test('VS Code classifies configuration publication as a mutation', () => {
   assert.equal(commandClass(['recover', 'WORK-1', '--phase', 'implementation', '--json']), 'read');
   assert.equal(commandClass(['recover', 'WORK-1', '--apply', '--confirm', 'sha256:plan']), 'mutation');
   assert.equal(commandClass(['workspace', 'refresh-configuration', '/work/a', '--dry-run']), 'read');
+  assert.equal(commandClass(['workspace', 'refresh-configuration', '/work/a', '--dry-run=false']), 'mutation');
+  assert.equal(commandClass(['workspace', 'refresh-configuration', '/work/a', '--no-dry-run']), 'mutation');
   assert.equal(commandClass(['workspace', 'refresh-configuration', '/work/a', '--confirm-plan', 'cfgp-1']), 'mutation');
+  assert.equal(commandClass(['workspace', 'reinitialize', '/work/a', '--dry-run']), 'read');
+  assert.equal(commandClass(['workspace', 'reinitialize', '/work/a', '--dry-run=false']), 'mutation');
+  assert.equal(commandClass(['workspace', 'reinitialize', '/work/a', '--no-dry-run']), 'mutation');
+  assert.equal(commandClass(['workspace', 'reinitialize', '/work/a', '--confirm-plan', 'cfgp-1']), 'mutation');
   assert.equal(commandClass(['workspace', 'attach-capability', '/work/a', 'payments', '--dry-run']), 'read');
+  assert.equal(commandClass(['workspace', 'attach-capability', '/work/a', 'payments', '--dry-run=false']), 'mutation');
   assert.equal(commandClass(['workspace', 'attach-capability', '/work/a', 'payments', '--confirm-plan', 'wscp-1']), 'mutation');
   assert.equal(commandClass(['workspace', 'detach-capability', '/work/a', 'payments', '--drop-local', '--dry-run']), 'read');
+  assert.equal(commandClass(['workspace', 'detach-capability', '/work/a', 'payments', '--dry-run=false']), 'mutation');
   assert.equal(commandClass(['capability', 'inspect-repository', 'https://code.example/repo.git']), 'read');
 });
 
@@ -416,6 +424,21 @@ test('an aborted run is killed and reports cancellation', async () => {
   const pending = invoke({ signal: controller.signal, spawnImpl: fakeSpawn({ stdout: '{}', delayMs: 5_000 }) });
   controller.abort();
   await assert.rejects(pending, /cancelled/);
+});
+
+test('an invocation without a host deadline still honors explicit cancellation', async () => {
+  const controller = new AbortController();
+  const pending = invoke({
+    timeoutMs: null,
+    signal: controller.signal,
+    spawnImpl: fakeSpawn({ stdout: '{}', delayMs: 5_000 })
+  });
+  controller.abort();
+  await assert.rejects(pending, (error) => {
+    assert.match(error.message, /cancelled/);
+    assert.ok(!(error instanceof CliTimeoutError));
+    return true;
+  });
 });
 
 test('Git and CLI cancellation report only after process-tree close', async () => {
@@ -1216,6 +1239,11 @@ test('large remote operations and lifecycle submissions get operation-appropriat
     await client.run(['capability', 'map', 'payments']).catch(() => {});
     await client.run(['capability', 'activate', 'proposal']).catch(() => {});
     await client.run(['workspace', 'refresh-configuration', '--dry-run']).catch(() => {});
+    await client.run(
+      ['workspace', 'reinitialize', '--dry-run'], new AbortController().signal
+    ).catch(() => {});
+    await client.run(['workspace', 'reinitialize', '--dry-run']).catch(() => {});
+    await client.run(['workspace', 'reinitialize', '/work/commerce', '--dry-run']).catch(() => {});
     await client.run(['workspace', 'prepare', 'https://example.test/platform.git']).catch(() => {});
     await client.run(['workspace', 'bootstrap', 'resume', 'wsb-1']).catch(() => {});
     await client.run(['start', 'WRK-17', '--isolated-worktree']).catch(() => {});
@@ -1232,11 +1260,15 @@ test('large remote operations and lifecycle submissions get operation-appropriat
   assert.equal(timeouts[3], 30 * 60_000);
   assert.equal(timeouts[4], 30 * 60_000);
   assert.equal(timeouts[5], 30 * 60_000);
-  assert.equal(timeouts[6], 15 * 60_000);
-  assert.equal(timeouts[7], 15 * 60_000);
+  assert.equal(timeouts[6], 30 * 60_000);
+  assert.equal(timeouts[7], 30 * 60_000);
   assert.equal(timeouts[8], 15 * 60_000);
-  assert.equal(timeouts[9], 30 * 60_000);
-  assert.equal(timeouts[10], 120_000);
+  assert.equal(timeouts[9], 15 * 60_000);
+  assert.equal(timeouts[10], 15 * 60_000);
+  assert.equal(timeouts[11], 30 * 60_000);
+  assert.equal(timeouts[12], 120_000);
+  assert.equal(timeouts.length, 13,
+    'cancellable machine-wide reinitialization has no host kill timer; an unowned call stays bounded');
 });
 
 test('phases are read in declared order with the state each is in', () => {
@@ -4270,8 +4302,9 @@ test('a refused start is reported on the form that caused it', () => {
 });
 
 const {
-  archiveCommand, capabilityChangeCommand, configurationRefreshCommand, duplicateCommand, duplicateDirectory, duplicateProblems,
-  renameCommand, restoreCommand, updateCommand, workspaceRows
+  archiveCommand, capabilityChangeCommand, duplicateCommand, duplicateDirectory, duplicateProblems,
+  renameCommand, restoreCommand, updateCommand, WorkspaceConfigurationRequestLeases,
+  workspaceReinitializeCommand, workspaceRows
 } =
   await import(source('views/workspaces-model.ts'));
 const { workspacesHtml, WORKSPACES_SCRIPT, EMPTY_DRAFT: EMPTY_COPY } =
@@ -4354,15 +4387,15 @@ test('the copy and rename commands are what the engine expects', () => {
       '--confirm', 'commerce', '--json']);
 });
 
-test('configuration refresh commands bind apply to the preview and carry only reviewed choices', () => {
+test('workspace reinitialization commands bind apply to the preview and carry only reviewed choices', () => {
   const [commerce] = workspaceRows(REGISTRY);
-  assert.deepEqual(configurationRefreshCommand(commerce, {
+  assert.deepEqual(workspaceReinitializeCommand(commerce, {
     dryRun: true, resolutions: { 'workflow.ledger.enabled': 'local' }
   }), [
-    'workspace', 'refresh-configuration', '/work/commerce', '--dry-run',
+    'workspace', 'reinitialize', '/work/commerce', '--dry-run',
     '--resolve', 'workflow.ledger.enabled=local', '--json'
   ]);
-  assert.deepEqual(configurationRefreshCommand(null, {
+  assert.deepEqual(workspaceReinitializeCommand(null, {
     dryRun: false,
     planId: 'cfgp-123',
     resolutions: {
@@ -4370,13 +4403,54 @@ test('configuration refresh commands bind apply to the preview and carry only re
       '.github/agents/developer.agent.md': 'bundled'
     }
   }), [
-    'workspace', 'refresh-configuration', '--confirm-plan', 'cfgp-123',
+    'workspace', 'reinitialize', '--confirm-plan', 'cfgp-123',
     '--resolve', '.github/agents/developer.agent.md=bundled',
     '--resolve', 'workflow.ledger.enabled=local', '--json'
   ]);
 });
 
-test('workspace configuration refresh renders per-path dropdowns and a plan-bound apply', () => {
+test('workspace reinitialization leases reject late previews after path, scope, or choices change', () => {
+  const requests = new WorkspaceConfigurationRequestLeases();
+  const selectedA = { selectedPath: '/work/a', scope: 'selected', resolutions: {} };
+  const first = requests.issue(selectedA);
+  assert.equal(requests.isCurrent(first, selectedA), true);
+
+  const selectedB = { selectedPath: '/work/b', scope: 'selected', resolutions: {} };
+  const second = requests.issue(selectedB);
+  assert.equal(requests.isCurrent(first, selectedA), false, 'A preview cannot attach to B');
+  assert.equal(requests.isCurrent(second, selectedB), true);
+
+  const backToA = requests.issue(selectedA);
+  assert.equal(requests.isCurrent(first, selectedA), false,
+    'returning to A does not revive the first A preview');
+  assert.equal(requests.isCurrent(backToA, selectedA), true);
+
+  const all = { ...selectedA, scope: 'all' };
+  const allLease = requests.issue(all);
+  assert.equal(requests.isCurrent(backToA, selectedA), false, 'scope changes invalidate a preview');
+
+  const packaged = {
+    ...all,
+    resolutions: { '.github/agents/developer.agent.md': 'bundled' }
+  };
+  const packagedLease = requests.issue(packaged);
+  assert.equal(requests.isCurrent(allLease, all), false, 'resolution changes invalidate a preview');
+  assert.equal(requests.isCurrent(packagedLease, packaged), true);
+  requests.invalidate();
+  assert.equal(requests.isCurrent(packagedLease, packaged), false,
+    'an explicit selection refresh invalidates even byte-identical context');
+});
+
+test('the command palette separates safe workspace reinitialization from destructive factory reset', async () => {
+  const manifest = JSON.parse(await readFile(
+    path.join(packageRoot, 'apps', 'vscode', 'package.json'), 'utf8'));
+  const commands = new Map(manifest.contributes.commands.map((entry) => [entry.command, entry.title]));
+  assert.match(commands.get('singularityFlow.reinitializeWorkspaces'), /Safely Reinitialize/);
+  assert.match(commands.get('singularityFlow.upgradeWorkspaces'), /Safe Preview/);
+  assert.match(commands.get('singularityFlow.reinitialize'), /Factory Reset.*Destructive/);
+});
+
+test('workspace reinitialization renders configuration, schemas and capability portability', () => {
   const rows = workspaceRows(REGISTRY);
   const html = workspacesHtml(
     rows, '/work/commerce', EMPTY_COPY, null, null, false, null, undefined,
@@ -4385,6 +4459,48 @@ test('workspace configuration refresh renders per-path dropdowns and a plan-boun
       resolutions: { '.github/agents/developer.agent.md': 'bundled' },
       result: {
         status: 'preview', dryRun: true, planId: 'cfgp-123', total: 1, updated: 0,
+        resultType: 'workspace-reinitialization',
+        schemaMigrationPolicy: {
+          mode: 'read-time', validatesStoredVersions: true, rewritesStoredRecords: false,
+          immutableRecordsRewritten: false,
+          statement: 'Readable legacy records migrate in memory; immutable history is not rewritten.'
+        },
+        schemaCensuses: [
+          {
+            repository: 'platform', remote: '/git/platform.git', path: '/work/commerce/repos/platform',
+            status: 'attention-required', healthy: false, records: 7,
+            readTimeMigrationRecords: 2, outsideReadableRange: 0, unreadable: 1, unregistered: 0,
+            reason: 'One durable record requires recovery.',
+            nextAction: {
+              command: 'singularity-flow doctor --json', cwd: "/work/commerce/team's platform",
+              shell: 'posix'
+            }
+          },
+          {
+            repository: 'windows-api', remote: 'C:\\remotes\\api.git', path: 'C:\\Work\\api',
+            status: 'attention-required', healthy: false, records: 1, unreadable: 1,
+            reason: 'Run the same read-only diagnosis on Windows.',
+            nextAction: {
+              command: 'singularity-flow doctor --json', cwd: "C:\\Work\\team's api",
+              shell: 'powershell'
+            }
+          }
+        ],
+        capabilityPortability: {
+          status: 'not-run-during-preview',
+          plannedLeads: [{
+            lead: '/git/platform.git', workspaceIds: ['commerce'], triggeredByRepositories: ['platform']
+          }],
+          results: []
+        },
+        topologyIssues: [{
+          lead: 'https://example.test/platform.git', status: 'unavailable',
+          reason: 'The lead authority could not be observed.',
+          nextAction: {
+            command: 'singularity-flow workspace doctor --network --repository https://example.test/platform.git --json',
+            shell: 'posix'
+          }
+        }],
         results: [{
           status: 'would-update', repository: 'platform', remote: '/git/platform.git',
           configurationChanged: true, stateChanged: true, stateStatus: 'would-follow-configuration',
@@ -4400,8 +4516,8 @@ test('workspace configuration refresh renders per-path dropdowns and a plan-boun
       }
     }
   );
-  assert.match(html, /Upgrade capabilities & workspaces/);
-  assert.match(html, /world models and other runtime state are preserved/);
+  assert.match(html, /Safely reinitialize capabilities &amp; workspaces/);
+  assert.match(html, /immutable history, world models/);
   assert.match(html, /data-config-preview="selected"/);
   assert.match(html, /data-config-preview="all"/);
   assert.match(html, /data-configuration-resolution="workflow\.ledger\.enabled"/);
@@ -4410,7 +4526,27 @@ test('workspace configuration refresh renders per-path dropdowns and a plan-boun
   assert.match(html, /data-config-bundled="assets"/);
   assert.match(html, /data-config-apply="selected"/);
   assert.doesNotMatch(html, /data-config-apply="selected"\s+disabled/);
+  assert.match(html, /Stored schema compatibility/);
+  assert.match(html, /attention-required/);
+  assert.match(html, /One durable record requires recovery/);
+  assert.match(html, /Run in <code>\/work\/commerce\/team&#39;s platform<\/code>/);
+  assert.match(html, /<code>singularity-flow doctor --json<\/code>/);
+  assert.match(html, /data-copy-command="cd &#39;\/work\/commerce\/team&#39;&quot;&#39;&quot;&#39;s platform&#39; &amp;&amp; singularity-flow doctor --json"/);
+  assert.ok(html.includes(
+    'data-copy-command="Set-Location &#39;C:\\Work\\team&#39;&#39;s api&#39;; singularity-flow doctor --json"'
+  ));
+  assert.match(html, /Capability-map portability/);
+  assert.match(html, /will verify after confirmation/);
+  assert.match(html, /no capability YAML is\s+copied onto an application branch/);
+  assert.match(html, /https:\/\/example\.test\/platform\.git/);
+  assert.match(html, /The lead authority could not be observed/);
+  assert.match(html, /data-copy-command="singularity-flow workspace doctor --network/);
+  assert.doesNotMatch(html, />undefined</);
+  assert.match(html, /Confirm &amp; reinitialize/);
+  assert.match(html, /type the exact plan ID/);
   assert.match(html, /cfgp-123/);
+  assert.match(WORKSPACES_SCRIPT, /\[data-copy-command\]/);
+  assert.match(WORKSPACES_SCRIPT, /navigator\.clipboard\.writeText\(data\.copyCommand\)/);
 });
 
 test('a blocked workspace upgrade offers a reviewed packaged-agent repair in the UI', () => {
@@ -4437,12 +4573,27 @@ test('a blocked workspace upgrade offers a reviewed packaged-agent repair in the
       }
     }
   );
-  assert.match(html, /Upgrade capabilities & workspaces/);
+  assert.match(html, /Safely reinitialize capabilities &amp; workspaces/);
   assert.match(html, /Governed agents from an older build are blocking this upgrade/);
   assert.match(html, /data-config-agents="packaged"/);
   assert.match(html, /Repair missing or outdated agents/);
   assert.doesNotMatch(html, /data-config-apply="all"\s*>/,
     'a blocked preview has no plan that can be applied');
+});
+
+test('workspace reinitialization never offers apply for a mutation-shaped result', () => {
+  const rows = workspaceRows(REGISTRY);
+  const html = workspacesHtml(
+    rows, '/work/commerce', EMPTY_COPY, null, null, false, null, undefined,
+    {
+      scope: 'selected', loading: false, applying: false, error: null, resolutions: {},
+      result: {
+        status: 'preview', dryRun: false, planId: 'cfgp-not-a-preview', total: 1, updated: 1,
+        results: []
+      }
+    }
+  );
+  assert.match(html, /data-config-apply="selected"\s+disabled/);
 });
 
 test('the selected workspace offers edit, copy and forget, and says what each costs', () => {

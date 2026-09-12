@@ -23,17 +23,35 @@ import { removeTemporaryTree, run } from '../src/util.mjs';
 import { outsideBuilderScratch } from '../src/worldmodel.mjs';
 import {
   activateCapabilityProposal, addCapabilityRepository, applyCapabilityReconciliation,
+  applyStaleCapabilityAuthorityLinkRetirement,
   capabilityFsck, capabilityProposalCommands, discardStaleCapabilityProposal,
   editCapabilityInOrganisation, initializeWorkspaceState,
   inspectCapabilityProposal, inspectCapabilityRepository, listCapabilityProposals, mapCapability, readOrganisation,
-  organisationCacheFile, previewCapabilityReconciliation, proposeProgressiveCapabilityChange,
+  organisationCacheFile, previewCapabilityReconciliation,
+  previewStaleCapabilityAuthorityLinkRetirement, proposeProgressiveCapabilityChange, repositoryIdOf,
   publishOrganisationCapabilityMap, resolveWorkspacePlan
 } from '../src/organisation.mjs';
 import { listTransportIntents, retryTransportIntent } from '../src/transport-intents.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 import { readConfigurationSource } from '../src/configuration-branch.mjs';
 import { runRemoteGitAsync } from '../src/git-execution.mjs';
-import { readCapabilityAuthorityLink } from '../src/capability-authority-link.mjs';
+import {
+  createCapabilityAuthorityLink, publishCapabilityAuthorityLinkSet, readCapabilityAuthorityLink
+} from '../src/capability-authority-link.mjs';
+
+test('repository identifiers use the final segment for Windows, UNC, URL and POSIX remotes', () => {
+  assert.equal(repositoryIdOf(String.raw`C:\work\payments-api.git`), 'payments-api');
+  assert.equal(repositoryIdOf('C:\\work\\payments-api.GIT\\'), 'payments-api');
+  assert.equal(repositoryIdOf(String.raw`\\server\share\payments-api.git`), 'payments-api');
+  assert.equal(repositoryIdOf('file:///C:/work/payments-api.git'), 'payments-api');
+  assert.equal(repositoryIdOf('/work/payments-api.git'), 'payments-api');
+  for (const remote of [
+    String.raw`C:\work\CON.git`, String.raw`C:\work\nul.json.git`,
+    String.raw`C:\work\..git`, String.raw`C:\work\payments-api..git`
+  ]) {
+    assert.throws(() => repositoryIdOf(remote), /portable identifier|Windows reserved/i);
+  }
+});
 
 /** Bare repositories with one commit each, standing in for an organisation's remotes. */
 async function remotes(...names) {
@@ -324,9 +342,9 @@ test('the first capability governs the repository it is mapped into', async () =
     metadata: { applicationId: 'APP-1001', costCenter: 'CC-42' }
   }));
   const mapCounters = mapTimer.finish().counters;
-  assert.equal(mapCounters['git.remote.total'], 5,
-    'first map combines authority and HEAD observation instead of probing them separately');
-  assert.equal(mapCounters['git.remote.command.ls-remote'], 1);
+  assert.equal(mapCounters['git.remote.total'], 6,
+    'first map combines authority and HEAD discovery, then revalidates the authority at mutation');
+  assert.equal(mapCounters['git.remote.command.ls-remote'], 2);
   assert.equal(mapCounters['git.remote.command.clone'], 2);
   assert.equal(mapCounters['git.remote.command.push'], 2);
   assert.equal(first.capabilityId, 'commerce');
@@ -402,7 +420,7 @@ test('a repository can be added to an existing delivery through one reviewed pro
   assert.equal(repository.clone.mode, 'blobless-sparse');
 });
 
-test('mapping several delivery repositories observes every distinct remote exactly once', async () => {
+test('mapping several delivery repositories observes each delivery once and revalidates the lead', async () => {
   const org = await remotes('platform', 'service', 'web');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
   const timer = commandTimer('capability-map-many', { commandClass: 'mutation' });
@@ -415,10 +433,10 @@ test('mapping several delivery repositories observes every distinct remote exact
 
   assert.deepEqual(proposed.repositoryIds.sort(), ['service', 'web']);
   const counters = timer.finish().counters;
-  assert.equal(counters['git.remote.command.ls-remote'], 3,
-    'the lead, service, and web remotes each have one combined operation-scoped observation');
-  assert.equal(counters['git.remote.total'], 7,
-    'parallel validation does not add probes beyond configuration bootstrap and proposal publication');
+  assert.equal(counters['git.remote.command.ls-remote'], 4,
+    'service and web are each observed once while the lead is revalidated at mutation');
+  assert.equal(counters['git.remote.total'], 8,
+    'parallel validation adds only the security-critical lead revalidation');
 });
 
 test('repository inspection finds an exact URL in registered capability maps without mutation', async () => {
@@ -514,6 +532,52 @@ test('the machine lead registry never returns or newly stores credential-bearing
     `https://bob:${secret}@git.example/new.git`, file
   ), (error) => error.code === 'BOOTSTRAP_REMOTE_CONTAINS_CREDENTIAL');
   assert.doesNotMatch(JSON.stringify(await listSafeLeads(file)), new RegExp(secret));
+});
+
+test('a malformed lead registry is an empty convenience cache and a later write repairs it', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-malformed-leads-'));
+  const file = registry(root);
+  await writeFile(file, '{ interrupted write');
+  const {
+    listLeadRepositories: listSafeLeads,
+    rememberLeadRepository
+  } = await import('../src/lead-repositories.mjs');
+
+  assert.deepEqual(await listSafeLeads(file), []);
+  await rememberLeadRepository('https://git.example/recovered.git', file);
+  assert.deepEqual((await listSafeLeads(file)).map((entry) => entry.url), [
+    'https://git.example/recovered.git'
+  ]);
+  assert.equal(JSON.parse(await readFile(file, 'utf8')).schemaVersion, 1);
+});
+
+test('the lead registry preserves newer-schema upgrade guidance', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-future-leads-'));
+  const file = registry(root);
+  await writeFile(file, `${JSON.stringify({ schemaVersion: 999, leads: [] })}\n`);
+  const { listLeadRepositories: listSafeLeads } = await import('../src/lead-repositories.mjs');
+  await assert.rejects(() => listSafeLeads(file), (error) => {
+    assert.equal(error.code, 'SCHEMA_VERSION_FUTURE');
+    assert.match(error.message, /newer sflow.*upgrade/i);
+    return true;
+  });
+});
+
+test('concurrent lead registry updates retain every bounded read-modify-write', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-concurrent-leads-'));
+  const file = registry(root);
+  const {
+    listLeadRepositories: listSafeLeads,
+    rememberLeadRepository
+  } = await import('../src/lead-repositories.mjs');
+  const urls = Array.from({ length: 12 }, (_, index) =>
+    `https://git.example/service-${String(index).padStart(2, '0')}.git`);
+
+  await Promise.all(urls.map((url) => rememberLeadRepository(url, file)));
+  assert.deepEqual(
+    new Set((await listSafeLeads(file)).map((entry) => entry.url)),
+    new Set(urls)
+  );
 });
 
 test('capability review commands use placeholders for shell-special lead paths', () => {
@@ -804,6 +868,235 @@ test('repository inspection discovers a self-hosted approved map on a new laptop
   assert.deepEqual(result.matches[0].capabilities, ['platform-runtime']);
 });
 
+test('mapping an already-approved identical capability is an idempotent success', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, {
+    capabilityId: 'platform-runtime', name: 'Platform runtime',
+    kind: 'delivery', repositoryUrl: org.platform
+  });
+  const proposalsBeforeRetry = proposalRefs(org.platform);
+  // Make an unrelated portfolio repair available. Retrying the map must still be a no-op rather
+  // than smuggling that maintenance change into a capability proposal.
+  run('git', ['update-ref', 'refs/heads/trunk', 'refs/heads/main'], { cwd: org.platform });
+  run('git', ['symbolic-ref', 'HEAD', 'refs/heads/trunk'], { cwd: org.platform });
+
+  const repeated = await mapCapability(org.platform, {
+    capabilityId: 'platform-runtime', name: 'Platform runtime',
+    kind: 'delivery', repositoryUrl: org.platform
+  });
+  assert.equal(repeated.changed, false);
+  assert.equal(repeated.pushed, false);
+  assert.equal(repeated.status, 'already-mapped');
+  assert.equal(repeated.reviewRequired, false);
+  assert.deepEqual(proposalRefs(org.platform), proposalsBeforeRetry);
+});
+
+test('an already-approved identical mapping remains an offline delivery no-op', async () => {
+  const org = await remotes('platform', 'service');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, {
+    capabilityId: 'payments', name: 'Payments', kind: 'delivery', repositoryUrl: org.service
+  });
+  const unavailable = `${org.service}.offline`;
+  await rename(org.service, unavailable);
+  try {
+    const repeated = await mapCapability(org.platform, {
+      capabilityId: 'payments', name: 'Payments', kind: 'delivery', repositoryUrl: org.service
+    });
+    assert.equal(repeated.status, 'already-mapped');
+    assert.equal(repeated.changed, false);
+    assert.equal(repeated.pushed, false);
+  } finally {
+    await rename(unavailable, org.service);
+  }
+});
+
+test('approved mapping retries compare every explicitly requested capability and clone field', async () => {
+  const org = await remotes('platform', 'service', 'worker');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, {
+    capabilityId: 'payment-routing', name: 'Payment routing', kind: 'delivery', type: 'tech',
+    repositoryUrls: [org.service, org.worker], leadRepositoryUrl: org.service,
+    metadata: { applicationId: 'PAY-100' },
+    documentation: { confluence: 'https://docs.example.test/payment-routing' },
+    resources: { service: 'payments' },
+    sourceRoots: ['src/service'], sharedRoots: ['src/shared'],
+    clone: { mode: 'blobless', fallback: 'refuse' },
+    jiraProject: 'PAY', teams: ['Payments', 'Platform']
+  });
+  const before = proposalRefs(org.platform);
+
+  const repeated = await mapCapability(org.platform, {
+    capabilityId: 'payment-routing', name: 'Payment routing', kind: 'delivery', type: 'tech',
+    repositoryUrls: [org.worker, org.service], leadRepositoryUrl: org.service,
+    metadata: { applicationId: 'PAY-100' },
+    documentation: { confluence: 'https://docs.example.test/payment-routing' },
+    resources: { service: 'payments' },
+    sourceRoots: ['./src/service/'], sharedRoots: ['./src/shared/'],
+    clone: { mode: 'blobless', fallback: 'refuse' },
+    jiraProject: 'PAY', teams: ['Platform', 'Payments']
+  });
+  assert.equal(repeated.status, 'already-mapped');
+
+  await assert.rejects(() => mapCapability(org.platform, {
+    capabilityId: 'payment-routing', name: 'Replacement routing', kind: 'collection',
+    type: 'business', parent: 'commerce',
+    repositoryUrls: [org.service, org.worker], leadRepositoryUrl: org.worker,
+    metadata: { applicationId: 'PAY-200' },
+    documentation: { confluence: 'https://docs.example.test/replacement' },
+    resources: { service: 'replacement' },
+    sourceRoots: ['src/replacement'], sharedRoots: ['shared/replacement'],
+    clone: { mode: 'full' },
+    jiraProject: 'NEW', teams: ['Replacement']
+  }), (error) => {
+    assert.equal(error.code, 'CAPABILITY_ALREADY_MAPPED');
+    assert.deepEqual(error.details.differences, [
+      'kind', 'name', 'type', 'parent', 'metadata', 'documentation', 'resources',
+      'sourceRoots', 'sharedRoots', 'jira.projectKey', 'teams', 'leadRepository', 'clone'
+    ]);
+    return true;
+  });
+  assert.deepEqual(proposalRefs(org.platform), before,
+    'a conflicting retry cannot publish or replace a proposal');
+});
+
+test('approved mapping retries never equate distinct repository authorities with the same basename', async () => {
+  const organisation = await remotes('platform', 'service');
+  const other = await remotes('service');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(organisation.base);
+  await mapAndMerge(organisation.platform, {
+    capabilityId: 'payments', kind: 'delivery', repositoryUrl: organisation.service
+  });
+  const before = proposalRefs(organisation.platform);
+
+  await assert.rejects(() => mapCapability(organisation.platform, {
+    capabilityId: 'payments', kind: 'delivery', repositoryUrl: other.service
+  }), (error) => {
+    assert.equal(error.code, 'CAPABILITY_ALREADY_MAPPED');
+    assert.deepEqual(error.details.differences, ['repositoryUrls']);
+    return true;
+  });
+  assert.deepEqual(proposalRefs(organisation.platform), before);
+});
+
+test('a mapping retry after unrelated configuration advances preserves the original proposal', async () => {
+  const org = await remotes('platform', 'service');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const pending = await mapCapability(org.platform, {
+    capabilityId: 'calculator', kind: 'delivery', repositoryUrl: org.service
+  });
+  await mapAndMerge(org.platform, {
+    capabilityId: 'documentation', kind: 'collection'
+  });
+  const before = proposalRefs(org.platform);
+
+  await assert.rejects(() => mapCapability(org.platform, {
+    capabilityId: 'calculator', kind: 'delivery', repositoryUrl: org.service
+  }), (error) => {
+    assert.equal(error.code, 'CAPABILITY_PROPOSAL_ALREADY_EXISTS');
+    assert.equal(error.details.state, 'proposal-already-exists');
+    assert.equal(error.details.proposalBranch, pending.branch);
+    assert.equal(error.details.proposalCommit, pending.commit);
+    assert.match(error.details.nextAction.command, /capability proposal/);
+    return true;
+  });
+  assert.deepEqual(proposalRefs(org.platform), before,
+    'a later configuration base cannot create a competing mapping proposal');
+});
+
+test('a longer capability identifier is not mistaken for the same-ID proposal history', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, { capabilityId: 'foundation', kind: 'collection' });
+  const longer = await mapCapability(org.platform, {
+    capabilityId: 'payment-routing', kind: 'collection'
+  });
+  const shorter = await mapCapability(org.platform, {
+    capabilityId: 'payment', kind: 'collection'
+  });
+  assert.notEqual(shorter.branch, longer.branch);
+  assert.equal((await listCapabilityProposals(org.platform)).length, 2);
+});
+
+test('a proven merged mapping ref remains auditable without blocking remapping after approved removal', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, {
+    capabilityId: 'foundation', name: 'Foundation', kind: 'collection'
+  });
+  const original = await mapCapability(org.platform, {
+    capabilityId: 'calculator', name: 'Calculator', kind: 'collection'
+  });
+  const originalActivation = await activateCapabilityProposal(org.platform, original.branch, {
+    confirm: original.commit, acknowledgeUnprotected: true
+  });
+  assert.equal(originalActivation.status, 'activated');
+
+  const removal = await editCapabilityInOrganisation(
+    org.platform, 'calculator', {}, { mode: 'remove' }
+  );
+  const removalActivation = await activateCapabilityProposal(org.platform, removal.branch, {
+    confirm: removal.commit, acknowledgeUnprotected: true
+  });
+  assert.equal(removalActivation.status, 'activated');
+  const approvedAfterRemoval = await readOrganisation(org.platform, { refresh: true });
+  assert.equal(approvedAfterRemoval.capabilities.some((entry) => entry.id === 'calculator'), false);
+
+  const remapped = await mapCapability(org.platform, {
+    capabilityId: 'calculator', name: 'Calculator v2', kind: 'collection'
+  });
+  assert.notEqual(remapped.branch, original.branch,
+    'the new proposal is bound to the approved removal revision, not the historical base');
+  assert.equal(run('git', ['show-ref', '--verify', `refs/heads/${original.branch}`], {
+    cwd: org.platform, allowFailure: true
+  }).status, 0, 'the merged review ref remains auditable');
+
+  const pending = await listCapabilityProposals(org.platform);
+  assert.deepEqual(pending.map((proposal) => proposal.branch), [remapped.branch],
+    'only the new proposal is pending; the retained merged ref is history');
+  const refsBeforeRetry = proposalRefs(org.platform);
+  await assert.rejects(() => mapCapability(org.platform, {
+    capabilityId: 'calculator', name: 'Calculator v2', kind: 'collection'
+  }), (error) => {
+    assert.equal(error.code, 'CAPABILITY_PROPOSAL_ALREADY_EXISTS');
+    assert.deepEqual(error.details.proposals.map((proposal) => proposal.branch), [remapped.branch]);
+    assert.ok(error.details.historicalMergedProposals.some((proposal) =>
+      proposal.branch === original.branch && proposal.status === 'merged'));
+    return true;
+  });
+  assert.deepEqual(proposalRefs(org.platform), refsBeforeRetry,
+    'retrying the one pending remap cannot create a third review ref');
+});
+
+test('one repository can receive authority locators on custom and conventional state branches', async () => {
+  const org = await remotes('platform', 'service');
+  const link = createCapabilityAuthorityLink({
+    authorityRemote: org.platform,
+    repositoryRemote: org.service,
+    capabilityIds: ['portable-service']
+  });
+  const published = await publishCapabilityAuthorityLinkSet([
+    {
+      authorityRemote: org.platform, repositoryRemote: org.service,
+      capabilityIds: ['portable-service'], defaultBranch: 'main', stateBranch: 'governed-state'
+    },
+    {
+      authorityRemote: org.platform, repositoryRemote: org.service,
+      capabilityIds: ['portable-service'], defaultBranch: 'main', stateBranch: 'state'
+    }
+  ]);
+  assert.equal(link.kind, 'capability-authority-link');
+  assert.equal(published.status, 'current');
+  assert.equal(published.outcomes.length, 2);
+  for (const branch of ['governed-state', 'state']) {
+    const stored = JSON.parse(run('git', [
+      'show', `${branch}:singularity/capability-authority.json`
+    ], { cwd: org.service }).stdout);
+    assert.equal(stored.linkSha256, link.linkSha256);
+  }
+});
+
 test('an activated mapping is discoverable from the delivery state branch on a new laptop', async () => {
   const org = await remotes('platform', 'service');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
@@ -887,6 +1180,130 @@ test('an activated mapping is discoverable from the delivery state branch on a n
     entry.id === 'portable-discovery:service');
   assert.equal(portability.status, 'pass');
   assert.equal(portability.branch, 'state');
+});
+
+test('stale delivery authority links retire through an exact one-path state CAS', async () => {
+  const org = await remotes('platform', 'service');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, {
+    capabilityId: 'foundation', kind: 'collection'
+  });
+  const mapped = await mapAndMerge(org.platform, {
+    capabilityId: 'portable-service', kind: 'delivery', parent: 'foundation',
+    repositoryUrl: org.service
+  });
+  const activated = await activateCapabilityProposal(org.platform, mapped.branch, {
+    confirm: mapped.commit
+  });
+  assert.equal(activated.portability.portable, true);
+  const applicationMain = run('git', ['rev-parse', 'main'], { cwd: org.service }).stdout.trim();
+
+  await assert.rejects(
+    () => previewStaleCapabilityAuthorityLinkRetirement(org.service, org.platform),
+    (error) => error?.code === 'CAPABILITY_AUTHORITY_LINK_STILL_CLAIMED'
+  );
+
+  const removal = await editCapabilityInOrganisation(org.platform, 'portable-service', {}, {
+    mode: 'remove'
+  });
+  await mergeProposal(org.platform, removal);
+  const approved = await readOrganisation(org.platform, { refresh: true });
+  assert.equal(approved.capabilities.some((entry) => entry.id === 'portable-service'), false);
+
+  const discovery = await inspectCapabilityRepository(org.service, {
+    leadUrl: org.platform, refresh: true, searchKnown: false, includeProposals: false
+  });
+  assert.equal(discovery.authorityDiscovery.status, 'stale');
+  const stale = discovery.failures.find((failure) =>
+    failure.code === 'CAPABILITY_AUTHORITY_LINK_STALE');
+  assert.match(stale.diagnosticAction.command,
+    /capability reconcile .* --remove-stale --lead .* --state-branch state --json/);
+  const fsck = await capabilityFsck(org.platform, {
+    portableDiscovery: true, repositoryDiscovery: discovery
+  });
+  const requested = fsck.checks.find((entry) =>
+    entry.id === 'portable-discovery:requested-repository');
+  assert.equal(requested.status, 'fail');
+  assert.equal(requested.remediation, stale.diagnosticAction.command);
+  const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
+  const cliFsck = JSON.parse(execFileSync(process.execPath, [
+    cli, 'capability', 'fsck', '--repository', org.service,
+    '--lead', org.platform, '--json'
+  ], {
+    cwd: org.base,
+    env: { ...process.env, SINGULARITY_FLOW_LEAD_REGISTRY: registry(org.base), NO_COLOR: '1' },
+    encoding: 'utf8'
+  }));
+  assert.equal(cliFsck.valid, false);
+  assert.equal(cliFsck.checks.find((entry) =>
+    entry.id === 'portable-discovery:requested-repository').remediation,
+  stale.diagnosticAction.command);
+
+  const stateCheckout = path.join(org.base, 'service-state-edit');
+  run('git', ['clone', '-q', '--branch', 'state', org.service, stateCheckout], { cwd: org.base });
+  run('git', ['config', 'user.email', 'reviewer@example.com'], { cwd: stateCheckout });
+  run('git', ['config', 'user.name', 'Review User'], { cwd: stateCheckout });
+  await mkdir(path.join(stateCheckout, 'singularity'), { recursive: true });
+  await writeFile(path.join(stateCheckout, 'singularity', 'unrelated-state.json'), '{"keep":true}\n');
+  run('git', ['add', 'singularity/unrelated-state.json'], { cwd: stateCheckout });
+  run('git', ['commit', '-qm', 'Keep unrelated delivery state'], { cwd: stateCheckout });
+  run('git', ['push', '-q', 'origin', 'HEAD:state'], { cwd: stateCheckout });
+
+  const preview = await previewStaleCapabilityAuthorityLinkRetirement(
+    org.service, org.platform
+  );
+  assert.equal(preview.plan.mode, 'retire-stale-link');
+  assert.deepEqual(preview.plan.approvedAbsence.capabilityIds, []);
+  assert.deepEqual(preview.plan.writes, [{
+    repository: org.service,
+    branch: 'state',
+    path: 'singularity/capability-authority.json',
+    operation: 'delete-stale-authority-link',
+    expectedStateCommit: preview.plan.observedLink.stateCommit
+  }]);
+  const cliPreview = JSON.parse(execFileSync(process.execPath, [
+    cli, 'capability', 'reconcile', org.service, '--remove-stale',
+    '--lead', org.platform, '--json'
+  ], {
+    cwd: org.base,
+    env: { ...process.env, SINGULARITY_FLOW_LEAD_REGISTRY: registry(org.base), NO_COLOR: '1' },
+    encoding: 'utf8'
+  }));
+  assert.equal(cliPreview.plan.planId, preview.plan.planId);
+
+  await writeFile(path.join(stateCheckout, 'singularity', 'concurrent-state.json'), '{"keep":2}\n');
+  run('git', ['add', 'singularity/concurrent-state.json'], { cwd: stateCheckout });
+  run('git', ['commit', '-qm', 'Concurrent unrelated delivery state'], { cwd: stateCheckout });
+  run('git', ['push', '-q', 'origin', 'HEAD:state'], { cwd: stateCheckout });
+  await assert.rejects(
+    () => applyStaleCapabilityAuthorityLinkRetirement(org.service, org.platform, {
+      confirmPlan: preview.plan.planId
+    }),
+    (error) => error?.code === 'CAPABILITY_RECONCILIATION_CONFIRMATION_REQUIRED'
+  );
+  assert.equal(run('git', [
+    'cat-file', '-e', 'state:singularity/capability-authority.json'
+  ], { cwd: org.service, allowFailure: true }).status, 0,
+  'a stale plan must preserve the old link');
+
+  const current = await previewStaleCapabilityAuthorityLinkRetirement(
+    org.service, org.platform
+  );
+  const retired = await applyStaleCapabilityAuthorityLinkRetirement(
+    org.service, org.platform, { confirmPlan: current.plan.planId }
+  );
+  assert.equal(retired.status, 'retired');
+  assert.deepEqual(retired.publication.removed, ['singularity/capability-authority.json']);
+  assert.equal(run('git', [
+    'cat-file', '-e', 'state:singularity/capability-authority.json'
+  ], { cwd: org.service, allowFailure: true }).status !== 0, true);
+  assert.equal(run('git', [
+    'show', 'state:singularity/unrelated-state.json'
+  ], { cwd: org.service }).stdout, '{"keep":true}\n');
+  assert.equal(run('git', [
+    'show', 'state:singularity/concurrent-state.json'
+  ], { cwd: org.service }).stdout, '{"keep":2}\n');
+  assert.equal(run('git', ['rev-parse', 'main'], { cwd: org.service }).stdout.trim(), applicationMain);
 });
 
 test('repository inspection reports ambiguity across registered organisations', async () => {
@@ -1906,10 +2323,81 @@ test('a repeated mapping points to the preserved proposal instead of becoming a 
     assert.equal(error.code, 'CAPABILITY_PROPOSAL_ALREADY_EXISTS');
     assert.equal(error.details.state, 'proposal-already-exists');
     assert.equal(error.details.proposalBranch, proposed.branch);
+    assert.deepEqual(error.details.proposals.map((proposal) => proposal.status),
+      ['pending-review']);
     assert.match(error.details.nextAction.command, /capability proposal/);
     return true;
   });
   assert.equal((await listCapabilityProposals(org.platform)).length, 1);
+});
+
+test('concurrent same-ID mappings publish exactly one proposal bound to the approved base', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, { capabilityId: 'foundation', kind: 'collection' });
+
+  const attempts = await Promise.allSettled([1, 2].map(() => mapCapability(org.platform, {
+    capabilityId: 'payments', name: 'Payments', kind: 'collection'
+  })));
+  assert.equal(attempts.filter((attempt) => attempt.status === 'fulfilled').length, 1);
+  const rejected = attempts.find((attempt) => attempt.status === 'rejected');
+  assert.equal(rejected?.reason?.code, 'CAPABILITY_PROPOSAL_ALREADY_EXISTS');
+  const matching = proposalRefs(org.platform)
+    .filter((ref) => /\/map-payments-[0-9a-f]{8}\s/.test(ref));
+  assert.equal(matching.length, 1,
+    'the empty proposal-ref lease prevents a second writer from replacing the winner');
+  assert.equal(run('git', ['rev-parse', 'sflow/config'], { cwd: org.platform }).stdout.trim(),
+    attempts.find((attempt) => attempt.status === 'fulfilled').value.baseCommit,
+    'proposal publication never advances the approved configuration branch');
+});
+
+test('invalid and unreadable same-ID proposal refs remain pre-mutation blockers', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, { capabilityId: 'foundation', kind: 'collection' });
+
+  const invalid = await mapCapability(org.platform, {
+    capabilityId: 'invalid-review', kind: 'collection'
+  });
+  const tamper = path.join(org.base, 'invalid-proposal-edit');
+  run('git', ['clone', '-q', '--branch', invalid.branch, org.platform, tamper], { cwd: org.base });
+  run('git', ['config', 'user.email', 'proposal@example.com'], { cwd: tamper });
+  run('git', ['config', 'user.name', 'Proposal Author'], { cwd: tamper });
+  await writeFile(path.join(tamper, 'application-change.txt'), 'not configuration\n');
+  run('git', ['add', 'application-change.txt'], { cwd: tamper });
+  run('git', ['commit', '-qm', 'Make proposal invalid'], { cwd: tamper });
+  run('git', ['push', '-q', '--force', 'origin', `HEAD:${invalid.branch}`], { cwd: tamper });
+
+  const configurationCommit = run('git', ['rev-parse', 'sflow/config'], {
+    cwd: org.platform
+  }).stdout.trim();
+  const unreadableBranch = `sflow/config-change/capability/map-unreadable-review-${configurationCommit.slice(0, 8)}`;
+  const unrelated = path.join(org.base, 'unrelated-proposal');
+  run('git', ['init', '-q', '-b', 'unrelated', unrelated], { cwd: org.base });
+  run('git', ['config', 'user.email', 'proposal@example.com'], { cwd: unrelated });
+  run('git', ['config', 'user.name', 'Proposal Author'], { cwd: unrelated });
+  await writeFile(path.join(unrelated, 'README.md'), '# unrelated history\n');
+  run('git', ['add', 'README.md'], { cwd: unrelated });
+  run('git', ['commit', '-qm', 'Unrelated proposal history'], { cwd: unrelated });
+  run('git', ['push', '-q', org.platform, `HEAD:${unreadableBranch}`], { cwd: unrelated });
+
+  const before = proposalRefs(org.platform);
+  await assert.rejects(() => mapCapability(org.platform, {
+    capabilityId: 'invalid-review', kind: 'collection'
+  }), (error) => {
+    assert.equal(error.code, 'CAPABILITY_PROPOSAL_ALREADY_EXISTS');
+    assert.deepEqual(error.details.proposals.map((proposal) => proposal.status), ['invalid']);
+    return true;
+  });
+  await assert.rejects(() => mapCapability(org.platform, {
+    capabilityId: 'unreadable-review', kind: 'collection'
+  }), (error) => {
+    assert.equal(error.code, 'CAPABILITY_PROPOSAL_ALREADY_EXISTS');
+    assert.deepEqual(error.details.proposals.map((proposal) => proposal.status), ['unreadable']);
+    return true;
+  });
+  assert.deepEqual(proposalRefs(org.platform), before,
+    'neither refused retry may publish a competing proposal');
 });
 
 test('proposal clone and fetch failures retain structured remote diagnosis and an exact doctor action', async () => {
@@ -2466,6 +2954,48 @@ test('organisation reads prefer the state mirror and reuse a SHA-validated durab
     'the CLI refresh flag bypasses a same-tip durable cache entry');
 });
 
+test('malformed organisation cache bytes and shapes never block authoritative Git reads', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  process.env.SINGULARITY_FLOW_ORGANISATION_CACHE = path.join(org.base, 'organisation-cache');
+  await mapAndMerge(org.platform, {
+    capabilityId: 'commerce', name: 'Commerce', kind: 'collection'
+  });
+  const authoritative = await readOrganisation(org.platform, { refresh: true });
+  const cacheFile = organisationCacheFile(org.platform);
+
+  await writeFile(cacheFile, '{ interrupted write');
+  const afterInvalidJson = await readOrganisation(org.platform);
+  assert.equal(afterInvalidJson.cached, false);
+  assert.deepEqual(afterInvalidJson.capabilities, authoritative.capabilities);
+
+  await writeFile(cacheFile, `${JSON.stringify({
+    schemaVersion: 1,
+    url: org.platform,
+    tipSha: authoritative.configurationCommit,
+    cachedAt: new Date().toISOString(),
+    organisation: 'not-an-organisation'
+  })}\n`);
+  const afterInvalidShape = await readOrganisation(org.platform);
+  assert.equal(afterInvalidShape.cached, false);
+  assert.deepEqual(afterInvalidShape.capabilities, authoritative.capabilities);
+});
+
+test('organisation cache preserves newer-schema upgrade guidance', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  process.env.SINGULARITY_FLOW_ORGANISATION_CACHE = path.join(org.base, 'organisation-cache');
+  const file = organisationCacheFile(org.platform);
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, `${JSON.stringify({ schemaVersion: 999 })}\n`);
+
+  await assert.rejects(() => readOrganisation(org.platform), (error) => {
+    assert.equal(error.code, 'SCHEMA_VERSION_FUTURE');
+    assert.match(error.message, /newer sflow.*upgrade/i);
+    return true;
+  });
+});
+
 test('organisation reads completely verify a configured non-default state branch', async () => {
   const org = await remotes('platform');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
@@ -2683,6 +3213,10 @@ test('a workspace plan refuses what would produce nothing to work in', () => {
     capabilities: [{ id: 'commerce', name: 'Commerce', repository: null, children: [] }],
     repositories: {}
   };
+  assert.throws(
+    () => resolveWorkspacePlan({ ...organisation, stale: true }, { capabilities: ['commerce'] }),
+    (error) => error?.code === 'WORKSPACE_CAPABILITY_AUTHORITY_STALE'
+  );
   assert.throws(() => resolveWorkspacePlan(organisation, { capabilities: [] }), /at least one capability/);
   assert.throws(() => resolveWorkspacePlan(organisation, { capabilities: ['nope'] }), /Unknown capability/);
   assert.throws(() => resolveWorkspacePlan(organisation, { capabilities: ['commerce'] }),
@@ -3538,6 +4072,29 @@ test('only reviewed capability configuration can be published to the state branc
   await assert.rejects(
     () => editCapabilityInOrganisation(org.platform, 'commerce', {}, { mode: 'overwrite' }),
     /must be 'add', 'set', or 'remove'/);
+});
+
+test('capability projection refuses a configuration commit outside the reviewed plan', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const proposal = await mapCapability(org.platform, {
+    capabilityId: 'commerce', name: 'Commerce', kind: 'collection'
+  });
+  await mergeProposal(org.platform, proposal);
+  const beforeState = run('git', ['show-ref', '--hash', 'refs/heads/state'], {
+    cwd: org.platform, allowFailure: true
+  }).stdout.trim() || null;
+
+  await assert.rejects(
+    () => publishOrganisationCapabilityMap(org.platform, {
+      expectedConfigurationCommit: 'f'.repeat(40)
+    }),
+    (error) => error.code === 'CAPABILITY_CONFIGURATION_PLAN_STALE'
+  );
+  const afterState = run('git', ['show-ref', '--hash', 'refs/heads/state'], {
+    cwd: org.platform, allowFailure: true
+  }).stdout.trim() || null;
+  assert.equal(afterState, beforeState, 'a stale plan cannot create or move the state projection');
 });
 
 test('local capability authoring never creates or moves governed state', async () => {

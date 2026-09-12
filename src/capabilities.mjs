@@ -3,7 +3,9 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 import { normalizeSourceRoots } from './source-scope.mjs';
-import { exists, secureRepositoryPath, SingularityFlowError, YAML_OUTPUT } from './util.mjs';
+import {
+  exists, portableIdentifier, secureRepositoryPath, SingularityFlowError, YAML_OUTPUT
+} from './util.mjs';
 import { foldCapabilityAutoPolicy, normalizeCapabilityAutoPolicy } from './auto/auto-policy.mjs';
 import { recordSha256 } from './records.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
@@ -435,6 +437,7 @@ function validateCapabilityDelivery(id, capability, capabilities, portfolio) {
     if (typeof repository !== 'string' || !repository.trim()) {
       throw new SingularityFlowError(`Capability '${id}' repository must be a repository identifier.`);
     }
+    portableIdentifier(repository, `Capability '${id}' repository`);
     if (portfolio && !portfolio.repositories?.[repository]) {
       throw new SingularityFlowError(`Capability '${id}' ships from repository '${repository}', which the portfolio does not declare.`);
     }

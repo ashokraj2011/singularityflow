@@ -32,6 +32,26 @@ export class SingularityFlowError extends Error {
   }
 }
 
+const WINDOWS_RESERVED_PORTABLE_BASENAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
+
+/**
+ * One filesystem identifier contract shared by workspace and governed repository records.
+ *
+ * Windows reserves device basenames even when an extension is present, and trims terminal dots and
+ * spaces before resolving a path. Accepting those names on macOS/Linux creates approved maps that a
+ * Windows laptop cannot materialize. Keep the contract deliberately narrower than a Git ref: these
+ * identifiers become direct child directory names on every supported host.
+ */
+export function portableIdentifier(value, label = 'Identifier') {
+  const id = String(value ?? '').trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(id)
+      || id === '.' || id === '..' || /[. ]$/.test(id)
+      || WINDOWS_RESERVED_PORTABLE_BASENAME.test(id)) {
+    throw new SingularityFlowError(`${label} must be a portable identifier and must not use a Windows reserved filename.`);
+  }
+  return id;
+}
+
 export function invariant(condition, message) {
   if (!condition) throw new SingularityFlowError(message);
 }
@@ -96,7 +116,7 @@ export const BOOLEAN_OPTIONS = Object.freeze(new Set([
   'git-shadow', 'git-speed', 'keep', 'local', 'local-only', 'make-lead', 'markdown', 'migrate-legacy', 'network', 'offline', 'once', 'open', 'performance', 'plan-only',
   'opt-out', 'optional', 'parallel', 'planned', 'polish', 'portable-discovery', 'preview', 'probe', 'propose', 'publish', 'push',
   'query-stdin', 'quick', 'raw', 'readiness', 'rebuild', 'recap', 'record', 'record-audit', 'recover', 'refresh', 'release', 'render-only', 'repair', 'repair-on-fault', 'restore-remote', 'run',
-  'repair-projections', 'replace', 'replace-server', 'resume', 'set', 'sign', 'solo',
+  'remove-stale', 'repair-projections', 'replace', 'replace-server', 'resume', 'set', 'sign', 'solo',
   'search-known', 'semantic', 'shadow', 'skip-checks', 'smart-detect', 'staged', 'stale', 'strict', 'terminal', 'timings', 'today', 'update', 'write',
   'yes',
   // Presentation flags introduced with the narration and output work. They are parsed here before

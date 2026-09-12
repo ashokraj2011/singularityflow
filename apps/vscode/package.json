@@ -175,7 +175,12 @@
       },
       {
         "command": "singularityFlow.upgradeWorkspaces",
-        "title": "Singularity Flow: Upgrade Capabilities & Workspaces",
+        "title": "Singularity Flow: Upgrade Capabilities & Workspaces (Safe Preview)",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "singularityFlow.reinitializeWorkspaces",
+        "title": "Singularity Flow: Safely Reinitialize Capabilities & Workspaces",
         "icon": "$(sync)"
       },
       {
@@ -270,7 +275,7 @@
       },
       {
         "command": "singularityFlow.reinitialize",
-        "title": "Singularity Flow: Reset & Reinitialize Repository (Workflow v2)",
+        "title": "Singularity Flow: Factory Reset Repository (Destructive, Workflow v2)",
         "icon": "$(debug-restart)"
       },
       {

@@ -458,6 +458,77 @@ test('asynchronous remote execution keeps the same bounded result contract', asy
   assert.equal(result.timeoutMs, 5_000);
 });
 
+test('asynchronous remote execution resolves an absolute Git executable on Windows', async () => {
+  const calls = [];
+  const environment = {
+    SystemRoot: 'C:\\Windows',
+    PATH: 'C:\\Program Files\\Git\\cmd',
+    PATHEXT: '.EXE',
+    MANAGED_PROXY: 'preserved'
+  };
+  const result = await runRemoteGitAsync(['ls-remote', '--heads', 'origin'], {
+    platform: 'win32',
+    cwd: 'C:\\workspaces\\repository',
+    env: environment,
+    timeoutMs: 5_000,
+    platformLookupCommand(command, args, options) {
+      calls.push({ kind: 'lookup', command, args, options });
+      return {
+        status: 0,
+        stdout: 'C:\\Program Files\\Git\\cmd\\git.exe\r\n',
+        stderr: ''
+      };
+    },
+    spawnCommand(command, args, options) {
+      calls.push({ kind: 'spawn', command, args, options });
+      const child = new EventEmitter();
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.kill = () => true;
+      queueMicrotask(() => child.emit('close', 0, null));
+      return child;
+    }
+  });
+
+  assert.equal(result.status, 0);
+  assert.equal(calls[0].kind, 'lookup');
+  assert.equal(calls[0].command, 'C:\\Windows\\System32\\where.exe');
+  assert.deepEqual(calls[0].args, ['$PATH:git.*']);
+  assert.equal(calls[0].options.cwd, 'C:\\Windows\\System32');
+  assert.equal(calls[1].kind, 'spawn');
+  assert.equal(calls[1].command, 'C:\\Program Files\\Git\\cmd\\git.exe');
+  assert.deepEqual(calls[1].args, ['ls-remote', '--heads', 'origin']);
+  assert.equal(calls[1].options.shell, false);
+  assert.equal(calls[1].options.detached, false);
+  assert.equal(calls[1].options.env.GIT_TERMINAL_PROMPT, '0');
+  assert.equal(calls[1].options.env.GCM_INTERACTIVE, 'Never');
+  assert.equal(calls[1].options.env.MANAGED_PROXY, 'preserved');
+});
+
+test('asynchronous remote execution refuses Windows PATH resolution failure before spawning', async () => {
+  let spawned = false;
+  const result = await runRemoteGitAsync(['ls-remote', 'origin'], {
+    platform: 'win32',
+    cwd: 'C:\\workspaces\\repository',
+    env: {
+      SystemRoot: 'C:\\Windows', PATH: 'C:\\Program Files\\Git\\cmd', PATHEXT: '.EXE'
+    },
+    timeoutMs: 5_000,
+    platformLookupCommand() {
+      return { status: 1, stdout: '', stderr: '' };
+    },
+    spawnCommand() {
+      spawned = true;
+      throw new Error('must not spawn a bare command');
+    }
+  });
+
+  assert.equal(spawned, false);
+  assert.equal(result.status, 1);
+  assert.equal(result.failure.classification, 'git-unavailable');
+  assert.equal(result.failure.code, 'REMOTE_GIT_UNAVAILABLE');
+});
+
 test('asynchronous remote execution terminates a command at its operation deadline', async () => {
   const signals = [];
   const spawnCommand = () => {

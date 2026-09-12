@@ -12,9 +12,10 @@ import {
   frozenRemoteTransport, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
 import { incrementCommandCounter } from './dx-timing-context.mjs';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { statSync } from 'node:fs';
 import path from 'node:path';
+import { resolvePlatformProcess } from './platform-process.mjs';
 import {
   networkDisabled, recordSubprocessTiming, run, signalProcessTree, SingularityFlowError
 } from './util.mjs';
@@ -195,6 +196,8 @@ export async function runRemoteGitAsync(args, {
   cwd = process.cwd(), env = process.env, operation = 'remote-probe',
   timeoutMs = timeoutFor(operation, env), allowFailure = true,
   maxBuffer = 16 * 1024 * 1024, spawnCommand = spawn, signal = null,
+  platform = process.platform, platformLookupCommand = spawnSync,
+  platformLstatCommand = undefined, platformRealpathCommand = undefined,
   terminationGraceMs = terminationGraceFor(env),
   terminateTree = signalProcessTree
 } = {}) {
@@ -207,7 +210,6 @@ export async function runRemoteGitAsync(args, {
   recordRemoteGitInvocation(args, operation);
   const serviceStarted = performance.now();
   const probeStarted = process.env.SINGULARITY_FLOW_SUBPROCESS_PROBE ? serviceStarted : 0;
-  if (!signal?.aborted) incrementCommandCounter('git.spawns');
   const result = signal?.aborted
     // Abort reasons are caller-owned values and may contain credentials, URLs, or UI text. The
     // closed-vocabulary cancellation classification below is the complete public diagnosis; never
@@ -216,11 +218,21 @@ export async function runRemoteGitAsync(args, {
     : await new Promise((resolve) => {
     let child;
     try {
-      child = spawnCommand('git', args, {
-        cwd, env: nonInteractiveGitEnvironment(env), shell: false,
+      const executionEnvironment = nonInteractiveGitEnvironment(env);
+      // Match the synchronous `run` boundary exactly. In particular, CreateProcess must never
+      // resolve a repository-local `git.exe` before PATH on Windows: resolve the reviewed logical
+      // command to a hardened absolute executable (or the safely escaped batch adapter) first.
+      const launch = resolvePlatformProcess('git', args, {
+        platform, environment: executionEnvironment, spawnSyncCommand: platformLookupCommand, cwd,
+        lstatSyncCommand: platformLstatCommand,
+        realpathSyncCommand: platformRealpathCommand
+      });
+      incrementCommandCounter('git.spawns');
+      child = spawnCommand(launch.executable, launch.arguments, {
+        cwd, env: executionEnvironment, ...launch.spawnOptions,
         // A private POSIX process group lets the timeout boundary reach Git, credential helpers,
         // SSH, proxy commands, and any other descendant in one signal. Windows uses taskkill /T.
-        detached: process.platform !== 'win32',
+        detached: platform !== 'win32',
         stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true
       });
     } catch (error) {

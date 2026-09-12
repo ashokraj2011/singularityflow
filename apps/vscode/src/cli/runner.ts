@@ -76,7 +76,7 @@ export const DISPLAY_BOOLEAN_OPTIONS = new Set([
   'git-shadow', 'git-speed', 'keep', 'local', 'local-only', 'make-lead', 'markdown', 'migrate-legacy', 'network', 'offline', 'once', 'open', 'performance', 'plan-only', 'planned',
   'opt-out', 'optional', 'parallel', 'polish', 'portable-discovery', 'preview', 'probe', 'propose', 'publish', 'push',
   'query-stdin', 'quick', 'raw', 'readiness', 'rebuild', 'recap', 'record', 'record-audit', 'recover', 'refresh', 'release', 'render-only', 'repair', 'repair-on-fault', 'restore-remote', 'run',
-  'repair-projections', 'replace', 'replace-server', 'resume', 'set', 'sign', 'solo',
+  'remove-stale', 'repair-projections', 'replace', 'replace-server', 'resume', 'set', 'sign', 'solo',
   'search-known', 'semantic', 'shadow', 'skip-checks', 'smart-detect', 'staged', 'stale', 'strict', 'terminal', 'timings', 'today', 'update', 'write',
   'yes', 'verbose', 'show-artifact', 'brief'
 ]);
@@ -1380,7 +1380,8 @@ export interface InvokeOptions {
   input?: string | null;
   json?: boolean;
   env?: NodeJS.ProcessEnv;
-  timeoutMs?: number;
+  /** Null delegates completion to the CLI and an explicit AbortSignal (for cancellable UI work). */
+  timeoutMs?: number | null;
   spawnImpl?: typeof spawn;
   onOutput?: (text: string, stream: OutputStream) => void;
   commandClass?: 'read' | 'mutation' | 'unknown';
@@ -1503,15 +1504,17 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
       return fail(error);
     }
 
-    timer = setTimeout(() => {
-      const recoveryCommand = cliArgsAreReplaySafe(args) ? terminalCommand(
-        repository, args, process.platform, { executable, cli }
-      ) : null;
-      terminate(new CliTimeoutError(
-        timeoutMs,
-        recoveryCommand
-      ), 'error');
-    }, timeoutMs);
+    if (timeoutMs !== null) {
+      timer = setTimeout(() => {
+        const recoveryCommand = cliArgsAreReplaySafe(args) ? terminalCommand(
+          repository, args, process.platform, { executable, cli }
+        ) : null;
+        terminate(new CliTimeoutError(
+          timeoutMs,
+          recoveryCommand
+        ), 'error');
+      }, timeoutMs);
+    }
     signal?.addEventListener('abort', onAbort, { once: true });
 
     child.stdout?.on('data', (chunk: Buffer) => { collect(stdoutChunks, chunk, 'stdout'); });

@@ -318,6 +318,21 @@ unchanged; future versions fail with an upgrade remedy. In Copilot CLI, use `/sf
 also runs the read-only initialization inventory before its wider repository
 diagnostics.
 
+For an existing workspace, the normal repeatable upgrade is a safe reinitialization—not a reset.
+It reviews every selected repository, updates packaged workflow/templates/prompts/agents through
+the configuration three-way merge, refreshes exact state projections and capability locators, and
+checks durable schema readability. Preview first and apply only its exact plan:
+
+```bash
+singularity-flow workspace reinitialize --dry-run
+singularity-flow workspace reinitialize --confirm-plan wrip-...
+```
+
+Repository customizations are preserved unless the reviewed plan explicitly resolves a conflict.
+Readable older records migrate in memory when loaded; immutable evidence and Git history are never
+rewritten. In Copilot use `/sf-admin reinitialize`; in VS Code run **Singularity Flow: Safely
+Reinitialize Capabilities & Workspaces**.
+
 For a deliberate clean restart, factory reset replaces the complete
 `singularity/` tree from the templates bundled in the **currently installed npm
 package** and removes machine-local runtime state under
@@ -347,8 +362,8 @@ is left uncommitted for review. In Copilot, `/sf-factory-reset` enforces the
 same preview and contributor-entered confirmation sequence.
 
 In VS Code, open the Singularity Flow **Configuration** section and select
-**Reset and reinitialize workflow v2**, or run **Singularity Flow: Reset &
-Reinitialize Repository (Workflow v2)** from the Command Palette. The editor
+**Factory reset to workflow v2**, or run **Singularity Flow: Factory Reset
+Repository (Destructive, Workflow v2)** from the Command Palette. The editor
 shows the same engine-generated preview, requires the same exact confirmation,
 installs the bundled version-2 files, validates them, and leaves the replacement
 uncommitted. It does not migrate version-1 state. If governed files have local

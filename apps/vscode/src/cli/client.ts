@@ -175,9 +175,10 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
       : 'mutation';
   }
   if (args[0] === 'workspace' && ['current', 'list', 'status', 'doctor', 'branches'].includes(args[1] ?? 'list')) return 'read';
-  if (args[0] === 'workspace' && args[1] === 'refresh-configuration' && hasOption(args, 'dry-run')) return 'read';
+  if (args[0] === 'workspace' && args[1] === 'refresh-configuration' && enabledBooleanOption(args, 'dry-run')) return 'read';
+  if (args[0] === 'workspace' && args[1] === 'reinitialize' && enabledBooleanOption(args, 'dry-run')) return 'read';
   if (args[0] === 'workspace' && ['attach-capability', 'detach-capability'].includes(args[1] ?? '')
-      && hasOption(args, 'dry-run')) return 'read';
+      && enabledBooleanOption(args, 'dry-run')) return 'read';
   if (args[0] === 'goal') return ['list', 'show', 'status', 'next'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
   if (args[0] === 'fault') return (args[1] ?? 'list') === 'report' ? 'mutation' : 'read';
   if (args[0] === 'fix') return hasOption(args, 'plan-only') ? 'read' : 'mutation';
@@ -356,7 +357,7 @@ export class SingularityFlowClient {
     return JSON.stringify([this.options.repository, args]);
   }
 
-  private invoke<T>(args: string[], timeoutMs: number, signal?: AbortSignal, json = true,
+  private invoke<T>(args: string[], timeoutMs: number | null, signal?: AbortSignal, json = true,
     input: string | null = null): Promise<T> {
     // JSON stdout is the read model, not progress. Streaming it into VS Code's Output channel made
     // every structured payload exist three times (runner buffer, Output channel, parsed object) and
@@ -459,7 +460,7 @@ export class SingularityFlowClient {
 
   /** Everything else, for the governed actions the tree offers. */
   run<T = unknown>(args: string[], signal?: AbortSignal): Promise<T> {
-    return this.invoke<T>(args, this.timeoutFor(args), signal);
+    return this.invoke<T>(args, this.timeoutFor(args, signal !== undefined), signal);
   }
 
   /**
@@ -471,11 +472,11 @@ export class SingularityFlowClient {
    */
   async runText(args: string[], options: { signal?: AbortSignal; input?: string } = {}): Promise<string> {
     const result = await this.invoke<{ output: string }>(
-      args, this.timeoutFor(args), options.signal, false, options.input ?? null);
+      args, this.timeoutFor(args, options.signal !== undefined), options.signal, false, options.input ?? null);
     return result.output;
   }
 
-  private timeoutFor(args: string[]): number {
+  private timeoutFor(args: string[], cancellable = false): number | null {
     if (args[0] === 'submit') return VALIDATION_TIMEOUT_MS;
     if (args[0] === 'repair' && args[1] === 'attempt') return VALIDATION_TIMEOUT_MS;
     if (args[0] === 'start'
@@ -504,9 +505,16 @@ export class SingularityFlowClient {
         || (args[0] === 'configuration' && args[1] === 'save' && hasOption(args, 'propose'))) {
       return CAPABILITY_AUTHORITY_TIMEOUT_MS;
     }
+    // A machine-wide safe reinitialization is a sequence of independently leased repository
+    // transactions. Its duration grows with the registry and office Git latency, so a host-wide
+    // 30-minute kill can interrupt a healthy later repository. The Workspaces notification is
+    // explicitly cancellable and its AbortSignal still terminates the process tree. A selected
+    // workspace keeps the ordinary bounded mutation deadline.
+    if (cancellable && args[0] === 'workspace' && args[1] === 'reinitialize'
+        && (!args[2] || args[2].startsWith('--'))) return null;
     if (args[0] === 'workspace' && [
       'prepare', 'create', 'duplicate', 'update', 'repair', 'sync', 'archive',
-      'refresh-configuration', 'attach-capability', 'detach-capability'
+      'refresh-configuration', 'reinitialize', 'attach-capability', 'detach-capability'
     ].includes(args[1] ?? '')) {
       return WORKSPACE_MUTATION_TIMEOUT_MS;
     }

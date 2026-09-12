@@ -31,7 +31,13 @@ export async function listLeadRepositoryRegistryRecords(file = leadRegistryFile(
   try { stored = readRecord('capability-lead-registry', await readJson(file)).record; }
   catch (error) {
     if (error?.message?.startsWith('Required file not found:')) return [];
-    throw error;
+    // This file is a machine-local convenience index, never capability authority. A truncated,
+    // malformed, archived, or otherwise unreadable copy must therefore behave like an empty
+    // cache instead of preventing an authoritative Git read. Preserve future-schema errors: they
+    // are not corruption, and silently replacing a registry written by a newer SFlow build would
+    // discard pointers that this build may not understand.
+    if (error?.code === 'SCHEMA_VERSION_FUTURE') throw error;
+    return [];
   }
   return Array.isArray(stored?.leads) ? stored.leads : [];
 }
@@ -59,17 +65,24 @@ export async function rememberLeadRepository(url, file = leadRegistryFile()) {
   const remote = String(url ?? '').trim();
   if (!remote) return listLeadRepositories(file);
   assertCredentialFreeRemote(remote);
-  const existing = await listLeadRepositoryRegistryRecords(file);
-  const leads = [
-    { url: remote, usedAt: new Date().toISOString() },
-    ...existing.filter((lead) => lead.url !== remote)
-  ].slice(0, 20);
-  await writeLeads(file, leads);
-  return listLeadRepositories(file);
+  const { withRegistryFileLease } = await import('./workspace.mjs');
+  return await withRegistryFileLease(file, async () => {
+    const existing = await listLeadRepositoryRegistryRecords(file);
+    const leads = [
+      { url: remote, usedAt: new Date().toISOString() },
+      ...existing.filter((lead) => lead.url !== remote)
+    ].slice(0, 20);
+    await writeLeads(file, leads);
+    return listLeadRepositories(file);
+  });
 }
 
 export async function forgetLeadRepository(url, file = leadRegistryFile()) {
-  const leads = (await listLeadRepositoryRegistryRecords(file)).filter((lead) => lead.url !== url);
-  await writeLeads(file, leads);
-  return listLeadRepositories(file);
+  const { withRegistryFileLease } = await import('./workspace.mjs');
+  return await withRegistryFileLease(file, async () => {
+    const leads = (await listLeadRepositoryRegistryRecords(file))
+      .filter((lead) => lead.url !== url);
+    await writeLeads(file, leads);
+    return listLeadRepositories(file);
+  });
 }

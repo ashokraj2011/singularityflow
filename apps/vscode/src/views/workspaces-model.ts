@@ -182,6 +182,65 @@ export interface WorkspaceFosOutcome {
 
 export type WorkspaceConfigurationResolution = 'local' | 'bundled' | 'merge';
 
+/** One inert, operator-reviewed recovery command returned by the engine. */
+export interface WorkspaceRecoveryAction {
+  command: string;
+  argv?: string[];
+  shell?: 'posix' | 'powershell';
+  cwd?: string;
+  skill?: string;
+}
+
+/** The complete UI context which one configuration preview or apply is allowed to affect. */
+export interface WorkspaceConfigurationRequestContext {
+  selectedPath: string | null;
+  scope: 'selected' | 'all';
+  resolutions: Record<string, WorkspaceConfigurationResolution>;
+}
+
+/** Opaque, panel-owned authority for one asynchronous configuration request. */
+export interface WorkspaceConfigurationRequestLease {
+  revision: number;
+  context: string;
+}
+
+function configurationRequestContextKey(context: WorkspaceConfigurationRequestContext): string {
+  return JSON.stringify([
+    context.selectedPath,
+    context.scope,
+    Object.entries(context.resolutions).sort(([left], [right]) => left.localeCompare(right))
+  ]);
+}
+
+/**
+ * Monotonic authority for retained-panel configuration requests.
+ *
+ * Comparing only the selected path is insufficient: while a request is in flight the reader can
+ * travel A → B → A, change from one/all, or replace a conflict decision and arrive at values
+ * that look identical to an older request. The revision makes every such older response stale;
+ * the context key additionally proves that callers passed the exact path, scope, and decisions
+ * which the lease was issued for.
+ */
+export class WorkspaceConfigurationRequestLeases {
+  private revision = 0;
+
+  issue(context: WorkspaceConfigurationRequestContext): WorkspaceConfigurationRequestLease {
+    return { revision: ++this.revision, context: configurationRequestContextKey(context) };
+  }
+
+  invalidate(): void {
+    this.revision += 1;
+  }
+
+  isCurrent(
+    lease: WorkspaceConfigurationRequestLease,
+    context: WorkspaceConfigurationRequestContext
+  ): boolean {
+    return lease.revision === this.revision
+      && lease.context === configurationRequestContextKey(context);
+  }
+}
+
 export interface WorkspaceConfigurationConflict {
   path: string;
   resolution: string;
@@ -224,6 +283,55 @@ export interface WorkspaceConfigurationRefreshResult {
   updated: number;
   failed?: number;
   results: WorkspaceConfigurationRefreshRepository[];
+  /** Present for the composed `workspace reinitialize` report. */
+  resultType?: 'workspace-reinitialization';
+  capabilityPortability?: {
+    status: string;
+    plannedLeads: Array<{
+      lead: string;
+      workspaceIds: string[];
+      triggeredByRepositories: string[];
+    }>;
+    results: Array<{
+      lead: string;
+      workspaceIds: string[];
+      triggeredByRepositories: string[];
+      status: string;
+      reason?: string;
+      nextAction?: WorkspaceRecoveryAction | null;
+    }>;
+  };
+  schemaMigrationPolicy?: {
+    mode: string;
+    validatesStoredVersions: boolean;
+    rewritesStoredRecords: boolean;
+    immutableRecordsRewritten: boolean;
+    statement: string;
+  };
+  schemaCensuses?: Array<{
+    repository: string;
+    remote: string;
+    path: string;
+    status: string;
+    healthy?: boolean;
+    records?: number;
+    readTimeMigrationRecords?: number;
+    outsideReadableRange?: number;
+    unreadable?: number;
+    unregistered?: number;
+    truncated?: boolean;
+    reason?: string;
+    nextAction?: WorkspaceRecoveryAction | null;
+  }>;
+  topologyIssues?: Array<{
+    workspaceId?: string;
+    repositoryId?: string;
+    lead?: string;
+    status: string;
+    reason: string;
+    nextAction?: WorkspaceRecoveryAction | null;
+  }>;
+  nextAction?: WorkspaceRecoveryAction | null;
 }
 
 export interface WorkspaceRow extends WorkspaceEntry {
@@ -325,8 +433,8 @@ export function restoreCommand(row: WorkspaceRow): string[] {
   return ['workspace', 'restore', row.directory, '--json'];
 }
 
-/** Preview or apply the exact configuration/state refresh rendered by the Workspaces page. */
-export function configurationRefreshCommand(
+/** Preview or apply one exact, non-destructive workspace reinitialization plan. */
+export function workspaceReinitializeCommand(
   row: Pick<WorkspaceRow, 'directory'> | null,
   {
     dryRun,
@@ -338,7 +446,7 @@ export function configurationRefreshCommand(
     resolutions?: Record<string, WorkspaceConfigurationResolution>;
   }
 ): string[] {
-  const args = ['workspace', 'refresh-configuration'];
+  const args = ['workspace', 'reinitialize'];
   if (row) args.push(row.directory);
   if (dryRun) args.push('--dry-run');
   if (!dryRun && planId) args.push('--confirm-plan', planId);
@@ -347,6 +455,16 @@ export function configurationRefreshCommand(
     args.push('--resolve', `${conflictPath}=${resolution}`);
   }
   args.push('--json');
+  return args;
+}
+
+/** Preserve the narrower configuration-only command for callers that deliberately request it. */
+export function configurationRefreshCommand(
+  row: Pick<WorkspaceRow, 'directory'> | null,
+  request: Parameters<typeof workspaceReinitializeCommand>[1]
+): string[] {
+  const args = workspaceReinitializeCommand(row, request);
+  args[1] = 'refresh-configuration';
   return args;
 }
 

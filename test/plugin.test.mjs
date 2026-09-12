@@ -305,6 +305,22 @@ test('plugin provides workspace discovery and switching skills', async () => {
   assert.match(session, /disable-model-invocation:\s*true/);
 });
 
+test('admin skill performs workspace reinitialization through an exact reviewed plan', async () => {
+  const admin = await readFile(path.join(pluginRoot, 'skills', 'sflow-admin', 'SKILL.md'), 'utf8');
+  const advise = await readFile(path.join(pluginRoot, 'skills', 'sflow-advise', 'SKILL.md'), 'utf8');
+  assert.match(admin, /workspace reinitialize \[WORKSPACE-ID\]/);
+  assert.match(admin, /--dry-run --json/);
+  assert.match(admin, /--confirm-plan <EXACT-PLAN-ID> --json/);
+  assert.match(admin, /Never infer the scope from the current directory/);
+  assert.match(admin, /create a fresh preview with those `--resolve` values and discard the earlier plan ID/);
+  assert.match(admin, /Never retry an apply/);
+  assert.match(admin, /historical durable records are never rewritten/i);
+  assert.match(admin, /require its exact `repositoryPath`/);
+  assert.match(admin, /never fall back to the home directory/);
+  assert.match(advise, /`\/sf-admin reinitialize` as the Copilot route/);
+  assert.match(advise, /never substitute factory reset/i);
+});
+
 test('plugin hooks avoid session prompt tax and retain deterministic custom-agent mapping without tool guards', async () => {
   const manifest = JSON.parse(await readFile(path.join(pluginRoot, 'plugin.json'), 'utf8'));
   const hooks = JSON.parse(await readFile(path.join(pluginRoot, manifest.hooks), 'utf8'));

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "4b0f8330e5797b753ad24b4f5be17c7ecb424139",
+  "sourceCommit": "c7bca88e10e0407f7b0c981509e1b7124f35a8b2",
   "topicCount": 64,
-  "contentSha256": "c8e623d656c89c9b251ce9c9441bfce77a55802de607ae80258563f0a1931aec",
+  "contentSha256": "d832d89831870035ee1b804369a12a94ac9574bb0b9650851b92cc9ac63f9683",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -80,9 +80,9 @@
     {
       "id": "capability-management",
       "title": "Capability mapping and activation",
-      "version": 8,
-      "sha256": "b94e9a662e08e8e9191c51ffd35dacfd9ded01f0e95e9fcef3dcbbaac186e32e",
-      "routingSha256": "5466ff2b938bd917aa4f6c954d1c25a0079b7c92f0d5c7e9394ab80c825a6ac0",
+      "version": 9,
+      "sha256": "b9756c40dc95e980df51ba772f1fa7f4fac24e8e6ba9c7dd988a7cf5e2fdfd1e",
+      "routingSha256": "34335f7f4930297cb596fd5e42a87bb80b3b74eb7842f8a5bb3801bdf0fa144b",
       "file": "capability-management.md"
     },
     {
@@ -248,9 +248,9 @@
     {
       "id": "installation-and-upgrades",
       "title": "Installation, initialization, and upgrades",
-      "version": 9,
-      "sha256": "612e832a57ff6a66d9129c3700c00f3a5eb0bca570409885540fc902cbcb847b",
-      "routingSha256": "e14411de12d0ae9a5018c0cca4a1477dce09b0d4c9e4e65355b9b83af8b84068",
+      "version": 10,
+      "sha256": "33a9b6c5d222419218fe908d5332b208a530f255feb77b2ec2a887bff2fb349a",
+      "routingSha256": "b38bc9bb5408028531fcb9441e5a8175fad398f48b33b7ce3b12a88fbd1c18f8",
       "file": "installation-and-upgrades.md"
     },
     {

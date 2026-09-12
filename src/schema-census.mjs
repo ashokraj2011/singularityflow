@@ -1,15 +1,57 @@
 /** Read-only repository census for registered durable-record schemas. */
-import { lstat, readFile, readdir } from 'node:fs/promises';
+import { lstat, readFile, readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
 import { gitCommonDir } from './git.mjs';
-import { exists, SingularityFlowError } from './util.mjs';
-import { familyForStoredPath, migrationRegistrySnapshot } from './schema-migrations.mjs';
+import { SingularityFlowError } from './util.mjs';
+import { familyForStoredPath, migrationRegistrySnapshot, readRecord } from './schema-migrations.mjs';
 import { loadDefinition } from './config.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 
-async function jsonFiles(base, prefix, files, { maximumFiles, excludedDirectories = [] }) {
-  if (!(await exists(base))) return;
+function isInside(boundary, candidate) {
+  const relative = path.relative(boundary, candidate);
+  return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
+}
+
+async function verifiedScanRoot(base, boundary) {
+  const requestedBase = path.resolve(base);
+  const requestedBoundary = path.resolve(boundary);
+  if (!isInside(requestedBoundary, requestedBase)) {
+    throw new SingularityFlowError(
+      'Schema census refused a governed root outside its verified repository or Git-state boundary.',
+      { code: 'SCHEMA_CENSUS_ROOT_UNSAFE' }
+    );
+  }
+  const relative = path.relative(requestedBoundary, requestedBase);
+  let cursor = requestedBoundary;
+  for (const segment of relative.split(path.sep).filter(Boolean)) {
+    cursor = path.join(cursor, segment);
+    const info = await lstat(cursor).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
+    if (!info) return null;
+    if (info.isSymbolicLink() || !info.isDirectory()) {
+      throw new SingularityFlowError(
+        'Schema census refused a governed root that is not a real directory inside its verified boundary.',
+        { code: 'SCHEMA_CENSUS_ROOT_UNSAFE' }
+      );
+    }
+  }
+  const [canonicalBase, canonicalBoundary] = await Promise.all([
+    realpath(requestedBase), realpath(requestedBoundary)
+  ]);
+  if (!isInside(canonicalBoundary, canonicalBase)) {
+    throw new SingularityFlowError(
+      'Schema census refused a governed root that resolves outside its verified repository or Git-state boundary.',
+      { code: 'SCHEMA_CENSUS_ROOT_UNSAFE' }
+    );
+  }
+  return requestedBase;
+}
+
+async function jsonFiles(base, prefix, files, {
+  maximumFiles, excludedDirectories = [], boundary = base
+}) {
+  const scanBase = await verifiedScanRoot(base, boundary);
+  if (!scanBase) return;
   const excluded = new Set(excludedDirectories.map((directory) => path.resolve(directory)));
   async function visit(directory, relative = '') {
     const entries = (await readdir(directory, { withFileTypes: true }))
@@ -26,7 +68,7 @@ async function jsonFiles(base, prefix, files, { maximumFiles, excludedDirectorie
       }
     }
   }
-  await visit(base);
+  await visit(scanBase);
 }
 
 function resultFor(entry) {
@@ -35,10 +77,38 @@ function resultFor(entry) {
     currentVersion: entry.currentVersion,
     readable: { minimum: entry.minimumReadableVersion, maximum: entry.maximumReadableVersion },
     records: 0,
+    unversionedRecords: 0,
+    validatedRecords: 0,
+    readTimeMigrationRecords: 0,
+    readTimeMigrationSteps: 0,
     versions: {},
     outsideRange: [],
     unreadable: []
   };
+}
+
+function safeReadFailure(error, family, storedVersion) {
+  const code = typeof error?.code === 'string' && /^SCHEMA_[A-Z0-9_]+$/.test(error.code)
+    ? error.code
+    : 'SCHEMA_RECORD_READ_FAILED';
+  const subject = code === 'SCHEMA_VERSION_INVALID'
+    ? `registered ${family} record with invalid schema version`
+    : storedVersion == null
+    ? `registered ${family} unversioned record`
+    : `registered ${family} v${storedVersion} record`;
+  return {
+    family,
+    storedVersion: storedVersion ?? null,
+    code,
+    // Do not copy arbitrary exception text into diagnostics. Migration implementations may inspect
+    // sensitive durable fields; the family, version, and stable error code are enough to select the
+    // recovery path without echoing record content, paths embedded by a dependency, or a stack.
+    reason: `${subject} failed non-writing migration validation (${code})`
+  };
+}
+
+function unreadableFile(pathname, code, reason) {
+  return { path: pathname, code, reason };
 }
 
 /**
@@ -66,6 +136,7 @@ export async function schemaCensus(root, { maximumFiles = 20_000, maximumRecords
     workItemRoot: definition?.workItemRoot ?? null,
     initiativeRoot: portfolio?.initiativeRoot ?? null
   };
+  const repositoryBoundary = path.resolve(root);
   const repositoryRoots = [
     { relative: 'singularity', absolute: path.join(root, 'singularity') },
     { relative: '.sdlc', absolute: path.join(root, '.sdlc') },
@@ -79,9 +150,13 @@ export async function schemaCensus(root, { maximumFiles = 20_000, maximumRecords
     selectedRoots.push(candidate);
   }
   for (const selected of selectedRoots) {
-    await jsonFiles(selected.absolute, `${selected.relative.replaceAll('\\', '/').replace(/\/+$/, '')}/`, files, { maximumFiles });
+    await jsonFiles(selected.absolute, `${selected.relative.replaceAll('\\', '/').replace(/\/+$/, '')}/`, files, {
+      maximumFiles,
+      boundary: repositoryBoundary
+    });
   }
-  const gitState = path.join(gitCommonDir(root), 'singularity-flow');
+  const gitBoundary = path.resolve(gitCommonDir(root));
+  const gitState = path.join(gitBoundary, 'singularity-flow');
   // Managed SGOS quarantine contains preserved opaque or incomplete bytes which this build must
   // not reinterpret. Only active Process state participates in migration readiness; quarantined
   // bytes can never be restored or resumed as current authority. Exclude the preview-era archive
@@ -91,7 +166,8 @@ export async function schemaCensus(root, { maximumFiles = 20_000, maximumRecords
     excludedDirectories: [
       path.join(gitState, 'sgos', 'archives'),
       path.join(gitState, 'sgos', 'quarantine')
-    ]
+    ],
+    boundary: gitBoundary
   });
 
   const families = new Map(migrationRegistrySnapshot().map((entry) => [entry.id, resultFor(entry)]));
@@ -99,23 +175,64 @@ export async function schemaCensus(root, { maximumFiles = 20_000, maximumRecords
   const unreadable = [];
   let scannedRecords = 0;
   let recordLimitReached = false;
+  const recordFailure = (summary, error, familyId, storedVersion, filePath) => {
+    const failure = { path: filePath, ...safeReadFailure(error, familyId, storedVersion) };
+    summary.unreadable.push(failure);
+    unreadable.push(failure);
+  };
   const observe = (record, filePath, familyPath) => {
     if (scannedRecords >= maximumRecords) { recordLimitReached = true; return; }
     scannedRecords += 1;
-    if (!record || typeof record !== 'object' || Array.isArray(record) || record.schemaVersion == null) return;
     const family = familyForStoredPath(familyPath, familyRoots);
-    if (!family) {
-      unregistered.push({ path: filePath, schemaVersion: record.schemaVersion });
+    if (!record || typeof record !== 'object' || Array.isArray(record)) {
+      if (!family) return;
+      const summary = families.get(family.id);
+      summary.records += 1;
+      summary.unversionedRecords += 1;
+      try { readRecord(family.id, record); }
+      catch (error) { recordFailure(summary, error, family.id, null, filePath); }
       return;
     }
+    if (!family) {
+      if (record.schemaVersion == null) return;
+      const schemaVersion = Number.isSafeInteger(record.schemaVersion)
+        ? record.schemaVersion : null;
+      unregistered.push({
+        path: filePath,
+        schemaVersion,
+        ...(schemaVersion == null ? { code: 'SCHEMA_VERSION_INVALID' } : {})
+      });
+      return;
+    }
+    const storedVersion = record.schemaVersion ?? family.unversionedAs;
+    // Some explicitly registered families have a documented legacy unversioned shape. Those bytes
+    // are not exempt from the proof: readRecord applies the declared compatibility version before
+    // running the same migrations as an ordinary application read.
     const summary = families.get(family.id);
     summary.records += 1;
-    const key = String(record.schemaVersion);
-    summary.versions[key] = (summary.versions[key] ?? 0) + 1;
-    if (!Number.isInteger(record.schemaVersion)
-        || record.schemaVersion < family.minimumReadableVersion
-        || record.schemaVersion > family.maximumReadableVersion) {
-      summary.outsideRange.push({ path: filePath, storedVersion: record.schemaVersion ?? null });
+    if (record.schemaVersion == null) summary.unversionedRecords += 1;
+    if (storedVersion != null) {
+      if (!Number.isSafeInteger(storedVersion)) {
+        recordFailure(summary, { code: 'SCHEMA_VERSION_INVALID' }, family.id, null, filePath);
+        return;
+      }
+      const key = String(storedVersion);
+      summary.versions[key] = (summary.versions[key] ?? 0) + 1;
+      if (storedVersion < family.minimumReadableVersion
+          || storedVersion > family.maximumReadableVersion) {
+        summary.outsideRange.push({ path: filePath, storedVersion });
+        return;
+      }
+    }
+    try {
+      const readable = readRecord(family.id, record);
+      summary.validatedRecords += 1;
+      if (readable.migratedThrough.length) {
+        summary.readTimeMigrationRecords += 1;
+        summary.readTimeMigrationSteps += readable.migratedThrough.length;
+      }
+    } catch (error) {
+      recordFailure(summary, error, family.id, storedVersion, filePath);
     }
   };
   for (const file of files) {
@@ -126,13 +243,23 @@ export async function schemaCensus(root, { maximumFiles = 20_000, maximumRecords
     // but are not part of repository schema-upgrade readiness.
     if (/^\$git\/(?:dx|performance)\//.test(file.relative)) continue;
     if (file.bytes > maximumFileBytes) {
-      unreadable.push({ path: file.relative, reason: `file exceeds the ${maximumFileBytes}-byte census bound` });
+      unreadable.push(unreadableFile(
+        file.relative,
+        'SCHEMA_CENSUS_FILE_TOO_LARGE',
+        `file exceeds the ${maximumFileBytes}-byte census bound`
+      ));
       continue;
     }
     let content;
     try { content = await readFile(file.absolute, 'utf8'); }
-    catch (error) {
-      unreadable.push({ path: file.relative, reason: error.message });
+    catch {
+      // OS errors may contain an absolute path, username, share name, or other machine-local
+      // material. The bounded relative path already identifies the record for repair.
+      unreadable.push(unreadableFile(
+        file.relative,
+        'SCHEMA_CENSUS_FILE_READ_FAILED',
+        'file could not be read'
+      ));
       continue;
     }
     if (file.relative.endsWith('.jsonl')) {
@@ -140,16 +267,33 @@ export async function schemaCensus(root, { maximumFiles = 20_000, maximumRecords
         if (!line.trim()) continue;
         if (scannedRecords >= maximumRecords) { recordLimitReached = true; break; }
         try { observe(JSON.parse(line), `${file.relative}#L${index + 1}`, file.relative); }
-        catch (error) { unreadable.push({ path: `${file.relative}#L${index + 1}`, reason: error.message }); }
+        catch {
+          // Current Node versions include an excerpt of malformed input in JSON.parse messages.
+          // Never copy that message into doctor/reinitialization diagnostics.
+          unreadable.push(unreadableFile(
+            `${file.relative}#L${index + 1}`,
+            'SCHEMA_CENSUS_JSON_INVALID',
+            'record is not valid JSON'
+          ));
+        }
       }
     } else {
       try { observe(JSON.parse(content), file.relative, file.relative); }
-      catch (error) { unreadable.push({ path: file.relative, reason: error.message }); }
+      catch {
+        unreadable.push(unreadableFile(
+          file.relative,
+          'SCHEMA_CENSUS_JSON_INVALID',
+          'record is not valid JSON'
+        ));
+      }
     }
   }
   const selected = [...families.values()].filter((entry) => entry.records || entry.outsideRange.length)
     .sort((left, right) => left.family.localeCompare(right.family));
   const outsideRange = selected.reduce((total, entry) => total + entry.outsideRange.length, 0);
+  const validatedRecords = selected.reduce((total, entry) => total + entry.validatedRecords, 0);
+  const readTimeMigrationRecords = selected.reduce((total, entry) => total + entry.readTimeMigrationRecords, 0);
+  const readTimeMigrationSteps = selected.reduce((total, entry) => total + entry.readTimeMigrationSteps, 0);
   return Object.freeze({
     schemaVersion: 1,
     resultType: 'schema-census',
@@ -162,6 +306,9 @@ export async function schemaCensus(root, { maximumFiles = 20_000, maximumRecords
       registeredFamilies: migrationRegistrySnapshot().length,
       observedFamilies: selected.length,
       registeredRecords: selected.reduce((total, entry) => total + entry.records, 0),
+      validatedRecords,
+      readTimeMigrationRecords,
+      readTimeMigrationSteps,
       outsideRange,
       unregistered: unregistered.length,
       unreadable: unreadable.length
@@ -175,7 +322,8 @@ export async function schemaCensus(root, { maximumFiles = 20_000, maximumRecords
 export function schemaCensusText(census) {
   const lines = [
     `Schema census — ${census.healthy ? 'readable' : 'attention required'}`,
-    `${census.totals.registeredRecords} registered record(s) across ${census.totals.observedFamilies} observed family/families.`
+    `${census.totals.registeredRecords} registered record(s) across ${census.totals.observedFamilies} observed family/families; `
+      + `${census.totals.validatedRecords ?? 0} validated through the non-writing reader.`
   ];
   for (const entry of census.families) {
     const versions = Object.entries(entry.versions).sort(([left], [right]) => Number(left) - Number(right))
@@ -184,7 +332,10 @@ export function schemaCensusText(census) {
   }
   if (census.totals.outsideRange) lines.push(`! ${census.totals.outsideRange} record(s) are outside their family read range.`);
   if (census.totals.unregistered) lines.push(`! ${census.totals.unregistered} versioned record(s) are not yet classified as durable families.`);
-  if (census.totals.unreadable) lines.push(`! ${census.totals.unreadable} JSON record(s) could not be parsed.`);
+  if (census.totals.readTimeMigrationRecords) {
+    lines.push(`~ ${census.totals.readTimeMigrationRecords} legacy record(s) validated through ${census.totals.readTimeMigrationSteps} read-time migration step(s); stored bytes were unchanged.`);
+  }
+  if (census.totals.unreadable) lines.push(`! ${census.totals.unreadable} JSON record(s) could not be read or migrated.`);
   if (census.truncated) lines.push('! Census stopped at its bounded file limit.');
   return `${lines.join('\n')}\n`;
 }

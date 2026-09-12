@@ -267,9 +267,9 @@ function configurationFailure(error: Error, view: 'lifecycle' | 'configuration')
   }] : []), ...(workflowVersionUnsupported ? [{
     kind: 'action' as const,
     id: `${view}:error:reinitialize`,
-    label: 'Reset and reinitialize workflow v2',
-    description: 'no migration',
-    tooltip: 'Preview the repository-scoped reset, type its exact confirmation, and install the packaged workflow v2 configuration.',
+    label: 'Factory reset to workflow v2',
+    description: 'destructive SFlow reset',
+    tooltip: 'Destructively replace this repository’s incompatible SFlow configuration after an exact reset preview. Application source and Git history are preserved.',
     icon: 'debug-restart',
     runCommand: 'singularityFlow.reinitialize'
   }] : []), {

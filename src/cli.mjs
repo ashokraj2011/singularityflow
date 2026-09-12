@@ -195,6 +195,7 @@ import {
   resolveWorkspaceExecutionContext, workspacePromptLabel, workspaceRegistryFile
 } from './workspace-context.mjs';
 import { refreshWorkspaceConfigurations } from './workspace-configuration-refresh.mjs';
+import { reinitializeWorkspaces } from './workspace-reinitialize.mjs';
 import { withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
 import {
   configurationReadAuthority, configurationReadSnapshot
@@ -204,7 +205,7 @@ import { validateLedgerDeployment } from './ledger-deployment.mjs';
 import { CAPABILITY_KINDS, CAPABILITY_TYPES, CAPABILITIES_PATH, capabilityDeliveries, capabilityForRepository, capabilityTree, editCapability, flattenCapabilityTree, loadCapabilities, resolveCapabilityPolicy, resolveEffectiveCapabilityPolicy, validateCapabilities } from './capabilities.mjs';
 import { validateConfigurationSnapshotCapabilities } from './capability-context.mjs';
 import { bootstrapRepository, repositoryIdFromUrl } from './bootstrap.mjs';
-import { activateCapabilityProposal, addCapabilityRepository, applyCapabilityReconciliation, capabilityFsck, capabilityProposalCommands, capabilityReadiness, composeCapabilityWorldModel, discardStaleCapabilityProposal, editCapabilityInOrganisation, inspectCapabilityProposal, inspectCapabilityRepository, listCapabilityProposals, initializeWorkspaceState, listLeadRepositories, mapCapability, previewCapabilityReconciliation, publishOrganisationCapabilityMap, readOrganisation, rememberLeadRepository, resolveWorkspacePlan } from './organisation.mjs';
+import { activateCapabilityProposal, addCapabilityRepository, applyCapabilityReconciliation, applyStaleCapabilityAuthorityLinkRetirement, capabilityFsck, capabilityProposalCommands, capabilityReadiness, composeCapabilityWorldModel, discardStaleCapabilityProposal, editCapabilityInOrganisation, inspectCapabilityProposal, inspectCapabilityRepository, listCapabilityProposals, initializeWorkspaceState, listLeadRepositories, mapCapability, previewCapabilityReconciliation, previewStaleCapabilityAuthorityLinkRetirement, publishOrganisationCapabilityMap, readOrganisation, rememberLeadRepository, resolveWorkspacePlan } from './organisation.mjs';
 import { canonicalCommand, commandDefinition, operationById, SECRETS_SUBCOMMANDS, validateCommandHandlers } from './command-registry.mjs';
 // `action` is already a command name in this file, so the narration constructor is renamed rather
 // than shadowing it.
@@ -8498,7 +8499,8 @@ async function capabilityCommand(positionals, options) {
         leadUrls: optionStrings(options, 'lead'),
         refresh: optionBoolean(options, 'refresh'),
         searchKnown: optionBoolean(options, 'search-known'),
-        includeProposals: optionBoolean(options, 'include-proposals')
+        includeProposals: optionBoolean(options, 'include-proposals'),
+        stateBranch: optionString(options, 'state-branch', 'state')
       }
     );
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
@@ -8535,6 +8537,40 @@ async function capabilityCommand(positionals, options) {
   if (subcommandForWrite === 'reconcile') {
     const repositoryUrl = requirePositional(positionals, 2, 'Git repository URL');
     const canonicalLead = optionString(options, 'canonical-lead');
+    const removeStale = optionBoolean(options, 'remove-stale');
+    if (removeStale) {
+      const lead = optionString(options, 'lead');
+      if (!lead) throw new SingularityFlowError(
+        'capability reconcile --remove-stale requires the lead URL named by the current delivery link. Nothing was changed.', {
+          code: 'CAPABILITY_RECONCILIATION_AUTHORITY_REQUIRED'
+        }
+      );
+      if (canonicalLead) throw new SingularityFlowError(
+        'Choose either --remove-stale with --lead, or --canonical-lead; they are different reconciliation outcomes. Nothing was changed.', {
+          code: 'CAPABILITY_RECONCILIATION_MODE_CONFLICT'
+        }
+      );
+      const confirmation = optionString(options, 'confirm-plan');
+      const stateBranch = optionString(options, 'state-branch', 'state');
+      const result = confirmation
+        ? await applyStaleCapabilityAuthorityLinkRetirement(repositoryUrl, lead, {
+            confirmPlan: confirmation, stateBranch
+          })
+        : await previewStaleCapabilityAuthorityLinkRetirement(repositoryUrl, lead, {
+            stateBranch
+          });
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+      if (!confirmation) {
+        console.log(`Stale capability authority-link retirement plan ${result.plan.planId}`);
+        console.log(`  authority checked: ${result.plan.approvedAuthority.remote}@${result.plan.approvedAuthority.commit.slice(0, 12)}`);
+        console.log(`  state CAS: ${result.plan.observedLink.stateBranch}@${result.plan.observedLink.stateCommit.slice(0, 12)}`);
+        console.log(`  change: delete only ${result.plan.writes[0].path}; preserve every other state file and ref`);
+        return console.log(`Apply with --confirm-plan ${result.plan.planId}`);
+      }
+      console.log(`Retired the stale capability authority link at ${result.publication.commit.slice(0, 12)}.`);
+      console.log(`  preserved: ${result.publication.preserved.join(', ')}`);
+      return result;
+    }
     if (!canonicalLead) throw new SingularityFlowError(
       'capability reconcile requires --canonical-lead <URL>. Nothing was changed.', {
         code: 'CAPABILITY_RECONCILIATION_AUTHORITY_REQUIRED'
@@ -8636,6 +8672,11 @@ async function capabilityCommand(positionals, options) {
     const ships = mapped.repositoryIds?.length
       ? ` to ${mapped.repositoryIds.join(', ')}${mapped.leadRepositoryId && mapped.repositoryIds.length > 1 ? ` (lead ${mapped.leadRepositoryId})` : ''}`
       : '';
+    if (mapped.alreadyMapped) {
+      console.log(`Capability ${mapped.capabilityId}${ships} is already present in the approved map on ${leadUrl}.`);
+      console.log('  No proposal, commit, state change, or application-branch change was created.');
+      return;
+    }
     console.log(`Proposed capability ${mapped.capabilityId}${ships} in ${leadUrl}.`);
     if (mapped.commit) {
       const commands = capabilityProposalCommands(leadUrl, mapped.branch, mapped.commit);
@@ -8716,10 +8757,14 @@ async function capabilityCommand(positionals, options) {
         leadUrl,
         searchKnown: optionBoolean(options, 'search-known'),
         includeProposals: false,
-        refresh: true
+        refresh: true,
+        stateBranch: optionString(options, 'state-branch', 'state')
       });
       if (!leadUrl && repositoryDiscovery.matches.length === 1) {
         leadUrl = repositoryDiscovery.matches[0].lead;
+      }
+      if (!leadUrl && repositoryDiscovery.authorityDiscovery?.source === 'state-link') {
+        leadUrl = repositoryDiscovery.authorityDiscovery.authorityRemote ?? null;
       }
       if (!leadUrl) throw new SingularityFlowError(
         `Capability authority could not be resolved safely for '${repositoryDiscovery.repositoryUrl}'. `
@@ -8741,7 +8786,8 @@ async function capabilityCommand(positionals, options) {
     }
     const checked = await capabilityFsck(leadUrl, {
       workspaces,
-      portableDiscovery: repositoryUrl != null || optionBoolean(options, 'portable-discovery')
+      portableDiscovery: repositoryUrl != null || optionBoolean(options, 'portable-discovery'),
+      repositoryDiscovery
     });
     const result = repositoryDiscovery ? { ...checked, repositoryDiscovery } : checked;
     await rememberLeadRepository(leadUrl);
@@ -10677,7 +10723,9 @@ async function workspaceBootstrapInput(source, options) {
 
   const chosen = optionStrings(options, 'capability');
   if (chosen.length) {
-    const organisation = await readOrganisation(source);
+    // Workspace plans may cause clones and durable registry writes. Re-read the exact approved
+    // configuration bytes instead of authorizing those mutations from a machine-local cache.
+    const organisation = await readOrganisation(source, { refresh: true });
     const sparseCone = optionStrings(options, 'sparse-cone')
       .flatMap((entry) => entry.split(','))
       .map((entry) => entry.trim()).filter(Boolean);
@@ -10861,6 +10909,50 @@ async function workspaceCommand(positionals, options) {
         } else {
           console.log('Configuration and state projections verified.');
         }
+      }
+    }
+    if (['blocked', 'partial'].includes(result.status)) process.exitCode = 2;
+    return result;
+  }
+  if (subcommand === 'reinitialize') {
+    const result = await reinitializeWorkspaces({
+      registryFile: registry,
+      workspace: positionals[2] ?? optionString(options, 'workspace'),
+      repositories: optionStrings(options, 'repository'),
+      dryRun: optionBoolean(options, 'dry-run'),
+      acceptBundledConflicts: optionBoolean(options, 'accept-bundled-conflicts'),
+      resolutions: optionMap(optionStrings(options, 'resolve'), '--resolve'),
+      confirmPlan: optionString(options, 'confirm-plan')
+    });
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+    else {
+      console.log(`Workspace reinitialization${result.dryRun ? ' preview' : ''}: ${result.status}`);
+      if (result.planId) console.log(`  Plan: ${result.planId}`);
+      for (const item of result.results) {
+        const configuration = item.configurationChanged ? 'configuration update' : 'configuration current';
+        const state = item.stateChanged ? 'state projection update' : 'state projection current';
+        console.log(`  ${item.repository}: ${item.status} · ${configuration} · ${state}`);
+        for (const conflict of item.conflicts ?? []) {
+          console.log(`    Conflict: ${conflict.path} · ${conflict.resolution}`);
+        }
+        if (item.error) console.log(`    ${item.error}`);
+      }
+      console.log(`Schema policy: ${result.schemaMigrationPolicy.statement}`);
+      for (const census of result.schemaCensuses) {
+        const records = census.records == null ? '' : ` · ${census.records} registered record(s)`;
+        const migrations = census.readTimeMigrationRecords
+          ? ` · ${census.readTimeMigrationRecords} read-time migration(s)` : '';
+        console.log(`  ${census.repository}: schema ${census.status}${records}${migrations}`);
+        if (census.reason) console.log(`    ${census.reason}`);
+      }
+      for (const item of result.capabilityPortability.results) {
+        console.log(`  Capability portability ${item.lead}: ${item.status}`);
+        if (item.reason) console.log(`    ${item.reason}`);
+        if (item.nextAction) console.log(`    Recover: ${item.nextAction.command}`);
+      }
+      if (result.nextAction) console.log(`Apply reviewed plan: ${result.nextAction.command}`);
+      else if (result.status === 'complete') {
+        console.log('Configuration, workflow assets, state projections, capability locators, and readable schema versions are current.');
       }
     }
     if (['blocked', 'partial'].includes(result.status)) process.exitCode = 2;
@@ -11154,7 +11246,7 @@ async function workspaceCommand(positionals, options) {
       const chosen = optionStrings(options, 'capability');
       let derived = null;
       if (organisationUrl) {
-        derived = resolveWorkspacePlan(await readOrganisation(organisationUrl), {
+        derived = resolveWorkspacePlan(await readOrganisation(organisationUrl, { refresh: true }), {
           capabilities: chosen,
           leadCapability: optionString(options, 'lead-capability')
         });

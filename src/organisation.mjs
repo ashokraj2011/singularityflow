@@ -53,6 +53,7 @@ import {
 } from './configuration-branch.mjs';
 import { configurationAssetPolicy, mergeConfigurationAssetPolicies } from './configuration-assets.mjs';
 import { normalizeCloneStrategy } from './clone-strategy.mjs';
+import { normalizeSourceRoots } from './source-scope.mjs';
 import { createAndPushTransportIntent } from './transport-intents.mjs';
 import {
   assertCredentialFreeRemote, classifyGitRemoteFailure, frozenRemoteTransport, remoteFingerprint,
@@ -68,8 +69,10 @@ import {
 } from './lead-repositories.mjs';
 import { normalizeCapabilityAutoPolicy } from './auto/auto-policy.mjs';
 import {
-  capabilityAuthorityId, CAPABILITY_AUTHORITY_BRANCH, DEFAULT_CAPABILITY_STATE_BRANCH,
-  publishCapabilityAuthorityLinkSet, readCapabilityAuthorityLink
+  capabilityAuthorityId, CAPABILITY_AUTHORITY_BRANCH, CAPABILITY_AUTHORITY_LINK_PATH,
+  DEFAULT_CAPABILITY_STATE_BRANCH,
+  publishCapabilityAuthorityLinkSet, readCapabilityAuthorityLink,
+  retireCapabilityAuthorityLink
 } from './capability-authority-link.mjs';
 
 export {
@@ -113,6 +116,19 @@ function capabilityCommand(action, {
   if (acknowledge) args.push('--acknowledge-unprotected');
   args.push('--json');
   return args.join(' ');
+}
+
+function staleAuthorityLinkRetirementCommand(
+  repository, lead, stateBranch = DEFAULT_CAPABILITY_STATE_BRANCH
+) {
+  return [
+    'singularity-flow capability reconcile',
+    quoted(commandRemote(repository, 'DELIVERY_URL'), 'DELIVERY_URL'),
+    '--remove-stale',
+    '--lead', quoted(commandRemote(lead), 'LEAD_URL'),
+    '--state-branch', quoted(stateBranch),
+    '--json'
+  ].join(' ');
 }
 
 /** Executable-looking review guidance must remain safe in POSIX shells, cmd.exe, and PowerShell. */
@@ -666,11 +682,40 @@ function cacheAgeMs(cached, at = Date.now()) {
   return Number.isFinite(written) ? Math.max(0, at - written) : null;
 }
 
+function validOrganisationCacheShape(cached, remote) {
+  const organisation = cached?.organisation;
+  const object = (value) => value != null && typeof value === 'object'
+    && !Array.isArray(value);
+  const commit = (value) => value == null || /^[0-9a-f]{40,64}$/i.test(value);
+  return object(cached)
+    && cached.url === remote
+    && commit(cached.tipSha)
+    && Number.isFinite(Date.parse(cached.cachedAt ?? ''))
+    && object(organisation)
+    && organisation.url === remote
+    && Array.isArray(organisation.capabilities)
+    && object(organisation.repositories)
+    && typeof organisation.governed === 'boolean'
+    && commit(organisation.configurationCommit)
+    && commit(organisation.sourceCommit);
+}
+
 async function readOrganisationCache(remote) {
   const file = organisationCacheFile(remote);
   if (!existsSync(file)) return null;
-  const cached = readRecord('organisation-cache', await readJson(file)).record;
-  if (cached.url !== remote || !cached.organisation) return null;
+  let cached;
+  try {
+    cached = readRecord('organisation-cache', await readJson(file)).record;
+  } catch (error) {
+    // The organisation cache is a derived acceleration layer, not approved configuration.
+    // Interrupted writes and legacy/corrupt bytes are ignored so the exact remote ref remains the
+    // source of truth. A future-schema record is different: replacing data written by a newer
+    // build could lose semantics this build cannot interpret, so retain its explicit upgrade
+    // guidance.
+    if (error?.code === 'SCHEMA_VERSION_FUTURE') throw error;
+    return null;
+  }
+  if (!validOrganisationCacheShape(cached, remote)) return null;
   return cached;
 }
 
@@ -694,7 +739,8 @@ async function writeOrganisationCache(remote, tipSha, organisation) {
  * so that no caller can forget either.
  */
 async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
-  remoteSession = null, authorityObservation = null
+  remoteSession = null, authorityObservation = null, fullHistory = false,
+  bindProposalToBase = false
 } = {}) {
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A lead repository URL is required.', {
@@ -729,7 +775,8 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
       push: true, env: operationSession.env
     });
     const cloned = await runRemoteGitAsync([
-      'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
+      'clone', '--quiet', '--no-local', '--no-tags', '--single-branch',
+      ...(fullHistory ? [] : ['--depth', '1']),
       '--branch', baseBranch,
       transport.remote, scratch
     ], { operation: 'remote-configuration', env: transport.env });
@@ -784,9 +831,19 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
     // Pushed here rather than left for later: the temporary checkout is about to be deleted, so a
     // commit that is not pushed is a commit that never existed. This deliberately targets only a
     // new review branch. The approved configuration and orphan state branches remain unchanged.
+    const reviewRef = `refs/heads/${reviewBranch}`;
+    const baseRef = `refs/heads/${baseBranch}`;
     const pushed = await runRemoteGitAsync([
-      'push', '--porcelain', `--force-with-lease=refs/heads/${reviewBranch}:`, 'origin',
-      `HEAD:refs/heads/${reviewBranch}`
+      'push', '--porcelain',
+      ...(bindProposalToBase ? [
+        '--atomic', `--force-with-lease=${baseRef}:${baseCommit}`
+      ] : []),
+      `--force-with-lease=${reviewRef}:`, 'origin',
+      `HEAD:${reviewRef}`,
+      // Creating the proposal and proving its reviewed base are one remote ref transaction. If the
+      // approved configuration advances after the last observation, this no-op base refspec becomes
+      // a stale leased update and --atomic prevents the proposal branch from appearing alone.
+      ...(bindProposalToBase ? [`${baseCommit}:${baseRef}`] : [])
     ], { cwd: scratch, operation: 'remote-push', env: transport.env });
     const diagnostic = `${pushed.stderr ?? ''}\n${pushed.stdout ?? ''}`;
     const duplicateProposal = () => new SingularityFlowError(
@@ -801,10 +858,34 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
     // When the independently authored commit is byte-identical, Git reports an existing ref as
     // "up to date" without evaluating the lease because no ref movement is required. It is still
     // a duplicate proposal from the caller's perspective and must point back to the preserved one.
-    if (pushed.status === 0 && /up[ -]to[ -]date|everything up-to-date/i.test(diagnostic)) {
+    const reviewWasAlreadyCurrent = diagnostic.split(/\r?\n/).some((line) =>
+      line.includes(reviewBranch) && /up[ -]to[ -]date/i.test(line));
+    if (pushed.status === 0 && (reviewWasAlreadyCurrent
+        || (!bindProposalToBase && /everything up-to-date/i.test(diagnostic)))) {
       throw duplicateProposal();
     }
     if (pushed.status !== 0) {
+      if (bindProposalToBase) {
+        const current = await operationSession.observeAsync(remote, {
+          includeHead: false, refs: [baseRef], refresh: true
+        });
+        const observedBase = current.ok ? current.refs.get(baseRef) ?? null : null;
+        if (observedBase && observedBase !== baseCommit) {
+          throw new SingularityFlowError(
+            `Approved configuration advanced from ${baseCommit} to ${observedBase} while the capability proposal was being created. No proposal ref was published; retry against the current map.`, {
+              code: 'CAPABILITY_CONFIGURATION_PLAN_STALE',
+              details: capabilityRecovery({
+                stage: 'proposal', state: 'configuration-advanced', remote,
+                nextAction: {
+                  command: `singularity-flow capability organisation ${quoted(commandRemote(remote))} --refresh --json`,
+                  skill: '/sf-capability-map'
+                },
+                preserved: ['approved-configuration', 'application-branches', 'existing-proposals']
+              })
+            }
+          );
+        }
+      }
       if (/stale info|already exists|fetch first|non-fast-forward|reference already exists/i.test(diagnostic)) {
         throw duplicateProposal();
       }
@@ -1598,15 +1679,38 @@ export async function inspectCapabilityRepository(repositoryUrl, {
     || authorityLink.link.subject.capabilityIds
       .some((capability) => !linkedMatch.capabilities.includes(capability))
   );
+  const linkedInspection = linkedLead
+    ? inspected.find((entry) => entry.lead === linkedLead) : null;
+  const approvedAbsenceVerified = Boolean(linkedInspection?.organisation?.governed)
+    && linkedInspection.stale !== true
+    && !linkedInspection.failure
+    && (!linkedMatch || linkedMatch.capabilities.length === 0);
   if (authorityLinkMismatch) {
+    const diagnosticAction = approvedAbsenceVerified ? {
+      command: staleAuthorityLinkRetirementCommand(
+        repository, linkedLead, authorityLink.stateBranch ?? stateBranch
+      ),
+      skill: '/sf-capability-map'
+    } : linkedInspection && !linkedInspection.failure ? {
+      command: `singularity-flow capability publish --lead ${quoted(commandRemote(linkedLead))} --json`,
+      skill: '/sf-capability-map'
+    } : linkedInspection?.failure?.diagnosticAction ?? {
+      command: `singularity-flow capability fsck --repository ${quoted(commandRemote(repository, 'DELIVERY_URL'), 'DELIVERY_URL')} --lead ${quoted(commandRemote(linkedLead))} --json`,
+      skill: '/sf-capability-map'
+    };
     failures.push({
       lead: sanitizeRemote(linkedLead),
       code: 'CAPABILITY_AUTHORITY_LINK_STALE',
-      message: 'The repository state link does not match the current approved capability map.',
-      diagnosticAction: {
-        command: `singularity-flow capability publish --lead ${quoted(commandRemote(linkedLead))} --json`,
-        skill: '/sf-capability-map'
-      }
+      message: approvedAbsenceVerified
+        ? 'The current approved capability map no longer claims this exact repository, but its delivery state branch still contains the old authority link.'
+        : 'The repository state link does not match the current approved capability map.',
+      diagnosticAction,
+      recovery: approvedAbsenceVerified ? {
+        kind: 'retire-stale-capability-authority-link',
+        planFirst: true,
+        exactCas: true,
+        command: diagnosticAction.command
+      } : null
     });
   }
   const status = authorityLinkMismatch
@@ -1661,7 +1765,12 @@ export async function inspectCapabilityRepository(repositoryUrl, {
       stateBranch: authorityLink.stateBranch ?? stateBranch,
       stateCommit: authorityLink.stateCommit ?? null,
       authorityId: authorityLink.link?.authority?.id ?? null,
-      status: authorityLinkMismatch ? 'stale' : authorityLink.status
+      authorityRemote: linkedLead,
+      status: authorityLinkMismatch ? 'stale' : authorityLink.status,
+      recoveryAction: authorityLinkMismatch
+        ? failures.find((failure) => failure.code === 'CAPABILITY_AUTHORITY_LINK_STALE')
+          ?.diagnosticAction ?? null
+        : null
     }
   };
 }
@@ -1778,6 +1887,263 @@ export async function applyCapabilityReconciliation(repositoryUrl, canonicalLead
   };
 }
 
+function approvedRepositoryClaims(organisation, repository) {
+  const repositoryIds = Object.entries(organisation.repositories ?? {})
+    .filter(([, declaration]) => declaration?.url === repository)
+    .map(([repositoryId]) => repositoryId)
+    .sort();
+  const ids = new Set(repositoryIds);
+  const capabilityIds = flattenTree(organisation.capabilities ?? [])
+    .filter((capability) => (capability.repositories ?? [])
+      .some((repositoryId) => ids.has(repositoryId)))
+    .map((capability) => capability.id)
+    .sort();
+  return Object.freeze({
+    repositoryIds: Object.freeze(repositoryIds),
+    capabilityIds: Object.freeze(capabilityIds)
+  });
+}
+
+function staleCapabilityAuthorityLinkRetirementPlan(repository, lead, organisation, linkRead) {
+  const core = {
+    schemaVersion: currentSchemaVersion('capability-reconciliation-plan'),
+    kind: 'capability-reconciliation-plan',
+    mode: 'retire-stale-link',
+    repository,
+    repositoryIdentity: `sha256:${remoteFingerprint(repository)}`,
+    approvedAuthority: {
+      id: capabilityAuthorityId(lead),
+      remote: lead,
+      branch: CONFIGURATION_BRANCH,
+      commit: organisation.configurationCommit,
+      capabilityMapSha256: organisation.capabilityMapSha256
+    },
+    approvedAbsence: approvedRepositoryClaims(organisation, repository),
+    observedLink: {
+      authorityId: linkRead.link.authority.id,
+      authorityRemote: linkRead.link.authority.remote,
+      capabilityIds: [...linkRead.link.subject.capabilityIds],
+      linkSha256: linkRead.link.linkSha256,
+      stateBranch: linkRead.stateBranch,
+      stateCommit: linkRead.stateCommit
+    },
+    writes: [{
+      repository,
+      branch: linkRead.stateBranch,
+      path: CAPABILITY_AUTHORITY_LINK_PATH,
+      operation: 'delete-stale-authority-link',
+      expectedStateCommit: linkRead.stateCommit
+    }],
+    preserved: [
+      'all other delivery state files', 'all other delivery refs',
+      'application branches', 'approved capability configuration'
+    ]
+  };
+  return Object.freeze({
+    ...core,
+    planId: `capr_${recordSha256(core).slice(0, 32)}`,
+    confirmationRequired: true
+  });
+}
+
+/** Prove an old delivery locator is no longer supported by its exact approved authority. */
+export async function previewStaleCapabilityAuthorityLinkRetirement(
+  repositoryUrl, leadUrl, { refresh = true, stateBranch = DEFAULT_CAPABILITY_STATE_BRANCH } = {}
+) {
+  const repository = assertCredentialFreeRemote(repositoryUrl);
+  const lead = assertCredentialFreeRemote(leadUrl);
+  const linkRead = await readCapabilityAuthorityLink(repository, { stateBranch });
+  if (linkRead.status !== 'current') {
+    throw new SingularityFlowError(
+      `The delivery repository has no current capability authority link to retire (${linkRead.status}). Nothing was changed.`, {
+        code: 'CAPABILITY_AUTHORITY_LINK_RETIREMENT_NOT_APPLICABLE',
+        details: { repository: sanitizeRemote(repository), stateBranch, linkStatus: linkRead.status }
+      }
+    );
+  }
+  if (linkRead.link.authority.remote !== lead
+      || linkRead.link.authority.id !== capabilityAuthorityId(lead)) {
+    throw new SingularityFlowError(
+      'The selected lead is not the authority named by the current delivery state link. Nothing was changed.', {
+        code: 'CAPABILITY_AUTHORITY_CONFLICT',
+        details: {
+          repository: sanitizeRemote(repository),
+          selectedLead: sanitizeRemote(lead),
+          linkedLead: sanitizeRemote(linkRead.link.authority.remote)
+        }
+      }
+    );
+  }
+  const organisation = await readOrganisation(lead, { refresh });
+  if (!organisation.governed || organisation.stale
+      || !/^[0-9a-f]{40,64}$/i.test(String(organisation.configurationCommit ?? ''))
+      || !/^sha256:[0-9a-f]{64}$/.test(String(organisation.capabilityMapSha256 ?? ''))) {
+    throw new SingularityFlowError(
+      'The current approved capability authority could not be verified; its delivery link was preserved.', {
+        code: 'CAPABILITY_AUTHORITY_UNAVAILABLE',
+        details: {
+          lead: sanitizeRemote(lead),
+          governed: Boolean(organisation.governed),
+          stale: Boolean(organisation.stale)
+        }
+      }
+    );
+  }
+  const claims = approvedRepositoryClaims(organisation, repository);
+  if (claims.capabilityIds.length) {
+    throw new SingularityFlowError(
+      `The current approved capability map still claims this repository through ${claims.capabilityIds.join(', ')}. The routing link was preserved.`, {
+        code: 'CAPABILITY_AUTHORITY_LINK_STILL_CLAIMED',
+        details: {
+          repository: sanitizeRemote(repository),
+          lead: sanitizeRemote(lead),
+          claims,
+          nextAction: {
+            command: `singularity-flow capability publish --lead ${quoted(commandRemote(lead))} --json`,
+            skill: '/sf-capability-map'
+          }
+        }
+      }
+    );
+  }
+  return Object.freeze({
+    plan: staleCapabilityAuthorityLinkRetirementPlan(
+      repository, lead, organisation, linkRead
+    ),
+    status: 'review-required'
+  });
+}
+
+/** Apply the exact one-path retirement only while approved absence and link bytes remain current. */
+export async function applyStaleCapabilityAuthorityLinkRetirement(repositoryUrl, leadUrl, {
+  confirmPlan,
+  stateBranch = DEFAULT_CAPABILITY_STATE_BRANCH
+} = {}) {
+  const preview = await previewStaleCapabilityAuthorityLinkRetirement(
+    repositoryUrl, leadUrl, { refresh: true, stateBranch }
+  );
+  if (String(confirmPlan ?? '').trim() !== preview.plan.planId) {
+    throw new SingularityFlowError(
+      `Capability stale-link retirement confirmation must equal the current plan '${preview.plan.planId}'. Nothing was changed.`, {
+        code: 'CAPABILITY_RECONCILIATION_CONFIRMATION_REQUIRED',
+        details: { plan: preview.plan }
+      }
+    );
+  }
+  const publication = await retireCapabilityAuthorityLink(preview.plan.repository, {
+    stateBranch: preview.plan.observedLink.stateBranch,
+    expectedStateCommit: preview.plan.observedLink.stateCommit,
+    expectedLinkSha256: preview.plan.observedLink.linkSha256
+  });
+  return Object.freeze({ status: 'retired', plan: preview.plan, publication });
+}
+
+function capabilityProposalSummary(proposal) {
+  return Object.freeze({
+    branch: proposal.branch,
+    commit: proposal.proposalCommit ?? proposal.commit ?? null,
+    status: proposal.status ?? 'unreadable',
+    merged: proposal.merged === true,
+    valid: proposal.valid === true,
+    failureCode: proposal.failure?.code ?? null
+  });
+}
+
+function unresolvedCapabilityProposalError(remote, capabilityId, blocking, historical = []) {
+  const existing = blocking[0];
+  return new SingularityFlowError(
+    `A capability proposal for '${capabilityId}' already exists on '${existing.branch}'. `
+      + `Its inspected state is '${existing.status ?? 'unreadable'}'`
+      + `${existing.failure?.code ? ` (${existing.failure.code})` : ''}. `
+      + 'The proposal is not proven historical and merged, so it was preserved for review instead '
+      + 'of creating a competing branch.', {
+      code: 'CAPABILITY_PROPOSAL_ALREADY_EXISTS',
+      details: {
+        ...capabilityRecovery({
+          stage: 'proposal', state: 'proposal-already-exists', remote,
+          branch: existing.branch, commit: existing.proposalCommit ?? existing.commit ?? null,
+          nextAction: {
+            command: capabilityCommand('proposal', { remote, branch: existing.branch }),
+            skill: '/sf-capability-map'
+          },
+          preserved: ['existing-proposal', 'approved-configuration', 'application-branches']
+        }),
+        capabilityId,
+        proposals: blocking.map(capabilityProposalSummary),
+        historicalMergedProposals: historical.map(capabilityProposalSummary)
+      }
+    }
+  );
+}
+
+/**
+ * Classify same-ID proposal refs against the exact approved configuration checkout.
+ *
+ * Retained merged refs are immutable review history, not pending work. Everything that cannot be
+ * proven merged stays blocking: a transient fetch error must never become permission to create a
+ * competing proposal. Callers use a full-history configuration clone only when this rare path is
+ * needed, then fetch every matching ref in one bounded Git operation.
+ */
+async function classifyMatchingCapabilityProposals(root, remote, proposals, {
+  env = process.env
+} = {}) {
+  if (!proposals.length) return { historical: [], blocking: [] };
+  const refspecs = proposals.map((proposal) =>
+    `+refs/heads/${proposal.branch}:refs/remotes/origin/${proposal.branch}`);
+  const transport = frozenRemoteTransport(remote, { env });
+  const fetched = await runRemoteGitAsync([
+    'fetch', '--quiet', '--no-tags', transport.remote, ...refspecs
+  ], { cwd: root, operation: 'remote-configuration', env: transport.env });
+  if (fetched.status !== 0) {
+    return {
+      historical: [],
+      blocking: proposals.map((proposal) => ({
+        ...proposal,
+        proposalCommit: proposal.commit,
+        status: 'unreadable', merged: false, valid: false,
+        failure: {
+          code: fetched.failure?.code ?? 'CAPABILITY_PROPOSAL_UNREADABLE'
+        }
+      }))
+    };
+  }
+
+  const targetCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root, env }).stdout.trim();
+  const historical = [];
+  const blocking = [];
+  for (const proposal of proposals) {
+    const ref = `refs/remotes/origin/${proposal.branch}`;
+    const fetchedCommit = run('git', ['rev-parse', '--verify', ref], {
+      cwd: root, env, allowFailure: true
+    }).stdout.trim();
+    if (fetchedCommit !== proposal.commit) {
+      blocking.push({
+        ...proposal,
+        proposalCommit: fetchedCommit || proposal.commit,
+        status: 'unreadable', merged: false, valid: false,
+        failure: { code: 'CAPABILITY_PROPOSAL_CHANGED_DURING_INSPECTION' }
+      });
+      continue;
+    }
+    try {
+      const inspected = inspectCapabilityProposalCheckout(
+        root, sanitizeRemote(remote), proposal.branch, ref,
+        { includeDiff: false, targetCommit, env }
+      );
+      if (inspected.merged) historical.push(inspected);
+      else blocking.push(inspected);
+    } catch (error) {
+      blocking.push({
+        ...proposal,
+        proposalCommit: proposal.commit,
+        status: 'unreadable', merged: false, valid: false,
+        failure: { code: error?.code ?? 'CAPABILITY_PROPOSAL_UNREADABLE' }
+      });
+    }
+  }
+  return { historical, blocking };
+}
+
 /**
  * Map a git repository to a capability, in the lead repository's map.
  *
@@ -1814,6 +2180,16 @@ export async function mapCapability(leadUrl, {
       preserved: ['approved-configuration', 'application-branches']
     })
   });
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(capabilityId)) {
+    throw new SingularityFlowError('A capability identifier must use lower-case kebab-case; nothing was changed.', {
+      code: 'CAPABILITY_ID_INVALID',
+      details: capabilityRecovery({
+        stage: 'proposal', state: 'input-refused', remote: leadUrl, recoverable: true,
+        nextAction: { command: `singularity-flow capability map <lower-case-kebab-id> --lead ${quoted(commandRemote(leadUrl))} --json`, skill: '/sf-capability-map' },
+        preserved: ['approved-configuration', 'application-branches']
+      })
+    });
+  }
   if (!String(leadUrl ?? '').trim()) throw new SingularityFlowError('A lead repository URL is required.', {
     code: 'CAPABILITY_LEAD_REQUIRED',
     details: capabilityRecovery({
@@ -1824,10 +2200,10 @@ export async function mapCapability(leadUrl, {
   const cloneStrategy = clone == null
     ? null
     : normalizeCloneStrategy(clone, `Capability '${capabilityId}' clone strategy`);
-  // Prove every delivery repository before initializing or changing the lead authority. A failed
-  // first mapping must not create `sflow/config`, and a reachable but empty remote must not be
-  // silently recorded as `main`. Reuse this operation-scoped session throughout the proposal so
-  // the successful probes are not repeated across office proxies.
+  // Observe the authority first. An exact retry of an already-approved map needs no delivery Git
+  // access: the approved URL bytes are sufficient, and requiring every delivery credential again
+  // made idempotent recovery fail behind office SSO. A genuinely new mapping still proves each
+  // delivery before writing anything; first-map bootstrap does so before sflow/config is created.
   const urls = [...new Map([...(repositoryUrl ? [repositoryUrl] : []), ...repositoryUrls]
     .map((url) => {
       const exact = assertCredentialFreeRemote(url);
@@ -1835,34 +2211,98 @@ export async function mapCapability(leadUrl, {
     })).values()];
   const remoteSession = new GitRemoteSession({ env: enterpriseGitEnvironment() });
   const leadKey = assertCredentialFreeRemote(leadUrl);
-  const deliveryKeys = new Set(urls);
-  const probeTargets = new Map([[leadKey, leadKey], ...urls.map((url) => [url, url])]);
-  const observedEntries = await mapLimit(
-    [...probeTargets], Math.max(1, Math.min(4, probeTargets.size)),
-    async ([key, url]) => {
-      const observation = await remoteSession.observeAsync(url, {
-        includeHead: true,
-        refs: key === leadKey ? [`refs/heads/${CONFIGURATION_BRANCH}`] : []
+  const proposalBranchPrefix = `${CAPABILITY_PROPOSAL_PREFIX}map-${capabilityId}-`;
+  const authorityObservation = await remoteSession.observeAsync(leadKey, {
+    includeHead: true,
+    refs: [`refs/heads/${CONFIGURATION_BRANCH}`, `refs/heads/${proposalBranchPrefix}*`]
+  });
+  requireRemoteObservation(authorityObservation,
+    `capability authority '${sanitizeRemote(leadKey)}'`);
+  const observedBranches = new Map();
+  let deliveriesObserved = false;
+  const observeDeliveries = async () => {
+    if (deliveriesObserved) return;
+    const entries = await mapLimit(urls, Math.max(1, Math.min(4, urls.length || 1)),
+      async (url) => {
+        const observation = url === leadKey
+          ? authorityObservation
+          : await remoteSession.observeAsync(url, { includeHead: true, refs: [] });
+        requireRemoteObservation(observation,
+          `capability repository '${sanitizeRemote(url)}'`);
+        return [url, await observedDefaultBranchAsync(url, remoteSession, observation)];
       });
-      requireRemoteObservation(observation, key === leadKey
-        ? `capability authority '${sanitizeRemote(url)}'`
-        : `capability repository '${sanitizeRemote(url)}'`);
-      const defaultBranch = deliveryKeys.has(key)
-        ? await observedDefaultBranchAsync(url, remoteSession, observation)
-        : null;
-      return [key, { observation, defaultBranch }];
-    }
-  );
-  const remoteObservations = new Map(observedEntries);
-  const observedBranches = new Map([...remoteObservations]
-    .filter(([key]) => deliveryKeys.has(key))
-    .map(([key, value]) => [key, value.defaultBranch]));
-  const authorityObservation = remoteObservations.get(leadKey)?.observation ?? null;
+    for (const [url, branch] of entries) observedBranches.set(url, branch);
+    deliveriesObserved = true;
+  };
+  const matchingProposalRefs = [...(authorityObservation?.refs ?? new Map())]
+    .filter(([ref]) => ref.startsWith(`refs/heads/${proposalBranchPrefix}`))
+    .map(([ref, commit]) => ({ branch: ref.slice('refs/heads/'.length), commit }))
+    // `map-foo-*` also advertises `map-foo-bar-*`. The suffix is always the exact eight-character
+    // base abbreviation written by withLeadCheckout, so exclude another capability's branch.
+    .filter(({ branch }) => /^[0-9a-f]{8}$/i.test(branch.slice(proposalBranchPrefix.length)))
+    .sort((left, right) => left.branch.localeCompare(right.branch));
+  if (matchingProposalRefs.length
+      && !authorityObservation?.refs?.has(`refs/heads/${CONFIGURATION_BRANCH}`)) {
+    // There is no approved target against which these retained refs can be classified. Preserve
+    // both them and the absent authority rather than initializing a new configuration branch.
+    throw unresolvedCapabilityProposalError(leadKey, capabilityId,
+      matchingProposalRefs.map((proposal) => ({
+        ...proposal,
+        proposalCommit: proposal.commit,
+        status: 'unreadable', merged: false, valid: false,
+        failure: { code: 'CAPABILITY_CONFIGURATION_BRANCH_MISSING' }
+      })));
+  }
+  if (!authorityObservation?.refs?.has(`refs/heads/${CONFIGURATION_BRANCH}`)) {
+    await observeDeliveries();
+  }
 
   return withLeadCheckout(leadKey, `Map capability ${capabilityId}`,
     `capability/map-${capabilityId}`, async (
       root, _baseBranch, leadRemoteSession, leadAuthorityObservation
     ) => {
+    // Re-observe at the mutation boundary. The initial scan is an optimization and first-map guard,
+    // never permission to ignore a proposal/configuration ref that appeared while the clone ran.
+    const boundaryObservation = await leadRemoteSession.observeAsync(leadKey, {
+      includeHead: false,
+      refs: [`refs/heads/${CONFIGURATION_BRANCH}`, `refs/heads/${proposalBranchPrefix}*`],
+      refresh: true
+    });
+    requireRemoteObservation(boundaryObservation,
+      `capability authority '${sanitizeRemote(leadKey)}'`);
+    const mutationBaseCommit = run('git', ['rev-parse', 'HEAD'], {
+      cwd: root, env: leadRemoteSession.env
+    }).stdout.trim();
+    const boundaryConfigurationCommit = boundaryObservation.refs
+      .get(`refs/heads/${CONFIGURATION_BRANCH}`) ?? null;
+    if (boundaryConfigurationCommit !== mutationBaseCommit) {
+      throw new SingularityFlowError(
+        'Approved capability configuration changed while the mapping proposal was being prepared. Nothing was changed; retry against the current map.', {
+          code: 'CAPABILITY_CONFIGURATION_PLAN_STALE',
+          details: capabilityRecovery({
+            stage: 'proposal', state: 'configuration-advanced', remote: leadKey,
+            nextAction: {
+              command: `singularity-flow capability organisation ${quoted(commandRemote(leadKey))} --refresh --json`,
+              skill: '/sf-capability-map'
+            },
+            preserved: ['approved-configuration', 'application-branches', 'existing-proposals']
+          })
+        }
+      );
+    }
+    const boundaryProposalRefs = [...boundaryObservation.refs]
+      .filter(([ref]) => ref.startsWith(`refs/heads/${proposalBranchPrefix}`))
+      .map(([ref, commit]) => ({ branch: ref.slice('refs/heads/'.length), commit }))
+      .filter(({ branch }) => /^[0-9a-f]{8}$/i.test(branch.slice(proposalBranchPrefix.length)))
+      .sort((left, right) => left.branch.localeCompare(right.branch));
+    const proposalHistory = await classifyMatchingCapabilityProposals(
+      root, leadKey, boundaryProposalRefs, { env: leadRemoteSession.env }
+    );
+    if (proposalHistory.blocking.length) {
+      throw unresolvedCapabilityProposalError(
+        leadKey, capabilityId, proposalHistory.blocking, proposalHistory.historical
+      );
+    }
     // The first capability governs the repository it is mapped into.
     //
     // Requiring a governed lead before the first capability could be mapped was the product's one
@@ -1882,20 +2322,129 @@ export async function mapCapability(leadUrl, {
       // is reviewed and merged; unreviewed configuration must never become an authoritative mirror.
       await enableLedger(root, 'state');
     }
+
+    const effectiveKind = kind ?? (urls.length ? 'delivery' : 'collection');
+    const repositoryIds = urls.map((url) => repositoryIdOf(url));
+    const repositoryId = repositoryIds[0] ?? null;
+    // The lead is where this capability's governed state and world model live, so with more than
+    // one repository it has to be said rather than inferred from the order they were typed in.
+    const leadRepositoryRemote = leadRepositoryUrl
+      ? assertCredentialFreeRemote(leadRepositoryUrl) : null;
+    const leadRepositoryId = leadRepositoryRemote ? repositoryIdOf(leadRepositoryRemote)
+      : repositoryIds.length === 1 ? repositoryIds[0] : null;
+    if (leadRepositoryRemote && !urls.includes(leadRepositoryRemote)) {
+      throw new SingularityFlowError(
+        `The lead repository must be one of this capability's repositories; '${leadRepositoryId}' is not among ${repositoryIds.join(', ') || 'any'}.`);
+    }
+
+    const file = path.join(root, CAPABILITIES_PATH);
+    const document = governed
+      ? YAML.parseDocument(await readFile(file, 'utf8'))
+      : YAML.parseDocument('version: 1\ncapabilities: {}\n');
+    const before = document.toJS() ?? {};
+    const approvedPortfolio = existsSync(path.join(root, PORTFOLIO_PATH))
+      ? YAML.parse(await readFile(path.join(root, PORTFOLIO_PATH), 'utf8'))?.repositories ?? {}
+      : {};
+    const existingCapability = before.capabilities?.[capabilityId] ?? null;
+    if (existingCapability) {
+      const existingRepositories = [...capabilityRepositories(existingCapability)].sort();
+      const requestedRepositories = [...repositoryIds].sort();
+      const sameRepositories = requestedRepositories.length === 0
+        || JSON.stringify(existingRepositories) === JSON.stringify(requestedRepositories);
+      const differences = [];
+      if (!sameRepositories) differences.push('repositories');
+      if (urls.some((url, index) => approvedPortfolio[repositoryIds[index]]?.url !== url)) {
+        differences.push('repositoryUrls');
+      }
+      if (kind != null && existingCapability.kind !== effectiveKind) differences.push('kind');
+      if (name != null && existingCapability.name !== name) differences.push('name');
+      if (type != null && existingCapability.type !== type) differences.push('type');
+      if (parent != null && (existingCapability.parent ?? null) !== parent) differences.push('parent');
+      const compareRequestedMap = (field, requested) => {
+        if (!requested || Object.keys(requested).length === 0) return;
+        const approved = existingCapability[field] ?? {};
+        if (Object.entries(requested).some(([key, value]) => approved[key] !== value)) {
+          differences.push(field);
+        }
+      };
+      compareRequestedMap('metadata', metadata);
+      compareRequestedMap('documentation', documentation);
+      compareRequestedMap('resources', resources);
+      if (sourceRoots.length
+          && canonicalJson(normalizeSourceRoots(existingCapability.sourceRoots ?? []))
+            !== canonicalJson(normalizeSourceRoots(sourceRoots))) differences.push('sourceRoots');
+      if (sharedRoots.length
+          && canonicalJson(normalizeSourceRoots(existingCapability.sharedRoots ?? []))
+            !== canonicalJson(normalizeSourceRoots(sharedRoots))) differences.push('sharedRoots');
+      if (jiraProject != null && existingCapability.jira?.projectKey !== jiraProject) {
+        differences.push('jira.projectKey');
+      }
+      const normalizedStrings = (values) => [...new Set(values
+        .map((value) => String(value).trim()).filter(Boolean))].sort();
+      if (teams.length
+          && canonicalJson(normalizedStrings(existingCapability.teams ?? []))
+            !== canonicalJson(normalizedStrings(teams))) differences.push('teams');
+      if (leadRepositoryRemote != null) {
+        const existingLeadRepositoryId = existingCapability.leadRepository
+          ?? (existingRepositories.length === 1 ? existingRepositories[0] : null);
+        if (existingLeadRepositoryId !== leadRepositoryId) differences.push('leadRepository');
+      }
+      if (cloneStrategy != null && requestedRepositories.length) {
+        const cloneDiffers = requestedRepositories.some((repository) => {
+          const approvedClone = normalizeCloneStrategy(
+            approvedPortfolio[repository]?.clone ?? { mode: 'full' },
+            `Repository '${repository}' clone strategy`
+          );
+          return canonicalJson(approvedClone) !== canonicalJson(cloneStrategy);
+        });
+        if (cloneDiffers) differences.push('clone');
+      }
+      if (differences.length) {
+        throw new SingularityFlowError(
+          `Capability '${capabilityId}' already exists in this approved map with different requested attributes. Review the existing capability instead of creating a competing mapping.`, {
+            code: 'CAPABILITY_ALREADY_MAPPED',
+            details: {
+              ...capabilityRecovery({
+                stage: 'proposal', state: 'approved-capability-conflict', remote: leadKey,
+                nextAction: {
+                  command: `singularity-flow capability organisation ${quoted(commandRemote(leadKey))} --refresh --json`,
+                  skill: '/sf-capability-map'
+                },
+                preserved: ['approved-configuration', 'application-branches']
+              }),
+              capabilityId,
+              repositoryIds: existingRepositories,
+              differences
+            }
+          }
+        );
+      }
+      // Check before repairing defaults or rewriting the portfolio. A retry after a delayed
+      // Windows push response is a true no-op, even if unrelated repository metadata has drifted.
+      return {
+        capabilityId,
+        repositoryId: existingRepositories[0] ?? null,
+        repositoryIds: existingRepositories,
+        leadRepositoryId: existingCapability.leadRepository
+          ?? (existingRepositories.length === 1 ? existingRepositories[0] : null),
+        type: existingCapability.type ?? null,
+        status: 'already-mapped',
+        alreadyMapped: true,
+        state: { published: true, reason: 'already present in approved configuration' }
+      };
+    }
+    await observeDeliveries();
     await repairLeadDefaultBranch(
       root, leadKey, leadRemoteSession, leadAuthorityObservation
     );
 
     // Every repository this capability ships from, declared in the portfolio so the capability may
     // name them. A capability commonly has one; a product with a web app and a service has two.
-    const effectiveKind = kind ?? (urls.length ? 'delivery' : 'collection');
-    const repositoryIds = [];
     if (urls.length) {
       const file = path.join(root, PORTFOLIO_PATH);
       const portfolio = YAML.parseDocument(await readFile(file, 'utf8'));
       for (const url of urls) {
         const id = repositoryIdOf(url);
-        repositoryIds.push(id);
         const branch = observedBranches.get(url);
         const existing = portfolio.getIn(['repositories', id], true)?.toJSON?.() ?? {};
         if (existing.url && existing.url !== url) {
@@ -1916,26 +2465,6 @@ export async function mapCapability(leadUrl, {
         portfolio.setIn(['repositories', id], portfolio.createNode(repository));
       }
       await writeFile(file, portfolio.toString(YAML_OUTPUT), 'utf8');
-    }
-    const repositoryId = repositoryIds[0] ?? null;
-    // The lead is where this capability's governed state and world model live, so with more than
-    // one repository it has to be said rather than inferred from the order they were typed in.
-    const leadRepositoryRemote = leadRepositoryUrl
-      ? assertCredentialFreeRemote(leadRepositoryUrl) : null;
-    const leadRepositoryId = leadRepositoryRemote ? repositoryIdOf(leadRepositoryRemote)
-      : repositoryIds.length === 1 ? repositoryIds[0] : null;
-    if (leadRepositoryRemote && !urls.includes(leadRepositoryRemote)) {
-      throw new SingularityFlowError(
-        `The lead repository must be one of this capability's repositories; '${leadRepositoryId}' is not among ${repositoryIds.join(', ') || 'any'}.`);
-    }
-
-    const file = path.join(root, CAPABILITIES_PATH);
-    const document = governed
-      ? YAML.parseDocument(await readFile(file, 'utf8'))
-      : YAML.parseDocument('version: 1\ncapabilities: {}\n');
-    const before = document.toJS() ?? {};
-    if (before.capabilities?.[capabilityId]) {
-      throw new SingularityFlowError(`Capability '${capabilityId}' already exists in this map.`);
     }
     if (!governed) document.setIn(['capabilities'], document.createNode({}));
     document.setIn(['capabilities', capabilityId], document.createNode({}));
@@ -1971,7 +2500,12 @@ export async function mapCapability(leadUrl, {
       parent: parent || null,
       state: { published: false, reason: 'awaiting review and merge' }
     };
-  }, { remoteSession, authorityObservation });
+  }, {
+    remoteSession,
+    authorityObservation,
+    fullHistory: matchingProposalRefs.length > 0,
+    bindProposalToBase: true
+  });
 }
 
 /** Add one shipping repository to an existing delivery capability as a reviewed proposal. */
@@ -2079,13 +2613,19 @@ export async function publishCapabilityMap(root, {
   message = 'Publish the capability map', env = process.env
 } = {}) {
   const file = path.join(root, CAPABILITIES_PATH);
-  if (!existsSync(file)) return { published: false, reason: 'there is no capability map to publish' };
+  if (!existsSync(file)) return {
+    status: 'not-applicable', published: false, reason: 'there is no capability map to publish'
+  };
   const definition = await loadDefinition(root).catch(() => null);
   const ledger = definition?.ledger ?? null;
   // `enabled: false` is a decision this repository made, not a fault: it says the state branch is
   // not in use here, and publishing to a branch nobody reads would be noise.
-  if (!ledger?.enabled) return { published: false, reason: 'the state branch is not enabled here' };
-  if (ledger.publication === 'off') return { published: false, reason: 'state publication is disabled' };
+  if (!ledger?.enabled) return {
+    status: 'policy-disabled', published: false, reason: 'the state branch is not enabled here'
+  };
+  if (ledger.publication === 'off') return {
+    status: 'policy-disabled', published: false, reason: 'state publication is disabled'
+  };
   try {
     // The state branch is a complete approved-configuration mirror, not a second capabilities.yml
     // slot. Publishing only the edited map invalidates its manifest and makes Story startup reject
@@ -2173,8 +2713,11 @@ export async function publishCapabilityMap(root, {
       });
     // Unchanged is not a failure and must not be reported as one: an edit that touched a field the
     // branch already agreed with is the ordinary case, not a problem to explain.
-    if (!result.changed) return { published: false, branch: result.branch, reason: 'it is already current there' };
-    return { published: true, branch: result.branch, commit: result.commit };
+    if (!result.changed) return {
+      status: 'current', published: false, branch: result.branch,
+      reason: 'it is already current there'
+    };
+    return { status: 'updated', published: true, branch: result.branch, commit: result.commit };
   } catch (error) {
     const diagnostic = safeGitDiagnosticReference({
       status: error?.exitCode ?? 1, error
@@ -2184,7 +2727,7 @@ export async function publishCapabilityMap(root, {
         code: error?.code ?? 'CAPABILITY_STATE_PROJECTION_FAILED'
       });
     }
-    return { published: false, reason: diagnostic };
+    return { status: 'failed', published: false, reason: diagnostic };
   }
 }
 
@@ -2221,14 +2764,20 @@ export async function publishOrganisationCapabilityAuthorityLinks(root, leadUrl,
     // Self-hosted authorities are already discoverable through their own sflow/config branch, and
     // publishCapabilityMap has just mirrored that configuration to the same state branch.
     if (assertCredentialFreeRemote(repository.url) === authorityRemote) return [];
-    return [{
+    const primary = {
       authorityRemote,
       authorityBranch: CAPABILITY_AUTHORITY_BRANCH,
       repositoryRemote: assertCredentialFreeRemote(repository.url),
       capabilityIds: [...capabilityIds].sort(),
       defaultBranch: repository.defaultBranch ?? 'main',
       stateBranch: repository.stateBranch ?? DEFAULT_CAPABILITY_STATE_BRANCH
-    }];
+    };
+    // The conventional state branch is the bootstrap locator. A custom runtime state branch may
+    // retain the same link for co-located readers, but it must never be the only place a new laptop
+    // could learn that custom name.
+    return primary.stateBranch === DEFAULT_CAPABILITY_STATE_BRANCH
+      ? [primary]
+      : [primary, { ...primary, stateBranch: DEFAULT_CAPABILITY_STATE_BRANCH }];
   });
   if (!entries.length) return {
     status: 'not-required', portable: true, outcomes: [], failures: []
@@ -2246,7 +2795,9 @@ export async function publishOrganisationCapabilityAuthorityLinks(root, leadUrl,
  * This is intentionally separate from map/edit. Those operations only propose a review branch;
  * publishing before merge would make unreviewed configuration visible as governed state.
  */
-export async function publishOrganisationCapabilityMap(url) {
+export async function publishOrganisationCapabilityMap(url, {
+  expectedConfigurationCommit = null
+} = {}) {
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A lead repository URL is required.', {
     code: 'CAPABILITY_LEAD_REQUIRED',
@@ -2256,6 +2807,14 @@ export async function publishOrganisationCapabilityMap(url) {
     })
   });
   const baseBranch = CONFIGURATION_BRANCH;
+  if (expectedConfigurationCommit != null
+      && !/^[0-9a-f]{40,64}$/i.test(String(expectedConfigurationCommit))) {
+    throw new SingularityFlowError(
+      'Capability publication expected configuration commit must be a full Git object ID.', {
+        code: 'CAPABILITY_CONFIGURATION_EXPECTATION_INVALID'
+      }
+    );
+  }
   const gitEnv = enterpriseGitEnvironment();
   const session = new GitRemoteSession({ env: gitEnv });
   const transport = frozenRemoteTransport(remote, { push: true, env: gitEnv });
@@ -2276,6 +2835,21 @@ export async function publishOrganisationCapabilityMap(url) {
         })
       });
   }
+  if (expectedConfigurationCommit && configurationHead.sha !== expectedConfigurationCommit) {
+    throw new SingularityFlowError(
+      `Capability configuration changed after the reviewed plan. No state projection or delivery locator was changed.`, {
+        code: 'CAPABILITY_CONFIGURATION_PLAN_STALE',
+        details: capabilityRecovery({
+          stage: 'projection', state: 'configuration-plan-stale', remote, recoverable: true,
+          nextAction: {
+            command: 'singularity-flow workspace reinitialize --dry-run --json',
+            skill: '/sf-workspace'
+          },
+          preserved: ['approved-configuration', 'state-projections', 'application-branches']
+        })
+      }
+    );
+  }
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-publish-map-'));
   try {
     const cloned = await runRemoteGitAsync([
@@ -2294,10 +2868,49 @@ export async function publishOrganisationCapabilityMap(url) {
           })
         });
     }
+    const clonedConfigurationCommit = run('git', ['rev-parse', 'HEAD'], {
+      cwd: scratch, env: transport.env
+    }).stdout.trim();
+    const plannedConfigurationCommit = expectedConfigurationCommit ?? configurationHead.sha;
+    if (clonedConfigurationCommit !== plannedConfigurationCommit) {
+      throw new SingularityFlowError(
+        'Capability configuration advanced while the reviewed projection was being prepared. No delivery locator was changed.', {
+          code: 'CAPABILITY_CONFIGURATION_PLAN_STALE',
+          details: capabilityRecovery({
+            stage: 'projection', state: 'configuration-plan-stale', remote, recoverable: true,
+            nextAction: {
+              command: 'singularity-flow workspace reinitialize --dry-run --json',
+              skill: '/sf-workspace'
+            },
+            preserved: ['approved-configuration', 'application-branches']
+          })
+        }
+      );
+    }
     const state = await publishCapabilityMap(scratch, {
       message: `Publish reviewed capability map from ${baseBranch}`,
       env: transport.env
     });
+    const currentConfiguration = await session.observeAsync(remote, {
+      includeHead: false, refs: [`refs/heads/${CONFIGURATION_BRANCH}`], refresh: true
+    });
+    if (!currentConfiguration.ok
+        || currentConfiguration.refs.get(`refs/heads/${CONFIGURATION_BRANCH}`)
+          !== plannedConfigurationCommit) {
+      throw new SingularityFlowError(
+        'Capability configuration advanced while its state projection was being verified. Delivery locators were left unchanged.', {
+          code: 'CAPABILITY_CONFIGURATION_PLAN_STALE',
+          details: capabilityRecovery({
+            stage: 'projection', state: 'configuration-plan-stale', remote, recoverable: true,
+            nextAction: {
+              command: 'singularity-flow workspace reinitialize --dry-run --json',
+              skill: '/sf-workspace'
+            },
+            preserved: ['approved-configuration', 'application-branches']
+          })
+        }
+      );
+    }
     const portability = await publishOrganisationCapabilityAuthorityLinks(
       scratch, remote, { env: transport.env }
     );
@@ -2589,7 +3202,7 @@ function capabilityFsckCheck(id, status, summary, {
 
 /** Verify the approved capability authority and every retained proposal without changing a ref. */
 export async function capabilityFsck(url, {
-  workspaces = [], portableDiscovery = false
+  workspaces = [], portableDiscovery = false, repositoryDiscovery = null
 } = {}) {
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A lead repository URL is required.', {
@@ -2698,6 +3311,25 @@ export async function capabilityFsck(url, {
         );
       });
     checks.push(...portability);
+  }
+
+  const requestedStaleLink = repositoryDiscovery?.failures?.find((failure) =>
+    failure.code === 'CAPABILITY_AUTHORITY_LINK_STALE');
+  if (requestedStaleLink) {
+    checks.push(capabilityFsckCheck(
+      'portable-discovery:requested-repository', 'fail',
+      requestedStaleLink.message,
+      {
+        branch: repositoryDiscovery.authorityDiscovery?.stateBranch ?? null,
+        commit: repositoryDiscovery.authorityDiscovery?.stateCommit ?? null,
+        remediation: requestedStaleLink.diagnosticAction?.command ?? null,
+        details: {
+          repository: repositoryDiscovery.repositoryUrl,
+          authority: requestedStaleLink.lead,
+          linkStatus: repositoryDiscovery.authorityDiscovery?.status ?? null
+        }
+      }
+    ));
   }
 
   const capabilityIds = (nodes, output = new Set()) => {
@@ -4007,17 +4639,7 @@ function flattenTree(nodes, ancestors = []) {
 
 /** The repository identifier a clone URL implies. */
 export function repositoryIdOf(url) {
-  const id = String(url ?? '').trim()
-    .replace(/\/+$/, '')
-    .replace(/\.git$/, '')
-    .split(/[/:]/)
-    .pop()
-    ?.normalize('NFKD')
-    .replace(/[^A-Za-z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .toLowerCase();
-  if (!id) throw new SingularityFlowError(`Cannot derive a repository identifier from '${url}'.`);
-  return id;
+  return repositoryIdFromUrl(String(url ?? '').trim());
 }
 
 /**
@@ -4053,6 +4675,21 @@ export function assertGovernanceVisible(root, paths = [CAPABILITIES_PATH, PORTFO
 export function resolveWorkspacePlan(organisation, {
   capabilities = [], leadCapability = null, clone = null
 } = {}) {
+  if (organisation?.stale) {
+    throw new SingularityFlowError(
+      'The approved capability authority is unreachable, so a stale machine-local map cannot authorize workspace creation. Restore Git access and retry.', {
+        code: 'WORKSPACE_CAPABILITY_AUTHORITY_STALE',
+        details: capabilityRecovery({
+          stage: 'workspace-plan', state: 'authority-stale', remote: organisation?.url,
+          nextAction: {
+            command: `singularity-flow capability organisation ${quoted(commandRemote(organisation?.url))} --refresh --json`,
+            skill: '/sf-workspace-bootstrap'
+          },
+          preserved: ['capability-map-cache', 'workspace-registry', 'application-branches']
+        })
+      }
+    );
+  }
   const workspaceClone = clone == null ? null
     : normalizeCloneStrategy(clone, 'Workspace clone override');
   const { flattenCapabilityTree } = { flattenCapabilityTree: flatten };

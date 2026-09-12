@@ -10,7 +10,7 @@ import {
   type WorkspaceRepositoryStatus, type WorkspaceCapabilityChoice,
   type WorkspaceConfigurationConflict, type WorkspaceConfigurationRefreshResult,
   type WorkspaceConfigurationResolution, type WorkspaceCapabilityAttachScope,
-  type WorkspaceFosAction, type WorkspaceFosOutcome
+  type WorkspaceFosAction, type WorkspaceFosOutcome, type WorkspaceRecoveryAction
 } from './workspaces-model.ts';
 import { escape, icon } from './webview.ts';
 
@@ -363,24 +363,60 @@ function mergeableConflict(conflict: WorkspaceConfigurationConflict): boolean {
     && conflict.bundled.every((entry) => typeof entry === 'string');
 }
 
+function quoteRecoveryDirectory(value: string, shell: WorkspaceRecoveryAction['shell']): string {
+  return shell === 'powershell'
+    ? `'${value.replaceAll("'", "''")}'`
+    : `'${value.replaceAll("'", `'"'"'`)}'`;
+}
+
+function recoveryContinuation(action: WorkspaceRecoveryAction): string {
+  // Older external CLIs may return `cwd` without saying which shell produced `command`. In that
+  // case copy the engine's exact command and show the directory separately; never guess POSIX on
+  // a Windows host (or PowerShell on Unix).
+  if (!action.cwd || !action.shell) return action.command;
+  const directory = quoteRecoveryDirectory(action.cwd, action.shell);
+  return action.shell === 'powershell'
+    ? `Set-Location ${directory}; ${action.command}`
+    : `cd ${directory} && ${action.command}`;
+}
+
+function recoveryActionHtml(action: WorkspaceRecoveryAction | null | undefined): string {
+  if (!action?.command) return '';
+  const continuation = recoveryContinuation(action);
+  return `<div class="command-hint">${action.cwd
+    ? `<span class="muted">Run in <code>${escape(action.cwd)}</code></span><br>` : ''}
+    <code>${escape(action.command)}</code>
+    <button type="button" class="secondary" data-copy-command="${escape(continuation)}">Copy command</button></div>`;
+}
+
+function topologyIssueSubject(issue: NonNullable<WorkspaceConfigurationRefreshResult['topologyIssues']>[number]): string {
+  const binding = [issue.workspaceId, issue.repositoryId].filter(Boolean).join(' / ');
+  return binding || issue.lead || 'Workspace topology';
+}
+
 function configurationRefreshHtml(row: WorkspaceRow, view: WorkspaceConfigurationRefreshView): string {
   const result = view.result;
   const repositories = result?.results ?? [];
+  const schemaCensuses = result?.schemaCensuses ?? [];
+  const topologyIssues = result?.topologyIssues ?? [];
+  const plannedLeads = result?.capabilityPortability?.plannedLeads ?? [];
+  const portabilityResults = result?.capabilityPortability?.results ?? [];
   const conflicts = [...new Map(repositories.flatMap((repository) => repository.conflicts ?? [])
     .map((conflict) => [conflict.path, conflict])).values()];
   const agentRepairPaths = [...new Set(repositories.flatMap((repository) =>
     repository.repair?.kind === 'packaged-agents' ? repository.repair.paths : []))].sort();
-  const actionable = result?.status === 'preview' && repositories.some((repository) =>
-    repository.status !== 'current' && repository.status !== 'preflight-passed');
-  return `<h2>${icon('configuration')}Upgrade capabilities & workspaces</h2>
+  // Even a configuration-current workspace may need its portable capability locator verified or
+  // republished. The exact plan, not a guessed "changed files" count, is the apply authority.
+  const actionable = result?.dryRun === true && result.status === 'preview' && Boolean(result.planId);
+  return `<h2>${icon('configuration')}Safely reinitialize capabilities &amp; workspaces</h2>
   <div class="card${view.error ? ' blocked' : ''}">
-    <div class="card-head"><strong>Review updates from this SFlow build</strong>
+    <div class="card-head"><strong>Review and repair from this SFlow build</strong>
       <span class="grow"></span>${result ? `<span class="pill ${result.status === 'blocked' || result.status === 'partial' ? 'bad' : 'ok'}">${escape(result.status)}</span>` : ''}</div>
-    <p class="muted">Bring older capability maps and workspace repositories to this build's
-      approved workflow, templates, prompts and governed-agent contract. Review happens before
-      <code>sflow/config</code> changes. Apply then refreshes the canonical files on
-      <code>state</code>; world models and other runtime state are preserved, and application
-      branches are untouched.</p>
+    <p class="muted">This is the repeatable, non-destructive upgrade path. It brings approved
+      workflow assets forward with a three-way review, refreshes their <code>state</code>
+      projections, verifies or republishes portable capability locators, and checks every stored
+      schema version. Readable legacy records migrate in memory; immutable history, world models,
+      application branches and application source remain untouched.</p>
     <p class="card-foot">
       <button class="secondary" data-config-preview="selected"${view.loading || view.applying ? ' disabled' : ''}>
         ${view.loading && view.scope === 'selected' ? 'Checking…' : `Review ${escape(row.name)}`}</button>
@@ -404,6 +440,37 @@ function configurationRefreshHtml(row: WorkspaceRow, view: WorkspaceConfiguratio
               · ${escape(repository.conflicts?.length ?? 0)} choices</span>`}</td>
         </tr>`).join('')}</tbody>
       </table>` : '<p class="muted">No registered workspace repositories were found.</p>'}
+      ${schemaCensuses.length ? `<h3>Stored schema compatibility</h3>
+        <table><thead><tr><th>Repository</th><th>Schema</th><th>Records</th><th>Details</th></tr></thead>
+        <tbody>${schemaCensuses.map((census) => `<tr>
+          <td><strong>${escape(census.repository)}</strong></td>
+          <td><span class="pill ${census.healthy === false ? 'bad' : census.status === 'current' ? 'ok' : 'wait'}">${escape(census.status)}</span></td>
+          <td>${escape(census.records ?? 0)}</td>
+          <td>${census.reason ? `<span class="blockers">${escape(census.reason)}</span>`
+            : `<span class="muted">${escape(census.readTimeMigrationRecords ?? 0)} read-time migrations
+              · ${escape(census.outsideReadableRange ?? 0)} outside readable range
+              · ${escape(census.unreadable ?? 0)} unreadable</span>`}
+            ${recoveryActionHtml(census.nextAction)}</td>
+        </tr>`).join('')}</tbody></table>
+        <p class="muted">${escape(result.schemaMigrationPolicy?.statement
+          ?? 'Stored schemas are validated without rewriting historical records.')}</p>` : ''}
+      ${plannedLeads.length || portabilityResults.length ? `<h3>Capability-map portability</h3>
+        <table><thead><tr><th>Lead authority</th><th>Workspaces</th><th>Status</th></tr></thead>
+        <tbody>${[...plannedLeads.map((lead) => ({
+          ...lead, status: 'will verify after confirmation', reason: undefined, nextAction: undefined
+        })),
+          ...portabilityResults].map((entry) => `<tr>
+          <td><code>${escape(entry.lead)}</code></td>
+          <td>${escape(entry.workspaceIds.join(', '))}</td>
+          <td><span class="pill ${entry.status === 'current' ? 'ok' : entry.status === 'pending' ? 'bad' : 'wait'}">${escape(entry.status)}</span>
+            ${'reason' in entry && entry.reason ? `<br><span class="blockers">${escape(entry.reason)}</span>` : ''}
+            ${'nextAction' in entry ? recoveryActionHtml(entry.nextAction) : ''}</td>
+        </tr>`).join('')}</tbody></table>
+        <p class="muted">The approved map stays on the lead repository's <code>sflow/config</code>
+          branch. Delivery repositories receive only a state-branch locator; no capability YAML is
+          copied onto an application branch.</p>` : ''}
+      ${topologyIssues.map((issue) => `<div class="card blocked"><p class="blockers"><strong>${escape(topologyIssueSubject(issue))}</strong>:
+        ${escape(issue.reason)}</p>${recoveryActionHtml(issue.nextAction)}</div>`).join('')}
       ${conflicts.length ? `<h3>Review repository choices</h3>
         <p class="muted">Local is the default. Choose packaged for only the paths you want to
           replace; merge is offered only for compatible string lists.</p>
@@ -430,9 +497,9 @@ function configurationRefreshHtml(row: WorkspaceRow, view: WorkspaceConfiguratio
       </div>` : ''}
       <p class="card-foot"><button data-config-apply="${escape(view.scope)}"
         ${!result.planId || !actionable || view.loading || view.applying ? 'disabled' : ''}>
-        ${view.applying ? 'Applying…' : 'Apply reviewed refresh'}</button></p>
-      <p class="muted">Apply is bound to this plan. If either authority changed after preview,
-        nothing is published and a new preview is required.</p>` : ''}
+        ${view.applying ? 'Applying…' : 'Confirm &amp; reinitialize'}</button></p>
+      <p class="muted">You must type the exact plan ID before apply. If configuration or state
+        authority changed after preview, nothing is published and a new preview is required.</p>` : ''}
   </div>`;
 }
 
@@ -569,12 +636,13 @@ export function workspacesHtml(
 export const WORKSPACES_SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-select],[data-switch],[data-rename],[data-duplicate],[data-forget],[data-create],[data-adopt],[data-edit],[data-edit-save],[data-edit-cancel],[data-capability-attach],[data-capability-detach],[data-capability-drop],[data-repair],[data-archive],[data-restore],[data-config-preview],[data-config-apply],[data-config-bundled],[data-config-agents],[data-fos-action],[data-help-topic]');
+    const target = event.target.closest('[data-select],[data-switch],[data-rename],[data-duplicate],[data-forget],[data-create],[data-adopt],[data-edit],[data-edit-save],[data-edit-cancel],[data-capability-attach],[data-capability-detach],[data-capability-drop],[data-repair],[data-archive],[data-restore],[data-config-preview],[data-config-apply],[data-config-bundled],[data-config-agents],[data-fos-action],[data-help-topic],[data-copy-command]');
     if (!target) return;
     event.preventDefault();
     const data = target.dataset;
     const value = (field) => document.querySelector('[data-field="' + field + '"]')?.value ?? '';
-    if (data.helpTopic !== undefined) vscode.postMessage({ type: 'open-help-topic', topic: data.helpTopic });
+    if (data.copyCommand !== undefined) navigator.clipboard.writeText(data.copyCommand).catch(() => {});
+    else if (data.helpTopic !== undefined) vscode.postMessage({ type: 'open-help-topic', topic: data.helpTopic });
     else if (data.select !== undefined) vscode.postMessage({ type: 'select', path: data.select });
     else if (data.switch !== undefined) vscode.postMessage({ type: 'switch', path: data.switch });
     else if (data.create !== undefined) vscode.postMessage({ type: 'create' });

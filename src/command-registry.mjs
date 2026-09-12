@@ -382,7 +382,7 @@ export const RESOLVER_SUBCOMMANDS = Object.freeze({
     'ensure', 'ast', 'recovery'
   ])]),
   workspace: Object.freeze([
-    'copilot', 'impact', 'bootstrap', 'refresh-configuration',
+    'copilot', 'impact', 'bootstrap', 'refresh-configuration', 'reinitialize',
     ...WORKSPACE_NEVER_OPERATIONS, ...WORKSPACE_SUBCOMMAND_ALIASES.keys()
   ])
 });
@@ -975,6 +975,11 @@ function resolveWorkspaceOperation(definition, positionals, options) {
       ? never('workspace.refresh-configuration.preview', definition, 'read')
       : never('workspace.refresh-configuration', definition, 'mutation');
   }
+  if (subcommand === 'reinitialize') {
+    return optionBoolean(options, 'dry-run')
+      ? never('workspace.reinitialize.preview', definition, 'read')
+      : never('workspace.reinitialize', definition, 'mutation');
+  }
   if (subcommand === 'attach-capability' || subcommand === 'detach-capability') {
     return optionBoolean(options, 'dry-run')
       ? never(`workspace.${subcommand}.preview`, definition, 'read')
@@ -1214,6 +1219,8 @@ export function operationCatalog() {
   workspace.push(never('workspace.impact.analyze.preview', commandDefinition('workspace'), 'read'));
   workspace.push(never('workspace.refresh-configuration', commandDefinition('workspace'), 'mutation'));
   workspace.push(never('workspace.refresh-configuration.preview', commandDefinition('workspace'), 'read'));
+  workspace.push(never('workspace.reinitialize', commandDefinition('workspace'), 'mutation'));
+  workspace.push(never('workspace.reinitialize.preview', commandDefinition('workspace'), 'read'));
   workspace.push(never('workspace.attach-capability.preview', commandDefinition('workspace'), 'read'));
   workspace.push(never('workspace.detach-capability.preview', commandDefinition('workspace'), 'read'));
   const prDefinition = commandDefinition('pr');

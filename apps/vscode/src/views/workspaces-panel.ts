@@ -18,6 +18,8 @@ import {
   duplicateCommand, duplicateProblems, renameCommand, updateCommand, workspaceRows,
   WORKSPACE_ACTION_CANCELLED,
   type WorkspaceConfigurationRefreshResult, type WorkspaceConfigurationResolution,
+  WorkspaceConfigurationRequestLeases,
+  type WorkspaceConfigurationRequestContext, type WorkspaceConfigurationRequestLease,
   type WorkspaceCapabilityAttachScope, type WorkspaceEntry, type WorkspaceRow, type WorkspaceStatus,
   type WorkspaceFosAction, type WorkspaceFosOutcome
 } from './workspaces-model.ts';
@@ -92,6 +94,8 @@ export class WorkspacesPanel {
   private fosOutcome: WorkspaceFosOutcome | null = null;
   private requestedCapabilityIds: string[] = [];
   private attachScope: WorkspaceCapabilityAttachScope | null = null;
+  private readonly configurationRequests = new WorkspaceConfigurationRequestLeases();
+  private configurationPreviewLease: WorkspaceConfigurationRequestLease | null = null;
   private configuration: WorkspaceConfigurationRefreshView = {
     ...EMPTY_CONFIGURATION_REFRESH, resolutions: {}
   };
@@ -217,9 +221,11 @@ export class WorkspacesPanel {
     if (next) {
       await this.select(next);
     } else {
+      this.invalidateConfigurationRequest();
       this.selected = null;
       this.details = null;
       this.fosOutcome = null;
+      this.configuration = { ...EMPTY_CONFIGURATION_REFRESH, resolutions: {} };
       this.render();
     }
   }
@@ -233,6 +239,8 @@ export class WorkspacesPanel {
   }
 
   private setAttachScope(scope: WorkspaceCapabilityAttachScope | null): void {
+    this.invalidateConfigurationRequest();
+    this.configuration = { ...EMPTY_CONFIGURATION_REFRESH, resolutions: {} };
     this.attachScope = scope;
     this.requestedCapabilityIds = [...new Set(scope?.capabilityIds ?? [])];
     // A retained panel may still be loading details for a workspace which is outside the new
@@ -257,6 +265,7 @@ export class WorkspacesPanel {
     preserveEdit = false
   }: { preserveError?: boolean; preserveEdit?: boolean } = {}): Promise<void> {
     if (!this.rows.some((row) => row.path === path)) return;
+    this.invalidateConfigurationRequest();
     const workspaceChanged = this.selected !== path;
     this.manageRevision++;
     const request = ++this.detailRequest;
@@ -408,17 +417,21 @@ export class WorkspacesPanel {
       return this.previewConfiguration(scope);
     },
     'configuration-resolution': (message) => {
+      if (this.configuration.applying) return;
       const conflictPath = stringField(message, 'path');
       const resolution = stringField(message, 'resolution');
       if (!conflictPath || !['local', 'bundled', 'merge'].includes(resolution ?? '')) return;
       const known = this.configuration.result?.results.some((repository) =>
         repository.conflicts?.some((conflict) => conflict.path === conflictPath));
       if (!known) return;
+      this.invalidateConfigurationRequest();
       this.configuration.resolutions[conflictPath] = resolution as WorkspaceConfigurationResolution;
       this.configuration.error = null;
       return this.previewConfiguration(this.configuration.scope);
     },
     'configuration-bundled-assets': () => {
+      if (this.configuration.applying) return;
+      this.invalidateConfigurationRequest();
       for (const repository of this.configuration.result?.results ?? []) {
         for (const conflict of repository.conflicts ?? []) {
           if (conflict.path.startsWith('singularity/templates/')
@@ -432,12 +445,14 @@ export class WorkspacesPanel {
       return this.previewConfiguration(this.configuration.scope);
     },
     'configuration-packaged-agents': () => {
+      if (this.configuration.applying) return;
       const paths = new Set(this.configuration.result?.results.flatMap((repository) =>
         repository.repair?.kind === 'packaged-agents' ? repository.repair.paths : []) ?? []);
       // A blocked preview owns this list. The page never supplies a path, and selecting the repair
       // only asks the engine for another preview; publication still requires the resulting plan.
-      for (const agentPath of paths) this.configuration.resolutions[agentPath] = 'bundled';
       if (!paths.size) return;
+      this.invalidateConfigurationRequest();
+      for (const agentPath of paths) this.configuration.resolutions[agentPath] = 'bundled';
       this.configuration.error = null;
       return this.previewConfiguration(this.configuration.scope);
     },
@@ -553,53 +568,110 @@ export class WorkspacesPanel {
   }
 
   private async previewConfiguration(scope: 'selected' | 'all'): Promise<void> {
-    if (this.configuration.loading || this.configuration.applying
-      || (scope === 'selected' && !this.selected)) return;
+    if (this.configuration.applying || (scope === 'selected' && !this.selected)) return;
     if (scope !== this.configuration.scope) {
+      this.invalidateConfigurationRequest();
       this.configuration = { ...EMPTY_CONFIGURATION_REFRESH, scope, resolutions: {} };
     }
+    const context = this.configurationRequestContext(scope);
+    const lease = this.configurationRequests.issue(context);
+    this.configurationPreviewLease = null;
     this.configuration.loading = true;
     this.configuration.error = null;
     this.render();
     try {
-      this.configuration.result = await this.refreshConfiguration(
-        scope === 'selected' ? this.selected : null,
-        { dryRun: true, resolutions: { ...this.configuration.resolutions } }
+      const result = await this.refreshConfiguration(
+        scope === 'selected' ? context.selectedPath : null,
+        { dryRun: true, resolutions: { ...context.resolutions } }
       );
+      if (!this.configurationRequests.isCurrent(lease, this.configurationRequestContext(scope))) return;
+      this.configuration.result = result;
+      this.configurationPreviewLease = result.dryRun && result.status === 'preview' ? lease : null;
     } catch (error) {
+      if (!this.configurationRequests.isCurrent(lease, this.configurationRequestContext(scope))) return;
       this.configuration.result = null;
+      this.configurationPreviewLease = null;
       this.configuration.error = (error as Error).message;
     } finally {
+      if (!this.configurationRequests.isCurrent(lease, this.configurationRequestContext(scope))) return;
       this.configuration.loading = false;
       this.render();
     }
   }
 
   private async applyConfiguration(): Promise<void> {
-    const planId = this.configuration.result?.planId;
-    if (!planId || this.configuration.loading || this.configuration.applying || !this.selected) return;
+    const reviewedResult = this.configuration.result;
+    const reviewedLease = this.configurationPreviewLease;
+    const planId = reviewedResult?.planId;
+    const context = this.configurationRequestContext(this.configuration.scope);
+    if (!planId || !reviewedLease || reviewedResult?.dryRun !== true
+      || reviewedResult.status !== 'preview' || this.configuration.loading
+      || this.configuration.applying || !this.selected
+      || !this.configurationRequests.isCurrent(reviewedLease, context)) return;
+    const confirmation = await vscode.window.showInputBox({
+      title: 'Confirm safe workspace reinitialization',
+      prompt: `Type the exact reviewed plan ID: ${planId}`,
+      placeHolder: planId,
+      ignoreFocusOut: true,
+      validateInput: (value) => value === planId
+        ? null
+        : 'The plan ID must exactly match the current reinitialization preview.'
+    });
+    // A retained page can be refreshed or switched while the native input box is open. The typed
+    // value authorizes only the exact result that was on screen when it opened.
+    if (confirmation !== planId || this.configuration.result !== reviewedResult
+      || this.configurationPreviewLease !== reviewedLease
+      || !this.configurationRequests.isCurrent(
+        reviewedLease, this.configurationRequestContext(this.configuration.scope)
+      )) return;
+    const applyLease = this.configurationRequests.issue(context);
+    this.configurationPreviewLease = null;
     this.configuration.applying = true;
     this.configuration.error = null;
     this.render();
     try {
       const result = await this.refreshConfiguration(
-        this.configuration.scope === 'selected' ? this.selected : null,
+        context.scope === 'selected' ? context.selectedPath : null,
         {
           dryRun: false,
           planId,
-          resolutions: { ...this.configuration.resolutions }
+          resolutions: { ...context.resolutions }
         }
       );
+      if (!this.configurationRequests.isCurrent(
+        applyLease, this.configurationRequestContext(context.scope)
+      )) return;
       this.configuration.result = result;
       this.configuration.applying = false;
       this.render();
       return;
     } catch (error) {
+      if (!this.configurationRequests.isCurrent(
+        applyLease, this.configurationRequestContext(context.scope)
+      )) return;
       this.configuration.error = (error as Error).message;
     } finally {
+      if (!this.configurationRequests.isCurrent(
+        applyLease, this.configurationRequestContext(context.scope)
+      )) return;
       this.configuration.applying = false;
       this.render();
     }
+  }
+
+  private configurationRequestContext(
+    scope: 'selected' | 'all'
+  ): WorkspaceConfigurationRequestContext {
+    return {
+      selectedPath: this.selected,
+      scope,
+      resolutions: { ...this.configuration.resolutions }
+    };
+  }
+
+  private invalidateConfigurationRequest(): void {
+    this.configurationRequests.invalidate();
+    this.configurationPreviewLease = null;
   }
 
   private async performFosAction(
@@ -701,6 +773,7 @@ export class WorkspacesPanel {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.invalidateConfigurationRequest();
     this.manageRevision++;
     this.edit = { ...EMPTY_EDIT_DRAFT };
     this.detailRequest++;

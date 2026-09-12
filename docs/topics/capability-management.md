@@ -8,11 +8,15 @@ commands:
   - capability
   - capabilities
   - why
+questions:
+  - Where is the capability map maintained?
+  - How does a capability map reach a new laptop?
+  - What happens when a capability already has a proposal?
 related:
   - workspaces-and-sessions
   - configuration
   - workflow-authoring
-version: 8
+version: 9
 ---
 Capability changes are proposed, reviewed as an exact diff, and activated through the configuration authority. Collection capabilities organize; delivery capabilities name the repositories that ship.
 
@@ -70,7 +74,34 @@ To remove a capability that still has children, choose where those direct childr
 
 The approved map lives on `sflow/config`; its orphan state-branch copy is a read mirror, not an independent write authority. Governed changes use proposal branches and exact activation. Activation uses an exact leased update and appends a tamper-evident event containing proposer, approver, proposal and target commits, changed files, and the protection result. A provider rejection leaves the proposal available for its normal pull-request path; only explicit pull-request, review, or protection evidence is classified as review-required.
 
-Organisation reads prefer the state mirror, fall back to `sflow/config`, and cache validated results by the exact configuration commit. When the remote is unavailable, a cached result is marked `stale` and carries its age and remote error. `--refresh` bypasses a current cache entry; it cannot manufacture connectivity.
+The same information appears in several places for different reasons:
+
+| Location | Purpose | Authority |
+| --- | --- | --- |
+| Lead repository `sflow/config:singularity/capabilities.yml` | Reviewed capability and repository membership | **Authoritative** |
+| Lead repository `state` configuration mirror | Exact, manifest-bound read copy of the approved configuration | Verified projection only |
+| Delivery repository `state:singularity/capability-authority.json` | Tells a new laptop which lead and capability IDs to verify | Routing link only |
+| Story branch `singularity/capabilities.yml` | Immutable configuration pinned when that Story started | Authority for that Story only |
+| Workspace manifest, lead registry, and organisation cache | Navigation and performance | Disposable local projection |
+
+Reading a map therefore does not copy a new YAML file onto an application `main` branch. The
+reader follows the delivery link, observes the lead's exact `sflow/config` commit, verifies the
+catalog, and mounts those bytes as a request-local configuration overlay. Story start is the point
+at which that exact approved YAML is materialized and committed for the Story. This prevents a
+machine-local shadow file from silently becoming organisation policy.
+
+After upgrading SFlow, use `singularity-flow workspace reinitialize --dry-run` to preview a safe
+configuration reconciliation. Apply only the returned exact plan with
+`singularity-flow workspace reinitialize --confirm-plan <PLAN-ID>`. It refreshes packaged workflow,
+templates, prompts, and agents through the existing three-way merge, verifies schema readability,
+republishes the state projection and delivery routing links, and rebuilds only derived caches.
+Repository overrides are preserved unless the reviewed plan explicitly resolves a conflict to the
+bundled value. Immutable evidence is never rewritten; registered older schemas are migrated in
+memory when read, while an unsupported future schema requires a newer SFlow build. Factory reset
+remains a separate destructive recovery and is not the normal upgrade path. In Copilot, use
+`/sf-admin reinitialize` for the same plan-first flow.
+
+Organisation reads prefer the state mirror, fall back to `sflow/config`, and keep a derived cache keyed to the exact observed configuration commit. Read-only screens may reuse that cache; operations that clone, attach, detach, or otherwise mutate state force a fresh authoritative Git read. When the remote is unavailable, a cached result is marked `stale` and carries its age and remote error. `--refresh` bypasses a current cache entry; it cannot manufacture connectivity.
 
 ## Troubleshooting
 

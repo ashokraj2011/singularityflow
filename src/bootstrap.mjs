@@ -26,7 +26,7 @@ import path from 'node:path';
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import YAML from 'yaml';
-import { SingularityFlowError, run, YAML_OUTPUT } from './util.mjs';
+import { portableIdentifier, SingularityFlowError, run, YAML_OUTPUT } from './util.mjs';
 
 import { CAPABILITIES_PATH, CAPABILITY_KINDS, validateCapabilities } from './capabilities.mjs';
 import { initializeLedger } from './ledger.mjs';
@@ -39,18 +39,21 @@ import { enterpriseGitEnvironment } from './git-enterprise-environment.mjs';
 /** The repository identifier a clone URL implies: the last segment, minus `.git`. */
 export function repositoryIdFromUrl(url) {
   const id = String(url ?? '')
-    // Trailing slashes first: a URL written `…/platform.git/` ends in a slash, so `.git$` does not
-    // match and the suffix survives into the identifier.
-    .replace(/\/+$/, '')
-    .replace(/\.git$/, '')
-    .split(/[/:]/)
+    // Treat Windows path separators as path separators too. Git accepts `C:\\work\\api.git`,
+    // `C:/work/api.git`, UNC paths, and file URLs as local remotes; deriving `work-api` on one
+    // platform and `api` on another made the same repository collide with different portfolio
+    // entries during capability recovery. This only derives a display/configuration ID. Remote
+    // authority remains bound to the exact credential-free locator elsewhere.
+    .replace(/[\\/]+$/, '')
+    .replace(/\.git$/i, '')
+    .split(/[\\/:]/)
     .pop()
     ?.normalize('NFKD')
     .replace(/[^A-Za-z0-9._-]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .toLowerCase();
   if (!id) throw new SingularityFlowError(`Cannot derive a repository identifier from '${url}'.`);
-  return id;
+  return portableIdentifier(id, 'Repository identifier');
 }
 
 /** Bounded default-branch discovery: the expensive all-head catalog is a recovery request only. */

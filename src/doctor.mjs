@@ -87,9 +87,19 @@ export async function doctorSnapshot(root, {
     checks.push(check(
       'schema-migrations',
       blocked ? 'fail' : advisory ? 'warn' : 'pass',
-      `${schemaReport.totals.registeredRecords} registered durable record(s) across ${schemaReport.totals.observedFamilies} observed family/families; ${schemaReport.totals.outsideRange} outside the readable range, ${schemaReport.totals.unregistered} unregistered, ${schemaReport.totals.unreadable} unreadable.`,
+      `${schemaReport.totals.registeredRecords} registered durable record(s) across ${schemaReport.totals.observedFamilies} observed family/families; `
+        + `${schemaReport.totals.validatedRecords ?? 0} validated through registered readers, `
+        + `${schemaReport.totals.readTimeMigrationRecords ?? 0} legacy record(s) migrated in memory, `
+        + `${schemaReport.totals.outsideRange} outside the readable range, ${schemaReport.totals.unregistered} unregistered, ${schemaReport.totals.unreadable} unreadable.`,
       blocked
-        ? 'Upgrade sflow for newer records; use the named archival reader or governed republication for records below a family read range.'
+        ? [
+            schemaReport.totals.outsideRange
+              ? 'Upgrade sflow for newer records; use the named archival reader or governed republication for records below a family read range.'
+              : null,
+            schemaReport.totals.unreadable
+              ? 'Inspect the bounded unreadable entries in doctor --json and restore the exact record from its authority or use its governed quarantine/recovery command; never hand-edit immutable evidence.'
+              : null
+          ].filter(Boolean).join(' ')
         : advisory
           ? 'Classify remaining versioned governed records in src/schema-migrations.mjs, then rerun singularity-flow doctor.'
           : null

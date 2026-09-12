@@ -777,7 +777,7 @@ Usage:
      says which delivery repository holds governed state when there are several. Remote mapping
      pushes a review branch against sflow/config and never writes an application branch.)
   singularity-flow capability inspect-repository <GIT-URL> [--lead URL]... [--search-known]
-    [--include-proposals] [--refresh] [--json]
+    [--include-proposals] [--refresh] [--state-branch NAME] [--json]
     (read-only portable state-link/self-hosted lookup by default; registered-map search and proposal
      enumeration are explicit because they can add remote Git requests)
   singularity-flow capability edit <CAPABILITY-ID> [--lead URL] [--name TEXT] [--kind collection|delivery]
@@ -805,6 +805,10 @@ Usage:
     [--confirm-plan PLAN-ID] [--json]
     (without confirmation, previews exact observed authorities and the one routing-link write;
      confirmation never deletes or rewrites an independent capability map)
+  singularity-flow capability reconcile <DELIVERY-URL> --remove-stale --lead <URL>
+    [--state-branch NAME] [--confirm-plan PLAN-ID] [--json]
+    (after the current approved lead proves it no longer claims the exact delivery repository,
+     previews and then exact-CAS deletes only its obsolete state-branch authority-link file)
   singularity-flow capability proposals [--lead URL] [--all] [--json]
   singularity-flow capability proposal <REVIEW-BRANCH> [--lead URL] [--json]
   singularity-flow capability discard-proposal <REVIEW-BRANCH> [--lead URL]
@@ -844,6 +848,11 @@ Usage:
      and capability show; intended for migration evidence, not ordinary use)
   singularity-flow workspace use [ID|NAME|JIRA|DIRECTORY] [--repository ID] [--story ID] [--json]
   singularity-flow workspace refresh-configuration [WORKSPACE] [--repository ID] [--dry-run]
+  singularity-flow workspace reinitialize [WORKSPACE] [--repository ID] [--dry-run]
+    [--resolve PATH=local|bundled|merge] [--confirm-plan PLAN-ID] [--json]
+    (safe, repeatable upgrade path: preview first; apply refreshes approved workflow/configuration,
+     state projections and capability locators, then validates durable schema readability;
+     readable legacy records migrate in memory and immutable history is never rewritten)
   singularity-flow workspace copilot [ID|NAME|JIRA|DIRECTORY]
     [--repository ID] [--story ID] [--mode interactive|plan] [--dry-run]
   singularity-flow workspace prompt [--json]

@@ -625,6 +625,8 @@ Every public operation is classified before its implementation module is importe
 | workspace.prune | mutation | never | — | — |
 | workspace.refresh-configuration | mutation | never | — | — |
 | workspace.refresh-configuration.preview | read | never | — | — |
+| workspace.reinitialize | mutation | never | — | — |
+| workspace.reinitialize.preview | read | never | — | — |
 | workspace.rename | mutation | never | — | — |
 | workspace.repair | mutation | never | — | — |
 | workspace.restore | mutation | never | — | — |

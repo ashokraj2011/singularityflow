@@ -25,7 +25,9 @@ import {
   assertCredentialFreeRemote, frozenRemoteTransport, redactDiagnosticText, remoteFingerprint,
   sanitizeRemote
 } from './git-remote-diagnostics.mjs';
-import { gitWorkerCount, isGitRefName, mapLimit, SingularityFlowError, run, writeAtomic } from './util.mjs';
+import {
+  gitWorkerCount, isGitRefName, mapLimit, removeTemporaryTree, SingularityFlowError, run, writeAtomic
+} from './util.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
 import { VERSION } from './version.mjs';
 import { readWorkspace, readWorkspaceRegistry, workspaceRepositoryPath } from './workspace.mjs';
@@ -579,7 +581,7 @@ async function cloneConfiguration(remote, { env = process.env } = {}) {
     '--branch', CONFIGURATION_BRANCH, transport.remote, scratch
   ], { operation: 'remote-configuration', env: transport.env });
   if (cloned.status !== 0) {
-    await rm(scratch, { recursive: true, force: true });
+    await removeTemporaryTree(scratch);
     throw new SingularityFlowError(
       `Cannot clone '${sanitizeRemote(remote)}' branch '${CONFIGURATION_BRANCH}'. `
         + remoteFailureMessage(cloned)
@@ -1388,7 +1390,7 @@ async function prepareCandidate(repository, options, { env = process.env } = {})
     });
     return { repository, root, sourceCommit, refresh, desired, stateBefore, gitEnv };
   } catch (error) {
-    await rm(root, { recursive: true, force: true });
+    await removeTemporaryTree(root);
     throw error;
   }
 }
@@ -1455,7 +1457,7 @@ async function prepareCachedCandidate(observation, cache, options, { env = isola
       reusedPreview: true, gitEnv: transport.env
     };
   } catch {
-    await rm(root, { recursive: true, force: true });
+    await removeTemporaryTree(root);
     return null;
   }
 }
@@ -1853,7 +1855,7 @@ export async function refreshWorkspaceConfigurations({
     }
     await Promise.all(planCandidates
       .filter((candidate) => candidate.root)
-      .map((candidate) => rm(candidate.root, { recursive: true, force: true })));
+      .map((candidate) => removeTemporaryTree(candidate.root)));
     return {
       status: blocked ? 'blocked' : 'preview', dryRun: true,
       ...(planId ? { planId } : {}),
@@ -1895,7 +1897,7 @@ export async function refreshWorkspaceConfigurations({
       }
     }
     if (confirmationFailures.length) {
-      await Promise.all(candidates.map((candidate) => rm(candidate.root, { recursive: true, force: true })));
+      await Promise.all(candidates.map((candidate) => removeTemporaryTree(candidate.root)));
       return {
         status: 'blocked', dryRun: false, total: targets.length, updated: 0,
         results: observations.map((item) => {
@@ -1912,7 +1914,7 @@ export async function refreshWorkspaceConfigurations({
       resolutions: normalizedResolutions, acceptBundledConflicts
     });
     if (previewBoundPlanId !== confirmPlan) {
-      await Promise.all(candidates.map((candidate) => rm(candidate.root, { recursive: true, force: true })));
+      await Promise.all(candidates.map((candidate) => removeTemporaryTree(candidate.root)));
       return {
         status: 'blocked', dryRun: false, planId: previewBoundPlanId,
         total: targets.length, updated: 0, failed: 0,
@@ -1943,7 +1945,7 @@ export async function refreshWorkspaceConfigurations({
   });
   const initializationFailures = initialized.filter((entry) => entry.error);
   if (initializationFailures.length) {
-    await Promise.all(candidates.map((candidate) => rm(candidate.root, { recursive: true, force: true })));
+    await Promise.all(candidates.map((candidate) => removeTemporaryTree(candidate.root)));
     return {
       status: 'blocked', dryRun: false, total: targets.length, updated: 0,
       results: observations.map((item) => {
@@ -1960,7 +1962,7 @@ export async function refreshWorkspaceConfigurations({
     ? initialized.filter((entry) => !entry.error && entry.initialization?.created === false)
     : [];
   if (concurrentInitializations.length) {
-    await Promise.all(candidates.map((candidate) => rm(candidate.root, { recursive: true, force: true })));
+    await Promise.all(candidates.map((candidate) => removeTemporaryTree(candidate.root)));
     return {
       status: 'blocked', dryRun: false, total: targets.length, updated: 0,
       results: observations.map((item) => {
@@ -1993,7 +1995,7 @@ export async function refreshWorkspaceConfigurations({
     if (entry.candidate) candidates.push(entry.candidate);
   }
   if (preparationFailures.length) {
-    await Promise.all(candidates.map((candidate) => rm(candidate.root, { recursive: true, force: true })));
+    await Promise.all(candidates.map((candidate) => removeTemporaryTree(candidate.root)));
     return {
       status: 'blocked', dryRun: false, total: targets.length, updated: 0,
       results: observations.map((item) => {
@@ -2011,7 +2013,7 @@ export async function refreshWorkspaceConfigurations({
     resolutions: normalizedResolutions, acceptBundledConflicts
   });
   if (!previewBoundPlanId && confirmPlan && confirmPlan !== planId) {
-    await Promise.all(candidates.map((candidate) => rm(candidate.root, { recursive: true, force: true })));
+    await Promise.all(candidates.map((candidate) => removeTemporaryTree(candidate.root)));
     return {
       status: 'blocked', dryRun: false, planId, total: targets.length, updated: 0, failed: 0,
       results: candidates.map((candidate) => ({
@@ -2040,7 +2042,7 @@ export async function refreshWorkspaceConfigurations({
       }
     });
   } finally {
-    await Promise.all(candidates.map((candidate) => rm(candidate.root, { recursive: true, force: true })));
+    await Promise.all(candidates.map((candidate) => removeTemporaryTree(candidate.root)));
   }
   const failed = results.filter((result) => ['failed', 'review-required'].includes(result.status));
   return {

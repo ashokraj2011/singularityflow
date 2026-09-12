@@ -142,6 +142,8 @@ test('mixed deterministic commands classify their actual operation rather than t
   assert.equal(resolveOperation({ requestedCommand: 'workspace', positionals: ['workspace', 'impact', 'analyze'], options: { 'dry-run': 'true' } }).modelPolicy, 'never');
   assert.equal(resolveOperation({ requestedCommand: 'workspace', positionals: ['workspace', 'impact', 'analyze'], options: { 'dry-run': 'true' } }).id, 'workspace.impact.analyze.preview');
   assert.equal(resolveOperation({ requestedCommand: 'workspace', positionals: ['workspace', 'copilot'], options: { 'dry-run': true } }).id, 'workspace.copilot.preview');
+  assert.equal(resolveOperation({ requestedCommand: 'workspace', positionals: ['workspace', 'reinitialize'], options: { 'dry-run': true } }).id, 'workspace.reinitialize.preview');
+  assert.equal(resolveOperation({ requestedCommand: 'workspace', positionals: ['workspace', 'reinitialize'], options: { 'confirm-plan': 'cfgp-1' } }).id, 'workspace.reinitialize');
   assert.equal(resolveOperation({ requestedCommand: 'copilot', positionals: ['copilot'], options: { 'dry-run': true } }).id, 'copilot.preview');
   assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'build'], options: { depth: 'light' } }).id, 'wm.light');
   assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'ensure'], options: { depth: 'light' } }).id, 'wm.light');

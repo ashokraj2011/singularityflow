@@ -1420,7 +1420,13 @@ const PAGES = Object.freeze({
       'against the recorded package baseline, publishes `sflow/config`, and then mirrors the exact',
       'approved files at their canonical paths on the orphan state branch. The manifest records the',
       'source commit, product revision, and hashes. Runtime state such as world models is preserved,',
-      'and existing Story snapshots never move.'
+      'and existing Story snapshots never move.',
+      '',
+      '`workspace reinitialize` is the safe repeatable upgrade front door. It requires a dry-run',
+      'plan and exact `--confirm-plan`, delegates workflow and configuration changes to that same',
+      'three-way refresh, verifies or republishes capability authority locators, and runs a bounded',
+      'schema census over checkouts that exist locally. Readable old records are migrated only by',
+      'their readers in memory; immutable historical evidence is never rewritten.'
     ],
     options: [
       ['--id ID', 'Portable local workspace identifier used by prepare.'],
@@ -1434,7 +1440,7 @@ const PAGES = Object.freeze({
       ['--dry-run', 'Preview configuration refresh for every selected repository without changing a ref.'],
       ['--repository VALUE', 'Repeatable. For doctor, an exact credential-free URL; for create/update, ID=URL; for configuration refresh, a repository ID.'],
       ['--resolve PATH=CHOICE', 'Resolve one reported conflict as local, bundled, or merge; repeat for additional paths.'],
-      ['--confirm-plan ID', 'Apply only if configuration and state authorities still match a previously previewed plan.'],
+      ['--confirm-plan ID', 'Apply only if the reviewed configuration, state, and reinitialization topology authorities still match the preview.'],
       ['--accept-bundled-conflicts', 'Explicitly select packaged values where both package and repository changed the same field or asset.'],
       ['--json', 'Emit the structured session, preflight, findings, and recovery command.']
     ],
@@ -1449,7 +1455,9 @@ const PAGES = Object.freeze({
       ['singularity-flow workspace doctor --network --repository https://git.example/payments.git', 'Diagnose an exact remote even when no bootstrap session exists.'],
       ['singularity-flow workspace refresh-configuration --dry-run', 'Preview package/configuration drift across every registered repository.'],
       ['singularity-flow workspace refresh-configuration payments --resolve singularity/templates/feature/spec.md=bundled --confirm-plan cfgp-…', 'Apply reviewed choices only while the preview remains current.'],
-      ['singularity-flow workspace refresh-configuration payments', 'Refresh one registered workspace and verify each state mirror.']
+      ['singularity-flow workspace refresh-configuration payments', 'Refresh one registered workspace and verify each state mirror.'],
+      ['singularity-flow workspace reinitialize payments --dry-run', 'Preview a complete, non-destructive workspace upgrade and receive its bound plan ID.'],
+      ['singularity-flow workspace reinitialize payments --confirm-plan wrip-…', 'Apply the compound plan that binds configuration, workspace topology, lead authority, and schema readiness.']
     ],
     seeAlso: ['capability', 'session', 'bootstrap']
   },

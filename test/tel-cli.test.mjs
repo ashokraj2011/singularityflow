@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -15,10 +15,18 @@ function call(root, env, args) {
 }
 
 test('telemetry enable, probe, status, and disable remain machine-local and JSON-safe', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-tel-cli-'));
-  spawnSync('git', ['init', '-q'], { cwd: root });
-  const preference = path.join(root, 'machine', 'telemetry-preferences.json');
-  const env = { ...process.env, SINGULARITY_FLOW_TELEMETRY_PREFERENCES: preference };
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-tel-cli-'));
+  const root = path.join(base, 'outside-git');
+  await mkdir(root);
+  const preference = path.join(base, 'machine', 'telemetry-preferences.json');
+  const env = {
+    ...process.env,
+    SINGULARITY_FLOW_TELEMETRY_PREFERENCES: preference,
+    // A developer may have another workspace selected globally. These commands must neither need
+    // it nor be redirected into it while this rootless test is running.
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(base, 'missing-active-workspace.json'),
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(base, 'missing-workspace-registry.json')
+  };
 
   let result = call(root, env, ['telemetry', 'enable', '--confirm', 'wrong', '--json']);
   assert.notEqual(result.status, 0);
@@ -49,7 +57,10 @@ test('telemetry enable, probe, status, and disable remain machine-local and JSON
   assert.equal(JSON.parse(result.stdout).status, 'disabled');
   assert.equal(JSON.parse(await readFile(preference, 'utf8')).enabled, false);
 
-  result = call(root, env, ['doctor', '--fix', 'telemetry', '--confirm', 'ENABLE LOCAL USAGE', '--json']);
+  const doctorRoot = path.join(base, 'ordinary-git-repository');
+  await mkdir(doctorRoot);
+  spawnSync('git', ['init', '-q'], { cwd: doctorRoot });
+  result = call(doctorRoot, env, ['doctor', '--fix', 'telemetry', '--confirm', 'ENABLE LOCAL USAGE', '--json']);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(JSON.parse(result.stdout).status, 'enabled');
 });

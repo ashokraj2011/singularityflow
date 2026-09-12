@@ -331,7 +331,9 @@ export async function explainTelemetryStatus({ root, story = null, launchId = nu
     disclosureAccepted: preferenceRecord.disclosureAccepted,
     disclosureDigest: preferenceRecord.disclosureDigest ?? TELEMETRY_DISCLOSURE_DIGEST
   };
-  const launches = await listTelemetryLaunches(root, { storyId: storyIdentity(story), launchId });
+  const launches = root
+    ? await listTelemetryLaunches(root, { storyId: storyIdentity(story), launchId })
+    : [];
   const results = [];
   for (const launch of launches) {
     const raw = telemetryRawPath(root, launch);

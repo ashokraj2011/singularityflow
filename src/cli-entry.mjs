@@ -43,12 +43,21 @@ export const REPOSITORY_INDEPENDENT_CAPABILITY_SUBCOMMANDS = new Set([
   'repository', 'adopt-managed'
 ]);
 
+// Consent and capability inspection belong to the machine, not to the repository that happened
+// to be selected in another window. Reconciliation is deliberately excluded: it mutates a Story
+// and therefore keeps the ordinary repository/workspace routing boundary.
+export const MACHINE_LOCAL_TELEMETRY_SUBCOMMANDS = new Set([
+  'status', 'probe', 'enable', 'disable'
+]);
+
 export function excludesActiveWorkspaceRouting(command, subcommand = null, options = {}) {
   return ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS.has(command)
     // `doctor --performance` measures the Git checkout a person invoked it from, including a fresh
     // checkout with no workflow yet. Ordinary doctor remains repository-scoped and follows the
     // selected workspace when Copilot starts it outside a checkout.
     || (command === 'doctor' && (options.performance === true || options['git-speed'] === true))
+    || (command === 'telemetry'
+      && MACHINE_LOCAL_TELEMETRY_SUBCOMMANDS.has(subcommand ?? 'status'))
     || (command === 'capability' && REPOSITORY_INDEPENDENT_CAPABILITY_SUBCOMMANDS.has(subcommand))
     // Portable Process Evidence verification consumes only the named bundle bytes. It must work
     // in a fresh directory and must never be redirected to the last selected workspace.

@@ -28,9 +28,9 @@ function rawTelemetryPath(root) {
   return configured ? path.resolve(root, configured) : path.join(gitCommonDir(root), 'singularity-flow', 'copilot-otel.jsonl');
 }
 
-export async function copilotTelemetryStatus(root) {
-  const raw = rawTelemetryPath(root);
-  const info = await stat(raw).catch(() => null);
+export async function copilotTelemetryStatus(root = null) {
+  const raw = root ? rawTelemetryPath(root) : null;
+  const info = raw ? await stat(raw).catch(() => null) : null;
   const setup = await managedTelemetrySetup();
   const fileConfigured = Boolean(process.env.COPILOT_OTEL_FILE_EXPORTER_PATH);
   const externalEndpoint = Boolean(process.env.OTEL_EXPORTER_OTLP_ENDPOINT);
@@ -44,7 +44,8 @@ export async function copilotTelemetryStatus(root) {
   if (externalEndpoint && !fileConfigured) warnings.push('An OTLP endpoint is configured, but Singularity Flow requires the Copilot file exporter for repository-scoped collection.');
   if (!fileConfigured && !externalEndpoint && !explicitlyEnabled && !spans) warnings.push('This process was started without Copilot OpenTelemetry configuration.');
   if (setup.installed && !setup.current) warnings.push('The installed Singularity Flow Copilot helper is legacy and shadows manual Copilot launches; rerun install.sh to replace it.');
-  if (!info?.isFile()) warnings.push('The repository telemetry file does not exist.');
+  if (!root) warnings.push('No repository is selected; repository-scoped legacy telemetry is unavailable.');
+  else if (!info?.isFile()) warnings.push('The repository telemetry file does not exist.');
   else if (!info.size) warnings.push('The repository telemetry file is empty; finish a Copilot turn before checking again.');
   else if (!spans) warnings.push('The telemetry file contains no completed Copilot chat spans.');
   return {

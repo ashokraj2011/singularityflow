@@ -5269,15 +5269,20 @@ export async function submitConfirmedConvergenceCommand(positionals, options, co
 
 async function telemetryCommand(positionals, options) {
   const subcommand = positionals[1] ?? 'status';
-  const root = repoRoot();
+  let root = null;
+  try { root = repoRoot(); } catch { /* Machine-local telemetry controls are intentionally rootless. */ }
   const status = await copilotTelemetryStatus(root);
   if (subcommand === 'status') {
     let workflow = null;
-    try { workflow = (await loadAcceptedStoryExecution(root)).workflow; }
-    catch (error) {
-      // No active Story is an ordinary telemetry status. Snapshot corruption is not: concealing it
-      // as zero pending telemetry would turn a damaged accepted closure into a healthy report.
-      if (error?.code !== 'STORY_NOT_FOUND') throw error;
+    // Pending phase telemetry enriches repository status, but it is not a prerequisite for the
+    // machine-level capture preference. A plain Git directory or a rootless invocation therefore
+    // never attempts to parse singularity/workflow.yml. In a governed checkout, keep the strict
+    // accepted-closure validation so damaged Story authority is still reported rather than hidden.
+    if (root && existsSync(path.join(root, WORKFLOW_PATH))) {
+      try { workflow = (await loadAcceptedStoryExecution(root)).workflow; }
+      catch (error) {
+        if (error?.code !== 'STORY_NOT_FOUND') throw error;
+      }
     }
     const pending = workflow
       ? workflow.phaseOrder.flatMap((phaseId) => (workflow.phases[phaseId].telemetry ?? []).filter((item) => item.status === 'pending').map((item) => ({ phase: phaseId, generation: item.generation, path: item.path })))
@@ -5350,6 +5355,11 @@ async function telemetryCommand(positionals, options) {
     return;
   }
   if (subcommand !== 'reconcile') throw new SingularityFlowError(`Unknown telemetry subcommand: ${subcommand}`);
+  if (!root) {
+    throw new SingularityFlowError('Telemetry reconciliation requires an active governed repository.', {
+      code: 'TELEMETRY_ROOT_REQUIRED'
+    });
+  }
   const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config);
   let result;
   await storyDraftTransaction(root, config, workflow, `telemetry-reconcile:${positionals[2] ?? workflow.currentPhase}`, async (recoveryPreimage) => {
@@ -8046,7 +8056,15 @@ async function sessionCommand(positionals, options) {
   if (subcommand !== 'status') throw new SingularityFlowError(`Unknown session subcommand: ${subcommand}`);
   let workflow;
   let statusConfig = config;
-  const accepted = await acceptedStoryExecutionIfPresent(root);
+  // A workspace-only handoff records an explicit local gate before this command runs. The branch
+  // may still happen to contain a Story candidate, but that is not consent to select it. Inspect
+  // the gate before opening the accepted Story closure: besides adopting the candidate, doing the
+  // strict read here made an unrelated legacy/damaged Story prevent the user from selecting one.
+  // `session attach` clears this flag, after which status resumes the strict saved-closure path.
+  const copilotSelection = await loadCopilotSession(root);
+  const accepted = copilotSelection?.workItemSelectionRequired === true
+    ? null
+    : await acceptedStoryExecutionIfPresent(root);
   if (accepted) {
     workflow = accepted.workflow;
     statusConfig = accepted.definition;

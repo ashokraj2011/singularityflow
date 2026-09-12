@@ -13,8 +13,14 @@ test('convergence advancement pins its selected Story through submission', async
 
   const submit = await commandFunction('runSubmitCommand');
   assert.match(submit, /const requestedWorkId = optionString\(options, 'work-id'\)/);
-  assert.match(submit, /loadStoryAggregate\(root, config, requestedWorkId\)/,
-    'submission ignored the Work ID supplied by its caller');
+  assert.match(submit, /const accepted = await loadAcceptedStoryExecution\(root, requestedWorkId\)/,
+    'submission did not resolve the caller-selected Story through its accepted execution closure');
+  assert.match(submit, /const config = accepted\.definition/,
+    'submission discarded the selected Story definition after accepted execution resolution');
+  assert.match(submit, /let workflow = accepted\.workflow/,
+    'submission discarded the selected Story workflow after accepted execution resolution');
+  assert.doesNotMatch(submit, /loadStoryAggregate\(root, config, requestedWorkId\)/,
+    'submission can bypass the accepted execution closure for the caller-selected Story');
   assert.match(submit, /const resolvedWorkId = workflow\.workItem\.id/);
   assert.match(submit, /loadStoryAggregate\(root, config, resolvedWorkId\)/,
     'submission did not pin its post-telemetry reload to the resolved Story');

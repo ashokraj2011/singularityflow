@@ -164,6 +164,7 @@ async function composeWithModel(root, prompt, contract, viewOutputBudget, {
   provider,
   providerConfig,
   model = null,
+  executionContext = { mode: 'legacy-live' },
   timeoutMs = 10 * 60 * 1000
 }) {
   if (!provider) {
@@ -192,6 +193,7 @@ async function composeWithModel(root, prompt, contract, viewOutputBudget, {
     prompt: { text: prompt },
     channel: 'world-model-view-composition',
     subject: { kind: 'repository-world-model-view', id: contract.id },
+    executionContext,
     tools: { mode: 'none', names: [] },
     limits: {
       timeoutMs,
@@ -796,6 +798,7 @@ export async function buildWorldModelV4(root, {
   provider = null,
   providerConfig = null,
   model = null,
+  executionContext = { mode: 'legacy-live' },
   maximumWorkers = 4,
   generatedAt = new Date().toISOString(),
   sharedCacheDirectory = null,
@@ -909,6 +912,7 @@ export async function buildWorldModelV4(root, {
     provider,
     providerConfig,
     model,
+    executionContext,
     maximumWorkers,
     generatedAt,
     sharedCacheDirectory,

@@ -106,6 +106,40 @@ test('the IDE projection is bounded and exposes references instead of complete c
   );
 });
 
+test('the IDE keeps source freshness separate from aggregate configuration freshness', () => {
+  const base = store();
+  const configurationStale = projectWorldModelIdeSlice({
+    ...base,
+    freshness: {
+      status: 'stale', fresh: false, reason: 'composer-profile-changed',
+      source: {
+        status: 'fresh', fresh: true, built: base.sourceSnapshot.sourceManifestSha256,
+        current: base.sourceSnapshot.sourceManifestSha256, reason: null
+      }
+    }
+  });
+  assert.equal(configurationStale.readiness.status, 'stale');
+  assert.equal(configurationStale.source.status, 'fresh');
+  assert.equal(
+    configurationStale.source.currentSourceManifestSha256,
+    base.sourceSnapshot.sourceManifestSha256
+  );
+
+  const sourceUnavailable = projectWorldModelIdeSlice({
+    ...base,
+    freshness: {
+      status: 'unavailable', fresh: false, reason: 'WMB_SOURCE_SNAPSHOT_REQUIRED',
+      source: {
+        status: 'unavailable', fresh: false, built: base.sourceSnapshot.sourceManifestSha256,
+        current: null, reason: 'WMB_SOURCE_SNAPSHOT_REQUIRED'
+      }
+    }
+  });
+  assert.equal(sourceUnavailable.status, 'ready', 'stored model integrity remains available');
+  assert.equal(sourceUnavailable.source.status, 'unavailable');
+  assert.equal(sourceUnavailable.source.currentSourceManifestSha256, null);
+});
+
 test('the IDE exposes a bounded CALM architecture preview and exact expansion', () => {
   const registered = {
     ...store(),

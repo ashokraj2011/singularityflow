@@ -8,6 +8,7 @@ import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
 import { resolveDeliveryQualityCommands } from '../delivery-evidence.mjs';
 import { head } from '../git.mjs';
 import { verifyGroundingRecord } from '../grounding.mjs';
+import { readPromptGeneration } from '../inject.mjs';
 import { generationTaskForPhase } from '../model-tasks.mjs';
 import { invokeModel, resolveModelProvider } from '../model-runner.mjs';
 import { loadStoryAggregate } from '../state-stores.mjs';
@@ -1199,6 +1200,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
       // deterministic phase on optional context availability.
       let composed = null;
       let worldModelReference = null;
+      let promptExecutionContext = null;
       if (!deterministicProducer) {
         composed = await composePhasePrompt(worktree, {
           workId: state.story.workId, phase: phase.id, agent: phase.defaultAgent
@@ -1215,6 +1217,21 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
           );
         }
         worldModelReference = autoWorldModelReference(grounding);
+        const generationPrompt = await readPromptGeneration(worktree, workflow, phase, {
+          workDir: path.join(
+            worktree, definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id
+          ),
+          agent: phase.defaultAgent
+        });
+        if (!generationPrompt) {
+          throw new SingularityFlowError(
+            'Auto authoring prompt provenance was not persisted after composition.', {
+              code: 'AUTO_GROUNDING_REFERENCE_INVALID', details: { phase: phase.id }
+            }
+          );
+        }
+        promptExecutionContext = generationPrompt.record.executionContext
+          ?? { mode: 'historical-unproven' };
       }
       if (deterministicProducer) {
         const deterministicActiveMilliseconds = Date.now() - activeAccountedAt;
@@ -1367,6 +1384,10 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
             generationIntentId: phase.generationIntent?.id ?? null,
             flightId, planSha256: plan.planSha256
           },
+          // `composePhasePrompt` persisted the exact saved-Story identity in this verified record.
+          // Thread it through the final provider boundary so the associated model prompt audit can
+          // never fall back to a misleading live-agent label.
+          executionContext: promptExecutionContext,
           tools: {
             mode: 'allowlist', names: [...AUTO_AUTHORING_TOOLS],
             scope: {

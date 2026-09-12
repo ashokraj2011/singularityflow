@@ -10,6 +10,7 @@ import {
 } from '../git-remote-diagnostics.mjs';
 import { readVerifiedAcceptedAutoBinding } from './auto-origin.mjs';
 import { readAutoPlan } from './auto-plan.mjs';
+import { resolveStoryExecutionCatalog } from '../story-execution-context.mjs';
 
 function contained(parent, child) {
   const relative = path.relative(path.resolve(parent), path.resolve(child));
@@ -42,8 +43,19 @@ export async function verifyAutoFlightContinuation(root, state) {
     });
   }
 
-  const definition = await loadDefinition(state.worktree);
-  const workflow = await loadStoryAggregate(state.worktree, definition, state.story.workId);
+  // Locate the Story before validating today's mutable agent catalog. An accepted Auto flight
+  // executes the exact portable closure carried by its Story; deleting or replacing a live agent
+  // after start cannot revoke that accepted execution identity.
+  let definition = await loadDefinition(state.worktree, { storyBootstrap: true });
+  let workflow = await loadStoryAggregate(state.worktree, definition, state.story.workId);
+  if (workflow.workflowSnapshot) {
+    definition = (await resolveStoryExecutionCatalog(
+      state.worktree, definition, workflow
+    )).effectiveDefinition;
+  } else {
+    definition = await loadDefinition(state.worktree);
+    workflow = await loadStoryAggregate(state.worktree, definition, state.story.workId);
+  }
   const binding = await readVerifiedAcceptedAutoBinding(
     state.worktree, definition, workflow, state
   );

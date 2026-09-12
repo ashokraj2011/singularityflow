@@ -8,7 +8,10 @@ import {
 import { readRefTree as readRefTreeShared } from './git-ref-tree.mjs';
 import { scopedRead } from './read-scope.mjs';
 import {
-  defaultBranchName, gitCommitIdentity, gitDir, hasRemote, identity, refExists
+  defaultBranchName, gitCommitIdentityArgs,
+  gitCommitIdentityEnvironment, gitCommitSigningArgs, gitDir, hasRemote,
+  refExists, resolveGitCommitIdentity, resolveGitCommitSigning, validateGitCommitIdentity,
+  validateGitCommitSigning
 } from './git.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { LIFECYCLE_EVENT_TYPES } from './lifecycle-event.mjs';
@@ -644,8 +647,33 @@ async function writeCanonicalJson(file, value) {
   await writeAtomic(file, canonicalJson(value));
 }
 
-function commitArgs(config, message) {
-  return ['commit', ...(config.signing === 'commit' ? ['-S'] : []), '-m', message];
+function commitArgs(config, message, commitIdentity = null, commitSigning = null) {
+  return [
+    ...(commitIdentity ? gitCommitIdentityArgs(commitIdentity) : []),
+    ...(config.signing === 'commit' ? gitCommitSigningArgs(commitSigning) : []),
+    'commit', ...(config.signing === 'commit' ? ['-S'] : []), '-m', message
+  ];
+}
+
+function frozenCommitOperation(root, config, {
+  env = process.env, commitIdentity = null, commitSigning = null
+} = {}) {
+  const resolvedIdentity = commitIdentity == null
+    ? resolveGitCommitIdentity(root, { env })
+    : validateGitCommitIdentity(commitIdentity);
+  const resolvedSigning = config.signing === 'commit'
+    ? commitSigning == null
+      ? resolveGitCommitSigning(root, { env, required: true })
+      : validateGitCommitSigning(commitSigning)
+    : Object.freeze({ required: false, key: null, format: null });
+  if (config.signing === 'commit' && !resolvedSigning.required) {
+    throw new SingularityFlowError(
+      'Git commit signing configuration is invalid: required signing has no frozen signer.', {
+        code: 'GIT_COMMIT_SIGNING_INVALID'
+      }
+    );
+  }
+  return Object.freeze({ commitIdentity: resolvedIdentity, commitSigning: resolvedSigning });
 }
 
 function normalizedGuardedRemoteRefs(worktree, guardedRemoteRefs = {}, { env = process.env } = {}) {
@@ -778,7 +806,7 @@ function initialHead() {
 
 export async function initializeLedger(root, rawConfig = {}, {
   publish = true, refreshRemote = true, env = process.env, repairPins = true,
-  transportRemote = undefined
+  transportRemote = undefined, commitIdentity = null, commitSigning = null
 } = {}) {
   const config = normalizeLedgerConfig(rawConfig);
   const refspecInstalled = installPinRefspec(root, config, { env });
@@ -795,14 +823,19 @@ export async function initializeLedger(root, rawConfig = {}, {
     }
     return { created: false, branch: config.branch, ref: existing, refspecInstalled, pinRepair };
   }
-  const actor = env === process.env ? identity(root) : gitCommitIdentity(root, { env });
+  const operation = frozenCommitOperation(root, config, {
+    env, commitIdentity, commitSigning
+  });
   return temporaryWorktree(root, null, async (worktree) => {
     await writeCanonicalJson(path.join(worktree, HEAD_PATH), initialHead());
     await writeAtomic(path.join(worktree, README_PATH),
       '# Singularity Flow Capability Ledger\n\n'
       + 'This orphan branch is an append-only workflow ledger. It has no shared ancestry with application branches and must never be merged into them.\n');
     git(worktree, ['add', README_PATH, HEAD_PATH], { env });
-    git(worktree, ['-c', `user.name=${actor.name}`, '-c', `user.email=${actor.email ?? 'unknown@invalid'}`, ...commitArgs(config, 'Initialize Singularity Flow capability ledger')], { env });
+    git(worktree, commitArgs(
+      config, 'Initialize Singularity Flow capability ledger',
+      operation.commitIdentity, operation.commitSigning
+    ), { env: gitCommitIdentityEnvironment(env, operation.commitIdentity) });
     const sha = git(worktree, ['rev-parse', 'HEAD'], { env }).stdout.trim();
     // Keep the orphan root reachable locally before attempting the network operation.
     // If the first push fails, `ledger init` can be retried without losing the commit
@@ -998,6 +1031,72 @@ export function ledgerIdempotencyKey(intent, publishedCommit) {
     sourceCommit.toLowerCase()
   ].join(' · ');
   return { value, hash: sha256(value) };
+}
+
+/**
+ * Read a bounded suffix of the verified reachable ledger chain for operation recovery.
+ *
+ * This is intentionally narrower than `ledgerLog`: callers provide immutable subject fields and
+ * receive an explicit completeness bit, so an old activation outside the bound cannot be mistaken
+ * for absence. No checkout is created and no remote other than the configured frozen transport is
+ * contacted.
+ */
+export async function findLedgerEvents(root, rawConfig, {
+  eventType, workId, phase = null, generation = null, limit = 4096,
+  env = process.env, transportRemote = undefined
+} = {}) {
+  const config = normalizeLedgerConfig(rawConfig);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100_000) {
+    throw new SingularityFlowError('Ledger recovery search limit is invalid.');
+  }
+  await ensureRemoteBranchFetchedAsync(root, config, { env, transportRemote });
+  const ref = ledgerHead(root, config, { env });
+  if (!ref) return Object.freeze({ entries: Object.freeze([]), complete: true, ref: null });
+  const headBytes = git(root, ['show', `${ref}:${HEAD_PATH}`], {
+    env, allowFailure: true
+  });
+  if (headBytes.status !== 0) {
+    throw new SingularityFlowError('The ledger recovery head is unavailable.', {
+      code: 'LEDGER_CHAIN_INVALID'
+    });
+  }
+  const head = readRecord('ledger-entry', headBytes.stdout).record;
+  const tree = readRefTreeShared(root, ref, ['ledger/entries'], { env });
+  const entries = new Map();
+  for (const [file, contents] of tree) {
+    if (!file.endsWith('.json')) continue;
+    const hash = path.posix.basename(file, '.json');
+    const entry = readRecord('ledger-entry', contents).record;
+    if (sha256(canonicalJson(entry)) !== hash) {
+      throw new SingularityFlowError('The ledger recovery chain contains a hash mismatch.', {
+        code: 'LEDGER_CHAIN_INVALID'
+      });
+    }
+    entries.set(hash, entry);
+  }
+  const matches = [];
+  let cursor = head.entryHash;
+  let inspected = 0;
+  while (cursor && inspected < limit) {
+    const entry = entries.get(cursor);
+    if (!entry) {
+      throw new SingularityFlowError('The ledger recovery chain is incomplete.', {
+        code: 'LEDGER_CHAIN_INVALID'
+      });
+    }
+    if (entry.eventType === eventType
+        && entry.subject?.workId === workId
+        && (phase == null || entry.subject?.phase === phase)
+        && (generation == null || entry.subject?.generation === generation)) {
+      matches.push(Object.freeze({ hash: cursor, ...entry }));
+    }
+    cursor = entry.parentEntryHash;
+    inspected += 1;
+  }
+  return Object.freeze({
+    entries: Object.freeze(matches), complete: cursor == null, ref,
+    inspected
+  });
 }
 
 export async function persistLedgerIntent(root, workDirectory, intent) {
@@ -1227,7 +1326,7 @@ async function fetchExpectedPin(root, remote, pinRef, expectedCommit, observed =
 }
 
 async function appendOnce(root, config, intent, publishedCommit, {
-  env = process.env, transportRemote = undefined
+  env = process.env, transportRemote = undefined, commitIdentity, commitSigning
 } = {}) {
   const idempotency = ledgerIdempotencyKey(intent, publishedCommit);
   await ensureRemoteBranchFetchedAsync(root, config, { env, transportRemote });
@@ -1237,7 +1336,7 @@ async function appendOnce(root, config, intent, publishedCommit, {
     // absent-ref lease and joins a concurrent winner, so repeating the same fetch inside init and
     // once again afterwards adds latency without weakening or strengthening the CAS.
     await initializeLedger(root, config, {
-      refreshRemote: false, env, transportRemote
+      refreshRemote: false, env, transportRemote, commitIdentity, commitSigning
     });
     ref = ledgerHead(root, config, { env });
   }
@@ -1291,7 +1390,10 @@ async function appendOnce(root, config, intent, publishedCommit, {
     });
     await writeCanonicalJson(path.join(worktree, HEAD_PATH), nextHead);
     git(worktree, ['add', location.path, idempotencyPath(idempotency.hash), eventPath(intent.eventId), HEAD_PATH], { env });
-    git(worktree, commitArgs(config, `[ledger:${nextHead.sequence}] ${intent.eventType} ${intent.subject.workId}`), { env });
+    git(worktree, commitArgs(
+      config, `[ledger:${nextHead.sequence}] ${intent.eventType} ${intent.subject.workId}`,
+      commitIdentity, commitSigning
+    ), { env: gitCommitIdentityEnvironment(env, commitIdentity) });
     const ledgerCommit = git(worktree, ['rev-parse', 'HEAD'], { env }).stdout.trim();
     if (hasRemoteInEnvironment(root, config.remote, env)) {
       const pushed = await pushLedgerAsync(
@@ -1323,13 +1425,20 @@ async function appendOnce(root, config, intent, publishedCommit, {
 }
 
 export async function appendLedgerIntent(root, rawConfig, intent, publishedCommit, {
-  env = process.env, transportRemote = undefined
+  env = process.env, transportRemote = undefined, commitIdentity = null, commitSigning = null
 } = {}) {
   const config = normalizeLedgerConfig(rawConfig);
+  const operation = frozenCommitOperation(root, config, {
+    env, commitIdentity, commitSigning
+  });
   let lastError;
   for (let attempt = 1; attempt <= config.maxRetries; attempt += 1) {
     try {
-      return await appendOnce(root, config, intent, publishedCommit, { env, transportRemote });
+      return await appendOnce(root, config, intent, publishedCommit, {
+        env, transportRemote,
+        commitIdentity: operation.commitIdentity,
+        commitSigning: operation.commitSigning
+      });
     } catch (error) {
       lastError = error;
       if (!error.concurrent || attempt === config.maxRetries) break;
@@ -1366,7 +1475,8 @@ export async function appendLedgerIntent(root, rawConfig, intent, publishedCommi
 export async function publishToStateBranch(root, rawConfig, files, message, {
   replaceRoots = [], removePaths = [], expectedRemoteSha: suppliedExpectedRemoteSha = undefined,
   baseRef: suppliedBaseRef = null, refreshRemote = true, guardedRemoteRefs = {},
-  env = process.env, transportRemote = undefined, exactBlobSha256 = {}, pathPreconditions = {}
+  env = process.env, transportRemote = undefined, exactBlobSha256 = {}, pathPreconditions = {},
+  commitIdentity = null, commitSigning = null
 } = {}) {
   const config = normalizeLedgerConfig(rawConfig);
   const sourceGuards = normalizedGuardedRemoteRefs(root, guardedRemoteRefs, { env });
@@ -1423,7 +1533,7 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
   let initializedCommit = null;
   if (!ref) {
     const initialized = await initializeLedger(root, config, {
-      env, repairPins: false, transportRemote
+      env, repairPins: false, transportRemote, commitIdentity, commitSigning
     });
     if (suppliedExpectedRemoteSha === null && !initialized.created) {
       const error = new SingularityFlowError(
@@ -1550,10 +1660,12 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
         removed: []
       };
     }
-    const actor = env === process.env ? identity(root) : gitCommitIdentity(root, { env });
-    git(worktree, ['-c', `user.name=${actor.name || 'Singularity Flow'}`,
-      '-c', `user.email=${actor.email || 'unknown@invalid'}`,
-      ...commitArgs(config, message)], { env });
+    const operation = frozenCommitOperation(root, config, {
+      env, commitIdentity, commitSigning
+    });
+    git(worktree, commitArgs(
+      config, message, operation.commitIdentity, operation.commitSigning
+    ), { env: gitCommitIdentityEnvironment(env, operation.commitIdentity) });
     const commit = git(worktree, ['rev-parse', 'HEAD'], { env }).stdout.trim();
     for (const [file, expected] of exactBlobs) {
       const committed = git(worktree, ['show', `${commit}:${file}`], {

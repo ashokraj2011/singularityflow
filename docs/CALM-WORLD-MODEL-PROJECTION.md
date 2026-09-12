@@ -73,15 +73,60 @@ a model.
 ## Story architecture intent
 
 A Story can describe a proposed architecture delta without changing the shared base. Prepare a
-reviewed JSON candidate containing `phase`, `generation`, and explicit clauses, then run:
+reviewed JSON candidate containing `phase` and explicit `clauses`. The owning phase's stored
+`generation` is its last accepted publication, so SFlow targets the next publication (`P + 1`): a
+new phase at generation 0 produces a generation-1 intent. You may supply `generation`, but it must
+be an integer exactly equal to that inferred target.
+
+```json
+{
+  "phase": "planning",
+  "clauses": [
+    {
+      "clauseId": "WRK-123:ARCH-001",
+      "operation": "add-node",
+      "elementId": "orders-api",
+      "required": true,
+      "value": {
+        "node-type": "service",
+        "name": "Orders API",
+        "description": "Handles order requests"
+      }
+    }
+  ]
+}
+```
+
+Initialize, publish, submit, and approve in this order:
 
 ```sh
 singularity-flow architecture intent init --work-id WRK-123 --from design/architecture-intent.json
 singularity-flow architecture intent validate --work-id WRK-123
-# publish and approve the owning phase generation before rendering governed planned output
+singularity-flow phase publish planning
+singularity-flow submit planning
+singularity-flow approve planning --work-id WRK-123
 singularity-flow architecture intent render --work-id WRK-123
 singularity-flow architecture show --work-id WRK-123 --planned
 ```
+
+Initialization creates only a guarded Story draft; it does not increment, publish, submit, or
+approve a phase. Repeating an identical initialization against the same base and target returns the
+existing intent. A different intent is never overwritten implicitly. While the owning phase is
+current and authorable, replace it with an exact compare-and-swap:
+
+```sh
+singularity-flow architecture intent revise \
+  --work-id WRK-123 \
+  --from design/revised-architecture-intent.json \
+  --expect-intent sha256:<CURRENT-INTENT-DIGEST>
+```
+
+Revision cannot change the owner phase. If that phase is already approved, reopen it through the
+normal lifecycle first; the revised intent targets the next publication and does not inherit the
+old approval. Publication commits and binds the exact intent bytes to its owning phase and target
+generation. The normal phase approval ceremony then approves that publication under its full
+authority and quorum policy. Approval is not inferred from an arbitrary intent field or from draft
+creation.
 
 The planned CALM document is Story-local and is cryptographically bound to the exact base World
 Model and projection. It cannot replace or republish the shared architecture. After implementation
@@ -91,9 +136,27 @@ and a refreshed deterministic World Model, record the comparison with:
 singularity-flow architecture intent verify --work-id WRK-123
 ```
 
+Standalone verification compares the projection with a clean current Git source by default. If
+the reviewed implementation is intentionally uncommitted, pass the exact Candidate Snapshot
+returned by `singularity-flow wm snapshot` with `--candidate-snapshot sha256:<DIGEST>`. The
+Candidate must still match the current source byte-for-byte and its base revision must still be
+current; the continued existence of an older Candidate never authorizes later implementation
+bytes. Verification does not capture a Candidate, rebuild the model, or commit source implicitly.
+
 The fulfilment receipt keeps `fulfilled`, `missing`, `deviated`, `not-observable`, and `unplanned`
 distinct. It resolves the intent base from bounded local state-branch history, so unrelated
-architectural drift cannot be presented as successful delivery.
+architectural drift cannot be presented as successful delivery. A self-hashed receipt is displayed
+as `recorded-unverified`, not as gate-ready proof. At every enforcing gate, SFlow independently
+resolves the approved intent, historical base, current projection and source maps, recomputes the
+complete deterministic report, and compares it with the saved receipt.
+
+If the gate returns `WMC_INTENT_REPORT_MISMATCH`, do not edit the receipt. First correct any reported
+base-history, current-source, Candidate Snapshot, or state-authority problem; then rerun
+`singularity-flow architecture intent verify --work-id WRK-123`. That command takes the Story lock,
+rechecks the current intent and Story revision, and atomically replaces the stale report with the
+recomputed result. Review it and retry the lifecycle gate. A matching but blocking report remains
+`WMC_INTENT_UNFULFILLED` until the implementation satisfies the required clauses and unplanned
+architecture changes are resolved.
 
 ## Trust and privacy boundaries
 

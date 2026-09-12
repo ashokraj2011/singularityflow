@@ -2,18 +2,23 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { loadDefinition } from '../config.mjs';
-import { repoRoot } from '../git.mjs';
+import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
+import { branch as currentBranch, repoRoot } from '../git.mjs';
+import { runDraftTransaction } from '../draft-unit-of-work.mjs';
 import { loadStoryAggregate } from '../state-stores.mjs';
 import {
-  ensureSecureRepositoryDirectory, optionBoolean, optionString, requirePositional,
-  run as runCommand, secureRepositoryPath, SingularityFlowError
+  evaluateArchitectureIntentEvidence, resolveArchitectureIntentBase
+} from '../architecture-intent-service.mjs';
+import {
+  ensureSecureRepositoryDirectory, exists, optionBoolean, optionString, requirePositional,
+  secureRepositoryPath, SingularityFlowError, writeAtomic
 } from '../util.mjs';
 import { canonicalJson, compareText, sha256 } from '../world-model/canonicalize.mjs';
 import { worldModelStateAuthority } from '../world-model/authority-config.mjs';
 import {
   createArchitectureIntent,
   explainArchitectureElement, renderPlannedArchitecture, validateArchitectureIntent,
-  validateCalmProjection, verifyArchitectureIntent
+  validateArchitectureIntentFulfilment, validateCalmProjection
 } from '../world-model/projections/calm/projection.mjs';
 import {
   assertCurrentArchitectureProjection, resolveCurrentArchitectureProjectionInputs
@@ -68,13 +73,20 @@ async function safeOutput(root, value, {
   return located.absolute;
 }
 
-async function baseProjection(root, definition = null) {
+async function baseProjection(root, definition = null, { workflow = null } = {}) {
   definition ??= await loadDefinition(root);
-  const inputs = await resolveCurrentArchitectureProjectionInputs(root, definition);
   const authority = worldModelStateAuthority(definition, {});
   const store = resolvePublishedWorldModelV4(root, {
     outputDir: definition.worldModel?.outputDir ?? 'singularity/world-model',
     stateBranch: authority.branch, remote: authority.remote
+  });
+  // A Story consumes the configuration authority already sealed into the reusable projection.
+  // Its saved execution definition is compared against those exact bytes; today's workflow.yml
+  // is neither read nor allowed to stale an accepted Story after a configuration refresh.
+  const inputs = await resolveCurrentArchitectureProjectionInputs(root, definition, {
+    configurationSourceSha256: workflow
+      ? store.records?.configurationSnapshot?.source?.sha256 ?? null
+      : null
   });
   assertCurrentArchitectureProjection(store, inputs);
   const built = store.projections?.find((entry) => entry.projectionId === 'arch.calm');
@@ -85,56 +97,6 @@ async function baseProjection(root, definition = null) {
       });
   }
   return { definition, store, built, inputs };
-}
-
-function gitText(root, args) {
-  const result = runCommand('git', args, { cwd: root, allowFailure: true });
-  return result.status === 0 ? result.stdout : null;
-}
-
-/** Resolve the exact intent base from bounded local state history; never fetch or infer. */
-export function resolveArchitectureIntentBase(root, definition, intent) {
-  const authority = worldModelStateAuthority(definition, {});
-  const outputDir = definition.worldModel?.outputDir ?? 'singularity/world-model';
-  const manifestPath = path.posix.join(outputDir, 'manifest.json');
-  const projectionPath = path.posix.join(outputDir, 'projections/arch.calm.json');
-  const sourceMapPath = path.posix.join(outputDir, 'catalogs/projections/arch.calm.sources.json');
-  const refs = [
-    `refs/remotes/${authority.remote}/${authority.branch}`,
-    `refs/heads/${authority.branch}`
-  ];
-  for (const ref of refs) {
-    if (!gitText(root, ['rev-parse', '--verify', ref])) continue;
-    const history = gitText(root, [
-      'log', '--format=%H', '--max-count=256', ref, '--', manifestPath
-    ])?.trim().split('\n').filter(Boolean) ?? [];
-    for (const commit of history) {
-      const manifestBytes = gitText(root, ['show', `${commit}:${manifestPath}`]);
-      const projectionBytes = gitText(root, ['show', `${commit}:${projectionPath}`]);
-      if (manifestBytes == null || projectionBytes == null) continue;
-      try {
-        const manifest = JSON.parse(manifestBytes);
-        const projection = JSON.parse(projectionBytes);
-        if (manifest.manifestSha256 !== intent.base.worldModelManifestSha256
-            || sha256({ utf8: projectionBytes }) !== intent.base.calmProjectionSha256) continue;
-        validateCalmProjection(projection);
-        const sourceMapBytes = gitText(root, ['show', `${commit}:${sourceMapPath}`]);
-        return Object.freeze({
-          commit, projection,
-          sourceMap: sourceMapBytes == null ? null : JSON.parse(sourceMapBytes)
-        });
-      } catch { /* Continue through bounded local history. */ }
-    }
-  }
-  fail(
-    'The exact CALM base approved by this architecture intent is unavailable in local state history.',
-    'WMC_INTENT_BASE_STALE',
-    {
-      worldModelManifestSha256: intent.base.worldModelManifestSha256,
-      calmProjectionSha256: intent.base.calmProjectionSha256,
-      nextAction: 'Fetch the configured state branch, then retry architecture intent verify.'
-    }
-  );
 }
 
 async function readIntent(root, definition, id) {
@@ -150,13 +112,19 @@ async function readIntent(root, definition, id) {
 }
 
 async function selectedProjection(root, options, suppliedDefinition = null) {
-  const definition = suppliedDefinition ?? await loadDefinition(root);
-  const base = await baseProjection(root, definition);
+  let definition = suppliedDefinition ?? await loadDefinition(root);
+  let workflow = null;
+  let id = null;
+  if (optionBoolean(options, 'planned')) {
+    id = workId(optionString(options, 'work-id'));
+    const accepted = await loadAcceptedStoryExecution(root, id);
+    definition = accepted.definition;
+    workflow = accepted.workflow;
+  }
+  const base = await baseProjection(root, definition, { workflow });
   if (!optionBoolean(options, 'planned')) return { ...base, selected: base.built, planned: false };
-  const id = workId(optionString(options, 'work-id'));
   const { target, intent } = await readIntent(root, definition, id);
-  const workflow = await loadStoryAggregate(root, definition, id);
-  assertApprovedArchitectureIntent(root, workflow, intent, target);
+  await assertApprovedArchitectureIntent(root, definition, workflow, intent, target);
   const selected = renderPlannedArchitecture({
     projection: base.built.projection,
     projectionSha256: base.built.projectionSha256,
@@ -251,66 +219,236 @@ function printSummary(value) {
   console.log('\nExpand safely: singularity-flow architecture explain <ELEMENT-ID>');
 }
 
+const INTENT_CANDIDATE_KEYS = new Set(['phase', 'generation', 'clauses']);
+const INTENT_SHA256 = /^sha256:[a-f0-9]{64}$/;
+
+export function architectureIntentTargetGeneration(workflow, phaseId) {
+  const phase = workflow?.phases?.[phaseId];
+  if (!phase || !Number.isSafeInteger(phase.generation) || phase.generation < 0) {
+    fail(`Architecture intent phase '${phaseId ?? 'missing'}' has no valid published generation.`,
+      'WMC_INTENT_PHASE_INVALID');
+  }
+  return phase.generation + 1;
+}
+
+export function validateArchitectureIntentLifecyclePolicy(workflow, policy, ownerPhaseId) {
+  const ownerIndex = workflow?.phaseOrder?.indexOf(ownerPhaseId) ?? -1;
+  if (ownerIndex < 0 || !policy?.allowedPhases?.includes(ownerPhaseId)) {
+    fail(
+      `Architecture intent phase '${ownerPhaseId ?? 'missing'}' is not allowed by the pinned Story policy.`,
+      'WMC_INTENT_PHASE_INVALID'
+    );
+  }
+  const invalid = (policy.blockRequiredUnfulfilledAt ?? []).find((phaseId) => {
+    const index = workflow.phaseOrder.indexOf(phaseId);
+    return index < 0 || index <= ownerIndex;
+  });
+  if (invalid) {
+    fail(
+      `Architecture intent policy cannot enforce phase '${invalid}' before or at its owner phase '${ownerPhaseId}'.`,
+      'WMC_INTENT_POLICY_INVALID',
+      { ownerPhase: ownerPhaseId, enforcingPhase: invalid }
+    );
+  }
+  return true;
+}
+
+export function normalizeArchitectureIntentCandidate(
+  candidate, workflow, policy, { expectedOwnerPhase = null } = {}
+) {
+  if (candidate == null || typeof candidate !== 'object' || Array.isArray(candidate)) {
+    fail('Architecture intent candidate must be a JSON object.', 'WMC_INTENT_INVALID');
+  }
+  const unknown = Object.keys(candidate).filter((key) => !INTENT_CANDIDATE_KEYS.has(key));
+  if (unknown.length) {
+    fail(
+      `Architecture intent candidate contains unsupported field(s): ${unknown.sort().join(', ')}.`,
+      'WMC_INTENT_INVALID', { unknownFields: unknown.sort() }
+    );
+  }
+  if (typeof candidate.phase !== 'string' || !candidate.phase) {
+    fail('Architecture intent candidate requires phase.', 'WMC_INTENT_PHASE_INVALID');
+  }
+  if (expectedOwnerPhase && candidate.phase !== expectedOwnerPhase) {
+    fail(
+      `Architecture intent revision cannot change owner phase '${expectedOwnerPhase}' to '${candidate.phase}'.`,
+      'WMC_INTENT_PHASE_INVALID'
+    );
+  }
+  validateArchitectureIntentLifecyclePolicy(workflow, policy, candidate.phase);
+  const ownerPhase = workflow.phases[candidate.phase];
+  if (workflow.currentPhase !== candidate.phase || ownerPhase.status !== 'in_progress') {
+    fail(
+      `Phase '${candidate.phase}' is not the currently authorable Story phase. Reopen it through the normal lifecycle before changing its architecture intent.`,
+      'WMC_INTENT_GENERATION_CLOSED',
+      { currentPhase: workflow.currentPhase, phaseStatus: ownerPhase.status }
+    );
+  }
+  const generation = architectureIntentTargetGeneration(workflow, candidate.phase);
+  if (candidate.generation !== undefined
+      && (!Number.isSafeInteger(candidate.generation) || candidate.generation < 1
+        || candidate.generation !== generation)) {
+    fail(
+      `Architecture intent generation ${JSON.stringify(candidate.generation)} does not match the next '${candidate.phase}' publication generation ${generation}.`,
+      'WMC_INTENT_GENERATION_STALE',
+      {
+        phase: candidate.phase,
+        currentPublishedGeneration: ownerPhase.generation,
+        expectedGeneration: generation,
+        suppliedGeneration: candidate.generation ?? null
+      }
+    );
+  }
+  if (!Array.isArray(candidate.clauses)) {
+    fail('Architecture intent candidate requires a clauses array.', 'WMC_INTENT_INVALID');
+  }
+  return { phase: candidate.phase, generation, clauses: candidate.clauses };
+}
+
+async function readIntentCandidateSource(root, definition, from) {
+  if (!from) fail('Architecture intent requires --from <reviewed-json-file>.', 'WMC_INTENT_INVALID');
+  const source = await safeOutput(root, from, {
+    mustExist: true, type: 'file', governedOutputDir: definition.worldModel?.outputDir
+  });
+  let bytes;
+  let candidate;
+  try {
+    bytes = await readFile(source, 'utf8');
+    candidate = JSON.parse(bytes);
+  } catch (error) {
+    fail(`Cannot read architecture intent candidate: ${error.message}`, 'WMC_INTENT_INVALID');
+  }
+  return { source, bytes, sourceSha256: sha256(Buffer.from(bytes, 'utf8')), candidate };
+}
+
+async function writeIntentDraft(root, definition, workflow, policy, {
+  action, id, from, expectIntent = null
+}) {
+  const source = await readIntentCandidateSource(root, definition, from);
+  const initial = normalizeArchitectureIntentCandidate(source.candidate, workflow, policy);
+  if (action === 'revise' && !INTENT_SHA256.test(expectIntent ?? '')) {
+    fail(
+      'Architecture intent revise requires --expect-intent sha256:<current-intent-digest>.',
+      'WMC_INTENT_REVISION_CONFLICT'
+    );
+  }
+  const targetRelative = path.posix.join(
+    architectureRelativeDirectory(definition, id), 'architecture-intent.json'
+  );
+  const target = path.join(root, targetRelative);
+  if (path.resolve(source.source) === path.resolve(target)) {
+    fail('Architecture intent candidate source must be different from the managed intent path.',
+      'WMC_INTENT_INVALID');
+  }
+  const expectedRevision = workflow[Symbol.for('singularity-flow.state-revision')] ?? null;
+  return runDraftTransaction(root, {
+    subject: { kind: 'story', id, branch: expectedRevision?.branch ?? currentBranch(root) },
+    expectedRevision,
+    allowedPaths: [targetRelative],
+    operation: `architecture-intent-${action}`,
+    write: async () => {
+      const currentSourceBytes = await readFile(source.source, 'utf8').catch((error) => {
+        fail(`Architecture intent candidate changed or disappeared: ${error.message}`,
+          'WMC_INTENT_REVISION_CONFLICT');
+      });
+      if (currentSourceBytes !== source.bytes
+          || sha256(Buffer.from(currentSourceBytes, 'utf8')) !== source.sourceSha256) {
+        fail('Architecture intent candidate changed before the guarded write.',
+          'WMC_INTENT_REVISION_CONFLICT');
+      }
+      const currentWorkflow = await loadStoryAggregate(root, definition, id);
+      const currentPolicy = currentWorkflow.resolution?.architectureIntent
+        ?? definition.architectureIntent ?? {};
+      const targetExists = await exists(target);
+      const existing = targetExists ? await readIntent(root, definition, id) : null;
+      if (!existing && action === 'revise') {
+        fail('Architecture intent revise requires an existing valid intent.',
+          'WMC_INTENT_REVISION_CONFLICT');
+      }
+      const normalized = normalizeArchitectureIntentCandidate(source.candidate, currentWorkflow, currentPolicy, {
+        expectedOwnerPhase: action === 'revise' ? existing.intent.phase : null
+      });
+      const base = await baseProjection(root, definition, { workflow: currentWorkflow });
+      const intent = createArchitectureIntent({
+        workId: id,
+        phase: normalized.phase,
+        generation: normalized.generation,
+        base: {
+          worldModelManifestSha256: base.store.manifest.manifestSha256,
+          calmProjectionSha256: base.built.projectionSha256
+        },
+        clauses: normalized.clauses
+      });
+      if (existing) {
+        if (action === 'revise' && existing.intent.intentSha256 !== expectIntent) {
+          fail(
+            'Architecture intent changed after it was reviewed for revision.',
+            'WMC_INTENT_REVISION_CONFLICT',
+            {
+              expectedIntentSha256: expectIntent,
+              currentIntentSha256: existing.intent.intentSha256,
+              nextAction: `Review the current intent and retry with --expect-intent ${existing.intent.intentSha256}.`
+            }
+          );
+        }
+        if (canonicalJson(existing.intent) === canonicalJson(intent)) {
+          return { status: 'existing', intent, target: existing.target };
+        }
+        if (action === 'init') {
+          fail(
+            `A different architecture intent already exists for Story '${id}'. Use the guarded revise operation.`,
+            'WMC_INTENT_ALREADY_EXISTS',
+            {
+              currentIntentSha256: existing.intent.intentSha256,
+              nextAction: `singularity-flow architecture intent revise --work-id ${id} --from ${from} --expect-intent ${existing.intent.intentSha256}`
+            }
+          );
+        }
+      }
+      await architectureDirectory(root, definition, id, { create: true });
+      await writeAtomic(target, canonicalJson(intent), { mode: 0o600 });
+      return { status: action === 'revise' ? 'revised' : 'created', intent, target };
+    },
+    validate: async (written) => {
+      const stored = await readIntent(root, definition, id);
+      if (stored.intent.intentSha256 !== written.intent.intentSha256
+          || canonicalJson(stored.intent) !== canonicalJson(written.intent)) {
+        fail('Architecture intent changed during its guarded write.',
+          'WMC_INTENT_REVISION_CONFLICT');
+      }
+    }
+  }).then(({ status, intent, target: resultTarget }) => ({
+    status,
+    workId: id,
+    phase: initial.phase,
+    generation: intent.generation,
+    path: path.relative(root, resultTarget).replaceAll('\\', '/'),
+    intentSha256: intent.intentSha256
+  }));
+}
+
 async function intentCommand(root, positionals, options, json) {
   const action = positionals[2] ?? 'validate';
   const id = workId(optionString(options, 'work-id') ?? positionals[3]);
-  const definition = await loadDefinition(root);
-  const workflow = await loadStoryAggregate(root, definition, id);
+  const accepted = await loadAcceptedStoryExecution(root, id);
+  const definition = accepted.definition;
+  const workflow = accepted.workflow;
   const intentPolicy = workflow.resolution?.architectureIntent ?? definition.architectureIntent ?? {};
   if (intentPolicy.enabled !== true) {
     fail(`Architecture intent is disabled for Story '${id}'.`, 'WMC_INTENT_DISABLED');
   }
-  if (action === 'init') {
-    const from = optionString(options, 'from');
-    if (!from) fail('Architecture intent init requires --from <reviewed-json-file>.', 'WMC_INTENT_INVALID');
-    const source = await safeOutput(root, from, {
-      mustExist: true, type: 'file', governedOutputDir: definition.worldModel?.outputDir
+  if (action === 'init' || action === 'revise') {
+    const result = await writeIntentDraft(root, definition, workflow, intentPolicy, {
+      action,
+      id,
+      from: optionString(options, 'from'),
+      expectIntent: optionString(options, 'expect-intent')
     });
-    let candidate;
-    try { candidate = JSON.parse(await readFile(source, 'utf8')); }
-    catch (error) { fail(`Cannot read architecture intent candidate: ${error.message}`, 'WMC_INTENT_INVALID'); }
-    if (candidate == null || typeof candidate !== 'object' || Array.isArray(candidate)) {
-      fail('Architecture intent candidate must be a JSON object.', 'WMC_INTENT_INVALID');
-    }
-    const ownerPhase = workflow.phases?.[candidate.phase];
-    if (!ownerPhase || !intentPolicy.allowedPhases?.includes(candidate.phase)) {
-      fail(
-        `Architecture intent phase '${candidate.phase ?? 'missing'}' is not allowed by the pinned Story policy.`,
-        'WMC_INTENT_PHASE_INVALID'
-      );
-    }
-    if (Number(candidate.generation) !== Number(ownerPhase.generation)) {
-      fail(
-        `Architecture intent generation ${candidate.generation ?? 'missing'} does not match current ${candidate.phase} generation ${ownerPhase.generation}.`,
-        'WMC_INTENT_GENERATION_STALE'
-      );
-    }
-    if (ownerPhase.status === 'approved' || (ownerPhase.approvals ?? []).some(
-      (approval) => approval.decision === 'approved' && !approval.invalidatedAt
-        && Number(approval.generation) === Number(ownerPhase.generation)
-    )) {
-      fail(
-        `Phase '${candidate.phase}' generation ${candidate.generation} is already approved; reopen that phase before creating a different architecture intent.`,
-        'WMC_INTENT_GENERATION_CLOSED'
-      );
-    }
-    const base = await baseProjection(root, definition);
-    const intent = createArchitectureIntent({
-      workId: id,
-      phase: candidate.phase,
-      generation: candidate.generation,
-      base: {
-        worldModelManifestSha256: base.store.manifest.manifestSha256,
-        calmProjectionSha256: base.built.projectionSha256
-      },
-      clauses: candidate.clauses
-    });
-    const directory = await architectureDirectory(root, definition, id, { create: true });
-    const target = path.join(directory, 'architecture-intent.json');
-    await writeFile(target, canonicalJson(intent), { flag: 'wx', mode: 0o600 });
-    const result = { status: 'created', workId: id, path: path.relative(root, target), intentSha256: intent.intentSha256 };
     if (json) console.log(JSON.stringify(result, null, 2));
-    else console.log(`Architecture intent created: ${result.path}\n${result.intentSha256}\nIt is not approved; publish it through the normal Story phase.`);
+    else console.log(
+      `Architecture intent ${result.status}: ${result.path}\n${result.intentSha256}\n`
+      + `It targets ${result.phase} generation ${result.generation} and is not approved; publish it through the normal Story phase.`
+    );
     return result;
   }
   const { target, intent } = await readIntent(root, definition, id);
@@ -319,41 +457,165 @@ async function intentCommand(root, positionals, options, json) {
     if (json) console.log(JSON.stringify(result, null, 2)); else console.log(`Architecture intent: valid\n${result.intentSha256}`);
     return result;
   }
-  assertApprovedArchitectureIntent(root, workflow, intent, target);
-  const base = await baseProjection(root, definition);
+  await assertApprovedArchitectureIntent(root, definition, workflow, intent, target);
   if (action === 'render') {
-    const planned = renderPlannedArchitecture({
-      projection: base.built.projection,
-      projectionSha256: base.built.projectionSha256,
-      worldModelManifestSha256: base.store.manifest.manifestSha256,
-      intent
-    });
-    await validateCalmWithOfficialToolchain(planned.projection);
     const directory = await architectureDirectory(root, definition, id);
-    await writeFile(path.join(directory, 'arch.calm.planned.json'), canonicalJson(planned.projection), { mode: 0o600 });
-    await writeFile(path.join(directory, 'planned-projection-receipt.json'), canonicalJson(planned.receipt), { mode: 0o600 });
+    const projectionTarget = path.join(directory, 'arch.calm.planned.json');
+    const receiptTarget = path.join(directory, 'planned-projection-receipt.json');
+    const expectedIntentSha256 = intent.intentSha256;
+    const expectedRevision = workflow[Symbol.for('singularity-flow.state-revision')] ?? null;
+    const planned = await runDraftTransaction(root, {
+      subject: {
+        kind: 'story', id,
+        branch: expectedRevision?.branch ?? currentBranch(root)
+      },
+      expectedRevision,
+      allowedPaths: [projectionTarget, receiptTarget].map((file) =>
+        path.relative(root, file).replaceAll('\\', '/')),
+      operation: 'architecture-intent-render',
+      write: async () => {
+        // Approval and intent identity are re-read after acquiring the Story lock. The preimage
+        // transaction restores both outputs if validation or either atomic replacement fails.
+        const currentWorkflow = await loadStoryAggregate(root, definition, id);
+        const currentIntent = await readIntent(root, definition, id);
+        if (currentIntent.intent.intentSha256 !== expectedIntentSha256) {
+          fail(
+            'Architecture intent changed before deterministic rendering completed.',
+            'WMC_INTENT_REVISION_CONFLICT',
+            {
+              expectedIntentSha256,
+              currentIntentSha256: currentIntent.intent.intentSha256,
+              nextAction: `Review the current intent and rerun singularity-flow architecture intent render --work-id ${id}.`
+            }
+          );
+        }
+        await assertApprovedArchitectureIntent(
+          root, definition, currentWorkflow, currentIntent.intent, currentIntent.target
+        );
+        const base = await baseProjection(root, definition, { workflow: currentWorkflow });
+        const rendered = renderPlannedArchitecture({
+          projection: base.built.projection,
+          projectionSha256: base.built.projectionSha256,
+          worldModelManifestSha256: base.store.manifest.manifestSha256,
+          intent: currentIntent.intent
+        });
+        await validateCalmWithOfficialToolchain(rendered.projection);
+        await writeAtomic(projectionTarget, canonicalJson(rendered.projection), { mode: 0o600 });
+        await writeAtomic(receiptTarget, canonicalJson(rendered.receipt), { mode: 0o600 });
+        return rendered;
+      },
+      validate: async (written) => {
+        // Re-observe the approval, intent and reusable base after both replacements. Editors and
+        // state-ref refreshes are outside the Story lock, so pair equality alone is not enough.
+        const currentWorkflow = await loadStoryAggregate(root, definition, id);
+        const currentIntent = await readIntent(root, definition, id);
+        if (currentIntent.intent.intentSha256 !== expectedIntentSha256) {
+          fail(
+            'Architecture intent changed while its planned projection was being rendered.',
+            'WMC_INTENT_REVISION_CONFLICT'
+          );
+        }
+        await assertApprovedArchitectureIntent(
+          root, definition, currentWorkflow, currentIntent.intent, currentIntent.target
+        );
+        const currentBase = await baseProjection(root, definition, { workflow: currentWorkflow });
+        const storedProjectionBytes = await readFile(projectionTarget, 'utf8');
+        const storedProjection = JSON.parse(storedProjectionBytes);
+        validateCalmProjection(storedProjection);
+        const storedReceipt = JSON.parse(await readFile(receiptTarget, 'utf8'));
+        const mismatches = [
+          [canonicalJson(storedProjection) === canonicalJson(written.projection), 'projection-bytes'],
+          [canonicalJson(storedReceipt) === canonicalJson(written.receipt), 'receipt-bytes'],
+          [sha256({ utf8: canonicalJson(storedProjection) }) === written.projectionSha256,
+            'projection-digest'],
+          [storedReceipt.workId === id, 'work-id'],
+          [storedReceipt.intentSha256 === expectedIntentSha256, 'intent'],
+          [storedReceipt.baseProjectionSha256 === currentBase.built.projectionSha256, 'base-projection'],
+          [currentBase.store.manifest.manifestSha256
+            === currentIntent.intent.base.worldModelManifestSha256, 'base-manifest']
+        ].filter(([matches]) => !matches).map(([, name]) => name);
+        if (mismatches.length) {
+          fail(
+            `Planned architecture projection and receipt changed during guarded rendering (${mismatches.join(', ')}).`,
+            'WMC_INTENT_REVISION_CONFLICT',
+            { mismatches }
+          );
+        }
+        await validateCalmWithOfficialToolchain(storedProjection);
+      }
+    });
     const result = { status: 'rendered', workId: id, projectionSha256: planned.projectionSha256,
-      paths: ['arch.calm.planned.json', 'planned-projection-receipt.json'].map((name) =>
-        path.relative(root, path.join(directory, name))) };
+      paths: [projectionTarget, receiptTarget].map((file) => path.relative(root, file)) };
     if (json) console.log(JSON.stringify(result, null, 2)); else console.log(`Planned architecture rendered: ${result.projectionSha256}`);
     return result;
   }
   if (action === 'verify') {
-    const before = resolveArchitectureIntentBase(root, definition, intent);
-    const report = verifyArchitectureIntent({
-      intent, baseAfter: base.built.projection, baseAfterSha256: base.built.projectionSha256,
-      sourceMap: base.built.sourceMap,
-      baseBefore: before.projection, baseBeforeSourceMap: before.sourceMap,
-      unavailable: base.built.factSet.unavailable
-    });
     const directory = await architectureDirectory(root, definition, id);
-    await writeFile(path.join(directory, 'intent-fulfilment.json'), canonicalJson(report), { mode: 0o600 });
+    const targetReport = path.join(directory, 'intent-fulfilment.json');
+    const expectedIntentSha256 = intent.intentSha256;
+    const expectedRevision = workflow[Symbol.for('singularity-flow.state-revision')] ?? null;
+    const report = await runDraftTransaction(root, {
+      subject: {
+        kind: 'story', id,
+        branch: expectedRevision?.branch ?? currentBranch(root)
+      },
+      expectedRevision,
+      allowedPaths: [path.relative(root, targetReport).replaceAll('\\', '/')],
+      operation: 'architecture-intent-verify',
+      write: async () => {
+        // Re-read both Story authority and intent after taking the Story lock. A report computed
+        // from a pre-lock intent must never replace a report for a concurrently revised draft.
+        const currentWorkflow = await loadStoryAggregate(root, definition, id);
+        const currentIntent = await readIntent(root, definition, id);
+        if (currentIntent.intent.intentSha256 !== expectedIntentSha256) {
+          fail(
+            'Architecture intent changed before deterministic verification completed.',
+            'WMC_INTENT_REVISION_CONFLICT',
+            {
+              expectedIntentSha256,
+              currentIntentSha256: currentIntent.intent.intentSha256,
+              nextAction: `Review the current intent and rerun singularity-flow architecture intent verify --work-id ${id}.`
+            }
+          );
+        }
+        await assertApprovedArchitectureIntent(
+          root, definition, currentWorkflow, currentIntent.intent, currentIntent.target
+        );
+        const evaluated = await evaluateArchitectureIntentEvidence(
+          root, definition, currentWorkflow, currentIntent.intent,
+          {
+            intentPath: currentIntent.target,
+            candidateSnapshot: optionString(options, 'candidate-snapshot')
+          }
+        );
+        const securedDirectory = await architectureDirectory(root, definition, id);
+        await writeAtomic(
+          path.join(securedDirectory, 'intent-fulfilment.json'),
+          canonicalJson(evaluated.report),
+          { mode: 0o600 }
+        );
+        return evaluated.report;
+      },
+      validate: async (written) => {
+        const stored = validateArchitectureIntentFulfilment(
+          JSON.parse(await readFile(targetReport, 'utf8'))
+        );
+        if (canonicalJson(stored) !== canonicalJson(written)) {
+          fail(
+            'Architecture intent fulfilment report changed during atomic verification.',
+            'WMC_INTENT_REPORT_MISMATCH'
+          );
+        }
+      }
+    });
     if (json) console.log(JSON.stringify(report, null, 2));
     else console.log(`Architecture intent fulfilment: ${report.blocking ? 'blocking' : 'satisfied'}\n${report.reportSha256}`);
     return report;
   }
   fail(`Unknown architecture intent action '${action}'.`, 'UNKNOWN_SUBCOMMAND');
 }
+
+export { resolveArchitectureIntentBase } from '../architecture-intent-service.mjs';
 
 export async function run(_argv, { positionals, options } = {}) {
   const root = repoRoot();

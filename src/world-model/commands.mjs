@@ -342,6 +342,7 @@ function commonBuildOptions(root, config, options, { views = null, cachePolicy =
     composer: composer(config, options),
     provider: config.provider,
     providerConfig: config.providerConfig,
+    executionContext: config.executionContext?.identity ?? { mode: 'legacy-live' },
     // No configured legacy model is forced here. With no explicit --model the governed provider
     // selects its own current model and the observed result is stamped in the view.
     model: optionString(options, 'model'),
@@ -653,13 +654,20 @@ export function resolveWorldModelV4Grounding(root, config, {
       && (projectionRequired || !projectionIdentityFields.has(change.field))
   );
   const primaryGroundingChange = groundingChanges[0] ?? null;
+  const groundingStatus = groundingChanges.length === 0
+    ? 'fresh'
+    : primaryGroundingChange?.currentSha256 == null
+      ? 'unavailable'
+      : 'stale';
   const groundingFreshness = Object.freeze({
     ...structuredClone(store.freshness),
+    status: groundingStatus,
     fresh: groundingChanges.length === 0,
     built: primaryGroundingChange?.previousSha256
       ?? store.sourceSnapshot.sourceManifestSha256,
-    current: primaryGroundingChange?.currentSha256
-      ?? store.sourceSnapshot.sourceManifestSha256,
+    current: primaryGroundingChange
+      ? primaryGroundingChange.currentSha256
+      : store.sourceSnapshot.sourceManifestSha256,
     reason: primaryGroundingChange?.reason ?? null,
     changes: Object.freeze(groundingChanges.map((change) => Object.freeze({ ...change })))
   });
@@ -711,11 +719,17 @@ export function resolveWorldModelV4Grounding(root, config, {
     );
   }
   if (!groundingFreshness.fresh && config.staleness === 'fail') {
+    const comparisonUnavailable = groundingFreshness.status === 'unavailable';
     throw new SingularityFlowError(
-      `Registered WMB v4 grounding is stale (${groundingFreshness.reason}). `
-      + 'Review the source change and run an explicit WMB v4 build; phase composition will not rebuild it.',
+      comparisonUnavailable
+        ? `Registered WMB v4 source comparison is unavailable (${groundingFreshness.reason}). `
+          + 'Commit the source change or capture an explicit Candidate Snapshot before using strict grounding.'
+        : `Registered WMB v4 grounding is stale (${groundingFreshness.reason}). `
+          + 'Review the source change and run an explicit WMB v4 build; phase composition will not rebuild it.',
       {
-        code: 'WMB_SOURCE_SNAPSHOT_STALE',
+        code: comparisonUnavailable
+          ? (groundingFreshness.reason ?? 'WMB_SOURCE_SNAPSHOT_REQUIRED')
+          : 'WMB_SOURCE_SNAPSHOT_STALE',
         details: { ...groundingFreshness, implicitRebuild: false }
       }
     );
@@ -767,7 +781,10 @@ export function statusWorldModelV4Command(root, config, options) {
   const result = worldModelV4StoreSummary(store);
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
   else {
-    console.log(`WMB v4: ${result.fresh ? 'fresh' : 'stale'} · ${result.views.length} view(s) · ${result.facts} fact(s)`);
+    const freshnessLabel = result.freshness.status === 'unavailable'
+      ? 'source comparison unavailable'
+      : result.fresh ? 'fresh' : 'stale';
+    console.log(`WMB v4: ${freshnessLabel} · ${result.views.length} view(s) · ${result.facts} fact(s)`);
     console.log(`  Authority: ${result.authorityRef}@${result.authorityCommit}`);
     console.log(`  Manifest: ${result.manifestSha256}`);
     result.views.forEach((entry) => console.log(`  ${entry.status === 'available' ? 'ready' : 'unavailable'}  ${entry.viewId}@${entry.viewVersion} · cache ${entry.cache}`));
@@ -1349,7 +1366,10 @@ function contextCommand(root, config, options, phase = null) {
   else if (optionBoolean(options, 'concat')) {
     for (const view of views) process.stdout.write(`\n<!-- WMB v4 ${view.viewId}@${view.viewVersion} -->\n\n${view.markdown}`);
   } else {
-    console.log(`# WMB v4 context${phase ? `: phase=${phase}` : ''} ${resolved.freshness.fresh ? 'fresh' : 'STALE'}`);
+    const label = resolved.freshness.status === 'unavailable'
+      ? 'SOURCE COMPARISON UNAVAILABLE'
+      : resolved.freshness.fresh ? 'fresh' : 'STALE';
+    console.log(`# WMB v4 context${phase ? `: phase=${phase}` : ''} ${label}`);
     views.forEach((entry) => console.log(`${entry.viewId}@${entry.viewVersion}  ${entry.viewSha256}  ${entry.path}`));
   }
   return resolved;

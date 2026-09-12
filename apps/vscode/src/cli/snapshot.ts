@@ -631,7 +631,8 @@ export interface RepositorySnapshot {
     status: 'disabled' | 'absent' | 'invalid' | 'candidate' | 'approved';
     phase: string | null; generation: number | null; approved: boolean; reasons: string[];
     fulfilment: null | {
-      status: 'recorded-satisfied' | 'recorded-blocking' | 'stale' | 'invalid'; blocking: boolean;
+      status: 'recorded-unverified' | 'recorded-satisfied' | 'recorded-blocking' | 'stale' | 'invalid';
+      blocking: boolean; reportedBlocking?: boolean;
       reportSha256: string | null; baseAfterSha256?: string;
       counts: Partial<Record<'fulfilled' | 'missing' | 'deviated' | 'unplanned' | 'not-observable', number>>;
       reason?: string;
@@ -675,7 +676,8 @@ export interface RepositorySnapshot {
     authority?: { ref?: string; commit?: string | null; manifestSha256?: string };
     source?: {
       sourceManifestSha256?: string; scopeManifestSha256?: string;
-      fresh?: boolean; reason?: string | null;
+      status?: 'fresh' | 'stale' | 'unavailable' | string;
+      fresh?: boolean; currentSourceManifestSha256?: string | null; reason?: string | null;
     };
     summary?: {
       views?: number; facts?: number; evidence?: number; derivations?: number;

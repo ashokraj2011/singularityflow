@@ -248,7 +248,7 @@ const ARCHITECTURE_READ_SUBCOMMANDS = Object.freeze([
 ]);
 const ARCHITECTURE_MUTATION_SUBCOMMANDS = Object.freeze(['export']);
 const ARCHITECTURE_INTENT_READ_ACTIONS = Object.freeze(['validate']);
-const ARCHITECTURE_INTENT_MUTATION_ACTIONS = Object.freeze(['init', 'render', 'verify']);
+const ARCHITECTURE_INTENT_MUTATION_ACTIONS = Object.freeze(['init', 'revise', 'render', 'verify']);
 const AUTO_SUBCOMMANDS = Object.freeze([
   'plan', 'show-plan', 'start', 'list', 'status', 'report', 'compare',
   'pause', 'resume', 'stop', 'halt', 'takeover', 'discard', 'flight-step',

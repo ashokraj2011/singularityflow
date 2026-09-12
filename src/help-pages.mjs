@@ -1362,6 +1362,7 @@ const PAGES = Object.freeze({
       ['--work-id ID', 'Select the Story that owns an architecture intent.'],
       ['--planned', 'Read the selected Story planned overlay instead of shared base reality.'],
       ['--from FILE', 'Reviewed repository-relative JSON candidate used to initialize Story intent.'],
+      ['--candidate-snapshot SHA256', 'For intent verification or a lifecycle gate, bind the exact reviewed Candidate Snapshot to the current source. A historical Candidate that no longer matches is refused.'],
       ['--format calm', 'Export the exact CALM document without adding target-specific fields.'],
       ['--out FILE', 'New repository-relative export destination outside World-Model authority.'],
       ['--json', 'Emit structured output; show includes the complete CALM document.']
@@ -1370,6 +1371,7 @@ const PAGES = Object.freeze({
       ['singularity-flow architecture show', 'Show bounded counts and top-level architecture.'],
       ['singularity-flow architecture explain payments', 'Show exact provenance and where to make a change.'],
       ['singularity-flow architecture show --work-id PAY-142 --planned', 'Show one Story-scoped future projection.'],
+      ['singularity-flow architecture intent verify --work-id PAY-142 --candidate-snapshot sha256:<DIGEST>', 'Verify against one explicitly reviewed Candidate only when it still exactly matches the current source.'],
       ['singularity-flow architecture export --format calm --out dist/architecture/system.json', 'Preview the exact destination and digest; rerun with the returned --confirm digest to copy without changing authority.']
     ],
     seeAlso: ['wm', 'capability', 'phase']

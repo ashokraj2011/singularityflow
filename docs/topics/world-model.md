@@ -11,7 +11,7 @@ related:
   - agents-and-routing
   - model-independence
   - knowledge-and-remote-assets
-version: 20
+version: 21
 ---
 The world model provides repository-grounded views used during governed generation. In a monorepo, scope it to the capability's source and shared directories so unrelated products do not increase scan cost or invalidate evidence.
 
@@ -51,6 +51,35 @@ fetch. If the remote is newer, run `sflow wm refresh-authority --format register
 storyless multi-capability repository must retain the displayed `--capability ID`. A remote or local
 authoritative state tip that removed the model cannot fall through to an older application-branch
 copy.
+
+Stored-model integrity and current-source availability are separate. After the stored manifest,
+catalogs, and blobs verify, status exposes `freshness.status` as `fresh`, `stale`, or `unavailable`.
+An ordinary dirty or otherwise uncapturable source snapshot is `unavailable`, with `fresh: false`,
+`current: null`, the original reason (commonly `WMB_SOURCE_SNAPSHOT_REQUIRED`), and no invented
+staleness receipt. `wm status --json` and `wm availability --json` still exit successfully because
+the inspection completed; text output says **source comparison unavailable**, never **fresh**.
+
+Example (other authority and view fields are omitted):
+
+```json
+{
+  "fresh": false,
+  "freshness": {
+    "status": "unavailable",
+    "fresh": false,
+    "built": "sha256:<published-source-digest>",
+    "current": null,
+    "reason": "WMB_SOURCE_SNAPSHOT_REQUIRED"
+  },
+  "stalenessReceipts": []
+}
+```
+
+This result does not corrupt or delete the reusable model. Advisory prompt composition may use its
+verified bytes only as clearly labelled historical context under the pinned staleness policy.
+Strict grounding and architecture enforcement refuse it as current evidence until the source is a
+comparable committed revision or an explicitly captured Candidate Snapshot. Diagnostic reads do
+not commit source, capture a snapshot, rebuild, refresh skills, or call a model.
 
 The state branch is `worldModel.stateBranch` when that compatibility override is authored;
 otherwise it is `ledger.branch` (default `state`). Canonical configuration resolves these fallbacks
@@ -173,6 +202,7 @@ toolchain matrix for the selected repository.
 - If the selected Story or branch is wrong, stop and use `sflow home`, `sflow session`, or `sflow workspace list` before retrying.
 - If a command refuses because state moved, refresh and use the newly rendered action instead of replaying an old handle or confirmation.
 - If publication or synchronization is pending, follow the exact recovery command in the refusal and verify with `sflow doctor`. Registered v4 recovery replays only the retained validated projection; do not rebuild or copy its files manually.
+- If status says **source comparison unavailable**, preserve the source edits. Commit them through the normal workflow or explicitly capture a Candidate Snapshot when policy permits, then rerun the read or reviewed build. Do not treat `current: null` as the published digest and do not create a receipt from it.
 - If all files remain in scope, save non-empty `sourceRoots`/`sharedRoots` in Configuration Center or the capability map; an empty list deliberately means the whole application tree.
 - If a scoped file is absent because of sparse checkout, add its directory to the capability's sparse cone and create/repair the workspace. Do not manually copy files around Git's sparse index.
 - If warm status or fingerprint time remains high, run `sflow doctor --performance --json` and retain the measurements when asking the repository platform team about FSMonitor or untracked-cache policy.

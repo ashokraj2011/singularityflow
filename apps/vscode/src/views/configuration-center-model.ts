@@ -351,7 +351,14 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
   const defaultWorldModelViews = worldModel.format === 'registered-v4'
     ? BUILTIN_VIEW_IDS.map((id) => normalizeBuiltInViewReference(id).reference)
     : ['business', 'architecture', 'development', 'testing', 'release', 'operations', 'security'];
-  const built = Boolean(snapshot.worldModel?.generatedAt || snapshot.worldModel?.readiness?.ready);
+  // Freshness is not existence. A verified stale model, or one whose current source cannot be
+  // compared, is still a built model and must not be rendered as "never built".
+  const built = Boolean(
+    snapshot.worldModel?.status === 'ready'
+    || snapshot.worldModel?.authority?.manifestSha256
+    || snapshot.worldModel?.generatedAt
+    || snapshot.worldModel?.readiness?.ready
+  );
   const modelRoot = snapshot.worldModel?.root ?? 'singularity/world-model';
   const catalog = worldModelViewContractCatalog(definition, [
     ...(worldModel.views ?? defaultWorldModelViews),

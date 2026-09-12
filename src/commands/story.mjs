@@ -79,6 +79,7 @@ import { capabilityBaseForRepository, prepareCapabilityRepositories, printCapabi
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
 import { recordSha256 } from '../records.mjs';
 import { verifyWorkflowSnapshot, workflowSnapshotDrift } from '../workflow-snapshots.mjs';
+import { resolveStoryExecutionContext } from '../story-execution-context.mjs';
 import {
   materializeReferenceRepositories, parseReferenceRepositoryOptions, resolveReferenceRepositoryPins,
   storyReferenceRepositories, verifyReferenceRepositories
@@ -741,6 +742,11 @@ async function runAssistedConvergence(root, config, workflow, subject, { facts, 
     namespace: subject.policy?.namespace ?? null
   });
   const provider = resolveModelProvider(config);
+  const phase = workflow.phases?.[workflow.currentPhase] ?? null;
+  const execution = await resolveStoryExecutionContext(root, config, workflow, {
+    agentId: phase?.defaultAgent ?? null,
+    phaseId: phase?.id ?? workflow.currentPhase
+  });
   const invocation = await invokeModel({
     provider: provider.provider,
     providerConfig: provider.providerConfig,
@@ -750,6 +756,7 @@ async function runAssistedConvergence(root, config, workflow, subject, { facts, 
     prompt: { text: prompt },
     channel: 'convergence-assisted',
     subject: { kind: 'convergence', id: workflow.workItem.id, iteration: bindings.iteration },
+    executionContext: execution.identity,
     tools: { mode: 'none' },
     limits: { timeoutMs: 5 * 60 * 1000, outputBytes: 256 * 1024 }
   });

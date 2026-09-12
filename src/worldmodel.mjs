@@ -105,6 +105,7 @@ import { withSubjectLock } from './subject-lock.mjs';
 import {
   referenceRepositoryGroundingContext, storyReferenceRepositories
 } from './reference-repositories.mjs';
+import { resolveStoryExecutionContext } from './story-execution-context.mjs';
 
 const configRelative = 'singularity/worldmodel.json';
 const CHECKPOINT_SCHEMA_VERSION = currentSchemaVersion('worldmodel-checkpoint');
@@ -516,16 +517,20 @@ function requireText(file) {
  * defaults.
  */
 export async function loadWorldModelConfig(root, {
-  agent: selectedAgent = null, workId = null, capabilityId = null
+  agent: selectedAgent = null, workId = null, capabilityId = null, phase: selectedPhase = null
 } = {}) {
   if (existsSync(path.join(configurationReadRoot(root), WORKFLOW_PATH))) {
-    const configuredDefinition = await loadDefinition(root);
+    // Locate an accepted Story without requiring its mutable live agent/template sources. Once a
+    // snapshot is found, its verified closure supplies those bytes. A repository-level operation
+    // or a legacy Story still takes the normal strict definition path.
+    let configuredDefinition = await loadDefinition(root, { storyBootstrap: true });
     const session = await loadSession(root, { required: false });
     const activeId = workId ?? run('git', ['branch', '--show-current'], { cwd: root, allowFailure: true }).stdout.trim();
     const activeStatePath = path.join(root, configuredDefinition.workItemRoot ?? 'singularity/work-items', activeId, 'workflow.json');
     const activeState = existsSync(activeStatePath)
       ? readRecord('story-workflow', await readFile(activeStatePath)).record
       : null;
+    if (!activeState?.workflowSnapshot) configuredDefinition = await loadDefinition(root);
     // Resolve repository ownership even before a Story exists. A storyless build previously used
     // the checkout basename as its scope capability, then the first Story used its mapped
     // capability ID and made the just-published model stale. This offline lookup reads the same
@@ -536,7 +541,7 @@ export async function loadWorldModelConfig(root, {
       offline: true,
       refuseAmbiguous: configuredDefinition.worldModel?.format === 'registered-v4'
     });
-    const definition = withWorldModelSourceScope(
+    const scopedDefinition = withWorldModelSourceScope(
       configuredDefinition,
       activeState?.resolution?.worldModelSourceScope
         ?? activeState?.resolution?.capability?.sourceScope
@@ -546,11 +551,22 @@ export async function loadWorldModelConfig(root, {
         ?? (repositoryCapability?.mode === 'implicit' ? null : repositoryCapability?.sourceScope)
         ?? null
     );
-    const stateAuthority = worldModelStateAuthority(definition);
+    const stateAuthority = worldModelStateAuthority(scopedDefinition);
     const phaseEntries = activeState?.resolution?.phases?.length
       ? activeState.resolution.phases.map((phase) => [phase.id, phase])
-      : Object.entries(definition.phases);
-    const agent = selectedAgent ?? session?.agent ?? null;
+      : Object.entries(scopedDefinition.phases);
+    const activePhaseId = selectedPhase ?? activeState?.currentPhase ?? null;
+    const sessionAgentApplies = activeState
+      ? session?.workId === activeState.workItem?.id && session?.phaseId === activePhaseId
+      : Boolean(session?.agent && !workId);
+    const agent = selectedAgent ?? (sessionAgentApplies ? session.agent : null)
+      ?? activeState?.phases?.[activePhaseId]?.defaultAgent ?? null;
+    const executionContext = activeState && agent
+      ? await resolveStoryExecutionContext(root, scopedDefinition, activeState, {
+          agentId: agent, phaseId: activePhaseId
+        })
+      : null;
+    const definition = executionContext?.effectiveDefinition ?? scopedDefinition;
     const agentViewMode = definition.worldModel?.agentViews ?? 'fallback';
     const phases = Object.fromEntries(phaseEntries.map(([id, phase]) => {
       // A v1 Story migration can reconstruct the lifecycle phase without inventing a historical
@@ -558,7 +574,8 @@ export async function loadWorldModelConfig(root, {
       // otherwise retain the same repository-definition fallback that legacy records used before
       // they were routed through the migration framework.
       const phaseWorldModel = phase.worldModel ?? definition.phases?.[id]?.worldModel ?? {};
-      const agentViews = agent ? definition.agents[agent]?.worldModelViews ?? [] : [];
+      const agentViews = agent ? executionContext?.agent?.worldModelViews
+        ?? definition.agents[agent]?.worldModelViews ?? [] : [];
       const resolution = resolveViews(phaseWorldModel.views ?? [], agentViews, { mode: agentViewMode });
       return [id, {
         views: resolution.views,
@@ -592,6 +609,7 @@ export async function loadWorldModelConfig(root, {
     return {
       definition,
       workflow: activeState,
+      executionContext,
       repositoryCapability,
       workItemRoot: definition.workItemRoot ?? 'singularity/work-items',
       outputDir: definition.worldModel?.outputDir ?? 'singularity/world-model',
@@ -794,7 +812,8 @@ function registeredV4RecoveryAction(config, error, phaseId) {
       reason: `${error.message} Refresh the exact configured state authority, then retry.`
     };
   }
-  if (['WMB_MANIFEST_MISSING', 'WMB_VIEW_UNAVAILABLE', 'WMB_SOURCE_SNAPSHOT_STALE'].includes(code)) {
+  if (['WMB_MANIFEST_MISSING', 'WMB_VIEW_UNAVAILABLE', 'WMB_SOURCE_SNAPSHOT_STALE',
+    'WMB_SOURCE_SNAPSHOT_REQUIRED'].includes(code)) {
     return { command: registeredV4BuildCommand(config, phaseId), reason: error.message };
   }
   return {
@@ -817,6 +836,14 @@ function durableGroundingReasonCode(value, fallback = 'WORLD_MODEL_GROUNDING_UNA
   // Durable receipts retain only the stable diagnostic identifier. Provider messages, repository
   // paths, refs, and recovery prose stay in the transient diagnostic surface.
   return /^[A-Z][A-Z0-9_.-]{0,95}$/.test(candidate) ? candidate : fallback;
+}
+
+function registeredFreshnessMessage(freshness) {
+  if (freshness?.fresh) return null;
+  if (freshness?.status === 'unavailable' || freshness?.current == null) {
+    return `Registered WMB v4 source comparison is unavailable (${freshness?.reason ?? 'source identity unavailable'}).`;
+  }
+  return `Registered WMB v4 grounding is stale (${freshness?.reason ?? 'identity changed'}).`;
 }
 
 /**
@@ -885,9 +912,7 @@ export async function inspectConfiguredGrounding(root, config, phaseId, {
       const resolved = resolveWorldModelV4Grounding(root, config, {
         phase: phaseId, options: lifecycleOptions, required: true
       });
-      const staleMessage = resolved.freshness.fresh
-        ? null
-        : `Registered WMB v4 grounding is stale (${resolved.freshness.reason ?? 'identity changed'}).`;
+      const staleMessage = registeredFreshnessMessage(resolved.freshness);
       const staleness = worldModelStalenessDecision(
         config.staleness ?? config.definition?.worldModel?.staleness ?? 'warn',
         resolved.freshness.fresh,
@@ -1408,7 +1433,9 @@ async function compatibleWorldModelDirectory(root, config, sourceTreeSha256) {
   const manifestPath = path.join(located.directory, 'manifest.json');
   if (!existsSync(manifestPath)) return null;
   try {
-    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+    const manifest = readRecord(
+      'world-model-manifest', await readFile(manifestPath, 'utf8')
+    ).record;
     if (manifest.source_tree_sha256 !== sourceTreeSha256) return null;
     await validateWorldModelDirectory(located.directory, {
       integrity: 'full',
@@ -2630,6 +2657,10 @@ async function runParallelDiscovery(
         prompt: { file: promptFile },
         channel: 'world-model-discovery',
         subject: { kind: 'repository-world-model', view },
+        // A Story-scoped build inherits its view policy from the verified saved agent closure.
+        // Preserve that exact identity in the associated model prompt audit; storyless builds
+        // truthfully remain live repository operations.
+        executionContext: config.executionContext?.identity ?? { mode: 'legacy-live' },
         // A recovered read/search miss is not a build failure when the worker still produces a
         // bounded packet. Incomplete calls and truncated results remain fatal at the provider
         // boundary, and the packet, worktree isolation, checkpoint, and synthesis validators still
@@ -3327,6 +3358,7 @@ source evidence. Do not search or reread the application repository during synth
         prompt: { file: promptFile },
         channel: 'world-model-synthesis',
         subject: { kind: 'repository-world-model' },
+        executionContext: config.executionContext?.identity ?? { mode: 'legacy-live' },
         // A model may recover from a failed edit attempt and still produce a complete valid output
         // graph. The provider continues to refuse incomplete and truncated calls; the isolated
         // output then passes strict manifest, path, hash, placeholder, and evidence validation.
@@ -4237,7 +4269,8 @@ function interruptedPromptPair(error) {
 
 async function recordCompositionPromptAudit(root, {
   text, agent, phase, generation, workId, workType, task = null,
-  supportingEvidence = [], references = [], compositionCache = null, composition = null
+  supportingEvidence = [], references = [], compositionCache = null, composition = null,
+  executionContext = null
 }) {
   const audit = await recordPromptAudit(root, {
     prompt: text,
@@ -4251,7 +4284,8 @@ async function recordCompositionPromptAudit(root, {
     supportingEvidence,
     references,
     compositionCache,
-    composition
+    composition,
+    executionContext
   });
   if (audit) console.error(`Prompt audit recorded: ${audit.id} (${audit.promptSha256.slice(0, 12)}).`);
   return audit;
@@ -4266,10 +4300,10 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
   if (workId && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(workId)) {
     throw new SingularityFlowError('Provide a valid work ID containing only letters, numbers, dots, underscores, or hyphens.');
   }
-  let config = await load(root, { agent, workId });
+  const requestedPhase = optionString(options, 'phase');
+  let config = await load(root, { agent, workId, phase: requestedPhase });
   let definition = config.definition ?? await loadDefinition(root);
   let workflow = config.workflow ?? null;
-  const requestedPhase = optionString(options, 'phase');
   const dryRun = optionBoolean(options, 'dry-run');
   const renderOnly = optionBoolean(options, 'render-only');
   if (workflow && !dryRun && !renderOnly && !storyLockHeld) {
@@ -4298,7 +4332,7 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
   const phaseAgent = sessionAgentApplies ? session.agent : pinnedAgent;
   if (!explicitAgent && phaseAgent && phaseAgent !== agent) {
     agent = phaseAgent;
-    config = await load(root, { agent, workId });
+    config = await load(root, { agent, workId, phase: selectedPhaseId });
     definition = config.definition ?? await loadDefinition(root);
     workflow = config.workflow ?? workflow;
   }
@@ -4374,7 +4408,8 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
             key: existing.record.compositionCache.key,
             hit: true
           } : null,
-          composition: existing.record.promptBudget ?? null
+          composition: existing.record.promptBudget ?? null,
+          executionContext: existing.record.executionContext ?? { mode: 'historical-unproven' }
         });
       }
       const destination = optionString(options, 'out');
@@ -4480,16 +4515,28 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
     }
   }
   if (groundingAvailable && !required.freshness.fresh) {
-    const message = `World model is stale (${String(required.freshness.built).slice(0, 18)} != ${required.freshness.current.slice(0, 18)}).`;
+    const message = required.freshness.status === 'unavailable'
+      ? `World-model source comparison is unavailable (${required.freshness.reason ?? 'source identity unavailable'}).`
+      : `World model is stale (${String(required.freshness.built).slice(0, 18)} != ${String(required.freshness.current).slice(0, 18)}).`;
     const staleness = assertWorldModelStaleness(config.staleness, false, message);
     if (staleness.warns) console.error(`Grounding warning: ${message}`);
   }
   const promptStudy = workflow
     ? await resolveImpactPromptOverride(root, workflow, signals.phase, {
         agentId: agent,
-        agentSha256: definition.agents?.[agent]?.sha256 ?? null
+        agentSha256: config.executionContext?.identity?.agentBlobSha256?.replace(/^sha256:/, '')
+          ?? definition.agents?.[agent]?.sha256 ?? null
       })
     : null;
+  const executionIdentity = config.executionContext?.identity?.mode === 'workflow-snapshot'
+    ? {
+        ...config.executionContext.identity,
+        overrideSha256: promptStudy?.sha256
+          ? (String(promptStudy.sha256).startsWith('sha256:')
+              ? promptStudy.sha256 : `sha256:${promptStudy.sha256}`)
+          : null
+      }
+    : { mode: 'legacy-live' };
   let agentPrompt;
   try {
     agentPrompt = await injectAgentPrompt(root, definition, agent, signals, {
@@ -4501,7 +4548,8 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
         || worldModelDisabledForWorkflow(workflow) || registeredV4,
       modelDirectory: groundingAvailable ? required.directory : null,
       validatedModelFiles: groundingAvailable ? required.validatedModelFiles : null,
-      validatedManifest: groundingAvailable ? required.manifest : null
+      validatedManifest: groundingAvailable ? required.manifest : null,
+      resolvedAgent: config.executionContext?.agent ?? null
     });
   } catch (error) {
     // A temporary/cache-backed legacy projection can disappear after its required files were
@@ -4525,13 +4573,15 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
     agentPrompt = await injectAgentPrompt(root, definition, agent, signals, {
       promptOverride: promptStudy,
       disableWorldModelInjection: true,
-      modelDirectory: null
+      modelDirectory: null,
+      resolvedAgent: config.executionContext?.agent ?? null
     });
   }
   const { text, injection } = agentPrompt;
   const remote = phase ? await renderAgentSkills(root, workflow, phase, session ? { ...session, agent } : null, {
     record: !dryRun && !renderOnly,
-    itemDirectory: path.join(root, workItemRoot, workflow.workItem.id)
+    itemDirectory: path.join(root, workItemRoot, workflow.workItem.id),
+    executionContext: config.executionContext
   }) : { text: '', skills: [], warnings: [] };
   const mandatory = [];
   for (const item of required.selected) {
@@ -4609,7 +4659,15 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
         '- This is not a lifecycle blocker. Continue with the pinned Story source, approved phase inputs, and ordinary repository file access.',
         '- Do not invent or reconstruct world-model facts. A contributor may build or repair the shared model separately.'
       ].join('\n')
-    : '';
+    : groundingAvailable && required.freshness.status === 'unavailable'
+      ? [
+          '# Repository world-model status',
+          '',
+          `- Source comparison: \`unavailable\` (\`${required.freshness.reason ?? 'WMB_SOURCE_SNAPSHOT_REQUIRED'}\`)`,
+          '- The injected model is historical context. Its stored bytes are verified, but it is not claimed as current source evidence.',
+          '- Continue under the pinned staleness policy; strict gates require a committed source revision or explicit Candidate Snapshot.'
+        ].join('\n')
+      : '';
   const promptCompilation = compilePromptSections([
     { id: 'phase-contract', text: governed.contract, mandatory: true, priority: 0 },
     { id: 'work-source', text: workSource.text, mandatory: true, priority: 0 },
@@ -4729,11 +4787,31 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
   ]
     .filter((section, index, all) => all.findIndex((candidate) => candidate.path === section.path) === index);
   const specPolicy = workflow?.resolution?.spec ?? definition.spec ?? { compositionCache: 'local' };
+  const sourceComparisonStatus = !groundingAvailable
+    ? 'unavailable'
+    : registeredV4
+      ? (required.freshness.source?.status
+        ?? (required.freshness.fresh ? 'fresh' : 'stale'))
+      : required.freshness.fresh ? 'fresh' : 'stale';
+  const sourceComparison = {
+    status: sourceComparisonStatus,
+    reasonCode: sourceComparisonStatus === 'fresh'
+      ? null
+      : sourceComparisonStatus === 'unavailable'
+        ? durableGroundingReasonCode(
+            required.freshness.source?.reason,
+            groundingAvailability.reasonCode ?? 'WORLD_MODEL_GROUNDING_UNAVAILABLE'
+          )
+        : 'WORLD_MODEL_SOURCE_CHANGED'
+  };
   // A dry run must be observational: calculating the composed prompt is useful,
   // but populating .git/singularity-flow/composition-cache is still a write.
   const cacheEnabled = compositionCacheEnabled(specPolicy.compositionCache, { dryRun });
   const cached = await memoizeComposition(root, {
     schemaVersion: currentSchemaVersion('worldmodel-prompt-composition'),
+    semanticProfile: executionIdentity.mode === 'workflow-snapshot'
+      ? 'story-snapshot-agent-v1' : 'legacy-live-agent-v1',
+    executionContext: executionIdentity,
     workId: workflow?.workItem?.id ?? workId ?? null,
     workType: workflow?.workItem?.workType ?? null,
     phase: signals.phase,
@@ -4749,6 +4827,7 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
     modelCommit,
     manifestSha256: manifestInfo.sha256,
     groundingAvailability,
+    sourceComparison,
     requiredSelections: plan.selections,
     workSource: workSource.record,
     structuralContext: structural.record,
@@ -4803,11 +4882,12 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
       modelSourceTreeSha256: registeredV4 && groundingAvailable
         ? required.sourceManifestSha256
         : required.manifest?.source_tree_sha256 ?? null,
-      composedSourceTreeSha256: required.freshness.current,
+      composedSourceTreeSha256: required.freshness.source?.current ?? null,
       fresh: required.freshness.fresh,
       renderedSha256,
       renderedText: composedText,
       groundingAvailability,
+      sourceComparison,
       requiredViews: groundingAvailable
         ? registeredV4
           ? required.views.map((view) => view.viewId)
@@ -4823,7 +4903,8 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
         renderer: preview.renderer, truncated: preview.truncated
       })),
       compositionCache: { key: cached.key, hit: cached.hit },
-      promptBudget: promptComposition
+      promptBudget: promptComposition,
+      executionContext: executionIdentity
     }, { workDir: path.join(root, workItemRoot, workflow.workItem.id) });
     console.error(`Grounding composition recorded: ${file}`);
   }
@@ -4843,7 +4924,8 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
         renderer: preview.renderer
       })),
       compositionCache: { key: cached.key, hit: cached.hit },
-      composition: promptComposition
+      composition: promptComposition,
+      executionContext: executionIdentity
     });
   }
   const destination = optionString(options, 'out');
@@ -4880,11 +4962,13 @@ async function showPrompt(root, options) {
     throw new SingularityFlowError(`Unknown packaged Copilot skill '${skillId}'.`);
   }
 
+  const requestedPhase = optionString(options, 'phase');
   const config = await load(root, {
     agent: optionString(options, 'agent'),
-    workId: optionString(options, 'work-id')
+    workId: optionString(options, 'work-id'),
+    phase: requestedPhase
   });
-  const phase = optionString(options, 'phase') ?? config.workflow?.currentPhase;
+  const phase = requestedPhase ?? config.workflow?.currentPhase;
   if (!phase) {
     throw new SingularityFlowError('No active Story phase was found. Resume a work item or provide --phase and --work-id.');
   }
@@ -4892,6 +4976,25 @@ async function showPrompt(root, options) {
   const skill = await readFile(skillFile, 'utf8');
   const selectedWorkId = config.workflow?.workItem?.id ?? optionString(options, 'work-id') ?? null;
   const recordHandoff = optionBoolean(options, 'record-audit');
+  const session = await loadSession(root, { required: false });
+  const sessionAgentApplies = Boolean(
+    session?.agent
+    && session.workId === config.workflow?.workItem?.id
+    && session.phaseId === phase
+    && config.definition?.agents?.[session.agent]
+  );
+  // Pre-phase-binding session records are still readable during migration, but only as a last
+  // resort when the phase itself has no default. They can never override a phase-bound agent.
+  const legacySessionAgent = Boolean(
+    session?.agent
+    && session.workId === config.workflow?.workItem?.id
+    && !session.phaseId
+    && config.definition?.agents?.[session.agent]
+  ) ? session.agent : null;
+  const agent = optionString(options, 'agent')
+    ?? (sessionAgentApplies ? session.agent : null)
+    ?? config.workflow?.phases?.[phase]?.defaultAgent
+    ?? legacySessionAgent;
   const prefix = [
     '# Singularity Flow governed Story handoff',
     '',
@@ -4933,26 +5036,17 @@ async function showPrompt(root, options) {
   const suffix = '--- END GOVERNED PHASE PROMPT ---\n';
   process.stdout.write(suffix);
   if (recordHandoff) {
-    const session = await loadSession(root, { required: false });
-    const sessionAgentApplies = Boolean(
-      session?.agent
-      && session.workId === config.workflow?.workItem?.id
-      && session.phaseId === phase
-      && config.definition?.agents?.[session.agent]
-    );
-    // Pre-phase-binding session records are still readable during migration, but only as a last
-    // resort when the phase itself has no default. They can never override a phase-bound agent.
-    const legacySessionAgent = Boolean(
-      session?.agent
-      && session.workId === config.workflow?.workItem?.id
-      && !session.phaseId
-      && config.definition?.agents?.[session.agent]
-    ) ? session.agent : null;
-    const agent = optionString(options, 'agent')
-      ?? (sessionAgentApplies ? session.agent : null)
-      ?? config.workflow?.phases?.[phase]?.defaultAgent
-      ?? legacySessionAgent;
     if (!agent) throw new SingularityFlowError('Prompt audit requires an active governed agent or --agent ID.');
+    const phaseRecord = config.workflow?.phases?.[phase] ?? null;
+    const generationPrompt = config.workflow && phaseRecord
+      ? await readPromptGeneration(root, config.workflow, phaseRecord, {
+          workDir: path.join(
+            root, config.workItemRoot ?? 'singularity/work-items', config.workflow.workItem.id
+          ),
+          agent,
+          ...(options.task !== undefined ? { task: optionString(options, 'task') ?? null } : {})
+        })
+      : null;
     const audit = await recordPromptAudit(root, {
       prompt: `${prefix}${governedPrompt}${suffix}`,
       agent,
@@ -4962,7 +5056,12 @@ async function showPrompt(root, options) {
       workId: selectedWorkId,
       workType: config.workflow?.workItem?.workType ?? null,
       task: optionString(options, 'task') ?? null,
-      source: 'vscode-governed-handoff'
+      source: 'vscode-governed-handoff',
+      // The composed generation is the byte-owning authority. Reading it back also proves that a
+      // handoff cannot be stamped from a changed/missing closure between composition and audit.
+      executionContext: generationPrompt?.record.executionContext
+        ?? config.executionContext?.identity
+        ?? (selectedWorkId ? { mode: 'historical-unproven' } : { mode: 'legacy-live' })
     });
     if (audit) console.error(`Prompt audit recorded: ${audit.id} (${audit.promptSha256.slice(0, 12)}).`);
   }

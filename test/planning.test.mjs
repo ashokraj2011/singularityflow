@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { chmod, mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -115,6 +115,28 @@ test('story planning creates a private immutable context pack and promotes only 
   assert.equal(audit.repository.root, undefined);
   assert.match(audit.context.path, /^singularity\/work-items\/PLAN-101\/context\/planning\//);
   assert.match(git(root, ['log', '-1', '--format=%s']), /\[PLAN-101\]\[phase:intake\]\[planning\] promote reviewed plan/);
+});
+
+test('Story planning catalog and composition use the saved agent after its live file disappears', async () => {
+  const root = await repository();
+  run(root, process.execPath, [bin, 'start', 'PLAN-SAVED', '--from-branch', 'main', '--title', 'Use saved planning agent']);
+  const liveAgent = path.join(root, '.github/agents/product-owner.agent.md');
+  const original = await readFile(liveAgent);
+  await rm(liveAgent);
+  try {
+    const catalog = await planningTargetCatalog(root, { workId: 'PLAN-SAVED' });
+    assert.equal(catalog.targets[0].phases[0].defaultAgent, 'product-owner');
+    const context = await createPlanningContext(root, {
+      scope: 'work-item', id: 'PLAN-SAVED', phase: 'intake',
+      agent: 'product-owner', target: 'artifact'
+    });
+    assert.ok(context.manifest.sources.some((source) => (
+      source.kind === 'agent' && source.path === 'agent:product-owner'
+    )));
+    assert.match(context.context, /product owner/i);
+  } finally {
+    await writeFile(liveAgent, original);
+  }
 });
 
 test('planning omits unavailable World-Model bytes without falling back to the worktree', async (t) => {

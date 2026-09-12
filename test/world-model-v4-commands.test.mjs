@@ -17,6 +17,7 @@ import { repositorySnapshot } from '../src/editor.mjs';
 import { composeInitiativeContext } from '../src/initiative-context.mjs';
 import { createInitiative } from '../src/initiative-state.mjs';
 import { createPlanningContext } from '../src/planning.mjs';
+import { listPromptAudits, setPromptAudit } from '../src/prompt-audit.mjs';
 import { setAgentSession } from '../src/session.mjs';
 import { createWorkflow, loadConfig } from '../src/state.mjs';
 import { run } from '../src/util.mjs';
@@ -300,6 +301,35 @@ async function registeredRepository(t, { staleness = 'warn' } = {}) {
   git(root, ['commit', '-q', '-m', 'initialize registered WMB v4 fixture']);
   return root;
 }
+
+test('status and availability report dirty source as unavailable without changing it', async (t) => {
+  const root = await registeredRepository(t);
+  await quiet(() => worldModelCommand(root, ['wm', 'build'], {
+    format: 'registered-v4', views: 'dev.impact', composer: 'deterministic', json: true
+  }));
+  const source = path.join(root, 'payments.mjs');
+  const changed = `${await readFile(source, 'utf8')}\n// reviewed but not yet captured\n`;
+  await writeFile(source, changed);
+
+  const status = await quiet(() => worldModelCommand(root, ['wm', 'status'], {
+    format: 'registered-v4', json: true
+  }));
+  assert.equal(status.fresh, false);
+  assert.equal(status.freshness.status, 'unavailable');
+  assert.equal(status.freshness.source.status, 'unavailable');
+  assert.equal(status.freshness.current, null);
+  assert.equal(status.freshness.source.current, null);
+  assert.equal(status.freshness.reason, 'WMB_SOURCE_SNAPSHOT_REQUIRED');
+  assert.deepEqual(status.stalenessReceipts, []);
+
+  const textStatus = await captureStandardOutput(() => worldModelCommand(
+    root, ['wm', 'availability'], { format: 'registered-v4' }
+  ));
+  assert.match(textStatus.output.join('\n'), /source comparison unavailable/i);
+  assert.equal(await readFile(source, 'utf8'), changed,
+    'diagnostic reads must preserve the contributor source bytes');
+  assert.match(git(root, ['status', '--short', '--', 'payments.mjs']), /^M payments\.mjs$/);
+});
 
 test('the canonical World-Model config loader preserves every CLI and VS Code build input', async (t) => {
   const root = await registeredRepository(t);
@@ -1108,6 +1138,8 @@ test('confirmed on-demand next uses registered-v4 build rather than the read-onl
     baseBranch: 'main', workType: 'feature', agent: 'product-owner',
     resolved: resolveWorkType(config, 'feature')
   });
+  git(root, ['add', '--', 'singularity/work-items/WMB-V4-ON-DEMAND']);
+  git(root, ['commit', '-q', '-m', 'accept Story execution closure']);
 
   const next = spawnSync(process.execPath, [executable, '--no-model', 'next', '--yes'], {
     cwd: root, encoding: 'utf8',
@@ -1361,6 +1393,8 @@ test('phase composition reads exact state-backed registered views and never rebu
     baseBranch: 'main', workType: 'feature', agent: 'product-owner',
     resolved: resolveWorkType(config, 'feature')
   });
+  git(root, ['add', '--', 'singularity/work-items/WMB-V4-STORY']);
+  git(root, ['commit', '-q', '-m', 'accept Story execution closure']);
 
   const readiness = await inspectWorkflowGrounding(root, workflow, 'intake', {
     agent: 'product-owner', refreshRemote: false
@@ -1390,6 +1424,17 @@ test('phase composition reads exact state-backed registered views and never rebu
   assert.ok(editorView, 'the UI snapshot keeps an exact clickable registered-view path');
   assert.match(editorView.content, /SFlow World-Model View/);
 
+  // A configuration refresh may remove or replace the live agent after Story acceptance. Every
+  // subsequent Story consumer must continue from the committed WFA closure.
+  const liveAgent = path.join(root, '.github/agents/product-owner.agent.md');
+  const liveAgentBytes = await readFile(liveAgent);
+  await rm(liveAgent);
+  const storyConfig = await loadWorldModelConfig(root, {
+    workId: 'WMB-V4-STORY', phase: 'intake'
+  });
+  assert.equal(storyConfig.executionContext.identity.mode, 'workflow-snapshot');
+  assert.equal(storyConfig.executionContext.agent.source, 'agent:product-owner');
+
   const planning = await createPlanningContext(root, {
     scope: 'work-item', id: 'WMB-V4-STORY', phase: 'intake',
     agent: 'product-owner', target: 'artifact'
@@ -1399,6 +1444,7 @@ test('phase composition reads exact state-backed registered views and never rebu
     entry.kind === 'world-model'
       && entry.path === 'singularity/world-model/views/dev.impact.md'
   )), 'Plan mode consumes the exact registered view instead of parsing a legacy manifest');
+  await writeFile(liveAgent, liveAgentBytes);
 
   const brief = await composeContextBrief(root, {
     workId: 'WMB-V4-STORY', slice: 'world-model', maxOutputBytes: 24 * 1024
@@ -1412,6 +1458,7 @@ test('phase composition reads exact state-backed registered views and never rebu
   assert.match(JSON.stringify(packet), /SFlow World-Model View/);
   assert.doesNotMatch(JSON.stringify(packet), /schema_version must be/);
 
+  await rm(liveAgent);
   const next = spawnSync(process.execPath, [executable, '--no-model', 'next'], {
     cwd: root, encoding: 'utf8',
     env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'WMB Test' }
@@ -1419,6 +1466,7 @@ test('phase composition reads exact state-backed registered views and never rebu
   assert.equal(next.status, 0, next.stderr);
   assert.match(next.stdout, /Next step prepared: generate 'intake'/);
   assert.doesNotMatch(next.stderr, /schema_version must be/);
+  await writeFile(liveAgent, liveAgentBytes);
   const verified = await verifyGroundingRecord(
     root, config, workflow, workflow.phases.intake,
     { generation: 1, agent: 'product-owner' }
@@ -1467,6 +1515,9 @@ test('advisory registered-v4 absence records a verifiable prompt without inventi
     baseBranch: 'main', workType: 'feature', agent: 'product-owner',
     resolved: resolveWorkType(config, 'feature')
   });
+  git(root, ['add', '--', 'singularity/work-items/WMB-V4-WARN']);
+  git(root, ['commit', '-q', '-m', 'accept Story execution closure']);
+  await setPromptAudit(root, true);
 
   const composed = await composePhasePrompt(root, {
     workId: 'WMB-V4-WARN', phase: 'intake', agent: 'product-owner'
@@ -1486,6 +1537,26 @@ test('advisory registered-v4 absence records a verifiable prompt without inventi
   assert.deepEqual(verified.record.groundingAvailability, {
     status: 'unavailable', reasonCode: 'WMB_MANIFEST_MISSING'
   });
+  assert.equal(verified.record.executionContext.mode, 'workflow-snapshot');
+  assert.match(verified.record.executionContext.snapshotHash, /^sha256:[a-f0-9]{64}$/);
+  assert.equal(verified.record.executionContext.agentId, 'product-owner');
+  const audits = await listPromptAudits(root, { includePrompt: true });
+  assert.equal(audits.count, 1);
+  assert.deepEqual(audits.records[0].executionContext, verified.record.executionContext);
+  assert.equal(audits.records[0].workId, 'WMB-V4-WARN');
+  const handoff = spawnSync(process.execPath, [
+    executable, 'wm', 'show-prompt', '--phase', 'intake', '--work-id', 'WMB-V4-WARN',
+    '--record-audit'
+  ], {
+    cwd: root, encoding: 'utf8',
+    env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'WMB Test' }
+  });
+  assert.equal(handoff.status, 0, handoff.stderr);
+  const handoffAudit = (await listPromptAudits(root, { includePrompt: true })).records
+    .find((record) => record.source === 'vscode-governed-handoff');
+  assert.ok(handoffAudit);
+  assert.deepEqual(handoffAudit.executionContext, verified.record.executionContext);
+  assert.equal(handoffAudit.workId, 'WMB-V4-WARN');
   assert.deepEqual(verified.record.requiredViews, ['dev.impact']);
   assert.deepEqual(
     verified.record.requiredSelections.map((entry) => `${entry.view}@${entry.version}`),

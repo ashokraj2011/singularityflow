@@ -22,6 +22,19 @@ function request(root, overrides = {}) {
   };
 }
 
+const snapshotExecutionContext = Object.freeze({
+  mode: 'workflow-snapshot',
+  snapshotHash: `sha256:${'1'.repeat(64)}`,
+  agentId: 'developer',
+  agentBlobSha256: `sha256:${'2'.repeat(64)}`,
+  dependencies: Object.freeze([
+    Object.freeze({ logicalId: 'agent:developer:skill:review', sha256: `sha256:${'3'.repeat(64)}` })
+  ]),
+  parserProfile: 'sflow-agent-document-v1',
+  composerProfile: 'story-snapshot-agent-v1',
+  overrideSha256: null
+});
+
 test('the model runner rejects calls without registered operation context', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-model-runner-'));
   await assert.rejects(() => invokeModel(request(root)), (error) => error.code === 'MODEL_CONTEXT_MISSING');
@@ -38,7 +51,8 @@ test('the model runner audits and cleans the exact staged attachment bytes', asy
   }, () => invokeModel(request(root, {
     providerConfig: { executable: process.execPath, arguments: ['-e', script, '--'] },
     prompt: { text: prompt }, limits: { timeoutMs: 5000, outputBytes: 512 * 1024 },
-    subject: { kind: 'story', id: 'MODEL-1', phase: 'implementation', generationIntentId: 'intent-1', generation: 2 }
+    subject: { kind: 'story', id: 'MODEL-1', phase: 'implementation', generationIntentId: 'intent-1', generation: 2 },
+    executionContext: snapshotExecutionContext
   })));
   const provider = JSON.parse(result.output);
   assert.equal(provider.body, prompt);
@@ -81,12 +95,49 @@ test('the model runner audits and cleans the exact staged attachment bytes', asy
   const prompts = await listPromptAudits(root, { includePrompt: true });
   assert.equal(prompts.records.length, 1);
   assert.equal(prompts.records[0].source, 'model-invocation');
+  assert.equal(prompts.records[0].agent, 'developer');
   assert.equal(prompts.records[0].prompt, prompt);
   assert.equal(prompts.records[0].execution.invocationId, result.invocationId);
   assert.equal(prompts.records[0].execution.tools.mode, 'none');
   assert.equal(prompts.records[0].execution.tools.observedCalls, null);
   assert.equal(prompts.records[0].execution.tokens.status, 'unavailable');
   assert.equal(prompts.records[0].execution.tokens.total, null, 'missing provider usage is never rendered as zero');
+  assert.deepEqual(prompts.records[0].executionContext, snapshotExecutionContext);
+});
+
+test('a Story-scoped model prompt omitted by an older caller is unproven, never mislabeled live', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-model-provenance-'));
+  run('git', ['init', '-q'], { cwd: root });
+  await setPromptAudit(root, true);
+  await withOperationContext({
+    operation: { id: 'model.test', modelPolicy: 'required' },
+    modelMode: { enabled: true }, root, command: 'test'
+  }, () => invokeModel(request(root, {
+    subject: { kind: 'story', id: 'MODEL-UNPROVEN', phase: 'implementation' }
+  })));
+  const captured = await listPromptAudits(root, { includePrompt: true });
+  assert.deepEqual(captured.records[0].executionContext, { mode: 'historical-unproven' });
+});
+
+test('the model boundary refuses malformed saved-Story provenance before provider execution', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-model-provenance-invalid-'));
+  run('git', ['init', '-q'], { cwd: root });
+  let started = false;
+  const providerConfig = {
+    executable: process.execPath,
+    arguments: ['-e', 'require("node:fs").writeFileSync(process.argv[1],"started")', path.join(root, 'started')],
+    promptTransport: 'attachment'
+  };
+  await assert.rejects(() => withOperationContext({
+    operation: { id: 'model.test', modelPolicy: 'required' },
+    modelMode: { enabled: true }, root, command: 'test'
+  }, () => invokeModel(request(root, {
+    providerConfig,
+    subject: { kind: 'story', id: 'MODEL-BAD', phase: 'implementation' },
+    executionContext: { ...snapshotExecutionContext, snapshotHash: 'not-a-digest' }
+  }))), (error) => error.code === 'MODEL_REQUEST_INVALID');
+  started = await access(path.join(root, 'started')).then(() => true, () => false);
+  assert.equal(started, false);
 });
 
 test('the model runner negotiates ACP and records the protocol without exposing prompt content', async () => {

@@ -16,7 +16,7 @@ related:
   - workspaces-and-sessions
   - configuration
   - workflow-authoring
-version: 10
+version: 11
 ---
 Capability changes are proposed, reviewed as an exact diff, and activated through the configuration authority. Collection capabilities organize; delivery capabilities name the repositories that ship.
 
@@ -73,6 +73,22 @@ To remove a capability that still has children, choose where those direct childr
 ## State and safety
 
 The approved map lives on `sflow/config`; its orphan state-branch copy is a read mirror, not an independent write authority. Governed changes use proposal branches and exact activation. Activation uses an exact leased update and appends a tamper-evident event containing proposer, approver, proposal and target commits, changed files, and the protection result. A provider rejection leaves the proposal available for its normal pull-request path; only explicit pull-request, review, or protection evidence is classified as review-required.
+
+Activation is staged, so a failure after the configuration ref advances is reported as partial
+completion rather than rolled back or called complete:
+
+| Reported status or code | Durable state | Safe next action |
+| --- | --- | --- |
+| `activation-pending` | Proposal retained; approved configuration unchanged | Repair the reported Git failure and retry the exact activation |
+| `CAPABILITY_ACTIVATION_AUDIT_PENDING` | Configuration active; activation audit absent | Re-run the returned activation command so SFlow proves and records the original accepted target |
+| `activation-complete-projection-pending` | Configuration and audit active; state mirror incomplete | Run the returned `capability publish` command |
+| `activation-complete-portability-pending` | Configuration, audit, and map projection active; one or more delivery links incomplete | Run the returned `capability publish` command and verify delivery links |
+| `activated` | Configuration, audit, projection, and required portability links complete | Refresh the organisation view |
+
+Recovery binds the original proposal and accepted target commits. It never substitutes a newer
+`sflow/config` head, invents an approver, duplicates the audit after an uncertain push, or overwrites
+a newer state projection. `activated: true` means configuration authority advanced; inspect
+`status`, `audit`, `projection`, and `portability` before treating the whole operation as complete.
 
 The same information appears in several places for different reasons:
 
@@ -138,6 +154,9 @@ Organisation reads prefer the state mirror, fall back to `sflow/config`, and kee
 - If the selected Story or branch is wrong, stop and use `sflow home`, `sflow session`, or `sflow workspace list` before retrying.
 - If a command refuses because state moved, refresh and use the newly rendered action instead of replaying an old handle or confirmation.
 - If publication or synchronization is pending, follow the exact recovery command in the refusal and verify with `sflow doctor`.
+- If activation reports `CAPABILITY_ACTIVATION_AUDIT_PENDING`, do not recreate the proposal. Correct the named commit-identity or signing problem and rerun its exact activation command; SFlow reuses only the proven original activation event.
+- If activation is complete but projection or portability is pending, run the returned `capability publish` action. Do not merge or reset `sflow/config` again.
+- If recovery reports `CAPABILITY_ACTIVATION_RECOVERY_CONFLICT`, fetch or restore the exact authority/ledger history named in the diagnostic. A newer branch head is not evidence of the original approval.
 - If a push is reported as `outcome-unknown`, run the returned exact proposal inspection before retrying. Do not delete or recreate the branch based only on a timeout.
 - If Map reports `CAPABILITY_AUTHOR_IDENTITY_REQUIRED`, configure both values explicitly with `git config --global user.name "Your Name"` and `git config --global user.email you@example.com`, then retry. The operating-system account name is not governed Git authorship.
 - If proposal coverage is `partial`, review/retire the remote proposal backlog or raise the issue with the capability-map owner. Do not bypass the 4,096-ref safety ceiling or assume an uninspected proposal is absent.

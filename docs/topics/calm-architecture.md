@@ -12,7 +12,7 @@ related:
   - world-model
   - capability-management
   - evidence-and-ledger
-version: 3
+version: 4
 ---
 
 The `arch.calm@1` product projects validated World Model facts into a deterministic FINOS CALM
@@ -48,7 +48,10 @@ external service or invoke a model.
 4. Run `sflow architecture sources <ELEMENT-ID>` to verify exact Fact and evidence provenance.
 5. Run `sflow architecture validate` to verify the generated structure and projection receipt.
 6. For a Story-only proposed change, record reviewed architecture intent and render its planned
-   overlay. The overlay never rewrites the repository-wide observed projection.
+   overlay. Omit `generation` to target the owning phase's next publication, then follow
+   `phase publish → submit → approve` before rendering. Use `architecture intent revise` with the
+   exact current `--expect-intent` digest for a replacement; the overlay never rewrites the
+   repository-wide observed projection.
 7. Run `sflow architecture export --out <REPOSITORY-RELATIVE-PATH>` only after reviewing the exact
    destination and projection identity.
 
@@ -71,6 +74,13 @@ destination and does not mutate World Model, Story state, or approval authority.
 - If validation fails, run `sflow architecture doctor` and repair the cited contract, validator, or
   stale source input before rebuilding.
 - If Story intent is unavailable, resume the intended work item or pass its documented `--work-id`.
+- If current source is intentionally uncommitted, explicitly supply the exact reviewed Candidate
+  with `architecture intent verify --work-id <WORK-ID> --candidate-snapshot sha256:<DIGEST>`.
+  Reusing a Candidate after any source or base-revision change is refused and never rewrites the
+  saved fulfilment report.
+- If fulfilment reports `WMC_INTENT_REPORT_MISMATCH`, do not hand-edit the report. Repair the named
+  base/source/authority input, rerun `sflow architecture intent verify --work-id <WORK-ID>`, review
+  the atomically recomputed report, and retry the gate.
 - If export is refused, choose a new repository-relative destination and review the refreshed action.
 
 ## Related topics

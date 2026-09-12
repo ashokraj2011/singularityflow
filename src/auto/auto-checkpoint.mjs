@@ -782,7 +782,7 @@ export async function rebuildAutoFlightState(controlRoot, {
   }
   if (!['completed', 'halted', 'manual-takeover'].includes(record.status)) {
     const active = workflow.phases?.[workflow.currentPhase] ?? workflow.phases?.[record.story.phase];
-    await activatePhaseAgent(managed, definition, record.story.workId, active);
+    await activatePhaseAgent(managed, definition, record.story.workId, active, null, workflow);
   }
   // Restore every disposable authority sidecar before creating local flight state. A malformed
   // governed snapshot must remain retryable after correction and must never strand a partial

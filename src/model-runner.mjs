@@ -18,6 +18,9 @@ import { repositoryLogger } from './logging.mjs';
 import { recordPromptAudit } from './prompt-audit.mjs';
 import { canonicalJson } from './records.mjs';
 import { assessTokenAdmission } from './token-admission.mjs';
+import {
+  modelRequestIsStoryScoped, normalizePromptExecutionContext
+} from './prompt-execution-context.mjs';
 
 function sha256(value) { return createHash('sha256').update(value).digest('hex'); }
 
@@ -319,12 +322,19 @@ async function normalizeRequest(request, context) {
       && !['observe', 'enforce'].includes(request.tokenAdmission.mode)) {
     throw new SingularityFlowError('Model request tokenAdmission.mode must be observe or enforce.', { code: 'MODEL_REQUEST_INVALID' });
   }
+  const executionContext = normalizePromptExecutionContext(request.executionContext, {
+    omittedMode: modelRequestIsStoryScoped(request.subject)
+      ? 'historical-unproven' : 'legacy-live',
+    code: 'MODEL_REQUEST_INVALID',
+    label: 'Model request executionContext'
+  });
   return Object.freeze({
     ...request,
     provider: provider.trim(),
     cwd: resolvedCwd,
     allowedRoots: Object.freeze(resolvedRoots),
     channel: request.channel.trim(),
+    executionContext,
     tools: Object.freeze({
       mode: toolMode, names: Object.freeze([...toolNames]),
       requireSuccessful: toolMode !== 'none' && request.tools?.requireSuccessful !== false,
@@ -461,18 +471,21 @@ async function resolveRouting(normalized, root) {
   };
 }
 
-async function captureInvocationPrompt(root, staged, event) {
+async function captureInvocationPrompt(root, staged, event, executionContext) {
   const prompt = await readFile(staged.file, 'utf8');
+  const storyScoped = modelRequestIsStoryScoped(event.subject);
   return recordPromptAudit(root, {
     prompt,
-    agent: event.subject?.agent ?? event.subject?.governedAgent ?? 'kernel-model',
+    agent: event.subject?.agent ?? event.subject?.governedAgent
+      ?? (executionContext.mode === 'workflow-snapshot' ? executionContext.agentId : 'kernel-model'),
     phase: event.subject?.phase ?? 'unscoped',
     generation: event.subject?.generation ?? null,
-    workId: event.subject?.id ?? event.subject?.workId ?? null,
+    workId: event.subject?.workId ?? (storyScoped ? event.subject?.id ?? null : null),
     workType: event.subject?.workType ?? null,
     task: event.routing?.task ?? null,
     source: 'model-invocation',
-    supportingEvidence: [{ kind: 'model-invocation-audit', id: event.id }]
+    supportingEvidence: [{ kind: 'model-invocation-audit', id: event.id }],
+    executionContext
   });
 }
 
@@ -604,7 +617,7 @@ export async function invokeModel(request) {
     // When prompt capture is enabled it is part of the same fail-closed boundary. Record the exact
     // staged bytes before provider start so a crash, kill, or provider hang cannot leave an
     // invocation receipt with no corresponding prompt record.
-    await captureInvocationPrompt(resolvedAuditRoot, staged, event);
+    await captureInvocationPrompt(resolvedAuditRoot, staged, event, normalized.executionContext);
     if (normalized.tokenAdmission?.mode === 'enforce') {
       if (!admission.safeToEnforce || admission.maximumInputTokens == null) {
         throw new SingularityFlowError(

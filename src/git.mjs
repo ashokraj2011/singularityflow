@@ -1,8 +1,10 @@
 import path from 'node:path';
+import os from 'node:os';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 // Synchronous, because `identity()` is synchronous and called from synchronous code throughout.
 import {
-  existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync
+  accessSync, constants as FS_CONSTANTS, existsSync, mkdirSync, mkdtempSync, readFileSync,
+  realpathSync, rmSync, statSync, writeFileSync
 } from 'node:fs';
 import { SingularityFlowError, invariant, run } from './util.mjs';
 import { readLocalGitBlobs } from './git-blob-batch.mjs';
@@ -10,6 +12,7 @@ import { runRemoteGitAsync } from './git-execution.mjs';
 import {
   classifyGitRemoteFailure, frozenRemoteTransport, safeGitDiagnosticReference
 } from './git-remote-diagnostics.mjs';
+import { withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
 import { scopedReadSync } from './read-scope.mjs';
 import { scannablePath, scanEntries, secretRefusal } from './secrets.mjs';
 
@@ -254,6 +257,391 @@ export function gitCommitIdentity(root, { env = process.env } = {}) {
     login: null,
     githubLookup: GITHUB_LOOKUP.NOT_CHECKED
   };
+}
+
+const FALLBACK_COMMIT_IDENTITY = Object.freeze({
+  name: 'Singularity Flow',
+  email: 'unknown@invalid',
+  source: 'service-fallback'
+});
+const COMMIT_IDENTITY_MAX_BYTES = 512;
+
+function commitIdentityError(field, reason) {
+  return new SingularityFlowError(
+    `Git commit ${field} is invalid: ${reason}. Configure a valid user.name and user.email, then retry.`, {
+      code: 'GIT_COMMIT_IDENTITY_INVALID',
+      details: {
+        field,
+        nextAction: {
+          command: 'git config --global user.name <NAME> && git config --global user.email <EMAIL>'
+        }
+      }
+    }
+  );
+}
+
+function normalizedCommitIdentityField(value, field) {
+  const normalized = String(value ?? '').trim();
+  if (!normalized) throw commitIdentityError(field, 'the configured value is empty');
+  if (Buffer.byteLength(normalized, 'utf8') > COMMIT_IDENTITY_MAX_BYTES) {
+    throw commitIdentityError(field, `the configured value exceeds ${COMMIT_IDENTITY_MAX_BYTES} UTF-8 bytes`);
+  }
+  if (/\0|\r|\n/u.test(normalized)) {
+    throw commitIdentityError(field, 'NUL and line-break characters are not allowed');
+  }
+  if (/[<>]/u.test(normalized)) {
+    throw commitIdentityError(field, "'<' and '>' are not allowed by Git identity syntax");
+  }
+  return normalized;
+}
+
+/**
+ * Freeze the presentation identity used by isolated commits for one operation.
+ *
+ * This is deliberately separate from `identity()`: Git metadata is not approval authority. The
+ * ordinary repository/global `user.*` configuration participates, while ambient author/committer
+ * variables and repository selectors cannot substitute another identity after it has been frozen.
+ */
+export function resolveGitCommitIdentity(root = process.cwd(), {
+  env = process.env
+} = {}) {
+  const queryEnv = withoutGitProcessOverrides(env);
+  const identityOverrides = new Set([
+    'GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_AUTHOR_DATE',
+    'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL', 'GIT_COMMITTER_DATE'
+  ]);
+  // Windows environment names are case-insensitive. Remove every spelling so a lower/mixed-case
+  // inherited override cannot survive beside the canonical value and win Node's environment
+  // de-duplication when the isolated Git process is launched.
+  for (const key of Object.keys(queryEnv)) {
+    if (identityOverrides.has(key.toUpperCase())) delete queryEnv[key];
+  }
+  if (queryEnv.NODE_ENV === 'test' && queryEnv.SINGULARITY_FLOW_TEST_IDENTITY) {
+    const name = normalizedCommitIdentityField(
+      queryEnv.SINGULARITY_FLOW_TEST_IDENTITY, 'user.name'
+    );
+    const email = normalizedCommitIdentityField(
+      `${name.toLowerCase().replace(/\s+/g, '.')}@example.com`, 'user.email'
+    );
+    return Object.freeze({ name, email, source: 'configured' });
+  }
+  const configuredName = git(['config', '--get', 'user.name'], {
+    cwd: root, env: queryEnv, allowFailure: true
+  });
+  const configuredEmail = git(['config', '--get', 'user.email'], {
+    cwd: root, env: queryEnv, allowFailure: true
+  });
+  if (![0, 1].includes(configuredName.status) || ![0, 1].includes(configuredEmail.status)) {
+    throw commitIdentityError('identity', 'Git could not read the configured presentation identity');
+  }
+  const namePresent = configuredName.status === 0;
+  const emailPresent = configuredEmail.status === 0;
+  // A wholly or partially absent presentation identity is not approval evidence. Preserve the
+  // long-standing service metadata pair rather than mixing one configured field with a fabricated
+  // counterpart. A value Git says exists but that is empty/malformed is explicit and is refused.
+  if (!namePresent || !emailPresent) {
+    if (namePresent) normalizedCommitIdentityField(configuredName.stdout, 'user.name');
+    if (emailPresent) normalizedCommitIdentityField(configuredEmail.stdout, 'user.email');
+    return FALLBACK_COMMIT_IDENTITY;
+  }
+  return Object.freeze({
+    name: normalizedCommitIdentityField(configuredName.stdout, 'user.name'),
+    email: normalizedCommitIdentityField(configuredEmail.stdout, 'user.email'),
+    source: 'configured'
+  });
+}
+
+/** Validate an explicitly threaded value instead of trusting a structurally similar object. */
+export function validateGitCommitIdentity(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+      || !['configured', 'service-fallback'].includes(value.source)) {
+    throw commitIdentityError('identity', 'the frozen operation value is incomplete');
+  }
+  return Object.freeze({
+    name: normalizedCommitIdentityField(value.name, 'user.name'),
+    email: normalizedCommitIdentityField(value.email, 'user.email'),
+    source: value.source
+  });
+}
+
+/** Command-scoped Git configuration for a frozen identity. */
+export function gitCommitIdentityArgs(value) {
+  const commitIdentity = validateGitCommitIdentity(value);
+  return ['-c', `user.name=${commitIdentity.name}`, '-c', `user.email=${commitIdentity.email}`];
+}
+
+/** Author and committer variables are forced too: Git gives them precedence over `-c user.*`. */
+export function gitCommitIdentityEnvironment(sourceEnv, value) {
+  const commitIdentity = validateGitCommitIdentity(value);
+  const env = { ...(sourceEnv ?? process.env) };
+  const identityOverrides = new Set([
+    'GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_AUTHOR_DATE',
+    'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL', 'GIT_COMMITTER_DATE'
+  ]);
+  for (const key of Object.keys(env)) {
+    if (identityOverrides.has(key.toUpperCase())) delete env[key];
+  }
+  return {
+    ...env,
+    GIT_AUTHOR_NAME: commitIdentity.name,
+    GIT_AUTHOR_EMAIL: commitIdentity.email,
+    GIT_COMMITTER_NAME: commitIdentity.name,
+    GIT_COMMITTER_EMAIL: commitIdentity.email
+  };
+}
+
+function signingConfigurationError(reason, setting = 'user.signingkey') {
+  return new SingularityFlowError(
+    `Git commit signing configuration is invalid: ${reason}. Configure a valid ${setting}, then retry.`, {
+      code: 'GIT_COMMIT_SIGNING_INVALID',
+      details: {
+        setting,
+        nextAction: {
+          command: setting === 'user.signingkey'
+            ? 'git config --global user.signingkey <KEY>'
+            : `git config --global ${setting} <PROGRAM>`
+        }
+      }
+    }
+  );
+}
+
+const SIGNING_FORMATS = Object.freeze(['openpgp', 'ssh', 'x509']);
+
+function normalizedSigningSetting(value, setting) {
+  const normalized = String(value ?? '').trim();
+  if (!normalized) throw signingConfigurationError(`${setting} is empty`, setting);
+  if (Buffer.byteLength(normalized, 'utf8') > COMMIT_IDENTITY_MAX_BYTES
+      || /\0|\r|\n/u.test(normalized)) {
+    throw signingConfigurationError(
+      `${setting} is malformed or exceeds ${COMMIT_IDENTITY_MAX_BYTES} UTF-8 bytes`, setting
+    );
+  }
+  return normalized;
+}
+
+function signingProgramSetting(format) {
+  return `gpg.${format}.program`;
+}
+
+/**
+ * Return the program Git would select after processing its configuration in order.
+ *
+ * `gpg.program` is a legacy synonym only for `gpg.openpgp.program`. When both aliases
+ * occur, Git's config parser applies the last occurrence, so querying each key independently and
+ * preferring one would silently choose a different signer.
+ */
+function configuredSigningProgram(root, format, env) {
+  const setting = signingProgramSetting(format);
+  const pattern = format === 'openpgp'
+    ? '^gpg\\.(program|openpgp\\.program)$'
+    : `^gpg\\.${format}\\.program$`;
+  const configured = git(['config', '--null', '--get-regexp', pattern], {
+    cwd: root, env, allowFailure: true
+  });
+  if (configured.status === 1) return null;
+  if (configured.status !== 0) {
+    throw signingConfigurationError(`Git could not read ${setting}`, setting);
+  }
+  const records = String(configured.stdout ?? '').split('\0').filter(Boolean);
+  if (!records.length) throw signingConfigurationError(`${setting} is empty`, setting);
+  const selected = records.at(-1);
+  const separator = selected.indexOf('\n');
+  if (separator <= 0) throw signingConfigurationError(`${setting} is malformed`, setting);
+  return normalizedSigningSetting(selected.slice(separator + 1), setting);
+}
+
+function environmentValue(env, name) {
+  if (env?.[name] != null) return String(env[name]);
+  if (process.platform !== 'win32') return '';
+  const match = Object.keys(env ?? {}).find((key) => key.toLowerCase() === name.toLowerCase());
+  return match ? String(env[match]) : '';
+}
+
+function expandedHomePath(value, env) {
+  if (value !== '~' && !value.startsWith('~/') && !value.startsWith('~\\')) return value;
+  const configuredHome = environmentValue(env, process.platform === 'win32' ? 'USERPROFILE' : 'HOME');
+  const home = configuredHome && path.isAbsolute(configuredHome) ? configuredHome : os.homedir();
+  return path.join(home, value.slice(2));
+}
+
+function executableExtensions(value, env) {
+  if (process.platform !== 'win32' || path.extname(value)) return [''];
+  const configured = environmentValue(env, 'PATHEXT') || '.COM;.EXE;.BAT;.CMD';
+  return ['', ...configured.split(';').map((entry) => entry.trim()).filter(Boolean)];
+}
+
+function usableExecutable(candidate) {
+  try {
+    const canonical = realpathSync.native(candidate);
+    if (!statSync(canonical).isFile()) return null;
+    accessSync(canonical, process.platform === 'win32' ? FS_CONSTANTS.F_OK : FS_CONSTANTS.X_OK);
+    return canonical;
+  } catch {
+    return null;
+  }
+}
+
+function resolveSigningProgram(root, configured, format, env) {
+  // Leave Git's built-in default alone. Git for Windows can resolve its bundled signer from its own
+  // installation even when that directory is absent from the extension host's PATH. Only an
+  // explicitly configured program is configuration authority that must be frozen and carried.
+  if (configured == null) return null;
+  const setting = signingProgramSetting(format);
+  const requested = normalizedSigningSetting(configured, setting);
+  const expanded = expandedHomePath(requested, env);
+  const pathLike = path.isAbsolute(expanded) || expanded.includes('/') || expanded.includes('\\');
+  const bases = pathLike
+    ? [path.isAbsolute(expanded) ? expanded : path.resolve(root, expanded)]
+    : environmentValue(env, 'PATH').split(path.delimiter)
+      .map((directory) => path.resolve(root, directory || '.', expanded));
+  for (const base of bases) {
+    for (const extension of executableExtensions(base, env)) {
+      const found = usableExecutable(`${base}${extension}`);
+      if (found) return found;
+    }
+  }
+  throw signingConfigurationError(
+    `configured ${setting} is unavailable or not executable`, setting
+  );
+}
+
+function sshSigningKey(root, value, env) {
+  // Git accepts both the current `key::` form and the deprecated raw `ssh-*` public-key form.
+  if (value.startsWith('key::') || value.startsWith('ssh-')) return value;
+  const expanded = expandedHomePath(value, env);
+  const candidate = path.isAbsolute(expanded) ? expanded : path.resolve(root, expanded);
+  try {
+    const canonical = realpathSync.native(candidate);
+    if (!statSync(canonical).isFile()) throw new Error('not a file');
+    accessSync(canonical, FS_CONSTANTS.R_OK);
+    return canonical;
+  } catch {
+    throw signingConfigurationError(
+      'the SSH user.signingkey path is unavailable or unreadable', 'user.signingkey'
+    );
+  }
+}
+
+function assertFrozenSigningResources(signing) {
+  const setting = signingProgramSetting(signing.format);
+  if (signing.program != null
+      && (!path.isAbsolute(signing.program) || !usableExecutable(signing.program))) {
+    throw signingConfigurationError('the frozen signing program is unavailable or not executable', setting);
+  }
+  if (signing.format === 'ssh'
+      && !signing.key.startsWith('key::') && !signing.key.startsWith('ssh-')) {
+    if (!path.isAbsolute(signing.key)) {
+      throw signingConfigurationError(
+        'the frozen SSH user.signingkey path is not absolute', 'user.signingkey'
+      );
+    }
+    try {
+      if (!statSync(signing.key).isFile()) throw new Error('not a file');
+      accessSync(signing.key, FS_CONSTANTS.R_OK);
+    } catch {
+      throw signingConfigurationError(
+        'the frozen SSH user.signingkey path is unavailable or unreadable', 'user.signingkey'
+      );
+    }
+  }
+}
+
+/** Capture only the key, format, and selected executable required by a signed isolated commit. */
+export function resolveGitCommitSigning(root = process.cwd(), {
+  env = process.env, required = false
+} = {}) {
+  if (!required) return Object.freeze({ required: false, key: null, format: null });
+  const queryEnv = withoutGitProcessOverrides(env);
+  const key = git(['config', '--get', 'user.signingkey'], {
+    cwd: root, env: queryEnv, allowFailure: true
+  });
+  if (key.status === 1) {
+    throw signingConfigurationError('required signing has no user.signingkey');
+  }
+  if (key.status !== 0) {
+    throw signingConfigurationError('Git could not read user.signingkey');
+  }
+  if (!String(key.stdout ?? '').trim()) {
+    throw signingConfigurationError('required signing has no user.signingkey');
+  }
+  const normalizedKey = normalizedSigningSetting(key.stdout, 'user.signingkey');
+  const configuredFormat = git(['config', '--get', 'gpg.format'], {
+    cwd: root, env: queryEnv, allowFailure: true
+  });
+  if (![0, 1].includes(configuredFormat.status)) {
+    throw signingConfigurationError('Git could not read gpg.format', 'gpg.format');
+  }
+  const format = configuredFormat.status === 0
+    ? String(configuredFormat.stdout ?? '').trim().toLowerCase()
+    : 'openpgp';
+  if (!SIGNING_FORMATS.includes(format)) {
+    throw signingConfigurationError(`unsupported gpg.format '${format || '(empty)'}'`, 'gpg.format');
+  }
+  const configuredProgram = configuredSigningProgram(root, format, queryEnv);
+  const program = resolveSigningProgram(root, configuredProgram, format, queryEnv);
+  const frozenKey = format === 'ssh'
+    ? sshSigningKey(root, normalizedKey, queryEnv)
+    : normalizedKey;
+  return Object.freeze({ required: true, key: frozenKey, format, program });
+}
+
+export function validateGitCommitSigning(value) {
+  if (!value?.required) return Object.freeze({ required: false, key: null, format: null });
+  const key = normalizedSigningSetting(value.key, 'user.signingkey');
+  const format = String(value.format ?? '').trim().toLowerCase();
+  if (!SIGNING_FORMATS.includes(format)) {
+    throw signingConfigurationError(`unsupported gpg.format '${format || '(empty)'}'`, 'gpg.format');
+  }
+  const program = value.program == null
+    ? null
+    : normalizedSigningSetting(value.program, signingProgramSetting(format));
+  const signing = Object.freeze({ required: true, key, format, program });
+  assertFrozenSigningResources(signing);
+  return signing;
+}
+
+export function gitCommitSigningArgs(value = null) {
+  const signing = validateGitCommitSigning(value);
+  if (!signing.required) return [];
+  return [
+    '-c', `user.signingkey=${signing.key}`,
+    '-c', `gpg.format=${signing.format}`,
+    ...(signing.program == null
+      ? []
+      : ['-c', `${signingProgramSetting(signing.format)}=${signing.program}`])
+  ];
+}
+
+/** Ask Git itself to parse the frozen author and committer before any remote authority update. */
+export function preflightGitCommitIdentity(root, value, {
+  env = process.env, signing = null
+} = {}) {
+  const commitIdentity = validateGitCommitIdentity(value);
+  const commitEnv = gitCommitIdentityEnvironment(env, commitIdentity);
+  const args = gitCommitIdentityArgs(commitIdentity);
+  const commitSigning = signing?.required ? validateGitCommitSigning(signing) : null;
+  const signingArgs = commitSigning ? gitCommitSigningArgs(commitSigning) : [];
+  for (const variable of ['GIT_AUTHOR_IDENT', 'GIT_COMMITTER_IDENT']) {
+    const parsed = git([...args, ...signingArgs, 'var', variable], {
+      cwd: root, env: commitEnv, allowFailure: true
+    });
+    if (parsed.status !== 0 || !String(parsed.stdout ?? '').trim()) {
+      throw commitIdentityError('identity', `Git rejected ${variable.toLowerCase()}`);
+    }
+  }
+  if (commitSigning?.program != null) {
+    const signingProgram = git([
+      ...args, ...signingArgs, 'config', '--get', signingProgramSetting(commitSigning.format)
+    ], { cwd: root, env: commitEnv, allowFailure: true });
+    if (signingProgram.status !== 0
+        || String(signingProgram.stdout ?? '').trim() !== commitSigning.program) {
+      throw signingConfigurationError(
+        'Git rejected the frozen signing program', signingProgramSetting(commitSigning.format)
+      );
+    }
+  }
+  return commitIdentity;
 }
 
 export function identity(root, { offline = false, env = process.env } = {}) {

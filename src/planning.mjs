@@ -64,6 +64,9 @@ import { phasePublicationCommand } from './manual-authorship.mjs';
 import { requiredStructuralPromptContext } from './structural-prompt-context.mjs';
 import { artifactContentContractLines } from './publication-preflight.mjs';
 import { isWorldModelAvailabilityError } from './world-model-availability.mjs';
+import {
+  resolveStoryExecutionCatalog, resolveStoryExecutionContext
+} from './story-execution-context.mjs';
 
 const SESSION_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 const INITIATIVE_METADATA = /^<!-- singularity-flow:initiative-metadata[\s\S]*?-->/;
@@ -498,8 +501,10 @@ async function workItemWorldModel(root, definition, workflow, phase, agent) {
   }
 }
 
-async function workItemPlanningParts(root, definition, { id, phaseId, agent, targetId }) {
-  const workflow = await loadWorkflow(root, definition, id);
+async function workItemPlanningParts(root, definition, {
+  id, phaseId, agent, targetId, workflow = null, executionContext = null
+}) {
+  workflow ??= await loadWorkflow(root, definition, id);
   const selectedPhase = phaseId ?? workflow.currentPhase;
   if (!selectedPhase || selectedPhase !== workflow.currentPhase) {
     throw new SingularityFlowError(`Planning is sequence-aware: work item '${id}' is currently at '${workflow.currentPhase ?? 'complete'}', not '${selectedPhase ?? 'none'}'.`);
@@ -531,7 +536,8 @@ async function workItemPlanningParts(root, definition, { id, phaseId, agent, tar
         || !world.record.available || world.record.format === 'registered-v4',
       modelDirectory: world.directory,
       validatedModelFiles: world.validatedModelFiles,
-      validatedManifest: world.validatedManifest
+      validatedManifest: world.validatedManifest,
+      resolvedAgent: executionContext?.agent ?? null
     });
   } catch (error) {
     const optionalIntegrityRace = world.record.mode !== 'enforce'
@@ -552,7 +558,8 @@ async function workItemPlanningParts(root, definition, { id, phaseId, agent, tar
     agentResult = await injectAgentPrompt(root, definition, agent, signals, {
       promptOverride: promptStudy,
       disableWorldModelInjection: true,
-      modelDirectory: null
+      modelDirectory: null,
+      resolvedAgent: executionContext?.agent ?? null
     });
   }
   const capability = worldModelDisabledForWorkflow(workflow)
@@ -565,7 +572,10 @@ async function workItemPlanningParts(root, definition, { id, phaseId, agent, tar
   if (inputs.errors.length) throw new SingularityFlowError(`Planning inputs are not ready:\n- ${inputs.errors.join('\n- ')}`);
   const inputBlock = renderInputsBlock(inputs).text;
   const session = await loadSession(root, { required: false });
-  const remote = await renderAgentSkills(root, workflow, phase, session?.workId === id ? { ...session, agent } : null, { record: false, itemDirectory });
+  const remote = await renderAgentSkills(
+    root, workflow, phase, session?.workId === id ? { ...session, agent } : null,
+    { record: false, itemDirectory, executionContext }
+  );
   const supportingDocuments = await workItemSupportingDocuments(root, definition, workflow);
   const storyPath = path.join(itemDirectory, 'USER-STORY.md');
   const story = await existingText(storyPath);
@@ -618,10 +628,17 @@ async function workItemPlanningParts(root, definition, { id, phaseId, agent, tar
 }
 
 export async function planningTargetCatalog(root, { workId = null, initiativeId = null } = {}) {
-  const definition = await loadDefinition(root);
+  let definition = await loadDefinition(root, { storyBootstrap: Boolean(workId) });
   const targets = [];
   if (workId) {
-    const workflow = await loadWorkflow(root, definition, workId);
+    let workflow = await loadWorkflow(root, definition, workId);
+    if (workflow.workflowSnapshot) {
+      definition = (await resolveStoryExecutionCatalog(root, definition, workflow))
+        .effectiveDefinition;
+    } else {
+      definition = await loadDefinition(root);
+      workflow = await loadWorkflow(root, definition, workId);
+    }
     targets.push({
       scope: 'work-item',
       id: workId,
@@ -641,6 +658,10 @@ export async function planningTargetCatalog(root, { workId = null, initiativeId 
     });
   }
   if (initiativeId) {
+    // Initiatives do not carry a Story WFA closure and continue to use the current reviewed
+    // repository catalog. Delay that strict load so a work-item-only catalog never touches live
+    // agents.
+    if (workId) definition = await loadDefinition(root);
     const { initiative } = await loadInitiative(root, initiativeId);
     targets.push({
       scope: 'initiative',
@@ -680,23 +701,35 @@ export async function createPlanningContext(root, {
   target: targetId = null,
   objective = ''
 } = {}) {
-  const definition = await loadDefinition(root);
-  const prompt = await planningPrompt(root, definition);
-  if (!prompt.config.enabled) throw new SingularityFlowError('Governed Copilot planning is disabled by workflow.yml.');
+  let definition = await loadDefinition(root, { storyBootstrap: scope === 'work-item' });
   let selectedAgent = agent;
+  let workflow = null;
+  let executionContext = null;
   if (!selectedAgent && scope === 'initiative') {
     const { initiative } = await loadInitiative(root, id);
     const selectedPhase = phaseId ?? initiative.currentPhase;
     selectedAgent = initiative.resolution.phases.find((candidate) => candidate.id === selectedPhase)?.agents?.[0] ?? null;
-  } else if (!selectedAgent && scope === 'work-item') {
-    const workflow = await loadWorkflow(root, definition, id);
-    selectedAgent = workflow.phases[phaseId ?? workflow.currentPhase]?.defaultAgent ?? null;
+  } else if (scope === 'work-item') {
+    workflow = await loadWorkflow(root, definition, id);
+    if (!workflow.workflowSnapshot) {
+      definition = await loadDefinition(root);
+      workflow = await loadWorkflow(root, definition, id);
+    }
+    selectedAgent ??= workflow.phases[phaseId ?? workflow.currentPhase]?.defaultAgent ?? null;
+    executionContext = await resolveStoryExecutionContext(root, definition, workflow, {
+      agentId: selectedAgent, phaseId: phaseId ?? workflow.currentPhase
+    });
+    definition = executionContext.effectiveDefinition;
   }
+  const prompt = await planningPrompt(root, definition);
+  if (!prompt.config.enabled) throw new SingularityFlowError('Governed Copilot planning is disabled by workflow.yml.');
   if (!definition.agents[selectedAgent]) throw new SingularityFlowError(`No governed agent is configured for planning phase '${phaseId ?? 'current'}'.`);
   const parts = scope === 'initiative'
     ? await initiativePlanningParts(root, definition, { id, phaseId, agent: selectedAgent, targetId })
     : scope === 'work-item'
-      ? await workItemPlanningParts(root, definition, { id, phaseId, agent: selectedAgent, targetId })
+      ? await workItemPlanningParts(root, definition, {
+          id, phaseId, agent: selectedAgent, targetId, workflow, executionContext
+        })
       : null;
   if (!parts) throw new SingularityFlowError("Planning scope must be 'initiative' or 'work-item'.");
   const fitted = utf8Prefix(parts.governed, prompt.config.maxContextBytes);
@@ -1001,8 +1034,15 @@ export async function promotePlanningArtifacts(root, { sessionId, artifacts = []
   // A work item has exactly one required artifact per phase, so a set is not meaningful there.
   if (artifacts.length > 1) throw new SingularityFlowError('A work-item phase promotes exactly one artifact.');
   const content = artifacts[0].content;
-  const definition = await loadDefinition(root);
-  const workflow = await loadWorkflow(root, definition, pack.manifest.id);
+  let definition = await loadDefinition(root, { storyBootstrap: true });
+  let workflow = await loadWorkflow(root, definition, pack.manifest.id);
+  if (workflow.workflowSnapshot) {
+    definition = (await resolveStoryExecutionCatalog(root, definition, workflow))
+      .effectiveDefinition;
+  } else {
+    definition = await loadDefinition(root);
+    workflow = await loadWorkflow(root, definition, pack.manifest.id);
+  }
   const phase = workflow.phases[pack.manifest.phase.id];
   if (workflow.currentPhase !== phase.id || phase.status !== 'in_progress') throw new SingularityFlowError(`Work item advanced to '${workflow.currentPhase ?? 'complete'}'; rebuild the planning context.`);
   await preparePhaseInputs(root, definition, workflow, phase.id);

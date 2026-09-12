@@ -125,6 +125,13 @@ import {
   materializeReferenceRepositories, parseReferenceRepositoryOptions,
   resolveReferenceRepositoryPins
 } from './reference-repositories.mjs';
+import {
+  architectureIntentStabilityIdentity, createArchitectureIntentStabilityGuard
+} from './architecture-intent-gate.mjs';
+import {
+  resolveStoryExecutionCatalog, resolveStoryExecutionContext
+} from './story-execution-context.mjs';
+import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
 
 import { installWorkflow, simulateWorkflow, simulationText, validateWorkflowCatalog, workflowCatalog, workflowDiff } from './workflow-catalog.mjs';
 import { applyRecovery, assignPhase, recoveryPlan, recoveryText, watchSnapshot, watchText } from './collaboration.mjs';
@@ -1859,7 +1866,7 @@ async function resumeCommand(positionals, options) {
   const json = optionBoolean(options, 'json');
   const discovery = await withApprovedConfigurationRead(
     root, async () => sessionDiscoveryConfiguration(
-      root, await sessionRepositoryAuthority(root)
+      root, await sessionRepositoryAuthority(root), { storyBootstrap: true }
     )
   );
   const initialConfig = discovery.definition;
@@ -1883,15 +1890,17 @@ async function resumeCommand(positionals, options) {
   await checkout(root, targetBranch, {
     base: initialConfig.defaultBaseBranch, fetch: false, fetched: fetch, existingOnly: true, remote
   });
-  const config = await loadConfig(root);
+  const accepted = await loadAcceptedStoryExecution(root, resolved.workId);
+  const config = accepted.definition;
+  const workflow = accepted.workflow;
   validateId(config, resolved.workId);
-  const workflow = await loadStoryAggregate(root, config, resolved.workId);
   const session = await activatePhaseAgent(
-    root, config, resolved.workId, currentPhase(workflow), optionString(options, 'agent') ?? null
+    root, config, resolved.workId, currentPhase(workflow), optionString(options, 'agent') ?? null,
+    workflow
   );
   if (!json) {
     summary(workflow);
-    console.log(`Active governed agent: ${session.agent}`);
+    console.log(`Active governed agent: ${session.agentLabel ?? session.agent} (${session.agent})`);
   }
   const active = currentPhase(workflow);
   if (active && !json) {
@@ -1913,7 +1922,7 @@ async function returnCommand(positionals, options) {
   const root = repoRoot();
   const discovery = await withApprovedConfigurationRead(
     root, async () => sessionDiscoveryConfiguration(
-      root, await sessionRepositoryAuthority(root)
+      root, await sessionRepositoryAuthority(root), { storyBootstrap: true }
     )
   );
   const initialConfig = discovery.definition;
@@ -2026,17 +2035,17 @@ async function returnCommand(positionals, options) {
     base: initialConfig.defaultBaseBranch, existingOnly: true, remote, fetch: false
   });
   fastForwardTo(root, remoteRef);
-  const config = await loadConfig(root);
+  const { config, workflow } = await loadAcceptedStoryExecution(root, subject.id);
   validateId(config, subject.id);
-  const workflow = await loadStoryAggregate(root, config, subject.id);
   const session = await activatePhaseAgent(
-    root, config, workflow.workItem.id, currentPhase(workflow), optionString(options, 'agent') ?? null
+    root, config, workflow.workItem.id, currentPhase(workflow), optionString(options, 'agent') ?? null,
+    workflow
   );
   const json = optionBoolean(options, 'json');
   if (!json) {
     summary(workflow);
     console.log(`Returned from ${plan.freshness} evidence at ${plan.sourceCommit.slice(0, 12)}.`);
-    console.log(`Active governed agent: ${session.agent}`);
+    console.log(`Active governed agent: ${session.agentLabel ?? session.agent} (${session.agent})`);
   }
   const active = currentPhase(workflow);
   if (active && !json) {
@@ -2055,17 +2064,17 @@ async function returnCommand(positionals, options) {
 
 async function agentCommand(positionals, options = {}) {
   const root = repoRoot();
-  const config = await loadConfig(root);
-  const workflow = await loadStoryAggregate(root, config, positionals[1]);
+  const { config, workflow } = await loadAcceptedStoryExecution(root, positionals[1]);
   if (!workflowBranchAllowed(workflow, branch(root))) {
     throw new SingularityFlowError(`Branch '${branch(root)}' is not registered for Story '${workflow.workItem.id}'. Run singularity-flow story branch attach --parent ${workflow.workItem.id}.`);
   }
   const session = await selectAgent(root, config, actionActor(root), workflow.workItem.id, {
     phaseId: workflow.currentPhase,
+    workflow,
     selection: optionString(options, 'agent') ?? null,
     nonInteractiveHint: 'Pass --agent <id> to choose one without a terminal.'
   });
-  console.log(`Active governed agent: ${config.agents[session.agent].label} (${session.agent})`);
+  console.log(`Active governed agent: ${session.agentLabel ?? session.agent} (${session.agent})`);
   console.log(`Session scope: ${workflow.workItem.id} on branch ${branch(root)} (canonical ${workflow.workItem.branch})`);
   console.log('The selection is local to this checkout and will be recorded with the next workflow action.');
   if (session.phaseCompatibilityOverride) console.warn(`Warning: ${session.agent} is not declared for phase '${session.phaseCompatibilityOverride.phase}'. This is an audited prompt override, not approval authority.`);
@@ -2841,7 +2850,10 @@ async function materializeWorldModelForNext(root, config, workflow, phase, optio
 }
 
 async function nextCommand(options) {
-  const root = repoRoot(); const config = await loadConfig(root); let workflow = await loadStoryAggregate(root, config);
+  const root = repoRoot();
+  const accepted = await loadAcceptedStoryExecution(root);
+  const config = accepted.config;
+  let workflow = accepted.workflow;
   if (await storyPublicationPending(root, config, workflow.workItem.id)) {
     console.log('Run: singularity-flow sync');
     console.log('In Copilot: /sf-next');
@@ -3267,8 +3279,9 @@ function preparedPhaseNextActions(workflow, phase, prepared) {
 
 async function prepareCommand(positionals, options) {
   const root = repoRoot();
-  const config = await loadConfig(root);
-  let workflow = await loadStoryAggregate(root, config);
+  const accepted = await loadAcceptedStoryExecution(root);
+  const config = accepted.config;
+  let workflow = accepted.workflow;
   const phase = positionals[1] ?? workflow.currentPhase;
   let phaseContract = workflow.phases[phase];
   if (!phaseContract) throw new SingularityFlowError(`Unknown or unavailable phase '${phase ?? ''}'. Provide a phase ID.`);
@@ -3452,6 +3465,10 @@ async function runAssistedAnalysis(root, config, workflow, phase, { report, item
   const markdown = await readFile(path.join(root, report.binding.artifactPath), 'utf8');
   const prompt = assistedPrompt({ report, markdown, namespace });
   const provider = resolveModelProvider(config);
+  const execution = await resolveStoryExecutionContext(root, config, workflow, {
+    agentId: phase.defaultAgent ?? null,
+    phaseId: phase.id
+  });
   const invocation = await invokeModel({
     provider: provider.provider,
     providerConfig: provider.providerConfig,
@@ -3461,6 +3478,7 @@ async function runAssistedAnalysis(root, config, workflow, phase, { report, item
     prompt: { text: prompt },
     channel: 'specification-quality-assisted',
     subject: { kind: 'specification-quality', id: workflow.workItem.id, phase: phase.id, generation },
+    executionContext: execution.identity,
     tools: { mode: 'none' },
     limits: { timeoutMs: 5 * 60 * 1000, outputBytes: 256 * 1024 }
   });
@@ -4358,7 +4376,10 @@ function printPhaseReview(review, { showArtifact = false } = {}) {
 
 async function phaseCommand(positionals, options) {
   const subcommand = requirePositional(positionals, 1, 'phase subcommand');
-  const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config);
+  const root = repoRoot();
+  const accepted = await loadAcceptedStoryExecution(root);
+  const config = accepted.definition;
+  const workflow = accepted.workflow;
   if (subcommand === 'rollover') {
     const phaseId = positionals[2] ?? workflow.currentPhase;
     const phase = workflow.phases[phaseId];
@@ -4590,6 +4611,7 @@ async function phaseCommand(positionals, options) {
           phaseId,
           usage,
           authorship,
+          architectureCandidateSnapshot: optionString(options, 'candidate-snapshot'),
           persist: false,
           publicationTransaction: {
             publicationEvent,
@@ -4610,6 +4632,10 @@ async function phaseCommand(positionals, options) {
         const expectedApplicationDigest = phase.deliveryEvidence?.changeSet
           ? applicationChangeSetProjection(phase.deliveryEvidence.changeSet, pathContext).digest
           : null;
+        const expectedArchitectureIdentity = await architectureIntentStabilityIdentity(
+          root, config, workflow, phase, phase.generation,
+          { candidateSnapshot: optionString(options, 'candidate-snapshot') }
+        );
         publicationStabilityGuard = async () => {
           const artifact = await inspectPublicationArtifact(targetPath);
           if (artifact.sha256 !== expectedArtifactSha256) {
@@ -4669,7 +4695,17 @@ async function phaseCommand(positionals, options) {
             assertAutoCandidateMatches(candidate, observation);
             autoCandidateDigest = `${candidate.bindingSha256}:${observation.applicationResourceDigest}`;
           }
-          return `${expectedArtifactSha256}:${applicationDigest ?? 'artifact-only'}:${autoCandidateDigest ?? 'manual'}`;
+          const currentArchitectureIdentity = await architectureIntentStabilityIdentity(
+            root, config, workflow, phase, phase.generation,
+            { candidateSnapshot: optionString(options, 'candidate-snapshot') }
+          );
+          if (currentArchitectureIdentity !== expectedArchitectureIdentity) {
+            throw new SingularityFlowError(
+              'Architecture intent evidence changed after validation and before the governed commit. Nothing was committed; retry against the current evidence.',
+              { code: 'PUBLICATION_SNAPSHOT_CHANGED' }
+            );
+          }
+          return `${expectedArtifactSha256}:${applicationDigest ?? 'artifact-only'}:${autoCandidateDigest ?? 'manual'}:${createHash('sha256').update(currentArchitectureIdentity).digest('hex')}`;
         };
       },
       worktreeGuard: async () => {
@@ -4755,6 +4791,11 @@ async function pullRequestCommand(positionals, options) {
     if (polishRequested && context?.fallbackFrom !== 'pr.describe.polish') {
       const provider = config.models?.defaultProvider ?? 'copilot-cli';
       const providerConfig = config.models?.providers?.[provider] ?? null;
+      const activePhase = workflow.phases?.[workflow.currentPhase] ?? null;
+      const execution = await resolveStoryExecutionContext(root, config, workflow, {
+        agentId: activePhase?.defaultAgent ?? null,
+        phaseId: activePhase?.id ?? workflow.currentPhase
+      });
       const response = await invokeModel({
         provider,
         providerConfig,
@@ -4763,6 +4804,7 @@ async function pullRequestCommand(positionals, options) {
         allowedRoots: [root],
         channel: 'pr-description-polish',
         subject: { kind: 'story', id: workflow.workItem.id },
+        executionContext: execution.identity,
         prompt: { text: [
           'Polish the following pull-request description for clarity and brevity.',
           'Preserve every factual claim, identifier, checkbox, code span, and Markdown link.',
@@ -4968,9 +5010,10 @@ function decisionArguments(config, positionals, options, action) {
 async function runSubmitCommand(positionals, options, submitContext) {
   const convergenceConfirmation = submitContext?.convergenceConfirmation ?? null;
   const root = repoRoot();
-  const config = await loadConfig(root);
   const requestedWorkId = optionString(options, 'work-id');
-  let workflow = await loadStoryAggregate(root, config, requestedWorkId);
+  const accepted = await loadAcceptedStoryExecution(root, requestedWorkId);
+  const config = accepted.definition;
+  let workflow = accepted.workflow;
   // Resolve the target once, then pin every subsequent read to that exact Story. In particular,
   // telemetry reconciliation may commit and reload while another UI/session changes the globally
   // active Story; submission must not cross that Story boundary.
@@ -5073,8 +5116,13 @@ async function runSubmitCommand(positionals, options, submitContext) {
   const expectedConvergenceSnapshotSha256 = requested.id === 'convergence'
     ? (await assertConvergencePublicationReady(root, config, workflow, requested)).snapshotSha256
     : null;
-  const submissionStabilityGuard = expectedConvergenceSnapshotSha256
-    ? async () => {
+  const expectedSubmissionArchitectureIdentity = await architectureIntentStabilityIdentity(
+    root, config, workflow, requested, requested.generation,
+    { candidateSnapshot: optionString(options, 'candidate-snapshot') }
+  );
+  const submissionStabilityGuard = async () => {
+        let convergenceIdentity = 'not-convergence';
+        if (expectedConvergenceSnapshotSha256) {
         const current = await assertConvergencePublicationReady(root, config, workflow, requested);
         if (current.snapshotSha256 !== expectedConvergenceSnapshotSha256) {
           throw new SingularityFlowError(
@@ -5088,9 +5136,20 @@ async function runSubmitCommand(positionals, options, submitContext) {
             }
           );
         }
-        return current.snapshotSha256;
-      }
-    : null;
+        convergenceIdentity = current.snapshotSha256;
+        }
+        const currentArchitectureIdentity = await architectureIntentStabilityIdentity(
+          root, config, workflow, requested, requested.generation,
+          { candidateSnapshot: optionString(options, 'candidate-snapshot') }
+        );
+        if (currentArchitectureIdentity !== expectedSubmissionArchitectureIdentity) {
+          throw new SingularityFlowError(
+            'Architecture intent evidence changed after validation and before the submission commit. Nothing was committed; retry against the current evidence.',
+            { code: 'PUBLICATION_SNAPSHOT_CHANGED' }
+          );
+        }
+        return `${convergenceIdentity}:${createHash('sha256').update(currentArchitectureIdentity).digest('hex')}`;
+      };
   const publication = await commitAndPublish(
     root,
     config,
@@ -5107,6 +5166,7 @@ async function runSubmitCommand(positionals, options, submitContext) {
         phase = await submit(root, config, workflow, {
           phaseId: requested.id,
           runChecks: !optionBoolean(options, 'skip-checks'),
+          architectureCandidateSnapshot: optionString(options, 'candidate-snapshot'),
           persist: false,
           ...(requested.id === 'convergence'
             ? { confirmation: convergenceConfirmation }
@@ -5114,7 +5174,7 @@ async function runSubmitCommand(positionals, options, submitContext) {
         });
         reviewPacket = await createStoryReviewPacket(root, config, workflow, phase);
       },
-      ...(submissionStabilityGuard ? { worktreeGuard: submissionStabilityGuard } : {})
+      worktreeGuard: submissionStabilityGuard
     }
   );
   if (!reviewPacket) throw new SingularityFlowError('Submission review packet was not created.');
@@ -5456,8 +5516,9 @@ async function decisionWorkflow(positionals, options, action) {
       throw error;
     }
   }
-  config = await loadConfig(root);
-  const workflow = await loadStoryAggregate(root, config, requestedId);
+  const accepted = await loadAcceptedStoryExecution(root, requestedId);
+  config = accepted.definition;
+  const workflow = accepted.workflow;
   const workId = workflow.workItem.id;
   const overridesBefore = workflow.sequenceOverrides?.length ?? 0;
   await assertNoPendingPublication(root, config, workflow, action);
@@ -5469,7 +5530,10 @@ async function decisionWorkflow(positionals, options, action) {
     ? await resolveSelectionReceipt(root, config, receiptToken, { action, workId: workflow.workItem.id, workflow })
     : null;
   const session = await activatePhaseAgent(
-    root, config, workflow.workItem.id, phase, optionString(options, 'agent') ?? null
+    root, config, workflow.workItem.id, phase, optionString(options, 'agent') ?? null,
+    // `config` already carries this Story's verified saved agent catalog. Passing the workflow
+    // here would verify the same closure a second time inside the same approval operation.
+    null
   );
   for (const override of (workflow.sequenceOverrides ?? []).slice(overridesBefore)) {
     override.actor = session.actor;
@@ -5582,24 +5646,37 @@ async function approveCommand(positionals, options) {
   if (!receipt && !optionBoolean(options, 'yes') && !(await confirm(phase))) throw new SingularityFlowError('Approval cancelled.');
   const checklist = await checklistDecisions(options);
   const witnessMappings = witnessMappingDecisions(options);
-  const convergenceApprovalWorkflow = phase.id === 'convergence' ? structuredClone(workflow) : null;
-  const expectedConvergenceApprovalSnapshot = convergenceApprovalWorkflow
-    ? (await assertConvergencePublicationReady(root, config, convergenceApprovalWorkflow, phase)).snapshotSha256
+  // Freeze every architecture-sensitive input before the approval transition. The transition mutates
+  // the aggregate in place, so both this guard and the convergence guard use an immutable pre-decision
+  // projection while rereading external files/refs at the isolated-commit boundary.
+  const approvalStabilityWorkflow = structuredClone(workflow);
+  const approvalStabilityPhase = approvalStabilityWorkflow.phases[phase.id];
+  const architectureApprovalStabilityGuard = await createArchitectureIntentStabilityGuard(
+    root, config, approvalStabilityWorkflow, approvalStabilityPhase, phase.generation,
+    { candidateSnapshot: optionString(options, 'candidate-snapshot'), operation: 'the approval commit' }
+  );
+  const expectedConvergenceApprovalSnapshot = phase.id === 'convergence'
+    ? (await assertConvergencePublicationReady(
+        root, config, approvalStabilityWorkflow, approvalStabilityPhase
+      )).snapshotSha256
     : null;
-  const approvalStabilityGuard = expectedConvergenceApprovalSnapshot
-    ? async () => {
-        const current = await assertConvergencePublicationReady(
-          root, config, convergenceApprovalWorkflow, convergenceApprovalWorkflow.phases.convergence
+  const approvalStabilityGuard = async () => {
+    let convergenceIdentity = 'not-convergence';
+    if (expectedConvergenceApprovalSnapshot) {
+      const current = await assertConvergencePublicationReady(
+        root, config, approvalStabilityWorkflow, approvalStabilityPhase
+      );
+      if (current.snapshotSha256 !== expectedConvergenceApprovalSnapshot) {
+        throw new SingularityFlowError(
+          'Convergence evidence changed while approval was being recorded. Nothing was committed; review and submit the current projection again.',
+          { code: 'PUBLICATION_SNAPSHOT_CHANGED' }
         );
-        if (current.snapshotSha256 !== expectedConvergenceApprovalSnapshot) {
-          throw new SingularityFlowError(
-            'Convergence evidence changed while approval was being recorded. Nothing was committed; review and submit the current projection again.',
-            { code: 'PUBLICATION_SNAPSHOT_CHANGED' }
-          );
-        }
-        return current.snapshotSha256;
       }
-    : null;
+      convergenceIdentity = current.snapshotSha256;
+    }
+    const architectureIdentity = await architectureApprovalStabilityGuard();
+    return `${convergenceIdentity}:${createHash('sha256').update(architectureIdentity).digest('hex')}`;
+  };
   const { value: result, publication } = await transactStory(
     root,
     config,
@@ -5636,7 +5713,7 @@ async function approveCommand(positionals, options) {
           witnessMappingsSha256: transition.approval.witnessMappingsSha256 ?? null
         }
       }),
-      ...(approvalStabilityGuard ? { worktreeGuard: approvalStabilityGuard } : {})
+      worktreeGuard: approvalStabilityGuard
     }
   );
   // Spent once the approval has actually landed. Consuming it up front — before the confirmation
@@ -7358,10 +7435,10 @@ async function sessionRepositoryAuthority(root) {
   return null;
 }
 
-async function sessionDiscoveryConfiguration(root, authority = null) {
+async function sessionDiscoveryConfiguration(root, authority = null, { storyBootstrap = false } = {}) {
   authority ??= await sessionRepositoryAuthority(root);
   if (configurationReadAuthority(root)) {
-    const definition = await loadConfig(root);
+    const definition = await loadConfig(root, { storyBootstrap });
     return {
       definition,
       remote: definition.git?.remote ?? 'origin',
@@ -7369,7 +7446,7 @@ async function sessionDiscoveryConfiguration(root, authority = null) {
     };
   }
   if (existsSync(path.join(root, WORKFLOW_PATH))) {
-    const definition = await loadConfig(root);
+    const definition = await loadConfig(root, { storyBootstrap });
     return { definition, remote: definition.git?.remote ?? 'origin', source: 'working-tree' };
   }
   if (!authority?.remote) {
@@ -7947,8 +8024,9 @@ async function inboxCommand(options) {
 
 async function validateCommand(options) {
   const root = repoRoot();
-  const config = await loadConfig(root);
-  const workflow = await loadStoryAggregate(root, config);
+  const accepted = await loadAcceptedStoryExecution(root);
+  const config = accepted.definition;
+  const workflow = accepted.workflow;
   const result = await validateWorkflow(root, config, workflow, { strict: optionBoolean(options, 'strict') });
   result.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
   if (!result.valid) throw new SingularityFlowError(`Validation failed:\n- ${result.errors.join('\n- ')}`, { exitCode: 2 });
@@ -7957,8 +8035,9 @@ async function validateCommand(options) {
 
 async function gateCommand(options) {
   const root = repoRoot();
-  const config = await loadConfig(root);
-  const workflow = await loadStoryAggregate(root, config);
+  const accepted = await loadAcceptedStoryExecution(root);
+  const config = accepted.definition;
+  const workflow = accepted.workflow;
   const result = await runGovernanceGate(root, config, workflow, {
     terminal: optionBoolean(options, 'terminal') || process.env.SINGULARITY_FLOW_ENFORCE_TERMINAL === '1'
   });

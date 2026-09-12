@@ -41,6 +41,10 @@ import { runRemoteGitAsync } from '../src/git-execution.mjs';
 import {
   createCapabilityAuthorityLink, publishCapabilityAuthorityLinkSet, readCapabilityAuthorityLink
 } from '../src/capability-authority-link.mjs';
+import {
+  createLedgerIntent, LEDGER_SCHEMA_VERSION,
+  canonicalJson as ledgerCanonicalJson, sha256 as ledgerSha256
+} from '../src/ledger.mjs';
 
 test('repository identifiers use the final segment for Windows, UNC, URL and POSIX remotes', () => {
   assert.equal(repositoryIdOf(String.raw`C:\work\payments-api.git`), 'payments-api');
@@ -178,6 +182,65 @@ async function recordDefaultBranchAs(remote, repositoryId, branch) {
     run('git', ['push', '-q', 'origin', 'HEAD:refs/heads/sflow/config'], { cwd: checkout });
   } finally {
     await rm(checkout, { recursive: true, force: true });
+  }
+}
+
+/** Add a large, valid reachable suffix in one fixture commit without 500 remote round trips. */
+async function seedUnrelatedLedgerHistory(remote, count) {
+  const checkout = await mkdtemp(path.join(os.tmpdir(), 'sflow-mature-ledger-'));
+  try {
+    run('git', ['clone', '-q', '--branch', 'state', remote, checkout]);
+    run('git', ['config', 'user.email', 'ledger@example.test'], { cwd: checkout });
+    run('git', ['config', 'user.name', 'Ledger Fixture'], { cwd: checkout });
+    const headFile = path.join(checkout, 'ledger/head.json');
+    const originalHead = JSON.parse(await readFile(headFile, 'utf8'));
+    const sourceCommit = run('git', ['rev-parse', 'origin/sflow/config'], {
+      cwd: checkout, allowFailure: true
+    }).stdout.trim() || run('git', ['rev-parse', 'HEAD'], { cwd: checkout }).stdout.trim();
+    let parentEntryHash = originalHead.entryHash;
+    const files = [];
+    for (let index = 0; index < count; index += 1) {
+      const intent = createLedgerIntent({
+        eventId: `synthetic-history-${String(index).padStart(6, '0')}`,
+        eventType: 'telemetry-recorded',
+        capabilityId: 'fixture-history',
+        subject: { workId: `HISTORY-${index}`, phase: 'fixture', generation: 1 },
+        actor: { name: 'Ledger Fixture', email: 'ledger@example.test' },
+        payload: { index }
+      });
+      const entry = {
+        ...intent,
+        idempotencyKey: `fixture-history-${index}`,
+        transport: {
+          publishedCommit: sourceCommit,
+          recordedAt: '2026-09-12T00:00:00.000Z',
+          pinRef: null,
+          pinTransport: 'none',
+          retentionDays: 2555
+        },
+        parentEntryHash
+      };
+      const hash = ledgerSha256(ledgerCanonicalJson(entry));
+      parentEntryHash = hash;
+      files.push({
+        path: path.join(checkout, 'ledger/entries/fixture-history', `${hash}.json`),
+        contents: ledgerCanonicalJson(entry)
+      });
+    }
+    await mkdir(path.join(checkout, 'ledger/entries/fixture-history'), { recursive: true });
+    await Promise.all(files.map((file) => writeFile(file.path, file.contents)));
+    await writeFile(headFile, ledgerCanonicalJson({
+      schemaVersion: LEDGER_SCHEMA_VERSION,
+      sequence: Number(originalHead.sequence) + count,
+      entryHash: parentEntryHash,
+      previousHeadHash: ledgerSha256(ledgerCanonicalJson(originalHead)),
+      updatedAt: '2026-09-12T00:00:00.000Z'
+    }));
+    run('git', ['add', 'ledger/head.json', 'ledger/entries/fixture-history'], { cwd: checkout });
+    run('git', ['commit', '-qm', `Seed ${count} unrelated ledger events`], { cwd: checkout });
+    run('git', ['push', '-q', 'origin', 'HEAD:state'], { cwd: checkout });
+  } finally {
+    await removeTemporaryTree(checkout);
   }
 }
 
@@ -1802,8 +1865,8 @@ test('an exact capability proposal can be reviewed, activated, and projected wit
   const activationCounters = activationTimer.finish().counters;
   assert.equal(activationCounters['git.remote.command.clone'], 1,
     'activation projects from its validated checkout instead of cloning configuration twice');
-  assert.equal(activationCounters['git.remote.command.fetch'], 3,
-    'projection reuses its exact state fetch instead of immediately fetching the state ref again');
+  assert.equal(activationCounters['git.remote.command.fetch'], 4,
+    'activation checks prior audit identity once and projection reuses its exact state fetch');
   assert.equal(activated.alreadyMerged, false);
   assert.equal(activated.targetBranch, 'sflow/config');
   assert.match(run('git', ['show', 'sflow/config:singularity/capabilities.yml'], {
@@ -2216,7 +2279,7 @@ test('an externally merged proposal can append its activation audit and projecti
     confirm: proposed.commit
   });
   assert.equal(activated.alreadyMerged, true);
-  assert.equal(activated.targetBefore, null);
+  assert.equal(activated.targetBefore, proposed.baseCommit);
   assert.equal(activated.protection.enforced, null);
   assert.equal(activated.audit.recorded, true);
   assert.equal(activated.projection.published, true);
@@ -2224,6 +2287,103 @@ test('an externally merged proposal can append its activation audit and projecti
     'show', `state:ledger/events/${activated.audit.eventId}.json`
   ], { cwd: org.platform }).stdout);
   assert.equal(event.eventId, activated.audit.eventId);
+});
+
+test('capability activation remains recoverable after more than 512 ledger events', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const first = await mapCapability(org.platform, {
+    capabilityId: 'ledger-foundation', name: 'Ledger foundation', kind: 'collection'
+  });
+  await activateCapabilityProposal(org.platform, first.branch, {
+    confirm: first.commit, acknowledgeUnprotected: true
+  });
+  await seedUnrelatedLedgerHistory(org.platform, 513);
+
+  const later = await mapCapability(org.platform, {
+    capabilityId: 'mature-ledger-capability', name: 'Mature ledger capability', kind: 'collection'
+  });
+  const activated = await activateCapabilityProposal(org.platform, later.branch, {
+    confirm: later.commit, acknowledgeUnprotected: true
+  });
+  assert.equal(activated.activated, true);
+  assert.equal(activated.audit.recorded, true);
+  assert.ok(activated.audit.sequence > 512,
+    'the recovery search inspected the supported ledger rather than treating 512 as exhaustion');
+});
+
+test('activation audit recovery retains its accepted target after configuration advances', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const proposed = await mapCapability(org.platform, {
+    capabilityId: 'recover-target', name: 'Recover target', kind: 'collection'
+  });
+  const hook = path.join(org.platform, 'hooks', 'pre-receive');
+  await writeFile(hook, `#!/bin/sh
+while read old new ref; do
+  if [ "$ref" = "refs/heads/state" ]; then
+    echo "state temporarily unavailable" >&2
+    exit 1
+  fi
+done
+exit 0
+`);
+  await chmod(hook, 0o755);
+  await assert.rejects(
+    activateCapabilityProposal(org.platform, proposed.branch, {
+      confirm: proposed.commit, acknowledgeUnprotected: true
+    }),
+    (error) => {
+      assert.equal(error.code, 'CAPABILITY_ACTIVATION_AUDIT_PENDING');
+      return true;
+    }
+  );
+  const acceptedTarget = run('git', ['rev-parse', 'sflow/config'], {
+    cwd: org.platform
+  }).stdout.trim();
+  await rm(hook);
+
+  const advance = await mkdtemp(path.join(os.tmpdir(), 'sflow-activation-advance-'));
+  try {
+    run('git', ['clone', '-q', '--branch', 'sflow/config', org.platform, advance]);
+    run('git', ['config', 'user.email', 'later@example.test'], { cwd: advance });
+    run('git', ['config', 'user.name', 'Later Configurer'], { cwd: advance });
+    run('git', ['commit', '--allow-empty', '-qm', 'Later approved configuration'], {
+      cwd: advance
+    });
+    run('git', ['push', '-q', 'origin', 'HEAD:refs/heads/sflow/config'], { cwd: advance });
+  } finally {
+    await rm(advance, { recursive: true, force: true });
+  }
+  const advancedTarget = run('git', ['rev-parse', 'sflow/config'], {
+    cwd: org.platform
+  }).stdout.trim();
+  assert.notEqual(advancedTarget, acceptedTarget);
+
+  const recovered = await activateCapabilityProposal(org.platform, proposed.branch, {
+    confirm: proposed.commit
+  });
+  assert.equal(recovered.targetCommit, acceptedTarget,
+    'the audit remains bound to the original accepted transition');
+  assert.equal(recovered.currentConfigurationCommit, advancedTarget);
+  assert.equal(run('git', ['rev-parse', 'sflow/config'], {
+    cwd: org.platform
+  }).stdout.trim(), advancedTarget);
+  const paths = run('git', [
+    'ls-tree', '-r', '--name-only', 'state', 'ledger/entries/organisation'
+  ], { cwd: org.platform }).stdout.trim().split(/\r?\n/).filter(Boolean);
+  const entries = paths.map((entryPath) => JSON.parse(run('git', [
+    'show', `state:${entryPath}`
+  ], { cwd: org.platform }).stdout)).filter((entry) =>
+    entry.subject?.workId === `capability-proposal:${proposed.commit}`);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].payload.targetCommit, acceptedTarget);
+  assert.equal(entries[0].transport.publishedCommit, acceptedTarget);
+  const manifest = JSON.parse(run('git', [
+    'show', 'state:configuration/manifest.json'
+  ], { cwd: org.platform }).stdout);
+  assert.equal(manifest.source.commit, advancedTarget,
+    'projection uses the current eligible authority rather than recovered older bytes');
 });
 
 test('activation recovers an exact merged proposal after the provider deletes its source branch', async () => {
@@ -2286,6 +2446,23 @@ test('a squash-merged proposal is recognized without moving approved configurati
   const inspected = await inspectCapabilityProposal(org.platform, proposed.branch);
   assert.equal(inspected.merged, true);
   assert.equal(inspected.mergeEvidence, 'content-equivalent');
+  // Advance the authority and then change one proposal-owned path. Recovery must still identify the
+  // exact squash commit; current-HEAD equality is neither necessary nor sufficient evidence.
+  const advance = await mkdtemp(path.join(os.tmpdir(), 'sflow-squash-advance-'));
+  try {
+    run('git', ['clone', '-q', '--branch', 'sflow/config', org.platform, advance]);
+    run('git', ['config', 'user.email', 'later@example.test'], { cwd: advance });
+    run('git', ['config', 'user.name', 'Later Configurer'], { cwd: advance });
+    const capabilities = path.join(advance, 'singularity/capabilities.yml');
+    await writeFile(capabilities, `${await readFile(capabilities, 'utf8')}\n# later approved edit\n`);
+    run('git', ['add', 'singularity/capabilities.yml'], { cwd: advance });
+    run('git', ['commit', '-qm', 'Advance capability configuration after squash'], { cwd: advance });
+    run('git', ['push', '-q', 'origin', 'HEAD:sflow/config'], { cwd: advance });
+  } finally {
+    await removeTemporaryTree(advance);
+  }
+  const advanced = run('git', ['rev-parse', 'sflow/config'], { cwd: org.platform }).stdout.trim();
+  assert.notEqual(advanced, approved);
   run('git', ['update-ref', '-d', `refs/heads/${proposed.branch}`], { cwd: org.platform });
   assert.equal(run('git', ['show-ref', '--verify', '--quiet', `refs/heads/${proposed.branch}`], {
     cwd: org.platform, allowFailure: true
@@ -2298,9 +2475,10 @@ test('a squash-merged proposal is recognized without moving approved configurati
   assert.equal(activated.alreadyMerged, true);
   assert.equal(activated.mergeEvidence, 'content-equivalent');
   assert.equal(activated.targetCommit, approved);
+  assert.equal(activated.currentConfigurationCommit, advanced);
   assert.equal(run('git', ['rev-parse', 'sflow/config'], {
     cwd: org.platform
-  }).stdout.trim(), approved, 'retrospective acknowledgement must not create a second merge');
+  }).stdout.trim(), advanced, 'retrospective acknowledgement must not create a second merge');
   assert.equal(activated.audit.recorded, true);
   assert.equal(activated.projection.published, true);
 });
@@ -2507,6 +2685,275 @@ test('map captures configured commit identity before enterprise Git isolation', 
     assert.equal(name, 'Captured Map Author');
     assert.equal(email, 'map-author@example.test');
   }
+});
+
+test('activation freezes configured identity across isolated merge, audit, and projection commits', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const globalConfig = path.join(org.base, 'activation-author.gitconfig');
+  await writeFile(globalConfig,
+    '[user]\n\tname = Frozen Activation Reviewer\n\temail = frozen-reviewer@example.test\n');
+  const keys = [
+    'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM',
+    'GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL',
+    'SINGULARITY_FLOW_TEST_IDENTITY'
+  ];
+  const previous = new Map(keys.map((key) => [key, process.env[key]]));
+  process.env.GIT_CONFIG_GLOBAL = globalConfig;
+  process.env.GIT_CONFIG_SYSTEM = os.devNull;
+  process.env.GIT_AUTHOR_NAME = 'Ambient Override';
+  process.env.GIT_AUTHOR_EMAIL = 'ambient-author@example.test';
+  process.env.GIT_COMMITTER_NAME = 'Ambient Override';
+  process.env.GIT_COMMITTER_EMAIL = 'ambient-committer@example.test';
+  delete process.env.SINGULARITY_FLOW_TEST_IDENTITY;
+  try {
+    const proposed = await mapCapability(org.platform, {
+      capabilityId: 'frozen-activation', kind: 'collection'
+    });
+    await activateCapabilityProposal(org.platform, proposed.branch, {
+      confirm: proposed.commit, acknowledgeUnprotected: true
+    });
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+  const expected = [
+    'Frozen Activation Reviewer', 'frozen-reviewer@example.test',
+    'Frozen Activation Reviewer', 'frozen-reviewer@example.test'
+  ];
+  assert.deepEqual(run('git', [
+    'show', '-s', '--format=%an%x00%ae%x00%cn%x00%ce', 'sflow/config'
+  ], { cwd: org.platform }).stdout.trim().split('\0'), expected);
+  const stateIdentities = run('git', [
+    'log', '-3', '--format=%an%x00%ae%x00%cn%x00%ce', 'state'
+  ], { cwd: org.platform }).stdout.trim().split(/\r?\n/).filter(Boolean);
+  assert.equal(stateIdentities.length, 3);
+  for (const fields of stateIdentities) assert.deepEqual(fields.split('\0'), expected);
+});
+
+test('activation uses repository-local identity from an editor-equivalent initiating root', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const proposed = await mapCapability(org.platform, {
+    capabilityId: 'ui-local-identity', kind: 'collection'
+  });
+  const initiatingRoot = path.join(org.base, 'open-editor-repository');
+  run('git', ['clone', '-q', '--branch', 'main', org.platform, initiatingRoot], { cwd: org.base });
+  run('git', ['config', 'user.name', 'Repository Local Reviewer'], { cwd: initiatingRoot });
+  run('git', ['config', 'user.email', 'repo-local-reviewer@example.test'], { cwd: initiatingRoot });
+  const emptyGlobal = path.join(org.base, 'empty-ui-global.gitconfig');
+  await writeFile(emptyGlobal, '');
+  const attacker = path.join(org.base, 'actor-redirection-attempt');
+  run('git', ['clone', '-q', '--branch', 'main', org.platform, attacker], { cwd: org.base });
+  run('git', ['config', 'user.name', 'Redirected Actor'], { cwd: attacker });
+  run('git', ['config', 'user.email', 'redirected-actor@example.test'], { cwd: attacker });
+  const initiatingEnv = {
+    ...process.env,
+    NODE_ENV: 'production',
+    GIT_CONFIG_GLOBAL: emptyGlobal,
+    GIT_CONFIG_SYSTEM: os.devNull,
+    GIT_DIR: path.join(attacker, '.git'),
+    GIT_WORK_TREE: attacker
+  };
+  delete initiatingEnv.SINGULARITY_FLOW_TEST_IDENTITY;
+
+  const activated = await activateCapabilityProposal(org.platform, proposed.branch, {
+    confirm: proposed.commit,
+    acknowledgeUnprotected: true,
+    initiatingRoot,
+    initiatingEnv
+  });
+  assert.equal(activated.activated, true);
+  const expected = [
+    'Repository Local Reviewer', 'repo-local-reviewer@example.test',
+    'Repository Local Reviewer', 'repo-local-reviewer@example.test'
+  ];
+  assert.deepEqual(run('git', [
+    'show', '-s', '--format=%an%x00%ae%x00%cn%x00%ce', 'sflow/config'
+  ], { cwd: org.platform }).stdout.trim().split('\0'), expected);
+  assert.deepEqual(run('git', [
+    'show', '-s', '--format=%an%x00%ae%x00%cn%x00%ce', 'state'
+  ], { cwd: org.platform }).stdout.trim().split('\0'), expected);
+  const activationPointer = JSON.parse(run('git', [
+    'show', `state:ledger/events/${activated.audit.eventId}.json`
+  ], { cwd: org.platform }).stdout);
+  const activationEvent = JSON.parse(run('git', [
+    'show', `state:ledger/entries/organisation/${activationPointer.entryHash}.json`
+  ], { cwd: org.platform }).stdout);
+  assert.equal(activationEvent.actor.email, 'repo-local-reviewer@example.test');
+  assert.equal(activationEvent.actor.identityAssurance, 'configured-local');
+  assert.ok(activationEvent.actor.name);
+  assert.deepEqual(activationEvent.payload.approver, {
+    name: activationEvent.actor.name,
+    email: activationEvent.actor.email,
+    githubLogin: activationEvent.actor.githubLogin
+  });
+});
+
+test('projection recovery freezes repository-local identity before its isolated checkout', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const initial = await mapCapability(org.platform, {
+    capabilityId: 'projection-foundation', kind: 'collection'
+  });
+  await activateCapabilityProposal(org.platform, initial.branch, {
+    confirm: initial.commit, acknowledgeUnprotected: true
+  });
+  const proposed = await mapCapability(org.platform, {
+    capabilityId: 'projection-local-identity', kind: 'collection'
+  });
+  await mergeProposal(org.platform, proposed);
+  const initiatingRoot = path.join(org.base, 'projection-initiator');
+  run('git', ['clone', '-q', '--branch', 'main', org.platform, initiatingRoot], { cwd: org.base });
+  run('git', ['config', 'user.name', 'Projection Repairer'], { cwd: initiatingRoot });
+  run('git', ['config', 'user.email', 'projection-repairer@example.test'], {
+    cwd: initiatingRoot
+  });
+  const emptyGlobal = path.join(org.base, 'empty-projection-global.gitconfig');
+  await writeFile(emptyGlobal, '');
+  const initiatingEnv = {
+    ...process.env,
+    NODE_ENV: 'production',
+    GIT_CONFIG_GLOBAL: emptyGlobal,
+    GIT_CONFIG_SYSTEM: os.devNull
+  };
+  delete initiatingEnv.SINGULARITY_FLOW_TEST_IDENTITY;
+
+  const published = await publishOrganisationCapabilityMap(org.platform, {
+    initiatingRoot,
+    initiatingEnv
+  });
+  assert.equal(published.published, true);
+  assert.deepEqual(run('git', [
+    'show', '-s', '--format=%an%x00%ae%x00%cn%x00%ce', 'state'
+  ], { cwd: org.platform }).stdout.trim().split('\0'), [
+    'Projection Repairer', 'projection-repairer@example.test',
+    'Projection Repairer', 'projection-repairer@example.test'
+  ]);
+});
+
+test('required SSH signing survives activation and state projection isolation', async (t) => {
+  const probe = spawnSync('ssh-keygen', ['-V'], { encoding: 'utf8' });
+  if (probe.error?.code === 'ENOENT') {
+    t.skip('ssh-keygen is unavailable');
+    return;
+  }
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const initial = await mapCapability(org.platform, {
+    capabilityId: 'signed-foundation', kind: 'collection'
+  });
+  await mergeProposal(org.platform, initial);
+  const policy = path.join(org.base, 'signing-policy');
+  run('git', ['clone', '-q', '--branch', 'sflow/config', org.platform, policy], { cwd: org.base });
+  run('git', ['config', 'user.name', 'Policy Reviewer'], { cwd: policy });
+  run('git', ['config', 'user.email', 'policy@example.test'], { cwd: policy });
+  const workflowFile = path.join(policy, 'singularity/workflow.yml');
+  const workflow = YAML.parseDocument(await readFile(workflowFile, 'utf8'));
+  workflow.setIn(['ledger', 'signing'], 'commit');
+  await writeFile(workflowFile, workflow.toString());
+  run('git', ['add', 'singularity/workflow.yml'], { cwd: policy });
+  run('git', ['commit', '-qm', 'Require signed capability state'], { cwd: policy });
+  run('git', ['push', '-q', 'origin', 'HEAD:sflow/config'], { cwd: policy });
+
+  const proposed = await mapCapability(org.platform, {
+    capabilityId: 'signed-activation', kind: 'collection'
+  });
+  const initiatingRoot = path.join(org.base, 'signed-initiator');
+  run('git', ['clone', '-q', '--branch', 'main', org.platform, initiatingRoot], { cwd: org.base });
+  run('git', ['config', 'user.name', 'Signed Reviewer'], { cwd: initiatingRoot });
+  run('git', ['config', 'user.email', 'signed-reviewer@example.test'], { cwd: initiatingRoot });
+  const keyDirectory = path.join(initiatingRoot, 'keys');
+  await mkdir(keyDirectory);
+  run('ssh-keygen', [
+    '-q', '-t', 'ed25519', '-N', '', '-f', path.join(keyDirectory, 'reviewer')
+  ], { cwd: initiatingRoot });
+  run('git', ['config', 'gpg.format', 'ssh'], { cwd: initiatingRoot });
+  run('git', ['config', 'user.signingkey', 'keys/reviewer'], { cwd: initiatingRoot });
+  const emptyGlobal = path.join(org.base, 'empty-signer-global.gitconfig');
+  await writeFile(emptyGlobal, '');
+  const initiatingEnv = {
+    ...process.env,
+    NODE_ENV: 'production',
+    GIT_CONFIG_GLOBAL: emptyGlobal,
+    GIT_CONFIG_SYSTEM: os.devNull
+  };
+  delete initiatingEnv.SINGULARITY_FLOW_TEST_IDENTITY;
+
+  const activated = await activateCapabilityProposal(org.platform, proposed.branch, {
+    confirm: proposed.commit,
+    acknowledgeUnprotected: true,
+    initiatingRoot,
+    initiatingEnv
+  });
+  assert.equal(activated.activated, true);
+  for (const commit of [
+    run('git', ['rev-parse', 'sflow/config'], { cwd: org.platform }).stdout.trim(),
+    ...run('git', ['rev-list', '--max-count=3', 'state'], {
+      cwd: org.platform
+    }).stdout.trim().split(/\r?\n/).filter(Boolean)
+  ]) {
+    assert.match(run('git', ['cat-file', '-p', commit], { cwd: org.platform }).stdout,
+      /^gpgsig /m, `commit ${commit} retained the required signature`);
+  }
+});
+
+test('a proposal that enables signing preflights its post-merge policy before authority mutation', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const initial = await mapCapability(org.platform, {
+    capabilityId: 'signing-preflight-foundation', kind: 'collection'
+  });
+  await activateCapabilityProposal(org.platform, initial.branch, {
+    confirm: initial.commit, acknowledgeUnprotected: true
+  });
+  const proposed = await mapCapability(org.platform, {
+    capabilityId: 'signing-preflight-change', kind: 'collection'
+  });
+  const authoring = path.join(org.base, 'signing-proposal-authoring');
+  run('git', ['clone', '-q', '--branch', proposed.branch, org.platform, authoring], {
+    cwd: org.base
+  });
+  run('git', ['config', 'user.name', 'Policy Author'], { cwd: authoring });
+  run('git', ['config', 'user.email', 'policy-author@example.test'], { cwd: authoring });
+  const workflowFile = path.join(authoring, 'singularity/workflow.yml');
+  const workflow = YAML.parseDocument(await readFile(workflowFile, 'utf8'));
+  workflow.setIn(['ledger', 'signing'], 'commit');
+  await writeFile(workflowFile, workflow.toString());
+  run('git', ['add', 'singularity/workflow.yml'], { cwd: authoring });
+  run('git', ['commit', '-qm', 'Require signing after activation'], { cwd: authoring });
+  const proposalCommit = run('git', ['rev-parse', 'HEAD'], { cwd: authoring }).stdout.trim();
+  run('git', ['push', '-q', 'origin', `HEAD:${proposed.branch}`], { cwd: authoring });
+
+  const initiatingRoot = path.join(org.base, 'invalid-signing-initiator');
+  run('git', ['clone', '-q', '--branch', 'main', org.platform, initiatingRoot], { cwd: org.base });
+  run('git', ['config', 'user.name', 'Signing Reviewer'], { cwd: initiatingRoot });
+  run('git', ['config', 'user.email', 'signing-reviewer@example.test'], { cwd: initiatingRoot });
+  run('git', ['config', 'gpg.format', 'ssh'], { cwd: initiatingRoot });
+  run('git', ['config', 'user.signingkey', 'keys/missing'], { cwd: initiatingRoot });
+  const emptyGlobal = path.join(org.base, 'empty-preflight-global.gitconfig');
+  await writeFile(emptyGlobal, '');
+  const initiatingEnv = {
+    ...process.env,
+    NODE_ENV: 'production',
+    GIT_CONFIG_GLOBAL: emptyGlobal,
+    GIT_CONFIG_SYSTEM: os.devNull
+  };
+  delete initiatingEnv.SINGULARITY_FLOW_TEST_IDENTITY;
+  const before = run('git', ['rev-parse', 'sflow/config'], { cwd: org.platform }).stdout.trim();
+
+  await assert.rejects(() => activateCapabilityProposal(org.platform, proposed.branch, {
+    confirm: proposalCommit,
+    acknowledgeUnprotected: true,
+    initiatingRoot,
+    initiatingEnv
+  }), (error) => error.code === 'GIT_COMMIT_SIGNING_INVALID'
+    && error.details?.setting === 'user.signingkey');
+  assert.equal(run('git', ['rev-parse', 'sflow/config'], {
+    cwd: org.platform
+  }).stdout.trim(), before, 'invalid post-merge signing policy was refused before authority moved');
 });
 
 test('map requires explicitly configured Git author name and email before remote observation', async () => {

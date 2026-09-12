@@ -1,15 +1,20 @@
 # Workflow Adapters and Story Snapshots (WFA)
 
-Status: snapshot portability foundation implemented; external workflow adapters remain proposal-only.
+Status: portable Story execution closure implemented; external workflow adapters remain proposal-only.
 
 ## Why this exists
 
 A Story must continue to mean the same thing after configuration changes and when its accepted Git
 history is checked out on another laptop. New Stories therefore accept an immutable workflow
 snapshot at creation time. The snapshot is committed with the Story and contains the exact
-effective-policy projection plus the phase-template and selected governed-agent bytes needed to
-verify its definition. Automated cross-machine handoff is a later increment; this foundation does
-not claim that a snapshot alone recreates external runtimes, credentials, or provider observations.
+effective-policy projection, phase templates, every governed agent admitted by the pinned Story
+selection, and the retained declarative dependency bytes needed to execute those agents. Prompt
+assembly, agent selection, agent skills, and World-Model view selection use this verified closure;
+they do not silently rediscover a changed live agent or fetch a missing skill.
+
+The closure is portable only with the committed Story history. Push the Story branch through the
+normal publication path, then use the existing session attach or `resume --fetch` flow on the other
+laptop. A manifest that has not been pushed cannot make its local blobs available elsewhere.
 
 The accepted snapshot is not a second live configuration source. It is a content-addressed closure
 under the Story directory:
@@ -26,6 +31,12 @@ singularity/work-items/<WORK-ID>/
 hash. Phase template references point at immutable blobs. Refreshing `sflow/config`, replacing a
 template, or installing a newer extension cannot change an in-flight Story's phase contract.
 
+New snapshots declare `sflow-agent-document-v1` and `story-snapshot-agent-v1`. A compatible runtime
+verifies those profiles and the original blob bytes before composing a prompt or using a local
+cache. Execution provenance records the snapshot, agent, included dependencies, interpretation
+profiles, and any separately approved prompt-override digest. It never stores an absolute checkout
+path as part of that identity.
+
 ## Inspect and verify
 
 ```bash
@@ -41,11 +52,25 @@ does not refresh remotes implicitly; refresh configuration explicitly if a fresh
 required.
 
 Stories created before WFA remain readable and are reported as `legacy / closure unproven`. A
-migration never invents historical dependency bytes or claims that an old Story was portable.
+migration never invents historical dependency bytes or claims that an old Story was portable. A
+legacy Story with no snapshot may retain live-agent behavior, but its prompts are labelled
+`legacy-live`. An older v1 snapshot may still use its saved agent bytes and the baseline
+`sflow-agent-document-v1` interpretation. If it names a required dependency whose exact bytes were
+not retained, execution stops with `WFA_DEPENDENCY_UNAVAILABLE`; a matching name, mutable URL, or
+newly installed copy is not accepted as historical evidence.
 
-Remote agent dependencies are declarations, not snapshot inputs. Their raw URLs are not copied into
-the manifest; only a domain-separated reference digest and availability requirement are retained.
-Snapshot verification never fetches them.
+Required declarative agent dependencies are resolved and retained during capture. Optional
+dependencies record an explicit included or omitted decision, which remains unchanged on resume.
+Generated or executable dependencies stay explicit external requirements: the snapshot records
+their reviewed identity but does not grant execution permission or embed credentials. Snapshot
+verification and prompt composition never fetch them.
+
+Machine capabilities remain local. Git credentials, provider credentials, executable locations,
+toolchains, and project bindings are resolved and authorized on the laptop that resumes the Story.
+They are not portable policy and are never copied into snapshot blobs. The same saved instructions
+therefore still require compatible local bindings; `WFA_RUNTIME_INCOMPATIBLE` identifies an
+unsupported parser/composer profile rather than pretending the old laptop's runtime moved with the
+Story.
 
 ## Enforcement
 
@@ -53,6 +78,8 @@ New Story creation is atomic with snapshot capture. Missing, changing, symlinked
 digest-mismatched inputs refuse creation before accepted Story state is published. Publication
 validation re-verifies the accepted closure and rejects tampered blobs or a changed snapshot
 reference. The snapshot is bounded to 2,048 assets, 1 MiB per captured asset, and 16 MiB total.
+Cycles, duplicate logical identities, unsafe paths, symlinks, and conflicting dependency bytes are
+rejected before Story creation is accepted.
 
 ## Remaining WFA roadmap
 
@@ -62,8 +89,8 @@ deliberately separate because it introduces new authority and dialect semantics:
 
 1. Immutable amendment snapshots with parent linkage, approval binding, and append-only revision
    selection. Until then, the genesis reference cannot be replaced.
-2. Story handoff/import commands that prove repository identity and accepted snapshot closure before
-   attaching a session on another laptop.
+2. A dedicated Story handoff/import UX beyond the existing Git Story-branch synchronization and
+   conservative session-attach flow.
 3. A GitHub Actions importer that produces an unratified proposal only. It needs a bounded YAML
    parser, explicit unsupported-feature diagnostics, expression/input preservation, and fixture
    conformance before it may be enabled.

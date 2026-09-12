@@ -20,7 +20,7 @@
     "parentSnapshotHash": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
     "policy": { "$ref": "#/$defs/blob" },
     "assets": { "type": "array", "maxItems": 2048, "items": { "$ref": "#/$defs/asset" } },
-    "executionDependencies": { "type": "array", "maxItems": 2048, "items": { "type": "object" } },
+    "executionDependencies": { "type": "array", "maxItems": 2048, "items": { "$ref": "#/$defs/executionDependency" } },
     "provenance": { "type": "object" },
     "semantics": { "type": "object" },
     "configFoldHash": { "$ref": "#/$defs/sha256" },
@@ -60,6 +60,50 @@
         "source": { "type": "object" }
       },
       "additionalProperties": false
+    },
+    "executionDependency": {
+      "oneOf": [
+        { "$ref": "#/$defs/currentExecutionDependency" },
+        { "$ref": "#/$defs/legacyExecutionDependency" }
+      ]
+    },
+    "currentExecutionDependency": {
+      "type": "object",
+      "required": ["id", "agentId", "dependencyId", "kind", "optional", "availability", "inclusion", "assetLogicalId", "referenceSha256", "contentSha256", "executable"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^agent:[a-z0-9]+(?:-[a-z0-9]+)*:(?:skill|template|generated):[a-z0-9]+(?:-[a-z0-9]+)*$", "maxLength": 256 },
+        "agentId": { "$ref": "#/$defs/kebabId" },
+        "dependencyId": { "$ref": "#/$defs/kebabId" },
+        "kind": { "$ref": "#/$defs/dependencyKind" },
+        "optional": { "type": "boolean" },
+        "availability": { "$ref": "#/$defs/dependencyAvailability" },
+        "inclusion": { "enum": ["included", "omitted", "external-requirement"] },
+        "assetLogicalId": { "anyOf": [{ "type": "string", "minLength": 1, "maxLength": 256 }, { "type": "null" }] },
+        "referenceSha256": { "$ref": "#/$defs/sha256" },
+        "contentSha256": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+        "executable": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "legacyExecutionDependency": {
+      "type": "object",
+      "required": ["id", "kind", "availability", "referenceSha256", "contentSha256", "executable"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^agent:[a-z0-9]+(?:-[a-z0-9]+)*:[a-z0-9]+(?:-[a-z0-9]+)*$", "maxLength": 256 },
+        "kind": { "$ref": "#/$defs/dependencyKind" },
+        "availability": { "$ref": "#/$defs/dependencyAvailability" },
+        "referenceSha256": { "$ref": "#/$defs/sha256" },
+        "contentSha256": { "type": "null" },
+        "executable": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "dependencyKind": { "enum": ["skill", "template", "generated"] },
+    "dependencyAvailability": { "enum": ["remote-optional", "remote-required"] },
+    "kebabId": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "maxLength": 128
     }
   },
   "additionalProperties": false

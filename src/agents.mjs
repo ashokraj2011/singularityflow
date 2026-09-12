@@ -589,13 +589,34 @@ export async function materializeAgentTemplate(root, reference, { phaseId = null
 
 function matches(value, configured) { return !configured?.length || configured.includes(value); }
 
-export async function renderAgentSkills(root, workflow, phase, session, { record = false, fetchImpl = globalThis.fetch, itemDirectory = null } = {}) {
+export async function renderAgentSkills(root, workflow, phase, session, {
+  record = false, fetchImpl = globalThis.fetch, itemDirectory = null, executionContext = null
+} = {}) {
   if (!session?.agent) return { text: '', skills: [], warnings: [] };
-  const synced = await syncAgent(root, session.agent, { fetchImpl }); const selected = [];
+  const saved = executionContext?.identity?.mode === 'workflow-snapshot';
+  const synced = saved
+    ? {
+        agent: executionContext.agent,
+        dependencies: executionContext.dependencies.map((entry) => ({
+          ...entry, sha256: entry.sha256?.replace(/^sha256:/, '') ?? null,
+          type: entry.kind, status: entry.inclusion === 'included' ? 'ready' : 'unavailable',
+          content: entry.text, size: entry.text == null ? null : Buffer.byteLength(entry.text),
+          path: entry.blobPath, warning: entry.inclusion === 'omitted'
+            ? `Optional ${entry.kind} '${entry.id}' was omitted from the accepted Story snapshot.` : null
+        })),
+        warnings: executionContext.dependencies
+          .filter((entry) => entry.inclusion === 'omitted')
+          .map((entry) => `Optional ${entry.kind} '${entry.id}' was omitted from the accepted Story snapshot.`)
+      }
+    : await syncAgent(root, session.agent, { fetchImpl });
+  const selected = [];
   for (const dependency of synced.dependencies.filter((entry) => entry.type === 'skill')) {
     if (!matches(phase.id, dependency.phases)) continue;
     if (dependency.status !== 'ready') { if (!dependency.optional) throw new SingularityFlowError(`Required remote skill '${dependency.id}' is unavailable.`); continue; }
-    const content = await readFile(dependency.path, 'utf8');
+    // Snapshot execution retains and verifies bytes before this renderer is entered. Opening the
+    // historical path again would reintroduce a TOCTOU window; live/legacy execution keeps the
+    // existing locked-cache read.
+    const content = saved ? dependency.content : await readFile(dependency.path, 'utf8');
     selected.push({ ...dependency, content });
   }
   const text = selected.map((entry) => `<!-- agent skill: ${session.agent}/${entry.id} sha256=${entry.sha256} -->\n\n## Agent skill: ${entry.id}\n\n${entry.content.trim()}`).join('\n\n');
@@ -603,9 +624,14 @@ export async function renderAgentSkills(root, workflow, phase, session, { record
   if (record && workflow && itemDirectory && selected.length) {
     const generation = phase.generation + 1; const files = [];
     for (const entry of selected) {
-      const target = path.join(itemDirectory, 'context/agent-snapshots', session.agent, `${entry.id}-${entry.sha256}.md`);
-      if (!(await exists(target))) { await mkdir(path.dirname(target), { recursive: true }); await copyFile(entry.path, target); }
-      files.push({ id: entry.id, type: 'skill', url: entry.url, sha256: entry.sha256, size: entry.size, path: posix(path.relative(root, target)) });
+      const target = saved ? null
+        : path.join(itemDirectory, 'context/agent-snapshots', session.agent, `${entry.id}-${entry.sha256}.md`);
+      if (target && !(await exists(target))) { await mkdir(path.dirname(target), { recursive: true }); await copyFile(entry.path, target); }
+      files.push({
+        id: entry.id, type: 'skill', url: saved ? null : entry.url,
+        sha256: String(entry.sha256).replace(/^sha256:/, ''), size: entry.size,
+        path: saved ? entry.path : posix(path.relative(root, target))
+      });
     }
     audit = { schemaVersion: currentSchemaVersion('agent-context-audit'), workId: workflow.workItem.id, phase: phase.id, generation, agent: session.agent, nativeCopilotAgent: session.nativeCopilotAgent ?? null, agentSourceSha256: synced.agent.sha256, files, recordedAt: nowIso() };
     await writeJson(path.join(itemDirectory, 'context', `agents-${phase.id}-gen${generation}.json`), audit);
@@ -618,11 +644,32 @@ function expandUrl(template, workflow, phase) {
   return template.replace(TOKEN_PATTERN, (_, token) => encodeURIComponent(String(values[token])));
 }
 
-export async function prepareRemoteOutputs(root, workflow, phase, session, { itemDirectory, refresh = false, replace = false, resourceId = null, fetchImpl = globalThis.fetch } = {}) {
+export async function prepareRemoteOutputs(root, workflow, phase, session, {
+  itemDirectory, refresh = false, replace = false, resourceId = null,
+  fetchImpl = globalThis.fetch, executionContext = null
+} = {}) {
   if (!session?.agent) return { outputs: [], warnings: [] };
-  const synced = await syncAgent(root, session.agent, { fetchImpl }); const outputs = []; const warnings = [];
+  const saved = executionContext?.identity?.mode === 'workflow-snapshot';
+  const synced = saved
+    ? { agent: executionContext.agent, lock: null }
+    : await syncAgent(root, session.agent, { fetchImpl });
+  const outputs = []; const warnings = [];
   for (const dependency of synced.agent.generated.filter((entry) => entry.phase === phase.id && (!resourceId || entry.id === resourceId))) {
-    const locked = lockDependency(synced.lock, dependency);
+    const savedRequirement = saved
+      ? executionContext.dependencies.find((entry) => (
+          entry.kind === 'generated' && entry.id === dependency.id
+        ))
+      : null;
+    if (saved && savedRequirement?.inclusion !== 'external-requirement') {
+      throw new SingularityFlowError(
+        `Saved generated artifact requirement '${session.agent}/${dependency.id}' is unavailable.`,
+        { code: 'WFA_DEPENDENCY_UNAVAILABLE' }
+      );
+    }
+    // Dynamic generated output is a local capability requirement, not portable response bytes.
+    // Its URL/target declaration comes from the verified saved agent; legacy execution retains the
+    // reviewed live lock check.
+    const locked = saved ? { dynamic: true } : lockDependency(synced.lock, dependency);
     if (!locked?.dynamic) throw new SingularityFlowError(`Generated artifact '${dependency.id}' is not present in the agent lock.`);
     const generation = phase.generation + 1;
     const recordFile = path.join(itemDirectory, 'context', `remote-output-${session.agent}-${dependency.id}-${phase.id}-gen${generation}.json`);

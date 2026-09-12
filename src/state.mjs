@@ -38,7 +38,12 @@ import {
   evaluateApprovalChecklist, evaluateSpecificationGate, markerSummary,
   resolvedSpecificationQualityPolicy
 } from './specification-gate.mjs';
-import { evaluateArchitectureIntentGate } from './architecture-intent-gate.mjs';
+import {
+  architectureIntentGateIdentity, evaluateArchitectureIntentGate
+} from './architecture-intent-gate.mjs';
+import {
+  publishedArchitectureIntentBinding, resolveArchitectureIntentPublicationBinding
+} from './architecture-intent-service.mjs';
 import { beginTelemetryCapture, collectCopilotUsage, recordPhaseTelemetry } from './telemetry.mjs';
 import { contextBoundaryHandoff, normalizeContextPolicy } from './context-policy.mjs';
 import {
@@ -160,6 +165,7 @@ import {
 import {
   assertConvergencePublicationReady, loadVerifiedConvergenceProjection
 } from './convergence-context.mjs';
+import { resolveStoryExecutionContext } from './story-execution-context.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;
@@ -362,6 +368,8 @@ function phaseState(definition, index) {
     usage: [],
     telemetry: [],
     approvals: [],
+    generationPublications: [],
+    submissionArchitectureDecision: null,
     designSourceSets: [],
     artifactRegistrationRepairs: [],
     artifacts: [],
@@ -1024,6 +1032,8 @@ function normalizeCurrentWorkflow(workflow) {
     phase.usage ??= [];
     phase.telemetry ??= [];
     phase.approvals ??= [];
+    phase.generationPublications ??= [];
+    phase.submissionArchitectureDecision ??= null;
     phase.artifactRegistrationRepairs ??= [];
   }
   return workflow;
@@ -1565,6 +1575,11 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
   const target = securedTarget.absolute;
   const artifactExistedBeforePreparation = securedTarget.exists;
   const session = await loadSession(root, { required: false });
+  const executionContext = workflow.workflowSnapshot && session?.agent
+    ? await resolveStoryExecutionContext(root, config, workflow, {
+        agentId: session.agent, phaseId: phase.id
+      })
+    : null;
   const inputs = await collectInputs(root, workflow, phase, { itemDirectory, itemRelative });
   if (inputs.errors.length) throw new SingularityFlowError(`Phase ${phase.id} inputs are not ready:\n- ${inputs.errors.join('\n- ')}`);
   const rendered = renderInputsBlock(inputs);
@@ -1586,7 +1601,10 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
       await beginTelemetryCapture(root, workflow, phase);
     }
   }
-  const remote = dryRun ? { outputs: [], warnings: [] } : await prepareRemoteOutputs(root, workflow, phase, session, { itemDirectory });
+  const remote = dryRun ? { outputs: [], warnings: [] } : await prepareRemoteOutputs(
+    root, workflow, phase, session,
+    { itemDirectory, executionContext }
+  );
   if (remote.outputs.length) {
     phase.remoteOutputs = [...(phase.remoteOutputs ?? []).filter((entry) => !remote.outputs.some((output) => output.resource === entry.resource && output.generation === entry.generation)), ...remote.outputs];
   }
@@ -2189,7 +2207,7 @@ export async function sourceTreeHash(root, ...governanceSources) {
   return `sha256:${createHash('sha256').update(canonicalJson(manifest)).digest('hex')}`;
 }
 
-export async function generationResultDigest(root, config, workflow, phase) {
+export async function generationResultDigest(root, config, workflow, phase, bindings = null) {
   // This digest belongs to the authoring interval. Submission, review, telemetry and reconciliation
   // legitimately rewrite kernel projections after publication, so none of those files may make a
   // clean submitted generation appear consumed-and-changed.
@@ -2212,6 +2230,16 @@ export async function generationResultDigest(root, config, workflow, phase) {
       publicationFiles.push({ path: relative, exists: current.exists, sha256: current.sha256, bytes: current.size });
     }
   }
+  const generationPublication = (phase.generationPublications ?? []).find((entry) =>
+    Number(entry.generation) === Number(phase.generation));
+  const architectureIntent = bindings && Object.hasOwn(bindings, 'architectureIntent')
+    ? bindings.architectureIntent : generationPublication?.architectureIntent ?? null;
+  const architectureDecision = bindings && Object.hasOwn(bindings, 'architectureDecision')
+    ? bindings.architectureDecision : generationPublication?.architectureDecision ?? null;
+  const resultDigestVersion = bindings?.resultDigestVersion
+    ?? phase.generationIntent?.publication?.resultDigestVersion
+    ?? generationPublication?.resultDigestVersion
+    ?? 3;
   return `sha256:${createHash('sha256').update(canonicalJson({
     sourceTreeSha256: await sourceTreeHash(root, config, workflow),
     publicationFiles,
@@ -2222,7 +2250,8 @@ export async function generationResultDigest(root, config, workflow, phase) {
       deliveryChangeSet: phase.deliveryEvidence?.changeSet?.digest ?? null,
       generationIntentId: phase.generationIntent?.id ?? null,
       generationStartSha256: phase.generationIntent?.receiptSha256 ?? null,
-      generationBaseline: phase.generationIntent?.baseline ?? null
+      generationBaseline: phase.generationIntent?.baseline ?? null,
+      ...(resultDigestVersion >= 3 ? { architectureIntent, architectureDecision } : {})
     }
   })).digest('hex')}`;
 }
@@ -2279,7 +2308,8 @@ function assertRequiredAssignment(workflow, phase) {
 }
 
 export async function publishGeneration(root, config, workflow, {
-  phaseId, usage: rawUsage, authorship = null, persist = true, publicationTransaction = null
+  phaseId, usage: rawUsage, authorship = null, persist = true, publicationTransaction = null,
+  architectureCandidateSnapshot = null
 } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'publish a generation');
   const phase = await assertPhaseSequence(root, workflow, 'publish a generation', { requestedPhase: phaseId }); const session = await loadSession(root);
@@ -2467,12 +2497,19 @@ export async function publishGeneration(root, config, workflow, {
       + `Answer each question and record it with singularity-flow clarification record ${phase.id} --marker "<question>" --answer "..." before regenerating.`
     );
   }
-  const architectureGate = await evaluateArchitectureIntentGate(root, config, workflow, phase.id);
+  const architectureGate = await evaluateArchitectureIntentGate(
+    root, config, workflow, phase.id,
+    { candidateSnapshot: architectureCandidateSnapshot }
+  );
+  const acceptedArchitectureGateIdentity = architectureIntentGateIdentity(architectureGate);
   architectureGate.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
   if (architectureGate.errors.length) {
     throw new SingularityFlowError(
       `Phase ${phase.id} is not publishable:\n- ${architectureGate.errors.join('\n- ')}`,
-      { code: 'WMC_INTENT_UNFULFILLED' }
+      {
+        code: architectureGate.code ?? 'WMC_INTENT_UNFULFILLED',
+        details: { reasonCodes: architectureGate.reasonCodes ?? [] }
+      }
     );
   }
 
@@ -2551,7 +2588,24 @@ export async function publishGeneration(root, config, workflow, {
       throw new SingularityFlowError(`Capability '${workflow.resolution.capability.id}' token budget exceeded: ${used}/${capabilityBudget}.`);
     }
   }
-  phase.generation += 1; phase.generatedBy = session.actor;
+  const targetGeneration = phase.generation + 1;
+  const architectureIntentBinding = await resolveArchitectureIntentPublicationBinding(
+    root, config, workflow, phase, targetGeneration
+  );
+  const currentArchitectureGate = await evaluateArchitectureIntentGate(
+    root, config, workflow, phase.id,
+    { candidateSnapshot: architectureCandidateSnapshot }
+  );
+  if (architectureIntentGateIdentity(currentArchitectureGate)
+      !== acceptedArchitectureGateIdentity) {
+    throw new SingularityFlowError(
+      'Architecture intent evidence changed while generation publication was being validated. Nothing was published; retry against the current evidence.',
+      { code: 'WMC_INTENT_STATE_CHANGED' }
+    );
+  }
+  const architectureDecision = architectureGate.architectureDecision ?? null;
+  phase.generation = targetGeneration; phase.generatedBy = session.actor;
+  phase.submissionArchitectureDecision = null;
   phase.generatedAgent = effectiveAuthorship.producer === 'governed-agent' ? session.agent : null;
   phase.authorship ??= [];
   const publishedAt = nowIso();
@@ -2787,13 +2841,17 @@ export async function publishGeneration(root, config, workflow, {
   });
   if (errors.length) throw new SingularityFlowError(`Phase ${phase.id} generation is not publishable:\n- ${errors.join('\n- ')}`);
   if (generationIntent) {
-    const resultDigest = await generationResultDigest(root, config, workflow, phase);
+    const resultDigest = await generationResultDigest(root, config, workflow, phase, {
+      architectureIntent: architectureIntentBinding,
+      architectureDecision,
+      resultDigestVersion: 3
+    });
     await consumeGenerationIntent(root, phase, {
       generation: phase.generation,
       publishedAt,
       changeSetDigest: deliveryPreflight?.changeSet?.digest ?? null,
       resultDigest,
-      resultDigestVersion: 2
+      resultDigestVersion: 3
     });
   }
   const generationPublication = {
@@ -2801,8 +2859,14 @@ export async function publishGeneration(root, config, workflow, {
     publishedAt,
     changeSetDigest: deliveryPreflight?.changeSet?.digest ?? null,
     resultDigest: generationIntent?.publication?.resultDigest
-      ?? await generationResultDigest(root, config, workflow, phase),
-    resultDigestVersion: generationIntent?.publication?.resultDigestVersion ?? 2,
+      ?? await generationResultDigest(root, config, workflow, phase, {
+        architectureIntent: architectureIntentBinding,
+        architectureDecision,
+        resultDigestVersion: 3
+      }),
+    resultDigestVersion: Math.max(generationIntent?.publication?.resultDigestVersion ?? 0, 3),
+    architectureIntent: structuredClone(architectureIntentBinding),
+    architectureDecision: structuredClone(architectureDecision),
     record: null
   };
   phase.generationPublications = [
@@ -3189,7 +3253,8 @@ export function qualityValidationVerdict(checks = [], { required = false } = {})
 }
 
 async function submitPhaseTransition(root, config, workflow, {
-  phaseId, runChecks = true, persist = true, submissionContext = null
+  phaseId, runChecks = true, persist = true, submissionContext = null,
+  architectureCandidateSnapshot = null
 } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'submit for approval');
   const requestedPhase = workflow.phases?.[phaseId ?? workflow.currentPhase] ?? null;
@@ -3249,12 +3314,19 @@ async function submitPhaseTransition(root, config, workflow, {
   if (gate.errors.length) {
     throw new SingularityFlowError(`Phase ${phase.id} cannot be submitted for approval:\n- ${gate.errors.join('\n- ')}`);
   }
-  const architectureGate = await evaluateArchitectureIntentGate(root, config, workflow, phase.id);
+  const architectureGate = await evaluateArchitectureIntentGate(
+    root, config, workflow, phase.id,
+    { candidateSnapshot: architectureCandidateSnapshot }
+  );
+  const acceptedArchitectureGateIdentity = architectureIntentGateIdentity(architectureGate);
   architectureGate.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
   if (architectureGate.errors.length) {
     throw new SingularityFlowError(
       `Phase ${phase.id} cannot be submitted for approval:\n- ${architectureGate.errors.join('\n- ')}`,
-      { code: 'WMC_INTENT_UNFULFILLED' }
+      {
+        code: architectureGate.code ?? 'WMC_INTENT_UNFULFILLED',
+        details: { reasonCodes: architectureGate.reasonCodes ?? [] }
+      }
     );
   }
 
@@ -3584,6 +3656,21 @@ async function submitPhaseTransition(root, config, workflow, {
       && (phase.approvalPolicy.mode === 'none' || phase.approvalPolicy.mode === 'policy')) {
     await assertPlannedSpecificationClaims(root, config, workflow, automaticUpcoming);
   }
+  const currentArchitectureGate = await evaluateArchitectureIntentGate(
+    root, config, workflow, phase.id,
+    { candidateSnapshot: architectureCandidateSnapshot }
+  );
+  if (architectureIntentGateIdentity(currentArchitectureGate)
+      !== acceptedArchitectureGateIdentity) {
+    throw new SingularityFlowError(
+      'Architecture intent evidence changed while submission was being validated. Nothing was submitted; retry against the current evidence.',
+      { code: 'WMC_INTENT_STATE_CHANGED' }
+    );
+  }
+  phase.submissionArchitectureDecision = architectureGate.architectureDecision ? {
+    generation: phase.generation,
+    identity: structuredClone(architectureGate.architectureDecision)
+  } : null;
   phase.submittedAt = nowIso();
   const waiver = phase.approvalPolicy.mode === 'policy'
     ? evaluateQuickFixWaiver(root, config, workflow, phase)
@@ -3673,7 +3760,8 @@ export async function submitPhase(root, config, workflow, options = {}) {
  * retain it and then feed it into generic submission.
  */
 export async function submitConfirmedConvergencePhase(root, config, workflow, {
-  confirmation, phaseId = 'convergence', runChecks = true, persist = true
+  confirmation, phaseId = 'convergence', runChecks = true, persist = true,
+  architectureCandidateSnapshot = null
 } = {}) {
   const phase = workflow.phases?.[phaseId] ?? null;
   if (phase?.id !== 'convergence') throw convergenceAdvanceRequired(workflow, { phase: phase?.id ?? null });
@@ -3682,6 +3770,7 @@ export async function submitConfirmedConvergencePhase(root, config, workflow, {
     phaseId,
     runChecks,
     persist,
+    architectureCandidateSnapshot,
     submissionContext: CONFIRMED_CONVERGENCE_SUBMISSION
   });
 }
@@ -3723,6 +3812,35 @@ export async function approvePhase(root, config, workflow, {
     throw new SingularityFlowError(`Phase '${phase.id}' review packet does not bind its current generation.`, {
       code: 'STORY_REVIEW_EVIDENCE_INVALID'
     });
+  }
+  const architectureIntentBinding = publishedArchitectureIntentBinding(phase, phase.generation);
+  const currentArchitectureIntentBinding = architectureIntentBinding
+    ? await resolveArchitectureIntentPublicationBinding(
+      root, config, workflow, phase, phase.generation
+    ) : null;
+  if (canonicalJson(currentArchitectureIntentBinding)
+      !== canonicalJson(architectureIntentBinding)) {
+    throw new SingularityFlowError(
+      `Phase '${phase.id}' architecture intent changed after generation ${phase.generation} was published. Reopen and revise it for the next generation.`,
+      { code: 'STORY_REVIEW_EVIDENCE_STALE' }
+    );
+  }
+  if (canonicalJson(submittedReview.submissionEvidence?.architectureIntent ?? null)
+      !== canonicalJson(architectureIntentBinding)) {
+    throw new SingularityFlowError(
+      `Phase '${phase.id}' review packet does not bind the architecture intent accepted by generation ${phase.generation}. Submit a fresh immutable review packet.`,
+      { code: 'STORY_REVIEW_EVIDENCE_STALE' }
+    );
+  }
+  const submittedArchitectureDecision = phase.submissionArchitectureDecision
+    && Number(phase.submissionArchitectureDecision.generation) === Number(phase.generation)
+    ? phase.submissionArchitectureDecision.identity : null;
+  if (canonicalJson(submittedReview.submissionEvidence?.architectureDecision ?? null)
+      !== canonicalJson(submittedArchitectureDecision)) {
+    throw new SingularityFlowError(
+      `Phase '${phase.id}' review packet does not bind the architecture decision checked at submission. Submit again.`,
+      { code: 'STORY_REVIEW_EVIDENCE_STALE' }
+    );
   }
   const currentArtifacts = [];
   for (const artifact of phase.artifacts ?? []) {
@@ -3951,6 +4069,8 @@ export async function approvePhase(root, config, workflow, {
     reviewPacketSha256: submittedReview.packetSha256,
     evidenceCommit: submittedReview.evidenceCommit,
     artifactSetSha256: submittedReview.submissionEvidence.artifactSetSha256,
+    architectureIntent: structuredClone(architectureIntentBinding),
+    architectureDecision: structuredClone(submittedArchitectureDecision),
     // Compatibility alias for consumers introduced with code-delivery v2.
     ...(phaseRequiresCodeDelivery(phase) ? { reviewEvidenceCommit: submittedReview.evidenceCommit } : {}),
     // Recorded on the decision, not on the phase: the articles are what *this reviewer* confirmed,
@@ -4363,6 +4483,7 @@ export async function rejectPhase(root, config, workflow, { phaseId, target, rea
     const affected = workflow.phases[workflow.phaseOrder[index]];
     affected.approvals.forEach((approval) => { if (!approval.invalidatedAt) approval.invalidatedAt = timestamp; });
     affected.status = index === targetIndex ? 'in_progress' : 'not_started'; affected.submittedAt = null; affected.approvedAt = null; affected.approvedBy = null;
+    affected.submissionArchitectureDecision = null;
     if (index === targetIndex) { affected.rejectedAt = timestamp; affected.rejectedBy = key; affected.rejectionReason = changeRequest.comment; }
     await updateArtifactMetadata(root, config, workflow, affected);
   }
@@ -4597,10 +4718,15 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
 
   await writeText(specificationFile, proposedText);
   const priorGeneration = Number(specification.generation ?? 0);
+  const amendmentGeneration = priorGeneration + 1;
+  const amendmentArchitectureIntent = await resolveArchitectureIntentPublicationBinding(
+    root, config, workflow, specification, amendmentGeneration
+  );
   specification.approvals.forEach((approval) => {
     if (!approval.invalidatedAt) approval.invalidatedAt = at;
   });
-  specification.generation = priorGeneration + 1;
+  specification.generation = amendmentGeneration;
+  specification.submissionArchitectureDecision = null;
   specification.status = 'approved';
   specification.submittedAt = at;
   specification.approvedAt = at;
@@ -4631,7 +4757,9 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     generation: specification.generation,
     intentAmendmentId: proposal.id,
     changedClauses: [...(proposal.diff?.changed ?? [])],
-    artifactSha256: [{ path: specificationPath, sha256: proposedSnapshot.sha256 }]
+    artifactSha256: [{ path: specificationPath, sha256: proposedSnapshot.sha256 }],
+    architectureIntent: structuredClone(amendmentArchitectureIntent),
+    architectureDecision: null
   };
   specification.approvals.push(amendmentApproval);
   await updateArtifactMetadata(root, config, workflow, specification);
@@ -4697,8 +4825,14 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     generation: specification.generation,
     publishedAt: at,
     changeSetDigest: null,
-    resultDigest: await generationResultDigest(root, config, workflow, specification),
-    resultDigestVersion: 2,
+    resultDigest: await generationResultDigest(root, config, workflow, specification, {
+      architectureIntent: amendmentArchitectureIntent,
+      architectureDecision: null,
+      resultDigestVersion: 3
+    }),
+    resultDigestVersion: 3,
+    architectureIntent: structuredClone(amendmentArchitectureIntent),
+    architectureDecision: null,
     origin: {
       kind: 'intent-amendment',
       id: proposal.id,
@@ -4759,6 +4893,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     });
     phase.status = index === nextIndex ? 'in_progress' : 'not_started';
     phase.submittedAt = null;
+    phase.submissionArchitectureDecision = null;
     phase.approvedAt = null;
     phase.approvedBy = null;
     phase.rejectedAt = at;
@@ -4941,6 +5076,7 @@ export async function reopenWorkflow(root, config, workflow, {
     affected.approvals.forEach((approval) => { if (!approval.invalidatedAt) approval.invalidatedAt = timestamp; });
     affected.status = index === targetIndex ? 'in_progress' : 'not_started';
     affected.submittedAt = null; affected.approvedAt = null; affected.approvedBy = null;
+    affected.submissionArchitectureDecision = null;
     if (index === targetIndex) {
       affected.rejectedAt = timestamp; affected.rejectedBy = key; affected.rejectionReason = changeRequest.comment;
     }
@@ -5309,6 +5445,7 @@ export async function promoteDesignSource(root, config, workflow, {
     for (const approval of affected.approvals ?? []) if (!approval.invalidatedAt) approval.invalidatedAt = timestamp;
     affected.status = index === targetIndex ? 'in_progress' : 'not_started';
     affected.submittedAt = null; affected.approvedAt = null; affected.approvedBy = null;
+    affected.submissionArchitectureDecision = null;
     await updateArtifactMetadata(root, config, workflow, affected);
   }
   const capture = workflow.phases[configured.capturePhase];

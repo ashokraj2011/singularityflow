@@ -796,7 +796,7 @@ export function normalizeModelProviders(value = {}) {
   return { defaultProvider, providers: normalized };
 }
 
-export function validateDefinition(definition) {
+export function validateDefinition(definition, { storyBootstrap = false } = {}) {
   if (definition?.version !== 2) throw new SingularityFlowError('workflow.yml version must be 2. Version 1 is not supported and is not migrated. Run singularity-flow factory-reset --dry-run, review the reset plan, then apply its exact confirmation to install the current version-2 configuration.');
   if (Object.hasOwn(definition, 'personas') || Object.hasOwn(definition, 'personaPromptsRoot')) throw new SingularityFlowError('Legacy role-prompt configuration is no longer supported. Define governed Agent Markdown under .github/agents.');
   if (!definition.workTypes || !Object.keys(definition.workTypes).length) throw new SingularityFlowError('workflow.yml must define at least one work type.');
@@ -1023,7 +1023,9 @@ export function validateDefinition(definition) {
   if (definition.worldModel?.staleness != null && !['warn', 'fail', 'ignore'].includes(definition.worldModel.staleness)) {
     throw new SingularityFlowError("worldModel.staleness must be 'warn', 'fail', or 'ignore'.");
   }
-  validateInjectionDefinition(definition);
+  // Story bootstrap intentionally has no live agent catalog. Agent predicates are still parsed
+  // and type-checked here; their IDs are resolved against the verified saved catalog later.
+  validateInjectionDefinition(definition, { deferAgentReferences: storyBootstrap });
   definition.codeDelivery = normalizeCodeDeliveryPolicy(definition.codeDelivery ?? {});
   if (definition.tokens?.mode && definition.tokens.mode !== 'exact-or-unavailable') throw new SingularityFlowError("tokens.mode must be 'exact-or-unavailable'.");
   for (const [model, pricing] of Object.entries(definition.tokens?.pricing ?? {})) {
@@ -1297,12 +1299,17 @@ export async function withDefinitionCache(fn) {
   return withReadScope(fn);
 }
 
-export async function loadDefinition(root) {
+export async function loadDefinition(root, { storyBootstrap = false } = {}) {
   // The scope stores the promise, so seven concurrent callers share one parse rather than race.
-  return scopedRead(`config.definition:${root}`, () => loadDefinitionUncached(root));
+  // Story bootstrap deliberately has its own cache identity: it validates the machine-facing
+  // configuration while deferring mutable authoring resources (live agents/templates) until the
+  // accepted Story snapshot has been verified. Sharing that value with a normal load would let a
+  // relaxed bootstrap accidentally weaken a repository-management command later in the scope.
+  return scopedRead(`config.definition:${root}:${storyBootstrap ? 'story-bootstrap' : 'current'}`,
+    () => loadDefinitionUncached(root, { storyBootstrap }));
 }
 
-async function loadDefinitionUncached(root) {
+async function loadDefinitionUncached(root, { storyBootstrap = false } = {}) {
   const definitionRoot = configurationReadRoot(root);
   const workflow = await secureRepositoryPath(root, WORKFLOW_PATH, {
     label: 'Workflow configuration',
@@ -1310,7 +1317,12 @@ async function loadDefinitionUncached(root) {
   });
   if (workflow.exists) {
     const definition = YAML.parse(await readFile(workflow.absolute, 'utf8'));
-    const agents = await discoverAgents(definitionRoot);
+    // An accepted Story owns exact governed-agent bytes in its WFA closure. Parsing today's live
+    // files before that closure is even located would let a deleted or malformed replacement deny
+    // offline resume. Bootstrap therefore loads only the declarative workflow shape; the shared
+    // Story resolver installs the verified saved catalog before any agent is selected or rendered.
+    // New-Story and repository-management reads keep the strict live discovery below.
+    const agents = storyBootstrap ? [] : await discoverAgents(definitionRoot);
     definition.agents = Object.fromEntries(agents.map((agent) => [agent.id, agent]));
     definition.agentCatalog = agents;
     definition.agentPromptsRoot = '.github/agents';
@@ -1328,7 +1340,7 @@ async function loadDefinitionUncached(root) {
      * VS Code extension, CI, and a teammate's laptop all hit this the moment one person upgrades.
      */
     try {
-      validateDefinition(definition);
+      validateDefinition(definition, { storyBootstrap });
     } catch (error) {
       if (error instanceof SingularityFlowError && /contains unknown field/.test(error.message)) {
         throw new SingularityFlowError(
@@ -1340,7 +1352,7 @@ async function loadDefinitionUncached(root) {
       }
       throw error;
     }
-    validateAgentCatalog(agents, definition);
+    if (!storyBootstrap) validateAgentCatalog(agents, definition);
     const portfolio = await loadPortfolio(definitionRoot, { required: false });
     const governedRoots = [...new Set([
       ...GOVERNED_ROOTS,
@@ -1371,15 +1383,17 @@ async function loadDefinitionUncached(root) {
         throw new SingularityFlowError(`${label} must be a directory: ${secured.relative}`);
       }
     }
-    for (const workTypeId of Object.keys(definition.workTypes)) for (const phase of resolveWorkType(definition, workTypeId).phases) {
-      if (isAgentTemplateReference(phase.template)) continue;
-      const template = await secureRepositoryPath(root, path.join(definition.templatesRoot, phase.template), {
-        label: `Template for work type '${workTypeId}' phase '${phase.id}'`,
-        type: 'file'
-      });
-      if (!template.exists) throw new SingularityFlowError(`Template missing for work type '${workTypeId}' phase '${phase.id}': ${path.posix.join(definition.templatesRoot, phase.template)}`);
+    if (!storyBootstrap) {
+      for (const workTypeId of Object.keys(definition.workTypes)) for (const phase of resolveWorkType(definition, workTypeId).phases) {
+        if (isAgentTemplateReference(phase.template)) continue;
+        const template = await secureRepositoryPath(root, path.join(definition.templatesRoot, phase.template), {
+          label: `Template for work type '${workTypeId}' phase '${phase.id}'`,
+          type: 'file'
+        });
+        if (!template.exists) throw new SingularityFlowError(`Template missing for work type '${workTypeId}' phase '${phase.id}': ${path.posix.join(definition.templatesRoot, phase.template)}`);
+      }
+      await validateWorldModelPromptViewReferences(root, definition);
     }
-    await validateWorldModelPromptViewReferences(root, definition);
     return definition;
   }
   if (existsSync(path.join(root, LEGACY_CONTROL_ROOT)) || existsSync(path.join(root, 'singularity/config.json'))) {
@@ -1746,6 +1760,10 @@ export async function snapshotResolution(root, definition, resolved) {
     inputsMode: resolved.inputsMode ?? configuredInputsMode(definition),
     worldModelGrounding: resolved.worldModelGrounding ?? groundingMode(definition),
     worldModelMaterialization: materializationPolicy(definition),
+    // Prompt assembly is Story policy, not a live repository preference. Capture injection,
+    // context, view, and agent-view semantics so a later configuration refresh cannot rewrite an
+    // in-flight Story's instructions. Machine provider credentials remain outside this object.
+    worldModelPolicy: structuredClone(definition.worldModel ?? {}),
     architectureIntent: structuredClone(resolved.architectureIntent
       ?? definition.architectureIntent
       ?? { enabled: false, allowedPhases: [], blockRequiredUnfulfilledAt: [] }),

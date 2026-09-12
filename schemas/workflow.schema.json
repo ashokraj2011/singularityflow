@@ -5,7 +5,7 @@
   "type": "object",
   "required": ["schemaVersion", "workItem", "status", "currentPhase", "phaseOrder", "phases", "history"],
   "properties": {
-    "schemaVersion": { "enum": [1, 2, 3, 4, 5] },
+    "schemaVersion": { "enum": [1, 2, 3, 4, 5, 6] },
     "workflowSnapshot": {
       "anyOf": [
         { "type": "null" },
@@ -215,13 +215,78 @@
           "inputs": { "type": "array", "items": { "type": "object" } },
           "artifacts": { "type": "array", "items": { "type": "object" } },
           "checks": { "type": "array", "items": { "type": "object" } },
-          "telemetry": { "type": "array", "items": { "type": "object" } }
+          "telemetry": { "type": "array", "items": { "type": "object" } },
+          "generationPublications": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "architectureIntent": { "$ref": "#/$defs/nullableArchitectureIntentBinding" },
+                "architectureDecision": { "$ref": "#/$defs/nullableArchitectureDecisionIdentity" }
+              },
+              "additionalProperties": true
+            }
+          },
+          "submissionArchitectureDecision": {
+            "anyOf": [
+              { "type": "null" },
+              {
+                "type": "object",
+                "required": ["generation", "identity"],
+                "properties": {
+                  "generation": { "type": "integer", "minimum": 1 },
+                  "identity": { "$ref": "#/$defs/architectureDecisionIdentity" }
+                },
+                "additionalProperties": false
+              }
+            ]
+          }
         },
         "additionalProperties": true
       }
     },
     "history": { "type": "array", "items": { "type": "object" } },
     "sequenceOverrides": { "type": "array", "items": { "type": "object" } }
+  },
+  "$defs": {
+    "architectureIntentBinding": {
+      "type": "object",
+      "required": ["workId", "phase", "generation", "path", "intentSha256", "blobSha256"],
+      "properties": {
+        "workId": { "type": "string", "minLength": 1 },
+        "phase": { "type": "string", "minLength": 1 },
+        "generation": { "type": "integer", "minimum": 1 },
+        "path": { "type": "string", "minLength": 1 },
+        "intentSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "blobSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      },
+      "additionalProperties": false
+    },
+    "nullableArchitectureIntentBinding": {
+      "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/architectureIntentBinding" }]
+    },
+    "architectureDecisionIdentity": {
+      "type": "object",
+      "required": ["intentSha256", "intentPhase", "intentGeneration", "approvalEvidenceCommit", "beforeManifestSha256", "beforeProjectionSha256", "afterAuthorityCommit", "afterManifestSha256", "afterProjectionSha256", "sourceManifestSha256", "verifierProfile", "computedReportSha256"],
+      "properties": {
+        "intentSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "intentPhase": { "type": "string", "minLength": 1 },
+        "intentGeneration": { "type": "integer", "minimum": 1 },
+        "approvalEvidenceCommit": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" },
+        "beforeManifestSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "beforeProjectionSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "afterAuthorityCommit": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" },
+        "afterManifestSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "afterProjectionSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "sourceManifestSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "verifierProfile": { "const": "architecture-intent-v2" },
+        "computedReportSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      },
+      "additionalProperties": false
+    },
+    "nullableArchitectureDecisionIdentity": {
+      "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/architectureDecisionIdentity" }]
+    }
   },
   "additionalProperties": true
 }

@@ -1,18 +1,38 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { exists, run, SingularityFlowError } from './util.mjs';
-import { canonicalJson } from './world-model/canonicalize.mjs';
-import { worldModelStateAuthority } from './world-model/authority-config.mjs';
+import { exists, SingularityFlowError } from './util.mjs';
 import {
   validateArchitectureIntent, validateArchitectureIntentFulfilment
 } from './world-model/projections/calm/projection.mjs';
 import {
-  assertCurrentArchitectureProjection, resolveCurrentArchitectureProjectionInputs
-} from './world-model/projections/calm/authority.mjs';
-import { resolvePublishedWorldModelV4 } from './world-model/store.mjs';
+  architectureIntentApprovalStatus, assertApprovedArchitectureIntent,
+  assertArchitectureIntentReportMatches, evaluateArchitectureIntentEvidence,
+  resolveArchitectureIntentPublicationBinding
+} from './architecture-intent-service.mjs';
+import { canonicalJson } from './world-model/canonicalize.mjs';
+import { resolveStoryExecutionDefinition } from './story-execution-context.mjs';
 
-const EMPTY = Object.freeze({ applies: false, errors: [], warnings: [], passes: [] });
+const EMPTY = Object.freeze({
+  applies: false, errors: [], warnings: [], passes: [], code: null, reasonCodes: [],
+  architectureDecision: null
+});
+
+function gateResult({
+  applies = true, errors = [], warnings = [], passes = [], reasonCodes = [],
+  architectureDecision = null
+}) {
+  const uniqueReasons = [...new Set(reasonCodes.filter(Boolean))];
+  return Object.freeze({
+    applies,
+    errors: Object.freeze(errors),
+    warnings: Object.freeze(warnings),
+    passes: Object.freeze(passes),
+    code: uniqueReasons[0] ?? null,
+    reasonCodes: Object.freeze(uniqueReasons),
+    architectureDecision: errors.length ? null : architectureDecision
+  });
+}
 
 function policyFor(definition, workflow) {
   return workflow?.resolution?.architectureIntent ?? definition?.architectureIntent ?? {
@@ -30,72 +50,82 @@ async function jsonFile(target) {
   return JSON.parse(await readFile(target, 'utf8'));
 }
 
-/** Classify whether this exact intent is durable evidence of an approved phase generation. */
-export function architectureIntentApprovalStatus(root, workflow, intent, intentPath) {
-  const errors = [];
-  const intentPhase = workflow.phases?.[intent.phase];
-  let approval = null;
-  if (!intentPhase) {
-    errors.push(`architecture intent phase '${intent.phase}' is not present in the pinned Story workflow`);
-  } else {
-    approval = (intentPhase.approvals ?? []).find((candidate) =>
-      candidate.decision === 'approved'
-      && !candidate.invalidatedAt
-      && Number(candidate.generation) === Number(intent.generation));
-    if (!approval) {
-      errors.push(
-        `architecture intent generation ${intent.generation} is not approved in phase '${intent.phase}'`
-      );
-    }
-  }
-  if (approval) {
-    const evidenceCommit = String(approval.evidenceCommit ?? '');
-    const relativeIntentPath = path.relative(root, intentPath).replaceAll('\\', '/');
-    if (!/^[a-f0-9]{40,64}$/.test(evidenceCommit)) {
-      errors.push('architecture intent approval has no exact evidence commit');
-    } else {
-      const committed = run('git', ['show', `${evidenceCommit}:${relativeIntentPath}`], {
-        cwd: root, allowFailure: true
-      });
-      if (committed.status !== 0) {
-        errors.push('architecture intent was not present in its approval evidence commit');
-      } else {
-        try {
-          const approvedIntent = validateArchitectureIntent(JSON.parse(committed.stdout));
-          if (approvedIntent.intentSha256 !== intent.intentSha256
-              || committed.stdout !== canonicalJson(intent)) {
-            errors.push('architecture intent bytes changed after their phase approval');
-          }
-        } catch {
-          errors.push('architecture intent in the approval evidence commit is invalid');
-        }
-      }
-    }
-  }
-  return Object.freeze({ approved: errors.length === 0, approval, errors: Object.freeze(errors) });
+export { architectureIntentApprovalStatus, assertApprovedArchitectureIntent };
+
+/**
+ * Canonical identity of the architecture decision used at a lifecycle boundary. Presentation
+ * strings are retained because a changed refusal is also a changed decision; object ordering is
+ * removed so every host compares the same bytes.
+ */
+export function architectureIntentGateIdentity(result) {
+  return canonicalJson({
+    applies: result?.applies === true,
+    errors: [...(result?.errors ?? [])],
+    warnings: [...(result?.warnings ?? [])],
+    passes: [...(result?.passes ?? [])],
+    reasonCodes: [...(result?.reasonCodes ?? [])],
+    architectureDecision: result?.architectureDecision ?? null
+  });
 }
 
-/** Refuse governed planned/fulfilment products until the exact intent bytes are approved. */
-export function assertApprovedArchitectureIntent(root, workflow, intent, intentPath) {
-  const status = architectureIntentApprovalStatus(root, workflow, intent, intentPath);
-  if (!status.approved) {
-    throw new SingularityFlowError(
-      'Architecture intent is still a candidate and cannot produce a governed planned or fulfilment view.',
-      {
-        code: 'WMC_INTENT_NOT_APPROVED',
-        details: {
-          reasons: status.errors,
-          nextAction: `Publish and approve phase '${intent.phase}' generation ${intent.generation}, then retry.`
-        }
-      }
+/**
+ * Capture everything architecture-sensitive that one publication or submission is about to
+ * accept. The returned canonical value is safe to compare before and after isolated Git staging.
+ */
+export async function architectureIntentStabilityIdentity(
+  root, definition, workflow, phase, generation = phase?.generation,
+  { candidateSnapshot = null } = {}
+) {
+  definition = await resolveStoryExecutionDefinition(root, definition, workflow);
+  if (!phase) return canonicalJson({ phase: null, generation: null, gate: EMPTY, intent: null });
+  const gate = await evaluateArchitectureIntentGate(
+    root, definition, workflow, phase.id, { candidateSnapshot }
+  );
+  const intent = await resolveArchitectureIntentPublicationBinding(
+    root, definition, workflow, phase, generation
+  );
+  return canonicalJson({
+    phase: phase.id,
+    generation: Number(generation),
+    gate: JSON.parse(architectureIntentGateIdentity(gate)),
+    intent
+  });
+}
+
+/**
+ * Freeze and later re-check the architecture inputs accepted by one publication boundary.
+ *
+ * The Story lock serializes SFlow writers, but it cannot stop an editor or a state-ref refresh from
+ * changing intent/source bytes after lifecycle validation. The isolated-commit stability hook calls
+ * this guard immediately before and after staging, so either observation changing aborts rather than
+ * committing a decision over different evidence.
+ */
+export async function createArchitectureIntentStabilityGuard(
+  root, definition, workflow, phase, generation = phase?.generation,
+  { candidateSnapshot = null, operation = 'governed publication' } = {}
+) {
+  definition = await resolveStoryExecutionDefinition(root, definition, workflow);
+  const expected = await architectureIntentStabilityIdentity(
+    root, definition, workflow, phase, generation, { candidateSnapshot }
+  );
+  return async () => {
+    const current = await architectureIntentStabilityIdentity(
+      root, definition, workflow, phase, generation, { candidateSnapshot }
     );
-  }
-  return status;
+    if (current !== expected) {
+      throw new SingularityFlowError(
+        `Architecture intent evidence changed after validation and before ${operation}. Nothing was committed; retry against the current evidence.`,
+        { code: 'PUBLICATION_SNAPSHOT_CHANGED' }
+      );
+    }
+    return current;
+  };
 }
 
 /** Bounded Story architecture status for read-only lifecycle and IDE projections. */
 export async function projectArchitectureIntentStatus(root, definition, workflow) {
   if (!workflow?.workItem?.id) return null;
+  definition = await resolveStoryExecutionDefinition(root, definition, workflow);
   const policy = policyFor(definition, workflow);
   const intentPath = storyArchitecturePath(root, definition, workflow, 'architecture-intent.json');
   const base = {
@@ -123,7 +153,9 @@ export async function projectArchitectureIntentStatus(root, definition, workflow
   if (!policy.allowedPhases?.includes(intent.phase)) {
     reasons.push(`architecture intent phase '${intent.phase}' is not allowed by the pinned Story policy`);
   }
-  const approval = architectureIntentApprovalStatus(root, workflow, intent, intentPath);
+  const approval = await architectureIntentApprovalStatus(
+    root, definition, workflow, intent, intentPath
+  );
   reasons.push(...approval.errors);
   let fulfilment = null;
   const reportPath = storyArchitecturePath(root, definition, workflow, 'intent-fulfilment.json');
@@ -131,15 +163,17 @@ export async function projectArchitectureIntentStatus(root, definition, workflow
     try {
       const report = validateArchitectureIntentFulfilment(await jsonFile(reportPath));
       const current = report.workId === workflow.workItem.id
-        && report.intentSha256 === intent.intentSha256;
+        && report.intentSha256 === intent.intentSha256
+        && report.baseBeforeSha256 === intent.base.calmProjectionSha256;
       const verdictCounts = Object.fromEntries(
         ['fulfilled', 'missing', 'deviated', 'unplanned', 'not-observable'].map((verdict) => [
           verdict, report.clauses.filter((clause) => clause.verdict === verdict).length
         ])
       );
       fulfilment = Object.freeze({
-        status: current ? (report.blocking ? 'recorded-blocking' : 'recorded-satisfied') : 'stale',
-        blocking: current ? report.blocking : true,
+        status: current ? 'recorded-unverified' : 'stale',
+        blocking: true,
+        reportedBlocking: report.blocking,
         reportSha256: report.reportSha256,
         baseAfterSha256: report.baseAfterSha256,
         counts: Object.freeze(verdictCounts)
@@ -171,74 +205,86 @@ export async function projectArchitectureIntentStatus(root, definition, workflow
  * intent exists, however, its exact fulfilment receipt must describe the current reusable state
  * projection; an old or blocking receipt can never be carried through verification or release.
  */
-export async function evaluateArchitectureIntentGate(root, definition, workflow, phaseId) {
+export async function evaluateArchitectureIntentGate(
+  root, definition, workflow, phaseId, { candidateSnapshot = null } = {}
+) {
+  definition = await resolveStoryExecutionDefinition(root, definition, workflow);
   const policy = policyFor(definition, workflow);
   if (!policy.enabled || !policy.blockRequiredUnfulfilledAt?.includes(phaseId)) return EMPTY;
   const intentPath = storyArchitecturePath(root, definition, workflow, 'architecture-intent.json');
   if (!(await exists(intentPath))) return EMPTY;
 
   const errors = [];
+  const reasonCodes = [];
   let intent;
   try { intent = validateArchitectureIntent(await jsonFile(intentPath)); }
   catch (error) {
-    return { applies: true, errors: [`architecture intent is invalid: ${error.message}`], warnings: [], passes: [] };
+    return gateResult({
+      errors: [`architecture intent is invalid: ${error.message}`],
+      reasonCodes: [error.code ?? 'WMC_INTENT_UNFULFILLED']
+    });
   }
-  if (intent.workId !== workflow.workItem.id) errors.push('architecture intent belongs to another Work ID');
+  if (intent.workId !== workflow.workItem.id) {
+    errors.push('architecture intent belongs to another Work ID');
+    reasonCodes.push('WMC_INTENT_INVALID');
+  }
   if (!policy.allowedPhases?.includes(intent.phase)) {
     errors.push(`architecture intent phase '${intent.phase}' is not allowed by the pinned Story policy`);
+    reasonCodes.push('WMC_INTENT_POLICY_INVALID');
   }
-  errors.push(...architectureIntentApprovalStatus(root, workflow, intent, intentPath).errors);
+  const approval = await architectureIntentApprovalStatus(
+    root, definition, workflow, intent, intentPath
+  );
+  errors.push(...approval.errors);
+  if (!approval.approved) reasonCodes.push('WMC_INTENT_NOT_APPROVED');
 
   const reportPath = storyArchitecturePath(root, definition, workflow, 'intent-fulfilment.json');
   if (!(await exists(reportPath))) {
     errors.push(`architecture intent has no fulfilment receipt; run singularity-flow architecture intent verify --work-id ${workflow.workItem.id}`);
-    return { applies: true, errors, warnings: [], passes: [] };
+    reasonCodes.push('WMC_INTENT_UNFULFILLED');
+    return gateResult({ errors, reasonCodes });
   }
   let report;
   try { report = validateArchitectureIntentFulfilment(await jsonFile(reportPath)); }
   catch (error) {
     errors.push(`architecture intent fulfilment is invalid: ${error.message}`);
-    return { applies: true, errors, warnings: [], passes: [] };
+    reasonCodes.push(error.code ?? 'WMC_INTENT_UNFULFILLED');
+    return gateResult({ errors, reasonCodes });
   }
   if (report.workId !== workflow.workItem.id || report.intentSha256 !== intent.intentSha256
       || report.baseBeforeSha256 !== intent.base.calmProjectionSha256) {
     errors.push('architecture intent fulfilment does not bind the pinned Story intent and base');
+    reasonCodes.push('WMC_INTENT_REPORT_MISMATCH');
   }
 
+  let evaluation = null;
   try {
-    const authority = worldModelStateAuthority(definition, {});
-    const store = resolvePublishedWorldModelV4(root, {
-      outputDir: workflow.resolution?.worldModelOutputDir
-        ?? definition.worldModel?.outputDir ?? 'singularity/world-model',
-      stateBranch: authority.branch, remote: authority.remote
-    });
-    assertCurrentArchitectureProjection(
-      store, await resolveCurrentArchitectureProjectionInputs(root, definition)
+    evaluation = await evaluateArchitectureIntentEvidence(
+      root, definition, workflow, intent, { intentPath, candidateSnapshot }
     );
-    const current = store.projections?.find((entry) => entry.projectionId === 'arch.calm'
-      && entry.status === 'available');
-    if (!current) errors.push('the current reusable World Model has no available arch.calm projection');
-    else if (report.baseAfterSha256 !== current.projectionSha256) {
-      errors.push(`architecture intent fulfilment is stale for the current projection ${current.projectionSha256}`);
-    }
+    assertArchitectureIntentReportMatches(report, evaluation.report);
   } catch (error) {
-    errors.push(`the current reusable architecture projection cannot be verified: ${error.message}`);
+    const code = error?.code ? ` [${error.code}]` : '';
+    errors.push(`the current architecture intent evidence cannot be verified${code}: ${error.message}`);
+    reasonCodes.push(error?.code ?? 'WMC_INTENT_UNFULFILLED');
   }
 
-  const verdicts = new Map(report.clauses.map((clause) => [clause.clauseId, clause.verdict]));
+  const evaluated = evaluation?.report ?? report;
+  const verdicts = new Map(evaluated.clauses.map((clause) => [clause.clauseId, clause.verdict]));
   for (const clause of intent.clauses.filter((entry) => entry.required)) {
     const verdict = verdicts.get(clause.clauseId);
     if (verdict !== 'fulfilled') {
       errors.push(`required architecture clause ${clause.clauseId} is ${verdict ?? 'missing from the fulfilment receipt'}`);
     }
   }
-  if (report.blocking && !errors.some((message) => message.includes('required architecture clause'))) {
+  if (evaluated.blocking && !errors.some((message) => message.includes('required architecture clause'))) {
     errors.push('architecture intent fulfilment remains blocking');
   }
-  return {
-    applies: true,
+  if (evaluated.blocking) reasonCodes.push('WMC_INTENT_UNFULFILLED');
+  return gateResult({
     errors,
-    warnings: [],
-    passes: errors.length ? [] : [`architecture intent fulfilled: ${report.reportSha256.slice(0, 19)}`]
-  };
+    reasonCodes,
+    passes: errors.length ? [] : [`architecture intent fulfilled: ${evaluation.report.reportSha256.slice(0, 19)}`],
+    architectureDecision: evaluation?.decision ?? null
+  });
 }

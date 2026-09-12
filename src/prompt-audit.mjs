@@ -11,6 +11,7 @@ import { SingularityFlowError, writeAtomic } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { canonicalJson } from './records.mjs';
 import { readWorkspace, workspaceRepositoryPath } from './workspace.mjs';
+import { normalizePromptExecutionContext } from './prompt-execution-context.mjs';
 
 export const PROMPT_AUDIT_SCHEMA_VERSION = currentSchemaVersion('prompt-audit-record');
 const DIRECTORY = 'prompt-audit';
@@ -255,8 +256,13 @@ async function entries(file, directory) {
   for (const [index, raw] of text.split('\n').entries()) {
     if (!raw.trim()) continue;
     try {
-      const decoded = readRecord('prompt-audit-record', raw);
-      const verification = verifyRecordIntegrity(decoded.record, key, previousMac, hasPriorSealed);
+      // Integrity belongs to the bytes and schema that were actually stored. In particular, a
+      // sealed v2 record was hashed before v3 added `executionContext`; verifying the migrated
+      // projection would make every genuine historical seal appear corrupt. Validate the stored
+      // object first, then expose the migration registry's current-shape projection to consumers.
+      const storedRecord = JSON.parse(raw);
+      const verification = verifyRecordIntegrity(storedRecord, key, previousMac, hasPriorSealed);
+      const decoded = readRecord('prompt-audit-record', storedRecord);
       if (verification.status === 'verified') verified += 1;
       else if (verification.status === 'legacy-unsealed') legacy += 1;
       else failed += 1;
@@ -264,9 +270,12 @@ async function entries(file, directory) {
         warnings.push(`Prompt-audit record ${decoded.record.id ?? `line ${index + 1}`} failed integrity: ${verification.findings.join('; ')}.`);
       }
       records.push({ ...decoded.record, integrityVerification: verification });
-      items.push({ raw, record: decoded.record, storedVersion: decoded.storedVersion, verification });
-      if (decoded.record.integrity?.mac) {
-        previousMac = decoded.record.integrity.mac;
+      items.push({
+        raw, record: decoded.record, storedRecord,
+        storedVersion: decoded.storedVersion, verification
+      });
+      if (storedRecord.integrity?.mac) {
+        previousMac = storedRecord.integrity.mac;
         hasPriorSealed = true;
       }
     } catch (error) {
@@ -285,13 +294,13 @@ async function entries(file, directory) {
 }
 
 function applyIntegrityAnchors(data, config, { allowTailAdvance = false } = {}) {
-  const sealed = data.items.filter((item) => item.record.integrity?.mac);
-  const firstMac = sealed[0]?.record.integrity.mac ?? null;
-  const lastMac = sealed.at(-1)?.record.integrity.mac ?? null;
+  const sealed = data.items.filter((item) => item.storedRecord?.integrity?.mac);
+  const firstMac = sealed[0]?.storedRecord.integrity.mac ?? null;
+  const lastMac = sealed.at(-1)?.storedRecord.integrity.mac ?? null;
   const findings = [];
   if (config.headMac && config.headMac !== firstMac) findings.push('the anchored first record is missing or changed');
   if (config.tailMac && config.tailMac !== lastMac
-      && !(allowTailAdvance && sealed.some((item) => item.record.integrity.mac === config.tailMac))) {
+      && !(allowTailAdvance && sealed.some((item) => item.storedRecord.integrity.mac === config.tailMac))) {
     findings.push('the anchored last record is missing or changed');
   }
   if (!findings.length) return data;
@@ -798,13 +807,13 @@ async function maintainLog(target, config, { force = false } = {}) {
   if (first) retained = retained.slice(first);
   const removed = data.items.length - retained.length;
   if (removed) await rewriteLog(target.logFile, retained);
-  const sealed = retained.filter((item) => item.record.integrity?.mac);
+  const sealed = retained.filter((item) => item.storedRecord?.integrity?.mac);
   const logInfo = await stat(target.logFile).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
   const next = await writeSettings(target, {
     ...config,
     lastPrunedAt: new Date().toISOString(),
-    headMac: sealed[0]?.record.integrity.mac ?? null,
-    tailMac: sealed.at(-1)?.record.integrity.mac ?? null,
+    headMac: sealed[0]?.storedRecord.integrity.mac ?? null,
+    tailMac: sealed.at(-1)?.storedRecord.integrity.mac ?? null,
     logBytes: logInfo?.size ?? 0,
     logMtimeMs: logInfo?.mtimeMs ?? null
   });
@@ -842,7 +851,9 @@ async function lastLogRecord(file) {
         const boundary = withoutTrailing.lastIndexOf('\n');
         const raw = withoutTrailing.slice(boundary + 1);
         if (!raw) return null;
-        try { return readRecord('prompt-audit-record', raw).record; }
+        try {
+          return { storedRecord: JSON.parse(raw) };
+        }
         catch { return { malformed: true }; }
       }
     }
@@ -987,33 +998,39 @@ export async function recordPromptAudit(root, input) {
         { code: 'PROMPT_AUDIT_INTEGRITY_FAILED', details: { integrity: maintenance.data.integrity } }
       );
     }
-    let previous = await lastLogRecord(target.logFile);
-    if (previous?.malformed) {
+    let previousEntry = await lastLogRecord(target.logFile);
+    if (previousEntry?.malformed) {
       await maintainLog(target, config, { force: true });
-      previous = await lastLogRecord(target.logFile);
+      previousEntry = await lastLogRecord(target.logFile);
     }
-    if (previous?.integrity) {
+    if (previousEntry?.storedRecord?.integrity) {
       const key = await auditKey(target.directory, { create: false });
-      const verification = verifyRecordIntegrity(previous, key, null, false);
+      const verification = verifyRecordIntegrity(previousEntry.storedRecord, key, null, false);
       if (verification.status !== 'verified') {
         throw new SingularityFlowError(
           `Prompt-audit tail failed integrity: ${verification.findings.join('; ')}. Run singularity-flow prompt-log repair before retrying.`,
           { code: 'PROMPT_AUDIT_INTEGRITY_FAILED', details: { findings: verification.findings } }
         );
       }
-      if (config.tailMac && previous.integrity.mac !== config.tailMac) {
+      if (config.tailMac && previousEntry.storedRecord.integrity.mac !== config.tailMac) {
         throw new SingularityFlowError(
           'Prompt-audit tail does not match its durable chain anchor. Run singularity-flow prompt-log repair before retrying.',
           { code: 'PROMPT_AUDIT_INTEGRITY_FAILED' }
         );
       }
     }
+    const previous = previousEntry?.storedRecord
+      ? readRecord('prompt-audit-record', previousEntry.storedRecord).record
+      : null;
     const handoff = String(input.prompt ?? '');
     const scrubbed = scrubPrompt(handoff);
     const promptSha256 = createHash('sha256').update(scrubbed.prompt).digest('hex');
     const handoffSha256 = createHash('sha256').update(handoff).digest('hex');
     const handoffBytes = Buffer.byteLength(handoff);
     const source = input.source ?? 'wm-compose';
+    const executionContext = normalizePromptExecutionContext(input.executionContext, {
+      omittedMode: input.workId == null ? 'legacy-live' : 'historical-unproven'
+    });
     // The exact same composition identity is one governed handoff even when the local composition
     // cache was cold, disabled, or rebuilt. Repeating `wm compose` must not append the complete
     // prompt again merely because cache metadata says `hit: false`. Model invocation and VS Code
@@ -1029,7 +1046,10 @@ export async function recordPromptAudit(root, input) {
       && previous.generation === (input.generation ?? null)
       && previous.agent === input.agent
       && previous.task === (input.task ?? null)
-      && previous.compositionCache?.key === input.compositionCache?.key) {
+      && previous.compositionCache?.key === input.compositionCache?.key
+      // A composition rebuilt under a different immutable Story snapshot is a different
+      // governed handoff even when its rendered bytes and cache identity happen to match.
+      && canonicalJson(previous.executionContext) === canonicalJson(executionContext)) {
       return { ...previous, deduplicated: true, integrityVerification: { status: 'verified', findings: [] } };
     }
     const key = await auditKey(target.directory, { create: true });
@@ -1052,6 +1072,10 @@ export async function recordPromptAudit(root, input) {
       references: input.references ?? [],
       compositionCache: input.compositionCache ?? null,
       composition: input.composition ?? null,
+      // A Story-associated row must not claim live-agent provenance simply because an adapter
+      // omitted the new metadata. Current Story writers pass a verified identity; omission is
+      // retained honestly as unproven, while repository-only prompts keep the legacy-live label.
+      executionContext,
       handoffSha256,
       handoffBytes,
       promptSha256,

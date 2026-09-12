@@ -365,7 +365,9 @@ export async function readCapabilityAuthorityLink(repositoryRemote, {
 export async function publishCapabilityAuthorityLink(repositoryRemote, link, {
   defaultBranch = 'main',
   stateBranch = DEFAULT_CAPABILITY_STATE_BRANCH,
-  env = process.env
+  env = process.env,
+  commitIdentity = null,
+  commitSigning = null
 } = {}) {
   const repository = assertCredentialFreeRemote(repositoryRemote);
   const validated = validateCapabilityAuthorityLink(link, repository);
@@ -385,10 +387,13 @@ export async function publishCapabilityAuthorityLink(repositoryRemote, link, {
       enabled: true,
       branch: stateBranch,
       remote: 'origin',
-      publication: 'warn'
+      publication: 'warn',
+      signing: commitSigning?.required === true ? 'commit' : 'off'
     }, { [CAPABILITY_AUTHORITY_LINK_PATH]: bytes }, 'Publish capability authority link', {
       env: transport.env,
       transportRemote: repository,
+      commitIdentity,
+      commitSigning,
       exactBlobSha256: { [CAPABILITY_AUTHORITY_LINK_PATH]: sha256(bytes) }
     });
     return Object.freeze({
@@ -527,7 +532,9 @@ export async function retireCapabilityAuthorityLink(repositoryRemote, {
 /** Publish a bounded set concurrently while preserving every per-repository failure. */
 export async function publishCapabilityAuthorityLinkSet(entries, {
   workers = 4,
-  env = process.env
+  env = process.env,
+  commitIdentity = null,
+  commitSigning = null
 } = {}) {
   // A repository may use a custom runtime state branch. Publish the ordinary `state` discovery
   // locator as well as the custom branch so a fresh laptop, which cannot know the custom branch
@@ -547,7 +554,9 @@ export async function publishCapabilityAuthorityLinkSet(entries, {
           ...(await publishCapabilityAuthorityLink(entry.repositoryRemote, link, {
             defaultBranch: entry.defaultBranch,
             stateBranch: entry.stateBranch,
-            env
+            env,
+            commitIdentity,
+            commitSigning
           }))
         };
       } catch (error) {

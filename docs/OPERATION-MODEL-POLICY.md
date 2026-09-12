@@ -40,6 +40,7 @@ Every public operation is classified before its implementation module is importe
 | architecture.export | mutation | never | — | — |
 | architecture.intent.init | mutation | never | — | — |
 | architecture.intent.render | mutation | never | — | — |
+| architecture.intent.revise | mutation | never | — | — |
 | architecture.intent.validate | read | never | — | — |
 | architecture.intent.verify | mutation | never | — | — |
 | architecture.show | read | never | — | — |

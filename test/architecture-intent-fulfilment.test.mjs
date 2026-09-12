@@ -121,3 +121,34 @@ test('intent fulfilment keeps not-observable evidence and unplanned architecture
     'surprise');
   assert.equal(drift.blocking, true);
 });
+
+test('an unobservable absence never proves a required architecture removal', () => {
+  const base = buildCalmProjection({
+    subject: { id: 'unobservable-removal' }, sourceManifestSha256: sha256('source'),
+    scopeSha256: sha256('scope'), factLedger: { ledgerSha256: sha256('ledger'), facts: [] },
+    capabilitySnapshot: createArchitectureCapabilitySnapshot({
+      version: 2, capabilities: {
+        payments: { kind: 'delivery', parent: null, architecture: { nodeType: 'service' } }
+      }
+    }), configurationSnapshot: createArchitectureConfigurationSnapshot({})
+  });
+  const intent = createArchitectureIntent({
+    workId: 'PAY-145', phase: 'planning', generation: 1,
+    base: {
+      worldModelManifestSha256: sha256('manifest'),
+      calmProjectionSha256: base.projectionSha256
+    },
+    clauses: [{
+      clauseId: 'PAY-145:ARCH-001', operation: 'remove-node', elementId: 'legacy-cache',
+      required: true, value: {}
+    }]
+  });
+
+  const report = verifyArchitectureIntent({
+    intent, baseAfter: base.projection, baseAfterSha256: base.projectionSha256,
+    unavailable: [{ subject: 'node:legacy-cache', reason: 'producer-unavailable' }]
+  });
+
+  assert.equal(report.clauses[0].verdict, 'not-observable');
+  assert.equal(report.blocking, true);
+});

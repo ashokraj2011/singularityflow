@@ -664,11 +664,33 @@ export async function validateWorldModelDirectory(directory, {
 }
 
 export async function worldModelFreshness(root, config, manifest) {
-  const source = await worldModelSourceSnapshot(root, config);
+  const sourceSnapshot = await worldModelSourceSnapshot(root, config);
   const recorded = manifest.source_tree_sha256 ?? null;
-  if (recorded) return { built: recorded, current: source.sha256, fresh: recorded === source.sha256, source };
+  if (recorded) {
+    const fresh = recorded === sourceSnapshot.sha256;
+    return {
+      built: recorded, current: sourceSnapshot.sha256, fresh,
+      source: {
+        ...sourceSnapshot,
+        status: fresh ? 'fresh' : 'stale', fresh,
+        built: recorded, current: sourceSnapshot.sha256,
+        reason: fresh ? null : 'source-tree-changed'
+      }
+    };
+  }
   const built = manifest.repository_commit ?? manifest.repository?.commit ?? null;
-  return { built, current: head(root), fresh: built === head(root), source, legacy: true };
+  const current = head(root);
+  const fresh = built === current;
+  return {
+    built, current, fresh,
+    source: {
+      ...sourceSnapshot,
+      status: fresh ? 'fresh' : 'stale', fresh,
+      built: null, current: sourceSnapshot.sha256,
+      reason: fresh ? null : 'legacy-repository-commit-changed'
+    },
+    legacy: true
+  };
 }
 
 function normalizeTask(value) { return String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' '); }
@@ -1201,6 +1223,9 @@ const GROUNDING_FILE_CATEGORIES = new Set([
 const GROUNDING_AVAILABILITY_STATUSES = new Set([
   'available', 'unavailable', 'legacy-unverified'
 ]);
+const SOURCE_COMPARISON_STATUSES = new Set([
+  'fresh', 'stale', 'unavailable', 'historical-unproven'
+]);
 
 function stableGroundingReasonCode(value) {
   return typeof value === 'string' && /^[A-Z][A-Z0-9_.-]{0,95}$/.test(value);
@@ -1280,6 +1305,11 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
   };
   const groundingStatus = groundingAvailability?.status;
   const groundingUnavailable = groundingStatus === 'unavailable';
+  const sourceComparison = record.sourceComparison ?? {
+    status: 'historical-unproven', reasonCode: null
+  };
+  const sourceComparisonStatus = sourceComparison?.status;
+  const sourceUnavailable = sourceComparisonStatus === 'unavailable';
   if (!GROUNDING_AVAILABILITY_STATUSES.has(groundingStatus)) {
     problems.push(`grounding composition has an invalid availability status: ${relative}`);
   } else if (groundingUnavailable) {
@@ -1296,6 +1326,15 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
   } else if (groundingAvailability.reasonCode != null) {
     problems.push(`grounding composition has an unexpected availability reason code: ${relative}`);
   }
+  if (!SOURCE_COMPARISON_STATUSES.has(sourceComparisonStatus)) {
+    problems.push(`grounding composition has an invalid source-comparison status: ${relative}`);
+  } else if (['stale', 'unavailable'].includes(sourceComparisonStatus)) {
+    if (!stableGroundingReasonCode(sourceComparison.reasonCode)) {
+      problems.push(`grounding composition has no stable source-comparison reason code: ${relative}`);
+    }
+  } else if (sourceComparison.reasonCode != null) {
+    problems.push(`grounding composition has an unexpected source-comparison reason code: ${relative}`);
+  }
   if (record.workId !== workflow.workItem.id || record.phase !== phase.id || record.generation !== generation) problems.push(`grounding composition identity mismatch: ${relative}`);
   if (!record.agent) problems.push(`grounding composition has no agent: ${relative}`);
   else if (!definition.agents?.[record.agent]) problems.push(`grounding composition uses unknown agent '${record.agent}': ${relative}`);
@@ -1303,8 +1342,26 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
   if (!groundingUnavailable) {
     if (!/^[0-9a-f]{40}$/.test(record.worldModelCommit ?? '')) problems.push(`grounding composition has no committed world-model revision: ${relative}`);
     if (!/^[0-9a-f]{64}$/.test(record.manifestSha256 ?? '')) problems.push(`grounding composition has invalid manifestSha256: ${relative}`);
-    for (const field of ['modelSourceTreeSha256', 'composedSourceTreeSha256']) if (!/^sha256:[0-9a-f]{64}$/.test(record[field] ?? '')) problems.push(`grounding composition has invalid ${field}: ${relative}`);
-    if (record.fresh !== true) stalenessProblems.push(`grounding composition was created from a stale world model: ${relative}`);
+    if (!/^sha256:[0-9a-f]{64}$/.test(record.modelSourceTreeSha256 ?? '')) {
+      problems.push(`grounding composition has invalid modelSourceTreeSha256: ${relative}`);
+    }
+    if (record.composedSourceTreeSha256 == null) {
+      if (!sourceUnavailable) {
+        problems.push(`grounding composition has invalid composedSourceTreeSha256: ${relative}`);
+      }
+    } else if (!/^sha256:[0-9a-f]{64}$/.test(record.composedSourceTreeSha256)) {
+      problems.push(`grounding composition has invalid composedSourceTreeSha256: ${relative}`);
+    }
+    if (sourceUnavailable) {
+      if (record.composedSourceTreeSha256 != null) {
+        problems.push(`grounding composition marked source comparison unavailable but records a current source hash: ${relative}`);
+      }
+      stalenessProblems.push(
+        `grounding composition source comparison was unavailable (${sourceComparison.reasonCode}): ${relative}`
+      );
+    } else if (sourceComparisonStatus === 'stale' || record.fresh !== true) {
+      stalenessProblems.push(`grounding composition was created from a stale world model: ${relative}`);
+    }
     if (record.modelSourceTreeSha256 && record.composedSourceTreeSha256 && record.modelSourceTreeSha256 !== record.composedSourceTreeSha256) problems.push(`grounding composition source hash does not match its world model: ${relative}`);
     if (record.stale === true) stalenessProblems.push(`grounding composition is stale: ${relative}`);
     if (!Array.isArray(record.files) || !record.files.length) problems.push(`grounding composition contains no world-model files: ${relative}`);

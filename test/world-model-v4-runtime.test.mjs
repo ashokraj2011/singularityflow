@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import { publishToStateBranch } from '../src/ledger.mjs';
 import { withOperationContext } from '../src/operation-context.mjs';
+import { listPromptAudits, setPromptAudit } from '../src/prompt-audit.mjs';
 import { run } from '../src/util.mjs';
 import {
   inspectWorldModelViewCache, verifyWorldModelStalenessReceipt,
@@ -1084,6 +1085,78 @@ test('Story metadata does not rebuild a repository view, while scoped source cha
   assert.deepEqual(rebuilt.warnings, []);
 });
 
+test('dirty current source is reported as unavailable without inventing a digest or receipt', async (t) => {
+  const { root } = await repository(t);
+  await buildAndPublishWorldModelV4(root, buildOptions());
+  const baseline = resolvePublishedWorldModelV4(root, {
+    outputDir: 'singularity/world-model', stateBranch: 'state', remote: 'origin'
+  });
+  assert.equal(baseline.freshness.status, 'fresh');
+  assert.equal(baseline.freshness.source.current, baseline.sourceSnapshot.sourceManifestSha256);
+
+  await writeFile(path.join(root, 'src', 'tax.mjs'), 'export const tax = (value) => value * 0.3;\n');
+  const dirtyBefore = git(root, 'status', '--porcelain=v1', '--untracked-files=all').stdout;
+  const unavailable = resolvePublishedWorldModelV4(root, {
+    outputDir: 'singularity/world-model', stateBranch: 'state', remote: 'origin'
+  });
+  assert.equal(unavailable.freshness.status, 'unavailable');
+  assert.equal(unavailable.freshness.fresh, false);
+  assert.equal(unavailable.freshness.current, null);
+  assert.equal(unavailable.freshness.source.status, 'unavailable');
+  assert.equal(unavailable.freshness.source.current, null);
+  assert.equal(unavailable.freshness.reason, 'WMB_SOURCE_SNAPSHOT_REQUIRED');
+  assert.match(unavailable.freshness.detail, /uncommitted|clean|Candidate Snapshot/i);
+  assert.deepEqual(unavailable.stalenessReceipts, []);
+  assert.equal(
+    git(root, 'status', '--porcelain=v1', '--untracked-files=all').stdout,
+    dirtyBefore,
+    'read-only comparison must preserve the exact dirty source state'
+  );
+
+  const changedIdentity = {
+    ...structuredClone(baseline.freshness.reusableIdentity.built),
+    composerProfileSha256: sha256({ changed: 'consumer-profile' })
+  };
+  const unavailableWithIdentityChange = resolvePublishedWorldModelV4(root, {
+    outputDir: 'singularity/world-model', stateBranch: 'state', remote: 'origin',
+    expectedReusableIdentity: changedIdentity
+  });
+  assert.equal(unavailableWithIdentityChange.freshness.status, 'unavailable');
+  assert.equal(unavailableWithIdentityChange.freshness.current, null);
+  assert.equal(unavailableWithIdentityChange.stalenessReceipts.length, 1);
+  assert.equal(
+    unavailableWithIdentityChange.stalenessReceipts[0].cause.kind,
+    'consumer-profile-change'
+  );
+  assert.match(
+    unavailableWithIdentityChange.stalenessReceipts[0].cause.currentSha256,
+    /^sha256:[a-f0-9]{64}$/
+  );
+
+  await writeFile(path.join(root, 'src', 'tax.mjs'), 'export const tax = (value) => value * 0.1;\n');
+  await writeFile(path.join(root, 'src', 'untracked.mjs'), 'export const pending = true;\n');
+  const untracked = resolvePublishedWorldModelV4(root, {
+    outputDir: 'singularity/world-model', stateBranch: 'state', remote: 'origin'
+  });
+  assert.equal(untracked.freshness.status, 'unavailable');
+  assert.equal(untracked.freshness.current, null);
+  assert.deepEqual(untracked.stalenessReceipts, []);
+
+  await rm(path.join(root, 'src', 'untracked.mjs'));
+  const configurationOnly = resolvePublishedWorldModelV4(root, {
+    outputDir: 'singularity/world-model', stateBranch: 'state', remote: 'origin',
+    expectedReusableIdentity: changedIdentity
+  });
+  assert.equal(configurationOnly.freshness.status, 'stale');
+  assert.equal(
+    configurationOnly.freshness.source.current,
+    configurationOnly.sourceSnapshot.sourceManifestSha256,
+    'the source-specific current digest must not be replaced by a configuration digest'
+  );
+  assert.equal(configurationOnly.freshness.source.status, 'fresh');
+  assert.notEqual(configurationOnly.freshness.current, configurationOnly.freshness.source.current);
+});
+
 test('a required view failure preserves registered facts but cannot publish a manifest', async (t) => {
   const { root } = await repository(t);
   const runtime = await buildWorldModelV4(root, {
@@ -1296,6 +1369,14 @@ test('failed-view retry policy preserves refusal lineage and exhausts its instal
 
 test('the governed model composer validates, materializes, and accounts for one successful candidate', async (t) => {
   const { root } = await repository(t);
+  const executionContext = {
+    mode: 'workflow-snapshot', snapshotHash: `sha256:${'1'.repeat(64)}`,
+    agentId: 'developer', agentBlobSha256: `sha256:${'2'.repeat(64)}`,
+    dependencies: [{ logicalId: 'agent:developer', sha256: `sha256:${'2'.repeat(64)}` }],
+    parserProfile: 'sflow-agent-document-v1', composerProfile: 'story-snapshot-agent-v1',
+    overrideSha256: null
+  };
+  await setPromptAudit(root, true);
   const deterministic = await buildWorldModelV4(root, buildOptions({
     cachePolicy: 'rebuild', generatedAt: '2026-09-01T03:30:00.000Z'
   }));
@@ -1336,6 +1417,7 @@ for await (const line of lines) {
     modelMode: { enabled: true }, root, command: 'wm build'
   }, () => buildWorldModelV4(root, buildOptions({
     composer: 'model', provider: 'copilot-cli', model: 'fixture-model',
+    executionContext,
     providerConfig: {
       type: 'copilot-cli', executable: process.execPath,
       arguments: [fixture], promptTransport: 'acp-stdio'
@@ -1354,4 +1436,8 @@ for await (const line of lines) {
   assert.equal(view.usageObservation.providerOutputTokens, 47);
   assert.equal(view.usageObservation.assurance.providerTokens, 'provider-reported');
   assert.match(view.markdown, /execution-unit: governed-model-composer@1:/);
+  const audits = await listPromptAudits(root, { includePrompt: false });
+  assert.equal(audits.count, 1);
+  assert.deepEqual(audits.records[0].executionContext, executionContext);
+  assert.equal(audits.records[0].workId, null);
 });

@@ -624,6 +624,34 @@ test('the world model shows its current state, not only its policy', () => {
     'an already-built model keeps an explicit, reviewed refresh path');
 });
 
+test('a verified model with unavailable source comparison is not rendered as never built', () => {
+  const digest = `sha256:${'b'.repeat(64)}`;
+  const unavailable = {
+    ...snapshot,
+    worldModel: {
+      kind: 'world-model-ide-slice', format: 'wmb-v4', status: 'ready',
+      root: 'singularity/world-model', generatedAt: null,
+      authority: { ref: 'refs/remotes/origin/state', commit: 'a'.repeat(40), manifestSha256: digest },
+      source: {
+        sourceManifestSha256: digest, scopeManifestSha256: digest,
+        status: 'unavailable', fresh: false, currentSourceManifestSha256: null,
+        reason: 'WMB_SOURCE_SNAPSHOT_REQUIRED'
+      },
+      rebuildReason: 'The current source cannot be compared safely.',
+      readiness: {
+        status: 'unavailable', ready: false, source: 'state-branch',
+        command: 'singularity-flow wm snapshot --format registered-v4'
+      },
+      views: [], projections: [], expansion: []
+    }
+  };
+  const view = configurationCenterView(unavailable);
+  assert.equal(view.worldModelStatus.built, true);
+  const html = centerHtml(unavailable, 'world-model');
+  assert.match(html, /governed state branch/);
+  assert.doesNotMatch(html, /has no world model yet/);
+});
+
 test('registered-v4 Explorer opens exact state references and keeps full catalogs on demand', () => {
   const digest = `sha256:${'a'.repeat(64)}`;
   const viewRef = `sfref:world-model:view:dev.impact:${'a'.repeat(64)}`;

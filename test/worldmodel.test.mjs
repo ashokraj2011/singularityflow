@@ -365,6 +365,7 @@ test('wm inject renders matched agent context and records the generation audit',
   assert.equal(promptAudits[0].source, 'vscode-governed-handoff');
   assert.equal(promptAudits[0].agent, 'developer');
   assert.equal(promptAudits[0].workId, 'WM-1');
+  assert.deepEqual(promptAudits[0].executionContext, { mode: 'legacy-live' });
   assert.equal(promptAudits[0].prompt, handedOff, 'the audit bytes are the exact host query');
   assert.equal(promptAudits[0].handoffBytes, Buffer.byteLength(handedOff));
   assert.match(promptAudits[0].prompt, /Working directory:/);
@@ -475,6 +476,27 @@ test('wm inject renders matched agent context and records the generation audit',
   const loadedDefinition = await loadDefinition(root);
   const verified = await verifyGroundingRecord(root, loadedDefinition, verificationWorkflow, phase, { agent: 'developer' });
   assert.deepEqual(verified.errors, []);
+
+  // A verified model may still be consumed when the current source cannot be compared. That is a
+  // staleness-policy signal, not permission to skip verification of the model bytes themselves.
+  audit.sourceComparison = { status: 'unavailable', reasonCode: 'SOURCE_REVISION_UNAVAILABLE' };
+  audit.composedSourceTreeSha256 = null;
+  audit.fresh = false;
+  await writeFile(path.join(workDir, 'context/design-gen1.json'), JSON.stringify(audit));
+  const unavailable = await verifyGroundingRecord(
+    root, loadedDefinition, verificationWorkflow, phase, { agent: 'developer' }
+  );
+  assert.deepEqual(unavailable.errors, []);
+  assert.match(unavailable.warnings.join('\n'), /source comparison was unavailable/);
+  const requiredFile = audit.files.find((file) => file.category === 'required');
+  const acceptedRequiredHash = requiredFile.sha256;
+  requiredFile.sha256 = '0'.repeat(64);
+  await writeFile(path.join(workDir, 'context/design-gen1.json'), JSON.stringify(audit));
+  assert.match((await verifyGroundingRecord(
+    root, loadedDefinition, verificationWorkflow, phase, { agent: 'developer' }
+  )).errors.join('\n'), /world-model commit hash differs/);
+  requiredFile.sha256 = acceptedRequiredHash;
+  await writeFile(path.join(workDir, 'context/design-gen1.json'), JSON.stringify(audit));
   await writeFile(promptPath, 'tampered prompt\n');
   assert.match((await verifyGroundingRecord(root, loadedDefinition, verificationWorkflow, phase, { agent: 'developer' })).errors.join('\n'), /prompt snapshot hash differs/);
 });

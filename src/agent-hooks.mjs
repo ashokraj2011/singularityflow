@@ -19,6 +19,7 @@ import {
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { phasePublicationAuthorship, phasePublicationCommand } from './manual-authorship.mjs';
 import { DEFAULT_WORK_ITEM_ROOT, workItemWorkflowRelative } from './work-item-location.mjs';
+import { resolveStoryExecutionCatalog } from './story-execution-context.mjs';
 
 // An initiative branch is a governed context in its own right: the branch name IS the initiative
 // ID, the profile and agent were pinned when it was started, and every phase output is
@@ -113,6 +114,9 @@ export async function copilotAgentStartHook(root, payload = {}) {
 }
 
 export async function sessionStartAgentHook(root, definition, workflow, payload = {}) {
+  if (workflow) {
+    definition = (await resolveStoryExecutionCatalog(root, definition, workflow)).effectiveDefinition;
+  }
   const log = repositoryLogger(root, definition, { context: { hook: 'session-start', sessionId: payload.sessionId ?? null } });
   const workspace = await workspaceMemberContextForRepository(
     root, activeWorkspaceFile(), workspaceRegistryFile()

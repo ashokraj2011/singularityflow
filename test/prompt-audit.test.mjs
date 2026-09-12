@@ -1,10 +1,12 @@
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash, createHmac } from 'node:crypto';
 import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { run } from '../src/util.mjs';
 import { gitDir } from '../src/git.mjs';
+import { canonicalJson } from '../src/records.mjs';
 import {
   clearPromptAudits, listPromptAudits, promptAuditStatus, readPromptAudit, recordPromptAudit,
   renderPromptAudit, repairPromptAudits, setPromptAudit, setPromptAuditRetention, scrubPrompt
@@ -46,6 +48,75 @@ async function repository() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-prompt-audit-'));
   run('git', ['init', '-q'], { cwd: root });
   return root;
+}
+
+function sealedPromptAuditV2(root, key, {
+  id, prompt, recordedAt, previousMac = null
+}) {
+  const promptSha256 = createHash('sha256').update(prompt).digest('hex');
+  const core = {
+    schemaVersion: 2,
+    id,
+    recordedAt,
+    workspaceId: null,
+    workspaceName: null,
+    repositoryPath: root,
+    workId: 'LEGACY-PROMPT',
+    workType: 'feature',
+    phase: 'implementation',
+    generation: 1,
+    agent: 'developer',
+    task: 'legacy-task',
+    source: 'model-invocation',
+    supportingEvidence: [],
+    references: [],
+    compositionCache: null,
+    composition: null,
+    handoffSha256: promptSha256,
+    handoffBytes: Buffer.byteLength(prompt),
+    promptSha256,
+    bytes: Buffer.byteLength(prompt),
+    redactions: 0,
+    prompt
+  };
+  const payload = canonicalJson(core);
+  return {
+    ...core,
+    integrity: {
+      scheme: 'machine-local-hmac-chain-v1',
+      keyId: `sha256:${createHash('sha256').update(key).digest('hex')}`,
+      previousMac,
+      payloadSha256: `sha256:${createHash('sha256').update(payload).digest('hex')}`,
+      mac: `sha256:${createHmac('sha256', key)
+        .update(`${previousMac ?? 'chain-root'}\n${payload}`).digest('hex')}`
+    }
+  };
+}
+
+async function installSealedPromptAuditV2(root, prompts) {
+  const enabled = await setPromptAudit(root, true);
+  // The integrity key is created lazily on the first sealed append. Bootstrap and clear the log so
+  // the fixture uses the real machine-local key and settings boundary without retaining a v3 row.
+  await recordPromptAudit(root, {
+    agent: 'developer', phase: 'implementation', prompt: 'integrity-key bootstrap'
+  });
+  await clearPromptAudits(root);
+  const key = await readFile(path.join(enabled.directory, 'integrity.key'));
+  const records = [];
+  let previousMac = null;
+  for (const [index, prompt] of prompts.entries()) {
+    const record = sealedPromptAuditV2(root, key, {
+      id: `legacy-v2-${index + 1}`,
+      prompt,
+      recordedAt: new Date(Date.now() - ((prompts.length - index) * 1000)).toISOString(),
+      previousMac
+    });
+    records.push(record);
+    previousMac = record.integrity.mac;
+  }
+  const lines = records.map((record) => JSON.stringify(record));
+  await writeFile(enabled.logFile, `${lines.join('\n')}\n`);
+  return { enabled, records, lines };
 }
 
 test('prompt auditing is off by default and records nothing until explicitly enabled', async () => {
@@ -102,6 +173,43 @@ test('a composition-cache hit reuses the consecutive prompt record without hidin
     ...input, source: 'model-invocation', compositionCache: { ...input.compositionCache, hit: true }
   });
   assert.equal((await promptAuditStatus(root)).count, 2);
+});
+
+test('wm-compose dedup keeps identical bytes from distinct Story snapshots separate', async () => {
+  const root = await repository();
+  await setPromptAudit(root, true);
+  const context = {
+    mode: 'workflow-snapshot',
+    snapshotHash: `sha256:${'1'.repeat(64)}`,
+    agentId: 'developer',
+    agentBlobSha256: `sha256:${'2'.repeat(64)}`,
+    dependencies: [{ logicalId: 'agent:developer', sha256: `sha256:${'2'.repeat(64)}` }],
+    parserProfile: 'frontmatter-v1',
+    composerProfile: 'governed-v1',
+    overrideSha256: null
+  };
+  const input = {
+    agent: 'developer', phase: 'implementation', workId: 'STORY-SNAPSHOTS', generation: 1,
+    prompt: '# Same rendered prompt\n', source: 'wm-compose',
+    compositionCache: { key: 'c'.repeat(64), hit: false }, executionContext: context
+  };
+  const first = await recordPromptAudit(root, input);
+  const second = await recordPromptAudit(root, {
+    ...input,
+    compositionCache: { ...input.compositionCache, hit: true },
+    executionContext: { ...context, snapshotHash: `sha256:${'3'.repeat(64)}` }
+  });
+  assert.notEqual(second.id, first.id);
+  assert.equal(second.deduplicated, undefined);
+  assert.equal((await promptAuditStatus(root)).count, 2);
+
+  const repeated = await recordPromptAudit(root, {
+    ...input,
+    compositionCache: { ...input.compositionCache, hit: true },
+    executionContext: { ...context, snapshotHash: `sha256:${'3'.repeat(64)}` }
+  });
+  assert.equal(repeated.id, second.id);
+  assert.equal(repeated.deduplicated, true);
 });
 
 test('wm-compose dedup never collapses different raw handoffs that redact identically', async () => {
@@ -287,6 +395,62 @@ test('sealed prompt records detect edits and explicit repair preserves the origi
   assert.equal(repaired.recoveryFiles, 1);
   await recordPromptAudit(root, { agent: 'developer', phase: 'design', prompt: 'clean restart' });
   assert.equal((await promptAuditStatus(root)).integrity.status, 'verified');
+});
+
+test('sealed prompt-audit v2 history verifies before projection and remains byte-exact when v3 appends', async () => {
+  const root = await repository();
+  const legacy = await installSealedPromptAuditV2(root, [
+    'first sealed v2 prompt', 'second sealed v2 prompt'
+  ]);
+
+  const status = await promptAuditStatus(root);
+  assert.equal(status.integrity.status, 'verified');
+  assert.equal(status.integrity.verified, 2);
+  const listed = await listPromptAudits(root, { includePrompt: true, limit: 10 });
+  assert.deepEqual(listed.records.map((record) => record.schemaVersion), [3, 3]);
+  assert.deepEqual(listed.records.map((record) => record.executionContext), [
+    { mode: 'historical-unproven' }, { mode: 'historical-unproven' }
+  ]);
+  assert.deepEqual(listed.records.map((record) => record.integrityVerification.status), [
+    'verified', 'verified'
+  ]);
+
+  // Maintenance may update local anchors, but it must not rewrite accepted historical lines.
+  await setPromptAuditRetention(root, 30);
+  assert.deepEqual(
+    (await readFile(legacy.enabled.logFile, 'utf8')).trim().split('\n'),
+    legacy.lines
+  );
+
+  const appended = await recordPromptAudit(root, {
+    agent: 'developer', phase: 'implementation', workId: 'LEGACY-PROMPT', generation: 1,
+    task: 'current-task', source: 'model-invocation', prompt: 'new v3 prompt',
+    executionContext: { mode: 'legacy-live' }
+  });
+  assert.equal(appended.schemaVersion, 3);
+  assert.equal(appended.integrity.previousMac, legacy.records.at(-1).integrity.mac);
+  const storedLines = (await readFile(legacy.enabled.logFile, 'utf8')).trim().split('\n');
+  assert.deepEqual(storedLines.slice(0, 2), legacy.lines);
+  assert.equal(JSON.parse(storedLines[2]).schemaVersion, 3);
+  assert.equal((await promptAuditStatus(root)).integrity.status, 'verified');
+});
+
+test('tampering a sealed prompt-audit v2 record still fails integrity and blocks append', async () => {
+  const root = await repository();
+  const legacy = await installSealedPromptAuditV2(root, ['trusted sealed v2 prompt']);
+  const tampered = structuredClone(legacy.records[0]);
+  tampered.prompt = 'tampered sealed v2 prompt';
+  await writeFile(legacy.enabled.logFile, `${JSON.stringify(tampered)}\n`);
+
+  const status = await promptAuditStatus(root);
+  assert.equal(status.integrity.status, 'failed');
+  assert.match(status.warnings.join('\n'), /payload hash does not match|prompt hash does not match/);
+  await assert.rejects(
+    () => recordPromptAudit(root, {
+      agent: 'developer', phase: 'implementation', prompt: 'must not append'
+    }),
+    (error) => error.code === 'PROMPT_AUDIT_INTEGRITY_FAILED'
+  );
 });
 
 test('chain anchors detect deletion of the newest record', async () => {

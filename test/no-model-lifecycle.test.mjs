@@ -188,7 +188,7 @@ test('an honestly anchored v3 Story survives the deterministic convergence polic
   git(root, 'commit', '-m', 'anchored v3 Story creation');
 
   const migrated = await loadWorkflow(root, config, 'V3-UPGRADE-1');
-  assert.equal(migrated.schemaVersion, 5);
+  assert.equal(migrated.schemaVersion, 6);
   assert.equal(migrated.phases.convergence.generationPolicy.requirement, 'required');
   assert.deepEqual(migrated.phases.convergence.generationPolicy.allowedProducers, ['deterministic']);
   const validation = await validateWorkflow(root, config, migrated);
@@ -278,6 +278,10 @@ test('a Story can complete through manual authorship with model mode disabled', 
     assert.equal(workflow.phases.intake.status, 'approved');
     assert.equal(workflow.phases.intake.authorship.at(-1).producer, 'human');
     assert.equal(workflow.phases.intake.authorship.at(-1).kernelModel.invoked, false);
+    assert.equal(workflow.schemaVersion, 6);
+    assert.equal(workflow.phases.intake.generationPublications[0].architectureIntent, null);
+    assert.equal(workflow.phases.intake.generationPublications[0].architectureDecision, null);
+    assert.equal(workflow.phases.intake.submissionArchitectureDecision, null);
     assert.equal(workflow.usage.records, 0);
     const telemetry = JSON.parse(await readFile(path.join(root, workflow.phases.intake.telemetry[0].path), 'utf8'));
     assert.equal(workflow.phases.intake.telemetry[0].status, 'not-invoked');

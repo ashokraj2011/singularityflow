@@ -6,6 +6,7 @@ import { exists } from './util.mjs';
 import { SingularityFlowError, nowIso, run } from './util.mjs';
 import { normalizeSessionPolicy } from './config.mjs';
 import { currentSchemaVersion, readRecord, stampCurrentRecord } from './schema-migrations.mjs';
+import { resolveStoryExecutionCatalog } from './story-execution-context.mjs';
 
 const SESSION_FAMILY = 'session-registry';
 const COPILOT_SESSION_FAMILY = 'copilot-session';
@@ -96,13 +97,19 @@ export async function selectIntakeSource(options = {}) {
   ], options);
 }
 
-export async function selectAgent(root, definition, actor, workId = null, { phaseId = null, allowedAgents = null, selection = null, nonInteractiveHint = null } = {}) {
+export async function selectAgent(root, definition, actor, workId = null, {
+  phaseId = null, allowedAgents = null, selection = null, nonInteractiveHint = null,
+  workflow = null
+} = {}) {
+  const effective = workflow
+    ? (await resolveStoryExecutionCatalog(root, definition, workflow)).effectiveDefinition
+    : definition;
   const allowed = allowedAgents ? new Set(allowedAgents) : null;
-  const entries = Object.entries(definition.agents ?? {}).filter(([id]) => !allowed || allowed.has(id));
+  const entries = Object.entries(effective.agents ?? {}).filter(([id]) => !allowed || allowed.has(id));
   if (!entries.length) throw new SingularityFlowError(`No governed agent is available${phaseId ? ` for phase '${phaseId}'` : ''}.`);
   const defaultAgent = phaseId ? entries.find(([, agent]) => agent.defaultFor.includes(phaseId))?.[0] : null;
   const agent = selection ?? defaultAgent ?? (entries.length === 1 ? entries[0][0] : await choose('agent', entries, { selection, nonInteractiveHint }));
-  return setAgentSession(root, definition, actor, agent, workId, { phaseId, source: 'explicit-override' });
+  return setAgentSession(root, effective, actor, agent, workId, { phaseId, source: 'explicit-override' });
 }
 
 export async function setAgentSession(root, definition, actor, agent, workId = null, { phaseId = null, nativeCopilotAgent = null, source = null } = {}) {
@@ -121,6 +128,10 @@ export async function setAgentSession(root, definition, actor, agent, workId = n
     ...(existing ?? {}),
     schemaVersion: SESSION_SCHEMA_VERSION,
     agent,
+    // Keep presentation metadata beside the selected immutable identity. A Story may legitimately
+    // resume after this agent disappears from today's live catalog, so callers must not reopen the
+    // mutable catalog merely to print its saved label.
+    agentLabel: profile.label ?? agent,
     agentSource: source ?? profile.scope ?? 'repository',
     agentSha256: profile.sha256,
     nativeCopilotAgent: nativeCopilotAgent ?? existing?.nativeCopilotAgent ?? null,
@@ -269,6 +280,8 @@ export async function bindAgentToCopilotSession(root, definition, workId, copilo
 }
 
 export async function activateWorkItemSession(root, definition, workflow) {
+  const catalog = await resolveStoryExecutionCatalog(root, definition, workflow);
+  definition = catalog.effectiveDefinition;
   const copilot = await loadCopilotSession(root);
   const policy = normalizeSessionPolicy(workflow.resolution?.session ?? definition.session ?? {});
   const existing = await loadSession(root, { required: false });
@@ -329,6 +342,7 @@ export async function activateWorkItemSession(root, definition, workflow) {
 }
 
 export async function agentSessionStatus(root, definition, workflow) {
+  if (workflow) definition = (await resolveStoryExecutionCatalog(root, definition, workflow)).effectiveDefinition;
   const [session, copilot] = await Promise.all([loadSession(root, { required: false }), loadCopilotSession(root)]);
   const policy = normalizeSessionPolicy(copilot?.policy ?? workflow?.resolution?.session ?? definition.session ?? {});
   const workItemSelectionRequired = copilot

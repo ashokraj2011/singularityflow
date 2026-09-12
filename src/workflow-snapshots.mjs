@@ -4,10 +4,12 @@ import { lstat, mkdir, open, rm } from 'node:fs/promises';
 import path from 'node:path';
 
 import { canonicalJson } from './records.mjs';
+import { readLocalGitBlobs } from './git-blob-batch.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { syncAgent } from './agents.mjs';
 import { assertCredentialFreeRemote, sanitizeRemote } from './git-remote-diagnostics.mjs';
 import {
-  SingularityFlowError, posix, readJson, secureRepositoryPath, writeBytes, writeJson
+  SingularityFlowError, posix, readJson, run, secureRepositoryPath, writeBytes, writeJson
 } from './util.mjs';
 
 const SNAPSHOT_FAMILY = 'workflow-snapshot';
@@ -15,6 +17,21 @@ const SNAPSHOT_REFERENCE_FAMILY = 'workflow-snapshot-reference';
 const MAXIMUM_ASSET_BYTES = 1024 * 1024;
 const MAXIMUM_BUNDLE_BYTES = 16 * 1024 * 1024;
 const MAXIMUM_ASSETS = 2048;
+const KEBAB_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const QUALIFIED_SHA256 = /^sha256:[a-f0-9]{64}$/;
+const DEPENDENCY_KINDS = new Set(['skill', 'template', 'generated']);
+const DEPENDENCY_AVAILABILITY = new Set(['remote-optional', 'remote-required']);
+const CURRENT_DEPENDENCY_FIELDS = Object.freeze([
+  'agentId', 'assetLogicalId', 'availability', 'contentSha256', 'dependencyId', 'executable',
+  'id', 'inclusion', 'kind', 'optional', 'referenceSha256'
+]);
+const LEGACY_DEPENDENCY_FIELDS = Object.freeze([
+  'availability', 'contentSha256', 'executable', 'id', 'kind', 'referenceSha256'
+]);
+// Capability token for the one in-memory Story builder that captured these draft bytes. A boolean
+// option would let any caller weaken accepted execution; a WeakMap entry cannot survive reload,
+// cloning, or process restart and cannot be manufactured outside this module.
+const RETAINED_CREATION_DRAFTS = new WeakMap();
 
 function fail(message, code = 'WFA_SNAPSHOT_INVALID', details = undefined) {
   throw new SingularityFlowError(message, { code, ...(details ? { details } : {}) });
@@ -152,6 +169,94 @@ async function captureInstalledAgent(root, config, workId, agent) {
   };
 }
 
+async function captureAgentExecutionDependencies(root, config, workId, agent) {
+  if (!(agent.dependencies ?? []).length) return { assets: [], dependencies: [] };
+  let synchronized = null;
+  try {
+    synchronized = await syncAgent(root, agent.id);
+    if (synchronized.agent?.sha256 !== agent.sha256) {
+      fail(
+        `Governed agent '${agent.id}' changed while its saved dependencies were resolved.`,
+        'WFA_SOURCE_STALE'
+      );
+    }
+  } catch (error) {
+    if ((agent.dependencies ?? []).some((dependency) => !dependency.optional)) {
+      fail(
+        `Required saved dependency for governed agent '${agent.id}' is unavailable: ${error.message}`,
+        'WFA_DEPENDENCY_UNAVAILABLE'
+      );
+    }
+  }
+  const assets = [];
+  const dependencies = [];
+  for (const declaration of agent.dependencies ?? []) {
+    const logicalId = `agent:${agent.id}:${declaration.type}:${declaration.id}`;
+    const materialized = synchronized?.dependencies?.find((entry) => (
+      entry.id === declaration.id && entry.type === declaration.type
+    )) ?? null;
+    const referenceSha256 = domainHash(
+      'wfa.dependency-reference.v1',
+      `${declaration.type}\0${declaration.id}\0${declaration.url}`
+    );
+    if (declaration.type === 'generated' || materialized?.dynamic) {
+      dependencies.push({
+        id: logicalId, agentId: agent.id, dependencyId: declaration.id,
+        kind: declaration.type, optional: declaration.optional === true,
+        availability: declaration.optional ? 'remote-optional' : 'remote-required',
+        inclusion: 'external-requirement', assetLogicalId: null,
+        referenceSha256, contentSha256: null, executable: true
+      });
+      continue;
+    }
+    if (!materialized?.path || materialized.status !== 'ready') {
+      if (!declaration.optional) {
+        fail(
+          `Required ${declaration.type} '${declaration.id}' for governed agent '${agent.id}' is unavailable.`,
+          'WFA_DEPENDENCY_UNAVAILABLE'
+        );
+      }
+      dependencies.push({
+        id: logicalId, agentId: agent.id, dependencyId: declaration.id,
+        kind: declaration.type, optional: true, availability: 'remote-optional', inclusion: 'omitted',
+        assetLogicalId: null, referenceSha256, contentSha256: null,
+        executable: false
+      });
+      continue;
+    }
+    const captured = await stableFile(
+      materialized.path, `Saved ${declaration.type} '${agent.id}/${declaration.id}'`
+    );
+    if (materialized.sha256 && captured.sha256 !== digestHex(
+      materialized.sha256, `Saved ${declaration.type} '${agent.id}/${declaration.id}'`
+    )) {
+      fail(
+        `Saved ${declaration.type} '${agent.id}/${declaration.id}' differs from its reviewed lock.`,
+        'WFA_SOURCE_STALE'
+      );
+    }
+    const blob = await installBlob(root, config, workId, {
+      ...captured, mediaType: 'text/markdown; charset=utf-8'
+    });
+    assets.push({
+      logicalId, purpose: `agent-${declaration.type}`, dependencies: [`agent:${agent.id}`],
+      blob,
+      source: {
+        kind: 'reviewed-agent-dependency', agentId: agent.id,
+        dependencyId: declaration.id, referenceSha256, sha256: blob.sha256
+      }
+    });
+    dependencies.push({
+      id: logicalId, agentId: agent.id, dependencyId: declaration.id,
+      kind: declaration.type, optional: declaration.optional === true,
+      availability: declaration.optional ? 'remote-optional' : 'remote-required',
+      inclusion: 'included', assetLogicalId: logicalId, referenceSha256,
+      contentSha256: blob.sha256, executable: false
+    });
+  }
+  return { assets, dependencies };
+}
+
 function manifestCore(manifest) {
   const core = structuredClone(manifest);
   delete core.snapshotHash;
@@ -191,8 +296,15 @@ export async function captureWorkflowSnapshot(root, config, workflow) {
     if (resolvedPhase) resolvedPhase.templateSnapshot = structuredClone(capturedTemplate);
   }
 
-  const selectedAgentIds = new Set((workflow.resolution.phases ?? [])
-    .map((phase) => phase.defaultAgent).filter(Boolean));
+  // `resolution.agents` is the captured selection catalog. A Story must never advertise a live
+  // agent that its portable closure cannot execute. Older callers without that catalog retain the
+  // explicitly selected creation agent and every phase default.
+  const selectedAgentIds = new Set([
+    ...Object.keys(workflow.resolution.agents ?? {}),
+    ...(workflow.resolution.phases ?? []).map((phase) => phase.defaultAgent).filter(Boolean),
+    ...(workflow.history ?? []).map((entry) => entry.event === 'work_started' ? entry.agent : null)
+      .filter(Boolean)
+  ]);
   const agents = new Map((config.agentCatalog ?? []).map((agent) => [agent.id, agent]));
   const executionDependencies = [];
   for (const agentId of [...selectedAgentIds].sort()) {
@@ -201,16 +313,24 @@ export async function captureWorkflowSnapshot(root, config, workflow) {
       fail(`Selected governed agent '${agentId}' is unavailable for snapshot capture.`, 'WFA_DEPENDENCY_UNAVAILABLE');
     }
     assets.push(await captureInstalledAgent(root, config, workId, agent));
-    for (const dependency of agent.dependencies ?? []) {
-      executionDependencies.push({
-        id: `agent:${agentId}:${dependency.id}`, kind: dependency.type,
-        availability: dependency.optional ? 'remote-optional' : 'remote-required',
-        referenceSha256: domainHash('wfa.dependency-reference.v1', dependency.url),
-        contentSha256: null, executable: dependency.type !== 'template'
-      });
-    }
+    const capturedDependencies = await captureAgentExecutionDependencies(
+      root, config, workId, agent
+    );
+    assets.push(...capturedDependencies.assets);
+    executionDependencies.push(...capturedDependencies.dependencies);
   }
   if (assets.length > MAXIMUM_ASSETS) fail('Workflow snapshot has too many assets.', 'WFA_LIMIT_REACHED');
+  const capturedAssetIndex = new Map();
+  for (const asset of assets) {
+    if (!asset?.logicalId || capturedAssetIndex.has(asset.logicalId)) {
+      fail('Workflow snapshot asset identities are invalid.');
+    }
+    capturedAssetIndex.set(asset.logicalId, asset);
+  }
+  // Refuse ambiguous dependency declarations before the Story snapshot can be written or accepted.
+  // Reading performs the same validation so a self-rehashed historical payload cannot exploit a
+  // different logical ID for the same {agent, kind, dependency} declaration.
+  assertDependencyClosure({ executionDependencies }, capturedAssetIndex);
   const policyForDigest = clonePolicy(workflow.resolution);
   delete policyForDigest.policySha256;
   workflow.resolution.policySha256 = qualified(sha256(Buffer.from(canonicalJson(policyForDigest))));
@@ -251,7 +371,9 @@ export async function captureWorkflowSnapshot(root, config, workflow) {
     },
     semantics: {
       snapshot: 'wfa-snapshot-v1', canonicalJson: 'singularity-flow-canonical-json-v1',
-      policyReaderMinimum: 5
+      policyReaderMinimum: 5,
+      agentDocumentParser: 'sflow-agent-document-v1',
+      promptComposer: 'story-snapshot-agent-v1'
     },
     configFoldHash: domainHash('wfa.fold.v1', clonePolicy(workflow.resolution)),
     createdAt,
@@ -264,11 +386,24 @@ export async function captureWorkflowSnapshot(root, config, workflow) {
   if (target.exists) fail('Workflow snapshot revision 1 already exists.', 'WFA_REVISION_CONFLICT');
   await mkdir(path.dirname(target.absolute), { recursive: true });
   await writeJson(target.absolute, manifest);
-  return {
+  const reference = {
     enrollment: 'wfa', schemaVersion: currentSchemaVersion(SNAPSHOT_REFERENCE_FAMILY), revision: 1,
     snapshotHash: manifest.snapshotHash, manifestPath,
     genesisSnapshotHash: manifest.snapshotHash
   };
+  RETAINED_CREATION_DRAFTS.set(workflow, Object.freeze(structuredClone(reference)));
+  return reference;
+}
+
+/** True only before the exact in-memory Story object's first immutable creation commit exists. */
+export function hasRetainedWorkflowSnapshotDraft(root, config, workflow) {
+  const retained = workflow && RETAINED_CREATION_DRAFTS.get(workflow);
+  if (!retained || canonicalJson(retained) !== canonicalJson(workflow.workflowSnapshot)) return false;
+  const workflowRelative = storyRelative(config, workflow.workItem.id, 'workflow.json');
+  const accepted = run('git', [
+    'log', '--format=%H', '--diff-filter=A', '--max-count=1', '--', workflowRelative
+  ], { cwd: root, allowFailure: true }).stdout.trim();
+  return !accepted;
 }
 
 /**
@@ -300,12 +435,87 @@ export async function finalizeDraftWorkflowSnapshot(root, config, workflow) {
   return workflow.workflowSnapshot;
 }
 
-async function verifyBlob(root, blob, label) {
+function exactStoryBlobPath(config, workId, digest) {
+  return storyRelative(config, workId, `config/wfa/blobs/sha256/${digest}`);
+}
+
+function gitTreeEntries(root, commit, paths, label) {
+  const entries = new Map();
+  for (let offset = 0; offset < paths.length; offset += 256) {
+    const selected = paths.slice(offset, offset + 256);
+    const listed = run('git', ['ls-tree', '-z', commit, '--', ...selected], {
+      cwd: root, encoding: 'buffer', allowFailure: true,
+      env: { ...process.env, GIT_NO_LAZY_FETCH: '1' },
+      maxBuffer: Math.max(64 * 1024, selected.length * 1024)
+    });
+    if (listed.status !== 0) {
+      fail(`${label} cannot be read from the immutable Story creation commit.`,
+        'WFA_DEPENDENCY_UNAVAILABLE');
+    }
+    const output = Buffer.isBuffer(listed.stdout) ? listed.stdout : Buffer.from(listed.stdout ?? '');
+    for (const raw of output.toString('utf8').split('\0').filter(Boolean)) {
+      const tab = raw.indexOf('\t');
+      const match = tab < 0 ? null : raw.slice(0, tab).match(/^(100644|100755|120000|160000) blob ([a-f0-9]{40,64})$/);
+      const relative = tab < 0 ? '' : raw.slice(tab + 1);
+      if (!match || !selected.includes(relative) || entries.has(relative)) {
+        fail(`${label} has an invalid Git object binding.`, 'WFA_SNAPSHOT_INVALID');
+      }
+      if (!['100644', '100755'].includes(match[1])) {
+        fail(`${label} '${relative}' is not an ordinary Git blob.`, 'WFA_PATH_REFUSED');
+      }
+      entries.set(relative, { mode: match[1], oid: match[2] });
+    }
+  }
+  const missing = paths.filter((relative) => !entries.has(relative));
+  if (missing.length) {
+    fail(`${label} is missing ${missing[0]} from the immutable Story creation commit.`,
+      'WFA_DEPENDENCY_UNAVAILABLE');
+  }
+  const blobs = readLocalGitBlobs(root, [...entries.values()].map((entry) => entry.oid), {
+    maximumBytes: MAXIMUM_BUNDLE_BYTES,
+    maximumObjectBytes: MAXIMUM_ASSET_BYTES,
+    code: 'WFA_DEPENDENCY_UNAVAILABLE',
+    label
+  });
+  return new Map([...entries].map(([relative, entry]) => [relative, blobs.get(entry.oid)]));
+}
+
+function initialSnapshotAuthority(root, config, workId) {
+  const workflowRelative = storyRelative(config, workId, 'workflow.json');
+  const history = run('git', [
+    'log', '--format=%H', '--diff-filter=A', '--reverse', '--', workflowRelative
+  ], { cwd: root, allowFailure: true }).stdout.trim().split(/\r?\n/).filter(Boolean);
+  if (!history.length) {
+    fail(
+      `Story '${workId}' execution closure has not reached an immutable creation commit.`,
+      'WFA_DEPENDENCY_UNAVAILABLE'
+    );
+  }
+  const commit = history[0];
+  const bytes = gitTreeEntries(root, commit, [workflowRelative], 'Story creation record')
+    .get(workflowRelative);
+  let workflow;
+  try { workflow = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); }
+  catch {
+    fail(`Story '${workId}' immutable creation record is not valid UTF-8 JSON.`,
+      'WFA_SNAPSHOT_INVALID');
+  }
+  return { commit, workflow, workflowRelative };
+}
+
+async function verifyBlob(root, config, workId, blob, label, { acceptedBytes = null } = {}) {
   if (!blob || typeof blob !== 'object') fail(`${label} has no blob reference.`);
   const digest = digestHex(blob.sha256, `${label} blob`);
-  const expectedPath = `/config/wfa/blobs/sha256/${digest}`;
-  if (!String(blob.path ?? '').endsWith(expectedPath)) {
+  const expectedPath = exactStoryBlobPath(config, workId, digest);
+  if (String(blob.path ?? '') !== expectedPath) {
     fail(`${label} points outside the content-addressed snapshot store.`, 'WFA_PATH_REFUSED');
+  }
+  if (acceptedBytes) {
+    const bytes = acceptedBytes.get(expectedPath);
+    if (!bytes || sha256(bytes) !== digest || bytes.byteLength !== blob.bytes) {
+      fail(`${label} blob bytes do not match the immutable Story creation commit.`);
+    }
+    return { bytes: Buffer.from(bytes), sha256: digest, size: bytes.byteLength };
   }
   const safe = await secureRepositoryPath(root, blob.path, {
     label: `${label} blob`, mustExist: true, type: 'file'
@@ -317,11 +527,180 @@ async function verifyBlob(root, blob, label) {
   return captured;
 }
 
-export async function verifyWorkflowSnapshot(root, config, workflow) {
-  const storedReference = workflow.workflowSnapshot ?? null;
+function hasOwn(value, key) {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function assertExactFields(record, expected, label) {
+  if (!record || typeof record !== 'object' || Array.isArray(record)) {
+    fail(`${label} must be an object.`);
+  }
+  const actual = Object.keys(record).sort();
+  const wanted = [...expected].sort();
+  if (canonicalJson(actual) !== canonicalJson(wanted)) {
+    fail(`${label} has an invalid record shape.`);
+  }
+}
+
+function dependencySemanticIdentity(dependency) {
+  if (!dependency || typeof dependency !== 'object' || Array.isArray(dependency)) {
+    fail('Workflow snapshot execution dependency must be an object.');
+  }
+  const current = ['agentId', 'dependencyId', 'inclusion', 'optional', 'assetLogicalId']
+    .some((field) => hasOwn(dependency, field));
+  if (current) {
+    if (!KEBAB_ID.test(dependency.agentId ?? '')
+        || !KEBAB_ID.test(dependency.dependencyId ?? '')
+        || !DEPENDENCY_KINDS.has(dependency.kind)) {
+      fail('Workflow snapshot execution dependency has an invalid semantic identity.');
+    }
+    return {
+      current: true,
+      agentId: dependency.agentId,
+      dependencyId: dependency.dependencyId,
+      kind: dependency.kind,
+      key: canonicalJson([dependency.agentId, dependency.kind, dependency.dependencyId])
+    };
+  }
+  const legacy = /^agent:([a-z0-9]+(?:-[a-z0-9]+)*):([a-z0-9]+(?:-[a-z0-9]+)*)$/
+    .exec(String(dependency.id ?? ''));
+  if (!legacy || !DEPENDENCY_KINDS.has(dependency.kind)) {
+    fail('Legacy workflow snapshot dependency has an invalid semantic identity.');
+  }
+  return {
+    current: false, agentId: legacy[1], dependencyId: legacy[2], kind: dependency.kind,
+    key: canonicalJson([legacy[1], dependency.kind, legacy[2]])
+  };
+}
+
+function assertExecutionDependencyShape(dependency, identity) {
+  const label = `Saved dependency '${dependency.id ?? 'unknown'}'`;
+  if (identity.current) {
+    assertExactFields(dependency, CURRENT_DEPENDENCY_FIELDS, label);
+    const expectedId = `agent:${identity.agentId}:${identity.kind}:${identity.dependencyId}`;
+    if (dependency.id !== expectedId || typeof dependency.optional !== 'boolean'
+        || dependency.availability !== (dependency.optional ? 'remote-optional' : 'remote-required')
+        || !QUALIFIED_SHA256.test(dependency.referenceSha256 ?? '')
+        || typeof dependency.executable !== 'boolean') {
+      fail(`${label} has inconsistent identity or availability fields.`);
+    }
+    if (dependency.inclusion === 'included') {
+      if (dependency.assetLogicalId !== dependency.id
+          || !QUALIFIED_SHA256.test(dependency.contentSha256 ?? '')
+          || dependency.executable !== false) {
+        fail(`${label} has an invalid retained-byte decision.`);
+      }
+      return;
+    }
+    if (dependency.inclusion === 'omitted') {
+      if (dependency.optional !== true || dependency.assetLogicalId !== null
+          || dependency.contentSha256 !== null || dependency.executable !== false) {
+        fail(`${label} has an invalid omission decision.`);
+      }
+      return;
+    }
+    if (dependency.inclusion === 'external-requirement') {
+      if (dependency.assetLogicalId !== null || dependency.contentSha256 !== null
+          || dependency.executable !== true) {
+        fail(`${label} has an invalid external requirement decision.`);
+      }
+      return;
+    }
+    fail(`${label} has an unsupported inclusion decision.`);
+  }
+
+  // Original v1 records did not carry agentId/dependencyId/inclusion fields and never retained
+  // dependency bytes. Preserve that exact readable shape; anything partial or embellished is
+  // ambiguous and fails closed rather than being upgraded in memory.
+  assertExactFields(dependency, LEGACY_DEPENDENCY_FIELDS, label);
+  if (!DEPENDENCY_AVAILABILITY.has(dependency.availability)
+      || !QUALIFIED_SHA256.test(dependency.referenceSha256 ?? '')
+      || dependency.contentSha256 !== null || typeof dependency.executable !== 'boolean') {
+    fail(`${label} has an invalid legacy dependency record.`);
+  }
+}
+
+function assertDependencyClosure(manifest, assetByLogicalId) {
+  const dependencies = manifest.executionDependencies;
+  if (!Array.isArray(dependencies)) {
+    fail('Workflow snapshot execution-dependency manifest is invalid.');
+  }
+  if (dependencies.length > MAXIMUM_ASSETS) {
+    fail('Workflow snapshot execution-dependency manifest is too large.', 'WFA_LIMIT_REACHED');
+  }
+  const dependencyIds = new Set();
+  const semanticIdentities = new Set();
+  for (const dependency of dependencies) {
+    const identity = dependencySemanticIdentity(dependency);
+    if (semanticIdentities.has(identity.key)) {
+      fail(
+        `Workflow snapshot has conflicting records for dependency '${identity.agentId}/${identity.kind}/${identity.dependencyId}'.`
+      );
+    }
+    semanticIdentities.add(identity.key);
+    if (!dependency.id || dependencyIds.has(dependency.id)) {
+      fail('Workflow snapshot execution-dependency identities are invalid.');
+    }
+    dependencyIds.add(dependency.id);
+    assertExecutionDependencyShape(dependency, identity);
+    if (dependency.inclusion === 'included') {
+      const asset = assetByLogicalId.get(dependency.assetLogicalId);
+      if (!asset || asset.logicalId !== dependency.id
+          || asset.purpose !== `agent-${identity.kind}`
+          || canonicalJson(asset.dependencies) !== canonicalJson([`agent:${identity.agentId}`])
+          || asset.blob.sha256 !== dependency.contentSha256
+          || asset.source?.kind !== 'reviewed-agent-dependency'
+          || asset.source?.agentId !== identity.agentId
+          || asset.source?.dependencyId !== identity.dependencyId
+          || asset.source?.referenceSha256 !== dependency.referenceSha256
+          || asset.source?.sha256 !== dependency.contentSha256) {
+        fail(
+          `Required saved dependency '${dependency.id}' is not bound to its retained bytes.`,
+          'WFA_DEPENDENCY_UNAVAILABLE'
+        );
+      }
+    }
+  }
+
+  const visiting = new Set();
+  const visited = new Set();
+  const walk = (logicalId) => {
+    if (visiting.has(logicalId)) fail(`Workflow snapshot dependency cycle includes '${logicalId}'.`);
+    if (visited.has(logicalId)) return;
+    const asset = assetByLogicalId.get(logicalId);
+    if (!asset) fail(`Workflow snapshot dependency '${logicalId}' is missing.`, 'WFA_DEPENDENCY_UNAVAILABLE');
+    if (!Array.isArray(asset.dependencies)
+        || asset.dependencies.some((entry) => typeof entry !== 'string' || !entry)) {
+      fail(`Workflow snapshot asset '${logicalId}' has invalid dependency links.`);
+    }
+    visiting.add(logicalId);
+    for (const child of asset.dependencies ?? []) walk(child);
+    visiting.delete(logicalId);
+    visited.add(logicalId);
+  };
+  for (const logicalId of assetByLogicalId.keys()) walk(logicalId);
+}
+
+export async function verifyWorkflowSnapshot(root, config, workflow, {
+  retainBytes = false, requireAccepted = false
+} = {}) {
+  let storedReference = workflow.workflowSnapshot ?? null;
   if (!storedReference) return {
     status: 'legacy', enrolled: false, closure: 'unproven', reason: 'snapshot-reference-absent'
   };
+  let accepted = null;
+  if (requireAccepted) {
+    accepted = initialSnapshotAuthority(root, config, workflow.workItem.id);
+    const acceptedReference = accepted.workflow?.workflowSnapshot ?? null;
+    if (!acceptedReference
+        || canonicalJson(acceptedReference) !== canonicalJson(storedReference)) {
+      fail(
+        `Story '${workflow.workItem.id}' workflow snapshot reference differs from its immutable creation commit.`,
+        'WFA_SNAPSHOT_INVALID'
+      );
+    }
+    storedReference = acceptedReference;
+  }
   const reference = readRecord(SNAPSHOT_REFERENCE_FAMILY, storedReference).record;
   if (reference.enrollment !== 'wfa'
       || !Number.isSafeInteger(reference.revision) || reference.revision < 1
@@ -333,11 +712,24 @@ export async function verifyWorkflowSnapshot(root, config, workflow) {
   if (!String(reference.manifestPath ?? '').startsWith(expectedPrefix)) {
     fail('Story workflow snapshot manifest is outside the configured Story root.', 'WFA_PATH_REFUSED');
   }
-  const safe = await secureRepositoryPath(root, reference.manifestPath, {
-    label: 'Workflow snapshot manifest', mustExist: true, type: 'file'
-  });
+  let manifestBytes = null;
+  let safe = null;
+  if (accepted) {
+    manifestBytes = gitTreeEntries(
+      root, accepted.commit, [reference.manifestPath], 'Workflow snapshot manifest'
+    ).get(reference.manifestPath);
+  } else {
+    safe = await secureRepositoryPath(root, reference.manifestPath, {
+      label: 'Workflow snapshot manifest', mustExist: true, type: 'file'
+    });
+  }
   let manifest;
-  try { manifest = readRecord(SNAPSHOT_FAMILY, await readJson(safe.absolute)).record; }
+  try {
+    const source = accepted
+      ? JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(manifestBytes))
+      : await readJson(safe.absolute);
+    manifest = readRecord(SNAPSHOT_FAMILY, source).record;
+  }
   catch (error) {
     if (error instanceof SingularityFlowError && String(error.code ?? '').startsWith('WFA_')) throw error;
     fail('Workflow snapshot manifest cannot be read with this runtime.', 'WFA_RUNTIME_INCOMPATIBLE');
@@ -351,7 +743,16 @@ export async function verifyWorkflowSnapshot(root, config, workflow) {
   if (manifest.revision === 1 && manifest.parentSnapshotHash !== null) {
     fail('Workflow snapshot genesis has an unexpected parent.');
   }
-  const policy = await verifyBlob(root, manifest.policy, 'Effective workflow policy');
+  const acceptedBlobBytes = accepted
+    ? gitTreeEntries(root, accepted.commit, [
+        manifest.policy?.path,
+        ...(manifest.assets ?? []).map((asset) => asset?.blob?.path)
+      ].filter(Boolean), 'Workflow snapshot closure')
+    : null;
+  const policy = await verifyBlob(
+    root, config, workflow.workItem.id, manifest.policy, 'Effective workflow policy',
+    { acceptedBytes: acceptedBlobBytes }
+  );
   let capturedPolicy;
   try { capturedPolicy = JSON.parse(policy.bytes.toString('utf8')); }
   catch { fail('Captured workflow policy is not valid JSON.'); }
@@ -364,23 +765,38 @@ export async function verifyWorkflowSnapshot(root, config, workflow) {
   }
   let totalBytes = policy.size;
   const logicalIds = new Set();
+  const assetByLogicalId = new Map();
+  const retainedAssets = new Map();
   for (const asset of manifest.assets) {
     if (!asset?.logicalId || logicalIds.has(asset.logicalId)) fail('Workflow snapshot asset identities are invalid.');
     logicalIds.add(asset.logicalId);
-    const captured = await verifyBlob(root, asset.blob, `Workflow snapshot asset '${asset.logicalId}'`);
+    const captured = await verifyBlob(
+      root, config, workflow.workItem.id, asset.blob,
+      `Workflow snapshot asset '${asset.logicalId}'`, { acceptedBytes: acceptedBlobBytes }
+    );
+    assetByLogicalId.set(asset.logicalId, asset);
+    if (retainBytes) retainedAssets.set(asset.logicalId, Buffer.from(captured.bytes));
     totalBytes += captured.size;
   }
+  assertDependencyClosure(manifest, assetByLogicalId);
   if (totalBytes > MAXIMUM_BUNDLE_BYTES || manifest.limits?.bytes !== totalBytes
       || manifest.limits?.assets !== manifest.assets.length) {
     fail('Workflow snapshot closure does not match its accepted resource accounting.', 'WFA_LIMIT_REACHED');
   }
-  return {
+  const result = {
     status: 'ready', enrolled: true, closure: 'verified', revision: manifest.revision,
     snapshotHash: manifest.snapshotHash, genesisSnapshotHash: reference.genesisSnapshotHash,
     manifestPath: reference.manifestPath, assets: manifest.assets.length,
     bytes: totalBytes, executionDependencies: manifest.executionDependencies ?? [],
-    provenance: manifest.provenance, semantics: manifest.semantics
+    provenance: manifest.provenance, semantics: manifest.semantics,
+    creationCommit: accepted?.commit ?? null
   };
+  if (retainBytes) {
+    result.manifest = structuredClone(manifest);
+    result.policy = capturedPolicy;
+    result.assetBytes = retainedAssets;
+  }
+  return result;
 }
 
 export async function workflowSnapshotDrift(root, config, workflow, observedConfiguration = null) {

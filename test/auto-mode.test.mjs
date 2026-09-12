@@ -891,6 +891,18 @@ test('resume trusts the governed accepted Plan rather than reapplying mutable st
   assert.equal(resumed.status, 'running');
 });
 
+test('Auto continuation uses its Story closure after the live phase agent disappears', async () => {
+  const root = await repository();
+  const plan = await createAutoPlan(root, 'Keep accepted authoring instructions after agent refresh.', {
+    ...proposal, unresolvedDecisions: ['Pause before authoring.']
+  }, { workId: 'AUT-SAVED-AGENT', workType: 'feature', fromBranch: 'main' });
+  const { flight } = await startAutoFlight(root, plan.planId, confirmation(plan));
+  const liveAgent = path.join(flight.worktree, '.github/agents/product-owner.agent.md');
+  await rm(liveAgent);
+  const resumed = await resumeAutoFlight(root, flight.flightId, flight.checkpointSha256);
+  assert.equal(resumed.status, 'running');
+});
+
 test('resume accepts an exact active packet-v1 binding only after disabling legacy repair authority', async () => {
   const root = await repository();
   const plan = await createAutoPlan(root, 'Resume an existing historical flight without repair authority.', {
@@ -1232,9 +1244,11 @@ test('thin pilot performs one governed authoring attempt and stops after normal 
   const started = await startAutoFlight(root, plan.planId, confirmation(plan));
   assert.equal(started.flight.status, 'running');
   let sentPrompt = null;
+  let sentExecutionContext = null;
   const final = await runFlightStep(root, { ...started.flight, worktree: started.story.worktree }, {
     invokeModel: async (request) => {
       sentPrompt = request.prompt.text;
+      sentExecutionContext = request.executionContext;
       return invokeModel(request);
     }
   });
@@ -1273,6 +1287,9 @@ test('thin pilot performs one governed authoring attempt and stops after normal 
   const contract = contracts[0];
   assert.equal(contract.attemptId, contract.taskContract.attemptId);
   assert.equal(typeof sentPrompt, 'string');
+  assert.equal(sentExecutionContext.mode, 'workflow-snapshot');
+  assert.match(sentExecutionContext.snapshotHash, /^sha256:[a-f0-9]{64}$/);
+  assert.equal(sentExecutionContext.agentId, 'developer');
   assert.equal(
     contract.contextManifest.sections.find((section) => section.id === 'phase-prompt')
       .contentSha256,

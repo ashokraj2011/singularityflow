@@ -5,14 +5,17 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { run } from '../src/util.mjs';
+import { publishToStateBranch } from '../src/ledger.mjs';
 import { sealRecord, sha256 } from '../src/world-model/canonicalize.mjs';
 import { planWorldModelV4 } from '../src/world-model/plan.mjs';
 import { buildWorldModelV4 } from '../src/world-model/runtime.mjs';
 import { buildAndPublishWorldModelV4 } from '../src/world-model/service.mjs';
 import { createScopeManifest } from '../src/world-model/scope/manifest.mjs';
+import { readPublishedWorldModelV4 } from '../src/world-model/store.mjs';
 import {
-  captureCandidateSourceSnapshot, loadCandidateSourceSnapshot, validateSourceSnapshot,
-  verifyExactSourceSnapshot
+  assertCurrentSourceMatchesCandidateSnapshot, captureCandidateSourceSnapshot,
+  loadCandidateSourceSnapshot, validateSourceSnapshot, verifyExactSourceSnapshot,
+  verifyHistoricalSourceSnapshot
 } from '../src/world-model/source/snapshot.mjs';
 
 function git(root, ...args) {
@@ -168,6 +171,35 @@ test('Candidate Snapshot is repository, scope, ref, path, mode, and content boun
   );
 });
 
+test('historical Candidate integrity is portable without inheriting capture-time authority', async (t) => {
+  const root = await repository(t);
+  await writeFile(path.join(root, 'src', 'service.mjs'), 'export const value = "portable";\n');
+  const captured = await captureCandidateSourceSnapshot(root, {
+    subjectId: 'candidate-fixture', scopeManifest: scope()
+  });
+  // Make the private Candidate commit reachable just long enough to copy its objects into a
+  // different Git object store. The private Candidate ref itself is deliberately not copied.
+  git(root, 'update-ref', 'refs/heads/candidate-transfer', captured.revision.commit);
+  const portable = path.join(path.dirname(root), 'portable');
+  run('git', ['clone', '--quiet', '--no-local', root, portable]);
+  assert.equal(
+    run('git', ['for-each-ref', '--format=%(refname)',
+      'refs/singularity-flow/world-model-candidates'], { cwd: portable }).stdout.trim(),
+    ''
+  );
+
+  assert.throws(
+    () => verifyExactSourceSnapshot(portable, captured, { scopeManifest: scope() }),
+    (error) => error.code === 'WMB_SOURCE_SNAPSHOT_TAMPERED'
+      && /different Git repository object store/.test(error.message)
+  );
+  const verified = verifyHistoricalSourceSnapshot(portable, captured, {
+    scopeManifest: scope()
+  });
+  assert.equal(verified.sourceManifestSha256, captured.sourceManifestSha256);
+  assert.equal(verified.revision.commit, captured.revision.commit);
+});
+
 test('Candidate Snapshot capture refuses symbolic-link source paths', async (t) => {
   const root = await repository(t);
   await symlink('/tmp', path.join(root, 'src', 'escaped'));
@@ -199,4 +231,99 @@ test('Candidate Snapshot rejects a source mutation between its two exact capture
     '',
     'a raced capture must not publish an immutable Candidate ref'
   );
+});
+
+test('an old Candidate cannot identify a changed current generation and comparison is read-only', async (t) => {
+  const root = await repository(t);
+  await writeFile(path.join(root, 'src', 'service.mjs'), 'export const value = "candidate-a";\n');
+  const candidateA = await captureCandidateSourceSnapshot(root, {
+    subjectId: 'candidate-fixture', scopeManifest: scope()
+  });
+  assert.equal(
+    assertCurrentSourceMatchesCandidateSnapshot(root, candidateA, {
+      scopeManifest: scope()
+    }).sourceManifestSha256,
+    candidateA.sourceManifestSha256
+  );
+
+  await writeFile(path.join(root, 'src', 'service.mjs'), 'export const value = "implementation-b";\n');
+  const statusBefore = git(root, 'status', '--porcelain=v1');
+  const refsBefore = git(root, 'for-each-ref', '--format=%(refname) %(objectname)',
+    'refs/singularity-flow/world-model-candidates');
+  assert.throws(
+    () => assertCurrentSourceMatchesCandidateSnapshot(root, candidateA, {
+      scopeManifest: scope()
+    }),
+    (error) => error.code === 'WMB_SOURCE_SNAPSHOT_STALE'
+      && error.details?.expectedCandidateSha256 === candidateA.authority.candidateSha256
+  );
+  assert.equal(git(root, 'status', '--porcelain=v1'), statusBefore);
+  assert.equal(
+    git(root, 'for-each-ref', '--format=%(refname) %(objectname)',
+      'refs/singularity-flow/world-model-candidates'),
+    refsBefore,
+    'comparison must not capture or advance a Candidate'
+  );
+});
+
+test('a historical Candidate-backed model cannot authorize later implementation bytes', async (t) => {
+  const root = await repository(t);
+  await writeFile(path.join(root, 'src', 'service.mjs'), 'export const value = "candidate-a";\n');
+  const candidateA = await captureCandidateSourceSnapshot(root, {
+    subjectId: 'candidate-fixture', scopeManifest: scope()
+  });
+  const localBuild = await buildAndPublishWorldModelV4(root, {
+    ...options(candidateA),
+    outputDir: 'singularity/world-model',
+    publish: false,
+    generatedAt: '2026-09-12T00:00:00.000Z'
+  });
+  await publishToStateBranch(root, {
+    enabled: true,
+    branch: 'candidate-state',
+    remote: 'missing-test-remote',
+    behind: 'block',
+    enforcement: 'shadow',
+    signing: 'off',
+    trustTier: 'T0',
+    maxRetries: 3
+  }, localBuild.staged.files, '[test] retain historical candidate model', {
+    replaceRoots: localBuild.staged.replaceRoots
+  });
+  assert.equal(
+    readPublishedWorldModelV4(root, {
+      ref: 'candidate-state',
+      expectedSourceSnapshot: candidateA
+    }).freshness.status,
+    'fresh'
+  );
+
+  const privateReference = `refs/singularity-flow/world-model-candidates/${candidateA.sourceManifestSha256.slice(7)}`;
+  git(root, 'update-ref', '-d', privateReference);
+  const retained = readPublishedWorldModelV4(root, {
+    ref: 'candidate-state',
+    sourceVerification: 'historical-integrity'
+  });
+  assert.equal(retained.sourceSnapshot.sourceManifestSha256, candidateA.sourceManifestSha256);
+  assert.equal(retained.freshness.source.status, 'unavailable');
+  assert.equal(retained.freshness.source.reason, 'historical-current-comparison-not-requested');
+  assert.throws(
+    () => readPublishedWorldModelV4(root, { ref: 'candidate-state' }),
+    (error) => error.code === 'WMB_SOURCE_SNAPSHOT_TAMPERED'
+  );
+  git(root, 'update-ref', privateReference, candidateA.revision.commit);
+
+  await writeFile(path.join(root, 'src', 'service.mjs'), 'export const value = "implementation-b";\n');
+  const authorityBefore = git(root, 'rev-parse', 'candidate-state');
+  const statusBefore = git(root, 'status', '--porcelain=v1');
+  const refused = readPublishedWorldModelV4(root, {
+    ref: 'candidate-state',
+    expectedSourceSnapshot: candidateA
+  });
+  assert.equal(refused.freshness.fresh, false);
+  assert.equal(refused.freshness.source.status, 'unavailable');
+  assert.equal(refused.freshness.source.reason, 'WMB_SOURCE_SNAPSHOT_STALE');
+  assert.match(refused.freshness.source.detail, /does not match the current generation source/);
+  assert.equal(git(root, 'rev-parse', 'candidate-state'), authorityBefore);
+  assert.equal(git(root, 'status', '--porcelain=v1'), statusBefore);
 });

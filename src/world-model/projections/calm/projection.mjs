@@ -855,12 +855,17 @@ export function verifyArchitectureIntent({
   validateCalmProjection(baseAfter);
   const clauses = checked.clauses.map((clause) => {
     const element = semanticElement(baseAfter, clause);
+    const subject = clauseSemanticTarget(clause).replace('/', ':');
+    const unobservable = unavailable.some((entry) => entry?.subject === subject);
     let verdict;
-    if (clause.operation.startsWith('remove-')) verdict = element ? 'deviated' : 'fulfilled';
+    // Absence is only evidence of removal when the relevant fact set was observable. A target
+    // explicitly listed as unavailable may still exist in source the projection could not inspect;
+    // treating that gap as success would turn missing evidence into architecture approval.
+    if (clause.operation.startsWith('remove-')) {
+      verdict = element ? 'deviated' : unobservable ? 'not-observable' : 'fulfilled';
+    }
     else if (!element) {
-      const subject = clauseSemanticTarget(clause).replace('/', ':');
-      verdict = unavailable.some((entry) => entry?.subject === subject)
-        ? 'not-observable' : 'missing';
+      verdict = unobservable ? 'not-observable' : 'missing';
     }
     else {
       const expected = expectedIntentFields(clause);

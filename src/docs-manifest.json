@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "c7e04d038cb4e0311526da7ac318af913abba0c1",
+  "sourceCommit": "3b977d22cc7c49da86efc2f914b92a26332ca1f4",
   "topicCount": 64,
-  "contentSha256": "e9257ebd27d2c213d2e66c0797b95a7c89455ebb853bc18de9d8b3390353788e",
+  "contentSha256": "645ab2b881e98c479cf82b1a482686d6e562171bd2730e662a41d2e5d8abc1ef",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -72,16 +72,16 @@
     {
       "id": "calm-architecture",
       "title": "Deterministic CALM architecture projection",
-      "version": 3,
-      "sha256": "418c5fe040cf30f357d7c49578e51b65d31363d14708555cb9d144aece519db3",
+      "version": 4,
+      "sha256": "ba549de66ad587a73370bd790ec4504233bed311154287b3a3999d29a2433e8f",
       "routingSha256": "95abae8d6afdc37c22055710a180a38c8cefd150bbb4d4ec2d82a3a8ae5a870d",
       "file": "calm-architecture.md"
     },
     {
       "id": "capability-management",
       "title": "Capability mapping and activation",
-      "version": 10,
-      "sha256": "80ed08760de19f1cc32865715271e2572c9e5e0d0cccef249db2720c9802b29d",
+      "version": 11,
+      "sha256": "e3ec0fc59e7c2e9d706d7fadfffd89489822555d282785bce117743a60741d5d",
       "routingSha256": "34335f7f4930297cb596fd5e42a87bb80b3b74eb7842f8a5bb3801bdf0fa144b",
       "file": "capability-management.md"
     },
@@ -512,8 +512,8 @@
     {
       "id": "world-model",
       "title": "World model grounding and views",
-      "version": 20,
-      "sha256": "c1a3219c9b691a174c01913a11c9b71552fd60792aff6e4e1aa6a477ae13a0ac",
+      "version": 21,
+      "sha256": "601a46b778e99e79303982ad71c052e4b853c1f2b21f4593d9bed9057ac8b360",
       "routingSha256": "e8bc81fa19c1360eb38defcc0c51657bfdbe20101662beb54d403fa0bccefa68",
       "file": "world-model.md"
     }

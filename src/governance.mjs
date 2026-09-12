@@ -36,6 +36,7 @@ import { classifyStoryGateFailures } from './gate-recovery.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
 import { publishedGenerationCommit } from './generation-publication-store.mjs';
 import { evaluateArchitectureIntentGate } from './architecture-intent-gate.mjs';
+import { resolveStoryExecutionDefinition } from './story-execution-context.mjs';
 
 function trackedFiles(root) { return run('git', ['ls-files', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean); }
 function ids(text, pattern) { return [...new Set([...text.matchAll(pattern)].map((match) => match[0]))]; }
@@ -71,6 +72,7 @@ export function generationReachedReview(workflow, phase, generation) {
 }
 
 export async function runGovernanceGate(root, config, workflow, { terminal = false } = {}) {
+  config = await resolveStoryExecutionDefinition(root, config, workflow);
   const errors = [], warnings = [], passes = [];
   const base = await validateWorkflow(root, config, workflow, { strict: true }); errors.push(...base.errors); warnings.push(...base.warnings);
   for (const override of workflow.sequenceOverrides ?? []) {

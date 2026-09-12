@@ -221,7 +221,8 @@ test('recordInjection writes an auditable generation context record', async () =
   const workDir = path.join(root, 'singularity/work-items/ENG-9');
   const renderedText = '# Exact composed design prompt\n';
   const { record, file } = await recordInjection(root, workflow, phase, {
-    ...rendered, agent: 'architect', renderedText
+    ...rendered, agent: 'architect', renderedText, fresh: true,
+    sourceComparison: { status: 'fresh', reasonCode: null }
   }, { workDir });
   assert.equal(record.generation, 2);
   assert.equal(file, 'singularity/work-items/ENG-9/context/design-gen2.json');
@@ -239,6 +240,40 @@ test('recordInjection writes an auditable generation context record', async () =
   assert.deepEqual(written.groundingAvailability, {
     status: 'available', reasonCode: null
   });
+  assert.deepEqual(written.sourceComparison, { status: 'fresh', reasonCode: null });
+  assert.deepEqual(written.executionContext, { mode: 'legacy-live' });
+});
+
+test('snapshot-backed prompt persistence never invents live provenance when an adapter omits it', async () => {
+  const root = await fixtureRoot();
+  const rendered = await renderInjection(
+    root, definition([{ when: {}, include: ['architecture/*'] }]), { agent: 'architect' }
+  );
+  const workflow = {
+    workItem: { id: 'ENG-SNAPSHOT-OMITTED' },
+    workflowSnapshot: { snapshotHash: `sha256:${'a'.repeat(64)}` }
+  };
+  const phase = { id: 'design', generation: 0 };
+  const workDir = path.join(root, 'singularity/work-items/ENG-SNAPSHOT-OMITTED');
+  const { record } = await recordInjection(root, workflow, phase, {
+    ...rendered, agent: 'architect', renderedText: '# Snapshot-backed prompt\n'
+  }, { workDir });
+  assert.deepEqual(record.executionContext, { mode: 'historical-unproven' });
+});
+
+test('recordInjection requires stable reasons for stale or unavailable source comparisons', async () => {
+  const root = await fixtureRoot();
+  const rendered = await renderInjection(root, definition([{ when: {}, include: ['architecture/*'] }]), { agent: 'architect' });
+  const workflow = { workItem: { id: 'ENG-SOURCE' } };
+  const phase = { id: 'design', generation: 0 };
+  const workDir = path.join(root, 'singularity/work-items/ENG-SOURCE');
+  await assert.rejects(
+    recordInjection(root, workflow, phase, {
+      ...rendered, agent: 'architect', renderedText: '# Source comparison\n', fresh: false,
+      sourceComparison: { status: 'unavailable', reasonCode: 'contains arbitrary prose' }
+    }, { workDir }),
+    /stable reason code/
+  );
 });
 
 test('recordInjection preserves prompt-study, agent, and remote-skill provenance', async () => {

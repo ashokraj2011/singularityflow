@@ -949,6 +949,16 @@ function promptAuditRecordV1ToV2(source) {
   };
 }
 
+function promptAuditRecordV2ToV3(source) {
+  return {
+    ...source,
+    schemaVersion: 3,
+    // Historical records are verified under their original schema before this projection. The
+    // migration must not claim that the saved-Story resolver produced bytes it never observed.
+    executionContext: source.executionContext ?? { mode: 'historical-unproven' }
+  };
+}
+
 function astResultV1ToV2(source) {
   const facts = (source.facts ?? []).map((fact) => ({
     ...fact,
@@ -1232,6 +1242,32 @@ function storyWorkflowV4ToV5(source) {
   };
 }
 
+function storyWorkflowV5ToV6(source) {
+  const migrated = clone(source);
+  migrated.schemaVersion = 6;
+  for (const phase of Object.values(migrated.phases ?? {})) {
+    phase.generationPublications = (phase.generationPublications ?? []).map((publication) => ({
+      ...publication,
+      architectureIntent: publication.architectureIntent ?? null,
+      architectureDecision: publication.architectureDecision ?? null
+    }));
+    phase.submissionArchitectureDecision ??= null;
+  }
+  return migrated;
+}
+
+function generationPublicationV1ToV2(source) {
+  return {
+    ...clone(source),
+    schemaVersion: 2,
+    // Historical publications did not bind architecture intent or its approval
+    // decision. A migration must keep that absence explicit rather than infer
+    // authority from current Story bytes.
+    architectureIntent: source.architectureIntent ?? null,
+    architectureDecision: source.architectureDecision ?? null
+  };
+}
+
 function actionPlanV1ToV2(source) {
   const worktreeHash = source.revision?.worktreeHash ?? null;
   return {
@@ -1396,6 +1432,17 @@ function promptInjectionV3ToV4(source) {
     groundingAvailability: {
       status: 'legacy-unverified',
       reasonCode: null
+    }
+  };
+}
+
+function promptInjectionV4ToV5(source) {
+  return {
+    ...source,
+    schemaVersion: 5,
+    executionContext: source.executionContext ?? { mode: 'historical-unproven' },
+    sourceComparison: source.sourceComparison ?? {
+      status: 'historical-unproven', reasonCode: null
     }
   };
 }
@@ -2449,12 +2496,13 @@ const families = [
     ]
   }),
   family({
-    id: 'story-workflow', currentVersion: 5,
+    id: 'story-workflow', currentVersion: 6,
     steps: [
       migration(1, 2, storyWorkflowV1ToV2),
       migration(2, 3, identity(3)),
       migration(3, 4, storyWorkflowV3ToV4),
-      migration(4, 5, storyWorkflowV4ToV5)
+      migration(4, 5, storyWorkflowV4ToV5),
+      migration(5, 6, storyWorkflowV5ToV6)
     ],
     paths: [/^(?:singularity|\.sdlc)\/work-items\/[^/]+\/workflow\.json$/], unversionedAs: 1
   }),
@@ -2501,7 +2549,8 @@ const families = [
   family({ id: 'work-interval-baseline', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/work-intervals\/[^/]+-gen\d+-baseline\.json$/] }),
   family({ id: 'work-interval-state', currentVersion: 1 }),
   family({
-    id: 'generation-publication', currentVersion: 1,
+    id: 'generation-publication', currentVersion: 2,
+    steps: [migration(1, 2, generationPublicationV1ToV2)],
     paths: [/^singularity\/work-items\/[^/]+\/context\/generation-publications\/[^/]+-gen\d+\.json$/],
     immutable: true
   }),
@@ -2699,11 +2748,12 @@ const families = [
   family({ id: 'work-item-telemetry', currentVersion: 1 }),
   family({ id: 'artifact-authorship', currentVersion: 1 }),
   family({
-    id: 'prompt-injection', currentVersion: 4,
+    id: 'prompt-injection', currentVersion: 5,
     steps: [
       migration(1, 2, promptInjectionV1ToV2),
       migration(2, 3, promptInjectionV2ToV3),
-      migration(3, 4, promptInjectionV3ToV4)
+      migration(3, 4, promptInjectionV3ToV4),
+      migration(4, 5, promptInjectionV4ToV5)
     ],
     paths: [/^singularity\/work-items\/[^/]+\/context\/(?!(?:agents-|remote-output-))[^/]+-gen\d+\.json$/]
   }),
@@ -2803,8 +2853,11 @@ const families = [
     paths: [/^(?:\$git|\$workspace)\/prompt-audit\/settings\.json$/]
   }),
   family({
-    id: 'prompt-audit-record', currentVersion: 2,
-    steps: [migration(1, 2, promptAuditRecordV1ToV2)],
+    id: 'prompt-audit-record', currentVersion: 3,
+    steps: [
+      migration(1, 2, promptAuditRecordV1ToV2),
+      migration(2, 3, promptAuditRecordV2ToV3)
+    ],
     paths: [/^(?:\$git|\$workspace)\/prompt-audit\/prompts\.jsonl$/], immutable: true
   }),
   family({

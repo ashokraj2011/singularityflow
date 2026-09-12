@@ -35,7 +35,7 @@ export function injectionConfig(definition) {
   return merged;
 }
 
-export function validateInjectionDefinition(definition) {
+export function validateInjectionDefinition(definition, { deferAgentReferences = false } = {}) {
   const injection = injectionConfig(definition);
   injection.rules.forEach((rule, index) => {
     const label = `worldModel.injection.rules[${index}]`;
@@ -50,7 +50,11 @@ export function validateInjectionDefinition(definition) {
     for (const key of Object.keys(when)) if (!['agent', 'phase', 'workType', 'changedPaths', 'labels'].includes(key)) throw new SingularityFlowError(`${label}.when has unsupported signal '${key}'.`);
     for (const [key, source] of [['agent', definition.agents], ['phase', definition.phases], ['workType', definition.workTypes]]) {
       assertStringValues(when[key], `${label}.when.${key}`);
-      for (const id of when[key] == null ? [] : values(when[key])) if (!source?.[id]) throw new SingularityFlowError(`${label}.when.${key} references unknown ${key} '${id}'.`);
+      for (const id of when[key] == null ? [] : values(when[key])) {
+        if (!(deferAgentReferences && key === 'agent') && !source?.[id]) {
+          throw new SingularityFlowError(`${label}.when.${key} references unknown ${key} '${id}'.`);
+        }
+      }
     }
     assertStringValues(when.changedPaths, `${label}.when.changedPaths`);
     assertStringValues(when.labels, `${label}.when.labels`);
@@ -141,6 +145,40 @@ function durableGroundingAvailability(injection) {
   return { status, reasonCode };
 }
 
+const SOURCE_COMPARISON_STATUSES = new Set([
+  'fresh', 'stale', 'unavailable', 'historical-unproven'
+]);
+
+function durableSourceComparison(injection, groundingAvailability) {
+  const supplied = injection.sourceComparison;
+  const status = supplied?.status
+    ?? (injection.fresh === true ? 'fresh'
+      : groundingAvailability.status === 'unavailable' ? 'unavailable'
+        : injection.fresh === false ? 'stale' : 'historical-unproven');
+  if (!SOURCE_COMPARISON_STATUSES.has(status)) {
+    throw new SingularityFlowError(
+      `Prompt source-comparison status '${String(status)}' cannot be recorded.`
+    );
+  }
+  const reasonCode = supplied?.reasonCode
+    ?? (status === 'unavailable' ? groundingAvailability.reasonCode
+      : status === 'stale' ? 'WORLD_MODEL_SOURCE_CHANGED' : null);
+  if (['fresh', 'historical-unproven'].includes(status)) {
+    if (reasonCode != null) {
+      throw new SingularityFlowError(
+        `Prompt source-comparison status '${status}' cannot carry an unavailability reason.`
+      );
+    }
+    return { status, reasonCode: null };
+  }
+  if (typeof reasonCode !== 'string' || !/^[A-Z][A-Z0-9_.-]{0,95}$/.test(reasonCode)) {
+    throw new SingularityFlowError(
+      `Prompt source-comparison status '${status}' must use a stable reason code.`
+    );
+  }
+  return { status, reasonCode };
+}
+
 export async function renderInjection(root, definition, signals = {}, {
   modelDirectory = null, validatedModelFiles = null, validatedManifest = null
 } = {}) {
@@ -225,9 +263,9 @@ export async function renderInjection(root, definition, signals = {}, {
 
 export async function injectAgentPrompt(root, definition, agentId, signals = {}, {
   promptOverride = null, disableWorldModelInjection = false, modelDirectory = null,
-  validatedModelFiles = null, validatedManifest = null
+  validatedModelFiles = null, validatedManifest = null, resolvedAgent = null
 } = {}) {
-  const agent = definition.agents?.[agentId];
+  const agent = resolvedAgent ?? definition.agents?.[agentId];
   if (!agent) throw new SingularityFlowError(`Unknown governed agent '${agentId}'.`);
   const base = promptOverride?.text ?? agent.prompt;
   if (disableWorldModelInjection) {
@@ -509,6 +547,7 @@ export async function recordInjection(root, workflow, phase, injection, {
   workDir, beforePersist = null
 }) {
   const groundingAvailability = durableGroundingAvailability(injection);
+  const sourceComparison = durableSourceComparison(injection, groundingAvailability);
   const location = promptGenerationLocation(root, workflow, phase, workDir);
   if (injection.renderedText == null) {
     throw promptGenerationFailure(
@@ -540,6 +579,7 @@ export async function recordInjection(root, workflow, phase, injection, {
     depth: injection.depth,
     evidence: injection.evidence,
     groundingAvailability,
+    sourceComparison,
     requiredViews: injection.requiredViews ?? [],
     requiredSelections: injection.requiredSelections ?? [],
     task: injection.task ?? null,
@@ -557,6 +597,12 @@ export async function recordInjection(root, workflow, phase, injection, {
     workSource: structuredClone(injection.workSource ?? null),
     promptBudget: structuredClone(injection.promptBudget ?? null),
     remoteSkills: structuredClone(injection.remoteSkills ?? []),
+    // Omission on a snapshot-backed Story is not evidence that mutable live instructions were
+    // used. Current composers provide the exact identity; older/custom adapters remain honestly
+    // unproven instead of acquiring a false legacy-live label.
+    executionContext: structuredClone(injection.executionContext ?? {
+      mode: workflow.workflowSnapshot ? 'historical-unproven' : 'legacy-live'
+    }),
     compositionCache: injection.compositionCache?.key ? {
       key: injection.compositionCache.key,
       promptSha256: renderedSha256

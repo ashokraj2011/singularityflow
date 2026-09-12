@@ -13,6 +13,10 @@ import { verifyRepositoryChangeSetIntegrity } from './repository-change-set.mjs'
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { posix, run, SingularityFlowError, writeJson } from './util.mjs';
+import {
+  canonicalJson as canonicalWorldModelJson, sha256 as worldModelSha256
+} from './world-model/canonicalize.mjs';
+import { validateArchitectureIntent } from './world-model/projections/calm/projection.mjs';
 
 const SHA = /^[0-9a-f]{40,64}$/i;
 
@@ -49,10 +53,15 @@ function workflowRelative(recordPath) {
   return `${path.posix.dirname(path.posix.dirname(path.posix.dirname(recordPath)))}/workflow.json`;
 }
 
-function readAt(root, commit, relative, family) {
+function readStoredAt(root, commit, relative) {
   const shown = run('git', ['show', `${commit}:${relative}`], { cwd: root, allowFailure: true });
   if (shown.status !== 0) throw new Error(`${relative} is not committed at ${commit.slice(0, 12)}`);
-  return readRecord(family, shown.stdout).record;
+  try { return JSON.parse(shown.stdout); }
+  catch (error) { throw new Error(`${relative} is not valid JSON at ${commit.slice(0, 12)}: ${error.message}`); }
+}
+
+function readAt(root, commit, relative, family) {
+  return readRecord(family, readStoredAt(root, commit, relative)).record;
 }
 
 function commitIdentity(root, commit) {
@@ -71,6 +80,32 @@ function commitIdentity(root, commit) {
     transactionId: trailer('Singularity-Flow-Transaction'),
     eventSha256: trailer('Singularity-Flow-Event-SHA256')
   };
+}
+
+function authenticateStoredPublication(root, commit, record, {
+  workId, phaseId, generation
+} = {}) {
+  const identity = commitIdentity(root, commit);
+  if (!identity?.transactionId || !identity.eventSha256) {
+    return { valid: false, reason: 'governed transaction trailers are missing' };
+  }
+  const { recordSha256: claimed, ...core } = record ?? {};
+  if (claimed !== sha256Record(core)) {
+    return { valid: false, reason: 'publication record hash differs' };
+  }
+  if (record.kind !== 'generation-publication'
+      || record.workId !== workId || record.phase !== phaseId
+      || Number(record.generation) !== Number(generation)
+      || record.transactionId !== identity.transactionId
+      || record.eventSha256 !== identity.eventSha256
+      || record.commitBinding?.method !== 'containing-governed-transaction'
+      || record.commitBinding?.commit !== '$self'
+      || record.commitBinding?.tree !== '$self'
+      || record.commitBinding?.parent !== identity.parents[0]
+      || identity.parents.length !== 1) {
+    return { valid: false, reason: 'publication identity differs from its containing commit' };
+  }
+  return { valid: true, identity };
 }
 
 function verifiedProjection(workflow, record, eventSha256) {
@@ -105,8 +140,45 @@ function verifiedProjection(workflow, record, eventSha256) {
   return projection.event;
 }
 
+function verifyArchitectureIntentBindingAtCommit(root, commit, recordPath, binding, {
+  workId, phaseId, generation
+} = {}) {
+  if (binding == null) return { valid: true };
+  const itemRoot = path.posix.dirname(path.posix.dirname(path.posix.dirname(posix(recordPath))));
+  const expectedPath = `${itemRoot}/context/architecture/architecture-intent.json`;
+  if (binding.workId !== workId || binding.phase !== phaseId
+      || Number(binding.generation) !== Number(generation)
+      || binding.path !== expectedPath
+      || !/^sha256:[a-f0-9]{64}$/.test(binding.intentSha256 ?? '')
+      || !/^sha256:[a-f0-9]{64}$/.test(binding.blobSha256 ?? '')) {
+    return { valid: false, reason: 'architecture intent publication binding is malformed' };
+  }
+  const shown = run('git', ['show', `${commit}:${binding.path}`], {
+    cwd: root, allowFailure: true
+  });
+  if (shown.status !== 0) {
+    return { valid: false, reason: 'architecture intent is absent from its generation commit' };
+  }
+  try {
+    const intent = validateArchitectureIntent(JSON.parse(shown.stdout));
+    const canonicalBytes = canonicalWorldModelJson(intent);
+    if (shown.stdout !== canonicalBytes
+        || binding.intentSha256 !== intent.intentSha256
+        || binding.blobSha256 !== worldModelSha256(Buffer.from(canonicalBytes, 'utf8'))
+        || intent.workId !== workId || intent.phase !== phaseId
+        || Number(intent.generation) !== Number(generation)) {
+      return { valid: false, reason: 'architecture intent bytes differ from their publication binding' };
+    }
+  } catch (error) {
+    return { valid: false, reason: `architecture intent publication is invalid: ${error.message}` };
+  }
+  return { valid: true };
+}
+
 function verifyCommittedEvidence(root, commit, {
   record = null,
+  storedRecord = null,
+  authenticatedPublication = null,
   recordPath,
   workId,
   phaseId,
@@ -114,21 +186,22 @@ function verifyCommittedEvidence(root, commit, {
   legacy = false
 }) {
   try {
-    const identity = commitIdentity(root, commit);
-    if (!identity?.transactionId || !identity.eventSha256) return { valid: false, reason: 'governed transaction trailers are missing' };
+    let identity;
     if (record) {
-      const { recordSha256: claimed, ...core } = record;
-      if (claimed !== sha256Record(core)) return { valid: false, reason: 'publication record hash differs' };
-      if (record.kind !== 'generation-publication'
-          || record.workId !== workId || record.phase !== phaseId
-          || Number(record.generation) !== Number(generation)
-          || record.transactionId !== identity.transactionId
-          || record.eventSha256 !== identity.eventSha256
-          || record.commitBinding?.method !== 'containing-governed-transaction'
-          || record.commitBinding?.commit !== '$self'
-          || record.commitBinding?.tree !== '$self'
-          || record.commitBinding?.parent !== identity.parents[0]
-          || identity.parents.length !== 1) return { valid: false, reason: 'publication identity differs from its containing commit' };
+      // The self-hash and containing-commit trailers authenticate the schema that was actually
+      // stored. `publishedGenerationCommit` performs this check before v1 is projected to v2; the
+      // fallback keeps this helper safe for any future internal caller.
+      const authentication = authenticatedPublication
+        ?? authenticateStoredPublication(root, commit, storedRecord ?? record, {
+          workId, phaseId, generation
+        });
+      if (!authentication.valid) return authentication;
+      identity = authentication.identity;
+    } else {
+      identity = commitIdentity(root, commit);
+      if (!identity?.transactionId || !identity.eventSha256) {
+        return { valid: false, reason: 'governed transaction trailers are missing' };
+      }
     }
     const evidencePath = recordPath ?? generationPublicationRelative({
       id: phaseId,
@@ -178,12 +251,21 @@ function verifyCommittedEvidence(root, commit, {
           || record.resultDigest !== publication.resultDigest
           || record.changeSet?.digest !== publication.changeSetDigest
           || canonicalJson(record.origin ?? null) !== canonicalJson(publication.origin ?? null)
+          || canonicalJson(record.architectureIntent ?? null)
+            !== canonicalJson(publication.architectureIntent ?? null)
+          || canonicalJson(record.architectureDecision ?? null)
+            !== canonicalJson(publication.architectureDecision ?? null)
           || (start && (record.baseline?.commit !== start.baseline?.commit
             || record.baseline?.tree !== start.baseline?.tree))
           || publication.record?.path !== recordPath
           || publication.record?.sha256 !== record.recordSha256) {
         return { valid: false, reason: 'publication result binding differs' };
       }
+      const architectureIntent = verifyArchitectureIntentBindingAtCommit(
+        root, commit, recordPath, record.architectureIntent ?? null,
+        { workId, phaseId, generation }
+      );
+      if (!architectureIntent.valid) return architectureIntent;
       if (!start) {
         const parentTree = run('git', ['rev-parse', `${identity.parents[0]}^{tree}`], {
           cwd: root, allowFailure: true
@@ -247,6 +329,8 @@ export async function persistGenerationPublicationRecord(root, workflow, phase, 
     },
     ...(publication.origin ? { origin: structuredClone(publication.origin) } : {}),
     resultDigest: publication.resultDigest ?? null,
+    architectureIntent: structuredClone(publication.architectureIntent ?? null),
+    architectureDecision: structuredClone(publication.architectureDecision ?? null),
     baseline: {
       commit: phase.generationIntent?.baseline?.commit ?? expectedHead,
       tree: phase.generationIntent?.baseline?.tree
@@ -287,9 +371,21 @@ export function publishedGenerationCommit(root, workflow, phase, number = phase.
     }).stdout.split(/\r?\n/).filter(Boolean);
     const checked = commits.map((commit) => {
       try {
-        const record = readAt(root, commit, recordPath, 'generation-publication');
+        const storedRecord = readStoredAt(root, commit, recordPath);
+        const authenticatedPublication = authenticateStoredPublication(
+          root, commit, storedRecord, { workId, phaseId: phase.id, generation }
+        );
+        if (!authenticatedPublication.valid) {
+          return { ...authenticatedPublication, commit };
+        }
+        // Migration is a reader projection only. It happens after the immutable v1 bytes, their
+        // self-hash, and their containing-commit trailers have been authenticated above.
+        const record = readRecord('generation-publication', storedRecord).record;
         return verifyCommittedEvidence(root, commit, {
-          record, recordPath, workId, phaseId: phase.id, generation
+          record,
+          storedRecord,
+          authenticatedPublication,
+          recordPath, workId, phaseId: phase.id, generation
         });
       } catch (error) { return { valid: false, commit, reason: error.message }; }
     });

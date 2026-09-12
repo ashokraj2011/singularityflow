@@ -300,6 +300,14 @@ test('agent selection changes only the local session and persists for later acti
   const root = await repository(); const workId = 'AGENT-1';
   flow(root, ['start', workId, '--from-branch', 'main'], { selection: selection('feature', 'product-owner') });
   const before = execute('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+  const liveAgent = path.join(root, '.github/agents/architect.agent.md');
+  const originalAgent = await readFile(liveAgent, 'utf8');
+  // Resume and explicit selection must reach the accepted Story closure even when today's live
+  // replacement cannot be parsed. This file is restored below so the local-session assertion stays
+  // isolated from a protected configuration edit.
+  await writeFile(liveAgent, '---\nname: architect\nmetadata: [malformed\n---\n');
+  const resumed = flow(root, ['resume', workId]);
+  assert.match(resumed.stdout, /Active governed agent: Product owner \(product-owner\)/i);
   const result = flow(root, ['agent', workId, '--agent', 'architect'], { actor: 'Session Architect' });
   assert.match(result.stdout, /Active governed agent: Architect \(architect\)/);
   assert.match(result.stdout, /selection is local to this checkout/);
@@ -307,6 +315,7 @@ test('agent selection changes only the local session and persists for later acti
   assert.equal(session.agent, 'architect');
   assert.equal(session.workId, workId);
   assert.equal(session.actor.name, 'Session Architect');
+  await writeFile(liveAgent, originalAgent);
   assert.equal(execute('git', ['rev-parse', 'HEAD'], root).stdout.trim(), before);
   assert.equal(execute('git', ['status', '--short'], root).stdout.trim(), '');
 });

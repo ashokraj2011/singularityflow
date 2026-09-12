@@ -502,6 +502,10 @@ export function projectWorldModelIdeSlice(store, {
       expansion: expansion('projection', entry.projectionId, entry.projectionSha256, entry.path)
     });
   });
+  const freshnessStatus = store.freshness.status
+    ?? (store.freshness.fresh ? 'fresh' : 'stale');
+  const sourceFreshnessStatus = store.freshness.source?.status
+    ?? freshnessStatus;
   const payload = {
     schemaVersion: WORLD_MODEL_IDE_SLICE_VERSION,
     kind: 'world-model-ide-slice',
@@ -515,17 +519,29 @@ export function projectWorldModelIdeSlice(store, {
     source: {
       sourceManifestSha256: store.sourceSnapshot.sourceManifestSha256,
       scopeManifestSha256: store.scopeManifest.scopeSha256,
-      fresh: store.freshness.fresh,
-      reason: store.freshness.reason
+      // Aggregate freshness may be stale because a configuration/view identity changed while the
+      // repository source is still exact. Keep the source row tied to the source comparison.
+      status: sourceFreshnessStatus,
+      fresh: store.freshness.source?.fresh ?? store.freshness.fresh,
+      currentSourceManifestSha256: store.freshness.source?.current ?? null,
+      reason: store.freshness.source?.reason ?? null
     },
     generatedAt: null,
     root: store.outputDir,
-    rebuildReason: store.freshness.fresh ? null : 'The registered source snapshot changed after this world model was built.',
+    rebuildReason: store.freshness.fresh
+      ? null
+      : freshnessStatus === 'unavailable'
+        ? 'The current source cannot be compared safely. Commit it or capture an explicit Candidate Snapshot.'
+        : 'The registered source snapshot changed after this world model was built.',
     readiness: {
-      status: store.freshness.fresh ? 'fresh' : 'stale',
+      status: freshnessStatus,
       ready: store.freshness.fresh,
       source: 'state-branch',
-      command: store.freshness.fresh ? null : 'singularity-flow world-model regenerate --stale'
+      command: store.freshness.fresh
+        ? null
+        : freshnessStatus === 'unavailable'
+          ? 'singularity-flow wm snapshot --format registered-v4'
+          : 'singularity-flow world-model regenerate --stale'
     },
     summary: {
       views: views.length,

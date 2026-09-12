@@ -26,11 +26,19 @@ async function exactConfigurationDigest(root, relative, label) {
 }
 
 /** Resolve the exact approved inputs which make a reusable architecture projection current. */
-export async function resolveCurrentArchitectureProjectionInputs(root, definition) {
-  const [capabilities, capabilitySourceSha256, configurationSourceSha256, toolchain] = await Promise.all([
+export async function resolveCurrentArchitectureProjectionInputs(root, definition, {
+  configurationSourceSha256 = null
+} = {}) {
+  const pinnedConfigurationSha256 = configurationSourceSha256 == null
+    ? null
+    : String(configurationSourceSha256).startsWith('sha256:')
+      ? String(configurationSourceSha256)
+      : `sha256:${configurationSourceSha256}`;
+  const [capabilities, capabilitySourceSha256, effectiveConfigurationSha256, toolchain] = await Promise.all([
     loadCapabilities(root, { required: true }),
     exactConfigurationDigest(root, CAPABILITIES_PATH, 'Capability map'),
-    exactConfigurationDigest(root, WORKFLOW_PATH, 'Workflow configuration'),
+    pinnedConfigurationSha256
+      ?? exactConfigurationDigest(root, WORKFLOW_PATH, 'Workflow configuration'),
     createCalmToolchainLock()
   ]);
   return Object.freeze({
@@ -38,7 +46,7 @@ export async function resolveCurrentArchitectureProjectionInputs(root, definitio
       sourcePath: CAPABILITIES_PATH, sourceSha256: capabilitySourceSha256
     }),
     configurationSnapshot: createArchitectureConfigurationSnapshot(definition, {
-      sourcePath: WORKFLOW_PATH, sourceSha256: configurationSourceSha256
+      sourcePath: WORKFLOW_PATH, sourceSha256: effectiveConfigurationSha256
     }),
     toolchainLock: toolchain.lock
   });

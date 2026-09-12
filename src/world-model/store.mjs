@@ -3,6 +3,7 @@ import path from 'node:path';
 import { hasRemote } from '../git.mjs';
 import { readRecord } from '../schema-migrations.mjs';
 import { SingularityFlowError, run } from '../util.mjs';
+import { isWorldModelAvailabilityError } from '../world-model-availability.mjs';
 import { canonicalJson, compareText, sha256 } from './canonicalize.mjs';
 import { createConservativeWorldModelStalenessReceipt } from './cache.mjs';
 import { assembleWmbV4PromptSync } from './compose/pinned-core.mjs';
@@ -25,7 +26,8 @@ import { buildCalmProjection, enforceProjectionBudgets } from './projections/cal
 import { createWorldModelViewOutputBudget } from './plan.mjs';
 import { validateScopeManifest } from './scope/manifest.mjs';
 import {
-  createExactSourceSnapshot, validateSourceSnapshot, verifyExactSourceSnapshot
+  assertCurrentSourceMatchesCandidateSnapshot, createExactSourceSnapshot,
+  validateSourceSnapshot, verifyExactSourceSnapshot, verifyHistoricalSourceSnapshot
 } from './source/snapshot.mjs';
 import { materializeWorldModelView } from './materialize/view.mjs';
 import { parseWorldModelViewKernelStamp } from './materialize/stamp.mjs';
@@ -37,15 +39,16 @@ const PROJECTION_REUSABLE_FIELDS = new Set([
 ]);
 
 function conservativeStalenessReceipts(manifest, records, freshness) {
-  if (freshness.fresh || !freshness.current) return Object.freeze([]);
+  if (freshness.fresh) return Object.freeze([]);
   // A CALM-only input change stales the projection, not the independently reusable view outputs.
   // Issuing view staleness receipts for it would both overstate the blast radius and use a cause
   // that the closed receipt vocabulary cannot represent.
-  const change = (freshness.changes ?? []).find(
-    (candidate) => !PROJECTION_REUSABLE_FIELDS.has(candidate.field)
-  ) ?? (freshness.source?.fresh === false ? {
-    kind: 'source-change', previousSha256: freshness.built, currentSha256: freshness.current
-  } : null);
+  const change = (freshness.changes ?? []).find((candidate) =>
+    !PROJECTION_REUSABLE_FIELDS.has(candidate.field)
+      && /^sha256:[a-f0-9]{64}$/.test(String(candidate.previousSha256 ?? ''))
+      && /^sha256:[a-f0-9]{64}$/.test(String(candidate.currentSha256 ?? ''))
+      && candidate.previousSha256 !== candidate.currentSha256
+  );
   if (!change) return Object.freeze([]);
   const ledgers = new Map(
     records.viewFactLedgers.map((ledger) => [ledger.viewId, ledger])
@@ -62,6 +65,14 @@ function conservativeStalenessReceipts(manifest, records, freshness) {
       affectedFactIds: (ledgers.get(entry.viewId)?.facts ?? []).map((fact) => fact.id),
       viewId: entry.viewId
     })));
+}
+
+function sourceComparisonUnavailable(error) {
+  // A dirty tracked/untracked source tree cannot be compared to the exact published snapshot
+  // without silently inventing a revision. It is an availability result, not a stale digest.
+  // Integrity and programming failures remain fail-closed and escape the comparison boundary.
+  return error?.code === 'WMB_SOURCE_SNAPSHOT_REQUIRED'
+    || isWorldModelAvailabilityError(error);
 }
 
 function reusableIdentityFromPublished(records, scopeManifest) {
@@ -835,8 +846,22 @@ function verifiedPublishedProjections(manifest, records, {
 export function readPublishedWorldModelV4(root, {
   ref,
   outputDir = 'singularity/world-model',
-  expectedReusableIdentity = null
+  expectedReusableIdentity = null,
+  expectedSourceSnapshot = null,
+  sourceVerification = 'current'
 } = {}) {
+  if (!['current', 'historical-integrity'].includes(sourceVerification)) {
+    recordFailure(
+      `Unknown WMB source verification mode '${sourceVerification}'.`,
+      'WMB_SOURCE_SNAPSHOT_REQUIRED', { sourceVerification }
+    );
+  }
+  if (sourceVerification === 'historical-integrity' && expectedSourceSnapshot != null) {
+    recordFailure(
+      'Historical WMB integrity verification cannot also authorize a current source snapshot.',
+      'WMB_SOURCE_SNAPSHOT_REQUIRED', { sourceVerification }
+    );
+  }
   // A remote-tracking or local branch is mutable. Resolve it exactly once before reading any
   // projection byte, then use only that immutable object ID for the complete validation walk.
   // Otherwise a concurrent fetch can make the manifest come from one state commit and a view or
@@ -930,21 +955,62 @@ export function readPublishedWorldModelV4(root, {
   }
   let sourceFreshness;
   try {
-    const current = sourceSnapshot.authority
-      ? verifyExactSourceSnapshot(root, sourceSnapshot, { scopeManifest })
-      : createExactSourceSnapshot(root, {
-          subjectId: sourceSnapshot.subject.id,
-          scopeManifest
-        });
+    if (sourceVerification === 'historical-integrity') {
+      // A retained before-image must reproduce its exact Git evidence, but it is not expected to
+      // equal the present worktree. In particular, an originating machine's private Candidate ref
+      // and object-store path are capture-time authorization—not portable historical integrity.
+      verifyHistoricalSourceSnapshot(root, sourceSnapshot, { scopeManifest });
+      sourceFreshness = {
+        status: 'unavailable',
+        fresh: false,
+        built: sourceSnapshot.sourceManifestSha256,
+        current: null,
+        reason: 'historical-current-comparison-not-requested',
+        detail: 'Historical source integrity was verified; current source equality was intentionally not evaluated.'
+      };
+    } else {
+    // Candidate authority proves that the retained bytes still exist; it does not prove that
+    // those historical bytes are the implementation currently being evaluated. Without this
+    // separation an old, internally valid Candidate stays "fresh" forever, even after the
+    // worktree has moved to a different implementation. A caller may supply the exact Candidate
+    // selected by its generation/transition boundary. Standalone readers otherwise compare only
+    // against a clean current Git source and report dirty source as unavailable.
+    if (sourceSnapshot.authority) {
+      verifyExactSourceSnapshot(root, sourceSnapshot, { scopeManifest });
+    }
+    let current;
+    if (expectedSourceSnapshot?.authority) {
+      current = assertCurrentSourceMatchesCandidateSnapshot(
+        root, expectedSourceSnapshot, { scopeManifest }
+      );
+    } else if (expectedSourceSnapshot) {
+      current = verifyExactSourceSnapshot(root, expectedSourceSnapshot, { scopeManifest });
+    } else {
+      current = createExactSourceSnapshot(root, {
+        subjectId: sourceSnapshot.subject.id,
+        scopeManifest
+      });
+    }
     sourceFreshness = {
+      status: current.sourceManifestSha256 === sourceSnapshot.sourceManifestSha256
+        ? 'fresh' : 'stale',
       fresh: current.sourceManifestSha256 === sourceSnapshot.sourceManifestSha256,
       built: sourceSnapshot.sourceManifestSha256,
       current: current.sourceManifestSha256,
       reason: current.sourceManifestSha256 === sourceSnapshot.sourceManifestSha256
-        ? null : 'source-snapshot-changed'
+        ? null
+        : expectedSourceSnapshot?.authority
+          ? 'source-candidate-mismatch'
+          : 'source-snapshot-changed'
     };
+    }
   } catch (error) {
+    // Historical evidence is an evaluator input, not optional grounding. Missing or corrupt Git
+    // objects must remain an explicit recovery failure rather than an ordinary freshness result.
+    if (sourceVerification === 'historical-integrity') throw error;
+    if (!sourceComparisonUnavailable(error)) throw error;
     sourceFreshness = {
+      status: 'unavailable',
       fresh: false,
       built: sourceSnapshot.sourceManifestSha256,
       current: null,
@@ -965,10 +1031,16 @@ export function readPublishedWorldModelV4(root, {
   })];
   const changes = Object.freeze([...sourceChanges, ...identityChanges]);
   const primary = changes[0] ?? null;
+  const freshnessStatus = changes.length === 0
+    ? 'fresh'
+    : primary?.currentSha256 == null
+      ? 'unavailable'
+      : 'stale';
   const freshness = Object.freeze({
+    status: freshnessStatus,
     fresh: changes.length === 0,
     built: primary?.previousSha256 ?? sourceSnapshot.sourceManifestSha256,
-    current: primary?.currentSha256 ?? sourceSnapshot.sourceManifestSha256,
+    current: primary ? primary.currentSha256 : sourceSnapshot.sourceManifestSha256,
     reason: primary?.reason ?? null,
     ...(sourceFreshness.detail ? { detail: sourceFreshness.detail } : {}),
     source: Object.freeze(sourceFreshness),
@@ -1013,7 +1085,8 @@ export function resolvePublishedWorldModelV4Authority(root, {
   authorityCommit,
   outputDir = 'singularity/world-model',
   required = true,
-  expectedReusableIdentity = null
+  expectedReusableIdentity = null,
+  expectedSourceSnapshot = null
 } = {}) {
   const target = safeOutputDirectory(outputDir);
   const manifestPath = path.posix.join(target, 'manifest.json');
@@ -1054,7 +1127,7 @@ export function resolvePublishedWorldModelV4Authority(root, {
     throw worldModelMigrationRequired(raw);
   }
   return readPublishedWorldModelV4(root, {
-    ref: normalized, outputDir: target, expectedReusableIdentity
+    ref: normalized, outputDir: target, expectedReusableIdentity, expectedSourceSnapshot
   });
 }
 
@@ -1064,7 +1137,8 @@ export function resolvePublishedWorldModelV4(root, {
   stateBranch = 'state',
   remote = 'origin',
   required = true,
-  expectedReusableIdentity = null
+  expectedReusableIdentity = null,
+  expectedSourceSnapshot = null
 } = {}) {
   const target = safeOutputDirectory(outputDir);
   const manifestPath = path.posix.join(target, 'manifest.json');
@@ -1097,7 +1171,7 @@ export function resolvePublishedWorldModelV4(root, {
       throw worldModelMigrationRequired(raw);
     }
     return readPublishedWorldModelV4(root, {
-      ref: remoteRef, outputDir: target, expectedReusableIdentity
+      ref: remoteRef, outputDir: target, expectedReusableIdentity, expectedSourceSnapshot
     });
   }
   // A configured remote is the approved state authority even when its tracking ref has not yet
@@ -1143,7 +1217,7 @@ export function resolvePublishedWorldModelV4(root, {
       throw worldModelMigrationRequired(raw);
     }
     return readPublishedWorldModelV4(root, {
-      ref: localRef, outputDir: target, expectedReusableIdentity
+      ref: localRef, outputDir: target, expectedReusableIdentity, expectedSourceSnapshot
     });
   }
   for (const ref of candidateRefs(root, { stateBranch, remote })) {
@@ -1158,7 +1232,7 @@ export function resolvePublishedWorldModelV4(root, {
       throw worldModelMigrationRequired(raw);
     }
     return readPublishedWorldModelV4(root, {
-      ref, outputDir: target, expectedReusableIdentity
+      ref, outputDir: target, expectedReusableIdentity, expectedSourceSnapshot
     });
   }
   if (!required) return null;

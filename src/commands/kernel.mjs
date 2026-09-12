@@ -17,6 +17,7 @@ import { identity } from '../git.mjs';
 import { setAgentSession } from '../session.mjs';
 import { currentPhase } from '../state-stores.mjs';
 import { SingularityFlowError } from '../util.mjs';
+import { resolveStoryExecutionCatalog } from '../story-execution-context.mjs';
 
 /**
  * Where a Story records its parent lineage on the Jira issue.
@@ -83,7 +84,12 @@ export function activeActionContext() {
  * An override is allowed but never silent: the prompt is audited and the human approval authority is
  * unchanged, so the warning is the whole disclosure.
  */
-export async function activatePhaseAgent(root, definition, workId, phase, requestedAgent = null) {
+export async function activatePhaseAgent(
+  root, definition, workId, phase, requestedAgent = null, workflow = null
+) {
+  if (workflow) {
+    definition = (await resolveStoryExecutionCatalog(root, definition, workflow)).effectiveDefinition;
+  }
   const defaultAgent = phase?.defaultAgent
     ?? definition.agentCatalog?.find((agent) => agent.defaultFor.includes(phase?.id))?.id
     ?? null;

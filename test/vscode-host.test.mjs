@@ -4809,6 +4809,68 @@ test('a window with nothing open can map a capability from scratch', async (t) =
   assert.equal(registered.inputBoxes.length, 0, 'nothing was asked through a prompt');
 });
 
+test('capability mapping from VS Code preserves the opened repository local Git identity', async (t) => {
+  if (!requireBundle(t)) return;
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-map-ui-identity-'));
+  const remote = path.join(base, 'platform.git');
+  const initiatingRoot = path.join(base, 'open-repository');
+  run('git', ['init', '-q', '-b', 'main', '--bare', remote], { cwd: base });
+  run('git', ['init', '-q', '-b', 'main', initiatingRoot], { cwd: base });
+  run('git', ['config', 'user.name', 'VS Code Local Author'], { cwd: initiatingRoot });
+  run('git', ['config', 'user.email', 'vscode-local@example.test'], { cwd: initiatingRoot });
+  await writeFile(path.join(initiatingRoot, 'README.md'), '# Platform\n');
+  run('git', ['add', '-A'], { cwd: initiatingRoot });
+  run('git', ['commit', '-qm', 'Initial'], { cwd: initiatingRoot });
+  run('git', ['push', '-q', remote, 'main:main'], { cwd: initiatingRoot });
+
+  const protectedKeys = [
+    'SINGULARITY_FLOW_TEST_IDENTITY', 'SINGULARITY_FLOW_LEAD_REGISTRY',
+    'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM'
+  ];
+  const previous = new Map(protectedKeys.map((key) => [key, process.env[key]]));
+  t.after(() => {
+    for (const [key, value] of previous) {
+      if (value == null) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+  delete process.env.SINGULARITY_FLOW_TEST_IDENTITY;
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = path.join(base, 'leads.json');
+  process.env.GIT_CONFIG_GLOBAL = path.join(base, 'empty-global.gitconfig');
+  process.env.GIT_CONFIG_SYSTEM = os.devNull;
+  await writeFile(process.env.GIT_CONFIG_GLOBAL, '');
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: initiatingRoot } }];
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  await registered.commands.get('singularityFlow.mapCapability')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.mapCapability');
+  assert.ok(panel);
+  await panel.post({ type: 'field', field: 'repositoryUrl', value: remote });
+  await panel.post({ type: 'inspectRepository' });
+  await until(() => panel.webview.html.includes('Use this repository as the first capability map')
+    ? panel.webview.html : null);
+  await panel.post({ type: 'useFirstAuthority' });
+  await until(() => panel.webview.html.includes('0 capabilities available as parents')
+    ? panel.webview.html : null);
+  await panel.post({ type: 'field', field: 'capabilityId', value: 'ui-owned-map' });
+  await panel.post({ type: 'field', field: 'name', value: 'UI-owned map' });
+  await panel.post({ type: 'field', field: 'kind', value: 'collection' });
+  await panel.post({ type: 'map' });
+
+  const branch = await until(() => run('git', [
+    'for-each-ref', '--format=%(refname:short)',
+    'refs/heads/sflow/config-change/capability/map-ui-owned-map-*'
+  ], { cwd: remote }).stdout.trim() || null, { attempts: 200 });
+  assert.deepEqual(run('git', [
+    'show', '-s', '--format=%an%x00%ae%x00%cn%x00%ce', branch
+  ], { cwd: remote }).stdout.trim().split('\0'), [
+    'VS Code Local Author', 'vscode-local@example.test',
+    'VS Code Local Author', 'vscode-local@example.test'
+  ]);
+});
+
 test('a new laptop can find an already-onboarded repository through an explicit capability-map URL', async (t) => {
   if (!requireBundle(t)) return;
   const org = await organisation();

@@ -652,6 +652,83 @@ export function readExactSourceFile(root, snapshotValue, relative) {
   return bytes;
 }
 
+function assertCandidateScope(snapshot, authority, scopeManifest) {
+  if (!scopeManifest) return;
+  const scope = validateScopeManifest(scopeManifest);
+  if (scope.scopeSha256 !== authority.scopeManifestSha256
+      || snapshot.files.some((file) => !pathInsideScope(file.path, scope))) {
+    contractFailure(
+      'Candidate Snapshot does not bind the requested exact Scope Manifest.',
+      'WMB_SCOPE_MISMATCH', {
+        expected: authority.scopeManifestSha256, actual: scope.scopeSha256
+      }
+    );
+  }
+}
+
+function verifyCandidateGitProjection(root, snapshot, authority, {
+  env = undefined, historical = false
+} = {}) {
+  let revision;
+  let baseRevision;
+  let parents;
+  let entries;
+  let exact;
+  try {
+    revision = exactIdentity(root, snapshot.revision.commit, { env });
+    baseRevision = exactIdentity(root, authority.baseRevision.commit, { env });
+    parents = String(git(root, [
+      'show', '-s', '--format=%P', snapshot.revision.commit
+    ], { env })).trim().split(/\s+/).filter(Boolean);
+    entries = treeEntries(root, snapshot.revision.commit, { env });
+    exact = entries.map((entry) => {
+      const bytes = blobBytes(root, entry.gitObjectId, { env });
+      return {
+        path: entry.path,
+        type: fileType(entry.mode),
+        mode: entry.mode,
+        contentSha256: `sha256:${sha256Bytes(bytes)}`,
+        bytes: bytes.length,
+        objectId: entry.gitObjectId
+      };
+    });
+  } catch (error) {
+    if (historical && error?.code === 'WMB_SOURCE_SNAPSHOT_REQUIRED') {
+      contractFailure(
+        'The Candidate Snapshot historical Git objects are not fully available locally. Fetch or restore the exact retained authority before retrying.',
+        'WMB_SOURCE_OBJECT_UNAVAILABLE', {
+          revision: snapshot.revision.commit,
+          baseRevision: authority.baseRevision.commit,
+          cause: error.code
+        }
+      );
+    }
+    throw error;
+  }
+  if (revision.tree !== snapshot.revision.tree) {
+    contractFailure('Candidate Snapshot commit does not bind its declared exact tree.', 'WMB_SOURCE_SNAPSHOT_TAMPERED');
+  }
+  if (baseRevision.tree !== authority.baseRevision.tree) {
+    contractFailure('Candidate Snapshot base commit does not bind its declared exact tree.', 'WMB_SOURCE_SNAPSHOT_TAMPERED');
+  }
+  if (parents.length !== 1 || parents[0] !== authority.baseRevision.commit) {
+    contractFailure(
+      'Candidate Snapshot commit does not descend directly from its declared exact base revision.',
+      'WMB_SOURCE_SNAPSHOT_TAMPERED', {
+        expectedParent: authority.baseRevision.commit,
+        actualParents: parents
+      }
+    );
+  }
+  if (canonicalJson(exact) !== canonicalJson(snapshot.files)) {
+    contractFailure(
+      'Candidate Snapshot Git tree does not reproduce its path, mode, object, and content hashes.',
+      'WMB_SOURCE_SNAPSHOT_TAMPERED'
+    );
+  }
+  return snapshot;
+}
+
 function verifyCandidateSnapshot(root, snapshot, scopeManifest) {
   const authority = validateCandidateAuthority(snapshot);
   if (!authority) contractFailure('Source is not a Candidate Snapshot.', 'WMB_SOURCE_SNAPSHOT_REQUIRED');
@@ -661,18 +738,7 @@ function verifyCandidateSnapshot(root, snapshot, scopeManifest) {
       'WMB_SOURCE_SNAPSHOT_TAMPERED', { expected: authority.repositorySha256 }
     );
   }
-  if (scopeManifest) {
-    const scope = validateScopeManifest(scopeManifest);
-    if (scope.scopeSha256 !== authority.scopeManifestSha256
-        || snapshot.files.some((file) => !pathInsideScope(file.path, scope))) {
-      contractFailure(
-        'Candidate Snapshot does not bind the requested exact Scope Manifest.',
-        'WMB_SCOPE_MISMATCH', {
-          expected: authority.scopeManifestSha256, actual: scope.scopeSha256
-        }
-      );
-    }
-  }
+  assertCandidateScope(snapshot, authority, scopeManifest);
   const reference = candidateReference(snapshot.sourceManifestSha256);
   const resolved = git(root, ['rev-parse', '--verify', '--quiet', reference], { allowFailure: true });
   const commit = resolved.status === 0 ? String(resolved.stdout).trim() : '';
@@ -682,26 +748,59 @@ function verifyCandidateSnapshot(root, snapshot, scopeManifest) {
       'WMB_SOURCE_SNAPSHOT_TAMPERED', { reference, expected: snapshot.revision.commit, actual: commit || null }
     );
   }
-  const actualTree = String(git(root, ['rev-parse', `${snapshot.revision.commit}^{tree}`])).trim();
-  if (actualTree !== snapshot.revision.tree) {
-    contractFailure('Candidate Snapshot commit does not bind its declared exact tree.', 'WMB_SOURCE_SNAPSHOT_TAMPERED');
-  }
-  const entries = treeEntries(root, snapshot.revision.commit);
-  const exact = entries.map((entry) => {
-    const bytes = blobBytes(root, entry.gitObjectId);
-    return {
-      path: entry.path,
-      type: fileType(entry.mode),
-      mode: entry.mode,
-      contentSha256: `sha256:${sha256Bytes(bytes)}`,
-      bytes: bytes.length,
-      objectId: entry.gitObjectId
-    };
-  });
-  if (canonicalJson(exact) !== canonicalJson(snapshot.files)) {
+  return verifyCandidateGitProjection(root, snapshot, authority);
+}
+
+/**
+ * Prove that an explicitly selected Candidate is also the current in-scope worktree subject.
+ *
+ * Candidate refs are immutable historical evidence. Verifying the ref alone therefore cannot
+ * establish that a later generation or transition is still operating on those bytes. This
+ * comparison is read-only: it hashes the visible paths without writing blobs, refs, sidecars, or
+ * commits, and repeats the complete observation to close the change-during-check window.
+ */
+export function assertCurrentSourceMatchesCandidateSnapshot(
+  root, snapshotValue, { scopeManifest = null } = {}
+) {
+  const snapshot = validateSourceSnapshot(snapshotValue);
+  const authority = validateCandidateAuthority(snapshot);
+  if (!authority) {
     contractFailure(
-      'Candidate Snapshot Git tree does not reproduce its path, mode, object, and content hashes.',
-      'WMB_SOURCE_SNAPSHOT_TAMPERED'
+      'An explicit current Candidate binding requires a Candidate Snapshot.',
+      'WMB_SOURCE_SNAPSHOT_REQUIRED'
+    );
+  }
+  verifyCandidateSnapshot(root, snapshot, scopeManifest);
+  const scope = validateScopeManifest(scopeManifest);
+  const before = exactIdentity(root);
+  const first = captureCandidatePass(root, scope, { writeObjects: false });
+  const second = captureCandidatePass(root, scope, { writeObjects: false });
+  const after = exactIdentity(root);
+  if (before.commit !== after.commit || before.tree !== after.tree
+      || canonicalJson(first) !== canonicalJson(second)) {
+    contractFailure(
+      'Repository source changed while the explicit Candidate was being compared.',
+      'WMB_SOURCE_SNAPSHOT_STALE', { before, after }
+    );
+  }
+  if (before.commit !== authority.baseRevision.commit
+      || before.tree !== authority.baseRevision.tree
+      || canonicalJson(first) !== canonicalJson(snapshot.files)) {
+    const currentCandidateSha256 = candidateIdentity({
+      repositorySha256: authority.repositorySha256,
+      baseRevision: before,
+      scopeManifestSha256: scope.scopeSha256,
+      files: first
+    });
+    contractFailure(
+      'The explicit Candidate Snapshot does not match the current generation source.',
+      'WMB_SOURCE_SNAPSHOT_STALE',
+      {
+        expectedSourceManifestSha256: snapshot.sourceManifestSha256,
+        expectedCandidateSha256: authority.candidateSha256,
+        currentCandidateSha256,
+        nextAction: 'Capture a new Candidate Snapshot for the reviewed current source and rebuild arch.calm before retrying.'
+      }
     );
   }
   return snapshot;
@@ -728,6 +827,52 @@ export function verifyExactSourceSnapshot(root, snapshotValue, { scopeManifest =
     contractFailure('Current Git source does not match the pinned Source Snapshot.', 'WMB_SOURCE_SNAPSHOT_STALE', {
       expected: snapshot.sourceManifestSha256, current: current.sourceManifestSha256
     });
+  }
+  return snapshot;
+}
+
+/**
+ * Verify retained source evidence without turning its original machine-local ownership into
+ * present-day execution authority.
+ *
+ * This mode is intentionally limited to historical reads. Candidate records remain bound to
+ * their exact scope, base commit, candidate commit, tree, object IDs and bytes, but neither the
+ * private Candidate ref nor the originating object-store path is required. Current generation
+ * authorization must continue to use verifyExactSourceSnapshot or
+ * assertCurrentSourceMatchesCandidateSnapshot.
+ */
+export function verifyHistoricalSourceSnapshot(
+  root, snapshotValue, { scopeManifest = null, env = process.env } = {}
+) {
+  const snapshot = validateSourceSnapshot(snapshotValue);
+  const localEnv = offlineGitEnvironment(env);
+  if (snapshot.authority) {
+    const authority = validateCandidateAuthority(snapshot);
+    assertCandidateScope(snapshot, authority, scopeManifest);
+    return verifyCandidateGitProjection(root, snapshot, authority, {
+      env: localEnv, historical: true
+    });
+  }
+  // Match the full/scoped compatibility rule used by current verification, while reading only
+  // the exact immutable commit named by the historical record.
+  const verificationScope = scopeManifest
+    && snapshot.files.every((file) => pathInsideScope(file.path, validateScopeManifest(scopeManifest)))
+    ? scopeManifest
+    : null;
+  const historical = createExactSourceSnapshotAtRevision(root, snapshot.revision.commit, {
+    subjectId: snapshot.subject.id,
+    lineEndingPolicy: snapshot.lineEndingPolicy,
+    scopeManifest: verificationScope,
+    env: localEnv
+  });
+  if (canonicalJson(historical) !== canonicalJson(snapshot)) {
+    contractFailure(
+      'Historical Git source does not reproduce the retained exact Source Snapshot.',
+      'WMB_SOURCE_SNAPSHOT_TAMPERED', {
+        expected: snapshot.sourceManifestSha256,
+        actual: historical.sourceManifestSha256
+      }
+    );
   }
   return snapshot;
 }

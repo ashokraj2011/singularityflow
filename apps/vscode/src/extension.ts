@@ -1885,10 +1885,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     } catch (error) {
       return showRefusal(error);
     }
-    // Run from wherever the CLI is rooted: describing what an organisation builds is not work done
-    // inside a checkout, and requiring one was the circular dependency this breaks.
+    // Capability authority is global, but commit presentation belongs to the person initiating the
+    // action. Use the repository this window is actually acting on (including a workspace shell's
+    // selected repository), rather than the extension host's unrelated process cwd. Repository-free
+    // first-time setup still has the process cwd as its compatibility fallback.
+    const initiatingRepository = await capabilityActionInitiatingRoot();
     const registry = new SingularityFlowClient({
-      location, repository: process.cwd(), onOutput: (text) => output.append(text)
+      location, repository: initiatingRepository, onOutput: (text) => output.append(text)
     });
     const run = async (argv: string[], signal?: AbortSignal): Promise<{ result: unknown; error: string | null }> => {
       output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(argv)}`);
@@ -1930,8 +1933,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       } catch (error) {
         return showRefusal(error);
       }
+      const initiatingRepository = await capabilityActionInitiatingRoot();
       const registry = new SingularityFlowClient({
-        location, repository: process.cwd(), onOutput: (text) => output.append(text)
+        location, repository: initiatingRepository, onOutput: (text) => output.append(text)
       });
       const run = async (argv: string[]): Promise<{ result: unknown; error: string | null }> => {
         output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(argv)}`);
@@ -6189,6 +6193,25 @@ async function workspaceLeadDirectory(folder: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * The Git context whose presentation identity/signing applies to a capability action.
+ *
+ * Capability configuration lives in a remote lead checkout, but the author starts the action from
+ * this editor window. The active repository context has already resolved Story worktrees and
+ * workspace-shell selection, so it is authoritative when present. Before a governed repository can
+ * be selected (the first-capability case), an opened workspace shell can still name its lead; an
+ * ordinary opened checkout is itself the initiating root. `process.cwd()` is deliberately last: an
+ * extension host is commonly launched from the user's home and must not override repository-local
+ * Git configuration merely because the capability operation itself uses a remote URL.
+ */
+async function capabilityActionInitiatingRoot(): Promise<string> {
+  const active = activeRepositoryContext()?.root;
+  if (active) return active;
+  const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!folder) return process.cwd();
+  return await workspaceLeadDirectory(folder) ?? folder;
 }
 
 export function deactivate(): void {

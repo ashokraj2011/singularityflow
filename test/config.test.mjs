@@ -86,6 +86,32 @@ test('starter YAML resolves feature, bugfix, and Figma-mobile templates and agen
   assert.match(await readFile(path.join(root, 'singularity/templates/figma-mobile/visual-verification.md'), 'utf8'), /Screen comparison/);
 });
 
+test('Story bootstrap defers mutable live agent and template availability to the saved closure', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-bootstrap-'));
+  await mkdir(path.join(root, '.git'), { recursive: true });
+  await initializeDefinition(root);
+  await unlink(path.join(root, '.github/agents/developer.agent.md'));
+  await unlink(path.join(root, 'singularity/templates/common/implementation.md'));
+
+  await assert.rejects(loadDefinition(root), /default governed agent|Template missing/);
+  const bootstrap = await loadDefinition(root, { storyBootstrap: true });
+  // Bootstrap must not parse or fall back to today's live catalog. The accepted Story resolver
+  // installs its verified saved catalog before any selection or composition.
+  assert.deepEqual(bootstrap.agents, {});
+  assert.deepEqual(bootstrap.agentCatalog, []);
+  assert.ok(bootstrap.workItemRoot);
+});
+
+test('Story bootstrap does not parse a malformed live governed-agent document', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-bootstrap-malformed-'));
+  await mkdir(path.join(root, '.git'), { recursive: true });
+  await initializeDefinition(root);
+  await writeFile(path.join(root, '.github/agents/developer.agent.md'), `---\nname: developer\nmetadata: [malformed\n---\n`);
+  await assert.rejects(loadDefinition(root), /agent|front matter|YAML/i);
+  const bootstrap = await loadDefinition(root, { storyBootstrap: true });
+  assert.deepEqual(bootstrap.agentCatalog, []);
+});
+
 test('the shipped workflow schema stays in parity with token economy and code-delivery runtime fields', async () => {
   const schema = JSON.parse(await readFile(path.join(process.cwd(), 'schemas/workflow-definition.schema.json'), 'utf8'));
   const template = YAML.parse(await readFile(path.join(process.cwd(), 'templates/workflow.yml'), 'utf8'));

@@ -94,7 +94,7 @@ test('legacy Story convergence policy migrates to the kernel-owned deterministic
       }]
     }
   }).record;
-  assert.equal(migrated.schemaVersion, 5);
+  assert.equal(migrated.schemaVersion, 6);
   assert.equal(migrated.phases.convergence.generationPolicy.requirement, 'required');
   assert.deepEqual(migrated.phases.convergence.generationPolicy.allowedProducers, ['deterministic']);
   assert.equal(migrated.phases.convergence.generationPolicy.defaultProducer, 'deterministic');
@@ -106,4 +106,36 @@ test('legacy Story convergence policy migrates to the kernel-owned deterministic
   assert.equal(migrated.phases.convergence.approvalPolicy.allowSelfApproval, true,
     'migrating approval:none must not strand a lone developer with its normalized false value');
   assert.equal(migrated.resolution.phases[0].approval.mode, 'required');
+});
+
+test('story-workflow v5 migration adds only null architecture evidence bindings', () => {
+  const migrated = readRecord('story-workflow', {
+    schemaVersion: 5,
+    workflowSnapshot: null,
+    phases: {
+      planning: {
+        generationPublications: [{ generation: 1, resultDigest: 'sha256:legacy' }]
+      }
+    }
+  }).record;
+  assert.equal(migrated.schemaVersion, 6);
+  assert.equal(migrated.phases.planning.generationPublications[0].architectureIntent, null);
+  assert.equal(migrated.phases.planning.generationPublications[0].architectureDecision, null);
+  assert.equal(migrated.phases.planning.submissionArchitectureDecision, null);
+});
+
+test('generation-publication v1 migration preserves history with explicit null architecture bindings', () => {
+  const migrated = readRecord('generation-publication', {
+    schemaVersion: 1,
+    workId: 'OLD-1',
+    phase: 'planning',
+    generation: 1,
+    resultDigestVersion: 2,
+    resultDigest: 'sha256:legacy'
+  }).record;
+  assert.equal(migrated.schemaVersion, 2);
+  assert.equal(migrated.resultDigestVersion, 2);
+  assert.equal(migrated.resultDigest, 'sha256:legacy');
+  assert.equal(migrated.architectureIntent, null);
+  assert.equal(migrated.architectureDecision, null);
 });

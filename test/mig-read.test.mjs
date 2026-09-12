@@ -81,6 +81,10 @@ test('legacy prompt and agent context retain their historical verification meani
   assert.deepEqual(prompt.groundingAvailability, {
     status: 'legacy-unverified', reasonCode: null
   });
+  assert.deepEqual(prompt.executionContext, { mode: 'historical-unproven' });
+  assert.deepEqual(prompt.sourceComparison, {
+    status: 'historical-unproven', reasonCode: null
+  });
   const agent = readRecord('agent-context-audit', {
     schemaVersion: 1, agent: 'developer', persona: 'legacy-copilot', files: []
   }).record;

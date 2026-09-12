@@ -17,6 +17,11 @@ import { referenceRevision, registerReference } from './harness-imports.mjs';
 import { createImpactReceipt } from './impact.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
+import {
+  canonicalJson as canonicalWorldModelJson, sha256 as worldModelSha256
+} from './world-model/canonicalize.mjs';
+import { validateArchitectureIntent } from './world-model/projections/calm/projection.mjs';
+import { publishedArchitectureIntentBinding } from './architecture-intent-service.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import {
   validateAutoCandidateBinding, validateAutoCandidateVerification
@@ -85,6 +90,35 @@ function currentClaimMapBindings(root, config, workflow, phase) {
     }
   }
   return bindings.sort((left, right) => left.kind.localeCompare(right.kind) || left.path.localeCompare(right.path));
+}
+
+function validateSubmittedArchitectureIntent(root, config, workflow, packet, evidenceCommit) {
+  const binding = packet.submissionEvidence?.architectureIntent ?? null;
+  if (binding == null) return null;
+  const workRoot = path.relative(root, workDir(root, config, workflow.workItem.id))
+    .replaceAll('\\', '/');
+  const expectedPath = `${workRoot}/context/architecture/architecture-intent.json`;
+  if (binding.workId !== packet.workId || binding.phase !== packet.phase
+      || Number(binding.generation) !== Number(packet.generation)
+      || binding.path !== expectedPath
+      || !/^sha256:[a-f0-9]{64}$/.test(binding.intentSha256 ?? '')
+      || !/^sha256:[a-f0-9]{64}$/.test(binding.blobSha256 ?? '')) {
+    throw new Error('architecture intent binding is malformed');
+  }
+  const shown = run('git', ['show', `${evidenceCommit}:${binding.path}`], {
+    cwd: root, allowFailure: true
+  });
+  if (shown.status !== 0) throw new Error('architecture intent is absent');
+  const intent = validateArchitectureIntent(JSON.parse(shown.stdout));
+  const canonicalBytes = canonicalWorldModelJson(intent);
+  if (shown.stdout !== canonicalBytes
+      || binding.intentSha256 !== intent.intentSha256
+      || binding.blobSha256 !== worldModelSha256(Buffer.from(canonicalBytes, 'utf8'))
+      || intent.workId !== packet.workId || intent.phase !== packet.phase
+      || Number(intent.generation) !== Number(packet.generation)) {
+    throw new Error('architecture intent bytes differ from the submission binding');
+  }
+  return binding;
 }
 
 async function witnessReviewSnapshot(root, config, workflow, phase) {
@@ -418,6 +452,13 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
     comparisons: await listVisualComparisons(root, workflow)
   } : null;
   const submissionEvidence = {
+    architectureIntent: structuredClone(
+      publishedArchitectureIntentBinding(phase, phase.generation)
+    ),
+    architectureDecision: structuredClone(
+      Number(phase.submissionArchitectureDecision?.generation) === Number(phase.generation)
+        ? phase.submissionArchitectureDecision.identity : null
+    ),
     ...(phase.deliveryEvidence?.receiptPath ? { codeDelivery: {
       path: phase.deliveryEvidence.receiptPath,
       sha256: phase.deliveryEvidence.receiptSha256 ?? null,
@@ -550,6 +591,12 @@ export async function readStoryReviewPacket(root, config, workflow, packetSha256
       || packet.submissionEvidence.checksSha256 !== hash(packet.checks ?? [])
       || packet.submissionEvidence.artifactSetSha256 !== reviewArtifactSetSha256(packet.artifacts ?? [])) {
       failures.push(`${evidenceCommit.slice(0, 12)} has invalid checks or artifact-set bindings`);
+      continue;
+    }
+    try {
+      validateSubmittedArchitectureIntent(root, config, workflow, packet, evidenceCommit);
+    } catch (error) {
+      failures.push(`${evidenceCommit.slice(0, 12)} has invalid architecture intent evidence: ${error.message}`);
       continue;
     }
     const candidateEvidence = packet.submissionEvidence.codeDelivery?.autoCandidate ?? null;

@@ -35,13 +35,18 @@ import {
 import { atomicJson, workspaceRepositoryPath } from './workspace.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
-import { defaultBranchName, gitCommitIdentity, head, identity } from './git.mjs';
+import {
+  defaultBranchName, gitCommitIdentity, gitCommitIdentityArgs,
+  gitCommitIdentityEnvironment, gitCommitSigningArgs, head, identity, preflightGitCommitIdentity,
+  resolveGitCommitIdentity, resolveGitCommitSigning
+} from './git.mjs';
 import { GOVERNED_ROOTS, WORKFLOW_PATH, initializeDefinition, loadDefinition } from './config.mjs';
 import {
   describeRepository, enableLedger, repositoryIdFromUrl, setDefaultBaseBranch
 } from './bootstrap.mjs';
 import {
-  appendLedgerIntent, createLedgerIntent, initializeLedger, publishToStateBranch
+  appendLedgerIntent, createLedgerIntent, findLedgerEvents, initializeLedger,
+  publishToStateBranch
 } from './ledger.mjs';
 import {
   CONFIGURATION_BRANCH, STATE_CONFIGURATION_BRANCH, STATE_CONFIGURATION_FORMAT,
@@ -193,28 +198,23 @@ function validateCapabilityMapRequest(input) {
   }
 }
 
-/** Read ordinary author configuration without inheriting an ambient repository selector. */
-async function captureCapabilityProposalAuthor(sourceEnv = process.env) {
-  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-map-author-'));
+/** Read ordinary author configuration from the initiating checkout, not an isolated child clone. */
+async function captureCapabilityProposalAuthor(initiatingRoot = process.cwd(), sourceEnv = process.env) {
   const env = withoutGitProcessOverrides(sourceEnv);
-  try {
-    run('git', ['init', '--quiet'], { cwd: scratch, env });
-    const identity = gitCommitIdentity(scratch, { env });
-    // The shared identity helper deliberately has an operating-system username fallback for
-    // display-only callers. A governed proposal author is commit evidence, so that fallback is not
-    // authority: require the name Git itself resolves from ordinary configuration. Tests retain
-    // their explicit, process-scoped identity fixture rather than depending on developer config.
-    if (env.NODE_ENV === 'test' && env.SINGULARITY_FLOW_TEST_IDENTITY) return identity;
-    const name = run('git', ['config', '--get', 'user.name'], {
-      cwd: scratch, env, allowFailure: true
-    }).stdout.trim();
-    const email = run('git', ['config', '--get', 'user.email'], {
-      cwd: scratch, env, allowFailure: true
-    }).stdout.trim();
-    return { ...identity, name, email };
-  } finally {
-    await removeTemporaryTree(scratch);
-  }
+  const root = path.resolve(String(initiatingRoot ?? process.cwd()));
+  const identity = gitCommitIdentity(root, { env });
+  // The shared identity helper deliberately has an operating-system username fallback for
+  // display-only callers. A governed proposal author is commit evidence, so that fallback is not
+  // authority: require the name Git itself resolves from repository/global configuration. Tests
+  // retain their explicit, process-scoped identity fixture rather than depending on developer config.
+  if (env.NODE_ENV === 'test' && env.SINGULARITY_FLOW_TEST_IDENTITY) return identity;
+  const name = run('git', ['config', '--get', 'user.name'], {
+    cwd: root, env, allowFailure: true
+  }).stdout.trim();
+  const email = run('git', ['config', '--get', 'user.email'], {
+    cwd: root, env, allowFailure: true
+  }).stdout.trim();
+  return { ...identity, name, email };
 }
 
 /** A governed proposal must never be attributed to a fabricated fallback identity. */
@@ -504,6 +504,195 @@ function proposalContentIsPresent(root, base, proposal, target = 'HEAD', {
   return run('git', ['diff', '--quiet', target, proposal, '--', ...paths], {
     cwd: root, env, allowFailure: true
   }).status === 0;
+}
+
+async function loadDefinitionAtGitRef(root, ref, { env = process.env } = {}) {
+  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-configuration-ref-'));
+  let attached = false;
+  try {
+    const added = run('git', [
+      '-c', `core.hooksPath=${os.devNull}`,
+      'worktree', 'add', '--detach', '--', scratch, ref
+    ], { cwd: root, env, allowFailure: true });
+    if (added.status !== 0) {
+      throw new SingularityFlowError(
+        'The reviewed capability configuration could not be materialized for validation.', {
+          code: 'CAPABILITY_PROPOSAL_CONFIGURATION_INVALID'
+        }
+      );
+    }
+    attached = true;
+    return await loadDefinition(scratch);
+  } finally {
+    if (attached) run('git', [
+      '-c', `core.hooksPath=${os.devNull}`,
+      'worktree', 'remove', '--force', '--', scratch
+    ], { cwd: root, env, allowFailure: true });
+    await removeTemporaryTree(scratch);
+  }
+}
+
+// This is deliberately the same hard ceiling enforced by findLedgerEvents. A prior 512-event
+// caller bound made a healthy long-lived organisation permanently unable to activate another
+// capability. The ledger is already read as one bounded tree, so inspect the complete supported
+// chain and fail closed only when that documented safety ceiling is genuinely exceeded.
+const CAPABILITY_ACTIVATION_RECOVERY_HISTORY_LIMIT = 100_000;
+
+function proposalContentAppearsInAuthorityHistory(root, base, proposal, target = 'HEAD', {
+  env = process.env
+} = {}) {
+  const rows = run('git', [
+    'rev-list', '--first-parent',
+    `--max-count=${CAPABILITY_ACTIVATION_RECOVERY_HISTORY_LIMIT + 1}`,
+    target
+  ], { cwd: root, env, allowFailure: true }).stdout.split(/\r?\n/)
+    .map((entry) => entry.trim()).filter(Boolean);
+  for (const candidate of rows.slice(0, CAPABILITY_ACTIVATION_RECOVERY_HISTORY_LIMIT)) {
+    if (candidate === base) return false;
+    if (proposalContentIsPresent(root, base, proposal, candidate, { env })) return true;
+  }
+  return false;
+}
+
+function activationRecoveryConflict(remote, proposalBranch, proposalCommit, details = {}) {
+  const nextAction = {
+    command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-map'
+  };
+  return new SingularityFlowError(
+    'The original accepted capability target cannot be recovered unambiguously. No replacement audit or projection was written.', {
+      code: 'CAPABILITY_ACTIVATION_RECOVERY_CONFLICT',
+      details: {
+        ...capabilityRecovery({
+          stage: 'activation-audit', state: 'recovery-conflict', remote,
+          branch: proposalBranch, commit: proposalCommit, nextAction,
+          preserved: ['approved-configuration', 'existing-ledger', 'state-projection', 'application-branches']
+        }),
+        ...details
+      }
+    }
+  );
+}
+
+/** Recover the exact accepted target, never the convenient current configuration HEAD. */
+async function recoverCapabilityActivationTarget(root, definition, {
+  remote, proposalBranch, proposalCommit, proposalBase, configurationIncludesProposal, env
+}) {
+  const currentAuthorityCommit = run('git', ['rev-parse', 'HEAD'], {
+    cwd: root, env
+  }).stdout.trim();
+  const workId = `capability-proposal:${proposalCommit}`;
+  let recorded;
+  try {
+    recorded = await findLedgerEvents(root, definition.ledger, {
+      eventType: 'capability-configuration-activated', workId,
+      phase: 'activation', generation: proposalCommit,
+      env, transportRemote: remote,
+      limit: CAPABILITY_ACTIVATION_RECOVERY_HISTORY_LIMIT
+    });
+  } catch (error) {
+    throw activationRecoveryConflict(remote, proposalBranch, proposalCommit, {
+      currentAuthorityCommit,
+      ledgerRecoveryCode: error?.code ?? 'LEDGER_RECOVERY_UNAVAILABLE',
+      missingIdentities: ['verified-ledger-activation-history']
+    });
+  }
+  if (!recorded.complete) {
+    throw activationRecoveryConflict(remote, proposalBranch, proposalCommit, {
+      currentAuthorityCommit,
+      missingIdentities: ['complete-ledger-activation-history']
+    });
+  }
+  const matching = recorded.entries.filter((entry) =>
+    entry.capabilityId === 'organisation'
+      && entry.payload?.proposalCommit === proposalCommit
+      && entry.payload?.proposalBranch === proposalBranch);
+  if (matching.length > 1 || matching.length !== recorded.entries.length) {
+    throw activationRecoveryConflict(remote, proposalBranch, proposalCommit, {
+      currentAuthorityCommit,
+      conflictingAuditEventIds: matching.map((entry) => entry.eventId).slice(0, 8)
+    });
+  }
+  if (matching.length === 1) {
+    const entry = matching[0];
+    const acceptedTarget = fullCommit(entry.payload?.targetCommit);
+    const publishedTarget = fullCommit(entry.transport?.publishedCommit);
+    const recordedRemote = entry.payload?.remoteIdentity?.sha256 ?? null;
+    if (!acceptedTarget || publishedTarget !== acceptedTarget
+        || (recordedRemote && recordedRemote !== `sha256:${remoteFingerprint(remote)}`)
+        || run('git', ['merge-base', '--is-ancestor', acceptedTarget, currentAuthorityCommit], {
+          cwd: root, env, allowFailure: true
+        }).status !== 0) {
+      throw activationRecoveryConflict(remote, proposalBranch, proposalCommit, {
+        currentAuthorityCommit,
+        recordedTargetCommit: acceptedTarget,
+        missingIdentities: !acceptedTarget ? ['accepted-target-commit'] : []
+      });
+    }
+    return Object.freeze({
+      acceptedTarget, eventId: entry.eventId,
+      targetBefore: entry.payload?.targetBefore ?? null,
+      mergeEvidence: entry.payload?.mergeEvidence ?? 'commit-ancestry',
+      protection: entry.payload?.protection ?? null,
+      source: 'ledger'
+    });
+  }
+  const rows = run('git', [
+    'rev-list', '--first-parent', '--parents',
+    `--max-count=${CAPABILITY_ACTIVATION_RECOVERY_HISTORY_LIMIT + 1}`,
+    currentAuthorityCommit
+  ], { cwd: root, env }).stdout.split(/\r?\n/).map((row) => row.trim())
+    .filter(Boolean).map((row) => row.split(/\s+/));
+  const boundedRows = rows.slice(0, CAPABILITY_ACTIVATION_RECOVERY_HISTORY_LIMIT);
+  const candidates = [];
+  let reachedProposalBase = false;
+  for (const [candidate, parent = null] of boundedRows) {
+    // Only transitions after the immutable proposal base can be this proposal's accepted target.
+    // Scanning older history can find an unrelated commit with coincidentally equal file bytes.
+    if (candidate === proposalBase) {
+      reachedProposalBase = true;
+      break;
+    }
+    const candidateContains = run('git', [
+      'merge-base', '--is-ancestor', proposalCommit, candidate
+    ], { cwd: root, env, allowFailure: true }).status === 0;
+    const parentContains = parent != null && run('git', [
+      'merge-base', '--is-ancestor', proposalCommit, parent
+    ], { cwd: root, env, allowFailure: true }).status === 0;
+    if (candidateContains && !parentContains) {
+      candidates.push({
+        commit: candidate, targetBefore: parent, evidence: 'commit-ancestry'
+      });
+      continue;
+    }
+    if (!candidateContains
+        && proposalContentIsPresent(root, proposalBase, proposalCommit, candidate, { env })
+        && (!parent || !proposalContentIsPresent(
+          root, proposalBase, proposalCommit, parent, { env }
+        ))) {
+      candidates.push({
+        commit: candidate, targetBefore: parent, evidence: 'content-equivalent'
+      });
+    }
+  }
+  const truncated = !reachedProposalBase;
+  const selected = candidates.length === 1 && !truncated ? candidates[0] : null;
+  if (!selected && candidates.length === 0 && !configurationIncludesProposal && !truncated) {
+    // No ledger receipt and no accepted transition after the exact proposal base is the only
+    // evidence-safe definition of a proposal that has not yet been activated.
+    return null;
+  }
+  if (!selected) {
+    throw activationRecoveryConflict(remote, proposalBranch, proposalCommit, {
+      currentAuthorityCommit,
+      candidateTargets: candidates.map((candidate) => candidate.commit).slice(0, 8),
+      historyTruncated: truncated,
+      missingIdentities: candidates.length ? ['unique-accepted-target'] : ['accepted-target-commit']
+    });
+  }
+  return Object.freeze({
+    acceptedTarget: selected.commit, eventId: null, targetBefore: selected.targetBefore,
+    mergeEvidence: selected.evidence, protection: null, source: 'git-history'
+  });
 }
 
 /** Resolve the immutable proposal base encoded in every generated review-branch name. */
@@ -893,7 +1082,9 @@ async function recoverMergedProposalRef(root, expectedCommit, proposalBranch, {
   const changed = proposalChangedFiles(root, base, commit, { env }).names;
   const policy = proposalAssetPolicyInEnvironment(root, [base, commit], env);
   if (!changed.length || changed.some((relative) => !isConfigurationAsset(relative, policy))) return null;
-  if (!contained() && !proposalContentIsPresent(root, base, commit, 'HEAD', { env })) return null;
+  if (!contained()
+      && !proposalContentIsPresent(root, base, commit, 'HEAD', { env })
+      && !proposalContentAppearsInAuthorityHistory(root, base, commit, 'HEAD', { env })) return null;
   run('git', ['update-ref', ref, commit], { cwd: root, env });
   return ref;
 }
@@ -1071,7 +1262,7 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
   try { await cleanupCapabilityPushRecoveries({ environment: process.env }); }
   catch { /* Retain recovery evidence rather than blocking work on cleanup. */ }
   const proposalAuthor = requireCapabilityProposalAuthor(
-    authorIdentity ?? await captureCapabilityProposalAuthor(process.env)
+    authorIdentity ?? await captureCapabilityProposalAuthor(process.cwd(), process.env)
   );
   const operationSession = remoteSession ?? new GitRemoteSession({
     env: enterpriseGitEnvironment()
@@ -2605,6 +2796,8 @@ export async function mapCapability(leadUrl, {
   clone = null,
   jiraProject = null,
   teams = [],
+  initiatingRoot = process.cwd(),
+  initiatingEnv = process.env,
   cleanupTemporaryTree = removeTemporaryTree
 } = {}) {
   if (!capabilityId) throw new SingularityFlowError('A capability identifier is required. Use a lower-case kebab-case ID; nothing was changed.', {
@@ -2640,7 +2833,7 @@ export async function mapCapability(leadUrl, {
   // Capture caller authorship before the enterprise environment below intentionally isolates Git
   // from repository/global configuration. This identity is commit data, never transport authority.
   const authorIdentity = requireCapabilityProposalAuthor(
-    await captureCapabilityProposalAuthor(process.env)
+    await captureCapabilityProposalAuthor(initiatingRoot, initiatingEnv)
   );
   const cloneStrategy = clone == null
     ? null
@@ -3073,7 +3266,8 @@ export async function addCapabilityRepository(leadUrl, capabilityId, repositoryU
  * to fail an edit that has already happened. The caller reports what came back.
  */
 export async function publishCapabilityMap(root, {
-  message = 'Publish the capability map', env = process.env
+  message = 'Publish the capability map', env = process.env,
+  commitIdentity = null, commitSigning = null
 } = {}) {
   const file = path.join(root, CAPABILITIES_PATH);
   if (!existsSync(file)) return {
@@ -3172,7 +3366,7 @@ export async function publishCapabilityMap(root, {
           baseRef: remoteRef,
           refreshRemote: false
         } : {}),
-        env
+        env, commitIdentity, commitSigning
       });
     // Unchanged is not a failure and must not be reported as one: an edit that touched a field the
     // branch already agreed with is the ordinary case, not a problem to explain.
@@ -3201,7 +3395,8 @@ export async function publishCapabilityMap(root, {
  * from a fresh laptop that knows the delivery URL but has no machine-local lead registry.
  */
 export async function publishOrganisationCapabilityAuthorityLinks(root, leadUrl, {
-  env = process.env, workers = 4
+  env = process.env, workers = 4,
+  commitIdentity = null, commitSigning = null
 } = {}) {
   const authorityRemote = assertCredentialFreeRemote(leadUrl);
   const definition = await loadCapabilities(root);
@@ -3245,7 +3440,9 @@ export async function publishOrganisationCapabilityAuthorityLinks(root, leadUrl,
   if (!entries.length) return {
     status: 'not-required', portable: true, outcomes: [], failures: []
   };
-  const result = await publishCapabilityAuthorityLinkSet(entries, { workers, env });
+  const result = await publishCapabilityAuthorityLinkSet(entries, {
+    workers, env, commitIdentity, commitSigning
+  });
   return {
     ...result,
     failures: result.outcomes.filter((entry) => entry.status !== 'current')
@@ -3259,7 +3456,9 @@ export async function publishOrganisationCapabilityAuthorityLinks(root, leadUrl,
  * publishing before merge would make unreviewed configuration visible as governed state.
  */
 export async function publishOrganisationCapabilityMap(url, {
-  expectedConfigurationCommit = null
+  expectedConfigurationCommit = null,
+  initiatingRoot = process.cwd(),
+  initiatingEnv = process.env
 } = {}) {
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A lead repository URL is required.', {
@@ -3278,7 +3477,12 @@ export async function publishOrganisationCapabilityMap(url, {
       }
     );
   }
-  const gitEnv = enterpriseGitEnvironment();
+  // Freeze presentation identity before entering the isolated authority clone. Projection recovery
+  // must produce the same author/signing evidence as the initiating checkout, including when the
+  // command is launched from an editor extension host.
+  const identityRoot = path.resolve(String(initiatingRoot ?? process.cwd()));
+  const frozenCommitIdentity = resolveGitCommitIdentity(identityRoot, { env: initiatingEnv });
+  const gitEnv = enterpriseGitEnvironment(initiatingEnv);
   const session = new GitRemoteSession({ env: gitEnv });
   const transport = frozenRemoteTransport(remote, { push: true, env: gitEnv });
   const configurationObservation = await session.observeAsync(remote, {
@@ -3350,9 +3554,18 @@ export async function publishOrganisationCapabilityMap(url, {
         }
       );
     }
+    const approvedDefinition = await loadDefinition(scratch);
+    const commitSigning = resolveGitCommitSigning(identityRoot, {
+      env: initiatingEnv, required: approvedDefinition.ledger.signing === 'commit'
+    });
+    preflightGitCommitIdentity(scratch, frozenCommitIdentity, {
+      env: transport.env, signing: commitSigning
+    });
     const state = await publishCapabilityMap(scratch, {
       message: `Publish reviewed capability map from ${baseBranch}`,
-      env: transport.env
+      env: transport.env,
+      commitIdentity: frozenCommitIdentity,
+      commitSigning
     });
     const currentConfiguration = await session.observeAsync(remote, {
       includeHead: false, refs: [`refs/heads/${CONFIGURATION_BRANCH}`], refresh: true
@@ -3375,7 +3588,11 @@ export async function publishOrganisationCapabilityMap(url, {
       );
     }
     const portability = await publishOrganisationCapabilityAuthorityLinks(
-      scratch, remote, { env: transport.env }
+      scratch, remote, {
+        env: transport.env,
+        commitIdentity: frozenCommitIdentity,
+        commitSigning
+      }
     );
     return { baseBranch, ...state, portability };
   } finally {
@@ -4300,8 +4517,27 @@ export async function discardStaleCapabilityProposal(url, branch, {
  */
 export async function activateCapabilityProposal(url, branch, {
   confirm = null,
-  acknowledgeUnprotected = false
+  acknowledgeUnprotected = false,
+  initiatingRoot = process.cwd(),
+  initiatingEnv = process.env
 } = {}) {
+  // The borrowed clone deliberately cannot see local/global author configuration. Freeze the
+  // presentation identity before creating it; authorization is resolved separately below.
+  const identityRoot = path.resolve(String(initiatingRoot ?? process.cwd()));
+  const frozenCommitIdentity = resolveGitCommitIdentity(identityRoot, {
+    env: initiatingEnv
+  });
+  // Authorization identity belongs to the contributor who initiated the operation, not to the
+  // disposable authority checkout.  That checkout deliberately disables global/system Git
+  // configuration, so resolving the actor inside it loses repository-local identity and can turn
+  // a known reviewer into an anonymous audit actor after the configuration update has landed.
+  // Freeze the actor separately from commit presentation before any borrowed-clone work begins.
+  const frozenApprover = Object.freeze(identity(identityRoot, {
+    // The repository path is an explicit operation input. Ambient GIT_DIR/GIT_WORK_TREE and
+    // command-scoped config must not redirect either the commit identity or the authorization
+    // actor to another checkout (especially from an editor extension host).
+    env: withoutGitProcessOverrides(initiatingEnv)
+  }));
   const reviewed = await withCapabilityProposalCheckout(
     url, branch, async (root, remote, proposalBranch, ref, { env, session }) => {
       const targetBefore = run('git', ['rev-parse', 'HEAD'], { cwd: root, env }).stdout.trim();
@@ -4353,6 +4589,8 @@ export async function activateCapabilityProposal(url, branch, {
       let alreadyMerged = ancestryMerged || contentMerged;
       let mergeEvidence = ancestryMerged ? 'commit-ancestry'
         : contentMerged ? 'content-equivalent' : null;
+      let recoveredActivation = null;
+      let acceptedAuditTarget = null;
       // An externally merged generated proposal is a single commit and its merge-base with HEAD is
       // now the proposal itself. Retrospective activation still needs the reviewed file set for the
       // audit, so use that proposal commit's parent in the already-merged case.
@@ -4402,7 +4640,24 @@ export async function activateCapabilityProposal(url, branch, {
           });
       }
       validateManagedCapabilityMutation(root, reviewBase, ref, changed.names, { env });
-      const definition = await loadDefinition(root);
+      // Recovery must inspect the current authority's ledger. Once the exact accepted transition is
+      // known, new work uses the reviewed post-merge policy while externally completed work uses
+      // the current authority policy. This matters when the proposal itself enables or changes
+      // required signing.
+      const currentDefinition = await loadDefinition(root);
+      recoveredActivation = await recoverCapabilityActivationTarget(root, currentDefinition, {
+        remote, proposalBranch, proposalCommit, proposalBase,
+        configurationIncludesProposal: alreadyMerged, env
+      });
+      if (recoveredActivation) {
+        alreadyMerged = true;
+        acceptedAuditTarget = recoveredActivation.acceptedTarget;
+        auditedTargetBefore = recoveredActivation.targetBefore;
+        mergeEvidence = recoveredActivation.mergeEvidence;
+      }
+      const definition = alreadyMerged
+        ? currentDefinition
+        : await loadDefinitionAtGitRef(root, ref, { env });
       if (!definition.ledger?.enabled) {
         const nextAction = { command: 'singularity-flow workspace refresh-configuration --dry-run --json', skill: '/sf-workspace' };
         throw new SingularityFlowError(
@@ -4416,7 +4671,21 @@ export async function activateCapabilityProposal(url, branch, {
           }
         );
       }
+      const commitSigning = resolveGitCommitSigning(identityRoot, {
+        env: initiatingEnv, required: definition.ledger.signing === 'commit'
+      });
+      preflightGitCommitIdentity(root, frozenCommitIdentity, {
+        env, signing: commitSigning
+      });
+      // Approval/account policy and commit presentation are intentionally different values. The
+      // former was frozen from the initiating repository and remains the actor recorded in the
+      // audit; it never supplies author metadata or claims an external merge was performed by the
+      // recovery contributor.
+      const approver = frozenApprover;
       let protection = { enforced: null, detail: 'proposal is already merged' };
+      if (recoveredActivation) {
+        if (recoveredActivation.protection) protection = recoveredActivation.protection;
+      }
       const validateEffectiveCapabilities = async () => {
         const capabilities = YAML.parse(await readFile(path.join(root, CAPABILITIES_PATH), 'utf8'));
         const portfolio = existsSync(path.join(root, PORTFOLIO_PATH))
@@ -4437,12 +4706,15 @@ export async function activateCapabilityProposal(url, branch, {
         }
       };
       if (!alreadyMerged) {
-        const actor = identity(root, { env });
         const merged = run('git', [
-          '-c', `user.name=${actor.name || 'Singularity Flow'}`,
-          '-c', `user.email=${actor.email || 'unknown@invalid'}`,
-          'merge', '--no-ff', '--no-edit', ref
-        ], { cwd: root, env, allowFailure: true });
+          ...gitCommitIdentityArgs(frozenCommitIdentity),
+          ...gitCommitSigningArgs(commitSigning),
+          'merge', ...(commitSigning.required ? ['-S'] : []), '--no-ff', '--no-edit', ref
+        ], {
+          cwd: root,
+          env: gitCommitIdentityEnvironment(env, frozenCommitIdentity),
+          allowFailure: true
+        });
         if (merged.status !== 0) {
           const nextAction = { command: capabilityCommand('proposal', { remote, branch: proposalBranch }), skill: '/sf-capability-map' };
           throw new SingularityFlowError(
@@ -4483,6 +4755,7 @@ export async function activateCapabilityProposal(url, branch, {
           );
         }
         const proposedMergeCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root, env }).stdout.trim();
+        acceptedAuditTarget = proposedMergeCommit;
         let pushed = await runRemoteGitAsync([
           'push', '--porcelain',
           `--force-with-lease=refs/heads/${CONFIGURATION_BRANCH}:${targetBefore}`,
@@ -4586,10 +4859,13 @@ export async function activateCapabilityProposal(url, branch, {
       // skip this gate and could be audited and projected even when its capability forest was
       // invalid.
       if (alreadyMerged) await validateEffectiveCapabilities();
-      const targetCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root, env }).stdout.trim();
+      const currentConfigurationCommit = run('git', ['rev-parse', 'HEAD'], {
+        cwd: root, env
+      }).stdout.trim();
+      const targetCommit = acceptedAuditTarget ?? currentConfigurationCommit;
       const proposer = commitIdentity(root, ref, { env });
-      const approver = identity(root, { env });
       const intent = createLedgerIntent({
+        eventId: recoveredActivation?.eventId ?? undefined,
         eventType: 'capability-configuration-activated',
         capabilityId: 'organisation',
         subject: {
@@ -4610,6 +4886,10 @@ export async function activateCapabilityProposal(url, branch, {
           proposalCommit,
           targetBefore: auditedTargetBefore,
           targetCommit,
+          remoteIdentity: {
+            remote: sanitizeRemote(remote),
+            sha256: `sha256:${remoteFingerprint(remote)}`
+          },
           mergeEvidence,
           changedFiles: changed.statuses,
           protection,
@@ -4620,7 +4900,8 @@ export async function activateCapabilityProposal(url, branch, {
       let audit;
       try {
         audit = await appendLedgerIntent(root, definition.ledger, intent, targetCommit, {
-          env, transportRemote: remote
+          env, transportRemote: remote,
+          commitIdentity: frozenCommitIdentity, commitSigning
         });
       } catch (error) {
         const nextAction = {
@@ -4636,11 +4917,18 @@ export async function activateCapabilityProposal(url, branch, {
           }, 'Activation audit append failed')}. Re-run to reconcile: ${nextAction.command}`,
           {
             code: 'CAPABILITY_ACTIVATION_AUDIT_PENDING',
-            details: capabilityRecovery({
-              stage: 'activation-audit', state: 'configuration-active-audit-pending', remote,
-              branch: proposalBranch, commit: proposalCommit, nextAction,
-              preserved: ['approved-configuration', 'proposal-branch', 'application-branches']
-            })
+            details: {
+              ...capabilityRecovery({
+                stage: 'activation-audit', state: 'configuration-active-audit-pending', remote,
+                branch: proposalBranch, commit: proposalCommit, nextAction,
+                preserved: ['approved-configuration', 'proposal-branch', 'application-branches']
+              }),
+              targetCommit,
+              currentConfigurationCommit,
+              targetBefore: auditedTargetBefore,
+              mergeEvidence,
+              remoteIdentity: { sha256: `sha256:${remoteFingerprint(remote)}` }
+            }
           }
         );
       }
@@ -4653,6 +4941,7 @@ export async function activateCapabilityProposal(url, branch, {
         targetBranch: CONFIGURATION_BRANCH,
         targetBefore: auditedTargetBefore,
         targetCommit,
+        currentConfigurationCommit,
         alreadyMerged,
         mergeEvidence,
         changedFiles: changed.statuses,
@@ -4678,18 +4967,22 @@ export async function activateCapabilityProposal(url, branch, {
         });
         requireRemoteObservation(projectionAuthority, 'configuration authority before projection');
         const currentAuthority = projectionAuthority.refs.get(`refs/heads/${CONFIGURATION_BRANCH}`) ?? null;
-        if (currentAuthority !== targetCommit) {
+        if (currentAuthority !== currentConfigurationCommit) {
           throw new SingularityFlowError(
-            `Approved configuration advanced from ${targetCommit} to ${currentAuthority ?? 'an unavailable ref'} before state projection. Re-publish the current authority instead of mirroring stale bytes.`,
+            `Approved configuration advanced from ${currentConfigurationCommit} to ${currentAuthority ?? 'an unavailable ref'} before state projection. Re-publish the current authority instead of mirroring stale bytes.`,
             { code: 'CAPABILITY_PROJECTION_AUTHORITY_MOVED' }
           );
         }
         const state = await publishCapabilityMap(root, {
           message: `Publish reviewed capability map from ${CONFIGURATION_BRANCH}`,
-          env
+          env, commitIdentity: frozenCommitIdentity, commitSigning
         });
         const portability = await publishOrganisationCapabilityAuthorityLinks(
-          root, remote, { env }
+          root, remote, {
+            env,
+            commitIdentity: frozenCommitIdentity,
+            commitSigning
+          }
         );
         const projection = { baseBranch: CONFIGURATION_BRANCH, ...state };
         const projectionPending = !projection.published && !projection.branch
@@ -4714,6 +5007,7 @@ export async function activateCapabilityProposal(url, branch, {
           status: 'activation-complete-projection-pending',
           projection: {
             published: false, pending: true,
+            code: error?.code ?? 'CAPABILITY_STATE_PROJECTION_FAILED',
             reason: redactDiagnosticText(error?.message ?? String(error)),
             nextAction
           },

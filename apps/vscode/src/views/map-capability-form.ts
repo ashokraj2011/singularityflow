@@ -101,6 +101,33 @@ export interface RepositoryInspectionPendingMatch {
   proposalValid?: boolean;
 }
 
+export type MapCapabilityOperationStatus =
+  | 'running' | 'cancelling' | 'needs-inspection' | 'inspecting'
+  | 'retry-ready' | 'proposal-ready' | 'already-active';
+
+/**
+ * Durable receipt for the one remote mutation whose outcome the Map panel may need to recover.
+ *
+ * The exact argv is retained only after the form's credential-free URL checks pass. A retry never
+ * executes it directly: the panel first reads the approved map and pending proposal namespace, then
+ * either opens the proposal already there or permits one exact replay through the engine.
+ */
+export interface MapCapabilityOperation {
+  schemaVersion: 1;
+  id: string;
+  status: MapCapabilityOperationStatus;
+  capabilityId: string;
+  lead: string;
+  repositoryUrl: string;
+  argv: string[];
+  attempt: number;
+  startedAt: string;
+  updatedAt: string;
+  message: string;
+  proposalBranch?: string | null;
+  proposalCommit?: string | null;
+}
+
 /** The same closed structural vocabulary used by the engine and schema. */
 export { CAPABILITY_KINDS };
 
@@ -147,6 +174,7 @@ export interface MapCapabilityForm {
   /** Null until the lead has been read; the map is what the parent list is made of. */
   loaded: boolean;
   busy: boolean;
+  operation: MapCapabilityOperation | null;
   notice: string | null;
   error: string | null;
 }
@@ -164,7 +192,7 @@ export const EMPTY_MAP_FORM: MapCapabilityForm = {
   inspectionBoundRepositoryUrl: null, inspectionBoundLeadUrl: null,
   inspectionComplete: false, collectionWithoutRepository: false,
   cloneMode: 'blobless', sparseCone: '', cloneFallback: 'refuse', metadata: [], jiraProject: '', teams: '',
-  loaded: false, busy: false, notice: null, error: null
+  loaded: false, busy: false, operation: null, notice: null, error: null
 };
 
 /**
@@ -267,6 +295,14 @@ export function capabilityIdentifierProblem(form: MapCapabilityForm): string | n
 
 export function mapProblems(form: MapCapabilityForm): string[] {
   const problems: string[] = [];
+  if (form.operation) {
+    problems.push(form.operation.status === 'proposal-ready'
+      ? 'The previous mapping already produced a review proposal. Open it before starting another mapping.'
+      : form.operation.status === 'already-active'
+        ? 'The previous mapping is already active. Clear its completed operation before starting another mapping.'
+        : 'A previous mapping has not been reconciled. Inspect it, then resume its proposal or retry the exact request.');
+    return problems;
+  }
   if (!form.collectionWithoutRepository && !form.repositoryUrl.trim()) {
     problems.push('Enter the Git repository URL and check it first.');
   } else if (!form.collectionWithoutRepository && gitRemoteProblem(form.repositoryUrl, 'Repository')) {
@@ -436,6 +472,32 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
     : form.loaded
       ? `<p class="ok-text">${icon('ok')}${form.parents.length} ${form.parents.length === 1 ? 'capability' : 'capabilities'} available as parents.</p>`
       : '<p class="muted">Choose a repository below. Its current map is loaded automatically.</p>';
+  const operation = form.operation;
+  const operationHtml = operation ? `<section class="plain" data-map-operation="${escape(operation.id)}">
+    <div class="card-head"><div><p class="eyebrow">Durable mapping operation</p>
+      <h2>${icon(operation.status === 'proposal-ready' || operation.status === 'already-active' ? 'ok'
+        : operation.status === 'running' || operation.status === 'inspecting' || operation.status === 'cancelling' ? 'waiting' : 'warning')}
+        ${escape(operation.capabilityId)}</h2></div><span class="grow"></span>
+      <span class="count-badge">attempt ${operation.attempt}</span></div>
+    <p>${escape(operation.message)}</p>
+    <p class="muted">Capability-map authority: <code>${escape(operation.lead)}</code></p>
+    <p class="muted"><code>${escape(operation.id)}</code> · last updated ${escape(operation.updatedAt)}</p>
+    ${operation.proposalBranch ? `<p><code>${escape(operation.proposalBranch)}${operation.proposalCommit ? `@${escape(operation.proposalCommit.slice(0, 12))}` : ''}</code></p>` : ''}
+    <p>
+      ${operation.status === 'running' || operation.status === 'inspecting' || operation.status === 'cancelling'
+        ? `<button type="button" class="secondary" data-map-operation-cancel${operation.status === 'cancelling' ? ' disabled' : ''}>${operation.status === 'cancelling' ? 'Stopping…' : 'Cancel safely'}</button>` : ''}
+      ${operation.status === 'needs-inspection'
+        ? '<button type="button" data-map-operation-inspect>Inspect remote outcome</button>' : ''}
+      ${operation.status === 'inspecting'
+        ? '<span class="muted">Reading the approved map and pending proposal refs…</span>' : ''}
+      ${operation.status === 'retry-ready'
+        ? '<button type="button" data-map-operation-retry>Retry exact request</button>' : ''}
+      ${operation.status === 'proposal-ready'
+        ? '<button type="button" data-map-operation-review>Open existing review proposal</button>' : ''}
+      ${operation.status === 'already-active'
+        ? '<button type="button" class="secondary" data-map-operation-clear>Clear completed operation</button>' : ''}
+    </p>
+  </section>` : '';
   return `
   ${startWizardProgress(journey)}
   <header>
@@ -443,6 +505,8 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
     <p class="meta">What this organisation builds, and which repository each part ships from.
       Repository choices are made together below; no separate setup step is required.</p>
   </header>
+
+  ${operationHtml}
 
   <section>
     <h2>${icon('git')}Git repository</h2>
@@ -618,8 +682,17 @@ export const MAP_CAPABILITY_SCRIPT = `
     const removeMetadata = event.target.closest('[data-map-metadata-remove]');
     if (removeMetadata) return vscode.postMessage({ type: 'metadataRemove', index: Number(removeMetadata.dataset.mapMetadataRemove) });
     const target = event.target.closest('[data-map-submit]');
-    if (!target) return;
-    vscode.postMessage({ type: 'map' });
+    if (target) return vscode.postMessage({ type: 'map' });
+    const cancelOperation = event.target.closest('[data-map-operation-cancel]');
+    if (cancelOperation) return vscode.postMessage({ type: 'cancelMapOperation' });
+    const inspectOperation = event.target.closest('[data-map-operation-inspect]');
+    if (inspectOperation) return vscode.postMessage({ type: 'inspectMapOperation' });
+    const retryOperation = event.target.closest('[data-map-operation-retry]');
+    if (retryOperation) return vscode.postMessage({ type: 'retryMapOperation' });
+    const reviewOperation = event.target.closest('[data-map-operation-review]');
+    if (reviewOperation) return vscode.postMessage({ type: 'reviewMapOperation' });
+    const clearOperation = event.target.closest('[data-map-operation-clear]');
+    if (clearOperation) return vscode.postMessage({ type: 'clearMapOperation' });
   });
   const report = (event) => {
     const field = event.target.dataset?.map;

@@ -16,7 +16,7 @@ related:
   - workspaces-and-sessions
   - configuration
   - workflow-authoring
-version: 9
+version: 10
 ---
 Capability changes are proposed, reviewed as an exact diff, and activated through the configuration authority. Collection capabilities organize; delivery capabilities name the repositories that ship.
 
@@ -101,6 +101,32 @@ memory when read, while an unsupported future schema requires a newer SFlow buil
 remains a separate destructive recovery and is not the normal upgrade path. In Copilot, use
 `/sf-admin reinitialize` for the same plan-first flow.
 
+Capability proposal publication is an exact Git transaction. SFlow captures an explicitly
+Git-configured author name and email before entering its isolated enterprise transport, creates one
+immutable proposal commit, pushes with create-only and approved-base leases, and then observes the
+exact remote ref. A lost
+response after the server accepted the push therefore becomes recovered success, not a duplicate
+proposal. A different remote commit is a conflict; a proven-absent ref is safe to retry; and an
+unreachable ref is reported as an unknown outcome with the exact local commit, guarded refs, and
+structured inspection/retry argv retained. Recovery never rebuilds a partial mutation from a
+displayed error or edited form. Confirmed remote success is not reversed by failure to update the
+machine-local lead shortcut or delete a temporary checkout. The full state machine and failure
+contract are documented in
+[Capability-map Git robustness](../CAPABILITY-MAP-GIT-ROBUSTNESS-PLAN.md).
+
+Pending-proposal inspection is bounded at every layer. Merged history is paged without consuming
+the 64 active/unreadable-proposal budget. Each explicit Git fetch stops at either 64 refspecs or
+24 KiB of conservatively encoded Windows UTF-16 argv, so long names produce smaller pages. Finally,
+4,096 advertised proposal refs is an absolute resource ceiling. The current approved-base suffix is
+prioritized before that ceiling is applied. If the whole authority cannot be covered, the result is
+`partial` and Map remains disabled; the ceiling is never treated as proof that no proposal exists.
+
+VS Code persists the exact validated Map argv before it launches Git. **Cancel safely**, closing the
+panel, or an interrupted CLI result moves the operation to **Inspect remote outcome**. That read can
+open the existing same-ID proposal, recognize an already-approved capability, or enable **Retry
+exact request** only after neither is found. A late authority change remains an engine-level
+conflict; the UI does not overwrite it.
+
 Organisation reads prefer the state mirror, fall back to `sflow/config`, and keep a derived cache keyed to the exact observed configuration commit. Read-only screens may reuse that cache; operations that clone, attach, detach, or otherwise mutate state force a fresh authoritative Git read. When the remote is unavailable, a cached result is marked `stale` and carries its age and remote error. `--refresh` bypasses a current cache entry; it cannot manufacture connectivity.
 
 ## Troubleshooting
@@ -112,11 +138,21 @@ Organisation reads prefer the state mirror, fall back to `sflow/config`, and kee
 - If the selected Story or branch is wrong, stop and use `sflow home`, `sflow session`, or `sflow workspace list` before retrying.
 - If a command refuses because state moved, refresh and use the newly rendered action instead of replaying an old handle or confirmation.
 - If publication or synchronization is pending, follow the exact recovery command in the refusal and verify with `sflow doctor`.
+- If a push is reported as `outcome-unknown`, run the returned exact proposal inspection before retrying. Do not delete or recreate the branch based only on a timeout.
+- If Map reports `CAPABILITY_AUTHOR_IDENTITY_REQUIRED`, configure both values explicitly with `git config --global user.name "Your Name"` and `git config --global user.email you@example.com`, then retry. The operating-system account name is not governed Git authorship.
+- If proposal coverage is `partial`, review/retire the remote proposal backlog or raise the issue with the capability-map owner. Do not bypass the 4,096-ref safety ceiling or assume an uninspected proposal is absent.
+- If Git reports `REMOTE_POLICY_REJECTED`, review the named repository rule or server hook. SFlow does not bypass signed-commit, naming, review, or protected-branch policy.
+- If Git reports `REMOTE_ATOMIC_PUSH_UNSUPPORTED`, use the returned reviewed recovery path or an authority provider that supports the required atomic update; SFlow does not silently downgrade a multi-ref safety boundary.
+- When Git prints an explicit TLS, repository-policy, or atomic-capability refusal before a later timeout or disconnect, SFlow keeps the timeout in diagnostic evidence but presents the explicit actionable cause and recovery guidance.
 - If activation reports an unprotected authority, either configure remote protection or deliberately repeat it with `--acknowledge-unprotected`; never treat that flag as a generic retry switch.
 - If an organisation result is stale, its choices remain usable for inspection, but refresh before proposing or activating a change.
 - If a Copilot or VS Code action is unavailable, use the displayed CLI fallback; do not guess a command from the label.
 - If fsck reports unrelated proposal history, never force-merge or rebase it into `sflow/config`. Use **Discard stale proposal** only after reviewing its exact commit, or create a fresh map proposal from the current authority.
 - If removal is refused because the capability still contains children, choose a replacement parent in VS Code or pass `--reparent-children-to`; descendants of the removed capability are intentionally unavailable because they would create a cycle.
+
+The deterministic suites exercise these behaviors on local Git providers and extension-host
+fixtures. Final release proof on a new office laptop still includes its real Git for Windows,
+Credential Manager/SSO, proxy/CA, antivirus/file locks, VS Code build, and server-side policy text.
 
 ## Related topics
 

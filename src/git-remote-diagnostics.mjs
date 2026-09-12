@@ -16,6 +16,8 @@ export const REMOTE_FAILURE_CLASSES = Object.freeze([
   'remote-not-found',
   'branch-not-found',
   'rate-limited',
+  'policy-rejected',
+  'atomic-push-unsupported',
   'protocol-unsupported',
   'unknown'
 ]);
@@ -34,6 +36,8 @@ const ADVICE = Object.freeze({
   'remote-not-found': 'Verify the repository URL and your access to it, then retry.',
   'branch-not-found': 'Choose a branch that exists on the remote or publish the expected branch, then retry.',
   'rate-limited': 'Wait for the provider limit to reset, then retry the same bootstrap session.',
+  'policy-rejected': 'Review the repository rule or server hook reported by the Git provider. Correct the proposal or use the organisation\'s normal reviewed merge path, then retry the exact operation.',
+  'atomic-push-unsupported': 'This remote cannot provide the atomic multi-ref update required by the operation. Use a repository/provider that supports atomic push or complete the returned reviewed recovery path.',
   'protocol-unsupported': 'Use a Git transport supported by this installation and the remote provider.',
   unknown: 'Run workspace doctor --network and inspect Git access outside SFlow before retrying.'
 });
@@ -521,6 +525,27 @@ function sshNetworkFailure(output) {
     || /(?:^|[\r\n])\s*ssh:\s*connect to host\s+.+?\s+port\s+\d+:\s*(?:operation timed out|connection timed out|network is unreachable|no route to host|connection refused|connection reset)\b/im.test(output);
 }
 
+function atomicPushUnsupported(output) {
+  // A generic "atomic push failed" can mean a stale lease or a policy refusal on one member ref;
+  // only classify explicit capability-negotiation failures as unsupported.
+  return /does not support (?:the )?atomic push|atomic push(?:es)? (?:is|are) not supported|the receiving end does not support --atomic push|atomic push capability (?:is )?(?:not supported|unavailable)/i.test(output);
+}
+
+function explicitRepositoryPolicyRejected(output) {
+  return /push declined due to repository rule|repository rule violations? found|protected branch (?:update failed|hook declined)|changes must be made (?:through|via) (?:a )?pull request|commit(?:s)? must be signed|unsigned commits? (?:are|is) not allowed|push(?:es)? to (?:this|the) protected branch (?:are|is) not permitted|remote rejected.+(?:policy|rule)/i.test(output);
+}
+
+function receiveHookRejected(output) {
+  return /pre-receive hook declined|(?:^|\s)hook declined\)?(?:\s|$)|remote rejected.+hook/i.test(output);
+}
+
+function tlsTrustFailure(output) {
+  // Keep this narrower than a bare "certificate" token: repository names and policy prose can
+  // legally contain that word. These are concrete TLS trust-chain diagnostics from Git/cURL,
+  // Schannel, OpenSSL, and common enterprise proxies.
+  return /ssl certificate problem|certificate (?:verify|verification) failed|unable to get local issuer certificate|self[ -]signed certificate|server certificate verification failed|tls certificate verification failed|schannel:\s*(?:sec_e_|next initializesecuritycontext failed)|unknown ca/i.test(output);
+}
+
 /** Deterministic classification only. Raw provider output is deliberately not returned. */
 export function classifyGitRemoteFailure(result, { branch = null, cwdAvailable = null } = {}) {
   const output = outputForClassification(result);
@@ -529,19 +554,29 @@ export function classifyGitRemoteFailure(result, { branch = null, cwdAvailable =
     || /(?:^|[\r\n])\s*(?:network(?: access)? (?:is )?disabled|offline(?:(?: mode)?(?: is)? enabled)?|you (?:appear to be|are) offline)\s*[.!]?\s*(?:$|[\r\n])/i.test(output)) classification = 'offline';
   else if (cwdAvailable === false && result?.error?.code === 'ENOENT') classification = 'working-directory-unavailable';
   else if (gitExecutableUnavailable(result, output, cwdAvailable)) classification = 'git-unavailable';
-  else if (result?.timedOut) classification = 'network-transient';
   else if (/remote branch .+ not found|couldn't find remote ref|invalid refspec/i.test(output)) classification = 'branch-not-found';
-  else if (sshNetworkFailure(output)) classification = 'network-transient';
   else if (/proxy authentication|required proxy|could not resolve proxy|failed to connect to proxy|proxy CONNECT (?:aborted|failed)|http[^\n]*407|407[^\n]*proxy|requested URL returned error:\s*407\b/i.test(output)) classification = 'proxy-configuration';
   else if (credentialHelperUnavailable(output)) classification = 'credential-helper-unavailable';
   else if (ssoAuthorizationRequired(output)) classification = 'sso-authorization-required';
   else if (authenticationRequired(output)) classification = 'authentication-required';
   else if (/rate limit (?:exceeded|reached)|too many requests|http[^\n]*429|requested URL returned error:\s*429\b/i.test(output)) classification = 'rate-limited';
   else if (/access denied|not authorized|insufficient permission|permission to .+ denied to|http[^\n]*403|requested URL returned error:\s*403\b|write access.+not granted/i.test(output)) classification = 'authorization-denied';
-  else if (/timed? out|temporary failure|connection (?:reset|closed)|could not resolve host|name or service not known|network is unreachable|failed to connect|early eof|unexpected (?:disconnect|eof)|remote end hung up unexpectedly|rpc failed|broken pipe/i.test(output)) classification = 'network-transient';
+  // Provider policy and capability negotiation are conclusive even when Git appends a generic
+  // disconnect or "failed to push" trailer. Classify those before transient transport wording so
+  // callers do not recommend a blind retry for a deterministic server refusal.
+  else if (atomicPushUnsupported(output)) classification = 'atomic-push-unsupported';
+  else if (explicitRepositoryPolicyRejected(output)) classification = 'policy-rejected';
+  else if (tlsTrustFailure(output)) classification = 'tls-trust';
   else if (/repository .+ not found|does not appear to be a git repository|no such file or directory/i.test(output)) classification = 'remote-not-found';
   else if (/unsupported protocol|transport .+ not allowed|protocol .+ not supported/i.test(output)) classification = 'protocol-unsupported';
-  else if (/certificate|ssl certificate|tls|schannel|unknown ca|self.signed/i.test(output)) classification = 'tls-trust';
+  // A process may reach its supervisor deadline after already printing a conclusive provider
+  // refusal. Preserve `timedOut` in evidence, but use the explicit diagnosis above for remediation.
+  else if (sshNetworkFailure(output)) classification = 'network-transient';
+  else if (result?.timedOut) classification = 'network-transient';
+  else if (/timed? out|temporary failure|connection (?:reset|closed)|could not resolve host|name or service not known|network is unreachable|failed to connect|early eof|unexpected (?:disconnect|eof)|remote end hung up unexpectedly|rpc failed|broken pipe/i.test(output)) classification = 'network-transient';
+  // Git adds this generic receive-pack trailer to many server-side failures. Use it only after
+  // stronger transport diagnostics have had a chance to explain the actual failure.
+  else if (receiveHookRejected(output)) classification = 'policy-rejected';
 
   return Object.freeze({
     classification,

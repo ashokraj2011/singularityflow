@@ -119,6 +119,42 @@ const classificationCases = [
     advice: /repository owner/
   },
   {
+    name: 'a repository rule rejects an otherwise authenticated proposal push',
+    result: failed('remote: error: GH013: Repository rule violations found. remote: Commits must be signed.'),
+    classification: 'policy-rejected',
+    advice: /repository rule or server hook/
+  },
+  {
+    name: 'a pre-receive hook rejects proposal content',
+    result: failed('remote: proposal does not satisfy the approved naming policy\n! [remote rejected] HEAD -> review (pre-receive hook declined)'),
+    classification: 'policy-rejected',
+    advice: /normal reviewed merge path/
+  },
+  {
+    name: 'GitHub requires the capability proposal to use a pull request',
+    result: failed('remote: error: GH006: Protected branch update failed for refs/heads/sflow/config-change/capability/map-payments.\nremote: Changes must be made through a pull request.'),
+    classification: 'policy-rejected',
+    advice: /repository rule or server hook/
+  },
+  {
+    name: 'an enterprise receive hook rejects the proposal ref',
+    result: failed('remote: enterprise-policy: capability proposal requires an approved ticket\n! [remote rejected] HEAD -> sflow/config-change/capability/map-payments (hook declined)'),
+    classification: 'policy-rejected',
+    advice: /normal reviewed merge path/
+  },
+  {
+    name: 'a provider cannot supply the required atomic ref update',
+    result: failed('fatal: the receiving end does not support --atomic push'),
+    classification: 'atomic-push-unsupported',
+    advice: /atomic push/
+  },
+  {
+    name: 'a server lacks the atomic push protocol capability',
+    result: failed('fatal: atomic push capability is unavailable on this server'),
+    classification: 'atomic-push-unsupported',
+    advice: /atomic multi-ref update/
+  },
+  {
     name: 'a provider reports an exhausted rate limit with HTTP 403',
     result: failed('remote: API rate limit exceeded. fatal: unable to access: HTTP 403'),
     classification: 'rate-limited',
@@ -187,6 +223,46 @@ test('office classifications win over less specific trailing Git errors', () => 
     'fatal: unable to access repository: The requested URL returned error: 403'
   ].join('\n')));
   assert.equal(ssoThen403.classification, 'sso-authorization-required');
+
+  const policyThenGenericRemoteFailure = classifyGitRemoteFailure(failed([
+    'remote: Changes must be made through a pull request.',
+    '! [remote rejected] HEAD -> sflow/config-change/capability/map-payments (hook declined)',
+    'error: failed to push some refs'
+  ].join('\n')));
+  assert.equal(policyThenGenericRemoteFailure.classification, 'policy-rejected');
+
+  const atomicThenDisconnect = classifyGitRemoteFailure(failed([
+    'fatal: the receiving end does not support --atomic push',
+    'fatal: the remote end hung up unexpectedly'
+  ].join('\n')));
+  assert.equal(atomicThenDisconnect.classification, 'atomic-push-unsupported');
+
+  const atomicMemberRejectedByHook = classifyGitRemoteFailure(failed([
+    'error: atomic push failed for ref refs/heads/sflow/config-change/capability/map-payments',
+    '! [remote rejected] HEAD -> sflow/config-change/capability/map-payments (pre-receive hook declined)'
+  ].join('\n')));
+  assert.equal(atomicMemberRejectedByHook.classification, 'policy-rejected',
+    'a rejected member ref is not evidence that the provider lacks atomic push support');
+
+  for (const example of [{
+    name: 'TLS trust',
+    diagnostic: 'fatal: unable to access [remote]: SSL certificate problem: unable to get local issuer certificate\nfatal: operation timed out',
+    classification: 'tls-trust'
+  }, {
+    name: 'repository policy',
+    diagnostic: 'remote: error: GH013: Repository rule violations found. Commits must be signed.\nssh: connect to host git.example port 22: Operation timed out',
+    classification: 'policy-rejected'
+  }, {
+    name: 'atomic capability',
+    diagnostic: 'fatal: the receiving end does not support --atomic push\nfatal: connection closed',
+    classification: 'atomic-push-unsupported'
+  }]) {
+    const result = failed(example.diagnostic, { timedOut: true });
+    const failure = classifyGitRemoteFailure(result);
+    assert.equal(failure.classification, example.classification, example.name);
+    assert.equal(failureEvidence(result).timedOut, true,
+      `${example.name} retained the supervisor timeout as evidence`);
+  }
 });
 
 test('provider-controlled helper and organisation names do not override structural failures', () => {

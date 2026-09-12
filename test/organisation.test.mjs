@@ -22,9 +22,12 @@ import YAML from 'yaml';
 import { removeTemporaryTree, run } from '../src/util.mjs';
 import { outsideBuilderScratch } from '../src/worldmodel.mjs';
 import {
-  activateCapabilityProposal, addCapabilityRepository, applyCapabilityReconciliation,
+  activateCapabilityProposal, addCapabilityRepository, adoptManagedCapabilityMap,
+  applyCapabilityReconciliation,
+  CAPABILITY_MAP_INPUT_LIMITS, CAPABILITY_PROPOSAL_FETCH_ARGV_LIMIT_BYTES,
   applyStaleCapabilityAuthorityLinkRetirement,
   capabilityFsck, capabilityProposalCommands, discardStaleCapabilityProposal,
+  capabilityPushRecoveryDirectory, cleanupCapabilityPushRecoveries,
   editCapabilityInOrganisation, initializeWorkspaceState,
   inspectCapabilityProposal, inspectCapabilityRepository, listCapabilityProposals, mapCapability, readOrganisation,
   organisationCacheFile, previewCapabilityReconciliation,
@@ -814,6 +817,237 @@ test('bounded proposal lookup marks truncated coverage incomplete', async () => 
   });
   assert.deepEqual(result.coverage, { status: 'partial', total: 2, inspected: 1, limit: 1 });
   assert.equal(result.proposals.length, 1);
+});
+
+test('orphaned proposal refs block listing and first-map authority reinitialization', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const applicationCommit = run('git', ['rev-parse', 'main'], { cwd: org.platform }).stdout.trim();
+  const orphaned = 'refs/heads/sflow/config-change/capability/map-legacy-01234567';
+  run('git', ['update-ref', orphaned, applicationCommit], { cwd: org.platform });
+
+  await assert.rejects(() => listCapabilityProposals(org.platform), (error) => {
+    assert.equal(error.code, 'CAPABILITY_CONFIGURATION_BRANCH_MISSING');
+    assert.equal(error.details?.proposalCount, 1);
+    assert.equal(error.details?.proposals?.[0]?.branch,
+      orphaned.replace(/^refs\/heads\//, ''));
+    return true;
+  });
+  await assert.rejects(() => mapCapability(org.platform, {
+    capabilityId: 'new-capability', kind: 'collection'
+  }), (error) => {
+    assert.equal(error.code, 'CAPABILITY_CONFIGURATION_BRANCH_MISSING');
+    return true;
+  });
+  assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/heads/sflow/config'], {
+    cwd: org.platform, allowFailure: true
+  }).status, 1, 'mapping did not re-root configuration around the retained proposal');
+});
+
+test('bounded proposal lookup pages past retained merged refs to the current proposal', async () => {
+  const org = await remotes('platform', 'service');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, { capabilityId: 'foundation', kind: 'collection' });
+  const pending = await mapCapability(org.platform, {
+    capabilityId: 'payments', kind: 'delivery', repositoryUrl: org.service
+  });
+  const approved = run('git', ['rev-parse', 'sflow/config'], {
+    cwd: org.platform
+  }).stdout.trim();
+  // Providers commonly retain merged review branches. Put more than one inspection page ahead of
+  // the live map branch lexically; a first-N slice used to report partial coverage without ever
+  // inspecting the exact proposal that currently owns this repository URL.
+  for (let index = 0; index < 70; index += 1) {
+    const branch = `refs/heads/sflow/config-change/capability/aaa-retained-${String(index).padStart(3, '0')}`;
+    run('git', ['update-ref', branch, approved], { cwd: org.platform });
+  }
+
+  const commands = [];
+  const result = await listCapabilityProposals(org.platform, {
+    includeDiff: false,
+    repositoryUrl: org.service,
+    maximumProposals: 64,
+    withCoverage: true,
+    async runRemoteCommand(args, options) {
+      commands.push([...args]);
+      return runRemoteGitAsync(args, options);
+    }
+  });
+
+  assert.deepEqual(result.proposals.map((proposal) => proposal.branch), [pending.branch]);
+  assert.deepEqual(result.coverage, {
+    status: 'complete', total: 72, inspected: 72, limit: 64
+  });
+  const fetches = commands.filter((args) => args[0] === 'fetch');
+  assert.equal(fetches.length, 2, 'retained history is traversed in bounded refspec pages');
+  assert.ok(fetches.every((args) => args.slice(4).length <= 64),
+    'no proposal fetch page exceeds the active inspection bound');
+});
+
+test('bounded proposal lookup splits long refs before the conservative Windows argv ceiling', async () => {
+  const org = await remotes('platform', 'service');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, { capabilityId: 'foundation', kind: 'collection' });
+  const pending = await mapCapability(org.platform, {
+    capabilityId: 'payments', kind: 'delivery', repositoryUrl: org.service
+  });
+  const approved = run('git', ['rev-parse', 'sflow/config'], {
+    cwd: org.platform
+  }).stdout.trim();
+  // Fewer than 64 advertised refs can still overflow CreateProcessW when every explicit source and
+  // destination ref is long. Keep each Git ref component valid while making the combined argv large
+  // enough that the byte ceiling—not the entry-count ceiling—must split it.
+  for (let index = 0; index < 30; index += 1) {
+    const suffix = `${String(index).padStart(3, '0')}-${'r'.repeat(200)}`;
+    const branch = `refs/heads/sflow/config-change/capability/${suffix}`;
+    run('git', ['update-ref', branch, approved], { cwd: org.platform });
+  }
+
+  const commands = [];
+  const result = await listCapabilityProposals(org.platform, {
+    includeDiff: false,
+    repositoryUrl: org.service,
+    maximumProposals: 64,
+    withCoverage: true,
+    async runRemoteCommand(args, options) {
+      commands.push([...args]);
+      return runRemoteGitAsync(args, options);
+    }
+  });
+
+  assert.deepEqual(result.proposals.map((proposal) => proposal.branch), [pending.branch]);
+  assert.deepEqual(result.coverage, {
+    status: 'complete', total: 32, inspected: 32, limit: 64
+  });
+  const fetches = commands.filter((args) => args[0] === 'fetch');
+  assert.ok(fetches.length > 1,
+    'long refs split even though the complete advertised set is below the 64-ref page ceiling');
+  assert.ok(fetches[0].some((argument) => argument.includes(pending.branch)),
+    'the current-base proposal retains first-page priority');
+  assert.ok(fetches.every((args) =>
+    Buffer.byteLength(JSON.stringify(args), 'utf16le') + 2
+      <= CAPABILITY_PROPOSAL_FETCH_ARGV_LIMIT_BYTES
+  ), 'every Git fetch argv stays within the conservative Windows UTF-16 byte ceiling');
+  assert.ok(fetches.every((args) => args.slice(4).length <= 64),
+    'the byte bound does not weaken the existing per-page ref ceiling');
+  await assert.rejects(() => listCapabilityProposals(org.platform, {
+    maximumAdvertisedProposals: 4_097
+  }), (error) => {
+    assert.equal(error.code, 'CAPABILITY_PROPOSAL_SCAN_LIMIT_INVALID');
+    assert.match(error.message, /between 1 and 4096/);
+    return true;
+  }, 'the argv page bound does not weaken the 4,096-ref authority ceiling');
+});
+
+test('proposal lookup refuses one pathological ref before issuing an oversized Windows argv', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, { capabilityId: 'foundation', kind: 'collection' });
+  const approved = run('git', ['rev-parse', 'sflow/config'], {
+    cwd: org.platform
+  }).stdout.trim();
+  const oversizedBranch = `refs/heads/sflow/config-change/capability/${'r'.repeat(13_000)}`;
+  const commands = [];
+
+  await assert.rejects(() => listCapabilityProposals(org.platform, {
+    includeDiff: false,
+    remoteSession: {
+      env: process.env,
+      async observeAsync() {
+        return {
+          ok: true,
+          refs: new Map([
+            ['refs/heads/sflow/config', approved],
+            [oversizedBranch, approved]
+          ])
+        };
+      }
+    },
+    async runRemoteCommand(args, options) {
+      commands.push([...args]);
+      return runRemoteGitAsync(args, options);
+    }
+  }), (error) => {
+    assert.equal(error.code, 'CAPABILITY_PROPOSAL_REFSPEC_LIMIT_EXCEEDED');
+    assert.equal(error.details?.state, 'proposal-ref-command-too-large');
+    assert.equal(error.details?.limits?.maximumArgvBytes,
+      CAPABILITY_PROPOSAL_FETCH_ARGV_LIMIT_BYTES);
+    assert.ok(error.details?.limits?.argvBytes
+      > CAPABILITY_PROPOSAL_FETCH_ARGV_LIMIT_BYTES);
+    assert.match(error.details?.nextAction?.command ?? '',
+      /^singularity-flow capability fsck .* --json$/);
+    assert.ok(!JSON.stringify({ message: error.message, details: error.details })
+      .includes(oversizedBranch), 'the untrusted oversized ref is not reflected into diagnostics');
+    return true;
+  });
+  assert.equal(commands.filter((args) => args[0] === 'fetch').length, 0,
+    'the oversized ref never crosses the subprocess boundary');
+});
+
+test('repository inspection finds the exact current mapping beyond retained merged history', async () => {
+  const org = await remotes('platform', 'service', 'unmapped');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, { capabilityId: 'foundation', kind: 'collection' });
+  const pending = await mapCapability(org.platform, {
+    capabilityId: 'payments', kind: 'delivery', repositoryUrl: org.service
+  });
+  const approved = run('git', ['rev-parse', 'sflow/config'], {
+    cwd: org.platform
+  }).stdout.trim();
+  for (let index = 0; index < 70; index += 1) {
+    const branch = `refs/heads/sflow/config-change/capability/aaa-retained-${String(index).padStart(3, '0')}`;
+    run('git', ['update-ref', branch, approved], { cwd: org.platform });
+  }
+
+  const inspected = await inspectCapabilityRepository(org.service, {
+    leadUrl: org.platform, refresh: true, proposalScanLimit: 8
+  });
+  assert.equal(inspected.status, 'inconclusive');
+  assert.equal(inspected.proposalCoverage, 'partial');
+  assert.equal(inspected.completeness, 'partial');
+  assert.deepEqual(inspected.proposalInspection, {
+    total: 72, inspected: 8, limitPerAuthority: 64
+  });
+  assert.deepEqual(inspected.pendingMatches.map((match) => ({
+    branch: match.proposalBranch,
+    commit: match.proposalCommit,
+    repositoryUrl: match.repositoryUrl,
+    capabilities: match.capabilities
+  })), [{
+    branch: pending.branch,
+    commit: pending.commit,
+    repositoryUrl: org.service,
+    capabilities: ['payments']
+  }]);
+
+  const absent = await inspectCapabilityRepository(org.unmapped, {
+    leadUrl: org.platform, refresh: true, proposalScanLimit: 8
+  });
+  assert.equal(absent.status, 'inconclusive',
+    'refs beyond the scan ceiling prevent incomplete absence from authorizing a new mapping');
+  assert.equal(absent.proposalCoverage, 'partial');
+  assert.equal(absent.completeness, 'partial');
+  assert.deepEqual(absent.pendingMatches, []);
+
+  const boundedCommands = [];
+  await assert.rejects(() => listCapabilityProposals(org.platform, {
+    includeDiff: false,
+    maximumAdvertisedProposals: 8,
+    async runRemoteCommand(args, options) {
+      boundedCommands.push([...args]);
+      return runRemoteGitAsync(args, options);
+    }
+  }), (error) => {
+    assert.equal(error.code, 'CAPABILITY_PROPOSAL_INSPECTION_INCOMPLETE');
+    assert.deepEqual(error.details?.coverage, {
+      status: 'partial', total: 72, inspected: 8, advertisedScanLimit: 8
+    });
+    return true;
+  });
+  const boundedFetches = boundedCommands.filter((args) => args[0] === 'fetch');
+  assert.ok(boundedFetches.length > 0);
+  assert.ok(boundedFetches.every((args) => args.every((arg) => !arg.includes('*'))),
+    'a hard advertised-ref ceiling never expands back into an unbounded wildcard fetch');
 });
 
 test('repository inspection never returns a rejected registered lead URL', async () => {
@@ -2216,6 +2450,393 @@ test('mapping leaves nothing behind: the lead is borrowed, not checked out', asy
   assert.deepEqual((await readdir(org.base)).sort(), before.sort());
 });
 
+test('map request bounds refuse oversized input before any Git observation', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-map-input-limits-'));
+  const absentLead = path.join(root, 'must-not-be-observed.git');
+  const rejectsWith = async (options, code) => assert.rejects(
+    mapCapability(absentLead, { capabilityId: 'bounded-input', kind: 'collection', ...options }),
+    (error) => {
+      assert.equal(error.code, code);
+      assert.equal(error.details?.state, 'input-refused');
+      assert.match(error.message, /Nothing was changed/);
+      return true;
+    }
+  );
+
+  await rejectsWith({ capabilityId: 'a'.repeat(CAPABILITY_MAP_INPUT_LIMITS.capabilityIdBytes + 1) },
+    'CAPABILITY_ID_LIMIT_EXCEEDED');
+  await rejectsWith({ name: 'x'.repeat(CAPABILITY_MAP_INPUT_LIMITS.scalarBytes + 1) },
+    'CAPABILITY_MAP_SCALAR_LIMIT_EXCEEDED');
+  await rejectsWith({ teams: Array(CAPABILITY_MAP_INPUT_LIMITS.collectionItems + 1).fill('team') },
+    'CAPABILITY_MAP_COLLECTION_LIMIT_EXCEEDED');
+  await rejectsWith({
+    metadata: Object.fromEntries(Array.from({ length: 40 }, (_, index) => [
+      `key-${index}`, 'v'.repeat(15 * 1024)
+    ]))
+  }, 'CAPABILITY_MAP_REQUEST_LIMIT_EXCEEDED');
+  await rejectsWith({ metadata: [] }, 'CAPABILITY_MAP_INPUT_INVALID');
+  assert.equal(existsSync(absentLead), false,
+    'input refusal did not initialize or contact the deliberately absent authority');
+  await removeTemporaryTree(root);
+});
+
+test('map captures configured commit identity before enterprise Git isolation', async () => {
+  const org = await remotes('platform');
+  const globalConfig = path.join(org.base, 'author.gitconfig');
+  await writeFile(globalConfig, '[user]\n\tname = Captured Map Author\n\temail = map-author@example.test\n');
+  const previousGlobal = process.env.GIT_CONFIG_GLOBAL;
+  const previousTestIdentity = process.env.SINGULARITY_FLOW_TEST_IDENTITY;
+  process.env.GIT_CONFIG_GLOBAL = globalConfig;
+  delete process.env.SINGULARITY_FLOW_TEST_IDENTITY;
+  let proposal;
+  try {
+    proposal = await mapCapability(org.platform, {
+      capabilityId: 'identity-capture', kind: 'collection'
+    });
+  } finally {
+    if (previousGlobal === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+    else process.env.GIT_CONFIG_GLOBAL = previousGlobal;
+    if (previousTestIdentity === undefined) delete process.env.SINGULARITY_FLOW_TEST_IDENTITY;
+    else process.env.SINGULARITY_FLOW_TEST_IDENTITY = previousTestIdentity;
+  }
+
+  for (const ref of ['sflow/config', proposal.branch]) {
+    const [name, email] = run('git', ['show', '-s', '--format=%an%x00%ae', ref], {
+      cwd: org.platform
+    }).stdout.trim().split('\0');
+    assert.equal(name, 'Captured Map Author');
+    assert.equal(email, 'map-author@example.test');
+  }
+});
+
+test('map requires explicitly configured Git author name and email before remote observation', async () => {
+  const org = await remotes('platform');
+  await mapAndMerge(org.platform, { capabilityId: 'foundation', kind: 'collection' });
+  const before = run('git', [
+    'for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads'
+  ], { cwd: org.platform }).stdout;
+  const emptyGlobal = path.join(org.base, 'empty-author.gitconfig');
+  await writeFile(emptyGlobal, '[user]\n\temail = configured-email@example.test\n');
+  const keys = [
+    'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM', 'SINGULARITY_FLOW_TEST_IDENTITY'
+  ];
+  const previous = new Map(keys.map((key) => [key, process.env[key]]));
+  process.env.GIT_CONFIG_GLOBAL = emptyGlobal;
+  process.env.GIT_CONFIG_SYSTEM = os.devNull;
+  delete process.env.SINGULARITY_FLOW_TEST_IDENTITY;
+  try {
+    await assert.rejects(() => mapCapability(org.platform, {
+      capabilityId: 'identity-required', kind: 'collection'
+    }), (error) => {
+      assert.equal(error.code, 'CAPABILITY_AUTHOR_IDENTITY_REQUIRED');
+      assert.equal(error.details?.state, 'input-refused');
+      assert.match(error.details?.nextAction?.command ?? '', /git config --global user\.name/);
+      assert.match(error.details?.nextAction?.command ?? '', /git config --global user\.email/);
+      return true;
+    });
+    await writeFile(emptyGlobal, '[user]\n\tname = Configured Name\n');
+    await assert.rejects(() => mapCapability(org.platform, {
+      capabilityId: 'identity-required', kind: 'collection'
+    }), (error) => {
+      assert.equal(error.code, 'CAPABILITY_AUTHOR_IDENTITY_REQUIRED');
+      return true;
+    });
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+  assert.equal(run('git', [
+    'for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads'
+  ], { cwd: org.platform }).stdout, before,
+  'identity refusal preserves configuration, proposals, and application branches');
+});
+
+test('every user-authored capability proposal requires an explicit configured Git identity', async () => {
+  const org = await remotes('platform', 'service');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, { capabilityId: 'foundation', kind: 'collection' });
+  const before = run('git', [
+    'for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads'
+  ], { cwd: org.platform }).stdout;
+  const emptyGlobal = path.join(org.base, 'empty-capability-author.gitconfig');
+  await writeFile(emptyGlobal, '[user]\n\temail = configured-email@example.test\n');
+  const keys = ['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM', 'SINGULARITY_FLOW_TEST_IDENTITY'];
+  const previous = new Map(keys.map((key) => [key, process.env[key]]));
+  process.env.GIT_CONFIG_GLOBAL = emptyGlobal;
+  process.env.GIT_CONFIG_SYSTEM = os.devNull;
+  delete process.env.SINGULARITY_FLOW_TEST_IDENTITY;
+  const mutations = [
+    () => addCapabilityRepository(org.platform, 'foundation', org.service),
+    () => editCapabilityInOrganisation(org.platform, 'foundation', { name: 'Foundation' }),
+    () => adoptManagedCapabilityMap(org.platform, { confirm: 'sha256:not-a-plan' }),
+    () => proposeProgressiveCapabilityChange(org.platform, {
+      operation: 'protect', capabilityId: 'foundation', subjectPath: 'src/**',
+      approver: 'product-approvers'
+    })
+  ];
+  try {
+    for (const mutation of mutations) {
+      await assert.rejects(mutation, (error) => {
+        assert.equal(error.code, 'CAPABILITY_AUTHOR_IDENTITY_REQUIRED');
+        return true;
+      });
+    }
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+  assert.equal(run('git', [
+    'for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads'
+  ], { cwd: org.platform }).stdout, before,
+  'identity refusal preserves every approved and proposal ref');
+});
+
+test('a confirmed proposal remains successful when temporary checkout cleanup fails', async () => {
+  const org = await remotes('platform');
+  let retainedCheckout = null;
+  let retainedNoopCheckout = null;
+  let mapped;
+  try {
+    mapped = await mapCapability(org.platform, {
+      capabilityId: 'cleanup-warning', kind: 'collection',
+      cleanupTemporaryTree: async (directory) => {
+        retainedCheckout = directory;
+        throw new Error('simulated checkout cleanup failure');
+      }
+    });
+    assert.equal(mapped.pushed, true);
+    assert.equal(mapped.cleanup?.completed, false);
+    assert.match(mapped.cleanup?.warning ?? '', /cleanup could not be confirmed/i);
+    assert.equal(run('git', ['rev-parse', mapped.branch], { cwd: org.platform }).stdout.trim(),
+      mapped.commit);
+    await mergeProposal(org.platform, mapped);
+    const repeated = await mapCapability(org.platform, {
+      capabilityId: 'cleanup-warning', kind: 'collection',
+      cleanupTemporaryTree: async (directory) => {
+        retainedNoopCheckout = directory;
+        throw new Error('simulated no-op checkout cleanup failure');
+      }
+    });
+    assert.equal(repeated.alreadyMapped, true);
+    assert.equal(repeated.changed, false);
+    assert.equal(repeated.cleanup?.completed, false,
+      'cleanup failure cannot mask the authoritative no-op result');
+  } finally {
+    if (retainedCheckout) await removeTemporaryTree(retainedCheckout);
+    if (retainedNoopCheckout) await removeTemporaryTree(retainedNoopCheckout);
+  }
+});
+
+test('first-map proposal rejection reports initialized authority and retries idempotently', async () => {
+  const org = await remotes('platform');
+  const hook = path.join(org.platform, 'hooks', 'pre-receive');
+  await writeFile(hook, `#!/bin/sh
+while read old new ref; do
+  case "$ref" in
+    refs/heads/sflow/config-change/capability/*)
+      echo "proposal publication refused" >&2
+      exit 1
+      ;;
+  esac
+done
+exit 0
+`);
+  await chmod(hook, 0o755);
+  const request = { capabilityId: 'bootstrap-retry', kind: 'collection' };
+
+  await assert.rejects(() => mapCapability(org.platform, request), (error) => {
+    assert.equal(error.code, 'CAPABILITY_PROPOSAL_PUSH_FAILED');
+    assert.equal(error.details?.state, 'configuration-initialized-proposal-not-published');
+    assert.equal(error.details?.nextAction?.retrySameRequest, true);
+    assert.match(error.details?.nextAction?.command ?? '', /capability organisation/);
+    assert.doesNotMatch(error.details?.nextAction?.command ?? '', /capability map/,
+      'recovery never presents a lossy map command that omits original attributes');
+    assert.match(error.message, /was initialized.*proposal was not published/i);
+    return true;
+  });
+  assert.equal(run('git', ['cat-file', '-e', 'sflow/config^{commit}'], {
+    cwd: org.platform, allowFailure: true
+  }).status, 0, 'the bootstrap authority is durable despite proposal rejection');
+  assert.deepEqual(proposalRefs(org.platform), []);
+
+  await rm(hook);
+  const retried = await mapCapability(org.platform, request);
+  assert.equal(retried.pushed, true);
+  assert.equal(proposalRefs(org.platform).length, 1,
+    'the exact retry creates one proposal and does not bootstrap a second authority');
+});
+
+test('a failed push is reconciled as success only when the exact proposal commit is remote', {
+  skip: process.platform === 'win32'
+}, async () => {
+  const org = await remotes('platform');
+  await mapAndMerge(org.platform, { capabilityId: 'foundation', kind: 'collection' });
+  const realGit = run('which', ['git']).stdout.trim();
+  const wrappers = path.join(org.base, 'git-push-reconcile-wrapper');
+  const wrapper = path.join(wrappers, 'git');
+  await mkdir(wrappers);
+  await writeFile(wrapper, `#!/usr/bin/env node
+const { spawnSync } = require('node:child_process');
+const args = process.argv.slice(2);
+const realGit = ${JSON.stringify(realGit)};
+const result = spawnSync(realGit, args, {
+  cwd: process.cwd(), env: process.env, encoding: 'utf8'
+});
+if (result.stdout) process.stdout.write(result.stdout);
+if (result.stderr) process.stderr.write(result.stderr);
+const proposalPush = args[0] === 'push' && args.some((arg) =>
+  String(arg).includes(':refs/heads/sflow/config-change/capability/map-reconciled-push-'));
+if (proposalPush && result.status === 0) {
+  process.stderr.write('connection closed after receive-pack accepted the update\\n');
+  process.exit(1);
+}
+process.exit(result.status == null ? 1 : result.status);
+`);
+  await chmod(wrapper, 0o755);
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${wrappers}${path.delimiter}${previousPath}`;
+  let mapped;
+  try {
+    mapped = await mapCapability(org.platform, {
+      capabilityId: 'reconciled-push', kind: 'collection'
+    });
+  } finally {
+    process.env.PATH = previousPath;
+  }
+  assert.equal(mapped.pushed, true);
+  assert.equal(mapped.pushReconciled, true);
+  assert.equal(run('git', ['rev-parse', mapped.branch], { cwd: org.platform }).stdout.trim(),
+    mapped.commit);
+});
+
+test('an unobservable failed push retains the exact commit and leased recovery operation', {
+  skip: process.platform === 'win32'
+}, async () => {
+  const org = await remotes('platform');
+  await mapAndMerge(org.platform, { capabilityId: 'foundation', kind: 'collection' });
+  const realGit = run('which', ['git']).stdout.trim();
+  const wrappers = path.join(org.base, 'git-push-unknown-wrapper');
+  const wrapper = path.join(wrappers, 'git');
+  const sentinel = path.join(org.base, 'proposal-push-failed');
+  await mkdir(wrappers);
+  await writeFile(wrapper, `#!/usr/bin/env node
+const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+const realGit = ${JSON.stringify(realGit)};
+const proposalPush = args[0] === 'push' && args.some((arg) =>
+  String(arg).includes(':refs/heads/sflow/config-change/capability/map-unknown-push-'));
+if (proposalPush) {
+  fs.writeFileSync(${JSON.stringify(sentinel)}, 'failed\\n');
+  process.stderr.write('connection reset before outcome was received\\n');
+  process.exit(1);
+}
+if (args[0] === 'ls-remote' && fs.existsSync(${JSON.stringify(sentinel)})) {
+  process.stderr.write('authority is temporarily unreachable\\n');
+  process.exit(1);
+}
+const result = spawnSync(realGit, args, { cwd: process.cwd(), env: process.env, stdio: 'inherit' });
+process.exit(result.status == null ? 1 : result.status);
+`);
+  await chmod(wrapper, 0o755);
+  const previousPath = process.env.PATH;
+  const previousRecovery = process.env.SINGULARITY_FLOW_CAPABILITY_PUSH_RECOVERY;
+  const recoveryDirectory = path.join(org.base, 'capability-push-recovery');
+  process.env.PATH = `${wrappers}${path.delimiter}${previousPath}`;
+  process.env.SINGULARITY_FLOW_CAPABILITY_PUSH_RECOVERY = recoveryDirectory;
+  let failure;
+  try {
+    await mapCapability(org.platform, { capabilityId: 'unknown-push', kind: 'collection' });
+  } catch (error) {
+    failure = error;
+  } finally {
+    process.env.PATH = previousPath;
+    if (previousRecovery === undefined) delete process.env.SINGULARITY_FLOW_CAPABILITY_PUSH_RECOVERY;
+    else process.env.SINGULARITY_FLOW_CAPABILITY_PUSH_RECOVERY = previousRecovery;
+  }
+  const recovery = failure?.details?.localRecovery;
+  let retained;
+  try {
+    assert.equal(failure?.code, 'CAPABILITY_PROPOSAL_PUSH_OUTCOME_UNKNOWN');
+    assert.equal(failure?.details?.state, 'proposal-publication-uncertain');
+    assert.equal(recovery?.status, 'retained');
+    assert.equal(recovery?.recordWritten, true);
+    assert.match(recovery?.recoveryId ?? '', /^capr-[0-9a-f-]+$/);
+    assert.equal(capabilityPushRecoveryDirectory({
+      SINGULARITY_FLOW_CAPABILITY_PUSH_RECOVERY: recoveryDirectory
+    }), recoveryDirectory);
+    const recordFile = path.join(recoveryDirectory, `${recovery.recoveryId}.json`);
+    assert.equal(existsSync(recordFile), true);
+    retained = JSON.parse(await readFile(recordFile, 'utf8'));
+    assert.equal(existsSync(retained.checkout), true);
+    assert.equal(run('git', ['cat-file', '-e', `${retained.sourceCommit}^{commit}`], {
+      cwd: retained.checkout, allowFailure: true
+    }).status, 0, 'the only expected proposal commit remains locally reachable');
+    assert.deepEqual(retained.inspect.args.slice(-2), [org.platform, retained.targetRef]);
+    assert.ok(retained.retry.args.includes(`--force-with-lease=${retained.targetRef}:`));
+    assert.ok(retained.retry.args.includes(
+      `--force-with-lease=${retained.guardedRef}:${retained.expectedGuardedCommit}`));
+    assert.doesNotMatch(JSON.stringify(recovery), new RegExp(org.base
+      .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+    'public recovery details never expose the private checkout or registry path');
+    assert.match(failure?.details?.nextAction?.command ?? '', /capability proposal/);
+    assert.match(failure?.details?.nextAction?.command ?? '', new RegExp(retained.targetRef
+      .replace(/^refs\/heads\//, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.doesNotMatch(failure?.details?.nextAction?.command ?? '', /capability map/,
+      'unknown-outcome recovery inspects the exact ref instead of replaying a partial request');
+    assert.deepEqual(proposalRefs(org.platform)
+      .filter((entry) => entry.includes('/map-unknown-push-')), []);
+    const environment = { SINGULARITY_FLOW_CAPABILITY_PUSH_RECOVERY: recoveryDirectory };
+    const live = await cleanupCapabilityPushRecoveries({
+      environment, now: Date.parse(recovery.expiresAt) - 1
+    });
+    assert.equal(live.live, 1);
+    assert.equal(existsSync(retained.checkout), true, 'a live recovery checkout is retained');
+    const expired = await cleanupCapabilityPushRecoveries({
+      environment, now: Date.parse(recovery.expiresAt)
+    });
+    assert.equal(expired.expiredRemoved, 1);
+    assert.equal(existsSync(retained.checkout), false, 'the expired recovery checkout is removed');
+    assert.equal(existsSync(recordFile), false, 'the expired private index record is removed');
+  } finally {
+    if (retained?.checkout && existsSync(retained.checkout)) {
+      await removeTemporaryTree(retained.checkout);
+    }
+  }
+});
+
+test('map CLI reports a local registry warning after confirmed remote success', async () => {
+  const org = await remotes('platform');
+  const blocker = path.join(org.base, 'registry-parent-is-a-file');
+  await writeFile(blocker, 'not a directory\n');
+  const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
+  const result = spawnSync(process.execPath, [
+    cli, 'capability', 'map', 'cache-warning', '--lead', org.platform,
+    '--kind', 'collection', '--json'
+  ], {
+    cwd: org.base,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      NODE_ENV: 'test',
+      SINGULARITY_FLOW_TEST_IDENTITY: 'Map CLI Author',
+      SINGULARITY_FLOW_LEAD_REGISTRY: path.join(blocker, 'leads.json'),
+      SINGULARITY_FLOW_ORGANISATION_CACHE: path.join(org.base, 'organisation-cache'),
+      NO_COLOR: '1'
+    }
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const mapped = JSON.parse(result.stdout);
+  assert.equal(mapped.pushed, true);
+  assert.equal(mapped.localCache?.remembered, false);
+  assert.equal(mapped.localCache?.code, 'CAPABILITY_LEAD_REGISTRY_WRITE_FAILED');
+  assert.equal(proposalRefs(org.platform).length, 1);
+});
+
 test('delivery repository reachability is proven before mapping mutates any authority ref', async () => {
   const org = await remotes('platform');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
@@ -2245,6 +2866,80 @@ test('delivery repository reachability is proven before mapping mutates any auth
   assert.equal(run('git', ['for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads'], {
     cwd: org.platform
   }).stdout, before, 'an empty delivery repository must not be guessed as main');
+});
+
+test('proposal push policy refusals retain sanitized evidence and an exact recovery action', async (t) => {
+  const cases = [{
+    name: 'repository hook or rule rejection',
+    diagnostic: 'remote: error: GH013: Repository rule violations found; password=LEAKMARK',
+    classification: 'policy-rejected',
+    code: 'REMOTE_POLICY_REJECTED',
+    advice: /repository rule or server hook/
+  }, {
+    name: 'provider without atomic push support',
+    diagnostic: 'fatal: the receiving end does not support --atomic push; password=LEAKMARK',
+    classification: 'atomic-push-unsupported',
+    code: 'REMOTE_ATOMIC_PUSH_UNSUPPORTED',
+    advice: /atomic multi-ref update/
+  }];
+
+  for (const example of cases) {
+    await t.test(example.name, async () => {
+      const org = await remotes('platform');
+      process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+      await mapAndMerge(org.platform, { capabilityId: 'foundation', kind: 'collection' });
+      const approvedBefore = run('git', ['rev-parse', 'sflow/config'], {
+        cwd: org.platform
+      }).stdout.trim();
+      const proposalsBefore = proposalRefs(org.platform);
+      const hook = path.join(org.platform, 'hooks', 'pre-receive');
+      await writeFile(hook, `#!/bin/sh
+while read old new ref; do
+  case "$ref" in
+    refs/heads/sflow/config-change/capability/*)
+      echo ${JSON.stringify(example.diagnostic)} >&2
+      exit 1
+      ;;
+  esac
+done
+exit 0
+`);
+      await chmod(hook, 0o755);
+
+      await assert.rejects(
+        mapCapability(org.platform, {
+          capabilityId: 'payments', name: 'Payments', kind: 'collection'
+        }),
+        (error) => {
+          assert.equal(error.code, 'CAPABILITY_PROPOSAL_PUSH_FAILED');
+          assert.equal(error.details.stage, 'proposal');
+          assert.equal(error.details.state, 'proposal-not-published');
+          assert.deepEqual(error.details.preserved,
+            ['approved-configuration', 'application-branches']);
+          assert.equal(error.details.remoteFailure.classification, example.classification);
+          assert.equal(error.details.remoteFailure.code, example.code);
+          assert.equal(error.details.remoteFailure.retryable, false);
+          assert.match(error.details.remoteFailure.advice, example.advice);
+          assert.deepEqual(Object.keys(error.details.remoteFailure.evidence).sort(), [
+            'blocked', 'diagnosticBytes', 'diagnosticSha256', 'exitCode', 'signal', 'timedOut'
+          ]);
+          assert.match(error.details.remoteFailure.evidence.diagnosticSha256, /^[a-f0-9]{64}$/);
+          assert.ok(error.details.remoteFailure.evidence.diagnosticBytes > 0);
+          assert.match(error.details.nextAction.command,
+            /^singularity-flow capability organisation (?:LEAD_URL|\S+) --refresh --json$/);
+          assert.equal(error.details.nextAction.skill, '/sf-capability-map');
+          assert.doesNotMatch(JSON.stringify(error), /LEAKMARK|password=/,
+            'raw provider and hook diagnostics must not escape the Git boundary');
+          return true;
+        }
+      );
+      assert.equal(run('git', ['rev-parse', 'sflow/config'], {
+        cwd: org.platform
+      }).stdout.trim(), approvedBefore);
+      assert.deepEqual(proposalRefs(org.platform), proposalsBefore,
+        'a policy refusal leaves neither a partial proposal nor an authority update');
+    });
+  }
 });
 
 test('capability mapping preserves literal remote identities while keeping recovery commands portable', async (t) => {

@@ -755,6 +755,31 @@ and names the orphan `state` proof branch. Existing configuration files are
 preserved; runtime state, evidence, telemetry, and world-model output are not
 imported into shared configuration.
 
+Map publication is retry-safe across timeouts and dropped connections. Before any remote write,
+SFlow requires an explicit Git-configured `user.name` and `user.email`; it never attributes a
+governed proposal to an operating-system username or `unknown@invalid`. The proposal is bound to the
+exact approved `sflow/config` commit with Git leases, and a failed transport response is reconciled
+against the exact remote proposal ref before SFlow reports success, failure, conflict, or an unknown
+outcome. An unknown outcome retains the exact commit and structured inspection/retry argv in a
+private machine-local recovery record with a seven-day expiry; public diagnostics expose only its
+opaque recovery ID and expiry. Expired records and their proven SFlow temporary checkouts are swept
+before a later capability mutation (there is no background cleanup daemon). Recovery is never
+reconstructed from a partial command. Local
+lead-cache or temporary-cleanup problems are reported separately and cannot undo a confirmed remote
+proposal.
+
+The VS Code Map screen saves its exact validated command before starting. Cancellation, closing the
+panel, or losing the process result requires **Inspect remote outcome** before **Retry exact
+request** becomes available. Inspection opens an existing proposal, recognizes an already-active
+capability, or permits replay only after both are absent; the engine still rejects any authority
+movement in the final race. Repository discovery scans pending proposals in bounded pages, with 64
+active/unreadable entries per inspection and an absolute 4,096 advertised-ref ceiling. Every
+explicit fetch page is also capped at 64 refspecs and 24 KiB of conservatively encoded Windows
+UTF-16 argv, so long proposal names create smaller safe pages. Reaching the ceiling reports partial
+coverage and blocks a new mapping instead of guessing that none exists. See
+the [capability-map Git robustness plan](docs/CAPABILITY-MAP-GIT-ROBUSTNESS-PLAN.md) for the
+failure contract, implemented guarantees, and remaining physical office/Windows evidence matrix.
+
 Capabilities may carry any number of organisation-defined text attributes under
 `metadata`, for example application IDs, cost centres, owner codes, or service tiers.
 The CLI accepts repeatable `--metadata KEY=VALUE`; the VS Code capability screens

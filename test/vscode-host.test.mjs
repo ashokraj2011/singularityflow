@@ -520,7 +520,8 @@ function context(values = new Map()) {
     extensionUri: { fsPath: root },
     globalState: {
       get: (key, fallback) => values.has(key) ? values.get(key) : fallback,
-      update: async (key, value) => { values.set(key, value); }
+      update: async (key, value) => { values.set(key, value); },
+      keys: () => [...values.entries()].filter(([, value]) => value !== undefined).map(([key]) => key)
     },
     secrets: {
       get: async (key) => values.get(`secret:${key}`),
@@ -4418,6 +4419,273 @@ test('opening a workspace directory works: its lead repository is what gets gove
   assert.ok(registered.output.some((line) =>
     /Governed repository: .*commerce\/repos\/platform \(the lead repository of the workspace directory you have open\)/
       .test(String(line))), `the repository and where it came from are stated: ${registered.output.join(' | ')}`);
+});
+
+test('an interrupted map operation is recovered for inspection before any retry', async (t) => {
+  if (!requireBundle(t)) return;
+  const key = 'singularityFlow.mapCapability.operation.v1';
+  const operationId = 'map_18db34408ab63e12';
+  const durableKey = `singularityFlow.mapCapability.operation.v2.${operationId}`;
+  const values = new Map([[key, {
+    schemaVersion: 1,
+    id: operationId,
+    status: 'running',
+    capabilityId: 'payments-api',
+    lead: 'https://git.example/platform.git',
+    repositoryUrl: 'https://git.example/payments.git',
+    argv: ['capability', 'map', 'payments-api', '--lead', 'https://git.example/platform.git',
+      '--repository', 'https://git.example/payments.git', '--kind', 'delivery', '--json'],
+    attempt: 1,
+    startedAt: '2026-09-12T08:00:00.000Z',
+    updatedAt: '2026-09-12T08:00:30.000Z',
+    message: 'Publishing the review proposal.'
+  }]]);
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context(values));
+
+  await registered.commands.get('singularityFlow.mapCapability')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.mapCapability');
+  assert.ok(panel, 'the recovery panel opened');
+  await until(() => values.get(durableKey)?.status === 'needs-inspection' && values.get(key) === undefined);
+  assert.equal(values.get(key), undefined, 'the single-slot receipt was migrated once');
+  assert.match(panel.webview.html, /editor stopped before the remote outcome was observed/);
+  assert.match(panel.webview.html, /data-map-operation-inspect/);
+  assert.doesNotMatch(panel.webview.html, /<button[^>]+data-map-operation-retry/,
+    'a process interruption never enables blind replay');
+  assert.deepEqual(values.get(durableKey).argv, [
+    'capability', 'map', 'payments-api', '--lead', 'https://git.example/platform.git',
+    '--repository', 'https://git.example/payments.git', '--kind', 'delivery', '--json'
+  ], 'the exact bounded request survives extension restart');
+  panel.dispose();
+});
+
+test('retry reconciles an existing same-ID proposal instead of publishing a duplicate', async (t) => {
+  if (!requireBundle(t)) return;
+  const org = await organisation();
+  const key = 'singularityFlow.mapCapability.operation.v1';
+  const operationId = 'map_a271498f66433e31';
+  const durableKey = `singularityFlow.mapCapability.operation.v2.${operationId}`;
+  const argv = ['capability', 'map', 'interrupted-capability', '--lead', org.lead,
+    '--kind', 'collection', '--json'];
+  const created = spawnSync(process.execPath,
+    [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), ...argv], {
+      encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_LEAD_REGISTRY: org.registry }
+    });
+  assert.equal(created.status, 0, created.stderr);
+  const [proposalBranch] = run('git', ['for-each-ref', '--format=%(refname:short)',
+    'refs/heads/sflow/config-change/capability/map-interrupted-capability-*'], { cwd: org.lead })
+    .stdout.trim().split('\n').filter(Boolean);
+  assert.ok(proposalBranch, 'the interrupted attempt left a review proposal');
+
+  const values = new Map([[key, {
+    schemaVersion: 1,
+    id: operationId,
+    status: 'needs-inspection',
+    capabilityId: 'interrupted-capability',
+    lead: org.lead,
+    repositoryUrl: '',
+    argv,
+    attempt: 1,
+    startedAt: '2026-09-12T08:00:00.000Z',
+    updatedAt: '2026-09-12T08:01:00.000Z',
+    message: 'The original caller did not observe a result.'
+  }]]);
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context(values));
+  await registered.commands.get('singularityFlow.mapCapability')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.mapCapability');
+  assert.ok(panel, 'the recovery panel opened');
+
+  await panel.post({ type: 'retryMapOperation' });
+  await until(() => values.get(durableKey)?.status === 'proposal-ready');
+  assert.equal(values.get(durableKey).proposalBranch, proposalBranch);
+  assert.match(panel.webview.html, /Open existing review proposal/);
+  const branches = run('git', ['for-each-ref', '--format=%(refname:short)',
+    'refs/heads/sflow/config-change/capability/map-interrupted-capability-*'], { cwd: org.lead })
+    .stdout.trim().split('\n').filter(Boolean);
+  assert.deepEqual(branches, [proposalBranch], 'retry performed inspection only and created no proposal');
+  panel.dispose();
+});
+
+test('recovery accepts an approved same-ID capability only when the saved request matches', async (t) => {
+  if (!requireBundle(t)) return;
+  const org = await organisation();
+  const key = 'singularityFlow.mapCapability.operation.v1';
+  const operationId = 'map_64a4d5398e0f81bc';
+  const durableKey = `singularityFlow.mapCapability.operation.v2.${operationId}`;
+  const argv = ['capability', 'map', 'payments-api', '--lead', org.lead,
+    '--repository', org.api, '--kind', 'delivery', '--json'];
+  const values = new Map([[key, {
+    schemaVersion: 1,
+    id: operationId,
+    status: 'needs-inspection',
+    capabilityId: 'payments-api',
+    lead: org.lead,
+    repositoryUrl: org.api,
+    argv,
+    attempt: 1,
+    startedAt: '2026-09-12T08:00:00.000Z',
+    updatedAt: '2026-09-12T08:01:00.000Z',
+    message: 'The original caller did not observe a result.'
+  }]]);
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context(values));
+  await registered.commands.get('singularityFlow.mapCapability')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.mapCapability');
+
+  await panel.post({ type: 'retryMapOperation' });
+  await until(() => values.get(durableKey)?.status === 'already-active');
+  assert.match(values.get(durableKey).message, /matches the exact saved request/);
+  assert.match(panel.webview.html, /Clear completed operation/);
+  assert.doesNotMatch(panel.webview.html, /Retry exact request/);
+  panel.dispose();
+});
+
+test('recovery refuses a conflicting approved same-ID capability without replaying or clearing', async (t) => {
+  if (!requireBundle(t)) return;
+  const org = await organisation();
+  const key = 'singularityFlow.mapCapability.operation.v1';
+  const operationId = 'map_f28254057ee71f1c';
+  const durableKey = `singularityFlow.mapCapability.operation.v2.${operationId}`;
+  const argv = ['capability', 'map', 'payments-api', '--lead', org.lead,
+    '--repository', org.web, '--kind', 'delivery', '--json', '--name', 'Renamed API',
+    '--parent', 'storefront', '--source-roots', 'src/payments', '--metadata', 'applicationId=OTHER',
+    '--teams', 'Other team', '--clone-mode', 'blobless', '--clone-fallback', 'refuse'];
+  const values = new Map([[key, {
+    schemaVersion: 1,
+    id: operationId,
+    status: 'needs-inspection',
+    capabilityId: 'payments-api',
+    lead: org.lead,
+    repositoryUrl: org.web,
+    argv,
+    attempt: 1,
+    startedAt: '2026-09-12T08:00:00.000Z',
+    updatedAt: '2026-09-12T08:01:00.000Z',
+    message: 'The original caller did not observe a result.'
+  }]]);
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context(values));
+  await registered.commands.get('singularityFlow.mapCapability')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.mapCapability');
+
+  await panel.post({ type: 'retryMapOperation' });
+  await until(() => /approved capability uses different/.test(values.get(durableKey)?.message ?? ''));
+  assert.equal(values.get(durableKey).status, 'needs-inspection');
+  assert.match(values.get(durableKey).message, /name, parent, source roots, metadata, teams, repository, clone policy/);
+  assert.match(panel.webview.html, /this request will not be retried or cleared automatically/);
+  assert.doesNotMatch(panel.webview.html, /Retry exact request|Clear completed operation/);
+  assert.equal(run('git', ['for-each-ref', '--format=%(refname:short)',
+    'refs/heads/sflow/config-change/capability/map-payments-api-*'], { cwd: org.lead }).stdout.trim(), '',
+  'read-only reconciliation did not create a competing proposal');
+  panel.dispose();
+});
+
+test('tampered persisted map argv is ignored instead of becoming replayable', async (t) => {
+  if (!requireBundle(t)) return;
+  const key = 'singularityFlow.mapCapability.operation.v1';
+  const values = new Map([[key, {
+    schemaVersion: 1,
+    id: 'map_18db34408ab63e12',
+    status: 'needs-inspection',
+    capabilityId: 'payments-api',
+    lead: 'https://git.example/platform.git',
+    repositoryUrl: 'https://git.example/payments.git',
+    argv: ['capability', 'map', 'payments-api', '--lead', 'https://git.example/platform.git',
+      '--repository', 'https://git.example/payments.git', '--kind', 'delivery', '--unsafe-replay', '--json'],
+    attempt: 1,
+    startedAt: '2026-09-12T08:00:00.000Z',
+    updatedAt: '2026-09-12T08:01:00.000Z',
+    message: 'Tampered state.'
+  }]]);
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context(values));
+  await registered.commands.get('singularityFlow.mapCapability')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.mapCapability');
+
+  assert.doesNotMatch(panel.webview.html, /Durable mapping operation|Retry exact request/);
+  panel.dispose();
+});
+
+test('overlapping map receipts in separate windows update and clear only their own operation', async (t) => {
+  if (!requireBundle(t)) return;
+  const first = {
+    schemaVersion: 1,
+    id: 'map_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    status: 'already-active',
+    capabilityId: 'first-capability',
+    lead: 'https://git.example/first-platform.git',
+    repositoryUrl: '',
+    argv: ['capability', 'map', 'first-capability', '--lead',
+      'https://git.example/first-platform.git', '--kind', 'collection', '--json'],
+    attempt: 1,
+    startedAt: '2026-09-12T08:00:00.000Z',
+    updatedAt: '2026-09-12T08:01:00.000Z',
+    message: 'The first operation completed.'
+  };
+  const second = {
+    schemaVersion: 1,
+    id: 'map_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+    status: 'cancelling',
+    capabilityId: 'second-capability',
+    lead: 'https://git.example/second-platform.git',
+    repositoryUrl: 'https://git.example/second.git',
+    argv: ['capability', 'map', 'second-capability', '--lead',
+      'https://git.example/second-platform.git', '--repository',
+      'https://git.example/second.git', '--kind', 'delivery', '--json'],
+    attempt: 1,
+    startedAt: '2026-09-12T08:02:00.000Z',
+    updatedAt: '2026-09-12T08:03:00.000Z',
+    message: 'The second window is stopping its process.'
+  };
+  const firstKey = `singularityFlow.mapCapability.operation.v2.${first.id}`;
+  const secondKey = `singularityFlow.mapCapability.operation.v2.${second.id}`;
+  const values = new Map([[firstKey, first], [secondKey, second]]);
+
+  const secondHost = stubVscode();
+  secondHost.api.workspace.workspaceFolders = undefined;
+  let extension = loadExtension(secondHost.api);
+  await extension.activate(context(values));
+  await secondHost.registered.commands.get('singularityFlow.mapCapability')();
+  let panel = secondHost.registered.panels.find((entry) => entry.id === 'singularityFlow.mapCapability');
+  await until(() => values.get(secondKey)?.status === 'needs-inspection');
+  assert.equal(values.get(firstKey), first, 'cancellation recovery did not overwrite the other window receipt');
+  assert.match(panel.webview.html, /second-platform\.git/);
+  panel.dispose();
+
+  values.set(secondKey, { ...values.get(secondKey), status: 'already-active',
+    updatedAt: '2026-09-12T08:04:00.000Z', message: 'The second operation completed.' });
+  const completionHost = stubVscode();
+  completionHost.api.workspace.workspaceFolders = undefined;
+  extension = loadExtension(completionHost.api);
+  await extension.activate(context(values));
+  await completionHost.registered.commands.get('singularityFlow.mapCapability')();
+  panel = completionHost.registered.panels.find((entry) => entry.id === 'singularityFlow.mapCapability');
+  assert.match(panel.webview.html, /second-platform\.git/);
+  await panel.post({ type: 'clearMapOperation' });
+  await until(() => values.get(secondKey) === undefined);
+  assert.equal(values.get(firstKey), first, 'completion cleared only its own receipt');
+  panel.dispose();
+
+  const firstHost = stubVscode();
+  firstHost.api.workspace.workspaceFolders = undefined;
+  extension = loadExtension(firstHost.api);
+  await extension.activate(context(values));
+  await firstHost.registered.commands.get('singularityFlow.mapCapability')();
+  panel = firstHost.registered.panels.find((entry) => entry.id === 'singularityFlow.mapCapability');
+  assert.match(panel.webview.html, /first-platform\.git/,
+    'the other window receipt remained discoverable with its authority explicit');
+  panel.dispose();
 });
 
 test('a window with nothing open can map a capability from scratch', async (t) => {

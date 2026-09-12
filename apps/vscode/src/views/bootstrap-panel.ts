@@ -6,19 +6,50 @@
  * dependency this whole screen exists to break.
  */
 import * as vscode from 'vscode';
+import { randomBytes } from 'node:crypto';
 import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import {
-  EMPTY_MAP_FORM, gitRemoteProblem, mapCapabilityHtml, mapCommand, mapProblems,
-  MAP_CAPABILITY_SCRIPT, type MapCapabilityForm, type ParentChoice
+  CAPABILITY_KINDS, EMPTY_MAP_FORM, gitRemoteProblem, mapCapabilityHtml, mapCommand, mapProblems,
+  MAP_CAPABILITY_SCRIPT, type MapCapabilityForm, type MapCapabilityOperation, type ParentChoice
 } from './map-capability-form.ts';
 import type { StartWizardProgress } from './start-wizard.ts';
 import { formatCliArgsForDisplay } from '../cli/runner.ts';
+import {
+  clearMapCapabilityOperation, LEGACY_MAP_CAPABILITY_OPERATION_KEY,
+  migrateLegacyMapCapabilityOperation, readMapCapabilityOperations,
+  writeMapCapabilityOperation
+} from './map-capability-operation-store.ts';
+
+interface OrganisationCapability {
+  id: string;
+  name: string;
+  kind?: string;
+  repository?: string | null;
+  repositories?: string[];
+  sourceRoots?: string[];
+  sharedRoots?: string[];
+  metadata?: Record<string, unknown>;
+  jira?: { projectKey?: string | null } | null;
+  teams?: string[];
+  children: OrganisationCapability[];
+}
+
+interface OrganisationRepository {
+  url?: string;
+  clone?: {
+    mode?: string;
+    filter?: string | null;
+    sparseCone?: string[];
+    fallback?: string;
+  };
+}
 
 /** The map as `capability organisation --json` reports it. */
 export interface Organisation {
   governed: boolean;
-  capabilities: Array<{ id: string; name: string; kind?: string; repository?: string | null; children: unknown[] }>;
+  capabilities: OrganisationCapability[];
+  repositories?: Record<string, OrganisationRepository>;
 }
 
 interface RepositoryInspection {
@@ -87,6 +118,244 @@ export interface MapCapabilityLaunch {
 
 type Run = (argv: string[], signal?: AbortSignal) => Promise<{ result: unknown; error: string | null }>;
 
+export const MAP_CAPABILITY_OPERATION_KEY = LEGACY_MAP_CAPABILITY_OPERATION_KEY;
+
+interface CapabilityProposalSummary {
+  branch?: string;
+  proposalCommit?: string;
+  merged?: boolean;
+}
+
+interface SavedMapRequest {
+  kind: string;
+  name: string | null;
+  parent: string | null;
+  repositoryUrl: string | null;
+  sourceRoots: string[] | null;
+  sharedRoots: string[] | null;
+  metadata: Record<string, string>;
+  jiraProject: string | null;
+  teams: string[] | null;
+  clone: {
+    mode: string;
+    filter: string | null;
+    sparseCone: string[];
+    fallback: string;
+  } | null;
+}
+
+const MAP_SINGLE_VALUE_OPTIONS = new Set([
+  '--lead', '--kind', '--name', '--parent', '--repository', '--source-roots', '--shared-roots',
+  '--clone-mode', '--clone-fallback', '--sparse-cone', '--jira-project', '--teams'
+]);
+
+function normalizedList(values: string[]): string[] {
+  return [...[...new Set(values.map((value) => value.trim()).filter(Boolean))].sort()];
+}
+
+function csv(value: string | undefined): string[] {
+  return normalizedList((value ?? '').split(','));
+}
+
+/** Parse only the exact option vocabulary the webview itself can persist. */
+function savedMapRequest(operation: Pick<MapCapabilityOperation, 'argv' | 'capabilityId' | 'lead' | 'repositoryUrl'>): SavedMapRequest | null {
+  const argv = operation.argv;
+  if (argv[0] !== 'capability' || argv[1] !== 'map' || argv[2] !== operation.capabilityId) return null;
+  const values = new Map<string, string[]>();
+  let jsonCount = 0;
+  for (let index = 3; index < argv.length; index += 1) {
+    const option = argv[index]!;
+    if (option === '--json') {
+      jsonCount += 1;
+      continue;
+    }
+    if (!MAP_SINGLE_VALUE_OPTIONS.has(option) && option !== '--metadata') return null;
+    const value = argv[index + 1];
+    if (value == null || value.startsWith('--')) return null;
+    const current = values.get(option) ?? [];
+    current.push(value);
+    values.set(option, current);
+    index += 1;
+  }
+  if (jsonCount !== 1 || values.get('--lead')?.length !== 1
+    || values.get('--lead')?.[0] !== operation.lead || values.get('--kind')?.length !== 1
+    || !CAPABILITY_KINDS.includes(values.get('--kind')?.[0] as typeof CAPABILITY_KINDS[number])) return null;
+  for (const [option, optionValues] of values) {
+    if (option !== '--metadata' && optionValues.length !== 1) return null;
+  }
+  const repositoryValues = values.get('--repository') ?? [];
+  if ((operation.repositoryUrl && (repositoryValues.length !== 1 || repositoryValues[0] !== operation.repositoryUrl))
+    || (!operation.repositoryUrl && repositoryValues.length)) return null;
+  const kind = values.get('--kind')![0]!;
+  if ((kind === 'delivery') !== Boolean(operation.repositoryUrl)) return null;
+
+  const cloneMode = values.get('--clone-mode')?.[0] ?? null;
+  const cloneFallback = values.get('--clone-fallback')?.[0] ?? null;
+  const sparseConeValue = values.get('--sparse-cone')?.[0] ?? null;
+  if (cloneMode != null && !['blobless', 'blobless-sparse'].includes(cloneMode)) return null;
+  if ((cloneMode == null) !== (cloneFallback == null)
+    || (cloneFallback != null && !['refuse', 'full'].includes(cloneFallback))
+    || (cloneMode === 'blobless-sparse') !== (sparseConeValue != null)
+    || (sparseConeValue != null && csv(sparseConeValue).length === 0)) return null;
+
+  const metadata: Record<string, string> = {};
+  for (const encoded of values.get('--metadata') ?? []) {
+    const separator = encoded.indexOf('=');
+    if (separator < 1 || separator === encoded.length - 1) return null;
+    const key = encoded.slice(0, separator).trim();
+    const value = encoded.slice(separator + 1).trim();
+    if (!key || !value) return null;
+    metadata[key] = value;
+  }
+  const clone = cloneMode == null ? null : {
+    mode: cloneMode,
+    filter: 'blob:none',
+    sparseCone: cloneMode === 'blobless-sparse'
+      ? normalizedList([...csv(sparseConeValue ?? ''), '.github/agents', 'singularity']) : [],
+    fallback: cloneFallback!
+  };
+  return {
+    kind,
+    name: values.get('--name')?.[0] ?? null,
+    parent: values.get('--parent')?.[0] ?? null,
+    repositoryUrl: repositoryValues[0] ?? null,
+    sourceRoots: values.has('--source-roots') ? csv(values.get('--source-roots')?.[0]) : null,
+    sharedRoots: values.has('--shared-roots') ? csv(values.get('--shared-roots')?.[0]) : null,
+    metadata,
+    jiraProject: values.get('--jira-project')?.[0] ?? null,
+    teams: values.has('--teams') ? csv(values.get('--teams')?.[0]) : null,
+    clone
+  };
+}
+
+function findCapability(nodes: OrganisationCapability[], id: string, parent: string | null = null): {
+  capability: OrganisationCapability;
+  parent: string | null;
+} | null {
+  for (const capability of nodes) {
+    if (capability.id === id) return { capability, parent };
+    const child = findCapability(capability.children ?? [], id, capability.id);
+    if (child) return child;
+  }
+  return null;
+}
+
+function sameRecordSubset(approved: Record<string, unknown>, requested: Record<string, string>): boolean {
+  return Object.entries(requested).every(([key, value]) => approved[key] === value);
+}
+
+function normalizedApprovedClone(value: OrganisationRepository['clone']): SavedMapRequest['clone'] {
+  const mode = value?.mode ?? 'full';
+  return {
+    mode,
+    filter: value?.filter ?? (mode === 'full' ? null : 'blob:none'),
+    sparseCone: normalizedList(value?.sparseCone ?? []),
+    fallback: value?.fallback ?? 'refuse'
+  };
+}
+
+/**
+ * Prove that an approved same-ID capability is the exact logical result of the saved request.
+ * Merely finding the ID is insufficient: another user may have approved a competing repository,
+ * parent, kind, ownership, or clone policy while this editor was disconnected.
+ */
+export function compareApprovedCapability(operation: MapCapabilityOperation, organisation: Organisation): {
+  status: 'absent' | 'match' | 'conflict' | 'unverifiable';
+  differences: string[];
+} {
+  const request = savedMapRequest(operation);
+  if (!request) return { status: 'unverifiable', differences: ['saved-request'] };
+  const found = findCapability(organisation.capabilities, operation.capabilityId);
+  if (!found) return { status: 'absent', differences: [] };
+  const { capability, parent } = found;
+  const differences: string[] = [];
+  if (capability.kind !== request.kind) differences.push('kind');
+  if (request.name != null && capability.name !== request.name) differences.push('name');
+  if (request.parent != null && parent !== request.parent) differences.push('parent');
+  if (request.sourceRoots != null
+    && JSON.stringify(normalizedList(capability.sourceRoots ?? [])) !== JSON.stringify(request.sourceRoots)) {
+    differences.push('source roots');
+  }
+  if (request.sharedRoots != null
+    && JSON.stringify(normalizedList(capability.sharedRoots ?? [])) !== JSON.stringify(request.sharedRoots)) {
+    differences.push('shared roots');
+  }
+  if (!sameRecordSubset(capability.metadata ?? {}, request.metadata)) differences.push('metadata');
+  if (request.jiraProject != null && capability.jira?.projectKey !== request.jiraProject) {
+    differences.push('Jira project');
+  }
+  if (request.teams != null
+    && JSON.stringify(normalizedList(capability.teams ?? [])) !== JSON.stringify(request.teams)) {
+    differences.push('teams');
+  }
+
+  if (request.repositoryUrl != null) {
+    const repositoryIds = capability.repositories ?? (capability.repository ? [capability.repository] : []);
+    if (repositoryIds.length !== 1) differences.push('repositories');
+    const approvedRepository = repositoryIds.length === 1
+      ? organisation.repositories?.[repositoryIds[0]!] : null;
+    if (!approvedRepository?.url) {
+      return { status: 'unverifiable', differences: [...new Set([...differences, 'repository'])] };
+    }
+    if (approvedRepository.url !== request.repositoryUrl) differences.push('repository');
+    if (request.clone != null
+      && JSON.stringify(normalizedApprovedClone(approvedRepository.clone)) !== JSON.stringify(request.clone)) {
+      differences.push('clone policy');
+    }
+  }
+  return differences.length
+    ? { status: 'conflict', differences: [...new Set(differences)] }
+    : { status: 'match', differences: [] };
+}
+
+/** Refuse malformed/tampered extension state before it can become a replayable mutation. */
+export function restoreMapCapabilityOperation(value: unknown): MapCapabilityOperation | null {
+  const candidate = value as Partial<MapCapabilityOperation> | null;
+  const statuses = new Set([
+    'running', 'cancelling', 'needs-inspection', 'inspecting',
+    'retry-ready', 'proposal-ready', 'already-active'
+  ]);
+  if (!candidate || candidate.schemaVersion !== 1 || typeof candidate.id !== 'string'
+    || !/^map_(?:[0-9a-f]{16}|[0-9a-f]{32})$/i.test(candidate.id)
+    || !statuses.has(candidate.status ?? '') || typeof candidate.capabilityId !== 'string'
+    || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(candidate.capabilityId)
+    || typeof candidate.lead !== 'string' || gitRemoteProblem(candidate.lead, 'Capability-map repository')
+    || typeof candidate.repositoryUrl !== 'string'
+    || (candidate.repositoryUrl && gitRemoteProblem(candidate.repositoryUrl, 'Repository'))
+    || !Array.isArray(candidate.argv) || candidate.argv.length < 6 || candidate.argv.length > 128
+    || candidate.argv.some((entry) => typeof entry !== 'string' || entry.length > 8 * 1024
+      || /[\u0000-\u001f\u007f-\u009f]/.test(entry))
+    || candidate.argv[0] !== 'capability' || candidate.argv[1] !== 'map'
+    || candidate.argv[2] !== candidate.capabilityId
+    || candidate.argv[candidate.argv.indexOf('--lead') + 1] !== candidate.lead
+    || !Number.isSafeInteger(candidate.attempt) || (candidate.attempt ?? 0) < 1
+    || typeof candidate.startedAt !== 'string' || !Number.isFinite(Date.parse(candidate.startedAt))
+    || typeof candidate.updatedAt !== 'string' || !Number.isFinite(Date.parse(candidate.updatedAt))
+    || typeof candidate.message !== 'string' || candidate.message.length > 2_000) return null;
+  const restored = candidate as MapCapabilityOperation;
+  const leadOptions = restored.argv.flatMap((entry, index) => entry === '--lead' ? [index] : []);
+  const repositoryOptions = restored.argv.flatMap((entry, index) => entry === '--repository' ? [index] : []);
+  if (leadOptions.length !== 1 || restored.argv.filter((entry) => entry === '--json').length !== 1
+    || (restored.repositoryUrl
+      ? repositoryOptions.length !== 1
+        || restored.argv[repositoryOptions[0]! + 1] !== restored.repositoryUrl
+      : repositoryOptions.length !== 0)
+    || !savedMapRequest(restored)) return null;
+  const proposalPrefix = `sflow/config-change/capability/map-${restored.capabilityId}-`;
+  const proposalBranchValid = restored.proposalBranch == null
+    || (restored.proposalBranch.startsWith(proposalPrefix)
+      && /^[0-9a-f]{8}$/i.test(restored.proposalBranch.slice(proposalPrefix.length)));
+  const proposalCommitValid = restored.proposalCommit == null
+    || /^[0-9a-f]{40,64}$/i.test(restored.proposalCommit);
+  if (!proposalBranchValid || !proposalCommitValid
+    || Boolean(restored.proposalBranch) !== Boolean(restored.proposalCommit)
+    || (restored.status !== 'proposal-ready'
+      && (restored.proposalBranch != null || restored.proposalCommit != null))
+    || (restored.status === 'proposal-ready'
+      && (!restored.proposalBranch || !restored.proposalCommit))) return null;
+  return restored;
+}
+
 /** Flatten the map into the parents a new capability may sit under. */
 function parentChoices(nodes: Organisation['capabilities'], depth = 0): ParentChoice[] {
   return nodes.flatMap((node) => [
@@ -99,6 +368,7 @@ export class BootstrapPanel {
   private static current: BootstrapPanel | null = null;
 
   private readonly panel: vscode.WebviewPanel;
+  private readonly context: vscode.ExtensionContext;
   private readonly run: Run;
   private onMapped: (result: Mapped) => Promise<void>;
   private readonly disposables: vscode.Disposable[] = [];
@@ -109,12 +379,15 @@ export class BootstrapPanel {
   private mapLoadRevision = 0;
   private inspectionRevision = 0;
   private readonly inspectedOrganisations = new Map<string, Organisation>();
+  private activeMapController: AbortController | null = null;
+  private operationStorageQueue: Promise<void> = Promise.resolve();
 
   private constructor(
-    panel: vscode.WebviewPanel, leads: string[], run: Run,
+    context: vscode.ExtensionContext, panel: vscode.WebviewPanel, leads: string[], run: Run,
     onMapped: (result: Mapped) => Promise<void>,
     initial: MapCapabilityLaunch = {}
   ) {
+    this.context = context;
     this.panel = panel;
     this.run = run;
     this.onMapped = onMapped;
@@ -126,9 +399,33 @@ export class BootstrapPanel {
     const uniqueLeads = [...new Set(leads
       .map((lead) => lead.trim())
       .filter((lead) => lead && !gitRemoteProblem(lead, 'Capability-map repository')))];
+    const storedOperations = readMapCapabilityOperations(context.globalState, restoreMapCapabilityOperation);
+    const selected = storedOperations[0] ?? null;
+    const restored = selected?.operation ?? null;
+    const operation = restored && ['running', 'cancelling', 'inspecting'].includes(restored.status)
+      ? {
+          ...restored,
+          status: 'needs-inspection' as const,
+          updatedAt: new Date().toISOString(),
+          message: 'The editor stopped before the remote outcome was observed. Inspect the approved map and proposal refs before retrying.'
+        }
+      : restored;
+    if (operation && selected?.key === MAP_CAPABILITY_OPERATION_KEY) {
+      // Migrate the final recovered shape in one ordered operation. Writing the legacy shape and
+      // then its interrupted-state conversion as independent promises could restore stale status.
+      void this.queueOperationStorage(() => migrateLegacyMapCapabilityOperation(
+        context.globalState, operation, restoreMapCapabilityOperation
+      )).then(undefined, () => undefined);
+    } else if (operation !== restored && operation) {
+      void this.queueOperationStorage(() => writeMapCapabilityOperation(
+        context.globalState, operation, restoreMapCapabilityOperation
+      ))
+        .then(undefined, () => undefined);
+    }
     this.form = {
       ...EMPTY_MAP_FORM,
       metadata: [],
+      operation,
       leads: uniqueLeads,
       // Repository inspection comes first. Even one known authority is not read until that check
       // establishes which onboarding path applies.
@@ -165,7 +462,7 @@ export class BootstrapPanel {
         retainContextWhenHidden: true,
         localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
       });
-    BootstrapPanel.current = new BootstrapPanel(panel, leads, run, onMapped, initial);
+    BootstrapPanel.current = new BootstrapPanel(context, panel, leads, run, onMapped, initial);
     if (initial.chooseRepository) void BootstrapPanel.current.chooseRepository();
     return BootstrapPanel.current;
   }
@@ -183,6 +480,7 @@ export class BootstrapPanel {
   }
 
   private render(): void {
+    if (this.disposed) return;
     const token = nonce();
     this.panel.webview.html = page(
       this.journey ? 'Guided start' : 'Map a capability',
@@ -196,6 +494,191 @@ export class BootstrapPanel {
   private update(changes: Partial<MapCapabilityForm>): void {
     this.form = { ...this.form, ...changes };
     this.render();
+  }
+
+  /** Preserve this panel's status order even when cancellation settles the CLI concurrently. */
+  private queueOperationStorage(action: () => Promise<void>): Promise<void> {
+    const result = this.operationStorageQueue.then(action, action);
+    this.operationStorageQueue = result.then(() => undefined, () => undefined);
+    return result;
+  }
+
+  private async storeOperation(operation: MapCapabilityOperation | null): Promise<void> {
+    const previous = this.form.operation;
+    this.form = { ...this.form, operation };
+    this.render();
+    if (operation) {
+      await this.queueOperationStorage(() => writeMapCapabilityOperation(
+        this.context.globalState, operation, restoreMapCapabilityOperation
+      ));
+    } else if (previous) {
+      await this.queueOperationStorage(async () => {
+        await clearMapCapabilityOperation(
+          this.context.globalState, previous.id, restoreMapCapabilityOperation
+        );
+      });
+    }
+  }
+
+  private newOperation(argv: string[]): MapCapabilityOperation {
+    const now = new Date().toISOString();
+    return {
+      schemaVersion: 1,
+      // Random identity, rather than argv + millisecond time, prevents two extension-host
+      // processes starting the same request in the same millisecond from sharing a receipt key.
+      id: `map_${randomBytes(16).toString('hex')}`,
+      status: 'running',
+      capabilityId: this.form.capabilityId.trim(),
+      lead: this.form.lead.trim(),
+      repositoryUrl: this.form.repositoryUrl.trim(),
+      argv: [...argv],
+      attempt: 1,
+      startedAt: now,
+      updatedAt: now,
+      message: 'Preparing and publishing one exact capability review proposal.'
+    };
+  }
+
+  private async finishOperation(operation: MapCapabilityOperation, mapped: Mapped): Promise<void> {
+    await this.storeOperation({
+      ...operation,
+      status: mapped.reviewRequired && mapped.branch ? 'proposal-ready' : 'already-active',
+      updatedAt: new Date().toISOString(),
+      message: mapped.reviewRequired && mapped.branch
+        ? 'The proposal was published. Opening its exact review now.'
+        : 'The exact capability mapping is already present in approved configuration.',
+      proposalBranch: mapped.reviewRequired ? mapped.branch : null,
+      proposalCommit: mapped.reviewRequired ? mapped.commit : null
+    });
+    this.dispose();
+    await this.onMapped(mapped);
+    await this.queueOperationStorage(async () => {
+      await clearMapCapabilityOperation(
+        this.context.globalState, operation.id, restoreMapCapabilityOperation
+      );
+    });
+  }
+
+  private async runMapOperation(operation: MapCapabilityOperation): Promise<void> {
+    const controller = new AbortController();
+    this.activeMapController = controller;
+    await this.storeOperation({
+      ...operation,
+      status: 'running',
+      updatedAt: new Date().toISOString(),
+      message: 'Preparing and publishing one exact capability review proposal.'
+    });
+    this.update({ busy: true, error: null });
+    const { result, error } = await this.run(operation.argv, controller.signal);
+    if (this.activeMapController === controller) this.activeMapController = null;
+    if (error) {
+      const cancelled = controller.signal.aborted;
+      await this.storeOperation({
+        ...(this.form.operation ?? operation),
+        status: 'needs-inspection',
+        updatedAt: new Date().toISOString(),
+        message: cancelled
+          ? 'Cancelled after the CLI process tree stopped. The remote outcome is intentionally unknown until inspected.'
+          : `The command did not return a confirmed outcome: ${error}`
+      });
+      this.update({ busy: false, error: null });
+      return;
+    }
+    await this.finishOperation(this.form.operation ?? operation, result as Mapped);
+  }
+
+  private async inspectMapOperation(retryWhenAbsent = false): Promise<void> {
+    const operation = this.form.operation;
+    if (!operation || !['needs-inspection', 'retry-ready'].includes(operation.status)) return;
+    const controller = new AbortController();
+    this.activeMapController = controller;
+    await this.storeOperation({ ...operation, status: 'inspecting', updatedAt: new Date().toISOString(),
+      message: 'Reading the approved capability map and pending proposal refs. No mutation is running.' });
+    this.update({ busy: true, error: null });
+    const proposalsRead = await this.run([
+      'capability', 'proposals', '--lead', operation.lead, '--json'
+    ], controller.signal);
+    if (proposalsRead.error || controller.signal.aborted) {
+      if (this.activeMapController === controller) this.activeMapController = null;
+      await this.storeOperation({ ...(this.form.operation ?? operation), status: 'needs-inspection',
+        updatedAt: new Date().toISOString(),
+        message: controller.signal.aborted
+          ? 'Inspection was cancelled. Inspect the remote outcome before retrying.'
+          : `The pending proposal namespace could not be inspected: ${proposalsRead.error}` });
+      this.update({ busy: false });
+      return;
+    }
+    const proposalsPayload = (proposalsRead.result as { proposals?: unknown } | null)?.proposals;
+    if (!Array.isArray(proposalsPayload)) {
+      if (this.activeMapController === controller) this.activeMapController = null;
+      await this.storeOperation({ ...(this.form.operation ?? operation), status: 'needs-inspection',
+        updatedAt: new Date().toISOString(),
+        message: 'The CLI returned an incompatible proposal-list result. Update or repair the bundled CLI before retrying.' });
+      this.update({ busy: false });
+      return;
+    }
+    const proposals = proposalsPayload as CapabilityProposalSummary[];
+    const prefix = `sflow/config-change/capability/map-${operation.capabilityId}-`;
+    const existing = proposals.find((proposal) => proposal.merged !== true
+      && proposal.branch?.startsWith(prefix)
+      && /^[0-9a-f]{8}$/i.test(proposal.branch.slice(prefix.length))
+      && Boolean(proposal.proposalCommit));
+    if (existing?.branch && existing.proposalCommit) {
+      if (this.activeMapController === controller) this.activeMapController = null;
+      await this.storeOperation({ ...(this.form.operation ?? operation), status: 'proposal-ready',
+        updatedAt: new Date().toISOString(),
+        message: 'The existing remote proposal was found. Open that exact review; no duplicate was created.',
+        proposalBranch: existing.branch, proposalCommit: existing.proposalCommit });
+      this.update({ busy: false });
+      return;
+    }
+    const approvedRead = await this.run([
+      'capability', 'organisation', operation.lead, '--refresh', '--json'
+    ], controller.signal);
+    if (this.activeMapController === controller) this.activeMapController = null;
+    if (approvedRead.error || controller.signal.aborted) {
+      await this.storeOperation({ ...(this.form.operation ?? operation), status: 'needs-inspection',
+        updatedAt: new Date().toISOString(),
+        message: controller.signal.aborted
+          ? 'Inspection was cancelled. Inspect the remote outcome before retrying.'
+          : `Pending proposals were readable, but approved configuration was not: ${approvedRead.error}` });
+      this.update({ busy: false });
+      return;
+    }
+    const organisation = approvedRead.result as Organisation | null;
+    if (!organisation || !Array.isArray(organisation.capabilities)) {
+      await this.storeOperation({ ...(this.form.operation ?? operation), status: 'needs-inspection',
+        updatedAt: new Date().toISOString(),
+        message: 'The CLI returned an incompatible approved-map result. Update or repair the bundled CLI before retrying.' });
+      this.update({ busy: false });
+      return;
+    }
+    const approved = compareApprovedCapability(this.form.operation ?? operation, organisation);
+    if (approved.status === 'match') {
+      await this.storeOperation({ ...(this.form.operation ?? operation), status: 'already-active',
+        updatedAt: new Date().toISOString(),
+        message: 'The approved capability matches the exact saved request. No retry is needed.' });
+      this.update({ busy: false });
+      return;
+    }
+    if (approved.status === 'conflict' || approved.status === 'unverifiable') {
+      const fields = approved.differences.join(', ');
+      await this.storeOperation({ ...(this.form.operation ?? operation), status: 'needs-inspection',
+        updatedAt: new Date().toISOString(),
+        message: approved.status === 'conflict'
+          ? `The approved capability uses different saved-request attributes (${fields}). Review the approved map; this request will not be retried or cleared automatically.`
+          : `The approved same-ID capability could not be tied to the saved request (${fields}). Review the approved map; this request will not be retried or cleared automatically.` });
+      this.update({ busy: false });
+      return;
+    }
+    const retryReady = { ...(this.form.operation ?? operation), status: 'retry-ready' as const,
+      updatedAt: new Date().toISOString(),
+      message: 'No approved capability or pending same-ID proposal exists. The exact saved request is safe to retry.' };
+    await this.storeOperation(retryReady);
+    this.update({ busy: false });
+    if (retryWhenAbsent) {
+      await this.runMapOperation({ ...retryReady, attempt: retryReady.attempt + 1 });
+    }
   }
 
   /** Revoke every result whose repository/authority pair may no longer match the form. */
@@ -866,21 +1349,100 @@ export class BootstrapPanel {
     // updated. New renders never expose a separate Read button.
     if (message?.type === 'read') return void await this.loadSelectedMap();
 
+    if (message?.type === 'cancelMapOperation') {
+      const operation = this.form.operation;
+      if (!operation || !this.activeMapController
+        || !['running', 'inspecting'].includes(operation.status)) return;
+      const cancelling: MapCapabilityOperation = {
+        ...operation, status: 'cancelling', updatedAt: new Date().toISOString(),
+        message: 'Stopping the CLI process tree before reporting the outcome…' };
+      this.form.operation = cancelling;
+      this.render();
+      this.activeMapController.abort();
+      void this.queueOperationStorage(() => writeMapCapabilityOperation(
+        this.context.globalState, cancelling, restoreMapCapabilityOperation
+      ))
+        .then(undefined, () => undefined);
+      return;
+    }
+
+    if (message?.type === 'inspectMapOperation') {
+      await this.inspectMapOperation(false);
+      return;
+    }
+
+    if (message?.type === 'retryMapOperation') {
+      // Re-inspect immediately before replay. The engine also re-observes at its mutation boundary,
+      // so a proposal created in the remaining race is reported rather than duplicated.
+      await this.inspectMapOperation(true);
+      return;
+    }
+
+    if (message?.type === 'reviewMapOperation') {
+      const operation = this.form.operation;
+      if (!operation || operation.status !== 'proposal-ready' || !operation.proposalBranch
+        || !operation.proposalCommit || !/^[0-9a-f]{40,64}$/i.test(operation.proposalCommit)) return;
+      const mapped: Mapped = {
+        capabilityId: operation.capabilityId,
+        repositoryId: null,
+        lead: operation.lead,
+        branch: operation.proposalBranch,
+        baseBranch: 'sflow/config',
+        commit: operation.proposalCommit,
+        reviewRequired: true
+      };
+      this.dispose();
+      await this.onMapped(mapped);
+      await this.queueOperationStorage(async () => {
+        await clearMapCapabilityOperation(
+          this.context.globalState, operation.id, restoreMapCapabilityOperation
+        );
+      });
+      return;
+    }
+
+    if (message?.type === 'clearMapOperation') {
+      if (this.form.operation?.status !== 'already-active') return;
+      await this.storeOperation(null);
+      return;
+    }
+
     if (message?.type === 'map') {
       if (mapProblems(this.form).length || this.form.busy) return;
-      this.update({ busy: true, error: null });
-      const { result, error } = await this.run(mapCommand(this.form));
-      if (error) return void this.update({ busy: false, error });
-      // dispose() rather than panel.dispose(): closing the panel has to clear the singleton in
-      // the same tick, or opening the screen again reveals the panel that was just closed.
-      this.dispose();
-      await this.onMapped(result as Mapped);
+      const operation = this.newOperation(mapCommand(this.form));
+      try {
+        // Refuse to begin the remote mutation unless its recovery identity is durable first.
+        await this.storeOperation(operation);
+      } catch (error) {
+        this.form.operation = null;
+        this.update({ busy: false,
+          error: `The mapping operation could not be saved before it started: ${(error as Error).message}` });
+        return;
+      }
+      await this.runMapOperation(operation);
     }
   }
 
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    if (this.activeMapController && !this.activeMapController.signal.aborted) {
+      const operation = this.form.operation;
+      if (operation && (operation.status === 'running' || operation.status === 'inspecting')) {
+        const cancelling: MapCapabilityOperation = {
+          ...operation,
+          status: 'cancelling',
+          updatedAt: new Date().toISOString(),
+          message: 'The panel closed while this operation was active. Stopping it before remote outcome inspection.',
+        };
+        this.form = { ...this.form, operation: cancelling };
+        void this.queueOperationStorage(() => writeMapCapabilityOperation(
+          this.context.globalState, cancelling, restoreMapCapabilityOperation
+        ))
+          .then(undefined, () => undefined);
+      }
+      this.activeMapController.abort();
+    }
     if (BootstrapPanel.current === this) BootstrapPanel.current = null;
     this.panel.dispose();
     for (const disposable of this.disposables) disposable.dispose();

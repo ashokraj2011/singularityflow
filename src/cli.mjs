@@ -8641,7 +8641,7 @@ async function capabilityCommand(positionals, options) {
     if (kind && !CAPABILITY_KINDS.includes(kind)) {
       throw new SingularityFlowError(`--kind must be one of: ${CAPABILITY_KINDS.join(', ')}.`);
     }
-    const mapped = await mapCapability(leadUrl, {
+    let mapped = await mapCapability(leadUrl, {
       capabilityId: requirePositional(positionals, 2, 'capability ID'),
       name: optionString(options, 'name'),
       kind,
@@ -8667,7 +8667,18 @@ async function capabilityCommand(positionals, options) {
       jiraProject: optionString(options, 'jira-project'),
       teams: (optionString(options, 'teams') ?? '').split(',').map((team) => team.trim()).filter(Boolean)
     });
-    await rememberLeadRepository(leadUrl);
+    try {
+      await rememberLeadRepository(leadUrl);
+    } catch {
+      // The remote proposal is the durable outcome. A machine-local registry failure after that
+      // confirmation must not turn success into an error that encourages a duplicate retry.
+      const warning = 'The capability proposal succeeded, but this machine could not remember its capability-map repository.';
+      mapped = {
+        ...mapped,
+        localCache: { remembered: false, code: 'CAPABILITY_LEAD_REGISTRY_WRITE_FAILED', warning },
+        warnings: [...(mapped.warnings ?? []), warning]
+      };
+    }
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ lead: leadUrl, ...mapped }, null, 2));
     const ships = mapped.repositoryIds?.length
       ? ` to ${mapped.repositoryIds.join(', ')}${mapped.leadRepositoryId && mapped.repositoryIds.length > 1 ? ` (lead ${mapped.leadRepositoryId})` : ''}`

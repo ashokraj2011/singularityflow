@@ -18,13 +18,13 @@
  */
 import path from 'node:path';
 import os from 'node:os';
-import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, writeFile, mkdir } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import { lstat, mkdtemp, readFile, readdir, unlink, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import YAML from 'yaml';
 import {
   isGitRefName, mapLimit, removeTemporaryTree, secureRepositoryPath, SingularityFlowError,
-  run, readJson, YAML_OUTPUT
+  run, readJson, writeAtomic, YAML_OUTPUT
 } from './util.mjs';
 import {
   CAPABILITIES_PATH, capabilityRepositories, editCapability, loadCapabilities,
@@ -59,7 +59,9 @@ import {
   assertCredentialFreeRemote, classifyGitRemoteFailure, frozenRemoteTransport, remoteFingerprint,
   redactDiagnosticText, safeGitDiagnosticReference, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
-import { enterpriseGitEnvironment } from './git-enterprise-environment.mjs';
+import {
+  enterpriseGitEnvironment, withoutGitProcessOverrides
+} from './git-enterprise-environment.mjs';
 import {
   GitRemoteSession, requireRemoteObservation, runRemoteGitAsync
 } from './git-execution.mjs';
@@ -82,6 +84,287 @@ export {
 const PORTFOLIO_PATH = 'singularity/portfolio.yml';
 const CAPABILITY_PROPOSAL_PREFIX = 'sflow/config-change/capability/';
 const CAPABILITY_INSPECTION_MAX_PROPOSALS = 64;
+const CAPABILITY_PROPOSAL_ADVERTISED_SCAN_LIMIT = 4_096;
+// Git for Windows ultimately passes one UTF-16 command line to CreateProcessW. Keep explicit
+// proposal fetches well below that platform boundary so the Git executable path, runtime quoting,
+// and provider wrappers retain ample headroom even when advertised refs are unusually long.
+export const CAPABILITY_PROPOSAL_FETCH_ARGV_LIMIT_BYTES = 24 * 1_024;
+const CAPABILITY_PROPOSAL_FETCH_ARGS = Object.freeze(['fetch', '--quiet', '--no-tags', 'origin']);
+const CAPABILITY_PUSH_RECOVERY_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
+const CAPABILITY_PUSH_RECOVERY_SCAN_LIMIT = 256;
+const CAPABILITY_PUSH_RECOVERY_RECORD_LIMIT = 64 * 1_024;
+const CAPABILITY_PUSH_RECOVERY_MARKER = 'sflow-capability-push-recovery.json';
+
+/** Generous process-boundary limits for a newly authored map request, never for approved-map reads. */
+export const CAPABILITY_MAP_INPUT_LIMITS = Object.freeze({
+  capabilityIdBytes: 128,
+  scalarBytes: 16 * 1024,
+  collectionItems: 256,
+  aggregateBytes: 512 * 1024
+});
+
+function capabilityMapInputError(message, code) {
+  throw new SingularityFlowError(`${message} Nothing was changed.`, {
+    code,
+    details: capabilityRecovery({
+      stage: 'proposal', state: 'input-refused', recoverable: true,
+      preserved: ['approved-configuration', 'proposal-branches', 'application-branches']
+    })
+  });
+}
+
+function scalarInputBytes(value, field) {
+  if (value == null) return 0;
+  if (!['string', 'number', 'boolean'].includes(typeof value)) {
+    capabilityMapInputError(`Capability map field '${field}' must be a scalar value.`,
+      'CAPABILITY_MAP_INPUT_INVALID');
+  }
+  const bytes = Buffer.byteLength(String(value), 'utf8');
+  if (bytes > CAPABILITY_MAP_INPUT_LIMITS.scalarBytes) {
+    capabilityMapInputError(
+      `Capability map field '${field}' exceeds the ${CAPABILITY_MAP_INPUT_LIMITS.scalarBytes}-byte scalar limit.`,
+      'CAPABILITY_MAP_SCALAR_LIMIT_EXCEEDED');
+  }
+  return bytes;
+}
+
+/** Refuse unbounded API input before identity discovery, enterprise setup, or any Git observation. */
+function validateCapabilityMapRequest(input) {
+  const capabilityIdBytes = Buffer.byteLength(String(input.capabilityId ?? ''), 'utf8');
+  if (capabilityIdBytes > CAPABILITY_MAP_INPUT_LIMITS.capabilityIdBytes) {
+    capabilityMapInputError(
+      `Capability identifier exceeds the ${CAPABILITY_MAP_INPUT_LIMITS.capabilityIdBytes}-byte limit.`,
+      'CAPABILITY_ID_LIMIT_EXCEEDED');
+  }
+  for (const [field, value] of Object.entries({
+    leadUrl: input.leadUrl, capabilityId: input.capabilityId, name: input.name,
+    kind: input.kind, type: input.type, parent: input.parent,
+    repositoryUrl: input.repositoryUrl, leadRepositoryUrl: input.leadRepositoryUrl,
+    jiraProject: input.jiraProject, cloneMode: input.clone?.mode,
+    cloneFallback: input.clone?.fallback
+  })) scalarInputBytes(value, field);
+
+  for (const [field, value] of Object.entries({
+    metadata: input.metadata, documentation: input.documentation, resources: input.resources
+  })) {
+    if (value == null || typeof value !== 'object' || Array.isArray(value)) {
+      capabilityMapInputError(`Capability map field '${field}' must be a key/value map.`,
+        'CAPABILITY_MAP_INPUT_INVALID');
+    }
+    const entries = Object.entries(value);
+    if (entries.length > CAPABILITY_MAP_INPUT_LIMITS.collectionItems) {
+      capabilityMapInputError(
+        `Capability map field '${field}' exceeds the ${CAPABILITY_MAP_INPUT_LIMITS.collectionItems}-entry limit.`,
+        'CAPABILITY_MAP_COLLECTION_LIMIT_EXCEEDED');
+    }
+    for (const [key, item] of entries) {
+      scalarInputBytes(key, `${field} key`);
+      scalarInputBytes(item, `${field}.${key}`);
+    }
+  }
+
+  for (const [field, value] of Object.entries({
+    repositoryUrls: input.repositoryUrls, sourceRoots: input.sourceRoots,
+    sharedRoots: input.sharedRoots, teams: input.teams,
+    sparseCone: input.clone?.sparseCone ?? []
+  })) {
+    if (!Array.isArray(value)) {
+      capabilityMapInputError(`Capability map field '${field}' must be a list.`,
+        'CAPABILITY_MAP_INPUT_INVALID');
+    }
+    if (value.length > CAPABILITY_MAP_INPUT_LIMITS.collectionItems) {
+      capabilityMapInputError(
+        `Capability map field '${field}' exceeds the ${CAPABILITY_MAP_INPUT_LIMITS.collectionItems}-item limit.`,
+        'CAPABILITY_MAP_COLLECTION_LIMIT_EXCEEDED');
+    }
+    value.forEach((item, index) => scalarInputBytes(item, `${field}[${index}]`));
+  }
+
+  let serialized;
+  try { serialized = JSON.stringify(input); }
+  catch {
+    capabilityMapInputError('Capability map request must be serializable.',
+      'CAPABILITY_MAP_INPUT_INVALID');
+  }
+  if (Buffer.byteLength(serialized, 'utf8') > CAPABILITY_MAP_INPUT_LIMITS.aggregateBytes) {
+    capabilityMapInputError(
+      `Capability map request exceeds the ${CAPABILITY_MAP_INPUT_LIMITS.aggregateBytes}-byte aggregate limit.`,
+      'CAPABILITY_MAP_REQUEST_LIMIT_EXCEEDED');
+  }
+}
+
+/** Read ordinary author configuration without inheriting an ambient repository selector. */
+async function captureCapabilityProposalAuthor(sourceEnv = process.env) {
+  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-map-author-'));
+  const env = withoutGitProcessOverrides(sourceEnv);
+  try {
+    run('git', ['init', '--quiet'], { cwd: scratch, env });
+    const identity = gitCommitIdentity(scratch, { env });
+    // The shared identity helper deliberately has an operating-system username fallback for
+    // display-only callers. A governed proposal author is commit evidence, so that fallback is not
+    // authority: require the name Git itself resolves from ordinary configuration. Tests retain
+    // their explicit, process-scoped identity fixture rather than depending on developer config.
+    if (env.NODE_ENV === 'test' && env.SINGULARITY_FLOW_TEST_IDENTITY) return identity;
+    const name = run('git', ['config', '--get', 'user.name'], {
+      cwd: scratch, env, allowFailure: true
+    }).stdout.trim();
+    const email = run('git', ['config', '--get', 'user.email'], {
+      cwd: scratch, env, allowFailure: true
+    }).stdout.trim();
+    return { ...identity, name, email };
+  } finally {
+    await removeTemporaryTree(scratch);
+  }
+}
+
+/** A governed proposal must never be attributed to a fabricated fallback identity. */
+function requireCapabilityProposalAuthor(identity) {
+  const name = String(identity?.name ?? '').trim();
+  const email = String(identity?.email ?? '').trim();
+  const safeName = name.length > 0 && Buffer.byteLength(name, 'utf8') <= 256
+    && !/[\x00-\x1f\x7f]/u.test(name);
+  const safeEmail = email.length > 0 && Buffer.byteLength(email, 'utf8') <= 320
+    && /^[^\s<>@\x00-\x1f\x7f]+@[^\s<>@\x00-\x1f\x7f]+$/u.test(email);
+  if (!safeName || !safeEmail) {
+    throw new SingularityFlowError(
+      'A valid Git author name and email are required before authoring a capability proposal. Configure both globally, then retry; nothing was changed.', {
+        code: 'CAPABILITY_AUTHOR_IDENTITY_REQUIRED',
+        details: capabilityRecovery({
+          stage: 'proposal', state: 'input-refused', recoverable: true,
+          nextAction: {
+            command: 'git config --global user.name "Your Name" && git config --global user.email you@example.com',
+            commands: [
+              'git config --global user.name "Your Name"',
+              'git config --global user.email you@example.com'
+            ],
+            skill: '/sf-capability-map'
+          },
+          preserved: ['approved-configuration', 'proposal-branches', 'application-branches']
+        })
+      }
+    );
+  }
+  return { ...identity, name, email };
+}
+
+/** Private machine-local index for the only temporary checkouts deliberately retained. */
+export function capabilityPushRecoveryDirectory(environment = process.env) {
+  return environment.SINGULARITY_FLOW_CAPABILITY_PUSH_RECOVERY
+    ?? (environment.SINGULARITY_FLOW_LEAD_REGISTRY
+      ? path.join(path.dirname(environment.SINGULARITY_FLOW_LEAD_REGISTRY), 'capability-push-recovery')
+      : path.join(os.homedir(), '.singularity-flow', 'capability-push-recovery'));
+}
+
+function safeCapabilityRecoveryCheckout(value) {
+  if (typeof value !== 'string' || !value) return null;
+  const resolved = path.resolve(value);
+  const relative = path.relative(path.resolve(os.tmpdir()), resolved);
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)
+      || !/^sflow-lead-[A-Za-z0-9_-]+$/u.test(path.basename(resolved))) return null;
+  return resolved;
+}
+
+async function boundedCapabilityRecoveryRecord(file) {
+  try {
+    const info = await lstat(file);
+    if (!info.isFile() || info.isSymbolicLink()
+        || info.size <= 0 || info.size > CAPABILITY_PUSH_RECOVERY_RECORD_LIMIT) return null;
+    return JSON.parse(await readFile(file, 'utf8'));
+  } catch { return null; }
+}
+
+async function forgetCapabilityRecoveryRecord(file) {
+  try { await unlink(file); } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
+}
+
+/**
+ * Remove expired retained proposal checkouts only when two private records identify the exact
+ * SFlow-created temporary tree. Malformed or forged records can never nominate an arbitrary path.
+ */
+export async function cleanupCapabilityPushRecoveries({
+  environment = process.env, now = Date.now(), cleanupTemporaryTree = removeTemporaryTree
+} = {}) {
+  const directory = capabilityPushRecoveryDirectory(environment);
+  let entries;
+  try { entries = await readdir(directory, { withFileTypes: true }); }
+  catch (error) {
+    if (error?.code === 'ENOENT') {
+      return { scanned: 0, live: 0, expiredRemoved: 0, invalid: 0, failed: 0, deferred: 0 };
+    }
+    return { scanned: 0, live: 0, expiredRemoved: 0, invalid: 0, failed: 1, deferred: 0 };
+  }
+  const candidates = entries
+    .filter((entry) => entry.isFile() && /^capr-[0-9a-f-]+\.json$/u.test(entry.name))
+    .sort((left, right) => left.name.localeCompare(right.name));
+  const summary = {
+    scanned: 0, live: 0, expiredRemoved: 0, invalid: 0, failed: 0,
+    deferred: Math.max(0, candidates.length - CAPABILITY_PUSH_RECOVERY_SCAN_LIMIT)
+  };
+  for (const entry of candidates.slice(0, CAPABILITY_PUSH_RECOVERY_SCAN_LIMIT)) {
+    summary.scanned += 1;
+    const registryFile = path.join(directory, entry.name);
+    const record = await boundedCapabilityRecoveryRecord(registryFile);
+    const expiry = Date.parse(record?.expiresAt ?? '');
+    const created = Date.parse(record?.createdAt ?? '');
+    const checkout = safeCapabilityRecoveryCheckout(record?.checkout);
+    const valid = record?.schemaVersion === 1 // schema-transient: disposable Git transport recovery receipt
+      && record?.status === 'outcome-unknown'
+      && `${record?.recoveryId}.json` === entry.name
+      && /^capr-[0-9a-f-]+$/u.test(record?.recoveryId ?? '')
+      && Number.isFinite(created) && Number.isFinite(expiry)
+      && expiry > created && expiry - created <= CAPABILITY_PUSH_RECOVERY_TTL_MS
+      && checkout === record?.checkout;
+    if (!valid) {
+      summary.invalid += 1;
+      try { await forgetCapabilityRecoveryRecord(registryFile); } catch { summary.failed += 1; }
+      continue;
+    }
+    if (expiry > Number(now)) {
+      summary.live += 1;
+      continue;
+    }
+    const marker = await boundedCapabilityRecoveryRecord(
+      path.join(checkout, '.git', CAPABILITY_PUSH_RECOVERY_MARKER)
+    );
+    if (marker?.recoveryId !== record.recoveryId || marker?.checkout !== checkout
+        || marker?.sourceCommit !== record.sourceCommit || marker?.targetRef !== record.targetRef) {
+      // The checkout is missing or no longer proves it is the one this record created. Drop only
+      // the disposable index entry; never follow an unproved path into user data.
+      summary.invalid += 1;
+      try { await forgetCapabilityRecoveryRecord(registryFile); } catch { summary.failed += 1; }
+      continue;
+    }
+    try {
+      await cleanupTemporaryTree(checkout);
+      await forgetCapabilityRecoveryRecord(registryFile);
+      summary.expiredRemoved += 1;
+    } catch { summary.failed += 1; }
+  }
+  return summary;
+}
+
+async function retainCapabilityPushRecovery(record, { environment = process.env } = {}) {
+  const recoveryId = `capr-${randomUUID()}`;
+  const createdAtMs = Date.now();
+  const createdAt = new Date(createdAtMs).toISOString();
+  const expiresAt = new Date(createdAtMs + CAPABILITY_PUSH_RECOVERY_TTL_MS).toISOString();
+  const retained = {
+    schemaVersion: 1, // schema-transient: disposable Git transport recovery receipt
+    recoveryId, status: 'outcome-unknown', createdAt, expiresAt, ...record
+  };
+  const marker = path.join(retained.checkout, '.git', CAPABILITY_PUSH_RECOVERY_MARKER);
+  const registryFile = path.join(capabilityPushRecoveryDirectory(environment), `${recoveryId}.json`);
+  await writeAtomic(marker, `${JSON.stringify(retained, null, 2)}\n`, { mode: 0o600 });
+  try {
+    await writeAtomic(registryFile, `${JSON.stringify(retained, null, 2)}\n`, { mode: 0o600 });
+  } catch (error) {
+    try { await forgetCapabilityRecoveryRecord(marker); } catch { /* primary write error wins */ }
+    throw error;
+  }
+  return { recoveryId, expiresAt, registryFile };
+}
 
 function quoted(value, fallback = 'VALUE') {
   const text = String(value ?? '');
@@ -151,6 +434,31 @@ function capabilityRecovery({
     preserved,
     nextAction
   };
+}
+
+function missingCapabilityConfigurationError(remote, proposals = []) {
+  const visible = proposals.slice(0, CAPABILITY_INSPECTION_MAX_PROPOSALS).map((proposal) => ({
+    branch: String(proposal.branch ?? '').replace(/^refs\/heads\//, ''),
+    commit: /^[0-9a-f]{40,64}$/i.test(String(proposal.commit ?? '')) ? proposal.commit : null
+  }));
+  return new SingularityFlowError(
+    `Capability proposal refs exist on '${sanitizeRemote(remote)}', but '${CONFIGURATION_BRANCH}' is absent. The proposal authority cannot be interpreted safely until its history is repaired. Nothing was changed.`, {
+      code: 'CAPABILITY_CONFIGURATION_BRANCH_MISSING',
+      details: {
+        ...capabilityRecovery({
+          stage: 'review', state: 'configuration-authority-missing', remote,
+          nextAction: {
+            command: capabilityCommand('fsck', { remote }),
+            skill: '/sf-capability-map'
+          },
+          preserved: ['proposal-branches', 'application-branches']
+        }),
+        proposalCount: proposals.length,
+        proposals: visible,
+        proposalsTruncated: proposals.length > visible.length
+      }
+    }
+  );
 }
 
 function capabilityProposalBranch(value) {
@@ -740,7 +1048,8 @@ async function writeOrganisationCache(remote, tipSha, organisation) {
  */
 async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
   remoteSession = null, authorityObservation = null, fullHistory = false,
-  bindProposalToBase = false
+  bindProposalToBase = false, authorIdentity = null,
+  cleanupTemporaryTree = removeTemporaryTree
 } = {}) {
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A lead repository URL is required.', {
@@ -754,6 +1063,16 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
   // One combined advertisement answers both questions needed by first-map bootstrap: whether the
   // configuration authority exists and which application branch HEAD names. Existing authorities
   // pay the same one probe; new authorities no longer pay a second HEAD round trip.
+  // Commit identity is local authoring input, not remote transport configuration. Capture it before
+  // the isolated environment deliberately removes global and repository Git configuration.
+  // Recovery expiry is best-effort housekeeping and can never make a governed mutation fail.
+  // It runs before a new scratch checkout is created, so interrupted/unknown pushes do not grow
+  // without a time bound even when the user never invokes a separate maintenance command.
+  try { await cleanupCapabilityPushRecoveries({ environment: process.env }); }
+  catch { /* Retain recovery evidence rather than blocking work on cleanup. */ }
+  const proposalAuthor = requireCapabilityProposalAuthor(
+    authorIdentity ?? await captureCapabilityProposalAuthor(process.env)
+  );
   const operationSession = remoteSession ?? new GitRemoteSession({
     env: enterpriseGitEnvironment()
   });
@@ -763,13 +1082,18 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
   const approvedHead = await configurationBranchHead(remote, {
     session: operationSession, observation: observedAuthority
   });
+  let configurationBootstrap = { created: false, commit: approvedHead.sha ?? null };
   if (!approvedHead.exists) {
-    await ensureConfigurationBranch(remote, {
-      remoteSession: operationSession, observedHead: approvedHead, env: operationSession.env
+    configurationBootstrap = await ensureConfigurationBranch(remote, {
+      remoteSession: operationSession, observedHead: approvedHead,
+      authorIdentity: proposalAuthor, env: operationSession.env
     });
   }
   const baseBranch = CONFIGURATION_BRANCH;
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-lead-'));
+  let confirmedRemoteOutcome = null;
+  let primaryFailure = null;
+  let retainScratch = false;
   try {
     const transport = frozenRemoteTransport(remote, {
       push: true, env: operationSession.env
@@ -795,7 +1119,9 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
     const baseCommit = run('git', ['rev-parse', 'HEAD'], {
       cwd: scratch, env: transport.env
     }).stdout.trim();
-    const result = await mutate(scratch, baseBranch, operationSession, observedAuthority);
+    const result = await mutate(
+      scratch, baseBranch, operationSession, observedAuthority, proposalAuthor
+    );
 
     const staged = run('git', ['add', '-A'], {
       cwd: scratch, env: transport.env, allowFailure: true
@@ -804,10 +1130,11 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
     if (!run('git', ['diff', '--cached', '--name-only'], {
       cwd: scratch, env: transport.env
     }).stdout.trim()) {
-      return {
+      confirmedRemoteOutcome = {
         ...result, changed: false, pushed: false, commit: null,
         branch: null, baseBranch, baseCommit, reviewRequired: false
       };
+      return confirmedRemoteOutcome;
     }
 
     // The base revision makes the proposal stable and conflict-visible. A retry against the same
@@ -820,9 +1147,8 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
       cwd: scratch, env: transport.env
     });
 
-    const actor = gitCommitIdentity(scratch, { env: transport.env });
-    run('git', ['-c', `user.name=${actor.name || 'Singularity Flow'}`,
-      '-c', `user.email=${actor.email || 'unknown@invalid'}`,
+    run('git', ['-c', `user.name=${proposalAuthor.name}`,
+      '-c', `user.email=${proposalAuthor.email}`,
       'commit', '-m', message], { cwd: scratch, env: transport.env });
     const commit = run('git', ['rev-parse', 'HEAD'], {
       cwd: scratch, env: transport.env
@@ -864,47 +1190,153 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
         || (!bindProposalToBase && /everything up-to-date/i.test(diagnostic)))) {
       throw duplicateProposal();
     }
+    let pushReconciled = false;
     if (pushed.status !== 0) {
-      if (bindProposalToBase) {
-        const current = await operationSession.observeAsync(remote, {
-          includeHead: false, refs: [baseRef], refresh: true
-        });
-        const observedBase = current.ok ? current.refs.get(baseRef) ?? null : null;
-        if (observedBase && observedBase !== baseCommit) {
-          throw new SingularityFlowError(
-            `Approved configuration advanced from ${baseCommit} to ${observedBase} while the capability proposal was being created. No proposal ref was published; retry against the current map.`, {
-              code: 'CAPABILITY_CONFIGURATION_PLAN_STALE',
-              details: capabilityRecovery({
-                stage: 'proposal', state: 'configuration-advanced', remote,
+      // A timeout or disconnected receive-pack is an uncertain write, not proof of failure. Observe
+      // the exact destination before deleting the only local checkout that contains this commit.
+      operationSession.invalidate(remote);
+      const current = await operationSession.observeAsync(remote, {
+        includeHead: false, refs: bindProposalToBase ? [reviewRef, baseRef] : [reviewRef],
+        refresh: true
+      });
+      const observedProposal = current.ok ? current.refs.get(reviewRef) ?? null : null;
+      const observedBase = current.ok ? current.refs.get(baseRef) ?? null : null;
+      if (observedProposal === commit) {
+        pushReconciled = true;
+      } else if (observedProposal) {
+        throw duplicateProposal();
+      } else if (bindProposalToBase && observedBase && observedBase !== baseCommit) {
+        throw new SingularityFlowError(
+          `Approved configuration advanced from ${baseCommit} to ${observedBase} while the capability proposal was being created. No proposal ref was published; retry against the current map.`, {
+            code: 'CAPABILITY_CONFIGURATION_PLAN_STALE',
+            details: capabilityRecovery({
+              stage: 'proposal', state: 'configuration-advanced', remote,
+              nextAction: {
+                command: `singularity-flow capability organisation ${quoted(commandRemote(remote))} --refresh --json`,
+                skill: '/sf-capability-map'
+              },
+              preserved: ['approved-configuration', 'application-branches', 'existing-proposals']
+            })
+          }
+        );
+      } else if (!current.ok) {
+        // Keep the exact object and leased command available when neither success nor absence can be
+        // proven. A small machine-local record binds the exact commit, target and guard; the retained
+        // checkout is the only larger object and is narrowly scoped to configuration history.
+        const exactInspection = {
+          program: 'git',
+          args: ['ls-remote', '--refs', assertCredentialFreeRemote(remote), reviewRef],
+          expectedCommit: commit
+        };
+        const exactRetry = {
+          cwd: scratch,
+          program: 'git',
+          args: [
+            'push', '--porcelain',
+            ...(bindProposalToBase ? [
+              '--atomic', `--force-with-lease=${baseRef}:${baseCommit}`
+            ] : []),
+            `--force-with-lease=${reviewRef}:`, 'origin', `${commit}:${reviewRef}`,
+            ...(bindProposalToBase ? [`${baseCommit}:${baseRef}`] : [])
+          ]
+        };
+        let retainedRecovery = null;
+        try {
+          retainedRecovery = await retainCapabilityPushRecovery({
+            checkout: scratch,
+            remote: assertCredentialFreeRemote(remote),
+            sourceCommit: commit,
+            targetRef: reviewRef,
+            expectedTargetCommit: null,
+            guardedRef: bindProposalToBase ? baseRef : null,
+            expectedGuardedCommit: bindProposalToBase ? baseCommit : null,
+            inspect: exactInspection,
+            retry: exactRetry
+          });
+          retainScratch = true;
+        } catch {
+          // An unindexed checkout would have no bounded lifecycle. The ordinary finally cleanup
+          // removes it, and remote inspection remains the recovery path once connectivity returns.
+        }
+        throw new SingularityFlowError(
+          `The capability proposal push outcome is unknown because '${sanitizeRemote(remote)}' could not be re-read. ${retainedRecovery ? 'An expiring local recovery was retained.' : 'Local recovery could not be retained; inspect the proposal ref after connectivity returns.'}`, {
+            code: 'CAPABILITY_PROPOSAL_PUSH_OUTCOME_UNKNOWN',
+            details: {
+              ...capabilityRecovery({
+                stage: 'proposal', state: 'proposal-publication-uncertain', remote,
+                branch: reviewBranch, commit,
                 nextAction: {
+                  command: capabilityCommand('proposal', {
+                    remote, branch: reviewBranch
+                  }),
+                  skill: '/sf-capability-map', inspectBeforeRetry: true
+                },
+                preserved: [
+                  ...(retainedRecovery ? ['local-proposal-recovery'] : []),
+                  'approved-configuration', 'application-branches'
+                ]
+              }),
+              localRecovery: {
+                status: retainedRecovery ? 'retained' : 'unavailable',
+                recoveryId: retainedRecovery?.recoveryId ?? null,
+                expiresAt: retainedRecovery?.expiresAt ?? null,
+                recordWritten: Boolean(retainedRecovery)
+              }
+            }
+          });
+      } else if (/stale info|already exists|fetch first|non-fast-forward|reference already exists/i.test(diagnostic)) {
+        throw duplicateProposal();
+      } else {
+        const initialized = configurationBootstrap?.created === true;
+        const remoteFailure = publicRemoteFailure(pushed.failure);
+        throw new SingularityFlowError(
+          initialized
+            ? `Configuration authority '${CONFIGURATION_BRANCH}' was initialized on '${sanitizeRemote(remote)}', but the capability proposal was not published. Retry the same mapping request; it is idempotent and will preserve the initialized authority.`
+            : `The capability proposal could not be pushed to '${sanitizeRemote(remote)}'. No authority branch changed. ${pushed.failure?.advice ?? 'Correct Git write access and retry the same mapping command.'}`, {
+            code: 'CAPABILITY_PROPOSAL_PUSH_FAILED',
+            details: {
+              ...capabilityRecovery({
+                stage: 'proposal', state: initialized
+                  ? 'configuration-initialized-proposal-not-published' : 'proposal-not-published',
+                remote,
+                nextAction: initialized ? {
+                  command: `singularity-flow capability organisation ${quoted(commandRemote(remote))} --refresh --json`,
+                  skill: '/sf-capability-map', retrySameRequest: true,
+                  retryInstruction: 'After inspection, re-run the exact original capability map command with every original argument.'
+                } : {
                   command: `singularity-flow capability organisation ${quoted(commandRemote(remote))} --refresh --json`,
                   skill: '/sf-capability-map'
                 },
-                preserved: ['approved-configuration', 'application-branches', 'existing-proposals']
-              })
+                preserved: initialized
+                  ? ['initialized-configuration-authority', 'application-branches']
+                  : ['approved-configuration', 'application-branches']
+              }),
+              ...(remoteFailure ? { remoteFailure } : {})
             }
-          );
-        }
+          });
       }
-      if (/stale info|already exists|fetch first|non-fast-forward|reference already exists/i.test(diagnostic)) {
-        throw duplicateProposal();
-      }
-      throw new SingularityFlowError(
-        `The capability proposal could not be pushed to '${sanitizeRemote(remote)}'. No authority branch changed. ${pushed.failure?.advice ?? 'Correct Git write access and retry the same mapping command.'}`, {
-          code: 'CAPABILITY_PROPOSAL_PUSH_FAILED',
-          details: capabilityRecovery({
-            stage: 'proposal', state: 'proposal-not-published', remote,
-            nextAction: { command: `singularity-flow capability organisation ${quoted(commandRemote(remote))} --refresh --json`, skill: '/sf-capability-map' },
-            preserved: ['approved-configuration', 'application-branches']
-          })
-        });
     }
-    return {
+    confirmedRemoteOutcome = {
       ...result, changed: true, pushed: true, commit,
-      branch: reviewBranch, baseBranch, baseCommit, reviewRequired: true
+      branch: reviewBranch, baseBranch, baseCommit, reviewRequired: true,
+      pushReconciled
     };
+    return confirmedRemoteOutcome;
+  } catch (error) {
+    primaryFailure = error;
+    throw error;
   } finally {
-    await removeTemporaryTree(scratch);
+    if (!retainScratch) {
+      try {
+        await cleanupTemporaryTree(scratch);
+      } catch (error) {
+        if (confirmedRemoteOutcome) {
+          const warning = 'Temporary capability checkout cleanup could not be confirmed after the proposal was published.';
+          confirmedRemoteOutcome.cleanup = { completed: false, warning };
+          confirmedRemoteOutcome.warnings = [...(confirmedRemoteOutcome.warnings ?? []), warning];
+        } else if (!primaryFailure) throw error;
+      }
+    }
   }
 }
 
@@ -1467,6 +1899,7 @@ function classifyRepositoryAuthorityConflicts(matches) {
 export async function inspectCapabilityRepository(repositoryUrl, {
   leadUrl = null, leadUrls = [], refresh = false,
   proposalRemoteCommand = runRemoteGitAsync,
+  proposalScanLimit = CAPABILITY_PROPOSAL_ADVERTISED_SCAN_LIMIT,
   searchKnown = true,
   includeProposals = true,
   stateBranch = DEFAULT_CAPABILITY_STATE_BRANCH
@@ -1563,6 +1996,7 @@ export async function inspectCapabilityRepository(repositoryUrl, {
             includeDiff: false,
             repositoryUrl: repository,
             maximumProposals: CAPABILITY_INSPECTION_MAX_PROPOSALS,
+            maximumAdvertisedProposals: proposalScanLimit,
             withCoverage: true,
             runRemoteCommand: proposalRemoteCommand
           });
@@ -2170,7 +2604,8 @@ export async function mapCapability(leadUrl, {
   sharedRoots = [],
   clone = null,
   jiraProject = null,
-  teams = []
+  teams = [],
+  cleanupTemporaryTree = removeTemporaryTree
 } = {}) {
   if (!capabilityId) throw new SingularityFlowError('A capability identifier is required. Use a lower-case kebab-case ID; nothing was changed.', {
     code: 'CAPABILITY_ID_REQUIRED',
@@ -2197,6 +2632,16 @@ export async function mapCapability(leadUrl, {
       nextAction: { command: 'singularity-flow capability leads --json', skill: '/sf-capability-map' }
     })
   });
+  validateCapabilityMapRequest({
+    leadUrl, capabilityId, name, kind, type, parent, repositoryUrl, repositoryUrls,
+    leadRepositoryUrl, metadata, documentation, resources, sourceRoots, sharedRoots,
+    clone, jiraProject, teams
+  });
+  // Capture caller authorship before the enterprise environment below intentionally isolates Git
+  // from repository/global configuration. This identity is commit data, never transport authority.
+  const authorIdentity = requireCapabilityProposalAuthor(
+    await captureCapabilityProposalAuthor(process.env)
+  );
   const cloneStrategy = clone == null
     ? null
     : normalizeCloneStrategy(clone, `Capability '${capabilityId}' clone strategy`);
@@ -2214,10 +2659,26 @@ export async function mapCapability(leadUrl, {
   const proposalBranchPrefix = `${CAPABILITY_PROPOSAL_PREFIX}map-${capabilityId}-`;
   const authorityObservation = await remoteSession.observeAsync(leadKey, {
     includeHead: true,
-    refs: [`refs/heads/${CONFIGURATION_BRANCH}`, `refs/heads/${proposalBranchPrefix}*`]
+    // One advertisement covers both exact-ID recovery and the orphaned-proposal guard needed when
+    // sflow/config is absent. This avoids adding another network round trip to first-map startup.
+    refs: [
+      `refs/heads/${CONFIGURATION_BRANCH}`,
+      `refs/heads/${CAPABILITY_PROPOSAL_PREFIX}*`
+    ]
   });
   requireRemoteObservation(authorityObservation,
     `capability authority '${sanitizeRemote(leadKey)}'`);
+  if (!authorityObservation.refs.has(`refs/heads/${CONFIGURATION_BRANCH}`)) {
+    // Silently re-rooting sflow/config while an older laptop's proposals survive is precisely how
+    // irreconcilable review branches were created. Preserve them and require explicit repair.
+    const orphanedProposals = [...authorityObservation.refs]
+      .filter(([ref]) => ref.startsWith(`refs/heads/${CAPABILITY_PROPOSAL_PREFIX}`))
+      .map(([branch, commit]) => ({ branch, commit }));
+    if (!authorityObservation.refs.has(`refs/heads/${CONFIGURATION_BRANCH}`)
+        && orphanedProposals.length) {
+      throw missingCapabilityConfigurationError(leadKey, orphanedProposals);
+    }
+  }
   const observedBranches = new Map();
   let deliveriesObserved = false;
   const observeDeliveries = async () => {
@@ -2259,7 +2720,7 @@ export async function mapCapability(leadUrl, {
 
   return withLeadCheckout(leadKey, `Map capability ${capabilityId}`,
     `capability/map-${capabilityId}`, async (
-      root, _baseBranch, leadRemoteSession, leadAuthorityObservation
+      root, _baseBranch, leadRemoteSession, leadAuthorityObservation, proposalAuthor
     ) => {
     // Re-observe at the mutation boundary. The initial scan is an optimization and first-map guard,
     // never permission to ignore a proposal/configuration ref that appeared while the clone ran.
@@ -2317,7 +2778,7 @@ export async function mapCapability(leadUrl, {
         root, repositoryIdFromUrl(leadKey), leadKey,
         await leadApplicationBranch(
           root, leadKey, leadRemoteSession, leadAuthorityObservation
-        ), gitCommitIdentity(root));
+        ), proposalAuthor);
       // The orphan branch is named in the definition here. It is not published until this proposal
       // is reviewed and merged; unreviewed configuration must never become an authoritative mirror.
       await enableLedger(root, 'state');
@@ -2504,7 +2965,9 @@ export async function mapCapability(leadUrl, {
     remoteSession,
     authorityObservation,
     fullHistory: matchingProposalRefs.length > 0,
-    bindProposalToBase: true
+    bindProposalToBase: true,
+    authorIdentity,
+    cleanupTemporaryTree
   });
 }
 
@@ -2920,10 +3383,65 @@ export async function publishOrganisationCapabilityMap(url, {
   }
 }
 
+function conservativeWindowsArgvBytes(args) {
+  // JSON adds quotes, separators, and escaping around every argument, then UTF-16LE measures the
+  // code units consumed by Windows. Proposal refspecs cannot contain whitespace or backslashes,
+  // so this deliberately exceeds the command line Git/libuv will render for the same argv. Include
+  // the terminating NUL; the low ceiling above leaves separate headroom for the executable path.
+  return Buffer.byteLength(JSON.stringify(args.map((arg) => String(arg))), 'utf16le') + 2;
+}
+
+function capabilityProposalFetchPages(entries, remote) {
+  const pages = [];
+  let page = [];
+  for (const entry of entries) {
+    const item = {
+      entry,
+      refspec: `+refs/heads/${entry.branch}:refs/remotes/origin/${entry.branch}`
+    };
+    let candidate = [...page, item];
+    let argvBytes = conservativeWindowsArgvBytes([
+      ...CAPABILITY_PROPOSAL_FETCH_ARGS, ...candidate.map(({ refspec }) => refspec)
+    ]);
+    if (page.length > 0 && (candidate.length > CAPABILITY_INSPECTION_MAX_PROPOSALS
+        || argvBytes > CAPABILITY_PROPOSAL_FETCH_ARGV_LIMIT_BYTES)) {
+      pages.push(page);
+      page = [];
+      candidate = [item];
+      argvBytes = conservativeWindowsArgvBytes([
+        ...CAPABILITY_PROPOSAL_FETCH_ARGS, item.refspec
+      ]);
+    }
+    if (argvBytes > CAPABILITY_PROPOSAL_FETCH_ARGV_LIMIT_BYTES) {
+      throw new SingularityFlowError(
+        'A capability proposal reference exceeds the safe Git command-line limit. Proposal inspection is incomplete and cannot authorize review or mapping.', {
+          code: 'CAPABILITY_PROPOSAL_REFSPEC_LIMIT_EXCEEDED',
+          details: {
+            ...capabilityRecovery({
+              stage: 'review', state: 'proposal-ref-command-too-large', remote,
+              nextAction: { command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-map' },
+              preserved: ['approved-configuration', 'proposal-branches', 'application-branches']
+            }),
+            limits: {
+              argvBytes,
+              maximumArgvBytes: CAPABILITY_PROPOSAL_FETCH_ARGV_LIMIT_BYTES
+            }
+          }
+        }
+      );
+    }
+    page = candidate;
+  }
+  if (page.length > 0) pages.push(page);
+  return pages;
+}
+
 /** Pending capability proposals on a lead repository, without changing either authority branch. */
 export async function listCapabilityProposals(url, {
   includeMerged = false, includeDiff = true,
-  repositoryUrl = null, maximumProposals = null, withCoverage = false,
+  repositoryUrl = null, maximumProposals = null,
+  maximumAdvertisedProposals = CAPABILITY_PROPOSAL_ADVERTISED_SCAN_LIMIT,
+  withCoverage = false,
   env = process.env, remoteSession = null, runRemoteCommand = runRemoteGitAsync
 } = {}) {
   const remote = String(url ?? '').trim();
@@ -2941,6 +3459,15 @@ export async function listCapabilityProposals(url, {
     throw new SingularityFlowError('Capability proposal inspection limit must be a positive integer.', {
       code: 'CAPABILITY_PROPOSAL_LIMIT_INVALID'
     });
+  }
+  const advertisedScanLimit = Number(maximumAdvertisedProposals);
+  if (!Number.isSafeInteger(advertisedScanLimit) || advertisedScanLimit < 1
+      || advertisedScanLimit > CAPABILITY_PROPOSAL_ADVERTISED_SCAN_LIMIT) {
+    throw new SingularityFlowError(
+      `Capability proposal advertised-ref scan limit must be between 1 and ${CAPABILITY_PROPOSAL_ADVERTISED_SCAN_LIMIT}.`, {
+        code: 'CAPABILITY_PROPOSAL_SCAN_LIMIT_INVALID'
+      }
+    );
   }
   const finish = (proposals, total = proposals.length, inspected = proposals.length) => withCoverage
     ? {
@@ -2979,17 +3506,34 @@ export async function listCapabilityProposals(url, {
         }
       });
   }
-  if (!advertised.refs.has(`refs/heads/${CONFIGURATION_BRANCH}`)) return finish([]);
-  const allBranches = [...advertised.refs]
+  const advertisedProposalBranches = [...advertised.refs]
     .filter(([ref]) => ref.startsWith(`refs/heads/${CAPABILITY_PROPOSAL_PREFIX}`))
-    .map(([ref, proposalCommit]) => ({
-      proposalCommit, branch: ref.replace(/^refs\/heads\//, '')
+    .map(([branch, commit]) => ({ branch, commit }));
+  if (!advertised.refs.has(`refs/heads/${CONFIGURATION_BRANCH}`)) {
+    if (!advertisedProposalBranches.length) return finish([]);
+    throw missingCapabilityConfigurationError(remote, advertisedProposalBranches);
+  }
+  const advertisedTargetCommit = advertised.refs.get(`refs/heads/${CONFIGURATION_BRANCH}`);
+  const advertisedCurrentBaseSuffix = `-${advertisedTargetCommit.slice(0, 8)}`;
+  const allBranches = advertisedProposalBranches
+    .map(({ branch, commit: proposalCommit }) => ({
+      proposalCommit, branch: branch.replace(/^refs\/heads\//, '')
     }))
-    .sort((left, right) => left.branch.localeCompare(right.branch));
-  const branches = proposalLimit == null ? allBranches : allBranches.slice(0, proposalLimit);
-  if (!branches.length) return finish([], allBranches.length, 0);
+    // Apply the hard scan ceiling only after current-base refs have been prioritized. Repositories
+    // with more refs than the ceiling remain explicitly partial, but retained history cannot push
+    // the proposal governing the currently advertised authority outside the inspected window.
+    .sort((left, right) => {
+      const leftCurrent = left.branch.endsWith(advertisedCurrentBaseSuffix);
+      const rightCurrent = right.branch.endsWith(advertisedCurrentBaseSuffix);
+      return Number(rightCurrent) - Number(leftCurrent)
+        || left.branch.localeCompare(right.branch);
+    });
+  if (!allBranches.length) return finish([], 0, 0);
+  const scannedBranches = allBranches.slice(0, advertisedScanLimit);
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-list-'));
   const proposals = [];
+  let inspectedBranches = 0;
+  let proposalBudgetUsed = 0;
   try {
     const cloned = await runRemoteCommand([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch',
@@ -3009,104 +3553,153 @@ export async function listCapabilityProposals(url, {
         }
       });
     }
-    const proposalRefspecs = proposalLimit == null
-      ? [`+refs/heads/${CAPABILITY_PROPOSAL_PREFIX}*:refs/remotes/origin/${CAPABILITY_PROPOSAL_PREFIX}*`]
-      : branches.map((entry) => `+refs/heads/${entry.branch}:refs/remotes/origin/${entry.branch}`);
-    const fetched = await runRemoteCommand([
-      'fetch', '--quiet', '--no-tags', 'origin', ...proposalRefspecs
-    ], { cwd: scratch, operation: 'remote-configuration', env: transport.env });
-    const sharedFailure = fetched.status === 0 ? null : new SingularityFlowError(
-      `Capability proposals could not be fetched. ${fetched.failure?.advice ?? 'Git fetch failed.'}`,
-      {
-        code: fetched.failure?.code ?? 'CAPABILITY_AUTHORITY_UNAVAILABLE',
-        details: {
-          remoteFailure: publicRemoteFailure(fetched.failure),
-          diagnosticAction: {
-            command: `singularity-flow workspace doctor --network --repository ${quoted(commandRemote(remote))} --json`,
-            skill: '/sf-capability-map'
-          }
-        }
-      }
-    );
-    const targetCommit = sharedFailure ? null : run('git', ['rev-parse', 'HEAD'], {
+    const targetCommit = run('git', ['rev-parse', 'HEAD'], {
       cwd: scratch, env: transport.env
     }).stdout.trim();
-    for (const entry of branches) {
-      const ref = `refs/remotes/origin/${entry.branch}`;
-      try {
-        if (sharedFailure) throw sharedFailure;
-        // The ordinary inbox excludes merged proposals. Determine that with ancestry before
-        // computing names, identities, and the full diff for a proposal the caller will discard.
-        const ancestryMerged = !includeMerged && run('git', ['merge-base', '--is-ancestor', ref, 'HEAD'], {
-          cwd: scratch, env: transport.env, allowFailure: true
-        }).status === 0;
+    const currentBaseSuffix = `-${targetCommit.slice(0, 8)}`;
+    // A current mapping proposal is bound to the exact approved base in its branch name. Inspect
+    // those refs first so an authority's retained review history cannot hide the proposal which
+    // currently decides whether onboarding is safe. Base the hint on the authority actually
+    // cloned, not the earlier advertisement; authority movement remains visible to inspection.
+    // The ordering is only a scheduling hint: every unmerged or unreadable proposal still consumes
+    // the same bounded inspection budget below.
+    scannedBranches.sort((left, right) => {
+      const leftCurrent = left.branch.endsWith(currentBaseSuffix);
+      const rightCurrent = right.branch.endsWith(currentBaseSuffix);
+      return Number(rightCurrent) - Number(leftCurrent)
+        || left.branch.localeCompare(right.branch);
+    });
+    // Fetch bounded pages rather than truncating the alphabetically first refs. A repository may
+    // retain hundreds of already-merged review branches. Once ancestry proves one is historical it
+    // does not consume the active-proposal budget, and the next page is inspected. Squash/content
+    // merged refs are likewise historical after full inspection. Unmerged, corrupt, and unreadable
+    // refs consume the budget and preserve fail-closed coverage when more authority may remain.
+    // Explicit refspec pages keep object transfer and Windows command lines bounded as well as the
+    // logical inspection. A wildcard here would still download every retained proposal object even
+    // after the advertised-ref ceiling had deliberately excluded it.
+    const fetchPages = capabilityProposalFetchPages(scannedBranches, remote);
+    outer: for (const fetchPage of fetchPages) {
+      const page = fetchPage.map(({ entry }) => entry);
+      const fetched = await runRemoteCommand([
+        ...CAPABILITY_PROPOSAL_FETCH_ARGS, ...fetchPage.map(({ refspec }) => refspec)
+      ], { cwd: scratch, operation: 'remote-configuration', env: transport.env });
+      const sharedFailure = fetched.status === 0 ? null : new SingularityFlowError(
+        `Capability proposals could not be fetched. ${fetched.failure?.advice ?? 'Git fetch failed.'}`,
+        {
+          code: fetched.failure?.code ?? 'CAPABILITY_AUTHORITY_UNAVAILABLE',
+          details: {
+            remoteFailure: publicRemoteFailure(fetched.failure),
+            diagnosticAction: {
+              command: `singularity-flow workspace doctor --network --repository ${quoted(commandRemote(remote))} --json`,
+              skill: '/sf-capability-map'
+            }
+          }
+        }
+      );
+      for (const entry of page) {
+        if (proposalLimit != null && proposalBudgetUsed >= proposalLimit) break outer;
+        const ref = `refs/remotes/origin/${entry.branch}`;
+        let ancestryMerged = false;
+        if (!sharedFailure && !includeMerged) {
+          // The ordinary inbox excludes merged proposals. Determine that with ancestry before
+          // computing names, identities, and the full diff for a proposal the caller will discard.
+          ancestryMerged = run('git', ['merge-base', '--is-ancestor', ref, 'HEAD'], {
+            cwd: scratch, env: transport.env, allowFailure: true
+          }).status === 0;
+        }
+        inspectedBranches += 1;
         if (ancestryMerged) continue;
-        const proposal = inspectCapabilityProposalCheckout(
-          scratch, sanitizeRemote(remote), entry.branch, ref, {
-            includeDiff, repositoryUrl: inspectedRepository, env: transport.env,
-            targetCommit, ...(!includeMerged ? { ancestryMerged: false } : {})
-          }
-        );
-        if (includeMerged || !proposal.merged) proposals.push(proposal);
-      } catch (error) {
-        // One corrupt or stale proposal must remain visible without hiding every healthy proposal
-        // on the same lead. Only the proven unrelated-history case gets the exact-SHA discard path;
-        // every other unreadable state remains inspection-only.
-        // An unreadable tip is not itself evidence that this proposal introduced a repository
-        // claim: the same bytes may simply have been inherited from an unknown or replaced base.
-        // Preserve a pending match only when the immutable base encoded in the branch is still
-        // provable and the base-vs-tip comparison can therefore establish the exact delta.
-        let repositoryInspection = { complete: false, matches: [] };
         try {
-          const proposalBase = proposalBaseCommit(scratch, entry.branch, ref, {
-            env: transport.env
-          });
-          // Replacement configuration roots make ancestry unavailable even when this proposal's
-          // exact delta is already approved. Comparing every changed path still proves that the
-          // proposal contributes no pending repository claim in that case.
-          repositoryInspection = proposalContentIsPresent(
-            scratch, proposalBase, ref, 'HEAD', { env: transport.env }
-          ) ? { complete: true, matches: [] } : proposalRepositoryInspection(
-              scratch, ref, inspectedRepository, { baseRef: proposalBase, env: transport.env }
-            );
-        } catch { /* the unreadable proposal remains visible, but contributes no unproven claim */ }
-        proposals.push({
-          remote: sanitizeRemote(remote), branch: entry.branch,
-          targetBranch: CONFIGURATION_BRANCH, targetCommit: null,
-          proposalCommit: entry.proposalCommit, proposalBase: null, mergeBase: null,
-          merged: false, valid: false, invalidFiles: [], changedFiles: [], diff: '',
-          status: 'unreadable',
-          discardable: error?.code === 'CAPABILITY_PROPOSAL_HISTORY_INVALID',
-          repositoryMatches: repositoryInspection.matches,
-          repositoryInspectionComplete: repositoryInspection.complete,
-          failure: {
-            code: error?.code ?? 'CAPABILITY_PROPOSAL_UNREADABLE',
-            message: redactDiagnosticText(error?.message ?? String(error)),
-            remoteFailure: publicRemoteFailure(error?.details?.remoteFailure),
-            classification: error?.details?.remoteFailure?.classification ?? null,
-            retryable: error?.details?.remoteFailure?.retryable === true,
-            evidence: error?.details?.remoteFailure?.evidence ?? null,
-            diagnosticAction: error?.details?.diagnosticAction ?? null,
-            nextAction: error?.code === 'CAPABILITY_PROPOSAL_HISTORY_INVALID'
-              ? {
-                  command: capabilityCommand('discard-proposal', {
-                    remote, branch: entry.branch, commit: entry.proposalCommit,
-                    reason: '<WHY THIS STALE PROPOSAL IS NO LONGER NEEDED>'
-                  }),
-                  skill: '/sf-capability-map'
-                }
-              : error?.details?.nextAction ?? {
-                  command: capabilityCommand('proposal', { remote, branch: entry.branch }),
-                  skill: '/sf-capability-map'
-                }
+          if (sharedFailure) throw sharedFailure;
+          const proposal = inspectCapabilityProposalCheckout(
+            scratch, sanitizeRemote(remote), entry.branch, ref, {
+              includeDiff, repositoryUrl: inspectedRepository, env: transport.env,
+              targetCommit, ...(!includeMerged ? { ancestryMerged: false } : {})
+            }
+          );
+          if (includeMerged || !proposal.merged) {
+            proposals.push(proposal);
+            proposalBudgetUsed += 1;
           }
-        });
+        } catch (error) {
+          proposalBudgetUsed += 1;
+          // One corrupt or stale proposal must remain visible without hiding every healthy proposal
+          // on the same lead. Only the proven unrelated-history case gets the exact-SHA discard path;
+          // every other unreadable state remains inspection-only.
+          // An unreadable tip is not itself evidence that this proposal introduced a repository
+          // claim: the same bytes may simply have been inherited from an unknown or replaced base.
+          // Preserve a pending match only when the immutable base encoded in the branch is still
+          // provable and the base-vs-tip comparison can therefore establish the exact delta.
+          let repositoryInspection = { complete: false, matches: [] };
+          try {
+            const proposalBase = proposalBaseCommit(scratch, entry.branch, ref, {
+              env: transport.env
+            });
+            // Replacement configuration roots make ancestry unavailable even when this proposal's
+            // exact delta is already approved. Comparing every changed path still proves that the
+            // proposal contributes no pending repository claim in that case.
+            repositoryInspection = proposalContentIsPresent(
+              scratch, proposalBase, ref, 'HEAD', { env: transport.env }
+            ) ? { complete: true, matches: [] } : proposalRepositoryInspection(
+                scratch, ref, inspectedRepository, { baseRef: proposalBase, env: transport.env }
+              );
+          } catch { /* the unreadable proposal remains visible, but contributes no unproven claim */ }
+          proposals.push({
+            remote: sanitizeRemote(remote), branch: entry.branch,
+            targetBranch: CONFIGURATION_BRANCH, targetCommit: null,
+            proposalCommit: entry.proposalCommit, proposalBase: null, mergeBase: null,
+            merged: false, valid: false, invalidFiles: [], changedFiles: [], diff: '',
+            status: 'unreadable',
+            discardable: error?.code === 'CAPABILITY_PROPOSAL_HISTORY_INVALID',
+            repositoryMatches: repositoryInspection.matches,
+            repositoryInspectionComplete: repositoryInspection.complete,
+            failure: {
+              code: error?.code ?? 'CAPABILITY_PROPOSAL_UNREADABLE',
+              message: redactDiagnosticText(error?.message ?? String(error)),
+              remoteFailure: publicRemoteFailure(error?.details?.remoteFailure),
+              classification: error?.details?.remoteFailure?.classification ?? null,
+              retryable: error?.details?.remoteFailure?.retryable === true,
+              evidence: error?.details?.remoteFailure?.evidence ?? null,
+              diagnosticAction: error?.details?.diagnosticAction ?? null,
+              nextAction: error?.code === 'CAPABILITY_PROPOSAL_HISTORY_INVALID'
+                ? {
+                    command: capabilityCommand('discard-proposal', {
+                      remote, branch: entry.branch, commit: entry.proposalCommit,
+                      reason: '<WHY THIS STALE PROPOSAL IS NO LONGER NEEDED>'
+                    }),
+                    skill: '/sf-capability-map'
+                  }
+                : error?.details?.nextAction ?? {
+                    command: capabilityCommand('proposal', { remote, branch: entry.branch }),
+                    skill: '/sf-capability-map'
+                  }
+            }
+          });
+        }
       }
     }
   } finally {
     await removeTemporaryTree(scratch);
   }
-  return finish(proposals, allBranches.length, branches.length);
+  if (!withCoverage && inspectedBranches < allBranches.length) {
+    throw new SingularityFlowError(
+      `Capability proposal inspection stopped after ${inspectedBranches} of ${allBranches.length} advertised refs. The result is incomplete and cannot authorize review or mapping.`, {
+        code: 'CAPABILITY_PROPOSAL_INSPECTION_INCOMPLETE',
+        details: {
+          ...capabilityRecovery({
+            stage: 'review', state: 'proposal-inspection-partial', remote,
+            nextAction: { command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-map' },
+            preserved: ['approved-configuration', 'proposal-branches', 'application-branches']
+          }),
+          coverage: {
+            status: 'partial', total: allBranches.length, inspected: inspectedBranches,
+            advertisedScanLimit
+          }
+        }
+      }
+    );
+  }
+  return finish(proposals, allBranches.length, inspectedBranches);
 }
 
 function inspectCapabilityProposalCheckout(root, remote, proposalBranch, ref, {
@@ -3941,7 +4534,9 @@ export async function activateCapabilityProposal(url, branch, {
           // A failed push is not automatically a review decision. Authentication, connectivity,
           // a missing remote, and unsupported transports need their own repair path; only an
           // enforced authority that rejects a non-retryable update is sent to repository review.
-          const repositoryRequestedReview = ['authorization-denied', 'unknown'].includes(failure.classification)
+          const repositoryRequestedReview = [
+            'authorization-denied', 'policy-rejected', 'unknown'
+          ].includes(failure.classification)
             && /protected branch|branch protection|review required|pull request|required reviews?/i
               .test(pushDiagnostic);
           const reviewRequired = repositoryRequestedReview;

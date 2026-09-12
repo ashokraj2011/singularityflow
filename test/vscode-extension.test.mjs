@@ -2926,6 +2926,54 @@ test('mapping a capability defaults Kind to Delivery', () => {
   assert.match(html, /aria-label="State branch:/);
 });
 
+test('mapping operations expose durable recovery, cancellation, retry, and proposal controls', () => {
+  const operation = {
+    schemaVersion: 1,
+    id: 'map_18db34408ab63e12',
+    status: 'needs-inspection',
+    capabilityId: 'payments-api',
+    lead: 'https://git.example/platform.git',
+    repositoryUrl: 'https://git.example/payments.git',
+    argv: ['capability', 'map', 'payments-api', '--lead', 'https://git.example/platform.git',
+      '--repository', 'https://git.example/payments.git', '--kind', 'delivery', '--json'],
+    attempt: 1,
+    startedAt: '2026-09-12T08:00:00.000Z',
+    updatedAt: '2026-09-12T08:01:00.000Z',
+    message: 'The editor stopped before the remote result was known.'
+  };
+  const recovering = { ...EMPTY_MAP_FORM, operation };
+
+  assert.match(mapProblems(recovering)[0], /previous mapping has not been reconciled/);
+  assert.match(mapCapabilityHtml(recovering), /Durable mapping operation/);
+  assert.match(mapCapabilityHtml(recovering), /map_18db34408ab63e12/);
+  assert.match(mapCapabilityHtml(recovering), /data-map-operation-inspect/);
+
+  const running = mapCapabilityHtml({ ...EMPTY_MAP_FORM,
+    operation: { ...operation, status: 'running', message: 'Publishing the review proposal.' } });
+  assert.match(running, /data-map-operation-cancel/);
+  assert.match(running, /Cancel safely/);
+
+  const retry = mapCapabilityHtml({ ...EMPTY_MAP_FORM,
+    operation: { ...operation, status: 'retry-ready', message: 'No remote result exists.' } });
+  assert.match(retry, /data-map-operation-retry/);
+  assert.match(retry, /Retry exact request/);
+
+  const proposed = mapCapabilityHtml({ ...EMPTY_MAP_FORM, operation: {
+    ...operation,
+    status: 'proposal-ready',
+    proposalBranch: 'sflow/config-change/capability/map-payments-api-deadbeef',
+    proposalCommit: '0123456789abcdef0123456789abcdef01234567',
+    message: 'The existing review proposal is ready.'
+  } });
+  assert.match(proposed, /Open existing review proposal/);
+  assert.match(proposed, /map-payments-api-deadbeef@0123456789ab/);
+
+  for (const type of ['cancelMapOperation', 'inspectMapOperation', 'retryMapOperation',
+    'reviewMapOperation', 'clearMapOperation']) {
+    assert.match(MAP_CAPABILITY_SCRIPT, new RegExp(`type: '${type}'`));
+  }
+});
+
 test('guided capability mapping is visibly the first step', () => {
   const html = mapCapabilityHtml(EMPTY_MAP_FORM, { step: 'capability' });
   assert.match(html, /Capability → workspace → first work item/);

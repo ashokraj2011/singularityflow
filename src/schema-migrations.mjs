@@ -2711,6 +2711,10 @@ const families = [
     migrationPolicy: 'frozen-identity'
   }),
   family({
+    id: 'world-model-extraction-execution-receipt', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity'
+  }),
+  family({
     id: 'world-model-model-binding', currentVersion: 1, immutable: true,
     migrationPolicy: 'frozen-identity',
     paths: [/^singularity\/world-model-history\/models\/[a-f0-9]{64}\.json$/]

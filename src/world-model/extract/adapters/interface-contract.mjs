@@ -2,9 +2,11 @@ import path from 'node:path';
 
 import {
   SOURCE_LIKE, adapterFiles, evidenceDescriptor, exactText, factDraft, implementationSha256,
-  languageForPath, result, unavailableDraft
+  languageForPath, observeAdapterPathOutcome, result, unavailableDraft
 } from './common.mjs';
-import { scanInterfaceContracts, scanProtocolFields } from './closed-structure.mjs';
+import {
+  scanInterfaceContracts, scanProtocolFieldsWithLimitations
+} from './closed-structure.mjs';
 import { configurationFormat, parseConfigurationObject } from './configuration-object.mjs';
 
 export const INTERFACE_CONTRACT_ID = 'interface-contract';
@@ -15,15 +17,25 @@ export const INTERFACE_CONTRACT_IMPLEMENTATION_SHA256 = implementationSha256(
   'closed-explicit-interface-implementation-protocol-field-and-schema-syntax-v2'
 );
 
+const MAXIMUM_SCHEMA_PROTOCOL_FIELDS = 256;
+
 export function scanSchemaContract(root, { explicitSchemaPath = false } = {}) {
   if (!root || typeof root !== 'object' || Array.isArray(root)) return null;
   const recognized = explicitSchemaPath
     || Object.hasOwn(root, '$schema') || Object.hasOwn(root, 'openapi') || Object.hasOwn(root, 'asyncapi');
   if (!recognized) return null;
-  const properties = root.properties && typeof root.properties === 'object' && !Array.isArray(root.properties)
-    ? Object.keys(root.properties).filter((key) => /^[A-Za-z0-9][A-Za-z0-9_.@$-]{0,99}$/.test(key)).sort()
+  const propertyNames = root.properties && typeof root.properties === 'object' && !Array.isArray(root.properties)
+    ? Object.keys(root.properties)
     : [];
-  return { properties };
+  const admitted = propertyNames
+    .filter((key) => /^[A-Za-z0-9][A-Za-z0-9_.@$-]{0,99}$/.test(key))
+    .sort();
+  return {
+    properties: admitted.slice(0, MAXIMUM_SCHEMA_PROTOCOL_FIELDS),
+    propertyCount: propertyNames.length,
+    rejectedPropertyCount: propertyNames.length - admitted.length,
+    limitedPropertyCount: Math.max(0, admitted.length - MAXIMUM_SCHEMA_PROTOCOL_FIELDS)
+  };
 }
 
 export function extractInterfaceContracts(context) {
@@ -95,7 +107,8 @@ export function extractInterfaceContracts(context) {
         evidence: [evidence]
       }));
     }
-    for (const item of scanProtocolFields(source, languageForPath(file.path))) {
+    const protocolScan = scanProtocolFieldsWithLimitations(source, languageForPath(file.path));
+    for (const item of protocolScan.items) {
       const subject = { kind: 'symbol', id: `${file.path}#${item.interface}.${item.name}` };
       const evidence = evidenceDescriptor(file, {
         kind: 'signature',
@@ -111,6 +124,26 @@ export function extractInterfaceContracts(context) {
         subject,
         claim: `${item.interface} declares protocol field ${item.signature} in ${file.path} at line ${item.line}.`,
         assurance: 'structurally-derived',
+        evidence: [evidence]
+      }));
+    }
+    if (protocolScan.limitations.length) {
+      observeAdapterPathOutcome(context, file, {
+        status: 'partial', reasonCode: protocolScan.limitations[0].code
+      });
+      const subject = { kind: 'file', id: file.path };
+      const limitation = protocolScan.limitations[0];
+      const evidence = evidenceDescriptor(file, {
+        kind: 'signature',
+        locator: { range: { startLine: limitation.line, endLine: limitation.line } },
+        subject
+      });
+      observations.push(evidence);
+      facts.push(unavailableDraft({
+        factType: 'protocol-field', subject,
+        attemptedProducer: INTERFACE_CONTRACT_ID,
+        code: limitation.code,
+        detail: `At least one recognized protocol field in ${file.path} exceeds the closed signature limit.`,
         evidence: [evidence]
       }));
     }
@@ -151,17 +184,28 @@ export function extractInterfaceContracts(context) {
       }));
       continue;
     }
-    if (!schema) continue;
+    if (!schema) {
+      const evidence = evidenceDescriptor(file, { kind: 'configuration-object', subject });
+      observations.push(evidence);
+      facts.push(unavailableDraft({
+        factType: 'schema-contract', subject,
+        attemptedProducer: INTERFACE_CONTRACT_ID,
+        code: 'UNSUPPORTED_LANGUAGE',
+        detail: `The registered interface extractor cannot derive a structured schema from ${file.path}.`,
+        evidence: [evidence]
+      }));
+      continue;
+    }
     const evidence = evidenceDescriptor(file, { kind: 'configuration-object', subject });
     observations.push(evidence);
     facts.push(factDraft({
       factType: 'schema-contract',
       subject,
-      claim: `${file.path} declares a schema contract with ${schema.properties.length} bounded root protocol field(s).`,
+      claim: `${file.path} declares a schema contract with ${schema.propertyCount} root property entry or entries; ${schema.properties.length} bounded safe protocol field(s) were emitted.`,
       assurance: 'deterministically-derived',
       evidence: [evidence]
     }));
-    for (const field of schema.properties.slice(0, 256)) {
+    for (const field of schema.properties) {
       const fieldSubject = { kind: 'contract', id: `${file.path}#schema.${field}` };
       const fieldEvidence = evidenceDescriptor(file, {
         kind: 'configuration-object', locator: { target: field }, subject: fieldSubject
@@ -173,6 +217,30 @@ export function extractInterfaceContracts(context) {
         claim: `${file.path} explicitly declares schema field ${field}.`,
         assurance: 'deterministically-derived',
         evidence: [fieldEvidence]
+      }));
+    }
+    const omissions = [
+      {
+        count: schema.limitedPropertyCount,
+        code: 'EXTRACTION_LIMIT_REACHED',
+        detail: `${schema.limitedPropertyCount} admitted schema field(s) were omitted after the ${MAXIMUM_SCHEMA_PROTOCOL_FIELDS}-field bound was reached.`
+      },
+      {
+        count: schema.rejectedPropertyCount,
+        code: 'EXTRACTION_VALUE_NOT_ADMITTED',
+        detail: `${schema.rejectedPropertyCount} schema field name(s) were outside the closed safe-name grammar.`
+      }
+    ];
+    for (const omission of omissions.filter((entry) => entry.count > 0)) {
+      observeAdapterPathOutcome(context, file, {
+        status: 'partial', reasonCode: omission.code
+      });
+      facts.push(unavailableDraft({
+        factType: 'protocol-field', subject,
+        attemptedProducer: INTERFACE_CONTRACT_ID,
+        code: omission.code,
+        detail: omission.detail,
+        evidence: [evidence]
       }));
     }
   }

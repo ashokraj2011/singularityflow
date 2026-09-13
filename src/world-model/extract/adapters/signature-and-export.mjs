@@ -2,9 +2,9 @@ import path from 'node:path';
 
 import {
   SOURCE_LIKE, adapterFiles, evidenceDescriptor, exactText, factDraft, implementationSha256,
-  languageForPath, result, unavailableDraft
+  languageForPath, observeAdapterPathOutcome, result, unavailableDraft
 } from './common.mjs';
-import { scanSignaturesAndExports } from './closed-structure.mjs';
+import { scanSignaturesAndExportsWithLimitations } from './closed-structure.mjs';
 
 export const SIGNATURE_AND_EXPORT_ID = 'signature-and-export';
 export const SIGNATURE_AND_EXPORT_VERSION = '1.0.0';
@@ -35,7 +35,8 @@ export function extractSignaturesAndExports(context) {
       continue;
     }
     const language = languageForPath(file.path);
-    for (const declaration of scanSignaturesAndExports(source, language)) {
+    const scan = scanSignaturesAndExportsWithLimitations(source, language);
+    for (const declaration of scan.items) {
       const subject = { kind: 'symbol', id: `${file.path}#${declaration.name}` };
       const locator = {
         symbol: declaration.name,
@@ -63,6 +64,27 @@ export function extractSignaturesAndExports(context) {
           evidence: [exportEvidence]
         }));
       }
+    }
+    if (scan.limitations.length) {
+      observeAdapterPathOutcome(context, file, {
+        status: 'partial', reasonCode: scan.limitations[0].code
+      });
+      const subject = { kind: 'file', id: file.path };
+      const limitation = scan.limitations[0];
+      const evidence = evidenceDescriptor(file, {
+        kind: 'signature',
+        locator: { range: { startLine: limitation.line, endLine: limitation.line } },
+        subject
+      });
+      observations.push(evidence);
+      facts.push(unavailableDraft({
+        factType: 'signature',
+        subject,
+        attemptedProducer: SIGNATURE_AND_EXPORT_ID,
+        code: limitation.code,
+        detail: `At least one recognized declaration in ${file.path} exceeds the closed signature limit.`,
+        evidence: [evidence]
+      }));
     }
   }
   return result(SIGNATURE_AND_EXPORT_ID, observations, facts);

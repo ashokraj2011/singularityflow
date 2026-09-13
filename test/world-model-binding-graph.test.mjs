@@ -26,7 +26,9 @@ import {
   worldModelHistoryModelPath, worldModelHistoryObjectPath
 } from '../src/world-model/history/paths.mjs';
 import { stageWorldModelHistoryPublication } from '../src/world-model/history/publication.mjs';
-import { resolvePersistedWorldModel } from '../src/world-model/history/store.mjs';
+import {
+  resolvePersistedWorldModel, validateRetainedWorldModelBindingGraph
+} from '../src/world-model/history/store.mjs';
 import {
   BUILTIN_EXTRACTOR_REGISTRY, resolveExtractorManifest, validateExtractorRegistry
 } from '../src/world-model/registry/extractors.mjs';
@@ -454,6 +456,56 @@ test('a retained historical extractor graph replays without becoming executable 
     modelKey: binding.modelKey
   });
   assert.deepEqual(replay.binding, binding);
+});
+
+test('current publication refuses relabeled extractor coverage while historical graph validation stays decoupled', async (t) => {
+  const fixture = await modelFixture(t);
+  const relabeledExtractor = { ...fixture.ownerExtractor, coverage: 'global' };
+  const relabeledPolicy = createWorldModelExtractionPolicy({
+    policySnapshotSha256: fixture.policySnapshotSha256,
+    allowedExtractors: [relabeledExtractor],
+    factSemantics: fixture.extractionPolicy.factSemantics
+  });
+  const policyObject = retained(
+    relabeledPolicy, 'extraction-policy', 'world-model-extraction-policy'
+  );
+  const objects = { ...fixture.objects, extractionPolicy: policyObject };
+  const binding = createWmpModelBinding({
+    inputs: {
+      ...fixture.binding.inputs,
+      extractionPolicySha256: relabeledPolicy.extractionPolicySha256
+    },
+    inputDescriptors: fixture.binding.inputDescriptors,
+    inputObjects: sortedRefs([
+      objects.repositoryDomain.ref,
+      objects.sourceSnapshot.ref,
+      objects.scopeManifest.ref,
+      objects.extractionPolicy.ref,
+      objects.extractorRegistry.ref
+    ]),
+    payloadObjects: fixture.binding.payloadObjects,
+    completeness: fixture.binding.completeness
+  });
+
+  assert.throws(
+    () => stageWorldModelHistoryPublication({
+      modelBindings: [binding], objects: Object.values(objects)
+    }),
+    (error) => error?.code === 'WMP_GRAPH_MISMATCH'
+      && error?.details?.relation === 'extraction-policy.execution-coverage'
+      && error?.details?.expected === 'path'
+      && error?.details?.received === 'global'
+  );
+
+  // Historical replay validates retained graph semantics only. It must not consult today's
+  // installed path/global mapping, because an older release may have owned a different boundary.
+  const historicalClosure = new Map([
+    [policyObject.ref.sha256, { record: relabeledPolicy }],
+    [objects.extractorRegistry.ref.sha256, { record: BUILTIN_EXTRACTOR_REGISTRY }]
+  ]);
+  assert.doesNotThrow(() => validateRetainedWorldModelBindingGraph(
+    'model', binding, historicalClosure, { currentExtractorAdmission: false }
+  ));
 });
 
 test('model history refuses configured extraction until a configuration owner binds derivations', async (t) => {

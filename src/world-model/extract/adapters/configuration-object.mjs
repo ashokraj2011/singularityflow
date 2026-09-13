@@ -55,7 +55,9 @@ function lexicalKeyInventory(source, format) {
   const keys = [];
   let section = '';
   const seen = new Set();
-  for (const raw of String(source).split(/\r?\n/)) {
+  const lines = String(source).split(/\r?\n/);
+  for (let index = 0; index < lines.length; index += 1) {
+    const raw = lines[index];
     const line = raw.trim();
     if (!line || line.startsWith('#') || line.startsWith(';')) continue;
     if (format === 'toml') {
@@ -66,7 +68,9 @@ function lexicalKeyInventory(source, format) {
       if (sectionMatch) { section = sectionMatch[1].trim(); continue; }
     }
     const key = /^([A-Za-z0-9_.-]+)\s*[=:]/.exec(line)?.[1];
-    if (!key) continue;
+    if (!key) {
+      throw new Error(`configuration line ${index + 1} is outside the closed lexical grammar`);
+    }
     const qualified = section ? `${section}.${key}` : key;
     if (seen.has(qualified)) throw new Error(`duplicate configuration key '${qualified}'`);
     seen.add(qualified);

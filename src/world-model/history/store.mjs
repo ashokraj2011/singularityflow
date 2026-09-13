@@ -5,7 +5,9 @@ import {
 } from '../extract/derivation-catalog.mjs';
 import { validateEvidenceCatalog } from '../extract/evidence-catalog.mjs';
 import { validateFactLedger, validateHistoricalFactLedger } from '../extract/fact-ledger.mjs';
-import { validateExtractorRegistry } from '../registry/extractors.mjs';
+import {
+  resolveExtractorExecutionContract, validateExtractorRegistry
+} from '../registry/extractors.mjs';
 import { pathInsideScope } from '../scope/matcher.mjs';
 import {
   parseCanonicalWmpRecordBytes,
@@ -427,6 +429,23 @@ function validateModelBindingGraph(binding, closure, { currentExtractorAdmission
           relation: 'extraction-policy.extractor-registry',
           extractor: `${allowed.id}@${allowed.version}`
         });
+      }
+      if (currentExtractorAdmission) {
+        const executionContract = validateGraphOwner(
+          'extraction-policy.current-execution-contract',
+          () => resolveExtractorExecutionContract(manifest)
+        );
+        if (allowed.coverage !== executionContract.coverage) {
+          graphMismatch(
+            'Persisted World-model Extraction Policy relabels the installed extractor execution boundary.',
+            {
+              relation: 'extraction-policy.execution-coverage',
+              extractor: `${allowed.id}@${allowed.version}`,
+              expected: executionContract.coverage,
+              received: allowed.coverage
+            }
+          );
+        }
       }
     }
   }

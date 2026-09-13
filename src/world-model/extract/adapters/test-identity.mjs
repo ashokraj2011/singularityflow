@@ -2,10 +2,10 @@ import path from 'node:path';
 
 import {
   SOURCE_LIKE, adapterFiles, evidenceDescriptor, exactText, factDraft, implementationSha256,
-  languageForPath, result, unavailableDraft
+  languageForPath, observeAdapterPathOutcome, result, unavailableDraft
 } from './common.mjs';
 import {
-  TEST_IDENTITY_LANGUAGES, isTestSourcePath, scanTestIdentities
+  TEST_IDENTITY_LANGUAGES, isTestSourcePath, scanTestIdentitiesWithLimitations
 } from './closed-structure.mjs';
 
 export const TEST_IDENTITY_ID = 'test-identity';
@@ -48,7 +48,8 @@ export function extractTestIdentities(context) {
       }));
       continue;
     }
-    for (const item of scanTestIdentities(source, language)) {
+    const scan = scanTestIdentitiesWithLimitations(source, language);
+    for (const item of scan.items) {
       const subject = { kind: 'test', id: `${file.path}#${item.name}` };
       const evidence = evidenceDescriptor(file, {
         kind: 'test-identity',
@@ -64,6 +65,27 @@ export function extractTestIdentities(context) {
         subject,
         claim: `${item.framework} test '${item.name}' is declared in ${file.path} at line ${item.line}.`,
         assurance: 'structurally-derived',
+        evidence: [evidence]
+      }));
+    }
+    if (scan.limitations.length) {
+      observeAdapterPathOutcome(context, file, {
+        status: 'partial', reasonCode: scan.limitations[0].code
+      });
+      const subject = { kind: 'file', id: file.path };
+      const limitation = scan.limitations[0];
+      const evidence = evidenceDescriptor(file, {
+        kind: 'test-identity',
+        locator: { range: { startLine: limitation.line, endLine: limitation.line } },
+        subject
+      });
+      observations.push(evidence);
+      facts.push(unavailableDraft({
+        factType: 'test-identity',
+        subject,
+        attemptedProducer: TEST_IDENTITY_ID,
+        code: limitation.code,
+        detail: `At least one recognized test declaration in ${file.path} has a title outside the closed safe-title grammar.`,
         evidence: [evidence]
       }));
     }

@@ -3,7 +3,7 @@ import { run } from '../../../util.mjs';
 
 import {
   SOURCE_LIKE, adapterFiles, evidenceDescriptor, factDraft, implementationSha256,
-  languageForPath, result, unavailableDraft, exactText
+  languageForPath, observeAdapterGlobalOutcome, result, unavailableDraft, exactText
 } from './common.mjs';
 import {
   isTestSourcePath, scanInterfaceContracts, scanSignaturesAndExports
@@ -14,7 +14,7 @@ export const CHANGE_REGION_VERSION = '1.0.0';
 export const CHANGE_REGION_IMPLEMENTATION_SHA256 = implementationSha256(
   CHANGE_REGION_ID,
   CHANGE_REGION_VERSION,
-  'constant-process-exact-first-parent-zero-context-change-regions-v2'
+  'constant-process-offline-bounded-exact-first-parent-zero-context-change-regions-v3'
 );
 
 const MAXIMUM_CHANGED_FILES = 512;
@@ -22,11 +22,27 @@ const MAXIMUM_REGIONS_PER_FILE = 256;
 const MAXIMUM_STRUCTURAL_SCAN_BYTES = 512 * 1024;
 
 function git(root, args, { allowFailure = false, observer = null } = {}) {
-  if (observer != null) observer(Object.freeze([...args]));
+  const env = {
+    ...process.env,
+    // A deterministic extractor must never turn a missing promisor object into an undeclared
+    // network request. Remote materialization belongs to the governed Git boundary before build.
+    GIT_NO_LAZY_FETCH: '1',
+    GIT_TERMINAL_PROMPT: '0',
+    GCM_INTERACTIVE: 'Never'
+  };
+  const timeoutMs = 30_000;
+  if (observer != null) observer(Object.freeze([...args]), Object.freeze({
+    timeoutMs,
+    lazyFetch: env.GIT_NO_LAZY_FETCH,
+    terminalPrompt: env.GIT_TERMINAL_PROMPT,
+    credentialManagerInteractive: env.GCM_INTERACTIVE
+  }));
   const resultValue = run('git', args, {
     cwd: root,
+    env,
     encoding: 'utf8',
     maxBuffer: 32 * 1024 * 1024,
+    timeoutMs,
     allowFailure: true
   });
   if ((resultValue.error || resultValue.status !== 0) && !allowFailure) {
@@ -66,13 +82,16 @@ export function parseUnifiedZeroContextDiff(value) {
 
 function baselineCommit(root, sourceSnapshot, observer) {
   if (sourceSnapshot.authority?.baseRevision?.commit) {
-    return sourceSnapshot.authority.baseRevision.commit;
+    return { status: 'available', commit: sourceSnapshot.authority.baseRevision.commit };
   }
   const resultValue = git(root, ['rev-list', '--parents', '-n', '1', sourceSnapshot.revision.commit], {
     allowFailure: true, observer
   });
-  if (resultValue.error || resultValue.status !== 0) return null;
-  return resultValue.stdout.trim().split(/\s+/)[1] ?? null;
+  if (resultValue.error || resultValue.status !== 0) {
+    return { status: 'failed', commit: null };
+  }
+  const commit = resultValue.stdout.trim().split(/\s+/)[1] ?? null;
+  return { status: commit ? 'available' : 'absent', commit };
 }
 
 function scopePathspecs(scopeManifest) {
@@ -103,10 +122,16 @@ export function parseScopedUnifiedDiff(value, currentPathsValue) {
   let current = null;
   let truncated = false;
   let malformed = false;
+  let unboundPaths = 0;
   for (const line of String(value).split(/\r?\n/)) {
     if (line.startsWith('diff --git ')) {
       current = currentPathFromHeader(line, currentPaths);
-      if (current && !byPath.has(current)) {
+      if (!current) {
+        // Deletions have no current-side blob to bind as Evidence. Other unrecognized headers are
+        // equally unsafe to treat as a successful no-change result, so retain only a count and
+        // force the repository-wide extraction outcome to partial.
+        unboundPaths += 1;
+      } else if (!byPath.has(current)) {
         if (byPath.size >= MAXIMUM_CHANGED_FILES) {
           truncated = true;
           current = null;
@@ -132,7 +157,7 @@ export function parseScopedUnifiedDiff(value, currentPathsValue) {
     if (entry.regions.length >= MAXIMUM_REGIONS_PER_FILE) entry.truncated = true;
     else entry.regions.push(region);
   }
-  return { byPath, paths: [...byPath.keys()], truncated, malformed };
+  return { byPath, paths: [...byPath.keys()], truncated, malformed, unboundPaths };
 }
 
 function changedProjection(root, baseline, revision, scopeManifest, currentPaths, observer) {
@@ -143,7 +168,10 @@ function changedProjection(root, baseline, revision, scopeManifest, currentPaths
   if (resultValue.error || resultValue.status !== 0) {
     return {
       byPath: new Map(), paths: [], truncated: false, malformed: false,
-      failure: resultValue.error?.message ?? String(resultValue.stderr ?? '').trim() ?? 'git diff failed'
+      unboundPaths: 0,
+      failure: resultValue.error?.message
+        || String(resultValue.stderr ?? '').trim()
+        || 'git diff failed'
     };
   }
   return parseScopedUnifiedDiff(resultValue.stdout, currentPaths);
@@ -180,21 +208,40 @@ export function extractChangeRegions(context) {
   const baseline = baselineCommit(
     context.root, context.sourceSnapshot, context.changeRegionGitObserver ?? null
   );
-  if (!baseline) return result(CHANGE_REGION_ID, observations, unavailableChangeFacts(
-    context, 'NO_BASELINE', 'The pinned source revision has no exact first-parent baseline;'
-  ));
+  if (baseline.status === 'failed') {
+    observeAdapterGlobalOutcome(context, {
+      status: 'failed', reasonCode: 'PARSE_FAILURE'
+    });
+    return result(CHANGE_REGION_ID, observations, unavailableChangeFacts(
+      context, 'PARSE_FAILURE', 'The exact first-parent baseline could not be read;'
+    ));
+  }
+  if (baseline.status === 'absent') {
+    observeAdapterGlobalOutcome(context, {
+      status: 'unsupported', reasonCode: 'NO_BASELINE'
+    });
+    return result(CHANGE_REGION_ID, observations, unavailableChangeFacts(
+      context, 'NO_BASELINE', 'The pinned source revision has no exact first-parent baseline;'
+    ));
+  }
   const currentFiles = new Map(adapterFiles(context).map((file) => [file.path, file]));
   const changed = changedProjection(
     context.root,
-    baseline,
+    baseline.commit,
     context.sourceSnapshot.revision.commit,
     context.scopeManifest,
     new Set(currentFiles.keys()),
     context.changeRegionGitObserver ?? null
   );
-  if (changed.failure) return result(CHANGE_REGION_ID, observations, unavailableChangeFacts(
-    context, 'PARSE_FAILURE', 'The bounded exact first-parent Git diff could not be read;'
-  ));
+  if (changed.failure) {
+    observeAdapterGlobalOutcome(context, {
+      status: 'failed', reasonCode: 'PARSE_FAILURE'
+    });
+    return result(CHANGE_REGION_ID, observations, unavailableChangeFacts(
+      context, 'PARSE_FAILURE', 'The bounded exact first-parent Git diff could not be read;'
+    ));
+  }
+  let incomplete = changed.truncated || changed.malformed || changed.unboundPaths > 0;
   if (changed.truncated && context.scopeManifest.allowedSubjects.includes('analysis')) {
     facts.push(unavailableDraft({
       factType: 'structural-impact',
@@ -217,6 +264,7 @@ export function extractChangeRegions(context) {
     const file = currentFiles.get(relative);
     if (!file) continue; // A deletion has no current pinned bytes and cannot mint Evidence.
     const scannedRegions = changed.byPath.get(relative);
+    incomplete ||= scannedRegions.truncated;
     const regions = scannedRegions.regions;
     const sourceLike = SOURCE_LIKE.has(path.posix.extname(relative).toLowerCase());
     const regionsOrFile = regions.length ? regions : [{ startLine: 1, endLine: 1 }];
@@ -245,10 +293,12 @@ export function extractChangeRegions(context) {
         interfaces = language ? scanInterfaceContracts(source, language) : [];
       } catch (error) {
         if (error?.code !== 'WMB_EXTRACTION_UNAVAILABLE') throw error;
+        incomplete = true;
       }
     }
     if (sourceLike && file.bytes > MAXIMUM_STRUCTURAL_SCAN_BYTES
         && context.scopeManifest.allowedSubjects.includes('contract')) {
+      incomplete = true;
       const subject = { kind: 'contract', id: `${relative}#unparsed-change` };
       const evidence = evidenceDescriptor(file, { kind: 'signature', subject });
       observations.push(evidence);
@@ -355,5 +405,8 @@ export function extractChangeRegions(context) {
       }));
     }
   }
+  observeAdapterGlobalOutcome(context, incomplete
+    ? { status: 'partial', reasonCode: 'PARTIAL_EXTRACTION' }
+    : { status: 'processed', reasonCode: null });
   return result(CHANGE_REGION_ID, observations, facts);
 }

@@ -2,7 +2,7 @@ import { compareText, isPlainRecord, recordSha256 } from '../../canonicalize.mjs
 import { readRecord } from '../../../schema-migrations.mjs';
 import {
   adapterFiles, evidenceDescriptor, exactText, factDraft, implementationSha256, result,
-  unavailableDraft
+  observeAdapterGlobalOutcome, unavailableDraft
 } from './common.mjs';
 
 export const HUMAN_CONFIRMED_KNOWLEDGE_IMPORT_ID = 'human-confirmed-knowledge-import';
@@ -94,14 +94,25 @@ export function extractHumanConfirmedKnowledge(context) {
   const observations = [];
   const facts = [];
   if (!context.scopeManifest.allowedSubjects.includes('human-record')) {
+    observeAdapterGlobalOutcome(context, {
+      status: 'unsupported', reasonCode: 'EXTRACTOR_NOT_APPLICABLE'
+    });
     return result(HUMAN_CONFIRMED_KNOWLEDGE_IMPORT_ID, observations, facts);
   }
   const file = adapterFiles(context).find((entry) => (
     entry.path === HUMAN_CONFIRMED_KNOWLEDGE_IMPORT_PATH
   ));
-  if (!file) return result(HUMAN_CONFIRMED_KNOWLEDGE_IMPORT_ID, observations, facts);
+  if (!file) {
+    observeAdapterGlobalOutcome(context, {
+      status: 'unsupported', reasonCode: 'EXTRACTOR_INPUT_ABSENT'
+    });
+    return result(HUMAN_CONFIRMED_KNOWLEDGE_IMPORT_ID, observations, facts);
+  }
   const fileSubject = { kind: 'human-record', id: HUMAN_CONFIRMED_KNOWLEDGE_IMPORT_PATH };
   if (file.bytes > MAXIMUM_BYTES) {
+    observeAdapterGlobalOutcome(context, {
+      status: 'failed', reasonCode: 'PARSE_FAILURE'
+    });
     facts.push(unavailableDraft({
       factType: 'business-meaning', subject: fileSubject,
       attemptedProducer: HUMAN_CONFIRMED_KNOWLEDGE_IMPORT_ID,
@@ -115,6 +126,9 @@ export function extractHumanConfirmedKnowledge(context) {
     source = exactText(context, file);
   } catch (error) {
     if (error?.code !== 'WMB_EXTRACTION_UNAVAILABLE') throw error;
+    observeAdapterGlobalOutcome(context, {
+      status: 'failed', reasonCode: 'INVALID_UTF8'
+    });
     facts.push(unavailableDraft({
       factType: 'business-meaning', subject: fileSubject,
       attemptedProducer: HUMAN_CONFIRMED_KNOWLEDGE_IMPORT_ID,
@@ -127,6 +141,9 @@ export function extractHumanConfirmedKnowledge(context) {
   try {
     records = parseHumanConfirmedKnowledgeImport(source);
   } catch (error) {
+    observeAdapterGlobalOutcome(context, {
+      status: 'failed', reasonCode: 'PARSE_FAILURE'
+    });
     const evidence = evidenceDescriptor(file, {
       kind: 'human-confirmed-record', subject: fileSubject
     });
@@ -154,5 +171,6 @@ export function extractHumanConfirmedKnowledge(context) {
       evidence: [evidence]
     }));
   }
+  observeAdapterGlobalOutcome(context, { status: 'processed', reasonCode: null });
   return result(HUMAN_CONFIRMED_KNOWLEDGE_IMPORT_ID, observations, facts);
 }

@@ -1,4 +1,6 @@
-import { implementationSha256, result, unavailableDraft } from './common.mjs';
+import {
+  implementationSha256, observeAdapterGlobalOutcome, result, unavailableDraft
+} from './common.mjs';
 import { compareText } from '../../canonicalize.mjs';
 
 export const REQUIRED_FACT_COVERAGE_ID = 'required-fact-coverage';
@@ -9,7 +11,8 @@ export const REQUIRED_FACT_COVERAGE_IMPLEMENTATION_SHA256 = implementationSha256
   'register-typed-unavailable-only-when-view-fact-coverage-is-absent-v2'
 );
 
-export function extractRequiredFactCoverage({ viewContracts = [], existingFacts = [] } = {}) {
+export function extractRequiredFactCoverage(input = {}) {
+  const { viewContracts = [], existingFacts = [] } = input;
   const facts = [];
   for (const view of [...viewContracts].sort((left, right) => compareText(`${left.id}@${left.version}`, `${right.id}@${right.version}`))) {
     const present = new Set(existingFacts.map((fact) => fact.factType));
@@ -33,5 +36,6 @@ export function extractRequiredFactCoverage({ viewContracts = [], existingFacts 
       }));
     }
   }
+  observeAdapterGlobalOutcome(input, { status: 'processed', reasonCode: null });
   return result(REQUIRED_FACT_COVERAGE_ID, [], facts);
 }

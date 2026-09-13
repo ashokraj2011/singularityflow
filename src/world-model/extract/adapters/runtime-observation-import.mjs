@@ -2,7 +2,7 @@ import { compareText, isPlainRecord, recordSha256 } from '../../canonicalize.mjs
 import { readRecord } from '../../../schema-migrations.mjs';
 import {
   adapterFiles, evidenceDescriptor, exactText, factDraft, implementationSha256, result,
-  unavailableDraft
+  observeAdapterGlobalOutcome, unavailableDraft
 } from './common.mjs';
 
 export const RUNTIME_OBSERVATION_IMPORT_ID = 'runtime-observation-import';
@@ -92,14 +92,25 @@ export function extractRuntimeObservations(context) {
   const observations = [];
   const facts = [];
   if (!context.scopeManifest.allowedSubjects.includes('runtime-observation')) {
+    observeAdapterGlobalOutcome(context, {
+      status: 'unsupported', reasonCode: 'EXTRACTOR_NOT_APPLICABLE'
+    });
     return result(RUNTIME_OBSERVATION_IMPORT_ID, observations, facts);
   }
   const file = adapterFiles(context).find((entry) => (
     entry.path === RUNTIME_OBSERVATION_IMPORT_PATH
   ));
-  if (!file) return result(RUNTIME_OBSERVATION_IMPORT_ID, observations, facts);
+  if (!file) {
+    observeAdapterGlobalOutcome(context, {
+      status: 'unsupported', reasonCode: 'EXTRACTOR_INPUT_ABSENT'
+    });
+    return result(RUNTIME_OBSERVATION_IMPORT_ID, observations, facts);
+  }
   const fileSubject = { kind: 'runtime-observation', id: RUNTIME_OBSERVATION_IMPORT_PATH };
   if (file.bytes > MAXIMUM_BYTES) {
+    observeAdapterGlobalOutcome(context, {
+      status: 'failed', reasonCode: 'PARSE_FAILURE'
+    });
     facts.push(unavailableDraft({
       factType: 'runtime-frequency', subject: fileSubject,
       attemptedProducer: RUNTIME_OBSERVATION_IMPORT_ID,
@@ -113,6 +124,9 @@ export function extractRuntimeObservations(context) {
     source = exactText(context, file);
   } catch (error) {
     if (error?.code !== 'WMB_EXTRACTION_UNAVAILABLE') throw error;
+    observeAdapterGlobalOutcome(context, {
+      status: 'failed', reasonCode: 'INVALID_UTF8'
+    });
     facts.push(unavailableDraft({
       factType: 'runtime-frequency', subject: fileSubject,
       attemptedProducer: RUNTIME_OBSERVATION_IMPORT_ID,
@@ -125,6 +139,9 @@ export function extractRuntimeObservations(context) {
   try {
     records = parseRuntimeObservationImport(source);
   } catch (error) {
+    observeAdapterGlobalOutcome(context, {
+      status: 'failed', reasonCode: 'PARSE_FAILURE'
+    });
     const evidence = evidenceDescriptor(file, {
       kind: 'runtime-observation', subject: fileSubject
     });
@@ -152,5 +169,6 @@ export function extractRuntimeObservations(context) {
       evidence: [evidence]
     }));
   }
+  observeAdapterGlobalOutcome(context, { status: 'processed', reasonCode: null });
   return result(RUNTIME_OBSERVATION_IMPORT_ID, observations, facts);
 }

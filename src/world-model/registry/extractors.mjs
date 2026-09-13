@@ -411,6 +411,62 @@ export function resolveExtractorManifest(registryValue, reference) {
 
 export const BUILTIN_EXTRACTOR_REGISTRY = deepFreeze(createExtractorRegistry(BUILTINS));
 
+const GLOBAL_EXECUTION_EXTRACTORS = Object.freeze(new Set([
+  CHANGE_REGION_ID,
+  HUMAN_CONFIRMED_KNOWLEDGE_IMPORT_ID,
+  REQUIRED_FACT_COVERAGE_ID,
+  RUNTIME_OBSERVATION_IMPORT_ID
+]));
+
+const PATH_EXECUTION_EXTRACTORS = Object.freeze(new Set([
+  CALL_REFERENCE_EDGE_ID,
+  CLAUSE_CODE_BINDING_ID,
+  CONFIGURATION_OBJECT_ID,
+  IMPORT_DEPENDENCY_ID,
+  INTERFACE_CONTRACT_ID,
+  LANGUAGE_DETECTION_ID,
+  OWNERSHIP_MAINTAINER_RECORD_ID,
+  REPOSITORY_FILES_ID,
+  RULE_DEFINITION_ID,
+  SIGNATURE_AND_EXPORT_ID,
+  SYMBOL_SKELETON_ID,
+  TEST_IDENTITY_ID
+]));
+
+/**
+ * Resolve current path/global execution coverage from an exact installed Extractor Manifest.
+ *
+ * Coverage is executable current-release policy, not caller input and not a historical-reader
+ * assertion. A copied or historically valid manifest cannot borrow this release's boundary.
+ */
+export function resolveExtractorExecutionContract(manifestValue) {
+  const manifest = validateExtractorManifest(manifestValue);
+  const installed = BUILTIN_EXTRACTOR_REGISTRY.manifests.find((candidate) => (
+    candidate.id === manifest.id && candidate.version === manifest.version
+  ));
+  if (!installed || installed.manifestSha256 !== manifest.manifestSha256
+      || installed.producer.implementationSha256 !== manifest.producer.implementationSha256) {
+    contractFailure(
+      `Extractor '${manifest.id}@${manifest.version}' is not the exact installed execution subject.`,
+      'WMB_EXTRACTOR_EXECUTION_BOUNDARY_MISMATCH'
+    );
+  }
+  if (!GLOBAL_EXECUTION_EXTRACTORS.has(manifest.id)
+      && !PATH_EXECUTION_EXTRACTORS.has(manifest.id)) {
+    contractFailure(
+      `Extractor '${manifest.id}@${manifest.version}' has no current executable extraction boundary.`,
+      'WMB_EXTRACTOR_EXECUTION_BOUNDARY_MISSING'
+    );
+  }
+  return deepFreeze({
+    id: manifest.id,
+    version: manifest.version,
+    implementationSha256: manifest.producer.implementationSha256,
+    manifestSha256: manifest.manifestSha256,
+    coverage: GLOBAL_EXECUTION_EXTRACTORS.has(manifest.id) ? 'global' : 'path'
+  });
+}
+
 /** Require the exact reviewed extractor registry shipped by this build. */
 export function assertInstalledExtractorRegistry(value) {
   const registry = validateExtractorRegistry(value);

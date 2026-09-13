@@ -1,7 +1,8 @@
 # Persisted World-Model views
 
-**Status:** W0/W1 persistence, the model semantic-owner/integrity foundation, and a bounded W2
-deterministic-view slice are implemented; production model/view emission and reuse remain staged
+**Status:** W0/W1 persistence, the model semantic-owner/integrity foundation, exact-manifest
+terminal extraction outcomes, a pure completeness bridge, and a bounded W2 deterministic-view
+slice are implemented; production model/view emission and reuse remain staged
 
 This document is the implementation companion to `SPEC-persisted-worldmodel-views.md`. It records
 the amendments required by the current WMB v4 code so that persistence extends the existing
@@ -29,11 +30,15 @@ model call, extraction, AST query, Git fetch, cache fill, or source checkout. Th
    raw-byte length/digest, closed fields, semantic self-hash validation, and the installed
    historical-shape owner for that frozen family. Current-runtime admission remains a separate
    check before an extractor can execute; upgrading an installed extractor cannot invalidate
-   already admitted history. MIG readability is not semantic admission. Frozen v1 owners now
+   already admitted history. Registered-v4 execution now has an explicit exact-manifest terminal
+   outcome capture path, but that opt-in observation is not yet a production publication authority
+   and ordinary registration does not allocate it. MIG readability is not
+   semantic admission. Frozen v1 owners now
    exist for repository-domain, extraction-policy, extractor-registry, completeness-record,
    consumer-profile, output-budget, and view-validation-receipt records. Model admission also
-   verifies their exact cross-record graph. Production emission remains disabled until the runtime
-   can produce truthful extraction outcomes and governed repository authority. View admission
+   verifies their exact cross-record graph. Production emission remains disabled until the
+   remaining P0 safeguards, including governed repository authority and the production
+   build/lookup adapter, are present. View admission
    additionally remains fail-closed without retained renderer/validator contracts, an applicable
    tokenizer owner, model-to-view/selected-ledger correlation, and rendered-budget validation.
    Deferred grounding/handoff/adoption paths additionally require publication-receipt,
@@ -46,11 +51,13 @@ model call, extraction, AST query, Git fetch, cache fill, or source checkout. Th
    capability/repository subject. A checkout basename or credential-bearing remote URL is not
    portable authority. Standalone local-repository domain enrollment must be explicit, not
    inferred.
-6. **No fabricated completeness is a production invariant.** Existing v4 facts, ledgers,
-   source/scope snapshots, and validation receipts can be retained structurally. Production
-   aggregate path outcomes remain disabled until actual extractor execution records a truthful
-   terminal outcome for every selected path, including successful zero-fact extraction; missing
-   domains remain explicit gaps.
+6. **No fabricated completeness is a production invariant.** The registered-v4 extraction capture
+   path records a truthful terminal outcome for every path in the exact selected source snapshot,
+   including a successful zero-fact extraction, and the pure completeness bridge refuses missing or
+   mismatched outcome coverage. It currently reports zero excluded paths because the selected
+   snapshot cannot prove which discovered candidates policy excluded. Excluded-path accounting
+   remains disabled until an owned full candidate roster exists; missing domains remain explicit
+   gaps.
 7. **Stable payload versus compatibility envelope.** Deterministic view payload bytes exclude
    clocks, actor labels, machine paths, and invocation IDs. The existing timestamped v4 Markdown
    envelope remains separately verified for compatibility.
@@ -86,6 +93,16 @@ than being wired into every Story path prematurely:
   admitted;
 - extractor registries are bounded to 1,024 manifests and graph admission uses indexed identity
   and manifest lookups;
+- current executable registered-v4 adapters expose an explicit deterministic terminal-execution capture against their
+  exact installed manifest and implementation identity, including successful zero-fact paths and
+  explicit unsupported, partial, and failed outcomes; ordinary registration defaults this capture
+  off, and future production integration must enable it explicitly, to avoid an unused
+  extractor-by-path allocation;
+- a pure completeness bridge verifies every selected source path and digest, exact extractor
+  identity, global extractor outcome, and required subject outcome before constructing the frozen
+  completeness record; a sealed execution receipt binds its source, scope, registry, extractor
+  executions, View Contracts, and View Fact Ledgers; the bridge emits no excluded outcomes, so
+  `counts.excludedPaths` is zero;
 - exact model/view keys, canonical raw-byte ingestion, portable disjoint paths, bounded retained
   closures, and create-if-absent staging are implemented;
 - the existing state writer checks the pinned combined closure, including model/view binding graph
@@ -107,13 +124,12 @@ than being wired into every Story path prematurely:
   branch.
 
 The increment does **not** make a current WMB build emit or reuse a production WMP model/view
-binding yet. The semantic owner and exact model-graph foundation is complete, but the current
-adapter result does not expose truthful terminal outcomes for every selected source path; a
-successful extractor may also emit zero facts. Production model emission therefore remains
-disabled until actual per-path extraction outcomes are instrumented, the repository subject is
-closed over a governed repository-identity authority, and a build-to-binding adapter plus exact
-pre-extraction lookup are implemented. Excluded paths cannot be admitted until an owned candidate
-roster proves they existed and were excluded by policy.
+binding yet. Exact-manifest terminal extraction outcomes and pure completeness construction are
+now available for every path in the selected source snapshot, including successful zero-fact
+extraction. Production model emission remains disabled pending the remaining P0 safeguards,
+including a governed repository-identity authority and a build-to-binding adapter plus exact
+pre-extraction lookup. Excluded paths remain zero and cannot be admitted until an owned full
+candidate roster proves they existed and were excluded by policy.
 
 The retained Repository Domain is deliberately only a portable semantic identity. It is not an
 authorization receipt: production code must compare that identity with approved or lifecycle-
@@ -125,16 +141,16 @@ selected-ledger correlation, validation-receipt candidate/scope binding, and ren
 validation are implemented. Deferred grounding, handoff, and adoption still require their
 publication-receipt, admission-proof, source-authority, origin-authority, target-authority, and
 adoption-authorization owners as applicable. Reusing an unrelated record under a convenient role
-would create a syntactically valid but false proof. The next rollout step is therefore extraction
-instrumentation and authority closure, followed by the build/lookup adapter; it is not activation
-of the production path.
+would create a syntactically valid but false proof. The next rollout step is therefore repository
+authority closure and the build/lookup adapter, followed by owned candidate-roster accounting; it
+is not activation of the production path.
 
 ## Delivery boundary
 
 | Increment | Current status | Included behavior |
 |---|---|---|
 | W0 | Persistence and semantic-owner foundation implemented | Strict identities, object references, six registered envelope contracts, portable paths, canonical-byte tests, and frozen v1 owners for repository domain, extraction policy, registry, completeness, consumer profile, output budget, and validation receipt. Production construction is not enabled. |
-| W1 | Persistence and model-integrity foundation implemented | Direct exact-key state-history reads; create-if-absent publication expectations; additive history plus compatible current projection in one CAS; history-bound recovery; exact model-graph validation and pinned state-writer checks. Production emission/reuse remains fail-closed pending truthful extraction outcomes, governed repository authority, and build/lookup integration. |
+| W1 | Persistence and model-integrity foundation implemented | Direct exact-key state-history reads; create-if-absent publication expectations; additive history plus compatible current projection in one CAS; history-bound recovery; exact model-graph validation and pinned state-writer checks; exact-manifest terminal extraction outcomes; and pure completeness construction over the selected source snapshot. Production emission/reuse remains fail-closed pending governed repository authority, build/lookup integration, and owned excluded-path accounting. |
 | W2 | Partial | Five model-free overview contracts, stable full/brief renderers, and exact history inspection are implemented. The structural grounding preview exists, but its frozen v1 shape cannot represent the full composition identity; a compatible successor contract, lifecycle emission, and exact packet replay are not yet enabled. |
 | W3 | Deferred | Incremental parse/derivation reuse and verified private-candidate handoff/adoption. |
 | W4 | Deferred | Legacy inventory/cutover, supported-platform evidence, capacity benchmarks, UI explorer, and release qualification. |
@@ -165,9 +181,9 @@ proposed 256 MiB closure ceiling until a streaming/reference recovery format is 
 
 ## Release evidence still required
 
-- Instrument the registered-v4 extraction path so it records a terminal outcome and exact content
-  digest for every selected repository path, including successful zero-fact extraction. Add an
-  owned discovered-candidate roster before permitting excluded-path claims.
+- Add an owned full discovered-candidate roster before permitting excluded-path claims. The
+  implemented extraction outcomes and pure completeness bridge cover only exact selected snapshot
+  paths and intentionally report zero exclusions.
 - Define an owned extraction-configuration contract that maps exact retained configuration bytes
   to the extractor that consumes them. Frozen v1 can prove only its registered empty
   configuration; configured profiles therefore remain fail-closed.

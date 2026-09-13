@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import {
   adapterFiles, evidenceDescriptor, exactText, factDraft, implementationSha256, result,
-  unavailableDraft
+  observeAdapterPathOutcome, unavailableDraft
 } from './common.mjs';
 import { configurationFormat, parseConfigurationObject } from './configuration-object.mjs';
 
@@ -17,6 +17,8 @@ export const RULE_DEFINITION_IMPLEMENTATION_SHA256 = implementationSha256(
 const RULE_CONTAINERS = new Set(['policies', 'predicates', 'rules']);
 const CONDITION_FIELDS = new Set(['condition', 'expression', 'if', 'predicate', 'when']);
 const SAFE_RULE_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}$/;
+const MAXIMUM_RULE_OBJECTS = 1_000;
+const MAXIMUM_RULE_TRAVERSAL_DEPTH = 10;
 
 function ruleName(item, fallback = null) {
   if (item && typeof item === 'object' && !Array.isArray(item)) {
@@ -28,21 +30,32 @@ function ruleName(item, fallback = null) {
 }
 
 /** Find only explicitly named objects below registered rule/policy/predicate containers. */
-export function scanRuleObjects(root) {
+export function scanRuleObjectsWithLimitations(root) {
   const found = [];
+  let truncated = false;
+  let rejectedIdentifiers = 0;
   const visit = (value, segments = [], depth = 0) => {
-    if (!value || typeof value !== 'object' || depth > 10 || found.length >= 1_000) return;
+    if (!value || typeof value !== 'object') return;
+    if (depth > MAXIMUM_RULE_TRAVERSAL_DEPTH || found.length >= MAXIMUM_RULE_OBJECTS) {
+      truncated = true;
+      return;
+    }
     if (Array.isArray(value)) {
-      value.forEach((item, index) => visit(item, [...segments, String(index)], depth + 1));
+      for (let index = 0; index < value.length; index += 1) {
+        if (found.length >= MAXIMUM_RULE_OBJECTS) { truncated = true; break; }
+        visit(value[index], [...segments, String(index)], depth + 1);
+      }
       return;
     }
     for (const [key, child] of Object.entries(value)) {
+      if (found.length >= MAXIMUM_RULE_OBJECTS) { truncated = true; break; }
       const next = [...segments, key];
       if (RULE_CONTAINERS.has(key.toLowerCase()) && child && typeof child === 'object') {
-        const entries = Array.isArray(child) ? child.map((item, index) => [String(index), item]) : Object.entries(child);
+        const entries = Array.isArray(child) ? child.entries() : Object.entries(child);
         for (const [entryKey, entry] of entries) {
+          if (found.length >= MAXIMUM_RULE_OBJECTS) { truncated = true; break; }
           const name = ruleName(entry, Array.isArray(child) ? null : entryKey);
-          if (!name) continue;
+          if (!name) { rejectedIdentifiers += 1; continue; }
           const conditionFields = entry && typeof entry === 'object' && !Array.isArray(entry)
             ? Object.keys(entry).filter((field) => CONDITION_FIELDS.has(field.toLowerCase())).sort()
             : [];
@@ -57,11 +70,17 @@ export function scanRuleObjects(root) {
     }
   };
   visit(root);
-  return found.filter((item, index, values) => values.findIndex((candidate) => (
+  const rules = found.filter((item, index, values) => values.findIndex((candidate) => (
     candidate.name === item.name && candidate.container === item.container
   )) === index).sort((left, right) => (
     `${left.container}.${left.name}`.localeCompare(`${right.container}.${right.name}`)
   ));
+  return { rules, truncated, rejectedIdentifiers };
+}
+
+/** Safe explicitly named rules only. Use the detailed form when completeness is recorded. */
+export function scanRuleObjects(root) {
+  return scanRuleObjectsWithLimitations(root).rules;
 }
 
 export function extractRuleDefinitions(context) {
@@ -88,6 +107,9 @@ export function extractRuleDefinitions(context) {
     try {
       parsed = parseConfigurationObject(source, file.path);
     } catch (error) {
+      observeAdapterPathOutcome(context, file, {
+        status: 'failed', reasonCode: 'PARSE_FAILURE'
+      });
       if (/(?:rule|policy)/i.test(path.posix.basename(file.path))) {
         const subject = { kind: 'file', id: file.path };
         const evidence = evidenceDescriptor(file, { kind: 'file', subject });
@@ -103,6 +125,9 @@ export function extractRuleDefinitions(context) {
       continue;
     }
     if (!parsed?.root) {
+      observeAdapterPathOutcome(context, file, {
+        status: 'unsupported', reasonCode: 'UNSUPPORTED_LANGUAGE'
+      });
       if (/(?:rule|policy)/i.test(path.posix.basename(file.path))) {
         const subject = { kind: 'file', id: file.path };
         const evidence = evidenceDescriptor(file, { kind: 'file', subject });
@@ -117,7 +142,8 @@ export function extractRuleDefinitions(context) {
       }
       continue;
     }
-    for (const item of scanRuleObjects(parsed.root)) {
+    const scanned = scanRuleObjectsWithLimitations(parsed.root);
+    for (const item of scanned.rules) {
       const subject = { kind: 'rule', id: `${file.path}#${item.container}.${item.name}` };
       const locator = { target: `${item.container}.${item.name}` };
       const ruleEvidence = evidenceDescriptor(file, { kind: 'rule-object', locator, subject });
@@ -144,6 +170,36 @@ export function extractRuleDefinitions(context) {
           evidence: [conditionEvidence]
         }));
       }
+    }
+    if (scanned.truncated) {
+      observeAdapterPathOutcome(context, file, {
+        status: 'partial', reasonCode: 'EXTRACTION_LIMIT_REACHED'
+      });
+      const subject = { kind: 'file', id: file.path };
+      const evidence = evidenceDescriptor(file, { kind: 'file', subject });
+      observations.push(evidence);
+      facts.push(unavailableDraft({
+        factType: 'rule-definition', subject,
+        attemptedProducer: RULE_DEFINITION_ID,
+        code: 'EXTRACTION_LIMIT_REACHED',
+        detail: `The bounded rule scan for ${file.path} reached its item or traversal-depth limit.`,
+        evidence: [evidence]
+      }));
+    }
+    if (scanned.rejectedIdentifiers) {
+      observeAdapterPathOutcome(context, file, {
+        status: 'partial', reasonCode: 'EXTRACTION_VALUE_NOT_ADMITTED'
+      });
+      const subject = { kind: 'file', id: file.path };
+      const evidence = evidenceDescriptor(file, { kind: 'file', subject });
+      observations.push(evidence);
+      facts.push(unavailableDraft({
+        factType: 'rule-definition', subject,
+        attemptedProducer: RULE_DEFINITION_ID,
+        code: 'EXTRACTION_VALUE_NOT_ADMITTED',
+        detail: `${scanned.rejectedIdentifiers} rule container entry or entries in ${file.path} lacked an admitted stable identifier.`,
+        evidence: [evidence]
+      }));
     }
   }
   return result(RULE_DEFINITION_ID, observations, facts);

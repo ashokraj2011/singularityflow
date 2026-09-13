@@ -42,19 +42,68 @@ export function languageForPath(relative) {
   return LANGUAGE_BY_EXTENSION[path.posix.extname(relative).toLowerCase()] ?? null;
 }
 
+/**
+ * Report one actual path-level extractor outcome to the runner that invoked this adapter.
+ *
+ * Direct adapter callers do not install a recorder, so this remains an additive no-op for the
+ * existing adapter API. The registered runner installs the recorder immediately around one
+ * admitted adapter invocation and closes every applicable path before returning its result.
+ */
+export function observeAdapterPathRead(context, file) {
+  context?.adapterExecutionRecorder?.({
+    scope: 'path',
+    path: file.path,
+    sourceContentSha256: file.contentSha256,
+    signal: 'read',
+    reasonCode: null
+  });
+}
+
+/** Report an explicit non-success terminal signal for one exact source path. */
+export function observeAdapterPathOutcome(context, file, {
+  status, reasonCode
+} = {}) {
+  context?.adapterExecutionRecorder?.({
+    scope: 'path',
+    path: file.path,
+    sourceContentSha256: file.contentSha256,
+    signal: status,
+    reasonCode
+  });
+}
+
+/** Report the terminal outcome of a repository-wide deterministic extractor. */
+export function observeAdapterGlobalOutcome(context, {
+  status, reasonCode = null
+} = {}) {
+  context?.adapterExecutionRecorder?.({
+    scope: 'global', signal: status, reasonCode
+  });
+}
+
 export function exactText(context, file) {
   const cached = context.sourceTextCache?.get(file.path);
   if (cached === null) {
+    observeAdapterPathOutcome(context, file, {
+      status: 'failed', reasonCode: 'INVALID_UTF8'
+    });
     contractFailure(`Pinned source '${file.path}' is not valid UTF-8.`, 'WMB_EXTRACTION_UNAVAILABLE', { path: file.path });
   }
-  if (typeof cached === 'string') return cached;
+  if (typeof cached === 'string') {
+    observeAdapterPathRead(context, file);
+    return cached;
+  }
   const bytes = readExactSourceFile(context.root, context.sourceSnapshot, file.path);
   try {
     const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
     context.sourceTextCache?.set(file.path, text);
+    observeAdapterPathRead(context, file);
     return text;
   } catch {
     context.sourceTextCache?.set(file.path, null);
+    observeAdapterPathOutcome(context, file, {
+      status: 'failed', reasonCode: 'INVALID_UTF8'
+    });
     contractFailure(`Pinned source '${file.path}' is not valid UTF-8.`, 'WMB_EXTRACTION_UNAVAILABLE', { path: file.path });
   }
 }

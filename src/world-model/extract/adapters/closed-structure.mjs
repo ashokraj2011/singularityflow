@@ -7,6 +7,7 @@ const SUPPORTED = new Set([
   'c', 'cpp', 'csharp', 'go', 'java', 'javascript', 'kotlin', 'php', 'python',
   'ruby', 'rust', 'swift', 'typescript'
 ]);
+const MAXIMUM_LIMITATION_RECORDS = 256;
 
 export const CLOSED_STRUCTURE_LANGUAGES = Object.freeze([...SUPPORTED].sort());
 export const TEST_IDENTITY_LANGUAGES = Object.freeze([
@@ -91,10 +92,32 @@ function declaration(code, language) {
   return null;
 }
 
-/** Closed, single-line declaration grammar. Returned signatures never include a source body. */
-export function scanSignaturesAndExports(source, language) {
-  if (!SUPPORTED.has(language)) return [];
+function closedScanResult(items, limitations, duplicateItem) {
+  return {
+    items: items.filter((item, index, values) => values.findIndex((candidate) => (
+      duplicateItem(candidate, item)
+    )) === index),
+    limitations: limitations.filter((item, index, values) => values.findIndex((candidate) => (
+      candidate.code === item.code && candidate.line === item.line
+    )) === index)
+  };
+}
+
+function recordLimitation(limitations, line, code = 'EXTRACTION_LIMIT_REACHED') {
+  if (limitations.length < MAXIMUM_LIMITATION_RECORDS) {
+    limitations.push({ code, line });
+  }
+}
+
+/**
+ * Closed, single-line declaration grammar with explicit bounded-parser limitations.
+ * Limitation records contain only a closed code and source line; rejected source text is never
+ * returned to an adapter or retained in a Fact.
+ */
+export function scanSignaturesAndExportsWithLimitations(source, language) {
+  if (!SUPPORTED.has(language)) return { items: [], limitations: [] };
   const found = [];
+  const limitations = [];
   for (const { code: rawCode, line } of sourceLines(source, language)) {
     // Indentation denotes a nested declaration for languages where a lexical top-level boundary is
     // meaningful. Method signatures in brace languages remain useful and are admitted separately.
@@ -104,12 +127,20 @@ export function scanSignaturesAndExports(source, language) {
     const parsed = declaration(code, language);
     if (!parsed) continue;
     const signature = boundedSignature(code, language);
-    if (!signature) continue;
+    if (!signature) {
+      recordLimitation(limitations, line);
+      continue;
+    }
     found.push({ ...parsed, signature, line });
   }
-  return found.filter((item, index, values) => values.findIndex((candidate) => (
+  return closedScanResult(found, limitations, (candidate, item) => (
     candidate.line === item.line && candidate.name === item.name && candidate.signature === item.signature
-  )) === index);
+  ));
+}
+
+/** Closed, single-line declarations only. Use the detailed form when completeness is recorded. */
+export function scanSignaturesAndExports(source, language) {
+  return scanSignaturesAndExportsWithLimitations(source, language).items;
 }
 
 function names(value) {
@@ -151,10 +182,13 @@ export function scanInterfaceContracts(source, language) {
   )) === index);
 }
 
-/** Field/method declarations inside an explicit interface boundary, without implementation bodies. */
-export function scanProtocolFields(source, language) {
-  if (!SUPPORTED.has(language)) return [];
+/**
+ * Field/method declarations inside an explicit interface boundary, with closed limitation records.
+ */
+export function scanProtocolFieldsWithLimitations(source, language) {
+  if (!SUPPORTED.has(language)) return { items: [], limitations: [] };
   const found = [];
+  const limitations = [];
   let active = null;
   let depth = 0;
   for (const { code: rawCode, line } of sourceLines(source, language)) {
@@ -193,12 +227,18 @@ export function scanProtocolFields(source, language) {
       }
       const signature = boundedSignature(code, language);
       if (match && signature) found.push({ interface: active, name: match[1], signature, line });
+      else if (match) recordLimitation(limitations, line);
     }
     if (depth <= 0) { active = null; depth = 0; }
   }
-  return found.filter((item, index, values) => values.findIndex((candidate) => (
+  return closedScanResult(found, limitations, (candidate, item) => (
     candidate.interface === item.interface && candidate.name === item.name && candidate.line === item.line
-  )) === index);
+  ));
+}
+
+/** Closed protocol fields only. Use the detailed form when completeness is recorded. */
+export function scanProtocolFields(source, language) {
+  return scanProtocolFieldsWithLimitations(source, language).items;
 }
 
 export function isTestSourcePath(relative) {
@@ -211,20 +251,26 @@ export function isTestSourcePath(relative) {
     || /_test\.go$/i.test(basename);
 }
 
-function safeTitle(value) {
+function titleAdmission(value) {
   const title = String(value).replace(/\\(['"\\])/g, '$1').replace(/\s+/g, ' ').trim();
   // Test titles enter a model-readable Fact claim. Keep the useful natural-language subset while
   // refusing Markdown/control syntax that could turn repository bytes into prompt instructions.
-  return title && title.length <= 200 && /^[A-Za-z0-9][A-Za-z0-9 .,_:/()'&+-]*$/.test(title)
-    ? title
-    : null;
+  if (title.length > 200) return { title: null, code: 'EXTRACTION_LIMIT_REACHED' };
+  if (!title || !/^[A-Za-z0-9][A-Za-z0-9 .,_:/()'&+-]*$/.test(title)) {
+    return { title: null, code: 'EXTRACTION_VALUE_NOT_ADMITTED' };
+  }
+  return { title, code: null };
 }
 
-/** Framework-declared test names only; arbitrary functions in test files are not promoted. */
-export function scanTestIdentities(source, language) {
-  if (!SUPPORTED.has(language)) return [];
+/**
+ * Framework-declared test names plus closed limitation records. Unsafe title bytes are inspected
+ * only to admit or reject them and are never returned from this scanner.
+ */
+export function scanTestIdentitiesWithLimitations(source, language) {
+  if (!SUPPORTED.has(language)) return { items: [], limitations: [] };
   const lines = sourceLines(source, language);
   const found = [];
+  const limitations = [];
   for (let index = 0; index < lines.length; index += 1) {
     const { raw, code: masked, line } = lines[index];
     const code = masked.trim();
@@ -232,8 +278,13 @@ export function scanTestIdentities(source, language) {
     if (language === 'javascript' || language === 'typescript') {
       if (!/\b(?:test|it|describe)\s*\(/.test(code)) continue;
       match = /\b(test|it|describe)\s*\(\s*(['"])((?:\\.|(?!\2).)*)\2/.exec(raw);
-      const title = safeTitle(match?.[3] ?? '');
-      if (title) found.push({ framework: match[1], name: title, line });
+      if (!match) {
+        recordLimitation(limitations, line, 'EXTRACTION_VALUE_NOT_ADMITTED');
+      } else {
+        const admission = titleAdmission(match[3]);
+        if (admission.title) found.push({ framework: match[1], name: admission.title, line });
+        else recordLimitation(limitations, line, admission.code);
+      }
     } else if (language === 'python') {
       match = /^\s*(?:async\s+)?def\s+(test_[A-Za-z0-9_]+)\s*\(/.exec(code);
       if (match) found.push({ framework: 'python-test', name: match[1], line });
@@ -261,16 +312,27 @@ export function scanTestIdentities(source, language) {
     } else if (language === 'ruby') {
       if (!/^(?:it|describe|context)\b/.test(code)) continue;
       match = /^\s*(it|describe|context)\s*(?:\(\s*)?(['"])((?:\\.|(?!\2).)*)\2/.exec(raw);
-      const title = safeTitle(match?.[3] ?? '');
-      if (title) found.push({ framework: `ruby-${match[1]}`, name: title, line });
+      if (!match) {
+        recordLimitation(limitations, line, 'EXTRACTION_VALUE_NOT_ADMITTED');
+      } else {
+        const admission = titleAdmission(match[3]);
+        if (admission.title) {
+          found.push({ framework: `ruby-${match[1]}`, name: admission.title, line });
+        } else recordLimitation(limitations, line, admission.code);
+      }
     } else if (language === 'php') {
       match = /\bfunction\s+(test[A-Za-z0-9_]+)\s*\(/i.exec(code);
       if (match) found.push({ framework: 'phpunit', name: match[1], line });
     }
   }
-  return found.filter((item, index, values) => values.findIndex((candidate) => (
+  return closedScanResult(found, limitations, (candidate, item) => (
     candidate.framework === item.framework && candidate.name === item.name && candidate.line === item.line
-  )) === index);
+  ));
+}
+
+/** Safe framework-declared identities only. Use the detailed form when completeness is recorded. */
+export function scanTestIdentities(source, language) {
+  return scanTestIdentitiesWithLimitations(source, language).items;
 }
 
 const CLAUSE_TAG = /^(?:\s*)(?:(?:\/\/|#|\/\*+|\*)\s*)(?:[-*]\s*)?@(?:ac|clause)\s*:\s*((?:[A-Za-z][A-Za-z0-9-]*:)?(?:AC|REQ|CON|NFR)-[A-Za-z0-9-]+)\b/i;

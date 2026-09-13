@@ -802,10 +802,11 @@ See [Token Reduction preview](TOKEN-REDUCTION.md) for the exact boundary and val
 
 ## Persisted World-Model views (WMP)
 
-The W0/W1 persistence foundation, model semantic-owner/integrity foundation, and bounded W2
-deterministic-view slice are implemented in the current increment. Exact history staging/read,
-one-CAS publication, history-bound recovery, historical source reads, and five pure overview
-renderers are code-local. Production model/view emission and reuse remain disabled. The
+The W0/W1 persistence foundation, model semantic-owner/integrity foundation, exact-manifest
+terminal extraction outcomes, pure completeness bridge, and bounded W2 deterministic-view slice
+are implemented in the current increment. Exact history staging/read, one-CAS publication,
+history-bound recovery, historical source reads, and five pure overview renderers are code-local.
+Production model/view emission and reuse remain disabled. The
 authoritative amended boundary is
 [Persisted World-Model views](PERSISTED-WORLD-MODEL-VIEWS.md).
 
@@ -821,14 +822,24 @@ authoritative amended boundary is
   normalization to an explicit frozen v1 contract; arbitrary semantic digests are refused;
 - [x] cap retained extractor registries at 1,024 entries and index graph lookups so adversarial
   registries cannot amplify repeated linear scans;
+- [x] provide explicit deterministic terminal-execution capture against exact installed extractor
+  manifests and implementations for every selected source-snapshot path, including successful
+  zero-fact extraction and explicit unsupported, partial, and failed states; ordinary registration
+  leaves this capture off until production WMP activation so large repositories do not retain an
+  unused extractor-by-path matrix;
+- [x] construct a frozen completeness record through a pure bridge that verifies selected path
+  coverage/digests, exact extractor identity, global outcomes, and required subject outcomes,
+  while emitting no excluded outcomes so `counts.excludedPaths` remains zero; a sealed extraction
+  receipt binds that bridge to the exact source, scope, registry, executions, View Contracts, and
+  View Fact Ledgers so a self-consistent substituted view roster is refused;
 - [x] apply model/view graph validation to the pinned combined closure at the state-writer staging
   boundary before the one-CAS publication path can advance authority.
 
 ### P0 — complete truthful production reuse
 
-- instrument actual registered-v4 extractor execution with a terminal outcome and exact content
-  digest for every selected source path, including successful zero-fact results; add an owned full
-  candidate roster before admitting excluded-path counts;
+- add an owned full discovered-candidate roster before admitting excluded-path counts; the current
+  execution and completeness contracts deliberately cover only selected snapshot paths and report
+  zero exclusions;
 - define an owned extraction-configuration contract that maps retained configuration bytes to
   their consuming extractor; frozen v1 admits only the registered empty configuration and refuses
   configured profiles;
@@ -846,7 +857,9 @@ authoritative amended boundary is
   source, policy, renderer, or reports change, using a compatible successor to the structural v1
   preview that binds expansion handles, ordering/separators, and packet-composer identity.
 
-Production model/view emission and reuse must stay disabled until these P0 items are complete.
+Production model/view emission and reuse must stay disabled until these P0 items are complete. In
+particular, terminal extraction outcomes and the pure bridge do not substitute for governed
+repository identity or the production build-to-binding/lookup adapter.
 Deferred grounding/handoff/adoption also require publication-receipt, admission-proof,
 source-authority, origin-authority, target-authority, and adoption-authorization owners; no role
 may be satisfied with an unrelated registered record.

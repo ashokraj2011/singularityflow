@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/token-reduction-deduplication-rules.schema.json",
+  "title": "TKR v1 deduplication rules",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "owner", "contractId", "version", "identity", "textEqualitySufficient", "coverageProofRequired", "revalidateAfterBudgeting", "carrierRemoval", "contractSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "tkr/deduplication-rules" },
+    "owner": { "$ref": "#/$defs/id" },
+    "contractId": { "$ref": "#/$defs/id" },
+    "version": { "const": 1 },
+    "identity": { "const": "owner-qualified-subject-revision-role" },
+    "textEqualitySufficient": { "const": false },
+    "coverageProofRequired": { "const": true },
+    "revalidateAfterBudgeting": { "const": true },
+    "carrierRemoval": { "const": "refuse-when-required-claims-depend" },
+    "contractSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$", "maxLength": 128 },
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  },
+  "additionalProperties": false
+}

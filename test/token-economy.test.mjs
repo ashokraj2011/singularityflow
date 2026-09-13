@@ -8,21 +8,32 @@ import {
   tokenLedgerText
 } from '../src/token-ledger.mjs';
 import {
-  classifyTokenOptimization, normalizeTokenEconomy, selectedTokenEconomyProfile
+  classifyTokenOptimization, normalizeTokenEconomy, selectedTokenEconomyProfile,
+  tokenEconomyDigest
 } from '../src/token-economy.mjs';
 
 test('[TKN:REQ-140] pilot policy defaults to observe and keeps feature switches independent', () => {
   const policy = normalizeTokenEconomy();
   assert.equal(policy.enabled, true);
   assert.equal(policy.mode, 'observe');
+  assert.equal(policy.composer, 'legacy-v1');
   assert.equal(policy.observationFirewall, true);
   assert.equal(policy.historicalMemory, false);
   assert.equal(selectedTokenEconomyProfile(policy).maximumEstimatedPromptTokens, 18_000);
   assert.equal(normalizeTokenEconomy({ enabled: false, mode: 'enforce' }).mode, 'off');
+  assert.equal(normalizeTokenEconomy({ composer: 'tkr-v1' }).composer, 'tkr-v1');
+  assert.throws(() => normalizeTokenEconomy({ composer: 'ambient-latest' }), /composer/);
   assert.throws(
     () => selectedTokenEconomyProfile(policy, 'not-approved'),
     (error) => error.code === 'TKN_PROFILE_NOT_APPROVED'
   );
+});
+
+test('legacy composer preserves the historical token-economy digest convention', () => {
+  const historicalDefaultDigest = '245c9fc0147b287981a3beecdfad8ddfff15eb7746d2eb1d72faaaefc5ec7f16';
+  assert.equal(tokenEconomyDigest({}), historicalDefaultDigest);
+  assert.equal(tokenEconomyDigest({ composer: 'legacy-v1' }), historicalDefaultDigest);
+  assert.notEqual(tokenEconomyDigest({ composer: 'tkr-v1' }), historicalDefaultDigest);
 });
 
 test('[TKN:CON-008] mandatory governance context is selected first and never budget-evicted', () => {

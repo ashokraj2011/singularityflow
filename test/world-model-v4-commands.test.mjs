@@ -1825,6 +1825,26 @@ test('advisory registered-v4 absence records a verifiable prompt without inventi
   assert.match(enforced.errors.join('\n'), /not bound to the current pinned Story source/);
 });
 
+test('active tkr-v1 configuration is refused before a Story can pin it', async (t) => {
+  const root = await registeredRepository(t);
+  const definitionPath = path.join(root, 'singularity', 'workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.tokenEconomy.composer = 'tkr-v1';
+  definition.tokenEconomy.mode = 'observe';
+  await writeFile(definitionPath, YAML.stringify(definition));
+  git(root, ['add', '--', 'singularity/workflow.yml']);
+  git(root, ['commit', '-q', '-m', 'opt in to TKR preview']);
+  git(root, ['switch', '-q', '-c', 'TKR-PREVIEW']);
+
+  await assert.rejects(() => loadConfig(root), (error) => (
+    error.code === 'TKR_CONTRACT_UNSUPPORTED'
+      && error.details.milestone === 'M2'
+      && /legacy-v1/.test(error.details.nextAction)
+  ));
+  const workItems = await readdir(path.join(root, 'singularity', 'work-items')).catch(() => []);
+  assert.equal(workItems.includes('TKR-PREVIEW'), false);
+});
+
 test('v3 migration publishes the target projection and receipt in one state commit', async (t) => {
   const root = await registeredRepository(t);
   await writeFile(path.join(root, 'legacy-impact.md'), [

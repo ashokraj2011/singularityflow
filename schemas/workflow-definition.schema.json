@@ -549,6 +549,7 @@
       "properties": {
         "enabled": { "type": "boolean", "default": true },
         "mode": { "enum": ["off", "observe", "assist", "enforce"], "default": "observe" },
+        "composer": { "enum": ["legacy-v1", "tkr-v1"], "default": "legacy-v1" },
         "profile": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$", "default": "standard" },
         "profiles": {
           "type": "object",

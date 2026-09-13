@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/token-reduction-composer-contract.schema.json",
+  "title": "TKR v1 composer contract",
+  "type": "object",
+  "required": [
+    "schemaVersion", "kind", "owner", "contractId", "version", "sectionRules",
+    "representationRulesRef", "deduplicationRulesRef", "renderers",
+    "protectedTextRulesRef", "orderingRulesRef", "normalizationRulesRef", "limits",
+    "contractSha256"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "tkr/composer-contract" },
+    "owner": { "$ref": "#/$defs/typeId" },
+    "contractId": { "$ref": "#/$defs/typeId" },
+    "version": { "const": 1 },
+    "sectionRules": {
+      "type": "array", "minItems": 1, "maxItems": 256,
+      "items": { "$ref": "#/$defs/sectionRule" }
+    },
+    "representationRulesRef": { "$ref": "#/$defs/representationRulesRef" },
+    "deduplicationRulesRef": { "$ref": "#/$defs/deduplicationRulesRef" },
+    "renderers": {
+      "type": "array", "minItems": 1, "maxItems": 256, "uniqueItems": true,
+      "items": { "$ref": "#/$defs/exactContractRef" }
+    },
+    "protectedTextRulesRef": { "$ref": "#/$defs/protectedTextRulesRef" },
+    "orderingRulesRef": { "$ref": "#/$defs/orderingRulesRef" },
+    "normalizationRulesRef": { "$ref": "#/$defs/normalizationRulesRef" },
+    "limits": {
+      "type": "object",
+      "required": [
+        "maximumSections", "maximumCandidatesPerSubject",
+        "maximumCoverageClaims", "maximumAliases", "maximumWorkingMetadataBytes"
+      ],
+      "properties": {
+        "maximumSections": { "type": "integer", "minimum": 1, "maximum": 256 },
+        "maximumCandidatesPerSubject": { "type": "integer", "minimum": 1, "maximum": 4 },
+        "maximumCoverageClaims": { "type": "integer", "minimum": 1, "maximum": 4096 },
+        "maximumAliases": { "type": "integer", "minimum": 1, "maximum": 1024 },
+        "maximumWorkingMetadataBytes": { "type": "integer", "minimum": 1, "maximum": 16777216 }
+      },
+      "additionalProperties": false
+    },
+    "contractSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "typeId": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$", "maxLength": 128 },
+    "sectionId": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 64 },
+    "exactContractRef": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9./-]*@[1-9][0-9]*#sha256:[a-f0-9]{64}$",
+      "maxLength": 512
+    },
+    "representationRulesRef": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9.-]*/tkr/representation-rules/[a-z][a-z0-9.-]*@[1-9][0-9]*#sha256:[a-f0-9]{64}$",
+      "maxLength": 512
+    },
+    "deduplicationRulesRef": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9.-]*/tkr/deduplication-rules/[a-z][a-z0-9.-]*@[1-9][0-9]*#sha256:[a-f0-9]{64}$",
+      "maxLength": 512
+    },
+    "protectedTextRulesRef": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9.-]*/tkr/protected-text-rules/[a-z][a-z0-9.-]*@[1-9][0-9]*#sha256:[a-f0-9]{64}$",
+      "maxLength": 512
+    },
+    "orderingRulesRef": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9.-]*/tkr/ordering-rules/[a-z][a-z0-9.-]*@[1-9][0-9]*#sha256:[a-f0-9]{64}$",
+      "maxLength": 512
+    },
+    "normalizationRulesRef": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9.-]*/tkr/normalization-rules/[a-z][a-z0-9.-]*@[1-9][0-9]*#sha256:[a-f0-9]{64}$",
+      "maxLength": 512
+    },
+    "sectionRule": {
+      "type": "object",
+      "required": ["id", "slot", "orderGroup", "stability", "permittedRoles", "dependencies", "generator", "rendererRef"],
+      "properties": {
+        "id": { "$ref": "#/$defs/sectionId" },
+        "slot": { "$ref": "#/$defs/typeId" },
+        "orderGroup": { "$ref": "#/$defs/sectionId" },
+        "stability": { "enum": ["invariant", "dynamic"] },
+        "permittedRoles": { "type": "array", "minItems": 1, "uniqueItems": true, "maxItems": 256, "items": { "$ref": "#/$defs/sectionId" } },
+        "dependencies": { "type": "array", "uniqueItems": true, "maxItems": 256, "items": { "$ref": "#/$defs/sectionId" } },
+        "generator": { "enum": ["alias-table", "omission-notices", null] },
+        "rendererRef": { "oneOf": [{ "$ref": "#/$defs/exactContractRef" }, { "type": "null" }] }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

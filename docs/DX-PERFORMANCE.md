@@ -284,13 +284,16 @@ pass. The release script runs this gate even when local tests are skipped in fav
 signed verification receipt. Bundle and module ceilings may be lowered after accepted evidence;
 they must not be raised merely to admit a regression.
 
-The reviewed Story-execution remediation closure contains 31,280,072 JavaScript bytes. Its four
-affected entries measure 7,273,382 bytes (`gateway-runtime.cjs`), 7,326,607 bytes
-(`gateway-status-worker.cjs`), 3,216,605 bytes (`support-runtime.cjs`), and 7,287,829 bytes
-(`world-model-build.cjs`). Their ceilings, along with the aggregate ceiling, are rounded only to
-the next 5,000-byte boundary, leaving 1,618, 3,393, 3,395, 2,171, and 4,928 bytes of headroom
-respectively. Module counts are 547, 551, 370, and 549 and remain inside the existing reviewed
-ceilings.
+The reviewed TKR-preview closure contains 31,288,784 JavaScript bytes in an isolated clean build at
+`main@f8278a42` plus the candidate change. Against the same clean pre-change dependency closure,
+the dynamic composer selector and fail-closed production guard add 7,984 bytes and zero source
+modules. The five affected entries measure 7,275,482 bytes (`gateway-runtime.cjs`), 7,328,707 bytes
+(`gateway-status-worker.cjs`), 3,385,879 bytes (`help-runtime.cjs`), 3,217,817 bytes
+(`support-runtime.cjs`), and 7,289,929 bytes (`world-model-build.cjs`). The three entries that cross
+their prior ceiling and the aggregate ceiling are rounded only to the next 5,000-byte boundary;
+the existing Help, Support, and module ceilings remain unchanged. A dirty `+local` build measures
+31,296,512 bytes because that identity is embedded in the bundles and remains inside the same
+reviewed 31,300,000-byte ceiling; the clean release closure remains lower.
 
 ## Bounded aggregate verification
 

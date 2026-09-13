@@ -177,6 +177,17 @@ test('the shipped workflow schema stays in parity with token economy and code-de
     candidate.mode = mode;
     assert.doesNotThrow(() => normalizeTokenEconomy(candidate), `runtime rejected schema mode ${mode}`);
   }
+  const activeTkr = structuredClone(template);
+  activeTkr.tokenEconomy.composer = 'tkr-v1';
+  assert.throws(() => validateDefinition(activeTkr), (error) => (
+    error.code === 'TKR_CONTRACT_UNSUPPORTED'
+      && error.details?.milestone === 'M2'
+      && /legacy-v1/.test(error.details?.nextAction ?? '')
+  ));
+  const disabledTkr = structuredClone(template);
+  disabledTkr.tokenEconomy.enabled = false;
+  disabledTkr.tokenEconomy.composer = 'tkr-v1';
+  assert.doesNotThrow(() => validateDefinition(disabledTkr));
   const legacyProfile = structuredClone(template.tokenEconomy);
   delete legacyProfile.profiles.standard.maximumEstimatedPromptTokens;
   legacyProfile.profiles.standard.maxInputTokens = 18000;

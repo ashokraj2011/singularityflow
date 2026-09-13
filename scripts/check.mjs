@@ -795,6 +795,12 @@ const baselineSchemaFiles = [
   'schemas/auto-execution-unit-switch.schema.json',
   'schemas/auto-flight-report.schema.json',
   'schemas/artifact-validation.schema.json',
+  'schemas/token-reduction-composer-contract.schema.json',
+  'schemas/token-reduction-representation-rules.schema.json',
+  'schemas/token-reduction-deduplication-rules.schema.json',
+  'schemas/token-reduction-protected-text-rules.schema.json',
+  'schemas/token-reduction-ordering-rules.schema.json',
+  'schemas/token-reduction-normalization-rules.schema.json',
   'schemas/sgos-contract.schema.json'
 ];
 const worldModelSchemaFiles = (await readdir(path.join(root, 'schemas')))

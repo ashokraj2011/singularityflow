@@ -2753,6 +2753,33 @@ const families = [
   family({ id: 'world-model-read-consumer', currentVersion: 1, immutable: true }),
   family({ id: 'world-model-read-activation', currentVersion: 1, immutable: true }),
   family({ id: 'world-model-read-result', currentVersion: 1, immutable: true }),
+  // TKR composer metadata is immutable and reachable only through the existing WMP phase-policy
+  // and packet owners. These frozen families reserve its semantic identities without creating a
+  // second token-reduction authority store or changing any frozen WMP record shape.
+  family({
+    id: 'token-reduction-composer-contract', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity'
+  }),
+  family({
+    id: 'token-reduction-representation-rules', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity'
+  }),
+  family({
+    id: 'token-reduction-deduplication-rules', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity'
+  }),
+  family({
+    id: 'token-reduction-protected-text-rules', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity'
+  }),
+  family({
+    id: 'token-reduction-ordering-rules', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity'
+  }),
+  family({
+    id: 'token-reduction-normalization-rules', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity'
+  }),
   family({ id: 'mcp-authorization', currentVersion: 1 }),
   family({ id: 'work-item-telemetry', currentVersion: 1 }),
   family({ id: 'artifact-authorship', currentVersion: 1 }),

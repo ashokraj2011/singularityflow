@@ -32,6 +32,8 @@ test('off and observe preserve identical prompt bytes while still returning hone
   assert.equal(observe.originalBytes, observe.finalBytes);
   assert.equal(off.omitted.length, 0);
   assert.equal(observe.admission.logicalPromptTokens.assurance, 'estimated');
+  assert.equal(Object.hasOwn(off.policy, 'composer'), false);
+  assert.equal(Object.hasOwn(observe.policy, 'composer'), false);
 });
 
 test('observe reports a prompt budget overflow without changing transport bytes', () => {
@@ -112,4 +114,29 @@ test('section IDs are closed, unique, and reserve kernel-owned names', () => {
   ], policy('observe')), (error) => error.code === 'TKN_SECTION_ID_DUPLICATE');
   assert.throws(() => compilePromptSections([{ id: 'kernel-law', text: 'x' }], policy('observe')),
     (error) => error.code === 'TKN_SECTION_ID_RESERVED');
+});
+
+test('production compilation refuses tkr-v1 before inspecting or producing prompt bytes', () => {
+  for (const mode of ['observe', 'assist', 'enforce']) {
+    assert.throws(() => compilePromptSections([
+      // Deliberately malformed: the M2 release gate must run before section normalization/rendering.
+      { id: '', text: { must: 'never be coerced or rendered' }, mandatory: true }
+    ], { ...policy(mode), composer: 'tkr-v1' }), (error) => (
+      error.code === 'TKR_CONTRACT_UNSUPPORTED'
+        && error.details.composer === 'tkr-v1'
+        && error.details.mode === mode
+        && error.details.milestone === 'M2'
+        && /legacy-v1/.test(error.details.nextAction)
+    ));
+  }
+});
+
+test('disabled token economy with a configured candidate composer keeps legacy bytes and shape', () => {
+  const result = compilePromptSections([
+    { id: 'canonical', text: '  exact text  \n' }
+  ], { enabled: false, composer: 'tkr-v1' });
+  assert.equal(result.text, 'exact text\n');
+  assert.equal(Object.hasOwn(result.policy, 'composer'), false);
+  assert.equal(Object.hasOwn(result.policy, 'configuredComposer'), false);
+  assert.equal(Object.hasOwn(result, 'tokenReduction'), false);
 });

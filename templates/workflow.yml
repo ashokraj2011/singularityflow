@@ -312,6 +312,9 @@ tokens:
 tokenEconomy:
   enabled: true
   mode: observe
+  # TKR remains explicitly opt-in until its paired quality benchmark passes. Existing Stories
+  # retain legacy-v1 through their saved workflow resolution.
+  composer: legacy-v1
   profile: standard
   profiles:
     standard:

@@ -3,6 +3,7 @@ import { recordSha256 } from './records.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export const TOKEN_ECONOMY_MODES = Object.freeze(['off', 'observe', 'assist', 'enforce']);
+export const TOKEN_ECONOMY_COMPOSERS = Object.freeze(['legacy-v1', 'tkr-v1']);
 const PROVIDER_TELEMETRY_MODES = Object.freeze(['off', 'optional', 'required']);
 const CAPABILITY_MODES = Object.freeze(['off', 'optional', 'required']);
 const BREACH_POLICIES = Object.freeze(['refuse', 'partial']);
@@ -78,7 +79,7 @@ export function normalizeTokenEconomy(value = {}) {
   const source = object(value ?? {}, 'tokenEconomy');
   for (const key of Object.keys(source)) if (![
     'enabled', 'mode', 'profile', 'profiles', 'observationFirewall', 'progressiveRetrieval',
-    'historicalMemory', 'cacheStableComposition', 'providerTelemetry', 'ast'
+    'historicalMemory', 'cacheStableComposition', 'providerTelemetry', 'ast', 'composer'
   ].includes(key)) throw new SingularityFlowError(`tokenEconomy contains unknown field '${key}'.`);
   const isEnabled = enabled(source.enabled, true, 'tokenEconomy.enabled');
   const declaredMode = enumeration(source.mode, 'observe', TOKEN_ECONOMY_MODES, 'tokenEconomy.mode');
@@ -115,6 +116,11 @@ export function normalizeTokenEconomy(value = {}) {
   const normalized = {
     enabled: isEnabled,
     mode,
+    // Existing workflow instances remain on the byte-compatible composer unless their governed
+    // configuration explicitly pins the TKR contract. M4 evaluation decides any future default.
+    composer: enumeration(
+      source.composer, 'legacy-v1', TOKEN_ECONOMY_COMPOSERS, 'tokenEconomy.composer'
+    ),
     profile,
     profiles,
     observationFirewall: enabled(source.observationFirewall, true, 'tokenEconomy.observationFirewall'),
@@ -140,7 +146,16 @@ export function selectedTokenEconomyProfile(policy, requestedProfile = null) {
 }
 
 export function tokenEconomyDigest(policy) {
-  return recordSha256(normalizeTokenEconomy(policy));
+  const normalized = normalizeTokenEconomy(policy);
+  if (normalized.composer === 'legacy-v1') {
+    // This digest predates the composer selector. Preserve its historical preimage for the
+    // byte-compatible legacy path so old Evidence Packets and telemetry remain verifiable.
+    // A non-legacy composer is a new semantic input and therefore receives a distinct digest.
+    const legacyPreimage = { ...normalized };
+    delete legacyPreimage.composer;
+    return recordSha256(legacyPreimage);
+  }
+  return recordSha256(normalized);
 }
 
 /**

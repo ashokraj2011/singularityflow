@@ -822,6 +822,20 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
   normalizeSessionPolicy(definition.session ?? {});
   normalizeContextPolicy(definition.contextPolicy ?? {}, { phaseIds: Object.keys(definition.phases) });
   definition.tokenEconomy = normalizeTokenEconomy(definition.tokenEconomy ?? {});
+  if (definition.tokenEconomy.mode !== 'off'
+      && definition.tokenEconomy.composer === 'tkr-v1') {
+    throw new SingularityFlowError(
+      "tokenEconomy.composer 'tkr-v1' is an evaluation-only preview and cannot be activated in repository workflow policy until TKR M2 is complete.",
+      {
+        code: 'TKR_CONTRACT_UNSUPPORTED',
+        details: {
+          composer: 'tkr-v1',
+          milestone: 'M2',
+          nextAction: "Set tokenEconomy.composer to 'legacy-v1'. Exercise tkr-v1 only through the pure evaluation API until retained WMP delivery and policy revision are implemented."
+        }
+      }
+    );
+  }
   normalizePlanning(definition.planning ?? {});
   definition.models = normalizeModelProviders(definition.models ?? {});
   definition.auto = normalizeAutoPolicy(definition.auto);

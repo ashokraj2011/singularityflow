@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/token-reduction-representation-rules.schema.json",
+  "title": "TKR v1 representation rules",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "owner", "contractId", "version", "representations", "undeclaredInputBehavior", "emptyContentBehavior", "unknownRequiredApplicabilityBehavior", "contractSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "tkr/representation-rules" },
+    "owner": { "$ref": "#/$defs/id" },
+    "contractId": { "$ref": "#/$defs/id" },
+    "version": { "const": 1 },
+    "representations": {
+      "type": "array", "minItems": 4, "maxItems": 4,
+      "prefixItems": [
+        {
+          "type": "object", "required": ["id", "completeness", "expansion"],
+          "properties": {
+            "id": { "const": "full" },
+            "completeness": { "const": "complete" },
+            "expansion": { "const": "not-required" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object", "required": ["id", "completeness", "expansion"],
+          "properties": {
+            "id": { "const": "exact-excerpt" },
+            "completeness": { "const": "selected" },
+            "expansion": { "const": "required" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object", "required": ["id", "completeness", "expansion"],
+          "properties": {
+            "id": { "const": "deterministic-brief" },
+            "completeness": { "const": "selected" },
+            "expansion": { "const": "required" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object", "required": ["id", "completeness", "expansion"],
+          "properties": {
+            "id": { "const": "reference-only" },
+            "completeness": { "const": "selected" },
+            "expansion": { "const": "required" }
+          },
+          "additionalProperties": false
+        }
+      ],
+      "items": false
+    },
+    "undeclaredInputBehavior": { "const": "preserve-existing-required-representation" },
+    "emptyContentBehavior": { "const": "refuse" },
+    "unknownRequiredApplicabilityBehavior": { "const": "refuse" },
+    "contractSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$", "maxLength": 128 },
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  },
+  "additionalProperties": false
+}

@@ -2,9 +2,9 @@
 
 **Status:** authoritative cross-product tracker; the code-local feature inventory is reconciled through the current clean baseline, while platform release evidence and explicitly deferred authority work remain active
 
-**Baseline:** `main@11d85fde`
+**Baseline:** `main@f8278a42`
 
-**Last reviewed:** 2026-09-12
+**Last reviewed:** 2026-09-13
 
 This is the one-page control plane for deliberately deferred product work. It does not replace the
 detailed domain roadmaps and it does not authorize implementation. It names the current boundary,
@@ -781,6 +781,22 @@ Acceptance gates:
 - the generic `workspaceContains:workspace.json` activation marker is replaced with an SFlow-specific
   signal or proven not to activate in unrelated workspaces;
 - npm and VSIX packaging tests prove every lazy dependency is included without source-tree access.
+
+## Token Reduction preview (TKR)
+
+TKR is a code-local candidate preview; `tokenEconomy.mode` still defaults to `observe` and the
+only production composer remains `legacy-v1`. M0 contract/schema closure, the M1 deterministic
+composer and owner-binding adapter, the M3 bounded disposable segment cache/generated framing,
+and the M4 diagnostic evaluation kernel are implemented as isolated code-local surfaces. Enabled
+production compilation with `tkr-v1` refuses before producing prompt bytes. M0 has no accepted
+representative baseline; M3 still lacks registered compact input renderers and production
+composition; M4 cannot mark a benchmark or savings claim eligible and has not run the required
+paired quality benchmark. M2 remains
+dependent on the persisted WMP lifecycle: successor grounding/composition bindings, exact retained
+contract closure, expansion and outbound-delivery evidence, source freshness, handoff closure, and
+cross-machine replay must exist before `tkr-v1` can replace a production packet path. No
+token-savings or default-enablement claim is eligible.
+See [Token Reduction preview](TOKEN-REDUCTION.md) for the exact boundary and validation commands.
 
 ## Persisted World-Model views (WMP)
 

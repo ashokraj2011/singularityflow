@@ -174,13 +174,28 @@ function overflowError(profile, mandatory, text, admission, unsafe = false) {
 /**
  * Compile named prompt sections under the pinned token-economy policy.
  *
- * Observe changes no bytes. Assist evicts only optional sections under an explicitly estimated
- * prompt-text budget. Enforce requires tokenizer/provider-safe admission and never mistakes the
- * bytes/4 estimate for a provider context-window proof.
+ * Production delivery remains on the legacy byte-compatible path. The pure TKR composer can be
+ * evaluated directly, but it cannot replace governed prompt bytes until its M2 WMP lifecycle,
+ * retained-contract, expansion, and request-delivery boundary is complete.
  */
 export function compilePromptSections(inputSections, policyValue = {}, options = {}) {
   const policy = normalizeTokenEconomy(policyValue);
   const profile = selectedTokenEconomyProfile(policy);
+  if (policy.mode !== 'off' && policy.composer === 'tkr-v1') {
+    throw new SingularityFlowError(
+      "tokenEconomy.composer 'tkr-v1' is a code-local candidate preview and cannot compose a production prompt until TKR M2 is complete.",
+      {
+        code: 'TKR_CONTRACT_UNSUPPORTED',
+        details: {
+          composer: 'tkr-v1',
+          mode: policy.mode,
+          missingCapability: 'wmp-lifecycle-and-request-delivery',
+          milestone: 'M2',
+          nextAction: "Use composer 'legacy-v1' for governed prompt delivery. Evaluate tkr-v1 only through the pure token-reduction prompt adapter until M2 is implemented and qualified."
+        }
+      }
+    );
+  }
   const maximumBytes = profile.maximumEstimatedPromptTokens * 4;
   const capsuleMaximumBytes = Math.max(256, profile.observationCapsuleTokens * 4);
   const sections = normalizeSections(inputSections);

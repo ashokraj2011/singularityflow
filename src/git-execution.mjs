@@ -9,12 +9,11 @@
  */
 import {
   assertCredentialFreeRemote, classifyGitRemoteFailure, failureEvidence, redactDiagnosticText,
-  frozenRemoteTransport, sanitizeRemote
+  frozenRemoteTransport, isPortableAbsoluteGitPath, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
 import { incrementCommandCounter } from './dx-timing-context.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { statSync } from 'node:fs';
-import path from 'node:path';
 import { resolvePlatformProcess } from './platform-process.mjs';
 import {
   networkDisabled, recordSubprocessTiming, run, signalProcessTree, SingularityFlowError
@@ -47,9 +46,7 @@ export function gitTimeouts(env = process.env) {
 export function gitRemoteProbeTimeout(remote, env = process.env) {
   const value = String(remote ?? '').trim();
   const local = /^file:/iu.test(value)
-    || path.isAbsolute(value)
-    || /^[A-Za-z]:[\\/]/u.test(value)
-    || /^\\\\/u.test(value)
+    || isPortableAbsoluteGitPath(value)
     || /^\.{1,2}[\\/]/u.test(value);
   const timeouts = gitTimeouts(env);
   return local ? timeouts.configuration : timeouts.probe;

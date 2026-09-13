@@ -15,7 +15,8 @@ import {
   rehydrateWorkspaceCapabilityValidation, rememberWorkspace, repairWorkspace,
   resolveWorkspaceDocument, restoreWorkspace, saveWorkspaceConfiguration, stageWorkspaceDocuments,
   updateWorkspaceConfiguration, validateWorkspaceCapabilityRegistration, validateWorkspaceManifest, workspaceArchiveReadiness, workspaceRepositoryPath,
-  workspaceDropGitConfigurationOverrides, workspaceRemoteCapabilities, workspaceRepositoryDefaults,
+  workspaceDropGitConfigurationOverrides, isCloneTarget, workspaceRemoteCapabilities,
+  workspaceRemoteDefaults, workspaceRepositoryDefaults,
   workspaceStatus,
   withRegistryFileLease
 } from '../src/workspace.mjs';
@@ -32,9 +33,75 @@ import { ensureConfigurationBranch } from '../src/configuration-branch.mjs';
 import { initializeDefinition } from '../src/config.mjs';
 import { worldModelSourceSnapshot } from '../src/grounding.mjs';
 import { writeV3Manifest } from '../src/world-model-materialization.mjs';
+import { GitRemoteSession } from '../src/git-execution.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
+
+test('portable Windows drive and UNC authorities reach the bounded Git observation boundary', async () => {
+  const env = {
+    ...process.env,
+    SINGULARITY_FLOW_GIT_PREFLIGHT_TIMEOUT_MS: '101',
+    SINGULARITY_FLOW_GIT_CONFIGURATION_TIMEOUT_MS: '202'
+  };
+  const calls = [];
+  const remoteSession = new GitRemoteSession({
+    env,
+    async runAsyncCommand(args, options) {
+      const alias = args[args.indexOf('--') + 1];
+      const aliasEntry = Object.entries(options.env).find(([key, value]) =>
+        /^GIT_CONFIG_VALUE_\d+$/u.test(key) && value === alias);
+      const index = aliasEntry?.[0].match(/\d+$/u)?.[0];
+      const key = index == null ? '' : options.env[`GIT_CONFIG_KEY_${index}`];
+      const remote = key.startsWith('url.') && key.endsWith('.insteadOf')
+        ? key.slice('url.'.length, -'.insteadOf'.length)
+        : null;
+      calls.push({ args, timeoutMs: options.timeoutMs, remote });
+      return {
+        status: 0,
+        stdout: [
+          'ref: refs/heads/main\tHEAD',
+          `${'1'.repeat(40)}\tHEAD`,
+          `${'2'.repeat(40)}\trefs/heads/main`
+        ].join('\n'), stderr: '', timedOut: false, failure: null
+      };
+    }
+  });
+  const authorities = [
+    ['C:\\repos\\payments-backslash.git', 'payments-backslash'],
+    ['D:/repos/payments-slash.git', 'payments-slash'],
+    ['\\\\build-server\\source-share\\payments-unc.git', 'payments-unc']
+  ];
+
+  for (const [remote, id] of authorities) {
+    assert.equal(isCloneTarget(remote), true, `${remote} must route to remote inspection`);
+    const defaults = await workspaceRemoteDefaults(remote, { env, remoteSession });
+    assert.equal(defaults.id, id);
+    assert.equal(defaults.url, remote);
+    assert.equal(defaults.defaultBranch, 'main');
+    assert.equal(defaults.hasStateBranch, false);
+  }
+
+  assert.deepEqual(calls.map((call) => call.remote), authorities.map(([remote]) => remote),
+    'the exact portable path reaches Git through the frozen transport boundary');
+  assert.deepEqual(calls.map((call) => call.timeoutMs), [202, 202, 202],
+    'filesystem authorities retain the bounded local/configuration timeout');
+
+  const invalidAuthorities = [
+    'repository.git', '../repository.git', 'C:repository.git', '\\repository',
+    '\\\\.\\pipe\\git-transport', '\\\\?\\C:\\repos\\repository.git',
+    '//./pipe/git-transport', '//?/C:/repos/repository.git'
+  ];
+  for (const invalid of invalidAuthorities) {
+    assert.equal(isCloneTarget(invalid), false, `${invalid} must not route as an absolute remote`);
+    await assert.rejects(
+      () => workspaceRemoteDefaults(invalid, { env, remoteSession }),
+      /is not a clone URL/
+    );
+  }
+  assert.equal(calls.length, authorities.length,
+    'relative paths are refused before creating a Git observation');
+});
 
 test('repository commands can route through the explicitly selected workspace', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-selected-command-root-'));

@@ -68,6 +68,30 @@ const ASSIGNMENT_BREAKING_CONTROLS = /[\u0000-\u0009\u000b\u000c\u000e-\u001f\u0
 const ZERO_WIDTH_FORMATS = /[\u200b-\u200f\u2060-\u206f\ufeff]/g;
 const ANSI_ESCAPE_SEQUENCE = /(?:\u001b\[|\u009b)[0-?]*[ -/]*[@-~]?|\u001b\][^\u0007\r\n]*(?:\u0007|\u001b\\)?/g;
 
+/**
+ * Recognize an absolute filesystem locator without interpreting it using the host OS.
+ *
+ * A macOS or Linux process can inspect a Windows repository URL while preparing configuration for
+ * another machine, and tests exercise the same boundary without a Windows runner. `path.isAbsolute`
+ * only understands the current host, while `path.win32.isAbsolute('\\name')` also accepts a
+ * drive-root-relative path that is not independently addressable. Keep the accepted forms explicit:
+ * POSIX roots, fully qualified drive roots, and UNC server/share roots.
+ */
+export function isPortableAbsoluteGitPath(value) {
+  const candidate = String(value ?? '');
+  if (!candidate || candidate !== candidate.trim()
+      || /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u.test(candidate)) {
+    return false;
+  }
+  if (/^[A-Za-z]:[\\/]/u.test(candidate)) return true;
+  // Device and extended-length namespaces are local OS escape hatches, not portable Git
+  // authorities. Without this guard `\\.\pipe`, `\\?\C:\...`, and their slash spellings look
+  // like an ordinary UNC server/share pair and reach Git's transport boundary.
+  if (/^(?:\\\\|\/\/)[?.](?:[\\/]|$)/u.test(candidate)) return false;
+  if (/^(?:\\\\|\/\/)[^\\/]+[\\/][^\\/]+(?:[\\/]|$)/u.test(candidate)) return true;
+  return candidate.startsWith('/') && !candidate.startsWith('//');
+}
+
 function normalizeDiagnosticSyntax(value) {
   return String(value)
     .replace(ANSI_ESCAPE_SEQUENCE, '')

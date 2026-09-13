@@ -157,6 +157,91 @@ test('Windows command availability uses trusted PATH-only lookup and ignores the
   }
 });
 
+test('POSIX command availability resolves literal filesystem identities without a shell', () => {
+  const probed = [];
+  const existing = new Set([
+    '/trusted/bin/safe-tool',
+    '/opt/tools/absolute-tool',
+    '/opt/tools/not-executable',
+    '/opt/tools/directory'
+  ]);
+  const options = {
+    platform: 'linux',
+    // The absolute match wins before an unsafe suffix. PATH lookup stops at that executable, so
+    // the later current-directory entries cannot shadow it during the eventual spawn.
+    environment: { PATH: '/trusted/bin:.::relative/bin:/other/bin' },
+    spawnSyncCommand: () => { throw new Error('POSIX availability must not spawn a shell or process'); },
+    statFile(candidate) {
+      probed.push(candidate);
+      if (!existing.has(candidate)) {
+        const error = new Error('missing');
+        error.code = 'ENOENT';
+        throw error;
+      }
+      return { isFile: () => candidate !== '/opt/tools/directory' };
+    },
+    accessFile(candidate) {
+      if (candidate === '/opt/tools/not-executable') {
+        const error = new Error('not executable');
+        error.code = 'EACCES';
+        throw error;
+      }
+    }
+  };
+
+  assert.equal(commandExists('safe-tool', options), true);
+  assert.equal(commandExists('missing-tool', options), false);
+  assert.equal(commandExists('/opt/tools/absolute-tool', options), true);
+  assert.equal(commandExists('/opt/tools/not-executable', options), false);
+  assert.equal(commandExists('/opt/tools/directory', options), false);
+  assert.equal(commandExists('./safe-tool', options), false);
+  assert.equal(commandExists('nested/safe-tool', options), false);
+  assert.equal(commandExists('safe-tool', {
+    ...options, environment: { PATH: '.:/trusted/bin' }
+  }), false, 'a current-directory prefix can shadow the later absolute executable');
+  assert.equal(commandExists('safe-tool', {
+    ...options, environment: { PATH: '/missing/bin:relative/bin:/trusted/bin' }
+  }), false, 'an unsafe entry after an absolute miss still precedes the eventual match');
+  assert.equal(commandExists('safe-tool', {
+    ...options, environment: { PATH: '/trusted/bin:.' }
+  }), true, 'an unsafe suffix cannot shadow the already selected absolute executable');
+  assert.ok(probed.every((candidate) => candidate.startsWith('/')));
+  assert.ok(!probed.some((candidate) => candidate.startsWith('./') || candidate.startsWith('relative/')));
+});
+
+test('POSIX command availability treats shell syntax and malformed names as inert input', () => {
+  const probed = [];
+  const options = {
+    platform: 'darwin',
+    environment: { PATH: '/bin:/usr/bin' },
+    spawnSyncCommand: () => { throw new Error('hostile input must never spawn a process'); },
+    statFile(candidate) {
+      probed.push(candidate);
+      const error = new Error('missing literal candidate');
+      error.code = 'ENOENT';
+      throw error;
+    },
+    accessFile: () => { throw new Error('a missing literal candidate must not be accessed'); }
+  };
+
+  for (const hostile of [
+    '$(printf sh)', '`printf sh`', '"sh"', "'sh'", '$PATH',
+    'sh; printf injected', 'sh && printf injected', 'sh | printf injected'
+  ]) {
+    assert.equal(commandExists(hostile, options), false, hostile);
+  }
+  for (const malformed of [
+    '', ' ', ' sh', 'sh ', 'sh\tother', 'sh\nother', 'sh\rother', 'sh\0other', null, undefined
+  ]) {
+    assert.equal(commandExists(malformed, options), false, String(malformed));
+  }
+
+  // The shell-like bytes above are searched only as literal basenames. If interpolation were
+  // restored, `$(printf sh)` or the backtick form would resolve the system shell and return true.
+  assert.ok(probed.includes('/bin/$(printf sh)'));
+  assert.ok(probed.includes('/bin/`printf sh`'));
+});
+
 test('Windows tree termination contains system-tool resolution failures and reports only proof', () => {
   let calls = 0;
   assert.equal(tryWindowsTaskkill(42, {

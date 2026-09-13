@@ -697,6 +697,64 @@ test('an initialized repository root validates and resolves to its canonical pat
   assert.equal(await validateRepositoryDirectory(root), await realpath(root));
 });
 
+test('repository validation compares filesystem identity across Windows Git path spellings', async (t) => {
+  const { base, root } = await initializedRepository();
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const canonical = await realpath(root);
+  const reportedAliases = [
+    'c:/USERS/DEVELOPER/APP',
+    'C:\\Users\\Developer\\app',
+    '\\\\build-server\\workspaces\\app',
+    'Z:\\workspaces\\app'
+  ];
+
+  for (const reported of reportedAliases) {
+    const resolved = [];
+    const localRunner = async (args, options) => {
+      if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') {
+        return { status: 0, stdout: Buffer.from(`${reported}\n`), stderr: '', failure: null };
+      }
+      return localGit(args, options);
+    };
+    const realpathImpl = async (candidate) => {
+      resolved.push(candidate);
+      if (candidate === reported) return canonical;
+      return realpath(candidate);
+    };
+
+    assert.equal(
+      await validateRepositoryDirectory(root, { localRunner, realpathImpl }),
+      canonical,
+      `Git spelling ${reported} should be accepted only after the filesystem resolves it to the selected root`
+    );
+    assert.ok(resolved.includes(reported), 'the Git-reported path must pass through realpath');
+  }
+});
+
+test('repository validation never treats Windows case-folding or aliases as identity by themselves', async (t) => {
+  const { base, root } = await initializedRepository();
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const unrelated = path.join(base, 'unrelated');
+  await mkdir(unrelated);
+  const canonical = await realpath(root);
+  const unrelatedCanonical = await realpath(unrelated);
+  const reported = 'c:/USERS/DEVELOPER/APP';
+  const localRunner = async () => ({
+    status: 0, stdout: Buffer.from(`${reported}\n`), stderr: '', failure: null
+  });
+  const realpathImpl = async (candidate) => {
+    if (candidate === reported) return unrelatedCanonical;
+    if (candidate === path.resolve(root)) return canonical;
+    return realpath(candidate);
+  };
+
+  await assert.rejects(
+    validateRepositoryDirectory(root, { localRunner, realpathImpl }),
+    /Open the Git repository root instead of a nested directory/,
+    'lexical case folding must not replace filesystem-backed identity'
+  );
+});
+
 test('the verified Git common directory is shared by a linked worktree with no path fallback', async (t) => {
   const { base, root } = await initializedRepository();
   t.after(() => rm(base, { recursive: true, force: true }));

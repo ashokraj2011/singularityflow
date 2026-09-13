@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import {
+  accessSync, constants as FS_CONSTANTS, existsSync, readFileSync, statSync
+} from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { link, lstat, mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -687,7 +689,9 @@ export function commandExists(command, {
   platform = process.platform,
   environment = process.env,
   spawnSyncCommand = spawnSync,
-  existsFile = existsSync
+  existsFile = existsSync,
+  statFile = statSync,
+  accessFile = accessSync
 } = {}) {
   if (platform === 'win32') {
     try {
@@ -700,10 +704,44 @@ export function commandExists(command, {
       return false;
     }
   }
-  const result = run('sh', ['-lc', `command -v ${JSON.stringify(command)}`], {
-    allowFailure: true
-  });
-  return result.status === 0;
+
+  /**
+   * Do not ask a shell whether an executable exists.
+   *
+   * The previous `sh -lc "command -v ..."` probe placed the configured command inside a
+   * double-quoted shell program. Shell substitutions in values such as `$(...)` and backticks were
+   * consequently evaluated before `command -v` ran. Availability is filesystem metadata, so it
+   * neither needs nor benefits from a command interpreter.
+   *
+   * Bare commands are resolved only through absolute PATH entries. Empty and relative PATH entries
+   * ordinarily mean the current directory. PATH order therefore matters: if such an entry occurs
+   * before the first usable absolute candidate, a later `spawn(command)` could execute a different
+   * repository-local file from the one this probe inspected. Refuse that ambiguous lookup. An
+   * unsafe suffix is irrelevant once an earlier absolute candidate has won normal PATH resolution.
+   * An explicitly configured executable must be absolute. Symlinks remain supported because
+   * `stat` and `access` intentionally follow them, as ordinary POSIX process lookup does.
+   */
+  if (typeof command !== 'string' || !command || command !== command.trim()
+      || /[\u0000-\u001f\u007f]/u.test(command)) return false;
+
+  const usableExecutable = (candidate) => {
+    try {
+      if (!statFile(candidate).isFile()) return false;
+      accessFile(candidate, FS_CONSTANTS.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  if (command.startsWith('/')) return usableExecutable(command);
+  if (command.includes('/')) return false;
+
+  for (const directory of String(environment?.PATH ?? '').split(':')) {
+    if (!directory.startsWith('/')) return false;
+    if (usableExecutable(`${directory}/${command}`)) return true;
+  }
+  return false;
 }
 
 /**

@@ -1102,10 +1102,18 @@ async function localAuthorityAvailable(
  */
 export async function validateRepositoryDirectory(
   repository: string,
-  options: { remoteRunner?: RemoteGitRunner; localRunner?: LocalGitRunner; signal?: AbortSignal } = {}
+  options: {
+    remoteRunner?: RemoteGitRunner;
+    localRunner?: LocalGitRunner;
+    signal?: AbortSignal;
+    /** Filesystem identity resolver; injectable so platform aliases can be regression-tested portably. */
+    realpathImpl?: (candidate: string) => Promise<string>;
+  } = {}
 ): Promise<string> {
+  const resolveFilesystemIdentity = options.realpathImpl
+    ?? ((candidate: string) => realpath(candidate));
   const resolved = path.resolve(repository || '');
-  const canonical = await realpath(resolved).catch(() => null);
+  const canonical = await resolveFilesystemIdentity(resolved).catch(() => null);
   const root = canonical ? await lstat(canonical).catch(() => null) : null;
   if (!canonical || !root?.isDirectory()) throw new Error('The selected folder does not exist or is not a directory.');
 
@@ -1121,7 +1129,10 @@ export async function validateRepositoryDirectory(
   if (probe.status !== 0 || !topLevelText) {
     throw new Error(`The selected folder is not a valid Git working tree: ${canonical}`);
   }
-  const topLevel = await realpath(topLevelText).catch(() => null);
+  // Do not compare Git's spelling with Node's spelling. On Windows Git commonly emits forward
+  // slashes and may spell a drive or network root differently. Resolving both paths through the
+  // filesystem keeps those aliases working without weakening the boundary to lexical case-folding.
+  const topLevel = await resolveFilesystemIdentity(topLevelText).catch(() => null);
   if (!topLevel || topLevel !== canonical) {
     throw new Error(`Open the Git repository root instead of a nested directory: ${canonical}`);
   }

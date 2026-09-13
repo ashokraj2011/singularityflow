@@ -20,7 +20,7 @@ import {
 } from './clone-strategy.mjs';
 import {
   assertCredentialFreeRemote, classifyGitRemoteFailure, frozenRemoteTransport,
-  remoteFingerprint, safeGitDiagnosticReference, sanitizeRemote
+  isPortableAbsoluteGitPath, remoteFingerprint, safeGitDiagnosticReference, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
 import { enterpriseGitEnvironment } from './git-enterprise-environment.mjs';
 import {
@@ -1023,22 +1023,23 @@ export function advertisedDefaultBranch(symrefOutput) {
 export function isCloneTarget(target) {
   const value = String(target ?? '').trim();
   if (/^(https?:\/\/|git@|ssh:\/\/|file:\/\/)/.test(value)) return true;
-  if (!path.isAbsolute(value)) return false;
+  if (!isPortableAbsoluteGitPath(value)) return false;
   if (!existsSync(value)) return true;
   return ['HEAD', 'objects', 'refs'].every((entry) => existsSync(path.join(value, entry)));
 }
 
 export async function workspaceRemoteDefaults(url, {
-  stateBranch = 'state', env = process.env
+  stateBranch = 'state', env = process.env, remoteSession = null
 } = {}) {
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A repository URL is required.');
-  if (!/^(https?:\/\/|git@|ssh:\/\/|file:\/\/)/.test(remote) && !remote.startsWith('/')) {
+  if (!/^(https?:\/\/|git@|ssh:\/\/|file:\/\/)/.test(remote)
+      && !isPortableAbsoluteGitPath(remote)) {
     throw new SingularityFlowError(`'${remote}' is not a clone URL. Use https://, git@, ssh:// or an absolute path.`);
   }
 
-  const gitEnv = enterpriseGitEnvironment(env);
-  const session = new GitRemoteSession({ env: gitEnv });
+  const gitEnv = remoteSession?.env ?? enterpriseGitEnvironment(env);
+  const session = remoteSession ?? new GitRemoteSession({ env: gitEnv });
   const stateRef = stateBranch.startsWith('refs/') ? stateBranch : `refs/heads/${stateBranch}`;
   const observed = await session.observeAsync(remote, { includeHead: true, refs: [stateRef] });
   requireRemoteObservation(observed, 'workspace repository');
@@ -1057,9 +1058,9 @@ export async function workspaceRemoteDefaults(url, {
   const id = remote
     // Trailing slashes first: a URL written `…/platform.git/` ends in a slash, so `.git$` does not
     // match and the suffix survives into the identifier.
-    .replace(/\/+$/, '')
-    .replace(/\.git$/, '')
-    .split(/[/:]/)
+    .replace(/[\\/]+$/, '')
+    .replace(/\.git$/i, '')
+    .split(/[\\/:]/)
     .pop()
     ?.normalize('NFKD')
     .replace(/[^A-Za-z0-9._-]+/g, '-')

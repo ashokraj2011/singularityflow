@@ -1,6 +1,6 @@
 /** Durable, exact commit-to-ref transport intents for pushes outside Story publication. */
 import { createHash, randomUUID } from 'node:crypto';
-import { open, readFile, readdir, realpath, rm } from 'node:fs/promises';
+import { readFile, readdir, realpath } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -13,6 +13,7 @@ import { run, SingularityFlowError, writeAtomic } from './util.mjs';
 import { healerReceipt } from './workspace-healers.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { gitTimeouts, nonInteractiveGitEnvironment } from './git-execution.mjs';
+import { withSubjectLock } from './subject-lock.mjs';
 
 export const TRANSPORT_INTENT_SCHEMA_VERSION = currentSchemaVersion('transport-intent');
 export const TRANSPORT_INTENT_STATUSES = Object.freeze([
@@ -21,6 +22,7 @@ export const TRANSPORT_INTENT_STATUSES = Object.freeze([
 ]);
 const AUTO_RETRYABLE = new Set(['network-transient', 'rate-limited']);
 const TERMINAL = new Set(['succeeded', 'remote-diverged', 'needs-user', 'attempt-budget-exhausted']);
+const TRANSPORT_DIAGNOSTIC_MAX_BYTES = 4096;
 
 function canonical(value) {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
@@ -129,8 +131,18 @@ function assertTargetRef(targetRef) {
   return value;
 }
 
+function boundedTransportDiagnostic(value) {
+  const redacted = redactDiagnosticText(value);
+  const encoded = Buffer.from(redacted, 'utf8');
+  if (encoded.byteLength <= TRANSPORT_DIAGNOSTIC_MAX_BYTES) return redacted;
+  const suffix = '…[truncated]';
+  const available = TRANSPORT_DIAGNOSTIC_MAX_BYTES - Buffer.byteLength(suffix, 'utf8');
+  const prefix = encoded.subarray(0, available).toString('utf8').replace(/\uFFFD+$/u, '');
+  return `${prefix}${suffix}`;
+}
+
 function gitResultEvidence(result) {
-  const bounded = redactDiagnosticText(`${result?.stderr ?? ''}\n${result?.stdout ?? ''}`).slice(0, 4096);
+  const bounded = boundedTransportDiagnostic(`${result?.stderr ?? ''}\n${result?.stdout ?? ''}`);
   return {
     exitCode: Number.isInteger(result?.status) ? result.status : null,
     signal: result?.signal ?? null,
@@ -140,7 +152,8 @@ function gitResultEvidence(result) {
 }
 
 export async function createTransportIntent({
-  repositoryRoot, remote = 'origin', sourceCommit, targetRef, expectedRemote = null, scope = {}
+  repositoryRoot, remote = 'origin', expectedRemoteUrl = null, sourceCommit, targetRef,
+  expectedRemote = null, scope = {}
 }, { env = process.env, home = os.homedir(), runCommand = run } = {}) {
   const root = await realpath(path.resolve(repositoryRoot));
   if (!/^[A-Za-z0-9._-]+$/.test(remote) || remote.startsWith('-')) {
@@ -154,29 +167,51 @@ export async function createTransportIntent({
   if (commit.status !== 0) throw new SingularityFlowError(`Commit '${sourceCommit}' is not available locally.`, {
     code: 'TRANSPORT_SOURCE_COMMIT_MISSING'
   });
-  const remoteUrl = runCommand('git', ['remote', 'get-url', '--push', remote], { cwd: root, allowFailure: true });
-  if (remoteUrl.status !== 0 || !remoteUrl.stdout.trim()) {
+  const configuredRemoteUrl = runCommand('git', ['remote', 'get-url', '--push', remote], { cwd: root, allowFailure: true });
+  if (configuredRemoteUrl.status !== 0 || !configuredRemoteUrl.stdout.trim()) {
     throw new SingularityFlowError(`Remote '${remote}' is not configured.`, { code: 'TRANSPORT_REMOTE_MISSING' });
   }
-  const safeRemoteUrl = assertCredentialFreeRemote(remoteUrl.stdout.trim());
+  const safeRemoteUrl = assertCredentialFreeRemote(configuredRemoteUrl.stdout.trim());
+  const pinnedRemoteUrl = expectedRemoteUrl == null
+    ? null : assertCredentialFreeRemote(expectedRemoteUrl);
+  if (pinnedRemoteUrl != null && pinnedRemoteUrl !== safeRemoteUrl) {
+    throw new SingularityFlowError(
+      `Remote '${remote}' changed after publication preflight. Nothing was committed or pushed.`, {
+        code: 'TRANSPORT_REMOTE_DRIFTED',
+        details: { remote }
+      }
+    );
+  }
   const outbox = transportOutboxRoot(env, home);
   const repositoryRootFingerprint = await repositoryFingerprint(root);
   const normalizedRemoteFingerprint = `sha256:${remoteFingerprint(safeRemoteUrl)}`;
   const normalizedTargetRef = assertTargetRef(targetRef);
   const normalizedExpectedRemote = expectedRemote || null;
+  const normalizedScope = {
+    ...scope,
+    ...(scope?.requiredLocalRef
+      ? { requiredLocalRef: assertTargetRef(scope.requiredLocalRef) }
+      : {}),
+    kind: 'transport'
+  };
   const existing = (await listTransportIntents({ env, home, includeSucceeded: true })).find((candidate) =>
+    candidate.status !== 'succeeded'
+      &&
     candidate.repositoryRootFingerprint === repositoryRootFingerprint
       && candidate.remoteFingerprint === normalizedRemoteFingerprint
       && candidate.remote === remote
       && candidate.sourceCommit === commit.stdout.trim()
       && candidate.targetRef === normalizedTargetRef
-      && candidate.expectedRemote === normalizedExpectedRemote);
+      && candidate.expectedRemote === normalizedExpectedRemote
+      // A pre-ref reservation carries a stricter push authority than a legacy intent for the same
+      // commit and destination. Never deduplicate away that local installation proof.
+      && (candidate.scope?.requiredLocalRef ?? null) === (normalizedScope.requiredLocalRef ?? null));
   if (existing) return existing;
   const intentId = `psh_${randomUUID()}`;
   return writeIntent(outbox, {
     schemaVersion: TRANSPORT_INTENT_SCHEMA_VERSION,
     intentId,
-    scope: { ...scope, kind: 'transport' },
+    scope: normalizedScope,
     repositoryRoot: root,
     repositoryRootFingerprint,
     remote,
@@ -212,23 +247,24 @@ export function observeRemoteTarget(intent, { runCommand = run, env = process.en
   return { readable: true, commit: line?.trim().split(/\s+/)[0] ?? null, result };
 }
 
-async function withIntentLease(outbox, intentId, operation) {
-  const lock = path.join(outbox, 'leases', `${intentId}.lock`);
-  let handle;
+async function withIntentLease(intentId, { env, home }, operation) {
+  // Resolve the integrity-bound repository before locking, then re-read the intent inside the
+  // critical section. Transport intents used to create an ownerless `wx` file in the user outbox;
+  // a killed process left that file forever and every future retry was permanently blocked. Use
+  // the same owner, heartbeat, TTL, and atomic stale-reclaim protocol as governed publications.
+  const observed = await readTransportIntent(intentId, { env, home });
   try {
-    handle = await open(lock, 'wx', 0o600);
+    return await withSubjectLock(
+      observed.repositoryRoot,
+      { kind: 'transport-intent', id: intentId },
+      operation
+    );
   } catch (error) {
-    if (error?.code === 'ENOENT') {
-      await writeAtomic(path.join(outbox, 'leases', '.keep'), '', { mode: 0o600 });
-      return withIntentLease(outbox, intentId, operation);
-    }
-    if (error?.code === 'EEXIST') throw new SingularityFlowError(`Transport intent '${intentId}' is already being changed.`, {
-      code: 'TRANSPORT_INTENT_BUSY'
+    if (error?.code !== 'SUBJECT_LOCK_BUSY') throw error;
+    throw new SingularityFlowError(`Transport intent '${intentId}' is already being changed.`, {
+      code: 'TRANSPORT_INTENT_BUSY', details: { intentId }
     });
-    throw error;
   }
-  try { return await operation(); }
-  finally { await handle.close(); await rm(lock, { force: true }); }
 }
 
 function classified(result) {
@@ -301,7 +337,7 @@ export async function retryTransportIntent(intentId, {
   env = process.env, home = os.homedir(), runCommand = run, allowNeedsUser = false
 } = {}) {
   const outbox = transportOutboxRoot(env, home);
-  return withIntentLease(outbox, intentId, async () => {
+  return withIntentLease(intentId, { env, home }, async () => {
     let intent = await readTransportIntent(intentId, { env, home });
     if (intent.status === 'succeeded') return intent;
     if (intent.status === 'remote-diverged' || (intent.status === 'needs-user' && !allowNeedsUser)) {
@@ -331,6 +367,28 @@ export async function retryTransportIntent(intentId, {
           details: { remote: intent.remote, expectedRemote: sanitizeRemote(intent.remoteUrl) }
         }
       );
+    }
+
+    // Some callers reserve an intent before installing its commit on a local branch. That closes
+    // the outbox-after-commit crash window, but the reservation must not itself authorize a push if
+    // compare-and-swap never installed the commit. Bind those intents to the exact local ref which
+    // makes the commit durable and operator-visible before contacting the remote.
+    if (intent.scope?.requiredLocalRef) {
+      const requiredLocalRef = assertTargetRef(intent.scope.requiredLocalRef);
+      const retained = runCommand('git', [
+        'rev-parse', '--verify', `${requiredLocalRef}^{commit}`
+      ], { cwd: intent.repositoryRoot, allowFailure: true });
+      if (retained.status !== 0 || retained.stdout.trim() !== intent.sourceCommit) {
+        throw new SingularityFlowError(
+          `Transport intent '${intentId}' is reserved, but its exact commit is not installed on ${requiredLocalRef}. Nothing was pushed.`, {
+            code: 'TRANSPORT_SOURCE_NOT_INSTALLED',
+            details: {
+              sourceCommit: intent.sourceCommit,
+              requiredLocalRef
+            }
+          }
+        );
+      }
     }
 
     const observed = observeRemoteTarget(intent, { runCommand, env });
@@ -451,6 +509,49 @@ export async function retryTransportIntent(intentId, {
         attempts: intent.attempts.map((entry) => entry.number === attempt.number
           ? { ...entry, completedAt: nowIso(), result: 'succeeded', stage: 'verified' } : entry),
         circuit: { key: null, consecutiveFailures: 0, openedAt: null }, nextAction: null
+      });
+    }
+    // A successful porcelain push is itself the server acknowledgement of the exact leased
+    // expected->source transition. If the immediately-following read probe fails, retaining an
+    // `outcome-unknown` record loses that conclusive proof and can later misclassify the exact
+    // remote tip as somebody else's update. Seal a bounded proof receipt now; do not speculate
+    // from a status-zero result whose porcelain transition is missing or mismatched.
+    if (!after.readable && pushAcquiredExpectedTransition(pushed, intent)) {
+      const evidence = gitResultEvidence(pushed);
+      recordPublishedRemoteTrackingRef(intent, { runCommand, env });
+      return writeIntent(outbox, {
+        ...intent,
+        status: 'succeeded',
+        observedRemote: intent.sourceCommit,
+        fault: null,
+        attempts: intent.attempts.map((entry) => entry.number === attempt.number
+          ? {
+              ...entry,
+              completedAt: nowIso(),
+              result: 'succeeded',
+              stage: 'push-proof',
+              proof: {
+                kind: 'git-push-porcelain-transition',
+                transition: pushTransitionFlag(pushed, intent),
+                sourceCommit: intent.sourceCommit,
+                targetRef: intent.targetRef,
+                expectedRemote: intent.expectedRemote,
+                outputSha256: evidence.outputSha256
+              }
+            }
+          : entry),
+        healers: [...intent.healers, healerReceipt('remote-push-already-succeeded', {
+          postconditions: [{ id: 'push-accepted-exact-leased-transition', status: 'pass' }],
+          proof: {
+            targetRef: intent.targetRef,
+            remoteCommit: intent.sourceCommit,
+            expectedRemote: intent.expectedRemote,
+            transition: pushTransitionFlag(pushed, intent),
+            outputSha256: evidence.outputSha256
+          }
+        })],
+        circuit: { key: null, consecutiveFailures: 0, openedAt: null },
+        nextAction: null
       });
     }
     if (after.readable && after.commit !== intent.expectedRemote) {

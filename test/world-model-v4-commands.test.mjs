@@ -25,8 +25,12 @@ import { createWorkflow, loadConfig } from '../src/state.mjs';
 import { run } from '../src/util.mjs';
 import {
   composePhasePrompt, inspectConfiguredGrounding, inspectWorkflowGrounding, loadWorldModelConfig,
-  workflowGroundingMaterializationPlan, worldModelCommand
+  resolveOptionalTokenReductionShadowRuntime, workflowGroundingMaterializationPlan,
+  worldModelCommand
 } from '../src/worldmodel.mjs';
+import {
+  tokenReductionShadowFailure, verifyTokenReductionShadow
+} from '../src/token-reduction/shadow-record.mjs';
 import {
   configuredWorldModelV4MaximumWorkers, configuredWorldModelV4ViewIds,
   configuredWorldModelV4ViewSelections,
@@ -44,6 +48,30 @@ after(async () => {
   if (originalSharedCache == null) delete process.env.SINGULARITY_FLOW_WMB_SHARED_CACHE;
   else process.env.SINGULARITY_FLOW_WMB_SHARED_CACHE = originalSharedCache;
   await rm(isolatedSharedCacheRoot, { recursive: true, force: true });
+});
+
+test('an unavailable optional TKR runtime degrades to content-free shadow evidence', async () => {
+  const failure = Object.assign(new Error('optional module path must not be retained'), {
+    code: 'ERR_MODULE_NOT_FOUND'
+  });
+  const resolved = await resolveOptionalTokenReductionShadowRuntime(async () => {
+    throw failure;
+  });
+  assert.equal(resolved.runtime, null);
+  assert.equal(resolved.error, failure);
+  const record = tokenReductionShadowFailure(resolved.error, {
+    workId: 'WMB-TKR-LEGACY', phase: 'planning', generation: 1
+  });
+  assert.equal(record.status, 'unavailable');
+  assert.equal(record.code, 'ERR_MODULE_NOT_FOUND');
+  assert.equal(record.delivery.state, 'shadow-not-delivered');
+  assert.equal(verifyTokenReductionShadow(record), true);
+  assert.doesNotMatch(JSON.stringify(record), /optional module path/u);
+  const unsafeCode = tokenReductionShadowFailure(Object.assign(
+    new Error('private prompt details'), { code: '/Users/example/private/request.md' }
+  ));
+  assert.equal(unsafeCode.code, 'TKR_SHADOW_FAILED');
+  assert.doesNotMatch(JSON.stringify(unsafeCode), /Users|private prompt|request\.md/u);
 });
 
 function git(root, args) {
@@ -1723,6 +1751,58 @@ test('advisory composition labels a verified historical model when current sourc
   assert.equal(git(root, ['rev-parse', 'state']), stateBefore);
 });
 
+test('a legacy Story without pinned token economy keeps its exact prompt and gains no TKR authority', async (t) => {
+  const root = await registeredRepository(t);
+  git(root, ['switch', '-q', '-c', 'WMB-V4-LEGACY-TKR']);
+  const config = await loadConfig(root);
+  config.git.publish = 'off';
+  await setAgentSession(root, config, {
+    name: 'WMB Test', email: 'wmb@example.invalid', login: null
+  }, 'product-owner', 'WMB-V4-LEGACY-TKR', { phaseId: 'intake', source: 'test' });
+  const current = await createWorkflow(root, config, {
+    id: 'WMB-V4-LEGACY-TKR', title: 'Preserve a pre-TKR Story prompt',
+    source: {
+      type: 'manual', key: 'WMB-V4-LEGACY-TKR', title: 'Preserve a pre-TKR Story prompt',
+      description: 'A Story created before token-reduction policy was pinned must remain usable.',
+      acceptanceCriteria: ['The legacy prompt composes without acquiring live TKR authority.']
+    },
+    baseBranch: 'main', workType: 'feature', agent: 'product-owner',
+    resolved: resolveWorkType(config, 'feature')
+  });
+  const legacy = structuredClone(current);
+  legacy.schemaVersion = 4;
+  delete legacy.resolution.tokenEconomy;
+  delete legacy.workflowSnapshot;
+  for (const template of Object.values(legacy.resolution.templates ?? {})) {
+    template.path = template.sourcePath;
+    delete template.source;
+    delete template.sourcePath;
+  }
+  for (const resolvedPhase of legacy.resolution.phases ?? []) {
+    delete resolvedPhase.templateSnapshot;
+  }
+  delete legacy.resolution.planningPromptSnapshot;
+  const workflowFile = path.join(
+    root, 'singularity/work-items/WMB-V4-LEGACY-TKR/workflow.json'
+  );
+  await writeFile(workflowFile, `${JSON.stringify(legacy, null, 2)}\n`);
+  git(root, ['add', '--', 'singularity/work-items/WMB-V4-LEGACY-TKR']);
+  git(root, ['commit', '-q', '-m', 'accept legacy Story execution closure']);
+
+  const composed = await composePhasePrompt(root, {
+    workId: 'WMB-V4-LEGACY-TKR', phase: 'intake', agent: 'product-owner'
+  });
+  assert.match(composed, /Active Story phase contract/);
+  const receipt = JSON.parse(await readFile(path.join(
+    root, 'singularity/work-items/WMB-V4-LEGACY-TKR/context/intake-gen1.json'
+  ), 'utf8'));
+  assert.equal(receipt.tokenReduction, null);
+  assert.equal(receipt.promptBudget.tokenReduction, undefined);
+  assert.equal(
+    Object.hasOwn(receipt.promptBudget.economics.prompt, 'tkrCandidatePromptBytes'), false
+  );
+});
+
 test('advisory registered-v4 absence records a verifiable prompt without inventing world-model authority', async (t) => {
   const root = await registeredRepository(t);
   git(root, ['switch', '-q', '-c', 'WMB-V4-WARN']);
@@ -1766,10 +1846,24 @@ test('advisory registered-v4 absence records a verifiable prompt without inventi
   assert.equal(verified.record.executionContext.mode, 'workflow-snapshot');
   assert.match(verified.record.executionContext.snapshotHash, /^sha256:[a-f0-9]{64}$/);
   assert.equal(verified.record.executionContext.agentId, 'product-owner');
+  assert.equal(verified.record.tokenReduction.activation, 'shadow');
+  assert.equal(verified.record.tokenReduction.subject.workId, 'WMB-V4-WARN');
+  assert.equal(verified.record.tokenReduction.subject.phase, 'intake');
+  assert.equal(verified.record.tokenReduction.subject.generation, 1);
+  assert.equal(verified.record.tokenReduction.selectedPrompt.sha256,
+    `sha256:${verified.record.renderedSha256}`);
+  assert.equal(verified.record.promptBudget.tokenReduction.record.receiptSha256,
+    verified.record.tokenReduction.receiptSha256);
+  assert.equal(
+    Object.hasOwn(verified.record.promptBudget.tokenReduction.record, 'receipt'), false,
+    'the immutable receipt is stored once at the prompt-generation owner'
+  );
   const audits = await listPromptAudits(root, { includePrompt: true });
   assert.equal(audits.count, 1);
   assert.deepEqual(audits.records[0].executionContext, verified.record.executionContext);
   assert.equal(audits.records[0].workId, 'WMB-V4-WARN');
+  assert.deepEqual(audits.records[0].composition, verified.record.promptBudget,
+    'prompt audit must expose only the composition summary admitted by the generation owner');
   const handoff = spawnSync(process.execPath, [
     executable, 'wm', 'show-prompt', '--phase', 'intake', '--work-id', 'WMB-V4-WARN',
     '--record-audit'

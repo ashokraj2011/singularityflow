@@ -204,6 +204,54 @@ export function compilePromptSections(inputSections, policyValue = {}, options =
   const originalTokens = tokens(original);
   const originalAdmission = admissionFor(original, profile, options);
 
+  const withTokenReductionShadow = (result) => {
+    if (policy.mode !== 'observe' || policy.composer !== 'legacy-v1'
+        || options.tokenReductionShadow !== true) return result;
+    const evaluateShadow = options.evaluateTokenReductionShadow;
+    const shadowFailure = options.tokenReductionShadowFailure;
+    const unavailableShadow = options.tokenReductionShadowUnavailable;
+    // The TKR implementation is intentionally loaded only by the async composition owner. This
+    // keeps read-only VS Code workers from bundling the complete candidate composer. A caller that
+    // does not provide that reviewed runtime remains on the exact legacy result.
+    const scope = options.tokenReductionScope ?? {};
+    let shadow = unavailableShadow;
+    if (shadow == null) {
+      if (typeof evaluateShadow !== 'function') return result;
+      try {
+        shadow = evaluateShadow({
+          sections,
+          legacyText: original,
+          maximumBytes,
+          scope,
+          receiptContext: options.tokenReductionReceiptContext ?? null
+        });
+      } catch (error) {
+        // Shadow evaluation is explicitly non-authoritative. Neither the evaluator nor its
+        // diagnostic fallback may make a working legacy prompt fail.
+        if (typeof shadowFailure !== 'function') return result;
+        try { shadow = shadowFailure(error, scope); }
+        catch { return result; }
+      }
+    }
+    if (!shadow || typeof shadow !== 'object'
+        || !['observed', 'unavailable'].includes(shadow.status)) return result;
+    return {
+      ...result,
+      economics: {
+        ...result.economics,
+        prompt: {
+          ...result.economics.prompt,
+          tkrCandidatePromptBytes: shadow.candidateRef?.bytes ?? null,
+          tkrCandidateByteDelta: shadow.byteDelta ?? null,
+          tkrCandidateAssurance: shadow.status === 'observed'
+            ? 'deterministic-shadow-not-delivered'
+            : 'unavailable'
+        }
+      },
+      tokenReduction: { mode: 'shadow', record: shadow }
+    };
+  };
+
   if (policy.mode === 'enforce' && !originalAdmission.safeToEnforce) {
     throw overflowError(profile, sections.filter((section) => section.mandatory), original, originalAdmission, true);
   }
@@ -213,7 +261,7 @@ export function compilePromptSections(inputSections, policyValue = {}, options =
     const omittedIds = new Set(omitted.map((entry) => entry.id));
     const selectedIds = new Set(selected.map((entry) => entry.id));
     const budgetEvictedPromptBytes = omitted.reduce((total, entry) => total + entry.bytes, 0);
-    return {
+    return withTokenReductionShadow({
       text,
       policy: {
         mode: policy.mode, profile: profile.id, maximumBytes,
@@ -258,7 +306,7 @@ export function compilePromptSections(inputSections, policyValue = {}, options =
         expandability: section.expandHandles.length ? 'available' : 'unavailable',
         reason: 'budget'
       }))
-    };
+    });
   };
 
   const originalFits = policy.mode === 'enforce'

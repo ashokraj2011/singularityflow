@@ -145,7 +145,11 @@ test('an exact governed binding commit completes start recovery instead of being
     allowedPaths: [journal.workItemRelative],
     state: {
       write: async (publicationEvent) => {
-        const workflow = { workItem: { id: subject.id, branch: subject.branch }, publicationProjections: [] };
+        const workflow = {
+          workItem: { id: subject.id, branch: subject.branch },
+          lineage: { canonicalBranch: subject.branch },
+          publicationProjections: []
+        };
         recordPublicationProjection(workflow, publicationEvent);
         await mkdir(path.dirname(path.join(root, target)), { recursive: true });
         await writeFile(path.join(root, target), `${JSON.stringify(workflow, null, 2)}\n`);
@@ -158,6 +162,211 @@ test('an exact governed binding commit completes start recovery instead of being
   assert.equal(git(['branch', '--show-current'], root), subject.branch);
   assert.equal(await missing(path.join(root, target)), false);
   assert.equal(await readStoryStartJournal(root, subject.id), null);
+});
+
+test('a pushed create-only Story commit completes the outer start journal after pending cleanup', async () => {
+  const root = await repository('sflow-story-start-pushed-complete-');
+  const remote = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-start-pushed-remote-'));
+  git(['init', '--bare', '-b', 'main'], remote);
+  git(['remote', 'add', 'origin', remote], root);
+  git(['push', '-u', 'origin', 'main'], root);
+  const base = git(['rev-parse', 'HEAD'], root);
+  const subject = { kind: 'story', id: 'START-PUSHED', branch: 'START-PUSHED' };
+  const workItemRelative = `singularity/work-items/${subject.id}`;
+  const journal = await beginStoryStartJournal(root, {
+    id: subject.id,
+    targetBranch: subject.branch,
+    targetBranchExisted: false,
+    originalBranch: 'main',
+    originalHead: base,
+    baseCommit: base,
+    publicationRemote: 'origin',
+    publicationExpectedRemoteSha: null
+  });
+  await updateStoryStartJournal(root, subject.id, journal.transactionId, { workItemRelative });
+  git(['switch', '-c', subject.branch], root);
+  const target = `${workItemRelative}/workflow.json`;
+  const event = lifecycleEvent({ type: 'binding', subject });
+  const publication = await new GitPublicationUnitOfWork(root).execute({
+    subject,
+    transactionId: journal.transactionId,
+    event,
+    commit: { message: `[${subject.id}][init] governed start` },
+    publication: {
+      mode: 'required', branch: subject.branch, remote: 'origin', expectedRemoteSha: null
+    },
+    allowedPaths: [workItemRelative],
+    state: {
+      write: async (publicationEvent) => {
+        const workflow = {
+          workItem: { id: subject.id, branch: subject.branch },
+          lineage: { canonicalBranch: subject.branch },
+          publicationProjections: []
+        };
+        recordPublicationProjection(workflow, publicationEvent);
+        await mkdir(path.dirname(path.join(root, target)), { recursive: true });
+        await writeFile(path.join(root, target), `${JSON.stringify(workflow, null, 2)}\n`);
+      }
+    }
+  });
+  assert.equal(publication.pushed, true);
+  assert.equal(git([
+    'ls-remote', '--heads', 'origin', `refs/heads/${subject.branch}`
+  ], root).split(/\s+/u)[0], publication.sha);
+
+  const recovered = await recoverStoryStart(root, subject.id, { force: true });
+  assert.equal(recovered.status, 'completed');
+  assert.equal(recovered.commit, publication.sha);
+  assert.equal(await readStoryStartJournal(root, subject.id), null);
+});
+
+test('a legacy materialized Story journal reconstructs its accepted remote SHA after pending cleanup', async () => {
+  const root = await repository('sflow-story-start-legacy-materialized-');
+  const remote = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-start-materialized-remote-'));
+  git(['init', '--bare', '-b', 'main'], remote);
+  git(['remote', 'add', 'origin', remote], root);
+  git(['push', '-u', 'origin', 'main'], root);
+  const base = git(['rev-parse', 'HEAD'], root);
+  const subject = { kind: 'story', id: 'START-MATERIALIZED', branch: 'START-MATERIALIZED' };
+  git(['push', 'origin', `${base}:refs/heads/${subject.branch}`], root);
+  git(['fetch', 'origin', subject.branch], root);
+  const workItemRelative = `singularity/work-items/${subject.id}`;
+  // Deliberately omit publicationExpectedRemoteSha: this is the v1 journal shape written before
+  // that field was added. Remote-only materialization also recorded targetBranchExisted=false.
+  const journal = await beginStoryStartJournal(root, {
+    id: subject.id,
+    targetBranch: subject.branch,
+    targetBranchExisted: false,
+    originalBranch: 'main',
+    originalHead: base,
+    baseCommit: base,
+    publicationRemote: 'origin'
+  });
+  await updateStoryStartJournal(root, subject.id, journal.transactionId, {
+    workItemRelative,
+    checkoutMode: 'tracked-remote'
+  });
+  git(['switch', '-c', subject.branch, '--track', `origin/${subject.branch}`], root);
+  const target = `${workItemRelative}/workflow.json`;
+  const event = lifecycleEvent({ type: 'binding', subject });
+  const publication = await new GitPublicationUnitOfWork(root).execute({
+    subject,
+    transactionId: journal.transactionId,
+    event,
+    commit: { message: `[${subject.id}][init] governed materialized start` },
+    publication: {
+      mode: 'required', branch: subject.branch, remote: 'origin', expectedRemoteSha: base
+    },
+    allowedPaths: [workItemRelative],
+    state: {
+      write: async (publicationEvent) => {
+        const workflow = {
+          workItem: { id: subject.id, branch: subject.branch },
+          lineage: { canonicalBranch: subject.branch },
+          publicationProjections: []
+        };
+        recordPublicationProjection(workflow, publicationEvent);
+        await mkdir(path.dirname(path.join(root, target)), { recursive: true });
+        await writeFile(path.join(root, target), `${JSON.stringify(workflow, null, 2)}\n`);
+      }
+    }
+  });
+  assert.equal(publication.pushed, true);
+
+  const recovered = await recoverStoryStart(root, subject.id, { force: true });
+  assert.equal(recovered.status, 'completed');
+  assert.equal(recovered.commit, publication.sha);
+  assert.equal(await readStoryStartJournal(root, subject.id), null);
+});
+
+async function governedStartCommit(root, id, { document = false } = {}) {
+  const base = git(['rev-parse', 'HEAD'], root);
+  const subject = { kind: 'story', id, branch: id };
+  const workItemRelative = `singularity/work-items/${id}`;
+  const journal = await beginStoryStartJournal(root, {
+    id, targetBranch: id, targetBranchExisted: false,
+    originalBranch: 'main', originalHead: base, baseCommit: base
+  });
+  await updateStoryStartJournal(root, id, journal.transactionId, { workItemRelative });
+  git(['switch', '-c', id], root);
+  const workflowPath = `${workItemRelative}/workflow.json`;
+  const documentPath = `${workItemRelative}/documents/initial/reference.txt`;
+  const event = lifecycleEvent({ type: 'binding', subject });
+  const publication = await new GitPublicationUnitOfWork(root).execute({
+    subject,
+    transactionId: journal.transactionId,
+    event,
+    commit: { message: `[${id}][init] governed start` },
+    publication: { mode: 'off', branch: id },
+    allowedPaths: [workItemRelative],
+    state: {
+      write: async (publicationEvent) => {
+        const workflow = {
+          workItem: { id, branch: id },
+          lineage: { canonicalBranch: id },
+          publicationProjections: []
+        };
+        recordPublicationProjection(workflow, publicationEvent);
+        await mkdir(path.dirname(path.join(root, workflowPath)), { recursive: true });
+        await writeFile(path.join(root, workflowPath), `${JSON.stringify(workflow, null, 2)}\n`);
+        if (document) {
+          await mkdir(path.dirname(path.join(root, documentPath)), { recursive: true });
+          await writeFile(path.join(root, documentPath), 'exact initial supporting document\n');
+        }
+      }
+    }
+  });
+  return { base, subject, journal, documentPath, commit: publication.sha };
+}
+
+test('Story-start recovery rejects a copied transaction whose tree omits an initial document', async () => {
+  const root = await repository('sflow-story-start-forged-tree-');
+  const started = await governedStartCommit(root, 'START-FORGED-TREE', { document: true });
+  const message = git(['show', '-s', '--format=%B', started.commit], root);
+  git(['rm', started.documentPath], root);
+  const forgedTree = git(['write-tree'], root);
+  const created = spawnSync('git', ['commit-tree', forgedTree, '-p', started.base], {
+    cwd: root, encoding: 'utf8', input: `${message}\n`
+  });
+  assert.equal(created.status, 0, created.stderr);
+  const forged = created.stdout.trim();
+  git(['update-ref', `refs/heads/${started.subject.branch}`, forged, started.commit], root);
+
+  await assert.rejects(
+    () => recoverStoryStart(root, started.subject.id, { force: true }),
+    (error) => error.code === 'STORY_START_RECOVERY_DIVERGED'
+      && /tree|state digest|Candidate/.test(error.message)
+  );
+  const retained = await readStoryStartJournal(root, started.subject.id);
+  assert.equal(retained.record.stage, 'recovery-diverged');
+  assert.equal(git(['rev-parse', 'HEAD'], root), forged);
+});
+
+test('Story-start recovery rejects copied event trailers with a forged state digest', async () => {
+  const root = await repository('sflow-story-start-forged-state-');
+  const started = await governedStartCommit(root, 'START-FORGED-STATE');
+  const originalMessage = git(['show', '-s', '--format=%B', started.commit], root);
+  const forgedMessage = originalMessage.replace(
+    /^Singularity-Flow-State-SHA256:\s*sha256:[0-9a-f]{64}$/m,
+    `Singularity-Flow-State-SHA256: sha256:${'0'.repeat(64)}`
+  );
+  assert.notEqual(forgedMessage, originalMessage);
+  const tree = git(['rev-parse', `${started.commit}^{tree}`], root);
+  const created = spawnSync('git', ['commit-tree', tree, '-p', started.base], {
+    cwd: root, encoding: 'utf8', input: `${forgedMessage}\n`
+  });
+  assert.equal(created.status, 0, created.stderr);
+  const forged = created.stdout.trim();
+  git(['update-ref', `refs/heads/${started.subject.branch}`, forged, started.commit], root);
+
+  await assert.rejects(
+    () => recoverStoryStart(root, started.subject.id, { force: true }),
+    (error) => error.code === 'STORY_START_RECOVERY_DIVERGED'
+      && /state digest/.test(error.message)
+  );
+  const retained = await readStoryStartJournal(root, started.subject.id);
+  assert.equal(retained.record.stage, 'recovery-diverged');
+  assert.equal(git(['rev-parse', 'HEAD'], root), forged);
 });
 
 test('a dead Story start restores configuration, sessions, and sibling checkouts together', async () => {

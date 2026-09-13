@@ -1,0 +1,355 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/token-reduction-composition.schema.json",
+  "title": "Singularity Flow immutable token-reduction composition receipt v1",
+  "type": "object",
+  "required": [
+    "schemaVersion", "kind", "version", "activation", "subject", "authority",
+    "inputs", "selectedPrompt", "candidatePrompt", "relationship", "composition",
+    "compositionManifestSha256", "receiptSha256"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "tkr/composition-receipt" },
+    "version": { "const": 1 },
+    "activation": { "enum": ["active", "shadow"] },
+    "subject": { "$ref": "#/$defs/subject" },
+    "authority": { "$ref": "#/$defs/authority" },
+    "inputs": {
+      "type": "array", "maxItems": 256,
+      "items": { "$ref": "#/$defs/input" }
+    },
+    "selectedPrompt": { "$ref": "#/$defs/objectRef" },
+    "candidatePrompt": { "$ref": "#/$defs/objectRef" },
+    "relationship": { "enum": ["identical", "different"] },
+    "composition": { "$ref": "#/$defs/composition" },
+    "compositionManifestSha256": { "$ref": "#/$defs/hash" },
+    "receiptSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "hash": {
+      "type": "string", "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "nullableHash": {
+      "oneOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }]
+    },
+    "nonempty": {
+      "type": "string", "minLength": 1, "maxLength": 4096
+    },
+    "sectionId": {
+      "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128
+    },
+    "representation": {
+      "enum": ["full", "exact-excerpt", "deterministic-brief", "reference-only"]
+    },
+    "objectRef": {
+      "type": "object",
+      "required": ["sha256", "bytes"],
+      "properties": {
+        "sha256": { "$ref": "#/$defs/hash" },
+        "bytes": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "nullableObjectRef": {
+      "oneOf": [{ "$ref": "#/$defs/objectRef" }, { "type": "null" }]
+    },
+    "subjectRef": {
+      "type": "object",
+      "required": ["owner", "domain", "kind", "id", "revision", "sourceRef"],
+      "properties": {
+        "owner": { "$ref": "#/$defs/nonempty" },
+        "domain": { "$ref": "#/$defs/nonempty" },
+        "kind": { "$ref": "#/$defs/nonempty" },
+        "id": { "$ref": "#/$defs/nonempty" },
+        "revision": { "$ref": "#/$defs/nonempty" },
+        "sourceRef": { "$ref": "#/$defs/nonempty" }
+      },
+      "additionalProperties": false
+    },
+    "subject": {
+      "type": "object",
+      "required": [
+        "repositoryDomainSha256", "workId", "workflowInstanceId", "phase", "generation"
+      ],
+      "properties": {
+        "repositoryDomainSha256": { "$ref": "#/$defs/hash" },
+        "workId": {
+          "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        "workflowInstanceId": {
+          "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        "phase": {
+          "type": "string", "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$", "maxLength": 128
+        },
+        "generation": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "authority": {
+      "type": "object",
+      "required": [
+        "tokenEconomyPolicySha256", "phaseContextPolicySha256", "workflowSnapshotSha256",
+        "sourceSnapshotSha256", "composerRef", "composerSha256", "contractSetSha256"
+      ],
+      "properties": {
+        "tokenEconomyPolicySha256": { "$ref": "#/$defs/hash" },
+        "phaseContextPolicySha256": { "$ref": "#/$defs/nullableHash" },
+        "workflowSnapshotSha256": { "$ref": "#/$defs/nullableHash" },
+        "sourceSnapshotSha256": { "$ref": "#/$defs/nullableHash" },
+        "composerRef": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9.-]*/tkr/[a-z][a-z0-9-]*/[a-z][a-z0-9.-]*@[1-9][0-9]*#sha256:[a-f0-9]{64}$",
+          "maxLength": 512
+        },
+        "composerSha256": { "$ref": "#/$defs/hash" },
+        "contractSetSha256": { "$ref": "#/$defs/hash" }
+      },
+      "additionalProperties": false
+    },
+    "coverage": {
+      "type": "object",
+      "required": ["claimRef", "subjectRef", "evidenceRole", "requirementRef"],
+      "properties": {
+        "claimRef": { "$ref": "#/$defs/nonempty" },
+        "subjectRef": { "$ref": "#/$defs/subjectRef" },
+        "evidenceRole": { "$ref": "#/$defs/nonempty" },
+        "requirementRef": { "$ref": "#/$defs/nonempty" }
+      },
+      "additionalProperties": false
+    },
+    "omissionCore": {
+      "type": "object",
+      "required": [
+        "reason", "originalRenderedRef", "expansionRefs", "limitations",
+        "carrierSectionId", "coverageProofSha256"
+      ],
+      "properties": {
+        "reason": {
+          "enum": ["irrelevant", "duplicate", "budget", "not-applicable", "unavailable"]
+        },
+        "originalRenderedRef": { "$ref": "#/$defs/nullableObjectRef" },
+        "expansionRefs": {
+          "type": "array", "maxItems": 4096, "uniqueItems": true,
+          "items": { "$ref": "#/$defs/nonempty" }
+        },
+        "limitations": {
+          "type": "array", "maxItems": 4096, "uniqueItems": true,
+          "items": { "$ref": "#/$defs/nonempty" }
+        },
+        "carrierSectionId": {
+          "oneOf": [{ "$ref": "#/$defs/sectionId" }, { "type": "null" }]
+        },
+        "coverageProofSha256": { "$ref": "#/$defs/nullableHash" }
+      },
+      "additionalProperties": false
+    },
+    "omission": {
+      "type": "object",
+      "required": [
+        "sectionId", "reason", "originalRenderedRef", "expansionRefs", "limitations",
+        "carrierSectionId", "coverageProofSha256"
+      ],
+      "properties": {
+        "sectionId": { "$ref": "#/$defs/sectionId" },
+        "reason": {
+          "enum": ["irrelevant", "duplicate", "budget", "not-applicable", "unavailable"]
+        },
+        "originalRenderedRef": { "$ref": "#/$defs/nullableObjectRef" },
+        "expansionRefs": {
+          "type": "array", "maxItems": 4096, "uniqueItems": true,
+          "items": { "$ref": "#/$defs/nonempty" }
+        },
+        "limitations": {
+          "type": "array", "maxItems": 4096, "uniqueItems": true,
+          "items": { "$ref": "#/$defs/nonempty" }
+        },
+        "carrierSectionId": {
+          "oneOf": [{ "$ref": "#/$defs/sectionId" }, { "type": "null" }]
+        },
+        "coverageProofSha256": { "$ref": "#/$defs/nullableHash" }
+      },
+      "additionalProperties": false
+    },
+    "input": {
+      "type": "object",
+      "required": [
+        "sectionId", "subjectRef", "ownerBindingSha256", "evidenceRole", "assuranceRef",
+        "requirementRef", "applicability", "applicabilityDecisionRef", "coverage",
+        "sourceRef", "sourceSha256", "sourceByteLength", "expansionRefs", "limitations",
+        "outcome", "representation", "originalRenderedRef", "finalRenderedRef", "omission"
+      ],
+      "properties": {
+        "sectionId": { "$ref": "#/$defs/sectionId" },
+        "subjectRef": { "$ref": "#/$defs/subjectRef" },
+        "ownerBindingSha256": { "$ref": "#/$defs/hash" },
+        "evidenceRole": { "$ref": "#/$defs/nonempty" },
+        "assuranceRef": { "$ref": "#/$defs/nonempty" },
+        "requirementRef": { "$ref": "#/$defs/nonempty" },
+        "applicability": { "enum": ["required", "optional", "not-applicable"] },
+        "applicabilityDecisionRef": {
+          "oneOf": [{ "$ref": "#/$defs/nonempty" }, { "type": "null" }]
+        },
+        "coverage": {
+          "type": "array", "maxItems": 4096,
+          "items": { "$ref": "#/$defs/coverage" }
+        },
+        "sourceRef": { "$ref": "#/$defs/nonempty" },
+        "sourceSha256": { "$ref": "#/$defs/nullableHash" },
+        "sourceByteLength": { "type": "integer", "minimum": 0 },
+        "expansionRefs": {
+          "type": "array", "maxItems": 4096, "uniqueItems": true,
+          "items": { "$ref": "#/$defs/nonempty" }
+        },
+        "limitations": {
+          "type": "array", "maxItems": 4096, "uniqueItems": true,
+          "items": { "$ref": "#/$defs/nonempty" }
+        },
+        "outcome": { "enum": ["included", "omitted"] },
+        "representation": {
+          "oneOf": [{ "$ref": "#/$defs/representation" }, { "type": "null" }]
+        },
+        "originalRenderedRef": { "$ref": "#/$defs/nullableObjectRef" },
+        "finalRenderedRef": { "$ref": "#/$defs/nullableObjectRef" },
+        "omission": {
+          "oneOf": [{ "$ref": "#/$defs/omissionCore" }, { "type": "null" }]
+        }
+      },
+      "additionalProperties": false
+    },
+    "segment": {
+      "type": "object",
+      "required": [
+        "sectionId", "slot", "role", "position", "start", "end", "bytes", "sha256",
+        "rendererRef", "representation", "subjectRefsSha256", "coverageSha256",
+        "carriedSha256"
+      ],
+      "properties": {
+        "sectionId": { "$ref": "#/$defs/sectionId" },
+        "slot": { "$ref": "#/$defs/nonempty" },
+        "role": { "$ref": "#/$defs/nonempty" },
+        "position": { "type": "integer", "minimum": 0 },
+        "start": { "type": "integer", "minimum": 0 },
+        "end": { "type": "integer", "minimum": 1 },
+        "bytes": { "type": "integer", "minimum": 1 },
+        "sha256": { "$ref": "#/$defs/hash" },
+        "rendererRef": { "$ref": "#/$defs/nonempty" },
+        "representation": {
+          "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 64
+        },
+        "subjectRefsSha256": { "$ref": "#/$defs/hash" },
+        "coverageSha256": { "$ref": "#/$defs/hash" },
+        "carriedSha256": { "$ref": "#/$defs/hash" }
+      },
+      "additionalProperties": false
+    },
+    "separator": {
+      "type": "object",
+      "required": ["start", "end", "bytes", "sha256"],
+      "properties": {
+        "start": { "type": "integer", "minimum": 0 },
+        "end": { "type": "integer", "minimum": 1 },
+        "bytes": { "const": 2 },
+        "sha256": { "$ref": "#/$defs/hash" }
+      },
+      "additionalProperties": false
+    },
+    "range": {
+      "type": "object",
+      "required": ["start", "end"],
+      "properties": {
+        "start": { "type": "integer", "minimum": 0 },
+        "end": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "protectedText": {
+      "type": "object",
+      "required": [
+        "sectionId", "sourceRef", "sourceRange", "renderedRange", "blockRange",
+        "sha256", "bytes", "encoding"
+      ],
+      "properties": {
+        "sectionId": { "$ref": "#/$defs/sectionId" },
+        "sourceRef": { "$ref": "#/$defs/nonempty" },
+        "sourceRange": { "$ref": "#/$defs/range" },
+        "renderedRange": { "$ref": "#/$defs/range" },
+        "blockRange": { "$ref": "#/$defs/range" },
+        "sha256": { "$ref": "#/$defs/hash" },
+        "bytes": { "type": "integer", "minimum": 1 },
+        "encoding": { "const": "literal-utf8" }
+      },
+      "additionalProperties": false
+    },
+    "alias": {
+      "type": "object",
+      "required": ["id", "namespace", "scopeRef", "targetRef"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[A-Z][A-Z0-9]*[1-9][0-9]*$", "maxLength": 64 },
+        "namespace": { "type": "string", "pattern": "^[A-Z][A-Z0-9]*$", "maxLength": 32 },
+        "scopeRef": { "$ref": "#/$defs/nonempty" },
+        "targetRef": { "$ref": "#/$defs/subjectRef" }
+      },
+      "additionalProperties": false
+    },
+    "deduplication": {
+      "type": "object",
+      "required": [
+        "removedSectionId", "removedRepresentation", "carrierSectionId",
+        "carrierRepresentation", "removedCandidateRef", "carrierCandidateRef",
+        "coverageProofSha256", "ruleRef", "coverageSha256"
+      ],
+      "properties": {
+        "removedSectionId": { "$ref": "#/$defs/sectionId" },
+        "removedRepresentation": { "$ref": "#/$defs/representation" },
+        "carrierSectionId": { "$ref": "#/$defs/sectionId" },
+        "carrierRepresentation": { "$ref": "#/$defs/representation" },
+        "removedCandidateRef": { "$ref": "#/$defs/hash" },
+        "carrierCandidateRef": { "$ref": "#/$defs/hash" },
+        "coverageProofSha256": { "$ref": "#/$defs/hash" },
+        "ruleRef": { "$ref": "#/$defs/nonempty" },
+        "coverageSha256": { "$ref": "#/$defs/hash" }
+      },
+      "additionalProperties": false
+    },
+    "composition": {
+      "type": "object",
+      "required": [
+        "composerSha256", "sha256", "bytes", "segments", "separators", "protectedText",
+        "aliases", "omissions", "deduplication"
+      ],
+      "properties": {
+        "composerSha256": { "$ref": "#/$defs/hash" },
+        "sha256": { "$ref": "#/$defs/hash" },
+        "bytes": { "type": "integer", "minimum": 1 },
+        "segments": {
+          "type": "array", "minItems": 1, "maxItems": 256,
+          "items": { "$ref": "#/$defs/segment" }
+        },
+        "separators": {
+          "type": "array", "maxItems": 255,
+          "items": { "$ref": "#/$defs/separator" }
+        },
+        "protectedText": {
+          "type": "array", "maxItems": 4096,
+          "items": { "$ref": "#/$defs/protectedText" }
+        },
+        "aliases": {
+          "type": "array", "maxItems": 1024,
+          "items": { "$ref": "#/$defs/alias" }
+        },
+        "omissions": {
+          "type": "array", "maxItems": 256,
+          "items": { "$ref": "#/$defs/omission" }
+        },
+        "deduplication": {
+          "type": "array", "maxItems": 256,
+          "items": { "$ref": "#/$defs/deduplication" }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

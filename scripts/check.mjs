@@ -801,6 +801,7 @@ const baselineSchemaFiles = [
   'schemas/token-reduction-protected-text-rules.schema.json',
   'schemas/token-reduction-ordering-rules.schema.json',
   'schemas/token-reduction-normalization-rules.schema.json',
+  'schemas/token-reduction-composition.schema.json',
   'schemas/sgos-contract.schema.json'
 ];
 const worldModelSchemaFiles = (await readdir(path.join(root, 'schemas')))

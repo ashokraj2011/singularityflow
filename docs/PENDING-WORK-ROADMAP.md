@@ -784,17 +784,19 @@ Acceptance gates:
 
 ## Token Reduction preview (TKR)
 
-TKR is a code-local candidate preview; `tokenEconomy.mode` still defaults to `observe` and the
-only production composer remains `legacy-v1`. M0 contract/schema closure, the M1 deterministic
-composer and owner-binding adapter, the M3 bounded disposable segment cache/generated framing,
-and the M4 diagnostic evaluation kernel are implemented as isolated code-local surfaces. Enabled
-production compilation with `tkr-v1` refuses before producing prompt bytes. M0 has no accepted
+TKR remains production-safe: `tokenEconomy.mode` defaults to `observe` and the only production
+composer is `legacy-v1`. M0 contract/schema closure, the M1 deterministic composer and
+owner-binding adapter, a non-blocking default-path shadow evaluator, the first M2 immutable
+composition-receipt slice, the M3 bounded disposable segment cache/generated framing, and the M4
+diagnostic evaluation kernel are implemented. Each newly composed modern Story prompt can retain
+one content-free shadow receipt under the prompt-generation owner while delivering the exact
+legacy prompt; unavailable or corrupt shadow evidence never blocks that prompt. Enabled production
+compilation with `tkr-v1` still refuses before producing prompt bytes. M0 has no accepted
 representative baseline; M3 still lacks registered compact input renderers and production
 composition; M4 cannot mark a benchmark or savings claim eligible and has not run the required
-paired quality benchmark. M2 remains
-dependent on the persisted WMP lifecycle: successor grounding/composition bindings, exact retained
-contract closure, expansion and outbound-delivery evidence, source freshness, handoff closure, and
-cross-machine replay must exist before `tkr-v1` can replace a production packet path. No
+paired quality benchmark. The remaining M2 active path depends on successor grounding/packet
+bindings, expansion and outbound-delivery evidence, dispatch freshness, handoff closure, and
+cross-machine replay before `tkr-v1` can replace a production packet path. No
 token-savings or default-enablement claim is eligible.
 See [Token Reduction preview](TOKEN-REDUCTION.md) for the exact boundary and validation commands.
 

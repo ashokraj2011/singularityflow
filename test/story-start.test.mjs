@@ -1,12 +1,21 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  mkdir, mkdtemp, readFile, rename, rm, stat, symlink, writeFile
+} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
+import { pathToFileURL } from 'node:url';
 import YAML from 'yaml';
+import { loadDefinition } from '../src/config.mjs';
 import { onboardRepository } from '../src/onboard.mjs';
 import { manualStorySource, startStory } from '../src/story-start.mjs';
+import {
+  preflightInitialStoryDocuments, scavengeStoryDocumentCaptures,
+  stageInitialStoryDocuments, storyDocumentCaptureStorePath
+} from '../src/story-start-documents.mjs';
+import { documentSetSha256 } from '../src/document-publication.mjs';
 import {
   ensureConfigurationBranch, resolveStoryConfigurationAuthority
 } from '../src/configuration-branch.mjs';
@@ -45,6 +54,276 @@ async function repository({ configurationAuthority = false } = {}) {
   if (configurationAuthority) await ensureConfigurationBranch(remote);
   return root;
 }
+
+async function captureRepository(t) {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-document-capture-repository-'));
+  run('git', ['init', '-b', 'main'], root);
+  t.after(() => rm(root, { recursive: true, force: true }));
+  return root;
+}
+
+test('Story document preflight refuses a path replacement between metadata check and open', async (t) => {
+  const root = await captureRepository(t);
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-document-race-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const source = path.join(directory, 'brief.md');
+  const replacement = path.join(directory, 'replacement.md');
+  await writeFile(source, '# Approved evidence\n');
+  await writeFile(replacement, '# Different bytes that must never be captured\n');
+  await assert.rejects(
+    () => preflightInitialStoryDocuments([{ files: [source] }], {
+      repositoryRoot: root,
+      beforeFileOpen: async () => { await rename(replacement, source); }
+    }),
+    (error) => error?.code === 'STORY_DOCUMENT_CHANGED'
+  );
+});
+
+test('Story document preflight refuses a directory replacement during traversal', async (t) => {
+  const root = await captureRepository(t);
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-document-directory-race-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const source = path.join(directory, 'approved');
+  const replacement = path.join(directory, 'replacement');
+  const moved = path.join(directory, 'moved-approved');
+  await mkdir(source);
+  await mkdir(replacement);
+  await writeFile(path.join(source, 'brief.md'), '# Approved directory evidence\n');
+  await writeFile(path.join(replacement, 'secret.md'), '# Unintended replacement bytes\n');
+  let swapped = false;
+  await assert.rejects(
+    () => preflightInitialStoryDocuments([{ files: [source] }], {
+      repositoryRoot: root,
+      beforeDirectoryRead: async () => {
+        if (swapped) return;
+        swapped = true;
+        await rename(source, moved);
+        await rename(replacement, source);
+      }
+    }),
+    (error) => error?.code === 'STORY_DOCUMENT_CHANGED'
+  );
+});
+
+test('Story document preflight rejects embedded URL credentials before mutation', async () => {
+  await assert.rejects(
+    () => preflightInitialStoryDocuments([{
+      url: 'https://reviewer:secret@example.com/private-requirements'
+    }]),
+    (error) => error?.code === 'STORY_DOCUMENT_URL_CREDENTIALS'
+  );
+  await assert.rejects(
+    () => preflightInitialStoryDocuments([{
+      url: 'https://example.com/private-requirements?token=secret#download'
+    }]),
+    (error) => error?.code === 'STORY_DOCUMENT_URL_CREDENTIALS'
+  );
+});
+
+test('Story document preflight bounds aggregate files, bytes, depth, and private permissions', async (t) => {
+  const root = await captureRepository(t);
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-document-limits-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const first = path.join(directory, 'first.txt');
+  const second = path.join(directory, 'second.txt');
+  await writeFile(first, '1234');
+  await writeFile(second, '5678');
+
+  await assert.rejects(
+    () => preflightInitialStoryDocuments([{ files: [first, second] }], {
+      repositoryRoot: root,
+      maxFiles: 1, maxTotalBytes: 100, maxDepth: 4
+    }),
+    (error) => error?.code === 'STORY_DOCUMENT_LIMIT_EXCEEDED'
+      && error?.details?.limit === 'maxFiles'
+  );
+  await assert.rejects(
+    () => preflightInitialStoryDocuments([{ files: [first, second] }], {
+      repositoryRoot: root,
+      maxFiles: 2, maxTotalBytes: 7, maxDepth: 4
+    }),
+    (error) => error?.code === 'STORY_DOCUMENT_LIMIT_EXCEEDED'
+      && error?.details?.limit === 'maxTotalBytes'
+  );
+
+  const deep = path.join(directory, 'deep');
+  await mkdir(path.join(deep, 'nested'), { recursive: true });
+  await writeFile(path.join(deep, 'nested', 'evidence.md'), '# evidence\n');
+  await assert.rejects(
+    () => preflightInitialStoryDocuments([{ files: [deep] }], {
+      repositoryRoot: root,
+      maxFiles: 2, maxTotalBytes: 100, maxDepth: 1
+    }),
+    (error) => error?.code === 'STORY_DOCUMENT_LIMIT_EXCEEDED'
+      && error?.details?.limit === 'maxDepth'
+  );
+
+  const capture = await preflightInitialStoryDocuments([{ files: [first] }], {
+    repositoryRoot: root,
+    maxFiles: 1, maxTotalBytes: 4, maxDepth: 0
+  });
+  t.after(() => capture.dispose());
+  assert.equal(capture.evidence.length, 1);
+  if (process.platform !== 'win32') {
+    const capturedFile = capture.inputs[0].files[0];
+    assert.equal((await stat(capturedFile)).mode & 0o777, 0o600);
+    assert.equal((await stat(path.dirname(capturedFile))).mode & 0o777, 0o700);
+    assert.equal((await stat(capture.captureDirectory)).mode & 0o777, 0o700);
+  }
+});
+
+test('Story document capture scavenges a dead process lease without retaining source paths', async (t) => {
+  const root = await captureRepository(t);
+  const sourceDirectory = await mkdtemp(path.join(os.tmpdir(), 'sflow-dead-document-capture-'));
+  t.after(() => rm(sourceDirectory, { recursive: true, force: true }));
+  const source = path.join(sourceDirectory, 'private-brief.md');
+  await writeFile(source, '# Exact private Story evidence\n');
+  const moduleUrl = pathToFileURL(path.resolve('src/story-start-documents.mjs')).href;
+  const child = spawnSync(process.execPath, [
+    '--input-type=module', '--eval',
+    `import { preflightInitialStoryDocuments } from ${JSON.stringify(moduleUrl)};
+const capture = await preflightInitialStoryDocuments([{ files: [process.argv[2]] }], {
+  repositoryRoot: process.argv[1]
+});
+process.stdout.write(JSON.stringify({ directory: capture.captureDirectory, file: capture.inputs[0].files[0] }));`,
+    root, source
+  ], { encoding: 'utf8' });
+  assert.equal(child.status, 0, child.stderr);
+  const abandoned = JSON.parse(child.stdout);
+  const leaseBytes = await readFile(path.join(abandoned.directory, 'lease.json'), 'utf8');
+  assert.equal(leaseBytes.includes(source), false, 'the cleanup lease must not retain the source path');
+  assert.equal(
+    abandoned.directory.startsWith(`${storyDocumentCaptureStorePath(root)}${path.sep}`),
+    true
+  );
+
+  const result = await scavengeStoryDocumentCaptures(root);
+  assert.deepEqual(result.removed, [path.basename(abandoned.directory)]);
+  await assert.rejects(stat(abandoned.directory), (error) => error?.code === 'ENOENT');
+});
+
+test('Story document capture scavenger never follows an unleased direct-child symlink', async (t) => {
+  const root = await captureRepository(t);
+  const store = storyDocumentCaptureStorePath(root);
+  await mkdir(store, { recursive: true, mode: 0o700 });
+  const outside = await mkdtemp(path.join(os.tmpdir(), 'sflow-document-capture-outside-'));
+  t.after(() => rm(outside, { recursive: true, force: true }));
+  const sentinel = path.join(outside, 'must-remain.txt');
+  await writeFile(sentinel, 'operator-owned bytes\n');
+  const name = 'capture-11111111-1111-4111-8111-111111111111';
+  await symlink(outside, path.join(store, name), 'dir');
+
+  const result = await scavengeStoryDocumentCaptures(root, { staleAfterMs: 0 });
+  assert.deepEqual(result.removed, []);
+  assert.deepEqual(result.retained, [name]);
+  assert.equal(await readFile(sentinel, 'utf8'), 'operator-owned bytes\n');
+});
+
+test('Story document publication refuses captured bytes replaced after preflight', async (t) => {
+  const root = await repository();
+  t.after(() => Promise.all([
+    rm(root, { recursive: true, force: true }),
+    rm(`${root}.git`, { recursive: true, force: true })
+  ]));
+  const sourceDirectory = await mkdtemp(path.join(os.tmpdir(), 'sflow-captured-document-tamper-'));
+  t.after(() => rm(sourceDirectory, { recursive: true, force: true }));
+  const source = path.join(sourceDirectory, 'brief.md');
+  await writeFile(source, '# Bound intake evidence\n');
+  const capture = await preflightInitialStoryDocuments([{ files: [source] }], {
+    repositoryRoot: root
+  });
+  t.after(() => capture.dispose());
+
+  const created = await startStory(root, {
+    id: 'WORK-CAPTURE-BINDING',
+    source: manualStorySource('WORK-CAPTURE-BINDING', {
+      title: 'Bind captured evidence',
+      description: 'Reject any replacement after the intake snapshot.',
+      acceptanceCriteria: 'Only the reviewed bytes can be staged.'
+    }),
+    workType: 'feature',
+    baseBranch: 'main'
+  });
+  const capturedPath = capture.inputs[0].files[0];
+  await writeFile(capturedPath, '# Replaced after preflight\n');
+  const definition = await loadDefinition(root);
+
+  await assert.rejects(
+    () => stageInitialStoryDocuments(root, definition, created.workflow, {
+      inputs: capture.inputs,
+      requireFrozen: true
+    }),
+    (error) => error?.code === 'STORY_DOCUMENT_CHANGED'
+  );
+});
+
+test('Story start refuses document storage excluded by Git ignore policy', async (t) => {
+  const root = await repository();
+  t.after(() => Promise.all([
+    rm(root, { recursive: true, force: true }),
+    rm(`${root}.git`, { recursive: true, force: true })
+  ]));
+  await writeFile(path.join(root, '.gitignore'), 'singularity/work-items/*/inputs/\n');
+  run('git', ['add', '.gitignore'], root);
+  run('git', ['commit', '-m', 'ignore Story document inputs'], root);
+  run('git', ['push', 'origin', 'main'], root);
+  const sourceDirectory = await mkdtemp(path.join(os.tmpdir(), 'sflow-ignored-document-'));
+  t.after(() => rm(sourceDirectory, { recursive: true, force: true }));
+  const source = path.join(sourceDirectory, 'reviewed-evidence.md');
+  await writeFile(source, 'must not be omitted from the governed commit\n');
+
+  await assert.rejects(
+    () => startStory(root, {
+      id: 'WORK-IGNORED-DOCUMENT',
+      source: manualStorySource('WORK-IGNORED-DOCUMENT', {
+        title: 'Do not omit intake evidence',
+        description: 'Fail before a commit can claim a Git-ignored supporting document.',
+        acceptanceCriteria: 'The opening commit contains every manifest document.'
+      }),
+      workType: 'feature',
+      baseBranch: 'main',
+      files: [source]
+    }),
+    (error) => error?.code === 'STORY_DOCUMENT_GIT_IGNORED'
+  );
+  assert.equal(run('git', ['branch', '--show-current'], root).stdout.trim(), 'main');
+  assert.equal(run('git', ['branch', '--list', 'WORK-IGNORED-DOCUMENT'], root).stdout.trim(), '');
+});
+
+test('Story start sanitizes a .git source name and commits the evidence blob', async (t) => {
+  const root = await repository();
+  t.after(() => Promise.all([
+    rm(root, { recursive: true, force: true }),
+    rm(`${root}.git`, { recursive: true, force: true })
+  ]));
+  const sourceDirectory = await mkdtemp(path.join(os.tmpdir(), 'sflow-dot-git-document-'));
+  t.after(() => rm(sourceDirectory, { recursive: true, force: true }));
+  const source = path.join(sourceDirectory, '.git');
+  const bytes = 'a source name must never make Git silently omit governed evidence\n';
+  await writeFile(source, bytes);
+
+  const created = await startStory(root, {
+    id: 'WORK-DOT-GIT-DOCUMENT',
+    source: manualStorySource('WORK-DOT-GIT-DOCUMENT', {
+      title: 'Track every intake blob',
+      description: 'Sanitize Git-reserved source names without losing provenance.',
+      acceptanceCriteria: 'The evidence blob is present in the opening commit.'
+    }),
+    workType: 'feature',
+    baseBranch: 'main',
+    files: [source]
+  });
+
+  assert.equal(created.documents.length, 1);
+  assert.match(created.documents[0].path, /\/document-git$/u);
+  assert.equal(created.documents[0].sourceName, '.git');
+  assert.equal(await readFile(path.join(root, created.documents[0].path), 'utf8'), bytes);
+  assert.equal(
+    run('git', ['cat-file', '-e', `HEAD:${created.documents[0].path}`], root).status,
+    0,
+    'the opening commit contains the exact manifest blob'
+  );
+});
 
 test('FOS:AC-016 onboarding and Story intake avoid discovery, composition, AST and model launchers', async () => {
   const root = await repository({ configurationAuthority: true });
@@ -124,8 +403,13 @@ test('FOS:AC-016 onboarding and Story intake avoid discovery, composition, AST a
   assert.deepEqual(documents.documents.map((item) => item.type), ['file', 'url']);
   const log = run('git', ['log', '--format=%s'], root).stdout;
   assert.match(log, /\[WORK-901\]\[init\] start feature workflow/);
-  assert.equal((log.match(/\[WORK-901\]\[documents\]\[upload\]/g) ?? []).length, 1,
-    'all initial evidence is published in one governed transaction');
+  assert.equal((log.match(/\[WORK-901\]\[documents\]\[upload\]/g) ?? []).length, 0,
+    'initial evidence is part of the opening governed transaction, not a second commit');
+  const opening = workflow.publicationProjections.find((entry) => entry.event?.type === 'binding');
+  assert.equal(opening.event.payload.operation, 'supporting-document-upload');
+  assert.deepEqual(opening.event.payload.documentIds, ['DOC-001', 'DOC-002']);
+  assert.equal(opening.event.payload.documentSetSchemaVersion, 1);
+  assert.equal(opening.event.payload.documentSetSha256, documentSetSha256(documents.documents));
 
   // Resume is governed by the Story's immutable pin. A newer checkout policy can reject the old
   // ID and the authority can be offline without changing what this already-created Story means.
@@ -143,6 +427,135 @@ test('FOS:AC-016 onboarding and Story intake avoid discovery, composition, AST a
   });
   assert.equal(resumed.resumed, true);
   assert.equal(resumed.workflow.workItem.workType, 'feature');
+});
+
+test('Story opening refuses and rolls back a manifest or blob changed after state write', async (t) => {
+  const root = await repository({ configurationAuthority: true });
+  t.after(() => Promise.all([
+    rm(root, { recursive: true, force: true }),
+    rm(`${root}.git`, { recursive: true, force: true })
+  ]));
+  const sourceDirectory = await mkdtemp(path.join(os.tmpdir(), 'sflow-document-publication-race-'));
+  t.after(() => rm(sourceDirectory, { recursive: true, force: true }));
+  const sourceFile = path.join(sourceDirectory, 'reviewed.md');
+  await writeFile(sourceFile, '# Reviewed evidence\nThe opening commit must contain these bytes.\n');
+  const beforeHead = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+
+  for (const [mode, expectedCode] of [
+    ['blob', 'DOCUMENT_SET_BLOB_MISMATCH'],
+    ['manifest', 'DOCUMENT_SET_MANIFEST_MISMATCH']
+  ]) {
+    const id = `WORK-DOCUMENT-${mode.toUpperCase()}-RACE`;
+    await assert.rejects(
+      () => startStory(root, {
+        id,
+        source: manualStorySource(id, {
+          title: 'Bind the document publication tree',
+          description: 'Refuse a destination replacement after the manifest is finalized.',
+          acceptanceCriteria: 'Manifest identity and committed blob identity are coherent.'
+        }),
+        workType: 'feature',
+        baseBranch: 'main',
+        files: [sourceFile],
+        publicationFault: async (stage, { envelope }) => {
+          if (stage !== 'after-state-write') return;
+          assert.match(envelope.payload.documentSetSha256, /^sha256:[a-f0-9]{64}$/u);
+          const manifestFile = path.join(root, `singularity/work-items/${id}/documents.json`);
+          const manifest = JSON.parse(await readFile(manifestFile, 'utf8'));
+          if (mode === 'blob') {
+            await writeFile(path.join(root, manifest.documents[0].path), 'replacement bytes from a watcher\n');
+          } else {
+            manifest.documents[0].label = 'replacement manifest identity';
+            await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
+          }
+        }
+      }),
+      (error) => {
+        assert.equal(error?.code, expectedCode, error?.stack);
+        return true;
+      }
+    );
+
+    assert.equal(run('git', ['branch', '--show-current'], root).stdout.trim(), 'main');
+    assert.equal(run('git', ['rev-parse', 'HEAD'], root).stdout.trim(), beforeHead);
+    assert.equal(run('git', ['branch', '--list', id], root).stdout.trim(), '');
+    await assert.rejects(
+      readFile(path.join(root, `singularity/work-items/${id}/documents.json`)),
+      /ENOENT/
+    );
+  }
+});
+
+test('desktop Story intake freezes documents before mutation and a retry cannot duplicate them', async (t) => {
+  const root = await repository({ configurationAuthority: true });
+  t.after(() => Promise.all([
+    rm(root, { recursive: true, force: true }),
+    rm(`${root}.git`, { recursive: true, force: true })
+  ]));
+  const sourceDirectory = await mkdtemp(path.join(os.tmpdir(), 'sflow-desktop-story-preflight-'));
+  t.after(() => rm(sourceDirectory, { recursive: true, force: true }));
+  const sourceFile = path.join(sourceDirectory, 'brief.md');
+  const source = manualStorySource('WORK-DOC-PREFLIGHT', {
+    title: 'Capture intake evidence',
+    description: 'The Story must not exist without its requested evidence.',
+    acceptanceCriteria: 'The evidence is committed exactly once.'
+  });
+  const originalHead = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+
+  await assert.rejects(
+    () => startStory(root, {
+      id: 'WORK-DOC-PREFLIGHT', source, workType: 'feature', baseBranch: 'main',
+      urls: ['file:///tmp/not-a-governed-url']
+    }),
+    /Document URL must use http:\/\/ or https:\/\//
+  );
+  assert.equal(run('git', ['branch', '--show-current'], root).stdout.trim(), 'main');
+  assert.equal(run('git', ['rev-parse', 'HEAD'], root).stdout.trim(), originalHead);
+
+  await assert.rejects(
+    () => startStory(root, {
+      id: 'WORK-DOC-PREFLIGHT', source, workType: 'feature', baseBranch: 'main', files: [sourceFile]
+    }),
+    /Document path is not a regular file or directory/
+  );
+  assert.equal(run('git', ['branch', '--show-current'], root).stdout.trim(), 'main');
+  assert.equal(run('git', ['rev-parse', 'HEAD'], root).stdout.trim(), originalHead);
+  assert.equal(run('git', ['branch', '--list', 'WORK-DOC-PREFLIGHT'], root).stdout.trim(), '');
+  await assert.rejects(
+    readFile(path.join(root, 'singularity/work-items/WORK-DOC-PREFLIGHT/workflow.json')),
+    /ENOENT/
+  );
+
+  const capturedBytes = '# Evidence\nThe bytes captured before Story publication.\n';
+  // This endpoint is deliberately unreachable. Story intake records URL references but must never
+  // fetch them during either preflight pass.
+  const referenceUrl = 'https://127.0.0.1:1/reference';
+  await writeFile(sourceFile, capturedBytes);
+  const created = await startStory(root, {
+    id: 'WORK-DOC-PREFLIGHT', source, workType: 'feature', baseBranch: 'main',
+    files: [sourceFile], urls: [referenceUrl],
+    afterPublicationPreflight: async () => {
+      await writeFile(sourceFile, '# Mutated after preflight\nThese bytes must not enter the Story.\n');
+    }
+  });
+  assert.equal(created.documents.length, 2);
+  assert.equal(await readFile(path.join(root, created.documents[0].path), 'utf8'), capturedBytes);
+  assert.equal(created.documents[1].url, referenceUrl);
+  await rm(sourceFile);
+  const resumed = await startStory(root, {
+    id: 'WORK-DOC-PREFLIGHT', source, workType: 'feature', baseBranch: 'main',
+    files: [sourceFile], urls: [referenceUrl]
+  });
+  assert.equal(resumed.resumed, true, 'an already durable Story resumes without rereading old inputs');
+  const manifest = JSON.parse(await readFile(
+    path.join(root, 'singularity/work-items/WORK-DOC-PREFLIGHT/documents.json'), 'utf8'
+  ));
+  assert.equal(manifest.documents.length, 2);
+  assert.equal(manifest.documents[1].url, referenceUrl,
+    'the explicit URL survives the corrected retry and is not silently skipped');
+  const log = run('git', ['log', '--format=%s'], root).stdout;
+  assert.equal((log.match(/\[WORK-DOC-PREFLIGHT\]\[documents\]\[upload\]/g) ?? []).length, 0);
+  assert.equal((log.match(/\[WORK-DOC-PREFLIGHT\]\[init\] start feature workflow/g) ?? []).length, 1);
 });
 
 test('Story authority resolution refuses a configured remote whose URL cannot be read', async (t) => {

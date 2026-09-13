@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -8,6 +8,7 @@ import { run } from '../src/util.mjs';
 import {
   createTransportIntent, readTransportIntent, retryTransportIntent
 } from '../src/transport-intents.mjs';
+import { subjectLockPath } from '../src/subject-lock.mjs';
 
 async function fixture() {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-transport-'));
@@ -43,6 +44,121 @@ test('an exact transport intent pushes only its pinned commit to its pinned ref'
   assert.equal(run('git', ['--git-dir', item.bare, 'show-ref', '--verify', '--quiet', 'refs/heads/main'], {
     allowFailure: true
   }).status, 1, 'the application branch was not an implicit push destination');
+});
+
+test('transport retry does not steal a fresh acquisition and reclaims an abandoned ownerless lock', async () => {
+  const item = await fixture();
+  const created = await createTransportIntent({
+    repositoryRoot: item.work, sourceCommit: item.commit,
+    targetRef: 'refs/heads/stale-lease', expectedRemote: null
+  }, item.options);
+  const lock = subjectLockPath(item.work, { kind: 'transport-intent', id: created.intentId });
+  await mkdir(lock, { recursive: true });
+
+  await assert.rejects(
+    () => retryTransportIntent(created.intentId, item.options),
+    (error) => error?.code === 'TRANSPORT_INTENT_BUSY'
+  );
+  assert.equal((await readTransportIntent(created.intentId, item.options)).attemptBudget.used, 0);
+
+  const abandonedAt = new Date(Date.now() - 31_000);
+  await utimes(lock, abandonedAt, abandonedAt);
+  const recovered = await retryTransportIntent(created.intentId, item.options);
+  assert.equal(recovered.status, 'succeeded');
+  assert.equal(run('git', [
+    '--git-dir', item.bare, 'rev-parse', 'refs/heads/stale-lease'
+  ]).stdout.trim(), item.commit);
+});
+
+test('a successful exact push remains proven when its post-push observation is unavailable', async () => {
+  const item = await fixture();
+  const targetRef = 'refs/heads/proven-without-observation';
+  const created = await createTransportIntent({
+    repositoryRoot: item.work, sourceCommit: item.commit,
+    targetRef, expectedRemote: null
+  }, item.options);
+  let observations = 0;
+  const runCommand = (command, args, options) => {
+    if (args[0] === 'ls-remote') {
+      observations += 1;
+      if (observations === 2) {
+        return {
+          status: 1, stdout: '', stderr: 'connection reset after receive-pack', signal: null
+        };
+      }
+    }
+    return run(command, args, options);
+  };
+
+  const result = await retryTransportIntent(created.intentId, { ...item.options, runCommand });
+  assert.equal(result.status, 'succeeded');
+  assert.equal(result.observedRemote, item.commit);
+  assert.equal(result.attempts.at(-1).stage, 'push-proof');
+  assert.equal(result.attempts.at(-1).proof.kind, 'git-push-porcelain-transition');
+  assert.equal(result.attempts.at(-1).proof.transition, '*');
+  assert.match(result.attempts.at(-1).proof.outputSha256, /^sha256:[a-f0-9]{64}$/);
+  assert.equal(result.healers.at(-1).id, 'remote-push-already-succeeded');
+  assert.equal(run('git', ['--git-dir', item.bare, 'rev-parse', targetRef]).stdout.trim(), item.commit);
+  assert.equal((await retryTransportIntent(created.intentId, item.options)).status, 'succeeded',
+    'the proven terminal receipt is reusable without another transport mutation');
+});
+
+test('transport failure evidence redacts credentials and has a hard byte bound', async () => {
+  const item = await fixture();
+  const created = await createTransportIntent({
+    repositoryRoot: item.work, sourceCommit: item.commit,
+    targetRef: 'refs/heads/redacted-diagnostic', expectedRemote: null
+  }, item.options);
+  const secret = 'office-secret-do-not-retain';
+  const result = await retryTransportIntent(created.intentId, {
+    ...item.options,
+    runCommand: (command, args, options) => args[0] === 'push' && args.includes('--dry-run')
+      ? {
+          status: 1,
+          stdout: '',
+          stderr: `fatal: https://alice:${secret}@corp.example/repo.git token=${secret}\n${'💥'.repeat(6000)}`,
+          signal: null
+        }
+      : run(command, args, options)
+  });
+  const serialized = JSON.stringify(result);
+  assert.doesNotMatch(serialized, new RegExp(secret));
+  assert.ok(Buffer.byteLength(result.fault.evidence.diagnostic, 'utf8') <= 4096);
+  assert.match(result.fault.evidence.outputSha256, /^sha256:[a-f0-9]{64}$/);
+});
+
+test('a pre-commit transport reservation cannot push until its exact local ref is installed', async () => {
+  const item = await fixture();
+  const targetRef = 'refs/heads/sflow/config-review/reserved';
+  const unbound = await createTransportIntent({
+    repositoryRoot: item.work,
+    sourceCommit: item.commit,
+    targetRef,
+    expectedRemote: null
+  }, item.options);
+  const created = await createTransportIntent({
+    repositoryRoot: item.work,
+    sourceCommit: item.commit,
+    targetRef,
+    expectedRemote: null,
+    scope: { requiredLocalRef: targetRef }
+  }, item.options);
+  assert.notEqual(created.intentId, unbound.intentId,
+    'a generic intent cannot erase the reservation local-ref requirement during deduplication');
+
+  await assert.rejects(
+    () => retryTransportIntent(created.intentId, item.options),
+    (error) => error?.code === 'TRANSPORT_SOURCE_NOT_INSTALLED'
+  );
+  assert.equal((await readTransportIntent(created.intentId, item.options)).attemptBudget.used, 0);
+  assert.equal(run('git', [
+    '--git-dir', item.bare, 'show-ref', '--verify', '--quiet', targetRef
+  ], { allowFailure: true }).status, 1);
+
+  run('git', ['update-ref', targetRef, item.commit], { cwd: item.work });
+  const published = await retryTransportIntent(created.intentId, item.options);
+  assert.equal(published.status, 'succeeded');
+  assert.equal(run('git', ['--git-dir', item.bare, 'rev-parse', targetRef]).stdout.trim(), item.commit);
 });
 
 test('transport intent pins and publishes to the configured push URL', async () => {
@@ -188,6 +304,26 @@ test('creating the same exact transport joins its durable intent instead of dupl
   const first = await createTransportIntent(input, item.options);
   const joined = await createTransportIntent(input, item.options);
   assert.equal(joined.intentId, first.intentId);
+});
+
+test('a historical succeeded receipt is not reused as current remote publication proof', async () => {
+  const item = await fixture();
+  const targetRef = 'refs/heads/sflow/config-republish';
+  const input = {
+    repositoryRoot: item.work,
+    sourceCommit: item.commit,
+    targetRef,
+    expectedRemote: null
+  };
+  const first = await createTransportIntent(input, item.options);
+  assert.equal((await retryTransportIntent(first.intentId, item.options)).status, 'succeeded');
+  run('git', ['--git-dir', item.bare, 'update-ref', '-d', targetRef]);
+
+  const second = await createTransportIntent(input, item.options);
+  assert.notEqual(second.intentId, first.intentId);
+  assert.equal(second.status, 'pending');
+  assert.equal((await retryTransportIntent(second.intentId, item.options)).status, 'succeeded');
+  assert.equal(run('git', ['--git-dir', item.bare, 'rev-parse', targetRef]).stdout.trim(), item.commit);
 });
 
 test('a needs-user transport retries only through explicit user authority', async () => {

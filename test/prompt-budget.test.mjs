@@ -3,6 +3,14 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 
 import { compilePromptSections } from '../src/prompt-budget.mjs';
+import {
+  validateTokenReductionCompositionReceipt
+} from '../src/token-reduction/composition-contract.mjs';
+import {
+  evaluateTokenReductionShadow, tokenReductionShadowFailure, verifyTokenReductionShadow
+} from '../src/token-reduction/shadow-evaluation.mjs';
+
+const shadowRuntime = { evaluateTokenReductionShadow, tokenReductionShadowFailure };
 
 function policy(mode, maximumEstimatedPromptTokens = 1024, policyOnBudgetBreach = 'refuse') {
   return {
@@ -139,4 +147,87 @@ test('disabled token economy with a configured candidate composer keeps legacy b
   assert.equal(Object.hasOwn(result.policy, 'composer'), false);
   assert.equal(Object.hasOwn(result.policy, 'configuredComposer'), false);
   assert.equal(Object.hasOwn(result, 'tokenReduction'), false);
+});
+
+test('observe can record a deterministic TKR shadow without changing delivered legacy bytes', () => {
+  const sections = [
+    { id: 'phase-contract', text: '  # Phase\n\nKeep the contract.  ', mandatory: true, priority: 0 },
+    { id: 'work-source', text: '# Source\n\nExact source.', mandatory: true, priority: 0 }
+  ];
+  const options = {
+    ...shadowRuntime,
+    tokenReductionShadow: true,
+    tokenReductionScope: {
+      workId: 'WRK-SHADOW', phase: 'specification', generation: 1,
+      sourceRevision: 'git:abc123', configurationSha256: `sha256:${'1'.repeat(64)}`,
+      executionMode: 'workflow-snapshot'
+    },
+    tokenReductionReceiptContext: {
+      subject: {
+        repositoryDomainSha256: `sha256:${'2'.repeat(64)}`,
+        workId: 'WRK-SHADOW',
+        workflowInstanceId: `sha256:${'3'.repeat(64)}`,
+        phase: 'specification',
+        generation: 1
+      },
+      authority: {
+        tokenEconomyPolicySha256: `sha256:${'4'.repeat(64)}`,
+        phaseContextPolicySha256: `sha256:${'5'.repeat(64)}`,
+        workflowSnapshotSha256: `sha256:${'3'.repeat(64)}`,
+        sourceSnapshotSha256: `sha256:${'6'.repeat(64)}`
+      }
+    }
+  };
+  const first = compilePromptSections(sections, policy('observe'), options);
+  const second = compilePromptSections(sections, policy('observe'), options);
+
+  assert.equal(first.text, '# Phase\n\nKeep the contract.\n\n# Source\n\nExact source.\n');
+  assert.equal(first.text, second.text);
+  assert.equal(first.tokenReduction.mode, 'shadow');
+  assert.equal(first.tokenReduction.record.status, 'observed');
+  assert.equal(first.tokenReduction.record.byteEquivalent, false);
+  assert.equal(first.tokenReduction.record.delivery.state, 'shadow-not-delivered');
+  assert.equal(first.tokenReduction.record.delivery.candidateDelivered, false);
+  assert.equal(verifyTokenReductionShadow(first.tokenReduction.record), true);
+  assert.equal(first.tokenReduction.record.receiptSha256,
+    first.tokenReduction.record.receipt.receiptSha256);
+  validateTokenReductionCompositionReceipt(first.tokenReduction.record.receipt, {
+    selectedPrompt: first.text
+  });
+  assert.equal(first.tokenReduction.record.shadowSha256,
+    second.tokenReduction.record.shadowSha256);
+  assert.equal(first.economics.prompt.tkrCandidatePromptBytes, first.finalBytes - 1);
+  assert.equal(first.economics.prompt.tkrCandidateByteDelta, 1);
+});
+
+test('a TKR shadow failure never blocks or mutates a legacy Story prompt', () => {
+  const result = compilePromptSections([
+    { id: 'custom-extension', text: 'Existing extension content.', mandatory: true }
+  ], policy('observe'), {
+    ...shadowRuntime,
+    tokenReductionShadow: true,
+    tokenReductionScope: { workId: 'WRK-LEGACY', phase: 'custom' }
+  });
+
+  assert.equal(result.text, 'Existing extension content.\n');
+  assert.equal(result.tokenReduction.record.status, 'unavailable');
+  assert.equal(result.tokenReduction.record.delivery.state, 'shadow-not-delivered');
+  assert.equal(result.tokenReduction.record.delivery.candidateDelivered, false);
+  assert.equal(result.economics.prompt.tkrCandidatePromptBytes, null);
+});
+
+test('a broken shadow evaluator and fallback cannot block or alter legacy prompt bytes', () => {
+  const sections = [
+    { id: 'phase-contract', text: '# Contract\n\nExact legacy context.', mandatory: true }
+  ];
+  const baseline = compilePromptSections(sections, policy('observe'));
+  const degraded = compilePromptSections(sections, policy('observe'), {
+    tokenReductionShadow: true,
+    evaluateTokenReductionShadow() { throw new Error('optional evaluator unavailable'); },
+    tokenReductionShadowFailure() { throw new Error('optional fallback unavailable'); }
+  });
+
+  assert.equal(degraded.text, baseline.text);
+  assert.equal(degraded.finalBytes, baseline.finalBytes);
+  assert.equal(Object.hasOwn(degraded, 'tokenReduction'), false);
 });

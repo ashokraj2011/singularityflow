@@ -82,7 +82,7 @@
     {
       "id": "publication-unit-of-work",
       "path": "src/publication-unit-of-work.mjs",
-      "sha256": "sha256:4d9d4dec1d7156c00a439119c60acead0d6c77210c25fd4ff7ff1ab3b8535642"
+      "sha256": "sha256:9374cfb865daa256927ccf0ed46261f50a93550f200d1ce93977836329de9e9b"
     },
     {
       "id": "action-authorization",
@@ -92,7 +92,7 @@
     {
       "id": "migration-registry",
       "path": "src/schema-migrations.mjs",
-      "sha256": "sha256:53d36f555e6bd05800277b3cb3a6882164513bcd2d740846970b81f03ec4b0bb"
+      "sha256": "sha256:3db625f5360b9daf82eb31e92602c22614a582f0d79ac64657625a574c62efdf"
     },
     {
       "id": "smart-initialization-v1",

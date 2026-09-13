@@ -264,6 +264,55 @@ test('push outcome distinguishes ambiguous transport loss from definitive reject
   assert.equal(publicationPushOutcome({ status: 1, stderr: 'stale info' }), 'rejected');
 });
 
+test('publication redacts and bounds rejected push diagnostics before durable and UI exposure', async () => {
+  const root = await repository('sflow-push-diagnostic-redaction-');
+  const remote = await mkdtemp(path.join(os.tmpdir(), 'sflow-push-diagnostic-origin-'));
+  git(['init', '--bare', '-q'], remote);
+  git(['remote', 'add', 'origin', remote], root);
+  git(['push', '-u', 'origin', 'main'], root);
+  const baseline = git(['--git-dir', remote, 'rev-parse', 'refs/heads/main'], root);
+  const secret = 'office-secret-do-not-retain';
+  const hook = path.join(remote, 'hooks/pre-receive');
+  await writeFile(hook,
+    `#!/bin/sh\ncat >&2 <<'SFLOW_DIAGNOSTIC'\nhttps://alice:${secret}@corp.example/repository.git token=${secret}\n${'x'.repeat(12_000)}\nSFLOW_DIAGNOSTIC\nexit 1\n`);
+  await chmod(hook, 0o755);
+
+  const subject = { kind: 'story', id: 'STORY-REDACT-PUSH', branch: 'main' };
+  const target = 'story-state.json';
+  let callbackDiagnostic = null;
+  let reported;
+  try {
+    await new GitPublicationUnitOfWork(root).execute({
+      subject,
+      event: lifecycleEvent({ type: 'artifact-generated', subject, phaseId: 'intake', generation: 1 }),
+      commit: { message: '[STORY-REDACT-PUSH] rejected publication' },
+      publication: {
+        mode: 'required', branch: 'main', remote: 'origin', expectedRemoteSha: baseline
+      },
+      pendingRecord: ({ error }) => {
+        callbackDiagnostic = error;
+        return { callbackDiagnostic: error };
+      },
+      allowedPaths: [target],
+      state: { write: () => writeFile(path.join(root, target), '{"status":"pending"}\n') }
+    });
+    assert.fail('the rejecting receive hook must stop publication');
+  } catch (error) {
+    reported = error;
+  }
+
+  const pending = await readPendingPublication(root, subject);
+  for (const exposed of [reported.message, callbackDiagnostic, pending.record.error,
+    pending.record.callbackDiagnostic]) {
+    assert.doesNotMatch(exposed, new RegExp(secret));
+  }
+  assert.ok(Buffer.byteLength(callbackDiagnostic, 'utf8') <= 4096);
+  assert.ok(Buffer.byteLength(pending.record.error, 'utf8') <= 4096);
+  assert.ok(Buffer.byteLength(pending.record.callbackDiagnostic, 'utf8') <= 4096);
+  assert.match(pending.record.error, /REDACTED|redacted/i);
+  assert.match(reported.message, /retained locally but push failed/);
+});
+
 test('Story and Initiative publications have the same recovery boundary at every fault stage', async (t) => {
   for (const kind of kinds) {
     for (const stage of stages) {

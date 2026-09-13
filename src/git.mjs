@@ -1371,6 +1371,38 @@ export async function exactRemoteBranchObservationAsync(root, remote, branchName
   };
 }
 
+/**
+ * Read every advertised branch head from one frozen remote authority.
+ *
+ * Create-only publication cannot compare-and-swap an absent target against a commit. Its safety
+ * anchor is therefore the parent of the proposed first commit: that parent must already be an
+ * exact, published remote head. Returning the commit for every ref from one `ls-remote` keeps that
+ * decision both current and cheaper than probing each possible base branch independently.
+ */
+export async function exactRemoteHeadsObservationAsync(root, remote) {
+  const frozen = frozenRemoteTransport(remote);
+  const observed = await runRemoteGitAsync([
+    'ls-remote', '--heads', '--', frozen.remote, 'refs/heads/*'
+  ], { cwd: root, operation: 'remote-probe', env: frozen.env });
+  if (observed.status !== 0) {
+    return { reachable: false, heads: {}, malformed: false, result: observed };
+  }
+  // Ref names come from the remote. A branch such as `__proto__` is valid Git but is a magic key
+  // on an ordinary object; use a dictionary with no prototype so every advertised ref remains an
+  // inert exact string and cannot corrupt target lookup or duplicate detection.
+  const heads = Object.create(null);
+  let malformed = false;
+  for (const line of observed.stdout.split(/\r?\n/).filter((entry) => entry.trim())) {
+    const match = line.match(/^([0-9a-f]{40,64})\s+refs\/heads\/([^\s]+)$/i);
+    if (!match || Object.hasOwn(heads, match[2])) {
+      malformed = true;
+      continue;
+    }
+    heads[match[2]] = match[1].toLowerCase();
+  }
+  return { reachable: true, heads, malformed, result: observed };
+}
+
 /** @deprecated Use pushCommitToBranchAsync; retained as an asynchronous compatibility alias. */
 export async function pushCommitToBranch(root, remote, commitSha, branchName, options = {}) {
   const expectedRemoteSha = options.expectedRemoteSha;

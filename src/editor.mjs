@@ -5,9 +5,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
 import {
-  add, assertNotDefaultBranch, branch, changedFiles, commit, GITHUB_LOOKUP, head, identity, localBranches,
-  pushCommitToBranchAsync, remoteBranches
+  admitGovernedPublication, assertNotDefaultBranch, branch, changedFiles, commitIsolated,
+  fileAtRef, GITHUB_LOOKUP, head, identity, localBranches, exactRemoteHeadsObservationAsync,
+  remoteBranches
 } from './git.mjs';
+import { createTransportIntent, retryTransportIntent } from './transport-intents.mjs';
 import {
   DEFAULT_PLANNING_PROMPT,
   ensureRepositoryTemplates,
@@ -50,7 +52,9 @@ import {
   validateAgentMappings
 } from './agents.mjs';
 import { readConfigurationSource } from './configuration-branch.mjs';
-import { configuredRemoteIdentity } from './git-remote-diagnostics.mjs';
+import {
+  configuredRemoteAuthority, configuredRemoteIdentity, redactDiagnosticText
+} from './git-remote-diagnostics.mjs';
 import {
   structuredWorldModelViewReferences, worldModelViewCatalog, worldModelWorkflowViewUsage
 } from './world-model-views.mjs';
@@ -464,7 +468,9 @@ async function workItems(root, definition) {
 }
 
 function configurationChangeScope(root, definition, portfolio, changes) {
-  const configurationChanges = changes.filter((file) => allowedConfigurationPath(definition, file, portfolio, root));
+  const authority = editorConfigurationPathAuthority(root, definition, portfolio);
+  const configurationChanges = changes.filter((file) =>
+    allowedConfigurationPath(definition, file, portfolio, root, authority));
   const unrelatedChanges = changes.filter((file) => !configurationChanges.includes(file));
   return {
     configurationChanges,
@@ -1586,9 +1592,132 @@ export async function bootstrapWorkspacePortfolio(root, {
   };
 }
 
-function allowedConfigurationPath(definition, relative, portfolio = null, root = null) {
-  const promptSource = definition.worldModel?.promptSource;
-  const planningPromptSource = normalizePlanning(definition.planning ?? {}).promptSource;
+const EDITOR_CONFIGURATION_ROOTS = Object.freeze({
+  templatesRoot: 'singularity/templates',
+  portfolioTemplatesRoot: 'singularity/templates',
+  agentPromptsRoot: '.github/agents',
+  worldModelPromptSource: PROMPTS_ROOT,
+  planningPromptSource: PROMPTS_ROOT
+});
+
+function normalizedEditorPath(value) {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  return value.trim().replaceAll('\\', '/').replace(/^\.\//u, '').replace(/\/+$/u, '');
+}
+
+function pathWithin(relative, directory) {
+  return Boolean(relative && directory
+    && (relative === directory || relative.startsWith(`${directory}/`)));
+}
+
+function editorConfigurationPaths(definition = {}, portfolio = null) {
+  const templatesRoot = normalizedEditorPath(definition.templatesRoot) ?? 'singularity/templates';
+  const worldModelPromptSource = definition.worldModel?.promptSource === 'builtin'
+    ? null
+    : normalizedEditorPath(definition.worldModel?.promptSource ?? DEFAULT_WORLD_MODEL_PROMPT);
+  return {
+    templatesRoot,
+    portfolioTemplatesRoot: normalizedEditorPath(portfolio?.templatesRoot) ?? templatesRoot,
+    agentPromptsRoot: normalizedEditorPath(definition.agentPromptsRoot) ?? '.github/agents',
+    worldModelPromptSource,
+    planningPromptSource: normalizedEditorPath(
+      definition.planning?.promptSource ?? DEFAULT_PLANNING_PROMPT
+    )
+  };
+}
+
+function configurationAtRef(root, ref) {
+  const parse = (relative, label) => {
+    const content = fileAtRef(root, ref, relative);
+    if (content == null) return null;
+    try { return YAML.parse(content) ?? {}; }
+    catch (error) {
+      throw new SingularityFlowError(
+        `Committed ${label} at ${ref} cannot be parsed, so editor path authority cannot be established.`, {
+          code: 'CONFIGURATION_BASELINE_INVALID', cause: error,
+          details: { ref, path: relative }
+        }
+      );
+    }
+  };
+  return {
+    definition: parse(WORKFLOW_PATH, 'workflow configuration'),
+    portfolio: parse(PORTFOLIO_PATH, 'portfolio configuration')
+  };
+}
+
+/**
+ * Editor-controlled paths are authority, not merely presentation metadata. A dirty candidate must
+ * not be able to point `templatesRoot` at `src` and thereby turn arbitrary application changes into
+ * configuration changes that the publisher stages and pushes. The committed pre-edit roots remain
+ * usable for compatibility and deletion/migration; newly introduced roots must stay inside the
+ * product's reserved governance namespaces.
+ */
+function editorConfigurationPathAuthority(root, definition, portfolio = null, { ref = 'HEAD' } = {}) {
+  const baseline = configurationAtRef(root, ref);
+  const baselinePaths = editorConfigurationPaths(
+    baseline.definition ?? {}, baseline.portfolio
+  );
+  const candidatePaths = editorConfigurationPaths(definition, portfolio);
+  const directoryFields = ['templatesRoot', 'portfolioTemplatesRoot', 'agentPromptsRoot'];
+  const promptFields = ['worldModelPromptSource', 'planningPromptSource'];
+  const escalations = [];
+  const directoryRoots = new Set();
+  const promptSources = new Set();
+
+  for (const field of directoryFields) {
+    const previous = baselinePaths[field];
+    const candidate = candidatePaths[field];
+    if (previous) directoryRoots.add(previous);
+    const reserved = EDITOR_CONFIGURATION_ROOTS[field];
+    const trusted = pathWithin(candidate, previous) || pathWithin(candidate, reserved);
+    if (trusted && candidate) directoryRoots.add(candidate);
+    else if (candidate) escalations.push({ field, previous, candidate, reserved });
+  }
+  for (const field of promptFields) {
+    const previous = baselinePaths[field];
+    const candidate = candidatePaths[field];
+    if (previous) promptSources.add(previous);
+    const reserved = EDITOR_CONFIGURATION_ROOTS[field];
+    const trusted = candidate === previous || pathWithin(candidate, reserved);
+    if (trusted && candidate) promptSources.add(candidate);
+    else if (candidate) escalations.push({ field, previous, candidate, reserved });
+  }
+  return {
+    ref,
+    directoryRoots: [...directoryRoots].sort(),
+    promptSources: [...promptSources].sort(),
+    escalations
+  };
+}
+
+function assertEditorConfigurationPathAuthority(authority) {
+  if (!authority.escalations.length) return authority;
+  const [first] = authority.escalations;
+  throw new SingularityFlowError(
+    `Configuration field '${first.field}' cannot move editor authority from '${first.previous ?? '(none)'}' `
+    + `to '${first.candidate}'. New editor-controlled paths must stay under '${first.reserved}'. `
+    + 'No application source will be treated as configuration.', {
+      code: 'CONFIGURATION_PATH_SCOPE_ESCALATION',
+      details: { ref: authority.ref, escalations: authority.escalations }
+    }
+  );
+}
+
+function allowedConfigurationPath(
+  definition, relative, portfolio = null, root = null, authority = null
+) {
+  const paths = authority ?? {
+    directoryRoots: [
+      definition.templatesRoot,
+      portfolio?.templatesRoot,
+      definition.agentPromptsRoot
+    ].map(normalizedEditorPath).filter(Boolean),
+    promptSources: [
+      definition.worldModel?.promptSource,
+      normalizePlanning(definition.planning ?? {}).promptSource
+    ].filter((source) => source && source !== 'builtin').map(normalizedEditorPath)
+  };
   const removedLegacyControlFile = root && ['.singularity', '.sdlc'].some(
     (legacyRoot) => relative.startsWith(`${legacyRoot}/`) && !existsSync(path.join(root, legacyRoot))
   );
@@ -1597,15 +1726,12 @@ function allowedConfigurationPath(definition, relative, portfolio = null, root =
     || relative === CAPABILITIES_PATH
     || relative === IMPACT_CONFIG_PATH
     || relative === AGENT_MAPPING_PATH
-    || relative.startsWith(`${posix(definition.templatesRoot).replace(/\/$/, '')}/`)
-    || (portfolio && relative.startsWith(`${posix(portfolio.templatesRoot).replace(/\/$/, '')}/`))
-    || relative.startsWith(`${posix(definition.agentPromptsRoot).replace(/\/$/, '')}/`)
+    || paths.directoryRoots.some((directory) => relative.startsWith(`${directory}/`))
     || relative.startsWith(`${REPOSITORY_SKILLS_ROOT}/`)
     || relative.startsWith(`${PROMPTS_ROOT}/`)
     || relative === DEFAULT_WORLD_MODEL_PROMPT
-    || (promptSource && promptSource !== 'builtin' && relative === posix(promptSource))
+    || paths.promptSources.includes(relative)
     || relative === DEFAULT_PLANNING_PROMPT
-    || relative === posix(planningPromptSource)
     || relative.startsWith('.github/agents/')
     || removedLegacyControlFile;
 }
@@ -1702,6 +1828,9 @@ async function validateConfigurationCandidate(root, relative, content, definitio
     }
     const updatedPortfolio = await loadPortfolio(validationRoot, { required: false });
     if (updatedPortfolio) validatePortfolioWorldModelViews(updatedPortfolio, updatedDefinition);
+    assertEditorConfigurationPathAuthority(
+      editorConfigurationPathAuthority(root, updatedDefinition, updatedPortfolio)
+    );
     await discoverAgents(validationRoot);
     await loadAgentMappings(validationRoot);
   } finally {
@@ -1713,14 +1842,35 @@ export async function saveConfigurationFile(root, requestedPath, content, { expe
   const definition = await loadDefinition(root);
   const portfolio = await loadPortfolio(root, { required: false });
   const relative = repoRelative(root, requestedPath);
-  if (!allowedConfigurationPath(definition, relative, portfolio)) throw new SingularityFlowError(`Editor editing is restricted to workflow and portfolio YAML, templates, governed-agent prompts, repository skills, world-model builder prompts, and repository agent Markdown. Generated world-model files, initiative state, and agent locks are read-only.`);
+  const currentAuthority = editorConfigurationPathAuthority(root, definition, portfolio);
+  if (!allowedConfigurationPath(definition, relative, portfolio, null, currentAuthority)) throw new SingularityFlowError(`Editor editing is restricted to workflow and portfolio YAML, templates, governed-agent prompts, repository skills, world-model builder prompts, and repository agent Markdown. Generated world-model files, initiative state, and agent locks are read-only.`);
   if (relative === WORKFLOW_PATH) {
-    try { validateDefinition(YAML.parse(content)); }
-    catch (error) { throw new SingularityFlowError(`Change was not saved because configuration validation failed: ${error.message}`); }
+    try {
+      const candidateDefinition = validateDefinition(YAML.parse(content));
+      assertEditorConfigurationPathAuthority(
+        editorConfigurationPathAuthority(root, candidateDefinition, portfolio)
+      );
+    } catch (error) {
+      throw new SingularityFlowError(
+        `Change was not saved because configuration validation failed: ${error.message}`, {
+          code: error?.code, details: error?.details, cause: error
+        }
+      );
+    }
   }
   if (relative === PORTFOLIO_PATH) {
-    try { validatePortfolio(YAML.parse(content)); }
-    catch (error) { throw new SingularityFlowError(`Change was not saved because portfolio validation failed: ${error.message}`); }
+    try {
+      const candidatePortfolio = validatePortfolio(YAML.parse(content));
+      assertEditorConfigurationPathAuthority(
+        editorConfigurationPathAuthority(root, definition, candidatePortfolio)
+      );
+    } catch (error) {
+      throw new SingularityFlowError(
+        `Change was not saved because portfolio validation failed: ${error.message}`, {
+          code: error?.code, details: error?.details, cause: error
+        }
+      );
+    }
   }
   if (relative === CAPABILITIES_PATH) {
     // Validated here rather than only on the next read. A capability map that names an unknown
@@ -1755,7 +1905,11 @@ export async function saveConfigurationFile(root, requestedPath, content, { expe
   try {
     await validateConfigurationCandidate(root, relative, content, definition, portfolio);
   } catch (error) {
-    throw new SingularityFlowError(`Change was not saved because configuration validation failed: ${error.message}`);
+    throw new SingularityFlowError(
+      `Change was not saved because configuration validation failed: ${error.message}`, {
+        code: error?.code, details: error?.details, cause: error
+      }
+    );
   }
   const latest = existsSync(target.absolute) ? await readFile(target.absolute, 'utf8') : null;
   const latestSha256 = contentSha256(latest ?? '');
@@ -1774,12 +1928,13 @@ export async function deleteConfigurationFile(root, requestedPath) {
   const definition = await loadDefinition(root);
   const portfolio = await loadPortfolio(root, { required: false });
   const relative = repoRelative(root, requestedPath);
+  const authority = assertEditorConfigurationPathAuthority(
+    editorConfigurationPathAuthority(root, definition, portfolio)
+  );
   const templatesRoot = posix(definition.templatesRoot).replace(/\/$/, '');
   const initiativeTemplatesRoot = posix(portfolio?.templatesRoot ?? templatesRoot).replace(/\/$/, '');
   const promptsRoot = posix(definition.agentPromptsRoot).replace(/\/$/, '');
-  const deletable = relative.startsWith(`${templatesRoot}/`)
-    || relative.startsWith(`${initiativeTemplatesRoot}/`)
-    || relative.startsWith(`${promptsRoot}/`)
+  const deletable = authority.directoryRoots.some((directory) => relative.startsWith(`${directory}/`))
     || relative.startsWith(`${REPOSITORY_SKILLS_ROOT}/`)
     || relative.startsWith(`${PROMPTS_ROOT}/`)
     || relative.startsWith('.github/agents/');
@@ -1877,6 +2032,9 @@ export async function validateEditorConfiguration(root, { baselineDefinition = n
   const definition = await loadDefinition(root);
   if (baselineDefinition) assertWorkflowReadinessChanges(baselineDefinition, definition);
   const portfolio = await loadPortfolio(root, { required: false });
+  assertEditorConfigurationPathAuthority(
+    editorConfigurationPathAuthority(root, definition, portfolio)
+  );
   if (portfolio) validatePortfolioWorldModelViews(portfolio, definition);
   const agents = await discoverAgents(root);
   await loadAgentMappings(root, { agents });
@@ -1896,27 +2054,264 @@ export async function validateEditorConfiguration(root, { baselineDefinition = n
   };
 }
 
-export async function publishEditorConfiguration(root, message = 'Configure Singularity Flow workflow') {
+export async function publishEditorConfiguration(
+  root, message = 'Configure Singularity Flow workflow', { transport = {}, fault = null } = {}
+) {
   const definition = await loadDefinition(root);
-  const publishing = (definition.git?.publish ?? 'required') !== 'off';
-  if (publishing) assertNotDefaultBranch(root, definition, 'Configuration publication');
   const portfolio = await loadPortfolio(root, { required: false });
+  const targetBranch = branch(root);
+  const parent = head(root);
+  // Publication policy is authority over this commit. The dirty candidate may change that policy,
+  // but it cannot use its own unreviewed bytes to authorize the same transition (for example,
+  // `required -> off` on main or `origin -> attacker-controlled-remote`). Resolve the effective
+  // policy from the exact parent commit; the candidate takes effect only after this publication.
+  // A repository whose parent predates workflow.yml gets the conservative bootstrap defaults.
+  const baselineDefinition = configurationAtRef(root, parent).definition ?? {};
+  const publishing = (baselineDefinition.git?.publish ?? 'required') !== 'off';
+  if (publishing) {
+    assertNotDefaultBranch(root, baselineDefinition, 'Configuration publication');
+  }
+  const pathAuthority = assertEditorConfigurationPathAuthority(
+    editorConfigurationPathAuthority(root, definition, portfolio, { ref: parent })
+  );
   const changed = changedFiles(root);
-  const configurationChanges = changed.filter((file) => allowedConfigurationPath(definition, file, portfolio, root));
+  const configurationChanges = changed.filter((file) =>
+    allowedConfigurationPath(definition, file, portfolio, root, pathAuthority));
   if (!configurationChanges.length) throw new SingularityFlowError('No workflow, portfolio, template, agent, prompt, skill, or agent changes are ready to publish.');
   const unrelated = changed.filter((file) => !configurationChanges.includes(file));
   if (unrelated.length) throw new SingularityFlowError(`Publish is blocked by unrelated working-tree changes: ${unrelated.join(', ')}`);
   const staged = run('git', ['diff', '--name-only', '--cached'], { cwd: root }).stdout.trim().split('\n').filter(Boolean);
   if (staged.some((file) => !configurationChanges.includes(file))) throw new SingularityFlowError('Publish is blocked because unrelated files are already staged.');
-  add(root, configurationChanges);
-  // Bounded by the same set the guards above checked, so the commit cannot exceed what was approved
-  // even if those guards are ever loosened.
-  const sha = commit(root, message.trim() || 'Configure Singularity Flow workflow', configurationChanges);
+  const remote = baselineDefinition.git?.remote ?? 'origin';
+  // Bracket the complete semantic validator with exact prospective Git trees. This closes the
+  // interval in which an editor, formatter, or refresh could replace already-approved bytes while
+  // a slow remote preflight was still ahead of the commit.
+  const candidateTreeBeforeValidation = admitGovernedPublication(
+    root, configurationChanges, { expectedHead: parent }
+  ).prospectiveTree;
+  await validateEditorConfiguration(root);
+  const validatedDefinition = await loadDefinition(root);
+  const validatedPortfolio = await loadPortfolio(root, { required: false });
+  const validatedPathAuthority = assertEditorConfigurationPathAuthority(
+    editorConfigurationPathAuthority(root, validatedDefinition, validatedPortfolio, { ref: parent })
+  );
+  const changedAfterValidation = changedFiles(root);
+  const configurationAfterValidation = changedAfterValidation.filter((file) =>
+    allowedConfigurationPath(
+      validatedDefinition, file, validatedPortfolio, root, validatedPathAuthority
+    ));
+  const unrelatedAfterValidation = changedAfterValidation.filter((file) =>
+    !configurationAfterValidation.includes(file));
+  const samePaths = JSON.stringify(configurationAfterValidation) === JSON.stringify(configurationChanges)
+    && JSON.stringify(unrelatedAfterValidation) === JSON.stringify(unrelated);
+  const samePolicy = (validatedDefinition.git?.publish ?? 'required') === (definition.git?.publish ?? 'required')
+    && (validatedDefinition.git?.remote ?? 'origin') === (definition.git?.remote ?? 'origin');
+  const validatedCandidateTree = admitGovernedPublication(
+    root, configurationAfterValidation, { expectedHead: parent }
+  ).prospectiveTree;
+  if (!samePaths || !samePolicy || validatedCandidateTree !== candidateTreeBeforeValidation) {
+    throw new SingularityFlowError(
+      'Configuration bytes or publication policy changed while the candidate was being validated. No configuration commit was created; review and retry the current files.', {
+        code: 'CONFIGURATION_CANDIDATE_CHANGED'
+      }
+    );
+  }
+  if (fault) await fault('after-configuration-validation', { parent, tree: validatedCandidateTree });
+  let expectedRemote = undefined;
+  let remoteParentRefs = [];
+  let remoteAuthority = null;
+  if (publishing) {
+    // Establish the remote compare-and-swap boundary before the local commit changes HEAD. A
+    // Configuration Center save must never become an unleased `git push`, and a network failure
+    // must not leave the operator with a local commit whose publication cannot be resumed.
+    remoteAuthority = configuredRemoteAuthority(root, remote, { direction: 'push' });
+    if (!remoteAuthority.url) {
+      throw new SingularityFlowError(
+        `Configuration publication remote '${remote}' has no single credential-free push URL. `
+        + 'No configuration commit was created.', {
+          code: 'CONFIGURATION_REMOTE_PREFLIGHT_FAILED',
+          details: {
+            remote,
+            branch: targetBranch,
+            nextAction: `git remote get-url --push ${remote}`
+          }
+        }
+      );
+    }
+    const observed = await exactRemoteHeadsObservationAsync(root, remoteAuthority.url);
+    if (!observed.reachable || observed.malformed) {
+      const diagnostic = redactDiagnosticText(
+        String(observed.result?.stderr || observed.result?.stdout || '').trim()
+      );
+      throw new SingularityFlowError(
+        `Configuration publication could not verify remote branch '${remote}/${targetBranch}' before committing. `
+        + 'No configuration commit was created.', {
+          code: 'CONFIGURATION_REMOTE_PREFLIGHT_FAILED',
+          details: {
+            remote,
+            branch: targetBranch,
+            diagnostic: diagnostic.slice(0, 1024),
+            nextAction: 'Run singularity-flow workspace doctor --network, then retry Commit & push.'
+          }
+        }
+      );
+    }
+    expectedRemote = observed.heads[targetBranch] ?? null;
+    if (expectedRemote !== null && expectedRemote !== parent) {
+      throw new SingularityFlowError(
+        `Configuration branch '${targetBranch}' is not based on the exact current remote revision. `
+        + 'Fetch and reconcile it before publishing; no configuration commit was created.', {
+          code: 'CONFIGURATION_REMOTE_DIVERGED',
+          details: {
+            remote,
+            branch: targetBranch,
+            localHead: parent,
+            remoteHead: expectedRemote,
+            nextAction: `git fetch ${remote} && git status --branch`
+          }
+        }
+      );
+    }
+    if (expectedRemote === null) {
+      remoteParentRefs = Object.entries(observed.heads)
+        .filter(([, commitSha]) => commitSha === parent)
+        .map(([name]) => `refs/heads/${name}`)
+        .sort();
+      if (!remoteParentRefs.length) {
+        throw new SingularityFlowError(
+          `Configuration branch '${targetBranch}' does not exist remotely, and its local parent is not an exact published remote head. `
+          + 'The first push would include hidden local ancestry, so no configuration commit was created.', {
+            code: 'CONFIGURATION_UNPUBLISHED_ANCESTRY',
+            details: {
+              remote,
+              branch: targetBranch,
+              localParent: parent,
+              nextAction: `Create ${targetBranch} from an approved ${remote} branch, or publish/recover the earlier commits before retrying.`
+            }
+          }
+        );
+      }
+    }
+  }
+  let reservedPublication = null;
+  // Build the exact commit in a private index. The callback runs after the commit object exists
+  // but before update-ref installs it on the checked-out branch, so an unwritable outbox leaves
+  // ordinary working-tree edits and an unchanged HEAD rather than an unrecoverable local commit.
+  let sha;
+  try {
+    sha = await commitIsolated(
+      root,
+      message.trim() || 'Configure Singularity Flow workflow',
+      configurationChanges,
+      {
+        expectedHead: parent,
+        expectedRef: `refs/heads/${targetBranch}`,
+        expectedTree: validatedCandidateTree,
+        fault,
+        onCommitCreated: publishing ? async ({ sourceCommit }) => {
+          try {
+            reservedPublication = await createTransportIntent({
+              repositoryRoot: root,
+              remote,
+              expectedRemoteUrl: remoteAuthority.url,
+              sourceCommit,
+              targetRef: `refs/heads/${targetBranch}`,
+              expectedRemote,
+              scope: {
+                operation: 'sflow.configuration.editor.publish',
+                branch: targetBranch,
+                parent,
+                remoteParentRefs,
+                files: configurationChanges,
+                requiredLocalRef: `refs/heads/${targetBranch}`
+              }
+            }, transport);
+          } catch (error) {
+            throw new SingularityFlowError(
+              'Configuration publication could not reserve durable recovery state. No configuration commit was created.', {
+                code: 'CONFIGURATION_TRANSPORT_RESERVATION_FAILED',
+                details: {
+                  remote,
+                  branch: targetBranch,
+                  nextAction: 'Verify the Singularity Flow transport outbox is writable, then retry Commit & push.'
+                },
+                cause: error
+              }
+            );
+          }
+        } : null
+      }
+    );
+  } catch (error) {
+    if (error?.publicationRefAdvanced === true && reservedPublication) {
+      const retainedSha = error.publicationCommit ?? reservedPublication.sourceCommit;
+      throw new SingularityFlowError(
+        `Configuration commit ${retainedSha.slice(0, 8)} is retained with recovery intent ${reservedPublication.intentId}. `
+        + `Run singularity-flow push status ${reservedPublication.intentId}.`, {
+          code: 'CONFIGURATION_PUBLICATION_PENDING',
+          details: {
+            sha: retainedSha,
+            remote,
+            branch: targetBranch,
+            intentId: reservedPublication.intentId,
+            status: reservedPublication.status,
+            nextAction: `singularity-flow push retry ${reservedPublication.intentId}`
+          },
+          cause: error
+        }
+      );
+    }
+    throw error;
+  }
+  // Preserve the CLI's long-standing human progress channel while keeping `--json` stdout clean.
+  // `commitIsolated` intentionally uses plumbing and is silent, whereas the previous porcelain
+  // commit printed this summary to stderr through the shared Git wrapper.
+  process.stderr.write(`[${targetBranch} ${sha.slice(0, 7)}] ${message.trim() || 'Configure Singularity Flow workflow'}\n`);
   if (!publishing) return { sha, pushed: false, files: configurationChanges };
-  const remote = definition.git?.remote ?? 'origin';
-  const result = await pushCommitToBranchAsync(root, remote, sha, branch(root));
-  if (result.status !== 0) throw new SingularityFlowError(`Commit ${sha.slice(0, 8)} was created but push failed: ${(result.stderr || result.stdout).trim()}`);
-  return { sha, pushed: true, remote, files: configurationChanges };
+  let publication;
+  try {
+    publication = await retryTransportIntent(reservedPublication.intentId, transport);
+  } catch (error) {
+    throw new SingularityFlowError(
+      `Configuration commit ${sha.slice(0, 8)} is retained with recovery intent ${reservedPublication.intentId}. `
+      + `Run singularity-flow push status ${reservedPublication.intentId}.`, {
+        code: 'CONFIGURATION_PUBLICATION_PENDING',
+        details: {
+          sha,
+          remote,
+          branch: targetBranch,
+          intentId: reservedPublication.intentId,
+          status: reservedPublication.status,
+          nextAction: `singularity-flow push retry ${reservedPublication.intentId}`
+        },
+        cause: error
+      }
+    );
+  }
+  if (publication.status !== 'succeeded') {
+    throw new SingularityFlowError(
+      `Configuration commit ${sha.slice(0, 8)} is retained, but publication is ${publication.status}. `
+      + `Run singularity-flow push status ${publication.intentId}.`, {
+        code: 'CONFIGURATION_PUBLICATION_PENDING',
+        details: {
+          sha,
+          remote,
+          branch: targetBranch,
+          intentId: publication.intentId,
+          status: publication.status,
+          nextAction: publication.nextAction?.command
+            ?? `singularity-flow push retry ${publication.intentId}`
+        }
+      }
+    );
+  }
+  return {
+    sha,
+    pushed: true,
+    remote,
+    files: configurationChanges,
+    transportIntent: publication.intentId
+  };
 }
 
 export async function selectEditorAgent(root, workId, agent) {

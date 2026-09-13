@@ -23,11 +23,27 @@ import {
   capturePublicationPreimage, publicationReworkRefNamespace, restorePublicationPreimage
 } from './publication-recovery.mjs';
 import { recordSha256 } from './records.mjs';
-import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
+import { configuredRemoteAuthority, redactDiagnosticText } from './git-remote-diagnostics.mjs';
 import {
   freezeAndVerifySgosLifecycleCandidate, sgosLifecycleCandidateBinding,
   sgosLifecycleCandidateIdentity
 } from './sgos/candidate-lifecycle.mjs';
+
+const PUBLICATION_DIAGNOSTIC_MAX_BYTES = 4096;
+
+function publicationDiagnostic(...values) {
+  const redacted = redactDiagnosticText(
+    values.filter((value) => value !== undefined && value !== null).join('\n')
+  ).trim();
+  const encoded = Buffer.from(redacted, 'utf8');
+  if (encoded.byteLength <= PUBLICATION_DIAGNOSTIC_MAX_BYTES) return redacted;
+  const suffix = '…[truncated]';
+  const available = PUBLICATION_DIAGNOSTIC_MAX_BYTES - Buffer.byteLength(suffix, 'utf8');
+  // A byte slice may end in the middle of a multibyte code point. Drop the replacement marker
+  // rather than returning malformed diagnostic text, while preserving the hard byte ceiling.
+  const prefix = encoded.subarray(0, available).toString('utf8').replace(/\uFFFD+$/u, '');
+  return `${prefix}${suffix}`;
+}
 
 function lifecycleCandidateCreator(event) {
   const actor = event?.actor ?? {};
@@ -64,6 +80,7 @@ export class GitPublicationUnitOfWork {
   state = null,
   beforeCommit = null,
   afterOwnedWrites = null,
+  validateProspectiveTree = null,
   stabilityGuard = null,
   fault = null,
   transactionId = null,
@@ -226,7 +243,7 @@ export class GitPublicationUnitOfWork {
           await updatePublicationJournal(root, subject, {
             stage: 'restoring',
             recoveryAttemptedAt: nowIso(),
-            originalError: error?.message ?? String(error)
+            originalError: publicationDiagnostic(error?.message ?? String(error))
           }, { transactionId: journal.transactionId });
           restoration = state?.rollback
             ? await state.rollback(recoveryPreimage, { preserveCurrent: preserveRejectedBytes })
@@ -242,15 +259,17 @@ export class GitPublicationUnitOfWork {
         // aggregate and will preserve the then-current partial bytes before doing so.
         await updatePublicationJournal(root, subject, {
           stage: 'rollback-failed',
-          rollbackError: restoreFailure.message,
+          rollbackError: publicationDiagnostic(restoreFailure.message),
           rollbackFailedAt: nowIso(),
           rescuePath: restoration?.rescuePath ?? null
         }, { transactionId: journal.transactionId }).catch(() => {});
+        const rollbackError = publicationDiagnostic(restoreFailure.message);
+        const originalError = publicationDiagnostic(error?.message ?? String(error));
         throw new SingularityFlowError(
-          `${subject.kind} '${subject.id}' failed to publish and its state could not be restored: ${restoreFailure.message}. `
+          `${subject.kind} '${subject.id}' failed to publish and its state could not be restored: ${rollbackError}. `
           + 'The durable recovery journal was retained. Run the appropriate sync command to retry exact restoration. '
-          + `The original failure was: ${error.message}`,
-          { code: 'PUBLICATION_ROLLBACK_FAILED', details: { subject, originalError: error.message, rollbackError: restoreFailure.message } }
+          + `The original failure was: ${originalError}`,
+          { code: 'PUBLICATION_ROLLBACK_FAILED', details: { subject, originalError, rollbackError } }
         );
       }
       await clearPublicationJournal(root, subject, { transactionId: journal.transactionId });
@@ -326,6 +345,17 @@ export class GitPublicationUnitOfWork {
       staged = admitGovernedPublication(
         root, [...allowedPaths, ledgerIntentPath].filter(Boolean), { expectedHead: publicationHead }
       );
+      // Validate identities that are meaningful only once Git has materialized the complete
+      // prospective tree. Reading the worktree here would simply open a second race: the immutable
+      // tree is the admitted byte set, and commitIsolated below is required to reproduce it exactly.
+      if (validateProspectiveTree) {
+        await validateProspectiveTree({
+          event: envelope,
+          prospectiveTree: staged.prospectiveTree,
+          paths: staged,
+          expectedHead: publicationHead
+        });
+      }
       if (universalCandidate) {
         const boundary = await freezeAndVerifySgosLifecycleCandidate(root, {
           event: envelope,
@@ -415,6 +445,7 @@ export class GitPublicationUnitOfWork {
       }
       envelope = bindLifecycleEvent(envelope, sourceCommit);
       if (publication.mode !== 'off') {
+        const retainedError = publicationDiagnostic(error?.message ?? String(error));
         await writePendingPublication(root, {
           kind: subject.kind,
           id: subject.id,
@@ -422,7 +453,7 @@ export class GitPublicationUnitOfWork {
             // Extension metadata is descriptive only. Apply the transaction authority afterwards
             // so a current or future callback cannot replace the exact commit, Candidate, event,
             // lease, or destination that recovery is allowed to publish.
-            ...(pendingRecord?.({ sourceCommit, error: error.message, envelope }) ?? {}),
+            ...(pendingRecord?.({ sourceCommit, error: retainedError, envelope }) ?? {}),
             schemaVersion: currentSchemaVersion('pending-publication'),
             subject,
             branch: publication.branch,
@@ -439,7 +470,7 @@ export class GitPublicationUnitOfWork {
             stateSha256: transactionStateSha256,
             publicationMode: journal.publicationMode,
             candidate: candidateBinding,
-            error: error.message,
+            error: retainedError,
             ...(publication.expectedRemoteSha !== undefined
               ? { expectedRemoteSha: publication.expectedRemoteSha }
               : {})
@@ -536,7 +567,10 @@ export class GitPublicationUnitOfWork {
         publishedCommit = resolved.publishedCommit ?? head(root);
       }
       if (result.status !== 0) {
-        const error = (result.stderr || result.stdout).trim();
+        // Provider hooks and transports can emit credentials, escape sequences, and unbounded
+        // output. This value crosses both durable recovery and UI/error boundaries, so only the
+        // redacted bounded form may leave this unit of work.
+        const error = publicationDiagnostic(result.stderr, result.stdout);
         const pushOutcome = publicationPushOutcome(result);
         await updatePublicationJournal(root, subject, {
           stage: pushOutcome === 'transport-indeterminate' ? 'push-indeterminate' : 'push-rejected',
@@ -634,14 +668,15 @@ export class GitPublicationUnitOfWork {
         ledgerResult = await appendLedgerIntent(root, ledger.config, ledger.intent, publishedCommit);
         await clearLedgerOutbox(root, ledger.intent.eventId);
       } catch (error) {
-        await recordLedgerOutbox(root, ledgerIntentPath, publishedCommit, error);
+        const safeLedgerError = publicationDiagnostic(error?.message ?? String(error));
+        await recordLedgerOutbox(root, ledgerIntentPath, publishedCommit, new Error(safeLedgerError));
         const blocking = ledger.config.behind === 'block';
-        const detail = `${subject.kind} commit ${publishedCommit.slice(0, 8)} is published, but its ledger mirror is pending: ${error.message}`;
+        const detail = `${subject.kind} commit ${publishedCommit.slice(0, 8)} is published, but its ledger mirror is pending: ${safeLedgerError}`;
         ledgerResult = {
           pending: true,
           blocking,
           eventId: ledger.intent.eventId,
-          error: error.message,
+          error: safeLedgerError,
           message: blocking
             ? `${detail} Reconcile the ledger before another mutation.`
             : `${detail} Run 'singularity-flow ledger reconcile' to complete the attestation.`

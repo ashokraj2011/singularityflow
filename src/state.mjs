@@ -99,6 +99,7 @@ import {
 import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
 import { lifecycleEvent, recordPublicationProjection } from './lifecycle-event.mjs';
 import { publishLifecycleChange } from './publication-unit-of-work.mjs';
+import { validateDocumentPublicationTree } from './document-publication.mjs';
 import { deliverLifecycleNotifications, warnNotificationFailures } from './notifications.mjs';
 import { readConfigurationSource } from './configuration-branch.mjs';
 import { buildDesignSourceSet, classifyDesignSourceCandidates, approvedDesignSourceBinding } from './design-sources.mjs';
@@ -5575,7 +5576,8 @@ export async function commitAndPublish(root, config, workflow, event, message, e
   expectedRemoteSha = undefined,
   expectedLocalHead = undefined,
   publicationAuthority = null,
-  publicationTail = null
+  publicationTail = null,
+  fault = null
 } = {}) {
   // Capture before the first asynchronous read. Even aggregates loaded through a legacy path that
   // lacks a STATE_REVISION receipt must not silently move onto a different local parent while this
@@ -5829,9 +5831,12 @@ export async function commitAndPublish(root, config, workflow, event, message, e
     retainPendingOnSuccess: Boolean(publicationTail),
     ledger: { config: ledgerConfig, intent: ledgerIntent, intentDirectory: workDirRelative(config, workflow.workItem.id) },
     afterOwnedWrites,
+    validateProspectiveTree: ({ event: finalizedEvent, prospectiveTree }) =>
+      validateDocumentPublicationTree(root, config, workflow, finalizedEvent, { prospectiveTree }),
     recoveryPreimage,
     stabilityGuard: worktreeGuard,
-    transactionId
+    transactionId,
+    fault
   });
   if (workflow[Symbol.for('singularity-flow.state-revision')]) {
     workflow[Symbol.for('singularity-flow.state-revision')].head = result.sha;

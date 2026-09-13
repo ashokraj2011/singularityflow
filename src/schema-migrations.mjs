@@ -1456,6 +1456,29 @@ function promptInjectionV4ToV5(source) {
   };
 }
 
+function promptInjectionV5ToV6(source) {
+  // Historical prompt receipts predate the frozen TKR composition identity. Preserve their exact
+  // prompt and lifecycle claims while making the missing composition explicit; migration must not
+  // synthesize a TKR receipt from section summaries or current renderer defaults. In particular,
+  // never carry a field named like the new authority contract out of an older, open schema: doing
+  // so would allow crafted v5 data to acquire v6 authority merely by being read.
+  const migrated = {
+    ...clone(source),
+    schemaVersion: 6,
+    tokenReduction: null
+  };
+  if (migrated.promptBudget && typeof migrated.promptBudget === 'object') {
+    delete migrated.promptBudget.tokenReduction;
+    const prompt = migrated.promptBudget.economics?.prompt;
+    if (prompt && typeof prompt === 'object') {
+      delete prompt.tkrCandidatePromptBytes;
+      delete prompt.tkrCandidateByteDelta;
+      delete prompt.tkrCandidateAssurance;
+    }
+  }
+  return migrated;
+}
+
 function agentContextAuditV1ToV2(source) {
   return {
     ...source,
@@ -2780,16 +2803,21 @@ const families = [
     id: 'token-reduction-normalization-rules', currentVersion: 1, immutable: true,
     migrationPolicy: 'frozen-identity'
   }),
+  family({
+    id: 'token-reduction-composition', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity'
+  }),
   family({ id: 'mcp-authorization', currentVersion: 1 }),
   family({ id: 'work-item-telemetry', currentVersion: 1 }),
   family({ id: 'artifact-authorship', currentVersion: 1 }),
   family({
-    id: 'prompt-injection', currentVersion: 5,
+    id: 'prompt-injection', currentVersion: 6,
     steps: [
       migration(1, 2, promptInjectionV1ToV2),
       migration(2, 3, promptInjectionV2ToV3),
       migration(3, 4, promptInjectionV3ToV4),
-      migration(4, 5, promptInjectionV4ToV5)
+      migration(4, 5, promptInjectionV4ToV5),
+      migration(5, 6, promptInjectionV5ToV6)
     ],
     paths: [/^singularity\/work-items\/[^/]+\/context\/(?!(?:agents-|remote-output-))[^/]+-gen\d+\.json$/]
   }),

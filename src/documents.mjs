@@ -1,14 +1,20 @@
 import { createHash } from 'node:crypto';
-import { copyFile, lstat, mkdir, readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises';
+import { constants as fsConstants } from 'node:fs';
+import { copyFile, lstat, mkdir, open, readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { assertNoPendingPublication, saveStoryDraft, workDir, workDirRelative } from './state-stores.mjs';
 import { loadSession } from './session.mjs';
-import { SingularityFlowError, exists, nowIso, posix, snapshot, writeJson, writeText } from './util.mjs';
+import { SingularityFlowError, exists, nowIso, posix, run, snapshot, writeJson, writeText } from './util.mjs';
 import { assertPhaseSequence, enforceSequenceGate } from './sequence.mjs';
 import { sourceRuntime, storageAdapter } from './epic-sources.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
 const DOCUMENT_MANIFEST_SCHEMA_VERSION = currentSchemaVersion('document-manifest');
+export const STORY_DOCUMENT_RESOURCE_LIMITS = Object.freeze({
+  maxFiles: 5000,
+  maxTotalBytes: 256 * 1024 * 1024,
+  maxDepth: 32
+});
 
 const TEXT_EXTENSIONS = new Set([
   '.adoc', '.c', '.cc', '.clj', '.cljs', '.cmake', '.cpp', '.cs', '.css', '.dart', '.go', '.gradle', '.graphql', '.groovy',
@@ -30,23 +36,218 @@ const MIME_TYPES = {
 };
 const INLINE_PREVIEW_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf']);
 
+export function createStoryDocumentBudget({
+  maxFiles = STORY_DOCUMENT_RESOURCE_LIMITS.maxFiles,
+  maxTotalBytes = STORY_DOCUMENT_RESOURCE_LIMITS.maxTotalBytes,
+  maxDepth = STORY_DOCUMENT_RESOURCE_LIMITS.maxDepth
+} = {}) {
+  if (!Number.isSafeInteger(maxFiles) || maxFiles < 1
+      || !Number.isSafeInteger(maxTotalBytes) || maxTotalBytes < 1
+      || !Number.isSafeInteger(maxDepth) || maxDepth < 0) {
+    throw new SingularityFlowError(
+      'Story document aggregate limits must use positive safe integers and a non-negative depth.',
+      { code: 'STORY_DOCUMENT_LIMIT_INVALID' }
+    );
+  }
+  return { maxFiles, maxTotalBytes, maxDepth, files: 0, totalBytes: 0 };
+}
+
+export function admitStoryDocumentResource(budget, {
+  depth = 0, size = null, label = 'document input'
+} = {}) {
+  if (!budget || !Number.isSafeInteger(depth) || depth < 0
+      || (size != null && (!Number.isSafeInteger(size) || size < 0))) {
+    throw new SingularityFlowError('Story document resource metadata is invalid.', {
+      code: 'STORY_DOCUMENT_LIMIT_INVALID'
+    });
+  }
+  if (depth > budget.maxDepth) {
+    throw new SingularityFlowError(
+      `Story document input exceeds the ${budget.maxDepth}-level directory depth limit: ${label}`,
+      {
+        code: 'STORY_DOCUMENT_LIMIT_EXCEEDED',
+        details: { limit: 'maxDepth', maximum: budget.maxDepth, observed: depth }
+      }
+    );
+  }
+  if (size == null) return budget;
+  if (budget.files + 1 > budget.maxFiles) {
+    throw new SingularityFlowError(
+      `Story document input exceeds the ${budget.maxFiles}-file aggregate limit: ${label}`,
+      {
+        code: 'STORY_DOCUMENT_LIMIT_EXCEEDED',
+        details: { limit: 'maxFiles', maximum: budget.maxFiles, observed: budget.files + 1 }
+      }
+    );
+  }
+  if (budget.totalBytes + size > budget.maxTotalBytes) {
+    throw new SingularityFlowError(
+      `Story document input exceeds the ${budget.maxTotalBytes}-byte aggregate limit: ${label}`,
+      {
+        code: 'STORY_DOCUMENT_LIMIT_EXCEEDED',
+        details: {
+          limit: 'maxTotalBytes', maximum: budget.maxTotalBytes,
+          observed: budget.totalBytes + size
+        }
+      }
+    );
+  }
+  budget.files += 1;
+  budget.totalBytes += size;
+  return budget;
+}
+
 function manifestPath(root, config, workflow) { return path.join(workDir(root, config, workflow.workItem.id), 'documents.json'); }
 function mimeType(file) { return MIME_TYPES[path.extname(file).toLowerCase()] ?? 'application/octet-stream'; }
-function safeName(value) { return path.basename(value).replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'document'; }
+// Story intake validates and freezes local documents before it creates a governed Story commit.
+// Export the same MIME resolver used by the eventual catalog write so the preflight and publication
+// cannot disagree merely because two extension tables drifted apart.
+export function documentMimeType(file) { return mimeType(file); }
+export function validateDocumentUrl(value) {
+  const candidate = String(value ?? '');
+  if (!/^https?:\/\/\S+$/i.test(candidate)) {
+    throw new SingularityFlowError('Document URL must use http:// or https://.');
+  }
+  let parsed;
+  try { parsed = new URL(candidate); }
+  catch {
+    throw new SingularityFlowError('Document URL must be a valid http:// or https:// URL.');
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.hostname) {
+    throw new SingularityFlowError('Document URL must be a valid http:// or https:// URL.');
+  }
+  if (parsed.username || parsed.password) {
+    throw new SingularityFlowError(
+      'Document URL must not contain credentials. Use a credential-free reference and an approved credential helper.',
+      { code: 'STORY_DOCUMENT_URL_CREDENTIALS' }
+    );
+  }
+  // Query strings and fragments are legitimate parts of durable references (for example Figma
+  // node-id and GitHub line anchors). Refuse only names that conventionally carry authentication
+  // material; blanket query/fragment rejection would make normal Story intake unusable.
+  const sensitiveParameter = (name) => /^(?:access[-_]?token|refresh[-_]?token|id[-_]?token|share[-_]?token|token|sig|signature|secret|password|passwd|credential|authorization|auth|api[-_]?key|apikey|awsaccesskeyid|x-amz-credential|x-amz-security-token|x-amz-signature|x-goog-credential|x-goog-signature)$/iu.test(name);
+  const unsafeQueryKey = [...parsed.searchParams.keys()].find(sensitiveParameter);
+  const fragmentParameters = parsed.hash.includes('=')
+    ? new URLSearchParams(parsed.hash.replace(/^#/u, '')) : null;
+  const unsafeFragmentKey = fragmentParameters
+    ? [...fragmentParameters.keys()].find(sensitiveParameter) : null;
+  if (unsafeQueryKey || unsafeFragmentKey) {
+    throw new SingularityFlowError(
+      `Document URL must not contain credential parameter '${unsafeQueryKey ?? unsafeFragmentKey}'. Use a stable credential-free reference.`,
+      { code: 'STORY_DOCUMENT_URL_CREDENTIALS' }
+    );
+  }
+  return candidate;
+}
+function safeName(value) {
+  let candidate = path.basename(value).replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+  candidate = candidate.replace(/[. ]+$/gu, '') || 'document';
+  // Git treats a component named `.git` specially on every platform. Windows additionally refuses
+  // DOS device names even when they carry an extension. Preserve human-recognizable source paths,
+  // but make those reserved components ordinary portable directory/file names.
+  if (candidate.toLowerCase() === '.git'
+      || /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/iu.test(candidate)) {
+    candidate = `document-${candidate.replace(/^\.+/u, '') || 'file'}`;
+  }
+  return candidate;
+}
 function nextId(records) { return `DOC-${String(Math.max(0, ...records.map((item) => Number(item.id?.match(/^DOC-(\d+)$/)?.[1] ?? 0))) + 1).padStart(3, '0')}`; }
 function nextPackageId(records) { return `PKG-${String(Math.max(0, ...records.map((item) => Number(item.id?.match(/^PKG-(\d+)$/)?.[1] ?? 0))) + 1).padStart(3, '0')}`; }
 function escapeHtml(value) { return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;'); }
 
-async function directoryFiles(source, packageName, relativeParts = [], packageSource = source) {
+async function directoryFiles(
+  source, packageName, relativeParts = [], packageSource = source,
+  budget = createStoryDocumentBudget(), depth = 0
+) {
+  admitStoryDocumentResource(budget, { depth, label: source });
   const files = [];
   const entries = (await readdir(source, { withFileTypes: true })).sort((left, right) => left.name.localeCompare(right.name));
   for (const entry of entries) {
     const absolute = path.join(source, entry.name); const parts = [...relativeParts, entry.name];
     if (entry.isSymbolicLink()) throw new SingularityFlowError(`Document directories cannot contain symbolic links: ${absolute}`);
-    if (entry.isDirectory()) files.push(...await directoryFiles(absolute, packageName, parts, packageSource));
-    else if (entry.isFile()) files.push({ source: absolute, info: await stat(absolute), packageName, packageSource, sourceRelativePath: posix(parts.join('/')) });
+    if (entry.isDirectory()) {
+      files.push(...await directoryFiles(
+        absolute, packageName, parts, packageSource, budget, depth + 1
+      ));
+    } else if (entry.isFile()) {
+      const info = await stat(absolute);
+      admitStoryDocumentResource(budget, {
+        depth: depth + 1, size: info.size, label: absolute
+      });
+      files.push({ source: absolute, info, packageName, packageSource, sourceRelativePath: posix(parts.join('/')) });
+    }
   }
   return files;
+}
+
+function frozenEvidenceMap(records) {
+  if (!Array.isArray(records)) {
+    throw new SingularityFlowError('Frozen Story document evidence is malformed.', {
+      code: 'STORY_DOCUMENT_CAPTURE_INVALID'
+    });
+  }
+  const result = new Map();
+  for (const record of records) {
+    const source = typeof record?.captured === 'string' ? path.resolve(record.captured) : null;
+    if (!source || !Number.isInteger(record?.size) || record.size < 0
+        || !/^[a-f0-9]{64}$/u.test(record?.sha256 ?? '')
+        || typeof record?.mimeType !== 'string' || result.has(source)) {
+      throw new SingularityFlowError('Frozen Story document evidence is malformed.', {
+        code: 'STORY_DOCUMENT_CAPTURE_INVALID'
+      });
+    }
+    result.set(source, record);
+  }
+  return result;
+}
+
+async function readFrozenDocument(source, expected) {
+  let handle;
+  try {
+    const before = await lstat(source, { bigint: true });
+    if (!before.isFile() || before.isSymbolicLink()) throw new Error('not a regular file');
+    handle = await open(source, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+    const opened = await handle.stat({ bigint: true });
+    if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino
+        || opened.size !== before.size || opened.mtimeNs !== before.mtimeNs
+        || opened.ctimeNs !== before.ctimeNs) throw new Error('identity changed before read');
+    const bytes = await handle.readFile();
+    const after = await handle.stat({ bigint: true });
+    const sha256 = createHash('sha256').update(bytes).digest('hex');
+    if (after.dev !== opened.dev || after.ino !== opened.ino || after.size !== opened.size
+        || after.mtimeNs !== opened.mtimeNs || after.ctimeNs !== opened.ctimeNs
+        || bytes.byteLength !== expected.size || sha256 !== expected.sha256
+        || documentMimeType(source) !== expected.mimeType) {
+      throw new Error('captured bytes changed');
+    }
+    return { bytes, size: bytes.byteLength, sha256 };
+  } catch (error) {
+    throw new SingularityFlowError(
+      `Story document capture changed before publication: ${source}`,
+      { code: 'STORY_DOCUMENT_CHANGED', cause: error }
+    );
+  } finally {
+    await handle?.close().catch(() => {});
+  }
+}
+
+function assertDocumentPathTrackable(root, relative) {
+  const ignored = run('git', ['check-ignore', '--quiet', '--no-index', '--', relative], {
+    cwd: root, allowFailure: true
+  });
+  if (ignored.status === 0) {
+    throw new SingularityFlowError(
+      `Governed document path is excluded by Git ignore policy: ${relative}. `
+      + 'Allow singularity/work-items document inputs in the repository ignore policy, then retry.',
+      { code: 'STORY_DOCUMENT_GIT_IGNORED' }
+    );
+  }
+  if (ignored.status !== 1) {
+    throw new SingularityFlowError(
+      `Git could not verify that governed document path will be published: ${relative}.`,
+      { code: 'STORY_DOCUMENT_GIT_UNVERIFIED' }
+    );
+  }
 }
 
 async function loadManifest(root, config, workflow) {
@@ -260,7 +461,9 @@ async function governedDocumentPath(root, config, workflow, record) {
   return absolute;
 }
 
-export async function addDocuments(root, config, workflow, { files = [], url = null, label = null, kind = null } = {}) {
+export async function addDocuments(root, config, workflow, {
+  files = [], url = null, label = null, kind = null, frozenEvidence = null
+} = {}) {
   await assertNoPendingPublication(root, config, workflow, 'upload documents');
   const phase = await assertPhaseSequence(root, workflow, 'upload documents');
   const policy = documentPolicy(workflow, config); const allowed = policy.allowedPhases ?? ['intake'];
@@ -269,18 +472,38 @@ export async function addDocuments(root, config, workflow, { files = [], url = n
     reason: `Documents may be uploaded only during: ${allowed.join(', ')}. Current phase is '${phase.id}'.`
   });
   if (!files.length && !url) throw new SingularityFlowError('Provide one or more files or --url <https-url>.');
-  if (url && !/^https?:\/\/\S+$/i.test(url)) throw new SingularityFlowError('Document URL must use http:// or https://.');
+  const verifiedUrl = url ? validateDocumentUrl(url) : null;
+  const resourceBudget = createStoryDocumentBudget();
+  if (verifiedUrl) admitStoryDocumentResource(resourceBudget, {
+    depth: 0, size: 0, label: 'URL reference'
+  });
   const fileInputs = [];
   for (const candidate of files) {
     const source = path.resolve(candidate); const info = await stat(source).catch(() => null);
-    if (info?.isFile()) fileInputs.push({ source, info, packageName: null, packageSource: null, sourceRelativePath: null });
+    if (info?.isFile()) {
+      admitStoryDocumentResource(resourceBudget, { depth: 0, size: info.size, label: source });
+      fileInputs.push({ source, info, packageName: null, packageSource: null, sourceRelativePath: null });
+    }
     else if (info?.isDirectory()) {
-      const expanded = await directoryFiles(source, safeName(source));
+      const expanded = await directoryFiles(
+        source, safeName(source), [], source, resourceBudget, 0
+      );
       if (!expanded.length) throw new SingularityFlowError(`Document directory contains no regular files: ${candidate}`);
       fileInputs.push(...expanded);
     } else throw new SingularityFlowError(`Document path is not a regular file or directory: ${candidate}`);
   }
-  if (label && fileInputs.length + (url ? 1 : 0) > 1) throw new SingularityFlowError('--label can be used only when uploading one document.');
+  const frozenBySource = frozenEvidence == null ? null : frozenEvidenceMap(frozenEvidence);
+  if (frozenBySource) {
+    const capturedSources = fileInputs.map((input) => path.resolve(input.source));
+    if (capturedSources.length !== frozenBySource.size
+        || capturedSources.some((source) => !frozenBySource.has(source))) {
+      throw new SingularityFlowError(
+        'Story document capture contents changed before publication.',
+        { code: 'STORY_DOCUMENT_CHANGED' }
+      );
+    }
+  }
+  if (label && fileInputs.length + (verifiedUrl ? 1 : 0) > 1) throw new SingularityFlowError('--label can be used only when uploading one document.');
   for (const input of fileInputs) {
     if (input.info.size > (policy.maxFileBytes ?? 26214400)) throw new SingularityFlowError(`Document exceeds the ${(policy.maxFileBytes ?? 26214400)} byte limit: ${input.source}`);
     assertCapabilityMime(workflow, mimeType(input.source), input.source);
@@ -294,16 +517,39 @@ export async function addDocuments(root, config, workflow, { files = [], url = n
   }
   for (const { source, packageName, packageSource, sourceRelativePath } of fileInputs) {
     const id = nextId(manifest.documents); const filename = safeName(source);
-    const preservedPath = sourceRelativePath ? path.posix.join(packageName, ...sourceRelativePath.split('/').map(safeName)) : filename;
-    const relative = path.posix.join(workDirRelative(config, workflow.workItem.id), 'inputs', id, preservedPath);
-    const destination = path.join(root, relative); await mkdir(path.dirname(destination), { recursive: true }); await copyFile(source, destination);
+    // Preserve the review-friendly package hierarchy while sanitizing every component. In
+    // particular, a literal `.git` component disappears from `git add`, and DOS device names make a
+    // commit produced on Linux impossible to check out on Windows.
+    const preservedPath = sourceRelativePath
+      ? path.posix.join(packageName, ...sourceRelativePath.split('/').map(safeName))
+      : filename;
+    const relative = path.posix.join(
+      workDirRelative(config, workflow.workItem.id), 'inputs', id, preservedPath
+    );
+    assertDocumentPathTrackable(root, relative);
+    const expected = frozenBySource?.get(path.resolve(source)) ?? null;
+    const frozenSnapshot = expected ? await readFrozenDocument(source, expected) : null;
+    const destination = path.join(root, relative);
+    await mkdir(path.dirname(destination), { recursive: true });
+    if (frozenSnapshot) {
+      await writeFile(destination, frozenSnapshot.bytes, { flag: 'wx' });
+    } else {
+      await copyFile(source, destination, fsConstants.COPYFILE_EXCL);
+    }
     const fileSnapshot = await snapshot(destination);
+    if (frozenSnapshot && (fileSnapshot.size !== frozenSnapshot.size
+        || fileSnapshot.sha256 !== frozenSnapshot.sha256)) {
+      throw new SingularityFlowError(
+        `Story document changed while it was being staged: ${source}`,
+        { code: 'STORY_DOCUMENT_CHANGED' }
+      );
+    }
     const record = { id, type: 'file', label: label ?? sourceRelativePath ?? filename, kind: kind ?? (packageName ? 'directory-import' : 'reference'), sourceName: path.basename(source), path: posix(relative), mimeType: mimeType(filename), size: fileSnapshot.size, sha256: fileSnapshot.sha256, phase: phase.id, addedAt: nowIso(), addedBy: session.actor, agent: session.agent };
     if (packageName) { record.sourcePackage = packageName; record.packageId = packageMap.get(packageSource).id; record.sourceRelativePath = sourceRelativePath; }
     manifest.documents.push(record); added.push(record);
   }
-  if (url) {
-    const id = nextId(manifest.documents); const record = { id, type: 'url', label: label ?? url, kind: kind ?? (/figma\.com/i.test(url) ? 'figma' : 'reference'), url, phase: phase.id, addedAt: nowIso(), addedBy: session.actor, agent: session.agent };
+  if (verifiedUrl) {
+    const id = nextId(manifest.documents); const record = { id, type: 'url', label: label ?? verifiedUrl, kind: kind ?? (/figma\.com/i.test(verifiedUrl) ? 'figma' : 'reference'), url: verifiedUrl, phase: phase.id, addedAt: nowIso(), addedBy: session.actor, agent: session.agent };
     manifest.documents.push(record); added.push(record);
   }
   for (const packageRecord of packageMap.values()) await writePackageIndexes(root, config, workflow, manifest, packageRecord);

@@ -47,8 +47,12 @@ import {
   beginStoryStartJournal, clearStoryStartJournal, recoverStoryStart,
   serializeConfigurationRestorePoint, updateStoryStartJournal
 } from './story-start-journal.mjs';
-import { publishInitialStoryDocuments } from './story-start-documents.mjs';
+import {
+  preflightInitialStoryDocuments, stageInitialStoryDocuments
+} from './story-start-documents.mjs';
+import { documentSetLifecycleBinding } from './document-publication.mjs';
 import { validateConfigurationSnapshotCapabilities } from './capability-context.mjs';
+import { resolveEffectiveCapabilityPolicy } from './capabilities.mjs';
 import { fosStoryConfigurationAuthority } from './onboard.mjs';
 
 function lines(value) {
@@ -216,7 +220,8 @@ export async function startStory(root, {
   onGitShadowComparison = null,
   astWarmLauncher = undefined,
   afterPublicationAuthorityCapture = null,
-  afterPublicationPreflight = null
+  afterPublicationPreflight = null,
+  publicationFault = null
 } = {}) {
   assertSafeStoryId(id);
   if (!['reference', 'shadow'].includes(gitReadMode)) {
@@ -308,8 +313,10 @@ export async function startStory(root, {
   let configurationSnapshot = null;
   let workflow = null;
   let publication = null;
+  let initialDocuments = [];
   let capabilityPublication = { published: [], pending: [], error: null };
   let capabilityTailStaged = false;
+  let documentCapture = null;
   let checkoutMode;
   try {
   if (existed) {
@@ -332,8 +339,29 @@ export async function startStory(root, {
     // Validate the exact retained catalog and selected capability before automatic enrollment is
     // allowed to mutate the shared configuration authority. A refused Story start must not leave an
     // otherwise unrelated approval-membership commit behind.
-    validateConfigurationSnapshotCapabilities(approvedConfigurationSnapshot, {
+    const retainedCapabilityMap = validateConfigurationSnapshotCapabilities(approvedConfigurationSnapshot, {
       capabilityId: selectedCapabilityId
+    });
+    const resolvedDocumentPolicy = assertPlannedClaimsReady(
+      resolveWorkType(initialDefinition, workType)
+    ).documents ?? initialDefinition.documents ?? {};
+    const capabilityPolicy = retainedCapabilityMap?.definition && retainedCapabilityMap.capabilityId
+      ? resolveEffectiveCapabilityPolicy(
+        retainedCapabilityMap.definition, retainedCapabilityMap.capabilityId
+      ).policy
+      : {};
+    const maxFileBytes = Math.min(
+      resolvedDocumentPolicy.maxFileBytes ?? 26214400,
+      capabilityPolicy.maxDocumentBytes ?? Number.MAX_SAFE_INTEGER
+    );
+    documentCapture = await preflightInitialStoryDocuments([
+      ...(files.length ? [{ files }] : []),
+      ...urls.map((url) => ({ url }))
+    ], {
+      repositoryRoot: root,
+      maxFileBytes,
+      allowedMimeTypes: Object.hasOwn(capabilityPolicy, 'allowedMimeTypes')
+        ? capabilityPolicy.allowedMimeTypes : null
     });
     if (configurationAuthority?.branch === CONFIGURATION_BRANCH
         && initialDefinition.approvalSecurity?.autoEnrollNewIdentities !== false) {
@@ -449,6 +477,9 @@ export async function startStory(root, {
       originalBranch: branch(root),
       originalHead: head(root),
       baseCommit,
+      publicationRemote: remote,
+      publicationRemoteFingerprint: publicationAuthority?.fingerprint ?? null,
+      ...(publishRequired ? { publicationExpectedRemoteSha: null } : {}),
       originalSession: await loadSession(root, { required: false }),
       originalCopilotSession: await loadCopilotSession(root),
       siblingRepositories: siblings
@@ -569,10 +600,24 @@ export async function startStory(root, {
         `[${id}][init] start ${workType} workflow`,
         [...(configurationSnapshot?.paths ?? []), returnLocator.path],
         {
+          beforeStateWrite: async () => {
+            initialDocuments = await stageInitialStoryDocuments(root, definition, workflow, {
+              inputs: documentCapture?.inputs ?? [],
+              requireFrozen: true
+            });
+            return initialDocuments;
+          },
+          eventFromResult: (created) => created?.length ? {
+            payload: {
+              operation: 'supporting-document-upload',
+              ...documentSetLifecycleBinding(created)
+            }
+          } : null,
           recoveryPreimage: creationPreimage,
           transactionId: startJournal?.transactionId ?? null,
           expectedRemoteSha: null,
           expectedLocalHead: baseCommit,
+          fault: publicationFault,
           ...(publicationAuthority ? { publicationAuthority } : {}),
           ...(capabilityPublications.length ? {
             publicationTail: {
@@ -613,14 +658,7 @@ export async function startStory(root, {
       new Error('The lifecycle Story branch is still pending publication.')
     );
   }
-  const documents = await publishInitialStoryDocuments(root, definition, workflow, {
-    workId: id,
-    operation: 'document-upload',
-    inputs: [
-      ...(files.length ? [{ files }] : []),
-      ...urls.map((url) => ({ url }))
-    ]
-  });
+  const documents = initialDocuments;
   // FOS:CON-004: Story start ends when governed Story state is durable. AST remains optional and
   // available immediately afterward, but start never launches scans or background workers. The
   // injected launcher argument is retained temporarily for source compatibility and deliberately
@@ -692,5 +730,7 @@ export async function startStory(root, {
       }
     }
     throw error;
+  } finally {
+    await documentCapture?.dispose().catch(() => {});
   }
 }

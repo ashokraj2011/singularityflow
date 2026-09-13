@@ -751,6 +751,162 @@ test('an unknown approved capability refuses Story start before automatic enroll
   ], root, { allowFailure: true }).status, 1);
 });
 
+test('invalid Story evidence refuses before automatic identity enrollment is published', async (t) => {
+  const { root } = await repository(t);
+  run('git', ['switch', '-q', '-c', 'sflow/config'], root);
+  run('git', ['push', '-q', 'origin', 'sflow/config'], root);
+  run('git', ['switch', '-q', 'main'], root);
+  const beforeAuthority = run('git', [
+    'ls-remote', 'origin', 'refs/heads/sflow/config'
+  ], root).stdout.trim();
+  const beforeRecoveryRefs = run('git', [
+    'for-each-ref', '--format=%(refname)', 'refs/singularity/transport/configuration'
+  ], root).stdout.trim();
+  const missing = path.join(path.dirname(root), 'missing-reviewed-evidence.md');
+
+  const failed = run(process.execPath, [cli,
+    'start', 'ISO-MISSING-DOCUMENT-1', '--isolated-worktree', '--json', '--from-branch', 'main',
+    '--work-type', 'quick-fix', '--title', 'Refuse missing evidence',
+    '--description', 'Validate all evidence before publishing automatic enrollment.',
+    '--document', missing
+  ], root, {
+    allowFailure: true,
+    env: { SINGULARITY_FLOW_TEST_IDENTITY: 'Previously Unknown User' }
+  });
+
+  assert.notEqual(failed.status, 0);
+  assert.match(failed.stderr, /Document path is not a regular file or directory/);
+  assert.equal(run('git', [
+    'ls-remote', 'origin', 'refs/heads/sflow/config'
+  ], root).stdout.trim(), beforeAuthority, 'invalid evidence must not advance shared approval membership');
+  assert.equal(run('git', [
+    'for-each-ref', '--format=%(refname)', 'refs/singularity/transport/configuration'
+  ], root).stdout.trim(), beforeRecoveryRefs, 'no enrollment recovery commit may be retained');
+  assert.equal(git(root, ['branch', '--show-current']), 'main');
+  assert.equal(git(root, ['status', '--porcelain']), '');
+  assert.equal(run('git', [
+    'show-ref', '--verify', '--quiet', 'refs/heads/ISO-MISSING-DOCUMENT-1'
+  ], root, { allowFailure: true }).status, 1);
+});
+
+test('an invalid explicit work type cannot publish automatic identity enrollment', async (t) => {
+  const { root } = await repository(t);
+  run('git', ['switch', '-q', '-c', 'sflow/config'], root);
+  run('git', ['push', '-q', 'origin', 'sflow/config'], root);
+  run('git', ['switch', '-q', 'main'], root);
+  const workId = 'ISO-INVALID-WORK-TYPE-1';
+  const beforeHead = git(root, ['rev-parse', 'HEAD']);
+  const beforeLocalAuthority = git(root, ['rev-parse', 'refs/heads/sflow/config']);
+  const beforeRemoteAuthority = run('git', [
+    'ls-remote', 'origin', 'refs/heads/sflow/config'
+  ], root).stdout.trim();
+  const beforeRemoteHeads = run('git', ['ls-remote', '--heads', 'origin'], root).stdout.trim();
+  const beforeRecoveryRefs = run('git', [
+    'for-each-ref', '--format=%(refname)', 'refs/singularity/transport/configuration'
+  ], root).stdout.trim();
+  const beforeWorktrees = git(root, ['worktree', 'list', '--porcelain']);
+
+  const failed = run(process.execPath, [cli,
+    'start', workId, '--isolated-worktree', '--json', '--from-branch', 'main',
+    '--work-type', 'not-an-installed-workflow', '--title', 'Refuse invalid workflow',
+    '--description', 'A deterministic workflow error must precede shared identity enrollment.'
+  ], root, {
+    allowFailure: true,
+    env: { SINGULARITY_FLOW_TEST_IDENTITY: 'Previously Unknown User' }
+  });
+
+  assert.notEqual(failed.status, 0);
+  assert.match(failed.stderr,
+    /Workflow template 'not-an-installed-workflow' is not installed in the approved configuration/);
+  assert.equal(git(root, ['rev-parse', 'HEAD']), beforeHead);
+  assert.equal(git(root, ['rev-parse', 'refs/heads/sflow/config']), beforeLocalAuthority);
+  assert.equal(run('git', [
+    'ls-remote', 'origin', 'refs/heads/sflow/config'
+  ], root).stdout.trim(), beforeRemoteAuthority,
+  'invalid work type must not advance the exact shared configuration authority');
+  assert.equal(run('git', ['ls-remote', '--heads', 'origin'], root).stdout.trim(),
+    beforeRemoteHeads, 'no remote ref may be created or advanced by a refused Story');
+  assert.equal(run('git', [
+    'for-each-ref', '--format=%(refname)', 'refs/singularity/transport/configuration'
+  ], root).stdout.trim(), beforeRecoveryRefs);
+  assert.equal(git(root, ['worktree', 'list', '--porcelain']), beforeWorktrees);
+  assert.equal(git(root, ['branch', '--show-current']), 'main');
+  assert.equal(git(root, ['status', '--porcelain']), '');
+  assert.equal(run('git', [
+    'show-ref', '--verify', '--quiet', `refs/heads/${workId}`
+  ], root, { allowFailure: true }).status, 1);
+  await assert.rejects(
+    access(path.join(root, 'singularity/work-items', workId, 'workflow.json')),
+    (error) => error.code === 'ENOENT'
+  );
+});
+
+test('a capability-disallowed Story document cannot publish automatic identity enrollment', async (t) => {
+  const { root } = await repository(t);
+  run('git', ['switch', '-q', '-c', 'sflow/config'], root);
+  await writeFile(path.join(root, 'singularity/capabilities.yml'), YAML.stringify({
+    version: 1,
+    capabilities: {
+      product: {
+        name: 'Product', kind: 'delivery', parent: null, repository: 'repository',
+        policy: { gitPublication: 'off', allowedMimeTypes: ['text/markdown'] }
+      }
+    }
+  }));
+  run('git', ['add', 'singularity/capabilities.yml'], root);
+  run('git', ['commit', '-qm', 'restrict approved Story document types'], root);
+  run('git', ['push', '-q', 'origin', 'sflow/config'], root);
+  run('git', ['switch', '-q', 'main'], root);
+  const workId = 'ISO-DISALLOWED-MIME-1';
+  const disallowed = path.join(path.dirname(root), 'reviewed-evidence.png');
+  await writeFile(disallowed, 'not an allowed Markdown document\n');
+  const beforeHead = git(root, ['rev-parse', 'HEAD']);
+  const beforeLocalAuthority = git(root, ['rev-parse', 'refs/heads/sflow/config']);
+  const beforeRemoteAuthority = run('git', [
+    'ls-remote', 'origin', 'refs/heads/sflow/config'
+  ], root).stdout.trim();
+  const beforeRemoteHeads = run('git', ['ls-remote', '--heads', 'origin'], root).stdout.trim();
+  const beforeRecoveryRefs = run('git', [
+    'for-each-ref', '--format=%(refname)', 'refs/singularity/transport/configuration'
+  ], root).stdout.trim();
+  const beforeWorktrees = git(root, ['worktree', 'list', '--porcelain']);
+
+  const failed = run(process.execPath, [cli,
+    'start', workId, '--isolated-worktree', '--json', '--from-branch', 'main',
+    '--work-type', 'quick-fix', '--capability', 'product',
+    '--title', 'Refuse disallowed evidence',
+    '--description', 'Capability document policy must be enforced before shared enrollment.',
+    '--document', disallowed
+  ], root, {
+    allowFailure: true,
+    env: { SINGULARITY_FLOW_TEST_IDENTITY: 'Previously Unknown User' }
+  });
+
+  assert.notEqual(failed.status, 0);
+  assert.match(failed.stderr, /does not allow MIME type 'image\/png'/);
+  assert.equal(git(root, ['rev-parse', 'HEAD']), beforeHead);
+  assert.equal(git(root, ['rev-parse', 'refs/heads/sflow/config']), beforeLocalAuthority);
+  assert.equal(run('git', [
+    'ls-remote', 'origin', 'refs/heads/sflow/config'
+  ], root).stdout.trim(), beforeRemoteAuthority,
+  'disallowed evidence must not advance the exact shared configuration authority');
+  assert.equal(run('git', ['ls-remote', '--heads', 'origin'], root).stdout.trim(),
+    beforeRemoteHeads, 'no remote ref may be created or advanced by a refused Story');
+  assert.equal(run('git', [
+    'for-each-ref', '--format=%(refname)', 'refs/singularity/transport/configuration'
+  ], root).stdout.trim(), beforeRecoveryRefs);
+  assert.equal(git(root, ['worktree', 'list', '--porcelain']), beforeWorktrees);
+  assert.equal(git(root, ['branch', '--show-current']), 'main');
+  assert.equal(git(root, ['status', '--porcelain']), '');
+  assert.equal(run('git', [
+    'show-ref', '--verify', '--quiet', `refs/heads/${workId}`
+  ], root, { allowFailure: true }).status, 1);
+  await assert.rejects(
+    access(path.join(root, 'singularity/work-items', workId, 'workflow.json')),
+    (error) => error.code === 'ENOENT'
+  );
+});
+
 test('isolated-start recovery retains a durable Story under a custom configured root', async (t) => {
   const workItemRoot = 'governed/story-state';
   const { root } = await repository(t, { workItemRoot });

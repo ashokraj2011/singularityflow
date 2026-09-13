@@ -89,6 +89,7 @@ import { registerReference, resolveReference } from './harness-imports.mjs';
 import { beginHarnessInvocation, completeHarnessInvocation, harnessReport } from './harness-events.mjs';
 import { activateWorkItemSession, loadCopilotSession, loadSession, agentSessionStatus, requireCopilotWorkItemSelection, selectIntakeSource, selectAgent, selectWorkType, setAgentSession } from './session.mjs';
 import { addDocuments, detachDocuments, documentCatalog, fetchRemoteDocument, listRemoteDocuments, previewDocument, viewDocument } from './documents.mjs';
+import { documentSetLifecycleBinding } from './document-publication.mjs';
 import { recordClarificationResponses, verifyClarificationRecord } from './clarifications.mjs';
 import { progressBar, progressFlow, progressMarkdown, progressSnapshot } from './progress.mjs';
 import { deriveReport, renderHtml, renderMarkdown } from './report.mjs';
@@ -194,7 +195,9 @@ import {
   beginStoryStartJournal, clearStoryStartJournal, recoverStoryStart,
   serializeConfigurationRestorePoint, updateStoryStartJournal
 } from './story-start-journal.mjs';
-import { publishInitialStoryDocuments } from './story-start-documents.mjs';
+import {
+  preflightInitialStoryDocuments, stageInitialStoryDocuments
+} from './story-start-documents.mjs';
 import { analyzeWorkspaceImpact, listWorkspaceImpacts, previewWorkspaceImpact, promoteWorkspaceImpact, workspaceImpactStatus } from './workspace-impact.mjs';
 import {
   activateWorkspaceContext, activateWorkspaceStoryContext, activeWorkspaceFile,
@@ -1118,12 +1121,6 @@ export async function startCommand(positionals, options) {
   }
 
   const preselectedWorkType = receipt?.answers['workflow-template'] ?? optionString(options, 'work-type');
-  if (preselectedWorkType === 'poc-workflow') {
-    normalizeMcpTargetOrigin(optionString(options, 'target-url'), {
-      required: true,
-      label: 'POC target URL'
-    });
-  }
 
   const materializedSeedText = fileAtRef(root,
     refExists(root, remoteStoryRef) ? remoteStoryRef : localStoryRef,
@@ -1241,6 +1238,98 @@ export async function startCommand(positionals, options) {
   validateConfigurationSnapshotCapabilities(approvedConfigurationSnapshot, {
     capabilityId: workflowCapabilityId
   });
+  let documentCapture = null;
+  let preloadedManual = null;
+  try {
+  // Parse and snapshot every non-interactive supporting input before automatic enrollment or the
+  // first Story checkout. A missing, unreadable, or malformed input therefore cannot publish a
+  // shared identity change and then fail before the requested Story exists.
+  preloadedManual = storyFile
+    ? await loadManualStory(id, { storyFile, title, description, acceptanceCriteria })
+    : null;
+  // Resolve every deterministic policy input before automatic enrollment is allowed to publish a
+  // shared configuration commit. Interactive work-type choice and documents supplied by that later
+  // prompt remain deferred, but explicit/receipt/seed choices have no reason to mutate authority
+  // before a malformed workflow, forbidden reference set, or disallowed document can be refused.
+  const deterministicWorkType = preselectedWorkType ?? materializedSeed?.suggestedWorkType ?? null;
+  const validateDeterministicStartPolicy = async (definition, snapshot, evidence = []) => {
+    let resolved = null;
+    if (deterministicWorkType) {
+      await selectWorkType(definition, { selection: deterministicWorkType });
+      resolved = assertPlannedClaimsReady(resolveWorkType(definition, deterministicWorkType));
+    }
+    const retainedCapabilityMap = validateConfigurationSnapshotCapabilities(snapshot, {
+      capabilityId: workflowCapabilityId
+    });
+    const policy = retainedCapabilityMap?.definition && retainedCapabilityMap.capabilityId
+      ? resolveEffectiveCapabilityPolicy(
+        retainedCapabilityMap.definition, retainedCapabilityMap.capabilityId
+      ).policy
+      : {};
+    if (resolved) {
+      const referenceMode = resolved.referenceRepositoryPolicy?.mode ?? 'optional';
+      if (referenceMode === 'off' && referenceRequests.length) {
+        throw new SingularityFlowError(
+          `Work type '${deterministicWorkType}' does not allow reference repositories.`,
+          { code: 'REFERENCE_REPOSITORIES_NOT_ALLOWED' }
+        );
+      }
+      if (referenceMode === 'required' && !referenceRequests.length) {
+        throw new SingularityFlowError(
+          `Work type '${deterministicWorkType}' requires at least one read-only reference repository at intake. `
+          + 'Pass paired --reference-repository ID=URL and --reference-branch ID=BRANCH options.',
+          { code: 'REFERENCE_REPOSITORIES_REQUIRED' }
+        );
+      }
+    }
+    const maximumFileBytes = Math.min(
+      resolved?.documents?.maxFileBytes ?? Math.max(
+        definition.documents?.maxFileBytes ?? 26214400,
+        ...Object.keys(definition.workTypes ?? {}).map((workTypeId) => (
+          resolveWorkType(definition, workTypeId).documents?.maxFileBytes ?? 0
+        ))
+      ),
+      policy.maxDocumentBytes ?? Number.MAX_SAFE_INTEGER
+    );
+    const allowedMimeTypes = Object.hasOwn(policy, 'allowedMimeTypes')
+      ? policy.allowedMimeTypes : null;
+    for (const record of evidence) {
+      if (record.size > maximumFileBytes) {
+        throw new SingularityFlowError(
+          `Document exceeds the ${maximumFileBytes} byte limit: ${record.source}`
+        );
+      }
+      if (allowedMimeTypes && !allowedMimeTypes.includes(record.mimeType)) {
+        throw new SingularityFlowError(
+          `Capability does not allow MIME type '${record.mimeType}' for ${record.source}.`
+        );
+      }
+    }
+    return { resolved, policy, maximumFileBytes, allowedMimeTypes };
+  };
+  let deterministicPolicy = await validateDeterministicStartPolicy(
+    approvedConfigurationSnapshot?.definition ?? config,
+    approvedConfigurationSnapshot
+  );
+  if (deterministicWorkType === 'poc-workflow') {
+    normalizeMcpTargetOrigin(optionString(options, 'target-url'), {
+      required: true,
+      label: 'POC target URL'
+    });
+  }
+  documentCapture = await preflightInitialStoryDocuments([
+    ...(preloadedManual?.documents ?? []),
+    ...explicitFiles.map((candidate) => ({ type: 'file', path: candidate, label: null, kind: null })),
+    ...explicitUrls.map((url) => ({ type: 'url', url, label: null, kind: null }))
+  ], {
+    repositoryRoot: root,
+    maxFileBytes: deterministicPolicy.maximumFileBytes,
+    allowedMimeTypes: deterministicPolicy.allowedMimeTypes
+  });
+  // Reference syntax was already validated when options were parsed. Resolve each read-only branch
+  // to its exact advertised commit before enrollment as well: an inaccessible or missing reference
+  // is an intake refusal, not authority to add a person to sflow/config.
+  const referencePins = await resolveReferenceRepositoryPins(referenceRequests, { localNamespace: id });
   // Enrollment is completed before the Story branch and its immutable configuration snapshot are
   // created. A failed configuration push stops here, so the Story can never pin the older authority
   // and then discover at approval time that the person who started it was omitted.
@@ -1295,15 +1384,15 @@ export async function startCommand(positionals, options) {
       });
     }
   }
-  // The same verified bytes validate the form/Copilot selection here and are copied onto the Story
-  // branch later, removing the former validate-clone + materialize-clone race and network round trip.
-  if (preselectedWorkType) {
-    const startDefinition = approvedConfigurationSnapshot?.definition ?? config;
-    if (startDefinition) await selectWorkType(startDefinition, { selection: preselectedWorkType });
-  }
-  // A reference branch is observed before the Story branch, session, or working tree changes. The
-  // exact advertised object ID—not the moving branch name—is the input carried into creation.
-  const referencePins = await resolveReferenceRepositoryPins(referenceRequests, { localNamespace: id });
+  // Enrollment is a narrow membership change, but never trust that assumption across the mutation
+  // boundary. Re-resolve the selected workflow and capability policy from the exact post-enrollment
+  // snapshot, then apply it to the already-frozen evidence and reference set before any Story Git
+  // preflight or checkout begins.
+  deterministicPolicy = await validateDeterministicStartPolicy(
+    approvedConfigurationSnapshot?.definition ?? config,
+    approvedConfigurationSnapshot,
+    documentCapture.evidence
+  );
   capabilityPreflight = storyBase.scope === 'capability'
     ? await preflightStoryRepositories(storyBase.workspaceRoot, storyBase.plan, canonicalBranch, {
         remote, publishRequired, lifecycleRoot: root, capabilityId: storyBase.capability,
@@ -1395,6 +1484,14 @@ export async function startCommand(positionals, options) {
     originalBranch,
     originalHead: head(root),
     baseCommit: recoveryBaseCommit,
+    publicationRemote: remote,
+    publicationRemoteFingerprint: publicationAuthority?.fingerprint ?? null,
+    ...(publishRequired ? {
+      // Ordinary Story start creates the remote ref. A materialized Epic Story advances the exact
+      // seed commit already published at that ref, so crash recovery must reconstruct the same
+      // lease used by the opening publication rather than treating it as create-only.
+      publicationExpectedRemoteSha: materializedSeed ? recoveryBaseCommit : null
+    } : {}),
     originalSession,
     originalCopilotSession,
     siblingRepositories
@@ -1403,7 +1500,6 @@ export async function startCommand(positionals, options) {
   let capabilityRepositoriesPrepared = null;
   let configurationSnapshot = null;
   let configurationRestorePoint = null;
-  try {
   const checkoutResult = await checkout(root, canonicalBranch, materializedSeed
     ? { base: baseAtStart, fetch: true, existingOnly: true, remote }
     : { base: baseAtStart, fetch: false, remote, preferRemoteBase: true });
@@ -1487,9 +1583,9 @@ export async function startCommand(positionals, options) {
           description: seed.description ?? '',
           acceptanceCriteria: (seed.acceptanceCriteria ?? []).join('\n')
         })
-        : storyFile || title || description || acceptanceCriteria
+        : preloadedManual ?? (storyFile || title || description || acceptanceCriteria
           ? await loadManualStory(id, { storyFile, title, description, acceptanceCriteria })
-          : await promptManualStory(id))
+          : await promptManualStory(id)))
     : null;
   const normalizedManualSource = manual ? normalizeWorkSource(manual.source) : null;
   let source = requestedExternalSource
@@ -1501,10 +1597,11 @@ export async function startCommand(positionals, options) {
           // public artifact shape while the normalized hash and provider contract remain list-based.
           acceptanceCriteria: manual.source.acceptanceCriteria
         });
-  const supportingDocuments = [
-    ...(manual?.documents ?? []),
-    ...explicitFiles.map((candidate) => ({ type: 'file', path: candidate, label: null, kind: null })),
-    ...explicitUrls.map((url) => ({ type: 'url', url, label: null, kind: null }))
+  let supportingDocuments = [
+    // A prepared story file was already included in the pre-checkout capture. Interactive manual
+    // documents become known only here and are added before the exact-policy capture below.
+    ...(preloadedManual ? [] : (manual?.documents ?? [])),
+    ...(documentCapture?.inputs ?? [])
   ];
   // The seed's `suggestedWorkType` is the planning phase's answer to this question, so it is used
   // rather than asked again. `--work-type` covers the unseeded case without a terminal.
@@ -1518,6 +1615,26 @@ export async function startCommand(positionals, options) {
   });
   if (targetOrigin) source = { ...source, targetOrigin };
   const resolvedWorkType = assertPlannedClaimsReady(resolveWorkType(config, workType));
+  const retainedCapabilityMap = validateConfigurationSnapshotCapabilities(approvedConfigurationSnapshot, {
+    capabilityId: workflowCapabilityId
+  });
+  const capabilityPolicy = retainedCapabilityMap?.definition && retainedCapabilityMap.capabilityId
+    ? resolveEffectiveCapabilityPolicy(
+      retainedCapabilityMap.definition, retainedCapabilityMap.capabilityId
+    ).policy
+    : {};
+  const exactDocumentCapture = await preflightInitialStoryDocuments(supportingDocuments, {
+    repositoryRoot: root,
+    maxFileBytes: Math.min(
+      resolvedWorkType.documents?.maxFileBytes ?? 26214400,
+      capabilityPolicy.maxDocumentBytes ?? Number.MAX_SAFE_INTEGER
+    ),
+    allowedMimeTypes: Object.hasOwn(capabilityPolicy, 'allowedMimeTypes')
+      ? capabilityPolicy.allowedMimeTypes : null
+  });
+  await documentCapture?.dispose().catch(() => {});
+  documentCapture = exactDocumentCapture;
+  supportingDocuments = documentCapture.inputs;
   // Materialize only after the user has selected a work type and its policy has resolved. This
   // prevents an interactive cancellation or a reference-forbidden workflow from leaving an
   // orphaned checkout. The checkout remains machine-local, ignored and detached; it is never a
@@ -1567,6 +1684,7 @@ export async function startCommand(positionals, options) {
   let workflow;
   let returnLocator;
   let publication;
+  let initialDocuments = [];
   try {
     await runDraftTransaction(root, {
       subject: { kind: 'story', id, branch: canonicalBranch },
@@ -1604,6 +1722,19 @@ export async function startCommand(positionals, options) {
           `[${id}][init] start ${workType} workflow`,
           [...(configurationSnapshot?.paths ?? []), returnLocator.path],
           {
+            beforeStateWrite: async () => {
+              initialDocuments = await stageInitialStoryDocuments(root, config, workflow, {
+                inputs: supportingDocuments,
+                requireFrozen: true
+              });
+              return initialDocuments;
+            },
+            eventFromResult: (created) => created?.length ? {
+              payload: {
+                operation: 'supporting-document-upload',
+                ...documentSetLifecycleBinding(created)
+              }
+            } : null,
             recoveryPreimage: creationPreimage,
             transactionId: startJournal.transactionId,
             // Ordinary Story start creates a ref. A materialized Epic Story already has one exact
@@ -1669,10 +1800,6 @@ export async function startCommand(positionals, options) {
       console.warn(`Warning: Story start succeeded, but selection receipt cleanup is pending: ${error.message}`);
     }
   }
-  await publishInitialStoryDocuments(root, config, workflow, {
-    workId: id,
-    inputs: supportingDocuments
-  });
   // FOS:CON-004: a durable Story start is the boundary of this command. Optional AST work is
   // exposed as an explicit next action and is never launched (including in the background).
   const astWarm = {
@@ -1794,6 +1921,8 @@ export async function startCommand(positionals, options) {
       );
     }
     throw error;
+  } finally {
+    await documentCapture?.dispose().catch(() => {});
   }
 }
 
@@ -3116,7 +3245,7 @@ async function documentsCommand(positionals, options) {
         eventFromResult: (created) => ({
           payload: {
             operation: 'document-upload',
-            documentIds: (created ?? []).map((record) => record.id)
+            ...documentSetLifecycleBinding(created ?? [])
           }
         })
       }
@@ -3158,7 +3287,7 @@ async function documentsCommand(positionals, options) {
         eventFromResult: (created) => ({
           payload: {
             operation: 'document-fetch',
-            documentIds: (created ?? []).map((record) => record.id),
+            ...documentSetLifecycleBinding(created ?? []),
             providerIds: [...new Set((created ?? []).map((record) => record.remote?.providerId).filter(Boolean))]
           }
         })

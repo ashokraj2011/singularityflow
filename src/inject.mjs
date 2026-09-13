@@ -2,6 +2,7 @@ import { lstat, readdir, readFile, realpath } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
   exists,
   nowIso,
@@ -14,9 +15,25 @@ import {
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { canonicalJson } from './records.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
+import { tokenEconomyDigest } from './token-economy.mjs';
+import { PACKAGE_ROOT } from './package-root.mjs';
+import { verifyTokenReductionShadow } from './token-reduction/shadow-record.mjs';
 
 const DEFAULT_INJECTION = { placeholder: '{{WORLD_MODEL}}', mode: 'append', maxBytes: 32768, rules: [] };
 const MODES = new Set(['replace', 'append', 'off']);
+
+let tokenReductionCompositionRuntimePromise = null;
+
+async function tokenReductionCompositionRuntime() {
+  // Keep the complete candidate composer out of every read-only VS Code worker bundle. The VSIX
+  // already stages the locked CLI package beneath PACKAGE_ROOT; a computed file URL loads that
+  // exact implementation only when a Story actually carries a TKR receipt.
+  const runtimeUrl = pathToFileURL(path.join(
+    PACKAGE_ROOT, 'src', 'token-reduction', 'composition-contract.mjs'
+  )).href;
+  tokenReductionCompositionRuntimePromise ??= import(runtimeUrl);
+  return tokenReductionCompositionRuntimePromise;
+}
 
 function values(value) { return Array.isArray(value) ? value : [value]; }
 
@@ -342,6 +359,36 @@ function comparablePromptRecord(record) {
   return value;
 }
 
+function withoutAdvisoryTokenReduction(record) {
+  const value = comparablePromptRecord(record);
+  delete value.tokenReduction;
+  if (value.promptBudget && typeof value.promptBudget === 'object') {
+    delete value.promptBudget.tokenReduction;
+    const prompt = value.promptBudget.economics?.prompt;
+    if (prompt && typeof prompt === 'object') {
+      delete prompt.tkrCandidatePromptBytes;
+      delete prompt.tkrCandidateByteDelta;
+      delete prompt.tkrCandidateAssurance;
+    }
+  }
+  return value;
+}
+
+function comparablePromptRecordPair(left, right, {
+  expectedActivation = 'none'
+} = {}) {
+  // Observe/shadow data has no lifecycle or delivery authority. Its absence, corruption, or a
+  // changed observer implementation must therefore never make the already-selected legacy prompt
+  // immutable-conflicting. Compare every authoritative field and the exact prompt digest, but
+  // ignore the advisory projection on both sides. The existing record is returned unchanged, so
+  // this is compatibility/reuse rather than an overwrite of historical evidence. Active and every
+  // non-shadow policy remain byte-for-byte strict.
+  if (expectedActivation === 'shadow') {
+    return [withoutAdvisoryTokenReduction(left), withoutAdvisoryTokenReduction(right)];
+  }
+  return [comparablePromptRecord(left), comparablePromptRecord(right)];
+}
+
 function assertExpectedPromptIdentity(record, workflow, phase, location, expected = {}) {
   const differences = [];
   if (record.workId !== workflow.workItem.id) differences.push(`workId=${record.workId ?? 'missing'}`);
@@ -368,6 +415,142 @@ function assertExpectedPromptIdentity(record, workflow, phase, location, expecte
       { expectedPromptPath: location.promptPath, actualPromptPath: record.promptPath ?? null }
     );
   }
+}
+
+async function validateTokenReductionGenerationReceipt(value, text, workflow, phase, location) {
+  // The registered legacy-v1 shadow adapter receives the exact normalized sections that produced
+  // the selected prompt; its sole transport difference is legacy render()'s final LF. Reconstruct
+  // those candidate bytes from the trusted snapshot so a coordinated re-seal cannot invent a
+  // smaller candidate or arbitrary segment hashes while preserving the selected prompt digest.
+  const candidatePrompt = text.endsWith('\n') ? text.slice(0, -1) : text;
+  const { validateTokenReductionCompositionReceipt } = await tokenReductionCompositionRuntime();
+  const receipt = validateTokenReductionCompositionReceipt(value, {
+    selectedPrompt: text,
+    candidatePrompt
+  });
+  const expectedWorkflow = workflow.workflowSnapshot?.snapshotHash ?? null;
+  const expectedRepository = workflow.resolution?.capability?.effectiveResolution
+    ?.repository?.identitySha256 ?? null;
+  const differences = [];
+  if (receipt.subject.workId !== workflow.workItem.id) differences.push('workId');
+  if (receipt.subject.phase !== phase.id) differences.push('phase');
+  if (receipt.subject.generation !== location.generation) differences.push('generation');
+  if (expectedWorkflow && receipt.subject.workflowInstanceId !== expectedWorkflow) {
+    differences.push('workflowInstanceId');
+  }
+  if (expectedWorkflow && receipt.authority.workflowSnapshotSha256 !== expectedWorkflow) {
+    differences.push('workflowSnapshotSha256');
+  }
+  if (expectedRepository
+      && receipt.subject.repositoryDomainSha256 !== expectedRepository) {
+    differences.push('repositoryDomainSha256');
+  }
+  const expectedTokenEconomyPolicy = workflow.resolution?.tokenEconomy
+    ? `sha256:${tokenEconomyDigest(workflow.resolution.tokenEconomy)}` : null;
+  if (expectedTokenEconomyPolicy
+      && receipt.authority.tokenEconomyPolicySha256 !== expectedTokenEconomyPolicy) {
+    differences.push('tokenEconomyPolicySha256');
+  }
+  const expectedSourceSnapshot = workflow.resolution?.sourceSha256
+    ? `sha256:${String(workflow.resolution.sourceSha256).replace(/^sha256:/u, '')}` : null;
+  if (expectedSourceSnapshot
+      && receipt.authority.sourceSnapshotSha256 !== expectedSourceSnapshot) {
+    differences.push('sourceSnapshotSha256');
+  }
+  const expectedActivation = expectedTokenReductionActivation(workflow);
+  if (expectedActivation === 'none' || receipt.activation !== expectedActivation) {
+    differences.push('activation');
+  }
+  if (expectedActivation === 'shadow'
+      && receipt.authority.phaseContextPolicySha256 !== null) {
+    differences.push('phaseContextPolicySha256');
+  }
+  if (differences.length) {
+    throw promptGenerationFailure(
+      `Token-reduction receipt belongs to a different prompt generation (${differences.join(', ')}).`,
+      'TKR_CONTRACT_UNSUPPORTED', { differences }
+    );
+  }
+  return receipt;
+}
+
+function expectedTokenReductionActivation(workflow) {
+  const policy = workflow?.resolution?.tokenEconomy;
+  if (!policy || typeof policy !== 'object') return 'none';
+  if (policy.enabled !== false && policy.mode === 'observe'
+      && (policy.composer ?? 'legacy-v1') === 'legacy-v1') return 'shadow';
+  // tkr-v1 is not a production composer yet. All other existing modes select legacy prompt bytes
+  // without TKR evidence; they must not be mislabeled active merely because they are enabled.
+  return 'none';
+}
+
+function stripTokenReductionSummary(promptBudget) {
+  const value = structuredClone(promptBudget ?? null);
+  if (!value || typeof value !== 'object') return value;
+  delete value.tokenReduction;
+  const prompt = value.economics?.prompt;
+  if (prompt && typeof prompt === 'object') {
+    delete prompt.tkrCandidatePromptBytes;
+    delete prompt.tkrCandidateByteDelta;
+    delete prompt.tkrCandidateAssurance;
+  }
+  return value;
+}
+
+function verifiedTokenReductionPromptBudget(promptBudget, receipt, workflow, location) {
+  const value = structuredClone(promptBudget ?? null);
+  const summary = value?.tokenReduction;
+  if (summary == null) return value;
+  const expectedActivation = expectedTokenReductionActivation(workflow);
+  // Shadow observations exist only under the explicitly selected observe/legacy cohort. A custom
+  // or migrated record must not smuggle an optimization claim into another policy. Since the
+  // summary has no lifecycle authority, remove it without blocking the selected legacy prompt.
+  if (expectedActivation !== 'shadow') return stripTokenReductionSummary(value);
+  const advisory = true;
+  const record = summary?.record;
+  const prompt = value?.economics?.prompt ?? {};
+  let valid = summary.mode === 'shadow' && verifyTokenReductionShadow(record);
+  if (valid && record.status === 'observed') {
+    valid = receipt?.activation === 'shadow'
+      && record.receiptSha256 === receipt.receiptSha256
+      && record.candidateRef?.sha256 === receipt.candidatePrompt.sha256
+      && record.candidateRef?.bytes === receipt.candidatePrompt.bytes
+      && record.legacyRef?.sha256 === receipt.selectedPrompt.sha256
+      && record.legacyRef?.bytes === receipt.selectedPrompt.bytes
+      && record.delivery?.state === 'shadow-not-delivered'
+      && record.delivery?.candidateDelivered === false
+      && record.delivery?.deliveredRef?.sha256 === receipt.selectedPrompt.sha256
+      && record.delivery?.deliveredRef?.bytes === receipt.selectedPrompt.bytes
+      && record.byteDelta === record.legacyRef.bytes - record.candidateRef.bytes
+      && record.byteEquivalent === (
+        record.legacyRef.sha256 === record.candidateRef.sha256
+          && record.legacyRef.bytes === record.candidateRef.bytes
+      )
+      && Number.isSafeInteger(record.configuredMaximumBytes)
+      && record.configuredMaximumBytes > 0
+      && record.candidateOverflow === (
+        record.candidateRef.bytes > record.configuredMaximumBytes
+      )
+      && record.scope?.workId === receipt.subject.workId
+      && record.scope?.phase === receipt.subject.phase
+      && record.scope?.generation === receipt.subject.generation
+      && prompt.tkrCandidatePromptBytes === record.candidateRef.bytes
+      && prompt.tkrCandidateByteDelta === record.byteDelta
+      && prompt.tkrCandidateAssurance === 'deterministic-shadow-not-delivered';
+  } else if (valid && record.status === 'unavailable') {
+    valid = receipt == null && record.receiptSha256 == null
+      && prompt.tkrCandidatePromptBytes == null
+      && prompt.tkrCandidateByteDelta == null
+      && prompt.tkrCandidateAssurance === 'unavailable';
+  } else {
+    valid = false;
+  }
+  if (valid) return value;
+  if (advisory) return stripTokenReductionSummary(value);
+  throw promptGenerationFailure(
+    `Prompt generation ${location.label} has token-reduction summary evidence that is not bound to its receipt.`,
+    'PROMPT_SNAPSHOT_INTEGRITY_FAILED', { recordPath: location.recordPath }
+  );
 }
 
 /**
@@ -400,8 +583,13 @@ export async function readPromptGeneration(root, workflow, phase, { workDir, ...
   }
 
   let record;
+  let storedVersion;
   try {
-    record = readRecord('prompt-injection', await readFile(recordTarget.absolute, 'utf8')).record;
+    const decoded = readRecord(
+      'prompt-injection', await readFile(recordTarget.absolute, 'utf8')
+    );
+    record = decoded.record;
+    storedVersion = decoded.storedVersion;
   } catch (error) {
     throw promptGenerationFailure(
       `Prompt generation ${location.label} has an unreadable receipt: ${error.message}`,
@@ -449,12 +637,44 @@ export async function readPromptGeneration(root, workflow, phase, { workDir, ...
       }
     );
   }
+  let tokenReductionVerification = { status: 'not-recorded', code: null };
+  let verifiedTokenReduction = null;
+  if (record.tokenReduction != null) {
+    try {
+      verifiedTokenReduction = await validateTokenReductionGenerationReceipt(
+        record.tokenReduction, text, workflow, phase, location
+      );
+      tokenReductionVerification = { status: 'verified', code: null };
+    } catch (error) {
+      if (expectedTokenReductionActivation(workflow) !== 'shadow') {
+        throw promptGenerationFailure(
+          `Prompt generation ${location.label} has invalid token-reduction evidence under a non-advisory policy.`,
+          'PROMPT_SNAPSHOT_INTEGRITY_FAILED',
+          { recordPath: location.recordPath, cause: error.code ?? 'TKR_CONTRACT_UNSUPPORTED' }
+        );
+      }
+      // Shadow evidence has no lifecycle authority. Preserve and reuse the exact verified legacy
+      // prompt while marking the optimization observation unavailable to callers.
+      tokenReductionVerification = {
+        status: 'unavailable', code: error.code ?? 'TKR_CONTRACT_UNSUPPORTED'
+      };
+      record = { ...record, tokenReduction: null };
+    }
+  }
+  record = {
+    ...record,
+    promptBudget: verifiedTokenReductionPromptBudget(
+      record.promptBudget, verifiedTokenReduction, workflow, location
+    )
+  };
   return {
     record,
+    storedVersion,
     file: location.recordPath,
     promptFile: location.promptPath,
     text,
-    reused: true
+    reused: true,
+    tokenReductionVerification
   };
 }
 
@@ -499,9 +719,10 @@ async function repairInterruptedPromptGeneration(
 
   let survivingRecord;
   try {
-    survivingRecord = readRecord(
+    const decoded = readRecord(
       'prompt-injection', await readFile(recordTarget.absolute, 'utf8')
-    ).record;
+    );
+    survivingRecord = decoded.record;
   } catch (error) {
     throw promptGenerationFailure(
       `Prompt generation ${location.label} has a receipt without a snapshot, and the receipt is unreadable: ${error.message}`,
@@ -521,8 +742,12 @@ async function repairInterruptedPromptGeneration(
       { recordPath: location.recordPath, promptPath: location.promptPath }
     );
   }
-  const sameRecord = canonicalJson(comparablePromptRecord(survivingRecord))
-    === canonicalJson(comparablePromptRecord(record));
+  const [comparableSurvivor, comparableCandidate] = comparablePromptRecordPair(
+    survivingRecord, record, {
+      expectedActivation: expectedTokenReductionActivation(workflow)
+    }
+  );
+  const sameRecord = canonicalJson(comparableSurvivor) === canonicalJson(comparableCandidate);
   const existingCacheKey = survivingRecord.compositionCache?.key ?? null;
   const candidateCacheKey = record.compositionCache?.key ?? null;
   if (survivingRecord.renderedSha256 !== record.renderedSha256
@@ -566,6 +791,27 @@ export async function recordInjection(root, workflow, phase, injection, {
       { expectedSha256: injection.renderedSha256, actualSha256: renderedSha256 }
     );
   }
+  let tokenReduction = null;
+  if (injection.tokenReduction != null) {
+    try {
+      tokenReduction = structuredClone(await validateTokenReductionGenerationReceipt(
+        injection.tokenReduction, renderedText, workflow, phase, location
+      ));
+    } catch (error) {
+      if (expectedTokenReductionActivation(workflow) !== 'shadow') {
+        throw promptGenerationFailure(
+          `Prompt generation ${location.label} cannot persist invalid token-reduction evidence under a non-advisory policy.`,
+          'PROMPT_SNAPSHOT_INTEGRITY_FAILED',
+          { recordPath: location.recordPath, cause: error.code ?? 'TKR_CONTRACT_UNSUPPORTED' }
+        );
+      }
+      // An observation-only candidate can disappear without affecting the selected prompt.
+      tokenReduction = null;
+    }
+  }
+  const promptBudget = verifiedTokenReductionPromptBudget(
+    injection.promptBudget, tokenReduction, workflow, location
+  );
   const record = {
     schemaVersion: currentSchemaVersion('prompt-injection'),
     workId: workflow.workItem.id,
@@ -595,7 +841,8 @@ export async function recordInjection(root, workflow, phase, injection, {
     promptDefinition: injection.promptDefinition ?? null,
     structuralContext: structuredClone(injection.structuralContext ?? null),
     workSource: structuredClone(injection.workSource ?? null),
-    promptBudget: structuredClone(injection.promptBudget ?? null),
+    promptBudget,
+    tokenReduction,
     remoteSkills: structuredClone(injection.remoteSkills ?? []),
     // Omission on a snapshot-backed Story is not evidence that mutable live instructions were
     // used. Current composers provide the exact identity; older/custom adapters remain honestly
@@ -632,8 +879,12 @@ export async function recordInjection(root, workflow, phase, injection, {
     });
     if (existing) {
       const samePrompt = existing.record.renderedSha256 === renderedSha256;
-      const sameRecord = canonicalJson(comparablePromptRecord(existing.record))
-        === canonicalJson(comparablePromptRecord(record));
+      const [comparableExisting, comparableCandidate] = comparablePromptRecordPair(
+        existing.record, record, {
+          expectedActivation: expectedTokenReductionActivation(workflow)
+        }
+      );
+      const sameRecord = canonicalJson(comparableExisting) === canonicalJson(comparableCandidate);
       const existingCacheKey = existing.record.compositionCache?.key ?? null;
       const candidateCacheKey = record.compositionCache?.key ?? null;
       // Receipts written before composition-cache provenance was persisted remain reusable when
@@ -678,9 +929,12 @@ export async function recordInjection(root, workflow, phase, injection, {
         task: record.task
       });
       const samePrompt = finalExisting?.record.renderedSha256 === renderedSha256;
-      const sameRecord = finalExisting != null
-        && canonicalJson(comparablePromptRecord(finalExisting.record))
-          === canonicalJson(comparablePromptRecord(record));
+      const finalComparable = finalExisting == null ? null
+        : comparablePromptRecordPair(finalExisting.record, record, {
+            expectedActivation: expectedTokenReductionActivation(workflow)
+          });
+      const sameRecord = finalComparable != null
+        && canonicalJson(finalComparable[0]) === canonicalJson(finalComparable[1]);
       const existingCacheKey = finalExisting?.record.compositionCache?.key ?? null;
       const candidateCacheKey = record.compositionCache?.key ?? null;
       if (!samePrompt || !sameRecord

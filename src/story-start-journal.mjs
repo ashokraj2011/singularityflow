@@ -6,11 +6,16 @@ import { branch, gitCommonDir, governedCommitIdentity, head, refExists, refHead 
 import { restoreConfigurationState } from './configuration-branch.mjs';
 import { restoreAgentSession, restoreCopilotSession } from './session.mjs';
 import {
-  readPendingPublication, recoverPreparedPublicationBySubject
+  readPendingPublication, recoverPreparedPublicationBySubject,
+  verifyPendingPublicationCandidateAuthority, verifyPendingPublicationCommit
 } from './publication-pending.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { exists, nowIso, run, SingularityFlowError, writeAtomic } from './util.mjs';
 import { recordSha256 } from './records.mjs';
+import { bindLifecycleEvent } from './lifecycle-event.mjs';
+import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
+import { verifiedSgosLifecycleCandidateForCommit } from './sgos/candidate-lifecycle.mjs';
+import { scavengeStoryDocumentCaptures } from './story-start-documents.mjs';
 
 const FAMILY = 'story-start-journal';
 
@@ -69,7 +74,10 @@ export async function beginStoryStartJournal(root, {
   baseCommit,
   originalSession = null,
   originalCopilotSession = null,
-  siblingRepositories = []
+  siblingRepositories = [],
+  publicationRemote = null,
+  publicationRemoteFingerprint = null,
+  publicationExpectedRemoteSha = undefined
 }) {
   const target = storyStartJournalPath(root, id);
   await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
@@ -88,6 +96,11 @@ export async function beginStoryStartJournal(root, {
     originalSession,
     originalCopilotSession,
     siblingRepositories,
+    publicationRemote,
+    publicationRemoteFingerprint,
+    ...(publicationExpectedRemoteSha !== undefined
+      ? { publicationExpectedRemoteSha }
+      : {}),
     stage: 'prepared',
     owner: { pid: process.pid, host: os.hostname() },
     createdAt: nowIso(),
@@ -132,30 +145,171 @@ function processAlive(owner) {
   catch { return false; }
 }
 
-function workflowAtTarget(root, record) {
-  if (!record.workItemRelative || !refExists(root, `refs/heads/${record.targetBranch}`)) return false;
-  const commits = run('git', [
-    'rev-list', '--first-parent', `refs/heads/${record.targetBranch}`,
-    ...(record.baseCommit ? [`^${record.baseCommit}`] : [])
-  ], { cwd: root, allowFailure: true }).stdout.split(/\r?\n/).filter(Boolean);
-  for (const commit of commits) {
-    const identity = governedCommitIdentity(root, commit);
-    if (identity?.transactionId !== record.transactionId) continue;
-    const result = run('git', [
-      'show', `${commit}:${record.workItemRelative}/workflow.json`
-    ], { cwd: root, allowFailure: true });
-    if (result.status !== 0) continue;
-    try {
-      const workflow = JSON.parse(result.stdout);
-      if (workflow?.workItem?.id !== record.subject.id) continue;
-      const binding = (workflow.publicationProjections ?? []).find((projection) =>
-        projection.event?.type === 'binding'
-          && projection.event?.subject?.id === record.subject.id
-          && `sha256:${recordSha256(projection.event)}` === identity.eventSha256);
-      if (binding) return true;
-    } catch { /* A malformed aggregate is not proof of a completed start. */ }
+function safeWorkItemRelative(value) {
+  const candidate = String(value ?? '').replaceAll('\\', '/');
+  const normalized = path.posix.normalize(candidate);
+  return candidate && normalized === candidate && !path.posix.isAbsolute(candidate)
+    && candidate !== '..' && !candidate.startsWith('../') ? candidate : null;
+}
+
+function completionProjection(root, record, commit, identity) {
+  const failures = [];
+  const workItemRelative = safeWorkItemRelative(record.workItemRelative);
+  if (!workItemRelative) {
+    return { failures: ['the Story work-item path is invalid'], event: null };
   }
-  return false;
+  const result = run('git', [
+    'show', `${commit}:${workItemRelative}/workflow.json`
+  ], { cwd: root, allowFailure: true });
+  if (result.status !== 0) {
+    return { failures: ['the exact commit has no Story workflow aggregate'], event: null };
+  }
+  let workflow;
+  try { workflow = JSON.parse(result.stdout); }
+  catch { return { failures: ['the exact commit has a malformed Story workflow aggregate'], event: null }; }
+  if (workflow?.workItem?.id !== record.subject.id) failures.push('the workflow subject ID is different');
+  if (workflow?.workItem?.branch !== record.targetBranch
+      || workflow?.lineage?.canonicalBranch !== record.targetBranch) {
+    failures.push('the workflow branch binding is different');
+  }
+  const bindings = (workflow.publicationProjections ?? []).filter((projection) =>
+    projection?.event?.type === 'binding'
+      && projection.event.subject?.kind === 'story'
+      && projection.event.subject.id === record.subject.id
+      && projection.event.subject.branch === record.targetBranch
+      && `sha256:${recordSha256(projection.event)}` === identity.eventSha256);
+  if (bindings.length !== 1) failures.push('the workflow has no unique exact binding projection');
+  return { failures, event: bindings.length === 1 ? bindings[0].event : null };
+}
+
+function startCompletionRemote(root, record, pendingRecord, publicationMode) {
+  const remote = record.publicationRemote ?? pendingRecord?.remote ?? 'origin';
+  if (publicationMode === 'off') return { remote, remoteFingerprint: null };
+  if (record.publicationRemoteFingerprint) {
+    return { remote, remoteFingerprint: record.publicationRemoteFingerprint };
+  }
+  try {
+    const authority = configuredRemoteAuthority(root, remote);
+    return { remote, remoteFingerprint: authority?.fingerprint ?? null };
+  } catch {
+    return { remote, remoteFingerprint: null };
+  }
+}
+
+/**
+ * Older Story-start journals predate `publicationExpectedRemoteSha`. A branch materialized from an
+ * existing local or remote Story ref used its accepted base as the push lease, while a newly-created
+ * branch used create-only semantics (`null`). Recover only the modes whose persisted checkout result
+ * proves materialization; unknown legacy modes remain create-only rather than guessing from the
+ * weaker `targetBranchExisted` flag (remote-only branches recorded that flag as false).
+ */
+function recoveryExpectedRemoteSha(record) {
+  if (Object.hasOwn(record, 'publicationExpectedRemoteSha')) {
+    return record.publicationExpectedRemoteSha;
+  }
+  return ['already-current', 'checked-out-local', 'tracked-remote'].includes(record.checkoutMode)
+    ? record.baseCommit ?? null
+    : null;
+}
+
+/**
+ * Prove that the target ref is the exact Candidate-bound Story-start transaction before treating
+ * an interrupted outer start as complete. Transaction/event trailers alone are descriptive: a
+ * new commit can copy them while changing the tree or omitting an initial document. Reopen the
+ * retained Candidate and receipt, recompute the transaction state digest, and bind the one parent
+ * to the journal's accepted base before clearing any recovery authority.
+ */
+async function completedWorkflowAtTarget(root, record, pending = null) {
+  const targetRef = `refs/heads/${record.targetBranch}`;
+  if (!record.workItemRelative || !refExists(root, targetRef)) {
+    return { completed: false, failures: [] };
+  }
+  const commit = refHead(root, targetRef);
+  const identity = governedCommitIdentity(root, commit);
+  if (identity?.transactionId !== record.transactionId) {
+    return {
+      completed: false,
+      failures: commit !== record.baseCommit
+        ? ['the Story branch advanced without the exact start transaction'] : []
+    };
+  }
+  const failures = [];
+  if (identity.parents.length !== 1 || identity.parents[0] !== record.baseCommit) {
+    failures.push('the governed start parent does not equal the accepted Story base');
+  }
+  const projection = completionProjection(root, record, commit, identity);
+  failures.push(...projection.failures);
+
+  let publicationRecord = pending?.record ?? null;
+  if (publicationRecord) {
+    if (publicationRecord.commit !== commit) failures.push('the pending publication names a different commit');
+    if (publicationRecord.transactionId !== record.transactionId) {
+      failures.push('the pending publication names a different transaction');
+    }
+  } else if (projection.event) {
+    let candidate = null;
+    try {
+      candidate = (await verifiedSgosLifecycleCandidateForCommit(root, commit)).binding;
+    } catch (error) {
+      failures.push(`the exact retained Candidate or receipt is unavailable (${error?.code ?? 'invalid'})`);
+    }
+    const publication = startCompletionRemote(root, record, null, identity.publicationMode);
+    publicationRecord = {
+      subject: record.subject,
+      branch: record.targetBranch,
+      remote: publication.remote,
+      remoteFingerprint: publication.remoteFingerprint,
+      commit,
+      transactionId: record.transactionId,
+      tree: identity.tree,
+      eventSha256: identity.eventSha256,
+      stateSha256: identity.stateSha256,
+      publicationMode: identity.publicationMode,
+      candidate,
+      event: bindLifecycleEvent(projection.event, commit),
+      ...(identity.publicationMode !== 'off' ? {
+        // The normal publication unit clears its pending marker only after a successful push. If
+        // the outer Story-start process dies before clearing this journal, transport is therefore
+        // known to have crossed its success boundary even though the journal itself does not store
+        // the porcelain output. Use the closed recovery vocabulary; this field is not part of the
+        // governed transaction digest.
+        pushOutcome: 'transport-indeterminate',
+        expectedRemoteSha: recoveryExpectedRemoteSha(record)
+      } : {})
+    };
+  }
+
+  if (publicationRecord && projection.event) {
+    const publication = startCompletionRemote(
+      root, record, publicationRecord, publicationRecord.publicationMode
+    );
+    const verification = verifyPendingPublicationCommit(root, publicationRecord, {
+      subject: record.subject,
+      branch: record.targetBranch,
+      remote: publication.remote,
+      allowPublicationOff: true
+    });
+    if (!verification.valid) failures.push(...verification.failures);
+    if (!verification.candidateVerified) failures.push('the governed start has no verified Candidate binding');
+    const candidateAuthority = await verifyPendingPublicationCandidateAuthority(root, publicationRecord);
+    if (!candidateAuthority.valid || !candidateAuthority.candidateVerified) {
+      failures.push(...candidateAuthority.failures);
+      if (!candidateAuthority.candidateVerified && candidateAuthority.failures.length === 0) {
+        failures.push('the exact Candidate verification receipt is unavailable');
+      }
+    } else {
+      const admission = candidateAuthority.lifecycleAdmission;
+      if (admission?.subject?.kind !== 'story'
+          || admission.subject.id !== record.subject.id
+          || admission.eventType !== 'binding'
+          || admission.normalizedEventSha256 !== publicationRecord.candidate?.normalizedEventSha256) {
+        failures.push('the Candidate receipt does not authorize this exact Story binding');
+      }
+    }
+  } else if (projection.event) {
+    failures.push('the governed start publication identity is unavailable');
+  }
+  return { completed: failures.length === 0, failures: [...new Set(failures)], commit };
 }
 
 function restoreRepositoryCheckout(repository, targetBranch) {
@@ -203,6 +357,10 @@ function inspectRepositoryCheckout(repository, targetBranch) {
 export async function recoverStoryStart(root, id, { force = false } = {}) {
   const current = await readStoryStartJournal(root, id);
   if (!current) return { status: 'absent' };
+  // A prior process may have died after privately capturing Story-birth evidence but before its
+  // journal could be completed. The scavenger is confined to validated leases in this repository's
+  // Git common directory; malformed, live, foreign, and symlinked entries are retained.
+  await scavengeStoryDocumentCaptures(root);
   const record = current.record;
   if (!force && processAlive(record.owner)) {
     throw new SingularityFlowError(
@@ -230,9 +388,23 @@ export async function recoverStoryStart(root, id, { force = false } = {}) {
         code: 'STORY_START_RECOVERY_DIVERGED', details: recovered
       });
     }
-  } else if (publication || workflowAtTarget(root, record)) {
-    await clearStoryStartJournal(root, id, record.transactionId);
-    return { status: 'completed', preserved: true };
+  } else {
+    const completion = await completedWorkflowAtTarget(root, record, publication);
+    if (completion.completed) {
+      await clearStoryStartJournal(root, id, record.transactionId);
+      return { status: 'completed', preserved: true, commit: completion.commit };
+    }
+    if (publication || completion.failures.length) {
+      const failures = completion.failures.length
+        ? completion.failures : ['the pending publication is not the exact Story-start commit'];
+      await updateStoryStartJournal(root, id, record.transactionId, {
+        stage: 'recovery-diverged', recoveryErrors: failures
+      });
+      throw new SingularityFlowError(
+        `Story '${id}' start recovery stopped safely: ${failures.join('; ')}. The journal was retained.`,
+        { code: 'STORY_START_RECOVERY_DIVERGED', details: { failures } }
+      );
+    }
   }
 
   const failures = [];
@@ -243,7 +415,7 @@ export async function recoverStoryStart(root, id, { force = false } = {}) {
     failures.push(`root checkout moved to '${currentBranch}'`);
   } else if (currentBranch === record.targetBranch) {
     const targetHead = head(root);
-    if (!record.targetBranchExisted && record.baseCommit && targetHead !== record.baseCommit) {
+    if (record.baseCommit && targetHead !== record.baseCommit) {
       failures.push('root Story branch contains an unrecognized commit');
     }
   }
@@ -277,7 +449,7 @@ export async function recoverStoryStart(root, id, { force = false } = {}) {
 
   if (currentBranch === record.targetBranch) {
     const targetHead = head(root);
-    if (!record.targetBranchExisted && record.baseCommit && targetHead !== record.baseCommit) {
+    if (record.baseCommit && targetHead !== record.baseCommit) {
       failures.push('root Story branch contains an unrecognized commit');
     } else {
       const switched = run('git', ['switch', record.originalBranch], { cwd: root, allowFailure: true });

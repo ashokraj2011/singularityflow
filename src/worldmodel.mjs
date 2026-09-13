@@ -3,6 +3,7 @@ import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
   assertNotDefaultBranch, branch, changedFiles, commitIsolated, fetchRemote, gitDir, hasRemote, head,
   pushCommitToBranchAsync, refExists, validBranch
@@ -79,6 +80,7 @@ import {
 import { isRetiredBundledModelTierRevision } from './model-tiers.mjs';
 import { latestWorldModelBuildDiagnostics } from './world-model-build-diagnostics.mjs';
 import { compilePromptSections } from './prompt-budget.mjs';
+import { tokenEconomyDigest } from './token-economy.mjs';
 import { activeClauseCapsule } from './active-clause-capsule.mjs';
 import { compileWorldModelSynthesisPrompt } from './world-model-synthesis-budget.mjs';
 import {
@@ -107,6 +109,28 @@ import {
 } from './reference-repositories.mjs';
 import { resolveStoryExecutionContext } from './story-execution-context.mjs';
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
+import { tokenReductionShadowFailure } from './token-reduction/shadow-record.mjs';
+
+let tokenReductionShadowRuntimePromise = null;
+
+async function tokenReductionShadowRuntime() {
+  // Model composition is already asynchronous. Load the candidate-only implementation from the
+  // exact staged CLI package at that boundary so ordinary VS Code status/help workers do not each
+  // embed another copy of the complete TKR composer and schemas.
+  const runtimeUrl = pathToFileURL(path.join(
+    PACKAGE_ROOT, 'src', 'token-reduction', 'shadow-evaluation.mjs'
+  )).href;
+  tokenReductionShadowRuntimePromise ??= import(runtimeUrl);
+  return tokenReductionShadowRuntimePromise;
+}
+
+/** Optional shadow code may never become a dependency of the delivered legacy prompt. */
+export async function resolveOptionalTokenReductionShadowRuntime(
+  loader = tokenReductionShadowRuntime
+) {
+  try { return { runtime: await loader(), error: null }; }
+  catch (error) { return { runtime: null, error }; }
+}
 
 const configRelative = 'singularity/worldmodel.json';
 const CHECKPOINT_SCHEMA_VERSION = currentSchemaVersion('worldmodel-checkpoint');
@@ -4683,6 +4707,68 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
           '- Continue under the pinned staleness policy; strict gates require a committed source revision or explicit Candidate Snapshot.'
         ].join('\n')
       : '';
+  // Only a Story's pinned resolution may authorize durable TKR evidence. Older Stories can
+  // legitimately predate tokenEconomy; applying today's live repository default to those immutable
+  // executions would make the composer and persistence verifier disagree and could block an
+  // otherwise valid legacy prompt. They continue on their exact legacy bytes with no TKR claim.
+  const pinnedTokenEconomyPolicy = workflow?.resolution?.tokenEconomy ?? null;
+  const tokenEconomyPolicy = pinnedTokenEconomyPolicy ?? definition.tokenEconomy ?? {};
+  const effectiveCapability = workflow?.resolution?.capability?.effectiveResolution
+    ?? config.repositoryCapability?.effectiveResolution ?? null;
+  const workflowSnapshotSha256 = workflow?.workflowSnapshot?.snapshotHash ?? null;
+  const sourceSnapshotSha256 = workSource.record?.sha256
+    ? `sha256:${workSource.record.sha256}` : null;
+  const tokenReductionReceiptContext = workflow
+    && pinnedTokenEconomyPolicy
+    && effectiveCapability?.repository?.identitySha256
+    && workflowSnapshotSha256
+    && sourceSnapshotSha256
+    ? {
+        subject: {
+          repositoryDomainSha256: effectiveCapability.repository.identitySha256,
+          workId: workflow.workItem.id,
+          workflowInstanceId: workflowSnapshotSha256,
+          phase: signals.phase,
+          generation: Number(phase?.generation ?? 0) + 1
+        },
+        authority: {
+          tokenEconomyPolicySha256: `sha256:${tokenEconomyDigest(tokenEconomyPolicy)}`,
+          // Shadow evidence cannot claim a phase-context-policy authority until the registered
+          // WMP/TKR owner exposes one. `resolution.contextPolicy` controls Copilot chat hand-off
+          // (keep/compact/new) and is deliberately not substituted for that separate authority.
+          phaseContextPolicySha256: null,
+          workflowSnapshotSha256,
+          sourceSnapshotSha256
+        }
+      }
+    : null;
+  const tokenReductionScope = {
+    workId: workflow?.workItem?.id ?? workId ?? null,
+    phase: signals.phase,
+    generation: phase ? Number(phase.generation ?? 0) + 1 : null,
+    sourceRevision: required.freshness.source?.current
+      ?? workSource.record?.sourceRevision
+      ?? null,
+    configurationSha256: workflow?.resolution?.configSha256 ?? null,
+    executionMode: executionIdentity.mode
+  };
+  const tokenReductionResolution = tokenReductionReceiptContext
+      && tokenEconomyPolicy.enabled !== false
+      && tokenEconomyPolicy.mode === 'observe'
+      && (tokenEconomyPolicy.composer ?? 'legacy-v1') === 'legacy-v1'
+    ? await resolveOptionalTokenReductionShadowRuntime()
+    : null;
+  const tokenReductionRuntime = tokenReductionResolution?.runtime ?? null;
+  let tokenReductionShadowUnavailable = null;
+  if (tokenReductionResolution?.error) {
+    try {
+      tokenReductionShadowUnavailable = tokenReductionShadowFailure(
+        tokenReductionResolution.error, tokenReductionScope
+      );
+    } catch {
+      // Even a damaged diagnostic helper cannot block or alter the selected legacy prompt.
+    }
+  }
   const promptCompilation = compilePromptSections([
     { id: 'phase-contract', text: governed.contract, mandatory: true, priority: 0 },
     { id: 'work-source', text: workSource.text, mandatory: true, priority: 0 },
@@ -4708,10 +4794,30 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
     },
     { id: 'stakeholder-change-requests', text: changeRequestContext, mandatory: true, priority: 0 },
     { id: 'approved-phase-inputs', text: governed.inputs, mandatory: true, priority: 0 }
-  ], workflow?.resolution?.tokenEconomy ?? definition.tokenEconomy ?? {});
+  ], tokenEconomyPolicy, {
+    ...(tokenReductionRuntime ? {
+      evaluateTokenReductionShadow: tokenReductionRuntime.evaluateTokenReductionShadow,
+      tokenReductionShadowFailure: tokenReductionRuntime.tokenReductionShadowFailure
+    } : {}),
+    ...(tokenReductionShadowUnavailable ? { tokenReductionShadowUnavailable } : {}),
+    // Observe one deterministic TKR candidate while retaining the exact legacy prompt as the
+    // only delivered/persisted authority. Shadow evaluation has no I/O or model boundary and a
+    // failure is captured as unavailable rather than blocking this Story.
+    tokenReductionShadow: true,
+    tokenReductionScope,
+    tokenReductionReceiptContext
+  });
   promptCompilation.warnings.forEach((warning) => console.error(`Token-economy warning: ${warning}`));
   const candidateText = promptCompilation.text;
   const { text: _compiledPromptText, ...promptComposition } = promptCompilation;
+  const tokenReductionReceipt = promptComposition.tokenReduction?.record?.receipt ?? null;
+  if (promptComposition.tokenReduction?.record) {
+    const { receipt: _receipt, ...shadowSummary } = promptComposition.tokenReduction.record;
+    promptComposition.tokenReduction = {
+      ...promptComposition.tokenReduction,
+      record: shadowSummary
+    };
+  }
   promptComposition.deduplicatedReferences = approvedReferences.deduplicated;
   promptComposition.inputLinearization = {
     sourceBytes: governed.inputRecords.reduce((total, entry) => total + (entry.bytes ?? 0), 0),
@@ -4874,9 +4980,10 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
     return;
   }
 
+  let persistedPromptRecord = null;
   if (workflow && !renderOnly) {
     const renderedSha256 = createHash('sha256').update(composedText).digest('hex');
-    const { file } = await recordInjection(root, workflow, phase, {
+    const { file, record } = await recordInjection(root, workflow, phase, {
       ...injection, agent, sections: files, modelCommit,
       structuralContext: structural.record,
       workSource: workSource.record,
@@ -4919,8 +5026,10 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
       })),
       compositionCache: { key: cached.key, hit: cached.hit },
       promptBudget: promptComposition,
+      tokenReduction: tokenReductionReceipt,
       executionContext: executionIdentity
     }, { workDir: path.join(root, workItemRoot, workflow.workItem.id) });
+    persistedPromptRecord = record;
     console.error(`Grounding composition recorded: ${file}`);
   }
   if (!renderOnly && options['skip-prompt-audit'] !== true) {
@@ -4939,7 +5048,10 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
         renderer: preview.renderer
       })),
       compositionCache: { key: cached.key, hit: cached.hit },
-      composition: promptComposition,
+      // Audit exactly the summary admitted by the prompt-generation owner. If advisory evidence
+      // was unavailable or failed verification, do not resurrect the unsanitized candidate claim
+      // on a second surface.
+      composition: persistedPromptRecord?.promptBudget ?? promptComposition,
       executionContext: executionIdentity
     });
   }

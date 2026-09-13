@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
 import { loadDefinition } from '../src/config.mjs';
-import { detachDocuments } from '../src/documents.mjs';
+import { detachDocuments, validateDocumentUrl } from '../src/documents.mjs';
 import { renderActiveStoryEvidence } from '../src/evidence-context.mjs';
 import { loadStoryAggregate } from '../src/state-stores.mjs';
 
@@ -44,6 +44,25 @@ test('progress and document commands upload, list, and view files, images, and F
   const notes = path.join(uploads, 'research notes.md'); const image = path.join(uploads, 'wireframe.png');
   await writeFile(notes, '# Research\nCustomer workflow evidence.\n'); await writeFile(image, Buffer.from('89504e470d0a1a0a', 'hex'));
   flow(root, ['start', 'DOCS-1', '--from-branch', 'main', '--title', 'Document intake']);
+
+  const credentialed = flow(root, [
+    'documents', 'upload', '--url', 'https://reviewer:secret@example.com/private'
+  ], { allowFailure: true });
+  assert.notEqual(credentialed.status, 0);
+  assert.match(credentialed.stderr, /must not contain credentials/);
+  const signed = flow(root, [
+    'documents', 'upload', '--url', 'https://example.com/private?token=secret'
+  ], { allowFailure: true });
+  assert.notEqual(signed.status, 0);
+  assert.match(signed.stderr, /must not contain credential parameter 'token'/);
+  assert.equal(
+    validateDocumentUrl('https://www.figma.com/design/example?node-id=10-2'),
+    'https://www.figma.com/design/example?node-id=10-2'
+  );
+  assert.equal(
+    validateDocumentUrl('https://github.example/repository/blob/main/app.js#L10-L20'),
+    'https://github.example/repository/blob/main/app.js#L10-L20'
+  );
 
   const visualProgress = flow(root, ['progress']).stdout;
   assert.match(visualProgress, /Workflow flow:/);

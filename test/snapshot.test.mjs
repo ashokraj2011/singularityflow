@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rename, stat, symlink, unlink, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rename, stat, symlink, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,6 +20,8 @@ import {
   selectEditorAgent,
   validateEditorConfiguration
 } from '../src/editor.mjs';
+import { exactRemoteHeadsObservationAsync } from '../src/git.mjs';
+import { readTransportIntent, retryTransportIntent } from '../src/transport-intents.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -67,6 +69,16 @@ async function repository() {
   run('git', ['remote', 'add', 'origin', remote], root);
   run('git', ['push', '-u', 'origin', 'main'], root);
   return root;
+}
+
+async function enableEditorPublication(root) {
+  const workflowPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(workflowPath, 'utf8'));
+  definition.git.publish = 'required';
+  await writeFile(workflowPath, YAML.stringify(definition));
+  run('git', ['add', 'singularity/workflow.yml'], root);
+  run('git', ['commit', '-m', 'require configuration publication'], root);
+  run('git', ['push', 'origin', 'main'], root);
 }
 
 test('snapshot exposes configuration and visual workflow data', async () => {
@@ -566,6 +578,321 @@ test('visual editor configuration saves validate atomically and publish scoped c
   assert.equal(published.pushed, false);
   assert.deepEqual(published.files.sort(), ['.github/agents/reviewer.agent.md', 'singularity/agent-mappings.yml', templatePath].sort());
   assert.match(run('git', ['log', '-1', '--format=%s'], root).stdout, /Configure visual editor template/);
+});
+
+test('visual editor cannot expand a dirty candidate root over application source', async () => {
+  const root = await repository();
+  const workflowPath = path.join(root, 'singularity/workflow.yml');
+  const originalWorkflow = await readFile(workflowPath, 'utf8');
+  const definition = YAML.parse(originalWorkflow);
+  definition.templatesRoot = 'src';
+
+  await assert.rejects(
+    () => saveConfigurationFile(root, 'singularity/workflow.yml', YAML.stringify(definition)),
+    (error) => error?.code === 'CONFIGURATION_PATH_SCOPE_ESCALATION'
+      && error?.details?.escalations?.some((entry) =>
+        entry.field === 'templatesRoot' && entry.candidate === 'src')
+  );
+  const agentRootCandidate = YAML.parse(originalWorkflow);
+  agentRootCandidate.agentPromptsRoot = 'src';
+  await assert.rejects(
+    () => saveConfigurationFile(
+      root, 'singularity/workflow.yml', YAML.stringify(agentRootCandidate)
+    ),
+    (error) => error?.code === 'CONFIGURATION_PATH_SCOPE_ESCALATION'
+      && error?.details?.escalations?.some((entry) =>
+        entry.field === 'agentPromptsRoot' && entry.candidate === 'src')
+  );
+  const portfolioPath = path.join(root, 'singularity/portfolio.yml');
+  const portfolio = YAML.parse(await readFile(portfolioPath, 'utf8'));
+  portfolio.templatesRoot = 'src';
+  await assert.rejects(
+    () => saveConfigurationFile(root, 'singularity/portfolio.yml', YAML.stringify(portfolio)),
+    (error) => error?.code === 'CONFIGURATION_PATH_SCOPE_ESCALATION'
+      && error?.details?.escalations?.some((entry) =>
+        entry.field === 'portfolioTemplatesRoot' && entry.candidate === 'src')
+  );
+
+  // A caller can edit the working tree without going through the Configuration Center. Even with a
+  // complete template tree that makes the dirty workflow semantically valid, publication must bind
+  // path authority to HEAD and leave both the application bytes and configuration uncommitted.
+  await cp(path.join(root, 'singularity/templates'), path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/application.js'), 'export const governed = false;\n');
+  await writeFile(workflowPath, YAML.stringify(definition));
+  const before = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+
+  await assert.rejects(
+    () => publishEditorConfiguration(root, 'Must not absorb application source'),
+    (error) => error?.code === 'CONFIGURATION_PATH_SCOPE_ESCALATION'
+  );
+
+  assert.equal(run('git', ['rev-parse', 'HEAD'], root).stdout.trim(), before);
+  assert.match(run('git', ['status', '--short', '--', 'src/application.js'], root).stdout, /src\/application\.js/);
+});
+
+test('configuration remote-head observations treat magic branch names as inert data', async () => {
+  const root = await repository();
+  const commit = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+  run('git', ['branch', '__proto__', commit], root);
+  run('git', ['push', 'origin', 'refs/heads/__proto__:refs/heads/__proto__'], root);
+
+  const observed = await exactRemoteHeadsObservationAsync(root, `${root}.git`);
+
+  assert.equal(observed.reachable, true);
+  assert.equal(observed.malformed, false);
+  assert.equal(Object.getPrototypeOf(observed.heads), null);
+  assert.equal(observed.heads.__proto__, commit);
+  assert.equal(Object.hasOwn(observed.heads, '__proto__'), true);
+});
+
+test('visual editor applies a required publication policy to the commit that turns it off', async () => {
+  const root = await repository();
+  await enableEditorPublication(root);
+  const workflowPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(workflowPath, 'utf8'));
+  definition.git.publish = 'off';
+  await writeFile(workflowPath, YAML.stringify(definition));
+  const before = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+
+  await assert.rejects(
+    () => publishEditorConfiguration(root, 'Disable future configuration publication'),
+    /protected application branch 'main'/i
+  );
+  assert.equal(run('git', ['rev-parse', 'HEAD'], root).stdout.trim(), before);
+
+  const reviewBranch = 'sflow/config-review/disable-publication';
+  run('git', ['switch', '-c', reviewBranch], root);
+  const outbox = await mkdtemp(path.join(os.tmpdir(), 'sflow-editor-policy-outbox-'));
+  const published = await publishEditorConfiguration(
+    root,
+    'Disable future configuration publication',
+    { transport: { env: { ...process.env, SINGULARITY_FLOW_TRANSPORT_OUTBOX: outbox } } }
+  );
+
+  assert.equal(published.pushed, true);
+  assert.equal(run('git', [
+    'ls-remote', '--heads', 'origin', `refs/heads/${reviewBranch}`
+  ], root).stdout.trim().split(/\s+/u)[0], published.sha);
+});
+
+test('visual editor publishes a remote-policy change through the parent-authorized remote', async () => {
+  const root = await repository();
+  await enableEditorPublication(root);
+  const alternateRemote = `${root}-candidate-remote.git`;
+  run('git', ['init', '--bare', '-b', 'main', alternateRemote], root);
+  run('git', ['remote', 'add', 'candidate-remote', alternateRemote], root);
+  const reviewBranch = 'sflow/config-review/change-remote';
+  run('git', ['switch', '-c', reviewBranch], root);
+  const workflowPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(workflowPath, 'utf8'));
+  definition.git.remote = 'candidate-remote';
+  await writeFile(workflowPath, YAML.stringify(definition));
+  const outbox = await mkdtemp(path.join(os.tmpdir(), 'sflow-editor-remote-policy-outbox-'));
+
+  const published = await publishEditorConfiguration(
+    root,
+    'Change future configuration remote',
+    { transport: { env: { ...process.env, SINGULARITY_FLOW_TRANSPORT_OUTBOX: outbox } } }
+  );
+
+  assert.equal(published.pushed, true);
+  assert.equal(published.remote, 'origin');
+  assert.equal(run('git', [
+    'ls-remote', '--heads', 'origin', `refs/heads/${reviewBranch}`
+  ], root).stdout.trim().split(/\s+/u)[0], published.sha);
+  assert.equal(run('git', [
+    'ls-remote', '--heads', 'candidate-remote', `refs/heads/${reviewBranch}`
+  ], root).stdout.trim(), '');
+});
+
+test('visual editor publishes through an exact recoverable transport intent', async () => {
+  const root = await repository();
+  await enableEditorPublication(root);
+  const reviewBranch = 'sflow/config-review/editor-test';
+  run('git', ['switch', '-c', reviewBranch], root);
+  const templatePath = 'singularity/templates/feature/design.md';
+  const template = await readFile(path.join(root, templatePath), 'utf8');
+  await saveConfigurationFile(root, templatePath, `${template}\nRecoverable editor publication.\n`);
+  const outbox = await mkdtemp(path.join(os.tmpdir(), 'sflow-editor-transport-'));
+
+  const published = await publishEditorConfiguration(
+    root,
+    'Configure through transport intent',
+    { transport: { env: { ...process.env, SINGULARITY_FLOW_TRANSPORT_OUTBOX: outbox } } }
+  );
+
+  assert.equal(published.pushed, true);
+  assert.match(published.transportIntent, /^psh_/u);
+  assert.equal(run('git', [
+    'ls-remote', '--heads', 'origin', `refs/heads/${reviewBranch}`
+  ], root).stdout.trim().split(/\s+/u)[0], published.sha);
+  const receipt = JSON.parse(await readFile(path.join(
+    outbox, 'intents', `${published.transportIntent}.json`
+  ), 'utf8'));
+  assert.equal(receipt.status, 'succeeded');
+  assert.equal(receipt.sourceCommit, published.sha);
+  assert.equal(receipt.expectedRemote, null);
+  assert.equal(receipt.scope.operation, 'sflow.configuration.editor.publish');
+  assert.equal(receipt.scope.requiredLocalRef, `refs/heads/${reviewBranch}`);
+  assert.deepEqual(receipt.scope.remoteParentRefs, ['refs/heads/main']);
+});
+
+test('visual editor reserves its transport intent before advancing the configuration branch', async () => {
+  const root = await repository();
+  await enableEditorPublication(root);
+  const reviewBranch = 'sflow/config-review/outbox-failure';
+  run('git', ['switch', '-c', reviewBranch], root);
+  const templatePath = 'singularity/templates/feature/design.md';
+  const template = await readFile(path.join(root, templatePath), 'utf8');
+  await saveConfigurationFile(root, templatePath, `${template}\nOutbox reservation must precede HEAD.\n`);
+  const before = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+  const transportRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-editor-bad-outbox-'));
+  const blockedOutbox = path.join(transportRoot, 'not-a-directory');
+  await writeFile(blockedOutbox, 'occupied');
+
+  await assert.rejects(
+    () => publishEditorConfiguration(root, 'Must not advance without an outbox', {
+      transport: { env: { ...process.env, SINGULARITY_FLOW_TRANSPORT_OUTBOX: blockedOutbox } }
+    }),
+    (error) => error?.code === 'CONFIGURATION_TRANSPORT_RESERVATION_FAILED'
+  );
+
+  assert.equal(run('git', ['rev-parse', 'HEAD'], root).stdout.trim(), before);
+  assert.equal(run('git', [
+    'ls-remote', '--heads', 'origin', `refs/heads/${reviewBranch}`
+  ], root).stdout.trim(), '');
+  assert.match(await readFile(path.join(root, templatePath), 'utf8'), /Outbox reservation must precede HEAD/);
+});
+
+test('visual editor refuses a push-remote swap after exact preflight and before intent reservation', async () => {
+  const root = await repository();
+  await enableEditorPublication(root);
+  const reviewBranch = 'sflow/config-review/remote-swap';
+  run('git', ['switch', '-c', reviewBranch], root);
+  const originalRemote = run('git', ['remote', 'get-url', '--push', 'origin'], root).stdout.trim();
+  const alternateRemote = `${root}-alternate.git`;
+  run('git', ['init', '--bare', '-b', 'main', alternateRemote], root);
+  const templatePath = 'singularity/templates/feature/design.md';
+  const template = await readFile(path.join(root, templatePath), 'utf8');
+  await saveConfigurationFile(root, templatePath, `${template}\nThe preflight remote must remain authoritative.\n`);
+  const before = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+  const outbox = await mkdtemp(path.join(os.tmpdir(), 'sflow-editor-swap-outbox-'));
+  let swapped = false;
+
+  await assert.rejects(
+    () => publishEditorConfiguration(root, 'Must not follow a swapped push URL', {
+      transport: {
+        env: { ...process.env, SINGULARITY_FLOW_TRANSPORT_OUTBOX: outbox },
+        runCommand: (command, args, options = {}) => {
+          if (!swapped && command === 'git' && args[0] === 'rev-parse') {
+            run('git', ['remote', 'set-url', '--push', 'origin', alternateRemote], root);
+            swapped = true;
+          }
+          return run(command, args, options.cwd ?? root, { allowFailure: true });
+        }
+      }
+    }),
+    (error) => error?.code === 'CONFIGURATION_TRANSPORT_RESERVATION_FAILED'
+      && error?.cause?.code === 'TRANSPORT_REMOTE_DRIFTED'
+  );
+
+  assert.equal(swapped, true);
+  assert.equal(run('git', ['rev-parse', 'HEAD'], root).stdout.trim(), before);
+  for (const remoteUrl of [originalRemote, alternateRemote]) {
+    assert.equal(run('git', [
+      'ls-remote', '--heads', remoteUrl, `refs/heads/${reviewBranch}`
+    ], root).stdout.trim(), '');
+  }
+});
+
+test('visual editor refuses configuration bytes changed after semantic validation', async () => {
+  const root = await repository();
+  await enableEditorPublication(root);
+  const reviewBranch = 'sflow/config-review/validation-race';
+  run('git', ['switch', '-c', reviewBranch], root);
+  const templatePath = 'singularity/templates/feature/design.md';
+  const template = await readFile(path.join(root, templatePath), 'utf8');
+  await saveConfigurationFile(root, templatePath, `${template}\nValidated candidate.\n`);
+  const before = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+
+  await assert.rejects(
+    () => publishEditorConfiguration(root, 'Do not sweep later bytes', {
+      fault: async (stage) => {
+        if (stage === 'after-configuration-validation') {
+          await writeFile(path.join(root, templatePath), `${template}\nChanged after validation.\n`);
+        }
+      }
+    }),
+    (error) => error?.code === 'PUBLICATION_CANDIDATE_DRIFT'
+  );
+
+  assert.equal(run('git', ['rev-parse', 'HEAD'], root).stdout.trim(), before);
+  assert.equal(run('git', [
+    'ls-remote', '--heads', 'origin', `refs/heads/${reviewBranch}`
+  ], root).stdout.trim(), '');
+});
+
+test('visual editor exposes its exact recovery intent after a post-ref interruption', async () => {
+  const root = await repository();
+  await enableEditorPublication(root);
+  const reviewBranch = 'sflow/config-review/post-ref';
+  run('git', ['switch', '-c', reviewBranch], root);
+  const templatePath = 'singularity/templates/feature/design.md';
+  const template = await readFile(path.join(root, templatePath), 'utf8');
+  await saveConfigurationFile(root, templatePath, `${template}\nRecover after ref advancement.\n`);
+  const outbox = await mkdtemp(path.join(os.tmpdir(), 'sflow-editor-post-ref-'));
+  let refusal;
+
+  await assert.rejects(
+    () => publishEditorConfiguration(root, 'Retained editor commit', {
+      transport: { env: { ...process.env, SINGULARITY_FLOW_TRANSPORT_OUTBOX: outbox } },
+      fault: async (stage) => {
+        if (stage === 'after-ref-update') throw new Error('simulated process interruption');
+      }
+    }),
+    (error) => {
+      refusal = error;
+      return error?.code === 'CONFIGURATION_PUBLICATION_PENDING'
+        && /^psh_/u.test(error?.details?.intentId ?? '');
+    }
+  );
+
+  assert.equal(run('git', ['rev-parse', 'HEAD'], root).stdout.trim(), refusal.details.sha);
+  const pending = await readTransportIntent(refusal.details.intentId, {
+    env: { ...process.env, SINGULARITY_FLOW_TRANSPORT_OUTBOX: outbox }
+  });
+  assert.equal(pending.status, 'pending');
+  const recovered = await retryTransportIntent(pending.intentId, {
+    env: { ...process.env, SINGULARITY_FLOW_TRANSPORT_OUTBOX: outbox }
+  });
+  assert.equal(recovered.status, 'succeeded');
+  assert.equal(run('git', [
+    'ls-remote', '--heads', 'origin', `refs/heads/${reviewBranch}`
+  ], root).stdout.trim().split(/\s+/u)[0], refusal.details.sha);
+});
+
+test('visual editor refuses a create-only branch with unpublished local ancestry', async () => {
+  const root = await repository();
+  await enableEditorPublication(root);
+  const reviewBranch = 'sflow/config-review/hidden-history';
+  run('git', ['switch', '-c', reviewBranch], root);
+  await writeFile(path.join(root, 'hidden.txt'), 'unpublished application history\n');
+  run('git', ['add', 'hidden.txt'], root);
+  run('git', ['commit', '-m', 'local-only parent'], root);
+  const unpublishedParent = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+  const templatePath = 'singularity/templates/feature/design.md';
+  const template = await readFile(path.join(root, templatePath), 'utf8');
+  await saveConfigurationFile(root, templatePath, `${template}\nDo not publish hidden ancestry.\n`);
+
+  await assert.rejects(
+    () => publishEditorConfiguration(root, 'Must not publish hidden ancestry'),
+    (error) => error?.code === 'CONFIGURATION_UNPUBLISHED_ANCESTRY'
+  );
+
+  assert.equal(run('git', ['rev-parse', 'HEAD'], root).stdout.trim(), unpublishedParent);
+  assert.equal(run('git', [
+    'ls-remote', '--heads', 'origin', `refs/heads/${reviewBranch}`
+  ], root).stdout.trim(), '');
 });
 
 test('visual editor rejects a stale configuration revision without overwriting concurrent edits', async () => {

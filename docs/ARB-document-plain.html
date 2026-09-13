@@ -1,0 +1,578 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>SingularityFlow — Architecture Review Board Document</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>body{font:15px/1.55 Arial,sans-serif;color:#262626;max-width:1150px;margin:32px auto;padding:0 20px}h1{font-size:26px}h2{border-bottom:2px solid #6DA544;padding-bottom:4px;margin-top:40px}h3{margin-top:22px}.part{background:#1f4b25;color:#cfe8b8;padding:6px 12px;border-radius:6px;margin-top:44px;font-weight:700;letter-spacing:.08em}.mermaid{background:#fafbfc;border:1px solid #d9d9d9;border-radius:8px;padding:12px;margin:12px 0}table{border-collapse:collapse;width:100%;font-size:13.5px}th,td{border:1px solid #d9d9d9;padding:6px 9px;vertical-align:top}th{background:#f4f4f4;text-align:left}code{background:#f2f2f2;padding:1px 4px;border-radius:3px}pre.code{background:#1f2a24;color:#d6ffea;padding:12px;border-radius:8px;font:12.5px/1.5 Menlo,Consolas,monospace;overflow:auto}.note{background:#e8f3e2;border-left:4px solid #6DA544;padding:8px 12px;font-size:13px}nav{background:#eef1f3;border-radius:10px;padding:12px 22px}</style></head><body>
+<h1>SingularityFlow — Architecture Review Board Document</h1>
+<p>Baseline <code>f5d5396</code> · Sept 13, 2026 · Status labels used below: verified (covered by tests on a fresh clone at f5d5396), implemented, in progress, proposed. Companion pre-reads: NFR table, risk register, compliance mapping, gap register.</p>
+<nav><b>Contents</b><ol>
+<li>Business overview</li><li>Why it makes coding at scale less error-prone</li><li>System view</li><li>The gateway</li><li>Sequence: one governed story</li><li>How the tool checks documents and code, with and without AI</li><li>World model and AST</li><li>Git as durable storage and how work moves between people</li><li>Data overview</li><li>Repository storage layout</li><li>Capability model and onboarding (implemented per FOS/UCF)</li><li>Workflow and Outcome flows</li><li>Developer experience</li><li>Important commands</li><li>Infrastructure and deployment</li><li>Technologies used and the runtime explained as a small virtual machine</li><li>Security</li><li>Extensibility and future control-plane integration</li><li>Workflow and artifact designer, governed agents, remote definitions</li><li>Architectural decisions</li><li>Terms and descriptions</li></ol></nav>
+
+<div class="part">PART I — WHY</div>
+<h2>1. Business overview</h2>
+<p>AI agents now draft code faster than any review culture can absorb, and the organization is offered a false choice: agent autonomy or formal control. Choose autonomy and weekend POCs cement architecture and ship regressions; choose control and developers route around governance, which then reports green. SingularityFlow is the <b>PDLC Assistant</b> — the workflow tool for the product delivery lifecycle — built on an <b>core engine</b> for changes produced by humans or agents: the same standard of proof for every change, with ceremony removed rather than governance removed. It runs inside tools already owned (VS Code, Copilot, Jira, Jenkins, Git); it procures nothing and hosts nothing. Positioning: the PDLC Assist Extension in the target architecture; the future control plane subscribes to its events.</p>
+<table><tr><th>Audience</th><th>What changes for them</th></tr><tr><td>Developers</td><td>AI does the drafting; checks run in under a second on the exact bytes; the governed path is also the shorter one</td></tr><tr><td>Product owners / PMs</td><td>status computed from the work, not reported; requirement changes show what they reopen</td></tr><tr><td>Architecture / risk / QA</td><td>approvals bound to exact versions; evidence written as a by-product; audit from a bare clone</td></tr><tr><td>Leadership</td><td>measured review time, rework, defects traced — never "governance records produced"</td></tr></table>
+
+<h2>2. Why it makes coding at scale less error-prone</h2>
+<p>Errors at scale are <i>binding</i> failures, not typing failures: code that compiles and passes tests but is attached to no requirement, no boundary, no approval, no evidence. The core engine binds five things mechanically — intent (numbered clauses), context (a computed world model, not a prompt pile), permission (exact scope and protected paths), conformance (deterministic checks on structure, tests, coverage), and record (receipts, refusals with the fix named). Measured on the platform's own ledger: an agent that tried to edit the workflow file that judged it was refused (protected path); a passing test report bound to a previous test body would be refused (test-identity evidence, proposed). Every claim on this page is labeled; the platform publishes its own gap register.</p>
+
+<div class="part">PART II — ARCHITECTURE</div>
+<h2>3. System view</h2>
+<pre class="mermaid">flowchart TB
+  H[People - developers, POs, reviewers, architects - the only source of authority]
+  VS[VS Code]
+  CP[GitHub Copilot or any agent]
+  TM[Terminal]
+  TE[Future - Teams and Microsoft Copilot surfaces]
+  GW[Gateway - a small fixed set of read and run operations, no approve operation]
+  K1[Pinned rules per story]
+  K2[Envelope - bounded context]
+  K3[Gates on bytes - structure, tests, coverage, protected paths]
+  K4[Approvals bound to sha256 - stale on edit]
+  K5[Exactly-once publish - journal, CAS, doctor]
+  K6[Receipts, refusals, events]
+  G[Git - stories, candidates, approvals, evidence as branches - bare clone equals audit]
+  J[Jira intake and status]
+  CF[Confluence or SharePoint]
+  DL[Data lake and dashboards]
+  CPL[Future - PDLC control plane subscribes and pushes pinned policy]
+  H --> VS
+  H --> CP
+  VS --> GW
+  CP --> GW
+  TM --> GW
+  TE -.-> GW
+  GW --> K1
+  GW --> K3
+  K1 --> K2
+  K3 --> K4
+  K4 --> K5
+  K5 --> K6
+  K6 --> G
+  J --> K1
+  K6 --> J
+  K6 -.-> CF
+  K6 -.-> DL
+  K6 -.-> CPL
+  CPL -.-> K1
+  classDef p fill:#f7edd8,stroke:#8a6a1f
+  classDef s fill:#f4f4f4,stroke:#8c8c8c
+  classDef f fill:#ffffff,stroke:#8c8c8c,stroke-dasharray: 5 4
+  classDef d fill:#eceaf8,stroke:#534ab7
+  classDef k fill:#e8f3e2,stroke:#3e7a33
+  classDef g fill:#1f4b25,stroke:#1f4b25,color:#ffffff
+  class H p
+  class VS,CP,TM s
+  class TE,CPL f
+  class GW d
+  class K1,K2,K3,K4,K5,K6 k
+  class G g</pre>
+<p class="note">Solid = implemented today; dashed = future integration (Teams and Microsoft Copilot as surfaces; the PDLC control plane as subscriber and policy source). Outer layers make requests; only the core engine writes records; only people approve.</p>
+<p class="note">No services or daemon; runtime dependencies pinned and bundled; being down stops nothing; swap the agent, editor, ticketing tool or control plane and the machine and its proof stay the same. <b>Verified.</b></p>
+
+<h3>3a. Runtime, authentication, and Git authority</h3>
+<pre class="mermaid">flowchart TB
+  subgraph SURFACES["User surfaces"]
+    VSC["VS Code extension&lt;br/&gt;Webviews and Explorer"]
+    COPILOT["GitHub Copilot&lt;br/&gt;/sf-* and /sflow-* skills"]
+    CLI_TERM["Terminal CLI&lt;br/&gt;sflow / singularity-flow"]
+  end
+
+  subgraph AUTH["Authentication and secrets"]
+    KEYCHAIN["OS Keychain / GCM / SSH&lt;br/&gt;Git remote operations"]
+    SEC_STORE["VS Code SecretStorage&lt;br/&gt;Jira PAT and Teams webhooks"]
+    GH_AUTH["GitHub CLI — gh&lt;br/&gt;PR and review APIs"]
+  end
+
+  subgraph RUNTIME["Singularity Flow Node.js engine"]
+    DISPATCH["Command dispatcher&lt;br/&gt;and CLI runner"]
+    PROMPT_ENG["Prompt composer&lt;br/&gt;and world-model grounding"]
+    GOV["Governance engine&lt;br/&gt;gates, approvals, quality checks"]
+  end
+
+  subgraph AI["AI execution layer"]
+    COPILOT_RUNNER["Copilot CLI / LLM runner&lt;br/&gt;artifact and code generation"]
+  end
+
+  subgraph STATE["Git storage — single source of truth"]
+    WORK_BRANCH["Work branches&lt;br/&gt;singularity/work-items/*"]
+    CONFIG_BRANCH["sflow/config branch&lt;br/&gt;capabilities.yml and workflow.yml"]
+    LEDGER_BRANCH["state branch&lt;br/&gt;tamper-evident ledger"]
+    LOCAL_GIT[".git/singularity-flow/&lt;br/&gt;session, telemetry, cache"]
+  end
+
+  VSC -- "Secret injection — environment" --> DISPATCH
+  SEC_STORE -. "Injected into child process" .-> DISPATCH
+  COPILOT -- "SKILL.md contract" --> DISPATCH
+  CLI_TERM --> DISPATCH
+
+  DISPATCH --> PROMPT_ENG
+  PROMPT_ENG --> COPILOT_RUNNER
+  COPILOT_RUNNER -- "Proposed artifact" --> GOV
+
+  GOV -- "Deterministic commit and push" --> WORK_BRANCH
+  GOV -- "Record events" --> LEDGER_BRANCH
+  DISPATCH -- "Local session state" --> LOCAL_GIT
+  DISPATCH -- "Remote map authority" --> CONFIG_BRANCH
+
+  KEYCHAIN -. "Git authentication" .-> STATE
+  GH_AUTH -. "Create PRs" .-> WORK_BRANCH
+
+  classDef surface fill:#f4f4f4,stroke:#707070
+  classDef auth fill:#f7edd8,stroke:#8a6a1f
+  classDef runtime fill:#eceaf8,stroke:#534ab7
+  classDef ai fill:#e8f3e2,stroke:#3e7a33
+  classDef state fill:#1f4b25,stroke:#1f4b25,color:#ffffff
+  class VSC,COPILOT,CLI_TERM surface
+  class KEYCHAIN,SEC_STORE,GH_AUTH auth
+  class DISPATCH,PROMPT_ENG,GOV runtime
+  class COPILOT_RUNNER ai
+  class WORK_BRANCH,CONFIG_BRANCH,LEDGER_BRANCH,LOCAL_GIT state</pre>
+<p class="note">The surfaces never become an authority boundary. They call the same Node.js engine, which composes bounded context, delegates drafting to the configured model runner, applies deterministic governance, and records durable outcomes in Git. Credentials stay in the operating system, VS Code secret storage, or GitHub CLI; they are injected only for the child operation that needs them and are not written into governed artifacts.</p>
+
+<h3>3b. Architecture — the PDLC Assistant in layers</h3>
+<pre class="mermaid">flowchart TB
+  subgraph L1[Intake and intent]
+    I1[Jira epics and stories or manual intake]
+    I2[Clarification checkpoints - answers pinned]
+    I3[Numbered clauses and acceptance criteria]
+  end
+  subgraph L2[Governed delivery lifecycle]
+    P1[Specify]
+    P2[Plan]
+    P3[Build with any agent in isolated candidate]
+    P4[Converge and verify]
+    P5[Review and approve]
+    P6[Publish]
+  end
+  subgraph L3[Core engine]
+    A1[Pinned rules and profiles]
+    A2[Deterministic gates and three evidencees]
+    A3[Approvals bound to bytes]
+    A4[Exactly-once publication and recovery]
+  end
+  subgraph L4[Knowledge and context]
+    W1[World model - parsed, never written]
+    W2[Capability map - ownership, protection, contracts]
+    W3[Prompt envelope - bounded context per phase]
+  end
+  subgraph L5[Record and integration]
+    R1[Receipts, refusals, events, change record]
+    R2[Git as durable authority store]
+    R3[Status to Jira, pages to Confluence, events to data lake]
+    R4[Future - Teams, Microsoft Copilot, PDLC control plane]
+  end
+  I1 --> I2
+  I2 --> I3
+  I3 --> P1
+  P1 --> P2
+  P2 --> P3
+  P3 --> P4
+  P4 --> P5
+  P5 --> P6
+  A1 --> P1
+  A2 --> P4
+  A3 --> P5
+  A4 --> P6
+  W1 --> P3
+  W2 --> A1
+  W3 --> P3
+  P6 --> R1
+  R1 --> R2
+  R1 --> R3
+  R1 -.-> R4
+  classDef i fill:#f7edd8,stroke:#8a6a1f
+  classDef l fill:#e8f3e2,stroke:#3e7a33
+  classDef k fill:#eceaf8,stroke:#534ab7
+  classDef w fill:#f4f4f4,stroke:#8c8c8c
+  classDef r fill:#ffffff,stroke:#3e7a33
+  class I1,I2,I3 i
+  class P1,P2,P3,P4,P5,P6 l
+  class A1,A2,A3,A4 k
+  class W1,W2,W3 w
+  class R1,R2,R3,R4 r</pre>
+
+<table><tr><th>Layer</th><th>Box</th><th>What it is</th><th>Status</th></tr>
+<tr><td rowspan="3">Intake and intent</td><td>Jira epics and stories or manual intake</td><td>Where work enters. A Jira link or a plain sentence becomes a story; the intent is pinned immutably as <code>source.json</code>.</td><td>implemented</td></tr>
+<tr><td>Clarification checkpoints</td><td>One bounded batch of questions per phase, derived only from pinned sources; answers are recorded as pins that ride every later packet and are never re-asked.</td><td>implemented</td></tr>
+<tr><td>Numbered clauses and acceptance criteria</td><td>Requirements and ACs with stable ids (<code>WRK-169:AC-002</code>) — the unit that requirements, claims and evidence refer to.</td><td>implemented</td></tr>
+<tr><td rowspan="6">Governed delivery lifecycle</td><td>Specify</td><td>Specification artifact from the pinned intent; product-owner approval.</td><td>implemented</td></tr>
+<tr><td>Plan</td><td>Approach, affected surfaces, test strategy per clause; architecture-reviewer approval.</td><td>implemented</td></tr>
+<tr><td>Build with any agent in isolated candidate</td><td>Copilot or any agent drafts inside a per-story worktree under a phase contract; output is a proposal until proven.</td><td>implemented (Copilot); other agents proposed</td></tr>
+<tr><td>Converge and verify</td><td>Reconcile what changed against what was claimed; run tests and structural checks on the exact bytes; evidence hash-bound.</td><td>implemented</td></tr>
+<tr><td>Review and approve</td><td>A named human signs the exact version; any later edit expires the signature.</td><td>implemented</td></tr>
+<tr><td>Publish</td><td>Exactly-once advance of the authoritative ref; receipt and event written.</td><td>implemented</td></tr>
+<tr><td rowspan="4">Core engine</td><td>Pinned rules and profiles</td><td>The rules a story is judged by, frozen at its start; profiles (poc, team, regulated) set approval strictness.</td><td>implemented</td></tr>
+<tr><td>Deterministic gates and three evidencees</td><td>Ten checks on bytes; structural (AST), behavioral (bound tests), human (signature). No model inside any gate; proven nightly with counterfeit models.</td><td>implemented; test-body-hash binding proposed</td></tr>
+<tr><td>Approvals bound to bytes</td><td>Signature over sha256 under the pinned policy with separation of duties; STALE with cause on any change.</td><td>implemented</td></tr>
+<tr><td>Exactly-once publication and recovery</td><td>Journal, compare-and-swap, <code>doctor</code> — crash at any step completes or aborts exactly once.</td><td>implemented; crash-recovery suite green on a clean Linux clone (Sept 13)</td></tr>
+<tr><td rowspan="3">Knowledge and context</td><td>World model</td><td>Parsed map of the repository — symbols, edges, test identities — stamped per commit; computed, never written by a model.</td><td>implemented: fact ledger, registered views and projections, state-branch publication</td></tr>
+<tr><td>Capability map</td><td>Who owns which paths, what is protected, what is published or depended on; every repo carries the map it is judged by.</td><td>implemented</td></tr>
+<tr><td>Prompt envelope</td><td>What the model is handed per phase: pinned prefix, briefed history, task, explicit obligations, stamp.</td><td>composer implemented; v1 layering proposed</td></tr>
+<tr><td rowspan="4">Record and integration</td><td>Receipts, refusals, events, change record</td><td>The record written as a by-product: what happened, what was refused and the fix, and the portable per-change record.</td><td>implemented; change record naming proposed</td></tr>
+<tr><td>Git as durable authority store</td><td>All of the above as ordinary Git objects; a bare clone is a complete audit.</td><td>implemented</td></tr>
+<tr><td>Jira, Confluence, data lake</td><td>Status projected to Jira; pages generated to Confluence/SharePoint; registered events to the data lake.</td><td>Jira implemented; others proposed</td></tr>
+<tr><td>Teams, Microsoft Copilot, PDLC control plane</td><td>Future surfaces (render and relay, decisions validated at the edge) and the future control plane (subscribes to events, pushes pinned policy; never authoritative).</td><td>future</td></tr></table>
+
+<h2>4. Sequence: one governed story</h2>
+<pre class="mermaid">sequenceDiagram
+  participant PO as Product owner
+  participant Dev as Developer
+  participant Agent as AI agent
+  participant K as Core engine
+  participant Git as Git
+  PO->>K: start story from Jira link or sentence
+  K->>Git: pin rules for this story and create worktree
+  K->>PO: one batch of clarifying questions
+  PO->>K: answers recorded as pins
+  Dev->>Agent: draft under phase contract
+  Agent->>K: read world model slice and propose candidate
+  K->>K: freeze candidate sha256 and run gates on bytes
+  K-->>Dev: refusal with smallest fix, or ready
+  Dev->>K: request review
+  K->>PO: approve exactly this version
+  PO->>K: signature over sha256
+  K->>Git: exactly-once publish, receipt, event
+  K-->>PO: status computed, no meeting</pre>
+
+<h2>4b. How documents and code are checked</h2>
+<p>The rule is simple: <b>The AI produces drafts; the checks that decide are computed, not asked of the AI.</b> Every artifact — a specification, a plan, an implementation summary, test evidence, and the code itself — passes through checks that run without any model. The AI helps produce the content; it is never consulted about whether the content is acceptable.</p>
+<table><tr><th>What is checked</th><th>Without AI (the checks that decide)</th><th>With AI (help that never decides)</th></tr>
+<tr><td><b>Intent</b> (story source)</td><td>Pinned immutably at start with a hash; any later artifact that contradicts it is stopped and routed to an intent amendment.</td><td>The AI drafts questions to clarify it; a human answers; answers are pinned.</td></tr>
+<tr><td><b>Specification</b></td><td>Required headings present; minimum authored content; no TODO or placeholder left; every requirement and acceptance criterion has a stable id in the right syntax; unresolved clarification markers block publication; cited constitution articles must exist at the pinned revision.</td><td>The AI writes the draft from the pinned intent and the repository map; a product approver signs the exact version.</td></tr>
+<tr><td><b>Plan</b></td><td>Every clause has a test-strategy row with exact repository paths (directories or prose are refused); expected paths recorded; the plan cites the clauses it serves.</td><td>The AI proposes approach and sequencing; an architecture reviewer signs.</td></tr>
+<tr><td><b>Code</b></td><td>Parsed by built-in extractors: claimed functions and files exist; claimed tests reference the claimed code; changes stay inside the story's write scope; protected paths force a named human; per-capability structural rules (layering, tagging) hold.</td><td>The AI drafts the code inside an isolated candidate; it may read the parsed map on demand.</td></tr>
+<tr><td><b>Tests and evidence</b></td><td>Configured commands run on the frozen candidate; exit codes and reports are hash-bound to that exact version; a skipped test is a failure; evidence from another version is refused; (proposed) each acceptance criterion binds to a named test whose body hash must match.</td><td>The AI writes tests and reports results — its report is advisory; only the recorded run counts.</td></tr>
+<tr><td><b>Coverage of requirements</b></td><td>Set arithmetic: required clauses must be a subset of claimed clauses; missing claims are named.</td><td>The AI attaches claim tags; the core engine counts them.</td></tr>
+<tr><td><b>Approvals</b></td><td>Signature verified over the artifact hash, by a member of the required group, not the author; edit one byte and the approval is STALE with the cause named.</td><td>None — approval is a human act; the AI cannot request, grant or simulate it.</td></tr>
+<tr><td><b>Publication</b></td><td>All of the above re-checked at the moment of publishing; atomic advance; receipt written; audit can re-run every check later from a bare clone.</td><td>None.</td></tr></table>
+
+<h3>Worked example — "change the app colour to blue" (a real story from the platform's own ledger)</h3>
+<pre class="mermaid">flowchart LR
+  subgraph AI[AI writes - advisory]
+    A1[Drafts specification from pinned intent]
+    A2[Drafts plan and test strategy]
+    A3[Edits app.component.css and adds theme.test.ts]
+    A4[Reports - tests passed]
+  end
+  subgraph K[Computation decides - no model]
+    C1[Spec check - headings present, no TODO, ids AC-001 to AC-005 valid, no open clarification]
+    C2[Plan check - every clause has an exact test path]
+    C3[Code check - only src app component css changed, write scope kept, no protected path touched]
+    C4[Evidence check - npm test ran on candidate 5685c2, exit 0, report hash-bound, 0 skipped]
+    C5[Coverage - required clauses subset of claimed - 15 of 15]
+    C6[Approval - signature over sha256 by product-approvers, not the author]
+    C7[Publish - all checks re-run, atomic advance, receipt]
+  end
+  subgraph H[People decide]
+    H1[PO answers 3 clarifications]
+    H2[PO signs the spec]
+    H3[Reviewer signs the exact candidate]
+  end
+  H1 --> A1
+  A1 --> C1
+  C1 --> H2
+  H2 --> A2
+  A2 --> C2
+  C2 --> A3
+  A3 --> C3
+  C3 --> C4
+  A4 -.->|advisory only| C4
+  C4 --> C5
+  C5 --> H3
+  H3 --> C6
+  C6 --> C7
+  classDef ai fill:#eceaf8,stroke:#534ab7
+  classDef k fill:#e8f3e2,stroke:#3e7a33
+  classDef h fill:#f7edd8,stroke:#8a6a1f
+  class A1,A2,A3,A4 ai
+  class C1,C2,C3,C4,C5,C6,C7 k
+  class H1,H2,H3 h</pre>
+<table><tr><th>Moment in the story</th><th>What the AI said or did</th><th>What the core engine computed</th><th>Outcome</th></tr>
+<tr><td>Specification</td><td>Drafted 10 requirements and 5 acceptance criteria with WCAG contrast thresholds</td><td>Headings, ids, no placeholders, clarification markers resolved</td><td>passed; PO signed hash b8e5…</td></tr>
+<tr><td>Plan</td><td>Proposed value-only CSS change and one screenshot as evidence</td><td>Each of 15 clauses has an exact path or a signed not-applicable</td><td>passed; reviewer signed</td></tr>
+<tr><td>Code</td><td>Changed app.component.css; also tried to edit singularity/workflow.yml to register its own test command</td><td>Diff intersects a protected path</td><td><b>refused</b> — the agent cannot change the rules that judges it (real event, WRK-BLUE)</td></tr>
+<tr><td>Evidence</td><td>"10 tests, 10 pass"</td><td>Command ran on the frozen candidate; exit 0; report hash bound to 5685c2; skipped 0</td><td>counted — because of the recorded run, not the sentence</td></tr>
+<tr><td>Approval then edit</td><td>—</td><td>One byte changed after signature ⇒ approval STALE, cause named</td><td>re-approval required</td></tr>
+<tr><td>Audit, months later</td><td>—</td><td><code>sflow audit --offline</code> re-computes every check from a bare clone</td><td>same verdict, no network, no model</td></tr></table>
+<p class="note">Purple: AI drafts. Green: computed checks (no model involved). Amber: a person decides. The dotted arrow shows that the AI's own "tests passed" report is not an input to the evidence check.</p>
+
+<h2>5. Repository model (world model) and code parsing</h2>
+<p>The repository model is built from the code by parsers, published into the repository's own state branch, and read by every story, working copy and machine from there. It is organised in three parts:</p>
+<table><tr><th>Part</th><th>What it is</th><th>How it is kept honest</th></tr>
+<tr><td><b>Facts</b></td><td>A ledger of facts extracted from the code — files, symbols, signatures, imports and dependency edges, interfaces and schema contracts, test identities — each with its source, its extractor version and a derivation record</td><td>Every fact carries an origin class (parsed, declared, signed, computed), a status (available, partial, unavailable, contradicted) and an assurance level; absence is recorded as a fact, never skipped. No AI is used to produce facts.</td></tr>
+<tr><td><b>Views</b></td><td>Nine registered views, each a contract: sections, the fact types it requires, the subjects it must declare unavailable when the facts are missing, word limits, and a token budget. Repository views: business, architecture, development, security, testing. Working views: architecture contracts, business rules, development hotspots, development impact.</td><td>A view can only cite facts from the ledger (every factual sentence must reference a fact); it cannot read file bodies; it cannot reference other views. Views may be rendered deterministically or composed within the contract's budget; either way the facts are fixed by the kernel and the output is validated against the contract before it is stored.</td></tr>
+<tr><td><b>Projections</b></td><td>Exports in external formats — today FINOS CALM for the architecture — generated from the fact ledger and the capability map</td><td>Each element is labelled with its provenance (source-exact, structurally-derived, deterministically-derived, human-confirmed, runtime-observed, not-applicable); heuristic or model-advisory content is forbidden; no AI is used.</td></tr></table>
+<p><b>Where it lives and who is the authority.</b> The model is published as a manifest-registered set of files on the state branch, in a transaction, with staleness receipts that name what changed (source snapshot, scope, capability snapshot). The remote-tracking state branch is the authority when one exists; the local state branch otherwise; the model is never read from the working copy or an arbitrary commit, so two people cannot be grounded in different maps of the same repository. A local cache and a model-free query index speed reads; both are rebuildable and never authoritative.</p>
+<p><b>What the AI sees.</b> Each story's brief carries a pinned core — the facts and view sections relevant to that story — referenced by manifest and hash, so an audit can reproduce exactly what the AI was shown. Rebuilding facts and projections costs no AI tokens; composing a view under its contract costs at most the contract's budget.</p>
+<p><b>Status.</b> Facts ledger, extractor adapters and conformance, view and projection registries, CALM projection, state-branch publication with authority rules and recovery, history and query index: <b>implemented</b>. Older tiered narrative builder retained only behind an explicit flag.</p>
+<h3>5a. Types of repository model</h3>
+<table><tr><th>Type</th><th>How it is made</th><th>Model tokens to build</th><th>Tokens to read</th><th>Trust level</th><th>Used for</th><th>Status</th></tr>
+<tr><td><b>Light</b> (inventory)</td><td>Parser lists files, languages, entry points, package commands</td><td><b>0</b></td><td>~300–450 per packet</td><td>facts about paths only; no meaning claimed</td><td>orientation in every phase; the default</td><td>implemented</td></tr>
+<tr><td><b>Core</b> (structural map)</td><td>Parser extracts symbols, signatures, imports/calls, test identities; cached by file hash; stamped with commit and parser version</td><td><b>0</b></td><td>a slice of the story's cone, ~1.6k, cached prefix</td><td>reliable enough to be a evidence at verification</td><td>grounding in Build; checks in Verify; impact joins</td><td>implemented as light+AST; minimum cutover proposed (WMM)</td></tr>
+<tr><td><b>Impact</b> (joins)</td><td>Computed from core edges × clause claims × capability map — blast radius, consumers of a contract, protected-path intersections</td><td><b>0</b></td><td>only the affected set, on demand</td><td>deterministic; core engine-consumed</td><td>Plan, Review, amendments, "did we forget"</td><td>implemented (dev.impact view, blast radius); disposition gate proposed</td></tr>
+<tr><td><b>Declared</b> (intent)</td><td>Written by people: capability ownership, protections, contracts; optionally exported as CALM</td><td>0</td><td>small, pinned</td><td>authoritative rules, not observation</td><td>what is allowed; who must sign</td><td>implemented; CALM projection implemented with provenance labels</td></tr>
+<tr><td><b>Semantic</b> (authored views: business, architecture, security narratives)</td><td>A model reads the parsed facts and writes prose views</td><td>~2–8k per build (measured on the old builder prompt)</td><td>varies</td><td>advisory only; human-ratified before use; can drift</td><td>reader-facing narrative; never a gate input</td><td>views may be composed only within a registered contract that fixes the facts and validates the output; free-form narrative builder retained only behind an explicit flag</td></tr></table>
+<p class="note">Reading the table top to bottom: the first four types are computed or declared, cost nothing to rebuild, and can be trusted for decisions; the fifth is written by a model, costs tokens, and is therefore kept out of every decision. Regenerating the world model never spends model tokens; reading a slice of it into a packet spends a small, fixed, cache-priced amount — far less than letting the agent explore the code itself.</p>
+
+<h3>5b. How the repository model is used in each phase</h3>
+<pre class="mermaid">flowchart LR
+  subgraph SRC[Once per commit - core engine schedule, no AI]
+    S1[Parse source into symbols, signatures, imports, test identities]
+    S2[Cache by file hash - stamped with commit and parser version]
+    S3[Join with capability map and clause claims]
+  end
+  subgraph PH[Used in each phase]
+    P1[Specify - business view and contracts of touched capabilities]
+    P2[Plan - impact and dependency map for the proposed touch set]
+    P3[Build - skeletons of in-scope files and test identities served to the agent]
+    P4[Converge - what changed vs what was claimed - delta view]
+    P5[Verify - claimed symbols exist, claimed tests reference them, evidence bound]
+    P6[Review and publish - blast radius, protected paths, structural rules]
+  end
+  subgraph OUT[Consumers]
+    O1[AI agent reads answers - never runs the parser]
+    O2[Core engine gates use the parse as a evidence]
+    O3[Humans see impact views and generated diagrams]
+    O4[Audit - what the system knew at generation time]
+  end
+  S1 --> S2
+  S2 --> S3
+  S3 --> P1
+  S3 --> P2
+  S3 --> P3
+  S3 --> P4
+  S3 --> P5
+  S3 --> P6
+  P3 --> O1
+  P5 --> O2
+  P6 --> O2
+  P2 --> O3
+  P6 --> O3
+  S2 --> O4
+  classDef src fill:#1f4b25,stroke:#1f4b25,color:#ffffff
+  classDef ph fill:#e8f3e2,stroke:#3e7a33
+  classDef out fill:#f4f4f4,stroke:#8c8c8c
+  class S1,S2,S3 src
+  class P1,P2,P3,P4,P5,P6 ph
+  class O1,O2,O3,O4 out</pre>
+<table><tr><th>Phase</th><th>What the world model provides</th><th>How AST is used</th><th>Who consumes it</th></tr>
+<tr><td>Specify</td><td>Business-facing inventory: entry points, documented commands, contracts of the capabilities the story touches</td><td>Not for grounding code — only to confirm named surfaces exist</td><td>AI drafting the spec; PO reviewing</td></tr>
+<tr><td>Plan</td><td>Dependency map and blast radius of the proposed touch set; existing test identities</td><td>Import and call edges computed from the parse</td><td>AI drafting the plan; architecture reviewer</td></tr>
+<tr><td>Build</td><td>Skeletons of in-scope files (signatures, exports) instead of bodies; test identities to extend</td><td>Served in the packet; more on demand via read — a cache lookup, never a live parse by the agent</td><td>AI agent</td></tr>
+<tr><td>Converge</td><td>Delta view: symbols changed since phase start joined to clause claims</td><td>Parse of the candidate diffed against the baseline parse</td><td>Core engine reconciliation; developer</td></tr>
+<tr><td>Verify</td><td>Evidence index</td><td><b>Evidence role:</b> claimed symbols exist in the candidate; claimed tests reference them; test identities bound to evidence</td><td>Core engine gates</td></tr>
+<tr><td>Review and publish</td><td>Blast radius across repositories; protected-path intersection; per-capability structural rules</td><td>Structural rules evaluated on the exact bytes at publish</td><td>Core engine gates; reviewer; impact views</td></tr></table>
+
+<h3>5c. The workflow, end to end</h3>
+<pre class="mermaid">flowchart LR
+  I[Intake - Jira or sentence - intent pinned] --> C[Clarify - one batch, answers pinned]
+  C --> SP[Specify - clauses and ACs - PO signs]
+  SP --> PL[Plan - approach, paths, test strategy - reviewer signs]
+  PL --> B[Build - any agent in isolated candidate]
+  B --> CV[Converge - reconcile change vs claims]
+  CV --> V[Verify - tests and structure on exact bytes]
+  V --> R[Review - approve exact candidate]
+  R --> P[Publish - exactly once - receipt]
+  P --> J[Status to Jira - pages to Confluence - events out]
+  V -->|refusal with smallest fix| B
+  R -->|edit after signature - stale| V
+  classDef s fill:#e8f3e2,stroke:#3e7a33
+  classDef h fill:#f7edd8,stroke:#8a6a1f
+  class I,C,B,CV,V,P,J s
+  class SP,PL,R h</pre>
+<p class="note">Amber steps are where a person signs. Outcome Mode runs the same line with the middle collapsed (intake, build, verify, one signature, publish); Workflow Mode runs every step. A failed check returns to Build with the fix named. An edit after an approval returns to Verify because the approval no longer matches the content.</p>
+
+<h2>6. Git as the storage layer and how work moves between people</h2>
+<pre class="mermaid">flowchart LR
+  A[Story branch and worktree - one per story]
+  B[Candidate - immutable tree sha256]
+  C[Approval - signature over sha256 under pinned policy]
+  D[Publish - compare-and-swap ref advance, journaled]
+  E[Receipt and evidence on state branches]
+  F[Any clone anywhere - same files, same verdicts]
+  A --> B
+  B --> C
+  C --> D
+  D --> E
+  E --> F
+  classDef g fill:#e8f3e2,stroke:#3e7a33
+  class A,B,C,D,E,F g</pre>
+<table><tr><th>Concern</th><th>Mechanism</th></tr>
+<tr><td>Durability</td><td>authority, evidence and rules are ordinary Git objects; content-addressed, append-only per story; no database</td></tr>
+<tr><td>Concurrency</td><td>compare-and-swap on expected refs; a race yields a conflict receipt, never a partial write</td></tr>
+<tr><td>Crash safety</td><td>journal PREPARED to FINALIZED; <code>doctor</code> completes or aborts exactly once</td></tr>
+<tr><td>Moving work between people</td><td>a story is a branch: hand off by push; the next person's clone carries the pinned rules, clarifications, candidate and approvals; approvals stale on edit so the record is honest across hands</td></tr>
+<tr><td>Machines</td><td>a second laptop recreates the workspace from the clone; nothing lives only on one machine</td></tr>
+<tr><td>Repository model</td><td>published on the state branch as a manifest-registered set (facts, views, projections, source snapshot); remote-tracking state branch is the authority; local cache and query index rebuildable</td></tr>
+<tr><td>Audit</td><td><code>sflow audit --offline</code> re-evaluates every check from a bare clone, no network, no model</td></tr></table>
+
+<h2>7. Data overview</h2>
+<table><tr><th>Data</th><th>Stored</th><th>Where</th><th>Classification / retention</th></tr>
+<tr><td>Rules (workflows, capabilities, policies, packs)</td><td>yes, hash-pinned</td><td><code>sflow/config</code> branch per repo; derived sections carry authority URL + sha</td><td>internal; repository retention</td></tr>
+<tr><td>Story records: intent, clauses, clarifications, claims</td><td>yes</td><td>work-item branch</td><td>internal; retained with repo</td></tr>
+<tr><td>Candidates, approvals, receipts, refusals, events</td><td>yes</td><td>state branches</td><td>audit evidence; append-only</td></tr>
+<tr><td>Repository model (facts, views, projections) and caches</td><td>model published; caches local</td><td>state branch (manifest, source snapshot, fact ledger, views, projections) and <code>.git/singularity-flow</code> (cache, query index)</td><td>model retained with the repository; caches rebuildable and purgeable</td></tr>
+<tr><td>Prompt content, model transcripts</td><td><b>no</b> by default (audit ledger opt-in, redacted)</td><td>local</td><td>sensitive; excluded from telemetry</td></tr>
+<tr><td>Per-person productivity metrics</td><td><b>never</b></td><td>—</td><td>house law</td></tr></table>
+
+<h2>8. Repository storage layout</h2>
+<pre class="code">main/                                  product code (unchanged)
+sflow/config  (branch)                 law: workflows/ capabilities.yml policies/ agents/ skills/ packs/ knowledge/
+                                       derived: {authority, authoritySha} blocks for inherited rules and pinned contracts
+work-items/&lt;STORY&gt;  (branch+worktree)  source.json (pinned intent) · workflow.json (law by hash) · artifacts/&lt;phase&gt;/ · claims
+state/  (branches)                     candidates/ approvals/ receipts/ refusals/ events/ evidence/ world-model/&lt;commit&gt;/
+.git/singularity-flow/                 local runtime: journals, derived caches (never authority), recovery buffers</pre>
+
+<div class="part">PART III — OPERATING MODEL</div>
+<h2>9. Capability model and onboarding (implemented per FOS/UCF)</h2>
+<p><b>Capability</b> = who owns which paths, what is protected, what it publishes or depends on. Rules flow down the containment tree; contracts flow across the dependency graph by hash-pinned <code>depends-on</code>. Every repository carries the map it is judged by (its own node authoritative; ancestors' fold and consumed contracts derived with authority URL + sha; derived sections refuse edits). A single repository has a complete, non-derived map with no configuration to read.</p>
+<pre class="mermaid">flowchart LR
+  A[sflow onboard repo]
+  B{sflow config branch exists}
+  C[read fold from branch, register authority, receipt - about 1 s]
+  D[create configuration branch with implicit root capability, optional smart-detect card, receipt]
+  E[sflow start - story, rules pinned, worktree]
+  F[proposal only when attaching to another owner tree or under regulated profile]
+  A --> B
+  B -->|yes| C
+  B -->|no| D
+  C --> E
+  D --> E
+  E --> F
+  classDef g fill:#e8f3e2,stroke:#3e7a33
+  class A,C,D,E g</pre>
+<p class="note">Onboarding oracle: the branch. Proposals are for changing another team's rules, not for existing. Nothing on the start path composes org views or world models. Typed Git facade with query/observation/mutation descriptors; derived caches never grant authority. <b>Implemented (FOS v1).</b></p>
+
+<h3>9a. The capability map: kinds, types, and storage</h3>
+<p>A capability is the unit of ownership. The map answers three questions for any path in any repository: <i>who owns this, what may not be touched without a named person, and what does it publish or depend on.</i> Two kinds and two types cover every real case (these are the enumerations in the code; no others exist).</p>
+<table><tr><th></th><th><b>Collection</b></th><th><b>Delivery</b></th></tr>
+<tr><td>What it is</td><td>A grouping that owns rules, not code: a business area, a platform, a product line</td><td>A unit that owns <i>source</i>: the place stories start and code changes land</td></tr>
+<tr><td>Holds</td><td>protected paths that cascade, approval groups, profile defaults, workflows, published contracts, knowledge</td><td>repositories and owned paths, its own protections, what it publishes, what it depends on</td></tr>
+<tr><td>Can a story start here?</td><td>No — collections have no code; their only lifecycle event is a rule change (a review PR)</td><td>Yes — every story belongs to exactly one delivery capability</td></tr>
+<tr><td>Example</td><td>Digital Channels → Personalization (PZN), Mobile App</td><td>Treatment Selector, Rule Engine, Treatment Resolver, Trader Plus</td></tr>
+<tr><td>Type: <b>business</b> vs <b>tech</b></td><td colspan="2">Orthogonal label on either kind — <i>business</i> for customer/product-facing ownership, <i>tech</i> for platforms and shared services (identity, clickstream, model serving). A "shared" service is not a third kind: it is a capability in another tree that others consume by pinned contract.</td></tr></table>
+<h4>Rules flow down, contracts flow across</h4>
+<pre class="mermaid">flowchart TB
+  DC[Digital Channels - collection, business - rules only]
+  PZN[Personalization - collection, business]
+  MOB[Mobile App - collection, business]
+  TS[Treatment Selector - delivery]
+  RE[Rule Engine - delivery]
+  TR[Treatment Resolver - delivery]
+  TP[Trader Plus - delivery]
+  CS[Clickstream Data - delivery, tech - owned by data platform]
+  ID[Identity - delivery, tech - owned by security platform]
+  DC --> PZN
+  DC --> MOB
+  PZN --> TS
+  PZN --> RE
+  PZN --> TR
+  MOB --> TP
+  TS -.->|depends-on clickstream at sha| CS
+  TP -.->|depends-on identity at sha| ID
+  TP -.->|depends-on treatment API at sha| TS
+  classDef c fill:#e8f3e2,stroke:#3e7a33
+  classDef d fill:#ffffff,stroke:#6da544
+  classDef x fill:#f4f4f4,stroke:#8c8c8c,stroke-dasharray: 5 4
+  class DC,PZN,MOB c
+  class TS,RE,TR,TP d
+  class CS,ID x</pre>
+
+<h4>Where the map is stored</h4>
+<table><tr><th>What</th><th>Where</th><th>Editable?</th></tr>
+<tr><td>This repository's own capability node (owned paths, its protections, what it publishes)</td><td><code>sflow/config</code> branch of that repository — <code>capabilities.yml</code></td><td>yes — by the owning team, through <code>capability add / protect / depend</code>, which open a review PR</td></tr>
+<tr><td>Rules inherited from ancestors (the fold)</td><td>same branch, a <b>derived</b> section carrying <code>authority: &lt;url&gt;</code> and <code>authoritySha</code></td><td>no — edits are refused with a pointer to the authoritative repository; updated by re-pin</td></tr>
+<tr><td>Contracts this repository consumes</td><td>same branch, pinned copies under <code>contracts/pinned/&lt;name&gt;@sha</code></td><td>no — re-pin to adopt a new version</td></tr>
+<tr><td>A collection's rules (when a tree spans repositories)</td><td>the collection's own governance repository (e.g. <code>digital-channels-governance</code>) — optional; appears only when needed</td><td>yes — by the collection's leads, review PR</td></tr>
+<tr><td>Single-repository team</td><td>one implicit root capability, no file to read; materialized on the first <code>capability add</code></td><td>—</td></tr></table>
+<p class="note">Consequence: every repository carries the complete map it is judged by, so a story starts and an audit runs from a local clone with no network; there is exactly one place any rule can be changed; and the hash on each derived section tells you which copy is the authority. A repository is onboarded when its <code>sflow/config</code> branch exists.</p>
+
+<h2>10. Workflow and Outcome flows</h2>
+<table><tr><th></th><th>Outcome Mode (default)</th><th>Workflow Mode</th></tr>
+<tr><td>For</td><td>everyday changes with low blast radius</td><td>changes carrying organizational risk</td></tr>
+<tr><td>Shape</td><td>one request → plan → any agent in isolated candidate → evidence gathers → one decision → publish</td><td>explicit phases (specify, plan, build, converge, verify, review, publish), named approvals, protected areas</td></tr>
+<tr><td>Same</td><td colspan="2">same core engine, same evidencees, same publication boundary, same change record</td></tr>
+<tr><td>Promotion</td><td colspan="2">arithmetic triggers only (protected path touched, public interface changed, second repo, contract affected); only tightens; all work and evidence carry forward</td></tr></table>
+
+<h2>11. Developer experience</h2>
+<p>First sixty seconds: install → <code>sflow onboard</code>/<code>init --smart-detect</code> → <code>sflow start</code> → work as usual → <code>precheck</code> shows what publish would say → <code>ship</code>. Checks run continuously while working, not only at the end. Refusals carry the smallest fix (<code>sflow fix</code> for the mechanical class); questions are asked once per repo; approvals find the approver; templates arrive pre-filled; no stack traces; latency budget ≤ 300 ms perceived; opt-in per repository. <b>Wedge commands proposed; refusal with the fix named verified.</b></p>
+
+<h2>12. Important commands</h2>
+<table><tr><th>Command</th><th>Does</th></tr>
+<tr><td><code>sflow onboard &lt;repo&gt;</code></td><td>branch check; read or create law; receipt</td></tr>
+<tr><td><code>sflow start &lt;jira|sentence&gt;</code></td><td>story with pinned rules and worktree</td></tr>
+<tr><td><code>sflow status</code> / <code>next</code></td><td>computed state; the one legal next action</td></tr>
+<tr><td><code>sflow precheck</code> / <code>ship</code> / <code>undo</code></td><td>verdict now; the whole tail in one command; safe reversal <i>(proposed)</i></td></tr>
+<tr><td><code>sflow review</code> / <code>approve</code></td><td>approve exactly this version (sha256)</td></tr>
+<tr><td><code>sflow publish</code></td><td>exactly-once; receipt; event</td></tr>
+<tr><td><code>sflow audit --offline</code></td><td>re-evaluate all predicates from a bare clone</td></tr>
+<tr><td><code>sflow capability add|protect|depend|show</code></td><td>the only editors of the map; rules as review PR</td></tr>
+<tr><td><code>sflow doctor</code></td><td>recover journals; report drift; git speed inspection</td></tr>
+<tr><td><code>sflow explain</code> / <code>ask</code></td><td>deterministic narration of a decision; interrogate a change <i>(ask proposed)</i></td></tr></table>
+
+<div class="part">PART IV — PLATFORM</div>
+<h2>13. Infrastructure and deployment</h2>
+<p>Node 20+ CLI via Artifactory (five small runtime packages — YAML parsing, schema validation, agent protocol SDK, CALM validator — bundled into an offline release closure that CI verifies against exact lock files; no services, no daemon); VS Code extension via internal marketplace; no services, no accounts, no hosted component. Works offline. Existing CI may run <code>sflow verify --json</code> as an evidence provider only; no CI system is required. Upgrade/rollback: readers honor previous schema versions (migration goldens); rollback = reinstall prior package, records unaffected. Corporate-machine hardening (proxy, certificates, Git Credential Manager, cancellation, clone) verified before GA; git is accessed through one layer that resolves the executable once, normalizes paths, batches reads and is tested on Linux, macOS and Windows; accelerators (fsmonitor, untracked cache) opt-in per repository with compatibility checks. Being down stops nothing.</p>
+
+<h2>13b. Technologies used</h2>
+<h3>What it is built from</h3>
+<table><tr><th>Component</th><th>Technology</th><th>Why this choice</th></tr>
+<tr><td>The core engine and command-line tool</td><td>JavaScript on Node.js 20 or newer, with a handful of pinned runtime packages bundled into an offline release closure that the build verifies against exact lock files</td><td>Runs anywhere Node runs; the dependency set is pinned, vetted once and shipped as a closed bundle from Artifactory, so nothing is fetched at runtime</td></tr>
+<tr><td>Storage of all records</td><td>Git — ordinary branches, commits and files</td><td>Already installed on every developer machine; tamper-evident by design; works offline; a copy is a complete copy</td></tr>
+<tr><td>Editor experience</td><td>VS Code extension (TypeScript), also usable from JetBrains chat hosts</td><td>Where developers already are; no new application to open</td></tr>
+<tr><td>AI assistance</td><td>GitHub Copilot today; Claude Code, Codex, Microsoft Copilot or a local model later — all through the same a small fixed set of operations</td><td>The tool never depends on which AI is used; the AI is replaceable by configuration</td></tr>
+<tr><td>Understanding code</td><td>Built-in parsers that read source files into structure (functions, imports, tests) — no AI involved</td><td>The map of the codebase is computed, so it is the same every time and can be checked</td></tr>
+<tr><td>Configuration</td><td>YAML and Markdown files in a Git branch</td><td>Readable by people, reviewable in a pull request, versioned like code</td></tr>
+<tr><td>Integrations</td><td>Jira REST (intake and status); optional CI evidence; Confluence and SharePoint export; Teams and Microsoft Copilot planned</td><td>Reuses what the organization already owns; nothing new to buy or host</td></tr>
+<tr><td>Distribution</td><td>npm package via Artifactory; extension via the internal marketplace</td><td>Standard corporate channels; installs on locked machines</td></tr></table>
+
+<h2>14. Security</h2>
+<table><tr><th>Concern</th><th>Control</th></tr>
+<tr><td>Authority</td><td>signature over sha256 under pinned policy; separation of duties by profile; stale on edit; git identity today, IdP-bound keys planned</td></tr>
+<tr><td>Agent containment</td><td>fixed gateway operations only, no approve operation; scope enforced at dispatch; effects recomputed from the diff; protected paths force named human approval</td></tr>
+<tr><td>Model independence</td><td>gates model-free; counterfeit-model tripwire nightly; certificate per change proposed</td></tr>
+<tr><td>Secrets and data</td><td>no secrets in config; provider calls via approved gateway; prompts not stored by default; no per-person metrics</td></tr>
+<tr><td>Supply chain</td><td>pinned runtime packages verified as an offline release closure (exact locks, hygiene tests forbidding retired packages); packs/skills/agents hash-pinned, fetched once, reviewed; CALM validator pinned</td></tr>
+<tr><td>Integrity</td><td>canonical-form hashing; append-only records; derived caches never sole input to a grant; extractor and core engine versions stamped</td></tr></table>
+
+<h2>15. Extensibility and future control-plane integration</h2>
+<p>Everything pluggable is a hash-pinned file: engines (models), units (loops: Copilot, Claude Code, Codex, native), roles (persona + skills + rules), packs (roles + law), templates, workflows, MCP connectors under core engine-issued permissions. Integration contracts: Jira in/out, Jenkins evidence in, Confluence/SharePoint out, registered event vocabulary with versioned schemas and idempotent outbox to the data lake. The future PDLC control plane subscribes to events and pushes pinned policy; it is never authoritative — delete it and every verdict still resolves from a clone. CALM: generated as a view from governed truth (enforced vs descriptive annotated), round-trip lossless.</p>
+
+<h2>15b. Workflow and template configuration, agents, and remote definitions</h2>
+<p>The lifecycle in §10 is not fixed code — it is <b>data a team designs</b>, and everything the lifecycle uses (workflows, artifact templates, agents, skills, packs) can be authored locally or fetched from any approved URL, reviewed once, and hash-pinned. Nothing is ever hot-linked at runtime.</p>
+<table><tr><th>Feature</th><th>What it does</th><th>Guarantee</th><th>Status</th></tr>
+<tr><td><b>Workflow designer</b></td><td>Define work types (feature, bugfix, chore, spec-driven-standard, custom) as YAML: phases, required artifacts, clarification mode per phase, approval groups and minimum distinct approvals, mandatory commands (verification evidence), write scope per phase, constitution mode. Outcome Mode is a two-step workflow; Workflow Mode a six-step one; teams keep both.</td><td>A story pins the workflow revision at start (hash); later edits apply to the next story. Configuration changes are review PRs on the configuration branch.</td><td>implemented</td></tr>
+<tr><td><b>Artifact designer</b></td><td>Templates per phase (specification, plan, implementation summary, convergence, verification evidence) with required headings, minimum authored bytes, forbidden placeholders, clause-id syntax, and agent-brief sections. Completion rules are checked by the core engine (an unchanged template is refused).</td><td>Template hash recorded in every generation; managed metadata and approved-input blocks never count as authored content.</td><td>implemented</td></tr>
+<tr><td><b>Governed agents (Agent Markdown)</b></td><td>Role definitions per phase (product-owner, architect, developer, reviewer): persona brief, duties, boundaries, phase mapping. Rendered into the packet as a compact agent brief; selected per phase by mapping, not by chat.</td><td>Persona is bracketed by rules in the packet (law renders first, boundaries appended last); no agent definition can widen scope or grant approval.</td><td>implemented</td></tr>
+<tr><td><b>Skills (Copilot slash commands)</b></td><td>Thin, contract-shaped skills that route to one deterministic command; demand-paged so the session floor stays small; same behavior in VS Code and JetBrains hosts.</td><td>Each skill hash-pinned; catalog frozen at a core set; conformance scored per skill.</td><td>implemented (139); trim to core proposed</td></tr>
+<tr><td><b>Remote definitions from any URL</b></td><td>Agents, skills, artifact templates, generated-artifact recipes and packs can be declared by URL (internal Git, Artifactory, an approved HTTPS host). The core engine fetches once, records the content hash, and stores the reviewed copy in the configuration branch; the URL is provenance, the hash is authority. Per-item max-bytes and optional flags are part of the declaration.</td><td>Runtime never fetches; a changed upstream is a new proposal, not a silent change; unreachable upstream changes nothing already pinned. Allow-listed hosts only.</td><td>implemented (remote skills / templates / generated artifacts tables); host allow-list policy proposed</td></tr>
+<tr><td><b>Packs</b></td><td>A distributable bundle of roles + workflows + templates + rules for a persona or domain (architect, data engineering, business/PO, QA). Installing a pack is a proposal PR.</td><td>Packs are files; installation creates rules only after review; one example story ships with each pack.</td><td>architect and data packs specified; others proposed</td></tr>
+<tr><td><b>Import from existing conventions</b></td><td>AGENTS.md / CLAUDE.md-style instruction files and existing pipeline YAML can be imported and compiled into governed skills and workflow rails (stages split by effect type, human stops inserted before authority writes).</td><td>Imported files are pinned as source artifacts; the compiled rail stales if the source changes; unmapped constructs are labeled, never dropped.</td><td>proposed</td></tr></table>
+
+<div class="part">PART V — GOVERNANCE OF THE DESIGN</div>
+<h2>16. Architectural decisions</h2>
+<table><tr><th>ADR</th><th>Decision</th><th>Alternative rejected</th><th>Why</th></tr>
+<tr><td>1</td><td>Edge core engine, Git as authority store</td><td>central control plane with database</td><td>offline audit, no single point of failure, unverifiable-by-outsiders otherwise</td></tr>
+<tr><td>2</td><td>Deterministic gates; models never evidencees</td><td>LLM-as-judge</td><td>non-reproducible; documented over-correction</td></tr>
+<tr><td>3</td><td>Approvals bound to sha256, stale on edit</td><td>PR approval on moving head</td><td>approval must attach to bytes</td></tr>
+<tr><td>4</td><td>Rules pinned per story, tighten-only</td><td>live config</td><td>no moving goalposts on running work</td></tr>
+<tr><td>5</td><td>Five-operation agent surface, no approve</td><td>rich tool catalog per agent</td><td>authority by absence; vendor neutrality</td></tr>
+<tr><td>6</td><td>World model computed, never written</td><td>model-authored views</td><td>hallucination surface; benchmarked inferior</td></tr>
+<tr><td>7</td><td>Replicated snapshot, single authority per repo</td><td>central governance repo only</td><td>offline start/audit; no drift; zero-config single repo</td></tr>
+<tr><td>8</td><td>Outcome + Workflow modes with arithmetic promotion</td><td>one process for all changes</td><td>risk-proportional by mechanism</td></tr>
+<tr><td>9</td><td>Minimal, pinned runtime dependencies shipped as an offline bundle</td><td>framework stack; or vendoring everything</td><td>supply chain control without maintaining parsers by hand; installs on locked machines from Artifactory; verified by CI</td></tr>
+<tr><td>10</td><td>Publish own gap register</td><td>claim completeness</td><td>credibility; regulated buyers</td></tr></table>
+
+<h2>17. Terms and descriptions</h2>
+<table><tr><th>Term</th><th>Meaning</th></tr>
+<tr><td>Capability · Workspace · Story</td><td>ownership unit · one clone with a worktree per story · one governed piece of work</td></tr>
+<tr><td>Candidate</td><td>immutable tree (sha256) tested, approved and published as one identity</td></tr>
+<tr><td>Clause / AC · Claim · Evidence</td><td>numbered testable requirement · which clause a change serves · proof (AST, bound test with body hash, human signature)</td></tr>
+<tr><td>Gate · Refusal · Receipt</td><td>deterministic check on bytes · what was refused and the smallest fix · what happened, in Git</td></tr>
+<tr><td>Approval / Staleness</td><td>signature over an exact hash under pinned policy; one byte changed ⇒ STALE with cause</td></tr>
+<tr><td>change record</td><td>portable record of one change: candidate, evidence, decisions, publication, production closure</td></tr>
+<tr><td>Envelope · World model · AST</td><td>what the model is handed · computed map of the repository · the parser behind both, also the structural evidence</td></tr>
+<tr><td>Engine · Unit · Role · Pack</td><td>models think · loops run · roles know · packs travel</td></tr>
+<tr><td>Gateway</td><td>The fixed set of read and run operations through which any AI agent or tool interacts with the core engine. There is no approve operation.</td></tr>
+<tr><td>Derived section · Authority</td><td>inherited rules copied into a repo with authority URL + sha (read-only) · the one place a rule may be changed</td></tr></table>
+
+<script>mermaid.initialize({startOnLoad:true,theme:'neutral'});</script></body></html>

@@ -1,14 +1,26 @@
 import { readRecord, schemaFamily } from '../../schema-migrations.mjs';
 import { SingularityFlowError } from '../../util.mjs';
 import { canonicalJson, sha256 } from '../canonicalize.mjs';
-import { validateDerivationCatalog } from '../extract/derivation-catalog.mjs';
+import { validateHistoricalDerivationCatalog } from '../extract/derivation-catalog.mjs';
 import { validateEvidenceCatalog } from '../extract/evidence-catalog.mjs';
-import { validateFactLedger } from '../extract/fact-ledger.mjs';
+import { validateHistoricalFactLedger } from '../extract/fact-ledger.mjs';
 import { validateViewFactLedger } from '../extract/selection.mjs';
-import { validateExtractorManifest } from '../registry/extractors.mjs';
+import {
+  validateHistoricalExtractorManifest, validateHistoricalExtractorRegistry
+} from '../registry/extractors.mjs';
 import { validateViewContract } from '../registry/views.mjs';
+import {
+  validateWorldModelConsumerProfile, validateWorldModelOutputBudget
+} from '../plan.mjs';
 import { validateScopeManifest } from '../scope/manifest.mjs';
 import { validateSourceSnapshot } from '../source/snapshot.mjs';
+import {
+  validateWorldModelViewValidationReceipt
+} from '../validate/candidate.mjs';
+import {
+  validateWorldModelCompletenessRecord, validateWorldModelExtractionPolicy,
+  validateWorldModelRepositoryDomain
+} from './model-owners.mjs';
 import { WMP_RECORD_FAMILIES, parseCanonicalWmpRecordBytes } from './contracts.mjs';
 import {
   WMP_MAXIMUM_OBJECT_BYTES, WMP_RENDERED_OBJECT_ROLES, validateWmpObjectRef
@@ -20,22 +32,47 @@ const RENDERED_ROLES = new Set(WMP_RENDERED_OBJECT_ROLES);
 // semantic owner for them. Refuse them instead of relabelling an unrelated registered record.
 const MISSING_OWNER_ROLES = new Set([
   'admission-proof',
-  'completeness-record',
+  'adoption-authorization',
+  'origin-authority',
   'publication-receipt',
   'renderer-contract',
-  'repository-domain',
+  'source-authority',
+  'target-authority',
+  'tokenizer',
   'validator-contract'
 ]);
 
+// These roles have first-class existing record families. Bind the semantic role as well as the
+// family so a valid record cannot be accepted after being relabelled as a different dependency.
+const OWNED_ROLE_FAMILIES = Object.freeze({
+  'completeness-record': 'world-model-completeness-record',
+  'consumer-profile': 'world-model-consumer-profile',
+  'extraction-policy': 'world-model-extraction-policy',
+  'extractor-registry': 'world-model-extractor-registry',
+  'output-budget': 'world-model-output-budget',
+  'repository-domain': 'world-model-repository-domain',
+  'validator-receipt': 'world-model-view-validation-receipt'
+});
+const OWNED_FAMILY_ROLES = Object.freeze(Object.fromEntries(
+  Object.entries(OWNED_ROLE_FAMILIES).map(([role, family]) => [family, role])
+));
+
 const OWNER_VALIDATORS = Object.freeze({
-  'world-model-derivation-catalog': validateDerivationCatalog,
+  'world-model-completeness-record': validateWorldModelCompletenessRecord,
+  'world-model-consumer-profile': validateWorldModelConsumerProfile,
+  'world-model-derivation-catalog': validateHistoricalDerivationCatalog,
   'world-model-evidence-catalog': validateEvidenceCatalog,
-  'world-model-extractor-manifest': validateExtractorManifest,
-  'world-model-fact-ledger': validateFactLedger,
+  'world-model-extraction-policy': validateWorldModelExtractionPolicy,
+  'world-model-extractor-manifest': validateHistoricalExtractorManifest,
+  'world-model-extractor-registry': validateHistoricalExtractorRegistry,
+  'world-model-fact-ledger': validateHistoricalFactLedger,
+  'world-model-output-budget': validateWorldModelOutputBudget,
+  'world-model-repository-domain': validateWorldModelRepositoryDomain,
   'world-model-scope-manifest': validateScopeManifest,
   'world-model-source-snapshot': validateSourceSnapshot,
   'world-model-view-contract': validateViewContract,
-  'world-model-view-fact-ledger': validateViewFactLedger
+  'world-model-view-fact-ledger': validateViewFactLedger,
+  'world-model-view-validation-receipt': validateWorldModelViewValidationReceipt
 });
 
 function fail(message, code, details = {}, cause = undefined) {
@@ -79,6 +116,20 @@ export function parseExactRetainedObject(refValue, rawBytes) {
       });
   }
   if (ref.family === null) return null;
+  const ownedFamily = OWNED_ROLE_FAMILIES[ref.role];
+  if (ownedFamily !== undefined && ref.family !== ownedFamily) {
+    fail(`Retained role '${ref.role}' must use its semantic owner family '${ownedFamily}'.`,
+      'WMP_OBJECT_FAMILY_MISMATCH', {
+        role: ref.role, expectedFamily: ownedFamily, receivedFamily: ref.family
+      });
+  }
+  const ownedRole = OWNED_FAMILY_ROLES[ref.family];
+  if (ownedRole !== undefined && ref.role !== ownedRole) {
+    fail(`Retained family '${ref.family}' is owned by semantic role '${ownedRole}', not '${ref.role}'.`,
+      'WMP_OBJECT_ROLE_MISMATCH', {
+        family: ref.family, expectedRole: ownedRole, receivedRole: ref.role
+      });
+  }
   if (MISSING_OWNER_ROLES.has(ref.role)) {
     fail(`Retained role '${ref.role}' has no installed semantic owner contract.`,
       'WMP_OBJECT_OWNER_UNAVAILABLE', { role: ref.role, family: ref.family });

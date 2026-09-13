@@ -1,6 +1,12 @@
 import { run, SingularityFlowError } from '../../util.mjs';
-import { canonicalJson, sha256 } from '../canonicalize.mjs';
-import { isPlainRecord } from '../canonicalize.mjs';
+import { canonicalJson, compareText, isPlainRecord, sha256 } from '../canonicalize.mjs';
+import {
+  validateDerivationCatalog, validateHistoricalDerivationCatalog
+} from '../extract/derivation-catalog.mjs';
+import { validateEvidenceCatalog } from '../extract/evidence-catalog.mjs';
+import { validateFactLedger, validateHistoricalFactLedger } from '../extract/fact-ledger.mjs';
+import { validateExtractorRegistry } from '../registry/extractors.mjs';
+import { pathInsideScope } from '../scope/matcher.mjs';
 import {
   parseCanonicalWmpRecordBytes,
   validateWmpModelBinding, validateWmpViewBinding
@@ -17,13 +23,18 @@ import {
 const OBJECT_REF_KEYS = Object.freeze(['bytes', 'family', 'mediaType', 'role', 'sha256']);
 const MAXIMUM_CLOSURE_OBJECTS = 100_000;
 const MAXIMUM_CLOSURE_BYTES = 256 * 1024 * 1024;
+const EMPTY_EXTRACTION_CONFIGURATION_SHA256 = sha256({
+  kind: 'world-model-extractor-configuration', version: 1
+});
 const AUTHORITY_REF_PATTERN = /^refs\/[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 const UNOWNED_RETAINED_ROLES = new Set([
-  'completeness-record',
-  'extraction-policy',
-  'extractor-registry',
+  'admission-proof',
+  'adoption-authorization',
+  'origin-authority',
+  'publication-receipt',
   'renderer-contract',
-  'repository-domain',
+  'source-authority',
+  'target-authority',
   'tokenizer',
   'validator-contract'
 ]);
@@ -207,8 +218,140 @@ function requireDigest(actual, expected, relation) {
   }
 }
 
-function validateModelBindingGraph(binding, closure) {
+function validateGraphOwner(relation, operation) {
+  try { return operation(); }
+  catch (error) {
+    graphMismatch(`Persisted World-model graph failed '${relation}' validation.`, {
+      relation,
+      causeCode: error?.code ?? null,
+      causeMessage: error?.message ?? String(error)
+    });
+  }
+}
+
+function extractorMajor(version) {
+  const major = Number(String(version ?? '').split('.')[0]);
+  return Number.isSafeInteger(major) && major > 0 ? major : null;
+}
+
+function modelExtractorCoverage(completeness, extractor) {
+  if (extractor.coverage === 'global') {
+    const outcome = completeness.globalOutcomes.find(
+      (entry) => entry.id === extractor.id && entry.version === extractor.version
+    );
+    if (!outcome) return null;
+    return {
+      status: outcome.status === 'processed' ? 'complete'
+        : outcome.status === 'failed' ? 'unavailable' : 'partial',
+      processedPaths: 0
+    };
+  }
+  const outcomes = completeness.pathOutcomes
+    .filter((entry) => entry.status !== 'excluded')
+    .map((entry) => entry.extractors.find(
+      (candidate) => candidate.id === extractor.id && candidate.version === extractor.version
+    ));
+  if (outcomes.some((entry) => !entry)) return null;
+  const statuses = new Set(outcomes.map((entry) => entry.status));
+  return {
+    status: statuses.has('failed') ? 'unavailable'
+      : statuses.has('partial') || statuses.has('unsupported') ? 'partial' : 'complete',
+    processedPaths: outcomes.filter(
+      (entry) => entry.status === 'processed' || entry.status === 'partial'
+    ).length
+  };
+}
+
+function requiredFactOutcome(factType, facts) {
+  const candidates = facts.filter(
+    (fact) => fact.factType === factType && fact.status !== 'stale'
+  );
+  if (!candidates.length) return null;
+  const statuses = new Set(candidates.map((fact) => fact.status));
+  if (statuses.has('contradicted')) {
+    return { id: factType, status: 'contradicted', reasonCode: 'CONTRADICTED_FACTS' };
+  }
+  if (statuses.has('partial')) {
+    return { id: factType, status: 'partial', reasonCode: 'PARTIAL_FACTS' };
+  }
+  if (statuses.has('available')) {
+    return { id: factType, status: 'available', reasonCode: null };
+  }
+  const reasons = [...new Set(candidates.map((fact) => fact.reason?.code).filter(Boolean))]
+    .sort(compareText);
+  return {
+    id: factType,
+    status: 'unavailable',
+    reasonCode: reasons.length === 1 ? reasons[0] : 'MULTIPLE_UNAVAILABLE_REASONS'
+  };
+}
+
+function validateCompletenessSourceCoverage(sourceSnapshot, scope, completeness) {
+  const sourceFiles = new Map(sourceSnapshot.files.map((entry) => [entry.path, entry]));
+  const accounted = completeness.pathOutcomes.filter((entry) => entry.status !== 'excluded');
+  if (accounted.length !== sourceFiles.size) {
+    graphMismatch(
+      'Persisted World-model Completeness Record does not account for every exact source path.',
+      {
+        relation: 'completeness.source-paths',
+        expectedPaths: sourceFiles.size,
+        receivedPaths: accounted.length
+      }
+    );
+  }
+  for (const outcome of accounted) {
+    if (scope && !pathInsideScope(outcome.path, scope)) {
+      graphMismatch(
+        `Persisted World-model Completeness Record processes out-of-scope path '${outcome.path}'.`,
+        { relation: 'completeness.scope', path: outcome.path }
+      );
+    }
+    const source = sourceFiles.get(outcome.path);
+    if (!source || source.contentSha256 !== outcome.sourceContentSha256) {
+      graphMismatch(
+        `Persisted World-model Completeness Record does not bind exact source bytes for '${outcome.path}'.`,
+        {
+          relation: 'completeness.source-content',
+          path: outcome.path,
+          expected: source?.contentSha256 ?? null,
+          received: outcome.sourceContentSha256
+        }
+      );
+    }
+    sourceFiles.delete(outcome.path);
+  }
+  if (sourceFiles.size) {
+    graphMismatch(
+      'Persisted World-model Completeness Record omits exact source paths.',
+      {
+        relation: 'completeness.source-paths',
+        omittedPaths: [...sourceFiles.keys()].sort(compareText).slice(0, 100),
+        omitted: Math.max(0, sourceFiles.size - 100)
+      }
+    );
+  }
+  const unprovedExclusion = completeness.pathOutcomes.find(
+    (entry) => entry.status === 'excluded'
+  );
+  if (unprovedExclusion) {
+    graphMismatch(
+      `Persisted World-model Completeness Record claims unproved excluded path '${unprovedExclusion.path}'.`,
+      {
+        relation: 'completeness.excluded-source-roster',
+        path: unprovedExclusion.path
+      }
+    );
+  }
+}
+
+function validateModelBindingGraph(binding, closure, { currentExtractorAdmission = false } = {}) {
   const sourceBinding = binding.inputDescriptors.sourceBinding;
+  const repositoryDomain = resolvedRecord(closure, sourceBinding.repositoryDomainRef);
+  if (repositoryDomain) requireDigest(
+    repositoryDomain.repositoryDomainSha256,
+    binding.inputs.repositoryDomainSha256,
+    'Repository Domain does not match ModelInputs.repositoryDomainSha256'
+  );
   const sourceSnapshot = resolvedRecord(closure, sourceBinding.sourceSnapshotRef);
   if (sourceSnapshot) {
     requireDigest(
@@ -233,6 +376,209 @@ function validateModelBindingGraph(binding, closure) {
     binding.inputs.scopeManifestSha256,
     'scope manifest does not match ModelInputs.scopeManifestSha256'
   );
+  if (sourceSnapshot && scope && sourceSnapshot.subject.id !== scope.capabilityId) {
+    graphMismatch('Persisted World-model source subject does not match its exact capability scope.', {
+      relation: 'source-snapshot.scope-subject',
+      expected: scope.capabilityId,
+      received: sourceSnapshot.subject.id
+    });
+  }
+
+  const policy = resolvedRecord(closure,
+    roleRef(binding.inputObjects, 'extraction-policy', 'WMP Model Binding inputObjects'));
+  if (policy) requireDigest(
+    policy.extractionPolicySha256,
+    binding.inputs.extractionPolicySha256,
+    'Extraction Policy does not match ModelInputs.extractionPolicySha256'
+  );
+
+  const registry = resolvedRecord(closure,
+    roleRef(binding.inputObjects, 'extractor-registry', 'WMP Model Binding inputObjects'));
+  if (registry) requireDigest(
+    registry.registrySha256,
+    binding.inputs.extractorRegistrySha256,
+    'Extractor Registry does not match ModelInputs.extractorRegistrySha256'
+  );
+  if (registry && currentExtractorAdmission) {
+    validateGraphOwner('extractor-registry.current-admission', () => (
+      validateExtractorRegistry(registry)
+    ));
+  }
+  const registryByIdentity = new Map((registry?.manifests ?? []).map(
+    (entry) => [`${entry.id}@${entry.version}`, entry]
+  ));
+  const registryByManifestSha256 = new Map((registry?.manifests ?? []).map(
+    (entry) => [entry.manifestSha256, entry]
+  ));
+  const profileByManifestSha256 = new Map(
+    binding.inputDescriptors.extractionProfile.extractors.map(
+      (entry) => [entry.manifestSha256, entry]
+    )
+  );
+  const policyByManifestSha256 = new Map((policy?.allowedExtractors ?? []).map(
+    (entry) => [entry.manifestSha256, entry]
+  ));
+  if (registry && policy) {
+    for (const allowed of policy.allowedExtractors) {
+      const manifest = registryByIdentity.get(`${allowed.id}@${allowed.version}`);
+      if (!manifest || manifest.manifestSha256 !== allowed.manifestSha256
+          || manifest.producer.implementationSha256 !== allowed.implementationSha256) {
+        graphMismatch('Persisted World-model Extraction Policy is not backed by its retained Extractor Registry.', {
+          relation: 'extraction-policy.extractor-registry',
+          extractor: `${allowed.id}@${allowed.version}`
+        });
+      }
+    }
+  }
+
+  if (registry) {
+    for (const selected of binding.inputDescriptors.extractionProfile.extractors) {
+      const manifest = registryByManifestSha256.get(selected.manifestSha256);
+      if (!manifest || extractorMajor(manifest.version) !== selected.version
+          || manifest.id !== selected.id
+          || manifest.producer.implementationSha256 !== selected.implementationSha256) {
+        graphMismatch('Persisted World-model Extraction Profile is not backed by its retained Extractor Registry.', {
+          relation: 'extraction-profile.extractor-registry',
+          extractor: `${selected.id}@${selected.version}`,
+          manifestSha256: selected.manifestSha256
+        });
+      }
+      const allowed = policyByManifestSha256.get(selected.manifestSha256);
+      if (policy && (!allowed
+          || allowed.implementationSha256 !== selected.implementationSha256)) {
+        graphMismatch('Persisted World-model Extraction Profile selects an extractor outside its Extraction Policy.', {
+          relation: 'extraction-profile.extraction-policy',
+          extractor: `${selected.id}@${selected.version}`
+        });
+      }
+    }
+  }
+  // Frozen v1 names configuration objects but does not define which extractor consumes which
+  // object or how those bytes produce a derivation configuration identity. Do not invent that
+  // authority. The only configuration identity v1 can prove is the registered empty
+  // configuration used by today's deterministic extraction runner. A configured profile needs a
+  // successor owner contract before it can be retained or reused.
+  if (binding.inputDescriptors.extractionProfile.configurationRefs.length !== 0) {
+    graphMismatch(
+      'Persisted World-model configured extraction has no installed configuration owner contract.',
+      { relation: 'extraction-profile.configuration-authority' }
+    );
+  }
+  if (policy) {
+    const requirements = binding.inputDescriptors.factRequirements;
+    for (const [field, expected] of [
+      ['requiredFactTypes', requirements.requiredFactTypes],
+      ['optionalFactTypes', requirements.optionalFactTypes],
+      ['requiredUnavailableSubjects', requirements.requiredUnavailableSubjects]
+    ]) {
+      if (canonicalJson(policy.factSemantics[field]) !== canonicalJson(expected)) {
+        graphMismatch(`Persisted World-model Extraction Policy '${field}' does not match Fact Requirements.`, {
+          relation: `extraction-policy.fact-semantics.${field}`
+        });
+      }
+    }
+  }
+
+  const completeness = resolvedRecord(closure,
+    roleRef(binding.payloadObjects, 'completeness-record', 'WMP Model Binding payloadObjects'));
+  if (completeness) {
+    requireDigest(completeness.sourceManifestSha256, binding.inputs.sourceManifestSha256,
+      'Completeness Record source does not match ModelInputs');
+    requireDigest(completeness.scopeManifestSha256, binding.inputs.scopeManifestSha256,
+      'Completeness Record scope does not match ModelInputs');
+    requireDigest(completeness.extractorRegistrySha256, binding.inputs.extractorRegistrySha256,
+      'Completeness Record Extractor Registry does not match ModelInputs');
+    if (sourceSnapshot) validateCompletenessSourceCoverage(sourceSnapshot, scope, completeness);
+    for (const field of [
+      'totalPaths', 'processedPaths', 'unsupportedPaths', 'failedPaths', 'excludedPaths'
+    ]) {
+      if (completeness.counts[field] !== binding.completeness[field]) {
+        graphMismatch(`Persisted World-model Completeness Record '${field}' does not match its Model Binding.`, {
+          relation: `completeness.${field}`,
+          expected: binding.completeness[field], received: completeness.counts[field]
+        });
+      }
+    }
+    if (canonicalJson(completeness.requiredSubjects)
+        !== canonicalJson(binding.completeness.requiredSubjects)) {
+      graphMismatch('Persisted World-model required-subject outcomes do not match their Model Binding.', {
+        relation: 'completeness.required-subjects'
+      });
+    }
+    const requirements = binding.inputDescriptors.factRequirements;
+    const requiredSubjectIds = [...new Set([
+      ...requirements.requiredFactTypes,
+      ...requirements.requiredUnavailableSubjects
+    ])].sort(compareText);
+    if (canonicalJson(completeness.requiredSubjects.map((entry) => entry.id))
+        !== canonicalJson(requiredSubjectIds)) {
+      graphMismatch('Persisted World-model required-subject outcomes do not cover the exact Fact Requirements.', {
+        relation: 'completeness.fact-requirements'
+      });
+    }
+    const profileManifestDigests = binding.inputDescriptors.extractionProfile.extractors
+      .map((entry) => entry.manifestSha256).sort();
+    const completenessManifestDigests = completeness.extractorReferences
+      .map((entry) => entry.manifestSha256).sort();
+    if (canonicalJson(profileManifestDigests) !== canonicalJson(completenessManifestDigests)) {
+      graphMismatch('Persisted World-model Completeness Record does not cover the exact Extraction Profile.', {
+        relation: 'completeness.extraction-profile'
+      });
+    }
+    const expectedCoverage = [];
+    for (const extractor of completeness.extractorReferences) {
+      const manifest = registryByManifestSha256.get(extractor.manifestSha256);
+      if (!manifest || manifest.id !== extractor.id || manifest.version !== extractor.version
+          || manifest.producer.implementationSha256 !== extractor.implementationSha256) {
+        graphMismatch('Persisted World-model Completeness Record names an extractor identity not backed by its retained Extractor Registry.', {
+          relation: 'completeness.extractor-registry',
+          extractor: `${extractor.id}@${extractor.version}`,
+          manifestSha256: extractor.manifestSha256
+        });
+      }
+      const allowed = policyByManifestSha256.get(extractor.manifestSha256);
+      if (!allowed || allowed.id !== extractor.id || allowed.version !== extractor.version
+          || allowed.implementationSha256 !== extractor.implementationSha256
+          || allowed.coverage !== extractor.coverage) {
+        graphMismatch('Persisted World-model Completeness Record names an extractor identity outside its Extraction Policy.', {
+          relation: 'completeness.extraction-policy',
+          extractor: `${extractor.id}@${extractor.version}`,
+          manifestSha256: extractor.manifestSha256
+        });
+      }
+      const selected = profileByManifestSha256.get(extractor.manifestSha256);
+      if (!selected || selected.id !== extractor.id
+          || selected.version !== extractorMajor(extractor.version)
+          || selected.implementationSha256 !== extractor.implementationSha256
+          || selected.grammarSha256 !== manifest.producer.parser.grammarSha256
+          || selected.parserSha256 !== null || selected.resolverSha256 !== null) {
+        graphMismatch('Persisted World-model Completeness Record does not match the exact retained Extraction Profile identity.', {
+          relation: 'completeness.extraction-profile-identity',
+          extractor: `${extractor.id}@${extractor.version}`,
+          manifestSha256: extractor.manifestSha256
+        });
+      }
+      const coverage = modelExtractorCoverage(completeness, extractor);
+      if (!coverage) {
+        graphMismatch('Persisted World-model Completeness Record has incomplete extractor accounting.', {
+          relation: 'completeness.extractor-coverage',
+          extractor: `${extractor.id}@${extractor.version}`
+        });
+      }
+      expectedCoverage.push({
+        id: extractor.id, version: extractorMajor(extractor.version), ...coverage
+      });
+    }
+    expectedCoverage.sort((left, right) => compareText(
+      `${left.id}\0${left.version}`, `${right.id}\0${right.version}`
+    ));
+    if (canonicalJson(expectedCoverage)
+        !== canonicalJson(binding.completeness.extractorCoverage)) {
+      graphMismatch('Persisted World-model extractor coverage does not match its detailed Completeness Record.', {
+        relation: 'completeness.extractor-coverage'
+      });
+    }
+  }
 
   const evidence = resolvedRecord(closure,
     roleRef(binding.payloadObjects, 'evidence-catalog', 'WMP Model Binding payloadObjects'));
@@ -252,17 +598,114 @@ function validateModelBindingGraph(binding, closure) {
       'Fact Ledger scope does not match ModelInputs');
     requireDigest(factLedger.extractorRegistrySha256, binding.inputs.extractorRegistrySha256,
       'Fact Ledger extractor registry does not match ModelInputs');
+    if (completeness) {
+      const expectedRequiredSubjects = [...new Set([
+        ...binding.inputDescriptors.factRequirements.requiredFactTypes,
+        ...binding.inputDescriptors.factRequirements.requiredUnavailableSubjects
+      ])].sort(compareText).map((factType) => requiredFactOutcome(factType, factLedger.facts));
+      const missingFactType = expectedRequiredSubjects.findIndex((entry) => entry === null);
+      if (missingFactType !== -1) {
+        graphMismatch('Persisted World-model Fact Ledger omits required typed coverage.', {
+          relation: 'completeness.required-subject-facts',
+          factType: [...new Set([
+            ...binding.inputDescriptors.factRequirements.requiredFactTypes,
+            ...binding.inputDescriptors.factRequirements.requiredUnavailableSubjects
+          ])].sort(compareText)[missingFactType]
+        });
+      }
+      if (canonicalJson(expectedRequiredSubjects)
+          !== canonicalJson(completeness.requiredSubjects)) {
+        graphMismatch('Persisted World-model required-subject outcomes are not derived from its retained Facts.', {
+          relation: 'completeness.required-subject-outcomes',
+          expected: expectedRequiredSubjects,
+          received: completeness.requiredSubjects
+        });
+      }
+    }
   }
 
   const derivations = resolvedRecord(closure,
     roleRef(binding.payloadObjects, 'derivation-catalog', 'WMP Model Binding payloadObjects'));
   if (derivations) {
+    const factsById = new Map((factLedger?.facts ?? []).map((fact) => [fact.id, fact]));
     for (const derivation of derivations.derivations) {
       requireDigest(derivation.sourceManifestSha256, binding.inputs.sourceManifestSha256,
         `derivation '${derivation.id}' source does not match ModelInputs`);
       requireDigest(derivation.scopeManifestSha256, binding.inputs.scopeManifestSha256,
         `derivation '${derivation.id}' scope does not match ModelInputs`);
+      requireDigest(
+        derivation.configurationSha256,
+        EMPTY_EXTRACTION_CONFIGURATION_SHA256,
+        `derivation '${derivation.id}' configuration is not the exact admitted empty extraction configuration`
+      );
+      const manifest = registryByIdentity.get(
+        `${derivation.extractor.id}@${derivation.extractor.version}`
+      );
+      const selected = profileByManifestSha256.get(manifest?.manifestSha256);
+      const allowed = policyByManifestSha256.get(manifest?.manifestSha256);
+      if (!manifest || !selected || !allowed
+          || derivation.extractor.implementationSha256
+            !== manifest.producer.implementationSha256
+          || selected.id !== manifest.id
+          || selected.version !== extractorMajor(manifest.version)
+          || selected.implementationSha256 !== manifest.producer.implementationSha256
+          || selected.grammarSha256 !== manifest.producer.parser.grammarSha256
+          || allowed.id !== manifest.id || allowed.version !== manifest.version
+          || allowed.implementationSha256 !== manifest.producer.implementationSha256) {
+        graphMismatch(
+          `Persisted World-model derivation '${derivation.id}' was not produced by an exact selected and allowed extractor.`,
+          {
+            relation: 'derivation.extraction-authority',
+            derivationId: derivation.id,
+            extractor: `${derivation.extractor.id}@${derivation.extractor.version}`
+          }
+        );
+      }
+      for (const factId of derivation.outputFactIds) {
+        const factType = factsById.get(factId)?.factType ?? null;
+        if (!factType || !manifest.factTypes.includes(factType)
+            || !policy.factSemantics.allowedFactTypes.includes(factType)) {
+          graphMismatch(
+            `Persisted World-model derivation '${derivation.id}' emitted an unauthorized Fact type.`,
+            {
+              relation: 'derivation.fact-type-authority',
+              derivationId: derivation.id,
+              factId,
+              factType
+            }
+          );
+        }
+      }
     }
+  }
+
+  if (evidence && sourceSnapshot && scope) {
+    validateGraphOwner('evidence-catalog.source-and-scope', () => validateEvidenceCatalog(
+      evidence, { sourceSnapshot, scopeManifest: scope }
+    ));
+  }
+  if (factLedger && sourceSnapshot && scope && registry && evidence && derivations) {
+    const derivationIds = new Set(derivations.derivations.map((entry) => entry.id));
+    const ledgerValidator = currentExtractorAdmission
+      ? validateFactLedger : validateHistoricalFactLedger;
+    validateGraphOwner('fact-ledger.complete-closure', () => ledgerValidator(factLedger, {
+      sourceSnapshot,
+      scopeManifest: scope,
+      extractorRegistry: registry,
+      evidenceCatalog: evidence,
+      derivationIds
+    }));
+  }
+  if (derivations && evidence && factLedger && registry) {
+    const derivationValidator = currentExtractorAdmission
+      ? validateDerivationCatalog : validateHistoricalDerivationCatalog;
+    validateGraphOwner('derivation-catalog.complete-closure', () => derivationValidator(
+      derivations, {
+        evidenceCatalog: evidence,
+        factLedger,
+        extractorRegistry: registry
+      }
+    ));
   }
 }
 
@@ -368,8 +811,12 @@ function validateViewBindingGraph(binding, closure) {
   }
 }
 
-function validateRetainedBindingGraph(kind, binding, closure) {
-  if (kind === 'model') validateModelBindingGraph(binding, closure);
+export function validateRetainedWorldModelBindingGraph(kind, binding, closure, {
+  currentExtractorAdmission = false
+} = {}) {
+  if (kind === 'model') validateModelBindingGraph(binding, closure, {
+    currentExtractorAdmission
+  });
   else validateViewBindingGraph(binding, closure);
 }
 
@@ -510,7 +957,7 @@ function readBinding(root, {
   for (const digest of edges.get(bindingOwner) ?? []) {
     visit(digest, []);
   }
-  validateRetainedBindingGraph(kind, validated, closure);
+  validateRetainedWorldModelBindingGraph(kind, validated, closure);
   if (deferredOwnerErrors.length) throw deferredOwnerErrors[0];
   return Object.freeze({
     authorityCommit: commit,

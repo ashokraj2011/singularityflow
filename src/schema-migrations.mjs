@@ -2690,10 +2690,26 @@ const families = [
   // readers through an implicit compatibility stamp.
   family({ id: 'world-model-build-request', currentVersion: 1, immutable: true }),
   family({ id: 'world-model-build-plan', currentVersion: 1, immutable: true }),
-  family({ id: 'world-model-source-snapshot', currentVersion: 1, immutable: true, paths: [/^singularity\/world-model\/source\/source-snapshot\.json$/] }),
+  family({
+    id: 'world-model-source-snapshot', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity',
+    paths: [/^singularity\/world-model\/source\/source-snapshot\.json$/]
+  }),
   // WMP history records are immutable content identities. They deliberately start at v1 with no
   // migration steps: a future semantic shape creates a new identity family/version boundary
   // rather than silently rewriting an accepted binding's bytes.
+  family({
+    id: 'world-model-repository-domain', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity'
+  }),
+  family({
+    id: 'world-model-extraction-policy', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity'
+  }),
+  family({
+    id: 'world-model-completeness-record', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity'
+  }),
   family({
     id: 'world-model-model-binding', currentVersion: 1, immutable: true,
     migrationPolicy: 'frozen-identity',
@@ -2723,12 +2739,19 @@ const families = [
     migrationPolicy: 'frozen-identity',
     paths: [/^\$git\/world-model-source-adoptions\/v1\/[a-f0-9]{64}\.json$/]
   }),
-  family({ id: 'world-model-scope-manifest', currentVersion: 1, immutable: true, paths: [/^singularity\/world-model\/scope\/scope-manifest\.json$/] }),
+  family({
+    id: 'world-model-scope-manifest', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity',
+    paths: [/^singularity\/world-model\/scope\/scope-manifest\.json$/]
+  }),
   family({ id: 'world-model-runtime-observation-import', currentVersion: 1, immutable: true }),
   family({ id: 'world-model-runtime-observation', currentVersion: 1, immutable: true }),
   family({ id: 'world-model-human-confirmed-knowledge-import', currentVersion: 1, immutable: true }),
   family({ id: 'world-model-human-confirmed-knowledge', currentVersion: 1, immutable: true }),
-  family({ id: 'world-model-view-contract', currentVersion: 1, immutable: true }),
+  family({
+    id: 'world-model-view-contract', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity'
+  }),
   family({ id: 'world-model-projection-contract', currentVersion: 1, immutable: true }),
   family({ id: 'world-model-projection-registry', currentVersion: 1, immutable: true }),
   family({ id: 'world-model-projection-source-map', currentVersion: 1, immutable: true, paths: [/^singularity\/world-model\/catalogs\/projections\/[^/]+\.sources\.json$/] }),
@@ -2739,17 +2762,50 @@ const families = [
   family({ id: 'architecture-planned-projection-receipt', currentVersion: 1, immutable: true, paths: [/^singularity\/work-items\/[^/]+\/context\/architecture\/planned-projection-receipt\.json$/] }),
   family({ id: 'architecture-intent-fulfilment', currentVersion: 1, immutable: true, paths: [/^singularity\/work-items\/[^/]+\/context\/architecture\/intent-fulfilment\.json$/] }),
   family({ id: 'calm-toolchain-lock', currentVersion: 1, immutable: true }),
-  family({ id: 'world-model-extractor-manifest', currentVersion: 1, immutable: true }),
-  family({ id: 'world-model-evidence-catalog', currentVersion: 1, immutable: true, paths: [/^singularity\/world-model\/catalogs\/evidence\.json$/] }),
+  family({
+    id: 'world-model-extractor-manifest', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity'
+  }),
+  family({
+    id: 'world-model-extractor-registry', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity'
+  }),
+  family({
+    id: 'world-model-evidence-catalog', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity',
+    paths: [/^singularity\/world-model\/catalogs\/evidence\.json$/]
+  }),
   family({ id: 'world-model-derivation', currentVersion: 1, immutable: true }),
-  family({ id: 'world-model-derivation-catalog', currentVersion: 1, immutable: true, paths: [/^singularity\/world-model\/catalogs\/derivations\.json$/] }),
-  family({ id: 'world-model-fact-ledger', currentVersion: 1, immutable: true, paths: [/^singularity\/world-model\/catalogs\/facts\.json$/] }),
-  family({ id: 'world-model-view-fact-ledger', currentVersion: 1, immutable: true, paths: [/^singularity\/world-model\/catalogs\/views\/.+\.facts\.json$/] }),
-  family({ id: 'world-model-consumer-profile', currentVersion: 1, immutable: true }),
-  family({ id: 'world-model-output-budget', currentVersion: 1, immutable: true }),
+  family({
+    id: 'world-model-derivation-catalog', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity',
+    paths: [/^singularity\/world-model\/catalogs\/derivations\.json$/]
+  }),
+  family({
+    id: 'world-model-fact-ledger', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity',
+    paths: [/^singularity\/world-model\/catalogs\/facts\.json$/]
+  }),
+  family({
+    id: 'world-model-view-fact-ledger', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity',
+    paths: [/^singularity\/world-model\/catalogs\/views\/.+\.facts\.json$/]
+  }),
+  family({
+    id: 'world-model-consumer-profile', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity'
+  }),
+  family({
+    id: 'world-model-output-budget', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity'
+  }),
   family({ id: 'world-model-context-manifest', currentVersion: 1, immutable: true, paths: [/^singularity\/world-model\/contexts\/.+\.json$/] }),
   family({ id: 'world-model-composition-candidate', currentVersion: 1, immutable: true }),
-  family({ id: 'world-model-view-validation-receipt', currentVersion: 1, immutable: true, paths: [/^singularity\/world-model\/receipts\/validation\/.+\.json$/] }),
+  family({
+    id: 'world-model-view-validation-receipt', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity',
+    paths: [/^singularity\/world-model\/receipts\/validation\/.+\.json$/]
+  }),
   family({ id: 'world-model-view-execution', currentVersion: 1, immutable: true, paths: [/^singularity\/world-model\/receipts\/execution\/.+\.json$/] }),
   family({ id: 'world-model-view-cache-record', currentVersion: 1, paths: [/^\$git\/world-model-cache\/v4\/.+\/record\.json$/] }),
   family({ id: 'world-model-shared-cache-bundle', currentVersion: 1, immutable: true }),

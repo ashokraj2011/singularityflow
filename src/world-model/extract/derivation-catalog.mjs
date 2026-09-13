@@ -5,10 +5,13 @@ import {
   assertExactKeys, assertPlainRecord, assertSchemaKind, assertSelfHash, assertSha256,
   assertString, assertStringArray, contractFailure
 } from '../contracts.mjs';
-import { resolveExtractorManifest, validateExtractorRegistry } from '../registry/extractors.mjs';
+import {
+  resolveExtractorManifest, resolveHistoricalExtractorManifest, validateExtractorRegistry,
+  validateHistoricalExtractorRegistry
+} from '../registry/extractors.mjs';
 import { DERIVATION_STATUSES, assertVocabularyValue } from '../vocabularies.mjs';
 import { validateEvidenceCatalog } from './evidence-catalog.mjs';
-import { validateFactLedger } from './fact-ledger.mjs';
+import { validateFactLedger, validateHistoricalFactLedger } from './fact-ledger.mjs';
 
 const EXTRACTOR_ID_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const SEMVER_PATTERN = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[a-z0-9.-]+)?$/;
@@ -83,8 +86,11 @@ export function createDerivationCatalog({ identities = [], outputFactIdsByDeriva
   }, 'catalogSha256'), { evidenceCatalog, factLedger, extractorRegistry });
 }
 
-export function validateDerivationRecord(value, {
+function validateDerivationRecordWithRegistry(value, {
   evidenceIds = null, factIds = null, expectedId = null, extractorRegistry = null
+} = {}, {
+  registryValidator = validateExtractorRegistry,
+  manifestResolver = resolveExtractorManifest
 } = {}) {
   assertPlainRecord(value, 'World-model Derivation Record');
   assertExactKeys(value, {
@@ -99,8 +105,8 @@ export function validateDerivationRecord(value, {
   assertString(value.id, 'Derivation id', { pattern: DERIVATION_ID_PATTERN });
   validateDerivationIdentity(derivationIdentityFromRecord(value));
   if (extractorRegistry) {
-    const registry = validateExtractorRegistry(extractorRegistry);
-    const registered = resolveExtractorManifest(
+    const registry = registryValidator(extractorRegistry);
+    const registered = manifestResolver(
       registry, `${value.extractor.id}@${value.extractor.version}`
     );
     if (registered.producer.implementationSha256 !== value.extractor.implementationSha256) {
@@ -144,8 +150,24 @@ export function validateDerivationRecord(value, {
   return value;
 }
 
-export function validateDerivationCatalog(value, {
+/** Validate a Derivation Record for current production use. */
+export function validateDerivationRecord(value, options = {}) {
+  return validateDerivationRecordWithRegistry(value, options);
+}
+
+/** Validate an immutable retained Derivation Record against its historical registry. */
+export function validateHistoricalDerivationRecord(value, options = {}) {
+  return validateDerivationRecordWithRegistry(value, options, {
+    registryValidator: validateHistoricalExtractorRegistry,
+    manifestResolver: resolveHistoricalExtractorManifest
+  });
+}
+
+function validateDerivationCatalogWithRegistry(value, {
   evidenceCatalog = null, factLedger = null, extractorRegistry = null
+} = {}, {
+  factLedgerValidator = validateFactLedger,
+  derivationRecordValidator = validateDerivationRecord
 } = {}) {
   assertPlainRecord(value, 'World-model Derivation Catalog');
   assertExactKeys(value, { required: ['schemaVersion', 'kind', 'derivations', 'catalogSha256'], label: 'World-model Derivation Catalog' });
@@ -155,7 +177,7 @@ export function validateDerivationCatalog(value, {
   const evidenceIds = evidence ? new Set(evidence.items.map((item) => item.id)) : null;
   const derivationIds = new Set(value.derivations.map((item) => item?.id));
   const facts = factLedger
-    ? validateFactLedger(factLedger, { evidenceCatalog: evidence, derivationIds })
+    ? factLedgerValidator(factLedger, { evidenceCatalog: evidence, derivationIds })
     : null;
   const factsById = facts ? new Map(facts.facts.map((fact) => [fact.id, fact])) : null;
   const factIds = factsById ? new Set(factsById.keys()) : null;
@@ -164,7 +186,7 @@ export function validateDerivationCatalog(value, {
   const expectedByIndex = new Map(allocated.map((entry) => [entry.index, entry.id]));
   const ids = new Set();
   value.derivations.forEach((derivation, index) => {
-    validateDerivationRecord(derivation, {
+    derivationRecordValidator(derivation, {
       evidenceIds, factIds, expectedId: expectedByIndex.get(index), extractorRegistry
     });
     if (ids.has(derivation.id)) contractFailure(`Derivation Catalog repeats id '${derivation.id}'.`);
@@ -221,6 +243,19 @@ export function validateDerivationCatalog(value, {
   assertSha256(value.catalogSha256, 'Derivation Catalog catalogSha256');
   assertSelfHash(value, 'catalogSha256', 'World-model Derivation Catalog');
   return value;
+}
+
+/** Validate a Derivation Catalog for current production use. */
+export function validateDerivationCatalog(value, options = {}) {
+  return validateDerivationCatalogWithRegistry(value, options);
+}
+
+/** Validate an immutable retained Derivation Catalog against historical extractor identities. */
+export function validateHistoricalDerivationCatalog(value, options = {}) {
+  return validateDerivationCatalogWithRegistry(value, options, {
+    factLedgerValidator: validateHistoricalFactLedger,
+    derivationRecordValidator: validateHistoricalDerivationRecord
+  });
 }
 
 export function derivationIdForIdentity(catalogValue, identityValue) {

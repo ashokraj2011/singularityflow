@@ -2,7 +2,11 @@ import path from 'node:path';
 
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { SingularityFlowError } from '../util.mjs';
-import { compareText, sealRecord, sha256 } from './canonicalize.mjs';
+import { assertRecordSha256, compareText, sealRecord, sha256 } from './canonicalize.mjs';
+import {
+  VIEW_ID_PATTERN, assertBoolean, assertExactKeys, assertInteger, assertPlainRecord,
+  assertSchemaKind, assertSha256, assertString, contractFailure
+} from './contracts.mjs';
 import { createScopeManifest } from './scope/manifest.mjs';
 import {
   assertInstalledExtractorRegistry, BUILTIN_EXTRACTOR_REGISTRY, DEFAULT_EXTRACTOR_REFERENCES
@@ -19,10 +23,116 @@ const CONSUMERS = new Set([
   'developer', 'architect', 'tester', 'business', 'operations', 'security', 'release'
 ]);
 const DEPTHS = new Set(['quick', 'standard', 'deep']);
+const TERMINOLOGIES = new Set(['source-native', 'plain-language']);
 const CACHE_POLICIES = new Set(['reuse-valid', 'rebuild']);
+const OUTPUT_BUDGET_OVERFLOW_POLICY = Object.freeze([
+  'omit-optional-facts', 'shorten-narrative', 'split-view',
+  'route-larger-context', 'refuse'
+]);
 
 function schemaRecord(family, value) {
   return Object.freeze(readRecord(family, value).record);
+}
+
+/** Validate the complete durable consumer-profile contract, not only its MIG version. */
+export function validateWorldModelConsumerProfile(value) {
+  const profile = readRecord('world-model-consumer-profile', value).record;
+  assertPlainRecord(profile, 'World-model Consumer Profile');
+  assertExactKeys(profile, {
+    required: [
+      'schemaVersion', 'kind', 'consumer', 'depth', 'preferences', 'profileSha256'
+    ],
+    label: 'World-model Consumer Profile'
+  });
+  assertSchemaKind(profile, 'world-model-consumer-profile', 'World-model Consumer Profile');
+  if (!CONSUMERS.has(profile.consumer)) {
+    contractFailure(`Unknown WMB v4 consumer '${profile.consumer}'.`, 'WMB_CONSUMER_INVALID');
+  }
+  if (!DEPTHS.has(profile.depth)) {
+    contractFailure(`Unknown WMB v4 depth '${profile.depth}'.`, 'WMB_DEPTH_INVALID');
+  }
+  assertPlainRecord(profile.preferences, 'World-model Consumer Profile preferences');
+  assertExactKeys(profile.preferences, {
+    required: ['terminology', 'includeUnavailable', 'includeContradictions', 'maximumExamples'],
+    label: 'World-model Consumer Profile preferences'
+  });
+  assertString(profile.preferences.terminology, 'World-model Consumer Profile terminology');
+  if (!TERMINOLOGIES.has(profile.preferences.terminology)) {
+    contractFailure(
+      `Unknown WMB v4 terminology '${profile.preferences.terminology}'.`,
+      'WMB_CONSUMER_INVALID'
+    );
+  }
+  assertBoolean(profile.preferences.includeUnavailable,
+    'World-model Consumer Profile includeUnavailable');
+  assertBoolean(profile.preferences.includeContradictions,
+    'World-model Consumer Profile includeContradictions');
+  assertInteger(profile.preferences.maximumExamples,
+    'World-model Consumer Profile maximumExamples', { minimum: 0, maximum: 20 });
+  assertSha256(profile.profileSha256, 'World-model Consumer Profile profileSha256');
+  assertRecordSha256(profile, 'profileSha256', 'World-model Consumer Profile');
+  return profile;
+}
+
+/** Validate every meaning-bearing field of a durable operation or per-view output budget. */
+export function validateWorldModelOutputBudget(value) {
+  const budget = readRecord('world-model-output-budget', value).record;
+  assertPlainRecord(budget, 'World-model Output Budget');
+  assertExactKeys(budget, {
+    required: [
+      'schemaVersion', 'kind', 'viewBudgets', 'totalMaximumOutputTokens',
+      'overflowPolicy', 'budgetSha256'
+    ],
+    label: 'World-model Output Budget'
+  });
+  assertSchemaKind(budget, 'world-model-output-budget', 'World-model Output Budget');
+  assertPlainRecord(budget.viewBudgets, 'World-model Output Budget viewBudgets');
+  const viewIds = Object.keys(budget.viewBudgets);
+  if (!viewIds.length) {
+    contractFailure('World-model Output Budget must contain at least one view budget.',
+      'WMB_OUTPUT_BUDGET_EXCEEDED');
+  }
+  let requiredTotal = 0;
+  for (const viewId of viewIds) {
+    assertString(viewId, 'World-model Output Budget view ID', { pattern: VIEW_ID_PATTERN });
+    const viewBudget = budget.viewBudgets[viewId];
+    assertPlainRecord(viewBudget, `World-model Output Budget '${viewId}'`);
+    assertExactKeys(viewBudget, {
+      required: ['maximumNarrativeWords', 'maximumSelectedFacts', 'maximumOutputTokens'],
+      label: `World-model Output Budget '${viewId}'`
+    });
+    for (const field of [
+      'maximumNarrativeWords', 'maximumSelectedFacts', 'maximumOutputTokens'
+    ]) {
+      assertInteger(viewBudget[field], `World-model Output Budget '${viewId}' ${field}`, {
+        minimum: 1
+      });
+    }
+    requiredTotal += viewBudget.maximumOutputTokens;
+    if (!Number.isSafeInteger(requiredTotal)) {
+      contractFailure('World-model Output Budget aggregate exceeds the safe integer limit.',
+        'WMB_OUTPUT_BUDGET_EXCEEDED');
+    }
+  }
+  assertInteger(budget.totalMaximumOutputTokens,
+    'World-model Output Budget totalMaximumOutputTokens', { minimum: 1 });
+  if (budget.totalMaximumOutputTokens < requiredTotal) {
+    contractFailure(
+      'World-model Output Budget total cannot cover every admitted per-view ceiling.',
+      'WMB_OUTPUT_BUDGET_EXCEEDED', {
+        totalMaximumOutputTokens: budget.totalMaximumOutputTokens,
+        minimumRequiredTokens: requiredTotal
+      }
+    );
+  }
+  if (!Array.isArray(budget.overflowPolicy)
+      || JSON.stringify(budget.overflowPolicy) !== JSON.stringify(OUTPUT_BUDGET_OVERFLOW_POLICY)) {
+    contractFailure('World-model Output Budget overflow policy is not the registered exact policy.',
+      'WMB_OUTPUT_BUDGET_EXCEEDED');
+  }
+  assertSha256(budget.budgetSha256, 'World-model Output Budget budgetSha256');
+  assertRecordSha256(budget, 'budgetSha256', 'World-model Output Budget');
+  return budget;
 }
 
 function normalizedViews(viewRegistry, values, { required = true } = {}) {
@@ -143,7 +253,7 @@ export function createWorldModelConsumerProfile({
       maximumExamples
     }
   };
-  return schemaRecord('world-model-consumer-profile', sealRecord(base, 'profileSha256'));
+  return Object.freeze(validateWorldModelConsumerProfile(sealRecord(base, 'profileSha256')));
 }
 
 export function createWorldModelOutputBudget(contracts, { totalMaximumOutputTokens = null } = {}) {
@@ -177,12 +287,9 @@ export function createWorldModelOutputBudget(contracts, { totalMaximumOutputToke
     kind: 'world-model-output-budget',
     viewBudgets,
     totalMaximumOutputTokens: total,
-    overflowPolicy: [
-      'omit-optional-facts', 'shorten-narrative', 'split-view',
-      'route-larger-context', 'refuse'
-    ]
+    overflowPolicy: [...OUTPUT_BUDGET_OVERFLOW_POLICY]
   };
-  return schemaRecord('world-model-output-budget', sealRecord(base, 'budgetSha256'));
+  return Object.freeze(validateWorldModelOutputBudget(sealRecord(base, 'budgetSha256')));
 }
 
 /**
@@ -216,7 +323,7 @@ export function createWorldModelViewOutputBudget(outputBudget, contract) {
     totalMaximumOutputTokens: maximumOutputTokens,
     overflowPolicy: [...outputBudget.overflowPolicy]
   };
-  return schemaRecord('world-model-output-budget', sealRecord(base, 'budgetSha256'));
+  return Object.freeze(validateWorldModelOutputBudget(sealRecord(base, 'budgetSha256')));
 }
 
 export function createWorldModelBuildRequest({

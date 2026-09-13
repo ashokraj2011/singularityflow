@@ -3,10 +3,15 @@ import { currentSchemaVersion, readRecord } from '../../schema-migrations.mjs';
 import { SingularityFlowError } from '../../util.mjs';
 import { candidateFactReferences, parseCompositionCandidate } from '../compose/candidate.mjs';
 import {
+  VIEW_ID_PATTERN, assertExactKeys, assertInteger, assertPlainRecord, assertSchemaKind,
+  assertSha256, assertString
+} from '../contracts.mjs';
+import {
   WMB_V4_CANDIDATE_SCHEMA_SOURCE_SHA256, WMB_V4_KERNEL_SOURCE_SHA256
 } from '../source-digest.mjs';
 
 const HASH = /^sha256:[a-f0-9]{64}$/;
+const VALIDATION_CHECK_ID = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const CANDIDATE_FIELDS = new Set([
   'schemaVersion', 'kind', 'view', 'viewVersion', 'title', 'tldrMarkdown', 'sections', 'usedFactIds'
 ]);
@@ -98,6 +103,77 @@ function assertApprovedNarrativeTemplate(unit, references, factsById) {
 
 function fail(code, message, details = {}) {
   throw new SingularityFlowError(message, { code, details });
+}
+
+/** Validate the complete durable receipt produced by the installed WMB v4 validator. */
+export function validateWorldModelViewValidationReceipt(value) {
+  const receipt = readRecord('world-model-view-validation-receipt', value).record;
+  assertPlainRecord(receipt, 'World-model View Validation Receipt');
+  assertExactKeys(receipt, {
+    required: [
+      'schemaVersion', 'kind', 'viewId', 'viewVersion', 'candidateSha256',
+      'candidateSchemaSha256', 'viewSpecSha256', 'factLedgerSha256', 'scopeSha256',
+      'checks', 'status', 'validatorSha256', 'receiptSha256'
+    ],
+    label: 'World-model View Validation Receipt'
+  });
+  assertSchemaKind(
+    receipt, 'world-model-view-validation-receipt', 'World-model View Validation Receipt'
+  );
+  assertString(receipt.viewId, 'World-model View Validation Receipt viewId', {
+    pattern: VIEW_ID_PATTERN
+  });
+  assertInteger(receipt.viewVersion, 'World-model View Validation Receipt viewVersion', {
+    minimum: 1
+  });
+  for (const field of [
+    'candidateSha256', 'candidateSchemaSha256', 'viewSpecSha256', 'factLedgerSha256',
+    'scopeSha256', 'validatorSha256', 'receiptSha256'
+  ]) assertSha256(receipt[field], `World-model View Validation Receipt ${field}`);
+  if (receipt.status !== 'passed') {
+    fail('WMB_VIEW_VALIDATION_INVALID',
+      'World-model View Validation Receipt must record a passed validation.');
+  }
+  if (!Array.isArray(receipt.checks) || !receipt.checks.length || receipt.checks.length > 256) {
+    fail('WMB_VIEW_VALIDATION_INVALID',
+      'World-model View Validation Receipt must contain a bounded non-empty check roster.');
+  }
+  for (const [index, check] of receipt.checks.entries()) {
+    assertPlainRecord(check, `World-model View Validation Receipt check ${index}`);
+    assertExactKeys(check, {
+      required: ['id', 'status'],
+      optional: ['detail'],
+      label: `World-model View Validation Receipt check ${index}`
+    });
+    assertString(check.id, `World-model View Validation Receipt check ${index} id`, {
+      pattern: VALIDATION_CHECK_ID
+    });
+    if (check.status !== 'pass') {
+      fail('WMB_VIEW_VALIDATION_INVALID',
+        'World-model View Validation Receipt contains a non-passing check.',
+        { index, checkId: check.id, status: check.status ?? null });
+    }
+    if (check.detail !== undefined) {
+      assertString(check.detail, `World-model View Validation Receipt check ${index} detail`);
+      if (Buffer.byteLength(check.detail, 'utf8') > 4096) {
+        fail('WMB_VIEW_VALIDATION_INVALID',
+          'World-model View Validation Receipt check detail exceeds its byte limit.',
+          { index, checkId: check.id, maximumBytes: 4096 });
+      }
+    }
+  }
+  const checkIds = receipt.checks.map((check) => check.id);
+  if (new Set(checkIds).size !== checkIds.length) {
+    fail('WMB_VIEW_VALIDATION_INVALID',
+      'World-model View Validation Receipt repeats a validation check.');
+  }
+  const core = structuredClone(receipt);
+  delete core.receiptSha256;
+  if (receipt.receiptSha256 !== sha(core)) {
+    fail('WMB_VIEW_VALIDATION_INVALID',
+      'World-model View Validation Receipt self hash does not verify.');
+  }
+  return receipt;
 }
 
 function assertClosedObject(value, fields, label) {
@@ -315,8 +391,11 @@ export function validateCompositionCandidate(rawCandidate, {
     status: 'passed',
     validatorSha256
   };
+  const receipt = validateWorldModelViewValidationReceipt({
+    ...receiptBase, receiptSha256: sha(receiptBase)
+  });
   return Object.freeze({
     candidate: structuredClone(candidate),
-    receipt: { ...receiptBase, receiptSha256: sha(receiptBase) }
+    receipt: Object.freeze(receipt)
   });
 }

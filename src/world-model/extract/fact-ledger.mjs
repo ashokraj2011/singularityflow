@@ -5,7 +5,9 @@ import {
   assertExactKeys, assertPlainRecord, assertSchemaKind, assertSelfHash, assertSha256,
   assertString, assertStringArray, contractFailure
 } from '../contracts.mjs';
-import { validateExtractorRegistry } from '../registry/extractors.mjs';
+import {
+  validateExtractorRegistry, validateHistoricalExtractorRegistry
+} from '../registry/extractors.mjs';
 import { validateScopeManifest } from '../scope/manifest.mjs';
 import { assertSubjectAllowed } from '../scope/validate.mjs';
 import { validateSourceSnapshot } from '../source/snapshot.mjs';
@@ -183,8 +185,9 @@ export function createFactLedger({ sourceSnapshot, scopeManifest, extractorRegis
   });
 }
 
-export function validateFactLedger(value, { sourceSnapshot = null, scopeManifest = null,
-  extractorRegistry = null, evidenceCatalog = null, derivationIds = null } = {}) {
+function validateFactLedgerWithRegistry(value, { sourceSnapshot = null, scopeManifest = null,
+  extractorRegistry = null, evidenceCatalog = null, derivationIds = null } = {},
+registryValidator = validateExtractorRegistry) {
   assertPlainRecord(value, 'World-model Fact Ledger');
   assertExactKeys(value, {
     required: [
@@ -203,7 +206,8 @@ export function validateFactLedger(value, { sourceSnapshot = null, scopeManifest
   if (scopeManifest && validateScopeManifest(scopeManifest).scopeSha256 !== value.scopeManifestSha256) {
     contractFailure('Fact Ledger scope binding is invalid.', 'WMB_FACT_OUT_OF_SCOPE');
   }
-  if (extractorRegistry && validateExtractorRegistry(extractorRegistry).registrySha256 !== value.extractorRegistrySha256) {
+  if (extractorRegistry
+      && registryValidator(extractorRegistry).registrySha256 !== value.extractorRegistrySha256) {
     contractFailure('Fact Ledger extractor registry binding is invalid.', 'WMB_EXTRACTOR_REGISTRY_MISMATCH');
   }
   const evidence = evidenceCatalog ? validateEvidenceCatalog(evidenceCatalog) : null;
@@ -241,4 +245,14 @@ export function validateFactLedger(value, { sourceSnapshot = null, scopeManifest
   assertSha256(value.ledgerSha256, 'Fact Ledger ledgerSha256');
   assertSelfHash(value, 'ledgerSha256', 'World-model Fact Ledger');
   return value;
+}
+
+/** Validate a Fact Ledger for current production use by an installed extractor registry. */
+export function validateFactLedger(value, options = {}) {
+  return validateFactLedgerWithRegistry(value, options, validateExtractorRegistry);
+}
+
+/** Validate an immutable retained Fact Ledger against its historical extractor registry. */
+export function validateHistoricalFactLedger(value, options = {}) {
+  return validateFactLedgerWithRegistry(value, options, validateHistoricalExtractorRegistry);
 }

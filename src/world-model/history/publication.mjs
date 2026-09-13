@@ -15,6 +15,7 @@ import {
 import {
   parseExactRetainedObject, validateRetainedObjectReference
 } from './retained-object.mjs';
+import { validateRetainedWorldModelBindingGraph } from './store.mjs';
 
 const MAXIMUM_HISTORY_ADDITIONS = 100_000;
 // The complete projection plus this history envelope must fit the 128 MiB immutable recovery
@@ -263,6 +264,44 @@ export function validateStagedWorldModelHistory({
   };
   for (const keyed of keyedRecords) {
     for (const ref of collectObjectRefs(keyed.record)) visit(ref, [], keyed.target);
+  }
+
+  // A handoff can be the only keyed root while model/view bindings live in its retained closure.
+  // Validate every reachable binding, not only records supplied through a models/ or views/ path.
+  const graphBindings = new Map();
+  const bindingKeys = new Map();
+  const registerGraphBinding = (kind, record) => {
+    const logicalKey = `${kind}:${kind === 'model' ? record.modelKey : record.viewKey}`;
+    const prior = bindingKeys.get(logicalKey);
+    if (prior !== undefined && prior !== record.bindingSha256) {
+      fail(`World-model history contains conflicting ${kind} bindings for one exact input key.`,
+        'WMP_IDENTITY_CONFLICT', {
+          kind,
+          key: logicalKey.slice(kind.length + 1),
+          bindingSha256: [prior, record.bindingSha256].sort()
+        });
+    }
+    bindingKeys.set(logicalKey, record.bindingSha256);
+    graphBindings.set(`${kind}:${record.bindingSha256}`, Object.freeze({ kind, record }));
+  };
+  for (const { record } of keyedRecords) {
+    if (record.kind === 'world-model-model-binding') {
+      registerGraphBinding('model', record);
+    } else if (record.kind === 'world-model-view-binding') {
+      registerGraphBinding('view', record);
+    }
+  }
+  for (const { record } of resolved.values()) {
+    if (record?.kind === 'world-model-model-binding') {
+      registerGraphBinding('model', record);
+    } else if (record?.kind === 'world-model-view-binding') {
+      registerGraphBinding('view', record);
+    }
+  }
+  for (const { kind, record } of graphBindings.values()) {
+    validateRetainedWorldModelBindingGraph(kind, record, resolved, {
+      currentExtractorAdmission: true
+    });
   }
 
   return deepFreeze({

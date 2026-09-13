@@ -1,7 +1,7 @@
 # Persisted World-Model views
 
-**Status:** W0/W1 persistence preview and a bounded W2 deterministic-view slice implemented; the
-full WMP release remains staged
+**Status:** W0/W1 persistence, the model semantic-owner/integrity foundation, and a bounded W2
+deterministic-view slice are implemented; production model/view emission and reuse remain staged
 
 This document is the implementation companion to `SPEC-persisted-worldmodel-views.md`. It records
 the amendments required by the current WMB v4 code so that persistence extends the existing
@@ -26,22 +26,31 @@ model call, extraction, AST query, Git fetch, cache fill, or source checkout. Th
    A future incompatible shape creates a new identity/version contract; migration never silently
    changes a self-hashed historical object.
 4. **Strict bytes and owners.** New history readers require bounded UTF-8, canonical JSON, exact
-   raw-byte length/digest, closed fields, semantic self-hash validation, and the installed owning
-   record validator. MIG readability is not semantic admission. Model/view admission currently
-   fails closed when repository-domain, extraction-policy, extractor-registry, completeness-record,
-   consumer-profile, output-budget, view-validation-receipt, renderer-contract,
-   validator-contract, or an applicable tokenizer owner is unavailable. Deferred
-   grounding/handoff/adoption paths additionally require publication-receipt, admission-proof,
-   source-authority, origin-authority, target-authority, and adoption-authorization owners. This
-   boundary also rejects duplicate JSON keys because duplicate-key JSON cannot equal the canonical
-   re-encoding.
-5. **Portable repository subject.** WMP history is admitted only when the build has an exact
-   governed capability/repository subject. A checkout basename or credential-bearing remote URL is
-   not portable authority. Standalone local-repository domain enrollment remains a prerequisite,
-   not an inferred identity.
-6. **No fabricated completeness.** Existing v4 facts, ledgers, source/scope snapshots, and
-   validation receipts are retained exactly. Aggregate path outcomes are published only when an
-   extractor-owned completeness record proves them; missing domains remain explicit gaps.
+   raw-byte length/digest, closed fields, semantic self-hash validation, and the installed
+   historical-shape owner for that frozen family. Current-runtime admission remains a separate
+   check before an extractor can execute; upgrading an installed extractor cannot invalidate
+   already admitted history. MIG readability is not semantic admission. Frozen v1 owners now
+   exist for repository-domain, extraction-policy, extractor-registry, completeness-record,
+   consumer-profile, output-budget, and view-validation-receipt records. Model admission also
+   verifies their exact cross-record graph. Production emission remains disabled until the runtime
+   can produce truthful extraction outcomes and governed repository authority. View admission
+   additionally remains fail-closed without retained renderer/validator contracts, an applicable
+   tokenizer owner, model-to-view/selected-ledger correlation, and rendered-budget validation.
+   Deferred grounding/handoff/adoption paths additionally require publication-receipt,
+   admission-proof, source-authority, origin-authority, target-authority, and
+   adoption-authorization owners. This boundary also rejects duplicate JSON keys because
+   duplicate-key JSON cannot equal the canonical re-encoding.
+5. **Portable repository subject is a production invariant.** The implemented repository-domain
+   record is only a portable semantic identity; it is not authorization. Production WMP history
+   must remain disabled until an action-boundary resolver proves an exact governed
+   capability/repository subject. A checkout basename or credential-bearing remote URL is not
+   portable authority. Standalone local-repository domain enrollment must be explicit, not
+   inferred.
+6. **No fabricated completeness is a production invariant.** Existing v4 facts, ledgers,
+   source/scope snapshots, and validation receipts can be retained structurally. Production
+   aggregate path outcomes remain disabled until actual extractor execution records a truthful
+   terminal outcome for every selected path, including successful zero-fact extraction; missing
+   domains remain explicit gaps.
 7. **Stable payload versus compatibility envelope.** Deterministic view payload bytes exclude
    clocks, actor labels, machine paths, and invocation IDs. The existing timestamped v4 Markdown
    envelope remains separately verified for compatibility.
@@ -66,10 +75,22 @@ than being wired into every Story path prematurely:
 
 - all six draft WMP envelope families are registered as frozen v1 identities, have strict closed
   structural/self-hash validators and schemas, and use migration-registry schema versions;
+- frozen v1 semantic owners are installed for repository-domain, extraction-policy,
+  extractor-registry, completeness-record, consumer-profile, output-budget, and
+  view-validation-receipt records;
+- model-binding admission validates the exact repository/source/scope/policy/registry/profile,
+  completeness/evidence/fact/derivation graph, including exact source-path and content-digest
+  accounting, before a retained graph may be staged;
+- extraction profiles reconstruct their parse-schema identity from the complete retained extractor
+  tuple and use a frozen exact-byte/path normalization contract; opaque substitute digests are not
+  admitted;
+- extractor registries are bounded to 1,024 manifests and graph admission uses indexed identity
+  and manifest lookups;
 - exact model/view keys, canonical raw-byte ingestion, portable disjoint paths, bounded retained
   closures, and create-if-absent staging are implemented;
-- the existing state writer can commit the compatible current projection and immutable history in
-  one CAS without dropping existing exact-blob checks;
+- the existing state writer checks the pinned combined closure, including model/view binding graph
+  validation, before it can commit the compatible current projection and immutable history in one
+  CAS without dropping existing exact-blob checks;
 - publication recovery now binds and verifies the history additions as well as the replaceable
   projection, including byte-identical concurrent winners and unrelated-state-change refusal;
 - exact historical source reads use locally available Git objects at an explicit full revision,
@@ -85,25 +106,35 @@ than being wired into every Story path prematurely:
   write a cache, or change Git. A configured remote never falls back to an unpublished local state
   branch.
 
-The increment does **not** make a current WMB build emit a reusable WMP model binding yet. Model
-admission requires truthful semantic owners for the repository-domain, extraction-policy,
-extractor-registry, and completeness-record roles. View admission additionally requires
-consumer-profile, output-budget, and view-validation-receipt adapters, retained renderer/validator
-implementation contracts, and an exact tokenizer owner whenever token measurement is asserted.
-Deferred grounding, handoff, and adoption require their publication-receipt, admission-proof,
-source-authority, origin-authority, target-authority, and adoption-authorization owners as
-applicable. The source specification references these roles
-but does not define every durable family or a valid mapping to an existing owner. Reusing an unrelated
-record under a convenient role would create a syntactically valid but false proof. This document
-therefore amends the rollout: add or explicitly extend those owner contracts first, then connect the
-build, lookup, Story grounding, handoff, and UI paths.
+The increment does **not** make a current WMB build emit or reuse a production WMP model/view
+binding yet. The semantic owner and exact model-graph foundation is complete, but the current
+adapter result does not expose truthful terminal outcomes for every selected source path; a
+successful extractor may also emit zero facts. Production model emission therefore remains
+disabled until actual per-path extraction outcomes are instrumented, the repository subject is
+closed over a governed repository-identity authority, and a build-to-binding adapter plus exact
+pre-extraction lookup are implemented. Excluded paths cannot be admitted until an owned candidate
+roster proves they existed and were excluded by policy.
+
+The retained Repository Domain is deliberately only a portable semantic identity. It is not an
+authorization receipt: production code must compare that identity with approved or lifecycle-
+pinned repository authority at the action boundary before it may construct or reuse a binding.
+
+View emission and reuse remain disabled until retained renderer/validator implementation
+contracts, an exact tokenizer owner whenever token measurement is asserted, model-to-view and
+selected-ledger correlation, validation-receipt candidate/scope binding, and rendered-budget
+validation are implemented. Deferred grounding, handoff, and adoption still require their
+publication-receipt, admission-proof, source-authority, origin-authority, target-authority, and
+adoption-authorization owners as applicable. Reusing an unrelated record under a convenient role
+would create a syntactically valid but false proof. The next rollout step is therefore extraction
+instrumentation and authority closure, followed by the build/lookup adapter; it is not activation
+of the production path.
 
 ## Delivery boundary
 
 | Increment | Current status | Included behavior |
 |---|---|---|
-| W0 | Persistence preview implemented | Strict identities, object references, six registered record contracts, portable paths, and canonical-byte tests. Semantic owner contracts named above remain a prerequisite to production binding emission. |
-| W1 | Persistence foundation implemented | Direct exact-key state-history reads; create-if-absent publication expectations; additive history plus compatible current projection in one CAS; history-bound recovery. Full model/view admission remains fail-closed until every semantic owner is installed. |
+| W0 | Persistence and semantic-owner foundation implemented | Strict identities, object references, six registered envelope contracts, portable paths, canonical-byte tests, and frozen v1 owners for repository domain, extraction policy, registry, completeness, consumer profile, output budget, and validation receipt. Production construction is not enabled. |
+| W1 | Persistence and model-integrity foundation implemented | Direct exact-key state-history reads; create-if-absent publication expectations; additive history plus compatible current projection in one CAS; history-bound recovery; exact model-graph validation and pinned state-writer checks. Production emission/reuse remains fail-closed pending truthful extraction outcomes, governed repository authority, and build/lookup integration. |
 | W2 | Partial | Five model-free overview contracts, stable full/brief renderers, and exact history inspection are implemented. The structural grounding preview exists, but its frozen v1 shape cannot represent the full composition identity; a compatible successor contract, lifecycle emission, and exact packet replay are not yet enabled. |
 | W3 | Deferred | Incremental parse/derivation reuse and verified private-candidate handoff/adoption. |
 | W4 | Deferred | Legacy inventory/cutover, supported-platform evidence, capacity benchmarks, UI explorer, and release qualification. |
@@ -134,19 +165,25 @@ proposed 256 MiB closure ceiling until a streaming/reference recovery format is 
 
 ## Release evidence still required
 
-- Production build-to-binding construction after the missing repository-domain, extraction-policy,
-  extractor-registry, completeness-record, consumer-profile, output-budget,
-  view-validation-receipt, renderer-contract, validator-contract, and applicable tokenizer owner
-  contracts are resolved; grounding/handoff/adoption also require publication-receipt,
-  admission-proof, source-authority, origin-authority, target-authority, and
-  adoption-authorization owners.
-- Exact-key lookup before extraction and reuse from Story start/grounding preparation.
+- Instrument the registered-v4 extraction path so it records a terminal outcome and exact content
+  digest for every selected repository path, including successful zero-fact extraction. Add an
+  owned discovered-candidate roster before permitting excluded-path claims.
+- Define an owned extraction-configuration contract that maps exact retained configuration bytes
+  to the extractor that consumes them. Frozen v1 can prove only its registered empty
+  configuration; configured profiles therefore remain fail-closed.
+- Close repository-domain identity over a governed repository-identity authority; checkout names,
+  cached workspace bindings, and remote URL text are not sufficient authority.
+- Add production build-to-binding construction and exact-key lookup before extraction, then wire
+  reuse into Story start and grounding preparation. Until both exist, model emission and reuse stay
+  disabled.
 - Before enabling saved-view publication or reads, cryptographically connect each view binding's
   model-payload and selected-ledger identity to one accepted model binding and its retained source
   Fact Ledger; individual valid closures are not sufficient proof that the two graphs belong
   together. The same gate must correlate scope and prove that the validation receipt's candidate
-  digest is the exact rendered object. Publication must apply these cross-record checks to the
-  combined existing-plus-staged authority graph, not validate records only in isolation.
+  digest is the exact rendered object. Retained renderer/validator contracts, applicable tokenizer
+  ownership, and rendered-budget validation are also required. Publication must apply these
+  cross-record checks to the combined existing-plus-staged authority graph, not validate records
+  only in isolation.
 - Define a compatible grounding contract that binds expansion handles, ordering/separators, and
   packet-composer identity; then add Story grounding-record emission, packet replay, and the
   persisted-view IDE/FWM adapters. The frozen structural v1 preview is not sufficient for this.

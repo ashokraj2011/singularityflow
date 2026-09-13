@@ -8,6 +8,9 @@ import {
   WMP_RECORD_FAMILIES
 } from '../src/world-model/history/contracts.mjs';
 import {
+  deriveWmpParseSchemaSha256, WMP_SOURCE_NORMALIZATION_CONTRACT_SHA256
+} from '../src/world-model/history/extraction-profile-owners.mjs';
+import {
   createWmpSourceBinding, deriveWmpModelKey, deriveWmpViewKey
 } from '../src/world-model/history/identity.mjs';
 import {
@@ -90,7 +93,8 @@ function modelBindingFixture(overrides = {}) {
   });
   const extractionProfile = {
     kind: 'wmp/extraction-profile', version: 1, extractors: [],
-    parseSchemaSha256: digest('d'), normalizationContractSha256: digest('e'),
+    parseSchemaSha256: deriveWmpParseSchemaSha256([]),
+    normalizationContractSha256: WMP_SOURCE_NORMALIZATION_CONTRACT_SHA256,
     configurationRefs: []
   };
   const factRequirements = {
@@ -304,6 +308,34 @@ test('model bindings require the complete frozen v1 retained-role roster', () =>
     (error) => error?.code === 'WMP_INPUT_MISSING'
       && error?.details?.role === 'source-snapshot'
   );
+});
+
+test('extraction profiles refuse unowned parse-schema and normalization digests', () => {
+  const complete = modelBindingFixture();
+  for (const [field, code] of [
+    ['parseSchemaSha256', 'WMP_PARSE_SCHEMA_MISMATCH'],
+    ['normalizationContractSha256', 'WMP_NORMALIZATION_CONTRACT_MISMATCH']
+  ]) {
+    const extractionProfile = {
+      ...complete.inputDescriptors.extractionProfile,
+      [field]: digest(field === 'parseSchemaSha256' ? 'a' : 'b')
+    };
+    assert.throws(
+      () => createWmpModelBinding({
+        ...complete,
+        inputs: {
+          ...complete.inputs,
+          extractionProfileSha256: sha256(extractionProfile)
+        },
+        inputDescriptors: {
+          ...complete.inputDescriptors,
+          extractionProfile
+        }
+      }),
+      (error) => error?.code === code,
+      field
+    );
+  }
 });
 
 test('history roots and object paths remain disjoint and content-addressed', () => {

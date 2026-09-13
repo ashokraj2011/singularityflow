@@ -286,7 +286,8 @@ test('retained JSON is canonical before MIG and must pass its semantic owner', a
       authorityCommit, authorityRef: 'refs/heads/main',
       ref: { ...sourceRef, role: 'repository-domain' }
     }),
-    (error) => error?.code === 'WMP_OBJECT_OWNER_UNAVAILABLE'
+    (error) => error?.code === 'WMP_OBJECT_FAMILY_MISMATCH'
+      && error?.details?.expectedFamily === 'world-model-repository-domain'
   );
 
   const noncanonical = Buffer.from(`${JSON.stringify(snapshot)}\n`, 'utf8');
@@ -304,8 +305,9 @@ test('retained JSON is canonical before MIG and must pass its semantic owner', a
     () => stageWorldModelHistoryPublication({
       objects: [{ ref: { ...sourceRef, role: 'repository-domain' }, bytes: exact }]
     }),
-    (error) => error?.code === 'WMP_OBJECT_OWNER_UNAVAILABLE'
+    (error) => error?.code === 'WMP_OBJECT_FAMILY_MISMATCH'
       && error?.details?.role === 'repository-domain'
+      && error?.details?.expectedFamily === 'world-model-repository-domain'
   );
 });
 

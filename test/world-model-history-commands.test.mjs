@@ -11,6 +11,9 @@ import { canonicalJson, sha256 } from '../src/world-model/canonicalize.mjs';
 import { runDeterministicRegistration } from '../src/world-model/extract/runner.mjs';
 import { createWmpModelBinding } from '../src/world-model/history/contracts.mjs';
 import {
+  deriveWmpParseSchemaSha256, WMP_SOURCE_NORMALIZATION_CONTRACT_SHA256
+} from '../src/world-model/history/extraction-profile-owners.mjs';
+import {
   WMP_IDENTITY_VERSION, createWmpSourceBinding
 } from '../src/world-model/history/identity.mjs';
 import {
@@ -113,8 +116,8 @@ async function persistedRepository(t) {
     kind: 'wmp/extraction-profile',
     version: 1,
     extractors: [],
-    parseSchemaSha256: sha256({ fixture: 'parse-schema' }),
-    normalizationContractSha256: sha256({ fixture: 'normalization' }),
+    parseSchemaSha256: deriveWmpParseSchemaSha256([]),
+    normalizationContractSha256: WMP_SOURCE_NORMALIZATION_CONTRACT_SHA256,
     configurationRefs: []
   };
   const factRequirements = {
@@ -262,7 +265,7 @@ test('history list stays on its exact authority cut and show refuses an unowned 
         json: true
       }
     )),
-    (error) => error?.code === 'WMP_OBJECT_OWNER_UNAVAILABLE'
+    (error) => error?.code === 'WMP_OBJECT_FAMILY_MISMATCH'
       && ['completeness-record', 'repository-domain'].includes(error?.details?.role)
   );
 

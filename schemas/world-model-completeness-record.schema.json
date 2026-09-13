@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/world-model-completeness-record.schema.json",
+  "title": "WMP exact extraction completeness record",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "sourceManifestSha256", "scopeManifestSha256", "extractorRegistrySha256", "extractorReferences", "pathOutcomes", "globalOutcomes", "requiredSubjects", "counts", "completenessSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "world-model-completeness-record" },
+    "sourceManifestSha256": { "$ref": "#/$defs/hash" },
+    "scopeManifestSha256": { "$ref": "#/$defs/hash" },
+    "extractorRegistrySha256": { "$ref": "#/$defs/hash" },
+    "extractorReferences": { "type": "array", "minItems": 1, "maxItems": 1024, "uniqueItems": true, "items": { "$ref": "#/$defs/reference" } },
+    "pathOutcomes": { "type": "array", "maxItems": 50000, "items": { "$ref": "#/$defs/pathOutcome" } },
+    "globalOutcomes": { "type": "array", "maxItems": 1024, "uniqueItems": true, "items": { "$ref": "#/$defs/outcome" } },
+    "requiredSubjects": { "type": "array", "maxItems": 10000, "uniqueItems": true, "items": { "$ref": "#/$defs/requiredSubject" } },
+    "counts": {
+      "type": "object", "required": ["totalPaths", "processedPaths", "unsupportedPaths", "failedPaths", "excludedPaths"],
+      "properties": { "totalPaths": { "$ref": "#/$defs/count" }, "processedPaths": { "$ref": "#/$defs/count" }, "unsupportedPaths": { "$ref": "#/$defs/count" }, "failedPaths": { "$ref": "#/$defs/count" }, "excludedPaths": { "$ref": "#/$defs/count" } },
+      "additionalProperties": false
+    },
+    "completenessSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "semver": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[a-z0-9.-]+)?$" },
+    "count": { "type": "integer", "minimum": 0, "maximum": 50000 },
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" },
+    "reason": { "type": ["string", "null"], "pattern": "^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$", "maxLength": 128 },
+    "reference": {
+      "type": "object", "required": ["id", "version", "implementationSha256", "manifestSha256", "coverage"],
+      "properties": { "id": { "$ref": "#/$defs/id" }, "version": { "$ref": "#/$defs/semver" }, "implementationSha256": { "$ref": "#/$defs/hash" }, "manifestSha256": { "$ref": "#/$defs/hash" }, "coverage": { "enum": ["path", "global"] } }, "additionalProperties": false
+    },
+    "outcome": {
+      "type": "object", "required": ["id", "version", "implementationSha256", "status", "reasonCode"],
+      "properties": { "id": { "$ref": "#/$defs/id" }, "version": { "$ref": "#/$defs/semver" }, "implementationSha256": { "$ref": "#/$defs/hash" }, "status": { "enum": ["processed", "partial", "unsupported", "failed"] }, "reasonCode": { "$ref": "#/$defs/reason" } }, "additionalProperties": false
+    },
+    "requiredSubject": {
+      "type": "object", "required": ["id", "status", "reasonCode"],
+      "properties": { "id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$" }, "status": { "enum": ["available", "partial", "unavailable", "contradicted"] }, "reasonCode": { "$ref": "#/$defs/reason" } }, "additionalProperties": false
+    },
+    "pathOutcome": {
+      "type": "object", "required": ["path", "sourceContentSha256", "status", "reasonCode", "extractors"],
+      "properties": { "path": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?![A-Za-z]:)(?!\\.\\.(?:/|$))(?!.*\\/\\.\\.(?:/|$))(?!.*\\\\)(?!\\./)(?!.*//)[^\\u0000\\r\\n]+$" }, "sourceContentSha256": { "anyOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] }, "status": { "enum": ["processed", "partial", "unsupported", "failed", "excluded"] }, "reasonCode": { "$ref": "#/$defs/reason" }, "extractors": { "type": "array", "maxItems": 1024, "uniqueItems": true, "items": { "$ref": "#/$defs/outcome" } } }, "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

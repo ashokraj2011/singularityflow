@@ -11,6 +11,7 @@ import {
   validateWmpModelInputs, validateWmpObjectRef, validateWmpObjectRefs,
   validateWmpSourceBinding, validateWmpViewInputsKey
 } from './identity.mjs';
+import { validateWmpExtractionProfileOwnerDigests } from './extraction-profile-owners.mjs';
 
 export const WMP_RECORD_FAMILIES = Object.freeze([
   'world-model-model-binding',
@@ -241,7 +242,7 @@ function validateExtractionProfile(value) {
   assertSha256(value.normalizationContractSha256,
     'WMP Extraction Profile normalizationContractSha256');
   sortedRefs(value.configurationRefs, 'WMP Extraction Profile configurationRefs');
-  return value;
+  return validateWmpExtractionProfileOwnerDigests(value);
 }
 
 function validateFactRequirements(value) {

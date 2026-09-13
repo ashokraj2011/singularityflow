@@ -802,30 +802,54 @@ See [Token Reduction preview](TOKEN-REDUCTION.md) for the exact boundary and val
 
 ## Persisted World-Model views (WMP)
 
-The W0/W1 persistence preview and bounded W2 deterministic-view slice are implemented in the
-current increment. Exact history staging/read, one-CAS publication, history-bound recovery,
-historical source reads, and five pure overview renderers are code-local. The authoritative amended
-boundary is [Persisted World-Model views](PERSISTED-WORLD-MODEL-VIEWS.md).
+The W0/W1 persistence foundation, model semantic-owner/integrity foundation, and bounded W2
+deterministic-view slice are implemented in the current increment. Exact history staging/read,
+one-CAS publication, history-bound recovery, historical source reads, and five pure overview
+renderers are code-local. Production model/view emission and reuse remain disabled. The
+authoritative amended boundary is
+[Persisted World-Model views](PERSISTED-WORLD-MODEL-VIEWS.md).
+
+### Completed foundation — not production enablement
+
+- [x] register frozen v1 semantic owners and strict validators for repository-domain,
+  extraction-policy, extractor-registry, completeness-record, consumer-profile, output-budget,
+  and view-validation-receipt records;
+- [x] validate the exact retained model graph across repository/source/scope/policy/registry,
+  profile/completeness, evidence/facts, and derivations, including per-path source digest
+  accounting;
+- [x] derive the parse-schema identity from the complete retained extractor tuple and bind source
+  normalization to an explicit frozen v1 contract; arbitrary semantic digests are refused;
+- [x] cap retained extractor registries at 1,024 entries and index graph lookups so adversarial
+  registries cannot amplify repeated linear scans;
+- [x] apply model/view graph validation to the pinned combined closure at the state-writer staging
+  boundary before the one-CAS publication path can advance authority.
 
 ### P0 — complete truthful production reuse
 
-- define or extend semantic owners/adapters for repository-domain, extraction-policy,
-  extractor-registry, completeness-record, consumer-profile, output-budget,
-  view-validation-receipt, renderer-contract, validator-contract, and tokenizer when token
-  measurement applies; deferred grounding/handoff/adoption also require publication-receipt,
-  admission-proof, source-authority, origin-authority, target-authority, and
-  adoption-authorization owners; never satisfy any role with an unrelated registered record;
-- construct model/view bindings from a completed registered-v4 build and publish their complete
-  closure with its current projection;
+- instrument actual registered-v4 extractor execution with a terminal outcome and exact content
+  digest for every selected source path, including successful zero-fact results; add an owned full
+  candidate roster before admitting excluded-path counts;
+- define an owned extraction-configuration contract that maps retained configuration bytes to
+  their consuming extractor; frozen v1 admits only the registered empty configuration and refuses
+  configured profiles;
+- bind repository-domain identity to a governed repository-identity authority rather than a
+  checkout name, cached workspace binding, or remote URL string;
+- construct model bindings from a completed registered-v4 build, publish their complete closure
+  with the current projection, and resolve an exact accepted binding before extraction at Story
+  start and grounding preparation; typed misses must not trigger a hidden build;
 - connect every view binding's model-payload and selected-ledger identity to one accepted model
   binding and retained source Fact Ledger before enabling saved-view publication or reads; also
-  correlate scope and the validation receipt's candidate digest, and enforce the graph across
-  existing-plus-staged authority during publication;
-- resolve an exact accepted model/view binding before extraction at Story start and grounding
-  preparation, with typed miss/refusal and no hidden build from a read;
+  correlate scope and the validation receipt's candidate digest, retain exact renderer/validator
+  implementation contracts and applicable tokenizer ownership, enforce rendered-budget limits,
+  and validate the graph across existing-plus-staged authority during publication;
 - emit the immutable Story grounding reference and replay its exact original bytes after current
   source, policy, renderer, or reports change, using a compatible successor to the structural v1
   preview that binds expansion handles, ordering/separators, and packet-composer identity.
+
+Production model/view emission and reuse must stay disabled until these P0 items are complete.
+Deferred grounding/handoff/adoption also require publication-receipt, admission-proof,
+source-authority, origin-authority, target-authority, and adoption-authorization owners; no role
+may be satisfied with an unrelated registered record.
 
 ### P1 — portable continuation and consumer cutover
 

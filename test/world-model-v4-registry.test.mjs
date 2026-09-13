@@ -78,8 +78,8 @@ test('testing overview preserves the frozen coverage extractor and keeps test-im
     `${REQUIRED_FACT_COVERAGE_ID}@${REQUIRED_FACT_COVERAGE_VERSION}`
   );
   assert.equal(REQUIRED_FACT_COVERAGE_VERSION, '1.0.1');
-  assert.equal(coverage.manifestSha256, 'sha256:e829e007efb02ce3800b04f223fff8422fd20a3df5d48e95b252e320dbb04670');
-  assert.equal(BUILTIN_EXTRACTOR_REGISTRY.registrySha256, 'sha256:9c182935a53751b193da4006d585c46f9704d208f878bdee027688e9225c6a95');
+  assert.equal(coverage.manifestSha256, 'sha256:9173fd0276df550b45e13473f9dd2e689c3b0b18b019101d3063900ec7ad37b3');
+  assert.equal(BUILTIN_EXTRACTOR_REGISTRY.registrySha256, 'sha256:c953d8fe6448f5916adfd41a68ff892760f58cbd9743a0016ab0c0ef46b75c17');
   assert.equal(coverage.factTypes.includes('test-impact'), false);
 
   const testing = resolveWmpOverviewViewContract('testing');
@@ -138,8 +138,10 @@ test('every registered extractor has an executable reviewed fixture receipt', ()
   );
   const tampered = structuredClone(BUILTIN_EXTRACTOR_REGISTRY);
   tampered.manifests[0].tests.conformanceReceiptSha256 = `sha256:${'f'.repeat(64)}`;
+  tampered.manifests[0] = sealRecord(tampered.manifests[0], 'manifestSha256');
+  const resealedTampered = sealRecord(tampered, 'registrySha256');
   assert.throws(
-    () => validateExtractorRegistry(tampered),
+    () => validateExtractorRegistry(resealedTampered),
     (error) => error.code === 'WMB_EXTRACTOR_CONFORMANCE_FAILED'
   );
   for (const manifest of BUILTIN_EXTRACTOR_REGISTRY.manifests) {

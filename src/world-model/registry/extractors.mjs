@@ -37,6 +37,7 @@ import {
 
 const EXTRACTOR_ID_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const SEMVER_PATTERN = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[a-z0-9.-]+)?$/;
+export const MAXIMUM_EXTRACTOR_REGISTRY_MANIFESTS = 1024;
 const FAILURE_VALUES = Object.freeze({
   unsupportedLanguage: ['unavailable', 'not-applicable'],
   parseFailure: ['partial-or-unavailable', 'not-applicable'],
@@ -241,7 +242,13 @@ const BUILTINS = [
   })
 ].map(validateExtractorManifest);
 
-export function validateExtractorManifest(value) {
+/**
+ * Validate the immutable, self-contained v1 Extractor Manifest shape.
+ *
+ * Historical readers use this boundary so a retained manifest does not become unreadable merely
+ * because a later SFlow release installs a successor producer for the same extractor ID.
+ */
+export function validateHistoricalExtractorManifest(value) {
   assertPlainRecord(value, 'World-model Extractor Manifest');
   assertExactKeys(value, {
     required: [
@@ -264,21 +271,6 @@ export function validateExtractorManifest(value) {
   assertString(value.producer.parser.id, 'Extractor parser id', { pattern: EXTRACTOR_ID_PATTERN });
   assertString(value.producer.parser.version, 'Extractor parser version', { pattern: SEMVER_PATTERN });
   assertSha256(value.producer.parser.grammarSha256, 'Extractor parser grammarSha256');
-  const reviewedConformance = extractorConformanceDeclaration(value.id);
-  if (value.version !== reviewedConformance.extractor.version
-      || value.producer.implementationSha256
-        !== reviewedConformance.extractor.implementationSha256
-      || canonicalJson(value.producer.parser) !== canonicalJson(reviewedConformance.parser)) {
-    contractFailure(
-      `Extractor '${value.id}@${value.version}' producer is not the exact reviewed conformance subject.`,
-      'WMB_EXTRACTOR_CONFORMANCE_FAILED',
-      {
-        expectedVersion: reviewedConformance.extractor.version,
-        expectedImplementationSha256: reviewedConformance.extractor.implementationSha256,
-        expectedParser: reviewedConformance.parser
-      }
-    );
-  }
   assertStringArray(value.languages, 'Extractor languages', { sorted: true });
   assertStringArray(value.evidenceKinds, 'Extractor evidenceKinds', { sorted: true });
   value.evidenceKinds.forEach((entry) => assertVocabularyValue('Extractor evidence kind', entry, EVIDENCE_KINDS));
@@ -308,42 +300,78 @@ export function validateExtractorManifest(value) {
   }
   assertExactKeys(value.tests, { required: ['conformanceReceiptSha256'], label: 'Extractor tests' });
   assertSha256(value.tests.conformanceReceiptSha256, 'Extractor conformanceReceiptSha256');
-  const expectedConformance = extractorConformanceReceiptSha256({
-    id: value.id, version: value.version,
-    implementationSha256: value.producer.implementationSha256
-  });
-  if (value.tests.conformanceReceiptSha256 !== expectedConformance) {
-    contractFailure(
-      `Extractor '${value.id}' is not bound to its reviewed conformance receipt.`,
-      'WMB_EXTRACTOR_CONFORMANCE_FAILED'
-    );
-  }
   assertSha256(value.manifestSha256, 'Extractor manifestSha256');
   assertSelfHash(value, 'manifestSha256', 'World-model Extractor Manifest');
   return value;
 }
 
+/** Admit an Extractor Manifest for execution by this installed release. */
+export function validateExtractorManifest(value) {
+  const result = validateHistoricalExtractorManifest(value);
+  const reviewedConformance = extractorConformanceDeclaration(result.id);
+  if (result.version !== reviewedConformance.extractor.version
+      || result.producer.implementationSha256
+        !== reviewedConformance.extractor.implementationSha256
+      || canonicalJson(result.producer.parser) !== canonicalJson(reviewedConformance.parser)) {
+    contractFailure(
+      `Extractor '${result.id}@${result.version}' producer is not the exact reviewed conformance subject.`,
+      'WMB_EXTRACTOR_CONFORMANCE_FAILED',
+      {
+        expectedVersion: reviewedConformance.extractor.version,
+        expectedImplementationSha256: reviewedConformance.extractor.implementationSha256,
+        expectedParser: reviewedConformance.parser
+      }
+    );
+  }
+  const expectedConformance = extractorConformanceReceiptSha256({
+    id: result.id, version: result.version,
+    implementationSha256: result.producer.implementationSha256
+  });
+  if (result.tests.conformanceReceiptSha256 !== expectedConformance) {
+    contractFailure(
+      `Extractor '${result.id}' is not bound to its reviewed conformance receipt.`,
+      'WMB_EXTRACTOR_CONFORMANCE_FAILED'
+    );
+  }
+  return result;
+}
+
 export function createExtractorRegistry(manifests) {
   if (!Array.isArray(manifests) || !manifests.length) contractFailure('Extractor Registry manifests must be a non-empty array.');
+  if (manifests.length > MAXIMUM_EXTRACTOR_REGISTRY_MANIFESTS) {
+    contractFailure(
+      `Extractor Registry manifests cannot exceed ${MAXIMUM_EXTRACTOR_REGISTRY_MANIFESTS} entries.`,
+      'WMB_EXTRACTOR_REGISTRY_LIMIT_EXCEEDED',
+      { maximum: MAXIMUM_EXTRACTOR_REGISTRY_MANIFESTS, received: manifests.length }
+    );
+  }
   const sorted = manifests.map((item) => structuredClone(validateExtractorManifest(item)))
     .sort((left, right) => compareText(`${left.id}@${left.version}`, `${right.id}@${right.version}`));
   const keys = sorted.map((item) => `${item.id}@${item.version}`);
   if (new Set(keys).size !== keys.length) contractFailure('Extractor Registry repeats an exact extractor version.');
   return validateExtractorRegistry(sealRecord({
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('world-model-extractor-registry'),
     kind: 'world-model-extractor-registry',
     manifests: sorted
   }, 'registrySha256'));
 }
 
-export function validateExtractorRegistry(value) {
+/** Validate an immutable historical registry without coupling it to this release's producers. */
+export function validateHistoricalExtractorRegistry(value) {
   assertPlainRecord(value, 'World-model Extractor Registry');
   assertExactKeys(value, {
     required: ['schemaVersion', 'kind', 'manifests', 'registrySha256'], label: 'World-model Extractor Registry'
   });
   assertSchemaKind(value, 'world-model-extractor-registry', 'World-model Extractor Registry');
   if (!Array.isArray(value.manifests) || !value.manifests.length) contractFailure('Extractor Registry manifests must be a non-empty array.');
-  value.manifests.forEach(validateExtractorManifest);
+  if (value.manifests.length > MAXIMUM_EXTRACTOR_REGISTRY_MANIFESTS) {
+    contractFailure(
+      `Extractor Registry manifests cannot exceed ${MAXIMUM_EXTRACTOR_REGISTRY_MANIFESTS} entries.`,
+      'WMB_EXTRACTOR_REGISTRY_LIMIT_EXCEEDED',
+      { maximum: MAXIMUM_EXTRACTOR_REGISTRY_MANIFESTS, received: value.manifests.length }
+    );
+  }
+  value.manifests.forEach(validateHistoricalExtractorManifest);
   assertCanonicalOrder(value.manifests, (item) => `${item.id}@${item.version}`, 'Extractor Registry manifests');
   const keys = value.manifests.map((item) => `${item.id}@${item.version}`);
   if (new Set(keys).size !== keys.length) contractFailure('Extractor Registry repeats an exact extractor version.');
@@ -352,8 +380,14 @@ export function validateExtractorRegistry(value) {
   return value;
 }
 
-export function resolveExtractorManifest(registryValue, reference) {
-  const registry = validateExtractorRegistry(registryValue);
+/** Admit a registry whose every producer is executable and reviewed by this installed release. */
+export function validateExtractorRegistry(value) {
+  const result = validateHistoricalExtractorRegistry(value);
+  result.manifests.forEach(validateExtractorManifest);
+  return result;
+}
+
+function resolveManifestFromValidatedRegistry(registry, reference) {
   const parsed = typeof reference === 'string'
     ? /^(?<id>[a-z][a-z0-9]*(?:-[a-z0-9]+)*)@(?<version>[0-9]+\.[0-9]+\.[0-9]+(?:-[a-z0-9.-]+)?)$/.exec(reference)?.groups
     : reference;
@@ -361,6 +395,18 @@ export function resolveExtractorManifest(registryValue, reference) {
   const found = registry.manifests.find((item) => item.id === parsed.id && item.version === parsed.version);
   if (!found) contractFailure(`Extractor '${parsed.id}@${parsed.version}' is not registered.`, 'WMB_EXTRACTOR_NOT_REGISTERED');
   return found;
+}
+
+/** Resolve an immutable retained manifest without asserting that this release can execute it. */
+export function resolveHistoricalExtractorManifest(registryValue, reference) {
+  return resolveManifestFromValidatedRegistry(
+    validateHistoricalExtractorRegistry(registryValue), reference
+  );
+}
+
+/** Resolve only a manifest admitted for execution by this installed release. */
+export function resolveExtractorManifest(registryValue, reference) {
+  return resolveManifestFromValidatedRegistry(validateExtractorRegistry(registryValue), reference);
 }
 
 export const BUILTIN_EXTRACTOR_REGISTRY = deepFreeze(createExtractorRegistry(BUILTINS));

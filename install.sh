@@ -732,9 +732,12 @@ fi
 
 if [[ "$VSCODE_ONLY" != "on" ]]; then
   printf '%s\n' 'Creating the distribution tarball...'
-  PACK_OUTPUT="$(npm pack --json)"
-  TARBALL="$(PACK_OUTPUT="$PACK_OUTPUT" node -e '
-    const result = JSON.parse(process.env.PACK_OUTPUT);
+  # npm includes every packed path in its JSON response. Large production closures can make that
+  # response several megabytes, so never copy it into argv or the environment: both are bounded by
+  # ARG_MAX/CreateProcess. Stream it over stdin instead.
+  TARBALL="$(npm pack --json | node -e '
+    const fs = require("node:fs");
+    const result = JSON.parse(fs.readFileSync(0, "utf8"));
     if (!result?.[0]?.filename) throw new Error('"'"'npm pack did not report a tarball filename.'"'"');
     process.stdout.write(result[0].filename);
   ')"

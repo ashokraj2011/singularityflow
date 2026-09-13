@@ -91,6 +91,11 @@ test('local installer performs a safe ordered pull, pack, global install, and pl
   assert.doesNotMatch(script, /git[^\n]*checkout[^\n]*build-info\.mjs/,
     'restoration must use the byte backup rather than rewriting through Git');
   assert.match(script, /npm pack --json/);
+  assert.match(script, /npm pack --json \| node -e/,
+    'the unbounded npm pack manifest must be streamed instead of copied into process arguments or environment');
+  assert.match(script, /fs\.readFileSync\(0, "utf8"\)/);
+  assert.doesNotMatch(script, /PACK_OUTPUT=/,
+    'large npm pack manifests exceed ARG_MAX when exported to a packaging subprocess');
   assert.match(script, /npm uninstall --global singularity-flow/,
     'rollback must remove a CLI that the failed transaction introduced onto an initially fresh machine');
   assert.match(script, /npm install --global "\$TARBALL_PATH" --cache "\$ACTIVATION_TRANSACTION_CACHE" --registry="\$REGISTRY"/);
@@ -302,7 +307,11 @@ fi
 if [[ "$*" == "config get registry" ]]; then printf '%s\\n' 'https://registry.npmjs.org/'; exit 0; fi
 if [[ "$*" == "pack --json" ]]; then
   cp "$INSTALL_TEST_TARBALL" "$PWD/singularity-flow-test.tgz"
-  printf '%s\\n' '[{"filename":"singularity-flow-test.tgz"}]'
+  if [[ "\${INSTALL_TEST_LARGE_PACK_JSON:-}" == "1" ]]; then
+    "$INSTALL_TEST_REAL_NODE" -e 'process.stdout.write(JSON.stringify([{filename:"singularity-flow-test.tgz",padding:"x".repeat(3000000)}]))'
+  else
+    printf '%s\\n' '[{"filename":"singularity-flow-test.tgz"}]'
+  fi
   exit 0
 fi
 if [[ "$*" == "run vscode:package" ]]; then
@@ -496,6 +505,31 @@ fi`;
   assert.match(skippedCommands, /npm run vscode:build/);
   assert.doesNotMatch(skippedCommands, /^npm test(?:\s|$)/m);
   assert.doesNotMatch(skippedCommands, /npm run test:cli/);
+
+  await writeFile(log, '');
+  const largePackManifest = spawnSync('bash', [
+    path.join(fixture, 'install.sh'), '--cli-only', '--no-update', '--skip-tests',
+    '--no-workspace-configuration-refresh'
+  ], {
+    cwd: fixture,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      HOME: fixture,
+      SHELL: '/bin/zsh',
+      PATH: `${bin}:/usr/bin:/bin`,
+      INSTALL_TEST_LOG: log,
+      INSTALL_TEST_LARGE_PACK_JSON: '1',
+      INSTALL_TEST_REAL_NODE: process.execPath,
+      INSTALL_TEST_TARBALL: stagedTarball,
+      INSTALL_TEST_VSIX: stagedVsix,
+      NPM_CONFIG_REGISTRY: registry,
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: activeWorkspace
+    }
+  });
+  assert.equal(largePackManifest.status, 0,
+    `installer must stream npm manifests larger than the host argument limit\n${largePackManifest.stdout}\n${largePackManifest.stderr}`);
+  assert.match(await readFile(log, 'utf8'), /npm pack --json/);
 
   await writeFile(log, '');
   await rm(path.join(bin, 'copilot'));

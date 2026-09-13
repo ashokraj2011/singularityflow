@@ -129,3 +129,9 @@ The implementation follows the corrected LOC identity graph: Candidate, review s
 release-content root, authorization receipt, manifest/bundle ID, archive digest, and delivery
 receipt are distinct acyclic identities. Durable numeric compatibility is registered in the SFlow
 migration registry; `schema: "loc.bundle.v1"` remains the stable wire-profile identifier.
+
+For a code migration that must begin from a read-only reference repository before its target
+repository exists, use the staged procedure in
+[Reference-to-target migration before the target repository exists](LOCAL-REFERENCE-TO-TARGET-MIGRATION.md).
+The signed Local bundle is a staging deliverable, not a replacement for the later target Story,
+target tests, or repository approvals.

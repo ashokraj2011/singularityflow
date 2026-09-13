@@ -108,3 +108,8 @@ Malformed, incomplete, stale, or oversized reference models are ignored; generat
 bounded ordinary file access beneath the detached reference root. Missing or unusable reference
 World Models never block the Story. Lifecycle reports lightweight local reference health without
 repeating the full World Model validation on every UI refresh.
+
+If the delivery target has not been provisioned yet, follow
+[Reference-to-target migration before the target repository exists](LOCAL-REFERENCE-TO-TARGET-MIGRATION.md).
+It uses Local mode for a private signed staging deliverable, then starts the authoritative
+`reference-driven-build` Story only after the target repository and application branch exist.

@@ -1,8 +1,10 @@
 # Persisted World-Model views
 
-**Status:** W0/W1 persistence, the model semantic-owner/integrity foundation, exact-manifest
-terminal extraction outcomes, a pure completeness bridge, and a bounded W2 deterministic-view
-slice are implemented; production model/view emission and reuse remain staged
+**Status:** W0/W1 persistence, governed repository-identity proof, exact pre-extraction
+key/lookup, build-to-binding staging, exact-manifest terminal extraction outcomes, a pure
+completeness bridge, and a bounded W2 deterministic-view slice are implemented; production
+model/view emission and reuse remain disabled pending service/state-transaction integration and
+the remaining proof owners
 
 This document is the implementation companion to `SPEC-persisted-worldmodel-views.md`. It records
 the amendments required by the current WMB v4 code so that persistence extends the existing
@@ -36,21 +38,25 @@ model call, extraction, AST query, Git fetch, cache fill, or source checkout. Th
    semantic admission. Frozen v1 owners now
    exist for repository-domain, extraction-policy, extractor-registry, completeness-record,
    consumer-profile, output-budget, and view-validation-receipt records. Model admission also
-   verifies their exact cross-record graph. Production emission remains disabled until the
-   remaining P0 safeguards, including governed repository authority and the production
-   build/lookup adapter, are present. View admission
+   verifies their exact cross-record graph. A governed action-bound repository resolver and a
+   pre-extraction build/lookup adapter now provide the code-local construction boundary, but they
+   are not wired into production WMB publication. View admission
    additionally remains fail-closed without retained renderer/validator contracts, an applicable
    tokenizer owner, model-to-view/selected-ledger correlation, and rendered-budget validation.
    Deferred grounding/handoff/adoption paths additionally require publication-receipt,
    admission-proof, source-authority, origin-authority, target-authority, and
    adoption-authorization owners. This boundary also rejects duplicate JSON keys because
    duplicate-key JSON cannot equal the canonical re-encoding.
-5. **Portable repository subject is a production invariant.** The implemented repository-domain
-   record is only a portable semantic identity; it is not authorization. Production WMP history
-   must remain disabled until an action-boundary resolver proves an exact governed
-   capability/repository subject. A checkout basename or credential-bearing remote URL is not
-   portable authority. Standalone local-repository domain enrollment must be explicit, not
-   inferred.
+5. **Portable repository subject is a production invariant.** The repository-domain record is a
+   portable semantic identity, while authorization is proved separately at each action boundary.
+   The implemented resolver derives the subject from the explicit lifecycle Capability and its
+   approved configuration or the Story's immutable accepted WFA policy snapshot, proves that the
+   selected delivery Capability owns the checkout repository, verifies the approved portfolio and
+   exact checkout origin, and returns only portable digest identities. Its sealed proof is
+   deliberately short-lived and is re-resolved offline before a lookup or staged construction; it
+   never fetches policy and is never retained as reusable permission. A checkout basename or
+   credential-bearing remote URL is not authority.
+   Standalone local-repository domain enrollment remains explicit, not inferred.
 6. **No fabricated completeness is a production invariant.** The registered-v4 extraction capture
    path records a truthful terminal outcome for every path in the exact selected source snapshot,
    including a successful zero-fact extraction, and the pure completeness bridge refuses missing or
@@ -105,9 +111,42 @@ than being wired into every Story path prematurely:
   `counts.excludedPaths` is zero;
 - exact model/view keys, canonical raw-byte ingestion, portable disjoint paths, bounded retained
   closures, and create-if-absent staging are implemented;
+- the action-bound repository-identity resolver proves one explicit governed Capability against
+  the exact approved Capability map, approved portfolio entry, configuration cut, and checkout
+  origin; it emits a credential-free portable Repository Domain plus an ephemeral authority proof,
+  independently derives the same Scope Manifest as the normal WMB command from approved policy or
+  the immutable accepted Story WFA snapshot, and re-proves both authority and scope before any
+  lookup or staged construction;
+- model preparation verifies the exact committed Source Snapshot, binds its subject to the
+  Capability rather than the checkout directory name, admits the exact registry/policy/profile
+  and retained input roster, and derives the complete Model Key before extraction. Frozen v1
+  accepts only the product-owned 15-extractor default execution roster and derives the complete
+  Extraction Policy from that exact installed roster plus the governed Scope Manifest; callers
+  cannot reuse the scope-policy digest while weakening Fact semantics or selecting a reduced
+  roster. Organisation-authored extraction policy remains unavailable pending its successor
+  owner;
+- exact pre-extraction lookup is an explicit read: a verified hit returns the accepted binding
+  without registration, extraction, AST, model, cache, network, or publication work; only the
+  typed `WMP_MODEL_MISSING` outcome becomes a miss, while integrity and authority failures remain
+  failures rather than hidden rebuilds. The history cut is derived from approved state authority:
+  shorthand branches require the configured remote-tracking ref and bind that remote's
+  credential-free fetch fingerprint to the approved Repository Domain; local authority requires
+  an explicitly approved full ref. Caller ref/commit values are assertions only, and source,
+  Capability/configuration authority, scope, and the state tip are rechecked after the history
+  read. Reused closures expose immutable canonical JSON text and recursively frozen records rather
+  than mutable Buffer views;
+- a code-local build-to-binding adapter can consume an explicitly requested registered-v4
+  execution with exact-manifest terminal capture, construct completeness and the Model Binding,
+  validate the complete retained closure, and stage immutable history additions. It rechecks the
+  typed miss at the same admitted authority cut immediately before the single extraction, so a
+  fabricated or already-satisfied miss cannot authorize work. It checks the exact key again after
+  registration, adopts only a byte-identical concurrent winner, and refuses an advanced cut or
+  conflicting winner instead of staging redundant authority. This is a staging boundary, not
+  production publication authority;
 - the existing state writer checks the pinned combined closure, including model/view binding graph
-  validation, before it can commit the compatible current projection and immutable history in one
-  CAS without dropping existing exact-blob checks;
+  validation, and already supports committing a compatible current projection and immutable
+  history in one CAS without dropping existing exact-blob checks. The new build-to-binding path is
+  not yet connected to that production transaction;
 - publication recovery now binds and verifies the history additions as well as the replaceable
   projection, including byte-identical concurrent winners and unrelated-state-change refusal;
 - exact historical source reads use locally available Git objects at an explicit full revision,
@@ -124,16 +163,19 @@ than being wired into every Story path prematurely:
   branch.
 
 The increment does **not** make a current WMB build emit or reuse a production WMP model/view
-binding yet. Exact-manifest terminal extraction outcomes and pure completeness construction are
-now available for every path in the selected source snapshot, including successful zero-fact
-extraction. Production model emission remains disabled pending the remaining P0 safeguards,
-including a governed repository-identity authority and a build-to-binding adapter plus exact
-pre-extraction lookup. Excluded paths remain zero and cannot be admitted until an owned full
-candidate roster proves they existed and were excluded by policy.
+binding yet. The governed repository-identity resolver, exact pre-extraction lookup, and
+build-to-binding staging adapter now exist as isolated code-local foundations. They are not yet
+wired through the normal WMB service so that a miss builds once and publishes the compatible
+current projection plus immutable history in the same revision-checked state-branch CAS.
+Exact-manifest terminal extraction outcomes and pure completeness construction are available for
+every path in the selected source snapshot, including successful zero-fact extraction. Excluded
+paths remain zero and cannot be admitted until an owned full candidate roster proves they existed
+and were excluded by policy.
 
-The retained Repository Domain is deliberately only a portable semantic identity. It is not an
-authorization receipt: production code must compare that identity with approved or lifecycle-
-pinned repository authority at the action boundary before it may construct or reuse a binding.
+The retained Repository Domain remains only a portable semantic identity. The implemented
+resolver compares it with current approved or lifecycle-pinned repository authority immediately
+before lookup and construction; its ephemeral proof is not added to `ModelInputs` and cannot turn
+an old configuration cut into current permission.
 
 View emission and reuse remain disabled until retained renderer/validator implementation
 contracts, an exact tokenizer owner whenever token measurement is asserted, model-to-view and
@@ -141,16 +183,17 @@ selected-ledger correlation, validation-receipt candidate/scope binding, and ren
 validation are implemented. Deferred grounding, handoff, and adoption still require their
 publication-receipt, admission-proof, source-authority, origin-authority, target-authority, and
 adoption-authorization owners as applicable. Reusing an unrelated record under a convenient role
-would create a syntactically valid but false proof. The next rollout step is therefore repository
-authority closure and the build/lookup adapter, followed by owned candidate-roster accounting; it
-is not activation of the production path.
+would create a syntactically valid but false proof. The next rollout step is therefore integrating
+the staged lookup/build boundary with the current-plus-history state transaction, followed by
+owned candidate-roster and extraction-configuration accounting; it is not activation of saved
+views before their proof owners exist.
 
 ## Delivery boundary
 
 | Increment | Current status | Included behavior |
 |---|---|---|
 | W0 | Persistence and semantic-owner foundation implemented | Strict identities, object references, six registered envelope contracts, portable paths, canonical-byte tests, and frozen v1 owners for repository domain, extraction policy, registry, completeness, consumer profile, output budget, and validation receipt. Production construction is not enabled. |
-| W1 | Persistence and model-integrity foundation implemented | Direct exact-key state-history reads; create-if-absent publication expectations; additive history plus compatible current projection in one CAS; history-bound recovery; exact model-graph validation and pinned state-writer checks; exact-manifest terminal extraction outcomes; and pure completeness construction over the selected source snapshot. Production emission/reuse remains fail-closed pending governed repository authority, build/lookup integration, and owned excluded-path accounting. |
+| W1 | Persistence and model-integrity foundation implemented | Direct exact-key state-history reads; create-if-absent publication expectations; additive history plus compatible current projection in one CAS; history-bound recovery; exact model-graph validation and pinned state-writer checks; governed action-bound repository identity; exact pre-extraction key/lookup; build-to-binding staging; exact-manifest terminal extraction outcomes; and pure completeness construction over the selected source snapshot. Production emission/reuse remains fail-closed pending normal-service and atomic state-transaction integration, owned excluded-path/configuration accounting, and the remaining view/grounding proof owners. |
 | W2 | Partial | Five model-free overview contracts, stable full/brief renderers, and exact history inspection are implemented. The structural grounding preview exists, but its frozen v1 shape cannot represent the full composition identity; a compatible successor contract, lifecycle emission, and exact packet replay are not yet enabled. |
 | W3 | Deferred | Incremental parse/derivation reuse and verified private-candidate handoff/adoption. |
 | W4 | Deferred | Legacy inventory/cutover, supported-platform evidence, capacity benchmarks, UI explorer, and release qualification. |
@@ -187,11 +230,11 @@ proposed 256 MiB closure ceiling until a streaming/reference recovery format is 
 - Define an owned extraction-configuration contract that maps exact retained configuration bytes
   to the extractor that consumes them. Frozen v1 can prove only its registered empty
   configuration; configured profiles therefore remain fail-closed.
-- Close repository-domain identity over a governed repository-identity authority; checkout names,
-  cached workspace bindings, and remote URL text are not sufficient authority.
-- Add production build-to-binding construction and exact-key lookup before extraction, then wire
-  reuse into Story start and grounding preparation. Until both exist, model emission and reuse stay
-  disabled.
+- Integrate the governed repository-identity resolver, exact pre-extraction lookup, and
+  build-to-binding staging adapter into the normal WMB service. An exact hit must remain a
+  zero-execution read; an explicit typed miss may build once. Publish the validated compatible
+  current projection and immutable history additions together through the existing
+  revision-checked state-branch CAS before wiring reuse into Story start or grounding preparation.
 - Before enabling saved-view publication or reads, cryptographically connect each view binding's
   model-payload and selected-ledger identity to one accepted model binding and its retained source
   Fact Ledger; individual valid closures are not sufficient proof that the two graphs belong

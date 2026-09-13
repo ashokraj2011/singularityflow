@@ -28,7 +28,9 @@ function git(root, args, {
   const result = run('git', args, {
     cwd: path.resolve(root), encoding: binary ? 'buffer' : 'utf8', maxBuffer, input,
     allowFailure: true,
-    ...(env ? { env: { ...process.env, ...env } } : {})
+    // Source proof is a local object-store operation. Partial/promisor clones must fail with a
+    // typed unavailable-object error instead of turning a cache lookup into an implicit fetch.
+    env: offlineGitEnvironment(env ?? process.env)
   });
   if (result.error || (result.status !== 0 && !allowFailure)) {
     const stderr = binary ? Buffer.from(result.stderr ?? '').toString('utf8') : String(result.stderr ?? '');

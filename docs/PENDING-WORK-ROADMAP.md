@@ -802,11 +802,13 @@ See [Token Reduction preview](TOKEN-REDUCTION.md) for the exact boundary and val
 
 ## Persisted World-Model views (WMP)
 
-The W0/W1 persistence foundation, model semantic-owner/integrity foundation, exact-manifest
-terminal extraction outcomes, pure completeness bridge, and bounded W2 deterministic-view slice
-are implemented in the current increment. Exact history staging/read, one-CAS publication,
-history-bound recovery, historical source reads, and five pure overview renderers are code-local.
-Production model/view emission and reuse remain disabled. The
+The W0/W1 persistence foundation, governed repository-identity proof, exact pre-extraction
+key/lookup, build-to-binding staging, exact-manifest terminal extraction outcomes, pure
+completeness bridge, and bounded W2 deterministic-view slice are implemented in the current
+increment. Exact history staging/read, the general one-CAS publication machinery, history-bound
+recovery, historical source reads, and five pure overview renderers are code-local. Production
+model/view emission and reuse remain disabled until the new build path is connected to the normal
+WMB service and current-plus-history state transaction. The
 authoritative amended boundary is
 [Persisted World-Model views](PERSISTED-WORLD-MODEL-VIEWS.md).
 
@@ -834,6 +836,32 @@ authoritative amended boundary is
   View Fact Ledgers so a self-consistent substituted view roster is refused;
 - [x] apply model/view graph validation to the pinned combined closure at the state-writer staging
   boundary before the one-CAS publication path can advance authority.
+- [x] resolve an explicit governed Capability to a credential-free portable Repository Domain by
+  proving the exact approved configuration or immutable accepted Story WFA pin, Capability-to-repo
+  delivery membership, approved portfolio/configuration cut, and checkout origin; keep that action
+  proof ephemeral and re-resolve it offline before lookup or staged construction rather than
+  retaining old permission as model input;
+- [x] verify the exact committed Source Snapshot, bind its subject to the Capability instead of a
+  checkout basename, retain the exact input closure, and derive the complete Model Key before any
+  application extraction;
+- [x] expose exact pre-extraction lookup as a read-only hit/miss boundary: a hit performs zero
+  registration, extraction, model, AST, cache, network, or publication work; only
+  `WMP_MODEL_MISSING` is a typed miss and every authority/integrity failure stays fail-closed;
+  derive the cut from the approved state branch, bind a remote-backed cut to the approved
+  Repository Domain fingerprint, treat caller ref/commit values only as assertions, disable lazy
+  fetch and credential prompts, and recheck the source, governed scope, repository authority, and
+  state tip after every history read; expose immutable canonical text/records rather than mutable
+  retained buffers;
+- [x] derive the exact Scope Manifest through the same shared policy resolver used by normal WMB
+  commands, including immutable accepted Story policy, refuse wider caller scope, and require every
+  policy coverage extractor in both the selected profile and retained binding graph; frozen v1
+  derives its policy from the exact product-owned default execution roster and refuses caller-
+  authored semantics or reduced/custom rosters;
+- [x] stage a completed registered-v4 execution into exact completeness, Model Binding, validated
+  object closure, and immutable history additions after rechecking the typed miss at the same
+  authority cut, then recheck after registration and adopt only a byte-identical concurrent
+  winner. This adapter is intentionally not yet connected to production WMB publication or Story
+  preparation.
 
 ### P0 — complete truthful production reuse
 
@@ -843,11 +871,11 @@ authoritative amended boundary is
 - define an owned extraction-configuration contract that maps retained configuration bytes to
   their consuming extractor; frozen v1 admits only the registered empty configuration and refuses
   configured profiles;
-- bind repository-domain identity to a governed repository-identity authority rather than a
-  checkout name, cached workspace binding, or remote URL string;
-- construct model bindings from a completed registered-v4 build, publish their complete closure
-  with the current projection, and resolve an exact accepted binding before extraction at Story
-  start and grounding preparation; typed misses must not trigger a hidden build;
+- integrate the governed repository-identity resolver, exact-key lookup, explicit miss build, and
+  build-to-binding adapter into the normal WMB service; stage the validated compatible current
+  projection and immutable history closure in the same revision-checked state-branch CAS, then
+  wire exact reuse into Story start and grounding preparation without allowing typed misses to
+  trigger a hidden build;
 - connect every view binding's model-payload and selected-ledger identity to one accepted model
   binding and retained source Fact Ledger before enabling saved-view publication or reads; also
   correlate scope and the validation receipt's candidate digest, retain exact renderer/validator
@@ -858,8 +886,9 @@ authoritative amended boundary is
   preview that binds expansion handles, ordering/separators, and packet-composer identity.
 
 Production model/view emission and reuse must stay disabled until these P0 items are complete. In
-particular, terminal extraction outcomes and the pure bridge do not substitute for governed
-repository identity or the production build-to-binding/lookup adapter.
+particular, the code-local authority, lookup, and build-to-binding foundations do not authorize a
+production write until they participate in the same current-plus-history state transaction and
+the remaining candidate/configuration, view, and grounding proof owners are installed.
 Deferred grounding/handoff/adoption also require publication-receipt, admission-proof,
 source-authority, origin-authority, target-authority, and adoption-authorization owners; no role
 may be satisfied with an unrelated registered record.

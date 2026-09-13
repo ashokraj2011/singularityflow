@@ -336,6 +336,16 @@ function validateInputDescriptors(value) {
   return value;
 }
 
+/**
+ * Validate the complete embedded Model Binding input descriptor before extraction starts.
+ *
+ * The persisted-model preparation adapter needs the same closed grammar as final binding
+ * admission so it can derive the exact model key without first fabricating payload objects.
+ */
+export function validateWmpModelInputDescriptors(value) {
+  return deepFreeze(validateInputDescriptors(structuredClone(value)));
+}
+
 function validateRequiredSubjectOutcomes(values) {
   if (!Array.isArray(values) || values.length > MAXIMUM_FACT_IDS) {
     fail('WMP required-subject outcomes are not bounded.', 'WMP_CONTRACT_LIMIT');

@@ -602,7 +602,13 @@ export function planWorldModelV4(root, {
   // Candidate Snapshot and supply that exact record/ref through the public command boundary.
   const sourceSnapshot = candidateSnapshot
     ? verifyExactSourceSnapshot(root, candidateSnapshot, { scopeManifest })
-    : createExactSourceSnapshot(root, { scopeManifest });
+    : createExactSourceSnapshot(root, {
+        // The repository checkout name is machine-local presentation. The exact source subject
+        // must instead use the capability identity already sealed into the scope so a mapped
+        // repository produces one portable identity in every clone and Story worktree.
+        subjectId: scopeManifest.capabilityId,
+        scopeManifest
+      });
   const request = createWorldModelBuildRequest({
     sourceSnapshot,
     scopeManifest,

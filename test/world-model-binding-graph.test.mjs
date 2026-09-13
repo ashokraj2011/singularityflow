@@ -30,7 +30,8 @@ import {
   resolvePersistedWorldModel, validateRetainedWorldModelBindingGraph
 } from '../src/world-model/history/store.mjs';
 import {
-  BUILTIN_EXTRACTOR_REGISTRY, resolveExtractorManifest, validateExtractorRegistry
+  BUILTIN_EXTRACTOR_REGISTRY, resolveExtractorExecutionContract, resolveExtractorManifest,
+  validateExtractorRegistry
 } from '../src/world-model/registry/extractors.mjs';
 import { createScopeManifest } from '../src/world-model/scope/manifest.mjs';
 import { createExactSourceSnapshotAtRevision } from '../src/world-model/source/snapshot.mjs';
@@ -283,6 +284,113 @@ test('a structurally complete semantic model graph stages and resolves at one pi
   assert.deepEqual(read.binding, fixture.binding);
   assert.equal(read.closure.length, 9);
   assert.ok(read.closure.every((entry) => entry.record !== null));
+});
+
+test('model graph admission refuses an extraction policy from a different scope authority', async (t) => {
+  const fixture = await modelFixture(t);
+  const substitutedPolicy = createWorldModelExtractionPolicy({
+    policySnapshotSha256: digest('substituted-policy-snapshot'),
+    allowedExtractors: fixture.extractionPolicy.allowedExtractors,
+    factSemantics: fixture.extractionPolicy.factSemantics
+  });
+  const policyObject = retained(
+    substitutedPolicy, 'extraction-policy', 'world-model-extraction-policy'
+  );
+  const objects = { ...fixture.objects, extractionPolicy: policyObject };
+  const binding = createWmpModelBinding({
+    inputs: {
+      ...fixture.binding.inputs,
+      extractionPolicySha256: substitutedPolicy.extractionPolicySha256
+    },
+    inputDescriptors: fixture.binding.inputDescriptors,
+    inputObjects: sortedRefs([
+      objects.repositoryDomain.ref,
+      objects.sourceSnapshot.ref,
+      objects.scopeManifest.ref,
+      objects.extractionPolicy.ref,
+      objects.extractorRegistry.ref
+    ]),
+    payloadObjects: fixture.binding.payloadObjects,
+    completeness: fixture.binding.completeness
+  });
+
+  assert.throws(
+    () => stageWorldModelHistoryPublication({
+      modelBindings: [binding], objects: Object.values(objects)
+    }),
+    (error) => error?.code === 'WMP_GRAPH_MISMATCH'
+      && error?.details?.relation === 'extraction-policy.scope-policy-source'
+  );
+});
+
+test('model graph admission requires policy coverage extractors in the selected profile', async (t) => {
+  const fixture = await modelFixture(t);
+  const unselected = resolveExtractorManifest(
+    BUILTIN_EXTRACTOR_REGISTRY, 'language-detection@1.0.0'
+  );
+  const unselectedExecution = resolveExtractorExecutionContract(unselected);
+  const policy = createWorldModelExtractionPolicy({
+    policySnapshotSha256: fixture.policySnapshotSha256,
+    allowedExtractors: [
+      fixture.ownerExtractor,
+      {
+        id: unselected.id,
+        version: unselected.version,
+        implementationSha256: unselected.producer.implementationSha256,
+        manifestSha256: unselected.manifestSha256,
+        coverage: unselectedExecution.coverage
+      }
+    ],
+    factSemantics: {
+      allowedFactTypes: [...new Set([
+        ...fixture.extractionPolicy.factSemantics.allowedFactTypes,
+        ...unselected.factTypes
+      ])],
+      requiredFactTypes: [],
+      optionalFactTypes: [...new Set([
+        ...fixture.extractionPolicy.factSemantics.allowedFactTypes,
+        ...unselected.factTypes
+      ])],
+      requiredUnavailableSubjects: [],
+      coverageExtractorRefs: [`${unselected.id}@${unselected.version}`]
+    }
+  });
+  const policyObject = retained(
+    policy, 'extraction-policy', 'world-model-extraction-policy'
+  );
+  const objects = { ...fixture.objects, extractionPolicy: policyObject };
+  const factRequirements = {
+    ...fixture.binding.inputDescriptors.factRequirements,
+    optionalFactTypes: [...policy.factSemantics.optionalFactTypes]
+  };
+  const binding = createWmpModelBinding({
+    inputs: {
+      ...fixture.binding.inputs,
+      extractionPolicySha256: policy.extractionPolicySha256,
+      factRequirementsSha256: sha256(factRequirements)
+    },
+    inputDescriptors: {
+      ...fixture.binding.inputDescriptors,
+      factRequirements
+    },
+    inputObjects: sortedRefs([
+      objects.repositoryDomain.ref,
+      objects.sourceSnapshot.ref,
+      objects.scopeManifest.ref,
+      objects.extractionPolicy.ref,
+      objects.extractorRegistry.ref
+    ]),
+    payloadObjects: fixture.binding.payloadObjects,
+    completeness: fixture.binding.completeness
+  });
+
+  assert.throws(
+    () => stageWorldModelHistoryPublication({
+      modelBindings: [binding], objects: Object.values(objects)
+    }),
+    (error) => error?.code === 'WMP_GRAPH_MISMATCH'
+      && error?.details?.relation === 'extraction-policy.coverage-extractor-profile'
+  );
 });
 
 test('a retained historical extractor graph replays without becoming executable by this release', async (t) => {

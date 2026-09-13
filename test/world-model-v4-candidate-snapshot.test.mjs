@@ -116,6 +116,18 @@ test('Candidate Snapshot accepted as exact source while dirty bytes remain opt-i
   assert.equal(git(root, 'branch', '--list', 'state'), '');
 });
 
+test('committed source uses the governed capability identity instead of the checkout name', async (t) => {
+  const root = await repository(t);
+  const planned = planWorldModelV4(root, {
+    ...options(),
+    capabilityId: 'mapped-payments-api'
+  });
+  assert.equal(path.basename(root), 'repo');
+  assert.equal(planned.scopeManifest.capabilityId, 'mapped-payments-api');
+  assert.equal(planned.sourceSnapshot.subject.id, 'mapped-payments-api');
+  assert.notEqual(planned.sourceSnapshot.subject.id, path.basename(root));
+});
+
 test('Candidate Snapshot is repository, scope, ref, path, mode, and content bound', async (t) => {
   const root = await repository(t);
   await writeFile(path.join(root, 'src', 'service.mjs'), 'export const value = 9;\n');

@@ -393,6 +393,16 @@ function validateModelBindingGraph(binding, closure, { currentExtractorAdmission
     binding.inputs.extractionPolicySha256,
     'Extraction Policy does not match ModelInputs.extractionPolicySha256'
   );
+  if (policy && scope && policy.policySnapshotSha256 !== scope.policySourceSha256) {
+    graphMismatch(
+      'Persisted World-model Extraction Policy does not originate from the exact policy sealed by its Scope Manifest.',
+      {
+        relation: 'extraction-policy.scope-policy-source',
+        expected: scope.policySourceSha256,
+        received: policy.policySnapshotSha256
+      }
+    );
+  }
 
   const registry = resolvedRecord(closure,
     roleRef(binding.inputObjects, 'extractor-registry', 'WMP Model Binding inputObjects'));
@@ -446,6 +456,21 @@ function validateModelBindingGraph(binding, closure, { currentExtractorAdmission
             }
           );
         }
+      }
+    }
+    for (const reference of policy.factSemantics.coverageExtractorRefs) {
+      const manifest = registryByIdentity.get(reference);
+      const selected = manifest
+        ? profileByManifestSha256.get(manifest.manifestSha256)
+        : null;
+      if (!manifest || !selected) {
+        graphMismatch(
+          'Persisted World-model Extraction Policy coverage extractor is absent from the selected Extraction Profile.',
+          {
+            relation: 'extraction-policy.coverage-extractor-profile',
+            extractor: reference
+          }
+        );
       }
     }
   }

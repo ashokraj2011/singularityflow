@@ -14,7 +14,7 @@ related:
   - installation-and-upgrades
   - recovery
   - secrets
-version: 2
+version: 4
 ---
 Reset commands have deliberately different scopes. Preview the exact scope and use the confirmation printed by that same mode.
 
@@ -26,7 +26,15 @@ Use this topic when the current goal matches **resets and cleanup**. Start in a 
 
 - **Shell:** `sflow factory-reset`, `sflow reset-all`, `sflow local-reset --forget-only`, or destructive `sflow local-reset`. Run `singularity-flow local-reset --help` for the exact forms supported by this build.
 - **Copilot:** `/sf-factory-reset`, `/sf-local-reset`. The skill must preserve the CLI result and ask before any governed mutation.
-- **VS Code:** open Singularity Flow **Lifecycle**. The extension renders engine results; it does not independently decide lifecycle state.
+- **VS Code:** open **Workspaces → Fast onboarding & Git → Destructive recovery**, or run
+  **Singularity Flow: Factory Reset / Reinitialize Any Git Repository (Destructive)**. Choose the
+  Git root, review what is removed and preserved, explicitly accept dirty SFlow data loss when
+  present, and type the exact repository-bound confirmation. The apply is also bound to the
+  preview's `resetScopeSha256`; any later branch, revision, path, or byte change forces a new
+  preview. Application source, Git history, and remote `sflow/config`/`state` branches are preserved.
+  Valid custom agents remain active. Invalid custom agents are preserved byte-for-byte under
+  `.github/singularity-flow-recovered-agents/<sha256>/`, removed from active discovery, and shown
+  with their exact source, destination, digest, size, and validation reason.
 
 ## Guided workflow
 

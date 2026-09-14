@@ -174,7 +174,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 400));
 
 /** Enough of the VS Code API for activation to complete and for the tree to be read. */
 function stubVscode() {
-  const registered = { commands: new Map(), trees: new Map(), webviewViews: new Map(), chatParticipants: [], clipboard: [], statusBars: [], terminals: [], errors: [], warnings: [], output: [], inputBoxes: [], panels: [], quickPicks: [], openDialogs: [], openedDocuments: [], answers: [], warningAnswers: [], infos: [], diagnostics: new Map(), diagnosticEvents: [], saveListeners: [], watchers: [], executedCommands: [], pickedFile: null, pickedFolder: null, pickedFavorites: undefined };
+  const registered = { commands: new Map(), trees: new Map(), webviewViews: new Map(), chatParticipants: [], clipboard: [], statusBars: [], terminals: [], errors: [], warnings: [], warningDetails: [], output: [], inputBoxes: [], panels: [], quickPicks: [], openDialogs: [], openedDocuments: [], answers: [], warningAnswers: [], infos: [], diagnostics: new Map(), diagnosticEvents: [], saveListeners: [], watchers: [], executedCommands: [], pickedFile: null, pickedFolder: null, pickedFavorites: undefined };
 
   class EventEmitter {
     constructor() { this.listeners = new Set(); }
@@ -328,6 +328,7 @@ function stubVscode() {
   registered.warningActions = [];
   api.window.showWarningMessage = async (message, ...rest) => {
     registered.warnings.push(message);
+    registered.warningDetails.push(rest.find((item) => item && typeof item === 'object')?.detail ?? null);
     registered.warningActions.push(rest.filter((item) => typeof item === 'string'));
     return registered.warningAnswers.length ? registered.warningAnswers.shift() : registered.selfApprovalAnswer;
   };
@@ -635,7 +636,7 @@ test('a legacy workflow blocks Lifecycle but leaves all repairable configuration
   assert.match(lifecycleProvider.getChildren()[0].label, /version must be 2/);
   const lifecycleReset = lifecycleProvider.getChildren()
     .find((node) => node.id === 'lifecycle:error:reinitialize');
-  assert.equal(lifecycleReset.label, 'Factory reset to workflow v2');
+  assert.equal(lifecycleReset.label, 'Reinitialize with the current SFlow format');
   assert.match(lifecycleReset.tooltip, /Destructively replace/);
   assert.equal(lifecycleProvider.getTreeItem(lifecycleReset).command.command, 'singularityFlow.reinitialize');
 
@@ -662,9 +663,11 @@ test('a legacy workflow blocks Lifecycle but leaves all repairable configuration
   assert.match(centerPanel.webview.html, /data-action="open-designer"/, 'workflow and phase design remains reachable');
   assert.ok(registered.commands.has('singularityFlow.reinitialize'), 'the no-migration recovery command is registered');
 
-  registered.selfApprovalAnswer = 'Factory reset repository';
+  registered.pickedFolder = root;
+  registered.selfApprovalAnswer = 'Reinitialize repository';
   registered.typed = `RESET ${path.basename(root)} ${run('git', ['rev-parse', '--short=7', 'HEAD'], { cwd: root }).stdout.trim()}`;
   await registered.commands.get('singularityFlow.reinitialize')();
+  assert.equal(registered.openDialogs.at(-1)?.title, 'Choose the Git repository to reinitialize');
   assert.equal(YAML.parse(await readFile(workflowFile, 'utf8')).version, 2,
     'the guarded editor action installs workflow v2 from the bundled CLI');
   assert.equal(registered.errors.length, 0, registered.errors.join('\n'));
@@ -695,6 +698,130 @@ test('a folder that is not a Singularity Flow repository still gets a provider t
   assert.equal(node.contextValue, 'sflow.uninitialized', 'and it offers to initialize one');
   assert.ok(view.getTreeItem(node), 'the node renders');
   assert.ok(registered.commands.has('singularityFlow.init'), 'the command it offers exists');
+});
+
+test('VS Code can explicitly discard former .sdlc data and reinitialize an unsupported repository', async (t) => {
+  if (!requireBundle(t)) return;
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-host-sdlc-reset-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  run('git', ['init', '-q', '-b', 'main'], { cwd: root });
+  run('git', ['config', 'user.name', 'VS Code Reset Test'], { cwd: root });
+  run('git', ['config', 'user.email', 'reset@example.com'], { cwd: root });
+  await writeFile(path.join(root, 'app.txt'), 'application remains\n');
+  run('git', ['add', 'app.txt'], { cwd: root });
+  run('git', ['commit', '-m', 'application'], { cwd: root });
+  const beforeHead = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+  await mkdir(path.join(root, '.sdlc'), { recursive: true });
+  await writeFile(path.join(root, '.sdlc', 'config.json'), '{"version":1,"discard":true}\n');
+  await mkdir(path.join(root, '.github', 'agents'), { recursive: true });
+  const customAgent = `---
+name: company-specialist
+description: Preserved repository-specific agent.
+tools: [read]
+---
+
+# Company specialist
+
+Preserve this custom repository agent during reinitialization.
+`;
+  await writeFile(path.join(root, '.github', 'agents', 'company-specialist.agent.md'), customAgent);
+  const invalidCustomAgent = Buffer.from(
+    '---\nname: Company malformed\ndescription: [invalid YAML\n---\nexact private recovery bytes\n'
+  );
+  await writeFile(path.join(root, '.github', 'agents', 'company-malformed.agent.md'), invalidCustomAgent);
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  assert.ok(registered.commands.has('singularityFlow.reinitialize'));
+
+  registered.pickedFolder = root;
+  registered.selfApprovalAnswer = 'Discard SFlow data and reinitialize';
+  registered.typed = `RESET ${path.basename(root)} ${beforeHead.slice(0, 7)}`;
+  await registered.commands.get('singularityFlow.reinitialize')();
+
+  assert.match(registered.warningDetails[0], /Will be permanently discarded:[\s\S]*\.sdlc\/config\.json/);
+  assert.match(registered.warningDetails[0], /custom-agent bytes that will be preserved:[\s\S]*company-specialist\.agent\.md/);
+  assert.match(registered.warningDetails[0],
+    /Invalid custom agents will be removed from active discovery and preserved byte-for-byte:[\s\S]*company-malformed\.agent\.md[\s\S]*singularity-flow-recovered-agents/);
+  const formerFormatRemoved = await readFile(path.join(root, '.sdlc', 'config.json'))
+    .then(() => false, (error) => error?.code === 'ENOENT');
+  assert.equal(formerFormatRemoved, true, JSON.stringify({
+    warnings: registered.warnings,
+    warningDetails: registered.warningDetails,
+    errors: registered.errors,
+    output: registered.output,
+    inputBoxes: registered.inputBoxes
+  }, null, 2));
+  assert.equal(await readFile(path.join(root, '.github', 'agents', 'company-specialist.agent.md'), 'utf8'), customAgent);
+  const recoveryRoot = path.join(root, '.github', 'singularity-flow-recovered-agents');
+  const recoveryDigests = await readdir(recoveryRoot);
+  assert.equal(recoveryDigests.length, 1);
+  assert.deepEqual(await readFile(path.join(
+    recoveryRoot, recoveryDigests[0], 'company-malformed.agent.md'
+  )), invalidCustomAgent);
+  const invalidStillActive = await readFile(path.join(root, '.github', 'agents', 'company-malformed.agent.md'))
+    .then(() => true, (error) => error?.code !== 'ENOENT');
+  assert.equal(invalidStillActive, false);
+  assert.ok(registered.warningDetails.some((detail) =>
+    /Invalid custom agent[\s\S]*company-malformed\.agent\.md[\s\S]*preserved byte-for-byte/i
+      .test(detail ?? '')));
+  assert.equal(YAML.parse(await readFile(path.join(root, 'singularity', 'workflow.yml'), 'utf8')).version, 2);
+  assert.equal(await readFile(path.join(root, 'app.txt'), 'utf8'), 'application remains\n');
+  assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim(), beforeHead);
+  assert.ok(registered.warnings.some((message) => /Reinitialize this repository/.test(message)));
+  assert.equal(registered.errors.length, 0, registered.errors.join('\n'));
+});
+
+test('VS Code refuses a destructive reset when HEAD changes while its review modal is open', async (t) => {
+  if (!requireBundle(t)) return;
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-host-reset-stale-modal-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  run('git', ['init', '-q', '-b', 'main'], { cwd: root });
+  run('git', ['config', 'user.name', 'VS Code Reset Test'], { cwd: root });
+  run('git', ['config', 'user.email', 'reset@example.com'], { cwd: root });
+  await writeFile(path.join(root, 'app.txt'), 'original application\n');
+  run('git', ['add', 'app.txt'], { cwd: root });
+  run('git', ['commit', '-m', 'application'], { cwd: root });
+  const reviewedHead = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+  await mkdir(path.join(root, '.sdlc'), { recursive: true });
+  const legacyFile = path.join(root, '.sdlc', 'config.json');
+  await writeFile(legacyFile, '{"version":1,"mustRemain":true}\n');
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  registered.pickedFolder = root;
+  registered.typed = `RESET ${path.basename(root)} ${reviewedHead.slice(0, 7)}`;
+  let reviewDialogs = 0;
+  api.window.showWarningMessage = async (message, ...rest) => {
+    registered.warnings.push(message);
+    registered.warningDetails.push(rest.find((item) => item && typeof item === 'object')?.detail ?? null);
+    if (/^Reinitialize this repository/.test(message)) {
+      reviewDialogs += 1;
+      // Model the real race: another editor/process advances the branch while the modal is open.
+      // The already-reviewed confirmation and reset-scope digest must become unusable.
+      await writeFile(path.join(root, 'late-change.txt'), 'arrived during reset review\n');
+      run('git', ['add', 'late-change.txt'], { cwd: root });
+      run('git', ['commit', '-m', 'advance while reset is being reviewed'], { cwd: root });
+      return 'Discard SFlow data and reinitialize';
+    }
+    return undefined;
+  };
+
+  await registered.commands.get('singularityFlow.reinitialize')();
+
+  assert.equal(reviewDialogs, 1);
+  assert.ok(registered.warnings.some((message) =>
+    /repository changed after the reset preview/i.test(message)));
+  assert.equal(await readFile(legacyFile, 'utf8'), '{"version":1,"mustRemain":true}\n',
+    'the old-format bytes remain because the reviewed HEAD became stale');
+  assert.equal(existsSync(path.join(root, 'singularity')), false,
+    'the replacement was never installed after the stale review');
+  assert.notEqual(run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim(), reviewedHead);
+  assert.deepEqual(registered.errors, []);
 });
 
 test('an application branch loads through its fetched approved sflow configuration', async (t) => {

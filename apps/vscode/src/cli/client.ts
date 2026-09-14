@@ -11,7 +11,8 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import {
   CAPABILITY_AUTHORITY_TIMEOUT_MS, CLI_TIMEOUT_MS, SNAPSHOT_TIMEOUT_MS, VALIDATION_TIMEOUT_MS,
-  WORKSPACE_MUTATION_TIMEOUT_MS, WORK_START_TIMEOUT_MS, WORLD_MODEL_TIMEOUT_MS,
+  FACTORY_RESET_TRANSACTION_TIMEOUT_MS, WORKSPACE_MUTATION_TIMEOUT_MS, WORK_START_TIMEOUT_MS,
+  WORLD_MODEL_TIMEOUT_MS,
   invokeCli, type OutputStream
 } from './runner.ts';
 import type { RepositorySnapshot, SnapshotSlice } from './snapshot.ts';
@@ -129,11 +130,17 @@ function enabledBooleanOption(args: string[], name: string): boolean {
  * policy; only result reuse is forbidden.
  */
 function cacheableRead(args: string[]): boolean {
-  return !(args[0] === 'configuration' && args[1] === 'validate');
+  return !(args[0] === 'configuration' && args[1] === 'validate')
+    // A destructive apply is guarded by a second byte-current preview. Reusing the first preview
+    // here would turn that freshness check into a comparison with its own cached answer.
+    && args[0] !== 'factory-reset';
 }
 
 export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (!args[0]) return 'unknown';
+  if (args[0] === 'factory-reset') {
+    return enabledBooleanOption(args, 'dry-run') ? 'read' : 'mutation';
+  }
   if (args[0] === 'init' && enabledBooleanOption(args, 'smart-detect')
       && enabledBooleanOption(args, 'dry-run') && !hasOption(args, 'output')) return 'read';
   // Configuration inventory and previews are read-only. Every other configuration subcommand is
@@ -477,6 +484,14 @@ export class SingularityFlowClient {
   }
 
   private timeoutFor(args: string[], cancellable = false): number | null {
+    // The dry-run only inventories bytes and stays under the ordinary bounded read deadline. Once
+    // the exact reset is confirmed, however, the engine may have moved old roots into rollback
+    // staging. A host timeout at that point is less safe than waiting for the engine's guarded
+    // commit-or-rollback boundary, so the apply has an explicit no-host-deadline contract.
+    if (args[0] === 'factory-reset') {
+      return enabledBooleanOption(args, 'dry-run')
+        ? CLI_TIMEOUT_MS : FACTORY_RESET_TRANSACTION_TIMEOUT_MS;
+    }
     if (args[0] === 'submit') return VALIDATION_TIMEOUT_MS;
     if (args[0] === 'repair' && args[1] === 'attempt') return VALIDATION_TIMEOUT_MS;
     if (args[0] === 'start'

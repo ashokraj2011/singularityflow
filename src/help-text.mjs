@@ -59,7 +59,7 @@ Usage:
   singularity-flow local publish --story <LOC-ID> --candidate <SHA256> --signer <KEY-ID> [--destination <APPROVED-DIRECTORY>] [--format loc.zip.store.v1] [--json]
   singularity-flow local audit --bundle <ABSOLUTE-ARCHIVE> --trust-key <ABSOLUTE-PUBLIC-KEY-FILE> --signer <KEY-ID> --offline [--json]
   singularity-flow refresh-branch [--remote origin] [--branch CURRENT] [--json]
-  singularity-flow factory-reset [--dry-run] [--confirm "RESET REPOSITORY COMMIT"] [--allow-dirty] [--json]
+  singularity-flow factory-reset [--dry-run] [--confirm "RESET REPOSITORY COMMIT" --expect-scope-sha256 SHA256] [--allow-dirty] [--json]
   sflow reset-all [--yes] [--json]
   singularity-flow local-reset [--dry-run | --confirm "RESET LOCAL"] [--json]
   singularity-flow local-reset --forget-only [--dry-run | --confirm "FORGET LOCAL"] [--json]

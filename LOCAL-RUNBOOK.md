@@ -155,7 +155,8 @@ cd ~/flow/app
 git rev-parse --show-toplevel
 singularity-flow factory-reset --dry-run
 # Use the exact value printed by the preview, including its HEAD prefix:
-singularity-flow factory-reset --confirm "RESET app <HEAD-prefix>"
+singularity-flow factory-reset --confirm "RESET app <HEAD-prefix>" \
+  --expect-scope-sha256 "<sha256 from the preview>"
 singularity-flow init --check
 git status --short
 ```
@@ -163,8 +164,12 @@ git status --short
 The confirmation value is printed by the preview and uses the actual repository
 folder name. Factory reset does not commit the replacement. It also does not
 delete application source, Git history, workspace clones, the global workspace
-registry, or custom repository agents not bundled with Singularity Flow. The next
-workspace registry read automatically forgets registrations whose lead explicitly
+registry, or valid custom repository agents not bundled with Singularity Flow.
+If a custom agent prevents the installed definition from loading, its exact bytes
+are moved out of active discovery to
+`.github/singularity-flow-recovered-agents/<sha256>/`; review the path, digest,
+and reason printed by the preview before proceeding. The next workspace registry
+read automatically forgets registrations whose lead explicitly
 declares a non-v2 workflow; `singularity-flow workspace prune --json` reports them.
 
 ### Fresh machine reset and reinstall

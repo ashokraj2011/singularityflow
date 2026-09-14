@@ -4099,6 +4099,11 @@ async function cloneIntoWorkspace(root, operation, {
       // when it is still empty after the clone completes; rmdir fails if a concurrent process
       // added anything, so no user content is overwritten.
       if (existing) await rmdir(operation.target);
+      // This rename is the complete repository mutation: the private clone has already finished
+      // every checkout/configuration write, and cleanup below touches only its former staging
+      // parent. Before the rename there is no target Git repository for factory reset to select;
+      // afterward the checkout is complete and reset may safely win. Any later repository writer
+      // (notably workspace state initialization) must acquire its own target-root mutation lease.
       await rename(staging, operation.target);
       const cleaned = await cleanupStaging();
       return {

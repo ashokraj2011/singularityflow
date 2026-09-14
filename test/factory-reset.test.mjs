@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { access, chmod, mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
+import {
+  access, chmod, link, mkdir, mkdtemp, open, readFile, readdir, readlink, realpath, rename, rm, stat,
+  symlink, writeFile
+} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -29,6 +32,95 @@ async function missing(file) {
     throw error;
   }
 }
+
+test('reset path classification follows Windows case-insensitive filesystem identity', async () => {
+  const { controlRootPath, repositoryPathCovers } = await import('../src/factory-reset.mjs');
+  assert.equal(controlRootPath('Singularity/WORK-1.json', 'win32'), true);
+  assert.equal(controlRootPath('.SDLC/config.json', 'darwin'), true);
+  assert.equal(repositoryPathCovers('.GITHUB/AGENTS/', '.github/agents/qa.agent.md', 'win32'), true);
+  assert.equal(repositoryPathCovers('.GITHUB/AGENTS/', '.github/agents/qa.agent.md', 'darwin'), true);
+  assert.equal(repositoryPathCovers('.GITHUB/AGENTS/', '.github/agents/qa.agent.md', 'linux'), false,
+    'case-distinct Linux paths remain distinct');
+});
+
+test('factory-reset scope is bound to the canonical clone even at the same revision', async (t) => {
+  const parentA = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-clone-a-'));
+  const parentB = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-clone-b-'));
+  const first = path.join(parentA, 'same-name');
+  const second = path.join(parentB, 'same-name');
+  t.after(() => Promise.all([
+    rm(parentA, { recursive: true, force: true }), rm(parentB, { recursive: true, force: true })
+  ]));
+  await mkdir(first);
+  git(first, 'init', '-b', 'main');
+  git(first, 'config', 'user.name', 'Factory Reset Tester');
+  git(first, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(first, 'app.txt'), 'same source\n');
+  git(first, 'add', 'app.txt');
+  git(first, 'commit', '-m', 'initial');
+  command('git', ['clone', '--no-local', first, second], parentB);
+
+  const { factoryResetPlan } = await import('../src/factory-reset.mjs');
+  const firstPlan = await factoryResetPlan(first);
+  const secondPlan = await factoryResetPlan(second);
+  assert.equal(firstPlan.head, secondPlan.head);
+  assert.equal(firstPlan.confirmation, secondPlan.confirmation,
+    'the human phrase remains familiar and the reviewed SHA is the clone-bound freshness token');
+  assert.notEqual(firstPlan.resetScopeSha256, secondPlan.resetScopeSha256,
+    'a reviewed scope token from one clone cannot authorize a second clone');
+});
+
+test('factory-reset scope includes repository-local runtime bytes and identity', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-runtime-scope-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  const runtime = path.join(await realpath(git(root, 'rev-parse', '--absolute-git-dir')), 'singularity-flow');
+  await mkdir(runtime, { recursive: true });
+  const receipt = path.join(runtime, 'session.json');
+  await writeFile(receipt, '{"generation":1}\n');
+
+  const { factoryResetPlan, factoryResetRepository } = await import('../src/factory-reset.mjs');
+  const first = await factoryResetPlan(root);
+  await writeFile(receipt, '{"generation":2}\n');
+  const second = await factoryResetPlan(root);
+  assert.notEqual(first.resetScopeSha256, second.resetScopeSha256);
+  const replacement = path.join(runtime, 'session.replacement.json');
+  await writeFile(replacement, '{"generation":2}\n');
+  await rename(replacement, receipt);
+  const third = await factoryResetPlan(root);
+  assert.notEqual(second.resetScopeSha256, third.resetScopeSha256,
+    'same bytes in a replacement inode still invalidate the reviewed runtime identity');
+  await assert.rejects(() => factoryResetRepository(root, {
+    confirmation: first.confirmation,
+    expectedScopeSha256: first.resetScopeSha256,
+    allowDirty: true
+  }), /scope changed after preview/);
+  assert.equal(await readFile(receipt, 'utf8'), '{"generation":2}\n');
+});
+
+test('a repository mutation started during factory reset is refused before it changes the checkout', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-command-race-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source remains\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+
+  const { withRepositoryResetBarrier } = await import('../src/subject-lock.mjs');
+  await withRepositoryResetBarrier(root, async () => {
+    const result = command(process.execPath, [cli, 'init'], root, { ok: false });
+    assert.match(result.stderr, /reinitialization is in progress/i);
+    assert.equal(await missing(path.join(root, 'singularity')), true,
+      'the mutating command is stopped before its handler creates configuration');
+  });
+});
 
 test('factory reset previews, requires exact confirmation, and restores npm defaults without touching source or history', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-'));
@@ -70,18 +162,38 @@ Preserve this custom repository agent during a factory reset.
   // derivable without ever seeing the preview, and matches a different clone of the same repository.
   assert.equal(plan.confirmation, `RESET ${path.basename(root)} ${beforeHead.slice(0, 7)}`);
   assert.notEqual(plan.confirmation, `RESET ${path.basename(root)}`);
+  const humanPreview = command(process.execPath, [cli, 'factory-reset', '--dry-run'], root).stdout;
+  assert.match(humanPreview, new RegExp(`--expect-scope-sha256 ${plan.resetScopeSha256}`),
+    'the copyable apply command is bound to the exact reviewed reset scope');
+  assert.equal(plan.localRuntimeRoots.length, 1,
+    'filesystem aliases for the same ordinary-checkout Git directory are deduplicated');
+  assert.ok(plan.uncommittedDiscardPaths.some((entry) => entry.includes('.github/agents/qa.agent.md')),
+    'a customized packaged agent is disclosed as data the reset overwrites');
+  assert.ok(!plan.uncommittedDiscardPaths.some((entry) => entry.includes('company-specialist.agent.md')),
+    'a non-packaged custom agent is reported but preserved');
   assert.equal(await readFile(workflow, 'utf8').then((text) => text.includes('local customization')), true);
 
-  const refused = command(process.execPath, [cli, 'factory-reset', '--confirm', 'RESET WRONG'], root, { ok: false });
+  const unbound = command(process.execPath, [
+    cli, 'factory-reset', '--confirm', plan.confirmation, '--allow-dirty'
+  ], root, { ok: false });
+  assert.match(unbound.stderr, /requires the exact --expect-scope-sha256/);
+  const refused = command(process.execPath, [
+    cli, 'factory-reset', '--confirm', 'RESET WRONG',
+    '--expect-scope-sha256', plan.resetScopeSha256
+  ], root, { ok: false });
   assert.notEqual(refused.status, 0);
   assert.match(refused.stderr, /requires exact confirmation/);
 
   // This repository deliberately has uncommitted reset-scope changes, so the discard is explicit.
-  const dirty = command(process.execPath, [cli, 'factory-reset', '--confirm', plan.confirmation], root, { ok: false });
+  const dirty = command(process.execPath, [
+    cli, 'factory-reset', '--confirm', plan.confirmation,
+    '--expect-scope-sha256', plan.resetScopeSha256
+  ], root, { ok: false });
   assert.match(dirty.stderr, /would discard uncommitted changes/);
 
   const reset = command(process.execPath, [
-    cli, 'factory-reset', '--confirm', plan.confirmation, '--allow-dirty', '--json'
+    cli, 'factory-reset', '--confirm', plan.confirmation,
+    '--expect-scope-sha256', plan.resetScopeSha256, '--allow-dirty', '--json'
   ], root);
   const result = JSON.parse(reset.stdout);
   assert.equal(result.completed, true);
@@ -95,6 +207,347 @@ Preserve this custom repository agent during a factory reset.
 
   const check = command(process.execPath, [cli, 'init', '--check', '--json'], root);
   assert.equal(JSON.parse(check.stdout).complete, true);
+});
+
+test('factory reset preserves an invalid custom agent outside active discovery and remains operational', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-invalid-agent-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'application source remains\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  command(process.execPath, [cli, 'init'], root);
+  const invalidPath = path.join(root, '.github', 'agents', 'company-broken.agent.md');
+  const invalidBytes = Buffer.from('---\nname: Company Broken\nmetadata: [not valid YAML\n---\nprivate recovery bytes\n');
+  await writeFile(invalidPath, invalidBytes);
+  const validPath = path.join(root, '.github', 'agents', 'company-valid.agent.md');
+  const validBytes = Buffer.from(`---
+name: company-valid
+description: A valid repository-specific agent.
+tools: [read]
+---
+
+Keep this valid custom agent active.
+`);
+  await writeFile(validPath, validBytes);
+  git(root, 'add', '.github/agents/company-broken.agent.md',
+    '.github/agents/company-valid.agent.md', 'singularity', '.github/agents');
+  git(root, 'commit', '-m', 'legacy invalid custom agent');
+  const beforeHead = git(root, 'rev-parse', 'HEAD');
+
+  const previewText = command(process.execPath, [cli, 'factory-reset', '--dry-run'], root).stdout;
+  assert.match(previewText, /Invalid custom agents preserved outside active discovery:/);
+  assert.match(previewText,
+    /"\.github\/agents\/company-broken\.agent\.md" -> "\.github\/singularity-flow-recovered-agents\//);
+  const plan = JSON.parse(command(process.execPath, [
+    cli, 'factory-reset', '--dry-run', '--json'
+  ], root).stdout);
+  assert.equal(plan.customAgentRecoveries.length, 1);
+  const [recovery] = plan.customAgentRecoveries;
+  assert.equal(recovery.sourcePath, '.github/agents/company-broken.agent.md');
+  assert.match(recovery.recoveryPath,
+    /^\.github\/singularity-flow-recovered-agents\/[0-9a-f]{64}\/company-broken\.agent\.md$/);
+  assert.equal(recovery.bytes, invalidBytes.length);
+  assert.match(recovery.reason, /YAML|front matter|agent/i);
+
+  const result = JSON.parse(command(process.execPath, [
+    cli, 'factory-reset', '--confirm', plan.confirmation,
+    '--expect-scope-sha256', plan.resetScopeSha256, '--json'
+  ], root).stdout);
+  assert.equal(result.completed, true);
+  assert.equal(await missing(invalidPath), true, 'invalid Markdown is no longer an active agent');
+  assert.deepEqual(await readFile(validPath), validBytes,
+    'a valid custom agent remains byte-identical in the active directory');
+  assert.deepEqual(await readFile(path.join(root, ...recovery.recoveryPath.split('/'))), invalidBytes,
+    'the content-addressed recovery copy retains the exact original bytes');
+  assert.ok(result.warnings.some((warning) => warning.includes(recovery.recoveryPath)));
+  assert.equal(git(root, 'rev-parse', 'HEAD'), beforeHead);
+  assert.equal(await readFile(path.join(root, 'app.txt'), 'utf8'), 'application source remains\n');
+  const check = command(process.execPath, [cli, 'init', '--check', '--json'], root);
+  assert.equal(JSON.parse(check.stdout).complete, true);
+});
+
+test('factory-reset rollback restores an invalid custom agent and removes its recovery copy', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-agent-rollback-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  command(process.execPath, [cli, 'init'], root);
+  const relative = '.github/agents/broken.agent.md';
+  const invalidBytes = Buffer.from('---\nname: broken\ndescription: [invalid\n---\nbody\n');
+  await writeFile(path.join(root, ...relative.split('/')), invalidBytes);
+  const { factoryResetPlan, factoryResetRepository } = await import('../src/factory-reset.mjs');
+  const plan = await factoryResetPlan(root);
+  const [recovery] = plan.customAgentRecoveries;
+  await assert.rejects(() => factoryResetRepository(root, {
+    confirmation: plan.confirmation,
+    expectedScopeSha256: plan.resetScopeSha256,
+    allowDirty: true,
+    fault: async (stage) => {
+      if (stage === 'after-custom-agent-recovery') throw new Error('injected recovery failure');
+    }
+  }), /injected recovery failure/);
+  assert.deepEqual(await readFile(path.join(root, ...relative.split('/'))), invalidBytes);
+  assert.equal(await missing(path.join(root, ...recovery.recoveryPath.split('/'))), true);
+});
+
+test('factory reset removes former .sdlc state only after explicit dirty-data consent', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-sdlc-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'application source remains\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  const beforeHead = git(root, 'rev-parse', 'HEAD');
+  const beforeBranch = git(root, 'branch', '--show-current');
+  await mkdir(path.join(root, '.sdlc'), { recursive: true });
+  await writeFile(path.join(root, '.sdlc', 'config.json'), '{"version":1,"private":"discard me"}\n');
+
+  let preview = JSON.parse(command(process.execPath, [
+    cli, 'factory-reset', '--dry-run', '--json'
+  ], root).stdout);
+  assert.ok(preview.remove.some((entry) => entry.startsWith('.sdlc/')),
+    'the former control root is disclosed in the reset boundary');
+  assert.ok(preview.uncommittedDiscardPaths.some((entry) => entry.includes('.sdlc/config.json')),
+    'uncommitted former-format data is classified as destructive');
+  const firstScope = preview.resetScopeSha256;
+  await writeFile(path.join(root, '.sdlc', 'config.json'), '{"version":1,"private":"changed again"}\n');
+  preview = JSON.parse(command(process.execPath, [
+    cli, 'factory-reset', '--dry-run', '--json'
+  ], root).stdout);
+  assert.notEqual(preview.resetScopeSha256, firstScope,
+    'a same-path byte change invalidates the editor freshness comparison');
+  const stale = command(process.execPath, [
+    cli, 'factory-reset', '--confirm', preview.confirmation,
+    '--expect-scope-sha256', firstScope, '--allow-dirty', '--json'
+  ], root, { ok: false });
+  assert.match(stale.stderr, /scope changed after preview/);
+  assert.equal(await readFile(path.join(root, '.sdlc', 'config.json'), 'utf8'),
+    '{"version":1,"private":"changed again"}\n', 'a stale reviewed scope moves nothing');
+  git(root, 'checkout', '-b', 'same-head-other-branch');
+  const switched = command(process.execPath, [
+    cli, 'factory-reset', '--confirm', preview.confirmation,
+    '--expect-scope-sha256', preview.resetScopeSha256, '--allow-dirty', '--json'
+  ], root, { ok: false });
+  assert.match(switched.stderr, /scope changed after preview/,
+    'a same-commit branch switch invalidates the reviewed operation');
+  assert.equal(await missing(path.join(root, '.sdlc')), false);
+  git(root, 'checkout', 'main');
+
+  const refused = command(process.execPath, [
+    cli, 'factory-reset', '--confirm', preview.confirmation,
+    '--expect-scope-sha256', preview.resetScopeSha256, '--json'
+  ], root, { ok: false });
+  assert.match(refused.stderr, /would discard uncommitted changes/);
+  assert.equal(await readFile(path.join(root, '.sdlc', 'config.json'), 'utf8'),
+    '{"version":1,"private":"changed again"}\n');
+
+  const reset = JSON.parse(command(process.execPath, [
+    cli, 'factory-reset', '--confirm', preview.confirmation,
+    '--expect-scope-sha256', preview.resetScopeSha256, '--allow-dirty', '--json'
+  ], root).stdout);
+  assert.equal(reset.completed, true);
+  assert.equal(await missing(path.join(root, '.sdlc')), true);
+  assert.equal(await readFile(path.join(root, 'app.txt'), 'utf8'), 'application source remains\n');
+  assert.equal(git(root, 'rev-parse', 'HEAD'), beforeHead);
+  assert.equal(git(root, 'branch', '--show-current'), beforeBranch);
+  assert.equal(JSON.parse(command(process.execPath, [cli, 'init', '--check', '--json'], root).stdout).complete, true);
+});
+
+test('factory reset detects an editor save immediately before its first destructive move', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-final-scope-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source remains\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  const legacyFile = path.join(root, '.sdlc', 'config.json');
+  await mkdir(path.dirname(legacyFile), { recursive: true });
+  await writeFile(legacyFile, 'reviewed legacy bytes\n');
+
+  const { factoryResetPlan, factoryResetRepository } = await import('../src/factory-reset.mjs');
+  const preview = await factoryResetPlan(root);
+  await assert.rejects(() => factoryResetRepository(root, {
+    confirmation: preview.confirmation,
+    expectedScopeSha256: preview.resetScopeSha256,
+    allowDirty: true,
+    fault: async (stage) => {
+      if (stage === 'before-final-scope-validation') {
+        await writeFile(legacyFile, 'changed while replacement was prepared\n');
+      }
+    }
+  }), /scope changed during preparation/);
+  assert.equal(await readFile(legacyFile, 'utf8'), 'changed while replacement was prepared\n');
+  assert.equal(await missing(path.join(root, 'singularity')), true,
+    'no replacement or destructive move occurs after the final fingerprint refuses');
+});
+
+test('case-insensitive repository path rules cannot hide a legacy control root', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-case-root-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  git(root, 'config', 'core.ignorecase', 'true');
+  await writeFile(path.join(root, 'app.txt'), 'source remains\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  await mkdir(path.join(root, '.SDLC'), { recursive: true });
+  await writeFile(path.join(root, '.SDLC', 'config.json'), 'private legacy bytes\n');
+
+  const preview = JSON.parse(command(process.execPath, [
+    cli, 'factory-reset', '--dry-run', '--json'
+  ], root).stdout);
+  assert.ok(preview.uncommittedDiscardPaths.some((entry) => entry.includes('.SDLC/config.json')));
+  const refused = command(process.execPath, [
+    cli, 'factory-reset', '--confirm', preview.confirmation,
+    '--expect-scope-sha256', preview.resetScopeSha256, '--json'
+  ], root, { ok: false });
+  assert.match(refused.stderr, /would discard uncommitted changes/);
+  assert.equal(await readFile(path.join(root, '.SDLC', 'config.json'), 'utf8'), 'private legacy bytes\n');
+});
+
+test('assume-unchanged and skip-worktree flags cannot hide reset-scope bytes', async (t) => {
+  for (const indexFlag of ['--assume-unchanged', '--skip-worktree']) {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-index-hidden-'));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    git(root, 'init', '-b', 'main');
+    git(root, 'config', 'user.name', 'Factory Reset Tester');
+    git(root, 'config', 'user.email', 'factory-reset@example.com');
+    await mkdir(path.join(root, 'singularity'), { recursive: true });
+    const hidden = path.join(root, 'singularity', 'hidden.txt');
+    await writeFile(hidden, 'committed bytes\n');
+    await writeFile(path.join(root, 'app.txt'), 'source remains\n');
+    git(root, 'add', 'app.txt', 'singularity/hidden.txt');
+    git(root, 'commit', '-m', 'initial');
+    git(root, 'update-index', indexFlag, 'singularity/hidden.txt');
+    await writeFile(hidden, `private bytes hidden by ${indexFlag}\n`);
+
+    const preview = JSON.parse(command(process.execPath, [
+      cli, 'factory-reset', '--dry-run', '--json'
+    ], root).stdout);
+    assert.ok(preview.uncommittedDiscardPaths.some((entry) =>
+      entry.includes('singularity/hidden.txt') && entry.includes(indexFlag.slice(2))));
+    const refused = command(process.execPath, [
+      cli, 'factory-reset', '--confirm', preview.confirmation,
+      '--expect-scope-sha256', preview.resetScopeSha256, '--json'
+    ], root, { ok: false });
+    assert.match(refused.stderr, /would discard uncommitted changes/);
+    assert.equal(await readFile(hidden, 'utf8'), `private bytes hidden by ${indexFlag}\n`);
+  }
+});
+
+test('factory-reset preview escapes terminal-control filenames', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-control-name-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source remains\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  await mkdir(path.join(root, 'singularity'), { recursive: true });
+  await writeFile(path.join(root, 'singularity', 'danger-\u001b[31m.txt'), 'private\n');
+  await writeFile(path.join(root, 'singularity', 'looks-safe-\u202egnp.txt'), 'private\n');
+
+  const preview = command(process.execPath, [cli, 'factory-reset', '--dry-run'], root);
+  assert.doesNotMatch(preview.stdout, /\u001b/);
+  assert.doesNotMatch(preview.stdout, /\u202e/);
+  assert.match(preview.stdout, /\\u001b\[31m/);
+  assert.match(preview.stdout, /\\u202e/);
+});
+
+test('factory reset supports detached HEAD and preserves the exact revision', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-detached-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source remains\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  const revision = git(root, 'rev-parse', 'HEAD');
+  git(root, 'checkout', '--detach', revision);
+  await mkdir(path.join(root, '.sdlc'), { recursive: true });
+  await writeFile(path.join(root, '.sdlc', 'config.json'), '{}\n');
+
+  const preview = JSON.parse(command(process.execPath, [
+    cli, 'factory-reset', '--dry-run', '--json'
+  ], root).stdout);
+  assert.equal(preview.branch, null);
+  assert.equal(preview.head, revision);
+  command(process.execPath, [
+    cli, 'factory-reset', '--confirm', preview.confirmation,
+    '--expect-scope-sha256', preview.resetScopeSha256, '--allow-dirty', '--json'
+  ], root);
+  assert.equal(git(root, 'rev-parse', 'HEAD'), revision);
+  assert.equal(git(root, 'branch', '--show-current'), '');
+  assert.equal(await readFile(path.join(root, 'app.txt'), 'utf8'), 'source remains\n');
+});
+
+test('factory reset supports an unborn repository without changing Git identity', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-unborn-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, 'init', '-b', 'main');
+  await writeFile(path.join(root, 'app.txt'), 'untracked application source remains\n');
+  await mkdir(path.join(root, '.sdlc'), { recursive: true });
+  await writeFile(path.join(root, '.sdlc', 'config.json'), '{}\n');
+
+  const preview = JSON.parse(command(process.execPath, [
+    cli, 'factory-reset', '--dry-run', '--json'
+  ], root).stdout);
+  assert.equal(preview.branch, 'main');
+  assert.equal(preview.head, null);
+  assert.equal(preview.confirmation, `RESET ${path.basename(root)} unborn`);
+  command(process.execPath, [
+    cli, 'factory-reset', '--confirm', preview.confirmation,
+    '--expect-scope-sha256', preview.resetScopeSha256, '--allow-dirty', '--json'
+  ], root);
+  assert.equal(command('git', ['rev-parse', '--verify', 'HEAD'], root, { ok: false }).status, 128);
+  assert.equal(await readFile(path.join(root, 'app.txt'), 'utf8'), 'untracked application source remains\n');
+  assert.equal(await missing(path.join(root, '.sdlc')), true);
+});
+
+test('completed reset reports staging cleanup residue without becoming a false failure', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-cleanup-warning-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source remains\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  await mkdir(path.join(root, '.sdlc'), { recursive: true });
+  await writeFile(path.join(root, '.sdlc', 'config.json'), '{}\n');
+
+  const { factoryResetPlan, factoryResetRepository } = await import('../src/factory-reset.mjs');
+  const preview = await factoryResetPlan(root);
+  const result = await factoryResetRepository(root, {
+    confirmation: preview.confirmation,
+    expectedScopeSha256: preview.resetScopeSha256,
+    allowDirty: true,
+    fault: (stage) => {
+      if (stage === 'before-staging-cleanup') throw new Error('simulated Windows file lock');
+      if (stage === 'barrier:before-release') throw new Error('simulated barrier file lock');
+    }
+  });
+  assert.equal(result.completed, true);
+  assert.ok(result.warnings?.some((warning) => /staging cleanup is still pending/.test(warning)));
+  assert.ok(result.warnings?.some((warning) => /barrier could not be cleared/.test(warning)));
+  assert.equal(await missing(result.cleanupPendingPath), false);
+  assert.equal(await missing(result.barrierPendingPath), false);
+  assert.equal(await missing(path.join(root, '.sdlc')), true);
+  assert.equal(await readFile(path.join(root, 'app.txt'), 'utf8'), 'source remains\n');
 });
 
 test('factory reset refuses symbolic-link control roots', async () => {
@@ -111,6 +564,112 @@ test('factory reset refuses symbolic-link control roots', async () => {
   const result = command(process.execPath, [cli, 'factory-reset', '--dry-run'], root, { ok: false });
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /must not be a symbolic link/);
+});
+
+test('factory reset refuses a symbolic-link former .sdlc root', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-sdlc-link-'));
+  const outside = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-sdlc-outside-'));
+  t.after(() => Promise.all([
+    rm(root, { recursive: true, force: true }), rm(outside, { recursive: true, force: true })
+  ]));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  await symlink(outside, path.join(root, '.sdlc'));
+
+  const result = command(process.execPath, [cli, 'factory-reset', '--dry-run'], root, { ok: false });
+  assert.match(result.stderr, /Former SDLC control root must not be a symbolic link/);
+});
+
+test('factory reset refuses symbolic-link parents for bundled agent targets', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-agent-link-'));
+  const outside = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-agent-outside-'));
+  t.after(() => Promise.all([
+    rm(root, { recursive: true, force: true }), rm(outside, { recursive: true, force: true })
+  ]));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source remains\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  await symlink(outside, path.join(root, '.github'));
+
+  const result = command(process.execPath, [cli, 'factory-reset', '--dry-run'], root, { ok: false });
+  assert.match(result.stderr, /Bundled agent target must not contain a symbolic-link directory/);
+  assert.equal(await missing(path.join(outside, 'agents')), true,
+    'the external target was neither followed nor changed');
+
+  await rm(path.join(root, '.github'));
+  await mkdir(path.join(root, '.github'));
+  await symlink(outside, path.join(root, '.github', 'agents'));
+  const nested = command(process.execPath, [cli, 'factory-reset', '--dry-run'], root, { ok: false });
+  assert.match(nested.stderr, /Bundled agent target must not contain a symbolic-link directory/);
+  assert.equal(await missing(path.join(outside, 'qa.agent.md')), true);
+});
+
+test('ignored packaged-agent customizations require explicit discard consent', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-ignored-agent-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source remains\n');
+  await writeFile(path.join(root, '.gitignore'), '.github/agents/\n');
+  git(root, 'add', 'app.txt', '.gitignore');
+  git(root, 'commit', '-m', 'initial');
+  const target = path.join(root, '.github', 'agents', 'qa.agent.md');
+  await mkdir(path.dirname(target), { recursive: true });
+  await writeFile(target, 'private ignored customization\n');
+
+  const preview = JSON.parse(command(process.execPath, [
+    cli, 'factory-reset', '--dry-run', '--json'
+  ], root).stdout);
+  assert.ok(preview.uncommittedDiscardPaths.some((entry) => entry.includes('.github/agents/qa.agent.md')),
+    'the aggregated ignored directory is expanded to the exact customized packaged target');
+  const refused = command(process.execPath, [
+    cli, 'factory-reset', '--confirm', preview.confirmation,
+    '--expect-scope-sha256', preview.resetScopeSha256, '--json'
+  ], root, { ok: false });
+  assert.match(refused.stderr, /would discard uncommitted changes/);
+  assert.equal(await readFile(target, 'utf8'), 'private ignored customization\n');
+
+  command(process.execPath, [
+    cli, 'factory-reset', '--confirm', preview.confirmation,
+    '--expect-scope-sha256', preview.resetScopeSha256, '--allow-dirty', '--json'
+  ], root);
+  assert.equal(await readFile(target, 'utf8'),
+    await readFile(path.join(packageRoot, 'templates', 'agents', 'qa.agent.md'), 'utf8'));
+});
+
+test('hard-linked packaged agents outside the reset boundary are not mutated', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-hardlink-agent-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source remains\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  const target = path.join(root, '.github', 'agents', 'qa.agent.md');
+  const preserved = path.join(root, 'preserved-agent-copy.txt');
+  await mkdir(path.dirname(target), { recursive: true });
+  await writeFile(target, 'private linked bytes\n');
+  await link(target, preserved);
+
+  const preview = JSON.parse(command(process.execPath, [
+    cli, 'factory-reset', '--dry-run', '--json'
+  ], root).stdout);
+  command(process.execPath, [
+    cli, 'factory-reset', '--confirm', preview.confirmation,
+    '--expect-scope-sha256', preview.resetScopeSha256, '--allow-dirty', '--json'
+  ], root);
+  assert.equal(await readFile(preserved, 'utf8'), 'private linked bytes\n');
+  assert.equal(await readFile(target, 'utf8'),
+    await readFile(path.join(packageRoot, 'templates', 'agents', 'qa.agent.md'), 'utf8'));
 });
 
 test('a factory reset that fails before it takes a backup leaves the configuration alone', async () => {
@@ -154,6 +713,811 @@ test('a factory reset that fails before it takes a backup leaves the configurati
     'and so is the untracked work Git could not have restored');
 });
 
+test('a post-move factory-reset failure restores every former control root byte-for-byte', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-moved-fault-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source remains\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  const roots = {
+    singularity: 'current-but-damaged\n',
+    '.singularity': 'legacy-one\n',
+    '.sdlc': 'legacy-two\n'
+  };
+  for (const [directory, content] of Object.entries(roots)) {
+    await mkdir(path.join(root, directory), { recursive: true });
+    await writeFile(path.join(root, directory, 'identity.txt'), content);
+  }
+
+  const { factoryResetPlan, factoryResetRepository } = await import('../src/factory-reset.mjs');
+  const plan = await factoryResetPlan(root);
+  await assert.rejects(() => factoryResetRepository(root, {
+    confirmation: plan.confirmation,
+    allowDirty: true,
+    fault: (stage) => {
+      if (stage === 'after-control-roots-move') throw new Error('injected post-move failure');
+    }
+  }), /injected post-move failure/);
+
+  for (const [directory, content] of Object.entries(roots)) {
+    assert.equal(await readFile(path.join(root, directory, 'identity.txt'), 'utf8'), content);
+  }
+  assert.equal(await readFile(path.join(root, 'app.txt'), 'utf8'), 'source remains\n');
+});
+
+test('factory reset collision safety restores the newest .sdlc bytes written through its moved inode', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-open-handle-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source remains\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  const legacyFile = path.join(root, '.sdlc', 'config.json');
+  await mkdir(path.dirname(legacyFile), { recursive: true });
+  await writeFile(legacyFile, 'reviewed legacy bytes\n');
+  const legacyHandle = await open(legacyFile, 'r+');
+
+  const { factoryResetPlan, factoryResetRepository } = await import('../src/factory-reset.mjs');
+  const plan = await factoryResetPlan(root);
+  try {
+    await assert.rejects(() => factoryResetRepository(root, {
+      confirmation: plan.confirmation,
+      expectedScopeSha256: plan.resetScopeSha256,
+      allowDirty: true,
+      fault: async (stage) => {
+        if (stage === 'control-root:.sdlc:after-rename') {
+          await legacyHandle.truncate(0);
+          await legacyHandle.writeFile('latest editor bytes after validation\n');
+          await legacyHandle.sync();
+        }
+      }
+    }), (error) => error?.code === 'FACTORY_RESET_SCOPE_CHANGED');
+  } finally {
+    await legacyHandle.close();
+  }
+
+  assert.equal(await readFile(legacyFile, 'utf8'), 'latest editor bytes after validation\n',
+    'rollback restores the moved inode including bytes written after final validation');
+  assert.equal(await missing(path.join(root, 'singularity')), true);
+});
+
+test('factory reset collision safety retains an old .sdlc backup when the path is recreated', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-recreated-sdlc-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source remains\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  const former = path.join(root, '.sdlc');
+  await mkdir(former, { recursive: true });
+  await writeFile(path.join(former, 'config.json'), 'old legacy bytes\n');
+
+  const { factoryResetPlan, factoryResetRepository } = await import('../src/factory-reset.mjs');
+  const plan = await factoryResetPlan(root);
+  let failure;
+  await assert.rejects(() => factoryResetRepository(root, {
+    confirmation: plan.confirmation,
+    expectedScopeSha256: plan.resetScopeSha256,
+    allowDirty: true,
+    fault: async (stage) => {
+      if (stage === 'after-control-roots-move') {
+        await mkdir(former, { recursive: true });
+        await writeFile(path.join(former, 'concurrent.json'), 'new concurrent bytes\n');
+        throw new Error('injected failure after concurrent .sdlc recreation');
+      }
+    }
+  }), (error) => {
+    failure = error;
+    return error?.code === 'FACTORY_RESET_ROLLBACK_FAILED';
+  });
+
+  assert.equal(await readFile(path.join(former, 'concurrent.json'), 'utf8'), 'new concurrent bytes\n');
+  assert.equal(await readFile(path.join(failure.details.staging, 'backup', '.sdlc', 'config.json'), 'utf8'),
+    'old legacy bytes\n', 'the old version remains recoverable instead of replacing concurrent data');
+});
+
+test('factory reset collision safety preserves an edited installed control tree and its old backup', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-edited-control-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source remains\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  command(process.execPath, [cli, 'init'], root);
+  const workflow = path.join(root, 'singularity', 'workflow.yml');
+  const oldWorkflow = `${await readFile(workflow, 'utf8')}\n# old configuration marker\n`;
+  await writeFile(workflow, oldWorkflow);
+
+  const { factoryResetPlan, factoryResetRepository } = await import('../src/factory-reset.mjs');
+  const plan = await factoryResetPlan(root);
+  let failure;
+  await assert.rejects(() => factoryResetRepository(root, {
+    confirmation: plan.confirmation,
+    expectedScopeSha256: plan.resetScopeSha256,
+    allowDirty: true,
+    fault: async (stage) => {
+      if (stage === 'after-control-install') {
+        await writeFile(workflow, 'concurrent edit to installed workflow\n');
+        throw new Error('injected failure after installed control-tree edit');
+      }
+    }
+  }), (error) => {
+    failure = error;
+    return error?.code === 'FACTORY_RESET_ROLLBACK_FAILED';
+  });
+
+  assert.equal(await readFile(workflow, 'utf8'), 'concurrent edit to installed workflow\n');
+  assert.equal(await readFile(
+    path.join(failure.details.staging, 'backup', 'singularity', 'workflow.yml'), 'utf8'
+  ), oldWorkflow, 'rollback retains the old control tree when it cannot own the edited replacement');
+});
+
+test('factory reset collision safety preserves an edited installed packaged agent and its old backup', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-edited-agent-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source remains\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  command(process.execPath, [cli, 'init'], root);
+  const qaAgent = path.join(root, '.github', 'agents', 'qa.agent.md');
+  const oldAgent = 'old private packaged-agent customization\n';
+  await writeFile(qaAgent, oldAgent);
+
+  const { factoryResetPlan, factoryResetRepository } = await import('../src/factory-reset.mjs');
+  const plan = await factoryResetPlan(root);
+  let failure;
+  await assert.rejects(() => factoryResetRepository(root, {
+    confirmation: plan.confirmation,
+    expectedScopeSha256: plan.resetScopeSha256,
+    allowDirty: true,
+    fault: async (stage) => {
+      if (stage === 'after-packaged-agents-install') {
+        await writeFile(qaAgent, 'concurrent edit to installed packaged agent\n');
+        throw new Error('injected failure after installed packaged-agent edit');
+      }
+    }
+  }), (error) => {
+    failure = error;
+    return error?.code === 'FACTORY_RESET_ROLLBACK_FAILED';
+  });
+
+  assert.equal(await readFile(qaAgent, 'utf8'), 'concurrent edit to installed packaged agent\n');
+  assert.equal(await readFile(
+    path.join(failure.details.staging, 'backup', 'agents', 'qa.agent.md'), 'utf8'
+  ), oldAgent, 'the customized packaged-agent backup remains recoverable');
+});
+
+test('factory reset collision safety preserves a packaged-agent inode during ordinary rollback when links work', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-agent-inode-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source remains\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  command(process.execPath, [cli, 'init'], root);
+  const qaAgent = path.join(root, '.github', 'agents', 'qa.agent.md');
+  const oldAgent = 'old packaged-agent inode bytes\n';
+  await writeFile(qaAgent, oldAgent);
+  const before = await stat(qaAgent);
+  const linkProbe = path.join(root, '.github', 'agents', '.hardlink-probe');
+  let hardLinksSupported = true;
+  try {
+    await link(qaAgent, linkProbe);
+    await rm(linkProbe);
+  } catch (error) {
+    hardLinksSupported = false;
+    if (!['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS', 'EXDEV', 'EMLINK', 'EINVAL']
+      .includes(error?.code)) throw error;
+  }
+
+  const { factoryResetPlan, factoryResetRepository } = await import('../src/factory-reset.mjs');
+  const plan = await factoryResetPlan(root);
+  await assert.rejects(() => factoryResetRepository(root, {
+    confirmation: plan.confirmation,
+    expectedScopeSha256: plan.resetScopeSha256,
+    allowDirty: true,
+    fault: (stage) => {
+      if (stage === 'after-packaged-agents-install') throw new Error('injected ordinary rollback');
+    }
+  }), /injected ordinary rollback/);
+
+  assert.equal(await readFile(qaAgent, 'utf8'), oldAgent);
+  if (hardLinksSupported && before.ino !== 0) {
+    const after = await stat(qaAgent);
+    assert.equal(after.dev, before.dev);
+    assert.equal(after.ino, before.ino,
+      'no-replace hard-link restoration retains the exact original packaged-agent inode');
+  }
+});
+
+test('factory reset collision safety preserves both runtime versions when runtime is recreated', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-recreated-runtime-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source remains\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  const absoluteGitDirectory = await realpath(git(root, 'rev-parse', '--absolute-git-dir'));
+  const runtime = path.join(absoluteGitDirectory, 'singularity-flow');
+  await mkdir(runtime, { recursive: true });
+  await writeFile(path.join(runtime, 'old.json'), '{"old":true}\n');
+
+  const { factoryResetPlan, factoryResetRepository } = await import('../src/factory-reset.mjs');
+  const plan = await factoryResetPlan(root);
+  let failure;
+  await assert.rejects(() => factoryResetRepository(root, {
+    confirmation: plan.confirmation,
+    expectedScopeSha256: plan.resetScopeSha256,
+    allowDirty: true,
+    fault: async (stage) => {
+      if (stage === 'after-local-runtime-move:1') {
+        await mkdir(runtime, { recursive: true });
+        await writeFile(path.join(runtime, 'concurrent.json'), '{"concurrent":true}\n');
+        throw new Error('injected failure after runtime recreation');
+      }
+    }
+  }), (error) => {
+    failure = error;
+    return error?.code === 'FACTORY_RESET_ROLLBACK_FAILED';
+  });
+
+  assert.equal(await readFile(path.join(runtime, 'concurrent.json'), 'utf8'), '{"concurrent":true}\n');
+  const retained = (await readdir(absoluteGitDirectory))
+    .filter((entry) => entry.startsWith('.singularity-flow-factory-reset-0-'));
+  assert.equal(retained.length, 1, failure.message);
+  assert.equal(await readFile(path.join(absoluteGitDirectory, retained[0], 'old.json'), 'utf8'),
+    '{"old":true}\n', 'the moved pre-reset runtime remains available beside the concurrent runtime');
+});
+
+test('packaged-agent installation never blesses bytes raced in before validation', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-agent-install-race-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  command(process.execPath, [cli, 'init'], root);
+  const agent = path.join(root, '.github', 'agents', 'architect.agent.md');
+  await writeFile(agent, 'old private architect bytes\n');
+
+  const { factoryResetPlan, factoryResetRepository } = await import('../src/factory-reset.mjs');
+  const plan = await factoryResetPlan(root);
+  let failure;
+  await assert.rejects(() => factoryResetRepository(root, {
+    confirmation: plan.confirmation,
+    expectedScopeSha256: plan.resetScopeSha256,
+    allowDirty: true,
+    fault: async (stage) => {
+      if (stage === 'packaged-agent:architect.agent.md:after-install-before-validation') {
+        await writeFile(agent, 'raced editor bytes\n');
+      }
+    }
+  }), (error) => {
+    failure = error;
+    return error?.code === 'FACTORY_RESET_ROLLBACK_FAILED';
+  });
+  assert.equal(await readFile(agent, 'utf8'), 'raced editor bytes\n');
+  assert.equal(await readFile(
+    path.join(failure.details.staging, 'backup', 'agents', 'architect.agent.md'), 'utf8'
+  ), 'old private architect bytes\n');
+});
+
+test('invalid-custom recovery never blesses a target raced in before validation', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-recovery-install-race-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  command(process.execPath, [cli, 'init'], root);
+  const invalid = path.join(root, '.github', 'agents', 'broken.agent.md');
+  const invalidBytes = Buffer.from('---\nname: Broken Agent\ndescription: [invalid\n---\nsecret\n');
+  await writeFile(invalid, invalidBytes);
+
+  const { factoryResetPlan, factoryResetRepository } = await import('../src/factory-reset.mjs');
+  const plan = await factoryResetPlan(root);
+  const [recovery] = plan.customAgentRecoveries;
+  const target = path.join(root, ...recovery.recoveryPath.split('/'));
+  await assert.rejects(() => factoryResetRepository(root, {
+    confirmation: plan.confirmation,
+    expectedScopeSha256: plan.resetScopeSha256,
+    allowDirty: true,
+    fault: async (stage) => {
+      if (stage === `custom-agent-recovery:${recovery.sha256.slice(7, 19)}:after-install-before-validation`) {
+        await writeFile(target, 'raced recovery-target bytes\n');
+      }
+    }
+  }), (error) => error?.code === 'FACTORY_RESET_SCOPE_CHANGED');
+  assert.deepEqual(await readFile(invalid), invalidBytes,
+    'the active source is restored from staging');
+  assert.equal(await readFile(target, 'utf8'), 'raced recovery-target bytes\n',
+    'rollback does not delete the target it never proved it owned');
+});
+
+test('a packaged-agent parent symlink swap is refused before any outside write', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-parent-swap-'));
+  const outside = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-parent-swap-outside-'));
+  t.after(() => Promise.all([
+    rm(root, { recursive: true, force: true }), rm(outside, { recursive: true, force: true })
+  ]));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  command(process.execPath, [cli, 'init'], root);
+  const github = path.join(root, '.github');
+  const displaced = path.join(root, '.github-displaced');
+
+  const { factoryResetPlan, factoryResetRepository } = await import('../src/factory-reset.mjs');
+  const plan = await factoryResetPlan(root);
+  await assert.rejects(() => factoryResetRepository(root, {
+    confirmation: plan.confirmation,
+    expectedScopeSha256: plan.resetScopeSha256,
+    allowDirty: true,
+    fault: async (stage) => {
+      if (stage === 'packaged-agent:architect.agent.md:before-rename') {
+        await rename(github, displaced);
+        await symlink(outside, github);
+      }
+    }
+  }), /changed while factory reset was operating|could not be fully undone/);
+  assert.equal(await missing(path.join(outside, 'agents', 'architect.agent.md')), true);
+});
+
+test('a recovered-agent parent symlink swap is refused before any outside write', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-recovery-parent-swap-'));
+  const outside = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-recovery-parent-outside-'));
+  t.after(() => Promise.all([
+    rm(root, { recursive: true, force: true }), rm(outside, { recursive: true, force: true })
+  ]));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  command(process.execPath, [cli, 'init'], root);
+  await writeFile(path.join(root, '.github', 'agents', 'broken.agent.md'),
+    '---\nname: Broken Agent\ndescription: [invalid\n---\nprivate\n');
+
+  const { factoryResetPlan, factoryResetRepository } = await import('../src/factory-reset.mjs');
+  const plan = await factoryResetPlan(root);
+  const [recovery] = plan.customAgentRecoveries;
+  const github = path.join(root, '.github');
+  const displaced = path.join(root, '.github-displaced');
+  await assert.rejects(() => factoryResetRepository(root, {
+    confirmation: plan.confirmation,
+    expectedScopeSha256: plan.resetScopeSha256,
+    allowDirty: true,
+    fault: async (stage) => {
+      if (stage === `custom-agent-recovery:${recovery.sha256.slice(7, 19)}:before-install`) {
+        await rename(github, displaced);
+        await symlink(outside, github);
+      }
+    }
+  }), /changed while factory reset was operating|could not be fully undone/);
+  assert.equal(await missing(path.join(outside, 'singularity-flow-recovered-agents')), true);
+});
+
+test('failed rollback never prunes recovery directories through a swapped parent symlink', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-recovery-cleanup-swap-'));
+  const outside = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-recovery-cleanup-outside-'));
+  t.after(() => Promise.all([
+    rm(root, { recursive: true, force: true }), rm(outside, { recursive: true, force: true })
+  ]));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  command(process.execPath, [cli, 'init'], root);
+  await writeFile(path.join(root, '.github', 'agents', 'broken.agent.md'),
+    '---\nname: Broken Agent\ndescription: [invalid\n---\nprivate\n');
+
+  const { factoryResetPlan, factoryResetRepository } = await import('../src/factory-reset.mjs');
+  const plan = await factoryResetPlan(root);
+  const [recovery] = plan.customAgentRecoveries;
+  const github = path.join(root, '.github');
+  const displaced = path.join(root, '.github-displaced');
+  const outsideRecoveryDirectory = path.join(
+    outside, ...recovery.recoveryPath.split('/').slice(1, -1)
+  );
+  await assert.rejects(() => factoryResetRepository(root, {
+    confirmation: plan.confirmation,
+    expectedScopeSha256: plan.resetScopeSha256,
+    allowDirty: true,
+    fault: async (stage) => {
+      if (stage !== 'after-custom-agent-recovery') return;
+      await rename(github, displaced);
+      await symlink(outside, github);
+      await mkdir(outsideRecoveryDirectory, { recursive: true });
+      throw new Error('start rollback after parent swap');
+    }
+  }), (error) => error?.code === 'FACTORY_RESET_ROLLBACK_FAILED');
+  assert.equal(await missing(outsideRecoveryDirectory), false,
+    'rollback leaves an unrelated empty directory outside the repository untouched');
+});
+
+test('rollback refuses a recreated destination without replacing its bytes', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-rollback-race-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  const former = path.join(root, '.sdlc');
+  await mkdir(former);
+  await writeFile(path.join(former, 'old.json'), 'old bytes\n');
+
+  const { factoryResetPlan, factoryResetRepository } = await import('../src/factory-reset.mjs');
+  const plan = await factoryResetPlan(root);
+  let failure;
+  await assert.rejects(() => factoryResetRepository(root, {
+    confirmation: plan.confirmation,
+    expectedScopeSha256: plan.resetScopeSha256,
+    allowDirty: true,
+    fault: async (stage) => {
+      if (stage === 'after-control-roots-move') throw new Error('start rollback');
+      if (stage === 'rollback:.sdlc:before-restore') {
+        await mkdir(former);
+        await writeFile(path.join(former, 'concurrent.json'), 'concurrent bytes\n');
+      }
+    }
+  }), (error) => {
+    failure = error;
+    return error?.code === 'FACTORY_RESET_ROLLBACK_FAILED';
+  });
+  assert.equal(await readFile(path.join(former, 'concurrent.json'), 'utf8'), 'concurrent bytes\n');
+  assert.equal(await readFile(
+    path.join(failure.details.staging, 'backup', '.sdlc', 'old.json'), 'utf8'
+  ), 'old bytes\n');
+});
+
+test('directory rollback cannot replace an empty destination raced in at publication', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-directory-publish-race-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  const former = path.join(root, '.sdlc');
+  await mkdir(former);
+  await writeFile(path.join(former, 'old.json'), 'old bytes\n');
+
+  const { factoryResetPlan, factoryResetRepository } = await import('../src/factory-reset.mjs');
+  const plan = await factoryResetPlan(root);
+  let failure;
+  let concurrentInode = null;
+  await assert.rejects(() => factoryResetRepository(root, {
+    confirmation: plan.confirmation,
+    expectedScopeSha256: plan.resetScopeSha256,
+    allowDirty: true,
+    fault: async (stage) => {
+      if (stage === 'after-control-roots-move') throw new Error('start rollback');
+      if (stage === 'rollback:.sdlc:before-publication') {
+        await mkdir(former);
+        concurrentInode = (await stat(former)).ino;
+      }
+    }
+  }), (error) => {
+    failure = error;
+    return error?.code === 'FACTORY_RESET_ROLLBACK_FAILED';
+  });
+  assert.equal((await stat(former)).ino, concurrentInode,
+    'the concurrently created empty directory keeps its filesystem identity');
+  assert.deepEqual(await readdir(former), []);
+  assert.equal(await readFile(
+    path.join(failure.details.staging, 'backup', '.sdlc', 'old.json'), 'utf8'
+  ), 'old bytes\n');
+});
+
+test('packaged-agent rollback refuses a file recreated after replacement withdrawal', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-file-rollback-race-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  command(process.execPath, [cli, 'init'], root);
+  const agent = path.join(root, '.github', 'agents', 'qa.agent.md');
+  await writeFile(agent, 'old qa bytes\n');
+
+  const { factoryResetPlan, factoryResetRepository } = await import('../src/factory-reset.mjs');
+  const plan = await factoryResetPlan(root);
+  let failure;
+  await assert.rejects(() => factoryResetRepository(root, {
+    confirmation: plan.confirmation,
+    expectedScopeSha256: plan.resetScopeSha256,
+    allowDirty: true,
+    fault: async (stage) => {
+      if (stage === 'after-packaged-agents-install') throw new Error('start file rollback');
+      if (stage === 'rollback:.github/agents/qa.agent.md:before-restore') {
+        await writeFile(agent, 'concurrent qa bytes\n', { flag: 'wx' });
+      }
+    }
+  }), (error) => {
+    failure = error;
+    return error?.code === 'FACTORY_RESET_ROLLBACK_FAILED';
+  });
+  assert.equal(await readFile(agent, 'utf8'), 'concurrent qa bytes\n');
+  assert.equal(await readFile(
+    path.join(failure.details.staging, 'backup', 'agents', 'qa.agent.md'), 'utf8'
+  ), 'old qa bytes\n');
+});
+
+test('hard-link and copy-fallback rollback cannot replace a file raced in at publication', async (t) => {
+  for (const forceCopyRestore of [false, true]) {
+    const root = await mkdtemp(path.join(os.tmpdir(),
+      `sflow-factory-reset-file-publish-${forceCopyRestore ? 'copy' : 'link'}-`));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    git(root, 'init', '-b', 'main');
+    git(root, 'config', 'user.name', 'Factory Reset Tester');
+    git(root, 'config', 'user.email', 'factory-reset@example.com');
+    await writeFile(path.join(root, 'app.txt'), 'source\n');
+    git(root, 'add', 'app.txt');
+    git(root, 'commit', '-m', 'initial');
+    command(process.execPath, [cli, 'init'], root);
+    const agent = path.join(root, '.github', 'agents', 'qa.agent.md');
+    await writeFile(agent, 'old qa bytes\n');
+
+    const { factoryResetPlan, factoryResetRepository } = await import('../src/factory-reset.mjs');
+    const plan = await factoryResetPlan(root);
+    let failure;
+    await assert.rejects(() => factoryResetRepository(root, {
+      confirmation: plan.confirmation,
+      expectedScopeSha256: plan.resetScopeSha256,
+      allowDirty: true,
+      forceCopyRestore,
+      fault: async (stage) => {
+        if (stage === 'after-packaged-agents-install') throw new Error('start file rollback');
+        if (stage === 'rollback:.github/agents/qa.agent.md:before-publication') {
+          await writeFile(agent, `concurrent ${forceCopyRestore ? 'copy' : 'link'} bytes\n`, {
+            flag: 'wx'
+          });
+        }
+      }
+    }), (error) => {
+      failure = error;
+      return error?.code === 'FACTORY_RESET_ROLLBACK_FAILED';
+    });
+    assert.equal(await readFile(agent, 'utf8'),
+      `concurrent ${forceCopyRestore ? 'copy' : 'link'} bytes\n`);
+    assert.equal(await readFile(
+      path.join(failure.details.staging, 'backup', 'agents', 'qa.agent.md'), 'utf8'
+    ), 'old qa bytes\n');
+  }
+});
+
+test('late writes through a staged control inode stop cleanup and retain staging', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-late-staging-write-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  const legacyFile = path.join(root, '.sdlc', 'old.json');
+  await mkdir(path.dirname(legacyFile));
+  await writeFile(legacyFile, 'old bytes\n');
+  const handle = await open(legacyFile, 'r+');
+
+  const { factoryResetPlan, factoryResetRepository } = await import('../src/factory-reset.mjs');
+  const plan = await factoryResetPlan(root);
+  let failure;
+  try {
+    await assert.rejects(() => factoryResetRepository(root, {
+      confirmation: plan.confirmation,
+      expectedScopeSha256: plan.resetScopeSha256,
+      allowDirty: true,
+      fault: async (stage) => {
+        if (stage === 'before-staging-cleanup') {
+          await handle.truncate(0);
+          await handle.writeFile('late bytes after final verification\n');
+          await handle.sync();
+        }
+      }
+    }), (error) => {
+      failure = error;
+      return error?.code === 'FACTORY_RESET_SCOPE_CHANGED';
+    });
+  } finally {
+    await handle.close();
+  }
+  assert.equal(await readFile(
+    path.join(failure.details.staging, 'backup', '.sdlc', 'old.json'), 'utf8'
+  ), 'late bytes after final verification\n');
+});
+
+test('late writes through a staged runtime inode stop cleanup and retain its backup', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-late-runtime-write-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  const gitDirectory = await realpath(git(root, 'rev-parse', '--absolute-git-dir'));
+  const runtimeFile = path.join(gitDirectory, 'singularity-flow', 'session.json');
+  await mkdir(path.dirname(runtimeFile), { recursive: true });
+  await writeFile(runtimeFile, 'old runtime bytes\n');
+  const handle = await open(runtimeFile, 'r+');
+
+  const { factoryResetPlan, factoryResetRepository } = await import('../src/factory-reset.mjs');
+  const plan = await factoryResetPlan(root);
+  let failure;
+  try {
+    await assert.rejects(() => factoryResetRepository(root, {
+      confirmation: plan.confirmation,
+      expectedScopeSha256: plan.resetScopeSha256,
+      allowDirty: true,
+      fault: async (stage) => {
+        if (stage === 'before-runtime-backup-cleanup:1') {
+          await handle.truncate(0);
+          await handle.writeFile('late runtime bytes\n');
+          await handle.sync();
+        }
+      }
+    }), (error) => {
+      failure = error;
+      return error?.code === 'FACTORY_RESET_SCOPE_CHANGED';
+    });
+  } finally {
+    await handle.close();
+  }
+  assert.equal(await readFile(path.join(failure.details.backup, 'session.json'), 'utf8'),
+    'late runtime bytes\n');
+  assert.equal(await missing(failure.details.staging), false,
+    'the worktree staging directory is retained with the collision receipt');
+});
+
+test('copy-fallback rollback retains a backup changed through an open handle', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-copy-rollback-write-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  command(process.execPath, [cli, 'init'], root);
+  const agent = path.join(root, '.github', 'agents', 'qa.agent.md');
+  await writeFile(agent, 'old qa bytes\n');
+  const handle = await open(agent, 'r+');
+
+  const { factoryResetPlan, factoryResetRepository } = await import('../src/factory-reset.mjs');
+  const plan = await factoryResetPlan(root);
+  let failure;
+  try {
+    await assert.rejects(() => factoryResetRepository(root, {
+      confirmation: plan.confirmation,
+      expectedScopeSha256: plan.resetScopeSha256,
+      allowDirty: true,
+      forceCopyRestore: true,
+      fault: async (stage) => {
+        if (stage === 'after-packaged-agents-install') throw new Error('start copy rollback');
+        if (stage === 'rollback:.github/agents/qa.agent.md:before-backup-cleanup') {
+          await handle.truncate(0);
+          await handle.writeFile('late qa bytes\n');
+          await handle.sync();
+        }
+      }
+    }), (error) => {
+      failure = error;
+      return error?.code === 'FACTORY_RESET_ROLLBACK_FAILED';
+    });
+  } finally {
+    await handle.close();
+  }
+  assert.equal(await readFile(agent, 'utf8'), 'old qa bytes\n',
+    'the exclusive copy is not overwritten by late staged bytes');
+  assert.match(failure.message, /retained the staged copy|changed before cleanup/);
+  assert.equal(await readFile(
+    path.join(failure.details.staging, 'backup', 'agents', 'qa.agent.md'), 'utf8'
+  ), 'late qa bytes\n');
+});
+
+test('factory reset discloses and clears both private and shared runtime in a linked worktree', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-common-runtime-'));
+  const linked = path.join(path.dirname(root), `${path.basename(root)}-linked`);
+  t.after(() => Promise.all([
+    rm(linked, { recursive: true, force: true }), rm(root, { recursive: true, force: true })
+  ]));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source remains\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  git(root, 'worktree', 'add', '-b', 'legacy-fix', linked);
+  await mkdir(path.join(linked, '.sdlc'), { recursive: true });
+  await writeFile(path.join(linked, '.sdlc', 'config.json'), '{"version":1}\n');
+
+  const privateRuntime = path.join(await realpath(git(linked, 'rev-parse', '--absolute-git-dir')), 'singularity-flow');
+  const commonGitDirectory = await realpath(path.resolve(
+    linked, git(linked, 'rev-parse', '--git-common-dir')
+  ));
+  const commonRuntime = path.join(commonGitDirectory, 'singularity-flow');
+  assert.notEqual(privateRuntime, commonRuntime);
+  for (const runtime of [privateRuntime, commonRuntime]) {
+    await mkdir(runtime, { recursive: true });
+    await writeFile(path.join(runtime, 'local.json'), '{}\n');
+  }
+
+  let preview = JSON.parse(command(process.execPath, [
+    cli, 'factory-reset', '--dry-run', '--json'
+  ], linked).stdout);
+  assert.deepEqual(new Set(preview.localRuntimeRoots), new Set([privateRuntime, commonRuntime]));
+  assert.ok(preview.remove.some((entry) => entry.includes('repository-shared runtime for all linked worktrees')));
+  const { factoryResetRepository } = await import('../src/factory-reset.mjs');
+  const {
+    acquireSubjectLock, releaseSubjectLock, withRepositoryResetBarrier
+  } = await import('../src/subject-lock.mjs');
+  const subject = { kind: 'story', id: 'LIVE-WRITER' };
+  const owner = await acquireSubjectLock(root, subject);
+  await assert.rejects(() => factoryResetRepository(linked, {
+    confirmation: preview.confirmation,
+    allowDirty: true
+  }), /requires a quiescent repository/);
+  assert.equal(await readFile(path.join(linked, '.sdlc', 'config.json'), 'utf8'), '{"version":1}\n');
+  assert.equal(await releaseSubjectLock(root, subject, owner), true);
+  await withRepositoryResetBarrier(root, async () => {
+    await assert.rejects(() => acquireSubjectLock(linked, { kind: 'story', id: 'NEW-WRITER' }),
+      (error) => error?.code === 'FACTORY_RESET_IN_PROGRESS');
+  });
+  await assert.rejects(() => factoryResetRepository(linked, {
+    confirmation: preview.confirmation,
+    allowDirty: true,
+    fault: (stage) => {
+      if (stage === 'after-local-runtime-move:1') throw new Error('injected runtime cleanup failure');
+    }
+  }), /injected runtime cleanup failure/);
+  for (const runtime of [privateRuntime, commonRuntime]) {
+    assert.equal(await readFile(path.join(runtime, 'local.json'), 'utf8'), '{}\n',
+      'a failure after the first move restores every runtime root');
+  }
+  preview = JSON.parse(command(process.execPath, [
+    cli, 'factory-reset', '--dry-run', '--json'
+  ], linked).stdout);
+  command(process.execPath, [
+    cli, 'factory-reset', '--confirm', preview.confirmation,
+    '--expect-scope-sha256', preview.resetScopeSha256, '--allow-dirty', '--json'
+  ], linked);
+  assert.equal(await missing(privateRuntime), true);
+  assert.equal(await missing(commonRuntime), true);
+  assert.equal(await readFile(path.join(linked, 'app.txt'), 'utf8'), 'source remains\n');
+});
+
 test('a factory reset refuses to discard uncommitted reset-scope changes by default', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-dirty-'));
   git(root, 'init', '-b', 'main');
@@ -170,11 +1534,20 @@ test('a factory reset refuses to discard uncommitted reset-scope changes by defa
   // A freshly initialised repository has .github/agents untracked, holding exactly the packaged
   // content the reset is about to write. Reported, but not a reason to refuse.
   assert.deepEqual(plan.uncommittedResetPaths.filter((entry) => entry.includes('singularity')), []);
-  command(process.execPath, [cli, 'factory-reset', '--confirm', plan.confirmation, '--json'], root);
+  command(process.execPath, [
+    cli, 'factory-reset', '--confirm', plan.confirmation,
+    '--expect-scope-sha256', plan.resetScopeSha256, '--json'
+  ], root);
 
   await writeFile(path.join(root, 'singularity', 'workflow.yml'),
     `${await readFile(path.join(root, 'singularity', 'workflow.yml'), 'utf8')}\n# unsaved\n`);
-  const refused = command(process.execPath, [cli, 'factory-reset', '--confirm', plan.confirmation], root, { ok: false });
+  const dirtyPlan = JSON.parse(command(process.execPath, [
+    cli, 'factory-reset', '--dry-run', '--json'
+  ], root).stdout);
+  const refused = command(process.execPath, [
+    cli, 'factory-reset', '--confirm', dirtyPlan.confirmation,
+    '--expect-scope-sha256', dirtyPlan.resetScopeSha256
+  ], root, { ok: false });
   assert.match(refused.stderr, /would discard uncommitted changes that Git cannot recover/);
   assert.match(refused.stderr, /singularity\/workflow\.yml/);
   // And it really did refuse rather than warning after the fact.
@@ -237,6 +1610,378 @@ test('reset all restores machine registrations when repository replacement fails
   }), /injected replacement failure/);
   assert.equal(await readFile(path.join(machine, 'active-workspace.json'), 'utf8'),
     '{"workspaceId":"important"}\n');
+});
+
+test('reset all restores an already-staged journal when machine-state staging fails partway', async (t) => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-reset-all-partial-machine-stage-'));
+  const root = path.join(base, 'repository');
+  const machine = path.join(base, 'machine');
+  t.after(() => rm(base, { recursive: true, force: true }));
+  await mkdir(root);
+  await mkdir(machine);
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  const journal = path.join(machine, 'local-journal.jsonl');
+  await writeFile(journal, '{"important":"receipt"}\n');
+  await writeFile(path.join(machine, 'z-other.json'), '{"other":true}\n');
+
+  const { factoryResetAll } = await import('../src/factory-reset.mjs');
+  await assert.rejects(() => factoryResetAll(root, {
+    confirmation: 'RESET ALL',
+    localStateRoot: machine,
+    fault: (stage) => {
+      if (stage === 'machine-state:local-journal.jsonl:after-rename') {
+        throw new Error('injected machine-state staging failure');
+      }
+    }
+  }), /injected machine-state staging failure/);
+  assert.equal(await readFile(journal, 'utf8'), '{"important":"receipt"}\n',
+    'the caller knows about a move even when staging throws after rename');
+  assert.equal(await readFile(path.join(machine, 'z-other.json'), 'utf8'), '{"other":true}\n');
+  const residue = (await readdir(base)).filter((entry) => entry.startsWith('.sflow-reset-all-'));
+  assert.deepEqual(residue, [], 'successful rollback removes only the now-redundant staging area');
+});
+
+test('reset-all rollback preserves a machine-state file raced in at publication', async (t) => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-reset-all-machine-rollback-race-'));
+  const root = path.join(base, 'repository');
+  const machine = path.join(base, 'machine');
+  t.after(() => rm(base, { recursive: true, force: true }));
+  await mkdir(root);
+  await mkdir(machine);
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  const journal = path.join(machine, 'local-journal.jsonl');
+  await writeFile(journal, 'old journal bytes\n');
+
+  const { factoryResetAll } = await import('../src/factory-reset.mjs');
+  let failure;
+  await assert.rejects(() => factoryResetAll(root, {
+    confirmation: 'RESET ALL',
+    localStateRoot: machine,
+    fault: async (stage) => {
+      if (stage === 'repository:after-fresh-install') throw new Error('start repository rollback');
+      if (stage === 'rollback:machine-state:local-journal.jsonl:before-publication') {
+        await writeFile(journal, 'concurrent journal bytes\n', { flag: 'wx' });
+      }
+    }
+  }), (error) => {
+    failure = error;
+    return error?.code === 'RESET_ALL_MACHINE_RESTORE_FAILED';
+  });
+  assert.equal(await readFile(journal, 'utf8'), 'concurrent journal bytes\n');
+  assert.equal(await readFile(path.join(failure.details.machineBackup, 'local-journal.jsonl'), 'utf8'),
+    'old journal bytes\n');
+});
+
+test('reset-all rollback restores machine directories and symbolic links without following them', async (t) => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-reset-all-machine-kinds-'));
+  const root = path.join(base, 'repository');
+  const machine = path.join(base, 'machine');
+  t.after(() => rm(base, { recursive: true, force: true }));
+  await mkdir(root);
+  await mkdir(path.join(machine, 'cache'), { recursive: true });
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  await writeFile(path.join(machine, 'cache', 'entry.json'), '{"cached":true}\n');
+  await writeFile(path.join(base, 'outside.txt'), 'outside remains\n');
+  try {
+    await symlink('../outside.txt', path.join(machine, 'external-link'));
+  } catch (error) {
+    if (error?.code === 'EPERM') {
+      t.skip('symbolic-link creation is not permitted on this host');
+      return;
+    }
+    throw error;
+  }
+
+  const { factoryResetAll } = await import('../src/factory-reset.mjs');
+  await assert.rejects(() => factoryResetAll(root, {
+    confirmation: 'RESET ALL',
+    localStateRoot: machine,
+    fault: (stage) => {
+      if (stage === 'repository:after-fresh-install') throw new Error('restore machine kinds');
+    }
+  }), /restore machine kinds/);
+  assert.equal(await readFile(path.join(machine, 'cache', 'entry.json'), 'utf8'), '{"cached":true}\n');
+  assert.equal(await readlink(path.join(machine, 'external-link')), '../outside.txt');
+  assert.equal(await readFile(path.join(base, 'outside.txt'), 'utf8'), 'outside remains\n');
+});
+
+test('reset all retains machine staging when an open handle writes after final verification', async (t) => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-reset-all-machine-late-write-'));
+  const root = path.join(base, 'repository');
+  const machine = path.join(base, 'machine');
+  t.after(() => rm(base, { recursive: true, force: true }));
+  await mkdir(root);
+  await mkdir(machine);
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  const journal = path.join(machine, 'local-journal.jsonl');
+  await writeFile(journal, 'old journal bytes\n');
+  const handle = await open(journal, 'r+');
+
+  const { factoryResetAll } = await import('../src/factory-reset.mjs');
+  let failure;
+  try {
+    await assert.rejects(() => factoryResetAll(root, {
+      confirmation: 'RESET ALL',
+      localStateRoot: machine,
+      fault: async (stage) => {
+        if (stage !== 'before-machine-state-staging-cleanup') return;
+        await handle.truncate(0);
+        await handle.writeFile('late machine-state bytes\n');
+        await handle.sync();
+      }
+    }), (error) => {
+      failure = error;
+      return error?.code === 'RESET_ALL_MACHINE_CLEANUP_COLLISION';
+    });
+  } finally {
+    await handle.close();
+  }
+  assert.equal(await readFile(path.join(failure.details.machineBackup, 'local-journal.jsonl'), 'utf8'),
+    'late machine-state bytes\n');
+  assert.equal(await missing(failure.details.staging), false);
+  assert.equal(await missing(path.join(root, 'singularity', 'workflow.yml')), false,
+    'the already-completed repository reinitialization remains installed');
+});
+
+test('reset all preserves repository cleanup and barrier recovery diagnostics', async (t) => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-reset-all-repository-warning-'));
+  const root = path.join(base, 'repository');
+  const machine = path.join(base, 'machine');
+  t.after(() => rm(base, { recursive: true, force: true }));
+  await mkdir(root);
+  await mkdir(machine);
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  await writeFile(path.join(machine, 'workspaces.json'), '{"workspaces":[]}\n');
+
+  const { factoryResetAll } = await import('../src/factory-reset.mjs');
+  const result = await factoryResetAll(root, {
+    confirmation: 'RESET ALL',
+    localStateRoot: machine,
+    fault: (stage) => {
+      if (stage === 'repository:before-staging-cleanup') {
+        throw new Error('simulated repository staging lock');
+      }
+      if (stage === 'repository:barrier:before-release') {
+        throw new Error('simulated repository barrier lock');
+      }
+    }
+  });
+
+  assert.equal(result.completed, true);
+  assert.ok(result.cleanupPendingPath);
+  assert.ok(result.barrierPendingPath);
+  assert.equal(await missing(result.cleanupPendingPath), false);
+  assert.equal(await missing(result.barrierPendingPath), false);
+  assert.ok(result.warnings?.some((warning) => /staging cleanup is still pending/.test(warning)));
+  assert.ok(result.warnings?.some((warning) => /barrier could not be cleared/.test(warning)));
+});
+
+test('reset all reports post-commit machine cleanup residue without rolling either state back', async (t) => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-reset-all-machine-warning-'));
+  const root = path.join(base, 'repository');
+  const machine = path.join(base, 'machine');
+  t.after(() => rm(base, { recursive: true, force: true }));
+  await mkdir(root);
+  await mkdir(machine);
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source remains\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  await writeFile(path.join(machine, 'active-workspace.json'), '{"workspaceId":"old"}\n');
+
+  const { factoryResetAll } = await import('../src/factory-reset.mjs');
+  const result = await factoryResetAll(root, {
+    confirmation: 'RESET ALL',
+    localStateRoot: machine,
+    fault: (stage) => {
+      if (stage === 'before-machine-state-staging-cleanup') {
+        throw new Error('simulated machine backup lock');
+      }
+    }
+  });
+
+  assert.equal(result.completed, true);
+  assert.ok(result.machineStateCleanupPendingPath);
+  assert.equal(await missing(result.machineStateCleanupPendingPath), false);
+  assert.ok(result.warnings?.some((warning) => /machine-state cleanup is still pending/.test(warning)));
+  assert.equal(await missing(path.join(root, 'singularity', 'workflow.yml')), false,
+    'the successful repository replacement remains installed');
+  assert.equal(await missing(machine), true,
+    'the old machine registry is not restored merely because backup cleanup failed');
+});
+
+test('reset all holds registry writers through a failed repository reset and restores before release', async (t) => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-reset-all-registry-barrier-'));
+  const root = path.join(base, 'repository');
+  const machine = path.join(base, 'machine');
+  const registry = path.join(machine, 'workspaces.json');
+  t.after(() => rm(base, { recursive: true, force: true }));
+  await mkdir(root);
+  await mkdir(machine);
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  await writeFile(registry, 'old registry bytes\n');
+
+  const { factoryResetAll } = await import('../src/factory-reset.mjs');
+  const { withRegistryFileLease } = await import('../src/workspace.mjs');
+  let competingMutation = null;
+  let competingEntered = false;
+  let bytesSeenAfterBarrier = null;
+  await assert.rejects(() => factoryResetAll(root, {
+    confirmation: 'RESET ALL',
+    localStateRoot: machine,
+    fault: async (stage) => {
+      if (stage === 'after-machine-state-move') {
+        competingMutation = withRegistryFileLease(registry, async () => {
+          competingEntered = true;
+          bytesSeenAfterBarrier = await readFile(registry, 'utf8');
+          await writeFile(registry, 'new registry bytes\n');
+        }, { timeoutMs: 5_000 });
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        assert.equal(competingEntered, false, 'the registry writer remains behind reset-all');
+      }
+      if (stage === 'repository:after-fresh-install') {
+        throw new Error('injected repository failure');
+      }
+    }
+  }), /injected repository failure/);
+
+  await competingMutation;
+  assert.equal(bytesSeenAfterBarrier, 'old registry bytes\n',
+    'rollback restores the old registry before releasing the writer');
+  assert.equal(await readFile(registry, 'utf8'), 'new registry bytes\n',
+    'the concurrent post-rollback update is not deleted as rollback collateral');
+});
+
+test('local reset keeps registry lock pathnames live and restores bytes before releasing a writer', async (t) => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-local-reset-registry-barrier-'));
+  const home = path.join(base, 'home');
+  const project = path.join(base, 'project');
+  const machine = path.join(home, '.singularity-flow');
+  const registry = path.join(machine, 'workspaces.json');
+  t.after(() => rm(base, { recursive: true, force: true }));
+  await mkdir(machine, { recursive: true });
+  await mkdir(project);
+  await writeFile(registry, '{"schemaVersion":1,"workspaces":[]}\n');
+
+  const { localReset } = await import('../src/fresh-install-reset.mjs');
+  const { withRegistryFileLease } = await import('../src/workspace.mjs');
+  let competingMutation = null;
+  let competingEntered = false;
+  let bytesSeenAfterBarrier = null;
+  await assert.rejects(() => localReset({
+    homeDirectory: home,
+    projectDirectory: project,
+    environment: {},
+    forgetOnly: true,
+    confirmation: 'FORGET LOCAL',
+    fault: async (stage) => {
+      if (stage !== 'after-move:Singularity Flow machine state') return;
+      assert.equal(await missing(`${registry}.lock`), false,
+        'the ordinary registry lease stays at its live pathname while state is staged');
+      competingMutation = withRegistryFileLease(registry, async () => {
+        competingEntered = true;
+        bytesSeenAfterBarrier = await readFile(registry, 'utf8');
+        await writeFile(registry, '{"schemaVersion":1,"workspaces":[{"id":"new"}]}\n');
+      }, { timeoutMs: 5_000 });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      assert.equal(competingEntered, false, 'the registry writer remains behind local reset');
+      throw new Error('injected local reset failure');
+    }
+  }), /injected local reset failure/);
+
+  await competingMutation;
+  assert.equal(bytesSeenAfterBarrier, '{"schemaVersion":1,"workspaces":[]}\n',
+    'rollback restores the old bytes before releasing the registry writer');
+  assert.match(await readFile(registry, 'utf8'), /"id":"new"/,
+    'the post-rollback writer update survives');
+});
+
+test('fresh-install and reset-all share one destructive machine-state barrier', async (t) => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-shared-machine-reset-barrier-'));
+  const home = path.join(base, 'home');
+  const checkout = path.join(base, 'checkout');
+  const repository = path.join(base, 'repository');
+  const machine = path.join(home, '.singularity-flow');
+  t.after(() => rm(base, { recursive: true, force: true }));
+  await mkdir(machine, { recursive: true });
+  await mkdir(checkout);
+  await mkdir(repository);
+  await writeFile(path.join(machine, 'workspaces.json'), '{"schemaVersion":1,"workspaces":[]}\n');
+  git(repository, 'init', '-b', 'main');
+  git(repository, 'config', 'user.name', 'Factory Reset Tester');
+  git(repository, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(repository, 'app.txt'), 'source remains\n');
+  git(repository, 'add', 'app.txt');
+  git(repository, 'commit', '-m', 'initial');
+
+  const { freshInstallReset } = await import('../src/fresh-install-reset.mjs');
+  const { factoryResetAll } = await import('../src/factory-reset.mjs');
+  let releaseFresh;
+  const freshMayFinish = new Promise((resolve) => { releaseFresh = resolve; });
+  let freshStaged;
+  const freshIsStaged = new Promise((resolve) => { freshStaged = resolve; });
+  let resetAllEntered = false;
+  const first = freshInstallReset({
+    homeDirectory: home,
+    projectDirectory: checkout,
+    environment: {},
+    confirmation: 'RESET EVERYTHING',
+    fault: async (stage) => {
+      if (stage !== 'after-move:Singularity Flow machine state') return;
+      freshStaged();
+      await freshMayFinish;
+    }
+  });
+  await freshIsStaged;
+  const second = factoryResetAll(repository, {
+    confirmation: 'RESET ALL',
+    localStateRoot: machine,
+    fault: (stage) => {
+      if (stage === 'after-machine-state-move') resetAllEntered = true;
+    }
+  });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(resetAllEntered, false,
+    'reset-all cannot enter its destructive section while fresh-install owns the shared barrier');
+
+  releaseFresh();
+  await first;
+  await second;
+  assert.equal(resetAllEntered, true);
+  assert.equal(await readFile(path.join(repository, 'app.txt'), 'utf8'), 'source remains\n');
+  assert.equal(await missing(machine), true, 'the final reset leaves no stale machine-state directory');
 });
 
 test('fresh install reset deletes every proven registered workspace and only managed Copilot state', async () => {

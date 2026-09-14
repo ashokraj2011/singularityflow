@@ -17,6 +17,15 @@ import { runRemoteGitAsync } from './git-execution.mjs';
 // after they finish would immediately recreate `.git/singularity-flow/` and make that promise false.
 const LOCAL_STATE_RESET_COMMANDS = new Set(['factory-reset', 'reset-all', 'local-reset', 'reinstall']);
 
+// These commands deliberately replace or forget SFlow state and therefore own their stronger
+// reset/machine-state barriers. Wrapping them in an ordinary repository mutation lease would make
+// factory reset detect itself as an in-flight command, while wrapping local reset would recreate
+// the private state it has just removed.
+const REPOSITORY_MUTATION_LEASE_EXCLUSIONS = new Set([
+  ...LOCAL_STATE_RESET_COMMANDS,
+  'fresh-install'
+]);
+
 // These commands either operate on machine-local installation/workspace state, explain the product,
 // or intentionally initialize the caller's current directory. Redirecting one of them into the
 // selected workspace would be surprising at best and destructive at worst. Every other command is
@@ -227,6 +236,115 @@ export async function activeWorkspaceRepositoryRoot(command, {
 }
 
 /**
+ * Workspace operations whose implementation can write a member checkout or its Git control data.
+ *
+ * `workspace` is intentionally excluded from active-workspace cwd routing, so the process cwd may
+ * be the SFlow source tree, another application, or no repository at all. These operations must be
+ * fenced against factory reset at the checkout(s) named by the workspace manifest, not at cwd.
+ */
+const WORKSPACE_REPOSITORY_MUTATION_SUBCOMMANDS = new Set([
+  'attach-capability', 'detach-capability', 'archive', 'sync', 'repair',
+  'refresh-configuration', 'reinitialize'
+]);
+
+function workspaceOperationTouchesRepositories(subcommand, options, classification) {
+  if (WORKSPACE_REPOSITORY_MUTATION_SUBCOMMANDS.has(subcommand)) {
+    return classification === 'mutation';
+  }
+  // Archive readiness is presented as a read, but its default `--fetch` refreshes local remote-
+  // tracking refs. Treat that small Git write as a mutation for reset exclusion without changing
+  // the command's public read classification or output contract.
+  if (subcommand === 'archive-status') return optionBoolean(options, 'fetch', true);
+  if (subcommand === 'status') {
+    return optionBoolean(options, 'archive-readiness')
+      && optionBoolean(options, 'fetch', true);
+  }
+  return false;
+}
+
+function workspaceReferencePosition(subcommand, positionals) {
+  if (subcommand === 'impact') return positionals[3] ?? null;
+  if (subcommand === 'documents' && positionals[2] === 'import') return positionals[3] ?? null;
+  return positionals[2] ?? null;
+}
+
+async function workspaceManifestsForRepositoryMutation(subcommand, positionals, options) {
+  const { readWorkspace, readWorkspaceRegistry } = await import('./workspace.mjs');
+  const { resolveWorkspaceReference, workspaceRegistryFile } = await import('./workspace-context.mjs');
+  if (['refresh-configuration', 'reinitialize'].includes(subcommand)) {
+    const registry = workspaceRegistryFile();
+    const selected = positionals[2]
+      ?? (Array.isArray(options.workspace) ? options.workspace.at(-1) : options.workspace)
+      ?? null;
+    if (selected) {
+      const entry = await resolveWorkspaceReference(registry, selected);
+      const manifest = await readWorkspace(entry.path).catch(() => null);
+      // Reinitialization is itself the recovery path for an obsolete manifest. Do not replace its
+      // structured migration diagnosis with a target-lease preflight error; an unreadable manifest
+      // cannot authorize any repository mutation, and the handler will fail/repair it normally.
+      return manifest ? [manifest] : [];
+    }
+    const entries = (await readWorkspaceRegistry(registry)).filter((entry) => !entry.archivedAt);
+    const manifests = await Promise.all(entries.map((entry) => readWorkspace(entry.path).catch(() => null)));
+    // The command itself reports damaged registry entries as partial/blocked. Lease every checkout
+    // that can be proved from readable manifests and leave those diagnostics to its normal path.
+    return manifests.filter(Boolean);
+  }
+  const reference = workspaceReferencePosition(subcommand, positionals);
+  if (!reference) return [];
+  // Ordinary workspace mutators already require a directory and pass it directly to readWorkspace;
+  // use the same boundary so target discovery cannot silently select a different saved workspace.
+  return [await readWorkspace(reference)];
+}
+
+/**
+ * Resolve the real Git roots a command can mutate, or `null` when it has no explicit target model.
+ *
+ * Missing/unmaterialized repositories are skipped because there is no Git control directory on
+ * which factory reset could operate. Invalid existing checkouts remain the command's own recovery
+ * diagnostic. Available member roots are canonicalized by Git and deduplicated across workspaces.
+ */
+export async function explicitRepositoryMutationRoots({
+  command, subcommand = null, positionals = [], options = {}, classification = 'mutation'
+} = {}) {
+  if (command !== 'workspace'
+      || !workspaceOperationTouchesRepositories(subcommand, options, classification)) return null;
+  const { workspaceRepositoryPath } = await import('./workspace.mjs');
+  const manifests = await workspaceManifestsForRepositoryMutation(subcommand, positionals, options);
+  const requestedRepositoryIds = ['refresh-configuration', 'reinitialize'].includes(subcommand)
+    ? new Set((Array.isArray(options.repository)
+      ? options.repository : options.repository == null ? [] : [options.repository])
+      .map((value) => String(value).trim()).filter(Boolean))
+    : null;
+  const roots = new Map();
+  for (const workspace of manifests) {
+    for (const [repositoryId, repository] of Object.entries(workspace.repositories ?? {})) {
+      if (requestedRepositoryIds?.size && !requestedRepositoryIds.has(repositoryId)) continue;
+      const candidate = workspaceRepositoryPath(workspace, repository);
+      let canonical;
+      try { canonical = repoRoot(candidate); }
+      catch { continue; }
+      const key = process.platform === 'win32'
+        ? path.resolve(canonical).toLowerCase() : path.resolve(canonical);
+      roots.set(key, canonical);
+    }
+  }
+  return [...roots.values()].sort((left, right) => left.localeCompare(right));
+}
+
+/** Hold reset-visible leases on every explicit checkout for the complete command handler. */
+export async function withExplicitRepositoryMutationLeases(roots, operationId, callback) {
+  const targets = [...new Set((roots ?? []).map((entry) => path.resolve(entry)))]
+    .sort((left, right) => left.localeCompare(right));
+  if (!targets.length) return callback();
+  const { withRepositoryMutationLease } = await import('./subject-lock.mjs');
+  const enter = (index) => index >= targets.length
+    ? callback()
+    : withRepositoryMutationLease(targets[index], operationId, () => enter(index + 1));
+  return enter(0);
+}
+
+/**
  * Supply the command registry with the small approved policy fragment needed to classify a
  * versioned World-model operation before its handler is loaded.
  *
@@ -411,7 +529,7 @@ export async function main(argv) {
     }));
     timer.stage('module-load');
     const startedAt = new Date().toISOString();
-    const result = await withCommandTiming(timer, () => withOperationContext({
+    const execute = () => withOperationContext({
       operation,
       modelMode,
       root,
@@ -423,7 +541,33 @@ export async function main(argv) {
     }, () => module.run(effectiveArgv, {
       positionals: [definition.name, ...positionals.slice(1)], options, definition,
       operation, requestedOperation, modelMode
-    })));
+    }));
+    // Keep the complete mutating handler visible to factory reset. The reset barrier and this
+    // short-lived, uniquely named lease form a two-way exclusion boundary: a reset refuses while
+    // any current-build mutation is active, and a mutation refuses once reset has begun. Loading
+    // this machinery lazily preserves the startup cost of read-only commands.
+    const explicitMutationRoots = !smartInitDryRun
+      && !REPOSITORY_MUTATION_LEASE_EXCLUSIONS.has(definition.name)
+      ? await withCommandTiming(timer, () => explicitRepositoryMutationRoots({
+        command: definition.name,
+        subcommand,
+        positionals: [definition.name, ...positionals.slice(1)],
+        options,
+        classification: operation.classification
+      }))
+      : null;
+    // An explicit target model replaces cwd rather than augmenting it. A workspace command issued
+    // from the SFlow source checkout must not create the comforting but useless lease there while
+    // leaving the member repository it drops/fetches open to a concurrent factory reset.
+    const mutationRoots = explicitMutationRoots ?? (
+      operation.classification === 'mutation' && root ? [root] : []
+    );
+    const guardedExecute = mutationRoots.length
+      && !smartInitDryRun
+      && !REPOSITORY_MUTATION_LEASE_EXCLUSIONS.has(definition.name)
+      ? () => withExplicitRepositoryMutationLeases(mutationRoots, operation.id, execute)
+      : execute;
+    const result = await withCommandTiming(timer, guardedExecute);
     timer.stage('execute');
     /**
      * Private return memory is downstream of authority, never inside its transaction.

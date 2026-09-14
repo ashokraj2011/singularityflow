@@ -55,7 +55,8 @@ function fosActionName(action: WorkspaceFosAction): string {
     'clear-cache': 'Derived-cache cleanup',
     'local-authority': 'Local authority creation',
     doctor: 'Workspace diagnosis',
-    'resume-bootstrap': 'Workspace setup recovery'
+    'resume-bootstrap': 'Workspace setup recovery',
+    'factory-reset': 'Repository reinitialization'
   }[action];
 }
 
@@ -457,21 +458,32 @@ export class WorkspacesPanel {
       return this.previewConfiguration(this.configuration.scope);
     },
     'configuration-apply': () => this.applyConfiguration(),
-    'fos-action': (message) => this.withSelectedDetailsRow(message, (row) => {
+    'fos-action': (message) => {
       const action = stringField(message, 'action');
       const allowed = new Set([
         'attach', 'refresh-authority', 'offline-authority', 'git-acceleration', 'clear-cache',
-        'local-authority', 'doctor', 'resume-bootstrap'
+        'local-authority', 'doctor', 'resume-bootstrap', 'factory-reset'
       ]);
       if (!action || !allowed.has(action)) return;
-      const machineWide = action === 'doctor' || action === 'resume-bootstrap';
-      const requestedRepository = stringField(message, 'repository');
-      const repositoryPath = machineWide ? null : (this.details?.repositories ?? [])
-        .map((repository) => repository.absolutePath ?? repository.path ?? '')
-        .find((candidate) => candidate === requestedRepository) ?? null;
-      if (!machineWide && !repositoryPath) return;
-      return this.performFosAction(action as WorkspaceFosAction, repositoryPath);
-    }),
+      if (action === 'factory-reset') {
+        const row = this.rowFor(stringField(message, 'path') ?? undefined);
+        if (!row || row.path !== this.selected || this.fosBusy) return;
+        const requestedRepository = stringField(message, 'repository');
+        const repositoryPath = (this.details?.repositories ?? [])
+          .map((repository) => repository.absolutePath ?? repository.path ?? '')
+          .find((candidate) => candidate === requestedRepository) ?? null;
+        return this.performFosAction('factory-reset', repositoryPath);
+      }
+      return this.withSelectedDetailsRow(message, () => {
+        const machineWide = action === 'doctor' || action === 'resume-bootstrap';
+        const requestedRepository = stringField(message, 'repository');
+        const repositoryPath = machineWide ? null : (this.details?.repositories ?? [])
+          .map((repository) => repository.absolutePath ?? repository.path ?? '')
+          .find((candidate) => candidate === requestedRepository) ?? null;
+        if (!machineWide && !repositoryPath) return;
+        return this.performFosAction(action as WorkspaceFosAction, repositoryPath);
+      });
+    },
     rename: (message) => this.withRow(message, (row) => this.rename(row, stringField(message, 'name'))),
     duplicate: (message) => this.withRow(message, (row) => this.duplicate(row, message))
   });

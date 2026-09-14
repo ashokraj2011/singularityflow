@@ -275,7 +275,7 @@
       },
       {
         "command": "singularityFlow.reinitialize",
-        "title": "Singularity Flow: Factory Reset Repository (Destructive, Workflow v2)",
+        "title": "Singularity Flow: Factory Reset / Reinitialize Any Git Repository (Destructive)",
         "icon": "$(debug-restart)"
       },
       {

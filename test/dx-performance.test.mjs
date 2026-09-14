@@ -10,6 +10,7 @@ import {
   commandTimer, commandTimingDirectory, incrementCommandCounter, recordCommandTiming,
   withCommandTiming
 } from '../src/dx-command-timing.mjs';
+import { withRepositoryResetBarrier } from '../src/subject-lock.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(await readFile(path.join(root, 'benchmarks/dx/reference-fixture.json'), 'utf8'));
@@ -507,6 +508,22 @@ test('machine-local timing logs rotate and use private permissions', async () =>
     else process.env.SINGULARITY_FLOW_DX_TIMING_MAX_BYTES = previous;
     if (previousRetention == null) delete process.env.SINGULARITY_FLOW_DX_TIMING_RETENTION_DAYS;
     else process.env.SINGULARITY_FLOW_DX_TIMING_RETENTION_DAYS = previousRetention;
+    await rm(repository, { recursive: true, force: true });
+  }
+});
+
+test('command timing never recreates repository runtime while factory reset owns its barrier', async () => {
+  const repository = await mkdtemp(path.join(os.tmpdir(), 'sflow-timing-reset-'));
+  try {
+    const initialized = spawnSync('git', ['init', '-q'], { cwd: repository, encoding: 'utf8' });
+    assert.equal(initialized.status, 0, initialized.stderr);
+    const event = commandTimer('status', { commandClass: 'read' }).finish();
+    await withRepositoryResetBarrier(repository, async () => {
+      await recordCommandTiming(repository, event);
+      await assert.rejects(() => stat(commandTimingDirectory(repository)), { code: 'ENOENT' });
+    });
+    await assert.rejects(() => stat(commandTimingDirectory(repository)), { code: 'ENOENT' });
+  } finally {
     await rm(repository, { recursive: true, force: true });
   }
 });

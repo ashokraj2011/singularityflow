@@ -625,7 +625,10 @@ async function ensureManagedRecoveryCheckout(controlRoot, storyRoot, pointer, ac
   );
   await mkdir(path.dirname(managed), { recursive: true });
   const clone = await runRemoteGitAsync([
-    'clone', '--single-branch', '--no-tags', '--branch', acceptedPlan.story.branch,
+    // A filesystem remote otherwise enables Git's `--local` object hard-link/copy shortcut.
+    // That shortcut is explicitly unsafe when receive-pack/maintenance can change loose objects
+    // concurrently. Recovery must materialize one transport-consistent snapshot instead.
+    'clone', '--no-local', '--single-branch', '--no-tags', '--branch', acceptedPlan.story.branch,
     '--', remote, managed
   ], { cwd: controlRoot, operation: 'auto-recovery-clone', allowFailure: true });
   if (clone.status !== 0) {
@@ -663,7 +666,8 @@ async function bootstrapRecoveryCheckout(controlRoot, workId, flightId) {
   );
   await mkdir(path.dirname(managed), { recursive: true });
   const clone = await runRemoteGitAsync([
-    'clone', '--single-branch', '--no-tags', '--branch', workId, '--', remote, managed
+    'clone', '--no-local', '--single-branch', '--no-tags', '--branch', workId,
+    '--', remote, managed
   ], { cwd: controlRoot, operation: 'auto-recovery-clone', allowFailure: true });
   if (clone.status !== 0) {
     throw new SingularityFlowError(

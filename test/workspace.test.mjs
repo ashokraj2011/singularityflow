@@ -26,8 +26,13 @@ import {
   resolveWorkspaceExecutionContext, resolveWorkspaceReference, workspacePromptLabel
 } from '../src/workspace-context.mjs';
 import {
-  activeWorkspaceRepositoryRoot, ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS, hasLocalGovernanceAuthority
+  activeWorkspaceRepositoryRoot, ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS,
+  explicitRepositoryMutationRoots, hasLocalGovernanceAuthority,
+  withExplicitRepositoryMutationLeases
 } from '../src/cli-entry.mjs';
+import {
+  assertNoActiveSubjectLocks, withRepositoryResetBarrier
+} from '../src/subject-lock.mjs';
 import { run } from '../src/util.mjs';
 import { ensureConfigurationBranch } from '../src/configuration-branch.mjs';
 import { initializeDefinition } from '../src/config.mjs';
@@ -199,6 +204,114 @@ test('repository commands can route through the explicitly selected workspace', 
   assert.equal(worldModelStatus.candidates[0].directory,
     path.join(await realpath(repository), 'singularity/world-model'),
     'the repository-scoped command ran against the selected workspace repository');
+});
+
+test('workspace checkout mutations lease their explicit repositories rather than unrelated cwd', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-target-lease-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const repository = path.join(root, 'member-repository');
+  const unrelated = path.join(root, 'unrelated-cwd');
+  const workspace = path.join(root, 'workspace');
+  for (const directory of [repository, unrelated]) {
+    await mkdir(directory, { recursive: true });
+    run('git', ['init', '-q', '-b', 'main'], { cwd: directory });
+  }
+  await mkdir(workspace);
+  await writeFile(path.join(workspace, 'workspace.json'), `${JSON.stringify({
+    version: 1,
+    id: 'target-lease',
+    name: 'Target lease',
+    anchor: { provider: 'workspace', key: 'target-lease', title: 'Target lease' },
+    leadRepository: 'api',
+    capabilities: ['payments'],
+    repositories: {
+      api: {
+        url: repository,
+        defaultBranch: 'main',
+        path: 'repos/api',
+        capabilities: ['payments'],
+        adoption: {
+          mode: 'existing-clone',
+          canonicalPath: repository,
+          proofHash: `sha256:${'0'.repeat(64)}`,
+          reviewedAt: '2026-09-14T00:00:00.000Z'
+        }
+      }
+    }
+  }, null, 2)}\n`);
+
+  const roots = await explicitRepositoryMutationRoots({
+    command: 'workspace',
+    subcommand: 'detach-capability',
+    positionals: ['workspace', 'detach-capability', workspace, 'payments'],
+    options: { 'drop-local': true, 'confirm-plan': 'wscp-reviewed' },
+    classification: 'mutation'
+  });
+  const canonicalRepository = await realpath(repository);
+  const canonicalUnrelated = await realpath(unrelated);
+  assert.deepEqual(roots, [canonicalRepository]);
+  assert.equal(roots.includes(canonicalUnrelated), false,
+    'the invoking checkout is not a substitute for the workspace member being removed');
+  for (const subcommand of ['attach-capability', 'repair']) {
+    assert.deepEqual(await explicitRepositoryMutationRoots({
+      command: 'workspace',
+      subcommand,
+      positionals: ['workspace', subcommand, workspace, ...(subcommand === 'attach-capability' ? ['payments'] : [])],
+      options: {},
+      classification: 'mutation'
+    }), [canonicalRepository], `${subcommand} fences every already-materialized member checkout`);
+  }
+  assert.deepEqual(await explicitRepositoryMutationRoots({
+    command: 'workspace',
+    subcommand: 'archive-status',
+    positionals: ['workspace', 'archive-status', workspace],
+    options: {},
+    classification: 'read'
+  }), [canonicalRepository], 'default archive readiness fetches are fenced even though their result is read-only');
+  assert.equal(await explicitRepositoryMutationRoots({
+    command: 'workspace',
+    subcommand: 'archive-status',
+    positionals: ['workspace', 'archive-status', workspace],
+    options: { fetch: false },
+    classification: 'read'
+  }), null, '--no-fetch archive readiness does not claim a mutation lease');
+
+  let entered;
+  const didEnter = new Promise((resolve) => { entered = resolve; });
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  const inFlight = withExplicitRepositoryMutationLeases(roots, 'workspace.detach-capability', async () => {
+    entered();
+    await held;
+  });
+  await didEnter;
+  await assert.rejects(() => assertNoActiveSubjectLocks(repository),
+    (error) => error?.code === 'FACTORY_RESET_ACTIVE_OPERATIONS');
+  await assertNoActiveSubjectLocks(unrelated);
+  release();
+  await inFlight;
+
+  await withRepositoryResetBarrier(repository, async () => {
+    let callbackRan = false;
+    await assert.rejects(
+      () => withExplicitRepositoryMutationLeases(roots, 'workspace.detach-capability', async () => {
+        callbackRan = true;
+      }),
+      (error) => error?.code === 'FACTORY_RESET_IN_PROGRESS'
+    );
+    assert.equal(callbackRan, false,
+      'a workspace mutation cannot enter after reset raises the member repository barrier');
+
+    const routed = spawnSync(process.execPath, [
+      cli, 'workspace', 'detach-capability', workspace, 'payments', '--drop-local',
+      '--confirm-plan', 'wscp-reviewed', '--json'
+    ], { cwd: unrelated, encoding: 'utf8' });
+    assert.notEqual(routed.status, 0);
+    assert.match(routed.stderr, /repository reinitialization is in progress/i,
+      'the public CLI observes the explicit target barrier before entering workspace code');
+    assert.doesNotMatch(routed.stderr, /has no capability authority/i,
+      'the unrelated cwd never becomes the mutation lease target');
+  });
 });
 
 test('a tracked lifecycle aggregate keeps recovery and approval reads in the current repository', async () => {

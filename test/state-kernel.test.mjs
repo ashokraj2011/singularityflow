@@ -1,14 +1,26 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rename, rm, utimes, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { EventEmitter } from 'node:events';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import test from 'node:test';
 import YAML from 'yaml';
-import { acquireSubjectLock, releaseSubjectLock, subjectLockPath } from '../src/subject-lock.mjs';
+import {
+  acquireSubjectLock,
+  activeSubjectLocks,
+  assertRepositoryResetAvailable,
+  currentSubjectLockOwner,
+  releaseSubjectLock,
+  repositoryResetBarrierPath,
+  subjectLockPath,
+  withRepositoryMutationLease,
+  withRepositoryResetBarrier,
+  withSubjectLock
+} from '../src/subject-lock.mjs';
 import { SnapshotCoordinator } from '../src/snapshot-coordinator.mjs';
 import { StoryStateStore } from '../src/state-stores.mjs';
 import { inspectStatePlanes, reconcileStateProjections } from '../src/state-planes.mjs';
@@ -94,6 +106,437 @@ test('stale subject locks are recovered after a crashed owner', async () => {
   })}\n`);
   const owner = await acquireSubjectLock(root, subject, { ttlMs: 1 });
   assert.equal(await releaseSubjectLock(root, subject, owner), true);
+});
+
+test('a delayed acquirer cannot publish into a successor lock generation', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-lock-generation-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  run('git', ['init', '-b', 'main'], root);
+  const subject = { kind: 'story', id: 'GENERATION-1' };
+  let entered;
+  const paused = new Promise((resolve) => { entered = resolve; });
+  let resume;
+  const resumed = new Promise((resolve) => { resume = resolve; });
+  let pauseOnce = true;
+  const delayed = acquireSubjectLock(root, subject, {
+    ownerLink: async () => {
+      const error = new Error('hard links unavailable during delayed publication');
+      error.code = 'ENOTSUP';
+      throw error;
+    },
+    hooks: {
+      afterDirectoryCreated: async ({ directory }) => {
+        if (!pauseOnce) return;
+        pauseOnce = false;
+        const old = new Date(Date.now() - 10 * 60 * 1000);
+        await utimes(directory, old, old);
+        entered();
+        await resumed;
+      }
+    }
+  });
+  await paused;
+
+  const successor = await acquireSubjectLock(root, subject);
+  const successorOwner = JSON.parse(await readFile(
+    path.join(subjectLockPath(root, subject), 'owner.json'), 'utf8'
+  ));
+  resume();
+  await assert.rejects(delayed, (error) => error?.code === 'SUBJECT_LOCK_BUSY');
+  const stillOwned = JSON.parse(await readFile(
+    path.join(subjectLockPath(root, subject), 'owner.json'), 'utf8'
+  ));
+  assert.equal(stillOwned.lockToken, successorOwner.lockToken,
+    'the resumed acquirer did not overwrite the successor owner');
+  assert.equal(await releaseSubjectLock(root, subject, successor), true);
+});
+
+test('release retires only the directory generation it observed', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-lock-release-generation-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  run('git', ['init', '-b', 'main'], root);
+  const subject = { kind: 'story', id: 'GENERATION-2' };
+  const directory = subjectLockPath(root, subject);
+  const first = await acquireSubjectLock(root, subject);
+  let entered;
+  const paused = new Promise((resolve) => { entered = resolve; });
+  let resume;
+  const resumed = new Promise((resolve) => { resume = resolve; });
+  const releasing = releaseSubjectLock(root, subject, first, {
+    hooks: {
+      beforeRetire: async () => {
+        entered();
+        await resumed;
+      }
+    }
+  });
+  await paused;
+
+  const displaced = `${directory}.displaced`;
+  await rename(directory, displaced);
+  const successor = await acquireSubjectLock(root, subject);
+  resume();
+  assert.equal(await releasing, false,
+    'a release whose observed generation moved must not remove its successor');
+  assert.equal(await releaseSubjectLock(root, subject, successor), true);
+  await rm(displaced, { recursive: true, force: true });
+});
+
+test('release restores a successor replaced after its final retirement revalidation', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-lock-release-syscall-race-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  run('git', ['init', '-b', 'main'], root);
+  const subject = { kind: 'story', id: 'GENERATION-3' };
+  const directory = subjectLockPath(root, subject);
+  const first = await acquireSubjectLock(root, subject);
+  let successor;
+  let preservedSuccessor;
+  const displaced = `${directory}.displaced`;
+
+  const released = await releaseSubjectLock(root, subject, first, {
+    hooks: {
+      afterRetireRevalidation: async ({ destination }) => {
+        preservedSuccessor = destination;
+        await rename(directory, displaced);
+        successor = await acquireSubjectLock(root, subject);
+      }
+    }
+  });
+
+  assert.equal(released, false,
+    'a release must report that the directory generation changed in the rename window');
+  const owner = JSON.parse(await readFile(path.join(directory, 'owner.json'), 'utf8'));
+  assert.equal(owner.lockToken, successor.lockToken,
+    'the successor owner is restored at the public lock pathname');
+  const preservedOwner = JSON.parse(await readFile(
+    path.join(preservedSuccessor, 'owner.json'), 'utf8'
+  ));
+  assert.equal(preservedOwner.lockToken, successor.lockToken,
+    'claim cleanup must retain the exact moved successor as recovery evidence');
+  await assert.rejects(() => acquireSubjectLock(root, subject), /locked by PID/i,
+    'the restored successor remains an active exclusive lease');
+  assert.equal(await releaseSubjectLock(root, subject, successor), true,
+    'the restored successor remains normally releasable');
+  await rm(displaced, { recursive: true, force: true });
+});
+
+test('heartbeat construction failure releases subject and reset-barrier locks', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-lock-heartbeat-start-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  run('git', ['init', '-b', 'main'], root);
+  const heartbeatFactory = () => { throw new Error('worker startup unavailable'); };
+  const subject = { kind: 'story', id: 'HEARTBEAT-1' };
+  let ran = false;
+  await assert.rejects(() => withSubjectLock(root, subject, async () => {
+    ran = true;
+  }, { heartbeatFactory }), /worker startup unavailable/);
+  assert.equal(ran, false);
+  assert.equal(existsSync(subjectLockPath(root, subject)), false);
+
+  await assert.rejects(() => withRepositoryResetBarrier(root, async () => {
+    ran = true;
+  }, { heartbeatFactory }), /worker startup unavailable/);
+  assert.equal(ran, false);
+  assert.equal(existsSync(repositoryResetBarrierPath(root)), false);
+});
+
+test('an asynchronous heartbeat startup failure runs no callback and releases its lock', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-lock-heartbeat-async-start-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  run('git', ['init', '-b', 'main'], root);
+  class StartupFailureWorker extends EventEmitter {
+    constructor() {
+      super();
+      queueMicrotask(() => this.emit('error', new Error('asynchronous worker startup failure')));
+    }
+
+    unref() {}
+
+    async terminate() { return 1; }
+  }
+  const heartbeatFactory = () => new StartupFailureWorker();
+  const subject = { kind: 'story', id: 'HEARTBEAT-ASYNC-START' };
+  let ran = false;
+  await assert.rejects(() => withSubjectLock(root, subject, async () => {
+    ran = true;
+  }, { heartbeatFactory }), (error) => error?.code === 'SUBJECT_LOCK_HEARTBEAT_FAILED');
+  assert.equal(ran, false);
+  assert.equal(existsSync(subjectLockPath(root, subject)), false);
+
+  await assert.rejects(() => withRepositoryResetBarrier(root, async () => {
+    ran = true;
+  }, { heartbeatFactory }), (error) => error?.code === 'SUBJECT_LOCK_HEARTBEAT_FAILED');
+  assert.equal(ran, false);
+  assert.equal(existsSync(repositoryResetBarrierPath(root)), false);
+});
+
+test('heartbeat readiness keeps a short-lived CLI alive until its mutation callback starts', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-lock-cli-readiness-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  run('git', ['init', '-b', 'main'], root);
+  const result = run(process.execPath, [bin, 'init'], root);
+  assert.match(result.stdout, /Created singularity\/workflow\.yml/);
+  assert.equal(existsSync(path.join(root, 'singularity', 'workflow.yml')), true);
+});
+
+test('a default heartbeat keeps an unsettled mutation process alive until its lease ends', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-lock-heartbeat-reference-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  run('git', ['init', '-b', 'main'], root);
+  const moduleUrl = new URL('../src/subject-lock.mjs', import.meta.url).href;
+  const child = spawn(process.execPath, ['--input-type=module', '-e', `
+    import { withSubjectLock } from ${JSON.stringify(moduleUrl)};
+    await withSubjectLock(${JSON.stringify(root)}, { kind: 'story', id: 'REFERENCED' }, async () => {
+      process.stdout.write('lease-entered\\n');
+      await new Promise(() => {});
+    });
+  `], { stdio: ['ignore', 'pipe', 'pipe'] });
+  t.after(() => { if (child.exitCode == null) child.kill('SIGKILL'); });
+  let output = '';
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('child never entered its lock callback')), 5_000);
+    child.stdout.on('data', (chunk) => {
+      output += chunk;
+      if (output.includes('lease-entered')) {
+        clearTimeout(timeout);
+        resolve();
+      }
+    });
+    child.once('error', reject);
+    child.once('exit', (code) => reject(new Error(`child exited before its lease ended (${code})`)));
+  });
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  assert.equal(child.exitCode, null,
+    'the shared worker remains referenced for the complete physical lease');
+  child.kill('SIGTERM');
+  await new Promise((resolve) => child.once('exit', resolve));
+});
+
+test('a runtime heartbeat failure keeps the live lease fail-closed and fails its outcome', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-lock-heartbeat-runtime-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  run('git', ['init', '-b', 'main'], root);
+  let worker;
+  class ControlledWorker extends EventEmitter {
+    constructor() {
+      super();
+      queueMicrotask(() => this.emit('message', { type: 'ready' }));
+    }
+
+    unref() {}
+
+    async terminate() { return 0; }
+  }
+  const subject = { kind: 'story', id: 'HEARTBEAT-RUNTIME' };
+  let entered;
+  const started = new Promise((resolve) => { entered = resolve; });
+  let finish;
+  const held = new Promise((resolve) => { finish = resolve; });
+  const operation = withSubjectLock(root, subject, async () => {
+    entered();
+    await held;
+  }, {
+    ttlMs: 1_000,
+    heartbeatFactory: () => {
+      worker = new ControlledWorker();
+      return worker;
+    }
+  });
+  await started;
+  worker.emit('error', new Error('heartbeat thread terminated'));
+  await new Promise((resolve) => setTimeout(resolve, 1_100));
+  await assert.rejects(() => acquireSubjectLock(root, subject, { ttlMs: 1 }),
+    (error) => error?.code === 'SUBJECT_LOCK_BUSY');
+  finish();
+  await assert.rejects(operation, (error) => error?.code === 'SUBJECT_LOCK_HEARTBEAT_FAILED');
+  assert.equal(existsSync(subjectLockPath(root, subject)), false);
+});
+
+test('one default heartbeat failure does not poison another lease in the shared worker', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-lock-heartbeat-isolation-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  run('git', ['init', '-b', 'main'], root);
+  const brokenSubject = { kind: 'story', id: 'HEARTBEAT-BROKEN' };
+  const healthySubject = { kind: 'story', id: 'HEARTBEAT-HEALTHY' };
+  let brokenEntered;
+  let healthyEntered;
+  const brokenStarted = new Promise((resolve) => { brokenEntered = resolve; });
+  const healthyStarted = new Promise((resolve) => { healthyEntered = resolve; });
+  let finish;
+  const held = new Promise((resolve) => { finish = resolve; });
+  const broken = withSubjectLock(root, brokenSubject, async (owner) => {
+    brokenEntered(owner);
+    await held;
+  }, { ttlMs: 1_000 });
+  const healthy = withSubjectLock(root, healthySubject, async () => {
+    healthyEntered();
+    await held;
+  }, { ttlMs: 1_000 });
+  const [brokenOwner] = await Promise.all([brokenStarted, healthyStarted]);
+  await rm(path.join(
+    subjectLockPath(root, brokenSubject), `heartbeat-${brokenOwner.lockToken}`
+  ));
+  await new Promise((resolve) => setTimeout(resolve, 450));
+  finish();
+  await assert.rejects(broken, (error) => error?.code === 'SUBJECT_LOCK_HEARTBEAT_FAILED');
+  await healthy;
+  assert.equal(existsSync(subjectLockPath(root, brokenSubject)), false);
+  assert.equal(existsSync(subjectLockPath(root, healthySubject)), false);
+});
+
+test('detached async contexts cannot reuse a released subject lease or cross reset barrier', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-lock-detached-context-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  run('git', ['init', '-b', 'main'], root);
+  const subject = { kind: 'story', id: 'DETACHED-CONTEXT' };
+  let resume;
+  const gate = new Promise((resolve) => { resume = resolve; });
+  let detached;
+  let callbackRan = false;
+  await withSubjectLock(root, subject, async () => {
+    detached = (async () => {
+      await gate;
+      assert.equal(currentSubjectLockOwner(root, subject), null,
+        'the async resource inherited only an invalidated frame');
+      return withSubjectLock(root, subject, async () => { callbackRan = true; });
+    })();
+  });
+
+  await withRepositoryResetBarrier(root, async () => {
+    resume();
+    await assert.rejects(detached, (error) => error?.code === 'FACTORY_RESET_IN_PROGRESS');
+    assert.equal(callbackRan, false);
+  });
+});
+
+test('an already-started reentrant callback keeps the outer physical lease held', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-lock-reentrant-drain-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  run('git', ['init', '-b', 'main'], root);
+  const subject = { kind: 'story', id: 'REENTRANT-DRAIN' };
+  let entered;
+  const started = new Promise((resolve) => { entered = resolve; });
+  let finish;
+  const held = new Promise((resolve) => { finish = resolve; });
+  let nested;
+  let outerSettled = false;
+  const outer = withSubjectLock(root, subject, async () => {
+    nested = withSubjectLock(root, subject, async () => {
+      entered();
+      await held;
+    });
+    await started;
+  });
+  outer.finally(() => { outerSettled = true; }).catch(() => {});
+  await started;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(outerSettled, false, 'the outer call waits for the active child frame');
+  assert.equal((await activeSubjectLocks(root)).length, 1);
+  finish();
+  await Promise.all([outer, nested]);
+  assert.equal(existsSync(subjectLockPath(root, subject)), false);
+});
+
+test('owner publication falls back to exclusive create when hard links are unsupported', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-lock-owner-fallback-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  run('git', ['init', '-b', 'main'], root);
+  const subject = { kind: 'story', id: 'OWNER-FALLBACK' };
+  let attempts = 0;
+  const ownerLink = async () => {
+    attempts += 1;
+    const error = new Error('hard links unavailable');
+    error.code = 'ENOTSUP';
+    throw error;
+  };
+  const owner = await acquireSubjectLock(root, subject, { ownerLink });
+  const published = JSON.parse(await readFile(
+    path.join(subjectLockPath(root, subject), 'owner.json'), 'utf8'
+  ));
+  assert.equal(attempts, 1);
+  assert.equal(published.lockToken, owner.lockToken);
+  await assert.rejects(() => acquireSubjectLock(root, subject),
+    (error) => error?.code === 'SUBJECT_LOCK_BUSY');
+  assert.equal(await releaseSubjectLock(root, subject, owner), true);
+});
+
+test('repository mutation leases are unique, visible to reset, and barrier checked', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-repository-mutation-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  run('git', ['init', '-b', 'main'], root);
+  let enteredCount = 0;
+  let bothEntered;
+  const entered = new Promise((resolve) => { bothEntered = resolve; });
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  const operation = () => withRepositoryMutationLease(root, 'same-command', async () => {
+    enteredCount += 1;
+    if (enteredCount === 2) bothEntered();
+    await held;
+  });
+  const first = operation();
+  const second = operation();
+  let timeout;
+  try {
+    await Promise.race([
+      entered,
+      new Promise((_, reject) => {
+        timeout = setTimeout(() => reject(new Error('mutation leases serialized')), 2_000);
+      })
+    ]);
+  } finally {
+    clearTimeout(timeout);
+  }
+  const locks = await activeSubjectLocks(root);
+  assert.equal(locks.filter((entry) => entry.owner?.subject?.kind === 'repository-mutation').length, 2);
+  release();
+  await Promise.all([first, second]);
+
+  await assertRepositoryResetAvailable(root);
+  await withRepositoryResetBarrier(root, async () => {
+    await assert.rejects(() => assertRepositoryResetAvailable(root),
+      (error) => error?.code === 'FACTORY_RESET_IN_PROGRESS');
+    let callbackRan = false;
+    await assert.rejects(() => withRepositoryMutationLease(root, 'blocked-command', async () => {
+      callbackRan = true;
+    }), (error) => error?.code === 'FACTORY_RESET_IN_PROGRESS');
+    assert.equal(callbackRan, false);
+  });
+});
+
+test('active lock scan includes an old worktree-private lock root', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-private-lock-root-'));
+  const linked = `${root}-linked`;
+  t.after(() => Promise.all([
+    rm(linked, { recursive: true, force: true }),
+    rm(root, { recursive: true, force: true })
+  ]));
+  run('git', ['init', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'Kernel Tester'], root);
+  run('git', ['config', 'user.email', 'kernel@example.com'], root);
+  await writeFile(path.join(root, 'README.md'), '# private lock root\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'initial'], root);
+  run('git', ['worktree', 'add', '-b', 'linked-lock-test', linked], root);
+  const privateGitDirectory = run('git', ['rev-parse', '--absolute-git-dir'], linked).stdout.trim();
+  const directory = path.join(
+    privateGitDirectory, 'singularity-flow', 'locks', 'story--LEGACY-PRIVATE.lock'
+  );
+  await mkdir(directory, { recursive: true });
+  await writeFile(path.join(directory, 'owner.json'), `${JSON.stringify({
+    schemaVersion: 1,
+    subject: { kind: 'story', id: 'LEGACY-PRIVATE' },
+    pid: process.pid,
+    host: os.hostname(),
+    processToken: 'legacy-process',
+    lockToken: 'legacy-lock',
+    acquiredAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 60_000).toISOString()
+  })}\n`);
+
+  const locks = await activeSubjectLocks(linked);
+  assert.equal(locks.some((entry) => entry.directory === directory
+    && entry.owner?.subject?.id === 'LEGACY-PRIVATE'), true);
 });
 
 test('legacy pending publication markers migrate into the machine-local recovery plane', async () => {

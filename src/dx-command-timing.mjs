@@ -179,13 +179,26 @@ async function maintainCommandTimingLog(directory, now = Date.now()) {
 export async function recordCommandTiming(root, event) {
   if (!root || process.env.SINGULARITY_FLOW_DISABLE_TIMING_LOG === '1') return;
   try {
-    const directory = commandTimingDirectory(root);
-    await mkdir(directory, { recursive: true, mode: 0o700 });
-    await chmod(directory, 0o700).catch(() => {});
-    await maintainCommandTimingLog(directory);
-    const file = path.join(directory, LOG_NAME);
-    await appendFile(file, `${JSON.stringify(event)}\n`, { encoding: 'utf8', mode: 0o600 });
-    await chmod(file, 0o600).catch(() => {});
+    // Timing is diagnostic, but it still writes inside the repository-local runtime that factory
+    // reset promises to remove. Give the complete mkdir/rotation/append sequence a subject lease so
+    // reset sees an in-flight writer, and so a writer which loses the race to the reset barrier
+    // simply skips the observation instead of recreating `.git/singularity-flow` afterward. This
+    // write is bounded and tiny, so use the lease directly rather than starting a heartbeat worker
+    // twice for every CLI invocation. Import lazily to keep the read-command startup graph small.
+    const { acquireSubjectLock, releaseSubjectLock } = await import('./subject-lock.mjs');
+    const subject = { kind: 'dx-timing', id: 'repository' };
+    const owner = await acquireSubjectLock(root, subject);
+    try {
+      const directory = commandTimingDirectory(root);
+      await mkdir(directory, { recursive: true, mode: 0o700 });
+      await chmod(directory, 0o700).catch(() => {});
+      await maintainCommandTimingLog(directory);
+      const file = path.join(directory, LOG_NAME);
+      await appendFile(file, `${JSON.stringify(event)}\n`, { encoding: 'utf8', mode: 0o600 });
+      await chmod(file, 0o600).catch(() => {});
+    } finally {
+      await releaseSubjectLock(root, subject, owner);
+    }
   } catch {
     // A machine-local diagnostic must never change command success or failure.
   }

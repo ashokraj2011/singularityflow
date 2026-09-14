@@ -2758,31 +2758,39 @@ readable historical version is stored:
 
 ```bash
 singularity-flow factory-reset --dry-run --json
-singularity-flow factory-reset --confirm "RESET <repository-folder-name> <HEAD-prefix>"
+singularity-flow factory-reset --confirm "RESET <repository-folder-name> <HEAD-prefix>" \
+  --expect-scope-sha256 "<sha256 from the preview>"
 singularity-flow init --check --json
 ```
 
 The preview lists every removed, replaced, and preserved scope plus any
 uncommitted reset-scope files. The confirmed operation removes `singularity/`,
-legacy `.singularity/`, and `.git/singularity-flow/`; installs workflow,
+legacy `.singularity/` and `.sdlc/`, and worktree-private plus repository-shared
+`.git/.../singularity-flow/` runtime roots; installs workflow,
 portfolio, capability, agent-mapping, template, prompt, and packaged-agent files
 from the currently installed npm package; and leaves the result uncommitted.
 Application source, Git history, workspace clones, the global workspace
-registry, and non-packaged custom agents are preserved. On the next registry
-read, workspaces whose lead explicitly declares a non-v2 workflow are forgotten
+registry, and valid non-packaged custom agents are preserved in place. A custom
+agent that is invalid against the installed definition is preserved byte-for-byte
+under `.github/singularity-flow-recovered-agents/<sha256>/` and removed from
+active agent discovery; the preview and result name its source, recovery path,
+digest, byte count, and validation reason. On the next registry read, workspaces
+whose lead explicitly declares a non-v2 workflow are forgotten
 without deleting their directories. Use `singularity-flow workspace prune --json`
 to inspect that cleanup. Use
 `/sf-factory-reset` in Copilot for the same guarded flow.
 
-VS Code provides the same no-migration operation. In the Singularity Flow
-**Configuration** section choose **Reset and reinitialize workflow v2**, or run
-**Singularity Flow: Reset & Reinitialize Repository (Workflow v2)** from the
-Command Palette. Review the engine-generated reset plan, select **Reset and
-reinitialize**, and type the exact confirmation shown. The extension refuses to
-continue while governed reset-scope files have uncommitted changes. A successful
-reset installs and validates workflow v2 but deliberately leaves the new files
-uncommitted for Source Control review and publication through the configured
-review path.
+VS Code provides the same no-migration operation. Open **Workspaces → Fast
+onboarding & Git → Destructive recovery**, or run **Singularity Flow: Factory
+Reset / Reinitialize Any Git Repository (Destructive)** from the Command Palette.
+Choose a canonical Git root; old, incomplete, and not-yet-initialized repositories
+do not have to pass normal SFlow configuration loading. Review the exact remove,
+replace, preserve, and dirty-path scope. When local SFlow bytes will be lost,
+select **Discard SFlow data and reinitialize**, then type the exact confirmation.
+The extension rechecks the preview immediately before applying it. A successful
+reset installs and validates the current format but deliberately leaves the new
+files uncommitted. Application source, Git history, and remote `sflow/config` and
+`state` branches are not changed.
 
 To reset the current repository configuration and all machine-local Singularity
 Flow registration/session state in one command:
@@ -2970,7 +2978,7 @@ singularity-flow local trust-export --story <LOC-ID> --signer <KEY-ID> --out <AB
 singularity-flow local review --story <LOC-ID> --candidate <SHA256> --signer <KEY-ID> [--json]
 singularity-flow local publish --story <LOC-ID> --candidate <SHA256> --signer <KEY-ID> [--destination <APPROVED-DIRECTORY>] [--format loc.zip.store.v1] [--json]
 singularity-flow local audit --bundle <ABSOLUTE-ARCHIVE> --trust-key <ABSOLUTE-PUBLIC-KEY-FILE> --signer <KEY-ID> --offline [--current-policy <ABSOLUTE-POLICY>] [--json]
-singularity-flow factory-reset [--dry-run | --confirm TEXT] [--allow-dirty]
+singularity-flow factory-reset [--dry-run] [--confirm "RESET REPOSITORY COMMIT" --expect-scope-sha256 SHA256] [--allow-dirty] [--json]
 singularity-flow reset-all [--yes]
 sf-reset-all [--yes]
 singularity-flow local-reset [--dry-run | --confirm "RESET LOCAL"] [--json]

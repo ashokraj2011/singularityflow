@@ -181,6 +181,22 @@ function fastOnboardingHtml(
       offline reuse never contacts Git; acceleration changes only reviewed repository-local Git
       settings; cache clearing removes only derived data; doctor is read-only; resume continues an
       explicitly selected recovery checkpoint.</p>
+    <details>
+      <summary>Destructive recovery for an old or broken repository</summary>
+      <div class="notice error">
+        <p><strong>Reinitialize with the current SFlow format</strong></p>
+        <p>Removes only <code>singularity/</code>, <code>.singularity/</code>, <code>.sdlc/</code>,
+          and worktree-private plus repository-shared SFlow runtime data (including runtime shared
+          by linked worktrees), then installs the current packaged configuration.
+          Application source, Git history, branches, remotes, the workspace registry, and remote
+          <code>sflow/config</code>/<code>state</code> branches are preserved. Invalid custom agents
+          are retained byte-for-byte in a disclosed, content-addressed recovery folder outside active
+          agent discovery.</p>
+        <button class="secondary" data-fos-action="factory-reset" data-workspace-path="${escape(row.path)}"
+          ${busy ? 'disabled ' : ''}title="Preview the exact reset boundary, explicitly accept any SFlow data loss, and type the repository-bound confirmation before anything is removed. If repository details cannot load, a Git-folder picker opens.">
+          Choose repository and review reset…</button>
+      </div>
+    </details>
   </div>`;
 }
 
@@ -193,7 +209,8 @@ function fosActionLabel(action: WorkspaceFosAction): string {
     'clear-cache': 'Clearing disposable derived cache',
     'local-authority': 'Creating local-only authority',
     doctor: 'Running workspace doctor',
-    'resume-bootstrap': 'Continuing workspace setup'
+    'resume-bootstrap': 'Continuing workspace setup',
+    'factory-reset': 'Reviewing destructive repository reinitialization'
   }[action];
 }
 

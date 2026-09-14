@@ -340,13 +340,15 @@ Reinitialize Capabilities & Workspaces**.
 
 For a deliberate clean restart, factory reset replaces the complete
 `singularity/` tree from the templates bundled in the **currently installed npm
-package** and removes machine-local runtime state under
-`.git/singularity-flow/`. Always preview first:
+package**, removes former `.singularity/` and `.sdlc/` layouts, and clears both
+worktree-private and repository-shared `.git/.../singularity-flow/` runtime
+state. Always preview first:
 
 ```bash
 singularity-flow factory-reset --dry-run
 # Then copy the exact confirmation string printed by the preview:
-singularity-flow factory-reset --confirm "RESET <repository-folder-name> <HEAD-prefix>"
+singularity-flow factory-reset --confirm "RESET <repository-folder-name> <HEAD-prefix>" \
+  --expect-scope-sha256 "<sha256 from the preview>"
 singularity-flow init --check
 git status --short
 ```
@@ -362,17 +364,23 @@ This discards uncommitted workflow state, generated artifacts, world-model
 files, templates, prompts, sessions, locks, local telemetry, and pending
 publication records in the reset scope. It preserves application source, Git
 history and configuration, workspace clones, the global workspace registry,
-and custom `.github/agents` files not supplied by the package. The replacement
-is left uncommitted for review. In Copilot, `/sf-factory-reset` enforces the
-same preview and contributor-entered confirmation sequence.
+and valid custom `.github/agents` files not supplied by the package. A custom
+agent that would make the new configuration invalid is preserved byte-for-byte
+under `.github/singularity-flow-recovered-agents/<sha256>/`, removed from active
+agent discovery, and reported with its exact source, recovery path, digest, and
+validation reason. The replacement and any recovered agent are left uncommitted
+for review. In Copilot, `/sf-factory-reset` enforces the same preview and
+contributor-entered confirmation sequence.
 
-In VS Code, open the Singularity Flow **Configuration** section and select
-**Factory reset to workflow v2**, or run **Singularity Flow: Factory Reset
-Repository (Destructive, Workflow v2)** from the Command Palette. The editor
-shows the same engine-generated preview, requires the same exact confirmation,
-installs the bundled version-2 files, validates them, and leaves the replacement
-uncommitted. It does not migrate version-1 state. If governed files have local
-changes, the editor refuses the reset so they cannot be discarded accidentally.
+In VS Code, open **Workspaces → Fast onboarding & Git → Destructive recovery**,
+or run **Singularity Flow: Factory Reset / Reinitialize Any Git Repository
+(Destructive)** from the Command Palette. Choose any canonical Git root; it does
+not need to load as a current SFlow repository first. The editor shows the
+engine-generated remove/replace/preserve boundary and dirty SFlow paths. If data
+would be lost, it requires the explicit **Discard SFlow data and reinitialize**
+choice, then the exact repository-bound confirmation. Application source, Git
+history, and remote `sflow/config` and `state` branches remain untouched. The
+replacement is local and uncommitted for Source Control review.
 
 For a complete local restart of the current repository and this machine's
 Singularity Flow registry, use the short one-shot command:

@@ -8,6 +8,7 @@ import { activeWorkspaceFile, workspaceRegistryFile } from './workspace-context.
 import { run, SingularityFlowError } from './util.mjs';
 import { localWorkJournalRoot } from './local-work-journal.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
+import { withMachineStateResetBarrier } from './machine-state-reset.mjs';
 
 export const FRESH_INSTALL_CONFIRMATION = 'RESET EVERYTHING';
 export const LOCAL_RESET_CONFIRMATION = 'RESET LOCAL';
@@ -438,11 +439,80 @@ async function moveToStaging(target, records) {
   records.push({ target, staging, backup });
 }
 
+async function moveMachineStateContentsToStaging(target, records, lockPaths) {
+  const info = await lstat(target).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
+  if (!info) return;
+  if (info.isSymbolicLink() || !info.isDirectory()) {
+    throw new SingularityFlowError(`Singularity Flow machine state must be a real directory: ${target}`);
+  }
+  const staging = await mkdtemp(path.join(path.dirname(target), '.sflow-fresh-install-'));
+  const backup = path.join(staging, 'content');
+  await mkdir(backup);
+  const moved = [];
+  try {
+    for (const entry of await readdir(target, { withFileTypes: true })) {
+      const current = path.join(target, entry.name);
+      if (lockPaths.has(current)) continue;
+      const saved = path.join(backup, entry.name);
+      await rename(current, saved);
+      moved.push({ current, backup: saved });
+    }
+  } catch (error) {
+    const failures = [];
+    for (const entry of [...moved].reverse()) {
+      const replacement = await lstat(entry.current).catch((stateError) =>
+        stateError?.code === 'ENOENT' ? null : Promise.reject(stateError));
+      if (replacement) {
+        failures.push(`${entry.current}: a concurrent machine-state entry now occupies this path`);
+        continue;
+      }
+      await rename(entry.backup, entry.current).catch((restoreError) => {
+        failures.push(`${entry.current}: ${restoreError.message}`);
+      });
+    }
+    if (!failures.length) await rm(staging, { recursive: true, force: true }).catch(() => {});
+    if (failures.length) {
+      throw new SingularityFlowError(
+        `Machine-state staging failed and rollback was incomplete (${failures.join('; ')}). `
+        + `The unrestored previous state remains in ${staging}. Original error: ${error.message}`
+      );
+    }
+    throw error;
+  }
+  records.push({ target, staging, backup, moved, contentsOnly: true });
+}
+
 async function restoreMoved(records) {
   const failures = [];
   for (const record of [...records].reverse()) {
+    if (record.contentsOnly) {
+      const failuresBeforeRecord = failures.length;
+      for (const entry of [...record.moved].reverse()) {
+        const replacement = await lstat(entry.current).catch((error) =>
+          error?.code === 'ENOENT' ? null : Promise.reject(error));
+        if (replacement) {
+          failures.push(`${entry.current}: a concurrent machine-state entry now occupies this path`);
+          continue;
+        }
+        try { await rename(entry.backup, entry.current); }
+        catch (error) { failures.push(`${entry.current}: ${error.message}`); }
+      }
+      if (failures.length === failuresBeforeRecord) {
+        await rm(record.staging, { recursive: true, force: true }).catch((error) => {
+          failures.push(`${record.staging}: ${error.message}`);
+        });
+      } else {
+        failures.push(`the unrestored previous machine state remains in ${record.staging}`);
+      }
+      continue;
+    }
     try {
-      await rm(record.target, { recursive: true, force: true });
+      const replacement = await lstat(record.target).catch((error) =>
+        error?.code === 'ENOENT' ? null : Promise.reject(error));
+      if (replacement) {
+        failures.push(`${record.target}: a concurrent entry now occupies this path`);
+        continue;
+      }
       await rename(record.backup, record.target);
       await rm(record.staging, { recursive: true, force: true });
     } catch (error) { failures.push(`${record.target}: ${error.message}`); }
@@ -450,7 +520,7 @@ async function restoreMoved(records) {
   return failures;
 }
 
-async function applyMachineReset(plan, { confirmation, fault = null }) {
+async function applyMachineReset(plan, { confirmation, fault = null }, { lockPaths }) {
   if (confirmation !== plan.confirmation) {
     throw new SingularityFlowError(
       `${plan.operation === 'local-reset' ? 'Local reset' : 'Fresh install reset'} requires exact confirmation '${plan.confirmation}'. Run with --dry-run first.`
@@ -464,8 +534,12 @@ async function applyMachineReset(plan, { confirmation, fault = null }) {
       await moveToStaging(workspace.path, moved);
     }
     for (const target of plan.machineTargets) {
-      await moveToStaging(target.path, moved);
-      fault?.(`after-move:${target.label}`, plan);
+      if (path.resolve(target.path) === path.resolve(plan.localStateRoot)) {
+        await moveMachineStateContentsToStaging(target.path, moved, lockPaths);
+      } else {
+        await moveToStaging(target.path, moved);
+      }
+      if (fault) await fault(`after-move:${target.label}`, plan);
     }
     if (plan.removeDirectSkills) uninstallDirectSkills({ targetRoot: plan.directSkillsRoot });
     const vscodeResetMarker = plan.vscodeReset.marker;
@@ -494,12 +568,28 @@ async function applyMachineReset(plan, { confirmation, fault = null }) {
 
 /** Delete only the boundary proven by freshInstallResetPlan. Reinstallation remains install.sh's job. */
 export async function freshInstallReset(options = {}) {
-  const plan = await freshInstallResetPlan(options);
-  return applyMachineReset(plan, options);
+  const home = path.resolve(options.homeDirectory ?? os.homedir());
+  const localStateRoot = machineStateRoot(home);
+  const state = machineStatePaths(options.environment ?? process.env, home, localStateRoot);
+  return withMachineStateResetBarrier({
+    localStateRoot,
+    registryFiles: [state.registryFile, state.selectionFile, state.capabilityRegistryFile]
+  }, async (barrier) => {
+    const plan = await freshInstallResetPlan(options);
+    return applyMachineReset(plan, options, barrier);
+  });
 }
 
 /** Apply the selected local mode while preserving every installed product surface. */
 export async function localReset(options = {}) {
-  const plan = await localResetPlan(options);
-  return applyMachineReset(plan, options);
+  const home = path.resolve(options.homeDirectory ?? os.homedir());
+  const localStateRoot = machineStateRoot(home);
+  const state = machineStatePaths(options.environment ?? process.env, home, localStateRoot);
+  return withMachineStateResetBarrier({
+    localStateRoot,
+    registryFiles: [state.registryFile, state.selectionFile, state.capabilityRegistryFile]
+  }, async (barrier) => {
+    const plan = await localResetPlan(options);
+    return applyMachineReset(plan, options, barrier);
+  });
 }

@@ -267,7 +267,7 @@ function configurationFailure(error: Error, view: 'lifecycle' | 'configuration')
   }] : []), ...(workflowVersionUnsupported ? [{
     kind: 'action' as const,
     id: `${view}:error:reinitialize`,
-    label: 'Factory reset to workflow v2',
+    label: 'Reinitialize with the current SFlow format',
     description: 'destructive SFlow reset',
     tooltip: 'Destructively replace this repository’s incompatible SFlow configuration after an exact reset preview. Application source and Git history are preserved.',
     icon: 'debug-restart',

@@ -5722,6 +5722,21 @@ export async function initializeWorkspaceState(leadDirectory, {
     throw new SingularityFlowError(`${root} is not a Git repository, so it cannot carry the state branch.`);
   }
 
+  // Workspace clones are claimed with one atomic directory rename. Until that rename the target
+  // is not a Git repository and cannot be selected for factory reset; after it, materialization no
+  // longer writes inside the checkout. State/governance initialization is the first post-claim
+  // repository writer, so fence it at this shared function rather than relying on each create or
+  // bootstrap caller to remember a target-root lease. If reset won the handoff race, acquisition
+  // refuses before the first branch, configuration, commit, ledger, or remote mutation.
+  const { withRepositoryMutationLease } = await import('./subject-lock.mjs');
+  return withRepositoryMutationLease(root, 'workspace.initialize-state', () =>
+    initializeWorkspaceStateUnderLease(root, { branch, push, transport, gitEnv }));
+}
+
+async function initializeWorkspaceStateUnderLease(root, {
+  branch, push, transport, gitEnv
+}) {
+
   // A delivery repository is not usually governed in its own right — the map lives in the lead of
   // the organisation. But the state branch is written to by the repository the work happens in, so
   // that repository needs a definition naming the branch.

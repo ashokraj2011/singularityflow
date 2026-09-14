@@ -548,7 +548,10 @@ for (const [kind, suffix, control, expectedStatus] of [
       run('git', ['push', 'origin', result.story.branch], story.worktree);
       const recoveryRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-auto-v2-recovery-'));
       t.after(() => rm(recoveryRoot, { recursive: true, force: true }));
-      run('git', ['clone', '--branch', 'main', '--', remote, recoveryRoot], root);
+      // Do not use Git's local hard-link/copy optimization while the fixture remote may still be
+      // completing receive-pack maintenance. It can race loose-object replacement and make an
+      // otherwise valid clone fail with a missing object destination under aggregate load.
+      run('git', ['clone', '--no-local', '--branch', 'main', '--', remote, recoveryRoot], root);
       run('git', ['config', 'user.name', 'Auto Recovery Tester'], recoveryRoot);
       run('git', ['config', 'user.email', 'auto-recovery@example.com'], recoveryRoot);
       const rebuilt = await rebuildAutoFlightState(recoveryRoot, {

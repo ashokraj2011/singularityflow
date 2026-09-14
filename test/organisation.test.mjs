@@ -41,6 +41,7 @@ import { runRemoteGitAsync } from '../src/git-execution.mjs';
 import {
   createCapabilityAuthorityLink, publishCapabilityAuthorityLinkSet, readCapabilityAuthorityLink
 } from '../src/capability-authority-link.mjs';
+import { withRepositoryResetBarrier } from '../src/subject-lock.mjs';
 import {
   createLedgerIntent, LEDGER_SCHEMA_VERSION,
   canonicalJson as ledgerCanonicalJson, sha256 as ledgerSha256
@@ -87,7 +88,11 @@ const registry = (base) => path.join(base, 'leads.json');
 async function mergeProposal(remote, proposal) {
   const checkout = await mkdtemp(path.join(os.tmpdir(), 'sflow-review-'));
   try {
-    run('git', ['clone', '-q', remote, checkout]);
+    // The source is a live bare authority that later proposal publications continue to advance.
+    // Disable Git's local hardlink/copy optimisation so a clone cannot race object-directory
+    // maintenance on a busy test host and fail midway with a missing target object directory.
+    // This also models the production transport path more faithfully than a local object copy.
+    run('git', ['clone', '-q', '--no-local', remote, checkout]);
     run('git', ['config', 'user.email', 'reviewer@example.com'], { cwd: checkout });
     run('git', ['config', 'user.name', 'Review User'], { cwd: checkout });
     run('git', ['fetch', '-q', 'origin', proposal.branch], { cwd: checkout });
@@ -4435,6 +4440,27 @@ test('initialising a workspace creates the orphan state branch, and checks befor
   const second = await initializeWorkspaceState(work, { transport });
   assert.equal(second.governed, true);
   assert.equal(second.existed, true);
+});
+
+test('workspace creation state initialization observes a factory-reset barrier after clone claim', async () => {
+  const org = await remotes('reset-race-api');
+  const work = path.join(org.base, 'reset-race-work');
+  run('git', ['clone', '-q', org['reset-race-api'], work], { cwd: org.base });
+  run('git', ['config', 'user.email', 'reset-race@example.test'], { cwd: work });
+  run('git', ['config', 'user.name', 'Reset Race Tester'], { cwd: work });
+  const originalHead = run('git', ['rev-parse', 'HEAD'], { cwd: work }).stdout.trim();
+
+  await withRepositoryResetBarrier(work, async () => {
+    await assert.rejects(
+      () => initializeWorkspaceState(work, { push: false }),
+      (error) => error?.code === 'FACTORY_RESET_IN_PROGRESS'
+    );
+  });
+
+  assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: work }).stdout.trim(), originalHead);
+  assert.equal(run('git', ['branch', '--show-current'], { cwd: work }).stdout.trim(), 'main');
+  assert.equal(existsSync(path.join(work, 'singularity')), false,
+    'reset wins before the post-claim governance writer changes repository bytes');
 });
 
 test('workspace initialization selects HEAD and origin only inside the sanitized repository boundary', async () => {

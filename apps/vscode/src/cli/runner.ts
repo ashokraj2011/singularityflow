@@ -30,6 +30,15 @@ export const WORKSPACE_MUTATION_TIMEOUT_MS = 30 * 60_000;
 export const WORK_START_TIMEOUT_MS = 15 * 60_000;
 /** Submission may run repository-native compile and browser suites; keep it above the seeded POC budget. */
 export const VALIDATION_TIMEOUT_MS = 30 * 60_000;
+/**
+ * A destructive reset owns an atomic stage/install/rollback transaction inside the engine.
+ *
+ * Killing that process at a host-side deadline can strand the transaction after its old bytes have
+ * moved into rollback staging. Keep preview and validation calls bounded, but let an admitted apply
+ * reach its own success-or-rollback boundary. `null` is an explicit runner contract: no host timer
+ * is installed. VS Code deliberately does not offer cancellation after the final confirmation.
+ */
+export const FACTORY_RESET_TRANSACTION_TIMEOUT_MS: null = null;
 /** Governed image/PDF previews may carry a 25 MiB document encoded as base64. */
 const MAX_OUTPUT_BYTES = 40 * 1024 * 1024;
 const MAX_DISPLAY_ARG_CHARS = 2_000;
@@ -1100,15 +1109,25 @@ async function localAuthorityAvailable(
  * this root, and a symlinked control directory is how a path inside the workspace comes to point
  * outside it. Ported unchanged in intent from the desktop, which had the same exposure.
  */
-export async function validateRepositoryDirectory(
+type RepositoryDirectoryValidationOptions = {
+  localRunner?: LocalGitRunner;
+  signal?: AbortSignal;
+  /** Filesystem identity resolver; injectable so platform aliases can be regression-tested portably. */
+  realpathImpl?: (candidate: string) => Promise<string>;
+};
+
+/**
+ * Prove that a selected directory is the canonical root of one Git working tree.
+ *
+ * This deliberately knows nothing about the installed Singularity Flow format. Destructive
+ * reinitialization must be able to reach an uninitialized, legacy, or damaged repository; making
+ * that recovery action pass the normal governed-repository loader first made the action impossible
+ * precisely when it was needed. The factory-reset engine performs its own narrower path and
+ * symlink checks before deleting anything.
+ */
+export async function validateFactoryResetRepositoryDirectory(
   repository: string,
-  options: {
-    remoteRunner?: RemoteGitRunner;
-    localRunner?: LocalGitRunner;
-    signal?: AbortSignal;
-    /** Filesystem identity resolver; injectable so platform aliases can be regression-tested portably. */
-    realpathImpl?: (candidate: string) => Promise<string>;
-  } = {}
+  options: RepositoryDirectoryValidationOptions = {}
 ): Promise<string> {
   const resolveFilesystemIdentity = options.realpathImpl
     ?? ((candidate: string) => realpath(candidate));
@@ -1118,8 +1137,7 @@ export async function validateRepositoryDirectory(
   if (!canonical || !root?.isDirectory()) throw new Error('The selected folder does not exist or is not a directory.');
 
   const git = await lstat(path.join(canonical, '.git')).catch(() => null);
-  if (!git) throw new Error(`The selected folder is not a Git repository: ${resolved}`);
-  if (git.isSymbolicLink()) throw new Error(`The selected repository has unsafe symbolic-link Git metadata: ${canonical}`);
+  if (git?.isSymbolicLink()) throw new Error(`The selected repository has unsafe symbolic-link Git metadata: ${canonical}`);
 
   const runLocal = options.localRunner ?? localGit;
   const probe = await runLocal(['rev-parse', '--show-toplevel'], {
@@ -1127,6 +1145,7 @@ export async function validateRepositoryDirectory(
   });
   const topLevelText = probe.stdout.toString('utf8').trim();
   if (probe.status !== 0 || !topLevelText) {
+    if (!git) throw new Error(`The selected folder is not a Git repository: ${resolved}`);
     throw new Error(`The selected folder is not a valid Git working tree: ${canonical}`);
   }
   // Do not compare Git's spelling with Node's spelling. On Windows Git commonly emits forward
@@ -1136,6 +1155,17 @@ export async function validateRepositoryDirectory(
   if (!topLevel || topLevel !== canonical) {
     throw new Error(`Open the Git repository root instead of a nested directory: ${canonical}`);
   }
+  if (!git) throw new Error(`The selected folder is not a Git repository: ${resolved}`);
+
+  return canonical;
+}
+
+export async function validateRepositoryDirectory(
+  repository: string,
+  options: RepositoryDirectoryValidationOptions & { remoteRunner?: RemoteGitRunner } = {}
+): Promise<string> {
+  const canonical = await validateFactoryResetRepositoryDirectory(repository, options);
+  const runLocal = options.localRunner ?? localGit;
 
   const control = await lstat(path.join(canonical, 'singularity')).catch(() => null);
   if (control?.isSymbolicLink()) throw new Error(`The singularity control directory cannot be a symbolic link: ${canonical}`);

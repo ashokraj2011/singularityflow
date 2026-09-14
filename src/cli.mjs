@@ -556,17 +556,32 @@ function renderFactoryResetPlan(plan) {
   for (const item of plan.replace) console.log(`- ${item}`);
   console.log('\nPreserve:');
   for (const item of plan.preserve) console.log(`- ${item}`);
-  if (plan.uncommittedResetPaths.length && !plan.completed) {
+  if (plan.customAgentRecoveries?.length) {
+    console.log('\nInvalid custom agents preserved outside active discovery:');
+    for (const item of plan.customAgentRecoveries) {
+      console.log(`- ${item.sourceDisplay} -> ${item.recoveryDisplay}`);
+      console.log(`  ${item.sha256} · ${item.bytes} bytes · ${item.reason}`);
+    }
+  }
+  if (plan.uncommittedDiscardPaths?.length && !plan.completed) {
     console.log('\nThese uncommitted reset-scope changes would be discarded, so the reset will refuse');
     console.log('to run until they are committed, stashed, or --allow-dirty is passed:');
-    for (const item of plan.uncommittedResetPaths) console.log(`- ${item}`);
+    for (const item of plan.uncommittedDiscardPaths) console.log(`- ${item}`);
+  }
+  const preservedDirty = plan.uncommittedResetPaths.filter((item) =>
+    !(plan.uncommittedDiscardPaths ?? []).includes(item));
+  if (preservedDirty.length && !plan.completed) {
+    console.log('\nThese uncommitted custom-agent paths are in the inspected scope but are preserved:');
+    for (const item of preservedDirty) console.log(`- ${item}`);
   }
   if (!plan.completed) {
     console.log(`\nConfirmation required: ${plan.confirmation}`);
     console.log(plan.operation === 'factory-reset-all'
       ? 'Run: sflow reset-all --yes'
-      : `Run: singularity-flow factory-reset --confirm ${JSON.stringify(plan.confirmation)}`);
+      : `Run: singularity-flow factory-reset --confirm ${JSON.stringify(plan.confirmation)} `
+        + `--expect-scope-sha256 ${plan.resetScopeSha256}`);
   } else {
+    for (const warning of plan.warnings ?? []) console.log(`\nWarning: ${warning}`);
     console.log('\nThe replacement is intentionally uncommitted.');
     for (const item of plan.next) console.log(`Next CLI step: ${item}`);
     console.log('Copilot guide: /sf-nextsteps');
@@ -577,12 +592,20 @@ async function factoryResetCommand(options) {
   const root = repoRoot();
   const dryRun = optionBoolean(options, 'dry-run');
   if (dryRun && options.confirm != null) throw new SingularityFlowError('factory-reset --dry-run does not accept --confirm. Review the preview first.');
+  const expectedScopeSha256 = optionString(options, 'expect-scope-sha256');
+  if (!dryRun && !expectedScopeSha256) {
+    throw new SingularityFlowError(
+      'Factory reset requires the exact --expect-scope-sha256 value from a current --dry-run preview. '
+      + 'Nothing was removed. Preview again and copy the complete generated command.'
+    );
+  }
   const result = dryRun
     ? await factoryResetPlan(root, { packageVersion: VERSION })
     : await factoryResetRepository(root, {
       confirmation: optionString(options, 'confirm'),
       packageVersion: VERSION,
-      allowDirty: optionBoolean(options, 'allow-dirty')
+      allowDirty: optionBoolean(options, 'allow-dirty'),
+      expectedScopeSha256
     });
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
   else renderFactoryResetPlan(result);

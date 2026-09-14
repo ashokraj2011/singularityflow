@@ -25,7 +25,9 @@ const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const source = (name) => path.join(packageRoot, 'apps', 'vscode', 'src', name);
 
 const {
-  invokeCli, CliError, CliTimeoutError, terminalCommand, validateRepositoryDirectory,
+  invokeCli, CliError, CliTimeoutError, terminalCommand,
+  FACTORY_RESET_TRANSACTION_TIMEOUT_MS,
+  validateFactoryResetRepositoryDirectory, validateRepositoryDirectory,
   validatedRepositoryGitCommonDirectory, localGit, remoteGit, UninitializedRepositoryError,
   RepositoryAuthorityUnavailableError, formatCliArgsForDisplay, DISPLAY_BOOLEAN_OPTIONS
 } =
@@ -116,6 +118,8 @@ test('a successful run resolves the parsed JSON', async () => {
 });
 
 test('VS Code classifies configuration publication as a mutation', () => {
+  assert.equal(commandClass(['factory-reset', '--dry-run', '--json']), 'read');
+  assert.equal(commandClass(['factory-reset', '--confirm', 'RESET repo abc1234', '--json']), 'mutation');
   assert.equal(commandClass(['configuration', 'snapshot']), 'read');
   assert.equal(commandClass(['configuration', 'validate']), 'read');
   assert.equal(commandClass(['configuration', 'save', 'singularity/workflow.yml']), 'mutation');
@@ -660,6 +664,11 @@ test('configuration validation always reads current bytes while ordinary status 
     assert.deepEqual(await client.run(['status', '--json']), { count: 3 },
       'ordinary identical reads should retain the short-lived cache optimization');
     assert.equal(await readFile(counter, 'utf8'), '3');
+
+    assert.deepEqual(await client.run(['factory-reset', '--dry-run', '--json']), { count: 4 });
+    assert.deepEqual(await client.run(['factory-reset', '--dry-run', '--json']), { count: 5 },
+      'the destructive reset freshness check must never reuse its reviewed preview');
+    assert.equal(await readFile(counter, 'utf8'), '5');
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -695,6 +704,36 @@ async function initializedRepository() {
 test('an initialized repository root validates and resolves to its canonical path', async () => {
   const { root } = await initializedRepository();
   assert.equal(await validateRepositoryDirectory(root), await realpath(root));
+});
+
+test('factory-reset target validation accepts plain and former-format Git roots without authority access', async (t) => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-vscode-reset-target-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const plain = path.join(base, 'plain');
+  const legacy = path.join(base, 'legacy');
+  for (const repository of [plain, legacy]) {
+    await mkdir(repository, { recursive: true });
+    run('git', ['init', '-q', '-b', 'main'], { cwd: repository });
+  }
+  await mkdir(path.join(legacy, '.sdlc'), { recursive: true });
+  await writeFile(path.join(legacy, '.sdlc', 'config.json'), '{"version":1}\n');
+
+  let remoteCalls = 0;
+  const remoteRunner = async () => {
+    remoteCalls += 1;
+    throw new Error('reset validation must not contact a remote');
+  };
+  assert.equal(await validateFactoryResetRepositoryDirectory(plain), await realpath(plain));
+  assert.equal(await validateFactoryResetRepositoryDirectory(legacy), await realpath(legacy));
+  await assert.rejects(validateRepositoryDirectory(legacy, { remoteRunner }), /former \.sdlc/i);
+  assert.equal(remoteCalls, 0, 'former-format detection happens without an authority probe');
+
+  const nested = path.join(plain, 'nested');
+  await mkdir(nested);
+  await assert.rejects(
+    validateFactoryResetRepositoryDirectory(nested),
+    /Open the Git repository root instead of a nested directory/
+  );
 });
 
 test('repository validation compares filesystem identity across Windows Git path spellings', async (t) => {
@@ -1222,14 +1261,13 @@ test('repository validation refreshes a verified state authority for a narrow cl
 });
 
 test('a nested directory is refused, and the message names the folder that was tried', async () => {
-  // Caught by the .git probe rather than the top-level comparison, since a nested directory has no
-  // .git of its own. The top-level guard behind it is what catches a worktree or submodule, where
-  // .git exists but points somewhere else.
+  // Git can identify the containing checkout even when the chosen folder has no .git entry. Name
+  // that distinction so recovery users know to choose the root instead of assuming Git is absent.
   const { root } = await initializedRepository();
   const nested = path.join(root, 'src');
   await mkdir(nested, { recursive: true });
   await assert.rejects(validateRepositoryDirectory(nested), (error) => {
-    assert.match(error.message, /not a Git repository/);
+    assert.match(error.message, /Open the Git repository root instead of a nested directory/);
     assert.match(error.message, /src$/, 'the folder that was actually tried is named');
     return true;
   });
@@ -1302,6 +1340,15 @@ test('large remote operations and lifecycle submissions get operation-appropriat
     ).catch(() => {});
     await client.run(['workspace', 'reinitialize', '--dry-run']).catch(() => {});
     await client.run(['workspace', 'reinitialize', '/work/commerce', '--dry-run']).catch(() => {});
+    await client.run(['factory-reset', '--dry-run', '--json']).catch(() => {});
+    const beforeResetApply = timeouts.length;
+    await client.run([
+      'factory-reset', '--confirm', 'RESET repo abc1234',
+      '--expect-scope-sha256', `sha256:${'a'.repeat(64)}`, '--json'
+    ]).catch(() => {});
+    assert.equal(FACTORY_RESET_TRANSACTION_TIMEOUT_MS, null);
+    assert.equal(timeouts.length, beforeResetApply,
+      'an admitted destructive transaction has no host kill timer after staging can begin');
     await client.run(['workspace', 'prepare', 'https://example.test/platform.git']).catch(() => {});
     await client.run(['workspace', 'bootstrap', 'resume', 'wsb-1']).catch(() => {});
     await client.run(['start', 'WRK-17', '--isolated-worktree']).catch(() => {});
@@ -1318,15 +1365,16 @@ test('large remote operations and lifecycle submissions get operation-appropriat
   assert.equal(timeouts[3], 30 * 60_000);
   assert.equal(timeouts[4], 30 * 60_000);
   assert.equal(timeouts[5], 30 * 60_000);
-  assert.equal(timeouts[6], 30 * 60_000);
+  assert.equal(timeouts[6], 120_000);
   assert.equal(timeouts[7], 30 * 60_000);
-  assert.equal(timeouts[8], 15 * 60_000);
+  assert.equal(timeouts[8], 30 * 60_000);
   assert.equal(timeouts[9], 15 * 60_000);
   assert.equal(timeouts[10], 15 * 60_000);
-  assert.equal(timeouts[11], 30 * 60_000);
-  assert.equal(timeouts[12], 120_000);
-  assert.equal(timeouts.length, 13,
-    'cancellable machine-wide reinitialization has no host kill timer; an unowned call stays bounded');
+  assert.equal(timeouts[11], 15 * 60_000);
+  assert.equal(timeouts[12], 30 * 60_000);
+  assert.equal(timeouts[13], 120_000);
+  assert.equal(timeouts.length, 14,
+    'cancellable machine-wide reinitialization and destructive reset apply have no host kill timer');
 });
 
 test('phases are read in declared order with the state each is in', () => {
@@ -4776,6 +4824,11 @@ test('workspace details show its directory, capabilities, repositories and Jira 
   assert.match(html, /data-fos-action="local-authority"/);
   assert.match(html, /data-fos-action="doctor"/);
   assert.match(html, /data-fos-action="resume-bootstrap"/);
+  assert.match(html, /Destructive recovery for an old or broken repository/);
+  assert.match(html, /data-fos-action="factory-reset"/);
+  assert.match(html, /repository-shared SFlow runtime data \(including runtime shared\s+by linked worktrees\)/,
+    'the destructive preview entry discloses that linked worktrees share repository runtime');
+  assert.match(html, /remote\s+<code>sflow\/config<\/code>\/<code>state<\/code> branches are preserved/);
   assert.match(html, /each checkout pins its own/);
 
   const editStatus = {

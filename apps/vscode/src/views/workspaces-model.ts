@@ -167,7 +167,8 @@ export interface WorkspaceRepositoryStatus {
 }
 
 export type WorkspaceFosAction = 'attach' | 'refresh-authority' | 'offline-authority'
-  | 'git-acceleration' | 'clear-cache' | 'local-authority' | 'doctor' | 'resume-bootstrap';
+  | 'git-acceleration' | 'clear-cache' | 'local-authority' | 'doctor' | 'resume-bootstrap'
+  | 'factory-reset';
 
 /** Transient presentation result returned by an existing guarded FOS command to the Workspaces UI. */
 export interface WorkspaceFosOutcome {

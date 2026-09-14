@@ -19,6 +19,9 @@ import { currentSchemaVersion, migrationRegistrySnapshot } from '../src/schema-m
 import { MCP_SCAFFOLD_VERSIONS } from '../src/mcp-host.mjs';
 import { releaseDependencyLockProblems } from '../src/release-dependency-lock.mjs';
 import {
+  isCurrentPackagedAssetHash, isKnownPackagedAssetHash, packagedAssetSha256
+} from '../src/packaged-asset-history.mjs';
+import {
   ASSURANCE_LEVELS, DERIVATION_STATUSES, EVIDENCE_KINDS, FACT_STATUSES, FACT_TYPES,
   MODEL_MODES, SECTION_KINDS, SUBJECT_KINDS, SCOPE_SUBJECT_KINDS,
   UNAVAILABLE_REASON_CODES, VIEW_STATUSES
@@ -849,14 +852,42 @@ if (!releaseEvidenceTemplateText.includes('REPLACE_WITH_')) {
 }
 checked.push(releaseEvidenceTemplatePath);
 
-const workflowTemplate = validateDefinition(YAML.parse(await readFile(path.join(root, 'templates', 'workflow.yml'), 'utf8')));
+const workflowTemplateSource = YAML.parse(await readFile(path.join(root, 'templates', 'workflow.yml'), 'utf8'));
+const governedAgents = await discoverAgents(root);
+// Validate the same joined contract a repository will load. Validating workflow.yml before adding
+// its Agent Markdown catalog skips MCP-to-agent tool authorization and allowed a mixed release to
+// be packaged even though a freshly bootstrapped repository would later refuse it.
+workflowTemplateSource.agents = Object.fromEntries(governedAgents.map((agent) => [agent.id, agent]));
+workflowTemplateSource.agentCatalog = governedAgents;
+const workflowTemplate = validateDefinition(workflowTemplateSource);
 if (!workflowTemplate.workTypes?.feature || !workflowTemplate.workTypes?.bugfix) fail('workflow template must include feature and bugfix profiles');
 if (workflowTemplate.workItemRoot !== 'singularity/work-items') fail('workflow template must use the visible singularity/work-items root');
 if (workflowTemplate.templatesRoot !== 'singularity/templates') fail('workflow template must keep editable artifact templates in the visible singularity folder');
-const governedAgents = await discoverAgents(root);
 validateAgentCatalog(governedAgents, workflowTemplate);
 for (const id of ['product-owner', 'architect', 'developer', 'qa']) {
   if (!governedAgents.some((agent) => agent.id === id)) fail(`governed Agent Markdown catalog must include '${id}'`);
+}
+// Enumerate the installed files directly rather than the ID-deduplicated agent catalog. Plugin
+// agents are discovered before bundled agents, so a future accidental ID collision could otherwise
+// hide one templates/agents file from this provenance check and strand its previous release bytes.
+const packagedAgentDirectory = path.join(root, 'templates', 'agents');
+const packagedAgentFiles = (await readdir(packagedAgentDirectory, { withFileTypes: true }))
+  .filter((entry) => entry.isFile() && /\.agent\.md$/i.test(entry.name))
+  .map((entry) => entry.name)
+  .sort();
+for (const name of packagedAgentFiles) {
+  const relative = `.github/agents/${name}`;
+  const sha256 = packagedAssetSha256(await readFile(path.join(packagedAgentDirectory, name)));
+  if (!isKnownPackagedAssetHash(relative, sha256)
+      || !isCurrentPackagedAssetHash(relative, sha256)) {
+    fail(`${relative}: current packaged digest must be registered for deterministic future upgrades`);
+  }
+}
+const modelTierBytes = await readFile(path.join(root, 'templates', 'modelTiers.yml'));
+const modelTierSha256 = packagedAssetSha256(modelTierBytes);
+if (!isKnownPackagedAssetHash('singularity/modelTiers.yml', modelTierSha256)
+    || !isCurrentPackagedAssetHash('singularity/modelTiers.yml', modelTierSha256)) {
+  fail('singularity/modelTiers.yml: current packaged digest must be registered for deterministic future upgrades');
 }
 checked.push('templates/agents');
 if (workflowTemplate.ledger?.enabled !== false || workflowTemplate.ledger?.branch !== 'state') fail('workflow template must ship the opt-in orphan capability-ledger configuration.');

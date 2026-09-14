@@ -16,6 +16,10 @@ interface CapabilityProposalSummary {
   merged?: boolean;
   status?: string;
   discardable?: boolean;
+  configurationError?: string | null;
+  configurationErrorCode?: string | null;
+  repairable?: boolean;
+  repairAction?: { command?: string } | null;
   failure?: {
     code?: string; message?: string;
     diagnosticAction?: { command?: string } | null;
@@ -62,6 +66,9 @@ function proposalsHtml(entries: ProposalEntry[], leads: number, failures: LeadFa
         <span>${icon(entry.valid ? 'merge' : 'warning')}</span>
         <strong>${escape(shortName(entry.branch))}</strong>
         <small>${escape(entry.proposalCommit.slice(0, 12))} · ${entry.changedFiles.length} changed file${entry.changedFiles.length === 1 ? '' : 's'} · ${entry.merged ? 'merged history' : entry.valid ? 'ready for exact review' : escape(entry.status ?? 'blocked by validation')}</small>
+        ${entry.configurationError ? `<small class="error-text">${escape(entry.configurationError)}</small>` : ''}
+        ${entry.repairable ? '<small>Open this review to prepare the exact packaged compatibility repair.</small>' : ''}
+        ${entry.repairAction?.command ? `<small>Recovery: <code>${escape(entry.repairAction.command)}</code></small>` : ''}
         ${entry.failure?.message ? `<small class="error-text">${escape(entry.failure.message)}</small>` : ''}
         ${entry.failure?.diagnosticAction?.command ? `<small>Diagnostic: <code>${escape(entry.failure.diagnosticAction.command)}</code></small>` : ''}
         ${entry.failure?.nextAction?.command ? `<small>Recovery: <code>${escape(entry.failure.nextAction.command)}</code></small>` : ''}

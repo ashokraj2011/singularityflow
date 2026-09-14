@@ -294,7 +294,7 @@ const CAPABILITY_READ_SUBCOMMANDS = Object.freeze([
 ]);
 const CAPABILITY_MUTATION_SUBCOMMANDS = Object.freeze([
   'add', 'protect', 'depend', 'adopt-managed', 'set', 'remove', 'map', 'edit', 'publish',
-  'activate', 'discard-proposal', 'reconcile', 'repository'
+  'activate', 'discard-proposal', 'repair-proposal', 'reconcile', 'repository'
 ]);
 const CAPABILITY_SUBCOMMANDS = Object.freeze([
   ...CAPABILITY_READ_SUBCOMMANDS, ...CAPABILITY_MUTATION_SUBCOMMANDS

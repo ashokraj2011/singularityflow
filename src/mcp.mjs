@@ -130,16 +130,37 @@ export function mcpServersForContext(definition, { agent, phase } = {}) {
 }
 
 export function validateMcpAgentTools(definition) {
+  const mismatches = [];
   for (const agent of definition.agentCatalog ?? []) {
     for (const server of mcpServersForContext(definition, { agent: agent.id, phase: null })) {
       const declared = new Set(agent.tools ?? []);
       const namespace = `${server.hostReference}/*`;
       const missing = server.agentTools.filter((tool) => !declared.has('*') && !declared.has(namespace) && !declared.has(tool));
       if (missing.length) {
-        throw new SingularityFlowError(`MCP server '${server.id}' is assigned to agent '${agent.id}', but its Agent Markdown tools do not allow ${missing.join(', ')}.`);
+        const source = agent.scope === 'repository'
+          && typeof agent.source === 'string'
+          && !agent.source.startsWith('../')
+          ? agent.source : null;
+        mismatches.push(Object.freeze({
+          server: server.id,
+          hostReference: server.hostReference,
+          agent: agent.id,
+          agentSource: source,
+          missingTools: Object.freeze([...missing])
+        }));
       }
     }
   }
+  if (!mismatches.length) return;
+  const [first, ...rest] = mismatches;
+  const firstMessage = `MCP server '${first.server}' is assigned to agent '${first.agent}', but its Agent Markdown tools do not allow ${first.missingTools.join(', ')}.`;
+  const remainder = rest.length
+    ? ` ${rest.length} additional Agent/MCP mismatch${rest.length === 1 ? '' : 'es'} must be repaired in the same configuration revision.`
+    : '';
+  throw new SingularityFlowError(`${firstMessage}${remainder}`, {
+    code: 'MCP_AGENT_TOOLS_MISMATCH',
+    details: { mismatches: Object.freeze(mismatches) }
+  });
 }
 
 async function readServerNames(file) {

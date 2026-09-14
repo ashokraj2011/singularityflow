@@ -198,6 +198,29 @@ const KNOWN = Object.freeze({
     step('verify-agent-phase-contract',
       'After applying one reviewed repair, verify the current workflow and governed-agent contract before retrying the original command.',
       'singularity-flow init --check --json')
+  ],
+  MCP_AGENT_TOOLS_MISMATCH: () => [
+    step('preview-packaged-configuration-repair',
+      'Preview the approved configuration refresh; exact historical packaged agents can be upgraded while repository customizations remain preserved.',
+      'singularity-flow workspace refresh-configuration --dry-run --json', 'configuration'),
+    step('verify-capability-authority',
+      'Verify the capability authority, proposal branches, and state projection before retrying review.',
+      'singularity-flow capability fsck --json', 'diagnostic')
+  ],
+  CAPABILITY_PROPOSAL_PACKAGED_COMPATIBILITY_REQUIRED: () => [
+    step('inspect-capability-proposal',
+      'Keep the proposal and approved authority unchanged while reviewing the exact packaged compatibility repair named by the refusal.',
+      'singularity-flow capability proposals --json', 'remediation')
+  ],
+  CONFIGURATION_BOOTSTRAP_INVALID: () => [
+    step('diagnose-configuration-bootstrap',
+      'Inspect the source repository configuration; no invalid sflow/config branch was published.',
+      'singularity-flow capability fsck --json', 'diagnostic')
+  ],
+  CONFIGURATION_BOOTSTRAP_CAPABILITY_REVIEW_REQUIRED: () => [
+    step('map-with-review',
+      'Preserve the imported organisation map, establish its authority, and add the new capability through a separate reviewed proposal.',
+      'singularity-flow capability map <CAPABILITY-ID> --lead <LEAD-URL> --json', 'remediation')
   ]
 });
 

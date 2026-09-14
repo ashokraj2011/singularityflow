@@ -921,6 +921,8 @@ singularity-flow capability edit <CAPABILITY-ID> --lead <URL> --mode set --paren
 singularity-flow capability edit <CAPABILITY-ID> --lead <URL> --mode remove --reparent-children-to <PARENT-ID>
 singularity-flow capability proposals --lead <URL>
 singularity-flow capability proposal <REVIEW-BRANCH> --lead <URL>
+singularity-flow capability repair-proposal <REVIEW-BRANCH> --lead <URL> \
+  --confirm <FULL-COMMIT> --json
 singularity-flow capability fsck --lead <URL> [--json]
 singularity-flow capability discard-proposal <REVIEW-BRANCH> --lead <URL> \
   --confirm <FULL-COMMIT> --reason <TEXT> [--json]
@@ -950,6 +952,14 @@ target itself hosts an approved map; otherwise it can become the first authority
 contributor explicitly chooses that option. Only a confirmed new mapping after `not-onboarded`, or an explicit
 mapping for `known-repository-unassigned`, proceeds to capability ID, kind, ownership,
 roots, clone-policy, Jira, and team questions.
+
+When an older proposal contains an exact, unmodified Agent Markdown file from a previous
+Singularity Flow package that no longer matches the current MCP policy, proposal inspection
+returns `MCP_AGENT_TOOLS_MISMATCH` with a guarded `repair-proposal` action. That action updates
+only recognized historical package files on the proposal branch, validates the complete
+workflow/agent/MCP contract, and publishes a new proposal commit for review. It never activates
+the proposal or overwrites a customized agent. Customized agent contracts must be corrected
+through the normal configuration-review process.
 
 Add organisation-specific attributes with repeatable key/value options:
 

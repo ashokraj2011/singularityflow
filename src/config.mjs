@@ -11,7 +11,9 @@ import {
   SingularityFlowError,
   posix,
   readJson,
+  run,
   snapshot,
+  writeBytes,
   writeText
 } from './util.mjs';
 import { validateInjectionDefinition } from './inject.mjs';
@@ -77,6 +79,10 @@ import {
 import {
   governedInitializationRoot, INITIALIZATION_MAPPINGS
 } from './initialization-assets.mjs';
+import {
+  hasRetiredPackagedAssetHistory, isCurrentPackagedAssetHash,
+  isRetiredPackagedAsset, packagedAssetSha256
+} from './packaged-asset-history.mjs';
 
 export const WORKFLOW_PATH = 'singularity/workflow.yml';
 export const CONTROL_ROOT = 'singularity';
@@ -1498,10 +1504,71 @@ export async function copyMissingFiles(source, destination, installed = [], rela
         } else await mkdir(path.dirname(to), { recursive: true });
         await cp(from, to);
         installed.push(key);
+      } else if (await replaceRetiredPackagedFile(from, to, repositoryRoot)) {
+        installed.push(key);
       }
     }
   }
   return installed;
+}
+
+/**
+ * Replace only a byte-for-byte historical package asset for this exact repository path.
+ *
+ * Repository-owned agent documents may be intentionally customized, so age, names and parsed
+ * metadata are never sufficient authority to overwrite one. The reviewed history registry is the
+ * complete compatibility boundary: any byte difference preserves the repository copy. The final
+ * write is atomic so a crash cannot leave a partially-written governed agent.
+ */
+async function replaceRetiredPackagedFile(source, destination, repositoryRoot) {
+  if (!repositoryRoot) return false;
+  const relative = repoRelative(repositoryRoot, destination);
+  if (!hasRetiredPackagedAssetHistory(relative)) return false;
+  const secured = await secureRepositoryPath(repositoryRoot, relative, {
+    label: 'Historical packaged asset', mustExist: true
+  });
+  if (!secured.entry?.isFile()) return false;
+  const current = await readFile(secured.absolute);
+  // The overwhelmingly common path is an already-current installation. Avoid one Git process per
+  // packaged file merely to rediscover what its exact worktree digest already proves.
+  if (isCurrentPackagedAssetHash(relative, packagedAssetSha256(current))) return false;
+  if (!isRetiredPackagedAsset(relative, current)
+      && !trackedRetiredPackagedAsset(repositoryRoot, relative, current)) return false;
+  const bundled = await readFile(source);
+  if (packagedAssetSha256(current) === packagedAssetSha256(bundled)) return false;
+  await writeBytes(secured.absolute, bundled);
+  return true;
+}
+
+/**
+ * Prove that checkout-only CRLF conversion did not turn an exact package blob into a customization.
+ *
+ * Git stores the canonical bytes in the index, while `core.autocrlf=true` or an `eol=crlf`
+ * attribute may materialize the same tracked file with CRLF in a Windows worktree. The raw-byte
+ * path above remains the authority for untracked/fresh files. For a tracked file, accept only when
+ * its exact index blob is a retired package revision and the worktree bytes are either that blob or
+ * its one deterministic LF-to-CRLF checkout representation. Any other byte—including a BOM,
+ * missing newline, content edit, or mixed/custom line ending—is preserved.
+ */
+function trackedRetiredPackagedAsset(repositoryRoot, relative, worktreeBytes) {
+  const indexed = run('git', ['cat-file', 'blob', `:${relative}`], {
+    cwd: repositoryRoot,
+    allowFailure: true,
+    encoding: 'buffer'
+  });
+  if (indexed.status !== 0 || !Buffer.isBuffer(indexed.stdout)
+      || !isRetiredPackagedAsset(relative, indexed.stdout)) return false;
+  if (worktreeBytes.equals(indexed.stdout)) return true;
+
+  // Do this as a byte transform rather than decoding/re-encoding Markdown. That keeps provenance
+  // exact and cannot normalize an unrelated Unicode or invalid-byte customization into a match.
+  const output = [];
+  for (let index = 0; index < indexed.stdout.length; index += 1) {
+    const byte = indexed.stdout[index];
+    if (byte === 0x0a && (index === 0 || indexed.stdout[index - 1] !== 0x0d)) output.push(0x0d);
+    output.push(byte);
+  }
+  return worktreeBytes.equals(Buffer.from(output));
 }
 
 // Install any packaged template files the repository is missing (for example the initiatives/
@@ -1529,7 +1596,9 @@ async function copyIfMissing(source, destination, repositoryRoot = null) {
       { label: 'Configuration initialization parent' }
     );
   }
-  if (existsSync(destination)) return false;
+  if (existsSync(destination)) {
+    return replaceRetiredPackagedFile(source, destination, repositoryRoot);
+  }
   if (!repositoryRoot) await mkdir(path.dirname(destination), { recursive: true });
   await cp(source, destination, { recursive: true });
   return true;

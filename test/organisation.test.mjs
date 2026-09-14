@@ -32,7 +32,7 @@ import {
   inspectCapabilityProposal, inspectCapabilityRepository, listCapabilityProposals, mapCapability, readOrganisation,
   organisationCacheFile, previewCapabilityReconciliation,
   previewStaleCapabilityAuthorityLinkRetirement, proposeProgressiveCapabilityChange, repositoryIdOf,
-  publishOrganisationCapabilityMap, resolveWorkspacePlan
+  publishOrganisationCapabilityMap, repairCapabilityProposal, resolveWorkspacePlan
 } from '../src/organisation.mjs';
 import { listTransportIntents, retryTransportIntent } from '../src/transport-intents.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
@@ -108,6 +108,32 @@ async function mapAndMerge(remote, options) {
   const proposal = await mapCapability(remote, options);
   await mergeProposal(remote, proposal);
   return proposal;
+}
+
+async function publishHistoricalPackagedAgents(remote, proposal, names = [
+  'product-designer.agent.md', 'qa.agent.md'
+]) {
+  const checkout = await mkdtemp(path.join(os.tmpdir(), 'sflow-historical-agent-proposal-'));
+  try {
+    run('git', ['clone', '-q', '--branch', proposal.branch, remote, checkout]);
+    run('git', ['config', 'user.email', 'legacy-package@example.test'], { cwd: checkout });
+    run('git', ['config', 'user.name', 'Legacy Package Fixture'], { cwd: checkout });
+    for (const name of names) {
+      await cp(
+        new URL(`./fixtures/packaged-agents/ba513/${name}`, import.meta.url),
+        path.join(checkout, '.github/agents', name)
+      );
+    }
+    run('git', ['add', '--', ...names.map((name) => `.github/agents/${name}`)], {
+      cwd: checkout
+    });
+    run('git', ['commit', '-qm', 'Reproduce historical packaged agents'], { cwd: checkout });
+    const commit = run('git', ['rev-parse', 'HEAD'], { cwd: checkout }).stdout.trim();
+    run('git', ['push', '-q', 'origin', `HEAD:${proposal.branch}`], { cwd: checkout });
+    return commit;
+  } finally {
+    await rm(checkout, { recursive: true, force: true });
+  }
 }
 
 async function startPinnedCapabilityStory(org, workId) {
@@ -1892,6 +1918,10 @@ test('an exact capability proposal can be reviewed, activated, and projected wit
   assert.equal(activationEntry.eventType, 'capability-configuration-activated');
   assert.equal(activationEntry.payload.proposalCommit, proposed.commit);
   assert.equal(activationEntry.payload.targetCommit, activated.targetCommit);
+  assert.equal(activationEntry.payload.policyConfigurationCommit,
+    activated.currentConfigurationCommit);
+  assert.equal(activated.audit.policyConfigurationCommit,
+    activated.currentConfigurationCommit);
   assert.ok(activationEntry.payload.changedFiles.some((file) =>
     file.paths.includes('singularity/capabilities.yml')));
   assert.ok('proposer' in activationEntry.payload);
@@ -1918,6 +1948,416 @@ test('an exact capability proposal can be reviewed, activated, and projected wit
   const history = await listCapabilityProposals(org.platform, { includeMerged: true });
   assert.equal(history[0].merged, true);
   assert.match(history[0].diff, /calculator/, 'an activated proposal retains a reviewable exact diff');
+});
+
+test('review repairs an exact historical agent/MCP mismatch on the proposal branch before activation', async () => {
+  /**
+   * New repositories could import an old packaged product-designer/QA pair from main while the
+   * initializer installed the current workflow.  Capability-only proposal inspection called that
+   * mixed authority reviewable, then full validation failed only after the reviewer pressed Merge.
+   * Recovery must retain that exact proposal, advance only its proven package bytes under a lease,
+   * and require review of the new commit before activation can touch the approved authority.
+   */
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const mainBefore = run('git', ['rev-parse', 'main'], { cwd: org.platform }).stdout.trim();
+  const proposed = await mapCapability(org.platform, {
+    capabilityId: 'figma-review', name: 'Figma review', kind: 'collection'
+  });
+  const approvedBefore = run('git', ['rev-parse', 'sflow/config'], {
+    cwd: org.platform
+  }).stdout.trim();
+  const authoring = path.join(org.base, 'historical-agent-proposal');
+  let incompatibleCommit;
+  try {
+    run('git', ['clone', '-q', '--branch', proposed.branch, org.platform, authoring]);
+    run('git', ['config', 'user.email', 'legacy-package@example.test'], { cwd: authoring });
+    run('git', ['config', 'user.name', 'Legacy Package Fixture'], { cwd: authoring });
+    for (const name of ['product-designer.agent.md', 'qa.agent.md']) {
+      await cp(
+        new URL(`./fixtures/packaged-agents/ba513/${name}`, import.meta.url),
+        path.join(authoring, '.github/agents', name)
+      );
+    }
+    run('git', ['add', '.github/agents/product-designer.agent.md', '.github/agents/qa.agent.md'], {
+      cwd: authoring
+    });
+    run('git', ['commit', '-qm', 'Reproduce historical packaged agents'], { cwd: authoring });
+    incompatibleCommit = run('git', ['rev-parse', 'HEAD'], { cwd: authoring }).stdout.trim();
+    run('git', ['push', '-q', 'origin', `HEAD:${proposed.branch}`], { cwd: authoring });
+  } finally {
+    await rm(authoring, { recursive: true, force: true });
+  }
+
+  const inbox = await listCapabilityProposals(org.platform, { includeDiff: false });
+  const incompatibleSummary = inbox.find((entry) => entry.branch === proposed.branch);
+  assert.ok(incompatibleSummary, 'the incompatible proposal remains visible in the inbox');
+  assert.equal(incompatibleSummary.valid, false,
+    'the proposal list applies the same complete workflow/agent/MCP validation as review');
+  assert.equal(incompatibleSummary.configurationErrorCode, 'MCP_AGENT_TOOLS_MISMATCH');
+  assert.equal(incompatibleSummary.repairable, true);
+  assert.match(incompatibleSummary.repairAction.command, new RegExp(incompatibleCommit));
+  assert.equal(incompatibleSummary.diff, null, 'summary validation does not force diff rendering');
+  const integrity = await capabilityFsck(org.platform);
+  const proposalCheck = integrity.checks.find((entry) =>
+    entry.id === `proposal:${proposed.branch}`);
+  assert.equal(proposalCheck?.status, 'fail');
+  assert.match(proposalCheck?.summary ?? '', /MCP server 'figma'/);
+  assert.match(proposalCheck?.remediation ?? '', new RegExp(incompatibleCommit),
+    'fsck carries the same exact repair action instead of hiding a joined-definition failure');
+
+  const incompatibleReview = await inspectCapabilityProposal(org.platform, proposed.branch);
+  assert.equal(incompatibleReview.valid, false);
+  assert.equal(incompatibleReview.configurationErrorCode, 'MCP_AGENT_TOOLS_MISMATCH');
+  assert.equal(incompatibleReview.repairable, true,
+    'the exact retired Agent Markdown files named by the MCP mismatch are repairable');
+  assert.match(incompatibleReview.repairAction.command,
+    /capability repair-proposal .* --lead .* --confirm [0-9a-f]{40}/);
+  assert.match(incompatibleReview.repairAction.command, new RegExp(incompatibleCommit));
+
+  await assert.rejects(
+    activateCapabilityProposal(org.platform, proposed.branch, { confirm: incompatibleCommit }),
+    (error) => {
+      assert.equal(error.code, 'CAPABILITY_PROPOSAL_PACKAGED_COMPATIBILITY_REQUIRED');
+      assert.equal(error.details.underlyingCode, 'MCP_AGENT_TOOLS_MISMATCH');
+      assert.equal(error.details.proposalCommit, incompatibleCommit);
+      assert.match(error.details.nextAction.command,
+        /capability repair-proposal .* --lead .* --confirm [0-9a-f]{40}/);
+      assert.match(error.details.nextAction.command, new RegExp(incompatibleCommit));
+      assert.deepEqual(error.details.mismatches.map(({ server, agent }) => ({ server, agent })), [{
+        server: 'figma', agent: 'product-designer'
+      }, {
+        server: 'playwright', agent: 'product-designer'
+      }, {
+        server: 'playwright', agent: 'qa'
+      }], 'one review refusal reports every incompatible package join instead of looping');
+      assert.deepEqual(error.details.preserved,
+        ['proposal-branch', 'approved-configuration', 'application-branches']);
+      return true;
+    }
+  );
+  assert.equal(run('git', ['rev-parse', 'sflow/config'], { cwd: org.platform }).stdout.trim(),
+    approvedBefore, 'failed review moved the approved configuration');
+  assert.equal(run('git', ['rev-parse', proposed.branch], { cwd: org.platform }).stdout.trim(),
+    incompatibleCommit, 'failed review rewrote the retained proposal');
+
+  await assert.rejects(
+    repairCapabilityProposal(org.platform, proposed.branch, { confirm: proposed.commit }),
+    (error) => {
+      assert.equal(error.code, 'CAPABILITY_PROPOSAL_REPAIR_CONFIRMATION_MISMATCH');
+      assert.equal(error.details.proposalCommit, incompatibleCommit);
+      assert.match(error.details.nextAction.command, new RegExp(incompatibleCommit));
+      return true;
+    }
+  );
+  assert.equal(run('git', ['rev-parse', proposed.branch], { cwd: org.platform }).stdout.trim(),
+    incompatibleCommit, 'a stale confirmation changed the proposal');
+
+  const repaired = await repairCapabilityProposal(org.platform, proposed.branch, {
+    confirm: incompatibleCommit
+  });
+  assert.equal(repaired.status, 'repaired');
+  assert.equal(repaired.repaired, true);
+  assert.equal(repaired.previousProposalCommit, incompatibleCommit);
+  assert.notEqual(repaired.proposalCommit, incompatibleCommit);
+  assert.equal(repaired.reviewRequired, true);
+  assert.deepEqual(repaired.changedFiles, [
+    '.github/agents/product-designer.agent.md', '.github/agents/qa.agent.md'
+  ]);
+  assert.match(repaired.activationAction.command, new RegExp(repaired.proposalCommit));
+  assert.equal(run('git', ['rev-parse', 'sflow/config'], { cwd: org.platform }).stdout.trim(),
+    approvedBefore, 'repair changed the approved authority before review');
+  assert.equal(run('git', ['rev-parse', 'main'], { cwd: org.platform }).stdout.trim(),
+    mainBefore, 'repair changed the application branch');
+  assert.deepEqual(run('git', [
+    'diff', '--name-only', `${incompatibleCommit}..${repaired.proposalCommit}`
+  ], { cwd: org.platform }).stdout.trim().split('\n'), repaired.changedFiles);
+  assert.match(run('git', [
+    'show', `${repaired.proposalCommit}:.github/agents/product-designer.agent.md`
+  ], { cwd: org.platform }).stdout, /"figma\/\*"/);
+  assert.match(run('git', [
+    'show', `${repaired.proposalCommit}:.github/agents/qa.agent.md`
+  ], { cwd: org.platform }).stdout, /"playwright\/\*"/);
+
+  await assert.rejects(
+    activateCapabilityProposal(org.platform, proposed.branch, {
+      confirm: incompatibleCommit, acknowledgeUnprotected: true
+    }),
+    (error) => error?.code === 'CAPABILITY_PROPOSAL_CONFIRMATION_MISMATCH',
+    'repair must not make the previously reviewed commit activatable'
+  );
+  const activated = await activateCapabilityProposal(org.platform, proposed.branch, {
+    confirm: repaired.proposalCommit, acknowledgeUnprotected: true
+  });
+  assert.equal(activated.activated, true);
+  assert.equal(activated.proposalCommit, repaired.proposalCommit);
+  assert.equal(run('git', ['rev-parse', 'main'], { cwd: org.platform }).stdout.trim(), mainBefore);
+});
+
+test('proposal compatibility repair atomically refuses an authority merged during its push', {
+  skip: process.platform === 'win32'
+}, async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const proposed = await mapCapability(org.platform, {
+    capabilityId: 'repair-authority-race', name: 'Repair authority race', kind: 'collection'
+  });
+  const incompatibleCommit = await publishHistoricalPackagedAgents(org.platform, proposed);
+  const authorityBefore = run('git', ['rev-parse', 'sflow/config'], {
+    cwd: org.platform
+  }).stdout.trim();
+  const realGit = run('which', ['git']).stdout.trim();
+  const wrappers = path.join(org.base, 'repair-authority-race-wrapper');
+  const wrapper = path.join(wrappers, 'git');
+  const sentinel = path.join(org.base, 'repair-authority-race-fired');
+  await mkdir(wrappers);
+  await writeFile(wrapper, `#!/usr/bin/env node
+const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+const realGit = ${JSON.stringify(realGit)};
+const repairPush = args[0] === 'push'
+  && args.includes(${JSON.stringify(`${authorityBefore}:refs/heads/sflow/config`)})
+  && args.some((arg) => String(arg).endsWith(${JSON.stringify(`:refs/heads/${proposed.branch}`)}));
+if (repairPush && !fs.existsSync(${JSON.stringify(sentinel)})) {
+  const merged = spawnSync(realGit, [
+    '--git-dir', ${JSON.stringify(org.platform)}, 'update-ref', 'refs/heads/sflow/config',
+    ${JSON.stringify(incompatibleCommit)}, ${JSON.stringify(authorityBefore)}
+  ], { encoding: 'utf8' });
+  if (merged.status !== 0) process.exit(merged.status || 1);
+  fs.writeFileSync(${JSON.stringify(sentinel)}, JSON.stringify(args));
+}
+const result = spawnSync(realGit, args, {
+  cwd: process.cwd(), env: process.env, stdio: 'inherit'
+});
+process.exit(result.status == null ? 1 : result.status);
+`);
+  await chmod(wrapper, 0o755);
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${wrappers}${path.delimiter}${previousPath}`;
+  try {
+    await assert.rejects(
+      repairCapabilityProposal(org.platform, proposed.branch, { confirm: incompatibleCommit }),
+      (error) => {
+        assert.equal(error.code, 'CAPABILITY_PROPOSAL_REPAIR_AUTHORITY_MOVED');
+        assert.equal(error.details.expectedAuthorityCommit, authorityBefore);
+        assert.equal(error.details.currentAuthorityCommit, incompatibleCommit);
+        assert.equal(error.details.currentProposalCommit, incompatibleCommit);
+        return true;
+      }
+    );
+  } finally {
+    process.env.PATH = previousPath;
+  }
+  const attemptedArgs = JSON.parse(await readFile(sentinel, 'utf8'));
+  assert.ok(attemptedArgs.includes('--atomic'));
+  assert.ok(attemptedArgs.includes(
+    `--force-with-lease=refs/heads/sflow/config:${authorityBefore}`));
+  assert.equal(run('git', ['rev-parse', proposed.branch], { cwd: org.platform }).stdout.trim(),
+    incompatibleCommit, 'the stale repair must not rewrite the concurrently merged proposal');
+  assert.equal(run('git', ['rev-parse', 'sflow/config'], { cwd: org.platform }).stdout.trim(),
+    incompatibleCommit, 'the repair must preserve the concurrent authority transition');
+});
+
+test('an unobservable compatibility-repair push retains its exact guarded commit', {
+  skip: process.platform === 'win32'
+}, async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const proposed = await mapCapability(org.platform, {
+    capabilityId: 'repair-unknown-push', name: 'Repair unknown push', kind: 'collection'
+  });
+  const incompatibleCommit = await publishHistoricalPackagedAgents(org.platform, proposed);
+  const authorityBefore = run('git', ['rev-parse', 'sflow/config'], {
+    cwd: org.platform
+  }).stdout.trim();
+  const realGit = run('which', ['git']).stdout.trim();
+  const wrappers = path.join(org.base, 'repair-unknown-push-wrapper');
+  const wrapper = path.join(wrappers, 'git');
+  const sentinel = path.join(org.base, 'repair-push-failed');
+  const recoveryDirectory = path.join(org.base, 'capability-push-recovery');
+  await mkdir(wrappers);
+  await writeFile(wrapper, `#!/usr/bin/env node
+const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+const realGit = ${JSON.stringify(realGit)};
+const repairPush = args[0] === 'push'
+  && args.includes(${JSON.stringify(`${authorityBefore}:refs/heads/sflow/config`)})
+  && args.some((arg) => String(arg).endsWith(${JSON.stringify(`:refs/heads/${proposed.branch}`)}));
+if (repairPush) {
+  fs.writeFileSync(${JSON.stringify(sentinel)}, 'failed\\n');
+  process.stderr.write('connection reset before repair outcome was received\\n');
+  process.exit(1);
+}
+if (args[0] === 'ls-remote' && fs.existsSync(${JSON.stringify(sentinel)})) {
+  process.stderr.write('authority is temporarily unreachable\\n');
+  process.exit(1);
+}
+const result = spawnSync(realGit, args, { cwd: process.cwd(), env: process.env, stdio: 'inherit' });
+process.exit(result.status == null ? 1 : result.status);
+`);
+  await chmod(wrapper, 0o755);
+  const previousPath = process.env.PATH;
+  const previousRecovery = process.env.SINGULARITY_FLOW_CAPABILITY_PUSH_RECOVERY;
+  process.env.PATH = `${wrappers}${path.delimiter}${previousPath}`;
+  process.env.SINGULARITY_FLOW_CAPABILITY_PUSH_RECOVERY = recoveryDirectory;
+  let failure;
+  try {
+    await repairCapabilityProposal(org.platform, proposed.branch, { confirm: incompatibleCommit });
+  } catch (error) {
+    failure = error;
+  } finally {
+    process.env.PATH = previousPath;
+    if (previousRecovery === undefined) delete process.env.SINGULARITY_FLOW_CAPABILITY_PUSH_RECOVERY;
+    else process.env.SINGULARITY_FLOW_CAPABILITY_PUSH_RECOVERY = previousRecovery;
+  }
+  let retained;
+  try {
+    assert.equal(failure?.code, 'CAPABILITY_PROPOSAL_REPAIR_PUSH_OUTCOME_UNKNOWN');
+    assert.equal(failure?.details?.state, 'repair-publication-uncertain');
+    assert.equal(failure?.details?.exactRecovery?.expectedTargetCommit, incompatibleCommit);
+    assert.equal(failure?.details?.exactRecovery?.expectedGuardedCommit, authorityBefore);
+    assert.equal(failure?.details?.localRecovery?.status, 'retained');
+    const recordFile = path.join(
+      recoveryDirectory, `${failure.details.localRecovery.recoveryId}.json`
+    );
+    retained = JSON.parse(await readFile(recordFile, 'utf8'));
+    assert.equal(existsSync(retained.checkout), true);
+    assert.equal(retained.sourceCommit, failure.details.exactRecovery.sourceCommit);
+    assert.equal(retained.expectedTargetCommit, incompatibleCommit);
+    assert.equal(retained.expectedGuardedCommit, authorityBefore);
+    assert.ok(retained.retry.args.includes('--atomic'));
+    assert.ok(retained.retry.args.includes(
+      `--force-with-lease=refs/heads/sflow/config:${authorityBefore}`));
+    assert.equal(run('git', ['cat-file', '-e', `${retained.sourceCommit}^{commit}`], {
+      cwd: retained.checkout, allowFailure: true
+    }).status, 0);
+    assert.equal(run('git', ['rev-parse', proposed.branch], { cwd: org.platform }).stdout.trim(),
+      incompatibleCommit);
+    assert.equal(run('git', ['rev-parse', 'sflow/config'], { cwd: org.platform }).stdout.trim(),
+      authorityBefore);
+    const expired = await cleanupCapabilityPushRecoveries({
+      environment: { SINGULARITY_FLOW_CAPABILITY_PUSH_RECOVERY: recoveryDirectory },
+      now: Date.parse(failure.details.localRecovery.expiresAt)
+    });
+    assert.equal(expired.expiredRemoved, 1,
+      'the bounded cleanup accepts retained capability-review checkouts');
+    assert.equal(existsSync(retained.checkout), false);
+  } finally {
+    if (retained?.checkout && existsSync(retained.checkout)) {
+      await removeTemporaryTree(retained.checkout);
+    }
+  }
+});
+
+test('capability review does not offer package repair for a customized MCP mismatch or unrelated retired asset', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const proposed = await mapCapability(org.platform, {
+    capabilityId: 'custom-figma-review', name: 'Custom Figma review', kind: 'collection'
+  });
+  const authoring = path.join(org.base, 'custom-agent-proposal');
+  try {
+    run('git', ['clone', '-q', '--branch', proposed.branch, org.platform, authoring]);
+    run('git', ['config', 'user.email', 'custom-agent@example.test'], { cwd: authoring });
+    run('git', ['config', 'user.name', 'Custom Agent Fixture'], { cwd: authoring });
+    const designerPath = path.join(authoring, '.github/agents/product-designer.agent.md');
+    const designer = await readFile(designerPath, 'utf8');
+    assert.match(designer, /, "figma\/\*"/);
+    await writeFile(designerPath, designer.replace(', "figma/*"', ''));
+    // This is a genuine retired package asset, but it is unrelated to the product-designer MCP
+    // mismatch and therefore cannot authorize an automatic compatibility-repair offer.
+    await cp(
+      new URL('./fixtures/packaged-agents/ba513/developer.agent.md', import.meta.url),
+      path.join(authoring, '.github/agents/developer.agent.md')
+    );
+    run('git', ['add', '.github/agents/product-designer.agent.md',
+      '.github/agents/developer.agent.md'], { cwd: authoring });
+    run('git', ['commit', '-qm', 'Customize designer and retain unrelated old package asset'], {
+      cwd: authoring
+    });
+    const customCommit = run('git', ['rev-parse', 'HEAD'], { cwd: authoring }).stdout.trim();
+    run('git', ['push', '-q', 'origin', `HEAD:${proposed.branch}`], { cwd: authoring });
+
+    const inspected = await inspectCapabilityProposal(org.platform, proposed.branch);
+    assert.equal(inspected.proposalCommit, customCommit);
+    assert.equal(inspected.valid, false);
+    assert.equal(inspected.configurationErrorCode, 'MCP_AGENT_TOOLS_MISMATCH');
+    assert.equal(inspected.repairable, false,
+      'an unrelated historical asset does not make a customized mismatching agent repairable');
+    assert.equal(inspected.repairAction.skill, '/sf-capability-map');
+    assert.match(inspected.repairAction.command, /capability fsck/);
+    assert.doesNotMatch(inspected.repairAction.command, /repair-proposal/);
+  } finally {
+    await rm(org.base, { recursive: true, force: true });
+  }
+});
+
+test('current packaged agent bytes do not make a custom MCP policy automatically repairable', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const proposed = await mapCapability(org.platform, {
+    capabilityId: 'custom-mcp-policy', name: 'Custom MCP policy', kind: 'collection'
+  });
+  const authoring = path.join(org.base, 'custom-mcp-policy-proposal');
+  try {
+    run('git', ['clone', '-q', '--branch', proposed.branch, org.platform, authoring]);
+    run('git', ['config', 'user.email', 'custom-policy@example.test'], { cwd: authoring });
+    run('git', ['config', 'user.name', 'Custom Policy Fixture'], { cwd: authoring });
+    const workflowFile = path.join(authoring, 'singularity/workflow.yml');
+    const workflow = YAML.parseDocument(await readFile(workflowFile, 'utf8'));
+    workflow.setIn(['mcpServers', 'figma', 'hostReference'], 'figma-v2');
+    await writeFile(workflowFile, workflow.toString());
+    run('git', ['add', 'singularity/workflow.yml'], { cwd: authoring });
+    run('git', ['commit', '-qm', 'Use a custom Figma host namespace'], { cwd: authoring });
+    run('git', ['push', '-q', 'origin', `HEAD:${proposed.branch}`], { cwd: authoring });
+
+    const inspected = await inspectCapabilityProposal(org.platform, proposed.branch);
+    assert.equal(inspected.valid, false);
+    assert.equal(inspected.configurationErrorCode, 'MCP_AGENT_TOOLS_MISMATCH');
+    assert.equal(inspected.repairable, false,
+      'an exact current packaged agent is not an older revision that initialization can upgrade');
+    assert.match(inspected.repairAction.command, /capability fsck/);
+  } finally {
+    await rm(org.base, { recursive: true, force: true });
+  }
+});
+
+test('review fully validates an already-merged proposal before recording activation', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const proposed = await mapCapability(org.platform, {
+    capabilityId: 'merged-old-agent', name: 'Merged old agent', kind: 'collection'
+  });
+  const review = path.join(org.base, 'merged-old-agent-review');
+  try {
+    run('git', ['clone', '-q', '--branch', proposed.branch, org.platform, review]);
+    run('git', ['config', 'user.email', 'external-reviewer@example.test'], { cwd: review });
+    run('git', ['config', 'user.name', 'External Reviewer'], { cwd: review });
+    for (const name of ['product-designer.agent.md', 'qa.agent.md']) {
+      await cp(
+        new URL(`./fixtures/packaged-agents/ba513/${name}`, import.meta.url),
+        path.join(review, '.github/agents', name)
+      );
+    }
+    run('git', ['add', '.github/agents/product-designer.agent.md',
+      '.github/agents/qa.agent.md'], { cwd: review });
+    run('git', ['commit', '-qm', 'Reproduce externally merged historical agents'], { cwd: review });
+    run('git', ['push', '-q', 'origin', `HEAD:${proposed.branch}`], { cwd: review });
+    run('git', ['push', '-q', 'origin', 'HEAD:sflow/config'], { cwd: review });
+
+    const inspected = await inspectCapabilityProposal(org.platform, proposed.branch);
+    assert.equal(inspected.merged, true);
+    assert.equal(inspected.valid, false,
+      'the review screen must not call an invalid merged authority ready for activation recording');
+    assert.equal(inspected.configurationErrorCode, 'MCP_AGENT_TOOLS_MISMATCH');
+    assert.equal(inspected.repairable, false,
+      'a merged authority requires governed authority repair, never proposal rewriting');
+    assert.match(inspected.repairAction.command, /capability fsck/);
+  } finally {
+    await rm(org.base, { recursive: true, force: true });
+  }
 });
 
 test('capability review accepts configured templates but rejects generated world-model output', async () => {
@@ -2169,6 +2609,96 @@ exit 1
   assert.equal(run('git', ['rev-parse', 'sflow/config'], { cwd: org.platform }).stdout.trim(), configBefore);
 });
 
+test('an unobservable activation push retains the exact merge commit instead of reporting pending', {
+  skip: process.platform === 'win32'
+}, async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const proposed = await mapCapability(org.platform, {
+    capabilityId: 'activation-unknown-push', name: 'Activation unknown push', kind: 'collection'
+  });
+  const authorityBefore = run('git', ['rev-parse', 'sflow/config'], {
+    cwd: org.platform
+  }).stdout.trim();
+  const realGit = run('which', ['git']).stdout.trim();
+  const wrappers = path.join(org.base, 'activation-unknown-push-wrapper');
+  const wrapper = path.join(wrappers, 'git');
+  const sentinel = path.join(org.base, 'activation-push-failed');
+  const recoveryDirectory = path.join(org.base, 'capability-push-recovery');
+  await mkdir(wrappers);
+  await writeFile(wrapper, `#!/usr/bin/env node
+const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+const realGit = ${JSON.stringify(realGit)};
+const activationPush = args[0] === 'push'
+  && args.includes('HEAD:refs/heads/sflow/config')
+  && args.includes(${JSON.stringify(`--force-with-lease=refs/heads/sflow/config:${authorityBefore}`)});
+if (activationPush) {
+  fs.writeFileSync(${JSON.stringify(sentinel)}, 'failed\\n');
+  process.stderr.write('connection reset before activation outcome was received\\n');
+  process.exit(1);
+}
+if (args[0] === 'ls-remote' && fs.existsSync(${JSON.stringify(sentinel)})) {
+  process.stderr.write('authority is temporarily unreachable\\n');
+  process.exit(1);
+}
+const result = spawnSync(realGit, args, { cwd: process.cwd(), env: process.env, stdio: 'inherit' });
+process.exit(result.status == null ? 1 : result.status);
+`);
+  await chmod(wrapper, 0o755);
+  const previousPath = process.env.PATH;
+  const previousRecovery = process.env.SINGULARITY_FLOW_CAPABILITY_PUSH_RECOVERY;
+  process.env.PATH = `${wrappers}${path.delimiter}${previousPath}`;
+  process.env.SINGULARITY_FLOW_CAPABILITY_PUSH_RECOVERY = recoveryDirectory;
+  let failure;
+  try {
+    await activateCapabilityProposal(org.platform, proposed.branch, {
+      confirm: proposed.commit, acknowledgeUnprotected: true
+    });
+  } catch (error) {
+    failure = error;
+  } finally {
+    process.env.PATH = previousPath;
+    if (previousRecovery === undefined) delete process.env.SINGULARITY_FLOW_CAPABILITY_PUSH_RECOVERY;
+    else process.env.SINGULARITY_FLOW_CAPABILITY_PUSH_RECOVERY = previousRecovery;
+  }
+  let retained;
+  try {
+    assert.equal(failure?.code, 'CAPABILITY_ACTIVATION_PUSH_OUTCOME_UNKNOWN');
+    assert.equal(failure?.details?.state, 'activation-publication-uncertain');
+    assert.equal(failure?.details?.exactRecovery?.expectedTargetCommit, authorityBefore);
+    assert.equal(failure?.details?.localRecovery?.status, 'retained');
+    const recordFile = path.join(
+      recoveryDirectory, `${failure.details.localRecovery.recoveryId}.json`
+    );
+    retained = JSON.parse(await readFile(recordFile, 'utf8'));
+    assert.equal(existsSync(retained.checkout), true);
+    assert.equal(retained.sourceCommit, failure.details.exactRecovery.sourceCommit);
+    assert.equal(retained.targetRef, 'refs/heads/sflow/config');
+    assert.equal(retained.expectedTargetCommit, authorityBefore);
+    assert.ok(retained.retry.args.includes(
+      `--force-with-lease=refs/heads/sflow/config:${authorityBefore}`));
+    assert.ok(retained.retry.args.includes(
+      `${retained.sourceCommit}:refs/heads/sflow/config`));
+    assert.equal(run('git', ['cat-file', '-e', `${retained.sourceCommit}^{commit}`], {
+      cwd: retained.checkout, allowFailure: true
+    }).status, 0, 'the proposed merge commit remains reachable for exact recovery');
+    assert.equal(run('git', ['rev-parse', 'sflow/config'], { cwd: org.platform }).stdout.trim(),
+      authorityBefore, 'an unknown outcome is never mislabeled as a confirmed activation');
+    const expired = await cleanupCapabilityPushRecoveries({
+      environment: { SINGULARITY_FLOW_CAPABILITY_PUSH_RECOVERY: recoveryDirectory },
+      now: Date.parse(failure.details.localRecovery.expiresAt)
+    });
+    assert.equal(expired.expiredRemoved, 1);
+    assert.equal(existsSync(retained.checkout), false);
+  } finally {
+    if (retained?.checkout && existsSync(retained.checkout)) {
+      await removeTemporaryTree(retained.checkout);
+    }
+  }
+});
+
 test('capability review cannot be redirected by ambient repository selectors', async () => {
   const org = await remotes('platform');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
@@ -2383,6 +2913,9 @@ exit 0
     entry.subject?.workId === `capability-proposal:${proposed.commit}`);
   assert.equal(entries.length, 1);
   assert.equal(entries[0].payload.targetCommit, acceptedTarget);
+  assert.equal(entries[0].payload.policyConfigurationCommit, advancedTarget,
+    'the audit records the later approved policy snapshot independently of its recovered target');
+  assert.equal(recovered.audit.policyConfigurationCommit, advancedTarget);
   assert.equal(entries[0].transport.publishedCommit, acceptedTarget);
   const manifest = JSON.parse(run('git', [
     'show', 'state:configuration/manifest.json'
@@ -2961,6 +3494,66 @@ test('a proposal that enables signing preflights its post-merge policy before au
   }).stdout.trim(), before, 'invalid post-merge signing policy was refused before authority moved');
 });
 
+test('activation obeys signing policy added to the authority after proposal review', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const initial = await mapCapability(org.platform, {
+    capabilityId: 'advanced-signing-foundation', kind: 'collection'
+  });
+  await activateCapabilityProposal(org.platform, initial.branch, {
+    confirm: initial.commit, acknowledgeUnprotected: true
+  });
+
+  // Author the capability proposal while the approved authority still permits unsigned commits.
+  const proposed = await mapCapability(org.platform, {
+    capabilityId: 'reviewed-before-signing-policy', kind: 'collection'
+  });
+
+  // A separate policy change advances sflow/config after review but before activation.
+  const policy = path.join(org.base, 'advanced-signing-policy');
+  run('git', ['clone', '-q', '--branch', 'sflow/config', org.platform, policy], { cwd: org.base });
+  run('git', ['config', 'user.name', 'Policy Reviewer'], { cwd: policy });
+  run('git', ['config', 'user.email', 'policy-reviewer@example.test'], { cwd: policy });
+  const workflowFile = path.join(policy, 'singularity/workflow.yml');
+  const workflow = YAML.parseDocument(await readFile(workflowFile, 'utf8'));
+  workflow.setIn(['ledger', 'signing'], 'commit');
+  await writeFile(workflowFile, workflow.toString());
+  run('git', ['add', 'singularity/workflow.yml'], { cwd: policy });
+  run('git', ['commit', '-qm', 'Require signing before pending proposal activation'], { cwd: policy });
+  run('git', ['push', '-q', 'origin', 'HEAD:sflow/config'], { cwd: policy });
+  const authorityBefore = run('git', ['rev-parse', 'sflow/config'], {
+    cwd: org.platform
+  }).stdout.trim();
+
+  const initiatingRoot = path.join(org.base, 'advanced-signing-initiator');
+  run('git', ['clone', '-q', '--branch', 'main', org.platform, initiatingRoot], { cwd: org.base });
+  run('git', ['config', 'user.name', 'Capability Reviewer'], { cwd: initiatingRoot });
+  run('git', ['config', 'user.email', 'capability-reviewer@example.test'], { cwd: initiatingRoot });
+  run('git', ['config', 'gpg.format', 'ssh'], { cwd: initiatingRoot });
+  run('git', ['config', 'user.signingkey', 'keys/missing'], { cwd: initiatingRoot });
+  const emptyGlobal = path.join(org.base, 'empty-advanced-signing-global.gitconfig');
+  await writeFile(emptyGlobal, '');
+  const initiatingEnv = {
+    ...process.env,
+    NODE_ENV: 'production',
+    GIT_CONFIG_GLOBAL: emptyGlobal,
+    GIT_CONFIG_SYSTEM: os.devNull
+  };
+  delete initiatingEnv.SINGULARITY_FLOW_TEST_IDENTITY;
+
+  await assert.rejects(() => activateCapabilityProposal(org.platform, proposed.branch, {
+    confirm: proposed.commit,
+    acknowledgeUnprotected: true,
+    initiatingRoot,
+    initiatingEnv
+  }), (error) => error.code === 'GIT_COMMIT_SIGNING_INVALID'
+    && error.details?.setting === 'user.signingkey');
+  assert.equal(run('git', ['rev-parse', 'sflow/config'], {
+    cwd: org.platform
+  }).stdout.trim(), authorityBefore,
+  'activation did not push an unsigned merge after the authority began requiring signatures');
+});
+
 test('map requires explicitly configured Git author name and email before remote observation', async () => {
   const org = await remotes('platform');
   await mapAndMerge(org.platform, { capabilityId: 'foundation', kind: 'collection' });
@@ -3080,6 +3673,36 @@ test('a confirmed proposal remains successful when temporary checkout cleanup fa
   } finally {
     if (retainedCheckout) await removeTemporaryTree(retainedCheckout);
     if (retainedNoopCheckout) await removeTemporaryTree(retainedNoopCheckout);
+  }
+});
+
+test('a confirmed activation remains successful when temporary review cleanup fails', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const proposed = await mapCapability(org.platform, {
+    capabilityId: 'activation-cleanup-warning', kind: 'collection'
+  });
+  let retainedCheckout = null;
+  try {
+    const activated = await activateCapabilityProposal(org.platform, proposed.branch, {
+      confirm: proposed.commit,
+      acknowledgeUnprotected: true,
+      cleanupTemporaryTree: async (directory) => {
+        retainedCheckout = directory;
+        throw new Error('simulated review checkout cleanup failure');
+      }
+    });
+    assert.equal(activated.activated, true);
+    assert.equal(activated.cleanup?.completed, false);
+    assert.match(activated.cleanup?.warning ?? '', /cleanup could not be confirmed/i);
+    assert.equal(run('git', ['rev-parse', 'sflow/config'], { cwd: org.platform }).stdout.trim(),
+      activated.currentConfigurationCommit,
+      'cleanup failure cannot hide the already accepted configuration authority commit');
+    assert.equal(activated.audit.recorded, true,
+      'cleanup failure cannot hide the already recorded activation audit');
+  } finally {
+    if (retainedCheckout) await removeTemporaryTree(retainedCheckout);
+    await rm(org.base, { recursive: true, force: true });
   }
 });
 

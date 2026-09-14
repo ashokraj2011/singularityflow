@@ -13,6 +13,10 @@ export interface CapabilityProposal {
   proposalBase: string;
   merged: boolean;
   valid: boolean;
+  configurationError?: string | null;
+  configurationErrorCode?: string | null;
+  repairable?: boolean;
+  repairAction?: { command?: string; skill?: string } | null;
   invalidFiles: string[];
   changedFiles: Array<{ status: string; paths: string[] }>;
   diff: string;
@@ -34,6 +38,12 @@ interface ActivationResult {
   preserved?: string[];
 }
 
+interface ProposalRepairResult {
+  repaired?: boolean;
+  proposalCommit: string;
+  changedFiles?: string[];
+}
+
 type Run = (argv: string[]) => Promise<{ result: unknown; error: string | null }>;
 
 function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: string | null,
@@ -46,6 +56,9 @@ function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: s
       <td><code>${escape(file.status)}</code></td><td>${escape(file.paths.join(' to '))}</td></tr>`).join('');
   const projection = activated?.projection;
   const activationComplete = activated?.activated !== false;
+  // The engine proves repairability against the exact mismatching Agent Markdown bytes at the
+  // reviewed Git ref. Never infer that safety boundary from human-readable error text.
+  const packagedRepairAvailable = !proposal.merged && proposal.repairable === true;
   const activationNotice = !activated ? '' : activationComplete
     ? `<div class="notice ok"><p><strong>Capability activated.</strong> ${escape(
       activated.alreadyMerged ? 'The externally merged proposal is now audited.' : `Approved ${activated.targetBranch} now points to ${activated.targetCommit.slice(0, 12)}.`
@@ -91,6 +104,11 @@ function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: s
       <h2>${icon('configuration')} Changed configuration files</h2>
       <div class="table-wrap"><table><thead><tr><th>Status</th><th>Path</th></tr></thead><tbody>${files}</tbody></table></div>
       ${proposal.invalidFiles.length ? `<div class="notice error"><p>Non-configuration files are refused: ${escape(proposal.invalidFiles.join(', '))}</p></div>` : ''}
+      ${proposal.configurationError ? `<div class="notice governance-warning"><p><strong>Configuration compatibility needs attention.</strong> ${escape(proposal.configurationError)}</p>${proposal.repairable
+        ? '<p>The recognized historical packaged files can be repaired on this proposal branch without changing approved configuration or application code. The new commit must be reviewed again.</p>'
+        : proposal.repairAction?.command
+          ? `<p><strong>Next:</strong> <code>${escape(proposal.repairAction.command)}</code></p>`
+          : ''}</div>` : ''}
     </section>
     <section>
       <h2>${icon('compare')} Proposed diff</h2>
@@ -99,6 +117,8 @@ function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: s
     <section class="next">
       <div class="actions">
         <button class="primary" data-action="activate" ${busy || !proposal.valid || activationComplete && Boolean(activated) ? 'disabled' : ''}>${icon('merge')} ${busy ? 'Activating…' : proposal.merged ? 'Record merged activation' : activated && !activationComplete ? 'Retry exact activation' : 'Merge proposal'}</button>
+        ${packagedRepairAvailable
+          ? `<button class="secondary" data-action="repair" ${busy ? 'disabled' : ''}>${icon('refresh')} Prepare compatibility repair</button>` : ''}
         <button class="secondary" data-action="refresh" ${busy ? 'disabled' : ''}>${icon('refresh')} Refresh</button>
         <button class="secondary" data-action="copy">${icon('branch')} Copy branch</button>
       </div>
@@ -183,6 +203,37 @@ export class CapabilityProposalPanel {
     if (message.type === 'copy') {
       await vscode.env.clipboard.writeText(this.branch);
       void vscode.window.showInformationMessage('Capability proposal branch copied.');
+      return;
+    }
+    if (message.type === 'repair' && this.proposal?.repairable === true && !this.busy) {
+      const proposal = this.proposal;
+      const label = 'Prepare repair for review';
+      const accepted = await vscode.window.showWarningMessage(
+        `Prepare a compatibility repair on ${proposal.branch}@${proposal.proposalCommit.slice(0, 12)}?`,
+        { modal: true, detail: 'Only missing packaged files and byte-exact historical SFlow package files can change. Repository-customized files, the approved configuration, state, and application branches remain untouched. The resulting commit must be reviewed again before activation.' },
+        label);
+      if (accepted !== label) return;
+      this.busy = true; this.error = null; this.render();
+      const repaired = await this.run([
+        'capability', 'repair-proposal', proposal.branch, '--lead', this.lead,
+        '--confirm', proposal.proposalCommit, '--json'
+      ]);
+      this.busy = false;
+      if (repaired.error) {
+        this.error = repaired.error;
+        if (/No recognized historical packaged files remain|repository-customized and requires a normal reviewed configuration change/i.test(repaired.error)) {
+          this.proposal = { ...proposal, repairable: false };
+        }
+        this.render();
+        return;
+      }
+      const result = repaired.result as ProposalRepairResult;
+      this.activated = null;
+      this.error = null;
+      void vscode.window.showInformationMessage(result.repaired
+        ? `Compatibility repair prepared at ${result.proposalCommit.slice(0, 12)}. Review the updated diff before merging.`
+        : 'This capability proposal is already compatible.');
+      await this.load();
       return;
     }
     if (message.type !== 'activate' || !this.proposal || this.busy) return;

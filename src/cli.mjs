@@ -215,7 +215,7 @@ import { validateLedgerDeployment } from './ledger-deployment.mjs';
 import { CAPABILITY_KINDS, CAPABILITY_TYPES, CAPABILITIES_PATH, capabilityDeliveries, capabilityForRepository, capabilityTree, editCapability, flattenCapabilityTree, loadCapabilities, resolveCapabilityPolicy, resolveEffectiveCapabilityPolicy, validateCapabilities } from './capabilities.mjs';
 import { validateConfigurationSnapshotCapabilities } from './capability-context.mjs';
 import { bootstrapRepository, repositoryIdFromUrl } from './bootstrap.mjs';
-import { activateCapabilityProposal, addCapabilityRepository, applyCapabilityReconciliation, applyStaleCapabilityAuthorityLinkRetirement, capabilityFsck, capabilityProposalCommands, capabilityReadiness, composeCapabilityWorldModel, discardStaleCapabilityProposal, editCapabilityInOrganisation, inspectCapabilityProposal, inspectCapabilityRepository, listCapabilityProposals, initializeWorkspaceState, listLeadRepositories, mapCapability, previewCapabilityReconciliation, previewStaleCapabilityAuthorityLinkRetirement, publishOrganisationCapabilityMap, readOrganisation, rememberLeadRepository, resolveWorkspacePlan } from './organisation.mjs';
+import { activateCapabilityProposal, addCapabilityRepository, applyCapabilityReconciliation, applyStaleCapabilityAuthorityLinkRetirement, capabilityFsck, capabilityProposalCommands, capabilityReadiness, composeCapabilityWorldModel, discardStaleCapabilityProposal, editCapabilityInOrganisation, inspectCapabilityProposal, inspectCapabilityRepository, listCapabilityProposals, initializeWorkspaceState, listLeadRepositories, mapCapability, previewCapabilityReconciliation, previewStaleCapabilityAuthorityLinkRetirement, publishOrganisationCapabilityMap, readOrganisation, rememberLeadRepository, repairCapabilityProposal, resolveWorkspacePlan } from './organisation.mjs';
 import { canonicalCommand, commandDefinition, operationById, SECRETS_SUBCOMMANDS, validateCommandHandlers } from './command-registry.mjs';
 // `action` is already a command name in this file, so the narration constructor is renamed rather
 // than shadowing it.
@@ -9251,6 +9251,38 @@ async function capabilityCommand(positionals, options) {
     return result;
   }
 
+  if (subcommandForWrite === 'repair-proposal') {
+    const leadUrl = optionString(options, 'lead') ?? (await listLeadRepositories())[0]?.url;
+    if (!leadUrl) throw new SingularityFlowError('No lead repository is known. Pass --lead <URL>.');
+    const branch = requirePositional(positionals, 2, 'capability proposal branch');
+    let result = await repairCapabilityProposal(leadUrl, branch, {
+      confirm: optionString(options, 'confirm')
+    });
+    try {
+      await rememberLeadRepository(leadUrl);
+    } catch {
+      const warning = 'The compatibility repair succeeded, but this machine could not remember its capability-map repository.';
+      result = {
+        ...result,
+        localCache: { remembered: false, code: 'CAPABILITY_LEAD_REGISTRY_WRITE_FAILED', warning },
+        warnings: [...(result.warnings ?? []), warning]
+      };
+    }
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    if (!result.repaired) {
+      console.log(`Capability proposal ${result.branch}@${result.proposalCommit} is already compatible.`);
+      return console.log(`  activate: ${result.nextAction.command}`);
+    }
+    console.log(`Prepared packaged compatibility repair for ${result.branch}.`);
+    console.log(`  previous commit: ${result.previousProposalCommit}`);
+    console.log(`  review commit: ${result.proposalCommit}`);
+    for (const file of result.changedFiles) console.log(`  repaired: ${file}`);
+    console.log('  approved configuration and application branches were not changed.');
+    console.log(`  review: ${result.nextAction.command}`);
+    console.log(`  after review: ${result.activationAction.command}`);
+    return result;
+  }
+
   if (subcommandForWrite === 'proposals') {
     const leadUrl = optionString(options, 'lead') ?? (await listLeadRepositories())[0]?.url;
     if (!leadUrl) throw new SingularityFlowError('No lead repository is known. Pass --lead <URL>.');
@@ -9289,6 +9321,8 @@ async function capabilityCommand(positionals, options) {
     console.log(`  status: ${proposal.merged ? 'already merged' : proposal.valid ? 'ready for review' : 'invalid'}`);
     for (const file of proposal.changedFiles) console.log(`  ${file.status.padEnd(4)} ${file.paths.join(' -> ')}`);
     if (proposal.invalidFiles.length) console.log(`  refused files: ${proposal.invalidFiles.join(', ')}`);
+    if (proposal.configurationError) console.log(`  configuration: ${proposal.configurationError}`);
+    if (proposal.repairAction?.command) console.log(`  recover: ${proposal.repairAction.command}`);
     return;
   }
 
@@ -9296,11 +9330,20 @@ async function capabilityCommand(positionals, options) {
     const leadUrl = optionString(options, 'lead') ?? (await listLeadRepositories())[0]?.url;
     if (!leadUrl) throw new SingularityFlowError('No lead repository is known. Pass --lead <URL>.');
     const branch = requirePositional(positionals, 2, 'capability proposal branch');
-    const result = await activateCapabilityProposal(leadUrl, branch, {
+    let result = await activateCapabilityProposal(leadUrl, branch, {
       confirm: optionString(options, 'confirm'),
       acknowledgeUnprotected: optionBoolean(options, 'acknowledge-unprotected')
     });
-    await rememberLeadRepository(leadUrl);
+    try {
+      await rememberLeadRepository(leadUrl);
+    } catch {
+      const warning = 'Capability activation completed, but this machine could not remember its capability-map repository.';
+      result = {
+        ...result,
+        localCache: { remembered: false, code: 'CAPABILITY_LEAD_REGISTRY_WRITE_FAILED', warning },
+        warnings: [...(result.warnings ?? []), warning]
+      };
+    }
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     if (!result.activated) {
       console.log(`Capability activation is ${result.status}.`);

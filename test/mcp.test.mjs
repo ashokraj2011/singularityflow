@@ -868,8 +868,39 @@ test('MCP routing composes only the active agent and phase tool policy', () => {
 test('MCP assignments require matching custom-agent tool namespaces', () => {
   const definition = { mcpServers: configured(), agentCatalog: [{ id: 'qa', tools: ['read', 'playwright/*'] }] };
   assert.doesNotThrow(() => validateMcpAgentTools(definition));
-  definition.agentCatalog[0].tools = ['read'];
-  assert.throws(() => validateMcpAgentTools(definition), /Agent Markdown tools do not allow/);
+  definition.mcpServers = normalizeMcpServers({
+    figma: {
+      hostReference: 'figma', agents: ['product-designer'],
+      tools: ['get_metadata', 'get_screenshot']
+    },
+    playwright: {
+      hostReference: 'playwright', agents: ['qa', 'product-designer'],
+      tools: ['browser_navigate']
+    }
+  });
+  definition.agentCatalog = [
+    { id: 'product-designer', scope: 'repository', source: '.github/agents/product-designer.agent.md', tools: ['read'] },
+    { id: 'qa', scope: 'repository', source: '.github/agents/qa.agent.md', tools: ['read'] }
+  ];
+  assert.throws(() => validateMcpAgentTools(definition), (error) => {
+    assert.equal(error.code, 'MCP_AGENT_TOOLS_MISMATCH');
+    assert.match(error.message, /Agent Markdown tools do not allow/);
+    assert.match(error.message, /2 additional Agent\/MCP mismatches/);
+    assert.deepEqual(error.details.mismatches, [{
+      server: 'figma', hostReference: 'figma', agent: 'product-designer',
+      agentSource: '.github/agents/product-designer.agent.md',
+      missingTools: ['figma/get_metadata', 'figma/get_screenshot']
+    }, {
+      server: 'playwright', hostReference: 'playwright', agent: 'product-designer',
+      agentSource: '.github/agents/product-designer.agent.md',
+      missingTools: ['playwright/browser_navigate']
+    }, {
+      server: 'playwright', hostReference: 'playwright', agent: 'qa',
+      agentSource: '.github/agents/qa.agent.md',
+      missingTools: ['playwright/browser_navigate']
+    }]);
+    return true;
+  });
 });
 
 test('MCP host inventory discovers workspace and user files without reading secret values', async () => {

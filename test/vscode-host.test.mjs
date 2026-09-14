@@ -4834,6 +4834,182 @@ test('overlapping map receipts in separate windows update and clear only their o
   panel.dispose();
 });
 
+test('capability review presents only an engine-proven exact compatibility repair', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode();
+  loadExtension(api);
+  const { CapabilityProposalPanel } = hostRequire(path.join(
+    packageRoot, 'apps', 'vscode', 'dist', 'lazy-panels-runtime.cjs'
+  ));
+  const lead = 'https://git.example/new-service.git';
+  const branch = 'sflow/config-change/capability/map-new-service-12345678';
+  const originalCommit = 'a'.repeat(40);
+  const repairedCommit = 'b'.repeat(40);
+  let currentCommit = originalCommit;
+  const calls = [];
+  const runPanelCommand = async (argv) => {
+    calls.push([...argv]);
+    if (argv[0] !== 'capability') throw new Error(`Unexpected command: ${argv.join(' ')}`);
+    if (argv[1] === 'proposal') return {
+      result: {
+        remote: lead,
+        branch,
+        targetBranch: 'sflow/config',
+        targetCommit: 'c'.repeat(40),
+        proposalCommit: currentCommit,
+        proposalBase: 'c'.repeat(40),
+        merged: false,
+        valid: currentCommit !== originalCommit,
+        configurationError: currentCommit === originalCommit
+          ? "MCP server 'figma' is assigned to agent 'product-designer', but its Agent Markdown tools do not allow figma/get_metadata."
+          : null,
+        configurationErrorCode: currentCommit === originalCommit
+          ? 'MCP_AGENT_TOOLS_MISMATCH' : null,
+        repairable: currentCommit === originalCommit,
+        repairAction: currentCommit === originalCommit ? {
+          command: `singularity-flow capability repair-proposal ${branch} --lead ${lead} --confirm ${originalCommit}`,
+          skill: '/sf-capability-map'
+        } : null,
+        invalidFiles: [],
+        changedFiles: [{ status: 'M', paths: ['singularity/capabilities.yml'] }],
+        diff: currentCommit === originalCommit ? 'capability change' : 'capability and packaged-agent repair'
+      },
+      error: null
+    };
+    if (argv[1] === 'activate') throw new Error('An invalid inspected proposal must not activate');
+    if (argv[1] === 'repair-proposal') {
+      currentCommit = repairedCommit;
+      return {
+        result: {
+          repaired: true,
+          proposalCommit: repairedCommit,
+          changedFiles: ['.github/agents/product-designer.agent.md']
+        },
+        error: null
+      };
+    }
+    throw new Error(`Unexpected capability command: ${argv.join(' ')}`);
+  };
+
+  const panelController = CapabilityProposalPanel.show(context(), lead, branch, runPanelCommand);
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.capabilityProposal');
+  assert.ok(panel, 'the exact capability proposal review panel opened');
+  await until(() => panel.webview.html.includes('Prepare compatibility repair')
+    ? panel.webview.html : null);
+  assert.match(panel.webview.html, /MCP server &#39;figma&#39; is assigned to agent &#39;product-designer&#39;/,
+    'the original compatibility failure remains visible beside its recovery action');
+  assert.equal(calls.some((argv) => argv[1] === 'activate'), false,
+    'direct proposal inspection blocks activation before the reviewer can press Merge');
+
+  registered.warningAnswers.push('Prepare repair for review');
+  await panel.post({ type: 'repair' });
+  await until(() => calls.find((argv) => argv[1] === 'repair-proposal') ?? null);
+  assert.deepEqual(calls.find((argv) => argv[1] === 'repair-proposal'), [
+    'capability', 'repair-proposal', branch, '--lead', lead, '--confirm', originalCommit, '--json'
+  ], 'repair is bound to the same complete proposal commit and lead repository');
+  assert.ok(registered.warningDetails.some((detail) =>
+    /Only missing packaged files and byte-exact historical SFlow package files can change/.test(detail ?? '')),
+  'the modal states the non-destructive repair boundary');
+  await until(() => panel.webview.html.includes(repairedCommit.slice(0, 12))
+    ? panel.webview.html : null);
+  assert.match(panel.webview.html, /capability and packaged-agent repair/,
+    'the panel reloads the repaired proposal for a new review instead of activating it automatically');
+  assert.ok(registered.infos.some((message) =>
+    message.includes(`Compatibility repair prepared at ${repairedCommit.slice(0, 12)}`)));
+  assert.equal(calls.filter((argv) => argv[1] === 'activate').length, 0,
+    'preparing a repair never retries or bypasses activation');
+  panelController.dispose();
+});
+
+test('capability proposal inbox shows joined-definition failures and exact recovery metadata', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode();
+  loadExtension(api);
+  const { CapabilityProposalsPanel } = hostRequire(path.join(
+    packageRoot, 'apps', 'vscode', 'dist', 'lazy-panels-runtime.cjs'
+  ));
+  const lead = 'https://git.example/platform.git';
+  const branch = 'sflow/config-change/capability/map-figma-review-12345678';
+  const commit = 'a'.repeat(40);
+  const recovery = `singularity-flow capability repair-proposal ${branch} --lead ${lead} --confirm ${commit}`;
+  const controller = CapabilityProposalsPanel.show(context(), async (argv) => {
+    if (argv[1] === 'leads') return { result: [{ url: lead }], error: null };
+    if (argv[1] === 'proposals') return {
+      result: { proposals: [{
+        branch, proposalCommit: commit, changedFiles: [], valid: false, merged: false,
+        status: 'invalid', configurationError: "MCP server 'figma' is incompatible.",
+        configurationErrorCode: 'MCP_AGENT_TOOLS_MISMATCH', repairable: true,
+        repairAction: { command: recovery, skill: '/sf-capability-map' }
+      }] },
+      error: null
+    };
+    throw new Error(`Unexpected command: ${argv.join(' ')}`);
+  }, () => {});
+  const panel = registered.panels.find((entry) =>
+    entry.id === 'singularityFlow.capabilityProposals');
+  assert.ok(panel);
+  await until(() => panel.webview.html.includes('Open this review to prepare')
+    ? panel.webview.html : null);
+  assert.match(panel.webview.html, /MCP server &#39;figma&#39; is incompatible/);
+  assert.match(panel.webview.html, /capability repair-proposal/);
+  assert.doesNotMatch(panel.webview.html, /ready for exact review/);
+  controller.dispose();
+});
+
+test('capability review does not infer repairability from MCP-shaped error prose', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode();
+  loadExtension(api);
+  const { CapabilityProposalPanel } = hostRequire(path.join(
+    packageRoot, 'apps', 'vscode', 'dist', 'lazy-panels-runtime.cjs'
+  ));
+  const lead = 'https://git.example/custom-service.git';
+  const branch = 'sflow/config-change/capability/map-custom-service-12345678';
+  const proposalCommit = 'd'.repeat(40);
+  const calls = [];
+  const panelController = CapabilityProposalPanel.show(context(), lead, branch, async (argv) => {
+    calls.push([...argv]);
+    return {
+      result: {
+        remote: lead,
+        branch,
+        targetBranch: 'sflow/config',
+        targetCommit: 'e'.repeat(40),
+        proposalCommit,
+        proposalBase: 'e'.repeat(40),
+        merged: false,
+        valid: false,
+        configurationError: "MCP server 'figma' is assigned to agent 'product-designer', but its Agent Markdown tools do not allow figma/get_metadata.",
+        configurationErrorCode: 'MCP_AGENT_TOOLS_MISMATCH',
+        repairable: false,
+        repairAction: {
+          command: `singularity-flow capability fsck --lead ${lead}`,
+          skill: '/sf-capability-map'
+        },
+        invalidFiles: [],
+        changedFiles: [{ status: 'M', paths: ['.github/agents/product-designer.agent.md'] }],
+        diff: 'repository-customized agent'
+      },
+      error: null
+    };
+  });
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.capabilityProposal');
+  assert.ok(panel);
+  await until(() => panel.webview.html.includes('repository-customized agent')
+    ? panel.webview.html : null);
+  assert.match(panel.webview.html, /MCP server &#39;figma&#39;/,
+    'the exact validation failure remains visible');
+  assert.doesNotMatch(panel.webview.html, /Prepare compatibility repair/,
+    'human-readable MCP prose cannot authorize automatic proposal rewriting');
+  assert.match(panel.webview.html, /singularity-flow capability fsck --lead/,
+    'a non-automatic compatibility failure still renders the engine-provided recovery command');
+  await panel.post({ type: 'repair' });
+  assert.deepEqual(calls, [[
+    'capability', 'proposal', branch, '--lead', lead, '--json'
+  ]], 'a forged repair message is ignored when inspection did not prove repairability');
+  panelController.dispose();
+});
+
 test('a window with nothing open can map a capability from scratch', async (t) => {
   if (!requireBundle(t)) return;
   // The product's one chicken-and-egg problem, in the worst possible place: to use the tool you

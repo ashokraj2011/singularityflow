@@ -13,37 +13,37 @@ const workspace = { id: 'payments', name: 'Payments', path: '/work/payments', an
 const status = {
   workspace: {
     id: 'payments', name: 'Payments', path: '/work/payments', leadRepository: 'ui',
-    capabilityAuthority: { url: 'https://github.com/example/platform.git' }
+    capabilityAuthority: { url: 'https://git.example.invalid/acme/platform.git' }
   },
   healthy: true,
   leadRepositoryPath: '/clones/ui',
   repositories: [
     {
       id: 'ui', role: 'lead', absolutePath: '/clones/ui', state: 'ready',
-      url: 'https://github.com/example/RuleEngineUI.git'
+      url: 'https://git.example.invalid/acme/RuleEngineUI.git'
     },
     {
       id: 'api', absolutePath: '/clones/api', state: 'missing',
-      url: 'ssh://git@github.com/example/RuleEngineAPI'
+      url: 'ssh://git@git.example.invalid/acme/RuleEngineAPI'
     }
   ]
 };
 
 test('Git URL maintenance matches ordinary HTTPS and SSH spellings without weakening identity', () => {
   assert.equal(
-    gitRepositoryComparisonKey('https://github.com/example/RuleEngineUI.git/'),
-    'remote:github.com/example/RuleEngineUI'
+    gitRepositoryComparisonKey('https://git.example.invalid/acme/RuleEngineUI.git/'),
+    'remote:git.example.invalid/acme/RuleEngineUI'
   );
   assert.equal(sameGitRepository(
-    'git@github.com:example/RuleEngineUI.git',
-    'https://github.com/example/RuleEngineUI/'
+    'git@git.example.invalid:acme/RuleEngineUI.git',
+    'https://git.example.invalid/acme/RuleEngineUI/'
   ), true);
   assert.equal(sameGitRepository(
-    'https://github.com/example/RuleEngineUI.git',
-    'https://github.com/example/another.git'
+    'https://git.example.invalid/acme/RuleEngineUI.git',
+    'https://git.example.invalid/acme/another.git'
   ), false);
-  assert.equal(gitRepositoryComparisonKey('https://token@github.com/example/RuleEngineUI.git'), null);
-  assert.equal(gitRepositoryComparisonKey('https://github.com/example/RuleEngineUI.git?token=secret'), null);
+  assert.equal(gitRepositoryComparisonKey('https://token@git.example.invalid/acme/RuleEngineUI.git'), null);
+  assert.equal(gitRepositoryComparisonKey('https://git.example.invalid/acme/RuleEngineUI.git?token=secret'), null);
   assert.equal(
     gitRepositoryComparisonKey('C:\\Work\\RuleEngineUI.git'),
     'local:c:/Work/RuleEngineUI'
@@ -76,18 +76,18 @@ test('Git URL maintenance resolves only exact repositories in readable registere
     }
   ];
   assert.deepEqual(repositoryRefreshTargets(
-    'git@github.com:example/RuleEngineUI.git', observations
+    'git@git.example.invalid:acme/RuleEngineUI.git', observations
   ), [{
     workspaceId: 'payments',
     workspaceName: 'Payments',
     workspacePath: '/work/payments',
     repositoryId: 'ui',
     repositoryPath: '/clones/ui',
-    repositoryUrl: 'https://github.com/example/RuleEngineUI.git',
+    repositoryUrl: 'https://git.example.invalid/acme/RuleEngineUI.git',
     repositoryState: 'ready'
   }]);
   assert.deepEqual(repositoryRefreshTargets(
-    'https://github.com/example/not-registered.git', observations
+    'https://git.example.invalid/acme/not-registered.git', observations
   ), []);
 });
 
@@ -102,14 +102,14 @@ test('a local handoff must still belong to the exact registered workspace snapsh
     {
       workspaceId: 'payments', workspaceName: 'Payments', workspacePath: '/work/payments',
       repositoryId: 'ui', repositoryPath: '/clones/ui',
-      repositoryUrl: 'https://github.com/example/RuleEngineUI.git', repositoryState: 'ready'
+      repositoryUrl: 'https://git.example.invalid/acme/RuleEngineUI.git', repositoryState: 'ready'
     }
   );
 });
 
 test('each reviewed maintenance choice has one bounded existing command route', () => {
   const [target] = repositoryRefreshTargets(
-    'https://github.com/example/RuleEngineUI.git', [{ workspace, status, error: null }]
+    'https://git.example.invalid/acme/RuleEngineUI.git', [{ workspace, status, error: null }]
   );
   assert.ok(target);
   assert.deepEqual(repositoryRefreshCommand('refresh', target), {

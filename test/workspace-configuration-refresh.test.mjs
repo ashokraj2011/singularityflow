@@ -12,6 +12,7 @@ import { run } from '../src/util.mjs';
 import { runRemoteGitAsync } from '../src/git-execution.mjs';
 import { rememberWorkspace } from '../src/workspace.mjs';
 import { installWorkflow } from '../src/workflow-catalog.mjs';
+import { loadDefinition } from '../src/config.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 import {
   isolatedCacheGitEnvironment,
@@ -799,6 +800,34 @@ test('configuration refresh upgrades an exact retired bundled model map without 
   assert.equal(await readFile(target, 'utf8'), await readFile(path.join(ROOT, 'templates/modelTiers.yml'), 'utf8'));
   assert.ok(result.files.includes('singularity/modelTiers.yml'));
   assert.ok(!result.conflicts.some((entry) => entry.path === 'singularity/modelTiers.yml'));
+});
+
+test('configuration refresh upgrades a complete exact historical agent cohort as one valid contract', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-package-refresh-agent-cohort-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await initializeFixture(root);
+  const agents = [
+    'architect.agent.md', 'developer.agent.md', 'mobile-architect.agent.md',
+    'product-designer.agent.md', 'product-owner.agent.md', 'qa.agent.md'
+  ];
+  for (const name of agents) {
+    await writeFile(path.join(root, '.github/agents', name), await readFile(path.join(
+      ROOT, 'test/fixtures/packaged-agents/ba513', name
+    )));
+  }
+
+  const result = await refreshPackagedConfiguration(root);
+  for (const name of agents) {
+    const relative = `.github/agents/${name}`;
+    assert.equal(
+      await readFile(path.join(root, relative), 'utf8'),
+      await readFile(path.join(ROOT, 'templates/agents', name), 'utf8'),
+      `${name} was not upgraded from exact historical packaged bytes`
+    );
+    assert.ok(result.files.includes(relative));
+    assert.ok(!result.conflicts.some((entry) => entry.path === relative));
+  }
+  await assert.doesNotReject(() => loadDefinition(root));
 });
 
 test('configuration refresh refuses a cross-file-invalid preserved agent and accepts an explicit repair', async (t) => {

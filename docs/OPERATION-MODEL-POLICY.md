@@ -119,6 +119,7 @@ Every public operation is classified before its implementation module is importe
 | capability.publish | mutation | never | — | — |
 | capability.reconcile | mutation | never | — | — |
 | capability.remove | mutation | never | — | — |
+| capability.repair-proposal | mutation | never | — | — |
 | capability.repository | mutation | never | — | — |
 | capability.set | mutation | never | — | — |
 | capability.show | read | never | — | — |

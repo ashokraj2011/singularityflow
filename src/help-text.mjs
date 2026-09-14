@@ -817,6 +817,10 @@ Usage:
   singularity-flow capability discard-proposal <REVIEW-BRANCH> [--lead URL]
     --confirm <FULL-COMMIT> --reason TEXT [--json]
     (deletes only a provably unrelated-history proposal at the exact current remote commit)
+  singularity-flow capability repair-proposal <REVIEW-BRANCH> [--lead URL]
+    --confirm <FULL-COMMIT> [--json]
+    (advances only the retained review branch with byte-exact recognized packaged-asset upgrades;
+     the repaired commit must be reviewed again and approved/application branches are unchanged)
   singularity-flow capability activate <REVIEW-BRANCH> [--lead URL] --confirm <FULL-COMMIT>
     [--acknowledge-unprotected] [--json]
     (review and normally merge one exact proposal into sflow/config, then refresh its projection;

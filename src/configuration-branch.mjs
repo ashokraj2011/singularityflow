@@ -512,6 +512,12 @@ async function inspectApprovedConfiguration(remote, capability = null, options =
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-inspect-'));
   try {
     const commit = await cloneConfiguration(remote, scratch, { env: options.env ?? process.env });
+    // A configuration authority is one joined contract, not a bag of independently readable
+    // YAML/Markdown files.  In particular, an MCP assignment in workflow.yml is invalid when the
+    // referenced governed-agent Markdown does not allow the same tool namespace.  Validate the
+    // complete authority here so a race-winning or previously-created mixed-version branch cannot
+    // be mistaken for a healthy map merely because capabilities.yml parses.
+    await loadDefinition(scratch);
     const capabilities = await loadCapabilities(scratch, { required: Boolean(capability) });
     assertRequestedCapability(capabilities, capability, remote, options);
     return { branch: CONFIGURATION_BRANCH, commit, created: false };
@@ -655,8 +661,52 @@ export async function ensureConfigurationBranch(remote, {
     }
     await describeRepository(scratch, repositoryIdFromUrl(url), url, defaultBranch, actor);
     if (grounding) await setGroundingMode(scratch, grounding);
-    if (capability) await describeCapability(scratch, capability);
+    if (capability && importedCapabilityMap) {
+      // A map imported from the application branch is real repository-owned configuration, not
+      // the instructional package placeholder. Replacing it with the one capability supplied by
+      // an onboarding request silently drops every other approved capability. Preserve the map
+      // byte-for-byte here. A missing requested capability belongs on the ordinary reviewed
+      // capability-proposal rail after this authority has been established; it is never authority
+      // for bootstrap to rewrite the imported organisation map.
+      const importedCapabilities = await loadCapabilities(scratch, { required: true });
+      const requestedCapabilityId = String(capability.capabilityId ?? '').trim();
+      if (!importedCapabilities.capabilities?.[requestedCapabilityId]) {
+        throw new SingularityFlowError(
+          `The imported capability map does not define requested capability '${requestedCapabilityId}'. `
+          + 'Nothing was published; map it through the normal reviewed capability proposal workflow.', {
+            code: 'CONFIGURATION_BOOTSTRAP_CAPABILITY_REVIEW_REQUIRED',
+            details: {
+              requestedCapabilityId,
+              importedCapabilityIds: Object.keys(importedCapabilities.capabilities ?? {}).sort(),
+              nextAction: {
+                command: 'singularity-flow capability map <CAPABILITY-ID> --lead <LEAD-URL> --json',
+                skill: '/sf-capability-map'
+              },
+              preserved: ['imported-capability-map', 'application-branches', 'remote-configuration-refs']
+            }
+          }
+        );
+      }
+    } else if (capability) await describeCapability(scratch, capability);
     await enableLedger(scratch, 'state');
+    // This is the last point before an authority ref can become visible.  Initialization may have
+    // imported repository-owned configuration from the application branch, so validate the final
+    // joined workflow, agents, templates, MCP policy and ledger after every mutation.  A refusal
+    // here leaves both the application branch and the absent sflow/config ref unchanged.
+    try {
+      await loadDefinition(scratch);
+    } catch (error) {
+      throw new SingularityFlowError(
+        `The configuration authority was not created because its final packaged and imported assets are incompatible: ${error.message}`, {
+          code: 'CONFIGURATION_BOOTSTRAP_INVALID',
+          cause: error,
+          details: {
+            underlyingCode: error?.code ?? 'CONFIGURATION_INVALID',
+            preserved: ['application-branches', 'remote-configuration-refs']
+          }
+        }
+      );
+    }
     run('git', ['add', '-A'], { cwd: scratch, env: frozen.env });
     run('git', [
       '-c', `user.name=${actor.name || 'Singularity Flow'}`,

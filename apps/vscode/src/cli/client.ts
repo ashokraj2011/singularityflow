@@ -98,7 +98,7 @@ const READ_ONLY_CONFIGURATION_COMMANDS = new Set([
 ]);
 const REMOTE_CAPABILITY_OPERATIONS = new Set([
   'map', 'edit', 'publish', 'proposals', 'proposal', 'activate', 'world-model', 'organisation',
-  'fsck', 'discard-proposal'
+  'fsck', 'discard-proposal', 'repair-proposal'
 ]);
 
 function hasOption(args: string[], name: string): boolean {

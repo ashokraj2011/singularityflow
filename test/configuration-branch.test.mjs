@@ -224,6 +224,143 @@ test('configuration authority is bootstrapped without changing application histo
   }
 });
 
+test('configuration bootstrap preserves an imported multi-capability map and refuses an absent requested capability', async () => {
+  const importedMap = {
+    version: 1,
+    capabilities: {
+      platform: { name: 'Platform', kind: 'collection', parent: null },
+      payments: { name: 'Payments', kind: 'collection', parent: 'platform' }
+    }
+  };
+  const requested = (capabilityId) => ({
+    capabilityId, capabilityName: capabilityId, kind: 'collection',
+    repositoryId: 'application', jiraProject: null, teams: []
+  });
+
+  const preserved = await repositoryFixture();
+  try {
+    await writeFile(path.join(preserved.source, 'singularity/capabilities.yml'),
+      YAML.stringify(importedMap));
+    run('git', ['add', 'singularity/capabilities.yml'], { cwd: preserved.source });
+    run('git', ['commit', '-qm', 'imported multi-capability map'], { cwd: preserved.source });
+    run('git', ['push', '-q', preserved.remote, 'main:main'], { cwd: preserved.source });
+
+    const created = await ensureConfigurationBranch(preserved.remote, {
+      capability: requested('payments')
+    });
+    assert.equal(created.created, true);
+    const published = YAML.parse(run('git', [
+      'show', `${CONFIGURATION_BRANCH}:singularity/capabilities.yml`
+    ], { cwd: preserved.remote }).stdout);
+    assert.deepEqual(published, importedMap,
+      'bootstrap replaced rather than preserved the imported organisation map');
+  } finally {
+    await rm(preserved.root, { recursive: true, force: true });
+  }
+
+  const refused = await repositoryFixture();
+  try {
+    await writeFile(path.join(refused.source, 'singularity/capabilities.yml'),
+      YAML.stringify(importedMap));
+    run('git', ['add', 'singularity/capabilities.yml'], { cwd: refused.source });
+    run('git', ['commit', '-qm', 'imported multi-capability map'], { cwd: refused.source });
+    run('git', ['push', '-q', refused.remote, 'main:main'], { cwd: refused.source });
+
+    await assert.rejects(
+      ensureConfigurationBranch(refused.remote, { capability: requested('settlements') }),
+      (error) => error?.code === 'CONFIGURATION_BOOTSTRAP_CAPABILITY_REVIEW_REQUIRED'
+        && error.details?.requestedCapabilityId === 'settlements'
+        && error.details?.importedCapabilityIds?.join(',') === 'payments,platform'
+        && /capability map/.test(error.details?.nextAction?.command ?? '')
+    );
+    assert.notEqual(run('git', [
+      'show-ref', '--verify', '--quiet', `refs/heads/${CONFIGURATION_BRANCH}`
+    ], { cwd: refused.remote, allowFailure: true }).status, 0,
+    'a refused bootstrap published a partial configuration authority');
+    const sourceMap = YAML.parse(run('git', [
+      'show', 'main:singularity/capabilities.yml'
+    ], { cwd: refused.remote }).stdout);
+    assert.deepEqual(sourceMap, importedMap, 'a refused bootstrap changed application history');
+  } finally {
+    await rm(refused.root, { recursive: true, force: true });
+  }
+});
+
+test('configuration bootstrap advances exact historical packaged agents before publishing authority', async () => {
+  const fixture = await repositoryFixture();
+  try {
+    const agents = [
+      'architect.agent.md', 'developer.agent.md', 'mobile-architect.agent.md',
+      'product-designer.agent.md', 'product-owner.agent.md', 'qa.agent.md'
+    ];
+    await mkdir(path.join(fixture.source, '.github/agents'), { recursive: true });
+    for (const name of agents) {
+      await cp(
+        new URL(`./fixtures/packaged-agents/ba513/${name}`, import.meta.url),
+        path.join(fixture.source, '.github/agents', name)
+      );
+    }
+    run('git', ['add', '.github/agents'], { cwd: fixture.source });
+    run('git', ['commit', '-qm', 'historical packaged agents'], { cwd: fixture.source });
+    run('git', ['push', '-q', fixture.remote, 'main:main'], { cwd: fixture.source });
+
+    const result = await ensureConfigurationBranch(fixture.remote);
+    assert.equal(result.created, true);
+    for (const name of agents) {
+      const published = run('git', [
+        'show', `${CONFIGURATION_BRANCH}:.github/agents/${name}`
+      ], { cwd: fixture.remote }).stdout;
+      const bundled = await readFile(new URL(`../templates/agents/${name}`, import.meta.url), 'utf8');
+      assert.equal(published, bundled, `${name} remained pinned to retired package bytes`);
+    }
+    const checkout = path.join(fixture.root, 'validated-authority');
+    run('git', ['clone', '-q', '--branch', CONFIGURATION_BRANCH, fixture.remote, checkout]);
+    await assert.doesNotReject(() => loadDefinition(checkout),
+      'the published authority must validate as one joined workflow/agent/MCP contract');
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('configuration bootstrap preserves a customized historical agent and publishes no invalid authority', async () => {
+  const fixture = await repositoryFixture();
+  try {
+    const agents = [
+      'architect.agent.md', 'developer.agent.md', 'mobile-architect.agent.md',
+      'product-designer.agent.md', 'product-owner.agent.md', 'qa.agent.md'
+    ];
+    await mkdir(path.join(fixture.source, '.github/agents'), { recursive: true });
+    for (const name of agents) {
+      const historical = await readFile(
+        new URL(`./fixtures/packaged-agents/ba513/${name}`, import.meta.url)
+      );
+      await writeFile(path.join(fixture.source, '.github/agents', name),
+        name === 'product-designer.agent.md'
+          ? Buffer.concat([historical, Buffer.from(' ')])
+          : historical);
+    }
+    run('git', ['add', '.github/agents'], { cwd: fixture.source });
+    run('git', ['commit', '-qm', 'customized historical agent'], { cwd: fixture.source });
+    run('git', ['push', '-q', fixture.remote, 'main:main'], { cwd: fixture.source });
+    const mainBefore = run('git', ['rev-parse', 'main'], { cwd: fixture.remote }).stdout.trim();
+
+    await assert.rejects(() => ensureConfigurationBranch(fixture.remote), (error) => {
+      assert.equal(error.code, 'CONFIGURATION_BOOTSTRAP_INVALID');
+      assert.equal(error.details.underlyingCode, 'MCP_AGENT_TOOLS_MISMATCH');
+      assert.match(error.message, /configuration authority was not created/i);
+      return true;
+    });
+    assert.equal(run('git', ['show-ref', '--verify', '--quiet',
+      `refs/heads/${CONFIGURATION_BRANCH}`], {
+      cwd: fixture.remote, allowFailure: true
+    }).status, 1, 'an invalid configuration authority ref was published');
+    assert.equal(run('git', ['rev-parse', 'main'], { cwd: fixture.remote }).stdout.trim(),
+      mainBefore, 'bootstrap changed the application branch');
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test('configuration bootstrap invalidates a reusable remote session after publishing the new branch', async () => {
   const fixture = await repositoryFixture();
   try {

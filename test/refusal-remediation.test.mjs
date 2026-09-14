@@ -113,6 +113,18 @@ test('an agent that names a missing phase points capability users to configurati
   assert.equal(plan.retry.automatic, false);
 });
 
+test('an imported capability-map bootstrap refusal preserves the map and gives the reviewed next action', () => {
+  const plan = refusalRemediationPlan(Object.assign(
+    new Error("The imported capability map does not define requested capability 'payments'."),
+    { code: 'CONFIGURATION_BOOTSTRAP_CAPABILITY_REVIEW_REQUIRED' }
+  ), ['bootstrap']);
+
+  assert.equal(plan.steps[0].command,
+    'singularity-flow capability map <CAPABILITY-ID> --lead <LEAD-URL> --json');
+  assert.equal(plan.steps[0].execution, 'user-reviewed');
+  assert.equal(plan.retry.automatic, false);
+});
+
 test('FOS:AC-033 recovery remains registered and shell-safe on macOS Linux and Windows with hostile context', () => {
   const secret = 'https://person:office-secret@example.test/repo.git';
   const error = Object.assign(new Error(`hostile path /tmp/a b/δ; touch escaped ${secret}`), {

@@ -16,7 +16,7 @@ related:
   - workspaces-and-sessions
   - configuration
   - workflow-authoring
-version: 11
+version: 12
 ---
 Capability changes are proposed, reviewed as an exact diff, and activated through the configuration authority. Collection capabilities organize; delivery capabilities name the repositories that ship.
 
@@ -42,6 +42,11 @@ Use this topic when the current goal matches **capability management**. Start in
 2. Branch on the lookup result before asking for capability metadata. Reuse `already-mapped`; resolve every `ambiguous` match to one explicit lead; and treat `unreachable` or partial `inconclusive` results as unknown rather than new. With no registered authority, the target is also checked for a self-hosted approved map; an ungoverned target can become the first authority only after an explicit choice. `not-onboarded` is scoped to the approved maps reported in `checkedLeads`. `known-repository-unassigned` means the repository exists in the map but is not attached to a capability. A bounded pending-proposal scan returns matching unmerged proposals for review; partial or unavailable proposal coverage blocks a new mapping.
 3. Only after the contributor explicitly requests more detail, use `sflow capability add <ID> --owns <DIRECTORY>`, `capability protect <PATH>`, or `capability depend <TARGET>@<REFERENCE>`. These create governed proposals. Keep `capability map` and remote `capability edit` as expert multi-repository compatibility flows.
 4. Inspect the exact branch, commit, changed files, and diff with `sflow capability proposal` or **Configuration → Review proposals**.
+   If inspection identifies an exact historical packaged Agent Markdown contract that conflicts
+   with the current MCP policy, use the returned `capability repair-proposal` command (or
+   **Prepare compatibility repair** in VS Code). The repair is proposal-only, requires the exact
+   current proposal commit, updates only recognized unmodified package bytes, and produces a new
+   commit that must be reviewed. It never activates the proposal or replaces customized agents.
 5. If inspection reports independent approved authorities, preview `sflow capability reconcile <DELIVERY-URL> --canonical-lead <URL> --json`. Review its exact commits, map digests, and single state-link write, then repeat with the returned `--confirm-plan` only after choosing the canonical authority. Reconciliation never deletes the competing map.
 6. Use `sflow capability fsck --repository <DELIVERY-URL> --json` to verify portable discovery from a delivery repository. Add `--search-known` only when no state link exists and an explicit compatibility search is intended.
 7. Activate the exact reviewed commit. A Git dry run does not execute receive hooks, so Flow never treats it as protection evidence. Merge through repository review, or explicitly add `--acknowledge-unprotected` before Flow attempts one real exact-CAS update to `sflow/config`.
@@ -58,6 +63,14 @@ discard only the fsck-reported ref with:
 ```bash
 singularity-flow capability discard-proposal <REVIEW-BRANCH> --lead <URL> \
   --confirm <FULL-COMMIT> --reason "configuration authority was re-created" --json
+```
+
+For a repairable packaged-agent compatibility finding, use the exact command returned by
+inspection instead:
+
+```bash
+singularity-flow capability repair-proposal <REVIEW-BRANCH> --lead <URL> \
+  --confirm <FULL-COMMIT> --json
 ```
 
 The remote-SHA lease refuses a branch that moved. A valid proposal is never eligible

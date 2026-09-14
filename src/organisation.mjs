@@ -76,6 +76,9 @@ import {
 } from './lead-repositories.mjs';
 import { normalizeCapabilityAutoPolicy } from './auto/auto-policy.mjs';
 import {
+  isRetiredPackagedAsset, RETIRED_PACKAGED_ASSET_SHA256
+} from './packaged-asset-history.mjs';
+import {
   capabilityAuthorityId, CAPABILITY_AUTHORITY_BRANCH, CAPABILITY_AUTHORITY_LINK_PATH,
   DEFAULT_CAPABILITY_STATE_BRANCH,
   publishCapabilityAuthorityLinkSet, readCapabilityAuthorityLink,
@@ -260,7 +263,9 @@ function safeCapabilityRecoveryCheckout(value) {
   const resolved = path.resolve(value);
   const relative = path.relative(path.resolve(os.tmpdir()), resolved);
   if (!relative || relative.startsWith('..') || path.isAbsolute(relative)
-      || !/^sflow-lead-[A-Za-z0-9_-]+$/u.test(path.basename(resolved))) return null;
+      || !/^sflow-(?:lead|capability-review)-[A-Za-z0-9_-]+$/u.test(path.basename(resolved))) {
+    return null;
+  }
   return resolved;
 }
 
@@ -791,6 +796,34 @@ function proposalBlob(blobs, ref, relative) {
   return blobs?.get(configurationBlobKey(ref, relative)) ?? null;
 }
 
+/**
+ * Whether the exact Agent Markdown file responsible for an MCP join failure is a known retired
+ * package revision at the reviewed ref.
+ *
+ * A proposal can contain other old package assets without those bytes causing its validation
+ * failure. Offering an automatic repair merely because any historical asset exists would make a
+ * malformed workflow or a repository-customized agent look automatically repairable. Bind the
+ * recovery offer to the validator's actual mismatching agent sources instead.
+ */
+function gitRefHasRepairableMcpAgentMismatch(root, ref, error, {
+  env = process.env
+} = {}) {
+  if (error?.code !== 'MCP_AGENT_TOOLS_MISMATCH') return false;
+  const sources = new Set((error?.details?.mismatches ?? [])
+    .map((mismatch) => mismatch?.agentSource)
+    .filter((relative) => typeof relative === 'string'
+      && Object.hasOwn(RETIRED_PACKAGED_ASSET_SHA256, relative)));
+  for (const relative of sources) {
+    const shown = run('git', ['show', `${ref}:${relative}`], {
+      cwd: root, env, allowFailure: true
+    });
+    if (shown.status === 0 && isRetiredPackagedAsset(relative, Buffer.from(shown.stdout))) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function proposalConfigurationError(root, ref, { env = process.env, blobs = null } = {}) {
   try {
     const capabilityBytes = blobs
@@ -1089,15 +1122,22 @@ async function recoverMergedProposalRef(root, expectedCommit, proposalBranch, {
   return ref;
 }
 
-async function withCapabilityProposalCheckout(url, branch, operation, { expectedCommit = null } = {}) {
+async function withCapabilityProposalCheckout(url, branch, operation, {
+  expectedCommit = null, cleanupTemporaryTree = removeTemporaryTree
+} = {}) {
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A lead repository URL is required.', {
     code: 'CAPABILITY_LEAD_REQUIRED',
     details: capabilityRecovery({
       stage: 'review', state: 'input-refused', recoverable: true,
       nextAction: { command: 'singularity-flow capability leads --json', skill: '/sf-capability-map' }
-    })
+      })
   });
+  // Review, repair, and activation can themselves be the next command after an uncertain prior
+  // push. Expire their bounded retained checkouts here as well as on new proposal creation, so a
+  // user who only reviews existing proposals never accumulates abandoned recovery trees.
+  try { await cleanupCapabilityPushRecoveries({ environment: process.env }); }
+  catch { /* Recovery evidence remains preferable to blocking review on housekeeping. */ }
   const gitEnv = enterpriseGitEnvironment();
   const session = new GitRemoteSession({ env: gitEnv });
   const transport = frozenRemoteTransport(remote, { push: true, env: gitEnv });
@@ -1118,6 +1158,9 @@ async function withCapabilityProposalCheckout(url, branch, operation, { expected
   }
   const proposalBranch = capabilityProposalBranch(branch);
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-review-'));
+  let completedOutcome = null;
+  let primaryFailure = null;
+  let retainScratch = false;
   try {
     // `--branch` alone still negotiates every remote branch. On a monorepo that made a capability
     // approval transfer application history it never reads. The authority branch is orphaned, so
@@ -1157,11 +1200,29 @@ async function withCapabilityProposalCheckout(url, branch, operation, { expected
           })
         });
     }
-    return await operation(scratch, remote, proposalBranch, proposalRef, {
-      env: transport.env, session
+    completedOutcome = await operation(scratch, remote, proposalBranch, proposalRef, {
+      env: transport.env, session,
+      // Only an operation which has already written a bounded recovery record may retain the
+      // disposable checkout.  Keeping this callback private to the operation prevents a caller
+      // option from turning arbitrary review clones into permanent local state.
+      retainCheckout() { retainScratch = true; }
     });
+    return completedOutcome;
+  } catch (error) {
+    primaryFailure = error;
+    throw error;
   } finally {
-    await removeTemporaryTree(scratch);
+    if (!retainScratch) {
+      try {
+        await cleanupTemporaryTree(scratch);
+      } catch (error) {
+        if (completedOutcome && typeof completedOutcome === 'object') {
+          const warning = 'Temporary capability review checkout cleanup could not be confirmed after the operation completed.';
+          completedOutcome.cleanup = { completed: false, warning };
+          completedOutcome.warnings = [...(completedOutcome.warnings ?? []), warning];
+        } else if (!primaryFailure) throw error;
+      }
+    }
   }
 }
 
@@ -1310,9 +1371,38 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
     const baseCommit = run('git', ['rev-parse', 'HEAD'], {
       cwd: scratch, env: transport.env
     }).stdout.trim();
+    // Capability work is also a safe compatibility edge.  A configuration authority created by
+    // an older SFlow release may contain byte-exact historical packaged agents; initializeDefinition
+    // upgrades only those proven package revisions and preserves every customized byte.  Any such
+    // upgrade travels in the same review proposal and is visible in its diff—it never changes the
+    // approved authority merely because somebody opened the mapper.
+    await initializeDefinition(scratch);
     const result = await mutate(
       scratch, baseBranch, operationSession, observedAuthority, proposalAuthor
     );
+
+    // Validate the complete joined configuration before publishing a review ref.  Previously the
+    // mapper validated capabilities.yml alone, allowing an MCP/workflow/agent mismatch to survive
+    // until the reviewer pressed Merge.  A proposal that cannot become an operational authority
+    // must never be advertised as reviewable.
+    try {
+      await loadDefinition(scratch);
+    } catch (error) {
+      throw new SingularityFlowError(
+        `Capability proposal was not created because the resulting configuration is not operational: ${redactDiagnosticText(error?.message ?? String(error))}`, {
+          code: 'CAPABILITY_CONFIGURATION_REPAIR_REQUIRED',
+          cause: error,
+          details: {
+            ...capabilityRecovery({
+              stage: 'proposal', state: 'configuration-repair-required', remote,
+              nextAction: { command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-map' },
+              preserved: ['approved-configuration', 'application-branches', 'existing-proposals']
+            }),
+            underlyingCode: error?.code ?? 'CONFIGURATION_INVALID'
+          }
+        }
+      );
+    }
 
     const staged = run('git', ['add', '-A'], {
       cwd: scratch, env: transport.env, allowFailure: true
@@ -3828,11 +3918,18 @@ export async function listCapabilityProposals(url, {
         if (ancestryMerged) continue;
         try {
           if (sharedFailure) throw sharedFailure;
-          const proposal = inspectCapabilityProposalCheckout(
+          const inspected = inspectCapabilityProposalCheckout(
             scratch, sanitizeRemote(remote), entry.branch, ref, {
               includeDiff, repositoryUrl: inspectedRepository, env: transport.env,
               targetCommit, ...(!includeMerged ? { ancestryMerged: false } : {})
             }
+          );
+          // Reuse the fetched object database to validate the complete workflow/agent/MCP join.
+          // The validator materializes a bounded temporary worktree, not another remote clone, so
+          // the inbox cannot call a proposal reviewable that the detail screen would immediately
+          // refuse while network work remains one clone plus the bounded proposal fetch pages.
+          const proposal = await validateInspectedCapabilityProposal(
+            scratch, inspected, ref, { env: transport.env }
           );
           if (includeMerged || !proposal.merged) {
             proposals.push(proposal);
@@ -3997,11 +4094,52 @@ function inspectCapabilityProposalCheckout(root, remote, proposalBranch, ref, {
   };
 }
 
+async function validateInspectedCapabilityProposal(root, inspected, ref, {
+  env = process.env
+} = {}) {
+  if (inspected.configurationError) return inspected;
+  try {
+    // A merged proposal is historical. Validate the exact approved authority revision the inbox
+    // cloned; an unmerged proposal is validated at its immutable fetched tip.
+    await loadDefinitionAtGitRef(
+      root, inspected.merged ? inspected.targetCommit : ref, { env }
+    );
+    return inspected;
+  } catch (error) {
+    const repairable = !inspected.merged
+      && gitRefHasRepairableMcpAgentMismatch(root, ref, error, { env });
+    return {
+      ...inspected,
+      valid: false,
+      status: 'invalid',
+      discardable: false,
+      configurationError: redactDiagnosticText(error?.message ?? String(error)),
+      configurationErrorCode: error?.code ?? 'CONFIGURATION_INVALID',
+      repairable,
+      repairAction: repairable ? {
+        command: capabilityCommand('repair-proposal', {
+          remote: inspected.remote, branch: inspected.branch,
+          commit: inspected.proposalCommit
+        }),
+        skill: '/sf-capability-map'
+      } : {
+        command: capabilityCommand('fsck', { remote: inspected.remote }),
+        skill: '/sf-capability-map'
+      }
+    };
+  }
+}
+
 /** Exact commits, file set, and diff a reviewer is being asked to activate. */
 export async function inspectCapabilityProposal(url, branch) {
   return withCapabilityProposalCheckout(url, branch, async (
     root, remote, proposalBranch, ref, { env }
-  ) => inspectCapabilityProposalCheckout(root, remote, proposalBranch, ref, { env }));
+  ) => {
+    const inspected = inspectCapabilityProposalCheckout(
+      root, remote, proposalBranch, ref, { env }
+    );
+    return validateInspectedCapabilityProposal(root, inspected, ref, { env });
+  });
 }
 
 function capabilityFsckCheck(id, status, summary, {
@@ -4325,7 +4463,7 @@ export async function capabilityFsck(url, {
       checks.push(capabilityFsckCheck('proposal-catalog', 'pass', 'No capability proposal branches are retained.'));
     }
     for (const proposal of proposals) {
-        if (proposal.merged) {
+        if (proposal.merged && proposal.valid) {
           checks.push(capabilityFsckCheck(
             `proposal:${proposal.branch}`, 'pass',
             'The retained proposal is already contained by approved configuration.',
@@ -4360,10 +4498,12 @@ export async function capabilityFsck(url, {
         } else {
           checks.push(capabilityFsckCheck(
             `proposal:${proposal.branch}`, 'fail',
-            proposal.failure?.message ?? 'The capability proposal is not valid for activation.',
+            proposal.configurationError ?? proposal.failure?.message
+              ?? 'The capability proposal is not valid for activation.',
             {
               branch: proposal.branch, commit: proposal.proposalCommit,
-              remediation: proposal.failure?.nextAction?.command
+              remediation: proposal.repairAction?.command
+                ?? proposal.failure?.nextAction?.command
                 ?? capabilityCommand('proposal', { remote, branch: proposal.branch })
             }
           ));
@@ -4510,6 +4650,295 @@ export async function discardStaleCapabilityProposal(url, branch, {
 }
 
 /**
+ * Advance one retained review branch with deterministic packaged-compatibility repairs.
+ *
+ * This never touches sflow/config or an application branch.  Only files which
+ * initializeDefinition can prove are missing package assets or byte-exact retired package bytes
+ * are changed, the resulting joined configuration must validate, and the remote proposal ref is
+ * protected by an exact old-SHA lease.  The new commit must be reviewed again before activation.
+ */
+export async function repairCapabilityProposal(url, branch, {
+  confirm = null,
+  initiatingRoot = process.cwd(),
+  initiatingEnv = process.env,
+  cleanupTemporaryTree = removeTemporaryTree
+} = {}) {
+  const proposalAuthor = requireCapabilityProposalAuthor(
+    await captureCapabilityProposalAuthor(initiatingRoot, initiatingEnv)
+  );
+  return withCapabilityProposalCheckout(url, branch, async (
+    root, remote, proposalBranch, ref, { env, session, retainCheckout }
+  ) => {
+    const targetCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root, env }).stdout.trim();
+    const proposalCommit = run('git', ['rev-parse', ref], { cwd: root, env }).stdout.trim();
+    if (String(confirm ?? '').trim() !== proposalCommit) {
+      const nextAction = {
+        command: capabilityCommand('repair-proposal', {
+          remote, branch: proposalBranch, commit: proposalCommit
+        }),
+        skill: '/sf-capability-map'
+      };
+      throw new SingularityFlowError(
+        `Confirmation must be the exact proposal commit '${proposalCommit}'. Nothing was changed.`, {
+          code: 'CAPABILITY_PROPOSAL_REPAIR_CONFIRMATION_MISMATCH',
+          details: capabilityRecovery({
+            stage: 'proposal-repair', state: 'confirmation-required', remote,
+            branch: proposalBranch, commit: proposalCommit, nextAction,
+            preserved: ['proposal-branch', 'approved-configuration', 'application-branches']
+          })
+        }
+      );
+    }
+    const inspected = inspectCapabilityProposalCheckout(
+      root, remote, proposalBranch, ref, { includeDiff: false, env }
+    );
+    if (inspected.merged) {
+      throw new SingularityFlowError(
+        `Capability proposal '${proposalBranch}' is already merged and cannot be rewritten. Repair the approved configuration through configuration refresh.`, {
+          code: 'CAPABILITY_PROPOSAL_REPAIR_ALREADY_MERGED',
+          details: capabilityRecovery({
+            stage: 'proposal-repair', state: 'approved-configuration-repair-required', remote,
+            branch: proposalBranch, commit: proposalCommit,
+            nextAction: { command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-map' },
+            preserved: ['approved-configuration', 'proposal-history', 'application-branches']
+          })
+        }
+      );
+    }
+    if (inspected.invalidFiles.length) {
+      throw new SingularityFlowError(
+        `Capability proposal contains non-configuration files and cannot be compatibility-repaired: ${inspected.invalidFiles.join(', ')}.`, {
+          code: 'CAPABILITY_PROPOSAL_REPAIR_SCOPE_INVALID'
+        }
+      );
+    }
+
+    run('git', ['switch', '--quiet', '--detach', ref], { cwd: root, env });
+    const repairedPaths = await initializeDefinition(root);
+    // Include missing, newly-created package files as well as replacements. A worktree-only diff
+    // omits untracked files and could otherwise report success while committing no repair.
+    if (repairedPaths.length) run('git', ['add', '--', ...repairedPaths], { cwd: root, env });
+    const changedPaths = run('git', ['diff', '--cached', '--name-only'], { cwd: root, env }).stdout
+      .split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean).sort();
+    const outsideRepair = changedPaths.filter((relative) => !repairedPaths.some((repaired) =>
+      relative === repaired || relative.startsWith(`${repaired}/`)));
+    if (outsideRepair.length) {
+      throw new SingularityFlowError(
+        `Compatibility repair produced an unexpected path set: ${outsideRepair.join(', ')}. Nothing was published.`, {
+          code: 'CAPABILITY_PROPOSAL_REPAIR_SCOPE_INVALID'
+        }
+      );
+    }
+    if (!changedPaths.length) {
+      // A valid result means the proposal no longer needs repair; an invalid result relays the
+      // exact non-package customization which requires a normal configuration review.
+      try {
+        await loadDefinition(root);
+      } catch (error) {
+        throw new SingularityFlowError(
+          'No recognized historical packaged files remain to repair automatically. The remaining configuration is repository-customized and requires a normal reviewed configuration change.', {
+            code: 'CAPABILITY_PROPOSAL_REPAIR_REVIEW_REQUIRED',
+            cause: error,
+            details: {
+              ...capabilityRecovery({
+                stage: 'proposal-repair', state: 'custom-review-required', remote,
+                branch: proposalBranch, commit: proposalCommit,
+                nextAction: { command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-map' },
+                preserved: ['proposal-branch', 'approved-configuration', 'application-branches']
+              }),
+              underlyingCode: error?.code ?? 'CONFIGURATION_INVALID',
+              changedPaths: []
+            }
+          }
+        );
+      }
+      return {
+        schemaVersion: 1, status: 'current', repaired: false,
+        lead: sanitizeRemote(remote), branch: proposalBranch,
+        proposalCommit, targetBranch: CONFIGURATION_BRANCH, targetCommit,
+        changedFiles: [], reviewRequired: true,
+        nextAction: {
+          command: capabilityCommand('activate', {
+            remote, branch: proposalBranch, commit: proposalCommit
+          }),
+          skill: '/sf-capability-map'
+        }
+      };
+    }
+    try {
+      await loadDefinition(root);
+    } catch (error) {
+      throw new SingularityFlowError(
+        `The proposal contains repository-customized configuration which cannot be replaced automatically: ${redactDiagnosticText(error?.message ?? String(error))}`, {
+          code: 'CAPABILITY_PROPOSAL_REPAIR_REVIEW_REQUIRED',
+          cause: error,
+          details: {
+            ...capabilityRecovery({
+              stage: 'proposal-repair', state: 'custom-review-required', remote,
+              branch: proposalBranch, commit: proposalCommit,
+              nextAction: { command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-map' },
+              preserved: ['proposal-branch', 'approved-configuration', 'application-branches']
+            }),
+            changedPaths
+          }
+        }
+      );
+    }
+    run('git', [
+      '-c', `user.name=${proposalAuthor.name}`,
+      '-c', `user.email=${proposalAuthor.email}`,
+      'commit', '-m', '[configuration] repair packaged compatibility'
+    ], { cwd: root, env });
+    const repairedCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root, env }).stdout.trim();
+    const targetRef = `refs/heads/${proposalBranch}`;
+    const authorityRef = `refs/heads/${CONFIGURATION_BRANCH}`;
+    const pushed = await runRemoteGitAsync([
+      'push', '--porcelain', '--atomic',
+      `--force-with-lease=${targetRef}:${proposalCommit}`,
+      `--force-with-lease=${authorityRef}:${targetCommit}`,
+      'origin', `${repairedCommit}:${targetRef}`, `${targetCommit}:${authorityRef}`
+    ], { cwd: root, operation: 'remote-push', env });
+    if (pushed.status !== 0) {
+      session.invalidate(remote);
+      const observed = await session.observeAsync(remote, {
+        includeHead: false, refs: [targetRef, authorityRef], refresh: true
+      });
+      const observedProposal = observed.ok ? observed.refs.get(targetRef) ?? null : null;
+      const observedAuthority = observed.ok ? observed.refs.get(authorityRef) ?? null : null;
+      if (!observed.ok) {
+        const exactInspection = {
+          program: 'git',
+          args: [
+            'ls-remote', '--refs', assertCredentialFreeRemote(remote), targetRef, authorityRef
+          ],
+          expectedRefs: {
+            [targetRef]: [proposalCommit, repairedCommit],
+            [authorityRef]: targetCommit
+          }
+        };
+        const exactRetry = {
+          cwd: root,
+          program: 'git',
+          args: [
+            'push', '--porcelain', '--atomic',
+            `--force-with-lease=${targetRef}:${proposalCommit}`,
+            `--force-with-lease=${authorityRef}:${targetCommit}`,
+            'origin', `${repairedCommit}:${targetRef}`, `${targetCommit}:${authorityRef}`
+          ]
+        };
+        let retainedRecovery = null;
+        try {
+          retainedRecovery = await retainCapabilityPushRecovery({
+            checkout: root,
+            remote: assertCredentialFreeRemote(remote),
+            sourceCommit: repairedCommit,
+            targetRef,
+            expectedTargetCommit: proposalCommit,
+            guardedRef: authorityRef,
+            expectedGuardedCommit: targetCommit,
+            inspect: exactInspection,
+            retry: exactRetry
+          });
+          retainCheckout();
+        } catch {
+          // Without the bounded private record this checkout has no safe lifecycle. The wrapper
+          // deletes it while the immutable remote refs remain the only source of truth.
+        }
+        throw new SingularityFlowError(
+          `The compatibility repair push outcome is unknown because '${sanitizeRemote(remote)}' could not be re-read. ${retainedRecovery ? 'An expiring exact recovery was retained.' : 'Inspect both authority refs after connectivity returns before retrying.'}`, {
+            code: 'CAPABILITY_PROPOSAL_REPAIR_PUSH_OUTCOME_UNKNOWN',
+            details: {
+              ...capabilityRecovery({
+                stage: 'proposal-repair', state: 'repair-publication-uncertain', remote,
+                branch: proposalBranch, commit: proposalCommit,
+                nextAction: {
+                  command: capabilityCommand('proposal', { remote, branch: proposalBranch }),
+                  skill: '/sf-capability-map', inspectBeforeRetry: true
+                },
+                preserved: [
+                  ...(retainedRecovery ? ['local-proposal-repair-recovery'] : []),
+                  'proposal-branch', 'approved-configuration', 'application-branches'
+                ]
+              }),
+              exactRecovery: {
+                sourceCommit: repairedCommit,
+                targetRef,
+                expectedTargetCommit: proposalCommit,
+                guardedRef: authorityRef,
+                expectedGuardedCommit: targetCommit,
+                atomic: true
+              },
+              localRecovery: {
+                status: retainedRecovery ? 'retained' : 'unavailable',
+                recoveryId: retainedRecovery?.recoveryId ?? null,
+                expiresAt: retainedRecovery?.expiresAt ?? null,
+                recordWritten: Boolean(retainedRecovery)
+              }
+            }
+          }
+        );
+      }
+      if (observedProposal === repairedCommit && observedAuthority === targetCommit) {
+        // receive-pack accepted the exact atomic transition and only its response was lost.
+      } else if (observedAuthority !== targetCommit) {
+        throw new SingularityFlowError(
+          `Approved configuration advanced while the compatibility repair was being published. The guarded repair was not confirmed; refresh the proposal before taking another action.`, {
+            code: 'CAPABILITY_PROPOSAL_REPAIR_AUTHORITY_MOVED',
+            details: {
+              ...capabilityRecovery({
+                stage: 'proposal-repair', state: 'approved-configuration-advanced', remote,
+                branch: proposalBranch, commit: proposalCommit,
+                nextAction: {
+                  command: capabilityCommand('proposal', { remote, branch: proposalBranch }),
+                  skill: '/sf-capability-map'
+                },
+                preserved: ['proposal-branch', 'approved-configuration', 'application-branches']
+              }),
+              currentProposalCommit: observedProposal,
+              currentAuthorityCommit: observedAuthority,
+              expectedAuthorityCommit: targetCommit
+            }
+          }
+        );
+      } else {
+        throw new SingularityFlowError(
+          `The compatibility repair was not published because the proposal moved or Git refused the exact leased update. ${pushed.failure?.advice ?? 'Refresh the proposal and retry.'}`, {
+            code: 'CAPABILITY_PROPOSAL_REPAIR_PUSH_FAILED',
+            details: capabilityRecovery({
+              stage: 'proposal-repair', state: 'repair-not-published', remote,
+              branch: proposalBranch, commit: proposalCommit,
+              nextAction: { command: capabilityCommand('proposal', { remote, branch: proposalBranch }), skill: '/sf-capability-map' },
+              preserved: ['proposal-branch', 'approved-configuration', 'application-branches']
+            })
+          }
+        );
+      }
+    }
+    return {
+      schemaVersion: 1, status: 'repaired', repaired: true,
+      lead: sanitizeRemote(remote), branch: proposalBranch,
+      previousProposalCommit: proposalCommit, proposalCommit: repairedCommit,
+      targetBranch: CONFIGURATION_BRANCH, targetCommit,
+      changedFiles: changedPaths, reviewRequired: true,
+      nextAction: {
+        command: capabilityCommand('proposal', { remote, branch: proposalBranch }),
+        skill: '/sf-capability-map'
+      },
+      activationAction: {
+        command: capabilityCommand('activate', {
+          remote, branch: proposalBranch, commit: repairedCommit
+        }),
+        skill: '/sf-capability-map'
+      },
+      preserved: ['approved-configuration', 'application-branches', 'proposal-history']
+    };
+  }, {
+    expectedCommit: String(confirm ?? '').trim() || null,
+    cleanupTemporaryTree
+  });
+}
+
+/**
  * Merge one exact reviewed proposal into the configuration authority, then refresh its projection.
  *
  * This is an exact leased push: it can never replace an authority revision that was not reviewed.
@@ -4519,7 +4948,8 @@ export async function activateCapabilityProposal(url, branch, {
   confirm = null,
   acknowledgeUnprotected = false,
   initiatingRoot = process.cwd(),
-  initiatingEnv = process.env
+  initiatingEnv = process.env,
+  cleanupTemporaryTree = removeTemporaryTree
 } = {}) {
   // The borrowed clone deliberately cannot see local/global author configuration. Freeze the
   // presentation identity before creating it; authorization is resolved separately below.
@@ -4539,7 +4969,9 @@ export async function activateCapabilityProposal(url, branch, {
     env: withoutGitProcessOverrides(initiatingEnv)
   }));
   const reviewed = await withCapabilityProposalCheckout(
-    url, branch, async (root, remote, proposalBranch, ref, { env, session }) => {
+    url, branch, async (
+      root, remote, proposalBranch, ref, { env, session, retainCheckout }
+    ) => {
       const targetBefore = run('git', ['rev-parse', 'HEAD'], { cwd: root, env }).stdout.trim();
       const proposalCommit = run('git', ['rev-parse', ref], { cwd: root, env }).stdout.trim();
       if (String(confirm ?? '').trim() !== proposalCommit) {
@@ -4640,12 +5072,55 @@ export async function activateCapabilityProposal(url, branch, {
           });
       }
       validateManagedCapabilityMutation(root, reviewBase, ref, changed.names, { env });
+      let definition;
+      try {
+        // Validate what would actually become approved before reading recovery evidence.  This
+        // catches cross-file workflow/agent/MCP incompatibilities on the Review screen rather than
+        // allowing a capability-only check to defer them until after a merge attempt.
+        definition = alreadyMerged
+          ? await loadDefinition(root)
+          : await loadDefinitionAtGitRef(root, ref, { env });
+      } catch (error) {
+        const repairableProposal = !alreadyMerged
+          && gitRefHasRepairableMcpAgentMismatch(root, ref, error, { env });
+        const nextAction = repairableProposal
+          ? {
+              command: capabilityCommand('repair-proposal', {
+                remote, branch: proposalBranch, commit: proposalCommit
+              }),
+              skill: '/sf-capability-map'
+            }
+          : { command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-map' };
+        throw new SingularityFlowError(
+          `Capability proposal is not operational: ${redactDiagnosticText(error?.message ?? String(error))} Nothing was changed.`, {
+            code: repairableProposal
+              ? 'CAPABILITY_PROPOSAL_PACKAGED_COMPATIBILITY_REQUIRED'
+              : 'CAPABILITY_PROPOSAL_CONFIGURATION_INVALID',
+            cause: error,
+            details: {
+              ...capabilityRecovery({
+                stage: 'activation',
+                state: repairableProposal ? 'packaged-compatibility-repair-required' : 'configuration-repair-required',
+                remote, branch: proposalBranch, commit: proposalCommit, nextAction,
+                preserved: ['proposal-branch', 'approved-configuration', 'application-branches']
+              }),
+              underlyingCode: error?.code ?? 'CONFIGURATION_INVALID',
+              mismatches: error?.details?.mismatches ?? []
+            }
+          }
+        );
+      }
       // Recovery must inspect the current authority's ledger. Once the exact accepted transition is
       // known, new work uses the reviewed post-merge policy while externally completed work uses
       // the current authority policy. This matters when the proposal itself enables or changes
       // required signing.
-      const currentDefinition = await loadDefinition(root);
-      recoveredActivation = await recoverCapabilityActivationTarget(root, currentDefinition, {
+      // Before a not-yet-merged compatibility repair, the current authority may be invalid only in
+      // its live agent/MCP join. Story-bootstrap parsing retains its approved ledger policy without
+      // allowing that unrelated mismatch to hide an otherwise recoverable proposal transition.
+      const recoveryDefinition = alreadyMerged
+        ? definition
+        : await loadDefinition(root, { storyBootstrap: true });
+      recoveredActivation = await recoverCapabilityActivationTarget(root, recoveryDefinition, {
         remote, proposalBranch, proposalCommit, proposalBase,
         configurationIncludesProposal: alreadyMerged, env
       });
@@ -4654,29 +5129,11 @@ export async function activateCapabilityProposal(url, branch, {
         acceptedAuditTarget = recoveredActivation.acceptedTarget;
         auditedTargetBefore = recoveredActivation.targetBefore;
         mergeEvidence = recoveredActivation.mergeEvidence;
+        // Recovery can discover that a proposal which looked unmerged at checkout time was
+        // already accepted. From this point onward policy must come from the effective approved
+        // authority, not from the older proposal tip that was loaded above.
+        definition = await loadDefinition(root);
       }
-      const definition = alreadyMerged
-        ? currentDefinition
-        : await loadDefinitionAtGitRef(root, ref, { env });
-      if (!definition.ledger?.enabled) {
-        const nextAction = { command: 'singularity-flow workspace refresh-configuration --dry-run --json', skill: '/sf-workspace' };
-        throw new SingularityFlowError(
-          'Capability activation requires the capability ledger so the review decision can be audited. Nothing was changed; refresh or repair the approved configuration, then retry.', {
-            code: 'CAPABILITY_ACTIVATION_LEDGER_REQUIRED',
-            details: capabilityRecovery({
-              stage: 'activation', state: 'configuration-repair-required', remote,
-              branch: proposalBranch, commit: proposalCommit, nextAction,
-              preserved: ['proposal-branch', 'approved-configuration', 'application-branches']
-            })
-          }
-        );
-      }
-      const commitSigning = resolveGitCommitSigning(identityRoot, {
-        env: initiatingEnv, required: definition.ledger.signing === 'commit'
-      });
-      preflightGitCommitIdentity(root, frozenCommitIdentity, {
-        env, signing: commitSigning
-      });
       // Approval/account policy and commit presentation are intentionally different values. The
       // former was frozen from the initiating repository and remains the actor recorded in the
       // audit; it never supplies author metadata or claims an external merge was performed by the
@@ -4705,17 +5162,35 @@ export async function activateCapabilityProposal(url, branch, {
             });
         }
       };
+      const requireActivationLedger = (effectiveDefinition) => {
+        if (effectiveDefinition.ledger?.enabled) return;
+        const nextAction = { command: 'singularity-flow workspace refresh-configuration --dry-run --json', skill: '/sf-workspace' };
+        throw new SingularityFlowError(
+          'Capability activation requires the capability ledger so the review decision can be audited. Nothing was changed; refresh or repair the approved configuration, then retry.', {
+            code: 'CAPABILITY_ACTIVATION_LEDGER_REQUIRED',
+            details: capabilityRecovery({
+              stage: 'activation', state: 'configuration-repair-required', remote,
+              branch: proposalBranch, commit: proposalCommit, nextAction,
+              preserved: ['proposal-branch', 'approved-configuration', 'application-branches']
+            })
+          }
+        );
+      };
+      let commitSigning = null;
       if (!alreadyMerged) {
+        // Materialize the merge without committing first. The authority may have advanced since
+        // review, and the effective merged policy—not either parent in isolation—decides whether
+        // the activation, audit, and state commits must be signed.
         const merged = run('git', [
           ...gitCommitIdentityArgs(frozenCommitIdentity),
-          ...gitCommitSigningArgs(commitSigning),
-          'merge', ...(commitSigning.required ? ['-S'] : []), '--no-ff', '--no-edit', ref
+          'merge', '--no-ff', '--no-commit', ref
         ], {
           cwd: root,
           env: gitCommitIdentityEnvironment(env, frozenCommitIdentity),
           allowFailure: true
         });
         if (merged.status !== 0) {
+          run('git', ['merge', '--abort'], { cwd: root, env, allowFailure: true });
           const nextAction = { command: capabilityCommand('proposal', { remote, branch: proposalBranch }), skill: '/sf-capability-map' };
           throw new SingularityFlowError(
             `Capability proposal cannot be merged cleanly into '${CONFIGURATION_BRANCH}'. `
@@ -4729,6 +5204,55 @@ export async function activateCapabilityProposal(url, branch, {
             });
         }
         await validateEffectiveCapabilities();
+        try {
+          definition = await loadDefinition(root);
+        } catch (error) {
+          run('git', ['merge', '--abort'], { cwd: root, env, allowFailure: true });
+          const nextAction = {
+            command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-map'
+          };
+          throw new SingularityFlowError(
+            `Capability proposal cannot produce an operational configuration after merging with the current authority: ${redactDiagnosticText(error?.message ?? String(error))} Nothing was pushed.`, {
+              code: 'CAPABILITY_PROPOSAL_CONFIGURATION_INVALID',
+              cause: error,
+              details: capabilityRecovery({
+                stage: 'activation', state: 'merged-configuration-invalid', remote,
+                branch: proposalBranch, commit: proposalCommit, nextAction,
+                preserved: ['proposal-branch', 'approved-configuration', 'application-branches']
+              })
+            }
+          );
+        }
+        requireActivationLedger(definition);
+        commitSigning = resolveGitCommitSigning(identityRoot, {
+          env: initiatingEnv, required: definition.ledger.signing === 'commit'
+        });
+        preflightGitCommitIdentity(root, frozenCommitIdentity, {
+          env, signing: commitSigning
+        });
+        const committed = run('git', [
+          ...gitCommitIdentityArgs(frozenCommitIdentity),
+          ...gitCommitSigningArgs(commitSigning),
+          'commit', ...(commitSigning.required ? ['-S'] : []), '--no-edit'
+        ], {
+          cwd: root,
+          env: gitCommitIdentityEnvironment(env, frozenCommitIdentity),
+          allowFailure: true
+        });
+        if (committed.status !== 0) {
+          run('git', ['merge', '--abort'], { cwd: root, env, allowFailure: true });
+          const nextAction = { command: capabilityCommand('proposal', { remote, branch: proposalBranch }), skill: '/sf-capability-map' };
+          throw new SingularityFlowError(
+            `Capability proposal could not create its governed merge commit. Nothing was pushed; the proposal remains on '${proposalBranch}'.`, {
+              code: 'CAPABILITY_PROPOSAL_COMMIT_FAILED',
+              details: capabilityRecovery({
+                stage: 'activation', state: 'merge-commit-failed', remote,
+                branch: proposalBranch, commit: proposalCommit, nextAction,
+                preserved: ['proposal-branch', 'approved-configuration', 'application-branches']
+              })
+            }
+          );
+        }
         // Git dry-run skips receive hooks, so it cannot distinguish an unprotected authority from a
         // protected one. Require either external review or an explicit direct-push acknowledgement;
         // the subsequent exact leased push is the only honest provider observation.
@@ -4770,6 +5294,7 @@ export async function activateCapabilityProposal(url, branch, {
             return refspec?.endsWith(`:${targetRef}`) ? flag : null;
           }).find((flag) => flag !== null)
           : null;
+        let authorityAfterPush = null;
         if (pushed.status !== 0 || (transition !== ' ' && transition !== '+')) {
           // Git can either reject the stale lease or elide an unchanged update as `=` when another
           // actor acquires the old->new transition around receive-pack. Re-read the exact authority
@@ -4778,6 +5303,7 @@ export async function activateCapabilityProposal(url, branch, {
           const authority = await session.observeAsync(remote, {
             includeHead: false, refs: [targetRef], refresh: true
           });
+          authorityAfterPush = authority;
           if (authority.ok && authority.refs.get(targetRef) === proposedMergeCommit) {
             alreadyMerged = true;
             mergeEvidence = 'concurrent-identical-commit';
@@ -4796,6 +5322,74 @@ export async function activateCapabilityProposal(url, branch, {
           }
         }
         if (pushed.status !== 0) {
+          if (authorityAfterPush?.ok === false) {
+            const exactInspection = {
+              program: 'git',
+              args: ['ls-remote', '--refs', assertCredentialFreeRemote(remote), targetRef],
+              expectedRefs: {
+                [targetRef]: [targetBefore, proposedMergeCommit]
+              }
+            };
+            const exactRetry = {
+              cwd: root,
+              program: 'git',
+              args: [
+                'push', '--porcelain',
+                `--force-with-lease=${targetRef}:${targetBefore}`,
+                'origin', `${proposedMergeCommit}:${targetRef}`
+              ]
+            };
+            let retainedRecovery = null;
+            try {
+              retainedRecovery = await retainCapabilityPushRecovery({
+                checkout: root,
+                remote: assertCredentialFreeRemote(remote),
+                sourceCommit: proposedMergeCommit,
+                targetRef,
+                expectedTargetCommit: targetBefore,
+                guardedRef: null,
+                expectedGuardedCommit: null,
+                inspect: exactInspection,
+                retry: exactRetry
+              });
+              retainCheckout();
+            } catch {
+              // If the bounded private receipt cannot be written, delete the checkout and require
+              // fresh observation. Never leave an unindexed temporary Git tree behind.
+            }
+            throw new SingularityFlowError(
+              `The capability activation push outcome is unknown because '${sanitizeRemote(remote)}' could not be re-read. ${retainedRecovery ? 'An expiring exact recovery was retained.' : 'Inspect the configuration authority after connectivity returns before retrying.'}`, {
+                code: 'CAPABILITY_ACTIVATION_PUSH_OUTCOME_UNKNOWN',
+                details: {
+                  ...capabilityRecovery({
+                    stage: 'activation', state: 'activation-publication-uncertain', remote,
+                    branch: proposalBranch, commit: proposalCommit,
+                    nextAction: {
+                      command: capabilityCommand('proposal', {
+                        remote, branch: proposalBranch
+                      }),
+                      skill: '/sf-capability-map', inspectBeforeRetry: true
+                    },
+                    preserved: [
+                      ...(retainedRecovery ? ['local-activation-recovery'] : []),
+                      'proposal-branch', 'approved-configuration', 'application-branches'
+                    ]
+                  }),
+                  exactRecovery: {
+                    sourceCommit: proposedMergeCommit,
+                    targetRef,
+                    expectedTargetCommit: targetBefore
+                  },
+                  localRecovery: {
+                    status: retainedRecovery ? 'retained' : 'unavailable',
+                    recoveryId: retainedRecovery?.recoveryId ?? null,
+                    expiresAt: retainedRecovery?.expiresAt ?? null,
+                    recordWritten: Boolean(retainedRecovery)
+                  }
+                }
+              }
+            );
+          }
           const failure = pushed.failure ?? classifyGitRemoteFailure(pushed);
           const pushDiagnostic = `${pushed.stderr ?? ''}\n${pushed.stdout ?? ''}`;
           const nextAction = {
@@ -4855,6 +5449,19 @@ export async function activateCapabilityProposal(url, branch, {
           };
         }
       }
+      if (alreadyMerged) {
+        // Externally merged and recovered activations obey the frozen approved policy snapshot
+        // cloned for this invocation. A later configuration revision is ordered after this
+        // snapshot and cannot retroactively change the signing rule for an earlier activation.
+        definition = await loadDefinition(root);
+        requireActivationLedger(definition);
+        commitSigning = resolveGitCommitSigning(identityRoot, {
+          env: initiatingEnv, required: definition.ledger.signing === 'commit'
+        });
+        preflightGitCommitIdentity(root, frozenCommitIdentity, {
+          env, signing: commitSigning
+        });
+      }
       // Validate the effective approved commit in both paths. A proposal merged externally used to
       // skip this gate and could be audited and projected even when its capability forest was
       // invalid.
@@ -4886,6 +5493,9 @@ export async function activateCapabilityProposal(url, branch, {
           proposalCommit,
           targetBefore: auditedTargetBefore,
           targetCommit,
+          // Recovery can audit an accepted target older than the current authority. Keep the
+          // exact policy revision used for ledger/signing decisions distinct and reconstructable.
+          policyConfigurationCommit: currentConfigurationCommit,
           remoteIdentity: {
             remote: sanitizeRemote(remote),
             sha256: `sha256:${remoteFingerprint(remote)}`
@@ -4952,7 +5562,8 @@ export async function activateCapabilityProposal(url, branch, {
           eventType: intent.eventType,
           sequence: audit.sequence,
           ledgerCommit: audit.ledgerCommit,
-          duplicate: audit.duplicate
+          duplicate: audit.duplicate,
+          policyConfigurationCommit: currentConfigurationCommit
         }
       };
       // The checkout already contains the exact approved configuration commit this activation just
@@ -5015,7 +5626,7 @@ export async function activateCapabilityProposal(url, branch, {
           nextAction
         };
       }
-    }, { expectedCommit: confirm });
+    }, { expectedCommit: confirm, cleanupTemporaryTree });
   return reviewed;
 }
 

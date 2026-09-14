@@ -33,6 +33,7 @@ import {
 } from '../src/publication-preflight.mjs';
 import { normalizeTokenEconomy } from '../src/token-economy.mjs';
 import { WORLD_MODEL_VIEW_REFERENCE } from '../src/world-model-views.mjs';
+import { run } from '../src/util.mjs';
 
 test('starter YAML resolves feature, bugfix, and Figma-mobile templates and agents', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-')); await mkdir(path.join(root, '.git'), { recursive: true }); await initializeDefinition(root);
@@ -84,6 +85,92 @@ test('starter YAML resolves feature, bugfix, and Figma-mobile templates and agen
   assert.deepEqual(figmaSnapshot.designSources, figmaMobile.designSources);
   assert.match(await agentPrompt(root, definition, 'product-designer'), /hash-pinned exports/i);
   assert.match(await readFile(path.join(root, 'singularity/templates/figma-mobile/visual-verification.md'), 'utf8'), /Screen comparison/);
+});
+
+test('initialization upgrades exact historical packaged agents and preserves a one-byte customization', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-history-'));
+  await mkdir(path.join(root, '.git'), { recursive: true });
+  await initializeDefinition(root);
+  const historicalRoot = new URL('./fixtures/packaged-agents/ba513/', import.meta.url);
+  const packagedRoot = new URL('../templates/agents/', import.meta.url);
+  const targets = [
+    'architect.agent.md', 'developer.agent.md', 'mobile-architect.agent.md',
+    'product-designer.agent.md', 'product-owner.agent.md', 'qa.agent.md'
+  ];
+
+  for (const name of targets) {
+    await writeFile(
+      path.join(root, '.github/agents', name),
+      await readFile(new URL(name, historicalRoot))
+    );
+  }
+  const upgraded = await initializeDefinition(root);
+  assert.deepEqual(
+    targets.filter((name) => upgraded.includes(`.github/agents/${name}`)),
+    targets,
+    'the complete exact ba513 package cohort is reported as repaired'
+  );
+  for (const name of targets) {
+    assert.deepEqual(
+      await readFile(path.join(root, '.github/agents', name)),
+      await readFile(new URL(name, packagedRoot)),
+      `${name} did not advance to current packaged bytes`
+    );
+  }
+
+  const customized = Buffer.concat([
+    await readFile(new URL('product-designer.agent.md', historicalRoot)),
+    Buffer.from(' ')
+  ]);
+  const customizedPath = path.join(root, '.github/agents/product-designer.agent.md');
+  await writeFile(customizedPath, customized);
+  const preserved = await initializeDefinition(root);
+  assert.equal(preserved.includes('.github/agents/product-designer.agent.md'), false);
+  assert.deepEqual(await readFile(customizedPath), customized,
+    'one changed byte must put the repository file outside package upgrade authority');
+});
+
+test('initialization recognizes an exact tracked package blob through CRLF checkout conversion', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-history-crlf-'));
+  run('git', ['init', '-q', '-b', 'main', root], { cwd: path.dirname(root) });
+  run('git', ['config', 'user.name', 'Package History Test'], { cwd: root });
+  run('git', ['config', 'user.email', 'package-history@example.test'], { cwd: root });
+  await initializeDefinition(root);
+
+  const relative = '.github/agents/product-designer.agent.md';
+  const target = path.join(root, relative);
+  const historical = await readFile(new URL(
+    './fixtures/packaged-agents/ba513/product-designer.agent.md', import.meta.url
+  ));
+  await writeFile(target, historical);
+  run('git', ['add', '--', relative], { cwd: root });
+  run('git', ['commit', '-qm', 'Track historical packaged agent'], { cwd: root });
+  run('git', ['config', 'core.autocrlf', 'true'], { cwd: root });
+  await unlink(target);
+  run('git', ['checkout', '--', relative], { cwd: root });
+
+  const crlf = await readFile(target);
+  assert.ok(crlf.includes(Buffer.from('\r\n')), 'fixture did not exercise a CRLF checkout');
+  assert.notDeepEqual(crlf, historical, 'Git did not materialize a distinct checkout representation');
+  const upgraded = await initializeDefinition(root);
+  assert.ok(upgraded.includes(relative));
+  assert.deepEqual(
+    await readFile(target),
+    await readFile(new URL('../templates/agents/product-designer.agent.md', import.meta.url)),
+    'the exact indexed historical package blob was not upgraded through its CRLF checkout'
+  );
+
+  // Return to the exact tracked CRLF representation, then make a real worktree customization. Its
+  // index provenance is still historical, so this proves index identity alone cannot authorize an
+  // overwrite.
+  await unlink(target);
+  run('git', ['checkout', '--', relative], { cwd: root });
+  const customized = Buffer.concat([await readFile(target), Buffer.from('custom byte')]);
+  await writeFile(target, customized);
+  const preserved = await initializeDefinition(root);
+  assert.equal(preserved.includes(relative), false);
+  assert.deepEqual(await readFile(target), customized,
+    'a dirty tracked file must not be replaced merely because its index blob is packaged');
 });
 
 test('Story bootstrap defers mutable live agent and template availability to the saved closure', async () => {

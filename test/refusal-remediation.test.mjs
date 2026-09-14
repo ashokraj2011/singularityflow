@@ -151,6 +151,36 @@ test('off-mode clarification refusal gives a read-only check and the legal phase
   assert.match(envelope.remediationPlan.retry.label, /Do not retry clarification recording/);
 });
 
+test('code-delivery configuration refusals keep protected workflow changes outside the Story', () => {
+  const missing = refusalRemediationPlan(Object.assign(
+    new Error('No structured test command was found.'),
+    { code: 'CODE_DELIVERY_TEST_COMMAND_REQUIRED', details: { phase: 'implementation' } }
+  ), ['phase', 'publish', 'implementation']);
+  assert.equal(missing.steps[0].command,
+    'singularity-flow workflow validate --json');
+  assert.match(missing.steps[0].label, /Do not add a test wrapper or edit protected workflow files/);
+
+  const protectedPath = refusalRemediationPlan(Object.assign(
+    new Error('Generation cannot modify protected process paths.'),
+    {
+      code: 'CHANGE_SET_POLICY_VIOLATION',
+      details: {
+        violationKind: 'protected-process-path',
+        diagnosticAction: {
+          command: 'singularity-flow recover FILTER-APP --phase implementation --json'
+        }
+      }
+    }
+  ), ['phase', 'publish', 'implementation']);
+  assert.deepEqual(protectedPath.steps.slice(0, 3).map((entry) => entry.command), [
+    'singularity-flow recover FILTER-APP --phase implementation --json',
+    'singularity-flow explain workflow-authoring',
+    'singularity-flow configuration validate --json'
+  ]);
+  assert.match(protectedPath.steps[1].label, /Restore every listed protected path/);
+  assert.ok(protectedPath.steps.every((entry) => entry.execution === 'user-reviewed'));
+});
+
 test('FOS:AC-033 recovery remains registered and shell-safe on macOS Linux and Windows with hostile context', () => {
   const secret = 'https://person:office-secret@example.test/repo.git';
   const error = Object.assign(new Error(`hostile path /tmp/a b/δ; touch escaped ${secret}`), {

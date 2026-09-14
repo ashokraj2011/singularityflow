@@ -222,6 +222,24 @@ const KNOWN = Object.freeze({
       'Preserve the imported organisation map, establish its authority, and add the new capability through a separate reviewed proposal.',
       'singularity-flow capability map <CAPABILITY-ID> --lead <LEAD-URL> --json', 'remediation')
   ],
+  CODE_DELIVERY_TEST_COMMAND_REQUIRED: () => [
+    step('review-approved-test-policy',
+      'Do not add a test wrapper or edit protected workflow files in the active Story. Review the approved workflow test policy and use Configuration Center outside the Story if a native runner is not yet supported.',
+      'singularity-flow workflow validate --json', 'configuration'),
+    step('review-workflow-authoring',
+      'Review how governed workflow configuration is proposed for future Stories without changing a pinned Story snapshot.',
+      'singularity-flow explain workflow-authoring', 'help')
+  ],
+  CHANGE_SET_POLICY_VIOLATION: (_argv, error) => error?.details?.violationKind === 'protected-process-path'
+    ? [
+        step('restore-protected-story-paths',
+          'Restore every listed protected path to the generation baseline while preserving application and test changes; do not hand-edit the pinned Story snapshot.',
+          'singularity-flow explain workflow-authoring', 'remediation'),
+        step('validate-approved-configuration',
+          'If the process configuration genuinely needs to change, make that a separately reviewed configuration proposal outside the active Story.',
+          'singularity-flow configuration validate --json', 'configuration')
+      ]
+    : [],
   CLARIFICATION_MODE_OFF: (_argv, error) => {
     const phase = /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(error?.details?.phase ?? '')
       ? error.details.phase : null;

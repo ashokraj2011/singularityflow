@@ -306,9 +306,25 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
   ])];
   const protectedResult = evaluateStoryProtectedPaths(changeSet, guards, workflow);
   if (!protectedResult.valid) {
+    const protectedPaths = [...new Set(protectedResult.violations.map((entry) => entry.path))];
     throw new SingularityFlowError(
-      `Generation cannot modify protected process paths: ${protectedResult.violations.map((entry) => `${entry.endpoint} ${entry.path}`).join(', ')}`,
-      { code: 'CHANGE_SET_POLICY_VIOLATION' }
+      `Generation cannot modify protected process paths: ${protectedPaths.join(', ')}`,
+      {
+        code: 'CHANGE_SET_POLICY_VIOLATION',
+        details: {
+          violationKind: 'protected-process-path',
+          workId: workflow.workItem.id,
+          phase: phase.id,
+          paths: protectedPaths,
+          diagnosticAction: {
+            command: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`
+          },
+          remediation: {
+            action: 'restore-protected-paths-to-generation-baseline',
+            configurationRoute: 'approved-configuration-authority-outside-story'
+          }
+        }
+      }
     );
   }
   const pathContext = applicationPathContext(config, workflow);
@@ -523,6 +539,13 @@ export async function inferRepositoryTestCommands(root) {
 export async function resolveDeliveryQualityCommands(root, phase) {
   const configured = [...(phase.qualityCommands ?? [])];
   if (!phaseRequiresCodeDelivery(phase)) return configured;
+  const configuredTests = configured.filter((command) =>
+    command && typeof command === 'object' && !Array.isArray(command) && command.kind === 'test');
+  const moduleCoveredByConfiguredTest = (moduleRoot) => configuredTests.some((command) =>
+    (command.affectedRoots ?? []).some((candidate) => {
+      const root = posix(candidate ?? '').replace(/^\.\//, '') || '.';
+      return root === '.' || moduleRoot === root || moduleRoot.startsWith(`${root}/`);
+    }));
   const inferred = [];
   const deliveryPaths = [...new Set([
     ...(phase.deliveryEvidence?.sourcePaths ?? []),
@@ -537,11 +560,12 @@ export async function resolveDeliveryQualityCommands(root, phase) {
     if (module) modules.set(`${module.root}:${module.system}`, module);
   }
   for (const module of modules.values()) {
+    if (moduleCoveredByConfiguredTest(module.root)) continue;
     const command = await inferModuleTestCommand(root, module);
     if (command) inferred.push(command);
   }
-  if (!inferred.length) inferred.push(...await inferRepositoryTestCommands(root));
-  if (!inferred.length) {
+  if (!inferred.length && !configuredTests.length) inferred.push(...await inferRepositoryTestCommands(root));
+  if (!inferred.length && !configuredTests.length) {
     const tests = phase.deliveryEvidence?.testPaths ?? [];
     if (tests.length && tests.every((candidate) => /\.(?:c|m)?js$/i.test(candidate))) {
       inferred.push({

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -87,13 +87,18 @@ async function fixture(name) {
 }
 
 async function codeFixture(name, {
-  acceptance = true, trackedResult = false, intelligenceAst = null
+  acceptance = true, trackedResult = false, intelligenceAst = null, testProfile = 'configured'
 } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), `sflow-code-delivery-${name}-`));
   git(root, 'init', '-b', 'main');
   git(root, 'config', 'user.name', ACTOR.name);
   git(root, 'config', 'user.email', ACTOR.email);
-  await writeFile(path.join(root, 'package.json'), `${JSON.stringify({
+  const angularProfile = ['angular-karma', 'angular-unsupported'].includes(testProfile);
+  await writeFile(path.join(root, 'package.json'), `${JSON.stringify(angularProfile ? {
+    name: 'delivery-fixture', private: true,
+    scripts: { test: 'ng test' },
+    ...(testProfile === 'angular-karma' ? { devDependencies: { karma: '6.4.0' } } : {})
+  } : {
     name: 'delivery-fixture', private: true, scripts: { test: 'node test-runner.mjs' }
   }, null, 2)}\n`);
   await writeFile(path.join(root, 'test-runner.mjs'), [
@@ -102,6 +107,26 @@ async function codeFixture(name, {
     "writeFileSync('.sflow/results/unit.json', JSON.stringify({ run: Date.now(), tests: { discovered: 1, passed: 1, failed: 0, skipped: 0 } }));",
     ''
   ].join('\n'));
+  if (testProfile === 'angular-karma') {
+    await writeFile(path.join(root, '.gitignore'), 'node_modules/\n.sflow/results/\n');
+    const binDirectory = path.join(root, 'node_modules', '.bin');
+    await mkdir(binDirectory, { recursive: true });
+    const fakeRunner = path.join(binDirectory, 'ng-runner.mjs');
+    await writeFile(fakeRunner, [
+      "process.stdout.write('Chrome Headless: Executed 28 of 28 SUCCESS\\n');",
+      "process.stdout.write('TOTAL: 28 SUCCESS\\n');",
+      ''
+    ].join('\n'));
+    const posixRunner = path.join(binDirectory, 'ng');
+    await writeFile(posixRunner, [
+      '#!/usr/bin/env node',
+      "process.stdout.write('Chrome Headless: Executed 28 of 28 SUCCESS\\n');",
+      "process.stdout.write('TOTAL: 28 SUCCESS\\n');",
+      ''
+    ].join('\n'));
+    await chmod(posixRunner, 0o755);
+    await writeFile(path.join(binDirectory, 'ng.cmd'), '@node "%~dp0\\ng-runner.mjs" %*\r\n');
+  }
   if (trackedResult) {
     await mkdir(path.join(root, '.sflow', 'results'), { recursive: true });
     await writeFile(path.join(root, '.sflow', 'results', 'unit.json'),
@@ -130,7 +155,7 @@ async function codeFixture(name, {
     inputs: [],
     clarification: { ...implementation.clarification, mode: 'off' },
     approval: { mode: 'none', authorities: [], minimum: 0, rejectTo: ['implementation'] },
-    qualityCommands: [{
+    qualityCommands: angularProfile ? [] : [{
       id: 'fixture-tests', kind: 'test', argv: [process.execPath, 'test-runner.mjs'],
       workingDirectory: '.', affectedRoots: ['.'], modelPolicy: 'never',
       result: { adapter: 'sflow-test-result-v1', path: '.sflow/results/unit.json', minimumDiscovered: 1 }
@@ -787,6 +812,97 @@ test('structured test discovery fails before publication consumes the generation
     (error) => error.code === 'ENOENT',
     'a refused publication left disposable structured test output in the worktree'
   );
+});
+
+test('a protected workflow edit refuses before tests run or generation state changes', async (t) => {
+  const context = await codeFixture('protected-workflow-edit');
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'AppTest.java'),
+    '/** @ac:DELIVERY-1:AC-001 */\nfinal class AppTest {}\n');
+  const workflowPath = path.join(context.root, 'singularity', 'workflow.yml');
+  await writeFile(workflowPath, `${await readFile(workflowPath, 'utf8')}\n# Story-local test workaround\n`);
+
+  await inContext(context.root, () => assert.rejects(
+    () => publishGeneration(context.root, context.config, context.workflow, {
+      phaseId: 'implementation', authorship: AUTHORSHIP, persist: false
+    }),
+    (error) => error.code === 'CHANGE_SET_POLICY_VIOLATION'
+      && error.details?.violationKind === 'protected-process-path'
+      && JSON.stringify(error.details?.paths) === JSON.stringify(['singularity/workflow.yml'])
+  ));
+  assert.equal(context.phase.generation, 0);
+  assert.equal(context.phase.generationIntent.status, 'open');
+  await assert.rejects(
+    () => readFile(path.join(context.root, '.sflow', 'results', 'unit.json')),
+    (error) => error.code === 'ENOENT',
+    'the configured test command ran before protected-path refusal'
+  );
+});
+
+test('recovery reports an unsupported native test runner before publication is attempted', async (t) => {
+  const context = await codeFixture('unsupported-angular-recovery', {
+    testProfile: 'angular-unsupported'
+  });
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  await mkdir(path.join(context.root, 'src', 'app'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app', 'filter.component.ts'),
+    'export const filter = (values) => values.filter(Boolean);\n');
+  await writeFile(path.join(context.root, 'src', 'app', 'filter.component.spec.ts'),
+    '/** @ac:DELIVERY-1:AC-001 */\nexport const covered = true;\n');
+
+  const plan = await recoveryPlan(context.root, context.config, context.workflow, {
+    phaseId: 'implementation'
+  });
+  const blocker = plan.blockers.find((entry) =>
+    entry.details?.sourceCode === 'CODE_DELIVERY_TEST_COMMAND_REQUIRED');
+  assert.ok(blocker, 'recovery hid the unsupported structured-test runner until publication');
+  assert.match(blocker.details.message, /Do not edit protected workflow configuration/);
+  assert.equal(context.phase.generation, 0);
+  assert.equal(context.phase.generationIntent.status, 'open');
+});
+
+test('Angular Karma publication infers tests, captures stdout, and leaves protected workflow untouched', async (t) => {
+  const context = await codeFixture('angular-karma-inference', { testProfile: 'angular-karma' });
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  const protectedWorkflow = path.join(context.root, 'singularity', 'workflow.yml');
+  const protectedBefore = await readFile(protectedWorkflow, 'utf8');
+  await mkdir(path.join(context.root, 'src', 'app'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app', 'filter.component.ts'),
+    'export const filter = (values) => values.filter(Boolean);\n');
+  await writeFile(path.join(context.root, 'src', 'app', 'filter.component.spec.ts'),
+    '/** @ac:DELIVERY-1:AC-001 */\nexport const covered = true;\n');
+
+  await inContext(context.root, () => publishCodeGoverned(
+    context.root, context.config, context.workflow, 'implementation'
+  ));
+  assert.equal(context.phase.generation, 1);
+  assert.deepEqual(context.phase.qualityCommands, [], 'inference rewrote the pinned Story policy');
+  assert.equal(await readFile(protectedWorkflow, 'utf8'), protectedBefore,
+    'publication changed protected workflow configuration');
+  assert.equal(context.phase.deliveryEvidence.testExecutions, undefined,
+    'publication claimed test execution before the submission check');
+  const resultPath = path.join(context.root, '.sflow', 'results', 'node-tests.karma.txt');
+  await assert.rejects(() => readFile(resultPath), (error) => error.code === 'ENOENT',
+    'publication left inferred Karma transport output in the worktree');
+
+  await inContext(context.root, () => submitPhase(
+    context.root, context.config, context.workflow, { phaseId: 'implementation', persist: false }
+  ));
+  assert.equal(context.phase.status, 'approved');
+  assert.equal(await readFile(protectedWorkflow, 'utf8'), protectedBefore,
+    'submission changed protected workflow configuration');
+  assert.equal(context.phase.deliveryEvidence.testExecutions.length, 1);
+  const execution = context.phase.deliveryEvidence.testExecutions[0];
+  const receipt = JSON.parse(await readFile(path.join(context.root, execution.receiptPath), 'utf8'));
+  assert.equal(receipt.adapter, 'karma-text');
+  assert.deepEqual(receipt.tests, {
+    discovered: 28, passed: 28, failed: 0, skipped: 0
+  });
+  await assert.rejects(() => readFile(resultPath), (error) => error.code === 'ENOENT',
+    'submission left inferred Karma transport output in the worktree');
+  assert.equal(git(context.root, 'diff', '--', 'singularity/workflow.yml'), '');
 });
 
 test('a code phase publishes source and acceptance-mapped tests with a delivery receipt', async () => {

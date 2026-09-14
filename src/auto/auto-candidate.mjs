@@ -941,7 +941,7 @@ function normalizeVerificationCommands(commands) {
 }
 
 function capturesVerificationStdout(command) {
-  return ['go-test-json', 'node-tap'].includes(command.result?.adapter)
+  return ['go-test-json', 'node-tap', 'karma-text'].includes(command.result?.adapter)
     || (command.result?.adapter === 'junit-xml'
       && command.argv.includes('--test-reporter=junit'));
 }

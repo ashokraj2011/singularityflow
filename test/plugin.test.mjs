@@ -193,6 +193,10 @@ test('initial phase skills require interactive clarification instead of silently
   assert.match(next, /publish only if preparation returns `convergence\.publish`/i);
   assert.match(requirements, /required.*evidence looks complete/is);
   assert.match(epicRequirements, /epic sources answer/);
+  assert.match(code, /publication deterministically infers supported structured runners/i);
+  assert.match(code, /Never edit `singularity\/workflow\.yml`/);
+  assert.match(code, /(?:never.*or|or) add a one-off test-result wrapper merely to satisfy publication/i);
+  assert.match(code, /approved configuration authority outside the active Story/);
 });
 
 test('generic generation skills branch on the resolved clarification mode before asking or recording', async () => {

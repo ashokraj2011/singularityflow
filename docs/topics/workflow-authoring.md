@@ -12,7 +12,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 9
+version: 10
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -113,6 +113,13 @@ repository-native executable test command for the changed module, requires struc
 evidence from a changed or newly added executable test, and also runs `git diff --check`. Begin ACT
 before editing so the exact baseline is recorded. PLAN, ACT, and VERIFY have no approval; FINALIZE has one
 explicit human quality-review decision. A generated FINALIZE record is not that decision.
+
+For ordinary code phases, the kernel also infers supported repository-native test commands from the
+changed module. This includes Maven/Surefire, Gradle/JUnit, pytest, Jest, Vitest, Node TAP, Angular
+CLI/Karma, Go, .NET, and Swift. Angular CLI output is captured and parsed from its bounded final
+`TOTAL` summary, so a Story must not add a wrapper script or edit protected `workflow.yml` merely to
+register its test result. A genuinely unsupported runner is configured through a separately reviewed
+configuration proposal; active Story snapshots remain pinned and are never rewritten in place.
 
 The normal Story transport contract still applies. In a configured team repository this means its
 configured Git remote; a self-contained demo harness may supply a local bare Git remote, so the

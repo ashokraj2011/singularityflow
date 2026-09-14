@@ -328,6 +328,43 @@ test('isolated Candidate verification allows disposable result output and is cra
     first.verificationReceiptSha256);
 });
 
+test('isolated Candidate captures bounded Karma failure output as scoped repair evidence', async (t) => {
+  const root = await repository();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const baselineCommit = git(root, 'rev-parse', 'HEAD');
+  await writeFile(path.join(root, 'src', 'filter.spec.ts'),
+    '/** @ac:AUTO:AC-001 */\nexport const covered = false;\n');
+  const flightId = `AFL-${'F'.repeat(26)}`;
+  const candidate = await freezeAutoCandidate(root, {
+    flightId,
+    attemptId: autoAttemptId({ flightId, phase: 'implementation', attemptNumber: 1 }),
+    baselineCommit,
+    executionUnitId: 'copilot-cli'
+  });
+  await assert.rejects(verifyAutoCandidate(root, candidate, {
+    verifiedAt: '2026-01-02T03:04:05.000Z',
+    commands: [{
+      id: 'karma-tests', kind: 'test', modelPolicy: 'never', workingDirectory: '.',
+      affectedRoots: ['src'],
+      result: { adapter: 'karma-text', path: '.sflow/results/karma.txt' },
+      argv: [process.execPath, '-e',
+        "process.stdout.write('TOTAL: 1 FAILED\\n');process.exit(1)"]
+    }]
+  }), (error) => error.code === 'AUTO_CANDIDATE_VERIFICATION_FAILED');
+  const verification = await readAutoCandidateVerification(root, {
+    flightId, candidateId: candidate.candidateId
+  });
+  assert.equal(verification.status, 'failed');
+  assert.equal(verification.candidateTreeUnchanged, true);
+  assert.equal(verification.repairEvidence.length, 1);
+  const evidence = verification.repairEvidence[0];
+  assert.equal(evidence.adapter, 'karma-text');
+  assert.deepEqual(evidence.tests, { discovered: 1, passed: 0, failed: 1, skipped: 0 });
+  assert.deepEqual(evidence.repairScope, ['src/filter.spec.ts']);
+  assert.match(evidence.commandArgvSha256, /^sha256:[a-f0-9]{64}$/);
+  assert.match(evidence.resultSha256, /^sha256:[a-f0-9]{64}$/);
+});
+
 test('isolated Candidate verification refuses a tracked symlink working directory', async (t) => {
   if (process.platform === 'win32') return t.skip('symlink creation requires privileges on Windows');
   const root = await repository();

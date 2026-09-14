@@ -150,7 +150,7 @@ import {
 } from './auto/auto-candidate.mjs';
 import {
   buildTestExecutionReceipt, normalizeRequiredTestCommand, parseTestResult, readDurableTestObservation,
-  resolveAffectedModule, testReceiptPassing
+  resolveAffectedModule, structuredTestCommandRequiredError, testReceiptPassing
 } from './code-delivery-tests.mjs';
 import { observeExactTestcaseIdentities } from './wel-adapters.mjs';
 import { evaluateWitnessMappingReview } from './wel-review.mjs';
@@ -3082,6 +3082,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
         killTree: true,
         stdoutFile: policy.kind === 'test' && (policy.result?.adapter === 'go-test-json'
           || policy.result?.adapter === 'node-tap'
+          || policy.result?.adapter === 'karma-text'
           || (policy.result?.adapter === 'junit-xml'
             && policy.argv.some((argument) => argument === '--test-reporter=junit')))
           ? path.resolve(commandRoot, policy.result.path)
@@ -3162,10 +3163,7 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
       }
     }));
   if (!commands.length) {
-    throw new SingularityFlowError(
-      `Phase ${phase.id} has no structured repository test command. Configure kind: test, argv, workingDirectory, affectedRoots, and a result adapter before publication.`,
-      { code: 'CODE_DELIVERY_TEST_COMMAND_REQUIRED' }
-    );
+    throw structuredTestCommandRequiredError(phase);
   }
   const checks = await qualityChecks(root, phase, config, workflow, commands);
   const passing = [];
@@ -3390,10 +3388,7 @@ async function submitPhaseTransition(root, config, workflow, {
         }
       }));
     if (!requiredTestCommands.length) {
-      throw new SingularityFlowError(
-        `Phase ${phase.id} has no structured repository test command. Configure kind: test, argv, workingDirectory, affectedRoots, and a result adapter.`,
-        { code: 'CODE_DELIVERY_TEST_COMMAND_REQUIRED' }
-      );
+      throw structuredTestCommandRequiredError(phase);
     }
   }
   // A Change Flight Plan is advisory until accepted, then becomes an exact scope binding. Compute

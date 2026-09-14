@@ -8,7 +8,7 @@ export const QUALITY_COMMAND_KINDS = Object.freeze([
 export const QUALITY_COMMAND_REQUIREMENTS = Object.freeze(['required', 'advisory']);
 export const TEST_RESULT_ADAPTERS = Object.freeze([
   'junit-xml', 'jest-json', 'vitest-json', 'playwright-json', 'go-test-json', 'node-tap',
-  'dotnet-trx', 'cargo-json', 'sflow-test-result-v1'
+  'karma-text', 'dotnet-trx', 'cargo-json', 'sflow-test-result-v1'
 ]);
 
 function relativePath(value, label, { allowDot = false } = {}) {

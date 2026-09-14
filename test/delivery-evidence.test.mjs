@@ -5,7 +5,8 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
-  acceptanceIds, inferRepositoryTestCommands, isTestQualityCommand, phaseRequiresCodeDelivery
+  acceptanceIds, inferRepositoryTestCommands, isTestQualityCommand, phaseRequiresCodeDelivery,
+  resolveDeliveryQualityCommands
 } from '../src/delivery-evidence.mjs';
 import { blockingConformanceVerdicts } from '../src/conformance-verdicts.mjs';
 
@@ -66,6 +67,42 @@ test('repository-native Maven and Node tests are inferred without a model', asyn
       result: { adapter: 'node-tap', path: '.sflow/results/node-tests.tap', minimumDiscovered: 1 }
     }
   ]);
+
+  const angular = await mkdtemp(path.join(os.tmpdir(), 'sflow-angular-quality-'));
+  await writeFile(path.join(angular, 'package.json'), JSON.stringify({
+    scripts: { test: 'ng test' },
+    devDependencies: { '@angular-devkit/build-angular': '^17.0.0', karma: '^6.0.0' }
+  }));
+  assert.deepEqual(await inferRepositoryTestCommands(angular), [
+    {
+      id: 'node-tests', kind: 'test',
+      argv: ['npm', 'test', '--', '--watch=false', '--browsers=ChromeHeadless', '--no-progress'],
+      workingDirectory: '.', affectedRoots: ['.'], modelPolicy: 'never',
+      result: { adapter: 'karma-text', path: '.sflow/results/node-tests.karma.txt', minimumDiscovered: 1 }
+    }
+  ]);
+});
+
+test('configured structured tests suppress duplicate inference for their covered module', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-angular-configured-quality-'));
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({
+    scripts: { test: 'ng test' }, devDependencies: { karma: '^6.4.0' }
+  }));
+  const configured = {
+    id: 'approved-angular-tests', kind: 'test', argv: ['node', 'scripts/run-tests.mjs'],
+    workingDirectory: '.', affectedRoots: ['.'], modelPolicy: 'never',
+    result: { adapter: 'sflow-test-result-v1', path: '.sflow/results/approved.json' }
+  };
+  assert.deepEqual(await resolveDeliveryQualityCommands(root, {
+    writeScope: 'source-and-artifact',
+    generationPolicy: { task: 'code' },
+    requiredArtifact: { kind: 'implementation-summary' },
+    qualityCommands: [configured],
+    deliveryEvidence: {
+      sourcePaths: ['src/app/filter.component.ts'],
+      testPaths: ['src/app/filter.component.spec.ts']
+    }
+  }), [configured]);
 });
 
 test('acceptance tags are required from every predecessor artifact kind', async () => {

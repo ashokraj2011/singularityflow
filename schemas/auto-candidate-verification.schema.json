@@ -45,7 +45,7 @@
           "source": { "const": "registered-verifier" },
           "commandId": { "type": "string", "minLength": 1 },
           "commandArgvSha256": { "$ref": "#/$defs/hash" },
-          "adapter": { "enum": ["junit-xml", "jest-json", "vitest-json", "playwright-json", "go-test-json", "node-tap", "dotnet-trx", "cargo-json", "sflow-test-result-v1"] },
+          "adapter": { "enum": ["junit-xml", "jest-json", "vitest-json", "playwright-json", "go-test-json", "node-tap", "karma-text", "dotnet-trx", "cargo-json", "sflow-test-result-v1"] },
           "resultSha256": { "$ref": "#/$defs/hash" },
           "resultBytes": { "type": "integer", "minimum": 1 },
           "tests": {

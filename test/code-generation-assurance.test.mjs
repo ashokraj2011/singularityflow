@@ -354,6 +354,77 @@ test('Node TAP adapter preserves exact npm test scripts and validates their fina
   }, 'modern Node spec-reporter summaries remain structured evidence');
 });
 
+test('Angular Karma tests are inferred and their bounded terminal summary is structured evidence', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-cga-karma-text-'));
+  await mkdir(path.join(root, '.sflow', 'results'), { recursive: true });
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({
+    scripts: { test: 'ng test' },
+    devDependencies: { '@angular-devkit/build-angular': '^17.3.0', karma: '^6.4.0' }
+  }));
+  const command = await inferModuleTestCommand(root, {
+    root: '.', system: 'node', manifest: 'package.json'
+  });
+  assert.deepEqual(command.argv, [
+    'npm', 'test', '--', '--watch=false', '--browsers=ChromeHeadless', '--no-progress'
+  ]);
+  assert.equal(command.result.adapter, 'karma-text');
+  await writeFile(path.join(root, command.result.path), [
+    'Chrome Headless: Executed 28 of 28 SUCCESS',
+    '\u001b[32mTOTAL: 28 SUCCESS\u001b[39m', ''
+  ].join('\n'));
+  assert.deepEqual((await parseTestResult(root, command)).tests, {
+    discovered: 28, passed: 28, failed: 0, skipped: 0
+  });
+
+  await writeFile(path.join(root, command.result.path), 'TOTAL: 2 FAILED, 26 SUCCESS\n');
+  assert.deepEqual((await parseTestResult(root, command)).tests, {
+    discovered: 28, passed: 26, failed: 2, skipped: 0
+  });
+  await writeFile(path.join(root, command.result.path), 'Executed tests without a summary\n');
+  await assert.rejects(() => parseTestResult(root, command), (error) =>
+    error.code === 'CODE_TEST_RESULT_REQUIRED' && /missing its final TOTAL summary/.test(error.message));
+
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({
+    scripts: { test: 'npm run unit', unit: 'ng test' },
+    devDependencies: { karma: '^6.4.0' }
+  }));
+  assert.equal(await inferModuleTestCommand(root, {
+    root: '.', system: 'node', manifest: 'package.json'
+  }), null, 'nested scripts are not inferred because npm flags may not reach the Angular leaf');
+
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({
+    scripts: { test: 'ng test && playwright test' },
+    devDependencies: { karma: '^6.4.0' }
+  }));
+  assert.equal(await inferModuleTestCommand(root, {
+    root: '.', system: 'node', manifest: 'package.json'
+  }), null, 'composite scripts are not inferred because Angular flags may bind to the wrong command');
+
+  for (const unsafeScript of ['ng test\nplaywright test', 'ng test # keep watching']) {
+    await writeFile(path.join(root, 'package.json'), JSON.stringify({
+      scripts: { test: unsafeScript }, devDependencies: { karma: '^6.4.0' }
+    }));
+    assert.equal(await inferModuleTestCommand(root, {
+      root: '.', system: 'node', manifest: 'package.json'
+    }), null, 'shell composition cannot disguise a direct Angular invocation');
+  }
+
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({
+    scripts: { test: 'ng test' },
+    devDependencies: { '@angular-devkit/build-angular': '^20.0.0', vitest: '^3.0.0' }
+  }));
+  assert.equal(await inferModuleTestCommand(root, {
+    root: '.', system: 'node', manifest: 'package.json'
+  }), null, 'ng test without Karma is not misclassified as Karma output');
+
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({
+    scripts: { test: 'ng test' }, devDependencies: { 'karma-chrome-launcher': '^3.0.0' }
+  }));
+  assert.equal(await inferModuleTestCommand(root, {
+    root: '.', system: 'node', manifest: 'package.json'
+  }), null, 'a leftover Karma plugin does not prove the test builder emits Karma output');
+});
+
 test('composed npm test scripts preserve the exact top-level command when Node TAP is nested', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-cga-composed-node-'));
   await writeFile(path.join(root, 'package.json'), JSON.stringify({

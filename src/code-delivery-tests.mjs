@@ -164,7 +164,7 @@ function containsNodeTestRunner(script) {
 }
 
 /** Inspect only bounded, explicit package-manager edges; never interpret arbitrary shell text. */
-export function nodeTestReachableFromPackageScripts(scripts, entry = 'test') {
+function packageRunnerReachableFromScripts(scripts, predicate, entry = 'test') {
   const visiting = new Set();
   const visited = new Set();
   let nodes = 0;
@@ -188,13 +188,31 @@ export function nodeTestReachableFromPackageScripts(scripts, entry = 'test') {
       );
     }
     visiting.add(name);
-    let found = containsNodeTestRunner(script);
+    let found = predicate(script);
     for (const reference of packageScriptReferences(script)) found = visit(reference, depth + 1) || found;
     visiting.delete(name);
     visited.add(name);
     return found;
   };
   return visit(entry);
+}
+
+export function nodeTestReachableFromPackageScripts(scripts, entry = 'test') {
+  return packageRunnerReachableFromScripts(scripts, containsNodeTestRunner, entry);
+}
+
+function angularKarmaReachableFromPackageScripts(manifest) {
+  const dependencies = {
+    ...(manifest.dependencies ?? {}),
+    ...(manifest.devDependencies ?? {}),
+    ...(manifest.peerDependencies ?? {})
+  };
+  const hasKarma = Object.hasOwn(dependencies, 'karma');
+  const script = String(manifest.scripts?.test ?? '').trim();
+  // Appended npm arguments are guaranteed to reach Angular only for a direct top-level invocation.
+  // Composite and nested scripts stay unsupported rather than risking a watch-mode publication hang.
+  return hasKarma
+    && /^ng(?:\.cmd)?[ \t]+test(?:[ \t]+[-A-Za-z0-9_./:=]+)*[ \t]*$/i.test(script);
 }
 
 export async function inferModuleTestCommand(root, module, { platform = process.platform } = {}) {
@@ -240,6 +258,16 @@ export async function inferModuleTestCommand(root, module, { platform = process.
         argv: [...testArgv, '--reporter=json', `--outputFile=${resultBase}.json`],
         workingDirectory: module.root, affectedRoots: [module.root], modelPolicy: 'never',
         result: { adapter: 'vitest-json', path: `${resultBase}.json`, minimumDiscovered: 1 }
+      };
+      // Angular CLI's default Karma runner has no machine-readable reporter without adding a
+      // repository dependency. Capture its bounded final TOTAL summary instead, so ordinary
+      // Angular repositories gain structured execution evidence without a Story editing protected
+      // workflow configuration or committing a one-off wrapper script.
+      if (angularKarmaReachableFromPackageScripts(manifest)) return {
+        id: module.root === '.' ? 'angular-tests' : `${module.root}-angular-tests`, kind: 'test',
+        argv: [...testArgv, '--watch=false', '--browsers=ChromeHeadless', '--no-progress'],
+        workingDirectory: module.root, affectedRoots: [module.root], modelPolicy: 'never',
+        result: { adapter: 'karma-text', path: `${resultBase}.karma.txt`, minimumDiscovered: 1 }
       };
       // Preserve the exact top-level repository test command. Following only explicit package
       // script references lets a composite `npm test` expose nested `node --test` evidence while
@@ -319,6 +347,23 @@ export function normalizeRequiredTestCommand(value, index = 0) {
   const suppression = testSuppression(command);
   if (suppression) throw new SingularityFlowError(suppression, { code: 'CODE_TEST_SUPPRESSED' });
   return command;
+}
+
+export function structuredTestCommandRequiredError(phase) {
+  return new SingularityFlowError(
+    `Phase ${phase.id} has no structured repository test command and Singularity Flow could not infer one. `
+    + 'Do not edit protected workflow configuration on the Story branch. Configure kind: test, argv, '
+    + 'workingDirectory, affectedRoots, and a result adapter through approved configuration authority for '
+    + 'future Stories, or add deterministic support for the repository\'s native test runner.',
+    {
+      code: 'CODE_DELIVERY_TEST_COMMAND_REQUIRED',
+      details: {
+        phase: phase.id,
+        diagnosticAction: { command: `singularity-flow phase show ${phase.id} --json` },
+        remediation: { action: 'review-approved-test-configuration-outside-story' }
+      }
+    }
+  );
 }
 
 function number(value, fallback = 0) {
@@ -805,6 +850,37 @@ function nodeTapCounts(value) {
   return counts;
 }
 
+function karmaTextCounts(value) {
+  const summaries = String(value).split(/\r?\n/)
+    .map((line) => line.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').trim())
+    .map((line) => line.match(/^TOTAL:\s*(.+)$/i)?.[1] ?? null)
+    .filter(Boolean);
+  if (!summaries.length) {
+    throw new SingularityFlowError('Structured Karma test result is missing its final TOTAL summary.', {
+      code: 'CODE_TEST_RESULT_REQUIRED'
+    });
+  }
+  const summary = summaries.at(-1);
+  const counts = { discovered: 0, passed: 0, failed: 0, skipped: 0 };
+  const parts = [...summary.matchAll(/([0-9]+)\s+(SUCCESS|FAILED|SKIPPED)\b/gi)];
+  const residue = summary.replace(/([0-9]+)\s+(SUCCESS|FAILED|SKIPPED)\b/gi, '')
+    .replace(/[\s,]+/g, '');
+  if (!parts.length || residue) {
+    throw new SingularityFlowError('Structured Karma TOTAL summary is malformed.', {
+      code: 'CODE_TEST_RESULT_REQUIRED'
+    });
+  }
+  for (const part of parts) {
+    const count = Number(part[1]);
+    const outcome = part[2].toUpperCase();
+    if (outcome === 'SUCCESS') counts.passed += count;
+    else if (outcome === 'FAILED') counts.failed += count;
+    else counts.skipped += count;
+  }
+  counts.discovered = counts.passed + counts.failed + counts.skipped;
+  return counts;
+}
+
 async function resultFiles(absolute, adapter, state = { files: 0 }, depth = 0) {
   if (depth > MAX_RESULT_DEPTH) {
     throw new SingularityFlowError(`Structured test result directory exceeds depth ${MAX_RESULT_DEPTH}.`, { code: 'CODE_TEST_RESULT_REQUIRED' });
@@ -1075,6 +1151,8 @@ export async function parseTestResult(root, command, { startedAt = null } = {}) 
     }
   } else if (adapter === 'node-tap') {
     tests = nodeTapCounts(bytes.toString('utf8'));
+  } else if (adapter === 'karma-text') {
+    tests = karmaTextCounts(bytes.toString('utf8'));
   } else if (adapter === 'go-test-json') {
     const events = bytes.toString('utf8').split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
     tests = countsFromJson(adapter, events);

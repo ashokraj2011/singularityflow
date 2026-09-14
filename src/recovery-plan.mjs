@@ -1,7 +1,12 @@
 import path from 'node:path';
 
 import { planAgentBriefs } from './agent-briefs.mjs';
-import { evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery } from './delivery-evidence.mjs';
+import {
+  evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery, resolveDeliveryQualityCommands
+} from './delivery-evidence.mjs';
+import {
+  normalizeRequiredTestCommand, structuredTestCommandRequiredError
+} from './code-delivery-tests.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { inspectRequiredArtifactContent } from './publication-preflight.mjs';
 import { applicationChangeSetProjection, applicationPathContext } from './work-intervals.mjs';
@@ -209,7 +214,13 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, { gene
         && phase.generationIntent?.status === 'open'
         && !generation) {
       try {
-        await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
+        const deliveryEvidence = await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
+        const testCommands = (await resolveDeliveryQualityCommands(root, {
+          ...phase, deliveryEvidence
+        })).filter((command) => command && typeof command === 'object'
+          && !Array.isArray(command) && command.kind === 'test');
+        for (const [index, command] of testCommands.entries()) normalizeRequiredTestCommand(command, index);
+        if (!testCommands.length) throw structuredTestCommandRequiredError(phase);
       } catch (error) {
         blockers.push({
           code: 'code.delivery.incomplete', category: 'code-delivery', blocking: true,

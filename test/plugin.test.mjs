@@ -195,6 +195,40 @@ test('initial phase skills require interactive clarification instead of silently
   assert.match(epicRequirements, /epic sources answer/);
 });
 
+test('generic generation skills branch on the resolved clarification mode before asking or recording', async () => {
+  for (const name of ['sflow-phase', 'sflow-code']) {
+    const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
+    const status = content.indexOf('singularity-flow clarification status <phase> --json');
+    const firstQuestion = content.indexOf('`ask_user`');
+    const firstRecord = content.indexOf('clarification record');
+    const offStart = content.indexOf('For `off`', status);
+    const whenNeededStart = content.indexOf('For `when-needed`', offStart);
+    const requiredStart = content.indexOf('For `required`', whenNeededStart);
+    const branchesEnd = content.indexOf('Write only', requiredStart);
+    const off = content.slice(offStart, whenNeededStart);
+    const whenNeeded = content.slice(whenNeededStart, requiredStart);
+    const required = content.slice(requiredStart, branchesEnd);
+
+    assert.ok(status >= 0, `${name} must read the phase's pinned clarification mode`);
+    assert.ok(firstQuestion > status, `${name} asks before reading the clarification mode`);
+    assert.ok(firstRecord > status, `${name} records before reading the clarification mode`);
+    assert.ok(offStart > status && whenNeededStart > offStart && requiredStart > whenNeededStart
+      && branchesEnd > requiredStart, `${name} must define ordered off/when-needed/required branches`);
+    assert.match(off, /do not ask/i, `${name} must not ask in off mode`);
+    assert.match(off, /(?:do not|or) run `clarification record`/i,
+      `${name} must not record in off mode`);
+    assert.match(off, /continue directly/i, `${name} must continue in off mode`);
+    assert.match(whenNeeded, /ask and record[^.]*only when material ambiguity remains/i,
+      `${name} must condition questions and recording on material ambiguity`);
+    assert.match(whenNeeded, /otherwise continue without a record/i,
+      `${name} must let when-needed continue without a fabricated checkpoint`);
+    assert.match(required, /`ask_user`[^.]*wait[^.]*record the accepted batch/i,
+      `${name} must always pause and persist the required checkpoint`);
+    assert.match(required, /before (?:preparation|mutation)/i,
+      `${name} must complete required clarification before authoring begins`);
+  }
+});
+
 test('Copilot phase recovery re-authors once and never loops or pads an incomplete artifact', async () => {
   const workflowAgent = await readFile(path.join(pluginRoot, 'agents', 'sflow-workflow.agent.md'), 'utf8');
   const phase = await readFile(path.join(pluginRoot, 'skills', 'sflow-phase', 'SKILL.md'), 'utf8');

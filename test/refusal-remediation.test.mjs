@@ -125,6 +125,32 @@ test('an imported capability-map bootstrap refusal preserves the map and gives t
   assert.equal(plan.retry.automatic, false);
 });
 
+test('off-mode clarification refusal gives a read-only check and the legal phase continuation', () => {
+  const error = Object.assign(new Error("Phase 'planning' has clarification mode off."), {
+    code: 'CLARIFICATION_MODE_OFF',
+    details: {
+      phase: 'planning',
+      mode: 'off',
+      nextAction: {
+        command: 'singularity-flow clarification status planning --json',
+        kind: 'diagnostic'
+      },
+      remediation: { action: 'continue-without-clarification' }
+    }
+  });
+  const envelope = refusalEnvelope(error, ['clarification', 'record', 'planning', '--json']);
+
+  assert.equal(envelope.error.code, 'CLARIFICATION_MODE_OFF');
+  assert.deepEqual(envelope.remediationPlan.steps.slice(0, 2).map((entry) => entry.command), [
+    'singularity-flow clarification status planning --json',
+    'singularity-flow prepare planning'
+  ]);
+  assert.match(envelope.remediationPlan.steps[1].label, /Skip clarification questions and recording/);
+  assert.ok(envelope.remediationPlan.steps.every((entry) => entry.execution === 'user-reviewed'));
+  assert.equal(envelope.remediationPlan.retry.automatic, false);
+  assert.match(envelope.remediationPlan.retry.label, /Do not retry clarification recording/);
+});
+
 test('FOS:AC-033 recovery remains registered and shell-safe on macOS Linux and Windows with hostile context', () => {
   const secret = 'https://person:office-secret@example.test/repo.git';
   const error = Object.assign(new Error(`hostile path /tmp/a b/δ; touch escaped ${secret}`), {

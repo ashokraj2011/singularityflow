@@ -181,6 +181,10 @@ export function defaultTokenReductionContractSet() {
       section('approved-phase-inputs', {
         slot: 'evidence', role: 'phase-input', dependencies: ['phase-contract']
       }),
+      section('final-clarification-guard', {
+        slot: 'interaction', role: 'interaction-policy',
+        dependencies: ['phase-contract']
+      }),
       section('alias-table', {
         slot: 'generated-metadata', role: 'alias-table',
         generator: 'alias-table', rendererRef: TKR_GENERATED_RENDERER_REF

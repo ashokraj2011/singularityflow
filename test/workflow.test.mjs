@@ -98,6 +98,32 @@ test('start JSON uses the same versioned command-result contract as terminal out
   assert.equal(parsed.data.currentPhase, 'intake');
 });
 
+test('off-mode clarification record emits recovery before reading response input', async () => {
+  const root = await repository();
+  const workId = 'CLARIFICATION-OFF-1';
+  flow(root, [
+    'start', workId, '--from-branch', 'main', '--work-type', 'quick-fix', '--agent', 'developer',
+    '--title', 'Continue without clarification',
+    '--description', 'Prove an off-mode checkpoint gives the legal phase continuation.'
+  ]);
+
+  const refused = flow(root, [
+    'clarification', 'record', 'implement', '--response-file', 'does-not-exist.json', '--json'
+  ], { allowFailure: true, selection: selection('quick-fix', 'developer') });
+  assert.notEqual(refused.status, 0);
+  assert.equal(refused.stdout, '');
+  const envelope = JSON.parse(refused.stderr);
+  assert.equal(envelope.error.code, 'CLARIFICATION_MODE_OFF');
+  assert.deepEqual(envelope.remediationPlan.steps.slice(0, 2).map((entry) => entry.command), [
+    'singularity-flow clarification status implement --json',
+    'singularity-flow prepare implement'
+  ]);
+  assert.match(envelope.remediationPlan.retry.label, /Do not retry clarification recording/);
+  assert.equal(existsSync(path.join(
+    root, 'singularity/work-items', workId, 'context/clarifications-implement-gen1.json'
+  )), false);
+});
+
 test('failed start restores the caller branch and both previous local sessions', async () => {
   const root = await repository();
   const sessionFile = path.join(root, '.git/singularity-flow/session.json');

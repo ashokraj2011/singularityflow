@@ -221,7 +221,17 @@ const KNOWN = Object.freeze({
     step('map-with-review',
       'Preserve the imported organisation map, establish its authority, and add the new capability through a separate reviewed proposal.',
       'singularity-flow capability map <CAPABILITY-ID> --lead <LEAD-URL> --json', 'remediation')
-  ]
+  ],
+  CLARIFICATION_MODE_OFF: (_argv, error) => {
+    const phase = /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(error?.details?.phase ?? '')
+      ? error.details.phase : null;
+    return [step(
+      'continue-phase-without-clarification',
+      'Skip clarification questions and recording; continue the phase from approved sources and governed repository evidence.',
+      phase ? `singularity-flow prepare ${phase}` : null,
+      'remediation'
+    )];
+  }
 });
 
 function genericSteps(argv) {
@@ -256,15 +266,18 @@ export function refusalRemediationPlan(error, argv = []) {
     `producer-${index + 1}`, 'Follow the recovery action supplied by the refusing operation.', command.command,
     index === 0 ? 'remediation' : 'diagnostic'
   ));
-  const known = KNOWN[code]?.(argv) ?? [];
+  const known = KNOWN[code]?.(argv, error) ?? [];
   const steps = deduplicate([...explicit, ...known, ...genericSteps(argv)]);
+  const retryLabel = code === 'CLARIFICATION_MODE_OFF'
+    ? 'Do not retry clarification recording while the pinned mode is off; continue the phase instead.'
+    : 'Retry the original command only after the blocking condition is resolved.';
   return Object.freeze({
     schemaVersion: 1, // schema-transient: process-boundary guidance, never persisted
     status: 'blocked',
     code,
     steps: Object.freeze(steps),
     retry: Object.freeze({
-      label: 'Retry the original command only after the blocking condition is resolved.',
+      label: retryLabel,
       automatic: false
     })
   });

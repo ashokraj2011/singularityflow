@@ -23,6 +23,38 @@ export function resolvedClarificationPolicy(definition, workflow, phase) {
 
 const resolvedPolicy = resolvedClarificationPolicy;
 
+/**
+ * Refuse a clarification write when the Story's pinned phase contract has no checkpoint.
+ *
+ * Keep this check shared by the CLI preflight and the record writer. The preflight makes an
+ * accidental `clarification record` recoverable before it parses or reads an untrusted response
+ * file, while the writer remains the authority for direct API callers.
+ */
+export function assertClarificationRecordingAllowed(definition, workflow, phase) {
+  const policy = resolvedPolicy(definition, workflow, phase);
+  if (policy.mode !== 'off') return policy;
+  const phaseId = phase.id;
+  throw new SingularityFlowError(
+    `Phase '${phaseId}' has clarification mode off. Skip clarification questions and recording; continue the phase from its governed evidence.`,
+    {
+      code: 'CLARIFICATION_MODE_OFF',
+      details: {
+        phase: phaseId,
+        mode: policy.mode,
+        nextAction: {
+          command: `singularity-flow clarification status ${phaseId} --json`,
+          kind: 'diagnostic'
+        },
+        remediation: {
+          action: 'continue-without-clarification',
+          instruction: 'Do not ask or record phase clarification. Continue from the approved sources and governed repository evidence.',
+          command: `singularity-flow prepare ${phaseId}`
+        }
+      }
+    }
+  );
+}
+
 export function clarificationRecordRelative(definition, workflow, phase, generation = phase.generation + 1) {
   return posix(path.join(
     definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'context',
@@ -113,8 +145,7 @@ export function answeredMarkerHashes(record) {
 export async function recordClarificationResponses(root, definition, workflow, phase, {
   responses, actor, agent, replace = false, generation = phase.generation + 1
 } = {}) {
-  const policy = resolvedPolicy(definition, workflow, phase);
-  if (policy.mode === 'off') throw new SingularityFlowError(`Phase '${phase.id}' has clarification mode off.`);
+  const policy = assertClarificationRecordingAllowed(definition, workflow, phase);
   if (!Array.isArray(responses) || !responses.length) throw new SingularityFlowError('Record at least one clarification response.');
   const groundingPath = groundingRecordRelative(definition, workflow, phase, generation);
   if (!(await exists(path.join(root, groundingPath)))) {

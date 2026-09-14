@@ -52,9 +52,11 @@ branch destination, diff, coverage, validation evidence, residual risks, and rol
 configured human approvals before offering the normal governed publication/PR action. Never push
 the selected base branch or represent a prepared PR description as a created pull request.
 
-When the injected prompt declares a Human clarification checkpoint, ask one bounded batch with
-`ask_user`, wait, and record the accepted answers with
-`singularity-flow clarification record <phase> --response-file <json>` before authoring.
+Obey the composed phase prompt's pinned clarification mode. For `off`, never ask or record phase
+clarification. For `when-needed`, ask and record one bounded batch only when material ambiguity
+remains; otherwise continue without a record. For `required`, use `ask_user`, wait, and record the
+accepted answers with `singularity-flow clarification record <phase> --response-file <json>` before
+authoring.
 
 ## Remote skills
 

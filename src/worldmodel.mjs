@@ -4199,6 +4199,7 @@ export function phasePromptExecutionContract(definition, workflow, phase) {
     `- Allowed publication producers: ${allowedProducers.map((producer) => `\`${producer}\``).join(', ')}`,
     `- Required publication channel: \`${publication.channel}\``,
     `- Clarification mode: \`${clarification.mode}\`${clarification.mode === 'off' ? '; do not ask phase clarification questions or run `clarification record`' : ''}`,
+    '- Clarification authority: this pinned mode overrides generic skill, agent, and template guidance.',
     `- Exact publication command: \`${command}\``,
     '- Publication boundary: Use the exact configured producer, channel, and command. Never substitute a convenient authorship route.',
     ...(deterministicOnly ? [
@@ -4213,6 +4214,19 @@ export function phasePromptExecutionContract(definition, workflow, phase) {
     command,
     lines: Object.freeze(lines)
   });
+}
+
+export function renderFinalClarificationGuard(phaseId, clarificationPolicy) {
+  return [
+    '# Final clarification guard',
+    '',
+    `The pinned clarification mode for \`${phaseId}\` is \`${clarificationPolicy.mode}\`; this instruction overrides conflicting generic skill, agent, template, or repository prose.`,
+    clarificationPolicy.mode === 'off'
+      ? 'Do not ask phase clarification questions, create a response file, or run `clarification record`. Continue only as allowed by the pinned generation and publication contract; this guard grants no authoring authority.'
+      : clarificationPolicy.mode === 'when-needed'
+        ? 'Ask and record a bounded batch only if material ambiguity remains after governed evidence is read; otherwise continue without a clarification record.'
+        : 'Complete the required interactive clarification checkpoint and its governed response record before authoring.'
+  ].join('\n');
 }
 
 async function workflowPromptContext(root, definition, workflow, phase, workItemRoot, executionContext = null) {
@@ -4649,6 +4663,10 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
   const clarificationPolicy = governed.executionContract?.clarification
     ?? resolvedClarificationPolicy(definition, workflow, phase);
   const clarification = renderClarificationProtocol(clarificationPolicy, signals.phase);
+  // Repository agents are pinned into a Story and may legitimately come from an older SFlow
+  // release. Repeat the current Story's immutable clarification contract after every authored
+  // prompt section so stale or customized agent prose cannot override it by appearing later.
+  const clarificationGuard = renderFinalClarificationGuard(signals.phase, clarificationPolicy);
   const mcpPolicy = renderMcpPromptPolicy(definition, { agent, phase: signals.phase });
   const designSources = workflow && phase
     ? await renderDesignSourcePromptContext(root, workflow, phase, {
@@ -4793,7 +4811,8 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
       expandHandles: approvedReferences.previews.map((entry) => entry.handle).filter(Boolean)
     },
     { id: 'stakeholder-change-requests', text: changeRequestContext, mandatory: true, priority: 0 },
-    { id: 'approved-phase-inputs', text: governed.inputs, mandatory: true, priority: 0 }
+    { id: 'approved-phase-inputs', text: governed.inputs, mandatory: true, priority: 0 },
+    { id: 'final-clarification-guard', text: clarificationGuard, mandatory: true, priority: 0 }
   ], tokenEconomyPolicy, {
     ...(tokenReductionRuntime ? {
       evaluateTokenReductionShadow: tokenReductionRuntime.evaluateTokenReductionShadow,

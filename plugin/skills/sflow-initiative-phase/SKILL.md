@@ -8,7 +8,7 @@ argument-hint: "[PHASE] [--initiative INIT-ID]"
 # Generate an initiative phase
 
 <!-- sflow-output-contract: clarification-and-artifact -->
-**Output contract:** Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.
+**Output contract:** Use the complete governed prompt and approved inputs, obey the pinned clarification mode, then publish and show configured artifacts.
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 

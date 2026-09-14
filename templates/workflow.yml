@@ -773,7 +773,7 @@ workTypes:
       specification: spec-driven/spec.md
       planning: spec-driven/plan.md
       convergence: spec-driven/convergence.md
-    # Conservative defaults [SPK:REQ-033]: required clarification, approved upstream inputs,
+    # Conservative defaults [SPK:REQ-033]: phase-specific clarification, approved upstream inputs,
     # required publication, and human advancement out of convergence. Large upstream artifacts
     # are projected into approval-bound agent briefs. Exact wording remains available through the
     # source artifact's hash-bound sfref handle; older pinned work items retain their full inputs.
@@ -1165,6 +1165,9 @@ phases:
     artifact: { path: artifacts/planning/plan.md, kind: design, minimumBytes: 300 }
     artifactSet: spec-driven-planning
     worldModel: { views: [architecture], depth: standard }
+    # Planning consumes the approved specification without a second mandatory interview. Material
+    # intent changes return through governed amendment/rework rather than an ad-hoc response file.
+    clarification: { mode: off }
     writeScope: artifact-only
     approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [specification, planning] }
   release:

@@ -31,7 +31,8 @@ const SECTION_RULES = Object.freeze([
   ['active-story-evidence', 'evidence', 'story-evidence', 'dynamic', ['phase-contract']],
   ['approved-reference-previews', 'references', 'approved-reference', 'dynamic', []],
   ['stakeholder-change-requests', 'requirements', 'change-request', 'dynamic', ['phase-contract']],
-  ['approved-phase-inputs', 'evidence', 'phase-input', 'dynamic', ['phase-contract']]
+  ['approved-phase-inputs', 'evidence', 'phase-input', 'dynamic', ['phase-contract']],
+  ['final-clarification-guard', 'interaction', 'interaction-policy', 'dynamic', ['phase-contract']]
 ]);
 
 const SECTION_IDS = Object.freeze(SECTION_RULES.map(([id]) => id));
@@ -66,7 +67,7 @@ function offer(rule, rendererRef, {
   };
 }
 
-test('packaged TKR default covers its 17 declared prompt sections in exact order', () => {
+test('packaged TKR default covers its 18 declared prompt sections in exact order', () => {
   const set = defaultTokenReductionContractSet();
   assert.deepEqual(set.logicalComposer.sectionRules
     .filter((rule) => rule.generator === null).map((rule) => rule.id), SECTION_IDS);

@@ -8,7 +8,7 @@ argument-hint: "[generation focus]"
 # Generate the active phase
 
 <!-- sflow-output-contract: clarification-and-artifact -->
-**Output contract:** Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.
+**Output contract:** Use the complete governed prompt and approved inputs, obey the pinned clarification mode, then publish and show configured artifacts.
 <!-- sflow-execution-boundary -->
 **Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
 
@@ -16,8 +16,8 @@ Stop on `Out of sequence`; leave `continue` to the human. Never edit state to by
 
 1. Run `singularity-flow status --json`; use its phase/session. Story context stays in the governed workflow; grounding uses the shared repository world model.
 2. Run `singularity-flow documents list`; view relevant inputs by stable ID.
-3. Reuse the governed prompt delivered this turn. Otherwise run `singularity-flow wm compose --phase <phase>` once. Never compose the same generation twice in one turn or derive `--task` from Story text. If World-Model intelligence is unavailable, use the recorded zero-byte context and continue. Show an exact returned recovery command only as an optional improvement; do not run it from this skill.
-4. Complete the **Human clarification checkpoint** before preparation. Use `ask_user` and wait; `required` pauses. If unavailable, show questions and stop before preparation. Write `{"responses":[{"question":"...","answer":"..."}]}` to a private UTF-8 `.json` file and run `singularity-flow clarification record <phase> --response-file <file.json>`. Never pass Markdown.
+3. Reuse the governed prompt or run `singularity-flow wm compose --phase <phase>` once. Never recompose or derive `--task` from Story text. Unavailable World-Model intelligence is zero-byte context; continue and show optional recovery.
+4. Run `singularity-flow clarification status <phase> --json`; its pinned `mode` is authoritative. For `off`, do not ask or run `clarification record`; continue directly. For `when-needed`, ask and record only when material ambiguity remains; otherwise continue without a record. For `required`, use `ask_user`, wait, and record the accepted batch before preparation. Write only `{"responses":[{"question":"...","answer":"..."}]}` in a private `.json` file. Never pass Markdown. If required interactivity is unavailable, stop before preparation.
 5. Run `story references verify --work-id <WORK-ID> --json`. Use only returned repository-relative `localPath` values, read-only; materialize only through its exact action and never edit/reset. Run `prepare`; follow its template/input/byte/heading contract. Re-read artifacts; stop on `TODO`, `TBD`, unresolved `{{...}}`, or instructions. Never publish an untouched template or pad it.
 6. Use full anchors such as `[WORK-ID:REQ-001]` and `[WORK-ID:AC-001]`; bare `SPEC-nnn`, `AC-nnn`, or `NFR-nnn` labels are not governed clauses. Preserve IDs through tests and conformance.
 7. Run `singularity-flow recover <WORK-ID> --phase <phase> --json`. Re-author each `authoring` blocker, then rerun recovery. No nested Copilot/model invocation. Stop on missing clarification or an unchanged artifact fingerprint.

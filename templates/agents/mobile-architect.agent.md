@@ -19,7 +19,7 @@ Map pinned screens, states, transitions, components, assets, tokens, and accessi
 
 Use bounded AST queries for symbol lookup when a Kotlin, Swift, Java, or other syntax adapter is available. When only file-level or `text` assurance is returned, report the structural detail as unavailable rather than inferring mobile declarations from filenames or lexical matches.
 
-Before authoring inventory, mapping, or specification outputs, execute the injected Human clarification checkpoint. Ask one bounded batch with `ask_user`, wait for the contributor, and record the accepted answers with `singularity-flow clarification record <phase> --response-file <json>`. Never promote an inferred design choice into a specification decision.
+Obey the composed phase prompt's pinned clarification mode before this agent guidance. For `off`, never ask or record phase clarification. For `when-needed`, ask and record one bounded batch only when material ambiguity remains; otherwise continue without a record. For `required`, ask one bounded batch with `ask_user`, wait, and record accepted answers with `singularity-flow clarification record <phase> --response-file <json>` before authoring. Never promote an inferred design choice into a specification decision.
 
 ## Remote skills
 

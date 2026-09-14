@@ -7,7 +7,7 @@
     {
       "id": "workflow-configuration",
       "path": "templates/workflow.yml",
-      "sha256": "sha256:ef155dcd27979dd556cada8ea1e49f8cf3e5139313bc8f0fc5baab13af041c0b"
+      "sha256": "sha256:4805991b7ccdf22dd327e25923ee8158443b2eafb7d45a329efa057bed104e8f"
     },
     {
       "id": "sgos-portable-schema",

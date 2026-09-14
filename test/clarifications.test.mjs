@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  assertClarificationRecordingAllowed,
   clarificationRecordRelative,
   normalizeClarificationPolicy,
   recordClarificationResponses,
@@ -71,6 +72,40 @@ test('off clarification adds no prompt instructions and when-needed may explicit
   const rendered = renderClarificationProtocol({ mode: 'when-needed' }, 'design');
   assert.match(rendered, /Ask only when a material ambiguity remains/);
   assert.match(rendered, /found no material ambiguity and continue/);
+});
+
+test('off clarification refuses recording with a stable recovery contract', async () => {
+  const value = await clarificationFixture('off');
+  assert.throws(
+    () => assertClarificationRecordingAllowed(value.definition, value.workflow, value.phase),
+    (error) => {
+      assert.equal(error.code, 'CLARIFICATION_MODE_OFF');
+      assert.deepEqual(error.details, {
+        phase: 'requirements',
+        mode: 'off',
+        nextAction: {
+          command: 'singularity-flow clarification status requirements --json',
+          kind: 'diagnostic'
+        },
+        remediation: {
+          action: 'continue-without-clarification',
+          instruction: 'Do not ask or record phase clarification. Continue from the approved sources and governed repository evidence.',
+          command: 'singularity-flow prepare requirements'
+        }
+      });
+      return true;
+    }
+  );
+
+  await assert.rejects(
+    recordClarificationResponses(value.root, value.definition, value.workflow, value.phase, {
+      actor: { name: 'Product Owner' },
+      agent: 'product-owner',
+      responses: [{ question: 'Should this be persisted?', answer: 'No.' }]
+    }),
+    (error) => error.code === 'CLARIFICATION_MODE_OFF'
+      && error.details?.remediation?.action === 'continue-without-clarification'
+  );
 });
 
 test('required clarification is bound to the exact prompt and prospective generation', async () => {

@@ -215,6 +215,7 @@ test('phase prompts bind deterministic convergence to its exact publication and 
   assert.match(rendered, /Allowed publication producers: `deterministic`/);
   assert.match(rendered, /Required publication channel: `kernel-generator`/);
   assert.match(rendered, /Clarification mode: `off`; do not ask phase clarification questions/);
+  assert.match(rendered, /pinned mode overrides generic skill, agent, and template guidance/);
   assert.match(rendered, /Exact publication command: `singularity-flow phase publish convergence --authored deterministic --channel kernel-generator`/);
   assert.match(rendered, /do not author or edit the phase artifact with a model, governed agent, or human/i);
 });
@@ -341,6 +342,13 @@ test('wm inject renders matched agent context and records the generation audit',
   assert.match(rendered, /Open stakeholder change requests/);
   assert.match(rendered, /CR-007/);
   assert.match(rendered, /Document the timeout and rollback behavior/);
+  assert.match(rendered, /# Final clarification guard/);
+  assert.match(rendered, /Complete the required interactive clarification checkpoint/);
+  assert.match(rendered, /pinned clarification mode for `design` is `required`/);
+  assert.ok(
+    rendered.indexOf('# Final clarification guard') > rendered.indexOf('Developer agent'),
+    'the immutable clarification guard must follow potentially stale governed-agent prose'
+  );
   await assert.rejects(readFile(path.join(workDir, 'context/design-gen1.json'), 'utf8'), /ENOENT/);
   const inspected = run(process.execPath, [bin, 'wm', 'show-prompt', '--phase', 'design', '--work-id', 'WM-1'], root);
   assert.match(inspected, /BEGIN plugin\/skills\/sflow-phase\/SKILL\.md/);

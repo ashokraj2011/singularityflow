@@ -15,13 +15,13 @@ disable-model-invocation: true
 1. Ask first for the exact credential-free Git URL.
 2. Run `singularity-flow capability inspect-repository <GIT-URL> --json`; add `--lead <LEAD-URL>` only after explicit selection.
 3. Branch before collecting details:
-   - `already-mapped`: show matches and stop; never duplicate.
+   - `already-mapped`: show matches and stop without proposing a duplicate.
    - `known-repository-unassigned`: ask whether to map it.
    - `ambiguous`: show choices and inspect again with the selected `--lead`.
-   - `unreachable`: report and stop; absence was not proved.
+   - `unreachable`: report and stop. Do not reinterpret an unverified absence as a new repository.
    - `not-onboarded`: show `checkedLeads`; require complete coverage.
    - `inconclusive`: show `pendingMatches`; stop unless coverage is complete, no authority exists, and the target is reachable.
-4. After an explicit new-map request, run `capability organisation <LEAD-URL> --json`; show parents and ask for missing ID, name, kind, parent, Jira/team, roots, and clone policy. `delivery` uses the URL; `collection` does not.
+4. Continue only after an explicit request for a new mapping. Run `capability organisation <LEAD-URL> --json`; show parents, then ask only for missing ID, name, kind, parent, Jira/team, roots, and clone policy. `delivery` uses the URL; `collection` does not.
 5. Run:
 
    `singularity-flow capability map <ID> --lead <LEAD-URL> --kind <KIND> [--name TEXT] [--parent ID] [--repository URL] [--jira-project KEY] [--teams A,B] --json`
@@ -32,10 +32,10 @@ disable-model-invocation: true
    `singularity-flow capability activate <REVIEW-BRANCH> --lead <LEAD-URL> --confirm <FULL-PROPOSAL-COMMIT> --json`
 
 8. For `CAPABILITY_PROPOSAL_PACKAGED_COMPATIBILITY_REQUIRED`, run only its exact `repair-proposal` after confirmation. Show repaired paths/new SHA and review the new diff. It upgrades proven package bytes; custom bytes require normal review. Never auto-activate.
-9. `CAPABILITY_CONFIGURATION_UNPROTECTED` needs consent for `--acknowledge-unprotected`; otherwise use external review. After external merge, repeat the exact activation. Use `capability fsck` for invalid history.
+9. `CAPABILITY_CONFIGURATION_UNPROTECTED` needs consent for `--acknowledge-unprotected`; otherwise use external review. After that merge, run the same exact-hash `capability activate` command again. Use `capability fsck` for invalid history.
 10. Activation is staged. For audit/projection recovery run only its returned exact action; never merge/reset again. A recovery conflict requires reported history, not current HEAD.
 11. Report success only when configuration, audit, projection, and required links are complete.
 
 ## Boundaries
 
-- Do not create a workspace. Never hand-edit maps or use raw Git for proposals. `capability publish` repairs projection; it is not activation.
+- Do not create a workspace. Never hand-edit maps or use raw Git for proposals. `capability publish` is a projection-repair command; it is not activation.

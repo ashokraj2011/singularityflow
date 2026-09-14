@@ -90,7 +90,9 @@ import { beginHarnessInvocation, completeHarnessInvocation, harnessReport } from
 import { activateWorkItemSession, loadCopilotSession, loadSession, agentSessionStatus, requireCopilotWorkItemSelection, selectIntakeSource, selectAgent, selectWorkType, setAgentSession } from './session.mjs';
 import { addDocuments, detachDocuments, documentCatalog, fetchRemoteDocument, listRemoteDocuments, previewDocument, viewDocument } from './documents.mjs';
 import { documentSetLifecycleBinding } from './document-publication.mjs';
-import { recordClarificationResponses, verifyClarificationRecord } from './clarifications.mjs';
+import {
+  assertClarificationRecordingAllowed, recordClarificationResponses, verifyClarificationRecord
+} from './clarifications.mjs';
 import { progressBar, progressFlow, progressMarkdown, progressSnapshot } from './progress.mjs';
 import { deriveReport, renderHtml, renderMarkdown } from './report.mjs';
 import { loadManualStory, promptManualStory } from './intake.mjs';
@@ -3611,6 +3613,9 @@ async function clarificationCommand(positionals, options) {
     return;
   }
   if (subcommand !== 'record') throw new SingularityFlowError(`Unknown clarification subcommand '${subcommand}'. Use record or status.`);
+  // An off-mode phase has no human checkpoint to persist. Refuse before reading a response file or
+  // requiring record-only flags so stale generic agent guidance always receives the policy recovery.
+  assertClarificationRecordingAllowed(config, workflow, phase);
   const responseFile = optionString(options, 'response-file');
   let responses;
   if (responseFile) {

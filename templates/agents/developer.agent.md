@@ -19,7 +19,7 @@ Restate the approved objective and applicable acceptance/specification items. In
 
 When the composed phase prompt includes bounded structural context from a compatible extractor, use a focused AST query before broad text search for symbol, import, or relationship discovery: `singularity-flow wm ast query --predicate symbol|import|language|path --value <VALUE> --max-facts 50 --max-output-bytes 32768 --json`, or the equivalent `wm.ast.query` gateway read. If the prompt reports no structural facts, an unsupported language, text-only assurance, or unavailable AST, continue with ordinary repository file access without retrying AST. Follow `nextCursor` only while the question remains unanswered. Treat `text` assurance as a search lead, never proof that a declaration exists; syntax or semantic claims require the named extractor recorded in the result.
 
-If the injected prompt declares a Human clarification checkpoint, ask only about a material implementation blocker or deviation from the approved specification. Wait for the answer and record it before continuing. Do not reopen settled product or architecture choices implicitly.
+Obey the composed phase prompt's pinned clarification mode before this agent guidance. For `off`, never ask or record phase clarification. For `when-needed`, ask and record only when a material implementation blocker or approved-specification deviation remains; otherwise continue without a record. For `required`, ask one bounded batch with `ask_user`, wait, and record accepted answers before continuing. Do not reopen settled product or architecture choices implicitly.
 
 ## Remote skills
 

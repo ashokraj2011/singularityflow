@@ -72,6 +72,7 @@ export class WorkspacesPanel {
     request: {
       dryRun: boolean;
       planId?: string | null;
+      repositoryIds?: readonly string[];
       resolutions: Record<string, WorkspaceConfigurationResolution>;
     }
   ) => Promise<WorkspaceConfigurationRefreshResult>;
@@ -95,6 +96,9 @@ export class WorkspacesPanel {
   private fosOutcome: WorkspaceFosOutcome | null = null;
   private requestedCapabilityIds: string[] = [];
   private attachScope: WorkspaceCapabilityAttachScope | null = null;
+  /** Exact repository selected by the Git-URL recovery menu; null means ordinary workspace scope. */
+  private configurationRepositoryId: string | null = null;
+  private configurationRepositoryWorkspacePath: string | null = null;
   private readonly configurationRequests = new WorkspaceConfigurationRequestLeases();
   private configurationPreviewLease: WorkspaceConfigurationRequestLease | null = null;
   private configuration: WorkspaceConfigurationRefreshView = {
@@ -110,7 +114,8 @@ export class WorkspacesPanel {
     refreshConfiguration: WorkspacesPanel['refreshConfiguration'],
     runFosAction: WorkspacesPanel['runFosAction'],
     selected: string | null,
-    attachScope: WorkspaceCapabilityAttachScope | null = null
+    attachScope: WorkspaceCapabilityAttachScope | null = null,
+    configurationRepositoryId: string | null = null
   ) {
     this.panel = panel;
     this.reload = reload;
@@ -119,6 +124,8 @@ export class WorkspacesPanel {
     this.refreshConfiguration = refreshConfiguration;
     this.runFosAction = runFosAction;
     this.attachScope = attachScope;
+    this.configurationRepositoryId = configurationRepositoryId;
+    this.configurationRepositoryWorkspacePath = configurationRepositoryId ? selected : null;
     this.rows = this.scopedRows(entries);
     this.requestedCapabilityIds = [...new Set(attachScope?.capabilityIds ?? [])];
     this.selected = this.initialSelection(selected);
@@ -147,10 +154,12 @@ export class WorkspacesPanel {
     runFosAction: WorkspacesPanel['runFosAction'],
     selected: string | null = null,
     upgradeScope: 'selected' | 'all' | null = null,
-    attachScope: WorkspaceCapabilityAttachScope | null = null
+    attachScope: WorkspaceCapabilityAttachScope | null = null,
+    configurationRepositoryId: string | null = null
   ): WorkspacesPanel {
     if (WorkspacesPanel.current) {
       WorkspacesPanel.current.setAttachScope(attachScope);
+      WorkspacesPanel.current.setConfigurationRepositoryScope(selected, configurationRepositoryId);
       WorkspacesPanel.current.panel.reveal(vscode.ViewColumn.Active);
       const upgradeSelection = upgradeScope
         ? selected ?? WorkspacesPanel.current.rows.find((row) => !row.archived)?.path ?? null
@@ -159,7 +168,9 @@ export class WorkspacesPanel {
       // look authoritative even after the Navigator and CLI had switched workspaces. Re-read the
       // machine-wide registry every time the page is opened, preferring the explicitly clicked row
       // and otherwise the workspace that is active now.
-      void WorkspacesPanel.current.refresh(upgradeSelection, true).then(() => {
+      void WorkspacesPanel.current.refresh(
+        upgradeSelection, upgradeScope !== 'selected', upgradeScope === 'selected'
+      ).then(() => {
         if (upgradeScope) return WorkspacesPanel.current?.previewConfiguration(upgradeScope);
         return undefined;
       });
@@ -176,10 +187,12 @@ export class WorkspacesPanel {
       : selected;
     WorkspacesPanel.current = new WorkspacesPanel(
       panel, entries, reload, onMessage, loadDetails, refreshConfiguration, runFosAction,
-      upgradeSelection, attachScope
+      upgradeSelection, attachScope, configurationRepositoryId
     );
     if (upgradeScope) {
-      void WorkspacesPanel.current.refresh(upgradeSelection, true)
+      void WorkspacesPanel.current.refresh(
+        upgradeSelection, upgradeScope === 'all', upgradeScope === 'selected'
+      )
         .then(() => WorkspacesPanel.current?.previewConfiguration(upgradeScope));
     }
     return WorkspacesPanel.current;
@@ -211,13 +224,17 @@ export class WorkspacesPanel {
     );
   }
 
-  private async refresh(preferred: string | null = null, preferActive = false): Promise<void> {
+  private async refresh(
+    preferred: string | null = null,
+    preferActive = false,
+    requirePreferred = false
+  ): Promise<void> {
     this.rows = this.scopedRows(await this.reload());
     const requested = preferred && this.rows.some((row) => row.path === preferred) ? preferred : null;
     const active = this.rows.find((row) => row.active)?.path ?? null;
     const retained = this.selected && this.rows.some((row) => row.path === this.selected)
       ? this.selected : null;
-    const next = requested ?? (preferActive ? active : retained ?? active)
+    const next = requirePreferred ? requested : requested ?? (preferActive ? active : retained ?? active)
       ?? (this.requestedCapabilityIds.length ? this.rows.find((row) => !row.archived)?.path ?? null : null);
     if (next) {
       await this.select(next);
@@ -261,6 +278,20 @@ export class WorkspacesPanel {
     this.render();
   }
 
+  /** A retained panel must not inherit repository scope from a prior Git-URL recovery action. */
+  private setConfigurationRepositoryScope(
+    workspacePath: string | null,
+    repositoryId: string | null
+  ): void {
+    const targetWorkspace = repositoryId ? workspacePath : null;
+    if (repositoryId === this.configurationRepositoryId
+      && targetWorkspace === this.configurationRepositoryWorkspacePath) return;
+    this.invalidateConfigurationRequest();
+    this.configurationRepositoryId = repositoryId;
+    this.configurationRepositoryWorkspacePath = targetWorkspace;
+    this.configuration = { ...EMPTY_CONFIGURATION_REFRESH, resolutions: {} };
+  }
+
   private async select(path: string, {
     preserveError = false,
     preserveEdit = false
@@ -268,6 +299,11 @@ export class WorkspacesPanel {
     if (!this.rows.some((row) => row.path === path)) return;
     this.invalidateConfigurationRequest();
     const workspaceChanged = this.selected !== path;
+    if (workspaceChanged && this.configurationRepositoryWorkspacePath
+      && path !== this.configurationRepositoryWorkspacePath) {
+      this.configurationRepositoryId = null;
+      this.configurationRepositoryWorkspacePath = null;
+    }
     this.manageRevision++;
     const request = ++this.detailRequest;
     this.selected = path;
@@ -330,6 +366,7 @@ export class WorkspacesPanel {
    * a completed refresh into a race — the failure `evidence-manager` had for one commit.
    */
   private router = registerMessageRouter('singularityFlow.workspaces', {
+    'repository-refresh': () => vscode.commands.executeCommand('singularityFlow.refreshRepositorySetup'),
     'open-help-topic': (message) => {
       const topic = stringField(message, 'topic');
       if (!topic || !['configuration', 'fast-onboarding', 'workspaces-and-sessions'].includes(topic)) return;
@@ -594,7 +631,11 @@ export class WorkspacesPanel {
     try {
       const result = await this.refreshConfiguration(
         scope === 'selected' ? context.selectedPath : null,
-        { dryRun: true, resolutions: { ...context.resolutions } }
+        {
+          dryRun: true,
+          repositoryIds: context.repositoryId ? [context.repositoryId] : [],
+          resolutions: { ...context.resolutions }
+        }
       );
       if (!this.configurationRequests.isCurrent(lease, this.configurationRequestContext(scope))) return;
       this.configuration.result = result;
@@ -647,6 +688,7 @@ export class WorkspacesPanel {
         {
           dryRun: false,
           planId,
+          repositoryIds: context.repositoryId ? [context.repositoryId] : [],
           resolutions: { ...context.resolutions }
         }
       );
@@ -677,6 +719,9 @@ export class WorkspacesPanel {
     return {
       selectedPath: this.selected,
       scope,
+      repositoryId: scope === 'selected'
+        && this.selected === this.configurationRepositoryWorkspacePath
+        ? this.configurationRepositoryId : null,
       resolutions: { ...this.configuration.resolutions }
     };
   }

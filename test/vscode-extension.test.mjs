@@ -4105,8 +4105,10 @@ const INTAKE_CHOICES = {
     { id: 'bugfix', label: 'Bug fix', description: 'Diagnose and correct a defect',
       phases: ['intake', 'reproduction', 'fix-design', 'implementation', 'verification'] }
   ],
+  availableStoryWorkflows: [],
   workType: 'feature',
   workflowReason: null,
+  workflowCatalogReason: null,
   baseBranch: 'main',
   baseRemote: 'origin',
   basePreflightPassed: true,
@@ -4342,6 +4344,38 @@ test('Story workflow phases render as a horizontal rail beneath the workflow nam
   assert.match(STYLE, /\.choice\.workflow-choice \.workflow-step \{[\s\S]*display: inline-flex;/);
 });
 
+test('Story intake shows packaged workflows separately without making them selectable', () => {
+  const html = intakeHtml(intake({
+    shape: 'story',
+    availableStoryWorkflows: [{
+      id: 'spec-driven-standard', label: 'Spec-Driven Standard',
+      description: 'Specification before implementation',
+      phases: ['specification', 'planning', 'implementation', 'verification']
+    }]
+  }));
+  assert.match(html, /Packaged workflows not installed here/);
+  assert.match(html, /data-available-workflow="spec-driven-standard"/);
+  assert.match(html, /Not installed/);
+  assert.match(html, /data-workflow-refresh/);
+  assert.match(html, /workflow install &lt;id&gt; --dry-run/);
+  assert.doesNotMatch(html, /data-work-type="spec-driven-standard"/);
+  assert.match(html, /never installs a workflow or edits protected files directly/);
+});
+
+test('a packaged workflow catalog failure is advisory and keeps installed workflows selectable', () => {
+  const form = intake({
+    shape: 'story', id: 'catalog-advisory', title: 'Keep intake available',
+    description: 'The optional packaged catalog failed.',
+    workflowCatalogReason: 'Additional packaged workflows could not be loaded.'
+  });
+  assert.deepEqual(intakeProblems(form), []);
+  const html = intakeHtml(form);
+  assert.match(html, /Additional packaged workflows are unavailable/);
+  assert.match(html, /data-work-type="feature"[^>]*checked/);
+  assert.match(html, /data-workflow-refresh/);
+  assert.doesNotMatch(html, /Before this can start[\s\S]*Additional packaged workflows/);
+});
+
 test('POC Story intake explains the browser preflight and bounded validation before start', () => {
   const html = intakeHtml(intake({
     shape: 'story', tracker: 'none', id: 'poc-checkout', title: 'Checkout POC',
@@ -4495,6 +4529,8 @@ test('a workspace list shows the working directory, which is what it is really a
   assert.match(html, /\/work\/commerce/);
   assert.match(html, /platform/);
   assert.match(html, /no two may share a directory/);
+  assert.match(html, /data-repository-refresh="1"/,
+    'old or moved repositories have a visible Git-URL recovery entry point');
 });
 
 test('two workspaces on one directory are marked, because the engine forbids it', () => {
@@ -4563,6 +4599,15 @@ test('workspace reinitialization commands bind apply to the preview and carry on
     'workspace', 'reinitialize', '/work/commerce', '--dry-run',
     '--resolve', 'workflow.ledger.enabled=local', '--json'
   ]);
+  assert.deepEqual(workspaceReinitializeCommand(commerce, {
+    dryRun: true, repositoryIds: ['web'], resolutions: {}
+  }), [
+    'workspace', 'reinitialize', '/work/commerce', '--repository', 'web', '--dry-run', '--json'
+  ], 'a Git-URL handoff refreshes only the exact repository it resolved');
+  assert.throws(() => workspaceReinitializeCommand(commerce, {
+    dryRun: true, repositoryIds: ['web --repository api'], resolutions: {}
+  }), /Invalid repository identifier/,
+  'an invalid repository selector is refused instead of widening to the whole workspace');
   assert.deepEqual(workspaceReinitializeCommand(null, {
     dryRun: false,
     planId: 'cfgp-123',
@@ -4579,14 +4624,20 @@ test('workspace reinitialization commands bind apply to the preview and carry on
 
 test('workspace reinitialization leases reject late previews after path, scope, or choices change', () => {
   const requests = new WorkspaceConfigurationRequestLeases();
-  const selectedA = { selectedPath: '/work/a', scope: 'selected', resolutions: {} };
+  const selectedA = {
+    selectedPath: '/work/a', scope: 'selected', repositoryId: 'api', resolutions: {}
+  };
   const first = requests.issue(selectedA);
   assert.equal(requests.isCurrent(first, selectedA), true);
 
-  const selectedB = { selectedPath: '/work/b', scope: 'selected', resolutions: {} };
+  const selectedB = {
+    selectedPath: '/work/b', scope: 'selected', repositoryId: 'api', resolutions: {}
+  };
   const second = requests.issue(selectedB);
   assert.equal(requests.isCurrent(first, selectedA), false, 'A preview cannot attach to B');
   assert.equal(requests.isCurrent(second, selectedB), true);
+  assert.equal(requests.isCurrent(second, { ...selectedB, repositoryId: 'web' }), false,
+    'a repository-scoped preview cannot authorize another repository in the same workspace');
 
   const backToA = requests.issue(selectedA);
   assert.equal(requests.isCurrent(first, selectedA), false,
@@ -4615,6 +4666,7 @@ test('the command palette separates safe workspace reinitialization from destruc
   const commands = new Map(manifest.contributes.commands.map((entry) => [entry.command, entry.title]));
   assert.match(commands.get('singularityFlow.reinitializeWorkspaces'), /Safely Reinitialize/);
   assert.match(commands.get('singularityFlow.upgradeWorkspaces'), /Safe Preview/);
+  assert.match(commands.get('singularityFlow.refreshRepositorySetup'), /Git URL/);
   assert.match(commands.get('singularityFlow.reinitialize'), /Factory Reset.*Destructive/);
 });
 

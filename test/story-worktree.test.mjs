@@ -9,6 +9,7 @@ import YAML from 'yaml';
 import { rollbackStoryWorktree } from '../src/story-worktree.mjs';
 import { createWorkflow, loadConfig } from '../src/state.mjs';
 import { preflightFetchedStoryCapability } from '../src/commands/story.mjs';
+import { onboardRepository } from '../src/onboard.mjs';
 
 const cli = path.resolve('bin/singularity-flow.mjs');
 
@@ -63,6 +64,21 @@ function git(root, args) {
   return run('git', args, root).stdout.trim();
 }
 
+async function attachLocalFosAuthority(root) {
+  const definitionFile = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionFile, 'utf8'));
+  definition.approvalSecurity.autoEnrollNewIdentities = false;
+  for (const authority of Object.values(definition.approvalAuthorities)) {
+    authority.allowAnyGitIdentity = true;
+  }
+  await writeFile(definitionFile, YAML.stringify(definition));
+  run('git', ['add', 'singularity/workflow.yml'], root);
+  run('git', ['commit', '-qm', 'pin isolated Story authority'], root);
+  run('git', ['push', '-q', 'origin', 'main'], root);
+  run('git', ['branch', '-f', 'sflow/config', 'HEAD'], root);
+  return onboardRepository(root, { authorityLocal: true });
+}
+
 test('a dirty prior checkout cannot block a new Story and is never mutated', async (t) => {
   const { root } = await repository(t);
   run('git', ['switch', '-q', '-c', 'CANCELLED-PRIOR'], root);
@@ -86,6 +102,95 @@ test('a dirty prior checkout cannot block a new Story and is never mutated', asy
     worktree, 'singularity/work-items/ISO-STORY-1/workflow.json'
   ), 'utf8')).workItem.id, 'ISO-STORY-1');
   assert.equal(result.data.worktree.isolated, true);
+});
+
+test('isolated Story start reuses the FOS authority attached in its launch checkout', async (t) => {
+  const { root } = await repository(t);
+  const attached = await attachLocalFosAuthority(root);
+
+  const started = run(process.execPath, [cli,
+    'start', 'ISO-FOS-PIN-1', '--isolated-worktree', '--json', '--from-branch', 'main',
+    '--work-type', 'feature', '--title', 'Reuse the launch authority pin',
+    '--description', 'The isolated Story worktree must retain repository-scoped FOS authority.'
+  ], root);
+  const result = JSON.parse(started.stdout);
+  const worktree = result.data.repositoryPath;
+  const workflow = JSON.parse(await readFile(path.join(
+    worktree, 'singularity/work-items/ISO-FOS-PIN-1/workflow.json'
+  ), 'utf8'));
+
+  assert.notEqual(path.resolve(worktree), path.resolve(root));
+  assert.equal(workflow.resolution.configurationSource.branch, 'sflow/config');
+  assert.equal(workflow.resolution.configurationSource.commit, attached.descriptor.authority.commit);
+  assert.equal(git(root, ['branch', '--show-current']), 'main');
+  assert.equal(git(worktree, ['branch', '--show-current']), 'ISO-FOS-PIN-1');
+});
+
+test('an isolated materialized Epic seed consumes the launch checkout FOS snapshot', async (t) => {
+  const { root } = await repository(t);
+  const attached = await attachLocalFosAuthority(root);
+  const id = 'ISO-FOS-SEED-1';
+  const baseCommit = git(root, ['rev-parse', 'HEAD']);
+  run('git', ['switch', '-q', '-c', id], root);
+  await mkdir(path.join(root, 'singularity/seeds'), { recursive: true });
+  await writeFile(path.join(root, `singularity/seeds/${id}.yml`), YAML.stringify({
+    version: 1,
+    initiative: { id: 'EPIC-FOS-1' },
+    story: {
+      id,
+      workId: id,
+      title: 'Materialized FOS Story',
+      description: 'Use the verified launch authority when creating lifecycle state.',
+      acceptanceCriteria: ['The exact approved FOS snapshot is pinned.'],
+      suggestedWorkType: 'feature',
+      parentBranch: 'main',
+      baseCommit
+    }
+  }));
+  run('git', ['add', `singularity/seeds/${id}.yml`], root);
+  run('git', ['commit', '-qm', 'materialize Epic Story seed'], root);
+  run('git', ['switch', '-q', 'main'], root);
+
+  const started = JSON.parse(run(process.execPath, [cli,
+    'start', id, '--isolated-worktree', '--json', '--from-branch', 'main'
+  ], root).stdout);
+  const worktree = started.data.repositoryPath;
+  const workflow = JSON.parse(await readFile(path.join(
+    worktree, `singularity/work-items/${id}/workflow.json`
+  ), 'utf8'));
+
+  assert.equal(workflow.workItem.id, id);
+  assert.equal(workflow.workItem.baseCommit, baseCommit);
+  assert.equal(workflow.workItem.workType, 'feature');
+  assert.equal(
+    workflow.resolution.configurationSource.commit,
+    attached.descriptor.authority.commit,
+    'the materialized seed must pin the exact FOS authority sealed in the launch checkout'
+  );
+  assert.equal(git(root, ['branch', '--show-current']), 'main');
+  assert.equal(git(worktree, ['branch', '--show-current']), id);
+});
+
+test('an existing isolated Story resumes from its own pin when FOS belongs to its worktree', async (t) => {
+  const { root } = await repository(t);
+  const id = 'ISO-FOS-RESUME-1';
+  const first = JSON.parse(run(process.execPath, [cli,
+    'start', id, '--isolated-worktree', '--json', '--from-branch', 'main',
+    '--work-type', 'feature', '--title', 'Resume the immutable Story',
+    '--description', 'Existing Story configuration takes precedence over current FOS attachment.'
+  ], root).stdout);
+  const worktree = first.data.repositoryPath;
+  run('git', ['branch', 'sflow/config', id], root);
+  const attached = await onboardRepository(worktree, { authorityLocal: true });
+  assert.ok(attached.descriptor.worktree.worktreeInstanceId);
+
+  const resumed = JSON.parse(run(process.execPath, [cli,
+    'start', id, '--isolated-worktree', '--json'
+  ], root).stdout);
+  assert.equal(resumed.outcome.status, 'succeeded');
+  assert.equal(resumed.subject.id, id);
+  assert.equal(git(worktree, ['branch', '--show-current']), id);
+  assert.equal(git(root, ['branch', '--show-current']), 'main');
 });
 
 test('an inferred capability remains bound to the exact approved map digest', async (t) => {

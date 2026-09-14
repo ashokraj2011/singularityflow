@@ -219,6 +219,10 @@ test('workspace branch preflight proves the exact destination without creating i
 
 test('workspace intake aggregates profiles, installed workflows, and one remote inventory', async () => {
   const { root } = await repository();
+  const workflowPath = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
+  delete workflow.workTypes['benchmarking-a'];
+  await writeFile(workflowPath, YAML.stringify(workflow));
   const listed = flow(root, ['workspace', 'branches', '--json', '--intake', '--timings']);
   const result = JSON.parse(listed.stdout);
 
@@ -226,6 +230,11 @@ test('workspace intake aggregates profiles, installed workflows, and one remote 
     profile.id === 'epic-planning' && profile.phases.length > 0));
   assert.ok(result.intake.storyWorkflows.some((workflow) =>
     workflow.id === 'feature' && workflow.governs === 'story' && workflow.installed === true));
+  assert.ok(result.intake.availableStoryWorkflows.some((workflow) =>
+    workflow.id === 'benchmarking-a' && workflow.governs === 'story' && workflow.installed === false));
+  assert.ok(result.intake.availableStoryWorkflows.every((workflow) =>
+    !result.intake.storyWorkflows.some((installed) => installed.id === workflow.id)));
+  assert.equal(result.intake.workflowCatalogReason, null);
   assert.equal(result.intake.profileReason, null);
   assert.equal(result.intake.workflowReason, null);
   assert.match(listed.stderr, /git\.remote-inventory=1(?:\s|$)/,

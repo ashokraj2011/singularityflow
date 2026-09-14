@@ -78,6 +78,10 @@ export interface IntakeForm {
   /** Story workflow selected from workflow.yml. Passed explicitly because VS Code has no TTY. */
   workType: string | null;
   storyWorkflows: ProfileChoice[];
+  /** Packaged Story workflows absent from approved configuration; visible but never selectable. */
+  availableStoryWorkflows: ProfileChoice[];
+  /** Advisory packaged-catalog failure; installed workflows remain usable. */
+  workflowCatalogReason: string | null;
   /** Why Story workflows could not be loaded, when the repository could not provide them. */
   workflowReason: string | null;
   /** Whether a tracker is actually configured. Offering Jira when it is not is a dead end. */
@@ -123,10 +127,11 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   targetWorkspace: null, targetRepository: null, targetBranch: null,
   shape: 'epic', tracker: 'none', key: '', id: '', title: '', description: '', goal: '',
   acceptanceCriteria: '', targetUrl: '', profile: null, profiles: [], workType: null, storyWorkflows: [],
+  availableStoryWorkflows: [],
   referenceRepositories: [],
   baseBranch: null, baseBranchChoices: [], baseRemote: null, baseBranchReason: null,
   basePreflightPassed: false, basePreflightChecking: false, basePreflightReason: null,
-  workflowReason: null,
+  workflowReason: null, workflowCatalogReason: null,
   jiraConfigured: false, jiraReason: null,
   githubConfigured: true, githubReason: null, inFlight: [], busy: false, error: null,
   recoveryCommand: null
@@ -528,16 +533,17 @@ function baseBranchHtml(form: IntakeForm): string {
 
 function storyWorkflowHtml(form: IntakeForm): string {
   if (form.shape !== 'story') return '';
-  if (!form.storyWorkflows.length) {
+  if (!form.storyWorkflows.length && !form.availableStoryWorkflows.length) {
     return `<section><h2>${icon('workflow')}Story workflow</h2>
       <p class="blockers">${escape(form.workflowReason ?? 'No Story workflow is configured in singularity/workflow.yml.')}</p></section>`;
   }
   return `
   <section>
     <h2>${icon('workflow')}Story workflow</h2>
+    ${form.storyWorkflows.length ? `<h3>Ready to use</h3>
     <p class="question">Choose the workflow template for this Story. Its ordered phases are pinned
       when work starts and cannot change underneath the Story.</p>
-    <div class="choices">
+    <div class="choices" aria-label="Ready to use Story workflows">
       ${form.storyWorkflows.map((workflow) => `
       <label class="choice workflow-choice${workflow.id === form.workType ? ' chosen' : ''}">
         <input type="radio" name="workType" value="${escape(workflow.id)}" data-work-type="${escape(workflow.id)}"${workflow.id === form.workType ? ' checked' : ''}>
@@ -547,7 +553,33 @@ function storyWorkflowHtml(form: IntakeForm): string {
         </span>
         ${phaseRailHtml(workflow.phases)}
       </label>`).join('')}
-    </div>
+    </div>` : `<p class="blockers">No Story workflow is installed in the approved repository configuration.</p>`}
+    ${form.workflowCatalogReason ? `<div class="notice warning" role="status">
+      <strong>Additional packaged workflows are unavailable</strong>
+      <p>${escape(form.workflowCatalogReason)}</p>
+      <button type="button" class="secondary" data-workflow-refresh>Refresh or reinitialize repository configuration</button>
+    </div>` : ''}
+    ${form.availableStoryWorkflows.length ? `<div class="workflow-catalog">
+      <h3>Packaged workflows not installed here</h3>
+      <p class="question">These workflows ship with this SFlow build but are not present in the
+        repository's approved configuration. They are shown for discovery and cannot start a Story.
+        Repository refresh restores required product defaults; optional workflows still use the
+        reviewed <code>singularity-flow workflow install &lt;id&gt; --dry-run</code> configuration path.</p>
+      <div class="choices" aria-label="Available but not installed Story workflows">
+        ${form.availableStoryWorkflows.map((workflow) => `
+        <article class="choice workflow-choice unavailable" aria-disabled="true" data-available-workflow="${escape(workflow.id)}">
+          <span class="workflow-copy">
+            <span class="choice-label">${escape(workflow.label)}</span>
+            <span class="status-chip">Not installed</span>
+            <span class="workflow-description">${escape(workflow.description)}</span>
+          </span>
+          ${phaseRailHtml(workflow.phases)}
+        </article>`).join('')}
+      </div>
+      <p><button type="button" class="secondary" data-workflow-refresh>Refresh or reinitialize repository configuration</button></p>
+      <p class="muted">Refresh uses the governed Git configuration path. Review is still required;
+        this screen never installs a workflow or edits protected files directly.</p>
+    </div>` : ''}
   </section>`;
 }
 
@@ -717,6 +749,8 @@ export const INTAKE_SCRIPT = `
     if (removeReference) return vscode.postMessage({ type: 'referenceRemove', index: Number(removeReference.dataset.referenceRemove) });
     const checkReference = event.target.closest('[data-reference-check]');
     if (checkReference) return vscode.postMessage({ type: 'referenceCheck', index: Number(checkReference.dataset.referenceCheck) });
+    const workflowRefresh = event.target.closest('[data-workflow-refresh]');
+    if (workflowRefresh) return vscode.postMessage({ type: 'workflowRefresh' });
     const target = event.target.closest('[data-submit]');
     if (target) vscode.postMessage({ type: target.dataset.submit === 'recover-start' ? 'recover-start' : 'start' });
   });

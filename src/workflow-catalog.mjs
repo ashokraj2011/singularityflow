@@ -5,8 +5,10 @@ import { parseAgentDependencies } from './agents.mjs';
 import { loadDefinition, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { exists, SingularityFlowError, writeText } from './util.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
+import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
 
 const starterPath = path.join(PACKAGE_ROOT, 'templates', 'workflow.yml');
+const OPTIONAL_CATALOG_REASON_MAX_CHARS = 512;
 
 async function starterDefinition() { return validateDefinition(YAML.parse(await readFile(starterPath, 'utf8'))); }
 function canonical(value) {
@@ -27,16 +29,46 @@ export async function workflowCatalog(root) {
   const [installed, starter] = await Promise.all([loadDefinition(root), starterDefinition()]);
   const packaged = Object.entries(starter.workTypes).map(([id, profile]) => {
     const current = installed.workTypes[id];
-    return { id, label: profile.label, phases: profile.phases, status: !current ? 'available' : stable(current) === stable(profile) ? 'current' : 'customized', installed: Boolean(current) };
+    return {
+      id, label: profile.label, description: profile.description ?? '', phases: profile.phases,
+      references: profile.references ?? { mode: 'optional' },
+      status: !current ? 'available' : stable(current) === stable(profile) ? 'current' : 'customized',
+      installed: Boolean(current)
+    };
   });
   // Anything defined here that no packaged workflow claims: written by this team, for this
   // repository, and every bit as real as the ones that shipped with the product.
   const local = Object.entries(installed.workTypes)
     .filter(([id]) => !starter.workTypes[id])
     .map(([id, profile]) => ({
-      id, label: profile.label ?? id, phases: profile.phases ?? [], status: 'local', installed: true
+      id, label: profile.label ?? id, description: profile.description ?? '', phases: profile.phases ?? [],
+      references: profile.references ?? { mode: 'optional' }, status: 'local', installed: true
     }));
   return [...packaged, ...local];
+}
+
+/**
+ * Load the packaged catalog as an advisory supplement to an already-valid repository definition.
+ *
+ * Story start is authorized by the installed definition, not by this catalog. Keeping failure in a
+ * value makes that boundary explicit: a broken or mismatched package may hide installation hints,
+ * but can never hide the repository workflows which were already validated successfully.
+ */
+export async function optionalWorkflowCatalog(loadCatalog) {
+  try {
+    const workflows = await loadCatalog();
+    if (!Array.isArray(workflows)) throw new Error('The packaged workflow catalog returned an invalid result.');
+    return { workflows, reason: null };
+  } catch (error) {
+    const source = redactDiagnosticText(error instanceof Error ? error.message : String(error));
+    const truncated = source.length > OPTIONAL_CATALOG_REASON_MAX_CHARS;
+    const diagnostic = source.slice(0, OPTIONAL_CATALOG_REASON_MAX_CHARS);
+    return {
+      workflows: [],
+      reason: 'Additional packaged workflows could not be loaded. Installed Story workflows remain available.'
+        + (diagnostic ? ` ${diagnostic}${truncated ? '…' : ''}` : '')
+    };
+  }
 }
 
 export async function simulateWorkflow(root, workType = null) {

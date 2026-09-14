@@ -2163,6 +2163,19 @@ test('an Epic can be started and its first source pinned entirely from the edito
   assert.match(storyForm, /data-work-type="feature"[^>]*checked/);
   assert.doesNotMatch(storyForm, /data-work-type="spec-driven-standard"/,
     'an available but uninstalled packaged workflow was offered as a runnable Story profile');
+  assert.match(storyForm, /data-available-workflow="spec-driven-standard"/,
+    'the packaged workflow catalog disappeared instead of explaining how to refresh it');
+  assert.match(storyForm, /Refresh or reinitialize repository configuration/);
+  await intakePanel.post({ type: 'workType', value: 'spec-driven-standard' });
+  assert.match(intakePanel.webview.html, /data-work-type="feature"[^>]*checked/,
+    'an unavailable catalog row bypassed the installed-workflow allowlist');
+  await intakePanel.post({ type: 'workflowRefresh' });
+  const canonicalRoot = await realpath(root);
+  assert.ok(registered.executedCommands.some((entry) =>
+    entry.id === 'singularityFlow.refreshRepositorySetup'
+      && entry.args[0]?.repositoryPath === canonicalRoot
+      && entry.args[0]?.workspacePath === undefined),
+  `workflow refresh route was not invoked: ${JSON.stringify(registered.executedCommands.slice(-8))}`);
   assert.match(storyForm, /implementation/);
 
   await intakePanel.post({ type: 'shape', value: 'epic' });
@@ -5380,4 +5393,227 @@ test('a workspace chosen while the views are already bound re-points them withou
   assert.equal(registered.quickPicks.at(-1)?.options?.title,
     'Work in a Singularity Flow workspace');
   assert.deepEqual(registered.errors, []);
+});
+
+test('Git URL maintenance routes one exact repository into a selected-workspace refresh preview', async (t) => {
+  if (!requireBundle(t)) return;
+  const org = await organisation();
+  const registry = path.join(org.base, 'repository-refresh-registry.json');
+  const workspaces = path.join(org.base, 'repository-refresh-workspaces');
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registry;
+  t.after(() => {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+  });
+  const created = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'workspace', 'create', '--local', '--json', '--id', 'url-recovery', '--base', workspaces,
+    '--organisation', org.lead, '--capability', 'payments-api', '--capability', 'storefront-web',
+    '--lead-capability', 'payments-api', '--confirm', 'url-recovery',
+    '--no-clone'], { encoding: 'utf8', env: process.env });
+  assert.equal(created.status, 0, created.stderr);
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  assert.ok(registered.commands.has('singularityFlow.refreshRepositorySetup'));
+
+  await registered.commands.get('singularityFlow.openWorkspaces')({
+    upgradeScope: 'selected', repositoryId: 'api'
+  });
+  assert.match(registered.warnings.at(-1) ?? '', /exact registered workspace/,
+    'a public command caller cannot apply a repository selector to an inferred workspace');
+
+  // Stop at the existing plan-first Workspaces boundary. This test proves the URL resolution and
+  // command route; the Workspaces tests separately prove preview/apply confirmation semantics.
+  const dispatch = api.commands.executeCommand;
+  let routed = null;
+  api.commands.executeCommand = async (command, ...args) => {
+    if (command === 'singularityFlow.openWorkspaces') {
+      routed = { command, args };
+      return;
+    }
+    return dispatch(command, ...args);
+  };
+  await registered.commands.get('singularityFlow.refreshRepositorySetup')({ repositoryUrl: org.api });
+
+  const workspaceRoot = path.join(await realpath(workspaces), 'url-recovery');
+  assert.deepEqual(routed, {
+    command: 'singularityFlow.openWorkspaces',
+    args: [{ upgradeScope: 'selected', workspacePath: workspaceRoot, repositoryId: 'api' }]
+  }, JSON.stringify({ warnings: registered.warnings, quickPicks: registered.quickPicks,
+    output: registered.output.slice(-20) }, null, 2));
+  assert.equal(registered.inputBoxes.length, 0, 'a supplied Git URL is not asked for again');
+  assert.deepEqual(registered.errors, []);
+});
+
+test('Git URL maintenance can reach an open repository when its old workspace manifest is unreadable', async (t) => {
+  if (!requireBundle(t)) return;
+  const org = await organisation();
+  const registry = path.join(org.base, 'damaged-refresh-registry.json');
+  const selection = path.join(org.base, 'damaged-refresh-selection.json');
+  const workspaces = path.join(org.base, 'damaged-refresh-workspaces');
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registry;
+  process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = selection;
+  t.after(() => {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+    if (previousSelection == null) delete process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+    else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection;
+  });
+  const created = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'workspace', 'create', '--local', '--json', '--id', 'damaged-url-recovery', '--base', workspaces,
+    '--organisation', org.lead, '--capability', 'payments-api', '--confirm', 'damaged-url-recovery'],
+  { encoding: 'utf8', env: process.env });
+  assert.equal(created.status, 0, created.stderr);
+  const workspaceRoot = path.join(await realpath(workspaces), 'damaged-url-recovery');
+  const repositoryPath = await realpath(path.join(workspaceRoot, 'repos', 'api'));
+  const configuredRemote = run('git', ['config', '--get', 'remote.origin.url'], {
+    cwd: repositoryPath
+  }).stdout.trim();
+  const registryRecord = JSON.parse(await readFile(registry, 'utf8'));
+  registryRecord.workspaces[0].leadRepositoryPath = path.join(
+    workspaceRoot, 'repos', 'old-location'
+  );
+  await writeFile(registry, JSON.stringify(registryRecord));
+  await writeFile(path.join(workspaceRoot, 'workspace.json'), '{ old and unreadable workspace format\n');
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  assert.ok(registered.commands.has('singularityFlow.refreshRepositorySetup'),
+    'repository recovery remains available even when normal workspace activation cannot finish');
+  const dispatch = api.commands.executeCommand;
+  let routed = null;
+  api.commands.executeCommand = async (command, ...args) => {
+    if (command === 'singularityFlow.openWorkspaces') {
+      routed = { command, args };
+      return;
+    }
+    return dispatch(command, ...args);
+  };
+  await registered.commands.get('singularityFlow.refreshRepositorySetup')({
+    repositoryUrl: configuredRemote
+  });
+
+  assert.deepEqual(routed, {
+    command: 'singularityFlow.openWorkspaces',
+    args: [{ upgradeScope: 'selected', workspacePath: workspaceRoot, repositoryId: 'api' }]
+  }, JSON.stringify({ warnings: registered.warnings, output: registered.output.slice(-20) }, null, 2));
+  assert.ok(registered.output.some((line) => /could not be inspected/i.test(String(line))),
+    'the unreadable registration is disclosed rather than treated as a new unowned repository');
+});
+
+test('Git URL maintenance renders no-match recovery as a shell-safe exact command', async (t) => {
+  if (!requireBundle(t)) return;
+  const machine = await mkdtemp(path.join(os.tmpdir(), 'sflow-url-recovery-command-'));
+  const registry = path.join(machine, 'empty-registry.json');
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registry;
+  t.after(() => {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+  });
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  const remote = 'https://git.example.test/team/repo$(touch-never-run).git';
+  await registered.commands.get('singularityFlow.refreshRepositorySetup')({ repositoryUrl: remote });
+
+  const detail = String(registered.warningDetails.at(-1) ?? '');
+  assert.match(detail, new RegExp(`'${remote.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}'`),
+    'the remote is a single quoted argument, not shell syntax');
+  assert.doesNotMatch(detail, /--repository\s+"https:/,
+    'JSON double-quote rendering would still evaluate command substitution in POSIX shells');
+  assert.match(detail, /Nothing was changed/);
+});
+
+test('Git URL maintenance cancellation stops lookup without opening a recovery action', async (t) => {
+  if (!requireBundle(t)) return;
+  const machine = await mkdtemp(path.join(os.tmpdir(), 'sflow-url-refresh-cancel-'));
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = path.join(machine, 'registry.json');
+  t.after(() => {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+  });
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  api.window.withProgress = async (_options, task) => task(
+    { report() {} },
+    {
+      isCancellationRequested: true,
+      onCancellationRequested(listener) {
+        listener();
+        return { dispose() {} };
+      }
+    }
+  );
+
+  await registered.commands.get('singularityFlow.refreshRepositorySetup')({
+    repositoryUrl: 'https://git.example.test/team/cancelled.git'
+  });
+  assert.deepEqual(registered.quickPicks, []);
+  assert.deepEqual(registered.warnings, []);
+  assert.equal(registered.executedCommands.some((entry) =>
+    ['singularityFlow.openWorkspaces', 'singularityFlow.refreshAuthorityPin',
+      'singularityFlow.reinitialize'].includes(entry.id)), false);
+});
+
+test('Git URL maintenance cancellation also stops bounded local fallback discovery', async (t) => {
+  if (!requireBundle(t)) return;
+  const machine = await mkdtemp(path.join(os.tmpdir(), 'sflow-url-fallback-cancel-'));
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = path.join(machine, 'registry.json');
+  t.after(() => {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+  });
+  const { api, registered } = stubVscode();
+  // An explicitly open folder is the smallest candidate set which reaches the legacy local-Git
+  // fallback after the empty workspace registry has completed normally.
+  api.workspace.workspaceFolders = [{ uri: { scheme: 'file', fsPath: machine } }];
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  const progressTitles = [];
+  api.window.withProgress = async (options, task) => {
+    progressTitles.push(options.title);
+    if (progressTitles.length === 1) {
+      return task({ report() {} }, {
+        isCancellationRequested: false,
+        onCancellationRequested() { return { dispose() {} }; }
+      });
+    }
+    return task(
+      { report() {} },
+      {
+        isCancellationRequested: true,
+        onCancellationRequested(listener) {
+          listener();
+          return { dispose() {} };
+        }
+      }
+    );
+  };
+
+  await registered.commands.get('singularityFlow.refreshRepositorySetup')({
+    repositoryUrl: 'https://git.example.test/team/cancelled-fallback.git'
+  });
+
+  assert.deepEqual(progressTitles, [
+    'Finding this repository in registered workspaces',
+    'Checking local Git repositories for this URL'
+  ], 'the cancellation occurred in local fallback discovery, not the initial status lookup');
+  assert.deepEqual(registered.quickPicks, []);
+  assert.deepEqual(registered.warnings, []);
+  assert.equal(registered.executedCommands.some((entry) =>
+    ['singularityFlow.openWorkspaces', 'singularityFlow.refreshAuthorityPin',
+      'singularityFlow.reinitialize'].includes(entry.id)), false);
 });

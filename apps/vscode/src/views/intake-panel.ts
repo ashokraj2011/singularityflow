@@ -200,6 +200,11 @@ export class IntakePanel {
             id?: string; label?: string; description?: string; phases?: string[]; governs?: string;
             installed?: boolean; references?: 'off' | 'optional' | 'required';
           }[];
+          availableStoryWorkflows?: {
+            id?: string; label?: string; description?: string; phases?: string[]; governs?: string;
+            installed?: boolean; references?: 'off' | 'optional' | 'required';
+          }[];
+          workflowCatalogReason?: string | null;
           workflowReason?: string | null;
         };
       }>(['workspace', 'branches', '--json', '--intake']);
@@ -214,6 +219,12 @@ export class IntakePanel {
         id: entry.id!, label: entry.label ?? entry.id!, description: entry.description ?? '',
         phases: entry.phases ?? [], referenceMode: entry.references ?? 'optional'
       }));
+      const availableStoryWorkflows: ProfileChoice[] =
+        (listed.intake?.availableStoryWorkflows ?? []).filter((entry) =>
+          entry.id && entry.governs === 'story' && entry.installed === false).map((entry) => ({
+          id: entry.id!, label: entry.label ?? entry.id!, description: entry.description ?? '',
+          phases: entry.phases ?? [], referenceMode: entry.references ?? 'optional'
+        }));
       const unreachable = listed.unreachable ?? [];
       if (listed.intake?.profileReason) {
         this.output.appendLine(`No delivery profiles could be read: ${listed.intake.profileReason}`);
@@ -224,6 +235,8 @@ export class IntakePanel {
         // shown, because it decides the phases for the life of the work.
         profile: profiles.find((entry) => entry.id === 'epic-planning')?.id ?? profiles[0]?.id ?? null,
         storyWorkflows,
+        availableStoryWorkflows,
+        workflowCatalogReason: listed.intake?.workflowCatalogReason ?? null,
         // `feature` is the familiar starter workflow. A repository with one workflow needs no extra
         // click; multiple custom workflows remain an explicit, visible choice in the form.
         workType: storyWorkflows.find((entry) => entry.id === this.defaults.workType)?.id
@@ -251,7 +264,8 @@ export class IntakePanel {
       const reason = (error as Error).message;
       this.output.appendLine(`Intake catalog could not be read: ${reason}`);
       this.update({
-        profiles: [], profile: null, storyWorkflows: [], workType: null,
+        profiles: [], profile: null, storyWorkflows: [], availableStoryWorkflows: [], workType: null,
+        workflowCatalogReason: null,
         workflowReason: `Could not load Story workflows: ${reason}`,
         baseBranchChoices: [], baseBranch: null, baseRemote: null, baseBranchReason: reason,
         basePreflightPassed: false, basePreflightChecking: false, basePreflightReason: null,
@@ -352,6 +366,12 @@ export class IntakePanel {
       const workflow = this.form.storyWorkflows.find((entry) => entry.id === stringField(message, 'value'));
       if (workflow) this.update({ workType: workflow.id, error: null });
     },
+    workflowRefresh: () => vscode.commands.executeCommand(
+      'singularityFlow.refreshRepositorySetup', {
+        repositoryPath: this.form.targetRepository ?? undefined,
+        workspacePath: this.form.targetWorkspace ?? undefined
+      }
+    ),
     referenceAdd: () => {
       if (this.form.referenceRepositories.length >= 16) return;
       this.update({

@@ -609,6 +609,14 @@ export function workspacesHtml(
       copyable — no two may share a directory.</p>
   </header>
 
+  <section class="plain">
+    <div class="card-head"><div><strong>Refresh or recover an existing repository</strong>
+      <p class="muted">Start with its Git URL. SFlow finds its registered workspace and offers a
+        safe configuration refresh, authority-pin repair, or an explicitly reviewed SFlow-only
+        reinitialization. Application code and Git history are preserved.</p></div><span class="grow"></span>
+      <button data-repository-refresh="1">${icon('refresh')}Refresh / reinitialize…</button></div>
+  </section>
+
   ${error ? `<section class="plain"><p class="blockers">${escape(error)}</p>
     <button class="secondary" data-help-topic="workspaces-and-sessions">Explain this error</button></section>` : ''}
   ${collisions.length ? `
@@ -653,7 +661,7 @@ export function workspacesHtml(
 export const WORKSPACES_SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-select],[data-switch],[data-rename],[data-duplicate],[data-forget],[data-create],[data-adopt],[data-edit],[data-edit-save],[data-edit-cancel],[data-capability-attach],[data-capability-detach],[data-capability-drop],[data-repair],[data-archive],[data-restore],[data-config-preview],[data-config-apply],[data-config-bundled],[data-config-agents],[data-fos-action],[data-help-topic],[data-copy-command]');
+    const target = event.target.closest('[data-select],[data-switch],[data-rename],[data-duplicate],[data-forget],[data-create],[data-adopt],[data-edit],[data-edit-save],[data-edit-cancel],[data-capability-attach],[data-capability-detach],[data-capability-drop],[data-repair],[data-archive],[data-restore],[data-config-preview],[data-config-apply],[data-config-bundled],[data-config-agents],[data-fos-action],[data-repository-refresh],[data-help-topic],[data-copy-command]');
     if (!target) return;
     event.preventDefault();
     const data = target.dataset;
@@ -672,6 +680,7 @@ export const WORKSPACES_SCRIPT = `
     else if (data.configApply !== undefined) vscode.postMessage({ type: 'configuration-apply' });
     else if (data.configBundled !== undefined) vscode.postMessage({ type: 'configuration-bundled-assets' });
     else if (data.configAgents !== undefined) vscode.postMessage({ type: 'configuration-packaged-agents' });
+    else if (data.repositoryRefresh !== undefined) vscode.postMessage({ type: 'repository-refresh' });
     else if (data.fosAction !== undefined) vscode.postMessage({
       type: 'fos-action', action: data.fosAction, path: data.workspacePath,
       repository: document.querySelector('[data-fos-repository]')?.value ?? ''

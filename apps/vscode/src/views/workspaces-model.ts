@@ -196,6 +196,8 @@ export interface WorkspaceRecoveryAction {
 export interface WorkspaceConfigurationRequestContext {
   selectedPath: string | null;
   scope: 'selected' | 'all';
+  /** Optional exact repository selected by a Git-URL recovery handoff. */
+  repositoryId?: string | null;
   resolutions: Record<string, WorkspaceConfigurationResolution>;
 }
 
@@ -209,6 +211,7 @@ function configurationRequestContextKey(context: WorkspaceConfigurationRequestCo
   return JSON.stringify([
     context.selectedPath,
     context.scope,
+    context.repositoryId ?? null,
     Object.entries(context.resolutions).sort(([left], [right]) => left.localeCompare(right))
   ]);
 }
@@ -440,15 +443,23 @@ export function workspaceReinitializeCommand(
   {
     dryRun,
     planId = null,
+    repositoryIds = [],
     resolutions = {}
   }: {
     dryRun: boolean;
     planId?: string | null;
+    repositoryIds?: readonly string[];
     resolutions?: Record<string, WorkspaceConfigurationResolution>;
   }
 ): string[] {
   const args = ['workspace', 'reinitialize'];
   if (row) args.push(row.directory);
+  for (const repositoryId of [...new Set(repositoryIds)].sort()) {
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(repositoryId)) {
+      throw new Error(`Invalid repository identifier '${repositoryId}'.`);
+    }
+    args.push('--repository', repositoryId);
+  }
   if (dryRun) args.push('--dry-run');
   if (!dryRun && planId) args.push('--confirm-plan', planId);
   for (const [conflictPath, resolution] of Object.entries(resolutions)

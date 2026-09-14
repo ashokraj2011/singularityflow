@@ -1,19 +1,20 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
 import {
   bootstrapFosAuthority, FOS_LOCAL_BOOTSTRAP_POLICY_ID,
-  onboardRepository, readFosAttachment, refreshFosAuthority
+  fosStoryConfigurationAuthority, onboardRepository, readFosAttachment, refreshFosAuthority
 } from '../src/onboard.mjs';
 import {
   loadStoryConfigurationSnapshot, resolveRemoteStoryConfigurationAuthority
 } from '../src/configuration-branch.mjs';
 import { recordSha256 } from '../src/records.mjs';
+import { createRepoContext } from '../src/repo-context.mjs';
 
 const cli = new URL('../bin/singularity-flow.mjs', import.meta.url).pathname;
 
@@ -106,6 +107,55 @@ test('local authority reuse treats a symlink spelling as the same repository, no
   assert.equal(reused.status, 'already-attached');
   assert.equal(reused.descriptor.authority.locator, await realpath(root));
   await rm(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+});
+
+test('an arbitrary linked worktree cannot consume another worktree FOS authority pin', async () => {
+  const root = await governedRepository();
+  const attached = await onboardRepository(root, { authorityLocal: true });
+  const linked = `${root}-story`;
+  try {
+    git(['worktree', 'add', '-q', '-b', 'FOS-LINKED-STORY', linked, 'main'], root);
+    const linkedAttachment = await readFosAttachment(linked);
+    assert.equal(linkedAttachment.descriptor.descriptorSha256,
+      attached.descriptor.descriptorSha256);
+    const linkedIdentity = await createRepoContext(linked).identity();
+    assert.notEqual(linkedAttachment.descriptor.worktree.worktreeInstanceId,
+      linkedIdentity.worktreeInstanceId);
+    await assert.rejects(() => fosStoryConfigurationAuthority(linked),
+      (error) => error.code === 'AUTHORITY_PIN_INVALID'
+        && /different repository or worktree/.test(error.message));
+  } finally {
+    git(['worktree', 'remove', '--force', linked], root);
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
+test('a copied FOS pin remains invalid in an independent clone of the same repository', async () => {
+  const root = await governedRepository();
+  const attached = await onboardRepository(root, { authorityLocal: true });
+  const clone = `${root}-clone`;
+  try {
+    git(['clone', '-q', root, clone], path.dirname(root));
+    const sourceIdentity = await createRepoContext(root).identity();
+    const cloneIdentity = await createRepoContext(clone).identity();
+    assert.notEqual(sourceIdentity.repositoryInstanceId, cloneIdentity.repositoryInstanceId);
+    const sourceState = path.join(sourceIdentity.commonDir, 'singularity-flow', 'fos',
+      'attachments', sourceIdentity.repositoryInstanceId, 'current.json');
+    const copiedState = path.join(cloneIdentity.commonDir, 'singularity-flow', 'fos',
+      'attachments', cloneIdentity.repositoryInstanceId, 'current.json');
+    await mkdir(path.dirname(copiedState), { recursive: true });
+    await writeFile(copiedState, await readFile(sourceState));
+
+    await assert.rejects(() => fosStoryConfigurationAuthority(clone),
+      (error) => error.code === 'AUTHORITY_PIN_INVALID'
+        && /different repository or worktree/.test(error.message));
+    assert.equal((await readFosAttachment(clone)).descriptor.descriptorSha256,
+      attached.descriptor.descriptorSha256,
+      'the copied bytes remain readable for diagnosis but cannot authorize Story configuration');
+  } finally {
+    await rm(clone, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
 });
 
 test('FOS:AC-005 offline and missing authority refuse without bootstrap', async () => {

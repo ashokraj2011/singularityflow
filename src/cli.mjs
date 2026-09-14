@@ -134,7 +134,7 @@ import {
 } from './story-execution-context.mjs';
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
 
-import { installWorkflow, simulateWorkflow, simulationText, validateWorkflowCatalog, workflowCatalog, workflowDiff } from './workflow-catalog.mjs';
+import { installWorkflow, optionalWorkflowCatalog, simulateWorkflow, simulationText, validateWorkflowCatalog, workflowCatalog, workflowDiff } from './workflow-catalog.mjs';
 import { applyRecovery, assignPhase, recoveryPlan, recoveryText, watchSnapshot, watchText } from './collaboration.mjs';
 import { generationRecovery } from './recovery-plan.mjs';
 import { copilotAgentStartHook, agentGuardHook, sessionStartAgentHook } from './agent-hooks.mjs';
@@ -842,20 +842,108 @@ function assertBaseCarriesGovernance(root, {
   );
 }
 
+// This capability cannot be represented by CLI argv. It exists only for the same-process handoff
+// from the launch checkout to the exact managed worktree created below. Keeping it on a private
+// Symbol prevents a caller from claiming that an arbitrary linked worktree inherited another
+// worktree's FOS authority pin.
+const ISOLATED_STORY_CONFIGURATION_HANDOFF = Symbol('isolated-story-configuration-handoff');
+
+async function sealIsolatedStoryConfiguration(sourceRoot, workId) {
+  const authority = await fosStoryConfigurationAuthority(sourceRoot);
+  if (!authority) return null;
+  // Resolve and validate every approved byte while still in the worktree to which the FOS pin is
+  // bound. The exact immutable snapshot, rather than a new lookup from the child worktree, is what
+  // crosses the isolated-start boundary.
+  const snapshot = await loadStoryConfigurationSnapshot(authority);
+  return Object.freeze({
+    workId,
+    sourceRepository: await realpath(sourceRoot),
+    sourceCommonDir: await realpath(gitCommonDir(sourceRoot)),
+    authority,
+    snapshot
+  });
+}
+
+async function bindIsolatedStoryConfiguration(handoff, prepared) {
+  if (!handoff) return null;
+  const sourceRepository = await realpath(prepared.sourceRepository);
+  const targetRepository = await realpath(prepared.repositoryPath);
+  const targetCommonDir = await realpath(gitCommonDir(prepared.repositoryPath));
+  if (sourceRepository !== handoff.sourceRepository
+      || targetCommonDir !== handoff.sourceCommonDir) {
+    throw new SingularityFlowError(
+      'The managed Story worktree does not belong to the checkout whose FOS authority was verified.', {
+        code: 'AUTHORITY_PIN_INVALID'
+      }
+    );
+  }
+  return Object.freeze({ ...handoff, targetRepository });
+}
+
+async function isolatedStoryConfiguration(options, root, workId, managedStoryWorktree) {
+  const handoff = options[ISOLATED_STORY_CONFIGURATION_HANDOFF] ?? null;
+  if (!handoff) return null;
+  const [targetRepository, targetCommonDir, managedRepository] = await Promise.all([
+    realpath(root),
+    realpath(gitCommonDir(root)),
+    managedStoryWorktree ? realpath(managedStoryWorktree) : Promise.resolve(null)
+  ]);
+  if (!managedStoryWorktree
+      || managedRepository !== targetRepository
+      || handoff.workId !== workId
+      || targetRepository !== handoff.targetRepository
+      || targetCommonDir !== handoff.sourceCommonDir) {
+    throw new SingularityFlowError(
+      'The isolated Story configuration handoff does not match this managed worktree.', {
+        code: 'AUTHORITY_PIN_INVALID'
+      }
+    );
+  }
+  return handoff;
+}
+
+async function durableLocalStoryOnBranch(root, workId, branchName) {
+  const ref = `refs/heads/${branchName}`;
+  if (!refExists(root, ref)) return null;
+  // The ref index reads workItemRoot from the branch's own pinned workflow definition. This
+  // distinguishes a durable Story from an Epic-materialized seed or an ungoverned name collision
+  // without consulting today's FOS/configuration authority.
+  const index = await buildRepositorySubjectIndexFromRefs(root, {
+    definition: {}, refs: [{ branch: branchName, ref }]
+  });
+  return resolveContext(index, { reference: workId, kind: 'story', required: false });
+}
+
 async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, options) {
   const {
     completeStoryWorktree, prepareStoryWorktree, rollbackStoryWorktree
   } = await import('./story-worktree.mjs');
+  // A public FOS lookup remains strictly bound to the worktree where it was reviewed. Seal the
+  // source authority before Git creates or enters another worktree; only this controlled start
+  // path may carry the already-verified snapshot across that boundary.
+  // Only a durable local Story carries its own immutable configuration. A materialized Epic seed
+  // also has a local branch, but still needs today's approved configuration to create its first
+  // lifecycle state, so branch existence alone is not enough to skip the FOS snapshot.
+  const canonicalBranch = optionString(options, 'ref', id);
+  const durableLocalStory = await durableLocalStoryOnBranch(sourceRoot, id, canonicalBranch);
+  const sealedConfiguration = durableLocalStory
+    ? null
+    : await sealIsolatedStoryConfiguration(sourceRoot, id);
   const prepared = await prepareStoryWorktree(sourceRoot, id);
   const previousDirectory = process.cwd();
   try {
-    process.chdir(prepared.repositoryPath);
-    const result = await startCommand(positionals, {
+    const configurationHandoff = await bindIsolatedStoryConfiguration(sealedConfiguration, prepared);
+    const childOptions = {
       ...options,
       'isolated-worktree': false,
       'managed-story-worktree': prepared.repositoryPath,
       'story-launch-repository': sourceRoot
-    });
+    };
+    if (configurationHandoff) {
+      childOptions[ISOLATED_STORY_CONFIGURATION_HANDOFF] = configurationHandoff;
+    }
+    process.chdir(prepared.repositoryPath);
+    const result = await startCommand(positionals, childOptions);
     completeStoryWorktree(prepared);
     try {
       await activateWorkspaceStoryContext(
@@ -890,6 +978,9 @@ export async function startCommand(positionals, options) {
   // created and the durable journal is never consumed.
   await recoverStoryStart(root, id);
   const managedStoryWorktree = optionString(options, 'managed-story-worktree');
+  const configurationHandoff = await isolatedStoryConfiguration(
+    options, root, id, managedStoryWorktree
+  );
   // A Story owns a branch, index and working directory of its own. VS Code always asks for this
   // isolation; the CLI also selects it automatically when the launch checkout is dirty, so
   // unrelated files from an earlier Story can never become a global Story-start lock.
@@ -1060,13 +1151,13 @@ export async function startCommand(positionals, options) {
   // default base, publication, receipt validation and workflow template. Reading current authority
   // later (after one of those choices) would combine two configuration revisions in one start.
   const currentPin = await capabilityDoctorStoryPin(root);
-  let configurationAuthority = await fosStoryConfigurationAuthority(root)
+  let configurationAuthority = configurationHandoff?.authority
+    ?? await fosStoryConfigurationAuthority(root)
     ?? await resolveNewStoryConfigurationAuthority(root, {
       pinnedRemote: currentPin.valid ? currentPin.source.repository : null
     });
-  let approvedConfigurationSnapshot = configurationAuthority
-    ? await loadStoryConfigurationSnapshot(configurationAuthority)
-    : null;
+  let approvedConfigurationSnapshot = configurationHandoff?.snapshot
+    ?? (configurationAuthority ? await loadStoryConfigurationSnapshot(configurationAuthority) : null);
   if (approvedConfigurationSnapshot) config = approvedConfigurationSnapshot.definition;
   if (!config) {
     throw new SingularityFlowError(
@@ -1553,7 +1644,11 @@ export async function startCommand(positionals, options) {
   // Application branches do not own shared configuration. A new Story receives the exact approved
   // configuration revision here, before any selection or generation happens, and the initial Story
   // commit publishes the copied files together with their provenance record.
-  if (createdBranch && configurationAuthority) {
+  // A managed isolated start may enter an already-materialized Epic seed branch, so Git reports
+  // `already-on-branch` even though no durable Story exists yet. The private handoff proves that
+  // this is still first creation and carries the exact approved snapshot sealed in the launch
+  // checkout. Materialize it under the same journal/restore guards as a newly-created branch.
+  if ((createdBranch || configurationHandoff) && configurationAuthority) {
     configurationRestorePoint = await captureConfigurationState(root);
     await updateStoryStartJournal(root, id, startJournal.transactionId, {
       stage: 'configuration-captured',
@@ -11329,6 +11424,11 @@ async function workspaceCommand(positionals, options) {
           .then((portfolio) => ({ profiles: initiativeProfileChoices(portfolio), profileReason: null }))
           .catch(() => localIntakeProfiles)
         : localIntakeProfiles;
+      const packagedCatalog = intakeRequested
+        ? await optionalWorkflowCatalog(() => workflowCatalog(root))
+        : { workflows: [], reason: null };
+      const packagedStoryWorkflows = packagedCatalog.workflows
+        .filter((workflow) => workflow.installed === false);
       const intake = intakeRequested ? {
           ...intakeProfiles,
           // Intake may offer only installed work types: these are the exact profiles Story start can
@@ -11339,6 +11439,16 @@ async function workspaceCommand(positionals, options) {
             phases: workflow.phases ?? [], references: workflow.references?.mode ?? 'optional',
             governs: 'story', installed: true
           })),
+          // These are catalog entries, not executable choices. Keeping them in a separate field
+          // prevents an editor from accidentally sending an unavailable ID to Story start while
+          // still letting it explain where the rest of the packaged workflows went.
+          availableStoryWorkflows: packagedStoryWorkflows.map((workflow) => ({
+            id: workflow.id, label: workflow.label ?? workflow.id,
+            description: workflow.description ?? '', phases: workflow.phases ?? [],
+            references: workflow.references?.mode ?? 'optional', governs: 'story',
+            installed: false, status: workflow.status
+          })),
+          workflowCatalogReason: packagedCatalog.reason,
           workflowReason: null
         } : null;
       const catalog = await storyBaseCatalog(root, {

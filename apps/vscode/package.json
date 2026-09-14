@@ -184,6 +184,11 @@
         "icon": "$(sync)"
       },
       {
+        "command": "singularityFlow.refreshRepositorySetup",
+        "title": "Singularity Flow: Refresh / Reinitialize by Git URL",
+        "icon": "$(refresh)"
+      },
+      {
         "command": "singularityFlow.openWalkthrough",
         "title": "Singularity Flow: Get Started (Walkthrough)",
         "icon": "$(rocket)"

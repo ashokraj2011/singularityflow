@@ -12,11 +12,12 @@ import { createHash } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { access, lstat, readFile, rm } from 'node:fs/promises';
+import { access, lstat, readFile, readdir, realpath as fsRealpath, rm } from 'node:fs/promises';
 import { gatewayDestinationRequest } from './gateway-destination.ts';
 import { resolveCli, SingularityFlowClient, type CliLocation } from './cli/client.ts';
 import {
   formatCliArgsForDisplay, RepositoryAuthorityUnavailableError,
+  terminalCommand,
   validateFactoryResetRepositoryDirectory, validateRepositoryDirectory,
   validatedRepositoryGitCommonDirectory
 } from './cli/runner.ts';
@@ -50,6 +51,11 @@ import {
 } from './views/workspaces-model.ts';
 import { capabilityChoices, type RemoteCapability } from './views/workspace-form.ts';
 import { gitRemoteProblem } from './views/map-capability-form.ts';
+import {
+  repositoryRefreshCommand, repositoryRefreshTargetForPath, repositoryRefreshTargets,
+  sameGitRepository,
+  type RepositoryRefreshTarget, type WorkspaceRefreshObservation
+} from './repository-refresh-model.ts';
 import { capabilityProposalArgv } from './views/capability-model.ts';
 import { buildConfigurationTree, unavailableTree, type TreeNode } from './views/tree-model.ts';
 import { NodeTreeProvider } from './views/navigation.ts';
@@ -1977,6 +1983,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openWorkspaces', async (
       request?: TreeNode | {
         upgrade?: boolean;
+        upgradeScope?: 'selected' | 'all';
+        /** Exact registered workspace selected by the Git-URL maintenance menu. */
+        workspacePath?: string;
+        /** Exact repository selected by that menu; narrows preview and apply together. */
+        repositoryId?: string;
         capabilityIds?: readonly string[];
         authority?: { leadUrl?: string; sourceBranch?: string; sourceCommit?: string };
       }
@@ -1984,7 +1995,34 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const requestGeneration = ++openWorkspacesRequestGeneration;
     const requestIsCurrent = (): boolean =>
       requestGeneration === openWorkspacesRequestGeneration;
-    const upgrade = Boolean(request && typeof request === 'object' && 'upgrade' in request && request.upgrade);
+    const upgradeScope = request && typeof request === 'object'
+      && 'upgradeScope' in request
+      && (request.upgradeScope === 'selected' || request.upgradeScope === 'all')
+      ? request.upgradeScope
+      : request && typeof request === 'object' && 'upgrade' in request && request.upgrade
+        ? 'all' : null;
+    const upgrade = Boolean(upgradeScope);
+    const requestedWorkspacePath = request && typeof request === 'object'
+      && 'workspacePath' in request && typeof request.workspacePath === 'string'
+      ? request.workspacePath.trim() : '';
+    const repositoryIdSupplied = Boolean(request && typeof request === 'object'
+      && 'repositoryId' in request);
+    const requestedRepositoryId = request && typeof request === 'object'
+      && 'repositoryId' in request && typeof request.repositoryId === 'string'
+      && /^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(request.repositoryId.trim())
+      ? request.repositoryId.trim() : null;
+    if (repositoryIdSupplied && !requestedRepositoryId) {
+      void vscode.window.showWarningMessage(
+        'The repository refresh request did not identify one valid registered repository. Nothing was changed.'
+      );
+      return;
+    }
+    if (requestedRepositoryId && !requestedWorkspacePath) {
+      void vscode.window.showWarningMessage(
+        'A repository-scoped refresh must identify its exact registered workspace. Nothing was changed.'
+      );
+      return;
+    }
     const requestedCapabilityIds = request && typeof request === 'object'
       && 'capabilityIds' in request && Array.isArray(request.capabilityIds)
       ? request.capabilityIds.filter((id): id is string =>
@@ -2427,8 +2465,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         void refreshWorkspaceTree();
       }
       return failure;
-    }, details, refreshConfiguration, runFosAction, workspacePathOf(node) ?? node?.path ?? null,
-    upgrade ? 'all' : null, attachScope);
+    }, details, refreshConfiguration, runFosAction,
+    requestedWorkspacePath || workspacePathOf(node) || node?.path || null,
+    upgradeScope, attachScope, requestedRepositoryId);
   }));
 
   /** One discoverable post-install entry point: open the reviewed UI and check every workspace. */
@@ -2441,6 +2480,384 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(vscode.commands.registerCommand(
     'singularityFlow.reinitializeWorkspaces',
     () => vscode.commands.executeCommand('singularityFlow.openWorkspaces', { upgrade: true })
+  ));
+
+  /**
+   * Recover an old or incomplete setup from the one identity a person normally knows: its Git URL.
+   *
+   * This is deliberately an orchestrator over existing guarded CLI contracts. It performs no
+   * configuration mutation itself: the safe workspace path opens the exact-plan preview already
+   * used by Workspaces, authority refresh reuses the pinned-route command, and repository
+   * reinitialization reuses the factory-reset preview with its repository-bound confirmation.
+   */
+  context.subscriptions.push(vscode.commands.registerCommand(
+    'singularityFlow.refreshRepositorySetup', async (request?: {
+      repositoryUrl?: string;
+      repositoryPath?: string;
+      workspacePath?: string;
+    }) => {
+      let location: CliLocation;
+      try {
+        location = resolveCli({ extensionPath: context.extensionPath });
+      } catch (error) {
+        return showRefusal(error, { headline: 'Repository maintenance is unavailable' });
+      }
+      const suppliedRepositoryPath = request?.repositoryPath?.trim() ?? '';
+      const suppliedWorkspacePath = request?.workspacePath?.trim() ?? '';
+      let requestedUrl = request?.repositoryUrl?.trim() ?? '';
+      if (!requestedUrl && !suppliedRepositoryPath) {
+        requestedUrl = (await vscode.window.showInputBox({
+          title: 'Refresh or reinitialize from a Git URL',
+          prompt: 'Enter the credential-free clone URL. SFlow searches only registered workspaces and repositories already open in this window.',
+          placeHolder: 'https://git.example.com/team/repository.git',
+          ignoreFocusOut: true,
+          validateInput: (value) => {
+            if (!value.trim()) return 'Enter the repository Git URL.';
+            return gitRemoteProblem(value, 'Repository');
+          }
+        }))?.trim() ?? '';
+        if (!requestedUrl) return;
+      }
+      if (requestedUrl) {
+        const problem = gitRemoteProblem(requestedUrl, 'Repository');
+        if (problem) return showRefusal(problem, { headline: 'The Git URL cannot be used safely' });
+      }
+
+      const registry = new SingularityFlowClient({
+        location, repository: process.cwd(), environment: cliEnvironment,
+        onOutput: (text) => output.append(text)
+      });
+      let observations: WorkspaceRefreshObservation[] = [];
+      let lookupCancelled = false;
+      try {
+        observations = await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: 'Finding this repository in registered workspaces',
+            cancellable: true
+          },
+          async (_progress, token) => {
+            const cancellation = new AbortController();
+            const subscription = token.onCancellationRequested?.(() => {
+              lookupCancelled = true;
+              cancellation.abort();
+            });
+            try {
+              if (token.isCancellationRequested) {
+                lookupCancelled = true;
+                cancellation.abort();
+              }
+              if (cancellation.signal.aborted) return [];
+              const workspaces = await registry.run<WorkspaceEntry[]>(
+                ['workspace', 'list', '--json'], cancellation.signal
+              );
+              const directLeadMatches = suppliedRepositoryPath
+                ? workspaces.filter((workspace) => workspace.leadRepositoryPath
+                    && path.resolve(workspace.leadRepositoryPath) === path.resolve(suppliedRepositoryPath))
+                : [];
+              const scoped = suppliedWorkspacePath
+                ? workspaces.filter((workspace) =>
+                    path.resolve(workspace.path) === path.resolve(suppliedWorkspacePath))
+                : directLeadMatches.length
+                  ? directLeadMatches
+                  : workspaces.filter((workspace) => !workspace.archivedAt);
+              const results = new Array<WorkspaceRefreshObservation | null>(scoped.length).fill(null);
+              let cursor = 0;
+              const worker = async (): Promise<void> => {
+                while (!cancellation.signal.aborted) {
+                  const index = cursor++;
+                  if (index >= scoped.length) return;
+                  const workspace = scoped[index]!;
+                  try {
+                    const status = await registry.run<WorkspaceStatus>([
+                      'workspace', 'status', workspace.path, '--no-fetch', '--json'
+                    ], cancellation.signal);
+                    results[index] = { workspace, status, error: null };
+                  } catch (error) {
+                    if (cancellation.signal.aborted) return;
+                    results[index] = { workspace, status: null, error: (error as Error).message };
+                  }
+                }
+              };
+              await Promise.all(Array.from(
+                { length: Math.min(4, scoped.length) }, () => worker()
+              ));
+              if (cancellation.signal.aborted) {
+                lookupCancelled = true;
+                return [];
+              }
+              return results.filter(
+                (entry): entry is WorkspaceRefreshObservation => Boolean(entry)
+              );
+            } finally {
+              subscription?.dispose();
+            }
+          }
+        );
+      } catch (error) {
+        if (lookupCancelled) return;
+        return showRefusal(error, { headline: 'Registered workspaces could not be read' });
+      }
+      if (lookupCancelled) return;
+
+      const unreadable = observations.filter((observation) => observation.error);
+      for (const observation of unreadable) {
+        output.appendLine(`Workspace ${observation.workspace.name} could not be inspected: ${observation.error}`);
+      }
+      let targets: RepositoryRefreshTarget[];
+      if (suppliedRepositoryPath) {
+        const target = repositoryRefreshTargetForPath(
+          suppliedRepositoryPath, suppliedWorkspacePath || null, observations
+        );
+        targets = target ? [target] : [];
+      } else {
+        targets = repositoryRefreshTargets(requestedUrl, observations);
+      }
+
+      // An old-format workspace can fail before `workspace status` has enough structure to expose
+      // repository URLs. Recovery must not depend on the damaged record it exists to replace.
+      // The ordinary path above is metadata-only. Probe local Git only when that path found nothing,
+      // and only for exact registered paths or a folder explicitly open in this window. This avoids
+      // turning a maintenance menu into N×remote Git subprocesses on healthy workspaces.
+      let fallbackCancelled = false;
+      if (!targets.length) {
+        let fallbackTargets: RepositoryRefreshTarget[] = [];
+        try {
+          fallbackTargets = await vscode.window.withProgress(
+            {
+              location: vscode.ProgressLocation.Notification,
+              title: 'Checking local Git repositories for this URL',
+              cancellable: true
+            },
+            async (_progress, token) => {
+              const cancellation = new AbortController();
+              const subscription = token.onCancellationRequested?.(() => {
+                fallbackCancelled = true;
+                cancellation.abort();
+              });
+              try {
+                if (token.isCancellationRequested) {
+                  fallbackCancelled = true;
+                  cancellation.abort();
+                }
+                if (cancellation.signal.aborted) return [];
+                const candidateOwners = new Map<string, WorkspaceRefreshObservation | null>();
+                // A partially readable legacy status can expose the checkout path but omit or
+                // stale its remote URL. Include those exact registered paths in the bounded local
+                // fallback as well; otherwise the healthier half of a damaged record would
+                // paradoxically make it unrecoverable by URL.
+                for (const observation of observations) {
+                  for (const repository of observation.status?.repositories ?? []) {
+                    const repositoryPath = repository.absolutePath ?? repository.path;
+                    if (repositoryPath) candidateOwners.set(path.resolve(repositoryPath), observation);
+                  }
+                }
+                for (const observation of unreadable) {
+                  if (observation.workspace.leadRepositoryPath) {
+                    candidateOwners.set(path.resolve(observation.workspace.leadRepositoryPath), observation);
+                  }
+                }
+                // Very old registry entries did not persist `leadRepositoryPath`, and a moved
+                // workspace can retain an obsolete one. Inspect only direct `repos/<id>` children
+                // of the registered workspace. Symlinks/junctions must resolve inside it; there is
+                // no recursive or parent scan.
+                for (const observation of unreadable.slice(0, 24)) {
+                  if (cancellation.signal.aborted) return [];
+                  try {
+                    const workspaceBoundary = await fsRealpath(observation.workspace.path);
+                    const repositoryDirectory = await fsRealpath(
+                      path.join(observation.workspace.path, 'repos')
+                    );
+                    const directoryRelative = path.relative(workspaceBoundary, repositoryDirectory);
+                    if (!directoryRelative || directoryRelative === '..'
+                      || directoryRelative.startsWith(`..${path.sep}`)
+                      || path.isAbsolute(directoryRelative)) continue;
+                    const children = (await readdir(repositoryDirectory, { withFileTypes: true }))
+                      .filter((entry) => entry.isDirectory()).slice(0, 24);
+                    for (const child of children) {
+                      if (cancellation.signal.aborted) return [];
+                      const candidate = await fsRealpath(path.join(repositoryDirectory, child.name));
+                      const relative = path.relative(workspaceBoundary, candidate);
+                      if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`)
+                        || path.isAbsolute(relative)) continue;
+                      candidateOwners.set(candidate, observation);
+                    }
+                  } catch {
+                    // A missing or unreadable conventional directory is just another disclosed damaged
+                    // workspace. The no-match path below retains the exact doctor command.
+                  }
+                }
+                for (const folder of vscode.workspace.workspaceFolders ?? []) {
+                  if (cancellation.signal.aborted) return [];
+                  if (folder.uri?.scheme !== 'file' && folder.uri?.scheme != null) continue;
+                  const folderPath = path.resolve(folder.uri.fsPath);
+                  if (!candidateOwners.has(folderPath)) {
+                    candidateOwners.set(folderPath, null);
+                  }
+                }
+                const requestedPath = suppliedRepositoryPath ? path.resolve(suppliedRepositoryPath) : null;
+                if (requestedPath) {
+                  const registeredOwner = observations.find((observation) =>
+                    (observation.workspace.leadRepositoryPath
+                      && path.resolve(observation.workspace.leadRepositoryPath) === requestedPath)
+                    || (observation.status?.repositories ?? []).some((repository) => {
+                      const repositoryPath = repository.absolutePath ?? repository.path;
+                      return repositoryPath && path.resolve(repositoryPath) === requestedPath;
+                    })) ?? null;
+                  const explicitlyOpen = (vscode.workspace.workspaceFolders ?? []).some((folder) =>
+                    (folder.uri?.scheme === 'file' || folder.uri?.scheme == null)
+                    && path.resolve(folder.uri.fsPath) === requestedPath);
+                  if (registeredOwner || explicitlyOpen) candidateOwners.set(requestedPath, registeredOwner);
+                }
+
+                // One local `git config` invocation yields every remote URL; it never contacts the
+                // network or opens a credential prompt. Four probes at a time and 24 paths are
+                // deliberate safety ceilings for a damaged machine registry.
+                const candidates = [...candidateOwners.entries()].slice(0, 24);
+                const discovered: RepositoryRefreshTarget[] = [];
+                const inspect = async (
+                  candidate: string, owner: WorkspaceRefreshObservation | null
+                ): Promise<RepositoryRefreshTarget | null> => {
+                  if (cancellation.signal.aborted
+                    || (requestedPath && path.resolve(candidate) !== requestedPath)) return null;
+                  let canonical: string;
+                  try {
+                    canonical = await validateFactoryResetRepositoryDirectory(candidate, {
+                      signal: cancellation.signal
+                    });
+                  } catch {
+                    return null;
+                  }
+                  if (cancellation.signal.aborted) return null;
+                  let urls: string[] = [];
+                  try {
+                    const { stdout } = await promisify(execFile)(
+                      'git', ['config', '--local', '--get-regexp', '^remote\\..*\\.url$'], {
+                        cwd: canonical, timeout: 5_000, encoding: 'utf8', windowsHide: true,
+                        signal: cancellation.signal,
+                        env: { ...process.env, ...cliEnvironment, GIT_TERMINAL_PROMPT: '0' }
+                      }
+                    );
+                    urls = [...new Set(String(stdout).split(/\r?\n/u).flatMap((line) => {
+                      const separator = line.search(/\s/u);
+                      const url = separator >= 0 ? line.slice(separator).trim() : '';
+                      return url && !gitRemoteProblem(url, 'Configured repository') ? [url] : [];
+                    }))].slice(0, 16);
+                  } catch {
+                    // A local repository with damaged remote configuration remains eligible when an
+                    // internal caller supplied its exact registered path. Reinitialization repairs SFlow
+                    // without rewriting Git remotes; URL discovery still requires an identity match.
+                  }
+                  if (cancellation.signal.aborted) return null;
+                  const matchingUrl = requestedUrl
+                    ? urls.find((url) => sameGitRepository(requestedUrl, url)) ?? null
+                    : urls[0] ?? null;
+                  if (requestedUrl && !matchingUrl) return null;
+                  const repository = owner?.status?.repositories.find((entry) => {
+                    const repositoryPath = entry.absolutePath ?? entry.path;
+                    return repositoryPath && path.resolve(repositoryPath) === path.resolve(candidate);
+                  });
+                  return {
+                    workspaceId: owner?.workspace.id ?? null,
+                    workspaceName: owner?.workspace.name ?? 'Open repository',
+                    workspacePath: owner?.workspace.path ?? null,
+                    repositoryId: repository?.id ?? path.basename(canonical),
+                    repositoryPath: canonical,
+                    repositoryUrl: matchingUrl ?? requestedUrl,
+                    repositoryState: repository?.state ?? (owner ? 'workspace details unreadable' : 'open in VS Code')
+                  };
+                };
+                for (let index = 0; index < candidates.length; index += 4) {
+                  if (cancellation.signal.aborted) return [];
+                  const batch = candidates.slice(index, index + 4);
+                  const inspected = await Promise.all(batch.map(([candidate, owner]) => inspect(candidate, owner)));
+                  if (cancellation.signal.aborted) return [];
+                  discovered.push(...inspected.filter(
+                    (target): target is RepositoryRefreshTarget => Boolean(target)
+                  ));
+                }
+                return discovered;
+              } finally {
+                subscription?.dispose();
+              }
+            }
+          );
+        } catch (error) {
+          if (fallbackCancelled) return;
+          return showRefusal(error, { headline: 'Local Git repositories could not be checked' });
+        }
+        targets.push(...fallbackTargets);
+      }
+      if (fallbackCancelled) return;
+      if (!targets.length) {
+        const doctorArgs = requestedUrl
+          ? ['workspace', 'doctor', '--network', '--repository', requestedUrl, '--json']
+          : ['workspace', 'doctor', '--json'];
+        const recovery = terminalCommand(
+          os.tmpdir(), doctorArgs, process.platform, location
+        );
+        output.appendLine(`No registered workspace matched the requested repository. Recover with: ${recovery}`);
+        const next = await vscode.window.showWarningMessage(
+          'No registered workspace or open folder contains that repository.',
+          {
+            modal: true,
+            detail: `${unreadable.length
+              ? `${unreadable.length} registered workspace${unreadable.length === 1 ? '' : 's'} could not be read. Repair those registrations and retry.\n\n`
+              : ''}Nothing was changed. SFlow did not scan the home directory or clone a repository.\n\nRecovery: ${recovery}`
+          },
+          'Open Workspaces', 'Map a capability'
+        );
+        if (next === 'Open Workspaces') return vscode.commands.executeCommand('singularityFlow.openWorkspaces');
+        if (next === 'Map a capability') return vscode.commands.executeCommand('singularityFlow.mapCapability');
+        return;
+      }
+
+      const chosen = targets.length === 1 ? targets[0] : (await vscode.window.showQuickPick(
+        targets.map((target) => ({
+          label: `${target.workspaceName} · ${target.repositoryId}`,
+          description: target.repositoryState,
+          detail: `${target.repositoryPath}\n${target.repositoryUrl}`,
+          target
+        })),
+        {
+          title: 'Choose the exact registered repository',
+          placeHolder: 'The Git URL belongs to more than one local workspace; no workspace is inferred.',
+          ignoreFocusOut: true
+        }
+      ))?.target;
+      if (!chosen) return;
+
+      const actions = [
+        ...(repositoryRefreshCommand('refresh', chosen) ? [{
+          label: '$(sync) Refresh configuration and workflows',
+          description: 'Recommended',
+          detail: 'Preview packaged workflow/schema changes and state projections, then apply only the exact reviewed plan.',
+          action: 'refresh' as const
+        }] : []),
+        {
+          label: '$(refresh) Refresh authority pin',
+          description: 'Repair checkout/worktree routing',
+          detail: 'Re-read the previously selected authority route without changing source or application branches.',
+          action: 'authority' as const
+        },
+        {
+          label: '$(debug-restart) Reinitialize local SFlow files',
+          description: 'Old or damaged format',
+          detail: 'Preview the exact SFlow-only reset boundary. Application code, .git, branches, remotes, and Git history are preserved.',
+          action: 'reinitialize' as const
+        }
+      ];
+      const selectedAction = await vscode.window.showQuickPick(actions, {
+        title: `${chosen.workspaceName} · ${chosen.repositoryId}`,
+        placeHolder: 'Choose a reviewed recovery path; no action is run automatically.',
+        ignoreFocusOut: true
+      });
+      if (!selectedAction) return;
+      output.appendLine(`Repository setup maintenance: ${selectedAction.action} · ${chosen.repositoryPath}`);
+      const route = repositoryRefreshCommand(selectedAction.action, chosen);
+      if (!route) return;
+      return vscode.commands.executeCommand(route.command, ...route.args);
+    }
   ));
 
   /**

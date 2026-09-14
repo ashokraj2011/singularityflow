@@ -713,6 +713,9 @@ export const STYLE = `
     border: var(--sf-border); border-radius: 4px;
     background: var(--vscode-textCodeBlock-background);
   }
+  .workflow-catalog { margin-top: 1rem; padding-top: .8rem; border-top: var(--sf-border); }
+  .choice.workflow-choice.unavailable { cursor: default; opacity: .82; }
+  .choice.workflow-choice.unavailable:hover { border-color: var(--sf-border-color); }
   /* Visual Assurance: dense evidence is grouped into reviewable bands without turning the page
      into a second design system. Tables remain scrollable at narrow editor widths. */
   .assurance-header { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; }

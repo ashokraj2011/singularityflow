@@ -10,7 +10,7 @@ import YAML from 'yaml';
 import { initializeDefinition, loadDefinition, resolveWorkType } from '../src/config.mjs';
 import { phaseRequiresCodeDelivery } from '../src/code-delivery-policy.mjs';
 import { isSpecificationDefinitionPhase } from '../src/specifications.mjs';
-import { validateWorkflowCatalog } from '../src/workflow-catalog.mjs';
+import { optionalWorkflowCatalog, validateWorkflowCatalog } from '../src/workflow-catalog.mjs';
 
 const bin = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
@@ -128,6 +128,16 @@ test('workflow catalog validation reports the complete bundle and one requested 
   }]);
 
   await assert.rejects(() => validateWorkflowCatalog(root, 'does-not-exist'), /Unknown workflow 'does-not-exist'/);
+});
+
+test('an advisory packaged catalog failure cannot suppress installed Story workflows', async () => {
+  const result = await optionalWorkflowCatalog(async () => {
+    throw new Error(`Provider failed for https://alice:LEAKMARK@example.test/repo ${'x'.repeat(2_000)}`);
+  });
+  assert.deepEqual(result.workflows, []);
+  assert.match(result.reason, /Installed Story workflows remain available/);
+  assert.doesNotMatch(result.reason, /LEAKMARK/);
+  assert.ok(result.reason.length < 700, 'the optional failure reason was not bounded');
 });
 
 test('workflow validate is a public JSON CLI surface for all and one workflow', async () => {

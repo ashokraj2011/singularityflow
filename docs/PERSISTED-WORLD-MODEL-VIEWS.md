@@ -2,13 +2,23 @@
 
 **Status:** W0/W1 persistence, governed repository-identity proof, exact pre-extraction
 key/lookup, build-to-binding staging, exact-manifest terminal extraction outcomes, a pure
-completeness bridge, and a bounded W2 deterministic-view slice are implemented; production
-model/view emission and reuse remain disabled pending service/state-transaction integration and
-the remaining proof owners
+completeness bridge, and a bounded W2 deterministic-view slice are implemented. Only the new WMP
+immutable exact-history emission/reuse path remains inactive pending service/state-transaction
+integration and the remaining proof owners. Existing Story lifecycles and the operational
+legacy-v3 and registered-v4 World-Model paths are not disabled.
 
-This document is the implementation companion to `SPEC-persisted-worldmodel-views.md`. It records
-the amendments required by the current WMB v4 code so that persistence extends the existing
-state-branch authority instead of creating a second World-Model authority.
+This document is the repository implementation companion to the externally supplied
+`SPEC-persisted-worldmodel-views.md` draft. It records the amendments required by the current WMB
+v4 code so that persistence extends the existing state-branch authority instead of creating a
+second World-Model authority; the external draft is not a packaged runtime dependency.
+
+> **Operational boundary:** This roadmap does not gate Story creation, phase progression, current
+> World-Model builds, current-projection publication, or existing reuse mechanisms. The shipped default
+> is `worldModel.grounding: warn`: absent intelligence is represented by a stable unavailable
+> receipt with zero World-Model bytes and ordinary repository access continues. Changing grounding
+> to `enforce` changes the handling of consumed-context integrity failures, not model availability;
+> a separately required projection or persisted domain may have its own explicit policy. Those
+> independent requirements must not be confused with WMP exact-history activation.
 
 ## Target product outcome
 
@@ -40,7 +50,7 @@ model call, extraction, AST query, Git fetch, cache fill, or source checkout. Th
    consumer-profile, output-budget, and view-validation-receipt records. Model admission also
    verifies their exact cross-record graph. A governed action-bound repository resolver and a
    pre-extraction build/lookup adapter now provide the code-local construction boundary, but they
-   are not wired into production WMB publication. View admission
+   are not wired into the normal WMB service's WMP exact-history publication path. View admission
    additionally remains fail-closed without retained renderer/validator contracts, an applicable
    tokenizer owner, model-to-view/selected-ledger correlation, and rendered-budget validation.
    Deferred grounding/handoff/adoption paths additionally require publication-receipt,
@@ -102,7 +112,7 @@ than being wired into every Story path prematurely:
 - current executable registered-v4 adapters expose an explicit deterministic terminal-execution capture against their
   exact installed manifest and implementation identity, including successful zero-fact paths and
   explicit unsupported, partial, and failed outcomes; ordinary registration defaults this capture
-  off, and future production integration must enable it explicitly, to avoid an unused
+  off, and future WMP exact-history integration must enable it explicitly, to avoid an unused
   extractor-by-path allocation;
 - a pure completeness bridge verifies every selected source path and digest, exact extractor
   identity, global extractor outcome, and required subject outcome before constructing the frozen
@@ -141,12 +151,12 @@ than being wired into every Story path prematurely:
   typed miss at the same admitted authority cut immediately before the single extraction, so a
   fabricated or already-satisfied miss cannot authorize work. It checks the exact key again after
   registration, adopts only a byte-identical concurrent winner, and refuses an advanced cut or
-  conflicting winner instead of staging redundant authority. This is a staging boundary, not
-  production publication authority;
+  conflicting winner instead of staging redundant authority. This is a staging boundary, not WMP
+  exact-history publication authority;
 - the existing state writer checks the pinned combined closure, including model/view binding graph
   validation, and already supports committing a compatible current projection and immutable
   history in one CAS without dropping existing exact-blob checks. The new build-to-binding path is
-  not yet connected to that production transaction;
+  not yet connected to that WMP exact-history transaction;
 - publication recovery now binds and verifies the history additions as well as the replaceable
   projection, including byte-identical concurrent winners and unrelated-state-change refusal;
 - exact historical source reads use locally available Git objects at an explicit full revision,
@@ -162,8 +172,9 @@ than being wired into every Story path prematurely:
   write a cache, or change Git. A configured remote never falls back to an unpublished local state
   branch.
 
-The increment does **not** make a current WMB build emit or reuse a production WMP model/view
-binding yet. The governed repository-identity resolver, exact pre-extraction lookup, and
+The increment does **not** make a current WMB build additionally emit or consult an immutable WMP
+model/view binding yet; the existing builder and current-projection reuse behavior continue. The
+governed repository-identity resolver, exact pre-extraction lookup, and
 build-to-binding staging adapter now exist as isolated code-local foundations. They are not yet
 wired through the normal WMB service so that a miss builds once and publishes the compatible
 current projection plus immutable history in the same revision-checked state-branch CAS.
@@ -177,10 +188,11 @@ resolver compares it with current approved or lifecycle-pinned repository author
 before lookup and construction; its ephemeral proof is not added to `ModelInputs` and cannot turn
 an old configuration cut into current permission.
 
-View emission and reuse remain disabled until retained renderer/validator implementation
-contracts, an exact tokenizer owner whenever token measurement is asserted, model-to-view and
-selected-ledger correlation, validation-receipt candidate/scope binding, and rendered-budget
-validation are implemented. Deferred grounding, handoff, and adoption still require their
+WMP exact-history saved-view emission and reuse remain inactive until retained renderer/validator
+implementation contracts, an exact tokenizer owner whenever token measurement is asserted,
+model-to-view and selected-ledger correlation, validation-receipt candidate/scope binding, and
+rendered-budget validation are implemented. This does not disable the existing WMB v4 current
+projection or its validated cache. Deferred WMP grounding, handoff, and adoption still require their
 publication-receipt, admission-proof, source-authority, origin-authority, target-authority, and
 adoption-authorization owners as applicable. Reusing an unrelated record under a convenient role
 would create a syntactically valid but false proof. The next rollout step is therefore integrating
@@ -192,16 +204,25 @@ views before their proof owners exist.
 
 | Increment | Current status | Included behavior |
 |---|---|---|
-| W0 | Persistence and semantic-owner foundation implemented | Strict identities, object references, six registered envelope contracts, portable paths, canonical-byte tests, and frozen v1 owners for repository domain, extraction policy, registry, completeness, consumer profile, output budget, and validation receipt. Production construction is not enabled. |
-| W1 | Persistence and model-integrity foundation implemented | Direct exact-key state-history reads; create-if-absent publication expectations; additive history plus compatible current projection in one CAS; history-bound recovery; exact model-graph validation and pinned state-writer checks; governed action-bound repository identity; exact pre-extraction key/lookup; build-to-binding staging; exact-manifest terminal extraction outcomes; and pure completeness construction over the selected source snapshot. Production emission/reuse remains fail-closed pending normal-service and atomic state-transaction integration, owned excluded-path/configuration accounting, and the remaining view/grounding proof owners. |
+| W0 | Persistence and semantic-owner foundation implemented | Strict identities, object references, six registered envelope contracts, portable paths, canonical-byte tests, and frozen v1 owners for repository domain, extraction policy, registry, completeness, consumer profile, output budget, and validation receipt. Automatic WMP exact-history construction is not enabled. |
+| W1 | Persistence and model-integrity foundation implemented | Direct exact-key state-history reads; create-if-absent publication expectations; additive history plus compatible current projection in one CAS; history-bound recovery; exact model-graph validation and pinned state-writer checks; governed action-bound repository identity; exact pre-extraction key/lookup; build-to-binding staging; exact-manifest terminal extraction outcomes; and pure completeness construction over the selected source snapshot. WMP exact-history emission/reuse remains fail-closed pending normal-service and atomic state-transaction integration, owned excluded-path/configuration accounting, and the remaining view/grounding proof owners. Existing WMB v3/v4 operation is unaffected. |
 | W2 | Partial | Five model-free overview contracts, stable full/brief renderers, and exact history inspection are implemented. The structural grounding preview exists, but its frozen v1 shape cannot represent the full composition identity; a compatible successor contract, lifecycle emission, and exact packet replay are not yet enabled. |
 | W3 | Deferred | Incremental parse/derivation reuse and verified private-candidate handoff/adoption. |
 | W4 | Deferred | Legacy inventory/cutover, supported-platform evidence, capacity benchmarks, UI explorer, and release qualification. |
 
 Only behavior backed by its runtime tests is advertised. W0-W2 do not claim foreign-candidate
 continuation, complete incremental extraction, physical Windows/macOS/Linux qualification, or all
-36 release criteria. World-Model or AST absence remains non-blocking for workflows whose policy does
-not explicitly require a persisted domain.
+36 release criteria. World-Model or AST absence remains non-blocking under the shipped `warn`
+grounding policy; `enforce` changes consumed-context integrity handling, not absence. A separately
+required intelligence product may retain its own explicit policy.
+
+## Related operational documentation
+
+- [Governed World-Model Builder v4](WORLD-MODEL-BUILDER-V4.md) documents the operational v4
+  current-projection and cache path.
+- [Architecture Review Board document](ARB-document-plain.html) shows the system and activation
+  boundary in context.
+- [Pending-work roadmap](PENDING-WORK-ROADMAP.md) owns the cross-product rollout status.
 
 ## Storage contract
 
@@ -232,7 +253,7 @@ proposed 256 MiB closure ceiling until a streaming/reference recovery format is 
   configuration; configured profiles therefore remain fail-closed.
 - Integrate the governed repository-identity resolver, exact pre-extraction lookup, and
   build-to-binding staging adapter into the normal WMB service. An exact hit must remain a
-  zero-execution read; an explicit typed miss may build once. Publish the validated compatible
+  zero-execution WMP history read; an explicit typed miss may build once. Publish the validated compatible
   current projection and immutable history additions together through the existing
   revision-checked state-branch CAS before wiring reuse into Story start or grounding preparation.
 - Before enabling saved-view publication or reads, cryptographically connect each view binding's

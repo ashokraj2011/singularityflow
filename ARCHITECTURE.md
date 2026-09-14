@@ -214,6 +214,15 @@ World-model generation runs in a detached analysis worktree with a separate outp
 
 Normal phase skills use one `wm compose` operation. It joins the phase-default agent, mandatory phase/agent views, the exact task guide, applicable evidence, need-based `worldModel.injection.rules`, and locked remote Agent Markdown dependencies. The next generation commit includes a provenance record plus the exact rendered prompt. The configurable `off|warn|enforce` policy verifies consumed model context against the committed model. Missing or unreachable intelligence—and stale intelligence when staleness policy is `fail`—is represented by an unavailable receipt with zero World-Model bytes and never becomes lifecycle authority. Staleness `warn` or `ignore` may consume an otherwise integrity-verified stale snapshot with the configured visibility.
 
+The compatibility `legacy-v3` builder and the opt-in `registered-v4` builder, their current
+state-branch projections, and their existing reuse mechanisms are operational. The newer WMP
+immutable exact-history contracts, lookup, and build-to-binding staging are an additive foundation:
+they are not yet invoked automatically by Story start or phase grounding. That staged boundary does
+not disable existing Story or World-Model commands. The shipped `grounding: warn` policy records an
+unavailable model with zero injected bytes and lets ordinary repository work continue.
+`grounding: enforce` changes the handling of integrity failures in consumed bytes, not model
+availability; a separately required intelligence product may retain its own explicit gate.
+
 Repository world models never move to remote delivery. Agent Markdown is the governed execution-role layer. `singularity/agents.lock.yml` supplies committed trust-on-first-use hashes; `.git/singularity-flow/agents/` is an uncommitted verified cache. Sync records the active agent without changing the lock. Remote Markdown dependencies are copied and hash-recorded per generation, remote templates are copied once into immutable work-item context, and generated outputs receive per-generation provenance records.
 
 MCP is a separate host boundary. VS Code or Copilot CLI owns MCP server processes,

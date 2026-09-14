@@ -4,6 +4,11 @@ This runbook prepares and demonstrates the richest Singularity Flow grounding av
 Java Maven repository. It covers a semantic, reusable world model and an optional Java/JDT AST
 overlay, then shows how to verify both in VS Code and Copilot.
 
+The commands and simple view names in this runbook use the current default
+`worldModel.format: legacy-v3`. Registered-v4 uses dotted registered view IDs, explicit build,
+read-only `wm ensure`, and state-only publication; follow the
+[WMB v4 guide](docs/WORLD-MODEL-BUILDER-V4.md) for that separate demonstration lane.
+
 ## What the demo proves
 
 The two intelligence paths complement one another, but they are deliberately separate:
@@ -29,7 +34,7 @@ For the strongest version of the demo, prepare the following state:
 - all workflow-required views are present;
 - the Java Maven project binding is complete;
 - Java AST assurance is `semantic` through an installed, reviewed `sflow-java-jdt` pack;
-- a second Story at the same source snapshot reuses the same world model;
+- a second Story at the same source snapshot reuses the same legacy-v3 published projection;
 - Prompt audit shows separate `world-model-grounding` and optional AST context sections.
 
 If the optional JDT provider is unavailable, the demo can still proceed with the bundled
@@ -72,6 +77,7 @@ high-quality demo, use these settings:
 
 | Setting | Recommended demo value | Meaning |
 | --- | --- | --- |
+| Format | `legacy-v3` | Selects the command, view-name, and dual publication behavior documented in this runbook |
 | Materialization mode | `on-demand` | A missing model can be prepared at the lifecycle boundary |
 | Depth | `phase` | Generate the depth required by the active phase |
 | Confirmation | `prompt` | Semantic model use remains visible and user-authorized |
@@ -226,10 +232,13 @@ There is currently no `state-only` build option: governed publication writes the
 state-branch snapshot and the auditable current-branch copy. No files are created under
 `singularity/work-items/` unless a separate Story lifecycle command is run.
 
-## 3. Prove world-model reuse
+## 3. Prove existing legacy-v3 published-projection reuse
 
 The governed model belongs to the repository source snapshot and scope, not to one Story. Story
 artifacts are excluded from the application source fingerprint.
+
+This demonstrates reuse of the operational legacy-v3 published state/current projection.
+It does not claim that the newer WMP immutable exact-history binding/replay path is activated.
 
 Capture the ready status:
 
@@ -425,13 +434,14 @@ optional overlay, not a durable world-model view.
    assurance, Maven project-model binding, toolchain binding, and profile.
 6. Run one symbol query and one references or hierarchy query through `/sf-worldmodel` or the CLI.
 7. Attach the demonstration Story and run `/sf-next`. Confirm that the phase uses the already-ready
-   shared world model and adds only current Story/phase context.
+   shared legacy-v3 published projection and adds only current Story/phase context.
 8. Enable Prompt audit with `/sf-prompt-log on`, compose the governed prompt, and open
    **Configuration → Prompt audit**.
 9. Show the structured world-model grounding section and optional AST facts separately. Compare
    fact counts and payload bytes; do not claim a token saving that has not been measured.
-10. Attach a second Story at the same source revision. Refresh the Explorer and show reuse of the
-    same model without another provider build.
+10. Attach a second Story at the same source revision. Refresh the Explorer and show existing
+    legacy-v3 published-projection reuse without another provider build; do not label this WMP immutable
+    history replay.
 
 ## 9. Measure the value honestly
 
@@ -521,19 +531,20 @@ Do not initialize a second copy just to bypass this error.
 - [ ] Model routing resolves both `analyze` and `reason`.
 - [ ] Deep world-model build is validated and published.
 - [ ] Explorer reports `ready` and shows all required views.
-- [ ] A second `wm ensure` reuses the unchanged snapshot.
+- [ ] A second `wm ensure` reuses the unchanged legacy-v3 published projection.
 - [ ] Approved JDT pack is installed, or the demo is clearly labeled text-preview-only.
 - [ ] Maven project and toolchain bindings are complete for semantic AST.
 - [ ] AST cache is built for `src/main/java` and `src/test/java`.
 - [ ] Symbol and reference queries return structural facts rather than a file inventory page.
 - [ ] Workflow uses `worldModel: required` and `ast: optional-context`.
 - [ ] Prompt audit shows world-model and AST sections separately.
-- [ ] Second Story demonstrates shared world-model reuse.
+- [ ] Second Story demonstrates existing shared legacy-v3 published-projection reuse (not WMP history replay).
 - [ ] Failure paths fall back safely and never make AST a lifecycle blocker.
 
 ## Related documentation
 
 - [World model grounding and views](docs/topics/world-model.md)
+- [Persisted World-Model exact-history rollout boundary](docs/PERSISTED-WORLD-MODEL-VIEWS.md)
 - [AST Intelligence](docs/AST-INTELLIGENCE.md)
 - [AST project binding](docs/topics/project-binding.md)
 - [Model independence and manual authorship](docs/MODEL-INDEPENDENCE.md)

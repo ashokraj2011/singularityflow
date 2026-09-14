@@ -16,6 +16,12 @@ scope, registries, contracts, budgets, and execution profile. Story lifecycle me
 SFlow state are excluded from the default application-source scope, so starting or advancing a Story
 does not rebuild an unchanged repository model.
 
+> **Compatibility boundary:** This operational current projection and cache reuse are distinct from
+> the newer WMP immutable exact-history binding service. WMP contracts, lookup, and staging are
+> implemented foundations, but automatic history emission/reuse is not yet connected to Story start
+> or this builder's normal publication transaction. That pending optimization does not disable the
+> v4 commands described here. See [Persisted World-Model views](PERSISTED-WORLD-MODEL-VIEWS.md).
+
 ## Enable v4
 
 `legacy-v3` remains the configuration default for compatibility. In VS Code, open **Singularity

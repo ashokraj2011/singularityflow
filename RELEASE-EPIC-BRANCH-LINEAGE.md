@@ -33,11 +33,13 @@ through one final pull request.
   exist in it. A missing model records degraded evidence and does not block the phase. An invalid
   view reference against an available manifest is carried by the `impact-grounded` checklist item,
   blocking under `grounding: enforce` and warning otherwise.
-- **Story-scoped world model (current behavior).** Epic Intake accepts Jira identity
-  and pinned source material without repository-grounding warnings. After Story
-  intake creates the canonical Story branch, Flow may build, commit, and push the
-  world model there under the configured materialization policy. If intelligence remains
-  unavailable, phase authoring continues with a zero-World-Model receipt.
+- **Repository-scoped world model (current behavior).** Epic Intake accepts Jira identity
+  and pinned source material without requiring repository grounding. After Story intake,
+  Flow resolves the repository source snapshot and scope and reads or publishes the operational
+  World-Model projection through the configured state-branch authority and materialization policy;
+  Story lifecycle files are not part of the application-source identity. If intelligence remains
+  unavailable, phase authoring continues with a zero-World-Model receipt. The newer WMP immutable
+  exact-history lookup is an additive pending optimization, not a prerequisite for this behavior.
 - **Initiative template self-healing.** Starting an initiative and preparing a
   phase install any packaged template the repository lacks — into the templates
   root the portfolio declares — and commit what they installed. A profile that

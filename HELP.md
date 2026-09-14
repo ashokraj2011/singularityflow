@@ -722,7 +722,8 @@ Epic's contract — it is reported as a changed template instead.
 Two templates are validated as well as generated. `requirements-traceability.yml`
 must cite pinned sources with a locator for every `REQ-nnn` and `AC-nnn`, and
 `repository-map.yml` must name only configured repositories. Detailed code-level
-impact is added after Story intake using that Story branch's world model. For
+impact is added after Story intake using the repository-scoped World Model resolved for that
+Story's admitted source snapshot and scope. For
 Jira-backed Epics, the committed Jira Epic snapshot is
 also a valid pinned source, so uploaded documents are useful enrichment rather
 than a prerequisite. Both ship with the live structure empty and the full schema
@@ -1691,9 +1692,11 @@ singularity-flow --no-model phase publish intake --authored human --from ./intak
 ```
 
 Manual artifacts pass the same resolved file, content, quality, write-scope, input,
-commit, and push gates as governed-agent artifacts. `wm light` is the deterministic
-model-free world-model route; `wm build` requires a model and fails fast when model
-mode is disabled. See `docs/MODEL-INDEPENDENCE.md` and the generated
+commit, and push gates as governed-agent artifacts. Legacy-v3 `wm light` and
+`wm build --depth light` are deterministic and model-free. Registered-v4 with its
+deterministic composer is also model-free; a configured semantic composer, or a
+legacy-v3 `quick`, `standard`, or `deep` build, may require a model. See
+`docs/MODEL-INDEPENDENCE.md` and the generated
 `docs/OPERATION-MODEL-POLICY.md` for the complete boundary.
 
 In Copilot, use `/sf-phase`. It loads the current phase contract, active governed Agent Markdown, required world-model views, agent-added views, and evidence ledger when needed.
@@ -1968,6 +1971,19 @@ After the commit boundary, sync retries the existing history without rebasing, r
 
 The world model grounds phase generation in repository facts:
 
+Two operational formats coexist. Compatibility `legacy-v3` supports deterministic light and
+optional semantic builds, including its dual state/current-branch publication. Opt-in
+`registered-v4` uses registered dotted view contracts, deterministic or explicitly permitted
+composition, exact validated cache reuse, and an atomic state-only current projection. The newer
+WMP immutable exact-history service is a separate additive foundation; normal builds do not yet
+populate its history automatically, and this does not disable either operational format. See
+[Governed World-Model Builder v4](docs/WORLD-MODEL-BUILDER-V4.md) and
+[Persisted World-Model views](docs/PERSISTED-WORLD-MODEL-VIEWS.md).
+
+`wm history list/show` are read-only WMP foundation commands over exact history already present at
+an explicitly selected authority commit. They never fetch, build, invoke a model/AST, fill a cache,
+or cause current WMB publication to write WMP history.
+
 In VS Code, open **Singularity Flow → Configuration → World model**, or run
 **Singularity Flow: World Model Settings** from the Command Palette. The guided
 screen configures grounding and staleness policy, explicit/on-demand/disabled
@@ -2042,7 +2058,9 @@ singularity-flow wm recovery inspect <ID>
 singularity-flow wm recovery publish <ID> --confirm <ID>
 ```
 
-For a deterministic zero-token baseline, run this inside the application
+### Legacy-v3 generation commands
+
+For a deterministic zero-token legacy-v3 baseline, run this inside the application
 repository:
 
 ```bash
@@ -2133,7 +2151,10 @@ singularity-flow help-metrics clear
 
 It stores no raw question, answer, path, Work ID, identity, or file content.
 
-`wm status` and its `wm availability` alias perform a read-only exact-tier and governed-state authority check and never invoke a model. `wm ensure` is
+### Legacy-v3 lifecycle materialization and reuse
+
+The behavior in this subsection is the compatibility `legacy-v3` path. `wm status` and its
+`wm availability` alias perform a read-only exact-tier and governed-state authority check and never invoke a model. `wm ensure` is
 the explicit authorization boundary: it reuses valid v3 selections from the same source snapshot
 and requires governed state-branch publication before a shared phase prompt consumes the result.
 When an ordinary lifecycle ensure finds a valid same-source model with a missing phase selection,
@@ -2203,9 +2224,13 @@ the checkpoint with the final model. Checkpoints are governance state and do
 not make the source model stale.
 
 `--local` remains available for diagnostics, but the normal Story lifecycle does
-not use it. VS Code and `/sf-story-start` build after Story intake and publish
-the model commit directly to the canonical Story branch. World-model generation
-is therefore disabled on `main` and Epic branches.
+not use it. A governed legacy-v3 build publishes the authoritative state copy and
+may retain its auditable copy on the current non-protected or Story branch;
+registered-v4 publishes its atomic current projection through the configured state
+authority and leaves the application branch unchanged. Read-only Story, main-branch,
+and Epic surfaces do not silently generate a model: an explicit build or the pinned
+materialization policy owns that mutation. The separate WMP immutable exact-history
+activation work does not disable either existing format.
 
 From the workspace switcher, choose **Reset saved Jira connection** at any time
 to delete all encrypted Jira credentials for the current OS account. This does

@@ -48,6 +48,8 @@ protected path, or published dependency is real; see
 [Progressive capability disclosure](./docs/PROGRESSIVE-CAPABILITIES.md).
 
 The full documentation map is in [docs/README.md](./docs/README.md).
+The consolidated system, authority, storage, and implementation-status view is in the
+[Architecture Review Board document](./docs/ARB-document-plain.html).
 The additive, model-free SGOS compiler/runtime profile and its explicit staged boundaries are in
 [the SGOS guide](./docs/SGOS.md).
 For a practical walkthrough covering normal Story usage, explicit Intent-to-Process execution,
@@ -63,6 +65,9 @@ semantic AST, VS Code visualization, and measured reuse, follow the
 For deterministic registered facts, evidence-bound views, exact cache reuse, atomic state-branch
 publication, and explicit v3 migration, see the
 [Governed World-Model Builder v4 guide](./docs/WORLD-MODEL-BUILDER-V4.md).
+The additive [persisted World-Model views roadmap](./docs/PERSISTED-WORLD-MODEL-VIEWS.md) tracks the
+new immutable exact-history binding service; its pending automatic activation does not disable
+existing Story lifecycles or WMB v3/v4 operation.
 For the additive, model-free structural read registry, provenance and coverage contracts, active
 view inventory, and deliberately deferred FWM stages, see
 [Future-proof world-model read contracts](./docs/FUTURE-PROOF-WORLD-MODEL.md).
@@ -512,9 +517,11 @@ governed agent, repository world model, approved inputs, agent skills, requireme
 and templates inside the user’s normal Copilot CLI session. Refresh the VS Code
 Lifecycle view after the skill commits and pushes its result. Epic planning uses pinned Jira and
 uploaded source evidence; it does not require a world model. After Story intake
-creates the canonical Story branch, repository world-model generation becomes
-an explicit CLI or Copilot-skill operation, and its commit is pushed on that Story
-branch before phase work begins.
+creates the canonical Story branch, repository World-Model generation remains an
+explicit CLI/Copilot operation or a separately pinned materialization action.
+Legacy-v3 may retain an auditable copy on that non-protected Story branch while
+publishing state authority; registered-v4 publishes its current projection to the
+configured state authority and leaves the application branch unchanged.
 
 ## Repository discovery before onboarding
 
@@ -2595,7 +2602,7 @@ evidence workflow.
 | `singularity-flow wm build [--depth light\|quick\|standard\|deep] [--branch BRANCH] [--local] [--parallel\|--no-parallel] [--workers N] [--resume\|--no-resume]` | Build using the approved format. These depth/checkpoint options describe legacy v3; registered v4 uses registered views, composer policy, exact cache reuse, and `--views`. |
 | `singularity-flow wm history list [--limit N] [--cursor CURSOR]` / `wm history show <KEY>` with `--authority-commit <FULL-COMMIT>` | Page through exact persisted registered-v4 key paths, or verify a selected binding when every referenced semantic-owner adapter is installed, at one exact locally available state-authority cut. Cursors bind the cut, kind selection, history root, and page size. This read never fetches, builds, invokes a model or AST, writes a cache, or changes Git. |
 | `singularity-flow wm cleanup [--force]` | Prune stale owned worktrees left by interrupted world-model builds; `--force` also removes unowned legacy temporary worktrees after operator review. |
-| `singularity-flow wm recovery list\|inspect <ID>\|publish <ID> --confirm <ID>` | Inspect or republish a legacy-v3 snapshot retained after publication failure. Registered v4 instead reuses exact validated cache entries when the same build is rerun. |
+| `singularity-flow wm recovery list\|inspect <ID>\|publish <ID> --confirm <ID>` | Inspect or republish an immutable retained recovery snapshot after legacy-v3 or registered-v4 publication failure. Publication requires the exact recovery ID and rechecks the recorded authority; normal cache reuse is separate. |
 | `singularity-flow wm ast doctor\|status\|context\|query\|build\|gate\|warm\|pack\|evidence reproduce` | Inspect, build, warm, package, or reproduce bounded structural evidence with explicit assurance and coverage. No model is invoked. |
 | `sflow-wm-minimal [--phase PHASE] [--branch BRANCH] [--publish]` | Build the smallest deterministic zero-token validated model; defaults to one development view and a local commit. |
 | `singularity-flow documents browse --provider <ID> [--path FOLDER]` | List items in a configured OneDrive/SharePoint, Artifactory, S3, or HTTPS provider. |

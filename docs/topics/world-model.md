@@ -11,7 +11,7 @@ related:
   - agents-and-routing
   - model-independence
   - knowledge-and-remote-assets
-version: 21
+version: 22
 ---
 The world model provides repository-grounded views used during governed generation. In a monorepo, scope it to the capability's source and shared directories so unrelated products do not increase scan cost or invalidate evidence.
 
@@ -29,6 +29,13 @@ During explicit migration, current deterministic registration runs before narrat
 Exact legacy claims may bind only to current registered Facts; every unresolved claim becomes a
 typed `unavailable` Fact through the model-free migration producer, using only claim identity
 hashes. The regenerated view and exact migration receipt publish together in one state transaction.
+
+The exact cache/current-projection behavior in this section is the operational WMB v4 path. The
+newer WMP immutable per-key history service is additive: its contracts, guarded lookup, history
+inspection, and build-to-binding staging exist, but normal Story preparation does not yet activate
+that path or write its history records automatically. This does not disable WMB v4 or any Story
+lifecycle. See [Persisted World-Model views](../PERSISTED-WORLD-MODEL-VIEWS.md) for that rollout
+boundary.
 
 ## Shared lifetime and regeneration
 

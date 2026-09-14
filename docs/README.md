@@ -24,6 +24,7 @@ is not part of the current product.
 | Use SGOS for normal Stories, explicit Programs, recovery, and cross-laptop Pack authority | [How to use SGOS](SGOS-USAGE-GUIDE.md) |
 | Collect and merge the physical SGOS release proof | [SGOS end-to-end release proof](SGOS-END-TO-END-RELEASE-PROOF.md) |
 | Track deliberately deferred work and the next eligible increment | [Pending-work roadmap](PENDING-WORK-ROADMAP.md) |
+| Read the Architecture Review Board overview and implementation-status boundaries | [Architecture Review Board document](ARB-document-plain.html) |
 | Attach an existing checkout quickly and use safe Git acceleration | [Fast onboarding and Git performance](FAST-ONBOARDING-AND-GIT-PERFORMANCE.md) |
 | Review FOS design, milestones, evidence, and deferred release gates | [FOS implementation plan](FOS-IMPLEMENTATION-PLAN.md) |
 | Make capability discovery portable across laptops and remove workspace Git fan-out | [Capability authority discovery and workspace performance plan](CAPABILITY-AUTHORITY-DISCOVERY-AND-WORKSPACE-PERFORMANCE-PLAN.md) |
@@ -48,7 +49,7 @@ is not part of the current product.
 | Audit model policy for every operation | [Operation model-policy catalog](OPERATION-MODEL-POLICY.md) |
 | Use bounded optional structural intelligence | [AST Intelligence](AST-INTELLIGENCE.md) |
 | Build reusable evidence-bound registered repository views | [Governed World-Model Builder v4](WORLD-MODEL-BUILDER-V4.md) |
-| Review the persisted World-Model foundation and remaining production-reuse work | [Persisted World-Model views](PERSISTED-WORLD-MODEL-VIEWS.md) |
+| Review the additive persisted exact-history foundation and its remaining activation work (existing WMB v3/v4 stays operational) | [Persisted World-Model views](PERSISTED-WORLD-MODEL-VIEWS.md) |
 | Evaluate the pure code-local TKR candidate composer, derived cache, and evidence boundary | [Token Reduction preview](TOKEN-REDUCTION.md) |
 | Generate, inspect, and reuse model-free FINOS CALM architecture | [CALM World Model projection](CALM-WORLD-MODEL-PROJECTION.md) |
 | Use versioned model-free structural read contracts with explicit provenance and coverage | [Future-proof world-model read contracts](FUTURE-PROOF-WORLD-MODEL.md) |

@@ -285,8 +285,10 @@ sflow-next
 
 Run it again only when you deliberately want the following lifecycle action.
 It does not silently combine generation, submission, and approval.
-The phase world model is keyed by the governed Story title, not by prose from the current chat,
-so returning in a new Copilot session does not regenerate otherwise-ready grounding.
+The phase world model is keyed by the governed repository source snapshot, scope, configuration,
+and selected views—not by the Story title or prose from the current chat. Returning in a new
+Copilot session, or starting another Story at the same admitted inputs, therefore reuses
+otherwise-ready grounding.
 
 ## 5. Generate and publish a phase
 

@@ -19,6 +19,11 @@ import {
   reproducibleBuildEnvironment, resolveSourceDateEpoch, vscodeBuildIdentity
 } from '../scripts/reproducible-build.mjs';
 import { stampBuildInfo } from '../src/build-info-stamp.mjs';
+import {
+  VSIX_SOURCE_MANIFEST_ENV,
+  VSIX_SOURCE_MANIFEST_SHA256_ENV,
+  writeVsixSourceManifest
+} from '../src/vsix-source-manifest.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -71,6 +76,8 @@ function zipEntryModes(archive) {
 test('the installed VS Code CLI carries the canonical Help manual', async () => {
   assert.ok(CLI_PAYLOAD.includes('HELP.md'), 'HELP.md is part of the declared installed payload');
   assert.ok(CLI_PAYLOAD.includes('LICENSE'), 'the bundled polyglot pack license is part of the installed payload');
+  assert.ok(CLI_PAYLOAD.includes('scripts/install-staged-artifacts.mjs'),
+    'the bundled reinstall command carries its activation helper');
 
   const extension = await mkdtemp(path.join(os.tmpdir(), 'sflow-vscode-package-'));
   const staged = await stageCli({ rootDir: root, extensionDir: extension });
@@ -509,6 +516,37 @@ test('the packaging environment gives ZIP writers UTC local-time fields', () => 
   }
 });
 
+test('sealed reinstall packaging resolves identity without invoking Git', async (t) => {
+  const fixture = await mkdtemp(path.join(os.tmpdir(), 'sflow-vscode-no-git-probe-'));
+  t.after(() => rm(fixture, { recursive: true, force: true }));
+  const marker = path.join(fixture, 'git-was-invoked');
+  const fakeGit = path.join(fixture, process.platform === 'win32' ? 'git.cmd' : 'git');
+  await writeFile(fakeGit, process.platform === 'win32'
+    ? '@echo off\r\necho invoked> "%SFLOW_GIT_MARKER%"\r\nexit /b 97\r\n'
+    : '#!/bin/sh\nprintf invoked > "$SFLOW_GIT_MARKER"\nexit 97\n');
+  if (process.platform !== 'win32') await chmod(fakeGit, 0o755);
+  const script = [
+    `const dev = await import(${JSON.stringify(new URL('../scripts/vscode-dev.mjs', import.meta.url).href)});`,
+    `const build = await import(${JSON.stringify(new URL('../scripts/reproducible-build.mjs', import.meta.url).href)});`,
+    'dev.vscodePackagingEnvironment({ rootDir: process.env.SFLOW_TEST_ROOT, environment: process.env });',
+    'build.vscodeBuildIdentity(process.env.SFLOW_TEST_ROOT, process.env);'
+  ].join('\n');
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      PATH: fixture,
+      SFLOW_GIT_MARKER: marker,
+      SFLOW_TEST_ROOT: fixture,
+      SOURCE_DATE_EPOCH: '946684800',
+      [VSIX_SOURCE_MANIFEST_ENV]: path.join(fixture, 'authority.json'),
+      [VSIX_SOURCE_MANIFEST_SHA256_ENV]: `sha256:${'a'.repeat(64)}`
+    }
+  });
+  assert.equal(child.status, 0, child.stderr || child.stdout);
+  assert.equal(existsSync(marker), false, 'sealed reinstall packaging probed Git');
+});
+
 test('packaged source paths are checked out with LF on every platform', async () => {
   assert.equal(await readFile(path.join(root, '.gitattributes'), 'utf8'), '* text=auto eol=lf\n');
   const attributes = spawnSync('git', [
@@ -584,6 +622,99 @@ test('VSCE input validation rejects ignored files that its own ignore rules woul
   await assert.rejects(
     assertVscePackageInputs({ entry: vsce.entry, rootDir: repository, extensionDir: extension }),
     /ignored or untracked package input: leak\.secret/
+  );
+});
+
+test('a sealed reinstall source manifest admits Git-less VSIX inputs and detects drift', async (t) => {
+  const parent = await mkdtemp(path.join(os.tmpdir(), 'sflow-vscode-source-manifest-'));
+  t.after(() => rm(parent, { recursive: true, force: true }));
+  const repository = path.join(parent, 'source');
+  const extension = path.join(repository, 'apps', 'vscode');
+  await Promise.all([
+    mkdir(path.join(repository, 'scripts'), { recursive: true }),
+    mkdir(path.join(extension, 'media'), { recursive: true })
+  ]);
+  await Promise.all([
+    copyFile(
+      path.join(root, 'scripts', 'vsce-reproducible-preload.cjs'),
+      path.join(repository, 'scripts', 'vsce-reproducible-preload.cjs')
+    ),
+    writeFile(path.join(extension, 'package.json'), '{"name":"fixture","version":"1.0.0"}\n'),
+    writeFile(path.join(extension, 'README.md'), '# Validated source\n'),
+    writeFile(path.join(extension, 'LICENSE'), 'MIT\n'),
+    writeFile(path.join(extension, '.vscodeignore'), 'src/**\n'),
+    writeFile(path.join(extension, 'media', 'activity.svg'), '<svg/>\n')
+  ]);
+  const authority = await writeVsixSourceManifest({
+    rootDir: repository,
+    targetFile: path.join(parent, 'vsix-source-manifest.json'),
+    sourceSha256: 'a'.repeat(64)
+  });
+  await Promise.all([
+    mkdir(path.join(extension, 'dist'), { recursive: true }),
+    mkdir(path.join(extension, 'cli', 'bin'), { recursive: true })
+  ]);
+  await Promise.all([
+    writeFile(path.join(extension, 'dist', 'extension.cjs'), 'module.exports = {};\n'),
+    writeFile(path.join(extension, 'cli', 'bin', 'singularity-flow.mjs'), '#!/usr/bin/env node\n')
+  ]);
+  const entry = path.join(parent, 'fake-vsce.cjs');
+  await writeFile(entry, 'process.stdout.write(process.env.SFLOW_TEST_VSCE_LIST.replaceAll("|", "\\n"));\n');
+  await assert.rejects(
+    assertVscePackageInputs({
+      entry,
+      rootDir: repository,
+      extensionDir: extension,
+      environment: { ...process.env, SFLOW_TEST_VSCE_LIST: 'package.json|' }
+    }),
+    /requires the exact Git repository root/
+  );
+  const environment = {
+    ...process.env,
+    [VSIX_SOURCE_MANIFEST_ENV]: authority.path,
+    [VSIX_SOURCE_MANIFEST_SHA256_ENV]: authority.sha256,
+    SFLOW_TEST_VSCE_LIST: [
+      'package.json', 'README.md', 'LICENSE', 'media/activity.svg',
+      'dist/extension.cjs', 'cli/bin/singularity-flow.mjs', ''
+    ].join('|')
+  };
+  assert.deepEqual(
+    await assertVscePackageInputs({ entry, rootDir: repository, extensionDir: extension, environment }),
+    ['package.json', 'README.md', 'LICENSE', 'media/activity.svg',
+      'dist/extension.cjs', 'cli/bin/singularity-flow.mjs']
+  );
+  await writeFile(path.join(extension, 'README.md'), '# Changed after validation\n');
+  await assert.rejects(
+    assertVscePackageInputs({ entry, rootDir: repository, extensionDir: extension, environment }),
+    /source input changed after validation: apps\/vscode\/README\.md/
+  );
+  await writeFile(path.join(extension, 'README.md'), '# Validated source\n');
+  await writeFile(path.join(extension, 'injected.txt'), 'not in the source snapshot\n');
+  await assert.rejects(
+    assertVscePackageInputs({ entry, rootDir: repository, extensionDir: extension, environment }),
+    /source inputs changed after the reinstall source was validated/
+  );
+  await rm(path.join(extension, 'injected.txt'));
+  await assert.rejects(
+    assertVscePackageInputs({
+      entry,
+      rootDir: repository,
+      extensionDir: extension,
+      environment: {
+        ...environment,
+        [VSIX_SOURCE_MANIFEST_SHA256_ENV]: `sha256:${'0'.repeat(64)}`
+      }
+    }),
+    /manifest bytes changed after the reinstall source was validated/
+  );
+  await assert.rejects(
+    assertVscePackageInputs({
+      entry,
+      rootDir: repository,
+      extensionDir: extension,
+      environment: { [VSIX_SOURCE_MANIFEST_ENV]: authority.path }
+    }),
+    /Incomplete VSIX source manifest authority/
   );
 });
 

@@ -32,6 +32,9 @@ import { resolvePlatformProcess } from '../src/platform-process.mjs';
 import {
   exactGitRoot, reproducibleBuildEnvironment, verifiedPackagingProvenance, vscodeBuildIdentity
 } from './reproducible-build.mjs';
+import {
+  VSIX_CLI_PAYLOAD, readVerifiedVsixSourceManifest, vsixSourceManifestRequested
+} from '../src/vsix-source-manifest.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const extension = path.join(root, 'apps', 'vscode');
@@ -451,7 +454,7 @@ async function demoRepository({ github = false } = {}) {
  * listed all 32 topics and looked healthy, and every single one failed on click with a raw ENOENT.
  * A missing index would at least have shown an empty list. 128 KB against a 6.3 MB payload.
  */
-export const CLI_PAYLOAD = ['bin', 'src', 'docs', 'templates', 'plugin', 'schemas', 'package.json', 'HELP.md', 'LICENSE'];
+export const CLI_PAYLOAD = VSIX_CLI_PAYLOAD;
 export const PACKAGING_NPM_CLI_ENV = 'SINGULARITY_FLOW_PACKAGING_NPM_CLI';
 
 /**
@@ -1128,7 +1131,13 @@ export async function stageCli({
   try {
     await mkdir(staged, { recursive: true });
     let exact = false;
-    if (exactGitRoot(rootDir) != null) {
+    const sourceAuthority = vsixSourceManifestRequested(environment);
+    if (sourceAuthority) {
+      await readVerifiedVsixSourceManifest({ rootDir, environment });
+      for (const entry of CLI_PAYLOAD) {
+        await copyRegularTree(path.join(rootDir, entry), path.join(staged, entry));
+      }
+    } else if (exactGitRoot(rootDir) != null) {
       exact = await stageTrackedPayload({ rootDir, staged, environment });
     } else {
       // Published/Git-less source exports have no index to materialize. Keep this compatibility
@@ -1149,7 +1158,8 @@ export async function stageCli({
 }
 
 /** Reject checkout conversions that would make VSCE read host-specific text bytes. */
-export function assertPortablePackageCheckout(rootDir = root) {
+export function assertPortablePackageCheckout(rootDir = root, environment = process.env) {
+  if (vsixSourceManifestRequested(environment)) return;
   if (exactGitRoot(rootDir) == null) return;
   const result = spawnSync('git', [
     'ls-files', '--eol', '--', ...CLI_PAYLOAD, 'apps/vscode'
@@ -1172,7 +1182,7 @@ export function vscodePackagingEnvironment({
   environment = process.env,
   now = Date.now
 } = {}) {
-  assertPortablePackageCheckout(rootDir);
+  assertPortablePackageCheckout(rootDir, environment);
   const reproducible = reproducibleBuildEnvironment(rootDir, environment, { now });
   const sourceSeconds = Number(reproducible.SOURCE_DATE_EPOCH);
   // ZIP's DOS timestamp has no representation before 1980 or after 2107. Reject instead of
@@ -1203,18 +1213,26 @@ export async function assertVscePackageInputs({
   extensionDir = extension,
   environment = process.env
 }) {
-  if (exactGitRoot(rootDir) == null) {
+  const sourceAuthority = vsixSourceManifestRequested(environment);
+  const sourceManifest = sourceAuthority
+    ? await readVerifiedVsixSourceManifest({ rootDir, environment })
+    : null;
+  const exactRoot = sourceAuthority ? null : exactGitRoot(rootDir);
+  if (exactRoot == null && sourceManifest == null) {
     throw new Error('VSIX packaging requires the exact Git repository root.');
   }
-  const trackedResult = spawnSync('git', ['ls-files', '-z', '--', 'apps/vscode'], {
-    cwd: rootDir,
-    encoding: 'buffer'
-  });
-  if (trackedResult.error || trackedResult.status !== 0) {
-    throw new Error('Could not enumerate tracked VS Code package inputs.');
+  let tracked = null;
+  if (exactRoot != null) {
+    const trackedResult = spawnSync('git', ['ls-files', '-z', '--', 'apps/vscode'], {
+      cwd: rootDir,
+      encoding: 'buffer'
+    });
+    if (trackedResult.error || trackedResult.status !== 0) {
+      throw new Error('Could not enumerate tracked VS Code package inputs.');
+    }
+    tracked = new Set(trackedResult.stdout.toString('utf8').split('\0').filter(Boolean)
+      .map((relative) => relative.slice('apps/vscode/'.length)));
   }
-  const tracked = new Set(trackedResult.stdout.toString('utf8').split('\0').filter(Boolean)
-    .map((relative) => relative.slice('apps/vscode/'.length)));
   const listed = spawnSync(process.execPath, [
     '--require', path.join(rootDir, 'scripts', 'vsce-reproducible-preload.cjs'),
     entry, 'ls', '--no-dependencies'
@@ -1237,8 +1255,11 @@ export async function assertVscePackageInputs({
       if (VSCODE_GENERATED_FILES.has(relative)) continue;
       throw new Error(`VSCE selected an unexpected generated file: ${relative}.`);
     }
-    if (!tracked.has(relative)) {
+    if (tracked != null && !tracked.has(relative)) {
       throw new Error(`VSCE selected an ignored or untracked package input: ${relative}.`);
+    }
+    if (sourceManifest != null && !sourceManifest.records.has(`apps/vscode/${relative}`)) {
+      throw new Error(`VSCE selected a file outside the validated reinstall source: ${relative}.`);
     }
   }
   return files;

@@ -1,17 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import fs from 'node:fs';
 import { cp, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
   applyLocalReinstall,
   assertReinstallNodeVersion,
+  buildReinstallBundle,
   normalizeReinstallRegistry,
   prepareLocalReinstall,
+  reinstallSourceDigest,
   reinstallPlanText,
   resolveReinstallPlan
 } from '../src/reinstall.mjs';
+import {
+  VSIX_SOURCE_MANIFEST_ENV,
+  VSIX_SOURCE_MANIFEST_SHA256_ENV
+} from '../src/vsix-source-manifest.mjs';
 import {
   acquireActivationLease, releaseActivationLease
 } from '../scripts/install-staged-artifacts.mjs';
@@ -152,6 +159,56 @@ test('reinstall preview builds first and preserves every repository and workspac
     readFile(path.join(context.checkout, '.git', 'singularity-flow', 'session.json'), 'utf8'),
     readFile(path.join(context.home, '.singularity-flow', 'workspaces.json'), 'utf8')
   ]), before);
+});
+
+test('full reinstall carries sealed source authority into Git-less VSIX packaging', async () => {
+  const context = await fixture();
+  const calls = [];
+  let capturedManifest = null;
+  let capturedManifestPath = null;
+  const execute = (command, args, options = {}) => {
+    calls.push({ command, args: [...args], options });
+    if (command === 'npm' && args[0] === 'pack') {
+      const destination = args[args.indexOf('--pack-destination') + 1];
+      fs.writeFileSync(path.join(destination, 'singularity-flow-fixture.tgz'), 'tarball');
+    }
+    if (command === 'npm' && args.join(' ') === 'run vscode:package') {
+      capturedManifestPath = options.env[VSIX_SOURCE_MANIFEST_ENV];
+      capturedManifest = JSON.parse(fs.readFileSync(capturedManifestPath, 'utf8'));
+      fs.writeFileSync(
+        path.join(options.cwd, 'apps', 'vscode', 'singularity-flow-vscode-fixture.vsix'),
+        'vsix'
+      );
+    }
+    return ok('');
+  };
+  const bundle = await buildReinstallBundle({
+    checkout: context.checkout,
+    registry: 'https://registry.npmjs.org/',
+    sourceSha256: await reinstallSourceDigest(context.checkout),
+    execute,
+    tempRoot: context.temp,
+    log: () => {}
+  });
+  const packaging = calls.find((call) => call.command === 'npm'
+    && call.args.join(' ') === 'run vscode:package');
+  assert.ok(packaging, 'full reinstall never attempted VSIX packaging');
+  assert.equal(calls.some((call) => call.command === 'npm'
+    && call.args.join(' ') === 'run vscode:build'), false,
+  'reinstall performed a redundant pre-manifest extension build');
+  assert.match(packaging.options.env[VSIX_SOURCE_MANIFEST_SHA256_ENV], /^sha256:[a-f0-9]{64}$/u);
+  assert.equal(
+    capturedManifestPath,
+    path.join(bundle.stagingParent, 'vsix-source-manifest.json')
+  );
+  assert.equal(capturedManifest.sourceSha256, await reinstallSourceDigest(context.checkout));
+  assert.equal(capturedManifest.records.some(
+    (record) => record.path === 'apps/vscode/package.json'
+  ), true);
+  assert.equal(fs.existsSync(capturedManifestPath), false,
+    'private source authority survived packaging');
+  assert.equal(fs.existsSync(path.join(bundle.source, '.git')), false,
+    'reinstall copied Git authority into the isolated source');
 });
 
 test('reinstall refuses stale confirmation, applies exact bytes, and upgrades a legacy installation receipt', async () => {

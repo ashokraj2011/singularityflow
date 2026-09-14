@@ -12,6 +12,11 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import {
   acquireActivationLease, inspectVsix, releaseActivationLease
 } from '../scripts/install-staged-artifacts.mjs';
+import {
+  VSIX_SOURCE_MANIFEST_ENV,
+  VSIX_SOURCE_MANIFEST_SHA256_ENV,
+  writeVsixSourceManifest
+} from './vsix-source-manifest.mjs';
 
 export const REINSTALL_SURFACES = Object.freeze({
   npmPackage: 'singularity-flow',
@@ -275,7 +280,6 @@ export async function buildReinstallBundle({
   executeOrThrow(execute, 'npm', ['ci', ...(cliOnly ? ['--workspaces=false'] : []), `--registry=${registry}`], { cwd: source, env, stdio: 'inherit' });
   if (!cliOnly) {
     executeOrThrow(execute, 'npm', ['run', 'vscode:typecheck'], { cwd: source, env, stdio: 'inherit' });
-    executeOrThrow(execute, 'npm', ['run', 'vscode:build'], { cwd: source, env, stdio: 'inherit' });
   }
   // The product reinstall contract forbids Git access. The full project test/check
   // commands inspect Git metadata, so this transaction runs a focused safety suite
@@ -302,7 +306,26 @@ export async function buildReinstallBundle({
   const tarball = await findPackedFile(artifacts, '.tgz');
   let vsix = null;
   if (!cliOnly) {
-    executeOrThrow(execute, 'npm', ['run', 'vscode:package'], { cwd: source, env, stdio: 'inherit' });
+    // The isolated source intentionally has no .git. Seal every static CLI/extension input after
+    // validation and build-info stamping, then let the VSIX packager re-admit only those exact
+    // bytes plus its fixed generated-output roots. The manifest lives outside the package root.
+    const vsixSourceManifest = await writeVsixSourceManifest({
+      rootDir: source,
+      targetFile: path.join(stagingParent, 'vsix-source-manifest.json'),
+      sourceSha256: copiedSourceSha256
+    });
+    const vsixEnvironment = {
+      ...env,
+      [VSIX_SOURCE_MANIFEST_ENV]: vsixSourceManifest.path,
+      [VSIX_SOURCE_MANIFEST_SHA256_ENV]: vsixSourceManifest.sha256
+    };
+    try {
+      executeOrThrow(execute, 'npm', ['run', 'vscode:package'], {
+        cwd: source, env: vsixEnvironment, stdio: 'inherit'
+      });
+    } finally {
+      await rm(vsixSourceManifest.path, { force: true });
+    }
     const packaged = await findPackedFile(path.join(source, 'apps', 'vscode'), '.vsix');
     vsix = path.join(artifacts, path.basename(packaged));
     await fs.promises.copyFile(packaged, vsix);

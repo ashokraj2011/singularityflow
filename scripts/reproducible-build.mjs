@@ -3,6 +3,7 @@ import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { stampBuildInfo } from '../src/build-info-stamp.mjs';
+import { vsixSourceManifestRequested } from '../src/vsix-source-manifest.mjs';
 
 const SOURCE_DATE_EPOCH = 'SOURCE_DATE_EPOCH';
 export const PACKAGING_COMMIT = 'SINGULARITY_FLOW_PACKAGING_COMMIT';
@@ -140,6 +141,16 @@ export function verifiedPackagingProvenance(root, environment = process.env) {
 }
 
 function repositoryIdentity(root, environment) {
+  // Clean reinstall packages a content-verified source copy that intentionally contains no .git.
+  // Its asynchronous package-input verifier re-admits the sealed manifest before any bytes enter
+  // the VSIX. Avoid even probing Git here: besides being unnecessary, a parent repository could
+  // otherwise leak an unrelated identity into the isolated build.
+  if (vsixSourceManifestRequested(environment)) {
+    if (captureRequested(environment)) {
+      throw new Error('Git packaging provenance and reinstall source authority cannot be combined.');
+    }
+    return { commit: 'unknown', local: true, commitEpoch: null };
+  }
   const captured = verifiedPackagingProvenance(root, environment);
   if (captured != null) {
     return {

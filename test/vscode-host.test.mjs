@@ -5032,6 +5032,14 @@ test('a new laptop can find an already-onboarded repository through an explicit 
   assert.match(result, /Map another capability using this repository/,
     'reuse remains an explicit secondary action');
 
+  // The second read is served from the derived cache only after the engine has compared its exact
+  // configuration/source commits with fresh remote refs. That current cache hit must retain the
+  // same attach affordance and exact authority identity.
+  await panel.post({ type: 'inspectSelectedLead' });
+  await until(() => registered.output
+    .filter((line) => String(line).includes('capability inspect-repository')).length >= 3
+    && panel.webview.html.includes('This repository is already onboarded.')
+    ? panel.webview.html : null);
   await panel.post({ type: 'attachExisting' });
   const workspaceNavigation = registered.executedCommands.findLast((entry) =>
     entry.id === 'singularityFlow.openWorkspaces');

@@ -1256,7 +1256,11 @@ export class BootstrapPanel {
       const authorityMatches = this.form.inspectionMatches.filter((match) =>
         match.lead?.trim() === boundLead
         && match.repositoryUrl?.trim() === this.form.inspectionBoundRepositoryUrl?.trim()
-        && match.governed === true && match.cached !== true && match.stale !== true
+        // `cached: true, stale: false` is still a current authority observation: the engine has
+        // compared the cached configuration/source commit with the freshly advertised remote refs.
+        // Refusing it made this action fail deterministically after the first successful read.
+        // An offline fallback is different and remains excluded by the explicit stale check.
+        && match.governed === true && match.stale !== true
         && Boolean(match.sourceBranch?.trim())
         && /^[0-9a-f]{40,64}$/i.test(match.sourceCommit?.trim() ?? ''));
       const authorityIdentities = [...new Set(authorityMatches.map((match) =>

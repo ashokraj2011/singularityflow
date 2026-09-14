@@ -87,6 +87,32 @@ test('FOS:AC-044 FOS refusals provide bounded real commands without executing re
   }
 });
 
+test('an agent that names a missing phase points capability users to configuration recovery, not command help', () => {
+  const error = Object.assign(
+    new Error("Agent 'poc-analyst' references unknown phase 'poc-intake'."),
+    {
+      code: 'AGENT_PHASE_UNKNOWN',
+      details: {
+        agentId: 'poc-analyst',
+        phaseId: 'poc-intake',
+        source: '.github/agents/poc-analyst.agent.md'
+      }
+    }
+  );
+  const plan = refusalRemediationPlan(error, ['capability', 'tree', '--json']);
+
+  assert.deepEqual(plan.steps.map((entry) => entry.command), [
+    'singularity-flow workspace refresh-configuration --dry-run',
+    'singularity-flow factory-reset --dry-run --json',
+    'singularity-flow init --check --json'
+  ]);
+  assert.doesNotMatch(JSON.stringify(plan), /singularity-flow capability --help/);
+  assert.match(plan.steps[0].label, /Repair missing or outdated agents/);
+  assert.match(plan.steps[1].label, /old Singularity Flow data may be discarded/);
+  assert.ok(plan.steps.every((entry) => entry.execution === 'user-reviewed'));
+  assert.equal(plan.retry.automatic, false);
+});
+
 test('FOS:AC-033 recovery remains registered and shell-safe on macOS Linux and Windows with hostile context', () => {
   const secret = 'https://person:office-secret@example.test/repo.git';
   const error = Object.assign(new Error(`hostile path /tmp/a b/δ; touch escaped ${secret}`), {

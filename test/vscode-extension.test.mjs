@@ -4048,6 +4048,20 @@ test('a failure shows the sentence, not the log line that carries it', () => {
     error: { message: 'Auto mode is disabled.' },
     remediationPlan: { steps: [{ command: 'singularity-flow explain auto-mode' }] }
   })), 'Auto mode is disabled.\nNext: singularity-flow explain auto-mode');
+  assert.equal(humanError(JSON.stringify({
+    resultType: 'sflow-refusal-plan',
+    error: {
+      code: 'AGENT_PHASE_UNKNOWN',
+      message: "Agent 'poc-analyst' references unknown phase 'poc-intake'."
+    },
+    remediationPlan: { steps: [
+      { command: 'singularity-flow workspace refresh-configuration --dry-run' },
+      { command: 'singularity-flow factory-reset --dry-run --json' }
+    ] }
+  })), [
+    "Agent 'poc-analyst' references unknown phase 'poc-intake'.",
+    'Next: singularity-flow workspace refresh-configuration --dry-run'
+  ].join('\n'));
   for (const unsafe of [
     'Singularity Flow error: {"password":"LEAKMARK"}',
     'Singularity Flow error: http.extraHeader="Authorization: Basic LEAKMARK"',

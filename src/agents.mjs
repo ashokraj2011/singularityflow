@@ -20,6 +20,15 @@ const TOKEN_PATTERN = /\{([^}]+)\}/g;
 const ALLOWED_TOKENS = new Set(['workId', 'workType', 'phase', 'generation']);
 const BLOCKED_REMOTE_ADDRESSES = new BlockList();
 
+// Repository copies of packaged agents remain repository-owned files: their public scope,
+// editability, Story snapshot identity, and hashes must not change. Keep the stronger provenance
+// needed by validation out of that serializable shape. `initializeDefinition` can add an optional
+// pack's agent files to an older workflow before the pack itself is explicitly installed; an exact
+// package copy is safe to leave dormant, while one changed byte restores strict repository-agent
+// validation.
+const EXACT_PACKAGED_REPOSITORY_AGENTS = new WeakSet();
+let packagedAgentIdentitiesPromise = null;
+
 for (const [network, prefix] of [
   ['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8],
   ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.0.0.0', 24], ['192.0.2.0', 24],
@@ -276,8 +285,30 @@ async function agentFiles(directory) {
     .map((entry) => path.join(directory, entry.name));
 }
 
+function packagedAgentIdentity(file, text) {
+  return `${path.basename(file).toLocaleLowerCase('en-US')}\0${hash(text)}`;
+}
+
+async function packagedAgentIdentities() {
+  packagedAgentIdentitiesPromise ??= (async () => {
+    const identities = new Set();
+    for (const directory of [
+      path.join(PACKAGE_ROOT, 'plugin/agents'),
+      path.join(PACKAGE_ROOT, 'templates/agents')
+    ]) {
+      for (const file of await agentFiles(directory)) {
+        const text = await readFile(file, 'utf8');
+        identities.add(packagedAgentIdentity(file, text));
+      }
+    }
+    return identities;
+  })();
+  return packagedAgentIdentitiesPromise;
+}
+
 export async function discoverAgents(root) {
   const repositoryRoot = configurationReadRoot(root);
+  const packagedIdentities = await packagedAgentIdentities();
   const locations = [
     ['repository', path.join(repositoryRoot, '.github/agents')],
     ['plugin', path.join(PACKAGE_ROOT, 'plugin/agents')],
@@ -288,7 +319,14 @@ export async function discoverAgents(root) {
     for (const file of await agentFiles(directory)) {
       const text = await readFile(file, 'utf8');
       const parsed = parseAgentDependencies(text, { source: posix(path.relative(repositoryRoot, file)) });
-      if (!agents.has(parsed.id)) agents.set(parsed.id, { ...parsed, scope, file, text, sha256: hash(text) });
+      if (!agents.has(parsed.id)) {
+        const discovered = { ...parsed, scope, file, text, sha256: hash(text) };
+        agents.set(parsed.id, discovered);
+        if (scope === 'repository'
+            && packagedIdentities.has(packagedAgentIdentity(file, text))) {
+          EXACT_PACKAGED_REPOSITORY_AGENTS.add(discovered);
+        }
+      }
     }
   }
   return [...agents.values()].sort((left, right) => left.id.localeCompare(right.id));
@@ -310,9 +348,14 @@ export function validateAgentCatalog(agents, definition) {
     // repository, including repositories created before an optional profile/phase was added to the
     // package. Their extra declarations are dormant unless that phase exists locally; rejecting
     // them made an otherwise valid older v2 workflow unload when the extension was upgraded.
-    if (agent.scope === 'repository') {
+    if (agent.scope === 'repository' && !EXACT_PACKAGED_REPOSITORY_AGENTS.has(agent)) {
       for (const phase of [...agent.phases, ...agent.defaultFor]) {
-        if (!phaseIds.has(phase)) throw new SingularityFlowError(`Agent '${agent.id}' references unknown phase '${phase}'.`);
+        if (!phaseIds.has(phase)) throw new SingularityFlowError(
+          `Agent '${agent.id}' references unknown phase '${phase}'.`, {
+            code: 'AGENT_PHASE_UNKNOWN',
+            details: { agentId: agent.id, phaseId: phase, source: agent.source ?? null }
+          }
+        );
       }
     }
     for (const view of agent.worldModelViews) if (!viewIds.has(view)) throw new SingularityFlowError(`Agent '${agent.id}' references undeclared world-model view '${view}'.`);

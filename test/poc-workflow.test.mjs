@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -12,6 +13,7 @@ import { installWorkflow } from '../src/workflow-catalog.mjs';
 // URL.pathname leaves spaces percent-encoded, so the suite failed in otherwise valid checkouts
 // such as `Downloads/package 2`. Convert the file URL through Node's platform-safe filesystem API.
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const CLI = path.join(ROOT, 'bin/singularity-flow.mjs');
 const PHASES = [
   'poc-intake',
   'poc-impact-analysis',
@@ -20,6 +22,31 @@ const PHASES = [
   'poc-validation',
   'poc-publication-review'
 ];
+
+function git(root, ...args) {
+  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  return result.stdout.trim();
+}
+
+async function removePocWorkflow(root) {
+  const workflowPath = path.join(root, 'singularity/workflow.yml');
+  const old = YAML.parse(await readFile(workflowPath, 'utf8'));
+  delete old.workTypes['poc-workflow'];
+  for (const phase of PHASES) delete old.phases[phase];
+  old.mcpServers.playwright.agents = old.mcpServers.playwright.agents
+    .filter((agent) => !['poc-automation', 'poc-explorer', 'poc-validator'].includes(agent));
+  old.mcpServers.playwright.phases = old.mcpServers.playwright.phases
+    .filter((phase) => !PHASES.includes(phase));
+  old.mcpServers.playwright.tools = [
+    'browser_navigate', 'browser_snapshot', 'browser_click', 'browser_take_screenshot'
+  ];
+  await writeFile(workflowPath, YAML.stringify(old));
+  for (const agent of [
+    'poc-analyst', 'poc-automation', 'poc-explorer', 'poc-test-developer', 'poc-validator'
+  ]) await rm(path.join(root, `.github/agents/${agent}.agent.md`));
+  await rm(path.join(root, 'singularity/templates/poc-workflow'), { recursive: true });
+}
 
 async function starter() {
   return YAML.parse(await readFile(path.join(ROOT, 'templates/workflow.yml'), 'utf8'));
@@ -101,6 +128,54 @@ test('fresh initialization activates the dedicated POC agent and ships every tem
   }
 });
 
+test('legacy init keeps exact packaged POC agents dormant and edited repository agents strict', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-poc-legacy-init-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, 'init', '-q');
+  git(root, 'config', 'user.email', 'poc-init@example.com');
+  git(root, 'config', 'user.name', 'POC Init');
+  await initializeDefinition(root);
+  await removePocWorkflow(root);
+  git(root, 'add', '.');
+  git(root, 'commit', '-qm', 'old configuration without the optional POC workflow');
+
+  const machine = path.join(root, '.test-machine');
+  const env = {
+    ...process.env,
+    NODE_ENV: 'test',
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(machine, 'workspaces.json'),
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(machine, 'active-workspace.json'),
+    SINGULARITY_FLOW_LEAD_REGISTRY: path.join(machine, 'lead-registry.json')
+  };
+  const repaired = spawnSync(process.execPath, [CLI, 'init', '--repair'], {
+    cwd: root,
+    encoding: 'utf8',
+    env
+  });
+  assert.equal(repaired.status, 0, repaired.stderr || repaired.stdout);
+
+  const definition = await loadDefinition(root);
+  assert.equal(definition.workTypes['poc-workflow'], undefined);
+  assert.equal(definition.phases['poc-intake'], undefined);
+  const analyst = definition.agentCatalog.find((agent) => agent.id === 'poc-analyst');
+  assert.ok(analyst, 'init --repair should have installed the missing packaged agent');
+  assert.equal(analyst.scope, 'repository', 'the public repository ownership contract must not change');
+  assert.equal(Object.hasOwn(analyst, 'packagedCopy'), false, 'package provenance stays private');
+
+  const analystPath = path.join(root, '.github/agents/poc-analyst.agent.md');
+  const customized = (await readFile(analystPath, 'utf8'))
+    .replaceAll('poc-intake', 'poc-intake-typo');
+  await writeFile(analystPath, customized);
+  await assert.rejects(
+    loadDefinition(root),
+    (error) => error?.code === 'AGENT_PHASE_UNKNOWN'
+      && error?.details?.agentId === 'poc-analyst'
+      && error?.details?.phaseId === 'poc-intake-typo'
+      && error?.details?.source === '.github/agents/poc-analyst.agent.md'
+  );
+
+});
+
 test('the repair and publication templates refuse autonomous success', async () => {
   const validation = await readFile(path.join(ROOT, 'templates/artifacts/poc-workflow/validation.md'), 'utf8');
   const publication = await readFile(path.join(ROOT, 'templates/artifacts/poc-workflow/publication-review.md'), 'utf8');
@@ -125,19 +200,7 @@ test('catalog installation upgrades an older repository with POC agents and MCP 
   t.after(() => rm(root, { recursive: true, force: true }));
   await initializeDefinition(root);
 
-  const workflowPath = path.join(root, 'singularity/workflow.yml');
-  const old = YAML.parse(await readFile(workflowPath, 'utf8'));
-  delete old.workTypes['poc-workflow'];
-  for (const phase of PHASES) delete old.phases[phase];
-  old.mcpServers.playwright.agents = old.mcpServers.playwright.agents.filter((agent) => agent !== 'poc-automation');
-  old.mcpServers.playwright.phases = old.mcpServers.playwright.phases.filter((phase) => !PHASES.includes(phase));
-  old.mcpServers.playwright.tools = ['browser_navigate', 'browser_snapshot', 'browser_click', 'browser_take_screenshot'];
-  await writeFile(workflowPath, YAML.stringify(old));
-  await rm(path.join(root, '.github/agents/poc-automation.agent.md'));
-  for (const agent of ['poc-analyst', 'poc-explorer', 'poc-test-developer', 'poc-validator']) {
-    await rm(path.join(root, `.github/agents/${agent}.agent.md`));
-  }
-  await rm(path.join(root, 'singularity/templates/poc-workflow'), { recursive: true });
+  await removePocWorkflow(root);
 
   const result = await installWorkflow(root, 'poc-workflow');
   for (const agent of ['poc-analyst', 'poc-explorer', 'poc-test-developer', 'poc-validator']) {

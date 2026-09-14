@@ -3371,6 +3371,10 @@ const families = [
   family({ id: 'local-authorization-envelope', currentVersion: 1, immutable: true }),
   family({ id: 'local-delivery-receipt', currentVersion: 1, immutable: true }),
   family({ id: 'local-bundle-manifest', currentVersion: 1, immutable: true }),
+  family({
+    id: 'installation-current', currentVersion: 2, minimumReadableVersion: 2,
+    paths: [/^\$local\/installations\/current\.json$/]
+  }),
   family({ id: 'reinstall-plan', currentVersion: 1, paths: [/^\$temp\/singularity-flow-reinstall-plans\/.+\/reinstall-plan\.json$/] }),
   family({ id: 'story-stack', currentVersion: 1, paths: [/^\$state\/orchestration\/stacks\/[^/]+\.json$/], immutable: true }),
   family({ id: 'workspace-impact-report', currentVersion: 1, paths: [/^\$workspace\/.+\/impact\/[^/]+\/report\.json$/] }),

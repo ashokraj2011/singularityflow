@@ -408,6 +408,7 @@
   ],
   "organisation-cache": [{ "schemaVersion": 1 }],
   "capability-lead-registry": [{ "schemaVersion": 1 }],
+  "installation-current": [{ "schemaVersion": 2 }],
   "reinstall-plan": [{ "schemaVersion": 1 }],
   "story-stack": [{ "schemaVersion": 1 }],
   "story-start-journal": [{ "schemaVersion": 1 }],

@@ -48,6 +48,7 @@
     "WORKSPACES.md",
     "RELEASE-INITIATIVE-ORCHESTRATION.md",
     "scripts/worldmodel-minimal.sh",
+    "scripts/install-staged-artifacts.mjs",
     "scripts/replace-identities.mjs",
     "scripts/verification-receipt.mjs",
     "scripts/merge-verification-receipts.mjs",

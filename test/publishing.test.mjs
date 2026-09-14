@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
-import { storyPublicationPending } from '../src/state.mjs';
+import { commitAndPublish, loadWorkflow, storyPublicationPending } from '../src/state.mjs';
 import { loadDefinition } from '../src/config.mjs';
 import { lifecycleEvent } from '../src/lifecycle-event.mjs';
 import {
@@ -14,6 +14,7 @@ import {
 } from '../src/capability-publication-recovery.mjs';
 import { configuredRemoteFingerprint } from '../src/git-remote-diagnostics.mjs';
 import { GitPublicationUnitOfWork } from '../src/publication-unit-of-work.mjs';
+import { writePendingPublication } from '../src/publication-pending.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'); const bin = path.join(packageRoot, 'bin/singularity-flow.mjs');
 function run(command, args, cwd, { fail = false, actor = 'Publisher' } = {}) {
@@ -51,6 +52,220 @@ test('failed required push blocks transitions until sync publishes the retained 
   assert.deepEqual(applied.postconditions.map((entry) => entry.id), ['publication-cleared']);
   const local = run('git', ['rev-parse', 'HEAD'], root).stdout.trim(); const published = run('git', ['ls-remote', 'origin', 'refs/heads/PUSH-1'], root).stdout.split(/\s+/)[0]; assert.equal(published, local);
   assert.equal(run('git', ['status', '--porcelain'], root).stdout.trim(), '');
+});
+
+test('phase publication fast-forwards an exact remote ancestor across unpublished local commits', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-unpublished-ancestors-'));
+  const root = path.join(base, 'repo');
+  const remote = path.join(base, 'remote.git');
+  run('git', ['init', '--bare', remote], base);
+  run('git', ['init', '-b', 'main', root], base);
+  run('git', ['config', 'user.name', 'Publisher'], root);
+  run('git', ['config', 'user.email', 'publisher@example.com'], root);
+  run('git', ['remote', 'add', 'origin', remote], root);
+  await writeFile(path.join(root, 'README.md'), '# unpublished ancestors\n');
+  flow(root, ['init']);
+  const configPath = path.join(root, 'singularity/workflow.yml');
+  const config = YAML.parse(await readFile(configPath, 'utf8'));
+  config.worldModel.grounding = 'off';
+  await writeFile(configPath, YAML.stringify(config));
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'init'], root);
+  run('git', ['push', '-u', 'origin', 'main'], root);
+  flow(root, ['start', 'AHEAD-1', '--from-branch', 'main']);
+  const remoteBefore = run('git', ['ls-remote', 'origin', 'refs/heads/AHEAD-1'], root).stdout.split(/\s+/)[0];
+
+  await writeFile(path.join(root, 'LOCAL.md'), 'first local commit\n');
+  run('git', ['add', 'LOCAL.md'], root);
+  run('git', ['commit', '-m', 'local ancestor one'], root);
+  await writeFile(path.join(root, 'LOCAL.md'), 'second local commit\n');
+  run('git', ['add', 'LOCAL.md'], root);
+  run('git', ['commit', '-m', 'local ancestor two'], root);
+  const localParent = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+
+  const artifact = path.join(root, 'singularity/work-items/AHEAD-1/artifacts/intake/intake.md');
+  await writeFile(artifact, (await readFile(artifact, 'utf8')).replace(
+    /TODO:[^\n]*/g,
+    'Publish the governed intake while preserving both reviewed local ancestor commits.'
+  ));
+  flow(root, ['phase', 'publish', 'intake']);
+
+  const published = run('git', ['ls-remote', 'origin', 'refs/heads/AHEAD-1'], root).stdout.split(/\s+/)[0];
+  const local = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+  assert.equal(published, local);
+  assert.notEqual(published, localParent);
+  assert.equal(run('git', ['merge-base', '--is-ancestor', remoteBefore, localParent], root).status, 0);
+  assert.equal(await storyPublicationPending(root, await loadDefinition(root), 'AHEAD-1'), false);
+});
+
+test('sync repairs a retained local-parent lease only through an exact remote ancestor', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-retained-ancestor-'));
+  const root = path.join(base, 'repo');
+  const remote = path.join(base, 'remote.git');
+  run('git', ['init', '--bare', remote], base);
+  run('git', ['init', '-b', 'main', root], base);
+  run('git', ['config', 'user.name', 'Publisher'], root);
+  run('git', ['config', 'user.email', 'publisher@example.com'], root);
+  run('git', ['remote', 'add', 'origin', remote], root);
+  await writeFile(path.join(root, 'README.md'), '# retained ancestor\n');
+  flow(root, ['init']);
+  const configPath = path.join(root, 'singularity/workflow.yml');
+  const configured = YAML.parse(await readFile(configPath, 'utf8'));
+  configured.worldModel.grounding = 'off';
+  await writeFile(configPath, YAML.stringify(configured));
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'init'], root);
+  run('git', ['push', '-u', 'origin', 'main'], root);
+  flow(root, ['start', 'AHEAD-SYNC-1', '--from-branch', 'main']);
+  const remoteBefore = run('git', ['ls-remote', 'origin', 'refs/heads/AHEAD-SYNC-1'], root).stdout.split(/\s+/)[0];
+
+  await writeFile(path.join(root, 'LOCAL.md'), 'unpublished local ancestor\n');
+  run('git', ['add', 'LOCAL.md'], root);
+  run('git', ['commit', '-m', 'unpublished local ancestor'], root);
+  const unpublishedParent = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+  const definition = await loadDefinition(root);
+  const workflow = await loadWorkflow(root, definition, 'AHEAD-SYNC-1');
+  const offlineRemote = `${remote}.offline`;
+  await rename(remote, offlineRemote);
+  try {
+    await assert.rejects(
+      commitAndPublish(root, definition, workflow, {
+        type: 'binding', payload: { reason: 'exercise unavailable-remote fallback recovery' }
+      }, '[AHEAD-SYNC-1] retain implicit local-parent lease'),
+      /push failed/u
+    );
+  } finally {
+    await rename(offlineRemote, remote);
+  }
+  const markerPath = path.join(
+    root, '.git/singularity-flow/pending-publication/story--AHEAD-SYNC-1.json'
+  );
+  const retained = JSON.parse(await readFile(markerPath, 'utf8'));
+  assert.equal(retained.expectedRemoteSha, unpublishedParent);
+  assert.equal(retained.expectedRemoteShaSource, 'implicit-local-parent');
+  assert.equal(run('git', ['ls-remote', 'origin', 'refs/heads/AHEAD-SYNC-1'], root).stdout.split(/\s+/)[0], remoteBefore);
+
+  const legacy = structuredClone(retained);
+  delete legacy.expectedRemoteShaSource;
+  await writePendingPublication(root, {
+    kind: 'story', id: 'AHEAD-SYNC-1', record: legacy
+  });
+  const legacySync = flow(root, ['sync'], { fail: true });
+  assert.notEqual(legacySync.status, 0);
+  assert.match(legacySync.stderr, /Push still fails/u);
+  assert.equal(run('git', ['ls-remote', 'origin', 'refs/heads/AHEAD-SYNC-1'], root).stdout.split(/\s+/)[0], remoteBefore);
+  const legacyRetained = JSON.parse(await readFile(markerPath, 'utf8'));
+  assert.equal(legacyRetained.expectedRemoteShaSource, undefined);
+
+  // Restore the original, machine-sealed provenance to prove only that exact shape can reconcile.
+  await writePendingPublication(root, {
+    kind: 'story', id: 'AHEAD-SYNC-1', record: retained
+  });
+
+  flow(root, ['sync']);
+  const local = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+  const published = run('git', ['ls-remote', 'origin', 'refs/heads/AHEAD-SYNC-1'], root).stdout.split(/\s+/)[0];
+  assert.equal(published, local);
+  assert.equal(await storyPublicationPending(root, definition, 'AHEAD-SYNC-1'), false);
+});
+
+test('sync preserves an explicit first-parent lease instead of adopting another remote ancestor', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-explicit-lease-'));
+  const root = path.join(base, 'repo');
+  const remote = path.join(base, 'remote.git');
+  run('git', ['init', '--bare', remote], base);
+  run('git', ['init', '-b', 'main', root], base);
+  run('git', ['config', 'user.name', 'Publisher'], root);
+  run('git', ['config', 'user.email', 'publisher@example.com'], root);
+  run('git', ['remote', 'add', 'origin', remote], root);
+  await writeFile(path.join(root, 'README.md'), '# explicit lease\n');
+  flow(root, ['init']);
+  const configPath = path.join(root, 'singularity/workflow.yml');
+  const configured = YAML.parse(await readFile(configPath, 'utf8'));
+  configured.worldModel.grounding = 'off';
+  await writeFile(configPath, YAML.stringify(configured));
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'init'], root);
+  run('git', ['push', '-u', 'origin', 'main'], root);
+  flow(root, ['start', 'EXPLICIT-LEASE-1', '--from-branch', 'main']);
+  const remoteBefore = run('git', ['ls-remote', 'origin', 'refs/heads/EXPLICIT-LEASE-1'], root).stdout.split(/\s+/)[0];
+
+  await writeFile(path.join(root, 'LOCAL.md'), 'explicit lease commit\n');
+  run('git', ['add', 'LOCAL.md'], root);
+  run('git', ['commit', '-m', 'explicit lease commit'], root);
+  const explicitLease = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+  const definition = await loadDefinition(root);
+  const workflow = await loadWorkflow(root, definition, 'EXPLICIT-LEASE-1');
+  await assert.rejects(
+    commitAndPublish(root, definition, workflow, {
+      type: 'binding', payload: { reason: 'preserve an explicit transition lease' }
+    }, '[EXPLICIT-LEASE-1] retain explicit lease', [], {
+      expectedRemoteSha: explicitLease
+    }),
+    /push failed/u
+  );
+
+  const failedSync = flow(root, ['sync'], { fail: true });
+  assert.notEqual(failedSync.status, 0);
+  assert.match(failedSync.stderr, /Push still fails/u);
+  assert.equal(
+    run('git', ['ls-remote', 'origin', 'refs/heads/EXPLICIT-LEASE-1'], root).stdout.split(/\s+/)[0],
+    remoteBefore
+  );
+  const retained = JSON.parse(await readFile(path.join(
+    root, '.git/singularity-flow/pending-publication/story--EXPLICIT-LEASE-1.json'
+  ), 'utf8'));
+  assert.equal(retained.expectedRemoteSha, explicitLease);
+  assert.equal(retained.expectedRemoteShaSource, 'explicit');
+});
+
+test('publication refuses a non-ancestor remote lease before any governed write', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-nonancestor-lease-'));
+  const root = path.join(base, 'repo');
+  const remote = path.join(base, 'remote.git');
+  run('git', ['init', '--bare', remote], base);
+  run('git', ['init', '-b', 'main', root], base);
+  run('git', ['config', 'user.name', 'Publisher'], root);
+  run('git', ['config', 'user.email', 'publisher@example.com'], root);
+  run('git', ['remote', 'add', 'origin', remote], root);
+  await writeFile(path.join(root, 'base.txt'), 'base\n');
+  run('git', ['add', 'base.txt'], root);
+  run('git', ['commit', '-m', 'base'], root);
+  run('git', ['switch', '-c', 'divergent'], root);
+  await writeFile(path.join(root, 'divergent.txt'), 'remote side\n');
+  run('git', ['add', 'divergent.txt'], root);
+  run('git', ['commit', '-m', 'divergent side'], root);
+  const divergent = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+  run('git', ['switch', 'main'], root);
+  await writeFile(path.join(root, 'local.txt'), 'local side\n');
+  run('git', ['add', 'local.txt'], root);
+  run('git', ['commit', '-m', 'local side'], root);
+  const local = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+  let wrote = false;
+  const subject = { kind: 'story', id: 'NONANCESTOR-1', branch: 'main' };
+
+  await assert.rejects(
+    new GitPublicationUnitOfWork(root).execute({
+      subject,
+      allowedPaths: ['governed.json'],
+      event: lifecycleEvent({ type: 'binding', subject, payload: {} }),
+      commit: { message: '[NONANCESTOR-1] should not commit' },
+      publication: {
+        mode: 'required', remote: 'origin', branch: 'main',
+        expectedLocalHead: local, expectedRemoteSha: divergent
+      },
+      state: {
+        write: async () => {
+          wrote = true;
+          await writeFile(path.join(root, 'governed.json'), '{}\n');
+        }
+      }
+    }),
+    (error) => error?.code === 'PUBLICATION_REMOTE_LEASE_PARENT_MISMATCH'
+  );
+  assert.equal(wrote, false);
+  assert.equal(run('git', ['rev-parse', 'HEAD'], root).stdout.trim(), local);
+  assert.equal(run('git', ['ls-remote', 'origin', 'refs/heads/main'], root).stdout.trim(), '');
 });
 
 test('sync completes an exact pending capability sibling branch publication', async () => {

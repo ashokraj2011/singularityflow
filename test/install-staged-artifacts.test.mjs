@@ -178,6 +178,33 @@ test('prior managed surfaces require exact current.json rollback artifacts befor
     ...leaseArguments(missing)
   }), /installed tarball surface has no managed current\.json rollback receipt/u);
 
+  const legacy = await fixture();
+  const legacyManifest = path.join(legacy.root, 'current.json');
+  await writeFile(legacyManifest, `${JSON.stringify({
+    schemaVersion: 1,
+    status: 'complete',
+    version: legacy.version,
+    checkout: legacy.checkout,
+    tarball: legacy.tarball,
+    vsix: legacy.vsix
+  })}\n`);
+  await assert.rejects(createActivationJournal({
+    journal: legacy.journal,
+    checkout: legacy.checkout,
+    registry: 'https://registry.example.test/npm/',
+    version: legacy.version,
+    mode: {
+      cliOnly: true, vscodeOnly: false, skipVscode: false, skipCopilot: false,
+      telemetry: false, workspaceRefresh: false
+    },
+    tarball: legacy.tarball,
+    previousObserved: { cliVersion: legacy.version, vscodeVersion: null, copilotPresent: false },
+    currentManifest: legacyManifest,
+    recoveryCommand: `${legacy.installer} --from-staged-artifacts`,
+    installer: legacy.installer,
+    ...leaseArguments(legacy)
+  }), /legacy schema-v1 installation receipt.*--clean-reinstall --dry-run/u);
+
   const item = await fixture();
   const sourceTarball = await inspectNpmTarball(item.tarball);
   const sourceVsix = await inspectVsix(item.vsix);

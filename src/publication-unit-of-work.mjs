@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { rm } from 'node:fs/promises';
 import {
-  admitGovernedPublication, branch, commitIsolated, head, publicationPushOutcome,
+  admitGovernedPublication, branch, commitIsAncestor, commitIsolated, head, publicationPushOutcome,
   pushCommitToBranchAsync
 } from './git.mjs';
 import {
@@ -184,9 +184,9 @@ export class GitPublicationUnitOfWork {
     }
     if (publication.expectedRemoteSha !== undefined
       && publication.expectedRemoteSha !== null
-      && String(publication.expectedRemoteSha).toLowerCase() !== publicationHead.toLowerCase()) {
+      && !commitIsAncestor(root, publication.expectedRemoteSha, publicationHead)) {
       throw new SingularityFlowError(
-        `${subject.kind} '${subject.id}' publication lease does not match the local parent this transaction would extend. `
+        `${subject.kind} '${subject.id}' publication lease is not an ancestor of the local parent this transaction would extend. `
         + 'Reload the lifecycle state and retry; nothing was changed.',
         {
           code: 'PUBLICATION_REMOTE_LEASE_PARENT_MISMATCH',

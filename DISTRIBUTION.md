@@ -276,6 +276,13 @@ npm package, managed Copilot plugin/skills, VS Code extension, and managed telem
 wrapper. It performs no Git operation and preserves all repositories, worktrees,
 workspace clones, governed files and state, credentials, settings, and personal
 skills. Receipts are machine-local under `~/.singularity-flow/installations/`.
+After all selected surfaces verify, each exact artifact installed by that mode is copied into the
+managed content-addressed version store and `current.json` is atomically replaced with a schema-v2
+rollback receipt. A full clean reinstall is therefore the supported product-only migration from a
+legacy schema-v1 receipt that points at mutable checkout artifacts; the old paths are not trusted or
+silently copied. A CLI-only clean reinstall preserves an untouched installed VSIX only when the
+existing schema-v2 receipt binds it to verified content-addressed bytes; otherwise preflight refuses
+before packaging or product removal and directs the operator to a full clean reinstall.
 `./install.sh --clean-reinstall` delegates to this same planner.
 
 Automatic rollback is available only after admission proved exact restoration material for every

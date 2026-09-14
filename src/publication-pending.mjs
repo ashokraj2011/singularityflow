@@ -42,6 +42,11 @@ import {
 
 const PENDING_PUBLICATION_FAMILY = 'pending-publication';
 const PENDING_INTEGRITY_SCHEME = MACHINE_LOCAL_PUBLICATION_INTEGRITY_SCHEME;
+const EXPECTED_REMOTE_SHA_SOURCES = new Set([
+  'explicit',
+  'observed-remote',
+  'implicit-local-parent'
+]);
 
 function pendingIntegrityPayload(record) {
   const { recoveryIntegrity: _integrity, ...payload } = record ?? {};
@@ -356,6 +361,14 @@ export function verifyPendingPublicationCommit(root, record, {
   if (record.expectedRemoteSha !== undefined
     && record.expectedRemoteSha !== null
     && !fullObjectId(record.expectedRemoteSha)) failures.push('expected remote commit is invalid');
+  if (record.expectedRemoteShaSource !== undefined
+    && !EXPECTED_REMOTE_SHA_SOURCES.has(record.expectedRemoteShaSource)) {
+    failures.push('expected remote commit source is invalid');
+  }
+  if (record.expectedRemoteShaSource === 'observed-remote'
+    && !fullObjectId(record.expectedRemoteSha)) {
+    failures.push('observed remote commit source requires an exact remote commit');
+  }
   if (!record.event || typeof record.event !== 'object' || Array.isArray(record.event)) {
     failures.push('bound lifecycle event is missing');
   } else {
@@ -402,6 +415,15 @@ export function verifyPendingPublicationCommit(root, record, {
   else {
     if (identity.commit !== record.commit) failures.push('commit does not resolve to the exact recorded object ID');
     if (identity.parents.length !== 1) failures.push('governed transaction commit must have exactly one parent');
+    if (record.expectedRemoteShaSource === 'implicit-local-parent'
+      && (identity.parents.length !== 1 || record.expectedRemoteSha !== identity.parents[0])) {
+      failures.push('implicit local-parent remote lease does not match the governed commit parent');
+    }
+    if (record.expectedRemoteShaSource === 'observed-remote'
+      && fullObjectId(record.expectedRemoteSha)
+      && !commitIsAncestor(root, record.expectedRemoteSha, record.commit)) {
+      failures.push('observed remote commit is not an ancestor of the governed commit');
+    }
     if (identity.tree !== record.tree) failures.push('commit tree does not match the marker tree');
     if (identity.transactionId !== record.transactionId) failures.push('commit transaction trailer does not match the marker');
     if (identity.eventSha256 !== record.eventSha256) failures.push('commit event trailer does not match the marker');

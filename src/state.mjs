@@ -8,7 +8,7 @@ import {
   repoRelative, run, secureRepositoryPath, snapshot, stateFingerprint, truncate, writeJson, writeText
 } from './util.mjs';
 import {
-  branch, changedFiles, exactRemoteBranchObservationAsync, gitCommonDir, head, identity,
+  branch, changedFiles, commitIsAncestor, exactRemoteBranchObservationAsync, gitCommonDir, head, identity,
   publicationPushOutcome, pushCommitToBranchAsync, remoteContains, untrackedFiles
 } from './git.mjs';
 import {
@@ -5645,13 +5645,46 @@ export async function commitAndPublish(root, config, workflow, event, message, e
     ?? workflow[Symbol.for('singularity-flow.state-revision')]?.head
     ?? invocationHead;
   // Every ordinary lifecycle update extends the exact local revision that was loaded and validated
-  // by this transaction. Use that parent as the remote compare-and-swap baseline unless a creation
-  // path explicitly supplies absence (`null`) or a materialized seed commit. Leaving this undefined
-  // turns Git's fast-forward check into a value-only success and lets an identical concurrent
-  // install be reported as this transaction's ref transition.
-  const governedExpectedRemoteSha = expectedRemoteSha !== undefined
+  // by this transaction. The remote may legitimately be an older ancestor when ordinary local
+  // commits have not been pushed yet, so bind the push to the exact observed remote tip below.
+  // Creation paths can still explicitly supply absence (`null`) or a materialized seed commit.
+  let governedExpectedRemoteSha = expectedRemoteSha !== undefined
     ? expectedRemoteSha
     : governedLocalParent;
+  let expectedRemoteShaSource = expectedRemoteSha !== undefined
+    ? 'explicit'
+    : 'implicit-local-parent';
+  let governedPublicationAuthority = publicationAuthority;
+  if (publicationMode !== 'off' && expectedRemoteSha === undefined) {
+    governedPublicationAuthority ??= configuredRemoteAuthority(
+      root, config.git?.remote ?? 'origin'
+    );
+    const observation = governedPublicationAuthority?.url
+      ? await exactRemoteBranchObservationAsync(
+        root, governedPublicationAuthority.url, targetBranch
+      )
+      : { reachable: false, malformed: false, sha: null };
+    if (observation.reachable && !observation.malformed && observation.sha !== null) {
+      if (!commitIsAncestor(root, observation.sha, governedLocalParent)) {
+        throw new SingularityFlowError(
+          `Story '${workflow.workItem.id}' remote branch '${targetBranch}' is not an ancestor of the local Story branch. `
+          + 'Fetch and reconcile the divergent branch before publishing; nothing was changed.',
+          {
+            code: 'STORY_PUBLICATION_REMOTE_DIVERGED',
+            details: {
+              branch: targetBranch,
+              localParent: governedLocalParent,
+              observedRemoteSha: observation.sha
+            }
+          }
+        );
+      }
+      // Local commits ahead of the remote are a normal fast-forward history. Lease the exact live
+      // remote tip rather than pretending every local ancestor was already published.
+      governedExpectedRemoteSha = observation.sha;
+      expectedRemoteShaSource = 'observed-remote';
+    }
+  }
   const priorWorkflow = rollbackWorkflow ?? structuredClone(workflow);
   // The whole work directory, not just `workflow.json`.
   //
@@ -5664,7 +5697,10 @@ export async function commitAndPublish(root, config, workflow, event, message, e
   const workDirectory = workDirRelative(config, workflow.workItem.id);
   const pendingMetadata = {
     workId: workflow.workItem.id,
-    ...(authenticatedPublicationTail ?? {})
+    ...(authenticatedPublicationTail ?? {}),
+    // This provenance is covered by the machine-local recovery MAC. Keep it after caller metadata
+    // so an authenticated tail cannot relabel an explicit lease as an inferred compatibility lease.
+    ...(publicationMode !== 'off' ? { expectedRemoteShaSource } : {})
   };
   const result = await publishLifecycleChange(root, {
     subject: envelope.subject,
@@ -5818,7 +5854,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
       remote: config.git?.remote ?? 'origin',
       branch: targetBranch,
       expectedLocalHead: governedLocalParent,
-      ...(publicationAuthority ? { authority: publicationAuthority } : {}),
+      ...(governedPublicationAuthority ? { authority: governedPublicationAuthority } : {}),
       ...(publicationMode !== 'off' ? { expectedRemoteSha: governedExpectedRemoteSha } : {})
     },
     pendingMetadata,
@@ -6026,10 +6062,33 @@ export async function syncPublication(root, config, workflow, { fault = null } =
       const priorPushOutcome = current.integrityVerified === true
         ? record.pushOutcome ?? 'not-attempted'
         : 'not-attempted';
+      let recoveryExpectedRemoteSha = record.expectedRemoteSha;
+      const recordedParent = verification.identity?.parents?.length === 1
+        ? verification.identity.parents[0]
+        : null;
+      if (current.integrityVerified === true
+        && record.expectedRemoteShaSource === 'implicit-local-parent'
+        && recoveryExpectedRemoteSha !== null
+        && recoveryExpectedRemoteSha === recordedParent) {
+        const observation = await exactRemoteBranchObservationAsync(
+          root, rootRemoteAuthority.url, record.branch
+        );
+        // Only this release's sealed provenance proves that the lease was an unavailable-remote
+        // fallback rather than caller policy. Legacy markers and explicit leases fail closed even
+        // when their SHA happens to equal the governed commit's first parent.
+        if (observation.reachable && !observation.malformed && observation.sha
+          && observation.sha !== record.commit
+          && commitIsAncestor(root, observation.sha, record.commit)) {
+          recoveryExpectedRemoteSha = observation.sha;
+        }
+      }
+      // The indeterminate receipt must immediately precede the operation that may mutate the
+      // remote. Resolve the safe lease first: a crash during read-only observation must not create
+      // authority to claim that another actor's later byte-identical push was ours.
       record = { ...record, pushOutcome: 'transport-indeterminate' };
       await writePendingPublication(root, { ...subject, record });
       const result = await pushCommitToBranchAsync(root, record.remote, record.commit, record.branch, {
-        expectedRemoteSha: record.expectedRemoteSha,
+        expectedRemoteSha: recoveryExpectedRemoteSha,
         transportRemote: rootRemoteAuthority.url,
         upstreamRemote: rootRemoteAuthority.remote
       });

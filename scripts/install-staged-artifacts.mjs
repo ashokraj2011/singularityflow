@@ -392,6 +392,11 @@ async function previousArtifactFromManifest({ manifest, journal, kind, observedV
   if (!artifactPath) fail(`an installed ${kind} surface has no exact retained rollback artifact.`);
   const inspected = kind === 'tarball' ? await inspectNpmTarball(artifactPath) : await inspectVsix(artifactPath);
   if (inspected.path !== expectedRetainedArtifactPath(journal, kind, inspected.sha256)) {
+    if (manifest.schemaVersion === 1) {
+      fail(`previous ${kind} rollback artifact is outside the managed content-addressed store. `
+        + 'A legacy schema-v1 installation receipt cannot prove exact rollback bytes; run '
+        + './install.sh --clean-reinstall --dry-run and apply its reviewed fingerprint confirmation.');
+    }
     fail(`previous ${kind} rollback artifact is outside the managed content-addressed store.`);
   }
   if (observedVersion && inspected.version !== observedVersion) {

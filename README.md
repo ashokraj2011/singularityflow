@@ -454,7 +454,14 @@ never scans for or changes repository `singularity/`, `.singularity/`,
 `.git/singularity-flow/`, branches, worktrees, artifacts, world models, workspace
 clones, `~/.singularity-flow` workspace selection, VS Code state, SecretStorage,
 Jira credentials, or personal skills. A receipt is written under
-`~/.singularity-flow/installations/`.
+`~/.singularity-flow/installations/`. A successful full clean reinstall also retains the exact
+validated tarball and installed VSIX in the managed content-addressed version store and atomically
+replaces `current.json` with a schema-v2 rollback receipt. This is the supported product-only
+migration when a legacy schema-v1 receipt still points at mutable checkout artifacts; those old
+paths are never adopted as rollback authority. If VS Code already has the extension installed, a
+CLI-only clean reinstall is admitted only when a schema-v2 receipt already binds that untouched VSIX
+to verified content-addressed bytes. Otherwise it refuses before packaging or product removal and
+requires a full clean reinstall so rollback authority is complete for every installed surface.
 
 ### Replace copied identity values safely
 
@@ -1365,7 +1372,10 @@ repository, use the same shared planner through the installer:
 
 This path delegates to `singularity-flow reinstall` before the normal installer
 performs any Git check. All build and package validation completes before the first
-installed surface is removed.
+installed surface is removed. After verification, each artifact installed by the selected mode is
+retained under `~/.singularity-flow/installations/versions/sha256/` and `current.json` is replaced
+with its schema-v2 bindings. A full clean reinstall therefore migrates a legacy receipt for every
+installed product surface before the next normal upgrade.
 
 By default, the installer loads the Copilot plugin bundled inside the installed
 package. To use a company-managed Copilot marketplace instead, provide its

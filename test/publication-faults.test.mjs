@@ -434,6 +434,7 @@ test('Story sync rejects every mutable identity mismatch and retains the recover
     ['state digest', (record) => { record.stateSha256 = changedDigest(record.stateSha256); }],
     ['publication mode', (record) => { record.publicationMode = 'warn'; }],
     ['expected remote commit', (record) => { record.expectedRemoteSha = '0'.repeat(40); }],
+    ['expected remote source', (record) => { record.expectedRemoteShaSource = 'forged'; }],
     ['event body', (record) => { record.event.payload = { tampered: true }; }],
     ['event source', (record) => { record.event.sourceCommit = git(['rev-parse', 'HEAD^'], root); }]
   ];

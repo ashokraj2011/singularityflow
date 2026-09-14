@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { cp, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -11,9 +12,37 @@ import {
   reinstallPlanText,
   resolveReinstallPlan
 } from '../src/reinstall.mjs';
+import {
+  acquireActivationLease, releaseActivationLease
+} from '../scripts/install-staged-artifacts.mjs';
 
 const VERSION = '9.8.7';
 const MANAGED = '<!-- managed-by: singularity-flow direct-skill-alias -->';
+
+function storedZip(name, body) {
+  const filename = Buffer.from(name);
+  const local = Buffer.alloc(30);
+  local.writeUInt32LE(0x04034b50, 0);
+  local.writeUInt16LE(20, 4);
+  local.writeUInt32LE(body.length, 18);
+  local.writeUInt32LE(body.length, 22);
+  local.writeUInt16LE(filename.length, 26);
+  const central = Buffer.alloc(46);
+  central.writeUInt32LE(0x02014b50, 0);
+  central.writeUInt16LE(20, 4);
+  central.writeUInt16LE(20, 6);
+  central.writeUInt32LE(body.length, 20);
+  central.writeUInt32LE(body.length, 24);
+  central.writeUInt16LE(filename.length, 28);
+  const directory = Buffer.concat([central, filename]);
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(1, 8);
+  eocd.writeUInt16LE(1, 10);
+  eocd.writeUInt32LE(directory.length, 12);
+  eocd.writeUInt32LE(local.length + filename.length + body.length, 16);
+  return Buffer.concat([local, filename, body, directory, eocd]);
+}
 
 test('reinstall requires a valid Node 20 or newer runtime', () => {
   assert.deepEqual(assertReinstallNodeVersion('v20.0.0'), { version: '20.0.0', major: 20 });
@@ -125,8 +154,24 @@ test('reinstall preview builds first and preserves every repository and workspac
   ]), before);
 });
 
-test('reinstall refuses stale confirmation before removal and applies the exact validated transaction', async () => {
+test('reinstall refuses stale confirmation, applies exact bytes, and upgrades a legacy installation receipt', async () => {
   const context = await fixture();
+  const legacyTarball = path.join(context.checkout, 'singularity-flow-legacy.tgz');
+  const legacyVsix = path.join(context.checkout, 'apps', 'vscode', 'singularity-flow-legacy.vsix');
+  await mkdir(path.join(context.home, '.singularity-flow', 'installations'), { recursive: true });
+  await writeFile(legacyTarball, 'mutable legacy tarball');
+  await writeFile(legacyVsix, 'mutable legacy vsix');
+  await writeFile(
+    path.join(context.home, '.singularity-flow', 'installations', 'current.json'),
+    `${JSON.stringify({
+      schemaVersion: 1,
+      status: 'complete',
+      version: VERSION,
+      checkout: context.checkout,
+      tarball: legacyTarball,
+      vsix: legacyVsix
+    }, null, 2)}\n`
+  );
   const previewHarness = commandHarness({ installed: true });
   const skills = path.join(context.home, '.copilot', 'skills');
   await mkdir(path.join(skills, 'sf-old'), { recursive: true });
@@ -164,6 +209,29 @@ test('reinstall refuses stale confirmation before removal and applies the exact 
   });
   assert.equal(result.completed, true);
   assert.ok(result.receipt.startsWith(path.join(context.home, '.singularity-flow', 'installations')));
+  assert.equal(
+    result.installationManifest,
+    path.join(context.home, '.singularity-flow', 'installations', 'current.json')
+  );
+  const current = JSON.parse(await readFile(result.installationManifest, 'utf8'));
+  assert.equal(current.schemaVersion, 2);
+  assert.equal(current.status, 'complete');
+  assert.equal(current.version, VERSION);
+  assert.equal(current.checkout, plan.checkout);
+  assert.equal(current.artifacts.tarball.sha256, `sha256:${plan.artifacts.tarballSha256}`);
+  assert.equal(current.artifacts.vsix.sha256, `sha256:${plan.artifacts.vsixSha256}`);
+  assert.match(current.artifacts.tarball.path,
+    /[/\\]installations[/\\]versions[/\\]sha256[/\\][a-f0-9]{64}[/\\]singularity-flow\.tgz$/u);
+  assert.match(current.artifacts.vsix.path,
+    /[/\\]installations[/\\]versions[/\\]sha256[/\\][a-f0-9]{64}[/\\]singularity-flow\.vsix$/u);
+  assert.notEqual(current.artifacts.tarball.path, legacyTarball);
+  assert.notEqual(current.artifacts.vsix.path, legacyVsix);
+  assert.deepEqual(await readFile(current.artifacts.tarball.path), await readFile(plan.bundle.tarball));
+  assert.deepEqual(await readFile(current.artifacts.vsix.path), await readFile(plan.bundle.vsix));
+  assert.deepEqual(current.surfaces, {
+    cli: true, vscode: true, copilot: true, telemetry: true, manifest: true
+  });
+  assert.deepEqual(current.reinstall, { fingerprint: plan.fingerprint, receipt: result.receipt });
   assert.equal(await readFile(path.join(skills, 'sf-personal', 'SKILL.md'), 'utf8'), '# personal\n');
   assert.match(await readFile(path.join(skills, 'sf-test', 'SKILL.md'), 'utf8'), new RegExp(MANAGED));
   await assert.rejects(readFile(path.join(skills, 'sf-old', 'SKILL.md')), /ENOENT/);
@@ -235,6 +303,140 @@ test('missing Copilot requires cli-only while missing code is an explicitly skip
   assert.match(cliText, new RegExp(`--registry ${JSON.stringify(cliPlan.registry)}`));
   const noCode = await preview(context, commandHarness({ code: false }));
   assert.ok(noCode.remove.some((item) => item.includes('code CLI unavailable; skipped')));
+});
+
+test('CLI-only reinstall refuses an installed VSIX without trusted rollback authority before any removal', async () => {
+  const context = await fixture();
+  const installations = path.join(context.home, '.singularity-flow', 'installations');
+  const currentFile = path.join(installations, 'current.json');
+  await mkdir(installations, { recursive: true });
+  const legacyReceipt = `${JSON.stringify({
+    schemaVersion: 1,
+    status: 'complete',
+    version: VERSION,
+    checkout: context.checkout,
+    tarball: path.join(context.checkout, 'legacy.tgz'),
+    vsix: path.join(context.checkout, 'legacy.vsix')
+  }, null, 2)}\n`;
+  await writeFile(currentFile, legacyReceipt);
+  const previewHarness = commandHarness({ installed: true });
+  let built = false;
+  await assert.rejects(preview(context, previewHarness, {
+    cliOnly: true,
+    telemetry: false,
+    build: async (options) => {
+      built = true;
+      return fakeBuild(options);
+    }
+  }), /CLI-only clean reinstall cannot preserve rollback authority.*full clean reinstall/su);
+  assert.equal(built, false, 'an uncovered installed VSIX is refused before packaging');
+
+  const bytes = storedZip('extension/package.json', Buffer.from(JSON.stringify({
+    publisher: 'singularityflow', name: 'singularity-flow-vscode', version: VERSION
+  })));
+  const digest = createHash('sha256').update(bytes).digest('hex');
+  const retainedVsix = path.join(
+    installations, 'versions', 'sha256', digest, 'singularity-flow.vsix'
+  );
+  await mkdir(path.dirname(retainedVsix), { recursive: true });
+  await writeFile(retainedVsix, bytes);
+  await writeFile(currentFile, `${JSON.stringify({
+    schemaVersion: 2,
+    artifacts: {
+      tarball: null,
+      vsix: {
+        path: retainedVsix,
+        sha256: `sha256:${digest}`,
+        extensionId: 'singularityflow.singularity-flow-vscode',
+        version: VERSION
+      }
+    }
+  })}\n`);
+  const plan = await preview(context, commandHarness({ installed: true }), {
+    cliOnly: true, telemetry: false
+  });
+
+  // The apply path must re-admit the live receipt rather than trusting the preview snapshot.
+  await writeFile(currentFile, legacyReceipt);
+  const applyHarness = commandHarness({ installed: true });
+  await assert.rejects(applyLocalReinstall(plan, {
+    confirmation: plan.confirmation,
+    homeDirectory: context.home,
+    ...applyHarness
+  }), /CLI-only clean reinstall cannot preserve rollback authority.*full clean reinstall/su);
+  assert.equal(
+    applyHarness.calls.some((call) => call.command === 'npm' && call.args[0] === 'install'),
+    false,
+    'apply refuses before replacing the global package'
+  );
+  assert.equal(await readFile(currentFile, 'utf8'), legacyReceipt);
+});
+
+test('CLI-only reinstall preserves an untouched VSIX only from an already trusted schema-v2 binding', async () => {
+  const context = await fixture();
+  const harness = commandHarness({ installed: true });
+  const bytes = storedZip('extension/package.json', Buffer.from(JSON.stringify({
+    publisher: 'singularityflow', name: 'singularity-flow-vscode', version: VERSION
+  })));
+  const digest = createHash('sha256').update(bytes).digest('hex');
+  const installations = path.join(context.home, '.singularity-flow', 'installations');
+  const retainedVsix = path.join(
+    installations, 'versions', 'sha256', digest, 'singularity-flow.vsix'
+  );
+  await mkdir(path.dirname(retainedVsix), { recursive: true });
+  await writeFile(retainedVsix, bytes);
+  await writeFile(path.join(installations, 'current.json'), `${JSON.stringify({
+    schemaVersion: 2,
+    artifacts: {
+      tarball: null,
+      vsix: {
+        path: retainedVsix,
+        sha256: `sha256:${digest}`,
+        extensionId: 'singularityflow.singularity-flow-vscode',
+        version: VERSION
+      }
+    }
+  })}\n`);
+  const plan = await preview(context, harness, { cliOnly: true, telemetry: false });
+  const result = await applyLocalReinstall(plan, {
+    confirmation: plan.confirmation,
+    homeDirectory: context.home,
+    ...harness
+  });
+  const current = JSON.parse(await readFile(result.installationManifest, 'utf8'));
+  assert.equal(current.artifacts.vsix.path, retainedVsix);
+  assert.equal(current.artifacts.vsix.sha256, `sha256:${digest}`);
+  assert.equal(current.surfaces.vscode, true);
+  assert.equal(current.surfaces.copilot, false);
+  assert.equal(current.status, 'complete-with-skips');
+});
+
+test('clean reinstall shares the normal installer activation lease before any product mutation', async () => {
+  const context = await fixture();
+  const plan = await preview(context, commandHarness());
+  const installations = path.join(context.home, '.singularity-flow', 'installations');
+  const journal = path.join(installations, 'activation-current.json');
+  const currentFile = path.join(installations, 'current.json');
+  const sentinel = '{"sentinel":true}\n';
+  await mkdir(installations, { recursive: true });
+  await writeFile(currentFile, sentinel);
+  const competing = await acquireActivationLease({
+    journal,
+    checkout: context.checkout,
+    mode: 'create'
+  });
+  const applyHarness = commandHarness();
+  try {
+    await assert.rejects(applyLocalReinstall(plan, {
+      confirmation: plan.confirmation,
+      homeDirectory: context.home,
+      ...applyHarness
+    }), /another installer operation/u);
+  } finally {
+    await releaseActivationLease({ journal, ...competing });
+  }
+  assert.equal(applyHarness.calls.length, 0, 'lease contention is refused before external commands');
+  assert.equal(await readFile(currentFile, 'utf8'), sentinel);
 });
 
 test('all validation and packaging finishes before removal and failures print a retryable recovery command', async () => {

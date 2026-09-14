@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import {
   access, chmod, cp, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, writeFile
@@ -9,6 +9,9 @@ import { stampBuildInfoFile } from './build-info-stamp.mjs';
 import { installDirectSkills, isManagedDirectSkill, uninstallDirectSkills } from './direct-skills.mjs';
 import { commandExists, run, SingularityFlowError } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import {
+  acquireActivationLease, inspectVsix, releaseActivationLease
+} from '../scripts/install-staged-artifacts.mjs';
 
 export const REINSTALL_SURFACES = Object.freeze({
   npmPackage: 'singularity-flow',
@@ -22,6 +25,11 @@ const CONFIRMATION_PREFIX = 'REINSTALL SINGULARITY FLOW ';
 const PLAN_SCHEMA_VERSION = currentSchemaVersion('reinstall-plan');
 const MANAGED_TELEMETRY_MARKER = '# Managed by the Singularity Flow installer.';
 const MINIMUM_NODE_MAJOR = 20;
+const RETAINED_ARTIFACT_NAMES = Object.freeze({
+  tarball: 'singularity-flow.tgz',
+  vsix: 'singularity-flow.vsix'
+});
+const SHA256_HEX = /^[a-f0-9]{64}$/u;
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
@@ -357,6 +365,9 @@ export async function prepareLocalReinstall({
   }
   const effectiveRegistry = normalizeReinstallRegistry(registry || execute('npm', ['config', 'get', 'registry'], { allowFailure: true }).stdout.trim());
   const installed = inspectLocalProduct({ execute, exists, homeDirectory, environment });
+  await assertCliOnlyVsixRollbackAuthority({
+    cliOnly, installed, homeDirectory, checkout: validated.checkout
+  });
   const sourceSha256 = await reinstallSourceDigest(validated.checkout);
   const bundle = await build({
     checkout: validated.checkout,
@@ -508,6 +519,159 @@ async function writeReceipt(plan, receipt, homeDirectory) {
   return file;
 }
 
+async function managedInstallDirectory(directory, label) {
+  try { await mkdir(directory, { mode: 0o700 }); }
+  catch (error) { if (error?.code !== 'EEXIST') throw error; }
+  const info = await lstat(directory).catch(() => null);
+  if (!info?.isDirectory() || info.isSymbolicLink()) {
+    throw new SingularityFlowError(`${label} is not a regular, non-symlink directory: ${directory}`);
+  }
+  await chmod(directory, 0o700);
+  return directory;
+}
+
+async function retainReinstallArtifact({ source, digest, kind, version, installations }) {
+  if (!source) return null;
+  if (!SHA256_HEX.test(String(digest ?? ''))) {
+    throw new SingularityFlowError(`The validated reinstall ${kind} digest is invalid.`);
+  }
+  const sourceInfo = await lstat(source).catch(() => null);
+  if (!sourceInfo?.isFile() || sourceInfo.isSymbolicLink()) {
+    throw new SingularityFlowError(`The validated reinstall ${kind} is not a regular, non-symlink file: ${source}`);
+  }
+  const versions = await managedInstallDirectory(path.join(installations, 'versions'), 'Reinstall version store');
+  const algorithm = await managedInstallDirectory(path.join(versions, 'sha256'), 'Reinstall SHA-256 store');
+  const digestDirectory = await managedInstallDirectory(path.join(algorithm, digest), 'Reinstall digest store');
+  const target = path.join(digestDirectory, RETAINED_ARTIFACT_NAMES[kind]);
+  const temporary = path.join(digestDirectory, `.${RETAINED_ARTIFACT_NAMES[kind]}.${process.pid}.${randomUUID()}.tmp`);
+  let targetInfo = await lstat(target).catch((error) => {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  });
+  if (!targetInfo) {
+    await fs.promises.copyFile(source, temporary, fs.constants.COPYFILE_EXCL);
+    try {
+      if (await fileHash(temporary) !== digest) {
+        throw new SingularityFlowError(`The validated reinstall ${kind} changed while it was retained.`);
+      }
+      await chmod(temporary, 0o600);
+      try { await fs.promises.link(temporary, target); }
+      catch (error) { if (error?.code !== 'EEXIST') throw error; }
+    } finally {
+      await rm(temporary, { force: true });
+    }
+    targetInfo = await lstat(target).catch(() => null);
+  }
+  if (!targetInfo?.isFile() || targetInfo.isSymbolicLink() || await fileHash(target) !== digest) {
+    throw new SingularityFlowError(`The retained reinstall ${kind} conflicts with its content-addressed path: ${target}`);
+  }
+  await chmod(target, 0o600);
+  return kind === 'tarball'
+    ? { path: target, sha256: `sha256:${digest}`, package: REINSTALL_SURFACES.npmPackage, version }
+    : { path: target, sha256: `sha256:${digest}`, extensionId: REINSTALL_SURFACES.vscodeExtension, version };
+}
+
+async function trustedCurrentVsix(currentFile, installations, observedVersion) {
+  if (!observedVersion) return null;
+  const info = await lstat(currentFile).catch((error) => {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  });
+  if (!info) return null;
+  if (!info.isFile() || info.isSymbolicLink()) {
+    throw new SingularityFlowError(`Installation receipt is not a regular, non-symlink file: ${currentFile}`);
+  }
+  let current;
+  try { current = readRecord('installation-current', await readFile(currentFile)).record; }
+  catch { return null; }
+  const recorded = current.artifacts?.vsix;
+  const digest = String(recorded?.sha256 ?? '').replace(/^sha256:/u, '');
+  if (!SHA256_HEX.test(digest)) return null;
+  const expected = path.join(installations, 'versions', 'sha256', digest, RETAINED_ARTIFACT_NAMES.vsix);
+  if (path.resolve(String(recorded.path ?? '')) !== expected) return null;
+  let inspected;
+  try { inspected = await inspectVsix(expected); }
+  catch { return null; }
+  if (inspected.sha256 !== `sha256:${digest}`
+      || inspected.extensionId !== REINSTALL_SURFACES.vscodeExtension
+      || inspected.version !== observedVersion) return null;
+  return inspected;
+}
+
+async function assertCliOnlyVsixRollbackAuthority({ cliOnly, installed, homeDirectory, checkout }) {
+  if (!cliOnly || !installed.vscodeVersion) return;
+  const installations = path.join(homeDirectory, '.singularity-flow', 'installations');
+  const currentFile = path.join(installations, 'current.json');
+  if (await trustedCurrentVsix(currentFile, installations, installed.vscodeVersion)) return;
+  throw new SingularityFlowError(
+    `CLI-only clean reinstall cannot preserve rollback authority for the installed VS Code extension `
+    + `${REINSTALL_SURFACES.vscodeExtension}@${installed.vscodeVersion}. The current installation receipt `
+    + 'does not contain a trusted schema-v2 content-addressed VSIX binding. Run a full clean reinstall '
+    + `first: sf-reinstall --checkout ${JSON.stringify(checkout)} --dry-run (without --cli-only), then `
+    + 'apply its reviewed fingerprint confirmation.'
+  );
+}
+
+async function writeCurrentInstallationReceipt(plan, verified, receipt, homeDirectory) {
+  const machineState = await managedInstallDirectory(
+    path.join(homeDirectory, '.singularity-flow'), 'Singularity Flow machine-state directory'
+  );
+  const installations = await managedInstallDirectory(
+    path.join(machineState, 'installations'), 'Singularity Flow installation directory'
+  );
+  const currentFile = path.join(installations, 'current.json');
+  const artifacts = {
+    tarball: await retainReinstallArtifact({
+      source: plan.bundle.tarball,
+      digest: plan.artifacts.tarballSha256,
+      kind: 'tarball',
+      version: plan.version,
+      installations
+    }),
+    vsix: !plan.cliOnly && plan.installed.codeAvailable
+      ? await retainReinstallArtifact({
+        source: plan.bundle.vsix,
+        digest: plan.artifacts.vsixSha256,
+        kind: 'vsix',
+        version: plan.version,
+        installations
+      })
+      : await trustedCurrentVsix(currentFile, installations, verified.vscodeVersion)
+  };
+  const surfaces = {
+    cli: true,
+    vscode: Boolean(artifacts.vsix),
+    copilot: !plan.cliOnly && verified.copilotPlugins.length > 0,
+    telemetry: !plan.cliOnly && verified.telemetryManaged,
+    manifest: true
+  };
+  const current = {
+    schemaVersion: currentSchemaVersion('installation-current'),
+    status: Object.values(surfaces).every(Boolean) ? 'complete' : 'complete-with-skips',
+    version: plan.version,
+    checkout: plan.checkout,
+    artifacts,
+    surfaces,
+    workspaceRefresh: 'skipped',
+    activation: null,
+    reinstall: { fingerprint: plan.fingerprint, receipt },
+    installedAt: new Date().toISOString()
+  };
+  const existing = await lstat(currentFile).catch((error) => {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  });
+  if (existing && (!existing.isFile() || existing.isSymbolicLink())) {
+    throw new SingularityFlowError(`Installation receipt is not a regular, non-symlink file: ${currentFile}`);
+  }
+  const temporary = `${currentFile}.reinstall-${process.pid}-${randomUUID()}`;
+  await writeFile(temporary, `${JSON.stringify(current, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+  try { await rename(temporary, currentFile); }
+  finally { await rm(temporary, { force: true }); }
+  await chmod(currentFile, 0o600);
+  return currentFile;
+}
+
 export async function applyLocalReinstall(plan, {
   confirmation,
   execute = run,
@@ -521,9 +685,29 @@ export async function applyLocalReinstall(plan, {
   if (confirmation !== plan.confirmation) {
     throw new SingularityFlowError(`Reinstall requires exact confirmation '${plan.confirmation}'. Run with --dry-run first.`);
   }
+  const machineState = await managedInstallDirectory(
+    path.join(homeDirectory, '.singularity-flow'), 'Singularity Flow machine-state directory'
+  );
+  const installations = await managedInstallDirectory(
+    path.join(machineState, 'installations'), 'Singularity Flow installation directory'
+  );
+  const activationJournal = path.join(installations, 'activation-current.json');
+  const activationLease = await acquireActivationLease({
+    journal: activationJournal,
+    checkout: plan.checkout,
+    mode: 'create'
+  });
   const env = { ...environment, NPM_CONFIG_REGISTRY: plan.registry };
   let removalStarted = false;
+  let result = null;
+  let operationFailure = null;
   try {
+    if (plan.cliOnly) {
+      const installed = inspectLocalProduct({ execute, exists, homeDirectory, environment: env });
+      await assertCliOnlyVsixRollbackAuthority({
+        cliOnly: true, installed, homeDirectory, checkout: plan.checkout
+      });
+    }
     removalStarted = true;
     if (!plan.cliOnly) {
       for (const identity of REINSTALL_SURFACES.copilotPlugins) {
@@ -574,13 +758,36 @@ export async function applyLocalReinstall(plan, {
       verified
     };
     receipt.receipt = await writeReceipt(plan, receipt, homeDirectory);
-    return { ...plan, completed: true, verified, receipt: receipt.receipt };
+    receipt.installationManifest = await writeCurrentInstallationReceipt(
+      plan, verified, receipt.receipt, homeDirectory
+    );
+    result = {
+      ...plan,
+      completed: true,
+      verified,
+      receipt: receipt.receipt,
+      installationManifest: receipt.installationManifest
+    };
   } catch (error) {
-    if (removalStarted) {
-      throw new SingularityFlowError(`${error.message}\n\n${recoveryText(plan)}`, { cause: error });
-    }
-    throw error;
+    operationFailure = removalStarted
+      ? new SingularityFlowError(`${error.message}\n\n${recoveryText(plan)}`, { cause: error })
+      : error;
   }
+  let releaseFailure = null;
+  try {
+    await releaseActivationLease({ journal: activationJournal, ...activationLease });
+  } catch (error) {
+    releaseFailure = error;
+  }
+  if (operationFailure && releaseFailure) {
+    throw new SingularityFlowError(
+      `${operationFailure.message}\n\nThe shared activation lease could not be released safely: ${releaseFailure.message}`,
+      { cause: operationFailure }
+    );
+  }
+  if (operationFailure) throw operationFailure;
+  if (releaseFailure) throw releaseFailure;
+  return result;
 }
 
 export async function resolveReinstallPlan({

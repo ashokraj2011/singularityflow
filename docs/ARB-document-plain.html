@@ -313,7 +313,54 @@
 <tr><td><b>Semantic</b> (legacy-v3 or permitted v4 narrative)</td><td>A legacy-v3 <code>quick</code>/<code>standard</code>/<code>deep</code> builder, or a configured registered-v4 semantic composer, uses bounded repository input to write prose views</td><td>provider-dependent; non-zero</td><td>varies by selected view and budget</td><td>advisory, validated by the applicable format, and able to drift</td><td>reader-facing narrative; never deterministic gate authority</td><td>operational only when explicitly requested or configured; model-free alternatives remain available</td></tr></table>
 <p class="note">The first four rows do not invoke a model; their recorded provenance and assurance determine how they may be used. The semantic row consumes provider tokens and remains advisory. Reading an already validated bounded projection is reusable and avoids sending broad repository content to the agent.</p>
 
-<h3>5b. How the repository model is used in each phase</h3>
+<h3>5b. Hypothetical values for every repository-model view and projection</h3>
+<p class="note"><b>Illustrative only.</b> Every value in this subsection is invented for a fictional <code>pricing-rule-engine</code> repository. <code>EXAMPLE-*</code> identifiers are not repository evidence, the revision is not a Git hash, and none of these values may satisfy a gate. A real result carries exact fact, evidence, source, extractor, contract, and content hashes. When evidence is missing, SingularityFlow records <b>unavailable</b> rather than inventing a plausible value.</p>
+
+<h4>Shared fictional input</h4>
+<table><tr><th>Field</th><th>Hypothetical value</th><th>What a real build would bind</th></tr>
+<tr><td>Repository</td><td><code>pricing-rule-engine</code></td><td>Canonical repository identity and remote authority</td></tr>
+<tr><td>Revision</td><td><code>EXAMPLE-REVISION-01</code></td><td>Exact source commit and source-tree digest</td></tr>
+<tr><td>Capability and scope</td><td><code>pricing-rules</code>; <code>src/main/java</code>, <code>src/test/java</code>, <code>rules</code>, <code>pom.xml</code></td><td>Capability-map revision and admitted path scope</td></tr>
+<tr><td>Observed structure</td><td>312 files, 1,884 symbols, Java and Python sources</td><td>Parser identity, parser version, file digests, assurance, gaps, and contradictions</td></tr></table>
+
+<h4>Operational WMB v4 registered views</h4>
+<table><tr><th>Registered view</th><th>Hypothetical values rendered from admitted facts</th><th>Status and trust boundary</th><th>Typical use</th></tr>
+<tr><td><code>arch.contracts@4</code></td><td>Public contract <code>POST /batch-evaluations</code> <code>[F:EXAMPLE-CONTRACT-001]</code>; implementation <code>SparkBatchEvaluator.evaluate</code>; consumers <code>settlement-job</code> and <code>quote-api</code>; contradiction: the declared schema uses a decimal string while one observed implementation uses a floating-point value.</td><td><b>contradicted</b> for that field; runtime SLA <b>unavailable</b>. It does not claim that production traffic or latency was observed.</td><td>Specification, planning, convergence, and contract review</td></tr>
+<tr><td><code>biz.rules@4</code></td><td>Rule <code>EXAMPLE-RULE-APR-001</code>: when tier is Gold and balance exceeds 10,000, outcome is 3.75%; source <code>rules/apr.yml</code> <code>[F:EXAMPLE-RULE-001]</code>.</td><td><b>available</b> as a parsed/declared rule. Intended business meaning and policy-owner confirmation remain <b>unavailable</b> until a human confirms them.</td><td>Specification and acceptance review</td></tr>
+<tr><td><code>dev.hotspots@4</code></td><td><code>RuleEvaluator.evaluate</code> has 42 structural dependents and 18 captured changes in a 90-day history window; <code>RuleParser</code> has dependency degree 27 <code>[F:EXAMPLE-HOTSPOT-001]</code>.</td><td><b>available</b> only for the stated structure/history window. Complexity, incident frequency, runtime load, and ownership are <b>unavailable</b> unless separately evidenced.</td><td>Planning, implementation focus, and review prioritisation</td></tr>
+<tr><td><code>dev.impact@4</code></td><td>Changed symbol <code>InterestCalculator.calculate</code>; dependents <code>BatchEvaluationService</code> and <code>QuoteController</code>; affected contract <code>POST /evaluations</code>; candidate tests <code>InterestCalculatorTest</code> and <code>SparkParityTest</code> <code>[F:EXAMPLE-IMPACT-001]</code>.</td><td><b>partial</b>: structural impact is known; runtime invocation frequency and unobserved dynamic consumers are <b>unavailable</b>.</td><td>Planning, convergence, verification, and blast-radius review</td></tr></table>
+<p>The registered WMB output also carries its exact view/version, TL;DR, contract-defined sections, canonical fact references, used-fact IDs, dependencies, and digests. The four rows above are distinct contracts; labels such as <code>architecture</code> or <code>business</code> are not aliases for these WMB v4 IDs.</p>
+
+<h4>Model-free WMP overview-view foundations</h4>
+<p>These five <code>@1</code> renderers exist in the code with <code>model.mode=never</code>. They are shown to make the intended projection experience concrete, but normal Story preparation does <b>not yet</b> persist or replay their bindings.</p>
+<table><tr><th>Overview view</th><th>Hypothetical full/brief value</th><th>Required caveat</th></tr>
+<tr><td><code>repository.business@1</code></td><td>Declared purpose: batch price-rule evaluation; documented surface: <code>POST /evaluate</code>; entry point: <code>RulesApplication.main</code>.</td><td>Consumer intent and customer meaning <b>unavailable</b>; this is not the operational <code>biz.rules@4</code> view.</td></tr>
+<tr><td><code>repository.architecture@1</code></td><td>Modules: <code>api</code>, <code>rules-core</code>, <code>spark-runner</code>; observed edge <code>spark-runner → rules-core</code>; contract <code>RuleEvaluationRequest</code>; declared Kafka integration conflicts with no observed client.</td><td>Runtime topology <b>unavailable</b>; the declared/observed mismatch stays visible.</td></tr>
+<tr><td><code>repository.development@1</code></td><td>312 files and 1,884 symbols; Java/Python detected; entry point <code>RuleEngineApplication</code>; parser coverage 94% of admitted source files.</td><td>Hotspot importance and runtime frequency <b>unavailable</b>; this is not <code>dev.hotspots@4</code> or <code>dev.impact@4</code>.</td></tr>
+<tr><td><code>repository.security@1</code></td><td>Protected path <code>singularity/workflow.yml</code>; declared maintainer <code>rules-platform</code>; direct structural dependency <code>rules-db</code>; signed scan observation: zero critical findings.</td><td>Not a security verdict. Exploitability and runtime protection guarantees are <b>unavailable</b>.</td></tr>
+<tr><td><code>repository.testing@1</code></td><td>148 test identities; <code>SparkBatchEvaluatorTest</code> relates to <code>SparkBatchEvaluator</code>; <code>AC-003</code> is bound to a signed run reporting 147 passed and 1 skipped with 82% line coverage.</td><td>Performance evidence <b>unavailable</b>; a test name alone never proves that a test passed.</td></tr></table>
+
+<h4>External-format projection: <code>arch.calm@1</code></h4>
+<table><tr><th>CALM element</th><th>Hypothetical projected value</th><th>Provenance/status</th></tr>
+<tr><td>Nodes</td><td><code>rule-api</code> (<code>service</code>), <code>spark-batch-engine</code> (<code>service</code>), and <code>rules-store</code> (<code>database</code>)</td><td>Structurally derived and individually source-mapped</td></tr>
+<tr><td>Interface</td><td><code>rule-api-http</code> exposes the admitted evaluation contract</td><td>Source-exact contract; runtime reachability <b>unavailable</b></td></tr>
+<tr><td>Relationships</td><td><code>rule-api → spark-batch-engine → rules-store</code></td><td>Derived from admitted dependency facts; dynamic edges <b>unavailable</b></td></tr>
+<tr><td>Control</td><td><code>protected-rules-config</code></td><td>Human-declared protected scope; enforcement receipt linked separately</td></tr>
+<tr><td>Flow</td><td><code>batch-evaluation</code>, sequence 1 API, 2 Spark engine, 3 rules store</td><td>Deterministically projected; production execution <b>not observed</b></td></tr></table>
+<p>The real CALM JSON uses FINOS CALM 1.2 fields such as <code>unique-id</code>, <code>node-type</code>, <code>relationship-type</code>, and <code>sequence-number</code>, plus SFlow source mapping. Its renderer never copies advisory model prose into architecture evidence.</p>
+
+<h4>Legacy-v3 audience views (compatibility path)</h4>
+<table><tr><th>Legacy view</th><th>Hypothetical narrative focus</th></tr>
+<tr><td><code>business</code></td><td>Pricing analysts submit daily portfolios and receive per-rule evaluation results.</td></tr>
+<tr><td><code>architecture</code></td><td>An API accepts jobs, a Spark module evaluates rules, and a store supplies versioned rule sets.</td></tr>
+<tr><td><code>development</code></td><td>Key paths, Maven/Python commands, entry points, extension seams, and local test commands.</td></tr>
+<tr><td><code>testing</code></td><td>Unit, contract, Spark parity, and batch-volume suites, with only captured results stated as passed.</td></tr>
+<tr><td><code>release</code></td><td>Example artifact <code>spark-python-rule-engine</code>, promotion stages, compatibility checks, and rollback steps.</td></tr>
+<tr><td><code>operations</code></td><td>Example health signals, runbook links, batch checkpoints, and explicitly unavailable production SLO evidence.</td></tr>
+<tr><td><code>security</code></td><td>Example authentication boundary, rules-store trust boundary, secrets handling, and unverified risks.</td></tr></table>
+<p class="note">Legacy-v3 views are reader-facing prose and may consume model tokens in <code>quick</code>, <code>standard</code>, or <code>deep</code> mode. They are advisory and are not interchangeable with registered WMB v4 views, model-free WMP overview contracts, or the <code>arch.calm@1</code> external projection.</p>
+
+<h3>5c. How the repository model is used in each phase</h3>
 <pre class="mermaid">flowchart LR
   subgraph SRC[Deterministic fact extraction during a repository-model build - no AI]
     S1[Parse source into symbols, signatures, imports, test identities]
@@ -362,7 +409,7 @@
 <tr><td>Verify</td><td>Evidence index</td><td><b>Evidence role:</b> claimed symbols exist in the candidate; claimed tests reference them; test identities bound to evidence</td><td>Core engine gates</td></tr>
 <tr><td>Review and publish</td><td>Blast radius across repositories; protected-path intersection; per-capability structural rules</td><td>Structural rules evaluated on the exact bytes at publish</td><td>Core engine gates; reviewer; impact views</td></tr></table>
 
-<h3>5c. The workflow, end to end</h3>
+<h3>5d. The workflow, end to end</h3>
 <pre class="mermaid">flowchart LR
   I[Intake - Jira or sentence - intent pinned] --> C[Clarify - one batch, answers pinned]
   C --> SP[Specify - clauses and ACs - PO signs]

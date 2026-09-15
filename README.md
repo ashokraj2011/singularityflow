@@ -441,9 +441,9 @@ repositories, workspaces, lifecycle state, credentials, and user configuration,
 use the fingerprint-bound clean reinstall:
 
 ```bash
-sf-reinstall --checkout /absolute/path/to/singularityflow --dry-run
+sf-reinstall --checkout /absolute/path/to/sflow-source --dry-run
 # Copy the exact fingerprint confirmation printed by the preview:
-sf-reinstall --checkout /absolute/path/to/singularityflow \
+sf-reinstall --checkout /absolute/path/to/sflow-source \
   --confirm "REINSTALL SINGULARITY FLOW <fingerprint>"
 ```
 
@@ -501,9 +501,9 @@ For a genuinely fresh Singularity installation across the machine, run the
 installer from a clean Singularity Flow source checkout. Preview first:
 
 ```bash
-singularity-flow fresh-install --checkout /path/to/singularityflow
+singularity-flow fresh-install --checkout /path/to/sflow-source
 # Review every path. Then perform the deletion and reinstall:
-singularity-flow fresh-install --checkout /path/to/singularityflow --yes
+singularity-flow fresh-install --checkout /path/to/sflow-source --yes
 ```
 
 From inside the product checkout, `--checkout` may be omitted. The guarded command first

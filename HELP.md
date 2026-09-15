@@ -231,11 +231,11 @@ Interactive terminals combine preview and exact prompting. Non-interactive and
 For a clean product-only replacement, build and validate the source checkout first:
 
 ```bash
-singularity-flow reinstall --checkout /absolute/path/to/singularityflow --dry-run
-singularity-flow reinstall --checkout /absolute/path/to/singularityflow \
+singularity-flow reinstall --checkout /absolute/path/to/sflow-source --dry-run
+singularity-flow reinstall --checkout /absolute/path/to/sflow-source \
   --confirm "REINSTALL SINGULARITY FLOW <fingerprint>"
 # Short equivalent:
-sf-reinstall --checkout /absolute/path/to/singularityflow --dry-run
+sf-reinstall --checkout /absolute/path/to/sflow-source --dry-run
 ```
 
 Add `--registry https://artifacts.company.example/api/npm/npm-virtual/` for a

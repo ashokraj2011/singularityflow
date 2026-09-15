@@ -69,11 +69,11 @@ too expensive and is not portable enough.
 On the reviewed machine:
 
 - six lead repositories were registered in `~/.singularity-flow/leads.json`;
-- inspecting the RuleEngine repository with its explicit lead took about 4.44 seconds;
+- inspecting a delivery repository with its explicit lead took about 4.44 seconds;
 - inspecting the same URL without a lead scanned all six registered leads, took about 8.94
   seconds, and reported an ambiguity;
 - full capability `fsck` against each of two relevant leads took about 91–93 seconds;
-- the RuleEngine delivery repository was claimed by two different approved maps;
+- the same delivery repository was claimed by two different approved maps;
 - the focused local FOS benchmark remained fast, proving that the local warm cache is not the
   source of the office-visible delay.
 

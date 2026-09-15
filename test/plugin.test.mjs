@@ -580,12 +580,25 @@ test('submit skill presents generated documents before approval', async () => {
   assert.match(content, /Read `lifecycleReady` only as the explicit boolean/);
   assert.match(content, /never infer it from raw `singularity-flow status --json`/);
   assert.match(content, /`publishedGeneration` equal to `currentGeneration`.*normal ready-to-submit state/s);
+  assert.match(content, /Seeded draft — not published/);
+  assert.match(content, /Published generation <N> — ready to submit/);
+  assert.match(content, /exactly one primary action, \*\*Generate and publish <Phase>\*\*/);
+  assert.match(content, /prefilling the engine-selected `nextSkill`/);
+  assert.match(content, /do not also offer Submit/);
+  assert.match(content, /Never invoke the generation skill from this submission skill/);
   assert.match(content, /confirmationRequired: true.*Only the human/s);
   assert.match(content, /Work-ID-pinned submit command/);
   assert.match(content, /stop without preparing, regenerating, publishing, modifying files, or guessing/);
   assert.match(content, /every generated current-phase document/);
   assert.match(content, /singularity-flow phase show <phase>/);
   assert.match(content, /show them before offering approval or rejection/);
+});
+
+test('phase publication uses the unambiguous ready-to-submit label', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-phase', 'SKILL.md'), 'utf8');
+  assert.match(content, /Published generation <N> — ready to submit/);
+  assert.match(content, /never say `publish-ready`/);
+  assert.match(content, /never submit or approve/);
 });
 
 test('help skill serves natural questions from cited docs and delegates work IDs to the guide', async () => {

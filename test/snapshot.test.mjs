@@ -143,6 +143,13 @@ test('snapshot exposes configuration and visual workflow data', async () => {
     'a Story checkout reuses its exact pinned configuration authority');
   assert.equal(snapshot.progress.currentPhase, 'intake');
   assert.equal(snapshot.progress.percentage, 0);
+  assert.equal(snapshot.submissionReadiness.classification, 'generation-required');
+  assert.equal(snapshot.submissionReadiness.lifecycleReady, false);
+  assert.equal(snapshot.submissionReadiness.draftExists, true);
+  assert.equal(snapshot.submissionReadiness.draftModified, false);
+  assert.equal(snapshot.submissionReadiness.publicationRecorded, false);
+  assert.equal(snapshot.submissionReadiness.nextSkill, '/sf-phase');
+  assert.equal(snapshot.submissionReadiness.nextCommand, 'singularity-flow prepare intake');
   assert.equal(snapshot.workflow.workItem.workType, 'feature');
   assert.equal(snapshot.workflow.resolution.sequenceGates.phaseStatus, 'soft');
   assert.ok(snapshot.documents.some((item) => item.id === 'SYS-WORKFLOW'));
@@ -338,6 +345,11 @@ test('lifecycle snapshots keep generated phase artifacts regardless of lifecycle
   let artifact = scoped.lifecycle.documents.find((document) => document.id === 'PHASE-INTAKE');
   assert.equal(artifact?.status, 'in_progress');
   assert.equal(artifact?.phase, 'intake');
+  assert.equal(scoped.lifecycle.submissionReadiness.lifecycleReady, false);
+  assert.equal(scoped.lifecycle.submissionReadiness.draftExists, true);
+  assert.equal(scoped.lifecycle.submissionReadiness.draftModified, true);
+  assert.equal(scoped.lifecycle.submissionReadiness.publicationRecorded, false);
+  assert.equal(scoped.lifecycle.submissionReadiness.nextSkill, '/sf-phase');
 
   state.phases.intake.status = 'approved';
   await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`);

@@ -86,8 +86,7 @@ function railHtml(journey: Journey): string {
         aria-pressed="${selected}" aria-label="${escape(stage.label)}: ${escape(String(stage.status).replaceAll('_', ' '))}; ${stage.authored} of ${stage.declared} artifacts">
         <span class="phase-marker">${marker}</span>
         <span class="phase-name">${escape(stage.label)}</span>
-        <span class="phase-state">${escape(String(stage.status).replaceAll('_', ' '))} ·
-          ${stage.authored}/${stage.declared} artifacts</span>
+        <span class="phase-state">${escape(stage.publicationLabel)} · ${stage.authored}/${stage.declared} artifacts</span>
       </button>
     </li>`;
   }).join('');
@@ -184,7 +183,7 @@ function bodyHtml(journey: Journey): string {
       <!-- The button says what pressing it does; the argv is the supporting detail beneath it. It
            was the other way round, so the only filled button on the page was labelled with a raw
            command line and the readable sentence sat above it doing nothing. -->
-      <button data-run="next">${escape(actionLabel(journey.nextAction))}</button>
+      <button data-run="next">${escape(journey.nextAction.label ?? actionLabel(journey.nextAction))}</button>
       <p class="command-hint"><code>${escape(journey.nextAction.command)}</code></p>
     </section>` : ''}
 

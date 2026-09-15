@@ -2918,11 +2918,11 @@ export async function statusCommand(positionals, options) {
   // later configuration refresh moves the work-item root or removes a live custom agent.
   const { config, workflow } = await loadAcceptedStoryExecution(root, positionals[1]);
   if (optionBoolean(options, 'submission-readiness')) {
-    const { submissionReadinessSnapshot, submissionReadinessText } = await import('./submission-readiness.mjs');
+    const { submissionReadiness, submissionReadinessText } = await import('./submission-readiness.mjs');
     const pendingSynchronization = await storyPublicationPending(
       root, config, workflow.workItem.id, { migrate: false }
     );
-    const readiness = submissionReadinessSnapshot(workflow, { pendingSynchronization });
+    const readiness = await submissionReadiness(root, config, workflow, { pendingSynchronization });
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(readiness, null, 2));
     else console.log(submissionReadinessText(readiness));
     return;

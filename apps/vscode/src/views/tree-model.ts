@@ -16,10 +16,14 @@ import {
   packsWithMembers, phasesInOrder, storiesByRepository,
   type BreakdownStory, type FastPathProjection, type InitiativeOutput, type InitiativeSnapshot,
   type RepositorySnapshot, type PhaseStatus, type StoryArtifact, type StoryPhase,
-  type StoryReferenceRepositoryStatus, type StoryWorkflow
+  type StoryReferenceRepositoryStatus, type StoryWorkflow, type SubmissionReadiness
 } from '../cli/snapshot.ts';
 import { commandArgv } from '../commands.ts';
 import { buildCapabilityTree, type CapabilityReadiness } from './navigation-trees.ts';
+import {
+  exactSubmissionReadiness, phaseSubmissionPresentation, storyArtifactPublicationLabel,
+  submissionCommandArgv
+} from './submission-presentation.ts';
 
 export type NodeKind =
   | 'message' | 'initiative' | 'phase' | 'pack' | 'artifact'
@@ -53,6 +57,8 @@ export interface TreeNode {
   readOnly?: boolean;
   /** A CLI invocation this node offers, already split into argv. */
   command?: string[];
+  /** A reviewed Copilot skill query to prefill. It is never submitted by the extension. */
+  prefill?: string;
   /**
    * Set when the CLI will demand an exact confirmation string for this command. Carried so the
    * editor can ask a human to type it — never so the extension can supply it silently.
@@ -315,7 +321,8 @@ export function buildLifecycleTree(snapshot: RepositorySnapshot | null, error: E
       snapshot.detachedDocuments ?? [],
       snapshot.fastPath ?? null,
       identityOf(snapshot.identities?.git),
-      snapshot.referenceRepositories ?? null
+      snapshot.referenceRepositories ?? null,
+      snapshot.submissionReadiness ?? null
     ),
       ...(activeStories ? [activeStories] : []), ...(completedArchive ? [completedArchive] : []),
       ...(cancelledArchive ? [cancelledArchive] : []), workspaceImpact];
@@ -659,19 +666,23 @@ function completedInitiativeNode(initiative: InitiativeSnapshot): TreeNode {
   };
 }
 
-function storyDocumentNodes(documents: StoryArtifact[], phaseId: string): TreeNode[] {
+function storyDocumentNodes(
+  documents: StoryArtifact[],
+  phase: StoryPhase,
+  readiness: SubmissionReadiness | null | undefined = null
+): TreeNode[] {
   return documents
     // Current snapshots identify generated outputs explicitly. Keep accepting the earlier
     // phase-scoped shape as well so a coherent lifecycle rail survives while the extension and
     // CLI are upgraded independently.
     .filter((document) => (document.type === 'artifact' || (!document.type && Boolean(document.phase)))
-      && document.phase === phaseId && Boolean(document.path))
+      && document.phase === phase.id && Boolean(document.path))
     .sort((left, right) => (left.label ?? left.path).localeCompare(right.label ?? right.path))
     .map((document) => ({
       kind: 'artifact' as const,
-      id: `story-document:${phaseId}:${document.id ?? document.path}`,
+      id: `story-document:${phase.id}:${document.id ?? document.path}`,
       label: document.label ?? document.id ?? document.path,
-      description: document.status?.replace(/_/g, ' ') ?? 'generated',
+      description: storyArtifactPublicationLabel(document, phase, readiness),
       tooltip: `${document.path}\nsha256 ${document.sha256 ?? 'unavailable'}`,
       icon: document.status === 'approved' ? 'lock-small' : 'file',
       path: document.path,
@@ -680,12 +691,19 @@ function storyDocumentNodes(documents: StoryArtifact[], phaseId: string): TreeNo
     }));
 }
 
-function storyGeneratedArtifacts(workflow: StoryWorkflow, documents: StoryArtifact[]): TreeNode {
+function storyGeneratedArtifacts(
+  workflow: StoryWorkflow,
+  documents: StoryArtifact[],
+  readiness: SubmissionReadiness | null | undefined = null
+): TreeNode {
   const phases = workflow.phaseOrder.map((id) => workflow.phases[id])
     .filter((phase): phase is StoryPhase => Boolean(phase));
   const groups = phases.map((phase) => ({
     phase,
-    artifacts: storyDocumentNodes(documents, phase.id)
+    // A seeded generation-0 template exists so the author has somewhere to work. It is not a
+    // generated output and must not appear in a catalog whose title claims that it is one.
+    artifacts: storyDocumentNodes(documents.filter((document) =>
+      document.phase !== phase.id || Number(document.generation ?? phase.generation) > 0), phase, readiness)
   })).filter((entry) => entry.artifacts.length);
   const count = groups.reduce((total, entry) => total + entry.artifacts.length, 0);
   return {
@@ -747,7 +765,12 @@ function identityOf(identity: string | { email?: string; login?: string | null; 
   return (identity?.email ?? identity?.login ?? identity?.name ?? '').trim().toLowerCase();
 }
 
-function storyPhaseActions(workflow: StoryWorkflow, phase: StoryPhase, actor: string): TreeNode[] {
+function storyPhaseActions(
+  workflow: StoryWorkflow,
+  phase: StoryPhase,
+  actor: string,
+  readiness: SubmissionReadiness | null | undefined
+): TreeNode[] {
   if (workflow.currentPhase !== phase.id) return [];
   if (phase.status === 'awaiting_approval') {
     return [{
@@ -762,27 +785,48 @@ function storyPhaseActions(workflow: StoryWorkflow, phase: StoryPhase, actor: st
     }];
   }
   if (phase.status !== 'in_progress' && phase.status !== 'rejected') return [];
-  return [{
-    kind: 'action', id: `story:${phase.id}:copilot`, label: 'Continue with Copilot CLI',
-    description: 'governed context · local usage captured after consent', icon: 'sparkle', runCommand: 'singularityFlow.openMeteredCopilot'
+  const exact = exactSubmissionReadiness(readiness, phase.id);
+  const presentation = phaseSubmissionPresentation(phase, readiness);
+  const submitArgv = submissionCommandArgv(exact, phase.id);
+  if (presentation.kind === 'ready-to-submit' && submitArgv) return [{
+    kind: 'message', id: `story:${phase.id}:publication-status`,
+    label: presentation.statusLabel,
+    description: presentation.detail,
+    icon: exact?.publicationRecorded ? 'statusSuccess' : 'warning'
   }, {
-    kind: 'action', id: `story:${phase.id}:native-copilot`, label: 'Open Native Copilot Chat',
-    description: 'usage unavailable · work can continue', icon: 'comment-discussion', runCommand: 'singularityFlow.openCopilot'
-  }, {
-    kind: 'action', id: `story:${phase.id}:prepare`, label: `Prepare ${phase.label}`,
-    description: 'create phase workspace', icon: 'tools', command: ['prepare', phase.id],
-    runCommand: 'singularityFlow.prepareStoryPhase', contextValue: 'sflow.story.prepare'
-  }, {
-    kind: 'action', id: `story:${phase.id}:publish`, label: 'Publish generated artifacts',
-    description: `generation ${phase.generation + 1}`, icon: 'cloud-upload',
-    command: ['phase', 'publish', phase.id], runCommand: 'singularityFlow.publishStoryPhase',
-    contextValue: 'sflow.story.publish'
-  }, ...(phase.generation > 0 ? [{
-    kind: 'action' as const, id: `story:${phase.id}:submit`, label: 'Submit for approval',
-    description: `generation ${phase.generation}`, icon: 'send',
-    command: ['submit', '--phase', phase.id], runCommand: 'singularityFlow.submitStoryPhase',
+    kind: 'action', id: `story:${phase.id}:submit`, label: 'Submit for approval',
+    description: presentation.detail, icon: 'send',
+    command: submitArgv, runCommand: 'singularityFlow.submitStoryPhase',
     contextValue: 'sflow.story.submit'
-  }] : [])];
+  }];
+
+  if (presentation.kind === 'generation-required' && presentation.skill) return [{
+    kind: 'message', id: `story:${phase.id}:publication-status`,
+    label: presentation.statusLabel,
+    description: presentation.detail, icon: 'statusWaiting'
+  }, {
+    kind: 'action', id: `story:${phase.id}:generate`,
+    label: `Generate and publish ${phase.label}`,
+    description: `prefill ${presentation.skill} for your review`, icon: 'sparkle',
+    runCommand: 'singularityFlow.prefillStoryPhaseGeneration',
+    prefill: presentation.skill,
+    contextValue: 'sflow.story.generate'
+  }];
+
+  // Missing or non-generation readiness is not permission to infer a Submit action. The shared
+  // Continue safely action above remains available and will ask the engine for the legal route.
+  return [{
+    kind: 'message', id: `story:${phase.id}:readiness-unavailable`,
+    label: presentation.statusLabel,
+    description: presentation.detail,
+    tooltip: exact?.nextCommand ?? 'Submission readiness was not provided by the engine.',
+    icon: 'statusWaiting'
+  }, {
+    kind: 'action', id: `story:${phase.id}:continue-safely`,
+    label: 'Review the legal next action',
+    description: 'read-only plan', icon: 'play-circle',
+    runCommand: 'singularityFlow.continueSafely', contextValue: 'sflow.action.plan'
+  }];
 }
 
 /**
@@ -991,7 +1035,8 @@ function storyWorkflowNode(
   detachedDocuments: StoryArtifact[],
   fastPath: FastPathProjection | null = null,
   actor = '',
-  referenceRepositories: StoryReferenceRepositoryStatus | null = null
+  referenceRepositories: StoryReferenceRepositoryStatus | null = null,
+  submissionReadiness: SubmissionReadiness | null = null
 ): TreeNode {
   const phases = workflow.phaseOrder.map((id) => workflow.phases[id])
     .filter((phase): phase is StoryPhase => Boolean(phase));
@@ -1022,7 +1067,7 @@ function storyWorkflowNode(
       description: 'list · preview · detach', icon: 'references',
       runCommand: 'singularityFlow.manageEvidence', contextValue: 'sflow.evidence.manage'
     }, ...storyReferenceRepositoryNodes(referenceRepositories, workflow.workItem.id),
-    storyGeneratedArtifacts(workflow, documents), {
+    storyGeneratedArtifacts(workflow, documents, submissionReadiness), {
       kind: 'action', id: 'story:cancel', label: 'Cancel and archive work',
       description: 'reason required · artifacts preserved', icon: 'archive',
       runCommand: 'singularityFlow.cancelWork', contextValue: 'sflow.story.cancel'
@@ -1061,7 +1106,7 @@ function storyWorkflowNode(
       kind: 'group', id: 'story:phase-rail', label: 'Story lifecycle',
       description: `${approved}/${phases.length} approved`, icon: 'list-ordered',
       children: phases.map((phase) => {
-        const artifacts = storyDocumentNodes(documents, phase.id);
+        const artifacts = storyDocumentNodes(documents, phase, submissionReadiness);
         const current = workflow.currentPhase === phase.id;
         return {
           kind: 'phase' as const, id: `story-phase:${phase.id}`, label: phase.label,
@@ -1078,7 +1123,7 @@ function storyWorkflowNode(
               description: current ? 'generated files appear here after preparation' : 'none recorded for this phase',
               icon: 'info'
             }]),
-            ...storyPhaseActions(workflow, phase, actor)
+            ...storyPhaseActions(workflow, phase, actor, submissionReadiness)
           ]
         };
       })

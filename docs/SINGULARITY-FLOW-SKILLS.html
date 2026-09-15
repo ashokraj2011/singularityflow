@@ -6001,7 +6001,7 @@ description: Show ordered next actions from the current workflow state.
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~793 body tokens</span>
+          <span class="pill">~796 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-phase</code></dd></div>
@@ -6027,10 +6027,10 @@ argument-hint: &quot;[generation focus]&quot;
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
-Stop on `Out of sequence`; leave `continue` to the human. Never edit state to bypass a gate.
+Stop on `Out of sequence`; only the human may `continue`. Never bypass a gate.
 
-1. Run `singularity-flow status --json`; use its phase/session. Story context stays in the governed workflow; grounding uses the shared repository world model.
-2. Run `singularity-flow documents list`; view relevant inputs by stable ID.
+1. Run `singularity-flow status --json`; use its phase/session. Story context stays governed; grounding uses the shared world model.
+2. Run `singularity-flow documents list`; view inputs by ID.
 3. Reuse the governed prompt or run `singularity-flow wm compose --phase &lt;phase&gt;` once. Never recompose or derive `--task` from Story text. Unavailable World-Model intelligence is zero-byte context; continue and show optional recovery.
 4. Run `singularity-flow clarification status &lt;phase&gt; --json`. For `off`, do not ask or run `singularity-flow clarification record`; continue directly. For `when-needed`, ask and record only when material ambiguity remains; otherwise continue without a record. For `required`, use `ask_user`, wait, and record the accepted batch before preparation. Write only `{&quot;responses&quot;:[...]}` in private `.json`; never pass Markdown. Stop before preparation if required interaction is unavailable.
 5. Run `singularity-flow story references verify --work-id &lt;WORK-ID&gt; --json`. Use only returned repository-relative `localPath` values, read-only; materialize only through its exact action and never edit/reset. Run the exact returned `singularity-flow prepare &lt;phase&gt;` command; follow its template/input/byte/heading contract. Re-read artifacts; stop on `TODO`, `TBD`, unresolved `{{...}}`, or instructions. Never publish an untouched template or pad it.
@@ -6038,7 +6038,7 @@ Stop on `Out of sequence`; leave `continue` to the human. Never edit state to by
 7. Run `singularity-flow recover &lt;WORK-ID&gt; --phase &lt;phase&gt; --json`; repair its authoring blockers from governed evidence, then recheck.
 8. Run `singularity-flow phase draft-check &lt;phase&gt; --json`. Correct every agent finding now from governed evidence; recheck up to three changed fingerprints and stop on an unchanged fingerprint. Never blindly delete markers, invent facts or padding, invoke a nested model, or overwrite another producer; route it to its owner/regenerator.
 9. Only when `status` is `ready`, publish with the exact configured producer/channel. Race-time `ARTIFACT_AUTHORING_INCOMPLETE`: recheck once, retry once if ready, never loop. Preserve sanitized `telemetry/&lt;phase&gt;-gen&lt;N&gt;.json`.
-10. Run `singularity-flow phase show &lt;phase&gt; --json`; show full text, bounded source previews with hash-bound references, and binary metadata/open instructions. Report commit/push, resolved model and token/cost status; never submit or approve. End `Next in Copilot: /sf-submit &lt;phase&gt;` then `Terminal equivalent: singularity-flow submit &lt;phase&gt;`.
+10. Run `singularity-flow phase show &lt;phase&gt; --json`; show text, bounded previews with hash-bound references, and binary metadata. Report commit/push, resolved model and token/cost status; never submit or approve. If recorded, say exactly **Published generation &lt;N&gt; — ready to submit**; never say `publish-ready`. End `Next in Copilot: /sf-submit &lt;phase&gt;` then `Terminal equivalent: singularity-flow submit &lt;phase&gt;`.
 </code></pre>
       </div>
     </details>
@@ -8253,7 +8253,7 @@ The canonical branch is the exact Jira key. Jira intake pins the normalized issu
           <span class="pill">review</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~755 body tokens</span>
+          <span class="pill">~782 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-submit</code></dd></div>
@@ -8275,20 +8275,21 @@ argument-hint: &quot;[--skip-checks only when explicitly authorized]&quot;
 # Submit the current phase
 
 &lt;!-- sflow-output-contract: governed-review --&gt;
-**Output contract:** Show governed artifacts, hashes, identity warnings, and the exact confirmation before recording any decision.
+**Output contract:** Show artifacts, hashes, warnings, and confirmation before a decision.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
-On `Out of sequence`, stop immediately. Show a `Soft sequence warning`; only the human may confirm it. Never edit managed state to bypass either gate.
+Stop on `Out of sequence`. Show soft warnings; only the human confirms them. Never edit state to bypass gates.
 
-1. Run `singularity-flow status &lt;WORK-ID&gt; --submission-readiness --json`. Require `resultType` exactly `sflow-submission-readiness`, `readiness.workId` equal to the session `workId`, and `readiness.phaseId` equal to `session.phase`. Read `lifecycleReady` only as the explicit boolean returned by this projection; never infer it from raw `singularity-flow status --json`, `singularity-flow phase show`, document labels, artifact status, `publicationProjections`, or a missing field. `publishedGeneration` equal to `currentGeneration` while `in_progress` is the normal ready-to-submit state, not a reason to publish again. If malformed or `lifecycleReady: false`, show `classification`, `reasonCode`, and `command`, then stop without preparing, regenerating, publishing, modifying files, or guessing.
-2. When `confirmationRequired: true`, run only the returned Work-ID-pinned command and surface its complete soft-gate warning. Only the human may type or provide `continue`; never confirm it for them.
-3. For `convergence`, never run generic `singularity-flow submit`. Run the returned `singularity-flow story advance` command without `--confirm`, show its review and digest, and stop on unresolved dispositions. Ask the human to confirm that digest; only then run its exact `--confirm sha256:&lt;DIGEST&gt;` command once. A changed digest requires fresh review.
-4. Otherwise run the returned Work-ID-pinned submit command. Add `--skip-checks` only when explicitly authorized.
-5. On validation failure, fix only current-phase artifacts or checks and register them. Fingerprint the refusal code plus current artifact/check hashes; retry only while that fingerprint changes. Stop on an unchanged fingerprint or after three distinct changed fingerprints. Never loop quality commands.
-6. After success run `singularity-flow phase show &lt;phase&gt; --json`. In the visible assistant response, reproduce every generated current-phase document (including downstream `agent-brief` documents) in full, with ID, kind, bytes, SHA-256, and `--- BEGIN &lt;path&gt; ---` / `--- END &lt;path&gt; ---`. A Shell/tool block does not satisfy artifact review. For binary/image artifacts, show the absolute path and metadata.
-7. Fetch an omitted document with `singularity-flow documents view &lt;DOCUMENT-ID&gt; --json`. Never say “shown above” or substitute a summary; show them before offering approval or rejection.
-8. Report the commit, push, hashes, checks, tokens, and cost. Approval remains a separate `/sf-approve` action.
+1. Run `singularity-flow status &lt;WORK-ID&gt; --submission-readiness --json`. Require `resultType` exactly `sflow-submission-readiness`, matching `workId`/`phaseId`, plus `draftExists`, `draftModified`, `publicationRecorded`, `nextSkill`, and `nextCommand`. Read `lifecycleReady` only as the explicit boolean returned by this projection; never infer it from raw `singularity-flow status --json`, labels, or missing fields. `publishedGeneration` equal to `currentGeneration` while `in_progress` is the normal ready-to-submit state; do not republish.
+2. An existing generation-zero draft is **Seeded draft — not published**, never a generated artifact. With `lifecycleReady: true`, say **Published generation &lt;N&gt; — ready to submit**, never `publish-ready`. Otherwise disable Submit. For `classification: generation-required`, show exactly one primary action, **Generate and publish &lt;Phase&gt;**, prefilling the engine-selected `nextSkill`; do not also offer Submit. Never invoke the generation skill from this submission skill. Then stop without preparing, regenerating, publishing, modifying files, or guessing.
+3. When `confirmationRequired: true`, run only the returned Work-ID-pinned command and surface its complete soft-gate warning. Only the human may type or provide `continue`; never confirm it for them.
+4. For `convergence`, never run generic `singularity-flow submit`. Run the returned `singularity-flow story advance` command without `--confirm`, show its review and digest, and stop on unresolved dispositions. Ask the human to confirm that digest; only then run its exact `--confirm sha256:&lt;DIGEST&gt;` command once. A changed digest requires fresh review.
+5. Run the returned Work-ID-pinned submit command. Add `--skip-checks` only when authorized.
+6. On validation failure, fix only current-phase artifacts or checks and register them. Fingerprint the refusal code plus current artifact/check hashes; retry only while that fingerprint changes. Stop on an unchanged fingerprint or after three distinct changed fingerprints. Never loop quality commands.
+7. After success run `singularity-flow phase show &lt;phase&gt; --json`. In the visible assistant response, reproduce every generated current-phase document, including `agent-brief`, in full with ID, kind, bytes, SHA-256, and `--- BEGIN &lt;path&gt; ---` / `--- END &lt;path&gt; ---`. A Shell/tool block does not satisfy artifact review. Show binary/image paths and metadata.
+8. Fetch omissions with `singularity-flow documents view &lt;DOCUMENT-ID&gt; --json`. Never say “shown above” or summarize; show them before offering approval or rejection.
+9. Report commit/push, hashes, checks, token/cost. Approval is separate `/sf-approve`.
 </code></pre>
       </div>
     </details>

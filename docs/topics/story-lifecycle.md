@@ -15,7 +15,7 @@ related:
   - starting-work
   - sequence-gates
   - pins
-version: 3
+version: 4
 ---
 A story moves through the phases of its pinned work type (e.g. requirements → design → implementation → verification). Each phase produces artifacts as numbered generations; a rejection requires a fresh generation — history is never rewritten. State lives in `singularity/work-items/<ID>/` on the story branch: workflow.json (authority), artifacts, approvals, context, telemetry, evidence.
 
@@ -30,6 +30,12 @@ It says only whether submission may be attempted;
 `validation` remains `deferred-to-submit`, and repository tests, quality
 checks, acceptance coverage, conformance, and other gates still run during
 submission.
+
+A file seeded when a phase starts is displayed as **Seeded draft — not
+published**, even though it already exists on disk. Submit remains unavailable
+until the phase-generation skill has produced and recorded an immutable
+publication. The successful boundary is displayed as **Published generation N
+— ready to submit**. Submission never silently generates or publishes content.
 
 ## Purpose and prerequisites
 

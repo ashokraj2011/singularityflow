@@ -30,6 +30,9 @@ import { commandArgv } from './commands.ts';
 import { LifecycleTreeProvider } from './views/lifecycle.ts';
 import type { JourneyMessage } from './views/journey.ts';
 import { buildJourney } from './views/journey-model.ts';
+import {
+  phaseGenerationChatPrefill, submissionCommandArgv
+} from './views/submission-presentation.ts';
 import type { ApprovalsMessage } from './views/approvals.ts';
 import type { InboxMessage } from './views/inbox.ts';
 import { buildInboxTree } from './views/inbox-model.ts';
@@ -849,7 +852,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.refresh', 'singularityFlow.openArtifact', 'singularityFlow.runAction',
     'singularityFlow.continueSafely',
     'singularityFlow.prepareStoryPhase', 'singularityFlow.publishStoryPhase',
-    'singularityFlow.submitStoryPhase',
+    'singularityFlow.submitStoryPhase', 'singularityFlow.prefillStoryPhaseGeneration',
     'singularityFlow.approve', 'singularityFlow.openJourney', 'singularityFlow.openCommandCenter',
     'singularityFlow.openComprehensionCenter',
     'singularityFlow.createSgosWorkflow', 'singularityFlow.reviewSgosMetaTool',
@@ -4562,18 +4565,31 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const runStoryPhase = async (
     action: 'prepare' | 'publish' | 'submit', node?: TreeNode
   ): Promise<void> => {
-    if (node?.command) return runNode(node);
     const workflow = store.current.snapshot?.workflow;
     const phaseId = workflow?.currentPhase;
     if (!workflow || !phaseId) {
       void vscode.window.showWarningMessage('No governed Story phase is active in this workspace.');
       return;
     }
+    if (action === 'submit') {
+      const readiness = store.current.snapshot?.submissionReadiness;
+      const command = readiness?.lifecycleReady === true
+        ? submissionCommandArgv(readiness, phaseId)
+        : null;
+      if (!command) {
+        void vscode.window.showWarningMessage(
+          'Submit is unavailable until the current phase has an exact recorded publication. Refresh Lifecycle for the legal next action.'
+        );
+        return;
+      }
+      return runNode({
+        kind: 'action', id: `story:${phaseId}:submit`, label: `submit ${phaseId}`, command
+      });
+    }
+    if (node?.command) return runNode(node);
     const command = action === 'prepare'
       ? ['prepare', phaseId]
-      : action === 'publish'
-        ? ['phase', 'publish', phaseId]
-        : ['submit', '--phase', phaseId];
+      : ['phase', 'publish', phaseId];
     await runNode({
       kind: 'action', id: `story:${phaseId}:${action}`,
       label: `${action} ${phaseId}`, command
@@ -4613,6 +4629,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const onJourneyMessage = async (message: JourneyMessage): Promise<void> => {
     if (message.type === 'pin') return addSource();
     if (message.type === 'run') {
+      const storyJourney = buildJourney(store.current.snapshot);
+      if (storyJourney.kind === 'story' && storyJourney.nextAction?.execution === 'prefill') {
+        return vscode.commands.executeCommand('singularityFlow.prefillStoryPhaseGeneration', {
+          kind: 'action', id: 'story:journey:generate', label: storyJourney.nextAction.label ?? 'Generate phase',
+          prefill: storyJourney.nextAction.skill ?? undefined
+        });
+      }
+      if (storyJourney.kind === 'story' && storyJourney.nextAction?.execution === 'run') {
+        return runNode({
+          kind: 'action', id: 'story:journey:submit',
+          label: storyJourney.nextAction.label ?? 'Submit for approval',
+          command: commandArgv(storyJourney.nextAction.command)
+        });
+      }
       const next = store.current.snapshot?.initiative?.nextActions?.[0];
       if (!next) return;
       return runNode({
@@ -5813,6 +5843,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.prepareStoryPhase': ((node?: TreeNode) => runStoryPhase('prepare', node)) as never,
     'singularityFlow.publishStoryPhase': ((node?: TreeNode) => runStoryPhase('publish', node)) as never,
     'singularityFlow.submitStoryPhase': ((node?: TreeNode) => runStoryPhase('submit', node)) as never,
+    'singularityFlow.prefillStoryPhaseGeneration': async (node?: TreeNode) => {
+      const phaseId = store.current.snapshot?.workflow?.currentPhase;
+      if (!phaseId) {
+        void vscode.window.showWarningMessage('No governed Story phase is active in this workspace.');
+        return;
+      }
+      const prefill = phaseGenerationChatPrefill(node?.prefill);
+      if (!prefill) {
+        void vscode.window.showWarningMessage(
+          'The lifecycle snapshot did not provide a supported generation skill. Refresh and try again.'
+        );
+        return;
+      }
+      // This is deliberately a partial query. Clicking the lifecycle action cannot prepare,
+      // author, publish, or submit anything; the contributor reviews the engine-selected skill.
+      await vscode.commands.executeCommand('workbench.action.chat.open', prefill);
+    },
     'singularityFlow.approve': runNode as never,
     'singularityFlow.openJourney': async () => {
       await reconcileActiveWorkspaceSelection();

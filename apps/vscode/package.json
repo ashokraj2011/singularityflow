@@ -608,6 +608,11 @@
         "icon": "$(send)"
       },
       {
+        "command": "singularityFlow.prefillStoryPhaseGeneration",
+        "title": "Singularity Flow: Generate and Publish Current Story Phase in Copilot",
+        "icon": "$(sparkle)"
+      },
+      {
         "command": "singularityFlow.approve",
         "title": "Singularity Flow: Approve\u2026",
         "icon": "$(check)"

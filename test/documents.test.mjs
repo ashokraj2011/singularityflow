@@ -95,7 +95,12 @@ test('progress and document commands upload, list, and view files, images, and F
   assert.equal(readiness.classification, 'generation-required');
   assert.equal(readiness.currentGeneration, 0);
   assert.equal(readiness.publishedGeneration, null);
+  assert.equal(readiness.draftExists, true);
+  assert.equal(readiness.draftModified, true);
+  assert.equal(readiness.publicationRecorded, false);
   assert.equal(readiness.lifecycleReady, false);
+  assert.equal(readiness.nextSkill, '/sf-phase');
+  assert.equal(readiness.nextCommand, 'singularity-flow prepare intake');
   const publication = flow(root, ['phase', 'publish', 'intake']);
   assert.match(publication.stdout, /Published intake generation 1 at [0-9a-f]{8}/);
   // The default is the inventory — what was produced, where, and how to read it. Printing every
@@ -113,6 +118,8 @@ test('progress and document commands upload, list, and view files, images, and F
   assert.equal(readiness.publicationRecorded, true);
   assert.equal(readiness.lifecycleReady, true);
   assert.equal(readiness.command, 'singularity-flow submit intake --work-id DOCS-1');
+  assert.equal(readiness.nextCommand, readiness.command);
+  assert.equal(readiness.nextSkill, '/sf-submit');
   const storyReadiness = JSON.parse(flow(root, [
     'story', 'status', 'DOCS-1', '--submission-readiness', '--json'
   ]).stdout);

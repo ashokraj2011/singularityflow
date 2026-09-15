@@ -72,7 +72,9 @@ import {
 import {
   initiativeProgress, listInitiatives, secureInitiativePath
 } from './state-stores.mjs';
-import { loadInitiativeAggregate, loadStoryAggregate } from './state-stores.mjs';
+import {
+  loadInitiativeAggregate, loadStoryAggregate, storyPublicationPending
+} from './state-stores.mjs';
 import { evaluateInitiativePhase } from './initiative-evidence.mjs';
 import { interfaceContractStatus } from './initiative-contracts.mjs';
 import { deriveInitiativeReport, initiativeNextActions } from './initiative-report.mjs';
@@ -108,6 +110,7 @@ import {
 import { operationContext } from './operation-context.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { projectArchitectureIntentStatus } from './architecture-intent-gate.mjs';
+import { submissionReadiness } from './submission-readiness.mjs';
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
 import { withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
 import { loadSgosCommandCenter } from './sgos/command-center.mjs';
@@ -609,6 +612,19 @@ async function storyReferenceRepositoryStatus(root, definition, workflow) {
   }
 }
 
+/**
+ * One read-only readiness contract for every editor surface.  The editor must not infer that a
+ * phase is submittable merely because a draft file or positive generation number exists: only the
+ * immutable publication record and lifecycle state make that decision.
+ */
+async function storySubmissionReadiness(root, definition, workflow, changedPaths = null) {
+  if (!workflow) return null;
+  const pendingSynchronization = await storyPublicationPending(
+    root, definition, workflow.workItem.id, { migrate: false }
+  );
+  return submissionReadiness(root, definition, workflow, { pendingSynchronization, changedPaths });
+}
+
 async function fullRepositorySnapshot(root, requestedWorkId = null, requestedInitiativeId = null, revision = null) {
   const currentBranch = revision?.branch ?? branch(root);
   let acceptedStory = null;
@@ -660,6 +676,7 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
     review.markdown = reviewMarkdown(review);
   }
   const referenceRepositories = await storyReferenceRepositoryStatus(root, definition, workflow);
+  const submission = await storySubmissionReadiness(root, definition, workflow, changes);
   const activeSession = await loadSession(root, { required: false });
   let worldModelReadiness = null;
   if (workflow?.currentPhase && selectedStory?.branches.includes(currentBranch)) {
@@ -910,6 +927,7 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
       agents: agents.map((agent) => agent.id)
     } : null,
     workflow,
+    submissionReadiness: submission,
     referenceRepositories,
     progress,
     report,
@@ -1004,6 +1022,7 @@ async function lifecycleSlice(root, requestedWorkId, requestedInitiativeId, revi
     review.markdown = reviewMarkdown(review);
   }
   const referenceRepositories = await storyReferenceRepositoryStatus(root, definition, workflow);
+  const submission = await storySubmissionReadiness(root, definition, workflow, revision?.changedFiles ?? null);
   return {
     workItems: await workItems(root, definition),
     initiatives: portfolio ? await listInitiatives(root, portfolio) : [],
@@ -1016,6 +1035,7 @@ async function lifecycleSlice(root, requestedWorkId, requestedInitiativeId, revi
     } : null,
     selectedInitiativeId,
     workflow,
+    submissionReadiness: submission,
     referenceRepositories,
     progress,
     report,

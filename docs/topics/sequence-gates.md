@@ -13,7 +13,7 @@ related:
   - reconciliation
   - approvals
   - nextsteps
-version: 3
+version: 4
 ---
 `sflow submit` checks the sequence gates — phase order, current generation, artifact published and pushed, hash match, required checks, final reconciliation — and refuses with a to-do list when any fail: each unmet gate, its evidence, and the exact repair command, closing with what was preserved ("Nothing was submitted. Nothing was lost."). Hard gates protect invariants and cannot be overridden; soft gates accept a typed, recorded override. `sflow validate` runs checks without side effects. On success the phase enters awaiting_approval and reviewers are notified with a link.
 
@@ -21,8 +21,9 @@ version: 3
 read-only lifecycle preflight for clients such as `/sf-submit`. Its
 `sflow-submission-readiness` result reports `classification`,
 `lifecycleReady`, `phaseId`, `phaseStatus`, `currentGeneration`,
-`publishedGeneration`, `publicationRecorded`, `pendingSynchronization`, the
-next Work-ID-pinned `command`, `confirmationRequired`, `sequenceGate`, and a
+`publishedGeneration`, `publicationRecorded`, `draftExists`, `draftModified`,
+`pendingSynchronization`, `nextSkill`, the next Work-ID-pinned `nextCommand`,
+`confirmationRequired`, `sequenceGate`, and a
 stable `reasonCode`. A soft gate remains reachable only through its existing
 explicit human confirmation; the projection never confirms it. `validation` is always
 `deferred-to-submit`: readiness means only that the lifecycle permits a
@@ -31,6 +32,14 @@ and other configured gates still run when submission is attempted. Clients
 must consume this explicit projection rather than derive publication state
 from the full status tree, an artifact's `in_progress` label, or a
 generation-zero binding event.
+
+Generation zero is a seeded authoring file, not a governed publication. Clients
+label an existing generation-zero file **Seeded draft — not published**, keep
+Submit disabled, and expose one primary **Generate and publish <Phase>** action
+through the exact engine-selected `nextSkill`. Once the current immutable publication is recorded,
+clients label it **Published generation N — ready to submit**. `/sf-submit`
+never invokes generation or publication implicitly; those remain separate,
+reviewable mutations.
 
 ## Purpose and prerequisites
 

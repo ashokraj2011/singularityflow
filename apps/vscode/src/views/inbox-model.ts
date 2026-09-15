@@ -7,8 +7,11 @@
  * from the gate model and every document path still comes from the engine snapshot.
  */
 import { buildApprovals, type Approvals } from './approvals-model.ts';
-import type { InitiativeOutput, RepositorySnapshot } from '../cli/snapshot.ts';
+import type {
+  InitiativeOutput, RepositorySnapshot, StoryArtifact, StoryPhase, SubmissionReadiness
+} from '../cli/snapshot.ts';
 import type { TreeNode } from './tree-model.ts';
+import { storyArtifactPublicationLabel } from './submission-presentation.ts';
 
 export interface InboxArtifact {
   id: string;
@@ -90,17 +93,29 @@ function initiativeArtifact(output: InitiativeOutput, workId: string, workLabel:
   };
 }
 
-function storyArtifact(document: StoryDocument, workId: string, workLabel: string): InboxArtifact | null {
+function storyArtifact(
+  document: StoryDocument,
+  workId: string,
+  workLabel: string,
+  phaseDefinition: StoryPhase | null = null,
+  readiness: SubmissionReadiness | null | undefined = null
+): InboxArtifact | null {
   if (!document.path || !document.sha256) return null;
-  const phase = document.phase ?? (document.type === 'system' ? 'work item' : 'sources');
+  const generation = document.generation ?? phaseDefinition?.generation ?? null;
+  // Seeded templates may already have hashable bytes. They are still authoring inputs, not
+  // generated outputs, until the engine records a positive publication generation.
+  if (document.type === 'artifact' && generation === 0) return null;
+  const phaseId = document.phase ?? (document.type === 'system' ? 'work item' : 'sources');
   return {
     id: `story:${workId}:${document.id ?? document.path}`,
     label: document.label ?? document.id ?? document.path,
-    phase,
+    phase: phaseId,
     kind: document.kind ?? document.type ?? 'document',
-    status: document.status ?? (document.type === 'artifact' ? 'generated' : 'available'),
+    status: phaseDefinition && document.type === 'artifact'
+      ? storyArtifactPublicationLabel(document as StoryArtifact, phaseDefinition, readiness)
+      : document.status ?? (document.type === 'artifact' ? 'generated' : 'available'),
     path: document.path,
-    generation: document.generation ?? null,
+    generation,
     sha256: document.sha256,
     generatedBy: document.generatedBy ?? null,
     readOnly: document.status === 'approved',
@@ -163,7 +178,10 @@ export function buildInbox(snapshot: RepositorySnapshot | null): Inbox {
       const workLabel = workId === storyId
         ? storyLabel
         : snapshot.workItems.find((item) => item.id === workId)?.title ?? workId;
-      return storyArtifact(document, workId, workLabel);
+      const phase = workId === storyId && document.phase
+        ? snapshot.workflow?.phases[document.phase] ?? null
+        : null;
+      return storyArtifact(document, workId, workLabel, phase, snapshot.submissionReadiness);
     })
     .filter((artifact): artifact is InboxArtifact => Boolean(artifact));
 

@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { submissionReadinessSnapshot } from '../src/submission-readiness.mjs';
+import {
+  submissionReadinessSnapshot, submissionReadinessText
+} from '../src/submission-readiness.mjs';
 
 const RECORD_SHA = `sha256:${'a'.repeat(64)}`;
 
@@ -59,7 +61,9 @@ function snapshot(source, options = {}) {
 }
 
 test('a recorded current generation in progress is explicitly ready to submit', () => {
-  const result = snapshot(workflow());
+  const result = snapshot(workflow(), {
+    draftEvidence: { draftExists: true, draftModified: true }
+  });
 
   assert.equal(result.schemaVersion, 1);
   assert.equal(result.resultType, 'sflow-submission-readiness');
@@ -69,12 +73,18 @@ test('a recorded current generation in progress is explicitly ready to submit', 
   assert.equal(result.phaseStatus, 'in_progress');
   assert.equal(result.currentGeneration, 1);
   assert.equal(result.publishedGeneration, 1);
+  assert.equal(result.draftExists, true);
+  assert.equal(result.draftModified, true);
   assert.equal(result.publicationRecorded, true);
   assert.equal(result.pendingSynchronization, false);
   assert.equal(result.lifecycleReady, true);
   assert.equal(result.validation, 'deferred-to-submit');
   assert.equal(result.command, 'singularity-flow submit specification --work-id READY-1');
+  assert.equal(result.nextCommand, result.command);
+  assert.equal(result.nextSkill, '/sf-submit');
   assert.match(result.reasonCode, /ready/i);
+  assert.match(submissionReadinessText(result), /Published generation 1 — ready to submit/);
+  assert.doesNotMatch(submissionReadinessText(result), /publish-ready/);
 });
 
 test('a generation number without its immutable publication record is not publication evidence', () => {
@@ -106,14 +116,35 @@ test('malformed or ambiguous publication references fail closed', () => {
 });
 
 test('an ungenerated phase is not ready and never borrows generation zero from a binding event', () => {
-  const result = snapshot(workflow({ generation: 0, publication: false }));
+  const result = snapshot(workflow({ generation: 0, publication: false }), {
+    draftEvidence: { draftExists: true, draftModified: false }
+  });
 
   assert.equal(result.currentGeneration, 0);
   assert.equal(result.publishedGeneration, null);
   assert.equal(result.publicationRecorded, false);
+  assert.equal(result.draftExists, true);
+  assert.equal(result.draftModified, false);
   assert.equal(result.lifecycleReady, false);
   assert.equal(result.command, 'singularity-flow prepare specification');
+  assert.equal(result.nextCommand, result.command);
+  assert.equal(result.nextSkill, '/sf-phase');
   assert.match(result.reasonCode, /generation/i);
+  assert.match(submissionReadinessText(result), /Seeded draft — not published/);
+  assert.match(submissionReadinessText(result), /Next in Copilot: \/sf-phase/);
+  assert.match(submissionReadinessText(result), /Terminal equivalent: singularity-flow prepare specification/);
+});
+
+test('an edited generation-zero artifact remains a draft until publication is recorded', () => {
+  const result = snapshot(workflow({ generation: 0, publication: false }), {
+    draftEvidence: { draftExists: true, draftModified: true }
+  });
+
+  assert.equal(result.draftExists, true);
+  assert.equal(result.draftModified, true);
+  assert.equal(result.publicationRecorded, false);
+  assert.equal(result.lifecycleReady, false);
+  assert.match(submissionReadinessText(result), /Authored draft — not published/);
 });
 
 test('pending synchronization blocks submission even after publication', () => {
@@ -123,7 +154,11 @@ test('pending synchronization blocks submission even after publication', () => {
   assert.equal(result.pendingSynchronization, true);
   assert.equal(result.lifecycleReady, false);
   assert.equal(result.command, 'singularity-flow sync');
+  assert.equal(result.nextCommand, result.command);
+  assert.equal(result.nextSkill, '/sf-next');
   assert.match(result.reasonCode, /sync|publication/i);
+  assert.match(submissionReadinessText(result), /Published generation 1 — synchronization required/);
+  assert.doesNotMatch(submissionReadinessText(result), /ready to submit/);
 });
 
 test('an awaiting-approval phase reports already submitted instead of recommending republish', () => {
@@ -132,8 +167,11 @@ test('an awaiting-approval phase reports already submitted instead of recommendi
   assert.equal(result.publishedGeneration, 1);
   assert.equal(result.lifecycleReady, false);
   assert.equal(result.command, 'singularity-flow approve specification --work-id READY-1 --fetch');
+  assert.equal(result.nextCommand, result.command);
+  assert.equal(result.nextSkill, '/sf-approve');
   assert.match(result.classification, /submitted|approval|blocked/i);
   assert.match(result.reasonCode, /submitted|approval|status/i);
+  assert.match(submissionReadinessText(result), /Published generation 1 — submitted for approval/);
 });
 
 test('a generation-zero phase is not advertised as ready when its commit gate is hard', () => {
@@ -220,4 +258,31 @@ test('convergence readiness returns its guarded advance route rather than generi
 
   assert.equal(result.lifecycleReady, true);
   assert.equal(result.command, 'singularity-flow story advance --work-id READY-1');
+  assert.equal(result.nextCommand, result.command);
+  assert.equal(result.nextSkill, '/sf-submit');
+  assert.match(submissionReadinessText(result), /ready for governed advancement/);
+});
+
+test('every phase kind routes an unpublished generation to its guarded authoring skill', () => {
+  const cases = [
+    ['intake', {}, '/sf-phase'],
+    ['specification', {}, '/sf-phase'],
+    ['planning', {}, '/sf-phase'],
+    ['implementation', { task: 'code' }, '/sf-code'],
+    ['verification', {}, '/sf-phase'],
+    ['release', {}, '/sf-phase'],
+    ['convergence', { producer: 'deterministic' }, '/sf-converge']
+  ];
+
+  for (const [phaseId, generationPolicy, expectedSkill] of cases) {
+    const source = workflow({ phaseId, generation: 0, publication: false });
+    Object.assign(source.phases[phaseId].generationPolicy, generationPolicy);
+    const result = snapshot(source, {
+      draftEvidence: { draftExists: true, draftModified: false }
+    });
+    assert.equal(result.lifecycleReady, false, phaseId);
+    assert.equal(result.publicationRecorded, false, phaseId);
+    assert.equal(result.nextCommand, `singularity-flow prepare ${phaseId}`, phaseId);
+    assert.equal(result.nextSkill, expectedSkill, phaseId);
+  }
 });

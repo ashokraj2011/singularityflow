@@ -4,7 +4,8 @@ import {
   actionCommandLines,
   copilotAction,
   copilotSkillForCommand,
-  directCopilotSkill
+  directCopilotSkill,
+  submissionReadinessPresentation
 } from '../src/copilot-guidance.mjs';
 
 test('user-facing skills always use the direct sf namespace', () => {
@@ -32,4 +33,123 @@ test('rendered action guidance leads with the command, then the Copilot skill', 
     'Run: singularity-flow prepare intake',
     'In Copilot: /sf-phase'
   ]);
+});
+
+test('an unpublished seeded draft disables submit and offers one phase-generation action', () => {
+  const presentation = submissionReadinessPresentation({
+    classification: 'generation-required',
+    lifecycleReady: false,
+    phaseId: 'specification',
+    currentGeneration: 0,
+    publishedGeneration: null,
+    publicationRecorded: false,
+    draftExists: true,
+    draftModified: false,
+    nextSkill: '/sf-phase',
+    nextCommand: 'singularity-flow prepare specification'
+  });
+
+  assert.equal(presentation.statusLabel, 'Seeded draft — not published');
+  assert.equal(presentation.submitEnabled, false);
+  assert.deepEqual(presentation.primaryActions, [{
+    label: 'Generate and publish Specification',
+    skill: '/sf-phase',
+    command: 'singularity-flow prepare specification',
+    enabled: true,
+    primary: true,
+    kind: 'generate-and-publish'
+  }]);
+});
+
+test('a current immutable publication is described as ready to submit', () => {
+  const presentation = submissionReadinessPresentation({
+    classification: 'ready-to-attempt',
+    lifecycleReady: true,
+    phaseId: 'implementation-spec',
+    currentGeneration: 3,
+    publishedGeneration: 3,
+    publicationRecorded: true,
+    nextSkill: '/sf-submit',
+    nextCommand: 'singularity-flow submit implementation-spec --work-id READY-1'
+  });
+
+  assert.equal(presentation.statusLabel, 'Published generation 3 — ready to submit');
+  assert.equal(presentation.submitEnabled, true);
+  assert.deepEqual(presentation.primaryActions, [{
+    label: 'Submit Implementation Spec',
+    skill: '/sf-submit',
+    command: 'singularity-flow submit implementation-spec --work-id READY-1',
+    enabled: true,
+    primary: true,
+    kind: 'submit'
+  }]);
+});
+
+test('non-generation refusals never get rewritten into phase generation', () => {
+  const presentation = submissionReadinessPresentation({
+    classification: 'synchronization-required',
+    lifecycleReady: false,
+    phaseId: 'specification',
+    currentGeneration: 1,
+    publishedGeneration: 1,
+    publicationRecorded: true,
+    nextSkill: '/sf-sync',
+    nextCommand: 'singularity-flow sync'
+  });
+
+  assert.equal(presentation.statusLabel, 'Published generation 1 — synchronization required');
+  assert.equal(presentation.submitEnabled, false);
+  assert.deepEqual(presentation.primaryActions, []);
+});
+
+test('code phases preserve their engine-selected authoring skill and phase label', () => {
+  const presentation = submissionReadinessPresentation({
+    classification: 'generation-required',
+    lifecycleReady: false,
+    phaseId: 'implementation',
+    phaseLabel: 'Build and test',
+    currentGeneration: 0,
+    publicationRecorded: false,
+    draftExists: true,
+    nextSkill: '/sf-code',
+    nextCommand: 'singularity-flow prepare implementation'
+  });
+
+  assert.equal(presentation.primaryActions.length, 1);
+  assert.equal(presentation.primaryActions[0].label, 'Generate and publish Build and test');
+  assert.equal(presentation.primaryActions[0].skill, '/sf-code');
+});
+
+test('deterministic convergence preserves its engine-selected generation skill', () => {
+  const presentation = submissionReadinessPresentation({
+    classification: 'generation-required',
+    lifecycleReady: false,
+    phaseId: 'convergence',
+    currentGeneration: 0,
+    publicationRecorded: false,
+    nextSkill: '/sf-converge',
+    nextCommand: 'singularity-flow prepare convergence'
+  });
+
+  assert.equal(presentation.primaryActions.length, 1);
+  assert.equal(presentation.primaryActions[0].skill, '/sf-converge');
+});
+
+test('incomplete readiness never invents a Copilot route', () => {
+  const generation = submissionReadinessPresentation({
+    classification: 'generation-required', lifecycleReady: false,
+    phaseId: 'specification', currentGeneration: 0, publicationRecorded: false,
+    draftExists: true, nextSkill: null,
+    nextCommand: 'singularity-flow prepare specification'
+  });
+  assert.equal(generation.submitEnabled, false);
+  assert.deepEqual(generation.primaryActions, []);
+
+  const submission = submissionReadinessPresentation({
+    classification: 'ready-to-attempt', lifecycleReady: true,
+    phaseId: 'specification', currentGeneration: 1, publishedGeneration: 1,
+    publicationRecorded: true, nextSkill: '/sf-submit', nextCommand: null
+  });
+  assert.equal(submission.submitEnabled, false);
+  assert.deepEqual(submission.primaryActions, []);
 });

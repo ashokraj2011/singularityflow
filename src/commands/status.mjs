@@ -28,7 +28,7 @@ export async function run(_argv, { positionals, options }) {
     const [
       { loadAcceptedStoryExecution },
       { storyPublicationPending },
-      { submissionReadinessSnapshot, submissionReadinessText }
+      { submissionReadiness, submissionReadinessText }
     ] = await Promise.all([
       import('../accepted-story-execution.mjs'),
       import('../state-stores.mjs'),
@@ -38,7 +38,7 @@ export async function run(_argv, { positionals, options }) {
     const pendingSynchronization = await storyPublicationPending(
       root, definition, workflow.workItem.id, { migrate: false }
     );
-    const readiness = submissionReadinessSnapshot(workflow, { pendingSynchronization });
+    const readiness = await submissionReadiness(root, definition, workflow, { pendingSynchronization });
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(readiness, null, 2));
     else console.log(submissionReadinessText(readiness));
     return;

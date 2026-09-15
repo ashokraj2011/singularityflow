@@ -340,6 +340,33 @@ export interface StoryWorkflow {
   [key: string]: unknown;
 }
 
+/**
+ * The engine-owned answer to "may this exact phase generation be submitted?".
+ *
+ * Hosts must read `lifecycleReady` as an explicit boolean. A document on disk or a positive
+ * generation number is not publication evidence and must never make a Submit control available.
+ */
+export interface SubmissionReadiness {
+  schemaVersion?: number;
+  resultType?: string;
+  workId?: string | null;
+  phaseId: string | null;
+  phaseStatus?: string | null;
+  lifecycleReady: boolean;
+  draftExists: boolean;
+  draftModified: boolean;
+  publicationRecorded: boolean;
+  pendingSynchronization?: boolean;
+  confirmationRequired?: boolean;
+  sequenceGate?: string | null;
+  currentGeneration: number | null;
+  publishedGeneration: number | null;
+  nextSkill: string | null;
+  nextCommand: string | null;
+  classification?: string;
+  reasonCode?: string;
+}
+
 export interface StoryModelUsage {
   provider: string;
   model: string;
@@ -626,6 +653,8 @@ export interface RepositorySnapshot {
   selectedInitiativeId: string | null;
   initiative: InitiativeSnapshot | null;
   workflow: StoryWorkflow | null;
+  /** Explicit submit/generate routing for the selected Story phase. Absent means fail closed. */
+  submissionReadiness?: SubmissionReadiness | null;
   architectureIntent?: {
     workId: string; enabled: boolean; present: boolean;
     status: 'disabled' | 'absent' | 'invalid' | 'candidate' | 'approved';

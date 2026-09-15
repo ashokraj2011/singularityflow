@@ -16,8 +16,11 @@
 import {
   packsWithMembers, phasesInOrder, storiesByRepository,
   type RepositorySnapshot, type InitiativeSnapshot, type PhaseStatus, type StoryWorkflow,
-  type StoryArtifact, type StoryApproval
+  type StoryArtifact, type StoryApproval, type SubmissionReadiness
 } from '../cli/snapshot.ts';
+import {
+  phaseSubmissionPresentation, storyArtifactPublicationLabel
+} from './submission-presentation.ts';
 
 export interface JourneyApproval {
   actor: string;
@@ -31,6 +34,8 @@ export interface JourneyStage {
   status: PhaseStatus;
   current: boolean;
   approved: boolean;
+  generation: number;
+  publicationLabel: string;
   /** Artifacts generated / artifacts declared. */
   authored: number;
   declared: number;
@@ -81,7 +86,10 @@ export interface Journey {
   repositories: Array<{ id: string; stories: Array<{ id: string; title: string; blocking: boolean }> }>;
   /** Blocking reasons from the phase gate, verbatim. */
   blockers: string[];
-  nextAction: { command: string; reason: string } | null;
+  nextAction: {
+    command: string; reason: string; label?: string;
+    execution?: 'run' | 'prefill'; skill?: string | null;
+  } | null;
   /** Set when there is nothing to render, with the reason. */
   empty: string | null;
 }
@@ -168,7 +176,7 @@ function storyArtifacts(snapshot: RepositorySnapshot, workflow: StoryWorkflow, p
     phaseId,
     subjectId: null,
     label: artifact.label ?? artifact.path.split('/').at(-1) ?? artifact.path,
-    status: artifact.status ?? phase.status,
+    status: storyArtifactPublicationLabel(artifact, phase, snapshot.submissionReadiness),
     required: artifact.path === phase.requiredArtifact?.path
       || artifact.path.endsWith(`/${phase.requiredArtifact?.path ?? ''}`),
     path: artifact.path,
@@ -184,17 +192,25 @@ function storyJourneyOf(
   workflow: StoryWorkflow,
   selectedStageId: string | null
 ): Journey {
+  const readiness: SubmissionReadiness | null = snapshot.submissionReadiness?.phaseId === workflow.currentPhase
+    ? snapshot.submissionReadiness
+    : null;
   const stages: JourneyStage[] = workflow.phaseOrder
     .map((phaseId) => workflow.phases[phaseId])
     .filter((phase): phase is NonNullable<typeof phase> => Boolean(phase))
     .map((phase) => {
       const artifacts = storyArtifacts(snapshot, workflow, phase.id);
+      const presentation = phaseSubmissionPresentation(phase, readiness);
       return {
         id: phase.id,
         label: phase.label,
         status: phase.status,
         current: workflow.currentPhase === phase.id,
         approved: phase.status === 'approved',
+        generation: phase.generation,
+        publicationLabel: phase.id === workflow.currentPhase && presentation.kind !== 'unavailable'
+          ? presentation.statusLabel
+          : `${String(phase.status).replaceAll('_', ' ')} · generation ${phase.generation}`,
         authored: artifacts.filter((artifact) => artifact.sha256).length,
         declared: Math.max(artifacts.length, phase.requiredArtifact ? 1 : 0),
         artifacts,
@@ -203,6 +219,8 @@ function storyJourneyOf(
     });
   const currentStage = stages.find((stage) => stage.current) ?? null;
   const selectedStage = selectedStageFrom(stages, selectedStageId);
+  const currentPhase = workflow.currentPhase ? workflow.phases[workflow.currentPhase] ?? null : null;
+  const presentation = currentPhase ? phaseSubmissionPresentation(currentPhase, readiness) : null;
   return {
     kind: 'story',
     id: workflow.workItem.id,
@@ -219,7 +237,20 @@ function storyJourneyOf(
     sources: [],
     repositories: [],
     blockers: [],
-    nextAction: null,
+    nextAction: presentation?.kind === 'ready-to-submit' && readiness?.nextCommand
+      ? {
+          command: readiness.nextCommand,
+          reason: presentation.statusLabel,
+          label: 'Submit for approval', execution: 'run', skill: '/sf-submit'
+        }
+      : presentation?.kind === 'generation-required' && presentation.skill
+        ? {
+            command: presentation.skill,
+            reason: presentation.statusLabel,
+            label: `Generate and publish ${currentStage?.label ?? 'current phase'}`,
+            execution: 'prefill', skill: presentation.skill
+          }
+        : null,
     empty: null
   };
 }
@@ -284,6 +315,8 @@ function initiativeJourneyOf(initiative: InitiativeSnapshot, selectedStageId: st
       status: phase.status,
       current: phase.current,
       approved: phase.status === 'approved',
+      generation: 0,
+      publicationLabel: String(phase.status).replaceAll('_', ' '),
       authored: phase.outputs.filter((output) => output.sha256).length,
       declared: phase.outputs.length,
       artifacts,

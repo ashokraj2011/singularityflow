@@ -8,7 +8,10 @@ import { validateFactLedger, validateHistoricalFactLedger } from '../extract/fac
 import {
   resolveExtractorExecutionContract, validateExtractorRegistry
 } from '../registry/extractors.mjs';
-import { pathInsideScope } from '../scope/matcher.mjs';
+import { classifyScopePath, pathInsideScope } from '../scope/matcher.mjs';
+import {
+  WMP_CANDIDATE_EXCLUSION_REASONS
+} from './candidate-roster-owner.mjs';
 import {
   parseCanonicalWmpRecordBytes,
   validateWmpModelBinding, validateWmpViewBinding
@@ -21,13 +24,18 @@ import {
 import {
   parseExactRetainedObject, validateRetainedObjectReference
 } from './retained-object.mjs';
+import {
+  WMP_EMPTY_EXTRACTOR_CONFIGURATION_SHA256
+} from './extraction-profile-owners.mjs';
+import { runWorldModelHistoryGitRead } from './git-read.mjs';
+import {
+  assertAcyclicWorldModelHistoryClosure, collectWorldModelHistoryObjectRefs,
+  createWorldModelHistoryClosureBudget
+} from './closure-walk.mjs';
 
 const OBJECT_REF_KEYS = Object.freeze(['bytes', 'family', 'mediaType', 'role', 'sha256']);
 const MAXIMUM_CLOSURE_OBJECTS = 100_000;
 const MAXIMUM_CLOSURE_BYTES = 256 * 1024 * 1024;
-const EMPTY_EXTRACTION_CONFIGURATION_SHA256 = sha256({
-  kind: 'world-model-extractor-configuration', version: 1
-});
 const AUTHORITY_REF_PATTERN = /^refs\/[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 const UNOWNED_RETAINED_ROLES = new Set([
   'admission-proof',
@@ -43,15 +51,6 @@ const UNOWNED_RETAINED_ROLES = new Set([
 
 function fail(message, code, details = {}, cause = undefined) {
   throw new SingularityFlowError(message, { code, details, cause });
-}
-
-function localGitEnvironment(env) {
-  return {
-    ...env,
-    GIT_NO_LAZY_FETCH: '1',
-    GIT_TERMINAL_PROMPT: '0',
-    GCM_INTERACTIVE: 'Never'
-  };
 }
 
 function exactAuthorityRef(value) {
@@ -78,9 +77,9 @@ export function resolveWorldModelHistoryAuthority(root, authorityCommit, {
       'WMP_AUTHORITY_CUT_REQUIRED', { authorityCommit: requested || null });
   }
   const admittedRef = exactAuthorityRef(authorityRef);
-  const refResult = runCommand('git', ['rev-parse', '--verify', `${admittedRef}^{commit}`], {
-    cwd: root, allowFailure: true, env: localGitEnvironment(env)
-  });
+  const refResult = runWorldModelHistoryGitRead(root, [
+    'rev-parse', '--verify', `${admittedRef}^{commit}`
+  ], { env, runCommand, operation: 'authority-tip' });
   const authorityTip = refResult.status === 0
     ? String(refResult.stdout).trim().toLowerCase() : null;
   if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(authorityTip ?? '')) {
@@ -89,19 +88,17 @@ export function resolveWorldModelHistoryAuthority(root, authorityCommit, {
         authorityCommit: requested, authorityRef: admittedRef
       });
   }
-  const result = runCommand('git', ['rev-parse', '--verify', `${requested}^{commit}`], {
-    cwd: root, allowFailure: true, env: localGitEnvironment(env)
-  });
+  const result = runWorldModelHistoryGitRead(root, [
+    'rev-parse', '--verify', `${requested}^{commit}`
+  ], { env, runCommand, operation: 'authority-commit' });
   const resolved = result.status === 0 ? String(result.stdout).trim().toLowerCase() : null;
   if (resolved !== requested) {
     fail('The selected World-model authority commit is not available in the local Git object store.',
       'WMP_AUTHORITY_REFRESH_REQUIRED', { authorityCommit: requested });
   }
-  const admitted = runCommand('git', [
+  const admitted = runWorldModelHistoryGitRead(root, [
     'merge-base', '--is-ancestor', requested, authorityTip
-  ], {
-    cwd: root, allowFailure: true, env: localGitEnvironment(env)
-  });
+  ], { env, runCommand, operation: 'authority-ancestry' });
   if (admitted.status !== 0) {
     fail(
       'The selected World-model commit is not an admitted cut of the configured state authority.',
@@ -115,10 +112,9 @@ export function resolveWorldModelHistoryAuthority(root, authorityCommit, {
 function readExactBlob(root, commit, relativePath, {
   missingCode = 'WMP_INPUT_MISSING', env = process.env, runCommand = run
 } = {}) {
-  const localEnv = localGitEnvironment(env);
-  const listed = runCommand('git', ['ls-tree', '-z', commit, '--', relativePath], {
-    cwd: root, allowFailure: true, env: localEnv
-  });
+  const listed = runWorldModelHistoryGitRead(root, [
+    'ls-tree', '-z', commit, '--', relativePath
+  ], { env, runCommand, operation: 'history-path' });
   if (listed.status !== 0) {
     fail(`World-model history could not inspect '${relativePath}'.`,
       'WMP_AUTHORITY_UNAVAILABLE', { authorityCommit: commit, path: relativePath });
@@ -142,9 +138,9 @@ function readExactBlob(root, commit, relativePath, {
     fail(`World-model history path is not an immutable regular blob: ${relativePath}.`,
       'WMP_INTEGRITY_FAILED', { authorityCommit: commit, path: relativePath, mode, type });
   }
-  const sizeResult = runCommand('git', ['cat-file', '-s', oid], {
-    cwd: root, allowFailure: true, env: localEnv
-  });
+  const sizeResult = runWorldModelHistoryGitRead(root, [
+    'cat-file', '-s', oid
+  ], { env, runCommand, operation: 'history-object-size' });
   const size = sizeResult.status === 0 ? Number(String(sizeResult.stdout).trim()) : NaN;
   if (!Number.isSafeInteger(size) || size < 1 || size > WMP_MAXIMUM_OBJECT_BYTES) {
     fail(`World-model history object has an invalid size: ${relativePath}.`,
@@ -154,8 +150,9 @@ function readExactBlob(root, commit, relativePath, {
         maximumBytes: WMP_MAXIMUM_OBJECT_BYTES
       });
   }
-  const shown = runCommand('git', ['cat-file', 'blob', oid], {
-    cwd: root, allowFailure: true, encoding: 'buffer', maxBuffer: size + 1024, env: localEnv
+  const shown = runWorldModelHistoryGitRead(root, ['cat-file', 'blob', oid], {
+    env, runCommand, operation: 'history-object-bytes',
+    encoding: 'buffer', maxBuffer: size + 1024
   });
   const bytes = Buffer.isBuffer(shown.stdout) ? shown.stdout : Buffer.from(shown.stdout ?? '', 'utf8');
   if (shown.status !== 0 || bytes.length !== size) {
@@ -170,18 +167,14 @@ function exactObjectRef(value) {
     && JSON.stringify(Object.keys(value).sort()) === JSON.stringify(OBJECT_REF_KEYS);
 }
 
-function collectObjectRefs(value, refs = []) {
-  if (Array.isArray(value)) {
-    for (const entry of value) collectObjectRefs(entry, refs);
-  } else if (isPlainRecord(value)) {
-    if (exactObjectRef(value)) {
-      validateRetainedObjectReference(value);
-      refs.push(value);
-    } else {
-      for (const entry of Object.values(value)) collectObjectRefs(entry, refs);
-    }
-  }
-  return refs;
+function collectObjectRefs(value, budget, baseDepth = 0) {
+  return collectWorldModelHistoryObjectRefs(value, {
+    exactObjectRef,
+    validateObjectRef: validateRetainedObjectReference,
+    isObjectContainer: isPlainRecord,
+    budget,
+    baseDepth
+  });
 }
 
 function retainedOwnerUnavailable(ref) {
@@ -288,8 +281,71 @@ function requiredFactOutcome(factType, facts) {
   };
 }
 
-function validateCompletenessSourceCoverage(sourceSnapshot, scope, completeness) {
+function validateCompletenessSourceCoverage(
+  sourceSnapshot, scope, completeness, candidateRoster = null
+) {
   const sourceFiles = new Map(sourceSnapshot.files.map((entry) => [entry.path, entry]));
+  const rosterSelected = new Map();
+  const rosterExcluded = new Map();
+  if (candidateRoster) {
+    for (const candidate of candidateRoster.candidates) {
+      const classification = classifyScopePath(candidate.path, scope);
+      const expectedStatus = classification.status === 'inside' ? 'selected' : 'excluded';
+      const expectedReason = classification.status === 'inside'
+        ? null : WMP_CANDIDATE_EXCLUSION_REASONS[classification.status];
+      if (candidate.status !== expectedStatus || candidate.reasonCode !== expectedReason) {
+        graphMismatch(
+          `Persisted World-model Candidate Roster misclassifies '${candidate.path}'.`,
+          {
+            relation: 'candidate-roster.scope-classification',
+            path: candidate.path,
+            expectedStatus,
+            expectedReason,
+            receivedStatus: candidate.status,
+            receivedReason: candidate.reasonCode
+          }
+        );
+      }
+      (candidate.status === 'selected' ? rosterSelected : rosterExcluded)
+        .set(candidate.path, candidate);
+    }
+    if (rosterSelected.size !== sourceFiles.size) {
+      graphMismatch(
+        'Persisted World-model Candidate Roster does not select the exact Source Snapshot roster.',
+        {
+          relation: 'candidate-roster.selected-source-paths',
+          expectedPaths: sourceFiles.size,
+          receivedPaths: rosterSelected.size
+        }
+      );
+    }
+    for (const [relative, source] of sourceFiles) {
+      const candidate = rosterSelected.get(relative);
+      if (!candidate || candidate.type !== source.type || candidate.mode !== source.mode
+          || candidate.contentSha256 !== source.contentSha256
+          || candidate.bytes !== source.bytes) {
+        graphMismatch(
+          `Persisted World-model Candidate Roster does not bind selected source bytes for '${relative}'.`,
+          {
+            relation: 'candidate-roster.selected-source-content',
+            path: relative,
+            expected: {
+              type: source.type,
+              mode: source.mode,
+              contentSha256: source.contentSha256,
+              bytes: source.bytes
+            },
+            received: candidate ? {
+              type: candidate.type,
+              mode: candidate.mode,
+              contentSha256: candidate.contentSha256,
+              bytes: candidate.bytes
+            } : null
+          }
+        );
+      }
+    }
+  }
   const accounted = completeness.pathOutcomes.filter((entry) => entry.status !== 'excluded');
   if (accounted.length !== sourceFiles.size) {
     graphMismatch(
@@ -332,10 +388,11 @@ function validateCompletenessSourceCoverage(sourceSnapshot, scope, completeness)
       }
     );
   }
-  const unprovedExclusion = completeness.pathOutcomes.find(
+  const excludedOutcomes = completeness.pathOutcomes.filter(
     (entry) => entry.status === 'excluded'
   );
-  if (unprovedExclusion) {
+  if (!candidateRoster && excludedOutcomes.length) {
+    const unprovedExclusion = excludedOutcomes[0];
     graphMismatch(
       `Persisted World-model Completeness Record claims unproved excluded path '${unprovedExclusion.path}'.`,
       {
@@ -343,6 +400,44 @@ function validateCompletenessSourceCoverage(sourceSnapshot, scope, completeness)
         path: unprovedExclusion.path
       }
     );
+  }
+  if (candidateRoster) {
+    if (excludedOutcomes.length !== rosterExcluded.size) {
+      graphMismatch(
+        'Persisted World-model Completeness Record exclusions do not cover the owned Candidate Roster.',
+        {
+          relation: 'completeness.excluded-source-roster',
+          expectedPaths: rosterExcluded.size,
+          receivedPaths: excludedOutcomes.length
+        }
+      );
+    }
+    const remaining = new Map(rosterExcluded);
+    for (const outcome of excludedOutcomes) {
+      const candidate = remaining.get(outcome.path);
+      if (!candidate || outcome.reasonCode !== candidate.reasonCode) {
+        graphMismatch(
+          `Persisted World-model Completeness Record exclusion '${outcome.path}' is not proved by its Candidate Roster.`,
+          {
+            relation: 'completeness.excluded-source-roster',
+            path: outcome.path,
+            expectedReason: candidate?.reasonCode ?? null,
+            receivedReason: outcome.reasonCode
+          }
+        );
+      }
+      remaining.delete(outcome.path);
+    }
+    if (remaining.size) {
+      graphMismatch(
+        'Persisted World-model Completeness Record omits discovered excluded candidates.',
+        {
+          relation: 'completeness.excluded-source-roster',
+          omittedPaths: [...remaining.keys()].sort(compareText).slice(0, 100),
+          omitted: Math.max(0, remaining.size - 100)
+        }
+      );
+    }
   }
 }
 
@@ -384,6 +479,71 @@ function validateModelBindingGraph(binding, closure, { currentExtractorAdmission
       expected: scope.capabilityId,
       received: sourceSnapshot.subject.id
     });
+  }
+
+  const candidateCaptures = binding.inputDescriptors.extractionInputs.captures.filter(
+    (entry) => entry.role === 'candidate-roster'
+  );
+  const candidateObjectRefs = binding.inputObjects.filter(
+    (entry) => entry.role === 'candidate-roster'
+  );
+  if (candidateCaptures.length > 1 || candidateObjectRefs.length > 1) {
+    graphMismatch('Persisted World-model graph repeats Candidate Roster authority.', {
+      relation: 'candidate-roster.capture',
+      captures: candidateCaptures.length,
+      objects: candidateObjectRefs.length
+    });
+  }
+  const candidateCapture = candidateCaptures[0] ?? null;
+  const candidateObjectRef = candidateObjectRefs[0] ?? null;
+  if (candidateObjectRef && (!candidateCapture || candidateCapture.status !== 'available'
+      || canonicalJson(candidateCapture.objectRef) !== canonicalJson(candidateObjectRef))) {
+    graphMismatch(
+      'Persisted World-model Candidate Roster object is not its exact available extraction input.',
+      { relation: 'candidate-roster.capture' }
+    );
+  }
+  if (candidateCapture?.status === 'available' && !candidateObjectRef) {
+    graphMismatch('Persisted World-model Candidate Roster capture has no retained input object.', {
+      relation: 'candidate-roster.capture'
+    });
+  }
+  if (candidateCapture?.status === 'available' && sourceSnapshot
+      && candidateCapture.subject !== sourceSnapshot.subject.id) {
+    graphMismatch('Persisted World-model Candidate Roster subject differs from its source.', {
+      relation: 'candidate-roster.subject',
+      expected: sourceSnapshot.subject.id,
+      received: candidateCapture.subject
+    });
+  }
+  const candidateRoster = candidateObjectRef
+    ? resolvedRecord(closure, candidateObjectRef) : null;
+  if (candidateRoster) {
+    requireDigest(
+      candidateRoster.sourceManifestSha256,
+      binding.inputs.sourceManifestSha256,
+      'Candidate Roster source does not match ModelInputs'
+    );
+    requireDigest(
+      candidateRoster.scopeManifestSha256,
+      binding.inputs.scopeManifestSha256,
+      'Candidate Roster scope does not match ModelInputs'
+    );
+    if (sourceSnapshot && candidateRoster.source.commit !== sourceSnapshot.revision.commit) {
+      graphMismatch('Persisted World-model Candidate Roster commit differs from its source.', {
+        relation: 'candidate-roster.source-commit',
+        expected: sourceSnapshot.revision.commit,
+        received: candidateRoster.source.commit
+      });
+    }
+    if (candidateRoster.source.gitObjectFormat
+        !== binding.inputDescriptors.sourceBinding.gitObjectFormat) {
+      graphMismatch('Persisted World-model Candidate Roster Git format differs from its source.', {
+        relation: 'candidate-roster.git-object-format',
+        expected: binding.inputDescriptors.sourceBinding.gitObjectFormat,
+        received: candidateRoster.source.gitObjectFormat
+      });
+    }
   }
 
   const policy = resolvedRecord(closure,
@@ -532,7 +692,9 @@ function validateModelBindingGraph(binding, closure, { currentExtractorAdmission
       'Completeness Record scope does not match ModelInputs');
     requireDigest(completeness.extractorRegistrySha256, binding.inputs.extractorRegistrySha256,
       'Completeness Record Extractor Registry does not match ModelInputs');
-    if (sourceSnapshot) validateCompletenessSourceCoverage(sourceSnapshot, scope, completeness);
+    if (sourceSnapshot) validateCompletenessSourceCoverage(
+      sourceSnapshot, scope, completeness, candidateRoster
+    );
     for (const field of [
       'totalPaths', 'processedPaths', 'unsupportedPaths', 'failedPaths', 'excludedPaths'
     ]) {
@@ -566,7 +728,9 @@ function validateModelBindingGraph(binding, closure, { currentExtractorAdmission
       .map((entry) => entry.manifestSha256).sort();
     if (canonicalJson(profileManifestDigests) !== canonicalJson(completenessManifestDigests)) {
       graphMismatch('Persisted World-model Completeness Record does not cover the exact Extraction Profile.', {
-        relation: 'completeness.extraction-profile'
+        relation: 'completeness.extraction-profile',
+        expectedManifestSha256: profileManifestDigests,
+        receivedManifestSha256: completenessManifestDigests
       });
     }
     const expectedCoverage = [];
@@ -679,7 +843,7 @@ function validateModelBindingGraph(binding, closure, { currentExtractorAdmission
         `derivation '${derivation.id}' scope does not match ModelInputs`);
       requireDigest(
         derivation.configurationSha256,
-        EMPTY_EXTRACTION_CONFIGURATION_SHA256,
+        WMP_EMPTY_EXTRACTOR_CONFIGURATION_SHA256,
         `derivation '${derivation.id}' configuration is not the exact admitted empty extraction configuration`
       );
       const manifest = registryByIdentity.get(
@@ -917,13 +1081,21 @@ function readBinding(root, {
   }
 
   const bindingOwner = `binding:${bindingBlob.sha256}`;
-  const queue = collectObjectRefs(validated).map((ref) => ({ ref, owner: bindingOwner }));
+  const closureBudget = createWorldModelHistoryClosureBudget({
+    operation: `persisted-${kind}-read`
+  });
+  const queue = collectObjectRefs(validated, closureBudget).map((ref) => ({
+    ref, owner: bindingOwner, depth: 1
+  }));
   const closure = new Map();
   const edges = new Map();
   const deferredOwnerErrors = [];
   let totalBytes = bindingBlob.bytes.length;
-  while (queue.length) {
-    const { ref, owner } = queue.shift();
+  let queueIndex = 0;
+  while (queueIndex < queue.length) {
+    const { ref, owner, depth } = queue[queueIndex];
+    queueIndex += 1;
+    closureBudget.checkpoint({ depth });
     if (!edges.has(owner)) edges.set(owner, new Set());
     edges.get(owner).add(ref.sha256);
     if (closure.has(ref.sha256)) {
@@ -976,32 +1148,21 @@ function readBinding(root, {
       });
     }
     closure.set(ref.sha256, object);
-    if (object.record) queue.push(...collectObjectRefs(object.record).map((child) => ({
-      ref: child, owner: ref.sha256
-    })));
+    if (object.record) {
+      const children = collectObjectRefs(object.record, closureBudget, depth);
+      queue.push(...children.map((child) => ({
+        ref: child, owner: ref.sha256, depth: depth + 1
+      })));
+    }
   }
 
-  const visiting = new Set();
-  const visited = new Set();
-  const visit = (digest, chain) => {
-    if (visiting.has(digest)) {
-      const start = chain.indexOf(digest);
-      fail(`World-model retained-object closure contains a cycle at '${digest}'.`,
-        'WMP_INTEGRITY_FAILED', {
-          sha256: digest,
-          cycle: [...chain.slice(start < 0 ? 0 : start), digest]
-        });
-    }
-    if (visited.has(digest)) return;
-    visiting.add(digest);
-    for (const child of edges.get(digest) ?? []) visit(child, [...chain, digest]);
-    visiting.delete(digest);
-    visited.add(digest);
-  };
-  for (const digest of edges.get(bindingOwner) ?? []) {
-    visit(digest, []);
-  }
+  assertAcyclicWorldModelHistoryClosure({
+    roots: edges.get(bindingOwner) ?? [],
+    childrenOf: (digest) => edges.get(digest) ?? [],
+    budget: closureBudget
+  });
   validateRetainedWorldModelBindingGraph(kind, validated, closure);
+  closureBudget.checkpoint();
   if (deferredOwnerErrors.length) throw deferredOwnerErrors[0];
   return Object.freeze({
     authorityCommit: commit,

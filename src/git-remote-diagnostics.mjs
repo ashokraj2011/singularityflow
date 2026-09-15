@@ -369,13 +369,15 @@ export function remoteFingerprint(value) {
 }
 
 /** Resolve and freeze the credential-free fetch or push authority behind one local remote name. */
-export function configuredRemoteAuthority(root, remote = 'origin', { direction = 'push' } = {}) {
+export function configuredRemoteAuthority(root, remote = 'origin', {
+  direction = 'push', env = process.env
+} = {}) {
   if (!['fetch', 'push'].includes(direction)) {
     throw new SingularityFlowError(`Unsupported Git remote direction '${direction}'.`);
   }
   const result = run('git', [
     'remote', 'get-url', ...(direction === 'push' ? ['--push'] : []), remote
-  ], { cwd: root, allowFailure: true });
+  ], { cwd: root, allowFailure: true, env });
   const url = result.status === 0 ? assertCredentialFreeRemote(result.stdout.trim()) : null;
   return Object.freeze({
     remote: String(remote),

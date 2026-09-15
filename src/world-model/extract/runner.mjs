@@ -48,6 +48,9 @@ import {
 import { createExtractionExecutionReceipt } from './execution-receipt.mjs';
 import { createFactLedger, validateFactLedger } from './fact-ledger.mjs';
 import { selectViewFacts } from './selection.mjs';
+import {
+  WMP_EMPTY_EXTRACTOR_CONFIGURATION_SHA256
+} from '../history/extraction-profile-owners.mjs';
 
 const ADAPTERS = Object.freeze({
   [REPOSITORY_FILES_ID]: {
@@ -338,7 +341,8 @@ function completedExecution({ context, manifest, boundary, contract, output, obs
   return deepFreeze({ ...contract, pathOutcomes, globalOutcome: null });
 }
 
-export const EMPTY_EXTRACTOR_CONFIGURATION_SHA256 = sha256({ kind: 'world-model-extractor-configuration', version: 1 });
+export const EMPTY_EXTRACTOR_CONFIGURATION_SHA256 =
+  WMP_EMPTY_EXTRACTOR_CONFIGURATION_SHA256;
 export const BUILTIN_GRAMMAR_SHA256 = sha256({
   kind: 'world-model-lexical-grammar-set',
   version: 4,

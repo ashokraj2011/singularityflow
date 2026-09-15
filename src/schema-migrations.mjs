@@ -2707,6 +2707,10 @@ const families = [
     migrationPolicy: 'frozen-identity'
   }),
   family({
+    id: 'world-model-discovered-candidate-roster', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity'
+  }),
+  family({
     id: 'world-model-completeness-record', currentVersion: 1, immutable: true,
     migrationPolicy: 'frozen-identity'
   }),

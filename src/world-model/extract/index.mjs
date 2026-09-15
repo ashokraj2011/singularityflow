@@ -5,3 +5,4 @@ export * from './selection.mjs';
 export * from './execution-receipt.mjs';
 export * from './completeness.mjs';
 export * from './runner.mjs';
+export * from './view-projection.mjs';

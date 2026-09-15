@@ -399,13 +399,26 @@ export async function clearWorldModelPublicationRecovery(root, id) {
 }
 
 function remoteIsConfigured(root, remote, { env = process.env } = {}) {
-  return git(root, ['remote', 'get-url', '--all', remote], { allowFailure: true, env }).status === 0;
+  // Match ledger.hasRemoteInEnvironment exactly. `git remote get-url` does not recognize a remote
+  // introduced only through command configuration, but `git push <name>` does.
+  return git(root, ['config', '--get', `remote.${remote}.url`], {
+    allowFailure: true, env
+  }).status === 0;
 }
 
 function recoveryTransport(root, recovery, { env = process.env } = {}) {
-  const endpoint = stateBranchPublicationTargetIdentity(root, recovery.ledger);
+  // Resolve the effective endpoint in the exact environment that every subsequent Git command
+  // receives. In particular, a local-only marker must not become remote-backed merely because a
+  // retry injects remote.<name>.url through GIT_CONFIG_COUNT.
+  const endpoint = stateBranchPublicationTargetIdentity(root, recovery.ledger, { env });
   const expected = recovery.publicationOptions.remoteEndpointSha256;
-  if (endpoint.effectiveUrlSha256 !== expected) {
+  // `git remote get-url` deliberately ignores an invocation-only remote.<name>.url when no local
+  // remote section exists, while `git push <name>` still honors that injected value. Treat the
+  // environment-visible config key as an endpoint change so a reviewed local-only recovery can
+  // never cross the network through this Git behavior discrepancy.
+  const acquiredRemote = expected === null
+    && remoteIsConfigured(root, recovery.ledger.remote, { env });
+  if (acquiredRemote || endpoint.effectiveUrlSha256 !== expected) {
     throw new SingularityFlowError(
       'The state publication endpoint changed after the WMB v4 recovery marker was retained.',
       {
@@ -828,7 +841,10 @@ export async function resumeWorldModelPublication(root, id, {
     const runtimeOverrides = {};
     if (typeof publicationOptions.publisher === 'function') runtimeOverrides.publisher = publicationOptions.publisher;
     if (publicationOptions.env && typeof publicationOptions.env === 'object') runtimeOverrides.env = publicationOptions.env;
-    const endpoint = stateBranchPublicationTargetIdentity(root, inspected.record.ledger);
+    const runtimeEnv = runtimeOverrides.env ?? process.env;
+    const endpoint = stateBranchPublicationTargetIdentity(root, inspected.record.ledger, {
+      env: runtimeEnv
+    });
     if (endpoint.effectiveUrlSha256 !== inspected.record.publicationOptions.remoteEndpointSha256) {
       throw new SingularityFlowError(
         'The state publication endpoint changed after the WMB v4 recovery marker was retained.',
@@ -837,7 +853,7 @@ export async function resumeWorldModelPublication(root, id, {
     }
     if (endpoint.effectiveUrl) runtimeOverrides.transportRemote = endpoint.effectiveUrl;
     const reconciled = await reconcileWorldModelPublicationRecovery(root, inspected.record, {
-      env: runtimeOverrides.env ?? process.env
+      env: runtimeEnv
     });
     if (reconciled.status === 'landed') {
       await clearWorldModelPublicationRecovery(root, id);

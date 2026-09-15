@@ -53,7 +53,10 @@ import {
 import {
   DEFAULT_WORLD_MODEL_HISTORY_DIR, validateWorldModelHistoryRoots
 } from './history/paths.mjs';
-import { configuredRemoteIdentity } from '../git-remote-diagnostics.mjs';
+import {
+  resolveConfiguredWorldModelHistoryFetchIdentity
+} from './history/authority-cut.mjs';
+import { runWorldModelHistoryGitRead } from './history/git-read.mjs';
 
 const WMP_HISTORY_KEY = /^(?:sha256:)?([a-f0-9]{64})$/;
 const WMP_HISTORY_KINDS = Object.freeze(['model', 'view']);
@@ -829,30 +832,41 @@ function worldModelHistoryConfig(config) {
   });
 }
 
-function configuredWorldModelHistoryAuthorityRef(root, config, env = process.env) {
+function configuredWorldModelHistoryAuthorityRef(root, config, {
+  env = process.env, runCommand = run
+} = {}) {
   const { branch, remote } = worldModelHistoryConfig(config).stateAuthority;
   const explicitRef = String(branch).startsWith('refs/');
+  if (explicitRef && (!String(branch).startsWith('refs/heads/')
+      || String(branch).includes('..') || String(branch).includes('//')
+      || String(branch).endsWith('/') || String(branch).endsWith('.lock')
+      || String(branch).includes('@{'))) {
+    throw new SingularityFlowError(
+      'Approved local-mode World-Model history authority must name an explicit refs/heads/... ref.',
+      { code: 'WMP_AUTHORITY_CUT_REQUIRED', details: { branch } }
+    );
+  }
   // A configured remote makes its remote-tracking state ref the admitted read authority. Falling
   // back to refs/heads/<branch> in that case would let an unpublished local branch masquerade as
   // shared governed state. Local fallback remains available only for genuinely remote-less
   // repositories, while an explicitly configured full ref keeps its exact authored meaning.
   const remoteConfigured = !explicitRef
-    && configuredRemoteIdentity(root, remote, { direction: 'fetch' }).configured;
+    && resolveConfiguredWorldModelHistoryFetchIdentity(root, remote, {
+      env, runCommand, operation: 'history-remote-identity'
+    }).configured;
   const candidates = explicitRef
     ? [String(branch)]
     : remoteConfigured
       ? [`refs/remotes/${remote}/${branch}`]
       : [`refs/heads/${branch}`];
   for (const ref of [...new Set(candidates)]) {
-    const format = run('git', ['check-ref-format', ref], {
-      cwd: root, allowFailure: true, env
-    });
+    const format = runWorldModelHistoryGitRead(root, [
+      'check-ref-format', ref
+    ], { env, runCommand, operation: 'history-authority-ref-format' });
     if (format.status !== 0) continue;
-    const present = run('git', ['show-ref', '--verify', '--quiet', ref], {
-      cwd: root, allowFailure: true, env: {
-        ...env, GIT_NO_LAZY_FETCH: '1', GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'Never'
-      }
-    });
+    const present = runWorldModelHistoryGitRead(root, [
+      'show-ref', '--verify', '--quiet', ref
+    ], { env, runCommand, operation: 'history-authority-ref-presence' });
     if (present.status === 0) return ref;
   }
   throw new SingularityFlowError(
@@ -966,28 +980,22 @@ function worldModelHistoryPage(entries, {
 }
 
 function listPersistedWorldModelBindings(root, config, {
-  authorityCommit, authorityRef, kind = null, env = process.env
+  authorityCommit, authorityRef, kind = null, env = process.env, runCommand = run
 } = {}) {
-  const commit = resolveWorldModelHistoryAuthority(root, authorityCommit, { authorityRef, env });
+  const commit = resolveWorldModelHistoryAuthority(root, authorityCommit, {
+    authorityRef, env, runCommand
+  });
   const { historyDir } = worldModelHistoryConfig(config);
   const kinds = kind ? [kind] : WMP_HISTORY_KINDS;
   const directories = {
     model: `${historyDir}/models`,
     view: `${historyDir}/views`
   };
-  const localEnv = {
-    ...env,
-    GIT_NO_LAZY_FETCH: '1',
-    GIT_TERMINAL_PROMPT: '0',
-    GCM_INTERACTIVE: 'Never'
-  };
-  const listed = run('git', [
+  const listed = runWorldModelHistoryGitRead(root, [
     'ls-tree', '-r', '-z', '--full-tree', '--long', commit, '--',
     ...kinds.map((entry) => directories[entry])
   ], {
-    cwd: root,
-    allowFailure: true,
-    env: localEnv,
+    env, runCommand, operation: 'history-binding-list',
     maxBuffer: WMP_HISTORY_LIST_MAXIMUM_OUTPUT_BYTES
   });
   if (listed.status !== 0) {
@@ -1106,7 +1114,9 @@ function renderWorldModelHistoryBinding(result, options) {
   return result;
 }
 
-export function historyWorldModelV4Command(root, config, positionals, options) {
+export function historyWorldModelV4Command(root, config, positionals, options, {
+  env = process.env, runCommand = run
+} = {}) {
   if (optionString(options, 'branch')) {
     throw new SingularityFlowError(
       'Persisted World-Model history reads do not open or synchronize another branch. Select an exact locally available authority with --authority-commit.',
@@ -1119,10 +1129,12 @@ export function historyWorldModelV4Command(root, config, positionals, options) {
     `singularity-flow wm history ${action}${action === 'show' ? ' <model-key-or-view-key>' : ''} --authority-commit <full-commit> [--kind model|view] [--json]`
   );
   const kind = worldModelHistoryKind(options);
-  const authorityRef = configuredWorldModelHistoryAuthorityRef(root, config);
+  const authorityRef = configuredWorldModelHistoryAuthorityRef(root, config, {
+    env, runCommand
+  });
   if (action === 'list') {
     const listed = listPersistedWorldModelBindings(root, config, {
-      authorityCommit, authorityRef, kind
+      authorityCommit, authorityRef, kind, env, runCommand
     });
     const page = worldModelHistoryPage(listed.entries, {
       authorityCommit: listed.authorityCommit,
@@ -1156,7 +1168,7 @@ export function historyWorldModelV4Command(root, config, positionals, options) {
   let selectedKind = kind;
   if (selectedKind === null) {
     const candidates = listPersistedWorldModelBindings(root, config, {
-      authorityCommit, authorityRef
+      authorityCommit, authorityRef, env, runCommand
     }).entries
       .filter((entry) => entry.key === key);
     if (candidates.length > 1) {
@@ -1187,12 +1199,14 @@ export function historyWorldModelV4Command(root, config, positionals, options) {
     ? resolvePersistedWorldModel(root, {
         authorityCommit, authorityRef, modelKey: key,
         outputDir: worldModelHistoryConfig(config).outputDir,
-        historyDir: worldModelHistoryConfig(config).historyDir
+        historyDir: worldModelHistoryConfig(config).historyDir,
+        env, runCommand
       })
     : resolvePersistedWorldModelView(root, {
         authorityCommit, authorityRef, viewKey: key,
         outputDir: worldModelHistoryConfig(config).outputDir,
-        historyDir: worldModelHistoryConfig(config).historyDir
+        historyDir: worldModelHistoryConfig(config).historyDir,
+        env, runCommand
       });
   return renderWorldModelHistoryBinding(
     persistedHistoryResult(resolved, selectedKind, key), options

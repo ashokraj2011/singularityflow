@@ -220,6 +220,41 @@ test('recovery preparation refuses drift from the reviewed Git endpoint', async 
   assert.equal((await listWorldModelPublicationRecoveries(root)).total, 0);
 });
 
+test('local-only recovery cannot acquire a remote through injected Git configuration', async (t) => {
+  const root = await repository(t);
+  const staged = await stagedProjection(root);
+  git(root, 'remote', 'remove', 'origin');
+  const recovery = await prepareWorldModelPublicationRecovery(
+    root, LEDGER, staged, RECOVERY_OPTIONS
+  );
+  assert.equal(recovery.record.publicationOptions.remoteEndpointSha256, null);
+
+  const redirected = path.join(path.dirname(root), 'redirected.git');
+  run('git', ['init', '--bare', redirected]);
+  const env = {
+    ...process.env,
+    GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_KEY_0: 'remote.origin.url',
+    GIT_CONFIG_VALUE_0: redirected
+  };
+  await assert.rejects(
+    resumeWorldModelPublication(root, recovery.id, {
+      confirm: recovery.id,
+      publicationOptions: { env }
+    }),
+    (error) => error.code === 'WMB_PUBLICATION_RECOVERY_REQUIRED'
+      && error.details?.causeCode === 'WMB_PUBLICATION_RECOVERY_ENDPOINT_CHANGED'
+  );
+  assert.equal(
+    run('git', ['--git-dir', redirected, 'branch', '--list', 'state']).stdout.trim(), '',
+    'the injected endpoint never receives a state branch'
+  );
+  assert.equal(git(root, 'branch', '--list', 'state').stdout.trim(), '',
+    'the refused resume does not create local state either');
+  assert.equal((await listWorldModelPublicationRecoveries(root)).total, 1,
+    'the exact local-only marker remains available for a safe retry');
+});
+
 test('a migrated v1 recovery keeps the previously admitted 128 MiB sidecar boundary', async (t) => {
   const root = await repository(t);
   let publication = await stagedOptionalRefusalProjection(root);

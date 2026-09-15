@@ -426,7 +426,7 @@ matrix cell.
 | Developer-experience performance | Hot paths and the office-Git code-local slice are implemented; both 30-pair editor-profile cells pass on macOS, warm cache survives disposable host processes, the reproduced event-loop tail is below its unchanged ceiling, and `bb162a7c` refuses a missing Story base before remote/configuration discovery; pinned relative baseline and cross-platform host evidence are not established | Accept pinned Linux/Windows/office-network evidence, keep the isolated compatibility transport under audit, then close each `[~]` platform gate | This document and [DX performance](DX-PERFORMANCE.md) |
 | SGOS | Universal Candidate publication, portable authority transport, proposal-only Agent working-set injection, signed-Pack/Device meta-tool CLI/native review, non-authoritative portable learning progress, content-free bounded read-model measurement, replay-store SPIs, and advanced-orchestration slices for finite quorum, exact model-free reducer, approved manual-reconcile joins, four-level bounded inline fan-out, bounded runtime fan-out from an exact predecessor collection, installed-protocol idempotent effect replay, exact sandbox-CAS consequential retry, and exact non-genesis static and dynamic-prefix fork import are code-complete; signed cross-platform release proof, real Secret Broker integration, and consented external telemetry remain open | Finish the `SGOS-P0-001`/`003` signed platform matrices and the external-adapter portion of `SGOS-P0-002`; then continue `SGOS-P1-002` with another independently reviewed reducer or Device protocol | [SGOS pending work](SGOS-PENDING-WORK.md) |
 | World Model Builder v4 | Release receipt generation and enforcement exist; no reviewed six-cell supported-platform aggregate is recorded | `WMB-REL-001` | [WMB v4](WORLD-MODEL-BUILDER-V4.md) |
-| Persisted World-Model exact history | Governed identity, exact-key lookup, history inspection, build-to-binding staging, and deterministic view foundations exist; automatic WMP history emission/reuse and saved grounding replay are inactive. Existing WMB v3/v4 and Story operation remain live | Complete the WMP P0 proof owners and connect one current-plus-history state transaction before activation | [Persisted World-Model views](PERSISTED-WORLD-MODEL-VIEWS.md) |
+| Persisted World-Model exact history | Governed identity, exact-key lookup, history inspection, build-to-binding staging, deterministic view foundations, and the opt-in current-plus-history single-CAS transaction exist; automatic Story activation and saved-view/grounding replay remain inactive. Existing WMB v3/v4 and Story operation remain live | Complete the saved-view renderer/validator/tokenizer and binding-graph proof owners, then add the successor grounding identity and Story/grounding wiring | [Persisted World-Model views](PERSISTED-WORLD-MODEL-VIEWS.md) |
 | Witnessed Engineering Loop | Exact-static local JUnit and bounded literal Jest/Vitest observations, immutable proposal binding, existing-approval review, migration, release-gated baseline/delta/Context-X-Ray/Story-start/recovery benchmark, cancellable Java parser boundary, isolated npm/VSIX proof, strict signed benchmark-report binding, a bounded platform-matrix command, and a privacy-safe real-repository JUnit/Surefire plus Jest/Vitest corpus runner are active; portable Linux matrices and package gates are green, process-private parser reuse is present, and `main@03825387` closes the remaining reproduced exact-publication/aggregate-interruption liveness defects; authenticated testcase claims and enforcement remain unavailable | Execute and independently review both corpus families through the new runner, sign the physical-host/office-network P0 gates, then satisfy Candidate/Program/attempt and authenticated-runner dependencies | [WEL pending work](WEL-PENDING-WORK.md) |
 | Code Assurance Bridge | CAB-R0 architecture and CAB-R1 observe pilot are active; enforcement remains unavailable | Independent CAB-R0 review plus authenticated CAB-R2 runner authority | [CAB roadmap](CAB-ROADMAP.md) |
 | Governed comprehension | Read-only, non-authoritative P0 contract, closed registries, authority ADR, mutation tripwires, isolated npm/VSIX proof, deterministic corpus/matrix command, content-free P1 benchmark, bounded privacy-safe real-repository measurement, experimental source-free record preview/in-memory migration, bounded ephemeral P3 graph/exact explanation reads, normalized Story replay, an existing-five-tool resource-level gateway trace, and code-local incremental brownfield diagnostics with a leased native view exist | Execute and sign the unchanged `CMP-P0-001` matrix on Windows and Linux, independently review collected corpus results, complete the P1 storage/privacy and rollout decision, add P2-backed durable graph/causal authority plus SGOS joins, then integrate governed historical review before enforcement | [CMP roadmap](CMP-ROADMAP.md) |
@@ -804,12 +804,14 @@ See [Token Reduction preview](TOKEN-REDUCTION.md) for the exact boundary and val
 ## Persisted World-Model views (WMP)
 
 The W0/W1 persistence foundation, governed repository-identity proof, exact pre-extraction
-key/lookup, build-to-binding staging, exact-manifest terminal extraction outcomes, pure
-completeness bridge, and bounded W2 deterministic-view slice are implemented in the current
-increment. Exact history staging/read, the general one-CAS publication machinery, history-bound
-recovery, historical source reads, and five pure overview renderers are code-local. Production
-WMP exact-history model/view emission and reuse remain inactive until the new build path is
-connected to the normal WMB service and current-plus-history state transaction. This pending
+key/lookup, build-to-binding staging, exact-manifest terminal extraction outcomes, owned
+pre-scope candidate roster, frozen empty extractor-configuration owner, pure completeness bridge,
+and bounded W2 deterministic-view slice are implemented. The normal WMB service now has a
+strictly opt-in bridge that performs lookup-before-extraction, builds only on the typed exact miss,
+derives the view-only coverage overlay without re-reading source, and stages the compatible current
+projection plus immutable model history through one state-branch CAS and recovery envelope.
+Production Story/grounding activation and saved-view history remain inactive until the remaining
+view and grounding proof owners are complete. This pending
 optimization does not disable Story creation, phase progression, legacy-v3 builds, registered-v4
 builds/current projections, or their existing reuse mechanisms. The shipped `grounding: warn`
 policy records unavailable intelligence with zero World-Model bytes and lets ordinary repository
@@ -837,9 +839,15 @@ authoritative amended boundary is
   unused extractor-by-path matrix;
 - [x] construct a frozen completeness record through a pure bridge that verifies selected path
   coverage/digests, exact extractor identity, global outcomes, and required subject outcomes,
-  while emitting no excluded outcomes so `counts.excludedPaths` remains zero; a sealed extraction
+  and emits excluded outcomes only from the owned pre-scope candidate roster; a sealed extraction
   receipt binds that bridge to the exact source, scope, registry, executions, View Contracts, and
   View Fact Ledgers so a self-consistent substituted view roster is refused;
+- [x] retain the complete committed Git candidate roster before scope, reconstruct its exact Git
+  tree, and admit excluded-path completeness only when every selected/excluded classification and
+  owned reason matches the pinned Source Snapshot and Scope Manifest;
+- [x] own the frozen empty extractor configuration once, map it to every exact extractor consumer,
+  validate it alongside the unchanged frozen-v1 parse-schema identity, and refuse configured
+  profiles until a successor byte-to-consumer contract exists;
 - [x] apply model/view graph validation to the pinned combined closure at the state-writer staging
   boundary before the one-CAS publication path can advance authority.
 - [x] resolve an explicit governed Capability to a credential-free portable Repository Domain by
@@ -866,22 +874,23 @@ authoritative amended boundary is
 - [x] stage a completed registered-v4 execution into exact completeness, Model Binding, validated
   object closure, and immutable history additions after rechecking the typed miss at the same
   authority cut, then recheck after registration and adopt only a byte-identical concurrent
-  winner. This adapter is intentionally not yet connected to WMP exact-history publication or
-  automatic Story preparation; existing WMB publication continues unchanged.
+  winner. The adapter is connected only through the explicit opt-in service path below, not
+  automatic Story preparation; existing default WMB publication continues unchanged;
+- [x] connect that boundary to a code-local, opt-in normal-service path: an exact miss registers the
+  view-independent base once, an exact hit performs no base extraction, a pure coverage overlay
+  recreates the current active-view registration byte-for-byte, and current projection plus new
+  history are committed by the existing single-CAS publication/recovery owner.
 
 ### P0 — complete truthful WMP exact-history reuse
 
-- add an owned full discovered-candidate roster before admitting excluded-path counts; the current
-  execution and completeness contracts deliberately cover only selected snapshot paths and report
-  zero exclusions;
-- define an owned extraction-configuration contract that maps retained configuration bytes to
-  their consuming extractor; frozen v1 admits only the registered empty configuration and refuses
-  configured profiles;
-- integrate the governed repository-identity resolver, exact-key lookup, explicit miss build, and
-  build-to-binding adapter into the normal WMB service; stage the validated compatible current
-  projection and immutable history closure in the same revision-checked state-branch CAS, then
-  wire exact WMP history reuse into Story start and grounding preparation without allowing typed misses to
-  trigger a hidden build;
+- [x] add an owned full discovered-candidate roster and bind excluded-path completeness to it;
+- [x] define the frozen empty extraction-configuration owner and refuse every configured profile
+  until a successor exact-byte consumer mapping exists;
+- [x] integrate repository identity, lookup, explicit-miss build, projection derivation, and
+  current-plus-history single-CAS publication behind an opt-in service boundary;
+- wire the verified opt-in history result into Story start and grounding preparation without
+  allowing a typed miss to trigger a hidden build; retain production activation as off until the
+  remaining view and grounding owners below are complete;
 - connect every view binding's model-payload and selected-ledger identity to one accepted model
   binding and retained source Fact Ledger before enabling saved-view publication or reads; also
   correlate scope and the validation receipt's candidate digest, retain exact renderer/validator
@@ -892,10 +901,11 @@ authoritative amended boundary is
   preview that binds expansion handles, ordering/separators, and packet-composer identity.
 
 Automatic WMP exact-history model/view emission and reuse must stay inactive until these P0 items
-are complete. In particular, the code-local authority, lookup, and build-to-binding foundations do
-not authorize a WMP history write until they participate in the same current-plus-history state
-transaction and the remaining candidate/configuration, view, and grounding proof owners are
-installed. This restriction does not turn off the existing WMB v3/v4 services.
+are complete. The opt-in service can already write the accepted base Model Binding with the current
+projection through one transaction; it does not authorize automatic Story or grounding activation,
+or saved-view history, until the remaining view and grounding proof owners are installed. Direct
+caller-supplied persisted facts are refused at the publication-service boundary. This restriction
+does not turn off the existing WMB v3/v4 services.
 Deferred grounding/handoff/adoption also require publication-receipt, admission-proof,
 source-authority, origin-authority, target-authority, and adoption-authorization owners; no role
 may be satisfied with an unrelated registered record.

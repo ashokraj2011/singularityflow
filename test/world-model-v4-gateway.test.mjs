@@ -174,6 +174,10 @@ test('an exact reviewed WMB Plan requires an out-of-band one-time confirmation a
   assert.equal(completed.data.requestSha256, planned.data.plan.review.requestSha256);
   assert.equal(completed.data.planSha256, planned.data.plan.review.planSha256);
   assert.equal(completed.effects.publicationCreated, true);
+  assert.equal(git(
+    root, 'ls-tree', '-r', '--name-only', 'refs/remotes/origin/state', '--',
+    'singularity/world-model-history'
+  ).stdout.trim(), '', 'gateway builds must not activate persisted exact history implicitly');
 
   const replay = await kernel.run(
     { planId: planned.next[0].handle },

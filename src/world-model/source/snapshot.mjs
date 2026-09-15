@@ -1,4 +1,5 @@
 import { constants as fsConstants } from 'node:fs';
+import { createHash } from 'node:crypto';
 import {
   closeSync, fstatSync, lstatSync, mkdtempSync, openSync, readFileSync, realpathSync,
   rmSync
@@ -15,28 +16,66 @@ import {
   assertPlainRecord, assertSchemaKind, assertSelfHash, assertSha256, assertString, contractFailure
 } from '../contracts.mjs';
 import { canonicalJson, compareText, sealRecord, sha256, sha256Bytes } from '../canonicalize.mjs';
-import { pathInsideScope } from '../scope/matcher.mjs';
+import { classifyScopePath, pathInsideScope } from '../scope/matcher.mjs';
 import { validateScopeManifest } from '../scope/manifest.mjs';
+import {
+  WMP_CANDIDATE_EXCLUSION_REASONS, createWorldModelDiscoveredCandidateRoster,
+  validateWorldModelDiscoveredCandidateRoster
+} from '../history/candidate-roster-owner.mjs';
 
 const CANDIDATE_RECORD_MAXIMUM_BYTES = 16 * 1024 * 1024;
 const CANDIDATE_REF_PREFIX = 'refs/singularity-flow/world-model-candidates';
+const SOURCE_GIT_READ_OPERATIONS = new Set([
+  'cat-file', 'log', 'ls-files', 'ls-tree', 'rev-parse', 'show', 'status'
+]);
+
+/**
+ * Only a closed read-only Git verb roster receives the short local-read deadline. Unknown and
+ * mutating verbs deliberately retain their operation-specific/unbounded behavior.
+ */
+export function worldModelSourceGitTimeoutClass(args) {
+  if (!Array.isArray(args)) return null;
+  let index = 0;
+  while (args[index] === '-c' && typeof args[index + 1] === 'string') index += 2;
+  const operation = args[index];
+  if (operation === 'hash-object') return args.includes('-w') ? null : 'local-read';
+  return SOURCE_GIT_READ_OPERATIONS.has(operation) ? 'local-read' : null;
+}
 
 function git(root, args, {
   binary = false, maxBuffer = 512 * 1024 * 1024, input = undefined, env = undefined,
-  allowFailure = false
+  allowFailure = false, timeoutClass = worldModelSourceGitTimeoutClass(args)
 } = {}) {
   const result = run('git', args, {
     cwd: path.resolve(root), encoding: binary ? 'buffer' : 'utf8', maxBuffer, input,
     allowFailure: true,
+    timeoutClass,
     // Source proof is a local object-store operation. Partial/promisor clones must fail with a
     // typed unavailable-object error instead of turning a cache lookup into an implicit fetch.
     env: offlineGitEnvironment(env ?? process.env)
   });
+  if (result.timedOut) {
+    contractFailure(
+      `Exact Git source read '${args[0] ?? 'unknown'}' exceeded its bounded local-read deadline.`,
+      'WMB_SOURCE_READ_TIMEOUT', {
+        operation: args[0] ?? null,
+        cause: 'SUBPROCESS_TIMEOUT'
+      }
+    );
+  }
   if (result.error || (result.status !== 0 && !allowFailure)) {
     const stderr = binary ? Buffer.from(result.stderr ?? '').toString('utf8') : String(result.stderr ?? '');
     contractFailure(`Unable to capture exact Git source: ${(result.error?.message ?? stderr).trim() || `git ${args[0]} failed`}.`, 'WMB_SOURCE_SNAPSHOT_REQUIRED');
   }
   return allowFailure ? result : result.stdout;
+}
+
+function gitBlobObjectId(bytes, gitObjectFormat) {
+  const algorithm = gitObjectFormat === 'sha1' ? 'sha1' : 'sha256';
+  return createHash(algorithm)
+    .update(Buffer.from(`blob ${bytes.length}\0`, 'utf8'))
+    .update(bytes)
+    .digest('hex');
 }
 
 function offlineGitEnvironment(env = process.env) {
@@ -50,7 +89,9 @@ function offlineGitEnvironment(env = process.env) {
 
 function repositoryIdentity(root) {
   const commonDirectory = realpathSync(gitCommonDir(root));
-  const objectFormat = String(git(root, ['rev-parse', '--show-object-format'])).trim();
+  const objectFormat = String(git(root, ['rev-parse', '--show-object-format'], {
+    timeoutClass: 'local-read'
+  })).trim();
   if (!['sha1', 'sha256'].includes(objectFormat)) {
     contractFailure(`Unsupported Git object format '${objectFormat}'.`, 'WMB_SOURCE_SNAPSHOT_REQUIRED');
   }
@@ -75,8 +116,12 @@ function exactIdentity(root, revision = 'HEAD', { env = undefined } = {}) {
   if (!requested || requested.startsWith('-') || /[\0\r\n]/.test(requested)) {
     contractFailure('Exact source revision is invalid.', 'WMB_SOURCE_REVISION_INVALID');
   }
-  const commit = String(git(root, ['rev-parse', '--verify', `${requested}^{commit}`], { env })).trim();
-  const tree = String(git(root, ['rev-parse', '--verify', `${commit}^{tree}`], { env })).trim();
+  const commit = String(git(root, ['rev-parse', '--verify', `${requested}^{commit}`], {
+    env, timeoutClass: 'local-read'
+  })).trim();
+  const tree = String(git(root, ['rev-parse', '--verify', `${commit}^{tree}`], {
+    env, timeoutClass: 'local-read'
+  })).trim();
   if (!COMMIT_PATTERN.test(commit) || !COMMIT_PATTERN.test(tree)) {
     contractFailure('Exact source requires a valid Git commit and tree identity.', 'WMB_SOURCE_SNAPSHOT_REQUIRED');
   }
@@ -91,7 +136,9 @@ function statusPath(line) {
 }
 
 function assertClean(root, scopeManifest = null) {
-  const status = String(git(root, ['status', '--porcelain=v1', '--untracked-files=all']));
+  const status = String(git(root, ['status', '--porcelain=v1', '--untracked-files=all'], {
+    timeoutClass: 'local-read'
+  }));
   const dirty = status.split(/\r?\n/).filter(Boolean)
     .filter((line) => !scopeManifest || pathInsideScope(statusPath(line), scopeManifest));
   if (dirty.length) {
@@ -105,7 +152,9 @@ function assertClean(root, scopeManifest = null) {
 }
 
 function treeEntries(root, revision = 'HEAD', { env = undefined } = {}) {
-  const output = String(git(root, ['ls-tree', '-r', '-z', '--full-tree', revision], { env }));
+  const output = String(git(root, ['ls-tree', '-r', '-z', '--full-tree', revision], {
+    env, timeoutClass: 'local-read'
+  }));
   return output.split('\0').filter(Boolean).map((row) => {
     const tab = row.indexOf('\t');
     if (tab < 0) contractFailure('Git tree returned an invalid source entry.', 'WMB_SOURCE_SNAPSHOT_REQUIRED');
@@ -136,12 +185,14 @@ function gitScopePathspecs(scopeManifest) {
 function scopedSourceCommit(root, scopeManifest, revision = 'HEAD', { env = undefined } = {}) {
   const commit = String(git(root, [
     'log', '-1', '--format=%H', revision, '--', ...gitScopePathspecs(scopeManifest)
-  ], { env })).trim();
+  ], { env, timeoutClass: 'local-read' })).trim();
   return COMMIT_PATTERN.test(commit) ? commit : null;
 }
 
 function blobBytes(root, objectId, { env = undefined } = {}) {
-  return Buffer.from(git(root, ['cat-file', 'blob', objectId], { binary: true, env }));
+  return Buffer.from(git(root, ['cat-file', 'blob', objectId], {
+    binary: true, env, timeoutClass: 'local-read'
+  }));
 }
 
 function fileType(mode) {
@@ -150,10 +201,14 @@ function fileType(mode) {
 
 function listedCandidatePaths(root, scopeManifest) {
   const scope = validateScopeManifest(scopeManifest);
-  const tracked = String(git(root, ['ls-files', '-z', '--cached', '--others', '--exclude-standard']))
+  const tracked = String(git(root, [
+    'ls-files', '-z', '--cached', '--others', '--exclude-standard'
+  ], { timeoutClass: 'local-read' }))
     .split('\0').filter(Boolean).map((value) => value.replaceAll('\\', '/'));
   const modes = new Map();
-  for (const row of String(git(root, ['ls-files', '-s', '-z'])).split('\0').filter(Boolean)) {
+  for (const row of String(git(root, ['ls-files', '-s', '-z'], {
+    timeoutClass: 'local-read'
+  })).split('\0').filter(Boolean)) {
     const tab = row.indexOf('\t');
     if (tab < 0) contractFailure('Git index returned an invalid Candidate Snapshot entry.', 'WMB_SOURCE_SNAPSHOT_REQUIRED');
     const [mode] = row.slice(0, tab).split(' ');
@@ -251,7 +306,10 @@ function captureCandidatePass(root, scopeManifest, { writeObjects }) {
     if (!captured) continue;
     const objectId = String(git(root, [
       'hash-object', ...(writeObjects ? ['-w'] : []), '--stdin'
-    ], { input: captured.bytes })).trim();
+    ], {
+      input: captured.bytes,
+      timeoutClass: writeObjects ? null : 'local-read'
+    })).trim();
     if (!COMMIT_PATTERN.test(objectId)) {
       contractFailure(`Git did not return a valid object identity for '${listed.path}'.`, 'WMB_SOURCE_SNAPSHOT_REQUIRED');
     }
@@ -272,11 +330,13 @@ function candidateTree(root, files) {
   const indexPath = path.join(temporary, 'index');
   const env = { GIT_INDEX_FILE: indexPath };
   try {
-    git(root, ['read-tree', '--empty'], { env });
+    git(root, ['read-tree', '--empty'], { env, timeoutClass: null });
     for (const file of files) {
-      git(root, ['update-index', '--add', '--cacheinfo', `${file.mode},${file.objectId},${file.path}`], { env });
+      git(root, ['update-index', '--add', '--cacheinfo', `${file.mode},${file.objectId},${file.path}`], {
+        env, timeoutClass: null
+      });
     }
-    const tree = String(git(root, ['write-tree'], { env })).trim();
+    const tree = String(git(root, ['write-tree'], { env, timeoutClass: null })).trim();
     if (!COMMIT_PATTERN.test(tree)) contractFailure('Git did not create a valid Candidate Snapshot tree.', 'WMB_SOURCE_SNAPSHOT_REQUIRED');
     return tree;
   } finally {
@@ -285,7 +345,9 @@ function candidateTree(root, files) {
 }
 
 function candidateCommit(root, tree, baseRevision, candidateSha256) {
-  const timestamp = String(git(root, ['show', '-s', '--format=%ct', baseRevision.commit])).trim();
+  const timestamp = String(git(root, ['show', '-s', '--format=%ct', baseRevision.commit], {
+    timeoutClass: 'local-read'
+  })).trim();
   if (!/^[0-9]+$/.test(timestamp)) contractFailure('Candidate Snapshot base revision has no valid timestamp.', 'WMB_SOURCE_SNAPSHOT_REQUIRED');
   const identity = {
     GIT_AUTHOR_NAME: 'Singularity Flow Candidate Snapshot',
@@ -298,7 +360,7 @@ function candidateCommit(root, tree, baseRevision, candidateSha256) {
   const commit = String(git(root, [
     '-c', 'commit.gpgSign=false', 'commit-tree', tree, '-p', baseRevision.commit,
     '-m', `[world-model][candidate] ${candidateSha256}`
-  ], { env: identity })).trim();
+  ], { env: identity, timeoutClass: null })).trim();
   if (!COMMIT_PATTERN.test(commit)) contractFailure('Git did not create a valid Candidate Snapshot commit.', 'WMB_SOURCE_SNAPSHOT_REQUIRED');
   return commit;
 }
@@ -438,6 +500,145 @@ export function createExactSourceSnapshotAtRevision(root, revision, {
 }
 
 /**
+ * Discover the complete committed Git tree before applying scope and retain the exact selected /
+ * excluded classification. This is deliberately separate from Source Snapshot construction: the
+ * latter remains the exact selected extraction input, while this owner is the proof required
+ * before completeness may claim paths that extraction did not receive.
+ */
+export function createDiscoveredCandidateRoster(root, {
+  sourceSnapshot, scopeManifest, env = process.env
+} = {}) {
+  const source = validateSourceSnapshot(sourceSnapshot);
+  const scope = validateScopeManifest(scopeManifest);
+  if (source.authority) {
+    contractFailure(
+      'Frozen v1 candidate-roster discovery supports committed Git source only.',
+      'WMP_SOURCE_AUTHORITY_OWNER_UNAVAILABLE'
+    );
+  }
+  if (source.subject.id !== scope.capabilityId) {
+    contractFailure(
+      'Candidate-roster source and scope must identify the same Capability.',
+      'WMP_CANDIDATE_ROSTER_SOURCE_MISMATCH', {
+        sourceSubject: source.subject.id, scopeCapabilityId: scope.capabilityId
+      }
+    );
+  }
+  const localEnv = offlineGitEnvironment(env);
+  const identity = exactIdentity(root, source.revision.commit, { env: localEnv });
+  if (identity.commit !== source.revision.commit) {
+    contractFailure(
+      'Candidate-roster discovery did not resolve the exact Source Snapshot commit.',
+      'WMP_CANDIDATE_ROSTER_SOURCE_MISMATCH', {
+        expected: source.revision.commit, received: identity.commit
+      }
+    );
+  }
+
+  // Keep this two-step boundary explicit: discovery owns the full tracked-blob roster, and only
+  // then is each discovered path classified by the exact retained scope.
+  const discovered = treeEntries(root, identity.commit, { env: localEnv });
+  const selectedFiles = new Map(source.files.map((entry) => [entry.path, entry]));
+  const candidates = discovered.map((entry) => {
+    const descriptor = {
+      path: entry.path,
+      type: fileType(entry.mode),
+      mode: entry.mode,
+      objectId: entry.gitObjectId
+    };
+    const classification = classifyScopePath(entry.path, scope);
+    if (classification.status === 'inside') {
+      const selected = selectedFiles.get(entry.path);
+      const bytes = blobBytes(root, entry.gitObjectId, { env: localEnv });
+      const contentSha256 = `sha256:${sha256Bytes(bytes)}`;
+      const observedObjectId = gitBlobObjectId(bytes, identity.commit.length === 64 ? 'sha256' : 'sha1');
+      if (!selected || selected.type !== descriptor.type || selected.mode !== descriptor.mode
+          || selected.contentSha256 !== contentSha256 || selected.bytes !== bytes.length
+          || entry.gitObjectId !== observedObjectId) {
+        contractFailure(
+          `Candidate-roster selected path '${entry.path}' does not match the exact Source Snapshot.`,
+          'WMP_CANDIDATE_ROSTER_SOURCE_MISMATCH', {
+            path: entry.path,
+            expectedContentSha256: selected?.contentSha256 ?? null,
+            receivedContentSha256: contentSha256,
+            expectedBytes: selected?.bytes ?? null,
+            receivedBytes: bytes.length,
+            expectedObjectId: observedObjectId,
+            receivedObjectId: entry.gitObjectId
+          }
+        );
+      }
+      selectedFiles.delete(entry.path);
+      return {
+        ...descriptor,
+        contentSha256,
+        bytes: bytes.length,
+        status: 'selected',
+        reasonCode: null
+      };
+    }
+    return {
+      ...descriptor,
+      contentSha256: null,
+      bytes: null,
+      status: 'excluded',
+      reasonCode: WMP_CANDIDATE_EXCLUSION_REASONS[classification.status]
+    };
+  });
+  if (selectedFiles.size) {
+    contractFailure(
+      'Candidate-roster discovery omits selected Source Snapshot paths.',
+      'WMP_CANDIDATE_ROSTER_SOURCE_MISMATCH', {
+        omittedPaths: [...selectedFiles.keys()].sort(compareText).slice(0, 100),
+        omitted: Math.max(0, selectedFiles.size - 100)
+      }
+    );
+  }
+  return createWorldModelDiscoveredCandidateRoster({
+    source: {
+      kind: 'committed-git-tree',
+      commit: identity.commit,
+      tree: identity.tree,
+      gitObjectFormat: identity.commit.length === 64 ? 'sha256' : 'sha1',
+      pathNormalization: 'posix-relative',
+      discoveryBoundary: 'recursive-tracked-blobs-before-scope'
+    },
+    sourceManifestSha256: source.sourceManifestSha256,
+    scopeManifestSha256: scope.scopeSha256,
+    candidates
+  });
+}
+
+/**
+ * Re-prove a serialized Candidate Roster against the exact Git commit it names.
+ *
+ * A self-hash proves only that roster bytes are internally consistent. It does not prove that the
+ * declared tree or blob object IDs belong to `source.commit`. Every action which accepts a
+ * serialized build preparation must re-list the locally available commit and compare the complete
+ * owned roster before consulting history or authorizing extraction.
+ */
+export function verifyDiscoveredCandidateRoster(root, {
+  candidateRoster, sourceSnapshot, scopeManifest, env = process.env
+} = {}) {
+  const accepted = validateWorldModelDiscoveredCandidateRoster(candidateRoster);
+  const observed = createDiscoveredCandidateRoster(root, {
+    sourceSnapshot, scopeManifest, env
+  });
+  if (canonicalJson(accepted) !== canonicalJson(observed)) {
+    contractFailure(
+      'Discovered Candidate Roster does not match the exact committed Git tree and governed scope.',
+      'WMP_CANDIDATE_ROSTER_SOURCE_MISMATCH', {
+        expectedCandidateRosterSha256: observed.candidateRosterSha256,
+        receivedCandidateRosterSha256: accepted.candidateRosterSha256,
+        expectedTree: observed.source.tree,
+        receivedTree: accepted.source.tree
+      }
+    );
+  }
+  return accepted;
+}
+
+/**
  * Explicitly capture dirty in-scope working-tree bytes as a private immutable Git authority.
  *
  * The source is read twice with no-follow file descriptors. Only an identical second pass is
@@ -499,7 +700,7 @@ export async function captureCandidateSourceSnapshot(root, {
   }, 'sourceManifestSha256'));
   const reference = candidateReference(sourceSnapshot.sourceManifestSha256);
   const resolved = git(root, ['rev-parse', '--verify', '--quiet', reference], {
-    maxBuffer: 1024 * 1024, allowFailure: true
+    maxBuffer: 1024 * 1024, allowFailure: true, timeoutClass: 'local-read'
   });
   const current = resolved.status === 0 ? String(resolved.stdout).trim() : '';
   if (current && current !== commit) {
@@ -507,7 +708,7 @@ export async function captureCandidateSourceSnapshot(root, {
       reference, expectedCommit: commit, actualCommit: current
     });
   }
-  if (!current) git(root, ['update-ref', reference, commit]);
+  if (!current) git(root, ['update-ref', reference, commit], { timeoutClass: null });
   await writeImmutablePrivateSidecar(
     root,
     candidateRecordPath(root, sourceSnapshot.sourceManifestSha256),
@@ -644,7 +845,9 @@ export function readExactSourceFile(root, snapshotValue, relative) {
   const file = snapshot.files.find((entry) => entry.path === relative);
   if (!file) contractFailure(`Source Snapshot does not contain '${relative}'.`, 'WMB_SOURCE_SNAPSHOT_REQUIRED', { path: relative });
   const object = snapshot.authority ? file.objectId : `${snapshot.revision.commit}:${relative}`;
-  const bytes = Buffer.from(git(root, ['cat-file', 'blob', object], { binary: true }));
+  const bytes = Buffer.from(git(root, ['cat-file', 'blob', object], {
+    binary: true, timeoutClass: 'local-read'
+  }));
   const digest = `sha256:${sha256Bytes(bytes)}`;
   if (bytes.length !== file.bytes || digest !== file.contentSha256) {
     contractFailure(`Pinned source object for '${relative}' does not match the Source Snapshot.`, 'WMB_SOURCE_SNAPSHOT_STALE', {
@@ -681,7 +884,7 @@ function verifyCandidateGitProjection(root, snapshot, authority, {
     baseRevision = exactIdentity(root, authority.baseRevision.commit, { env });
     parents = String(git(root, [
       'show', '-s', '--format=%P', snapshot.revision.commit
-    ], { env })).trim().split(/\s+/).filter(Boolean);
+    ], { env, timeoutClass: 'local-read' })).trim().split(/\s+/).filter(Boolean);
     entries = treeEntries(root, snapshot.revision.commit, { env });
     exact = entries.map((entry) => {
       const bytes = blobBytes(root, entry.gitObjectId, { env });
@@ -742,7 +945,9 @@ function verifyCandidateSnapshot(root, snapshot, scopeManifest) {
   }
   assertCandidateScope(snapshot, authority, scopeManifest);
   const reference = candidateReference(snapshot.sourceManifestSha256);
-  const resolved = git(root, ['rev-parse', '--verify', '--quiet', reference], { allowFailure: true });
+  const resolved = git(root, ['rev-parse', '--verify', '--quiet', reference], {
+    allowFailure: true, timeoutClass: 'local-read'
+  });
   const commit = resolved.status === 0 ? String(resolved.stdout).trim() : '';
   if (commit !== snapshot.revision.commit) {
     contractFailure(

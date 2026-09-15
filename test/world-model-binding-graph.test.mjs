@@ -34,7 +34,9 @@ import {
   validateExtractorRegistry
 } from '../src/world-model/registry/extractors.mjs';
 import { createScopeManifest } from '../src/world-model/scope/manifest.mjs';
-import { createExactSourceSnapshotAtRevision } from '../src/world-model/source/snapshot.mjs';
+import {
+  createDiscoveredCandidateRoster, createExactSourceSnapshotAtRevision
+} from '../src/world-model/source/snapshot.mjs';
 
 function git(root, ...args) {
   return run('git', args, { cwd: root }).stdout.trim();
@@ -61,26 +63,33 @@ function sortedRefs(values) {
   ));
 }
 
-async function modelFixture(t) {
+async function modelFixture(t, { withExcludedCandidate = false } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-wmp-binding-graph-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   git(root, 'init', '-b', 'main');
   git(root, 'config', 'user.name', 'WMP Binding Graph');
   git(root, 'config', 'user.email', 'wmp-binding-graph@example.invalid');
   await writeFile(path.join(root, 'README.md'), '# exact source\n');
-  git(root, 'add', 'README.md');
+  if (withExcludedCandidate) {
+    await mkdir(path.join(root, 'generated'));
+    await writeFile(path.join(root, 'generated', 'output.js'), 'generated\n');
+  }
+  git(root, 'add', '.');
   git(root, 'commit', '-m', 'source');
   const sourceCommit = git(root, 'rev-parse', 'HEAD');
 
   const policySnapshotSha256 = digest('policy-snapshot');
   const scopeManifest = createScopeManifest({
     capabilityId: 'model-history-fixture',
-    allowedPaths: ['**'],
+    allowedPaths: withExcludedCandidate ? ['README.md'] : ['**'],
     policySourceSha256: policySnapshotSha256
   });
   const sourceSnapshot = createExactSourceSnapshotAtRevision(root, sourceCommit, {
     subjectId: 'model-history-fixture', scopeManifest
   });
+  const candidateRoster = withExcludedCandidate
+    ? createDiscoveredCandidateRoster(root, { sourceSnapshot, scopeManifest })
+    : null;
   const manifest = resolveExtractorManifest(
     BUILTIN_EXTRACTOR_REGISTRY, 'repository-files@1.0.0'
   );
@@ -127,6 +136,17 @@ async function modelFixture(t) {
       reasonCode: null
     }]
   }));
+  if (candidateRoster) {
+    pathOutcomes.push(...candidateRoster.candidates
+      .filter((entry) => entry.status === 'excluded')
+      .map((entry) => ({
+        path: entry.path,
+        sourceContentSha256: null,
+        status: 'excluded',
+        reasonCode: entry.reasonCode,
+        extractors: []
+      })));
+  }
   const completenessRecord = createWorldModelCompletenessRecord({
     sourceManifestSha256: sourceSnapshot.sourceManifestSha256,
     scopeManifestSha256: scopeManifest.scopeSha256,
@@ -137,7 +157,13 @@ async function modelFixture(t) {
     requiredSubjects: []
   });
 
+  const candidateRosterObject = candidateRoster
+    ? retained(
+        candidateRoster, 'candidate-roster', 'world-model-discovered-candidate-roster'
+      )
+    : null;
   const objects = {
+    ...(candidateRosterObject ? { candidateRoster: candidateRosterObject } : {}),
     repositoryDomain: retained(
       repositoryDomain, 'repository-domain', 'world-model-repository-domain'
     ),
@@ -206,7 +232,17 @@ async function modelFixture(t) {
     coverageRuleRefs: [],
     requiredUnavailableSubjects: []
   };
-  const extractionInputs = { kind: 'wmp/extraction-inputs', version: 1, captures: [] };
+  const extractionInputs = {
+    kind: 'wmp/extraction-inputs',
+    version: 1,
+    captures: candidateRosterObject ? [{
+      role: 'candidate-roster',
+      subject: sourceSnapshot.subject.id,
+      status: 'available',
+      objectRef: candidateRosterObject.ref,
+      reason: null
+    }] : []
+  };
   const inputs = {
     identityVersion: WMP_IDENTITY_VERSION,
     repositoryDomainSha256: repositoryDomain.repositoryDomainSha256,
@@ -227,7 +263,8 @@ async function modelFixture(t) {
       objectSet.sourceSnapshot.ref,
       objectSet.scopeManifest.ref,
       objectSet.extractionPolicy.ref,
-      objectSet.extractorRegistry.ref
+      objectSet.extractorRegistry.ref,
+      ...(objectSet.candidateRoster ? [objectSet.candidateRoster.ref] : [])
     ]),
     payloadObjects: sortedRefs([
       objectSet.completenessRecord.ref,
@@ -250,6 +287,7 @@ async function modelFixture(t) {
   return {
     root,
     sourceSnapshot,
+    candidateRoster,
     scopeManifest,
     manifest,
     ownerExtractor,
@@ -616,7 +654,7 @@ test('current publication refuses relabeled extractor coverage while historical 
   ));
 });
 
-test('model history refuses configured extraction until a configuration owner binds derivations', async (t) => {
+test('model identity refuses configured extraction before an unowned ref can enter history', async (t) => {
   const fixture = await modelFixture(t);
   const extractionProfile = {
     ...fixture.binding.inputDescriptors.extractionProfile,
@@ -624,14 +662,46 @@ test('model history refuses configured extraction until a configuration owner bi
     // missing-object failure. Frozen v1 has no contract mapping configuration refs to extractors.
     configurationRefs: [fixture.objects.scopeManifest.ref]
   };
-  const binding = createWmpModelBinding({
+  assert.throws(
+    () => createWmpModelBinding({
+      inputs: {
+        ...fixture.binding.inputs,
+        extractionProfileSha256: sha256(extractionProfile)
+      },
+      inputDescriptors: {
+        ...fixture.binding.inputDescriptors,
+        extractionProfile
+      },
+      inputObjects: fixture.binding.inputObjects,
+      payloadObjects: fixture.binding.payloadObjects,
+      completeness: fixture.binding.completeness
+    }),
+    (error) => error?.code === 'WMP_EXTRACTION_CONFIGURATION_OWNER_UNAVAILABLE'
+  );
+});
+
+test('model history admits excluded paths only from the owned pre-scope candidate roster', async (t) => {
+  const fixture = await modelFixture(t, { withExcludedCandidate: true });
+  assert.deepEqual(fixture.candidateRoster.counts, {
+    discoveredPaths: 2,
+    selectedPaths: 1,
+    excludedPaths: 1
+  });
+  assert.equal(fixture.completenessRecord.counts.excludedPaths, 1);
+  assert.doesNotThrow(() => stageWorldModelHistoryPublication({
+    modelBindings: [fixture.binding], objects: Object.values(fixture.objects)
+  }));
+
+  const wrongSubject = structuredClone(fixture.binding.inputDescriptors.extractionInputs);
+  wrongSubject.captures[0].subject = 'different-capability';
+  const rebound = createWmpModelBinding({
     inputs: {
       ...fixture.binding.inputs,
-      extractionProfileSha256: sha256(extractionProfile)
+      extractionInputsSha256: sha256(wrongSubject)
     },
     inputDescriptors: {
       ...fixture.binding.inputDescriptors,
-      extractionProfile
+      extractionInputs: wrongSubject
     },
     inputObjects: fixture.binding.inputObjects,
     payloadObjects: fixture.binding.payloadObjects,
@@ -639,10 +709,53 @@ test('model history refuses configured extraction until a configuration owner bi
   });
   assert.throws(
     () => stageWorldModelHistoryPublication({
-      modelBindings: [binding], objects: Object.values(fixture.objects)
+      modelBindings: [rebound], objects: Object.values(fixture.objects)
     }),
     (error) => error?.code === 'WMP_GRAPH_MISMATCH'
-      && error?.details?.relation === 'extraction-profile.configuration-authority'
+      && error?.details?.relation === 'candidate-roster.subject'
+  );
+});
+
+test('model history refuses a coherently rehashed roster with substituted selected content', async (t) => {
+  const fixture = await modelFixture(t, { withExcludedCandidate: true });
+  const candidateRoster = structuredClone(fixture.candidateRoster);
+  const selected = candidateRoster.candidates.find((entry) => entry.status === 'selected');
+  selected.contentSha256 = digest('substituted-selected-content');
+  selected.bytes += 1;
+  const sealedRoster = sealRecord(candidateRoster, 'candidateRosterSha256');
+  const candidateRosterObject = retained(
+    sealedRoster, 'candidate-roster', 'world-model-discovered-candidate-roster'
+  );
+  const extractionInputs = structuredClone(fixture.binding.inputDescriptors.extractionInputs);
+  extractionInputs.captures[0].objectRef = candidateRosterObject.ref;
+  const objects = { ...fixture.objects, candidateRoster: candidateRosterObject };
+  const binding = createWmpModelBinding({
+    inputs: {
+      ...fixture.binding.inputs,
+      extractionInputsSha256: sha256(extractionInputs)
+    },
+    inputDescriptors: {
+      ...fixture.binding.inputDescriptors,
+      extractionInputs
+    },
+    inputObjects: sortedRefs([
+      objects.repositoryDomain.ref,
+      objects.sourceSnapshot.ref,
+      objects.scopeManifest.ref,
+      objects.extractionPolicy.ref,
+      objects.extractorRegistry.ref,
+      objects.candidateRoster.ref
+    ]),
+    payloadObjects: fixture.binding.payloadObjects,
+    completeness: fixture.binding.completeness
+  });
+
+  assert.throws(
+    () => stageWorldModelHistoryPublication({
+      modelBindings: [binding], objects: Object.values(objects)
+    }),
+    (error) => error?.code === 'WMP_GRAPH_MISMATCH'
+      && error?.details?.relation === 'candidate-roster.selected-source-content'
   );
 });
 

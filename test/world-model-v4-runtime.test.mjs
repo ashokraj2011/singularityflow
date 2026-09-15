@@ -1,9 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { access, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import YAML from 'yaml';
 
+import { withApprovedConfigurationRead } from '../src/approved-configuration-reader.mjs';
+import { ensureConfigurationBranch } from '../src/configuration-branch.mjs';
+import { initializeDefinition } from '../src/config.mjs';
 import { publishToStateBranch } from '../src/ledger.mjs';
 import { withOperationContext } from '../src/operation-context.mjs';
 import { listPromptAudits, setPromptAudit } from '../src/prompt-audit.mjs';
@@ -13,12 +18,18 @@ import {
   worldModelViewCacheRoot, writeWorldModelViewCache
 } from '../src/world-model/cache.mjs';
 import { canonicalJson, sealRecord, sha256 } from '../src/world-model/canonicalize.mjs';
+import { runDeterministicRegistration } from '../src/world-model/extract/index.mjs';
 import {
   materializeWorldModelView, usageObservation
 } from '../src/world-model/materialize/view.mjs';
 import { createWorldModelMigrationReceipt } from '../src/world-model/migration/v3-to-v4.mjs';
 import { readLegacyWorldModelView } from '../src/world-model/migration/v3-reader.mjs';
 import { createWorldModelViewOutputBudget } from '../src/world-model/plan.mjs';
+import { planWorldModelV4 } from '../src/world-model/plan.mjs';
+import {
+  resolveWorldModelRepositoryIdentityAuthority
+} from '../src/world-model/history/repository-identity-authority.mjs';
+import { worldModelHistoryObjectPath } from '../src/world-model/history/paths.mjs';
 import {
   buildWorldModelManifest, deriveWorldModelManifestDependencies
 } from '../src/world-model/publish/manifest.mjs';
@@ -52,14 +63,15 @@ function git(root, ...args) {
   return run('git', args, { cwd: root });
 }
 
-async function repository(t) {
+async function repository(t, { objectFormat = null } = {}) {
   const parent = await mkdtemp(path.join(os.tmpdir(), 'sflow-wmb-v4-runtime-'));
   const remote = path.join(parent, 'remote.git');
   const root = path.join(parent, 'repo');
   t.after(() => rm(parent, { recursive: true, force: true }));
-  run('git', ['init', '--bare', remote]);
+  const objectFormatArgs = objectFormat === null ? [] : [`--object-format=${objectFormat}`];
+  run('git', ['init', '--bare', ...objectFormatArgs, remote]);
   await mkdir(path.join(root, 'src'), { recursive: true });
-  git(root, 'init', '-b', 'main');
+  git(root, 'init', ...objectFormatArgs, '-b', 'main');
   git(root, 'config', 'user.name', 'WMB Runtime Tests');
   git(root, 'config', 'user.email', 'wmb-runtime@example.invalid');
   await writeFile(path.join(root, 'src', 'service.mjs'), [
@@ -75,6 +87,65 @@ async function repository(t) {
   return { root, remote };
 }
 
+async function governedRepository(t, options = {}) {
+  const fixture = await repository(t, options);
+  const { root, remote } = fixture;
+  await initializeDefinition(root);
+  const portfolioPath = path.join(root, 'singularity', 'portfolio.yml');
+  const portfolio = YAML.parse(await readFile(portfolioPath, 'utf8'));
+  portfolio.repositories = {
+    'runtime-fixture-repository': {
+      url: remote,
+      defaultBranch: 'main',
+      branchCompletionPolicy: 'direct',
+      requiredChecks: [],
+      required: true,
+      metadata: {},
+      jira: { projectKey: null, boardId: null }
+    }
+  };
+  await writeFile(portfolioPath, YAML.stringify(portfolio));
+  await writeFile(path.join(root, 'singularity', 'capabilities.yml'), YAML.stringify({
+    version: 1,
+    capabilities: {
+      'runtime-fixture': {
+        name: 'Runtime fixture',
+        kind: 'delivery',
+        parent: null,
+        repository: 'runtime-fixture-repository',
+        sourceRoots: ['src'],
+        policy: { gitPublication: 'off' }
+      }
+    }
+  }));
+  git(root, 'add', '.');
+  git(root, 'commit', '-m', 'initialize governed runtime fixture');
+  git(root, 'push', 'origin', 'main');
+  const sourceCommit = git(root, 'rev-parse', 'HEAD').stdout.trim();
+  await ensureConfigurationBranch(remote, {
+    sourceBranch: 'main',
+    sourceCommit,
+    authorIdentity: {
+      name: 'WMB Runtime Tests', email: 'wmb-runtime@example.invalid'
+    }
+  });
+  await publishToStateBranch(root, LEDGER, {
+    'singularity/state-bootstrap.json': '{"kind":"test-state-bootstrap"}\n'
+  }, '[test] initialize state authority');
+  return fixture;
+}
+
+async function supportsSha256GitObjectFormat(t) {
+  const parent = await mkdtemp(path.join(os.tmpdir(), 'sflow-wmb-sha256-probe-'));
+  t.after(() => rm(parent, { recursive: true, force: true }));
+  const result = run('git', [
+    'init', '--bare', '--object-format=sha256', path.join(parent, 'probe.git')
+  ], { allowFailure: true });
+  if (result.status === 0) return true;
+  t.diagnostic(`Git SHA-256 object format is unavailable: ${String(result.stderr).trim()}`);
+  return false;
+}
+
 function buildOptions(overrides = {}) {
   return {
     outputDir: 'singularity/world-model',
@@ -88,6 +159,40 @@ function buildOptions(overrides = {}) {
     generatedAt: '2026-09-01T00:00:00.000Z',
     ...overrides
   };
+}
+
+async function approvedPersistedBuildOptions(root) {
+  const approved = await withApprovedConfigurationRead(root, () => (
+    resolveWorldModelRepositoryIdentityAuthority(root, {
+      capabilityId: 'runtime-fixture'
+    })
+  ), {
+    preferAuthority: true, refreshAuthority: true, requireAuthorityRefresh: true
+  });
+  return buildOptions({
+    capabilityId: approved.scopeManifest.capabilityId,
+    allowedPaths: approved.scopeManifest.allowedPaths,
+    sharedPaths: approved.scopeManifest.sharedPaths,
+    excludedPaths: approved.scopeManifest.excludedPaths,
+    allowedSubjects: approved.scopeManifest.allowedSubjects,
+    maximumTraversalDepth: approved.scopeManifest.maximumTraversalDepth,
+    policySnapshotSha256: approved.scopeManifest.policySourceSha256
+  });
+}
+
+function advanceBareState(root, remote, stateCommit, label) {
+  const tree = git(root, 'rev-parse', `${stateCommit}^{tree}`).stdout.trim();
+  const commit = git(
+    root, 'commit-tree', tree, '-p', stateCommit, '-m', `[test] ${label}`
+  ).stdout.trim();
+  git(root, 'push', remote, `${commit}:refs/heads/state`);
+  return commit;
+}
+
+function bareStateHead(remote) {
+  return run('git', [
+    '--git-dir', remote, 'rev-parse', '--verify', 'refs/heads/state^{commit}'
+  ]).stdout.trim();
 }
 
 test('a failed state publication retains and resumes the exact validated projection without rebuilding', async (t) => {
@@ -1230,6 +1335,527 @@ test('a required view failure preserves registered facts but cannot publish a ma
   assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/heads/state'], {
     cwd: root, allowFailure: true
   }).status, 1);
+});
+
+test('accepted persisted facts rebuild view selections without running source extraction', async (t) => {
+  const { root } = await repository(t);
+  const options = buildOptions({ publish: false });
+  const planned = planWorldModelV4(root, options);
+  const base = runDeterministicRegistration({
+    root,
+    sourceSnapshot: planned.sourceSnapshot,
+    scopeManifest: planned.scopeManifest,
+    extractorRegistry: planned.extractorRegistry,
+    extractorReferences: planned.extractorReferences,
+    requestedViews: [],
+    viewRegistry: planned.viewRegistry
+  });
+  const first = await buildWorldModelV4(root, options);
+  assert.equal(first.registrationSource, 'extracted');
+
+  const reused = await buildWorldModelV4(root, {
+    ...options,
+    persistedFacts: {
+      evidenceCatalog: base.evidenceCatalog,
+      derivationCatalog: base.derivationCatalog,
+      factLedger: base.factLedger
+    }
+  });
+  assert.equal(reused.registrationSource, 'persisted-history');
+  assert.equal(reused.registration.extractionExecutionReceipt, undefined);
+  assert.equal(
+    canonicalJson(reused.registration.factLedger),
+    canonicalJson(first.registration.factLedger)
+  );
+  assert.equal(
+    canonicalJson(reused.registration.viewFactLedgers),
+    canonicalJson(first.registration.viewFactLedgers)
+  );
+  assert.equal(reused.status, 'ready-to-publish');
+});
+
+test('publication service accepts persisted facts only from its verified history boundary', async (t) => {
+  const { root } = await repository(t);
+  const options = buildOptions({ publish: false });
+  const planned = planWorldModelV4(root, options);
+  const base = runDeterministicRegistration({
+    root,
+    sourceSnapshot: planned.sourceSnapshot,
+    scopeManifest: planned.scopeManifest,
+    extractorRegistry: planned.extractorRegistry,
+    extractorReferences: planned.extractorReferences,
+    requestedViews: [],
+    viewRegistry: planned.viewRegistry
+  });
+
+  await assert.rejects(
+    buildAndPublishWorldModelV4(root, {
+      ...options,
+      persistedFacts: {
+        evidenceCatalog: base.evidenceCatalog,
+        derivationCatalog: base.derivationCatalog,
+        factLedger: base.factLedger
+      }
+    }),
+    (error) => error.code === 'WMP_PERSISTED_FACTS_CALLER_FORBIDDEN'
+  );
+  assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/heads/state'], {
+    cwd: root, allowFailure: true
+  }).status, 1);
+});
+
+test('publication service refuses executable or unknown persisted-history options', async (t) => {
+  const { root } = await repository(t);
+  let accessorCalls = 0;
+  const accessor = Object.defineProperty({}, 'historyDir', {
+    enumerable: true,
+    get() {
+      accessorCalls += 1;
+      return 'singularity/world-model-history';
+    }
+  });
+  const nestedAccessor = Object.defineProperty({}, 'capabilityId', {
+    enumerable: true,
+    get() {
+      accessorCalls += 1;
+      return 'runtime-fixture';
+    }
+  });
+  const overdeep = {};
+  let overdeepCursor = overdeep;
+  for (let index = 0; index < 40; index += 1) {
+    overdeepCursor.next = {};
+    overdeepCursor = overdeepCursor.next;
+  }
+  const cyclic = {};
+  cyclic.next = cyclic;
+  for (const persistedHistory of [
+    { resolveRepositoryAuthority: async () => ({}) },
+    { resolveHistoryAuthority: async () => ({}) },
+    { runCommand: () => ({ status: 0 }) },
+    { unsupportedPolicy: true },
+    { outputDir: 'singularity/forged-current-root' },
+    accessor,
+    { pinnedCapabilityResolution: nestedAccessor },
+    { authorityRef: 'refs/remotes/origin/state', [Symbol('hidden')]: true },
+    Object(false),
+    new Date('2026-09-01T00:00:00.000Z'),
+    new Map([['historyDir', 'singularity/world-model-history']]),
+    /history/,
+    Object.create({ historyDir: 'singularity/world-model-history' }),
+    new Proxy({ historyDir: 'singularity/world-model-history' }, {}),
+    { pinnedCapabilityResolution: overdeep },
+    { pinnedCapabilityResolution: cyclic },
+    { pinnedCapabilityResolution: { value: 'x'.repeat((1024 * 1024) + 1) } },
+    { pinnedCapabilityResolution: { values: new Array(4_097).fill(null) } }
+  ]) {
+    await assert.rejects(
+      buildAndPublishWorldModelV4(root, {
+        ...buildOptions({ publish: false }), persistedHistory
+      }),
+      (error) => error.code === 'WMP_PERSISTED_HISTORY_OPTIONS_INVALID'
+    );
+  }
+  assert.equal(accessorCalls, 0);
+  assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/heads/state'], {
+    cwd: root, allowFailure: true
+  }).status, 1);
+});
+
+test('publication service accepts a null-prototype persisted-history data object', async (t) => {
+  const { root } = await repository(t);
+  const persistedHistory = Object.create(null);
+  persistedHistory.historyDir = 'singularity/world-model-history';
+  const result = await buildAndPublishWorldModelV4(root, {
+    ...buildOptions({ publish: false }), persistedHistory
+  });
+  assert.equal(result.status, 'completed');
+  assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/heads/state'], {
+    cwd: root, allowFailure: true
+  }).status, 1);
+});
+
+test('publication service refuses overlapping current and immutable history roots before state access', async (t) => {
+  const { root } = await repository(t);
+  await assert.rejects(
+    buildAndPublishWorldModelV4(root, {
+      ...buildOptions({ publish: true }),
+      outputDir: 'singularity/world-model',
+      persistedHistory: { historyDir: 'singularity/world-model/history' }
+    }),
+    (error) => error.code === 'WMP_HISTORY_ROOT_OVERLAP'
+  );
+  assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/heads/state'], {
+    cwd: root, allowFailure: true
+  }).status, 1);
+});
+
+test('persisted history refuses a different publication branch even when both branches have the same tip', async (t) => {
+  const { root } = await governedRepository(t);
+  const options = await approvedPersistedBuildOptions(root);
+  const stateCommit = git(root, 'rev-parse', 'refs/remotes/origin/state').stdout.trim();
+  git(root, 'push', 'origin', `${stateCommit}:refs/heads/shadow-state`);
+
+  await assert.rejects(
+    withApprovedConfigurationRead(root, () => (
+      buildAndPublishWorldModelV4(root, {
+        ...options,
+        ledgerConfig: { ...LEDGER, branch: 'shadow-state' },
+        persistedHistory: true
+      })
+    ), {
+      preferAuthority: true, refreshAuthority: true, requireAuthorityRefresh: true
+    }),
+    (error) => error.code === 'WMP_HISTORY_PUBLICATION_AUTHORITY_MISMATCH'
+      && error.details?.expectedRef === 'refs/remotes/origin/shadow-state'
+      && error.details?.receivedRef === 'refs/remotes/origin/state'
+      && error.details?.expectedCommit === stateCommit
+      && error.details?.receivedCommit === stateCommit
+  );
+  assert.equal(
+    git(root, 'ls-remote', '--heads', 'origin', 'refs/heads/shadow-state').stdout
+      .split(/\s+/)[0],
+    stateCommit,
+    'the refused build must not advance its reviewed publication branch'
+  );
+});
+
+test('persisted history refuses a publication branch at a different authority commit', async (t) => {
+  const { root } = await governedRepository(t);
+  const options = await approvedPersistedBuildOptions(root);
+  const stateCommit = git(root, 'rev-parse', 'refs/remotes/origin/state').stdout.trim();
+  git(root, 'push', 'origin', `${stateCommit}:refs/heads/shadow-state`);
+  const shadowLedger = { ...LEDGER, branch: 'shadow-state' };
+  const advanced = await publishToStateBranch(root, shadowLedger, {
+    'singularity/shadow-state.json': '{"kind":"different-authority"}\n'
+  }, '[test] advance alternate state authority');
+  assert.notEqual(advanced.commit, stateCommit);
+
+  await assert.rejects(
+    withApprovedConfigurationRead(root, () => (
+      buildAndPublishWorldModelV4(root, {
+        ...options,
+        ledgerConfig: shadowLedger,
+        persistedHistory: true
+      })
+    ), {
+      preferAuthority: true, refreshAuthority: true, requireAuthorityRefresh: true
+    }),
+    (error) => error.code === 'WMP_HISTORY_PUBLICATION_AUTHORITY_MISMATCH'
+      && error.details?.expectedRef === 'refs/remotes/origin/shadow-state'
+      && error.details?.receivedRef === 'refs/remotes/origin/state'
+      && error.details?.expectedCommit === advanced.commit
+      && error.details?.receivedCommit === stateCommit
+  );
+  assert.equal(
+    git(root, 'ls-remote', '--heads', 'origin', 'refs/heads/shadow-state').stdout
+      .split(/\s+/)[0],
+    advanced.commit,
+    'the refused build must not advance a mismatched publication authority'
+  );
+});
+
+test('persisted history refuses pushurl before it can replace the configured fetch tracking ref', async (t) => {
+  const { root, remote } = await governedRepository(t);
+  const options = await approvedPersistedBuildOptions(root);
+  const stateCommit = git(root, 'rev-parse', 'refs/remotes/origin/state').stdout.trim();
+  const alternate = path.join(path.dirname(remote), 'alternate-publication.git');
+  run('git', ['init', '--bare', alternate]);
+  git(root, 'push', alternate, `${stateCommit}:refs/heads/state`);
+  const alternateCommit = advanceBareState(root, alternate, stateCommit, 'advance pushurl state');
+  git(root, 'remote', 'set-url', '--push', 'origin', alternate);
+
+  await assert.rejects(
+    withApprovedConfigurationRead(root, () => (
+      buildAndPublishWorldModelV4(root, { ...options, persistedHistory: true })
+    ), {
+      preferAuthority: true, refreshAuthority: true, requireAuthorityRefresh: true
+    }),
+    (error) => error.code === 'WMP_HISTORY_PUBLICATION_AUTHORITY_MISMATCH'
+      && error.details?.expectedRef === 'refs/remotes/origin/state'
+      && error.details?.receivedRef === 'refs/remotes/origin/state'
+      && error.details?.expectedCommit === null
+      && error.details?.receivedCommit === stateCommit
+      && error.details?.historyObservationAttempted === false
+      && error.details?.historyRepositoryIdentitySha256
+        !== error.details?.publicationConfiguredRepositoryIdentitySha256
+  );
+  assert.equal(
+    git(root, 'rev-parse', 'refs/remotes/origin/state').stdout.trim(),
+    stateCommit,
+    'the refused split endpoint must not replace the configured fetch tracking ref'
+  );
+  assert.equal(bareStateHead(remote), stateCommit, 'the configured fetch repository is unchanged');
+  assert.equal(bareStateHead(alternate), alternateCommit, 'the alternate push repository is unchanged');
+});
+
+test('persisted history refuses insteadOf before it can replace the configured fetch tracking ref', async (t) => {
+  const { root, remote } = await governedRepository(t);
+  const options = await approvedPersistedBuildOptions(root);
+  const stateCommit = git(root, 'rev-parse', 'refs/remotes/origin/state').stdout.trim();
+  const alternate = path.join(path.dirname(remote), 'rewritten-publication.git');
+  run('git', ['init', '--bare', alternate]);
+  git(root, 'push', alternate, `${stateCommit}:refs/heads/state`);
+  const alternateCommit = advanceBareState(root, alternate, stateCommit, 'advance insteadOf state');
+  git(root, 'config', '--local', `url.${alternate}.insteadOf`, remote);
+
+  await assert.rejects(
+    withApprovedConfigurationRead(root, () => (
+      buildAndPublishWorldModelV4(root, { ...options, persistedHistory: true })
+    ), {
+      preferAuthority: true, refreshAuthority: true, requireAuthorityRefresh: true
+    }),
+    (error) => error.code === 'WMP_HISTORY_PUBLICATION_AUTHORITY_MISMATCH'
+      && error.details?.expectedRef === 'refs/remotes/origin/state'
+      && error.details?.receivedRef === 'refs/remotes/origin/state'
+      && error.details?.expectedCommit === null
+      && error.details?.receivedCommit === stateCommit
+      && error.details?.historyObservationAttempted === false
+      && error.details?.historyRepositoryIdentitySha256
+        === error.details?.publicationConfiguredRepositoryIdentitySha256
+      && error.details?.historyRepositoryIdentitySha256
+        !== error.details?.publicationEffectiveRepositoryIdentitySha256
+  );
+  assert.equal(
+    git(root, 'rev-parse', 'refs/remotes/origin/state').stdout.trim(),
+    stateCommit,
+    'the refused rewrite must not replace the configured fetch tracking ref'
+  );
+  assert.equal(bareStateHead(remote), stateCommit, 'the configured fetch repository is unchanged');
+  assert.equal(bareStateHead(alternate), alternateCommit, 'the rewritten repository is unchanged');
+});
+
+test('persisted history refuses pushInsteadOf before it can replace the configured fetch tracking ref', async (t) => {
+  const { root, remote } = await governedRepository(t);
+  const options = await approvedPersistedBuildOptions(root);
+  const stateCommit = git(root, 'rev-parse', 'refs/remotes/origin/state').stdout.trim();
+  const alternate = path.join(path.dirname(remote), 'push-rewritten-publication.git');
+  run('git', ['init', '--bare', alternate]);
+  git(root, 'push', alternate, `${stateCommit}:refs/heads/state`);
+  const alternateCommit = advanceBareState(
+    root, alternate, stateCommit, 'advance pushInsteadOf state'
+  );
+  git(root, 'config', '--local', `url.${alternate}.pushInsteadOf`, remote);
+
+  await assert.rejects(
+    withApprovedConfigurationRead(root, () => (
+      buildAndPublishWorldModelV4(root, { ...options, persistedHistory: true })
+    ), {
+      preferAuthority: true, refreshAuthority: true, requireAuthorityRefresh: true
+    }),
+    (error) => error.code === 'WMP_HISTORY_PUBLICATION_AUTHORITY_MISMATCH'
+      && error.details?.expectedRef === 'refs/remotes/origin/state'
+      && error.details?.receivedRef === 'refs/remotes/origin/state'
+      && error.details?.expectedCommit === null
+      && error.details?.receivedCommit === stateCommit
+      && error.details?.historyObservationAttempted === false
+      && error.details?.historyRepositoryIdentitySha256
+        === error.details?.publicationConfiguredRepositoryIdentitySha256
+      && error.details?.historyRepositoryIdentitySha256
+        !== error.details?.publicationEffectiveRepositoryIdentitySha256
+  );
+  assert.equal(
+    git(root, 'rev-parse', 'refs/remotes/origin/state').stdout.trim(),
+    stateCommit,
+    'the refused push rewrite must not replace the configured fetch tracking ref'
+  );
+  assert.equal(bareStateHead(remote), stateCommit, 'the configured fetch repository is unchanged');
+  assert.equal(bareStateHead(alternate), alternateCommit, 'the push-rewritten repository is unchanged');
+});
+
+test('persisted history refuses a split push endpoint before any unauthorized remote probe', async (t) => {
+  const { root } = await governedRepository(t);
+  const options = await approvedPersistedBuildOptions(root);
+  const stateCommit = git(root, 'rev-parse', 'refs/remotes/origin/state').stdout.trim();
+  let requests = 0;
+  const server = createServer((request, response) => {
+    requests += 1;
+    response.writeHead(401, { 'content-type': 'text/plain' });
+    response.end('authorization required');
+  });
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
+  git(root, 'remote', 'set-url', '--push', 'origin',
+    `http://127.0.0.1:${address.port}/unauthorized.git`);
+
+  await assert.rejects(
+    withApprovedConfigurationRead(root, () => (
+      buildAndPublishWorldModelV4(root, { ...options, persistedHistory: true })
+    ), {
+      preferAuthority: true, refreshAuthority: true, requireAuthorityRefresh: true
+    }),
+    (error) => error.code === 'WMP_HISTORY_PUBLICATION_AUTHORITY_MISMATCH'
+      && error.details?.historyObservationAttempted === false
+      && error.details?.expectedCommit === null
+      && error.details?.receivedCommit === stateCommit
+  );
+  assert.equal(requests, 0,
+    'the unauthorized endpoint must not receive an ls-remote or credential-triggering request');
+  assert.equal(
+    git(root, 'rev-parse', 'refs/remotes/origin/state').stdout.trim(),
+    stateCommit,
+    'the refused split endpoint must not change the configured history authority'
+  );
+});
+
+test('normal service publishes current projection and exact model history in one state CAS then reuses it', async (t) => {
+  const { root } = await governedRepository(t);
+  const approved = await withApprovedConfigurationRead(root, () => (
+    resolveWorldModelRepositoryIdentityAuthority(root, {
+      capabilityId: 'runtime-fixture'
+    })
+  ), {
+    preferAuthority: true, refreshAuthority: true, requireAuthorityRefresh: true
+  });
+  const options = buildOptions({
+    capabilityId: approved.scopeManifest.capabilityId,
+    allowedPaths: approved.scopeManifest.allowedPaths,
+    sharedPaths: approved.scopeManifest.sharedPaths,
+    excludedPaths: approved.scopeManifest.excludedPaths,
+    allowedSubjects: approved.scopeManifest.allowedSubjects,
+    maximumTraversalDepth: approved.scopeManifest.maximumTraversalDepth,
+    policySnapshotSha256: approved.scopeManifest.policySourceSha256
+  });
+  const stateBeforePublication = git(
+    root, 'rev-parse', 'refs/remotes/origin/state'
+  ).stdout.trim();
+
+  const first = await withApprovedConfigurationRead(root, () => (
+    buildAndPublishWorldModelV4(root, { ...options, persistedHistory: true })
+  ), {
+    preferAuthority: true, refreshAuthority: true, requireAuthorityRefresh: true
+  });
+  assert.equal(first.status, 'completed');
+  assert.equal(first.persistedModel.status, 'built');
+  assert.equal(first.runtime.registrationSource, 'persisted-history');
+  assert.deepEqual(first.persistedModel.execution, {
+    extraction: true,
+    registrationCalls: 1,
+    modelCalls: 0,
+    astCalls: 0,
+    cacheWrites: 0
+  });
+  const stateCommit = git(root, 'rev-parse', 'refs/remotes/origin/state').stdout.trim();
+  assert.equal(first.publication.commit, stateCommit);
+  assert.equal(
+    git(root, 'rev-parse', `${stateCommit}^`).stdout.trim(),
+    stateBeforePublication,
+    'the current projection and immutable history must land in one state commit, not two writes'
+  );
+  assert.equal(
+    git(root, 'show', `${stateCommit}:singularity/world-model/manifest.json`).status,
+    0
+  );
+  assert.equal(
+    git(root, 'show', `${stateCommit}:singularity/world-model-history/models/${first.persistedModel.modelKey.slice('sha256:'.length)}.json`).status,
+    0
+  );
+
+  const second = await withApprovedConfigurationRead(root, () => (
+    buildAndPublishWorldModelV4(root, {
+      ...options,
+      persistedHistory: true,
+      generatedAt: '2026-09-01T00:01:00.000Z'
+    })
+  ), {
+    preferAuthority: true, refreshAuthority: true, requireAuthorityRefresh: true
+  });
+  assert.equal(second.status, 'completed');
+  assert.equal(second.persistedModel.status, 'reused');
+  assert.equal(second.runtime.registrationSource, 'persisted-history');
+  assert.deepEqual(second.persistedModel.execution, {
+    extraction: false,
+    modelCalls: 0,
+    astCalls: 0,
+    cacheWrites: 0,
+    registrationCalls: 0
+  });
+  assert.equal(second.persistedModel.modelKey, first.persistedModel.modelKey);
+});
+
+test('opt-in exact history publishes and reuses native SHA-256 Git identities', async (t) => {
+  if (!(await supportsSha256GitObjectFormat(t))) return;
+  const { root } = await governedRepository(t, { objectFormat: 'sha256' });
+  assert.equal(git(root, 'rev-parse', '--show-object-format').stdout.trim(), 'sha256');
+  const approved = await withApprovedConfigurationRead(root, () => (
+    resolveWorldModelRepositoryIdentityAuthority(root, {
+      capabilityId: 'runtime-fixture'
+    })
+  ), {
+    preferAuthority: true, refreshAuthority: true, requireAuthorityRefresh: true
+  });
+  const options = buildOptions({
+    capabilityId: approved.scopeManifest.capabilityId,
+    allowedPaths: approved.scopeManifest.allowedPaths,
+    sharedPaths: approved.scopeManifest.sharedPaths,
+    excludedPaths: approved.scopeManifest.excludedPaths,
+    allowedSubjects: approved.scopeManifest.allowedSubjects,
+    maximumTraversalDepth: approved.scopeManifest.maximumTraversalDepth,
+    policySnapshotSha256: approved.scopeManifest.policySourceSha256
+  });
+
+  const first = await withApprovedConfigurationRead(root, () => (
+    buildAndPublishWorldModelV4(root, { ...options, persistedHistory: true })
+  ), {
+    preferAuthority: true, refreshAuthority: true, requireAuthorityRefresh: true
+  });
+  assert.equal(first.persistedModel.status, 'built');
+  const stateCommit = git(root, 'rev-parse', 'refs/remotes/origin/state').stdout.trim();
+  assert.match(stateCommit, /^[a-f0-9]{64}$/);
+  const bindingPath = `singularity/world-model-history/models/${
+    first.persistedModel.modelKey.slice('sha256:'.length)
+  }.json`;
+  const binding = JSON.parse(git(
+    root, 'show', `${stateCommit}:${bindingPath}`
+  ).stdout);
+  const sourceBinding = binding.inputDescriptors.sourceBinding;
+  assert.equal(sourceBinding.gitObjectFormat, 'sha256');
+  assert.match(sourceBinding.requestedRevision, /^[a-f0-9]{64}$/);
+  assert.equal(sourceBinding.effectiveRevision, sourceBinding.requestedRevision);
+
+  const sourceSnapshot = JSON.parse(git(root, 'show', `${stateCommit}:${
+    worldModelHistoryObjectPath(sourceBinding.sourceSnapshotRef.sha256)
+  }`).stdout);
+  assert.match(sourceSnapshot.revision.commit, /^[a-f0-9]{64}$/);
+  assert.match(sourceSnapshot.revision.tree, /^[a-f0-9]{64}$/);
+  const rosterCapture = binding.inputDescriptors.extractionInputs.captures.find(
+    (entry) => entry.role === 'candidate-roster'
+  );
+  assert.ok(rosterCapture?.objectRef);
+  const roster = JSON.parse(git(root, 'show', `${stateCommit}:${
+    worldModelHistoryObjectPath(rosterCapture.objectRef.sha256)
+  }`).stdout);
+  assert.equal(roster.source.gitObjectFormat, 'sha256');
+  assert.equal(roster.source.commit, sourceSnapshot.revision.commit);
+  assert.equal(
+    roster.source.tree,
+    git(root, 'rev-parse', `${sourceSnapshot.revision.commit}^{tree}`).stdout.trim()
+  );
+  assert.ok(roster.candidates.length > 0);
+  assert.equal(roster.candidates.every((entry) => /^[a-f0-9]{64}$/.test(entry.objectId)), true);
+  assert.equal(
+    roster.candidates.find((entry) => entry.path === 'src/service.mjs')?.objectId,
+    git(root, 'rev-parse', `${sourceSnapshot.revision.commit}:src/service.mjs`).stdout.trim()
+  );
+
+  const second = await withApprovedConfigurationRead(root, () => (
+    buildAndPublishWorldModelV4(root, {
+      ...options,
+      persistedHistory: true,
+      generatedAt: '2026-09-01T00:01:00.000Z'
+    })
+  ), {
+    preferAuthority: true, refreshAuthority: true, requireAuthorityRefresh: true
+  });
+  assert.equal(second.persistedModel.status, 'reused');
+  assert.equal(second.persistedModel.modelKey, first.persistedModel.modelKey);
+  assert.equal(second.persistedModel.execution.extraction, false);
+  assert.equal(second.persistedModel.execution.registrationCalls, 0);
 });
 
 test('aggregate output budget is admitted before independent view fan-out', async (t) => {

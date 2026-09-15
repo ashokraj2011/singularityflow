@@ -38,8 +38,14 @@ import {
 } from '../registry/extractors.mjs';
 import { validateScopeManifest } from '../scope/manifest.mjs';
 import {
-  validateSourceSnapshot, verifyExactSourceSnapshot
+  createDiscoveredCandidateRoster, validateSourceSnapshot, verifyDiscoveredCandidateRoster,
+  verifyExactSourceSnapshot
 } from '../source/snapshot.mjs';
+import {
+  WMP_CANDIDATE_EXCLUSION_REASONS, WMP_CANDIDATE_ROSTER_FAMILY,
+  WMP_CANDIDATE_ROSTER_ROLE, validateWorldModelDiscoveredCandidateRoster
+} from './candidate-roster-owner.mjs';
+import { classifyScopePath } from '../scope/matcher.mjs';
 
 const PREPARATION_KIND = 'wmp/model-build-preparation';
 const SEMVER = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[a-z0-9.-]+)?$/;
@@ -125,6 +131,65 @@ function objectByRole(values, role, label) {
 
 function parsedObject(value) {
   return parseExactRetainedObject(value.ref, Buffer.from(value.bytes, 'utf8'));
+}
+
+function validatePreparationCandidateRoster(retained, descriptors, source, scope) {
+  const captures = descriptors.extractionInputs.captures.filter(
+    (entry) => entry.role === WMP_CANDIDATE_ROSTER_ROLE
+  );
+  if (captures.length !== 1 || captures[0].status !== 'available') {
+    fail('Model preparation requires one owned full discovered Candidate Roster.',
+      'WMP_INPUT_ROLE_MISSING', {
+        role: WMP_CANDIDATE_ROSTER_ROLE, matches: captures.length
+      });
+  }
+  const object = objectByRole(retained, WMP_CANDIDATE_ROSTER_ROLE, 'Model preparation');
+  if (object.ref.family !== WMP_CANDIDATE_ROSTER_FAMILY
+      || canonicalJson(captures[0].objectRef) !== canonicalJson(object.ref)
+      || captures[0].subject !== source.subject.id) {
+    fail('Model preparation Candidate Roster capture is not its exact retained source input.',
+      'WMP_CANDIDATE_ROSTER_BINDING_MISMATCH');
+  }
+  const roster = validateWorldModelDiscoveredCandidateRoster(parsedObject(object));
+  if (roster.sourceManifestSha256 !== source.sourceManifestSha256
+      || roster.scopeManifestSha256 !== scope.scopeSha256
+      || roster.source.commit !== source.revision.commit
+      || roster.source.gitObjectFormat !== descriptors.sourceBinding.gitObjectFormat) {
+    fail('Model preparation Candidate Roster does not bind its exact source and scope.',
+      'WMP_CANDIDATE_ROSTER_BINDING_MISMATCH');
+  }
+  const selected = new Map(source.files.map((entry) => [entry.path, entry]));
+  for (const candidate of roster.candidates) {
+    const classification = classifyScopePath(candidate.path, scope);
+    const expectedStatus = classification.status === 'inside' ? 'selected' : 'excluded';
+    const expectedReason = classification.status === 'inside'
+      ? null : WMP_CANDIDATE_EXCLUSION_REASONS[classification.status];
+    if (candidate.status !== expectedStatus || candidate.reasonCode !== expectedReason) {
+      fail(`Model preparation Candidate Roster misclassifies '${candidate.path}'.`,
+        'WMP_CANDIDATE_ROSTER_SCOPE_MISMATCH', { path: candidate.path });
+    }
+    if (candidate.status === 'selected') {
+      const file = selected.get(candidate.path);
+      if (!file || file.type !== candidate.type || file.mode !== candidate.mode
+          || file.contentSha256 !== candidate.contentSha256
+          || file.bytes !== candidate.bytes) {
+        fail(`Model preparation Candidate Roster mismatches selected path '${candidate.path}'.`,
+          'WMP_CANDIDATE_ROSTER_SOURCE_MISMATCH', { path: candidate.path });
+      }
+      selected.delete(candidate.path);
+    } else if (selected.has(candidate.path)) {
+      fail(`Model preparation Candidate Roster excludes selected path '${candidate.path}'.`,
+        'WMP_CANDIDATE_ROSTER_SOURCE_MISMATCH', { path: candidate.path });
+    }
+  }
+  if (selected.size) {
+    fail('Model preparation Candidate Roster omits selected Source Snapshot paths.',
+      'WMP_CANDIDATE_ROSTER_SOURCE_MISMATCH', {
+        omittedPaths: [...selected.keys()].sort(compareText).slice(0, 100),
+        omitted: Math.max(0, selected.size - 100)
+      });
+  }
+  return roster;
 }
 
 function assertAuthorityMatchesDomain(authorityValue, domainValue, capabilityId) {
@@ -369,6 +434,9 @@ function validatePreparationValue(value) {
     fail('Model preparation Source Binding does not match its exact retained inputs.',
       'WMP_MODEL_INPUT_MISMATCH');
   }
+  const candidateRoster = validatePreparationCandidateRoster(
+    retained, descriptors, source, scope
+  );
   if (descriptors.extractionProfile.configurationRefs.length) {
     fail(
       'Configured extraction has no installed frozen v1 configuration owner.',
@@ -422,7 +490,7 @@ function validatePreparationValue(value) {
   }
   return {
     preparation: deepFreeze(value), source, scope, policy, registry, domain,
-    retainedInputObjects: retained, descriptors, inputs
+    candidateRoster, retainedInputObjects: retained, descriptors, inputs
   };
 }
 
@@ -554,6 +622,38 @@ export async function preparePersistedWorldModelBuild(root, {
       }
     );
   }
+  if (!Array.isArray(extractionInputs?.captures)) {
+    fail('Persisted-model extraction inputs require a bounded capture array.');
+  }
+  if (extractionInputs.captures.some(
+    (entry) => entry?.role === WMP_CANDIDATE_ROSTER_ROLE
+  )) {
+    fail(
+      'The full discovered Candidate Roster is captured by the governed source boundary and cannot be caller-supplied.',
+      'WMP_CANDIDATE_ROSTER_CALLER_FORBIDDEN'
+    );
+  }
+  const candidateRoster = createDiscoveredCandidateRoster(root, {
+    sourceSnapshot: source, scopeManifest: scope
+  });
+  const candidateRosterObject = retainedRecord(
+    candidateRoster, WMP_CANDIDATE_ROSTER_ROLE, WMP_CANDIDATE_ROSTER_FAMILY
+  );
+  const ownedExtractionInputs = {
+    ...extractionInputs,
+    captures: [
+      ...extractionInputs.captures,
+      {
+        role: WMP_CANDIDATE_ROSTER_ROLE,
+        subject: source.subject.id,
+        status: 'available',
+        objectRef: candidateRosterObject.ref,
+        reason: null
+      }
+    ].sort((left, right) => compareText(
+      `${left.role}\0${left.subject}`, `${right.role}\0${right.subject}`
+    ))
+  };
   const references = [...(extractorReferences ?? [])].sort(compareText);
   const extractionProfile = profileFor(registry, references);
   validateExtractorReferences(references, registry, policy, extractionProfile);
@@ -593,10 +693,10 @@ export async function preparePersistedWorldModelBuild(root, {
     sourceAuthorityRef: null
   });
   const inputDescriptors = validateWmpModelInputDescriptors({
-    sourceBinding, extractionProfile, factRequirements, extractionInputs
+    sourceBinding, extractionProfile, factRequirements, extractionInputs: ownedExtractionInputs
   });
   const retainedInputObjects = validateRetainedObjects([
-    domainObject, sourceObject, scopeObject, policyObject, registryObject,
+    candidateRosterObject, domainObject, sourceObject, scopeObject, policyObject, registryObject,
     ...additionalInputObjects
   ].sort((left, right) => compareText(refKey(left.ref), refKey(right.ref))),
   'Persisted World-model retained input objects');
@@ -611,7 +711,7 @@ export async function preparePersistedWorldModelBuild(root, {
     extractorRegistrySha256: registry.registrySha256,
     extractionProfileSha256: sha256(extractionProfile),
     factRequirementsSha256: sha256(factRequirements),
-    extractionInputsSha256: sha256(extractionInputs)
+    extractionInputsSha256: sha256(ownedExtractionInputs)
   });
   const preparationCore = {
     kind: PREPARATION_KIND,
@@ -745,6 +845,12 @@ export async function lookupPersistedWorldModelBeforeExtraction(root, {
   // the same committed source. Re-prove it before even consulting history so a stale plan cannot
   // select a model after local source or scope changed.
   verifyExactSourceSnapshot(root, prepared.source, { scopeManifest: prepared.scope });
+  verifyDiscoveredCandidateRoster(root, {
+    candidateRoster: prepared.candidateRoster,
+    sourceSnapshot: prepared.source,
+    scopeManifest: prepared.scope,
+    ...(env === undefined ? {} : { env })
+  });
   await refreshAuthority(root, prepared, resolveRepositoryAuthority, {
     pinnedCapabilityResolution
   });
@@ -936,9 +1042,11 @@ function coverageFor(completeness, extractor) {
       processedPaths: 0
     };
   }
-  const outcomes = completeness.pathOutcomes.map((entry) => entry.extractors.find(
-    (candidate) => candidate.id === extractor.id && candidate.version === extractor.version
-  ));
+  const outcomes = completeness.pathOutcomes
+    .filter((entry) => entry.status !== 'excluded')
+    .map((entry) => entry.extractors.find(
+      (candidate) => candidate.id === extractor.id && candidate.version === extractor.version
+    ));
   if (outcomes.some((entry) => !entry)) {
     fail(`Completeness omits path extractor '${extractor.id}@${extractor.version}'.`);
   }
@@ -1008,9 +1116,15 @@ export async function createPersistedWorldModelBindingFromBuild(root, {
   preparation, registration,
   pinnedCapabilityResolution = null,
   resolveRepositoryAuthority = resolveWorldModelRepositoryIdentityAuthority,
-  historyDir, outputDir
+  historyDir, outputDir, env
 } = {}) {
   const prepared = validatePreparationValue(preparation);
+  verifyDiscoveredCandidateRoster(root, {
+    candidateRoster: prepared.candidateRoster,
+    sourceSnapshot: prepared.source,
+    scopeManifest: prepared.scope,
+    ...(env === undefined ? {} : { env })
+  });
   let retainedRegistration;
   try { retainedRegistration = structuredClone(registration); }
   catch (error) {
@@ -1038,7 +1152,9 @@ export async function createPersistedWorldModelBindingFromBuild(root, {
     factLedger: retainedRegistration.factLedger,
     resolvedViewContracts: retainedRegistration.resolvedViewContracts,
     viewFactLedgers: retainedRegistration.viewFactLedgers,
-    extractionExecutionReceipt: retainedRegistration.extractionExecutionReceipt
+    extractionExecutionReceipt: retainedRegistration.extractionExecutionReceipt,
+    candidateRoster: prepared.candidateRoster,
+    factRequirements: prepared.descriptors.factRequirements
   });
   const payloadObjects = [
     retainedRecord(
@@ -1216,6 +1332,12 @@ export async function buildPersistedWorldModelAfterLookupMiss(root, {
     fail('Persisted-model build requires one deterministic registration function.');
   }
   verifyExactSourceSnapshot(root, prepared.source, { scopeManifest: prepared.scope });
+  verifyDiscoveredCandidateRoster(root, {
+    candidateRoster: prepared.candidateRoster,
+    sourceSnapshot: prepared.source,
+    scopeManifest: prepared.scope,
+    ...(env === undefined ? {} : { env })
+  });
   // Re-prove authority immediately before source access. The binding adapter repeats this check
   // after registration so a changed map, portfolio, capability pin, or configuration cut cannot
   // cross the extraction interval.
@@ -1259,7 +1381,8 @@ export async function buildPersistedWorldModelAfterLookupMiss(root, {
     pinnedCapabilityResolution,
     resolveRepositoryAuthority,
     ...(historyDir === undefined ? {} : { historyDir }),
-    ...(outputDir === undefined ? {} : { outputDir })
+    ...(outputDir === undefined ? {} : { outputDir }),
+    ...(env === undefined ? {} : { env })
   });
   // Extraction can be long enough for another process to win the exact-key publication race.
   // Re-read the current admitted state cut after the completed registration. A still-missing key

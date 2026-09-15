@@ -78,8 +78,8 @@ test('testing overview preserves the frozen coverage extractor and keeps test-im
     `${REQUIRED_FACT_COVERAGE_ID}@${REQUIRED_FACT_COVERAGE_VERSION}`
   );
   assert.equal(REQUIRED_FACT_COVERAGE_VERSION, '1.0.1');
-  assert.equal(coverage.manifestSha256, 'sha256:853b05ba82797e3269e5430d4f69e86e75be01611d781c93c933ece5d83d38f0');
-  assert.equal(BUILTIN_EXTRACTOR_REGISTRY.registrySha256, 'sha256:a6bada03b92192c09c1acc0bf2be7f083b5a47b374f09b49c1abeca40b78080c');
+  assert.equal(coverage.manifestSha256, 'sha256:3ab8c57deaf8f02d8b5a95cd7551db3e0d18f141d37c91e6d38f8794d8241460');
+  assert.equal(BUILTIN_EXTRACTOR_REGISTRY.registrySha256, 'sha256:f0809bd0c483e1ec23681b32556b379d22e36c31779f9858e0cede7147821495');
   assert.equal(coverage.factTypes.includes('test-impact'), false);
 
   const testing = resolveWmpOverviewViewContract('testing');

@@ -224,7 +224,9 @@ function ledgerHead(root, config, { env = process.env } = {}) {
  * will actually contact. Binding only the remote name allows either layer to redirect a confirmed
  * publication without changing HEAD or the working tree.
  */
-export function stateBranchPublicationTargetIdentity(root, rawConfig) {
+export function stateBranchPublicationTargetIdentity(root, rawConfig, {
+  env = process.env
+} = {}) {
   const config = normalizeLedgerConfig(rawConfig);
   const configured = configuredRemoteIdentity(root, config.remote, { direction: 'push' });
   if (configured.ambiguous) {
@@ -233,7 +235,7 @@ export function stateBranchPublicationTargetIdentity(root, rawConfig) {
       { code: 'state_branch.remote_ambiguous', details: { remote: config.remote } }
     );
   }
-  const effective = configuredRemoteAuthority(root, config.remote, { direction: 'push' });
+  const effective = configuredRemoteAuthority(root, config.remote, { direction: 'push', env });
   if (configured.configured && (!configured.url || !effective.url)) {
     throw new SingularityFlowError(
       `State publication remote '${config.remote}' does not resolve to one exact push endpoint.`,

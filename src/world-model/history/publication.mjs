@@ -16,6 +16,9 @@ import {
   parseExactRetainedObject, validateRetainedObjectReference
 } from './retained-object.mjs';
 import { validateRetainedWorldModelBindingGraph } from './store.mjs';
+import {
+  collectWorldModelHistoryObjectRefs, createWorldModelHistoryClosureBudget
+} from './closure-walk.mjs';
 
 const MAXIMUM_HISTORY_ADDITIONS = 100_000;
 // The complete projection plus this history envelope must fit the 128 MiB immutable recovery
@@ -32,18 +35,14 @@ function exactObjectRef(value) {
     && JSON.stringify(Object.keys(value).sort()) === JSON.stringify(OBJECT_REF_KEYS);
 }
 
-function collectObjectRefs(value, refs = []) {
-  if (Array.isArray(value)) {
-    for (const entry of value) collectObjectRefs(entry, refs);
-  } else if (isPlainRecord(value)) {
-    if (exactObjectRef(value)) {
-      validateRetainedObjectReference(value);
-      refs.push(value);
-    } else {
-      for (const entry of Object.values(value)) collectObjectRefs(entry, refs);
-    }
-  }
-  return refs;
+function collectObjectRefs(value, budget, baseDepth = 0) {
+  return collectWorldModelHistoryObjectRefs(value, {
+    exactObjectRef,
+    validateObjectRef: validateRetainedObjectReference,
+    isObjectContainer: isPlainRecord,
+    budget,
+    baseDepth
+  });
 }
 
 function exactUtf8Bytes(value, label) {
@@ -229,13 +228,36 @@ export function validateStagedWorldModelHistory({
     }
   }
 
+  const closureBudget = createWorldModelHistoryClosureBudget({
+    operation: 'staged-publication-validation'
+  });
   const resolved = new Map();
-  const visit = (refValue, ancestors, owner) => {
+  const rootRefs = [];
+  for (const keyed of keyedRecords) {
+    for (const ref of collectObjectRefs(keyed.record, closureBudget)) {
+      rootRefs.push({ ref, owner: keyed.target, depth: 1 });
+    }
+  }
+  const active = [];
+  const activeAt = new Map();
+  const stack = [...rootRefs].reverse().map((entry) => ({ ...entry, exit: false }));
+  while (stack.length) {
+    const item = stack.pop();
+    if (item.exit) {
+      closureBudget.checkpoint({ depth: active.length });
+      const removed = active.pop();
+      activeAt.delete(removed);
+      continue;
+    }
+    const { ref: refValue, owner, depth } = item;
+    closureBudget.checkpoint({ depth });
     const ref = validateRetainedObjectReference(refValue);
-    if (ancestors.includes(ref.sha256)) {
+    const cycleStart = activeAt.get(ref.sha256);
+    if (cycleStart !== undefined) {
       fail(`World-model retained-object closure contains a cycle at '${ref.sha256}'.`,
         'WMP_INTEGRITY_FAILED', {
-          owner, sha256: ref.sha256, cycle: [...ancestors, ref.sha256]
+          owner, sha256: ref.sha256,
+          cycle: [...active.slice(cycleStart), ref.sha256]
         });
     }
     const prior = resolved.get(ref.sha256);
@@ -244,7 +266,7 @@ export function validateStagedWorldModelHistory({
         fail(`World-model closure repeats '${ref.sha256}' with contradictory metadata.`,
           'WMP_INTEGRITY_FAILED', { sha256: ref.sha256 });
       }
-      return;
+      continue;
     }
     const retained = retainedByDigest.get(ref.sha256);
     if (!retained) {
@@ -256,14 +278,16 @@ export function validateStagedWorldModelHistory({
     }
     const record = parseExactRetainedObject(ref, retained.bytes);
     resolved.set(ref.sha256, Object.freeze({ ref: structuredClone(ref), record }));
-    if (record) {
-      for (const child of collectObjectRefs(record)) {
-        visit(child, [...ancestors, ref.sha256], ref.sha256);
-      }
+    activeAt.set(ref.sha256, active.length);
+    active.push(ref.sha256);
+    stack.push({ exit: true });
+    if (!record) continue;
+    const children = collectObjectRefs(record, closureBudget, depth);
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      stack.push({
+        ref: children[index], owner: ref.sha256, depth: depth + 1, exit: false
+      });
     }
-  };
-  for (const keyed of keyedRecords) {
-    for (const ref of collectObjectRefs(keyed.record)) visit(ref, [], keyed.target);
   }
 
   // A handoff can be the only keyed root while model/view bindings live in its retained closure.
@@ -331,6 +355,17 @@ export function stageWorldModelHistoryPublication({
   ]) {
     if (!Array.isArray(value)) fail(`World-model history ${label} must be an array.`);
   }
+  const suppliedRecords = modelBindings.length + viewBindings.length
+    + objects.length + handoffs.length;
+  if (suppliedRecords > MAXIMUM_HISTORY_ADDITIONS) {
+    fail('World-model history staging inputs exceed their aggregate record limit.',
+      'WMP_CONTRACT_LIMIT', {
+        records: suppliedRecords, maximumRecords: MAXIMUM_HISTORY_ADDITIONS
+      });
+  }
+  const closureBudget = createWorldModelHistoryClosureBudget({
+    operation: 'publication-closure-staging'
+  });
 
   const additions = new Map();
   const availableObjects = new Map();
@@ -367,6 +402,7 @@ export function stageWorldModelHistoryPublication({
   };
 
   const addRecord = (record, family, validate, keyedPath) => {
+    closureBudget.checkpoint();
     const verified = validate(record);
     const text = canonicalJson(verified);
     const raw = Buffer.from(text, 'utf8');
@@ -384,6 +420,7 @@ export function stageWorldModelHistoryPublication({
       bytes: raw
     });
     parsedObjects.push(verified);
+    closureBudget.checkpoint();
   };
 
   for (const binding of modelBindings) {
@@ -400,6 +437,7 @@ export function stageWorldModelHistoryPublication({
   }
 
   for (const [index, object] of objects.entries()) {
+    closureBudget.checkpoint();
     if (!isPlainRecord(object)
         || JSON.stringify(Object.keys(object).sort()) !== JSON.stringify(['bytes', 'ref'])) {
       fail(`World-model retained object ${index} must contain exactly ref and bytes.`);
@@ -416,11 +454,12 @@ export function stageWorldModelHistoryPublication({
     if (!prior) availableObjects.set(ref.sha256, { ref, bytes: raw.bytes });
     add(worldModelHistoryObjectPath(ref.sha256, roots), raw.text);
     if (parsed) parsedObjects.push(parsed);
+    closureBudget.checkpoint();
   }
 
   const missing = [];
   for (const owner of parsedObjects) {
-    for (const ref of collectObjectRefs(owner)) {
+    for (const ref of collectObjectRefs(owner, closureBudget)) {
       if (!availableObjects.has(ref.sha256)) missing.push({ role: ref.role, sha256: ref.sha256 });
     }
   }

@@ -466,6 +466,72 @@ test('exact model lookup reports a clean typed miss without building or fetching
   );
 });
 
+test('every exact-history object read is bounded, offline, and no-lazy-fetch', () => {
+  const authorityCommit = 'a'.repeat(40);
+  const contents = '# bounded exact history\n';
+  const ref = renderedObject(contents);
+  const relative = worldModelHistoryObjectPath(ref.sha256);
+  const oid = 'b'.repeat(40);
+  const calls = [];
+  const runCommand = (command, args, options) => {
+    calls.push({ command, args, options });
+    if (args[0] === 'rev-parse') {
+      return { status: 0, stdout: `${authorityCommit}\n`, stderr: '', timedOut: false };
+    }
+    if (args[0] === 'merge-base') {
+      return { status: 0, stdout: '', stderr: '', timedOut: false };
+    }
+    if (args[0] === 'ls-tree') {
+      return {
+        status: 0, stdout: `100644 blob ${oid}\t${relative}\0`, stderr: '', timedOut: false
+      };
+    }
+    if (args[0] === 'cat-file' && args[1] === '-s') {
+      return {
+        status: 0, stdout: `${Buffer.byteLength(contents)}\n`, stderr: '', timedOut: false
+      };
+    }
+    if (args[0] === 'cat-file' && args[1] === 'blob') {
+      return {
+        status: 0, stdout: Buffer.from(contents), stderr: Buffer.alloc(0), timedOut: false
+      };
+    }
+    throw new Error(`unexpected Git call: ${args.join(' ')}`);
+  };
+
+  const read = readWorldModelHistoryObject('/fixture', {
+    authorityCommit, authorityRef: 'refs/heads/state', ref, runCommand
+  });
+  assert.ok(read.bytes.equals(Buffer.from(contents)));
+  assert.deepEqual(calls.map(({ args }) => args[0]), [
+    'rev-parse', 'rev-parse', 'merge-base', 'ls-tree', 'cat-file', 'cat-file'
+  ]);
+  for (const { options } of calls) {
+    assert.equal(options.allowFailure, true);
+    assert.equal(options.timeoutClass, 'local-read');
+    assert.equal(options.env.GIT_NO_LAZY_FETCH, '1');
+    assert.equal(options.env.GIT_TERMINAL_PROMPT, '0');
+    assert.equal(options.env.GCM_INTERACTIVE, 'Never');
+  }
+});
+
+test('exact-history store translates thrown subprocess deadlines to a stable WMP timeout', () => {
+  const authorityCommit = 'a'.repeat(40);
+  assert.throws(
+    () => resolveWorldModelHistoryAuthority('/fixture', authorityCommit, {
+      authorityRef: 'refs/heads/state',
+      runCommand() {
+        throw Object.assign(new Error('raw subprocess deadline'), {
+          code: 'SUBPROCESS_TIMEOUT'
+        });
+      }
+    }),
+    (error) => error?.code === 'WMP_HISTORY_READ_TIMEOUT'
+      && error?.details?.operation === 'authority-tip'
+      && error?.details?.cause === 'SUBPROCESS_TIMEOUT'
+  );
+});
+
 test('a locally available application commit is not accepted as state authority', async (t) => {
   const root = await repository(t);
   git(root, 'switch', '-c', 'application-candidate');

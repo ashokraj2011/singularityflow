@@ -15,7 +15,9 @@ import { assertSelfHash } from './contracts.mjs';
 import { validateDerivationCatalog } from './extract/derivation-catalog.mjs';
 import { validateEvidenceCatalog } from './extract/evidence-catalog.mjs';
 import { validateFactLedger } from './extract/fact-ledger.mjs';
-import { runDeterministicRegistration } from './extract/index.mjs';
+import {
+  createViewProjectionRegistration, runDeterministicRegistration
+} from './extract/index.mjs';
 import { validateViewFactLedger } from './extract/selection.mjs';
 import { materializeWorldModelView, usageObservation } from './materialize/view.mjs';
 import { augmentRegistrationForLegacyMigration } from './migration/v3-to-v4.mjs';
@@ -760,6 +762,39 @@ async function boundedMap(values, maximumWorkers, worker) {
   return results;
 }
 
+function registrationFromPersistedFacts(planned, value) {
+  let retained;
+  try { retained = structuredClone(value); }
+  catch (error) {
+    throw new SingularityFlowError(
+      'Persisted World-model facts cannot be retained at the execution boundary.',
+      { code: 'WMP_INTEGRITY_FAILED', cause: error }
+    );
+  }
+  if (!retained || typeof retained !== 'object' || Array.isArray(retained)
+      || JSON.stringify(Object.keys(retained).sort())
+        !== JSON.stringify(['derivationCatalog', 'evidenceCatalog', 'factLedger'])) {
+    throw new SingularityFlowError(
+      'Persisted World-model execution requires exactly the accepted evidence, derivation, and Fact records.',
+      { code: 'WMP_INTEGRITY_FAILED' }
+    );
+  }
+  return createViewProjectionRegistration({
+    sourceSnapshot: planned.sourceSnapshot,
+    scopeManifest: planned.scopeManifest,
+    extractorRegistry: planned.extractorRegistry,
+    viewRegistry: planned.viewRegistry,
+    // Publication reproduces the closed active catalog, even when this invocation composes only
+    // a subset. Keep that projection identity stable while the persisted base remains view-free.
+    viewContracts: planned.viewRegistry.contracts.filter(
+      (contract) => contract.validity.status === 'active'
+    ),
+    evidenceCatalog: retained.evidenceCatalog,
+    derivationCatalog: retained.derivationCatalog,
+    factLedger: retained.factLedger
+  });
+}
+
 function refusalForFailedExecution(entry, registration, validViewIds, previousRefusal = null) {
   const code = typedViewFailureCode(entry.error);
   const binding = entry.retryBinding ?? entry.error?.worldModelRetryBinding ?? null;
@@ -806,6 +841,8 @@ export async function buildWorldModelV4(root, {
   cacheOnlyViewIds = [],
   preservedViews = [],
   expectedBuildIdentity = null,
+  persistedFacts = null,
+  captureExtractorExecutions = false,
   legacyMigration = null,
   ...planOptions
 } = {}) {
@@ -868,18 +905,28 @@ export async function buildWorldModelV4(root, {
       );
     }
   }
-  let registration = runDeterministicRegistration({
-    root,
-    sourceSnapshot: planned.sourceSnapshot,
-    scopeManifest: planned.scopeManifest,
-    extractorRegistry: planned.extractorRegistry,
-    extractorReferences: planned.extractorReferences,
-    // Register the closed active catalog, then compose only the requested views. This keeps the
-    // global Evidence/Derivation/Fact identities stable when a later command regenerates one view
-    // and is what makes independently generated views safely mergeable on the state branch.
-    requestedViews: planned.viewRegistry.contracts.filter((contract) => contract.validity.status === 'active'),
-    viewRegistry: planned.viewRegistry
-  });
+  if (typeof captureExtractorExecutions !== 'boolean') {
+    throw new SingularityFlowError(
+      'WMB v4 captureExtractorExecutions must be a boolean.',
+      { code: 'WMB_BUILD_REQUEST_INVALID' }
+    );
+  }
+  let registration = persistedFacts
+    ? registrationFromPersistedFacts(planned, persistedFacts)
+    : runDeterministicRegistration({
+        root,
+        sourceSnapshot: planned.sourceSnapshot,
+        scopeManifest: planned.scopeManifest,
+        extractorRegistry: planned.extractorRegistry,
+        extractorReferences: planned.extractorReferences,
+        // Register the closed active catalog, then compose only the requested views. This keeps
+        // the global identities stable when a later command regenerates one view.
+        requestedViews: planned.viewRegistry.contracts.filter(
+          (contract) => contract.validity.status === 'active'
+        ),
+        viewRegistry: planned.viewRegistry,
+        captureExtractorExecutions
+      });
   let migrationResolution = null;
   if (legacyMigration !== null) {
     if (!legacyMigration || typeof legacyMigration !== 'object' || Array.isArray(legacyMigration)
@@ -953,6 +1000,7 @@ export async function buildWorldModelV4(root, {
     status: requiredFailures.length ? 'refused' : 'ready-to-publish',
     planned,
     registration,
+    registrationSource: persistedFacts ? 'persisted-history' : 'extracted',
     preservedObjects,
     executions: Object.freeze(executions),
     availableViews: Object.freeze(available),

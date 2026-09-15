@@ -136,3 +136,51 @@ test('ambiguous configured state remotes fail closed before selecting a ref', as
     (error) => error?.code === 'WMP_AUTHORITY_CUT_REQUIRED'
   );
 });
+
+test('history authority reads fail with one typed timeout and never permit lazy fetch', () => {
+  const calls = [];
+  const runCommand = (command, args, options) => {
+    calls.push({ command, args, options });
+    return {
+      status: 1, stdout: '', stderr: '', timedOut: true,
+      error: Object.assign(new Error('deadline'), { code: 'ETIMEDOUT' })
+    };
+  };
+  assert.throws(
+    () => configuredWorldModelHistoryAuthorityCut('/fixture', {
+      worldModel: { stateBranch: 'refs/heads/state' }
+    }, { runCommand }),
+    (error) => error?.code === 'WMP_HISTORY_READ_TIMEOUT'
+      && error?.details?.operation === 'authority-ref-format'
+      && error?.details?.cause === 'SUBPROCESS_TIMEOUT'
+  );
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].command, 'git');
+  assert.equal(calls[0].options.timeoutClass, 'local-read');
+  assert.equal(calls[0].options.allowFailure, true);
+  assert.equal(calls[0].options.env.GIT_NO_LAZY_FETCH, '1');
+  assert.equal(calls[0].options.env.GIT_TERMINAL_PROMPT, '0');
+  assert.equal(calls[0].options.env.GCM_INTERACTIVE, 'Never');
+});
+
+test('remote identity lookup crosses the same bounded offline Git boundary', () => {
+  const calls = [];
+  assert.throws(
+    () => configuredWorldModelHistoryAuthorityCut('/fixture', {
+      worldModel: { stateBranch: 'state' }, ledger: { remote: 'origin' }
+    }, {
+      expectedRepositoryIdentitySha256: `sha256:${'a'.repeat(64)}`,
+      runCommand(command, args, options) {
+        calls.push({ command, args, options });
+        return { status: 1, stdout: '', stderr: '', timedOut: true };
+      }
+    }),
+    (error) => error?.code === 'WMP_HISTORY_READ_TIMEOUT'
+      && error?.details?.operation === 'remote-identity'
+  );
+  assert.deepEqual(calls.map(({ args }) => args.slice(0, 3)), [
+    ['config', '--local', '--get-all']
+  ]);
+  assert.equal(calls[0].options.timeoutClass, 'local-read');
+  assert.equal(calls[0].options.env.GIT_NO_LAZY_FETCH, '1');
+});

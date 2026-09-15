@@ -1,21 +1,15 @@
 import { loadDefinition } from '../../config.mjs';
-import { configuredRemoteIdentity } from '../../git-remote-diagnostics.mjs';
+import {
+  assertCredentialFreeRemote, remoteFingerprint
+} from '../../git-remote-diagnostics.mjs';
 import { run, SingularityFlowError } from '../../util.mjs';
 import { worldModelStateAuthority } from '../authority-config.mjs';
+import { runWorldModelHistoryGitRead } from './git-read.mjs';
 
 const COMMIT = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 const REF = /^refs\/[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 const LOCAL_AUTHORITY_REF = /^refs\/heads\/[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 const SHA256 = /^sha256:[a-f0-9]{64}$/;
-
-function offlineGitEnvironment(env = process.env) {
-  return {
-    ...env,
-    GIT_NO_LAZY_FETCH: '1',
-    GIT_TERMINAL_PROMPT: '0',
-    GCM_INTERACTIVE: 'Never'
-  };
-}
 
 function safeRef(value) {
   const ref = String(value ?? '').trim();
@@ -25,6 +19,44 @@ function safeRef(value) {
 
 function fail(message, code, details = {}) {
   throw new SingularityFlowError(message, { code, details });
+}
+
+/**
+ * Resolve the exact configured fetch identity for one history authority remote.
+ *
+ * Git permits more than one `remote.<name>.url`. A remote-tracking ref does not record which
+ * of those endpoints supplied it, so admitting that ref would make the Repository Domain
+ * attribution ambiguous. Keep this resolver shared by authority selection and public history
+ * inspection so both boundaries fail closed before looking at the tracking ref.
+ */
+export function resolveConfiguredWorldModelHistoryFetchIdentity(root, remote, {
+  env = process.env,
+  runCommand = run,
+  operation = 'remote-identity'
+} = {}) {
+  const result = runWorldModelHistoryGitRead(root, [
+    'config', '--local', '--get-all', `remote.${remote}.url`
+  ], { env, runCommand, operation });
+  const urls = result.status === 0
+    ? String(result.stdout ?? '').split('\n').map((value) => value.trim()).filter(Boolean)
+      .map(assertCredentialFreeRemote)
+    : [];
+  const unique = [...new Set(urls)];
+  const url = unique.length === 1 ? unique[0] : null;
+  const configured = Object.freeze({
+    urls: Object.freeze(urls),
+    configured: urls.length > 0,
+    ambiguous: unique.length > 1,
+    fingerprint: url ? remoteFingerprint(url) : null
+  });
+  if (configured.ambiguous) {
+    fail(
+      'The configured World-model state authority has more than one fetch identity.',
+      'WMP_AUTHORITY_CUT_REQUIRED',
+      { remote, configuredRemotes: configured.urls.length }
+    );
+  }
+  return configured;
 }
 
 /**
@@ -50,14 +82,7 @@ export function configuredWorldModelHistoryAuthorityCut(root, definition, {
   }
   const configured = explicitRef
     ? null
-    : configuredRemoteIdentity(root, remote, { direction: 'fetch' });
-  if (configured?.ambiguous) {
-    fail(
-      'The configured World-model state authority has more than one fetch identity.',
-      'WMP_AUTHORITY_CUT_REQUIRED',
-      { branch, remote, configuredRemotes: configured.urls.length }
-    );
-  }
+    : resolveConfiguredWorldModelHistoryFetchIdentity(root, remote, { env, runCommand });
   if (!explicitRef && !configured?.configured) {
     fail(
       'The approved World-model state authority names a remote which is not configured in this checkout.',
@@ -102,10 +127,9 @@ export function configuredWorldModelHistoryAuthorityCut(root, definition, {
       { branch, remote }
     );
   }
-  const localEnv = offlineGitEnvironment(env);
-  const formatted = runCommand('git', ['check-ref-format', authorityRef], {
-    cwd: root, allowFailure: true, env: localEnv
-  });
+  const formatted = runWorldModelHistoryGitRead(root, [
+    'check-ref-format', authorityRef
+  ], { env, runCommand, operation: 'authority-ref-format' });
   if (formatted.status !== 0) {
     fail(
       'Approved World-model state configuration does not produce a valid Git authority ref.',
@@ -113,9 +137,9 @@ export function configuredWorldModelHistoryAuthorityCut(root, definition, {
       { branch, remote }
     );
   }
-  const observed = runCommand('git', [
+  const observed = runWorldModelHistoryGitRead(root, [
     'rev-parse', '--verify', `${authorityRef}^{commit}`
-  ], { cwd: root, allowFailure: true, env: localEnv });
+  ], { env, runCommand, operation: 'authority-cut' });
   const commit = observed.status === 0
     ? String(observed.stdout ?? '').trim().toLowerCase()
     : null;

@@ -278,6 +278,7 @@
   "world-model-source-snapshot": [{ "schemaVersion": 1 }],
   "world-model-repository-domain": [{ "schemaVersion": 1 }],
   "world-model-extraction-policy": [{ "schemaVersion": 1 }],
+  "world-model-discovered-candidate-roster": [{ "schemaVersion": 1 }],
   "world-model-completeness-record": [{ "schemaVersion": 1 }],
   "world-model-extraction-execution-receipt": [{ "schemaVersion": 1 }],
   "world-model-model-binding": [{ "schemaVersion": 1 }],

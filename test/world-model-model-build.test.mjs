@@ -6,7 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { run } from '../src/util.mjs';
-import { sealRecord, sha256 } from '../src/world-model/canonicalize.mjs';
+import { canonicalJson, sealRecord, sha256 } from '../src/world-model/canonicalize.mjs';
 import { runDeterministicRegistration } from '../src/world-model/extract/runner.mjs';
 import {
   buildPersistedWorldModelAfterLookupMiss,
@@ -67,7 +67,8 @@ async function fixture(t) {
   git(root, 'config', 'user.name', 'WMP Model Build');
   git(root, 'config', 'user.email', 'wmp-model-build@example.invalid');
   await writeFile(path.join(root, 'README.md'), '# exact application source\n');
-  git(root, 'add', 'README.md');
+  await writeFile(path.join(root, 'outside-scope.txt'), 'retained only in candidate roster\n');
+  git(root, 'add', '.');
   git(root, 'commit', '-qm', 'application source');
   const sourceCommit = git(root, 'rev-parse', 'HEAD');
   const capabilityId = 'application-api';
@@ -534,6 +535,68 @@ test('a tampered preparation cannot authorize registration', async (t) => {
   assert.equal(registrations, 0);
 });
 
+test('a fully rehashed Candidate Roster cannot substitute another tree for its named commit', async (t) => {
+  const item = await fixture(t);
+  const forged = structuredClone(item.preparation);
+  const rosterObject = forged.retainedInputObjects.find(
+    (entry) => entry.ref.role === 'candidate-roster'
+  );
+  const roster = JSON.parse(rosterObject.bytes);
+  const selected = roster.candidates.find((entry) => entry.path === 'README.md');
+  const excluded = roster.candidates.find((entry) => entry.path === 'outside-scope.txt');
+  assert.ok(selected && excluded);
+  excluded.objectId = selected.objectId;
+  const treeInput = roster.candidates.map(
+    (entry) => `${entry.mode} blob ${entry.objectId}\t${entry.path}\n`
+  ).join('');
+  roster.source.tree = run('git', ['mktree'], {
+    cwd: item.root, input: treeInput
+  }).stdout.trim();
+  const sealedRoster = sealRecord(roster, 'candidateRosterSha256');
+  const rosterBytes = canonicalJson(sealedRoster);
+  const rosterRef = {
+    ...rosterObject.ref,
+    sha256: sha256(Buffer.from(rosterBytes, 'utf8')),
+    bytes: Buffer.byteLength(rosterBytes, 'utf8')
+  };
+  rosterObject.ref = rosterRef;
+  rosterObject.bytes = rosterBytes;
+  const capture = forged.inputDescriptors.extractionInputs.captures.find(
+    (entry) => entry.role === 'candidate-roster'
+  );
+  capture.objectRef = rosterRef;
+  forged.retainedInputObjects.sort((left, right) => {
+    const leftKey = `${left.ref.role}\0${left.ref.family ?? ''}\0${left.ref.sha256}`;
+    const rightKey = `${right.ref.role}\0${right.ref.family ?? ''}\0${right.ref.sha256}`;
+    return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+  });
+  forged.inputObjects = forged.retainedInputObjects.map((entry) => entry.ref);
+  forged.inputs.extractionInputsSha256 = sha256(
+    forged.inputDescriptors.extractionInputs
+  );
+  forged.modelKey = sha256({ kind: 'wmp/model-key', ...forged.inputs });
+  const preparationCore = structuredClone(forged);
+  delete preparationCore.preparationSha256;
+  forged.preparationSha256 = sha256(preparationCore);
+  let historyReads = 0;
+
+  await assert.rejects(
+    () => lookupPersistedWorldModelBeforeExtraction(item.root, {
+      preparation: forged,
+      authorityCommit: item.sourceCommit,
+      authorityRef: 'refs/heads/main',
+      resolveRepositoryAuthority: item.stableAuthority,
+      resolveHistoryAuthority: item.stableHistoryAuthority,
+      resolveModel() {
+        historyReads += 1;
+        throw new Error('history must not be read for a foreign Candidate Roster tree');
+      }
+    }),
+    (error) => error?.code === 'WMP_CANDIDATE_ROSTER_SOURCE_MISMATCH'
+  );
+  assert.equal(historyReads, 0);
+});
+
 test('one explicit miss build registers once, persists one exact graph, and is then reused', async (t) => {
   const item = await fixture(t);
   const miss = await lookupPersistedWorldModelBeforeExtraction(item.root, {
@@ -566,6 +629,12 @@ test('one explicit miss build registers once, persists one exact graph, and is t
   assert.equal(registrations, 1);
   assert.equal(built.status, 'built');
   assert.equal(built.modelKey, item.preparation.modelKey);
+  assert.equal(built.binding.completeness.excludedPaths, 1);
+  assert.equal(
+    built.objects.some((entry) => entry.ref.role === 'candidate-roster'
+      && entry.ref.family === 'world-model-discovered-candidate-roster'),
+    true
+  );
 
   for (const [relative, contents] of Object.entries(built.stagedHistory.historyAdditions)) {
     await mkdir(path.dirname(path.join(item.root, relative)), { recursive: true });

@@ -1,3 +1,5 @@
+import { types as utilTypes } from 'node:util';
+
 import { SingularityFlowError } from '../util.mjs';
 import { storeConservativeWorldModelStalenessReceipt } from './cache.mjs';
 import {
@@ -11,6 +13,7 @@ import {
   clearWorldModelPublicationRecovery, prepareWorldModelPublicationRecovery
 } from './recovery.mjs';
 import {
+  assertWorldModelHistoryPublicationEndpoint,
   assertWorldModelPublicationReview, captureWorldModelPublicationReview,
   materializeWorldModelPublicationReview, publicationRuntimeOptions
 } from './publication-authority.mjs';
@@ -19,6 +22,14 @@ import {
   buildWorldModelV4,
   retryFailedWorldModelV4View as retryFailedWorldModelV4ViewRuntime
 } from './runtime.mjs';
+import { runDeterministicRegistration } from './extract/runner.mjs';
+import { planWorldModelV4 } from './plan.mjs';
+import {
+  buildPersistedWorldModelAfterLookupMiss,
+  deriveFrozenV1WorldModelExtractionPolicy,
+  lookupPersistedWorldModelBeforeExtraction,
+  preparePersistedWorldModelBuild
+} from './history/model-build.mjs';
 import {
   resolvePublishedWorldModelV4, resolvePublishedWorldModelV4Authority
 } from './store.mjs';
@@ -26,7 +37,8 @@ import {
   buildCalmProjection, createCalmProjectionRefusal, enforceProjectionBudgets,
   validateCalmProjectionCandidate
 } from './projections/calm/projection.mjs';
-import { compareText } from './canonicalize.mjs';
+import { compareText, isPlainRecord } from './canonicalize.mjs';
+import { validateWorldModelHistoryRoots } from './history/paths.mjs';
 
 function manifestView(runtime, entry) {
   if (!entry.markdown) {
@@ -88,6 +100,303 @@ function projectionPreserved(runtime) {
     configurationSnapshotSha256: runtime.planned.configurationSnapshot?.snapshotSha256 ?? null,
     toolchainLockSha256: runtime.planned.toolchainLock?.lockSha256 ?? null
   };
+}
+
+function invalidPersistedHistoryOptions(message, details = {}) {
+  throw new SingularityFlowError(message, {
+    code: 'WMP_PERSISTED_HISTORY_OPTIONS_INVALID', details
+  });
+}
+
+const MAXIMUM_HISTORY_OPTION_DEPTH = 32;
+const MAXIMUM_HISTORY_OPTION_NODES = 10_000;
+const MAXIMUM_HISTORY_OPTION_CONTAINER_ENTRIES = 4_096;
+const MAXIMUM_HISTORY_OPTION_TEXT_BYTES = 1024 * 1024;
+
+function retainedHistoryData(value) {
+  let retained;
+  let nodes = 0;
+  let textBytes = 0;
+  const containers = [];
+  const pending = [{
+    value,
+    location: 'persistedHistory',
+    depth: 0,
+    ancestors: [],
+    assign: (next) => { retained = next; }
+  }];
+  const accountText = (text, location) => {
+    textBytes += Buffer.byteLength(text, 'utf8');
+    if (textBytes > MAXIMUM_HISTORY_OPTION_TEXT_BYTES) {
+      invalidPersistedHistoryOptions(
+        `Persisted World-model history options exceed their ${MAXIMUM_HISTORY_OPTION_TEXT_BYTES}-byte text limit.`,
+        { location, maximumTextBytes: MAXIMUM_HISTORY_OPTION_TEXT_BYTES }
+      );
+    }
+  };
+  while (pending.length) {
+    const item = pending.pop();
+    nodes += 1;
+    if (nodes > MAXIMUM_HISTORY_OPTION_NODES) {
+      invalidPersistedHistoryOptions(
+        `Persisted World-model history options exceed their ${MAXIMUM_HISTORY_OPTION_NODES}-node limit.`,
+        { maximumNodes: MAXIMUM_HISTORY_OPTION_NODES }
+      );
+    }
+    const current = item.value;
+    if (current === null || typeof current === 'boolean') {
+      item.assign(current);
+      continue;
+    }
+    if (typeof current === 'string') {
+      accountText(current, item.location);
+      item.assign(current);
+      continue;
+    }
+    if (typeof current === 'number') {
+      if (!Number.isFinite(current)) {
+        invalidPersistedHistoryOptions(
+          `Persisted World-model history option '${item.location}' must be a finite number.`
+        );
+      }
+      item.assign(Object.is(current, -0) ? 0 : current);
+      continue;
+    }
+    if (!current || typeof current !== 'object' || utilTypes.isProxy(current)) {
+      invalidPersistedHistoryOptions(
+        `Persisted World-model history option '${item.location}' must contain retained JSON data only.`
+      );
+    }
+    if (item.depth >= MAXIMUM_HISTORY_OPTION_DEPTH) {
+      invalidPersistedHistoryOptions(
+        `Persisted World-model history options exceed their ${MAXIMUM_HISTORY_OPTION_DEPTH}-level depth limit.`,
+        { location: item.location, maximumDepth: MAXIMUM_HISTORY_OPTION_DEPTH }
+      );
+    }
+    if (item.ancestors.includes(current)) {
+      invalidPersistedHistoryOptions(
+        `Persisted World-model history option '${item.location}' cannot contain a cycle.`
+      );
+    }
+    const descriptors = Object.getOwnPropertyDescriptors(current);
+    const keys = Reflect.ownKeys(current);
+    const ancestors = [...item.ancestors, current];
+    if (Array.isArray(current)) {
+      if (current.length > MAXIMUM_HISTORY_OPTION_CONTAINER_ENTRIES) {
+        invalidPersistedHistoryOptions(
+          `Persisted World-model history option '${item.location}' exceeds its array-entry limit.`,
+          { maximumEntries: MAXIMUM_HISTORY_OPTION_CONTAINER_ENTRIES }
+        );
+      }
+      const unexpected = keys.filter((key) => {
+        if (key === 'length') return false;
+        if (typeof key !== 'string' || !/^(?:0|[1-9][0-9]*)$/.test(key)) return true;
+        const index = Number(key);
+        return !Number.isSafeInteger(index) || index >= current.length;
+      });
+      if (unexpected.length || keys.length !== current.length + 1) {
+        invalidPersistedHistoryOptions(
+          `Persisted World-model history option '${item.location}' contains unsupported array properties or sparse entries.`,
+          { unexpected: unexpected.map(String).sort(compareText) }
+        );
+      }
+      const output = new Array(current.length);
+      item.assign(output);
+      containers.push(output);
+      for (let index = current.length - 1; index >= 0; index -= 1) {
+        const descriptor = descriptors[String(index)];
+        if (!descriptor || !Object.hasOwn(descriptor, 'value')
+            || typeof descriptor.get === 'function' || typeof descriptor.set === 'function') {
+          invalidPersistedHistoryOptions(
+            `Persisted World-model history option '${item.location}[${index}]' cannot be an accessor.`
+          );
+        }
+        pending.push({
+          value: descriptor.value,
+          location: `${item.location}[${index}]`,
+          depth: item.depth + 1,
+          ancestors,
+          assign: (next) => { output[index] = next; }
+        });
+      }
+      continue;
+    }
+    if (!isPlainRecord(current)) {
+      invalidPersistedHistoryOptions(
+        `Persisted World-model history option '${item.location}' must be a plain data object.`
+      );
+    }
+    if (keys.length > MAXIMUM_HISTORY_OPTION_CONTAINER_ENTRIES) {
+      invalidPersistedHistoryOptions(
+        `Persisted World-model history option '${item.location}' exceeds its object-field limit.`,
+        { maximumFields: MAXIMUM_HISTORY_OPTION_CONTAINER_ENTRIES }
+      );
+    }
+    const symbolic = keys.filter((key) => typeof key !== 'string');
+    if (symbolic.length) {
+      invalidPersistedHistoryOptions(
+        `Persisted World-model history option '${item.location}' cannot contain symbol properties.`
+      );
+    }
+    const ordered = [...keys].sort(compareText);
+    const output = Object.create(null);
+    item.assign(output);
+    containers.push(output);
+    for (let index = ordered.length - 1; index >= 0; index -= 1) {
+      const key = ordered[index];
+      accountText(key, `${item.location}.${key}`);
+      const descriptor = descriptors[key];
+      if (!descriptor || !Object.hasOwn(descriptor, 'value')
+          || typeof descriptor.get === 'function' || typeof descriptor.set === 'function') {
+        invalidPersistedHistoryOptions(
+          `Persisted World-model history option '${item.location}.${key}' cannot be an accessor.`
+        );
+      }
+      pending.push({
+        value: descriptor.value,
+        location: `${item.location}.${key}`,
+        depth: item.depth + 1,
+        ancestors,
+        assign: (next) => { output[key] = next; }
+      });
+    }
+  }
+  for (let index = containers.length - 1; index >= 0; index -= 1) {
+    Object.freeze(containers[index]);
+  }
+  return retained;
+}
+
+function persistedHistoryConfiguration(value) {
+  if (value === false || value == null) return null;
+  if (value === true) return Object.freeze({});
+  if (typeof value !== 'object' || Array.isArray(value) || utilTypes.isProxy(value)
+      || !isPlainRecord(value)) {
+    throw new SingularityFlowError(
+      'Persisted World-model history integration must be a boolean or a bounded options object.',
+      { code: 'WMP_PERSISTED_HISTORY_OPTIONS_INVALID' }
+    );
+  }
+  const allowed = new Set([
+    'authorityCommit', 'authorityRef', 'historyDir',
+    'pinnedCapabilityResolution'
+  ]);
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const keys = Reflect.ownKeys(value);
+  const unknown = keys.filter((key) => typeof key !== 'string' || !allowed.has(key))
+    .map(String).sort(compareText);
+  if (unknown.length) {
+    throw new SingularityFlowError(
+      `Persisted World-model history options contain unsupported field(s): ${unknown.join(', ')}.`,
+      {
+        code: 'WMP_PERSISTED_HISTORY_OPTIONS_INVALID',
+        details: { unknown }
+      }
+    );
+  }
+  for (const key of keys) {
+    const descriptor = descriptors[key];
+    if (!descriptor || !Object.hasOwn(descriptor, 'value')
+        || typeof descriptor.get === 'function' || typeof descriptor.set === 'function') {
+      invalidPersistedHistoryOptions(
+        `Persisted World-model history option '${String(key)}' cannot be an accessor.`
+      );
+    }
+  }
+  return retainedHistoryData(value);
+}
+
+function retainedPersistedFacts(resolved) {
+  const closure = resolved?.closure;
+  if (!Array.isArray(closure)) {
+    throw new SingularityFlowError(
+      'Persisted World-model reuse did not return its verified retained closure.',
+      { code: 'WMP_INTEGRITY_FAILED' }
+    );
+  }
+  const recordFor = (role) => {
+    const matches = closure.filter((entry) => entry?.ref?.role === role);
+    if (matches.length !== 1 || !matches[0].record) {
+      throw new SingularityFlowError(
+        `Persisted World-model reuse requires exactly one '${role}' record.`,
+        { code: 'WMP_INPUT_ROLE_MISSING', details: { role, matches: matches.length } }
+      );
+    }
+    return matches[0].record;
+  };
+  return Object.freeze({
+    evidenceCatalog: recordFor('evidence-catalog'),
+    derivationCatalog: recordFor('derivation-catalog'),
+    factLedger: recordFor('fact-ledger')
+  });
+}
+
+function retainedRegistrationFacts(registration) {
+  if (!registration?.evidenceCatalog || !registration?.derivationCatalog
+      || !registration?.factLedger) {
+    throw new SingularityFlowError(
+      'Completed persisted-model registration did not return its exact fact records.',
+      { code: 'WMP_INTEGRITY_FAILED' }
+    );
+  }
+  return Object.freeze({
+    evidenceCatalog: registration.evidenceCatalog,
+    derivationCatalog: registration.derivationCatalog,
+    factLedger: registration.factLedger
+  });
+}
+
+function historyLookupOptions(options) {
+  const allowed = [
+    'authorityCommit', 'authorityRef', 'historyDir',
+    'pinnedCapabilityResolution'
+  ];
+  return Object.fromEntries(allowed.filter((key) => options[key] !== undefined)
+    .map((key) => [key, options[key]]));
+}
+
+function assertHistoryPublicationAuthority(authority, publicationReview) {
+  if (!authority || !publicationReview) {
+    throw new SingularityFlowError(
+      'Persisted World-model history has no exact reviewed publication authority.',
+      { code: 'WMP_HISTORY_PUBLICATION_AUTHORITY_MISMATCH' }
+    );
+  }
+  const expectedRef = publicationReview.endpoint?.configured
+    ? `refs/remotes/${publicationReview.remote}/${publicationReview.branch}`
+    : publicationReview.targetRef;
+  const expectedCommit = publicationReview.publicationBase;
+  const historyRepositoryIdentitySha256 = authority.repositoryIdentitySha256 ?? null;
+  const publicationConfiguredRepositoryIdentitySha256 =
+    publicationReview.endpoint?.configuredUrlSha256 ?? null;
+  const publicationEffectiveRepositoryIdentitySha256 =
+    publicationReview.endpoint?.effectiveUrlSha256 ?? null;
+  const repositoryIdentityMismatch = publicationReview.endpoint?.configured
+    ? historyRepositoryIdentitySha256 === null
+      || historyRepositoryIdentitySha256 !== publicationConfiguredRepositoryIdentitySha256
+      || historyRepositoryIdentitySha256 !== publicationEffectiveRepositoryIdentitySha256
+    : historyRepositoryIdentitySha256 !== null
+      || publicationConfiguredRepositoryIdentitySha256 !== null
+      || publicationEffectiveRepositoryIdentitySha256 !== null;
+  if (authority.ref !== expectedRef || authority.commit !== expectedCommit
+      || repositoryIdentityMismatch) {
+    throw new SingularityFlowError(
+      'Persisted World-model history authority does not equal the reviewed state publication authority.',
+      {
+        code: 'WMP_HISTORY_PUBLICATION_AUTHORITY_MISMATCH',
+        details: {
+          expectedRef,
+          receivedRef: authority.ref ?? null,
+          expectedCommit,
+          receivedCommit: authority.commit ?? null,
+          historyRepositoryIdentitySha256,
+          publicationConfiguredRepositoryIdentitySha256,
+          publicationEffectiveRepositoryIdentitySha256
+        }
+      }
+    );
+  }
+  return authority;
 }
 
 async function buildRequestedProjections(runtime) {
@@ -372,8 +681,20 @@ export async function buildAndPublishWorldModelV4(root, {
   expectedBuildIdentity = null,
   expectedPublication = null,
   expectedPreservationAuthority = null,
+  persistedHistory = false,
   ...buildOptions
 } = {}) {
+  if (Object.hasOwn(buildOptions, 'persistedFacts')) {
+    throw new SingularityFlowError(
+      'Persisted World-model facts are an internal verified-history input and cannot be supplied to the publication service.',
+      { code: 'WMP_PERSISTED_FACTS_CALLER_FORBIDDEN' }
+    );
+  }
+  const historyOptions = persistedHistoryConfiguration(persistedHistory);
+  const historyRoots = historyOptions ? validateWorldModelHistoryRoots({
+    outputDir,
+    ...(historyOptions.historyDir === undefined ? {} : { historyDir: historyOptions.historyDir })
+  }) : null;
   if (publish && buildOptions.candidateSnapshot?.authority?.kind === 'candidate-snapshot') {
     throw new SingularityFlowError(
       'Candidate Snapshot builds are checkout-local and cannot be published as reusable state authority. Validate with --local, then commit the reviewed source and publish a clean-source build.',
@@ -392,13 +713,21 @@ export async function buildAndPublishWorldModelV4(root, {
   if (publish) {
     confirmedPublication = expectedPublication
       ? await assertWorldModelPublicationReview(root, expectedPublication, {
-          outputDir, ledgerConfig, publicationOptions
+          outputDir, ledgerConfig, publicationOptions,
+          requireHistoryPublicationEndpoint: Boolean(historyOptions)
         })
       : await captureWorldModelPublicationReview(root, {
-          outputDir, ledgerConfig, publicationOptions
+          outputDir, ledgerConfig, publicationOptions,
+          requireHistoryPublicationEndpoint: Boolean(historyOptions)
         });
+    if (historyOptions) {
+      assertWorldModelHistoryPublicationEndpoint(root, confirmedPublication);
+    }
     confirmedPublication = await materializeWorldModelPublicationReview(
-      root, confirmedPublication, { publicationOptions }
+      root, confirmedPublication, {
+        publicationOptions,
+        requireHistoryPublicationEndpoint: Boolean(historyOptions)
+      }
     );
   }
   let existing = null;
@@ -451,14 +780,107 @@ export async function buildAndPublishWorldModelV4(root, {
   const retainedIds = preserveIndependentViews
     ? runtimeViews.map(viewId).filter((id) => !explicitlyRequestedIds.includes(id))
     : [];
-  const runtime = await buildWorldModelV4(root, {
-    ...buildOptions,
-    views: runtimeViews,
-    rebuildViewIds: buildOptions.cachePolicy === 'rebuild' ? explicitlyRequestedIds : [],
-    cacheOnlyViewIds: retainedIds,
-    preservedViews: existing?.views ?? [],
-    expectedBuildIdentity
-  });
+  let persistedModel = null;
+  let persistedRegistrationCalls = 0;
+  let runtime = null;
+  if (historyOptions && publish && !buildOptions.candidateSnapshot
+      && !buildOptions.legacyMigration) {
+    const planned = planWorldModelV4(root, { ...buildOptions, views: runtimeViews });
+    const extractionPolicy = deriveFrozenV1WorldModelExtractionPolicy(
+      planned.scopeManifest, planned.extractorRegistry, planned.extractorReferences
+    );
+    const lookupOptions = {
+      ...historyLookupOptions(historyOptions),
+      ...historyRoots
+    };
+    const preparation = await preparePersistedWorldModelBuild(root, {
+      capabilityId: planned.scopeManifest.capabilityId,
+      sourceSnapshot: planned.sourceSnapshot,
+      scopeManifest: planned.scopeManifest,
+      extractionPolicy,
+      extractorRegistry: planned.extractorRegistry,
+      extractorReferences: planned.extractorReferences,
+      requestedRevision: planned.sourceSnapshot.revision.commit,
+      ...(historyOptions.pinnedCapabilityResolution === undefined ? {} : {
+        pinnedCapabilityResolution: historyOptions.pinnedCapabilityResolution
+      }),
+      ...(historyOptions.resolveRepositoryAuthority === undefined ? {} : {
+        resolveRepositoryAuthority: historyOptions.resolveRepositoryAuthority
+      })
+    });
+    const lookup = await lookupPersistedWorldModelBeforeExtraction(root, {
+      preparation,
+      ...lookupOptions
+    });
+    assertHistoryPublicationAuthority(lookup.authority, confirmedPublication);
+    if (lookup.status === 'reused') {
+      persistedModel = Object.freeze({
+        status: 'reused', modelKey: lookup.modelKey,
+        authority: lookup.authority, stagedHistory: null,
+        bindingPath: lookup.bindingPath,
+        bindingSha256: lookup.resolved.binding.bindingSha256,
+        execution: Object.freeze({
+          ...lookup.execution, registrationCalls: persistedRegistrationCalls
+        })
+      });
+      runtime = await buildWorldModelV4(root, {
+        ...buildOptions,
+        views: runtimeViews,
+        rebuildViewIds: buildOptions.cachePolicy === 'rebuild' ? explicitlyRequestedIds : [],
+        cacheOnlyViewIds: retainedIds,
+        preservedViews: existing?.views ?? [],
+        expectedBuildIdentity,
+        persistedFacts: retainedPersistedFacts(lookup.resolved)
+      });
+    } else {
+      let baseRegistration = null;
+      const built = await buildPersistedWorldModelAfterLookupMiss(root, {
+        preparation,
+        lookup,
+        requestedViews: [],
+        viewRegistry: planned.viewRegistry,
+        ...lookupOptions,
+        runRegistration: async (registrationOptions) => {
+          persistedRegistrationCalls += 1;
+          baseRegistration = runDeterministicRegistration(registrationOptions);
+          return baseRegistration;
+        }
+      });
+      assertHistoryPublicationAuthority(built.authority ?? lookup.authority, confirmedPublication);
+      runtime = await buildWorldModelV4(root, {
+        ...buildOptions,
+        views: runtimeViews,
+        rebuildViewIds: buildOptions.cachePolicy === 'rebuild'
+          ? explicitlyRequestedIds : [],
+        cacheOnlyViewIds: retainedIds,
+        preservedViews: existing?.views ?? [],
+        expectedBuildIdentity,
+        persistedFacts: retainedRegistrationFacts(baseRegistration)
+      });
+      persistedModel = Object.freeze({
+        status: built.status,
+        reasonCode: built.reasonCode ?? null,
+        modelKey: built.modelKey,
+        authority: built.authority ?? lookup.authority,
+        stagedHistory: built.stagedHistory,
+        bindingPath: built.bindingPath ?? null,
+        bindingSha256: built.binding?.bindingSha256 ?? null,
+        execution: Object.freeze({
+          ...built.execution, registrationCalls: persistedRegistrationCalls
+        })
+      });
+    }
+  }
+  if (!runtime) {
+    runtime = await buildWorldModelV4(root, {
+      ...buildOptions,
+      views: runtimeViews,
+      rebuildViewIds: buildOptions.cachePolicy === 'rebuild' ? explicitlyRequestedIds : [],
+      cacheOnlyViewIds: retainedIds,
+      preservedViews: existing?.views ?? [],
+      expectedBuildIdentity
+    });
+  }
   // A model-backed build can be long-running. Recheck the exact endpoint and CAS authority before
   // retaining any post-build receipt, recovery marker, or publication state.
   if (publish) {
@@ -545,7 +967,8 @@ export async function buildAndPublishWorldModelV4(root, {
     views,
     records: publicationRecords(runtime, projections),
     projections,
-    allowUnavailableOptionalViews
+    allowUnavailableOptionalViews,
+    ...(persistedModel?.stagedHistory ?? {})
   });
   if (publish) await validateStagedProjectionAuthorityAgainstSource(root, staged);
   const queryIndex = await retainQueryIndex(root, built.manifest, runtime);
@@ -628,6 +1051,15 @@ export async function buildAndPublishWorldModelV4(root, {
     staged,
     publication,
     preservationAuthority: boundPreservationAuthority,
+    persistedModel: persistedModel ? Object.freeze({
+      status: persistedModel.status,
+      reasonCode: persistedModel.reasonCode ?? null,
+      modelKey: persistedModel.modelKey,
+      authority: persistedModel.authority,
+      bindingPath: persistedModel.bindingPath,
+      bindingSha256: persistedModel.bindingSha256,
+      execution: persistedModel.execution
+    }) : null,
     publicationRecovery: publicationRecovery
       ? Object.freeze({ id: publicationRecovery.id, retained: publicationRecoveryRetained }) : null
   });

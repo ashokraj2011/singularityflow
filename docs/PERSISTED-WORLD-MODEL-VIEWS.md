@@ -1,10 +1,11 @@
 # Persisted World-Model views
 
 **Status:** W0/W1 persistence, governed repository-identity proof, exact pre-extraction
-key/lookup, build-to-binding staging, exact-manifest terminal extraction outcomes, a pure
-completeness bridge, and a bounded W2 deterministic-view slice are implemented. Only the new WMP
-immutable exact-history emission/reuse path remains inactive pending service/state-transaction
-integration and the remaining proof owners. Existing Story lifecycles and the operational
+key/lookup, build-to-binding staging, exact-manifest terminal extraction outcomes, the full
+pre-scope candidate roster, frozen empty extractor-configuration ownership, a pure completeness
+bridge, an opt-in normal-service/single-CAS model-history path, and a bounded W2 deterministic-view
+slice are implemented. Production Story/grounding activation and saved-view history remain
+inactive pending their proof owners. Existing Story lifecycles and the operational
 legacy-v3 and registered-v4 World-Model paths are not disabled.
 
 This document is the repository implementation companion to the externally supplied
@@ -49,8 +50,8 @@ model call, extraction, AST query, Git fetch, cache fill, or source checkout. Th
    exist for repository-domain, extraction-policy, extractor-registry, completeness-record,
    consumer-profile, output-budget, and view-validation-receipt records. Model admission also
    verifies their exact cross-record graph. A governed action-bound repository resolver and a
-   pre-extraction build/lookup adapter now provide the code-local construction boundary, but they
-   are not wired into the normal WMB service's WMP exact-history publication path. View admission
+   pre-extraction build/lookup adapter now provide the construction boundary. A code-local opt-in
+   normal-service path publishes model history with the current projection in one CAS. View admission
    additionally remains fail-closed without retained renderer/validator contracts, an applicable
    tokenizer owner, model-to-view/selected-ledger correlation, and rendered-budget validation.
    Deferred grounding/handoff/adoption paths additionally require publication-receipt,
@@ -70,10 +71,13 @@ model call, extraction, AST query, Git fetch, cache fill, or source checkout. Th
 6. **No fabricated completeness is a production invariant.** The registered-v4 extraction capture
    path records a truthful terminal outcome for every path in the exact selected source snapshot,
    including a successful zero-fact extraction, and the pure completeness bridge refuses missing or
-   mismatched outcome coverage. It currently reports zero excluded paths because the selected
-   snapshot cannot prove which discovered candidates policy excluded. Excluded-path accounting
-   remains disabled until an owned full candidate roster exists; missing domains remain explicit
-   gaps.
+   mismatched outcome coverage. The owned pre-scope candidate roster reconstructs the complete
+   committed Git tree and, for every selected entry, seals the Git blob object ID together with the
+   exact Source Snapshot content SHA-256 and byte count. Construction rehashes the Git blob bytes;
+   completeness construction and retained-history graph admission independently require the same
+   content identity. A coherently rehashed roster therefore cannot substitute selected content.
+   The roster is the only authority allowed to introduce excluded-path outcomes; missing domains
+   remain explicit gaps.
 7. **Stable payload versus compatibility envelope.** Deterministic view payload bytes exclude
    clocks, actor labels, machine paths, and invocation IDs. The existing timestamped v4 Markdown
    envelope remains separately verified for compatibility.
@@ -107,18 +111,25 @@ than being wired into every Story path prematurely:
 - extraction profiles reconstruct their parse-schema identity from the complete retained extractor
   tuple and use a frozen exact-byte/path normalization contract; opaque substitute digests are not
   admitted;
+- frozen v1 owns one empty extractor-configuration value, maps it to every exact extractor
+  consumer, validates it alongside the unchanged frozen-v1 parse-schema identity, and refuses
+  non-empty configuration refs until a successor exact-byte owner exists;
+- the full committed Git candidate roster is captured before scope, reconstructs its exact Git
+  tree, binds every selected/excluded classification to the Source Snapshot and Scope Manifest,
+  and binds each selected Git blob object ID to the exact Source Snapshot content SHA-256 and byte
+  count; completeness and retained-graph validation enforce that cross-record equality;
 - extractor registries are bounded to 1,024 manifests and graph admission uses indexed identity
   and manifest lookups;
 - current executable registered-v4 adapters expose an explicit deterministic terminal-execution capture against their
   exact installed manifest and implementation identity, including successful zero-fact paths and
-  explicit unsupported, partial, and failed outcomes; ordinary registration defaults this capture
-  off, and future WMP exact-history integration must enable it explicitly, to avoid an unused
-  extractor-by-path allocation;
+  explicit unsupported, partial, and failed outcomes. The exact-history miss path enables capture
+  only for its base build; ordinary registration leaves it off to avoid an unused extractor-by-path
+  allocation;
 - a pure completeness bridge verifies every selected source path and digest, exact extractor
   identity, global extractor outcome, and required subject outcome before constructing the frozen
   completeness record; a sealed execution receipt binds its source, scope, registry, extractor
-  executions, View Contracts, and View Fact Ledgers; the bridge emits no excluded outcomes, so
-  `counts.excludedPaths` is zero;
+  executions, View Contracts, and View Fact Ledgers. Excluded outcomes require the owned roster
+  that reconstructs the full committed Git tree before scope;
 - exact model/view keys, canonical raw-byte ingestion, portable disjoint paths, bounded retained
   closures, and create-if-absent staging are implemented;
 - the action-bound repository-identity resolver proves one explicit governed Capability against
@@ -151,12 +162,14 @@ than being wired into every Story path prematurely:
   typed miss at the same admitted authority cut immediately before the single extraction, so a
   fabricated or already-satisfied miss cannot authorize work. It checks the exact key again after
   registration, adopts only a byte-identical concurrent winner, and refuses an advanced cut or
-  conflicting winner instead of staging redundant authority. This is a staging boundary, not WMP
-  exact-history publication authority;
+  conflicting winner instead of staging redundant authority;
+- a pure projection overlay adds only view-dependent required-fact coverage to an accepted base
+  registration, preserves every base fact and derivation byte, and reproduces the normal active-view
+  registration without repository, model, or AST access;
 - the existing state writer checks the pinned combined closure, including model/view binding graph
   validation, and already supports committing a compatible current projection and immutable
-  history in one CAS without dropping existing exact-blob checks. The new build-to-binding path is
-  not yet connected to that WMP exact-history transaction;
+  history in one CAS without dropping existing exact-blob checks. The opt-in normal-service path
+  now uses that transaction for compatible current projection plus immutable model history;
 - publication recovery now binds and verifies the history additions as well as the replaceable
   projection, including byte-identical concurrent winners and unrelated-state-change refusal;
 - exact historical source reads use locally available Git objects at an explicit full revision,
@@ -172,16 +185,15 @@ than being wired into every Story path prematurely:
   write a cache, or change Git. A configured remote never falls back to an unpublished local state
   branch.
 
-The increment does **not** make a current WMB build additionally emit or consult an immutable WMP
-model/view binding yet; the existing builder and current-projection reuse behavior continue. The
-governed repository-identity resolver, exact pre-extraction lookup, and
-build-to-binding staging adapter now exist as isolated code-local foundations. They are not yet
-wired through the normal WMB service so that a miss builds once and publishes the compatible
-current projection plus immutable history in the same revision-checked state-branch CAS.
-Exact-manifest terminal extraction outcomes and pure completeness construction are available for
-every path in the selected source snapshot, including successful zero-fact extraction. Excluded
-paths remain zero and cannot be admitted until an owned full candidate roster proves they existed
-and were excluded by policy.
+The increment does **not** enable immutable WMP history for ordinary CLI, Story, or grounding
+builds yet; the existing builder and current-projection reuse behavior continue. A code-local
+normal-service option now proves the complete lookup/miss/build/single-CAS integration without
+changing production defaults. It builds the base only on the typed exact miss and reuses an exact
+accepted base on later invocations; direct caller-supplied persisted facts are refused by the
+publication service. Activation waits for the saved-view and grounding proof owners.
+Exact-manifest terminal extraction outcomes and pure completeness construction cover every selected
+path, including successful zero-fact extraction. Excluded paths are admitted only from the owned
+roster that reconstructs the complete committed Git tree before scope.
 
 The retained Repository Domain remains only a portable semantic identity. The implemented
 resolver compares it with current approved or lifecycle-pinned repository authority immediately
@@ -195,17 +207,16 @@ rendered-budget validation are implemented. This does not disable the existing W
 projection or its validated cache. Deferred WMP grounding, handoff, and adoption still require their
 publication-receipt, admission-proof, source-authority, origin-authority, target-authority, and
 adoption-authorization owners as applicable. Reusing an unrelated record under a convenient role
-would create a syntactically valid but false proof. The next rollout step is therefore integrating
-the staged lookup/build boundary with the current-plus-history state transaction, followed by
-owned candidate-roster and extraction-configuration accounting; it is not activation of saved
-views before their proof owners exist.
+would create a syntactically valid but false proof. The next rollout step is therefore completing
+saved-view and successor-grounding owners before wiring the opt-in model-history path into Story
+consumers; it is not premature activation of incomplete view history.
 
 ## Delivery boundary
 
 | Increment | Current status | Included behavior |
 |---|---|---|
 | W0 | Persistence and semantic-owner foundation implemented | Strict identities, object references, six registered envelope contracts, portable paths, canonical-byte tests, and frozen v1 owners for repository domain, extraction policy, registry, completeness, consumer profile, output budget, and validation receipt. Automatic WMP exact-history construction is not enabled. |
-| W1 | Persistence and model-integrity foundation implemented | Direct exact-key state-history reads; create-if-absent publication expectations; additive history plus compatible current projection in one CAS; history-bound recovery; exact model-graph validation and pinned state-writer checks; governed action-bound repository identity; exact pre-extraction key/lookup; build-to-binding staging; exact-manifest terminal extraction outcomes; and pure completeness construction over the selected source snapshot. WMP exact-history emission/reuse remains fail-closed pending normal-service and atomic state-transaction integration, owned excluded-path/configuration accounting, and the remaining view/grounding proof owners. Existing WMB v3/v4 operation is unaffected. |
+| W1 | Persistence and model-integrity foundation implemented; activation off | Direct exact-key state-history reads; owned pre-scope candidate roster and frozen empty configuration; create-if-absent publication expectations; history-bound recovery; exact model-graph validation; governed repository identity; explicit miss build; projection-only coverage derivation; and an opt-in service path proving compatible current projection plus immutable model history in one CAS and exact-key reuse. Production Story/grounding wiring and saved-view history remain fail-closed pending their proof owners. Existing WMB v3/v4 operation is unaffected. |
 | W2 | Partial | Five model-free overview contracts, stable full/brief renderers, and exact history inspection are implemented. The structural grounding preview exists, but its frozen v1 shape cannot represent the full composition identity; a compatible successor contract, lifecycle emission, and exact packet replay are not yet enabled. |
 | W3 | Deferred | Incremental parse/derivation reuse and verified private-candidate handoff/adoption. |
 | W4 | Deferred | Legacy inventory/cutover, supported-platform evidence, capacity benchmarks, UI explorer, and release qualification. |
@@ -245,17 +256,10 @@ proposed 256 MiB closure ceiling until a streaming/reference recovery format is 
 
 ## Release evidence still required
 
-- Add an owned full discovered-candidate roster before permitting excluded-path claims. The
-  implemented extraction outcomes and pure completeness bridge cover only exact selected snapshot
-  paths and intentionally report zero exclusions.
-- Define an owned extraction-configuration contract that maps exact retained configuration bytes
-  to the extractor that consumes them. Frozen v1 can prove only its registered empty
-  configuration; configured profiles therefore remain fail-closed.
-- Integrate the governed repository-identity resolver, exact pre-extraction lookup, and
-  build-to-binding staging adapter into the normal WMB service. An exact hit must remain a
-  zero-execution WMP history read; an explicit typed miss may build once. Publish the validated compatible
-  current projection and immutable history additions together through the existing
-  revision-checked state-branch CAS before wiring reuse into Story start or grounding preparation.
+- Preserve the implemented candidate-roster and frozen empty-configuration owners when defining a
+  successor contract for genuinely configured extractors; configured profiles remain fail-closed.
+- Wire the verified opt-in model-history path into Story start and grounding preparation only after
+  the view/grounding owners below are complete; a typed miss must remain an explicit build decision.
 - Before enabling saved-view publication or reads, cryptographically connect each view binding's
   model-payload and selected-ledger identity to one accepted model binding and its retained source
   Fact Ledger; individual valid closures are not sufficient proof that the two graphs belong

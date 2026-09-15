@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { schemaFamily } from '../src/schema-migrations.mjs';
@@ -7,10 +9,16 @@ import {
   createWorldModelCompletenessRecord, createWorldModelExtractionPolicy,
   createWorldModelRepositoryDomain, validateWorldModelRepositoryDomain
 } from '../src/world-model/history/model-owners.mjs';
+import {
+  createWorldModelDiscoveredCandidateRoster
+} from '../src/world-model/history/candidate-roster-owner.mjs';
 import { parseExactRetainedObject } from '../src/world-model/history/retained-object.mjs';
 import { BUILTIN_EXTRACTOR_REGISTRY } from '../src/world-model/registry/extractors.mjs';
 
 const digest = (label) => sha256({ fixture: label });
+const candidateRosterSchema = JSON.parse(readFileSync(new URL(
+  '../schemas/world-model-discovered-candidate-roster.schema.json', import.meta.url
+), 'utf8'));
 
 function extractor(manifest, coverage) {
   return {
@@ -28,6 +36,25 @@ function retained(record, role, family) {
     ref: { role, family, mediaType: 'application/json', sha256: sha256(bytes), bytes: bytes.length },
     bytes
   };
+}
+
+function gitObjectSha1(type, bytes) {
+  return createHash('sha1')
+    .update(Buffer.from(`${type} ${bytes.length}\0`, 'utf8'))
+    .update(bytes)
+    .digest('hex');
+}
+
+function singleFileDeepTreeSha1(depth, objectId) {
+  let tree = gitObjectSha1('tree', Buffer.concat([
+    Buffer.from('100644 file\0', 'utf8'), Buffer.from(objectId, 'hex')
+  ]));
+  for (let index = 0; index < depth; index += 1) {
+    tree = gitObjectSha1('tree', Buffer.concat([
+      Buffer.from('40000 a\0', 'utf8'), Buffer.from(tree, 'hex')
+    ]));
+  }
+  return tree;
 }
 
 function ownerFixtures() {
@@ -75,12 +102,26 @@ function ownerFixtures() {
       status: 'processed', reasonCode: null
     }]
   });
-  return { repositoryDomain, extractionPolicy, completeness };
+  const candidateRoster = createWorldModelDiscoveredCandidateRoster({
+    source: {
+      kind: 'committed-git-tree',
+      commit: '1'.repeat(40),
+      tree: '4b825dc642cb6eb9a060e54bf8d69288fbee4904',
+      gitObjectFormat: 'sha1',
+      pathNormalization: 'posix-relative',
+      discoveryBoundary: 'recursive-tracked-blobs-before-scope'
+    },
+    sourceManifestSha256: digest('empty-source'),
+    scopeManifestSha256: digest('empty-scope'),
+    candidates: []
+  });
+  return { repositoryDomain, extractionPolicy, completeness, candidateRoster };
 }
 
 test('model owner families are frozen immutable v1 identities', () => {
   for (const familyId of [
     'world-model-repository-domain', 'world-model-extraction-policy',
+    'world-model-discovered-candidate-roster',
     'world-model-extractor-registry', 'world-model-completeness-record',
     'world-model-source-snapshot', 'world-model-scope-manifest',
     'world-model-view-contract', 'world-model-extractor-manifest',
@@ -96,6 +137,63 @@ test('model owner families are frozen immutable v1 identities', () => {
   }
 });
 
+test('candidate-roster schema freezes the pre-scope Git discovery boundary', () => {
+  assert.equal(candidateRosterSchema.additionalProperties, false);
+  assert.equal(candidateRosterSchema.properties.schemaVersion.const, 1);
+  assert.equal(
+    candidateRosterSchema.properties.kind.const,
+    'world-model-discovered-candidate-roster'
+  );
+  assert.equal(
+    candidateRosterSchema.$defs.source.properties.discoveryBoundary.const,
+    'recursive-tracked-blobs-before-scope'
+  );
+  assert.equal(candidateRosterSchema.properties.candidates.maxItems, 50_000);
+  assert.equal(candidateRosterSchema.$defs.candidate.additionalProperties, false);
+  assert.deepEqual(
+    candidateRosterSchema.$defs.candidate.required,
+    ['path', 'type', 'mode', 'objectId', 'contentSha256', 'bytes', 'status', 'reasonCode']
+  );
+  assert.equal(
+    candidateRosterSchema.$defs.candidate.allOf[0].then.properties.contentSha256.$ref,
+    '#/$defs/hash'
+  );
+  assert.equal(
+    candidateRosterSchema.$defs.candidate.allOf[0].else.properties.contentSha256.type,
+    'null'
+  );
+});
+
+test('candidate-roster tree validation is stack-safe for adversarially deep Git paths', () => {
+  const depth = 12_000;
+  const objectId = 'e69de29bb2d1d6434b8b29ae775ad8c2e48c5391';
+  const path = `${'a/'.repeat(depth)}file`;
+  const candidateRoster = createWorldModelDiscoveredCandidateRoster({
+    source: {
+      kind: 'committed-git-tree',
+      commit: '1'.repeat(40),
+      tree: singleFileDeepTreeSha1(depth, objectId),
+      gitObjectFormat: 'sha1',
+      pathNormalization: 'posix-relative',
+      discoveryBoundary: 'recursive-tracked-blobs-before-scope'
+    },
+    sourceManifestSha256: digest('deep-source'),
+    scopeManifestSha256: digest('deep-scope'),
+    candidates: [{
+      path,
+      type: 'regular',
+      mode: '100644',
+      objectId,
+      contentSha256: 'sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+      bytes: 0,
+      status: 'selected',
+      reasonCode: null
+    }]
+  });
+  assert.equal(candidateRoster.source.tree, singleFileDeepTreeSha1(depth, objectId));
+  assert.equal(candidateRoster.candidates[0].path, path);
+});
+
 test('model owner constructors are deterministic and their exact retained bytes are readable', () => {
   const first = ownerFixtures();
   const second = ownerFixtures();
@@ -103,6 +201,9 @@ test('model owner constructors are deterministic and their exact retained bytes 
   const cases = [
     ['repository-domain', 'world-model-repository-domain', first.repositoryDomain],
     ['extraction-policy', 'world-model-extraction-policy', first.extractionPolicy],
+    [
+      'candidate-roster', 'world-model-discovered-candidate-roster', first.candidateRoster
+    ],
     ['completeness-record', 'world-model-completeness-record', first.completeness]
   ];
   for (const [role, family, record] of cases) {

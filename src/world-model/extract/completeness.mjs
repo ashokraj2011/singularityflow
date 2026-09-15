@@ -5,12 +5,15 @@ import {
 import {
   createWorldModelCompletenessRecord
 } from '../history/model-owners.mjs';
+import {
+  WMP_CANDIDATE_EXCLUSION_REASONS, validateWorldModelDiscoveredCandidateRoster
+} from '../history/candidate-roster-owner.mjs';
 import { WMP_MAXIMUM_OBJECT_BYTES } from '../history/identity.mjs';
 import {
   resolveExtractorExecutionContract, resolveExtractorManifest, validateExtractorRegistry
 } from '../registry/extractors.mjs';
 import { validateViewContract } from '../registry/views.mjs';
-import { pathInsideScope } from '../scope/matcher.mjs';
+import { classifyScopePath, pathInsideScope } from '../scope/matcher.mjs';
 import { validateScopeManifest } from '../scope/manifest.mjs';
 import { validateSourceSnapshot } from '../source/snapshot.mjs';
 import { validateDerivationCatalog } from './derivation-catalog.mjs';
@@ -193,16 +196,99 @@ function requiredFactOutcome(factType, facts) {
   };
 }
 
+function excludedOutcomesFromCandidateRoster(candidateRosterValue, source, scope) {
+  if (candidateRosterValue == null) return [];
+  const roster = validateWorldModelDiscoveredCandidateRoster(candidateRosterValue);
+  if (roster.sourceManifestSha256 !== source.sourceManifestSha256
+      || roster.scopeManifestSha256 !== scope.scopeSha256
+      || roster.source.commit !== source.revision.commit) {
+    fail(
+      'Discovered Candidate Roster does not bind the exact completeness source and scope.',
+      'WMP_CANDIDATE_ROSTER_BINDING_MISMATCH'
+    );
+  }
+  const selectedFiles = new Map(source.files.map((entry) => [entry.path, entry]));
+  const excluded = [];
+  for (const candidate of roster.candidates) {
+    const classification = classifyScopePath(candidate.path, scope);
+    const expectedStatus = classification.status === 'inside' ? 'selected' : 'excluded';
+    const expectedReason = classification.status === 'inside'
+      ? null : WMP_CANDIDATE_EXCLUSION_REASONS[classification.status];
+    if (candidate.status !== expectedStatus || candidate.reasonCode !== expectedReason) {
+      fail(
+        `Discovered Candidate Roster misclassifies '${candidate.path}'.`,
+        'WMP_CANDIDATE_ROSTER_SCOPE_MISMATCH', {
+          path: candidate.path,
+          expectedStatus,
+          expectedReason,
+          receivedStatus: candidate.status,
+          receivedReason: candidate.reasonCode
+        }
+      );
+    }
+    if (candidate.status === 'selected') {
+      const file = selectedFiles.get(candidate.path);
+      if (!file || file.type !== candidate.type || file.mode !== candidate.mode
+          || file.contentSha256 !== candidate.contentSha256
+          || file.bytes !== candidate.bytes) {
+        fail(
+          `Discovered Candidate Roster selected path '${candidate.path}' does not match source bytes.`,
+          'WMP_CANDIDATE_ROSTER_SOURCE_MISMATCH', {
+            path: candidate.path,
+            expected: file ? {
+              type: file.type,
+              mode: file.mode,
+              contentSha256: file.contentSha256,
+              bytes: file.bytes
+            } : null,
+            received: {
+              type: candidate.type,
+              mode: candidate.mode,
+              contentSha256: candidate.contentSha256,
+              bytes: candidate.bytes
+            }
+          }
+        );
+      }
+      selectedFiles.delete(candidate.path);
+    } else {
+      if (selectedFiles.has(candidate.path)) {
+        fail(
+          `Discovered Candidate Roster excludes selected source path '${candidate.path}'.`,
+          'WMP_CANDIDATE_ROSTER_SOURCE_MISMATCH', { path: candidate.path }
+        );
+      }
+      excluded.push({
+        path: candidate.path,
+        sourceContentSha256: null,
+        status: 'excluded',
+        reasonCode: candidate.reasonCode,
+        extractors: []
+      });
+    }
+  }
+  if (selectedFiles.size) {
+    fail(
+      'Discovered Candidate Roster omits exact selected source paths.',
+      'WMP_CANDIDATE_ROSTER_SOURCE_MISMATCH', {
+        omittedPaths: [...selectedFiles.keys()].sort(compareText).slice(0, 100),
+        omitted: Math.max(0, selectedFiles.size - 100)
+      }
+    );
+  }
+  return excluded;
+}
+
 /**
  * Build the durable completeness owner from terminal current-release extractor executions.
  *
- * The exact Source Snapshot is the complete roster in this increment. Paths excluded before that
- * snapshot cannot be reconstructed truthfully, so this bridge emits no fabricated exclusions.
+ * Excluded outcomes are emitted only when the owned full pre-scope candidate roster proves them.
+ * Omitting the optional roster preserves the frozen legacy zero-exclusion behavior.
  */
 export function createCompletenessRecordFromExtractionExecution({
   sourceSnapshot, scopeManifest, extractorRegistry, extractorExecutions,
   evidenceCatalog, derivationCatalog, factLedger, resolvedViewContracts, viewFactLedgers,
-  extractionExecutionReceipt
+  extractionExecutionReceipt, candidateRoster = null, factRequirements = null
 } = {}) {
   const source = validateSourceSnapshot(sourceSnapshot);
   const scope = validateScopeManifest(scopeManifest);
@@ -321,6 +407,7 @@ export function createCompletenessRecordFromExtractionExecution({
       extractors
     };
   });
+  pathOutcomes.push(...excludedOutcomesFromCandidateRoster(candidateRoster, source, scope));
   const globalOutcomes = globalExecutions.map((execution) => ({
     id: execution.identity.id,
     version: execution.identity.version,
@@ -328,7 +415,23 @@ export function createCompletenessRecordFromExtractionExecution({
     status: execution.globalOutcome.status,
     reasonCode: execution.globalOutcome.reasonCode
   }));
-  const requiredFactTypes = [...new Set(views.flatMap((view) => [
+  if (factRequirements !== null
+      && (!factRequirements || typeof factRequirements !== 'object'
+        || Array.isArray(factRequirements)
+        || !Array.isArray(factRequirements.requiredFactTypes)
+        || !Array.isArray(factRequirements.requiredUnavailableSubjects))) {
+    fail(
+      'Completeness construction received invalid exact Fact Requirements.',
+      'WMP_COMPLETENESS_FACT_REQUIREMENTS_INVALID'
+    );
+  }
+  // A persisted Model Binding is owned by its exact Fact Requirements, not by whichever
+  // presentation views happened to be composed in the same runtime. The view-derived fallback is
+  // retained for existing non-WMP callers.
+  const requiredFactTypes = [...new Set(factRequirements ? [
+    ...factRequirements.requiredFactTypes,
+    ...factRequirements.requiredUnavailableSubjects
+  ] : views.flatMap((view) => [
     ...view.factPolicy.requiredFactTypes,
     ...view.factPolicy.requiredUnavailableSubjects
   ]))].sort(compareText);

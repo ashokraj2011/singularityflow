@@ -8,6 +8,7 @@ import { operationCatalog, resolveOperation } from '../src/command-registry.mjs'
 import { run } from '../src/util.mjs';
 import { worldModelCommand } from '../src/worldmodel.mjs';
 import { canonicalJson, sha256 } from '../src/world-model/canonicalize.mjs';
+import { historyWorldModelV4Command } from '../src/world-model/commands.mjs';
 import { runDeterministicRegistration } from '../src/world-model/extract/runner.mjs';
 import { createWmpModelBinding } from '../src/world-model/history/contracts.mjs';
 import {
@@ -21,6 +22,9 @@ import {
 } from '../src/world-model/history/paths.mjs';
 import { createScopeManifest } from '../src/world-model/scope/manifest.mjs';
 import { createExactSourceSnapshotAtRevision } from '../src/world-model/source/snapshot.mjs';
+import {
+  captureWorldModelPublicationReview
+} from '../src/world-model/publication-authority.mjs';
 
 function git(root, ...args) {
   return run('git', args, { cwd: root }).stdout.trim();
@@ -337,6 +341,17 @@ test('history reads require an exact local cut and never route through --branch'
     (error) => error?.code === 'WMP_AUTHORITY_CUT_REQUIRED'
   );
   assert.equal(git(root, 'worktree', 'list', '--porcelain'), worktreesBefore);
+
+  await assert.rejects(
+    quiet(() => historyWorldModelV4Command(root, {
+      outputDir: 'singularity/world-model',
+      definition: { worldModel: { stateBranch: 'refs/remotes/origin/state' } }
+    }, ['wm', 'history', 'list'], {
+      'authority-commit': authorityCommit, json: true
+    })),
+    (error) => error?.code === 'WMP_AUTHORITY_CUT_REQUIRED'
+      && error?.details?.branch === 'refs/remotes/origin/state'
+  );
 });
 
 test('history commands never substitute an unpublished local state branch for configured remote authority', async (t) => {
@@ -363,4 +378,130 @@ test('history commands never substitute an unpublished local state branch for co
   assert.equal(listed.authorityRef, 'refs/remotes/origin/state');
   assert.equal(listed.entries.length, 1);
   assert.equal(listed.entries[0].key, binding.modelKey);
+});
+
+test('history list and show refuse a tracking ref with two distinct configured fetch identities', async (t) => {
+  const { root, authorityCommit, binding } = await persistedRepository(t);
+  git(root, 'remote', 'add', 'origin', 'https://example.invalid/authority-one.git');
+  git(root, 'config', '--add', 'remote.origin.url', 'https://example.invalid/authority-two.git');
+  git(root, 'update-ref', 'refs/remotes/origin/state', authorityCommit);
+
+  const operations = [
+    ['wm', 'history', 'list'],
+    ['wm', 'history', 'show', binding.modelKey]
+  ];
+  for (const positionals of operations) {
+    await assert.rejects(
+      quiet(() => worldModelCommand(root, positionals, {
+        'authority-commit': authorityCommit, kind: 'model', json: true
+      })),
+      (error) => error?.code === 'WMP_AUTHORITY_CUT_REQUIRED'
+        && error?.details?.remote === 'origin'
+        && error?.details?.configuredRemotes === 2
+        && !JSON.stringify(error).includes('authority-one.git')
+        && !JSON.stringify(error).includes('authority-two.git')
+    );
+  }
+});
+
+test('state publication normalizes an explicit local authority ref and refuses every non-local full ref', async (t) => {
+  const { root, authorityCommit } = await persistedRepository(t);
+  const review = await captureWorldModelPublicationReview(root, {
+    ledgerConfig: { branch: 'refs/heads/state', remote: 'origin' }
+  });
+  assert.equal(review.branch, 'state');
+  assert.equal(review.targetRef, 'refs/heads/state');
+  assert.equal(review.ledger.branch, 'state');
+  assert.equal(review.publicationBase, authorityCommit);
+  assert.equal(JSON.stringify(review).includes('refs/heads/refs/heads/'), false);
+
+  await assert.rejects(
+    captureWorldModelPublicationReview(root, {
+      ledgerConfig: { branch: 'refs/remotes/origin/state', remote: 'origin' }
+    }),
+    (error) => error?.code === 'WMB_GATEWAY_PUBLICATION_AUTHORITY_INVALID'
+      && error?.details?.branch === 'refs/remotes/origin/state'
+  );
+});
+
+test('public history list and show route every Git read through the stable bounded timeout boundary', () => {
+  const authorityCommit = 'a'.repeat(40);
+  const config = {
+    outputDir: 'singularity/world-model',
+    historyDir: 'singularity/world-model-history',
+    definition: { worldModel: { stateBranch: 'refs/heads/state' } }
+  };
+  const timedOut = () => ({
+    status: 1, stdout: '', stderr: '', timedOut: true,
+    error: Object.assign(new Error('local read deadline'), { code: 'ETIMEDOUT' })
+  });
+  const checkCalls = [];
+  assert.throws(
+    () => historyWorldModelV4Command(
+      '/fixture', config, ['wm', 'history', 'list'], {
+        'authority-commit': authorityCommit, json: true
+      }, {
+        runCommand(command, args, options) {
+          checkCalls.push({ command, args, options });
+          return timedOut();
+        }
+      }
+    ),
+    (error) => error?.code === 'WMP_HISTORY_READ_TIMEOUT'
+      && error?.details?.operation === 'history-authority-ref-format'
+  );
+  assert.equal(checkCalls.length, 1);
+
+  const listCalls = [];
+  assert.throws(
+    () => historyWorldModelV4Command(
+      '/fixture', config, ['wm', 'history', 'list'], {
+        'authority-commit': authorityCommit, kind: 'model', json: true
+      }, {
+        runCommand(command, args, options) {
+          listCalls.push({ command, args, options });
+          if (args[0] === 'ls-tree') return timedOut();
+          if (args[0] === 'rev-parse') {
+            return { status: 0, stdout: `${authorityCommit}\n`, stderr: '' };
+          }
+          return { status: 0, stdout: '', stderr: '' };
+        }
+      }
+    ),
+    (error) => error?.code === 'WMP_HISTORY_READ_TIMEOUT'
+      && error?.details?.operation === 'history-binding-list'
+  );
+  assert.deepEqual(listCalls.map(({ args }) => args[0]), [
+    'check-ref-format', 'show-ref', 'rev-parse', 'rev-parse', 'merge-base', 'ls-tree'
+  ]);
+
+  const showCalls = [];
+  assert.throws(
+    () => historyWorldModelV4Command(
+      '/fixture', config,
+      ['wm', 'history', 'show', `sha256:${'b'.repeat(64)}`], {
+        'authority-commit': authorityCommit, kind: 'model', json: true
+      }, {
+        runCommand(command, args, options) {
+          showCalls.push({ command, args, options });
+          if (args[0] === 'rev-parse') return timedOut();
+          return { status: 0, stdout: '', stderr: '' };
+        }
+      }
+    ),
+    (error) => error?.code === 'WMP_HISTORY_READ_TIMEOUT'
+      && error?.details?.operation === 'authority-tip'
+  );
+  assert.deepEqual(showCalls.map(({ args }) => args[0]), [
+    'check-ref-format', 'show-ref', 'rev-parse'
+  ]);
+
+  for (const { command, options } of [...checkCalls, ...listCalls, ...showCalls]) {
+    assert.equal(command, 'git');
+    assert.equal(options.allowFailure, true);
+    assert.equal(options.timeoutClass, 'local-read');
+    assert.equal(options.env.GIT_NO_LAZY_FETCH, '1');
+    assert.equal(options.env.GIT_TERMINAL_PROMPT, '0');
+    assert.equal(options.env.GCM_INTERACTIVE, 'Never');
+  }
 });

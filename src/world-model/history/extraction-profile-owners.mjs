@@ -11,6 +11,39 @@ function fail(message, code, details = {}) {
   contractFailure(message, code, details);
 }
 
+function assertFrozenContractDigest(value, expectedSha256, label) {
+  const actualSha256 = sha256(value);
+  if (actualSha256 !== expectedSha256) {
+    fail(
+      `${label} no longer matches its frozen v1 digest. Introduce a successor contract instead of changing v1.`,
+      'WMP_FROZEN_CONTRACT_DIGEST_MISMATCH',
+      { expected: expectedSha256, actual: actualSha256 }
+    );
+  }
+}
+
+/**
+ * Frozen v1 extraction configuration.
+ *
+ * The current deterministic adapters accept no caller or repository supplied configuration.
+ * Keep that fact as an owned semantic contract instead of repeating an opaque digest in the
+ * runner and history reader. A future configured extractor must retain its exact bytes and use a
+ * successor contract; it cannot be made compatible by adding a ref to this frozen empty owner.
+ */
+export const WMP_EMPTY_EXTRACTOR_CONFIGURATION = deepFreeze({
+  kind: 'world-model-extractor-configuration',
+  version: 1
+});
+
+export const WMP_EMPTY_EXTRACTOR_CONFIGURATION_SHA256 =
+  'sha256:8f21b3460bf0a82772645ac46d78e5aa7e0ababfc22af76561d91b98f9f3ae0b';
+
+assertFrozenContractDigest(
+  WMP_EMPTY_EXTRACTOR_CONFIGURATION,
+  WMP_EMPTY_EXTRACTOR_CONFIGURATION_SHA256,
+  'WMP empty extractor configuration'
+);
+
 function nullableDigest(value, label) {
   if (value !== null) assertSha256(value, label);
 }
@@ -45,6 +78,49 @@ function validateExtractor(value, index) {
  * without inventing an unreferenced durable record or depending on whichever parser is installed
  * when historical bytes are read.
  */
+export function createWmpExtractionConfigurationContract(extractors, configurationRefs = []) {
+  if (!Array.isArray(extractors) || extractors.length > MAXIMUM_EXTRACTORS) {
+    fail(`WMP extraction-configuration consumers must contain at most ${MAXIMUM_EXTRACTORS} entries.`,
+      'WMP_CONTRACT_LIMIT');
+  }
+  extractors.forEach(validateExtractor);
+  assertCanonicalOrder(
+    extractors,
+    (entry) => `${entry.id}\0${String(entry.version).padStart(12, '0')}`,
+    'WMP extraction-configuration consumers'
+  );
+  if (!Array.isArray(configurationRefs)) {
+    fail('WMP extraction-configuration refs must be an array.',
+      'WMP_EXTRACTION_CONFIGURATION_OWNER_UNAVAILABLE');
+  }
+  if (configurationRefs.length) {
+    fail(
+      'Configured extraction requires a successor owner that binds exact retained bytes to each consuming extractor.',
+      'WMP_EXTRACTION_CONFIGURATION_OWNER_UNAVAILABLE',
+      { configurationRefs: configurationRefs.length }
+    );
+  }
+  return deepFreeze({
+    kind: 'wmp/extraction-configuration-contract',
+    version: 1,
+    mode: 'registered-empty',
+    configurationSha256: WMP_EMPTY_EXTRACTOR_CONFIGURATION_SHA256,
+    consumers: extractors.map((entry) => ({
+      id: entry.id,
+      version: entry.version,
+      manifestSha256: entry.manifestSha256,
+      implementationSha256: entry.implementationSha256,
+      configurationRef: null
+    }))
+  });
+}
+
+export function deriveWmpExtractionConfigurationContractSha256(
+  extractors, configurationRefs = []
+) {
+  return sha256(createWmpExtractionConfigurationContract(extractors, configurationRefs));
+}
+
 export function createWmpParseSchemaContract(extractors) {
   if (!Array.isArray(extractors) || extractors.length > MAXIMUM_EXTRACTORS) {
     fail(`WMP Parse Schema extractors must contain at most ${MAXIMUM_EXTRACTORS} entries.`,
@@ -93,11 +169,20 @@ export const WMP_SOURCE_NORMALIZATION_CONTRACT = deepFreeze({
   unicode: 'preserve-code-points'
 });
 
-export const WMP_SOURCE_NORMALIZATION_CONTRACT_SHA256 = sha256(
-  WMP_SOURCE_NORMALIZATION_CONTRACT
+export const WMP_SOURCE_NORMALIZATION_CONTRACT_SHA256 =
+  'sha256:c09e4626f9c87804341a0bd32e2e0fcca8906839ded3aa7b1b4f9b9ea2aea77f';
+
+assertFrozenContractDigest(
+  WMP_SOURCE_NORMALIZATION_CONTRACT,
+  WMP_SOURCE_NORMALIZATION_CONTRACT_SHA256,
+  'WMP source-normalization contract'
 );
 
 export function validateWmpExtractionProfileOwnerDigests(profile) {
+  // Constructing this contract is also the frozen-v1 admission check for configurationRefs. It
+  // proves which exact extractor consumes the registered empty configuration and refuses any
+  // configured profile before its bytes can influence a Model Key without an owner.
+  createWmpExtractionConfigurationContract(profile.extractors, profile.configurationRefs);
   const expectedParseSchemaSha256 = deriveWmpParseSchemaSha256(profile.extractors);
   if (profile.parseSchemaSha256 !== expectedParseSchemaSha256) {
     fail('WMP Extraction Profile parseSchemaSha256 has no matching frozen parse-schema contract.',

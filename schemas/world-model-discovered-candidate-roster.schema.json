@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/world-model-discovered-candidate-roster.schema.json",
+  "title": "WMP complete discovered candidate roster before scope filtering",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "source", "sourceManifestSha256", "scopeManifestSha256", "candidates", "counts", "candidateRosterSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "world-model-discovered-candidate-roster" },
+    "source": { "$ref": "#/$defs/source" },
+    "sourceManifestSha256": { "$ref": "#/$defs/hash" },
+    "scopeManifestSha256": { "$ref": "#/$defs/hash" },
+    "candidates": {
+      "type": "array",
+      "maxItems": 50000,
+      "items": { "$ref": "#/$defs/candidate" }
+    },
+    "counts": {
+      "type": "object",
+      "required": ["discoveredPaths", "selectedPaths", "excludedPaths"],
+      "properties": {
+        "discoveredPaths": { "$ref": "#/$defs/count" },
+        "selectedPaths": { "$ref": "#/$defs/count" },
+        "excludedPaths": { "$ref": "#/$defs/count" }
+      },
+      "additionalProperties": false
+    },
+    "candidateRosterSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "commit": { "type": "string", "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$" },
+    "count": { "type": "integer", "minimum": 0, "maximum": 50000 },
+    "path": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?![A-Za-z]:)(?!\\.\\.(?:/|$))(?!.*\\/\\.\\.(?:/|$))(?!.*\\\\)(?!\\./)(?!.*//)[^\\u0000\\r\\n]+$" },
+    "source": {
+      "type": "object",
+      "required": ["kind", "commit", "tree", "gitObjectFormat", "pathNormalization", "discoveryBoundary"],
+      "properties": {
+        "kind": { "const": "committed-git-tree" },
+        "commit": { "$ref": "#/$defs/commit" },
+        "tree": { "$ref": "#/$defs/commit" },
+        "gitObjectFormat": { "enum": ["sha1", "sha256"] },
+        "pathNormalization": { "const": "posix-relative" },
+        "discoveryBoundary": { "const": "recursive-tracked-blobs-before-scope" }
+      },
+      "additionalProperties": false
+    },
+    "candidate": {
+      "type": "object",
+      "required": ["path", "type", "mode", "objectId", "contentSha256", "bytes", "status", "reasonCode"],
+      "properties": {
+        "path": { "$ref": "#/$defs/path" },
+        "type": { "enum": ["regular", "symlink"] },
+        "mode": { "enum": ["100644", "100755", "120000"] },
+        "objectId": { "$ref": "#/$defs/commit" },
+        "contentSha256": {
+          "oneOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }]
+        },
+        "bytes": {
+          "oneOf": [{ "type": "integer", "minimum": 0 }, { "type": "null" }]
+        },
+        "status": { "enum": ["selected", "excluded"] },
+        "reasonCode": {
+          "oneOf": [
+            { "type": "null" },
+            { "enum": ["EXCLUDED_BY_SCOPE", "OUTSIDE_SCOPE", "TRAVERSAL_DEPTH_EXCEEDED"] }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "selected" } } },
+          "then": {
+            "properties": {
+              "contentSha256": { "$ref": "#/$defs/hash" },
+              "bytes": { "type": "integer", "minimum": 0 },
+              "reasonCode": { "type": "null" }
+            }
+          },
+          "else": {
+            "properties": {
+              "contentSha256": { "type": "null" },
+              "bytes": { "type": "null" }
+            }
+          }
+        }
+      ],
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

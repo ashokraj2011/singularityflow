@@ -787,6 +787,9 @@ test('registered-v4 CLI plans, publishes, verifies, and reuses state without inv
   assert.equal(built.runtime.availableViews[0].usageObservation.promptBytes, 0);
   assert.equal(built.runtime.availableViews[0].usageObservation.providerInputTokens, null);
   assert.equal(built.publication.branch, 'state');
+  assert.equal(git(root, [
+    'ls-tree', '-r', '--name-only', 'state', '--', 'singularity/world-model-history'
+  ]), '', 'ordinary CLI builds must not activate persisted exact history implicitly');
   assert.equal(git(root, ['status', '--short']), '');
 
   const stateBefore = git(root, ['rev-parse', 'state']);

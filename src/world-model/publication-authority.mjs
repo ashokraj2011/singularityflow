@@ -3,12 +3,39 @@ import {
   materializeStateBranchPublicationAuthority, stateBranchPublicationTargetIdentity
 } from '../ledger.mjs';
 import { exactRemoteBranchObservationAsync, refHead } from '../git.mjs';
+import { configuredRemoteIdentity } from '../git-remote-diagnostics.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { canonicalJson } from './canonicalize.mjs';
 
 const DEFAULT_MESSAGE = '[world-model][wmb-v4] publish registered views';
 const COMMIT = /^[a-f0-9]{40,64}$/;
 const GUARDED_REF = /^refs\/heads\/[A-Za-z0-9][A-Za-z0-9._/-]*$/;
+
+function publicationLedgerConfig(rawConfig) {
+  const ledger = normalizeLedgerConfig(rawConfig);
+  const fullRef = ledger.branch.startsWith('refs/')
+    ? ledger.branch : `refs/heads/${ledger.branch}`;
+  const components = fullRef.split('/');
+  if (!GUARDED_REF.test(fullRef) || fullRef.includes('..')
+      || fullRef.includes('//') || fullRef.endsWith('/') || fullRef.includes('@{')
+      || components.some((component) => component.startsWith('.')
+        || component.endsWith('.') || component.endsWith('.lock'))) {
+    throw new SingularityFlowError(
+      'WMB v4 state publication accepts only a branch name or an explicit local refs/heads/... authority.',
+      {
+        code: 'WMB_GATEWAY_PUBLICATION_AUTHORITY_INVALID',
+        details: { branch: ledger.branch }
+      }
+    );
+  }
+  // The state writer owns the `refs/heads/` namespace and therefore accepts a branch name. Keep
+  // approved local-mode history policy expressive at its read boundary, but never concatenate a
+  // full ref into `refs/heads/refs/heads/...` at publication time.
+  return Object.freeze({
+    ...ledger,
+    branch: fullRef.slice('refs/heads/'.length)
+  });
+}
 
 function commit(value, label, { nullable = false } = {}) {
   if (nullable && value === null) return null;
@@ -124,9 +151,25 @@ async function observePublicationAuthority(root, ledger, endpoint) {
  */
 export async function captureWorldModelPublicationReview(root, {
   outputDir = 'singularity/world-model', ledgerConfig = {}, publicationOptions = {},
+  requireHistoryPublicationEndpoint = false,
 } = {}) {
-  const ledger = Object.freeze(normalizeLedgerConfig(ledgerConfig));
+  const ledger = Object.freeze(publicationLedgerConfig(ledgerConfig));
   const endpoint = stateBranchPublicationTargetIdentity(root, ledger);
+  // Persisted history is read from the configured fetch repository, so a split or rewritten push
+  // transport must be refused before `ls-remote` observes it. This check uses local Git config only:
+  // no remote probe, credential helper, or transport process has run at this point. Keeping the
+  // check beside endpoint resolution also prevents a caller from accidentally restoring the old
+  // probe-then-compare ordering.
+  if (requireHistoryPublicationEndpoint) {
+    assertWorldModelHistoryPublicationEndpoint(root, {
+      remote: ledger.remote,
+      branch: ledger.branch,
+      targetRef: endpoint.targetRef,
+      publicationBase: null,
+      endpoint: publicEndpoint(endpoint),
+      historyObservationAttempted: false
+    });
+  }
   // Exact planning must remain effect-free. Observe the configured endpoint directly instead of
   // fetching into refs/remotes/* before the person has confirmed the Plan.
   const authority = await observePublicationAuthority(root, ledger, endpoint);
@@ -170,14 +213,62 @@ export async function assertWorldModelPublicationReview(root, expected, options 
   return current;
 }
 
+/**
+ * Refuse split or rewritten publication transports before the reviewed base is fetched.
+ *
+ * Persisted history is selected from the configured fetch repository. Its publication must use
+ * that same literal repository identity, without an independent pushurl or an ambient
+ * insteadOf/pushInsteadOf rewrite. Checking this after materialization is too late: the fetch used
+ * to materialize the push endpoint can already have replaced refs/remotes/<remote>/<branch> and
+ * thereby changed the history cut which is supposed to authorize the comparison.
+ */
+export function assertWorldModelHistoryPublicationEndpoint(root, review) {
+  const history = configuredRemoteIdentity(root, review.remote, { direction: 'fetch' });
+  const historyRepositoryIdentitySha256 = history.fingerprint
+    ? `sha256:${history.fingerprint}` : null;
+  const publicationConfiguredRepositoryIdentitySha256 =
+    review.endpoint?.configuredUrlSha256 ?? null;
+  const publicationEffectiveRepositoryIdentitySha256 =
+    review.endpoint?.effectiveUrlSha256 ?? null;
+  const mismatch = review.endpoint?.configured
+    ? history.ambiguous || !history.configured || historyRepositoryIdentitySha256 === null
+      || historyRepositoryIdentitySha256 !== publicationConfiguredRepositoryIdentitySha256
+      || historyRepositoryIdentitySha256 !== publicationEffectiveRepositoryIdentitySha256
+    : history.configured || history.ambiguous
+      || historyRepositoryIdentitySha256 !== null
+      || publicationConfiguredRepositoryIdentitySha256 !== null
+      || publicationEffectiveRepositoryIdentitySha256 !== null;
+  if (!mismatch) return review;
+
+  const historyRef = review.endpoint?.configured
+    ? `refs/remotes/${review.remote}/${review.branch}` : review.targetRef;
+  throw new SingularityFlowError(
+    'Persisted World-model history authority does not equal the reviewed state publication authority.',
+    {
+      code: 'WMP_HISTORY_PUBLICATION_AUTHORITY_MISMATCH',
+      details: {
+        expectedRef: historyRef,
+        receivedRef: historyRef,
+        expectedCommit: review.publicationBase ?? null,
+        receivedCommit: refHead(root, historyRef) ?? null,
+        historyRepositoryIdentitySha256,
+        publicationConfiguredRepositoryIdentitySha256,
+        publicationEffectiveRepositoryIdentitySha256,
+        historyObservationAttempted: review.historyObservationAttempted !== false
+      }
+    }
+  );
+}
+
 /** Fetch the reviewed base only after confirmation, preserving every signed CAS field. */
 export async function materializeWorldModelPublicationReview(root, review, {
-  publicationOptions = {}
+  publicationOptions = {}, requireHistoryPublicationEndpoint = false
 } = {}) {
   await assertWorldModelPublicationReview(root, review, {
     outputDir: review.outputDir,
     ledgerConfig: review.ledger,
-    publicationOptions
+    publicationOptions,
+    requireHistoryPublicationEndpoint
   });
   const endpoint = stateBranchPublicationTargetIdentity(root, review.ledger);
   if (endpoint.effectiveUrlSha256 !== review.remoteEndpointSha256) {
@@ -201,7 +292,8 @@ export async function materializeWorldModelPublicationReview(root, review, {
   return assertWorldModelPublicationReview(root, review, {
     outputDir: review.outputDir,
     ledgerConfig: review.ledger,
-    publicationOptions
+    publicationOptions,
+    requireHistoryPublicationEndpoint
   });
 }
 

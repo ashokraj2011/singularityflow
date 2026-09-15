@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import {
-  mkdir, mkdtemp, rm, symlink, unlink, writeFile
+  chmod, mkdir, mkdtemp, rm, symlink, unlink, writeFile
 } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { sealRecord, sha256 } from '../src/world-model/canonicalize.mjs';
+import { compareText, sealRecord, sha256 } from '../src/world-model/canonicalize.mjs';
 import {
   createCompletenessRecordFromExtractionExecution, validateExtractionExecutionReceipt
 } from '../src/world-model/extract/index.mjs';
@@ -31,7 +31,12 @@ import {
   BUILTIN_VIEW_REGISTRY, resolveViewContract
 } from '../src/world-model/registry/views.mjs';
 import { createScopeManifest } from '../src/world-model/scope/manifest.mjs';
-import { createExactSourceSnapshot } from '../src/world-model/source/snapshot.mjs';
+import {
+  createDiscoveredCandidateRoster, createExactSourceSnapshot, worldModelSourceGitTimeoutClass
+} from '../src/world-model/source/snapshot.mjs';
+import {
+  validateWorldModelDiscoveredCandidateRoster
+} from '../src/world-model/history/candidate-roster-owner.mjs';
 
 function git(root, ...args) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -693,6 +698,173 @@ test('terminal executions bridge to an exact completeness record without invente
     }),
     (error) => error?.code === 'WMP_EXTRACTION_RECEIPT_BINDING_MISMATCH'
   );
+});
+
+test('pre-scope discovery owns every selected and excluded completeness path', async (t) => {
+  const root = await repository(t);
+  const narrowScope = createScopeManifest({
+    capabilityId: 'extractor-execution',
+    allowedPaths: ['src/**'],
+    excludedPaths: ['src/link.js'],
+    allowedSubjects: ['file']
+  });
+  const sourceSnapshot = createExactSourceSnapshot(root, {
+    subjectId: 'extractor-execution', scopeManifest: narrowScope
+  });
+  const candidateRoster = createDiscoveredCandidateRoster(root, {
+    sourceSnapshot, scopeManifest: narrowScope
+  });
+  const registration = runDeterministicRegistration({
+    root,
+    sourceSnapshot,
+    scopeManifest: narrowScope,
+    extractorReferences: ['repository-files@1.0.0']
+  });
+  const record = createCompletenessRecordFromExtractionExecution({
+    ...registration,
+    extractorRegistry: BUILTIN_EXTRACTOR_REGISTRY,
+    candidateRoster
+  });
+
+  assert.equal(candidateRoster.source.tree, git(root, 'rev-parse', 'HEAD^{tree}'));
+  assert.equal(candidateRoster.counts.discoveredPaths, 6);
+  assert.equal(candidateRoster.counts.selectedPaths, sourceSnapshot.files.length);
+  assert.equal(candidateRoster.counts.excludedPaths, 4);
+  const selectedSource = new Map(sourceSnapshot.files.map((entry) => [entry.path, entry]));
+  for (const candidate of candidateRoster.candidates) {
+    if (candidate.status === 'selected') {
+      const source = selectedSource.get(candidate.path);
+      assert.equal(candidate.contentSha256, source.contentSha256);
+      assert.equal(candidate.bytes, source.bytes);
+      assert.equal(candidate.objectId, git(root, 'rev-parse', `HEAD:${candidate.path}`));
+    } else {
+      assert.equal(candidate.contentSha256, null);
+      assert.equal(candidate.bytes, null);
+    }
+  }
+  assert.equal(record.counts.excludedPaths, 4);
+  assert.deepEqual(
+    record.pathOutcomes.filter((entry) => entry.status === 'excluded')
+      .map((entry) => [entry.path, entry.reasonCode]),
+    [
+      ['.github/CODEOWNERS', 'OUTSIDE_SCOPE'],
+      ['README.md', 'OUTSIDE_SCOPE'],
+      ['src/link.js', 'EXCLUDED_BY_SCOPE'],
+      ['test/unsupported.swift', 'OUTSIDE_SCOPE']
+    ]
+  );
+
+  const misclassified = structuredClone(candidateRoster);
+  const outside = misclassified.candidates.find((entry) => entry.path === 'README.md');
+  outside.status = 'selected';
+  outside.reasonCode = null;
+  outside.contentSha256 = sha256({ forged: 'out-of-scope-content' });
+  outside.bytes = 1;
+  misclassified.counts.selectedPaths += 1;
+  misclassified.counts.excludedPaths -= 1;
+  const selfConsistent = sealRecord(misclassified, 'candidateRosterSha256');
+  assert.doesNotThrow(() => validateWorldModelDiscoveredCandidateRoster(selfConsistent));
+  assert.throws(
+    () => createCompletenessRecordFromExtractionExecution({
+      ...registration,
+      extractorRegistry: BUILTIN_EXTRACTOR_REGISTRY,
+      candidateRoster: selfConsistent
+    }),
+    (error) => error?.code === 'WMP_CANDIDATE_ROSTER_SCOPE_MISMATCH'
+  );
+
+  const contentMismatch = structuredClone(candidateRoster);
+  const mismatchedSelected = contentMismatch.candidates.find(
+    (entry) => entry.status === 'selected'
+  );
+  mismatchedSelected.contentSha256 = sha256({ forged: 'selected-content' });
+  mismatchedSelected.bytes += 1;
+  const contentMismatchSealed = sealRecord(contentMismatch, 'candidateRosterSha256');
+  assert.doesNotThrow(
+    () => validateWorldModelDiscoveredCandidateRoster(contentMismatchSealed)
+  );
+  assert.throws(
+    () => createCompletenessRecordFromExtractionExecution({
+      ...registration,
+      extractorRegistry: BUILTIN_EXTRACTOR_REGISTRY,
+      candidateRoster: contentMismatchSealed
+    }),
+    (error) => error?.code === 'WMP_CANDIDATE_ROSTER_SOURCE_MISMATCH'
+  );
+
+  const invented = structuredClone(candidateRoster);
+  invented.candidates.push({
+    ...invented.candidates[0],
+    path: 'invented/path.js',
+    status: 'excluded',
+    reasonCode: 'OUTSIDE_SCOPE'
+  });
+  invented.candidates.sort((left, right) => compareText(left.path, right.path));
+  invented.counts.discoveredPaths += 1;
+  invented.counts.excludedPaths += 1;
+  const inventedSealed = sealRecord(invented, 'candidateRosterSha256');
+  assert.throws(
+    () => validateWorldModelDiscoveredCandidateRoster(inventedSealed),
+    (error) => error?.code === 'WMP_CANDIDATE_ROSTER_TREE_MISMATCH'
+  );
+});
+
+test('pre-scope discovery fails with a typed result when a local Git read exceeds its deadline', async (t) => {
+  const root = await repository(t);
+  const sourceSnapshot = createExactSourceSnapshot(root, {
+    subjectId: 'extractor-execution', scopeManifest: scope()
+  });
+  const executableDirectory = path.join(root, 'timeout-bin');
+  const executable = path.join(
+    executableDirectory, process.platform === 'win32' ? 'git.cmd' : 'git'
+  );
+  await mkdir(executableDirectory);
+  await writeFile(executable, process.platform === 'win32'
+    ? '@echo off\r\n:loop\r\ngoto loop\r\n'
+    : '#!/bin/sh\nwhile :; do :; done\n');
+  if (process.platform !== 'win32') await chmod(executable, 0o755);
+  const started = Date.now();
+  assert.throws(
+    () => createDiscoveredCandidateRoster(root, {
+      sourceSnapshot,
+      scopeManifest: scope(),
+      env: {
+        ...process.env,
+        PATH: `${executableDirectory}${path.delimiter}${process.env.PATH ?? ''}`,
+        SINGULARITY_FLOW_GIT_LOCAL_TIMEOUT_MS: '25'
+      }
+    }),
+    (error) => error?.code === 'WMB_SOURCE_READ_TIMEOUT'
+      && error?.details?.cause === 'SUBPROCESS_TIMEOUT'
+  );
+  assert.ok(Date.now() - started < 2_000, 'the bounded local read must not wait for the child');
+});
+
+test('source Git deadlines apply only to read-only operations', () => {
+  for (const args of [
+    ['rev-parse', '--verify', 'HEAD^{commit}'],
+    ['status', '--porcelain=v1'],
+    ['ls-tree', '-r', 'HEAD'],
+    ['log', '-1', '--format=%H'],
+    ['cat-file', 'blob', 'object-id'],
+    ['ls-files', '-z'],
+    ['show', '-s', '--format=%ct', 'HEAD'],
+    ['hash-object', '--stdin']
+  ]) {
+    assert.equal(worldModelSourceGitTimeoutClass(args), 'local-read', args.join(' '));
+  }
+
+  for (const args of [
+    ['hash-object', '-w', '--stdin'],
+    ['read-tree', '--empty'],
+    ['update-index', '--add', '--cacheinfo', '100644,object-id,path'],
+    ['write-tree'],
+    ['-c', 'commit.gpgSign=false', 'commit-tree', 'tree-id'],
+    ['update-ref', 'refs/singularity-flow/world-model-candidates/example', 'commit-id'],
+    ['future-mutating-operation']
+  ]) {
+    assert.equal(worldModelSourceGitTimeoutClass(args), null, args.join(' '));
+  }
 });
 
 test('completeness bridge refuses missing source paths and substituted view requirements', async (t) => {

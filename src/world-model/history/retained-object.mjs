@@ -21,6 +21,9 @@ import {
   validateWorldModelCompletenessRecord, validateWorldModelExtractionPolicy,
   validateWorldModelRepositoryDomain
 } from './model-owners.mjs';
+import {
+  validateWorldModelDiscoveredCandidateRoster
+} from './candidate-roster-owner.mjs';
 import { WMP_RECORD_FAMILIES, parseCanonicalWmpRecordBytes } from './contracts.mjs';
 import {
   WMP_MAXIMUM_OBJECT_BYTES, WMP_RENDERED_OBJECT_ROLES, validateWmpObjectRef
@@ -45,6 +48,7 @@ const MISSING_OWNER_ROLES = new Set([
 // These roles have first-class existing record families. Bind the semantic role as well as the
 // family so a valid record cannot be accepted after being relabelled as a different dependency.
 const OWNED_ROLE_FAMILIES = Object.freeze({
+  'candidate-roster': 'world-model-discovered-candidate-roster',
   'completeness-record': 'world-model-completeness-record',
   'consumer-profile': 'world-model-consumer-profile',
   'extraction-policy': 'world-model-extraction-policy',
@@ -58,6 +62,7 @@ const OWNED_FAMILY_ROLES = Object.freeze(Object.fromEntries(
 ));
 
 const OWNER_VALIDATORS = Object.freeze({
+  'world-model-discovered-candidate-roster': validateWorldModelDiscoveredCandidateRoster,
   'world-model-completeness-record': validateWorldModelCompletenessRecord,
   'world-model-consumer-profile': validateWorldModelConsumerProfile,
   'world-model-derivation-catalog': validateHistoricalDerivationCatalog,

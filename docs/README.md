@@ -1,6 +1,7 @@
 # Singularity Flow documentation
 
 - [Windows Git Bash installation compatibility](WINDOWS-GIT-BASH-INSTALL-FIX.md)
+- [Documentation map and classification](DOCUMENTATION-MAP.md)
 
 Singularity Flow is a Git-native delivery system with two supported product
 surfaces:
@@ -14,6 +15,11 @@ governed agents; it does not own workflow state. The retired Electron applicatio
 is not part of the current product.
 
 ## Start here
+
+The repository has many documents because it keeps current guides, help topics,
+architecture decisions, roadmaps, and shareable review artifacts together. Use
+the [Documentation map and classification](DOCUMENTATION-MAP.md) when you need
+to understand which document is authoritative for a specific topic.
 
 | Need | Read |
 |---|---|

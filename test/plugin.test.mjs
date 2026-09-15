@@ -233,18 +233,79 @@ test('generic generation skills branch on the resolved clarification mode before
   }
 });
 
-test('Copilot phase recovery re-authors once and never loops or pads an incomplete artifact', async () => {
-  const workflowAgent = await readFile(path.join(pluginRoot, 'agents', 'sflow-workflow.agent.md'), 'utf8');
-  const phase = await readFile(path.join(pluginRoot, 'skills', 'sflow-phase', 'SKILL.md'), 'utf8');
-  const next = await readFile(path.join(pluginRoot, 'skills', 'sflow-next', 'SKILL.md'), 'utf8');
-  for (const content of [workflowAgent, phase, next]) {
-    assert.match(content, /ARTIFACT_AUTHORING_INCOMPLETE/);
-    assert.match(content, /retry.*once|once.*retry/is);
-    assert.match(content, /fingerprint.*change/is);
-    assert.match(content, /nested Copilot|nested Copilot\/model invocation/i);
+test('Copilot phase authoring repairs structured draft findings before publication without loops', async () => {
+  const storyAuthoringSkills = {
+    'sflow-phase': 'phase draft-check <phase>',
+    'sflow-code': 'phase draft-check <phase>',
+    'sflow-design': 'phase draft-check design',
+    'sflow-release': 'phase draft-check release',
+    'sflow-requirements': 'phase draft-check requirements',
+    'sflow-review': 'phase draft-check review',
+    'sflow-verify': 'phase draft-check verification',
+    'sflow-specify': 'phase draft-check specification',
+    'sflow-converge': 'phase draft-check convergence'
+  };
+
+  for (const [name, command] of Object.entries(storyAuthoringSkills)) {
+    const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
+    assert.ok(content.includes(`singularity-flow ${command} --json`), `${name} omits the read-only draft check`);
+    assert.match(content, /(?:publish only when (?:its )?`?status`? is `?ready`?|only when `?status`? is `?ready`?, publish)/i,
+      `${name} may publish an unready draft`);
+    assert.match(content, /(?:repair|re-author|correct) every (?:agent |structured )?finding/i,
+      `${name} does not repair every finding`);
+    assert.match(content, /current Copilot turn|this Copilot turn|finding now/i,
+      `${name} defers repair instead of completing the authoring turn`);
+    assert.match(content, /fingerprint/i, `${name} does not track repair progress`);
+    assert.match(content, /(?:a maximum of|at most|allow(?: at most)?|up to) three (?:distinct )?changed fingerprints/i,
+      `${name} lacks the bounded three-fingerprint limit`);
+    assert.match(content, /stop(?: immediately)? on an unchanged fingerprint/i,
+      `${name} may loop on a non-progressing repair`);
+    assert.match(content, /(?:never )?(?:blindly )?delete markers|never blindly delete markers/i,
+      `${name} permits blind placeholder deletion`);
+    assert.match(content, /invent facts/i, `${name} permits invented replacement content`);
+    assert.match(content, /padding/i, `${name} permits byte-padding as repair`);
+    assert.match(content, /nested Copilot|nested Copilot\/model invocation|nested model|nest models/i,
+      `${name} permits a nested model repair`);
+    assert.match(content, /overwrite (?:human-|another producer)/i,
+      `${name} may overwrite output owned by another producer`);
+    assert.match(content, /ARTIFACT_AUTHORING_INCOMPLETE/i,
+      `${name} does not retain the publication-time race guard`);
+    assert.match(content, /recheck once|one recheck/i, `${name} does not bound the race-time recheck`);
+    assert.match(content, /never (?:create a publication retry loop|a loop|loop)/i,
+      `${name} permits a publication retry loop`);
   }
-  assert.match(phase, /Never add padding/i);
-  assert.match(phase, /Stop.*second refusal/is);
+
+  const initiative = await readFile(
+    path.join(pluginRoot, 'skills', 'sflow-initiative-phase', 'SKILL.md'),
+    'utf8'
+  );
+  assert.match(initiative, /initiative phase draft-check \[PHASE\].*--json/);
+  assert.match(initiative, /correct every agent finding now/i);
+  assert.match(initiative, /up to three changed fingerprints/i);
+  assert.match(initiative, /stop on an unchanged fingerprint/i);
+  assert.match(initiative, /(?:publish only when `status` is `ready`|only when `status` is `ready`.*publish)/i);
+  assert.match(initiative, /ARTIFACT_AUTHORING_INCOMPLETE.*recheck once/is);
+  assert.match(initiative, /never loop/i);
+
+  const workflowAgent = await readFile(path.join(pluginRoot, 'agents', 'sflow-workflow.agent.md'), 'utf8');
+  const workflowRules = await readFile(path.join(pluginRoot, 'skills', 'sflow-workflow-rules', 'SKILL.md'), 'utf8');
+  for (const [name, content] of [['workflow agent', workflowAgent], ['workflow rules', workflowRules]]) {
+    assert.match(content, /singularity-flow phase draft-check <phase> --json/,
+      `${name} omits the shared authoring preflight`);
+    assert.match(content, /publish only when .*ready/i, `${name} may publish an unready draft`);
+    assert.match(content, /(?:at most|after) three (?:distinct changed )?fingerprints/i,
+      `${name} lacks a bounded correction budget`);
+    assert.match(content, /stop on an unchanged fingerprint/i,
+      `${name} may loop without progress`);
+    assert.match(content, /ARTIFACT_AUTHORING_INCOMPLETE/i,
+      `${name} omits the final kernel race guard`);
+  }
+
+  const next = await readFile(path.join(pluginRoot, 'skills', 'sflow-next', 'SKILL.md'), 'utf8');
+  assert.match(next, /selected skill.*draft-check.*correct every agent finding/is);
+  assert.match(next, /Never publish a delegated action/);
+  assert.match(next, /route agent(?:-authored)? correction to `\/sf-phase`/i);
+  assert.match(next, /not an internal publication retry loop/i);
 });
 
 test('generation skills use the phase-configured publication producer and channel', async () => {

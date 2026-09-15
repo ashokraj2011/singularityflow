@@ -101,6 +101,38 @@ function optionValue(argv, name) {
   return /^[a-z0-9][a-z0-9-]*$/.test(value) ? value : null;
 }
 
+function lowerKebab(value) {
+  const candidate = typeof value === 'string' ? value.trim() : '';
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(candidate) ? candidate : null;
+}
+
+function artifactAuthoringPhase(argv, error) {
+  const details = error?.details ?? {};
+  for (const candidate of [details.phase, details.phaseId, details.currentPhase]) {
+    const phase = lowerKebab(candidate);
+    if (phase) return phase;
+  }
+
+  const selected = optionValue(argv, 'phase');
+  if (selected) return selected;
+  if (argv[0] === 'phase' && ['publish', 'approve', 'submit'].includes(argv[1])) {
+    return lowerKebab(argv[2]);
+  }
+  if (argv[0] === 'initiative' && argv[1] === 'phase'
+      && ['publish', 'approve', 'submit'].includes(argv[2])) {
+    return lowerKebab(argv[3]);
+  }
+  if (['approve', 'submit'].includes(argv[0])) return lowerKebab(argv[1]);
+  return null;
+}
+
+function artifactAuthoringSubject(argv, error) {
+  const phase = artifactAuthoringPhase(argv, error);
+  if (!phase) return null;
+  const initiative = error?.details?.subjectKind === 'initiative' || argv[0] === 'initiative';
+  return { phase, kind: initiative ? 'initiative' : 'story' };
+}
+
 const KNOWN = Object.freeze({
   AUTO_DISABLED: (argv) => [
     step('review-auto-policy',
@@ -240,6 +272,21 @@ const KNOWN = Object.freeze({
           'singularity-flow configuration validate --json', 'configuration')
       ]
     : [],
+  ARTIFACT_AUTHORING_INCOMPLETE: (argv, error) => {
+    const subject = artifactAuthoringSubject(argv, error);
+    if (!subject) return [];
+    const command = subject.kind === 'initiative'
+      ? `singularity-flow initiative phase draft-check ${subject.phase} --json`
+      : `singularity-flow phase draft-check ${subject.phase} --json`;
+    return [
+      step('inspect-authored-draft',
+        `Inspect every reviewable '${subject.phase}' draft artifact and its exact authoring findings without changing repository or lifecycle state.`,
+        command, 'diagnostic'),
+      step('correct-authored-draft',
+        'Have the current author correct every reported finding in the draft, then rerun the same read-only draft check. Do not delete markers blindly, invent missing facts, invoke another model, publish, submit, or approve from recovery guidance.',
+        null, 'remediation')
+    ];
+  },
   CLARIFICATION_MODE_OFF: (_argv, error) => {
     const phase = /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(error?.details?.phase ?? '')
       ? error.details.phase : null;
@@ -285,10 +332,19 @@ export function refusalRemediationPlan(error, argv = []) {
     index === 0 ? 'remediation' : 'diagnostic'
   ));
   const known = KNOWN[code]?.(argv, error) ?? [];
-  const steps = deduplicate([...explicit, ...known, ...genericSteps(argv)]);
+  const authoringIncomplete = code === 'ARTIFACT_AUTHORING_INCOMPLETE' && known.length > 0;
+  const nonDuplicateExplicit = authoringIncomplete
+    ? explicit.filter((entry) => !known.some((knownEntry) => knownEntry?.command === entry?.command))
+    : explicit;
+  const ordered = authoringIncomplete
+    ? [...known, ...nonDuplicateExplicit, ...genericSteps(argv)]
+    : [...nonDuplicateExplicit, ...known, ...genericSteps(argv)];
+  const steps = deduplicate(ordered);
   const retryLabel = code === 'CLARIFICATION_MODE_OFF'
     ? 'Do not retry clarification recording while the pinned mode is off; continue the phase instead.'
-    : 'Retry the original command only after the blocking condition is resolved.';
+    : authoringIncomplete
+      ? 'Retry the original command only after the author has corrected every finding and the same read-only draft check reports ready.'
+      : 'Retry the original command only after the blocking condition is resolved.';
   return Object.freeze({
     schemaVersion: 1, // schema-transient: process-boundary guidance, never persisted
     status: 'blocked',

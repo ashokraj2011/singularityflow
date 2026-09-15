@@ -181,6 +181,75 @@ test('code-delivery configuration refusals keep protected workflow changes outsi
   assert.ok(protectedPath.steps.every((entry) => entry.execution === 'user-reviewed'));
 });
 
+test('incomplete authoring refusals lead with a read-only draft check and bounded correction guidance', () => {
+  const error = Object.assign(new Error("Phase planning contains unresolved placeholder 'TODO'."), {
+    code: 'ARTIFACT_AUTHORING_INCOMPLETE',
+    details: {
+      phase: 'planning',
+      diagnosticAction: { command: 'singularity-flow doctor --json' }
+    }
+  });
+  const plan = refusalRemediationPlan(error, ['phase', 'publish', 'planning', '--json']);
+
+  assert.equal(plan.steps[0].id, 'inspect-authored-draft');
+  assert.equal(plan.steps[0].command, 'singularity-flow phase draft-check planning --json');
+  assert.deepEqual(plan.steps[0].argv, ['phase', 'draft-check', 'planning', '--json']);
+  assert.equal(plan.steps[0].kind, 'diagnostic');
+  assert.equal(plan.steps[0].copyable, true);
+  assert.match(plan.steps[0].label, /without changing repository or lifecycle state/);
+  assert.equal(plan.steps[1].id, 'correct-authored-draft');
+  assert.equal(plan.steps[1].command, null);
+  assert.match(plan.steps[1].label, /correct every reported finding/);
+  assert.match(plan.steps[1].label, /Do not .*invoke another model, publish, submit, or approve/);
+  assert.ok(plan.steps.every((entry) => entry.execution === 'user-reviewed'));
+  assert.equal(plan.retry.automatic, false);
+  assert.match(plan.retry.label, /draft check reports ready/);
+  assert.equal(plan.steps[2].command, 'singularity-flow doctor --json');
+});
+
+test('incomplete authoring remediation derives a safe phase from lifecycle argv forms', () => {
+  const forms = [
+    [['phase', 'publish', 'implementation'], 'implementation'],
+    [['phase', 'approve', 'verification'], 'verification'],
+    [['phase', 'submit', 'convergence'], 'convergence'],
+    [['approve', 'release'], 'release'],
+    [['submit', '--phase', 'specification'], 'specification']
+  ];
+  for (const [argv, phase] of forms) {
+    const plan = refusalRemediationPlan(Object.assign(new Error('Draft is incomplete.'), {
+      code: 'ARTIFACT_AUTHORING_INCOMPLETE'
+    }), argv);
+    assert.equal(plan.steps[0].command,
+      `singularity-flow phase draft-check ${phase} --json`, argv.join(' '));
+    assert.equal(plan.steps[0].copyable, true, argv.join(' '));
+  }
+});
+
+test('incomplete authoring remediation rejects unsafe phase metadata and preserves generic fallback', () => {
+  const plan = refusalRemediationPlan(Object.assign(new Error('Draft is incomplete.'), {
+    code: 'ARTIFACT_AUTHORING_INCOMPLETE',
+    details: { phase: 'planning; publish release' }
+  }), ['phase', 'publish']);
+
+  assert.equal(plan.steps[0].command, 'singularity-flow phase --help');
+  assert.equal(plan.steps[1].command, 'singularity-flow doctor --json');
+  assert.equal(plan.steps[2].command, 'singularity-flow recommend --json');
+  assert.doesNotMatch(JSON.stringify(plan), /planning; publish release|draft-check/);
+  assert.equal(plan.retry.automatic, false);
+});
+
+test('initiative authoring refusals route to the initiative draft check', () => {
+  const error = Object.assign(new Error('Initiative output is incomplete.'), {
+    code: 'ARTIFACT_AUTHORING_INCOMPLETE',
+    details: { subjectKind: 'initiative', initiativeId: 'INIT-1', phase: 'epic-planning' }
+  });
+  const plan = refusalRemediationPlan(error, ['initiative', 'phase', 'publish', 'epic-planning']);
+  assert.equal(plan.steps[0].command,
+    'singularity-flow initiative phase draft-check epic-planning --json');
+  assert.deepEqual(plan.steps[0].argv,
+    ['initiative', 'phase', 'draft-check', 'epic-planning', '--json']);
+});
+
 test('FOS:AC-033 recovery remains registered and shell-safe on macOS Linux and Windows with hostile context', () => {
   const secret = 'https://person:office-secret@example.test/repo.git';
   const error = Object.assign(new Error(`hostile path /tmp/a b/δ; touch escaped ${secret}`), {

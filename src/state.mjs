@@ -160,8 +160,8 @@ import {
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import {
   artifactFindingMessage, authoredArtifactFingerprint, authoredArtifactText,
-  inspectRequiredArtifactContent, requiredArtifactRepoPath,
-  validateRequiredArtifactContent as validateRequiredArtifactContentPreflight
+  inspectPhaseAuthoredReviewContent, requiredArtifactRepoPath,
+  validatePhaseAuthoredReviewContent as validatePhaseAuthoredReviewContentPreflight
 } from './publication-preflight.mjs';
 import {
   assertConvergencePublicationReady, loadVerifiedConvergenceProjection
@@ -2041,7 +2041,7 @@ function pruneTransientArtifactRegistrations(phase) {
 
 async function validatePhase(root, config, workflow, phase, { placeholders = true, content = true } = {}) {
   const errors = content
-    ? await validateRequiredArtifactContentPreflight(root, config, workflow, phase, { placeholders })
+    ? await validatePhaseAuthoredReviewContentPreflight(root, config, workflow, phase, { placeholders })
     : [];
   const required = requiredRepoPath(config, workflow, phase);
   if (!errors.some((error) => error.startsWith('Required artifact missing:')) && !artifactFor(phase, required)) {
@@ -2375,16 +2375,18 @@ export async function publishGeneration(root, config, workflow, {
   // placeholder heuristics; asking a user to edit those bytes would itself violate the contract.
   const contentFindings = deterministicConvergence
     ? []
-    : await inspectRequiredArtifactContent(root, config, workflow, phase);
+    : await inspectPhaseAuthoredReviewContent(root, config, workflow, phase);
   if (contentFindings.length) {
-    const required = requiredRepoPath(config, workflow, phase);
     throw new SingularityFlowError(
       `Phase ${phase.id} generation is not publishable:\n- ${contentFindings.map(artifactFindingMessage).join('\n- ')}\n`
-      + `Complete ${required}, then run singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json. `
+      + `Complete the listed review artifact(s), then run singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json. `
       + 'A Copilot host may re-author and retry publication once only after the artifact fingerprint changes.',
       {
         code: 'ARTIFACT_AUTHORING_INCOMPLETE',
         details: {
+          subjectKind: 'story',
+          workId: workflow.workItem.id,
+          phase: phase.id,
           findings: contentFindings,
           fingerprint: contentFindings.find((finding) => finding.fingerprint)?.fingerprint ?? null,
           retry: {
@@ -3808,6 +3810,24 @@ export async function approvePhase(root, config, workflow, {
   const phase = await assertPhaseSequence(root, workflow, 'approve', { requestedPhase: phaseId, allowedStatuses: ['awaiting_approval'] });
   if (phase.id === 'convergence') {
     await assertConvergencePublicationReady(root, config, workflow, phase);
+  } else {
+    // Submission binds exact hashes, but approval is a separate trust boundary and must also prove
+    // that every reviewable document is complete now. This is intentionally content-only: source,
+    // tests and machine evidence remain governed by their exact hash/schema validators below.
+    const contentFindings = await inspectPhaseAuthoredReviewContent(root, config, workflow, phase);
+    if (contentFindings.length) {
+      throw new SingularityFlowError(
+        `Phase '${phase.id}' cannot be approved while review artifacts are incomplete:\n- ${contentFindings.map(artifactFindingMessage).join('\n- ')}\n`
+        + `Correct the listed artifact(s), publish and submit a new generation, then review that exact evidence.`,
+        {
+          code: 'ARTIFACT_AUTHORING_INCOMPLETE',
+          details: {
+            subjectKind: 'story', workId: workflow.workItem.id, phase: phase.id,
+            findings: contentFindings
+          }
+        }
+      );
+    }
   }
   const packetEntry = [...(workflow.lineage?.submissions ?? [])].reverse().find((entry) =>
     entry.phase === phase.id && Number(entry.generation) === Number(phase.generation));

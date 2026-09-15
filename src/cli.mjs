@@ -76,6 +76,7 @@ import {
   normalizeAuthorshipOptions, phasePublicationCommand, phasePublicationCommandForProducer,
   phasePublicationContract
 } from './manual-authorship.mjs';
+import { phaseDraftCheck } from './phase-draft-check.mjs';
 import { assertConvergencePublicationReady } from './convergence-context.mjs';
 import { assertPlannedClaimsReady, initializationStatus, initializeDefinition, loadDefinition, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { loadImpactDefinition } from './impact-config.mjs';
@@ -147,7 +148,10 @@ import { loadPortfolio } from './initiative-config.mjs';
 import { KNOWLEDGE_ROOT, currentKnowledge, filterKnowledge, harvestInitiativeKnowledge, readKnowledge, recordKnowledge, resolveKnowledge } from './knowledge.mjs';
 import { importKnowledgeSeedManifest } from './knowledge-seed-import.mjs';
 import { commitInitiativeChange, createInitiative, initiativeProgress, initiativeStartPreflight, listInitiatives, availableInitiativeOutputs, initiativeRelative, prepareInitiativePhase, restartInitiative, secureInitiativePath, selectInitiativePhaseOutputs, setInitiativeApplicability, initiativeApplicabilityState, syncInitiativePublication, validateInitiativeId } from './state-stores.mjs';
-import { approveInitiative, evaluateInitiativePhase, initiativeBundle, publishInitiativePhase, readInitiativeRecords, registerInitiativeEvidence } from './initiative-evidence.mjs';
+import {
+  approveInitiative, evaluateInitiativePhase, initiativeBundle, initiativePhaseDraftCheck,
+  publishInitiativePhase, readInitiativeRecords, registerInitiativeEvidence
+} from './initiative-evidence.mjs';
 import { rejectInitiative } from './initiative-graph.mjs';
 import { impactDocument, impactFindings, initiativeImpact } from './initiative-impact.mjs';
 import { initiativeBreakdownReview, initiativeMergeState, loadInitiativeBreakdown, materializeInitiative, syncInitiativeRepositories } from './initiative-repositories.mjs';
@@ -4784,6 +4788,33 @@ async function phaseCommand(positionals, options) {
     const review = await phaseReview(root, config, workflow, phase);
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(review, null, 2));
     else printPhaseReview(review, { showArtifact: optionBoolean(options, 'show-artifact') });
+    return;
+  }
+  if (subcommand === 'draft-check') {
+    const phaseId = positionals[2] ?? workflow.currentPhase;
+    const phase = workflow.phases[phaseId];
+    if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
+    if (phaseId !== workflow.currentPhase && !['in_progress', 'awaiting_approval'].includes(phase.status)) {
+      throw new SingularityFlowError(
+        `Phase '${phaseId}' is not the active review draft. Check '${workflow.currentPhase ?? 'none'}' instead.`,
+        { code: 'PHASE_DRAFT_NOT_ACTIVE', details: { requestedPhase: phaseId, currentPhase: workflow.currentPhase } }
+      );
+    }
+    const session = await loadSession(root, { required: false });
+    const result = await phaseDraftCheck(root, config, workflow, phase, {
+      modelEnabled: operationContext()?.modelMode.enabled !== false,
+      session
+    });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`${phase.label} draft: ${result.status}.`);
+    console.log(`Artifact: ${result.artifact.path}${result.artifact.sha256 ? ` · ${result.artifact.sha256}` : ''}`);
+    for (const finding of result.findings) console.log(`  - ${finding.message}`);
+    if (result.status === 'correction-required') {
+      console.log(`Correction: ${result.correction.guidance}`);
+      console.log(`Recheck: ${result.commands.recheck}`);
+    } else {
+      console.log(`Publish: ${result.commands.publish}`);
+    }
     return;
   }
   if (subcommand !== 'publish') throw new SingularityFlowError(`Unknown phase subcommand: ${subcommand}`);
@@ -10032,9 +10063,31 @@ async function initiativeCommand(positionals, options) {
     return;
   }
   if (subcommand === 'phase') {
-    const publish = positionals[2] === 'publish';
-    const phaseId = publish ? positionals[3] ?? initiative.currentPhase : positionals[2] ?? initiative.currentPhase;
+    const action = positionals[2] ?? 'prepare';
+    const publish = action === 'publish';
+    const draftCheck = action === 'draft-check';
+    const phaseId = publish || draftCheck
+      ? positionals[3] ?? initiative.currentPhase
+      : positionals[2] ?? initiative.currentPhase;
     const session = await loadSession(root, { required: false });
+    if (draftCheck) {
+      const result = await initiativePhaseDraftCheck(root, initiativeId, phaseId, {
+        session
+      });
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+      console.log(`${initiative.phases[phaseId]?.label ?? phaseId} draft: ${result.status}.`);
+      for (const output of result.outputs) {
+        console.log(`- ${output.id}: ${output.path}${output.sha256 ? ` · ${output.sha256}` : ' · missing'}`);
+      }
+      for (const finding of result.findings) console.log(`  - ${finding.message}`);
+      if (result.status === 'correction-required') {
+        console.log(`Correction: ${result.correction.guidance}`);
+        console.log(`Recheck: ${result.commands.recheck}`);
+      } else {
+        console.log(`Publish: ${result.commands.publish}`);
+      }
+      return;
+    }
     if (publish) {
       const context = await verifyInitiativeContext(root, portfolio, initiative, phaseId);
       context.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));

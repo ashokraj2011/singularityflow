@@ -13,7 +13,7 @@ import { buildGenerationAuthorship, normalizeAuthorshipOptions } from '../src/ma
 import { withOperationContext } from '../src/operation-context.mjs';
 import {
   artifactPlaceholderFindings, authoredArtifactFingerprint, inspectArtifactContent,
-  inspectRequiredArtifactContent
+  inspectPhaseAuthoredReviewContent, inspectRequiredArtifactContent, phaseAuthoredReviewArtifacts
 } from '../src/publication-preflight.mjs';
 import { setAgentSession } from '../src/session.mjs';
 import { generationStartPublicationBinding } from '../src/generation-boundary.mjs';
@@ -316,6 +316,12 @@ test('phase preparation refuses a symlinked required artifact without reading it
   await symlink(outside, context.target);
 
   await assert.rejects(
+    () => inspectRequiredArtifactContent(context.root, context.config, context.workflow, context.phase),
+    (error) => error?.code === 'REPOSITORY_PATH_UNSAFE'
+      && error?.details?.reason === 'symbolic-link'
+      && /Required phase artifact cannot be a symbolic link/.test(error.message)
+  );
+  await assert.rejects(
     () => inContext(context.root, () => preparePhaseInputs(
       context.root, context.config, context.workflow, 'intake'
     )),
@@ -418,6 +424,118 @@ test('artifact preflight reports every authored placeholder and excludes approve
   ].join('\n'));
   assert.deepEqual(findings.map((finding) => finding.value), ['TODO', '{{owner}}', '<path or module>']);
   assert.deepEqual(findings.map((finding) => finding.line), [3, 4, 5]);
+});
+
+test('artifact preflight recognizes conventional unfinished markers without flagging ordinary prose', () => {
+  const findings = artifactPlaceholderFindings([
+    '# Review',
+    'FIXME connect the evidence.',
+    'TBC by the reviewer.',
+    'XXX',
+    'PLACEHOLDER',
+    'Owner: <owner>',
+    'Path: <path>',
+    'Module: <module>',
+    'This sentence explains that no placeholder remains.',
+    'Run with <AUTHORIZED-URL>.'
+  ].join('\n'));
+  assert.deepEqual(findings.map((finding) => finding.value), [
+    'FIXME', 'TBC', 'XXX', 'PLACEHOLDER', '<owner>', '<path>', '<module>'
+  ]);
+  assert.deepEqual(findings.map((finding) => finding.line), [2, 3, 4, 5, 6, 7, 8]);
+  assert.deepEqual(
+    artifactPlaceholderFindings('Owner: {{PLACEHOLDER}}').map((finding) => finding.value),
+    ['{{PLACEHOLDER}}'],
+    'one mustache marker was reported twice through its uppercase inner token'
+  );
+});
+
+test('only governed supporting Markdown is placeholder-checked without scanning advisory or arbitrary evidence', async () => {
+  const context = await fixture('supporting-review-artifact');
+  context.phase.artifactSet = 'review-bundle';
+  context.workflow.resolution.artifactSets = {
+    'review-bundle': {
+      primary: 'intake.md',
+      members: [
+        { path: 'intake.md', role: 'primary', required: true },
+        { path: 'review-notes.md', role: 'review-notes', required: false, authority: 'governed' },
+        { path: 'advisory-notes.md', role: 'advisory-notes', required: false, authority: 'advisory' },
+        { path: 'evidence/', role: 'machine-evidence', required: false }
+      ]
+    }
+  };
+  await writeFile(context.target, [
+    '# Intake', '',
+    '## Requested outcome', '', 'Review all authored phase documents before approval.', '',
+    '## Scope and constraints', '', 'Machine evidence and application source remain outside the prose scan.', '',
+    '## Evidence', '', 'The supporting review note is a typed Markdown member of this phase bundle.'
+  ].join('\n'));
+  const artifactDirectory = path.dirname(context.target);
+  await writeFile(path.join(artifactDirectory, 'review-notes.md'), '# Review notes\n\nFIXME record the final decision.\n');
+  await writeFile(path.join(artifactDirectory, 'advisory-notes.md'), '# Advisory notes\n\nTODO may remain advisory.\n');
+  await mkdir(path.join(artifactDirectory, 'evidence'), { recursive: true });
+  await writeFile(path.join(artifactDirectory, 'evidence', 'machine.md'), '# Exact output\n\nTODO is observed source data.\n');
+
+  const findings = await inspectPhaseAuthoredReviewContent(
+    context.root, context.config, context.workflow, context.phase
+  );
+  assert.deepEqual(findings.map((finding) => [finding.artifactScope, path.basename(finding.path), finding.value]), [
+    ['supporting', 'review-notes.md', 'FIXME']
+  ]);
+  const reviewArtifacts = await phaseAuthoredReviewArtifacts(
+    context.root, context.config, context.workflow, context.phase
+  );
+  assert.deepEqual(reviewArtifacts.artifacts.map((artifact) => path.basename(artifact.path)), [
+    'intake.md', 'review-notes.md'
+  ], 'an advisory artifact became part of the governed repair fingerprint');
+  await inContext(context.root, async () => assert.rejects(
+    () => publishGeneration(context.root, context.config, context.workflow, {
+      phaseId: 'intake', authorship: AUTHORSHIP
+    }),
+    /Supporting review artifact .*review-notes\.md contains unresolved placeholder 'FIXME'/
+  ));
+});
+
+test('supporting review scan refuses a symlink without reading its outside target', async (t) => {
+  const context = await fixture('supporting-review-symlink');
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  context.phase.artifactSet = 'review-bundle';
+  context.workflow.resolution.artifactSets = {
+    'review-bundle': {
+      primary: 'intake.md',
+      members: [
+        { path: 'intake.md', role: 'primary', required: true },
+        { path: 'review-notes.md', role: 'review-notes', required: false, authority: 'governed' }
+      ]
+    }
+  };
+  await writeFile(context.target, [
+    '# Intake', '',
+    '## Requested outcome', '', 'Review repository-owned artifacts without following links.', '',
+    '## Scope and constraints', '', 'Every review document stays inside the governed Story directory.', '',
+    '## Evidence', '', 'The supporting document is validated through the secure repository path boundary.'
+  ].join('\n'));
+  const outside = path.join(os.tmpdir(), `sflow-supporting-secret-${process.pid}-${Date.now()}.md`);
+  t.after(() => rm(outside, { force: true }));
+  await writeFile(outside, '# Outside\n\nTODO this content must never be scanned.\n');
+  await symlink(outside, path.join(path.dirname(context.target), 'review-notes.md'));
+
+  await assert.rejects(
+    () => inspectPhaseAuthoredReviewContent(
+      context.root, context.config, context.workflow, context.phase
+    ),
+    (error) => error?.code === 'REPOSITORY_PATH_UNSAFE'
+      && error?.details?.reason === 'symbolic-link'
+      && /Supporting review artifact cannot be a symbolic link/.test(error.message)
+  );
+  await assert.rejects(
+    () => phaseAuthoredReviewArtifacts(
+      context.root, context.config, context.workflow, context.phase
+    ),
+    (error) => error?.code === 'REPOSITORY_PATH_UNSAFE'
+      && error?.details?.reason === 'symbolic-link'
+  );
+  assert.match(await readFile(outside, 'utf8'), /must never be scanned/);
 });
 
 test('one content inspection counts only authored bytes and reports every blocker in recovery order', () => {

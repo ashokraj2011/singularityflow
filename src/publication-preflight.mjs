@@ -1,14 +1,20 @@
-import { readFile } from 'node:fs/promises';
+import { constants as fsConstants } from 'node:fs';
+import { open } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
-import { exists } from './util.mjs';
+import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
+import { memberRoot, resolvedArtifactSet } from './artifact-sets.mjs';
 
-const PLACEHOLDER = /\b(?:TODO|TBD)\b|\{\{[^}]+\}\}|\[\s*(?:describe|add|insert|provide|record)[^\]]*\]/gi;
+const PLACEHOLDER = /\b(?:TODO|TBD|FIXME|TBC)\b|\{\{[^}]+\}\}|\[\s*(?:describe|add|insert|provide|record)[^\]]*\]/gi;
+// These words are useful in ordinary prose when lower-cased. Treat only the conventional uppercase
+// authoring markers as unfinished work so a sentence such as "no placeholder remains" is not itself
+// rejected by the placeholder guard.
+const EXPLICIT_UPPERCASE_PLACEHOLDER = /\b(?:XXX|PLACEHOLDER)\b/g;
 const MANAGED_INPUTS = /<!-- singularity-flow:inputs:start -->[\s\S]*?<!-- singularity-flow:inputs:end -->/g;
 const MANAGED_METADATA = /^<!-- singularity-flow:(?:initiative-)?metadata\n[\s\S]*?\n-->\s*/;
 const SINGLE_WORD_ANGLE_PLACEHOLDERS = new Set([
-  'benefit', 'capability', 'decision', 'requirement', 'role'
+  'benefit', 'capability', 'decision', 'module', 'owner', 'path', 'requirement', 'role'
 ]);
 
 function maskBlock(block) {
@@ -91,8 +97,12 @@ export function artifactPlaceholderFindings(text) {
   const regular = [...authored.matchAll(PLACEHOLDER)].map((match) => ({
     value: match[0], index: match.index
   }));
+  const explicitUppercase = [...authored.matchAll(EXPLICIT_UPPERCASE_PLACEHOLDER)]
+    .map((match) => ({ value: match[0], index: match.index }))
+    .filter((finding) => !regular.some((candidate) => finding.index >= candidate.index
+      && finding.index + finding.value.length <= candidate.index + candidate.value.length));
   const seen = new Set();
-  return [...regular, ...anglePlaceholderFindings(authored)]
+  return [...regular, ...explicitUppercase, ...anglePlaceholderFindings(authored)]
     .sort((left, right) => left.index - right.index)
     .filter((finding) => {
       const key = `${finding.index}:${finding.value}`;
@@ -200,20 +210,75 @@ export function requiredArtifactRepoPath(config, workflow, phase) {
   return `${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}/${phase.requiredArtifact.path}`;
 }
 
+/**
+ * Read one review document without following a final symlink or trusting a path after validation.
+ *
+ * `secureRepositoryPath` proves the lexical and canonical repository boundary. The descriptor then
+ * pins that exact regular file with `O_NOFOLLOW` where the host provides it. Re-resolving the path
+ * and comparing file identity closes replacement of either the file or one of its ancestors before
+ * any bytes become governed review evidence.
+ */
+async function readReviewArtifact(root, relative, label) {
+  const secured = await secureRepositoryPath(root, relative, { label, type: 'file' });
+  if (!secured.exists) return null;
+  let handle;
+  try {
+    handle = await open(secured.absolute, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+    const before = await handle.stat();
+    if (!before.isFile()) {
+      throw new SingularityFlowError(`${label} must be a regular file: ${secured.relative}`, {
+        code: 'REPOSITORY_PATH_UNSAFE', details: { path: secured.relative, reason: 'non-regular-file' }
+      });
+    }
+    const rebound = await secureRepositoryPath(root, secured.relative, {
+      label, mustExist: true, type: 'file'
+    });
+    if ((before.ino !== 0 && rebound.entry?.ino !== before.ino)
+        || (before.dev !== 0 && rebound.entry?.dev !== before.dev)) {
+      throw new SingularityFlowError(`${label} changed while it was being read: ${secured.relative}`, {
+        code: 'REPOSITORY_PATH_UNSAFE', details: { path: secured.relative, reason: 'path-race' }
+      });
+    }
+    const bytes = await handle.readFile();
+    const after = await handle.stat();
+    if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size
+        || before.mtimeMs !== after.mtimeMs) {
+      throw new SingularityFlowError(`${label} changed while it was being read: ${secured.relative}`, {
+        code: 'REPOSITORY_PATH_UNSAFE', details: { path: secured.relative, reason: 'content-race' }
+      });
+    }
+    return bytes.toString('utf8');
+  } catch (error) {
+    if (error instanceof SingularityFlowError) throw error;
+    if (['ELOOP', 'EMLINK'].includes(error?.code)) {
+      throw new SingularityFlowError(`${label} cannot be a symbolic link: ${secured.relative}`, {
+        code: 'REPOSITORY_PATH_UNSAFE', details: { path: secured.relative, reason: 'symbolic-link' }, cause: error
+      });
+    }
+    throw error;
+  } finally {
+    await handle?.close().catch(() => {});
+  }
+}
+
 /** Pure, complete artifact authoring preflight used by publish, recover, and host guidance. */
 export async function inspectRequiredArtifactContent(root, config, workflow, phase, {
   placeholders = true, minimumBytes = true
 } = {}) {
   const required = requiredArtifactRepoPath(config, workflow, phase);
-  const absolute = path.join(root, required);
-  if (!(await exists(absolute))) return [{
+  const text = await readReviewArtifact(root, required, 'Required phase artifact');
+  if (text == null) return [{
     code: 'artifact.required.missing', category: 'authoring', path: required, line: null,
     value: null, bytes: null, minimumBytes: phase.requiredArtifact.minimumBytes ?? 1
   }];
-  const text = await readFile(absolute, 'utf8');
   const contract = {
     ...phase.requiredArtifact,
-    generation: Number(phase.generation) + 1,
+    // During authoring the contract describes the next generation; after publication it describes
+    // the current submitted generation. This lets submit/approval retain the unchanged-template
+    // invariant instead of accidentally comparing generation N's bytes with an N+1 contract.
+    generation: phase.status === 'in_progress'
+      ? Number(phase.generation) + 1
+      : Number(phase.generation),
     ...(minimumBytes ? {} : { minimumBytes: 0 }),
     ...(!placeholders ? {
       validation: { ...phase.requiredArtifact.validation, forbiddenPlaceholders: [] }
@@ -229,7 +294,115 @@ export async function inspectRequiredArtifactContent(root, config, workflow, pha
     : inspected.findings.filter((finding) => finding.code !== 'artifact.placeholder.unresolved');
 }
 
+function reviewableMarkdownPath(relativePath) {
+  return /\.(?:md|markdown)$/i.test(String(relativePath));
+}
+
+function aggregateReviewableFingerprint(artifacts) {
+  const digest = createHash('sha256');
+  for (const artifact of [...artifacts].sort((left, right) => left.path.localeCompare(right.path))) {
+    // Include absent declared members as well as present ones. Adding a previously absent optional
+    // review document is a draft change just as surely as editing an existing document is.
+    digest.update(`${artifact.path}\0${artifact.exists ? artifact.fingerprint : '<missing>'}\n`);
+  }
+  return `sha256:${digest.digest('hex')}`;
+}
+
+/**
+ * Catalogue the complete human-reviewable Story draft, independent of declaration order.
+ *
+ * This is deliberately smaller than an artifact-set catalogue: source trees, test receipts and
+ * binary evidence are not prose drafts. The returned aggregate is what authoring hosts use for
+ * bounded repair progress, so changing only a supporting Markdown document must change it.
+ */
+export async function phaseAuthoredReviewArtifacts(root, config, workflow, phase) {
+  const required = requiredArtifactRepoPath(config, workflow, phase);
+  const declared = new Map([[required, { path: required, scope: 'primary' }]]);
+  const set = resolvedArtifactSet(config, workflow, phase);
+  if (set) {
+    const phaseArtifactRoot = path.posix.join(
+      config.workItemRoot ?? 'singularity/work-items',
+      workflow.workItem.id,
+      memberRoot(phase)
+    );
+    for (const member of set.members) {
+      if (member.authority !== 'governed') continue;
+      const relative = path.posix.join(phaseArtifactRoot, member.path);
+      if (relative === required || member.path.endsWith('/') || !reviewableMarkdownPath(relative)) continue;
+      declared.set(relative, { path: relative, scope: 'supporting' });
+    }
+  }
+
+  const artifacts = [];
+  for (const declaration of [...declared.values()].sort((left, right) => left.path.localeCompare(right.path))) {
+    const text = await readReviewArtifact(
+      root,
+      declaration.path,
+      declaration.scope === 'primary' ? 'Required phase artifact' : 'Supporting review artifact'
+    );
+    const bytes = text == null ? null : Buffer.from(text, 'utf8');
+    artifacts.push(Object.freeze({
+      ...declaration,
+      exists: bytes != null,
+      bytes: bytes?.length ?? null,
+      sha256: bytes == null ? null : sha256(bytes),
+      fingerprint: bytes == null ? null : authoredArtifactFingerprint(text)
+    }));
+  }
+  return Object.freeze({
+    artifacts: Object.freeze(artifacts),
+    fingerprint: aggregateReviewableFingerprint(artifacts)
+  });
+}
+
+/**
+ * Inspect every human-reviewable document owned by a Story phase.
+ *
+ * The primary keeps its full authored-content contract. Present, non-directory Markdown members
+ * in a typed artifact set receive the same placeholder scan. Directories and arbitrary registered
+ * artifacts are deliberately excluded: those can contain source, test fixtures, or machine
+ * evidence where strings such as `TODO` are data rather than an unfinished review document.
+ */
+export async function inspectPhaseAuthoredReviewContent(root, config, workflow, phase, {
+  placeholders = true, minimumBytes = true
+} = {}) {
+  const findings = await inspectRequiredArtifactContent(root, config, workflow, phase, {
+    placeholders, minimumBytes
+  });
+  if (!placeholders) return findings;
+
+  const set = resolvedArtifactSet(config, workflow, phase);
+  if (!set) return findings;
+  const required = requiredArtifactRepoPath(config, workflow, phase);
+  const phaseArtifactRoot = path.posix.join(
+    config.workItemRoot ?? 'singularity/work-items',
+    workflow.workItem.id,
+    memberRoot(phase)
+  );
+  for (const member of set.members) {
+    // Advisory members are context only: their absence, content, or unfinished prose cannot become
+    // a lifecycle gate. Only governed review members contribute hard authoring findings.
+    if (member.authority !== 'governed') continue;
+    const relative = path.posix.join(phaseArtifactRoot, member.path);
+    if (relative === required || member.path.endsWith('/') || !reviewableMarkdownPath(relative)) continue;
+    const text = await readReviewArtifact(root, relative, 'Supporting review artifact');
+    if (text == null) continue;
+    const bytes = Buffer.byteLength(authoredArtifactText(text));
+    const fingerprint = authoredArtifactFingerprint(text);
+    for (const placeholder of artifactPlaceholderFindings(text)) findings.push({
+      code: 'artifact.placeholder.unresolved', category: 'authoring', path: relative,
+      line: placeholder.line, value: placeholder.value, bytes, minimumBytes: null, fingerprint,
+      artifactScope: 'supporting'
+    });
+  }
+  findings.sort((left, right) => (FINDING_PRIORITY[left.code] ?? 100) - (FINDING_PRIORITY[right.code] ?? 100)
+    || left.path.localeCompare(right.path)
+    || (left.line ?? Number.MAX_SAFE_INTEGER) - (right.line ?? Number.MAX_SAFE_INTEGER));
+  return findings;
+}
+
 export function artifactFindingMessage(finding) {
+  const label = finding.artifactScope === 'supporting' ? 'Supporting review artifact' : 'Required artifact';
   if (finding.code === 'artifact.required.missing') return `Required artifact missing: ${finding.path}`;
   if (finding.code === 'artifact.required.too-short') {
     return `Required artifact ${finding.path} has ${finding.bytes} authored bytes; minimum ${finding.minimumBytes}.`;
@@ -238,7 +411,7 @@ export function artifactFindingMessage(finding) {
     return `Required artifact ${finding.path} has ${finding.bytes} authored bytes; maximum ${finding.maximumBytes}.`;
   }
   if (finding.code === 'artifact.placeholder.unresolved') {
-    return `Required artifact ${finding.path} contains unresolved placeholder '${finding.value}' at line ${finding.line}.`;
+    return `${label} ${finding.path} contains unresolved placeholder '${finding.value}' at line ${finding.line}.`;
   }
   if (finding.code === 'artifact.template.unchanged') {
     return `Required artifact ${finding.path} still matches its prepared template.`;
@@ -254,5 +427,10 @@ export function artifactFindingMessage(finding) {
 
 export async function validateRequiredArtifactContent(root, config, workflow, phase, options = {}) {
   return (await inspectRequiredArtifactContent(root, config, workflow, phase, options))
+    .map(artifactFindingMessage);
+}
+
+export async function validatePhaseAuthoredReviewContent(root, config, workflow, phase, options = {}) {
+  return (await inspectPhaseAuthoredReviewContent(root, config, workflow, phase, options))
     .map(artifactFindingMessage);
 }

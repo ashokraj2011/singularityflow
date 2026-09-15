@@ -13,18 +13,18 @@ user-invocable: false
 
 `/sf-session` is setup only: stop after its report. Do not inspect artifacts/source or infer delivery work from an ID.
 
-`workflow.json` is lifecycle state; `singularity/workflow.yml` defines profiles, phases, templates, and authorities. `.github/agents` owns agent prompts and views.
+`workflow.json` is state; `singularity/workflow.yml` defines profiles, phases, templates, and authorities. `.github/agents` owns prompts/views.
 
 1. Run `singularity-flow status` before changing files and read approved artifacts from earlier phases.
 2. Work only on the exact branch stored in `workflow.json`.
 3. Do not skip phases or edit lifecycle state files manually.
 4. Put each required phase document under `singularity/work-items/<WORK-ID>/artifacts/<phase>/`.
-5. Register generated and modified files with `singularity-flow artifact add` or `singularity-flow artifact scan`.
+5. Register changed files with `singularity-flow artifact add` or `singularity-flow artifact scan`.
 6. Never run `singularity-flow approve` unless the user explicitly invokes the approval skill or directly asks to approve.
 7. Never edit `workflow.json`, `STATUS.md`, or approval snapshots by hand.
 8. Never store secrets in the repository.
-9. Treat approved artifacts as durable inputs; document deviations in the active artifact.
-10. End generation with the exact configured-producer `phase publish` command returned by the engine; it is incomplete until pushed. Never substitute authorship or channel. Run `phase show <phase> --json` and visibly reproduce full text documents. Shell output and summaries do not count.
+9. Treat approved artifacts as inputs; record deviations.
+10. Before configured-producer publish run `singularity-flow phase draft-check <phase> --json`; correct agent findings now, stop on an unchanged fingerprint or after three fingerprints, and publish only when `ready`. Never invent/pad, nest models, or overwrite producers. Race-time `ARTIFACT_AUTHORING_INCOMPLETE`: one retry, never loop. Show documents.
 11. Run `singularity-flow gate` before requesting review. A merge-ready pull request must pass `singularity-flow gate --terminal`.
 12. Tag tests with full pinned clauses such as `@ac:WORK-ID:AC-001`; bare identities are refused when ambiguous.
 13. Before reasoning, compose the exact phase/task prompt; if stale, build and recompose identically. Add `--evidence` for verification/review/release.

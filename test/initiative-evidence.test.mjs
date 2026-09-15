@@ -10,6 +10,7 @@ import {
   durationMilliseconds,
   evaluateInitiativePhase,
   initiativeBundle,
+  initiativePhaseDraftCheck,
   publishInitiativePhase,
   readInitiativeRecords,
   registerInitiativeEvidence
@@ -60,6 +61,10 @@ async function publishDefine(root) {
     source: { path: 'evidence.md' },
     agent: 'product-owner'
   });
+}
+
+function initiativeSession(overrides = {}) {
+  return { workId: 'INIT-EVIDENCE', phaseId: 'define', agent: 'product-owner', ...overrides };
 }
 
 test('initiative evidence is content-addressed and exact bundle approvals advance the phase', async () => {
@@ -123,6 +128,116 @@ test('initiative evidence is content-addressed and exact bundle approvals advanc
     () => publishInitiativePhase(root, 'INIT-EVIDENCE', 'plan'),
     /input 'define\/scope-and-outcomes'.*changed after approval/
   );
+});
+
+test('initiative outputs cannot reach publication or approval with unresolved placeholders', async () => {
+  const root = await repository();
+  const businessCase = path.join(
+    root, 'singularity/initiatives/INIT-EVIDENCE/artifacts/define/business-case.md'
+  );
+  await writeFile(businessCase, `${await readFile(businessCase, 'utf8')}\nFIXME record the approved outcome.\n`);
+
+  const beforeCheck = await readFile(businessCase, 'utf8');
+  const draft = await initiativePhaseDraftCheck(root, 'INIT-EVIDENCE', 'define', {
+    session: initiativeSession()
+  });
+  assert.equal(draft.resultType, 'sflow-initiative-phase-draft-check');
+  assert.equal(draft.status, 'correction-required');
+  assert.equal(draft.correction.class, 'agent-authoring');
+  assert.equal(draft.correction.sameTurn, true);
+  assert.equal(draft.correction.maximumChangedFingerprints, 3);
+  assert.equal(draft.modelInvocations, 0);
+  assert.equal(draft.mutates, false);
+  assert.match(draft.findings.map((finding) => finding.message).join('\n'),
+    /define\/business-case.*unresolved placeholder 'FIXME'/);
+  assert.equal(await readFile(businessCase, 'utf8'), beforeCheck);
+
+  await assert.rejects(
+    () => publishInitiativePhase(root, 'INIT-EVIDENCE', 'define', { agent: 'product-owner' }),
+    (error) => {
+      assert.equal(error.code, 'ARTIFACT_AUTHORING_INCOMPLETE');
+      assert.match(error.message, /define\/business-case.*unresolved placeholder 'FIXME'/);
+      return true;
+    }
+  );
+  let loaded = await loadInitiative(root, 'INIT-EVIDENCE');
+  assert.equal(loaded.initiative.phases.define.generation, 0);
+  assert.equal(loaded.initiative.phases.define.status, 'in_progress');
+
+  await writeFile(businessCase, (await readFile(businessCase, 'utf8'))
+    .replace('FIXME record the approved outcome.', 'The approved outcome, owner, and measurable benefit are recorded.'));
+  const cleanDraft = await initiativePhaseDraftCheck(root, 'INIT-EVIDENCE', 'define', {
+    session: initiativeSession()
+  });
+  assert.equal(cleanDraft.status, 'ready');
+  assert.deepEqual(cleanDraft.findings, []);
+  const scopeBeforePublish = path.join(
+    root, 'singularity/initiatives/INIT-EVIDENCE/artifacts/define/scope-and-outcomes.md'
+  );
+  const businessFingerprint = cleanDraft.outputs.find((output) => output.id === 'business-case').fingerprint;
+  await writeFile(scopeBeforePublish, `${await readFile(scopeBeforePublish, 'utf8')}\nThe delivery boundary is documented.\n`);
+  const supportingRepair = await initiativePhaseDraftCheck(root, 'INIT-EVIDENCE', 'define', {
+    session: initiativeSession()
+  });
+  assert.equal(
+    supportingRepair.outputs.find((output) => output.id === 'business-case').fingerprint,
+    businessFingerprint
+  );
+  assert.notEqual(supportingRepair.draftFingerprint, cleanDraft.draftFingerprint);
+  await publishInitiativePhase(root, 'INIT-EVIDENCE', 'define', { agent: 'product-owner' });
+  const scope = path.join(
+    root, 'singularity/initiatives/INIT-EVIDENCE/artifacts/define/scope-and-outcomes.md'
+  );
+  await writeFile(scope, `${await readFile(scope, 'utf8')}\nTBC by the scope owner.\n`);
+
+  loaded = await loadInitiative(root, 'INIT-EVIDENCE');
+  const gate = await evaluateInitiativePhase(root, loaded.portfolio, loaded.initiative, 'define');
+  assert.match(gate.errors.join('\n'), /define\/scope-and-outcomes.*unresolved placeholder 'TBC'/);
+  await assert.rejects(
+    () => approveInitiative(root, {
+      initiativeId: 'INIT-EVIDENCE', phaseId: 'define', subject: 'business-case', agent: 'product-owner'
+    }),
+    (error) => error.code === 'ARTIFACT_AUTHORING_INCOMPLETE'
+      && /cannot be approved while outputs are incomplete/.test(error.message)
+  );
+});
+
+test('initiative draft correction requires session and output ownership for the exact phase', async () => {
+  const root = await repository();
+  const businessCase = path.join(
+    root, 'singularity/initiatives/INIT-EVIDENCE/artifacts/define/business-case.md'
+  );
+  await writeFile(businessCase, `${await readFile(businessCase, 'utf8')}\nTODO name the accountable owner.\n`);
+
+  for (const session of [
+    null,
+    initiativeSession({ workId: 'OTHER-INITIATIVE' }),
+    initiativeSession({ phaseId: 'plan' }),
+    initiativeSession({ agent: 'architect' })
+  ]) {
+    const draft = await initiativePhaseDraftCheck(root, 'INIT-EVIDENCE', 'define', { session });
+    assert.equal(draft.ownership.proven, false);
+    assert.equal(draft.correction.class, 'human-input');
+    assert.equal(draft.correction.sameTurn, false);
+  }
+
+  const owned = await initiativePhaseDraftCheck(root, 'INIT-EVIDENCE', 'define', {
+    session: initiativeSession()
+  });
+  assert.equal(owned.ownership.proven, true);
+  assert.equal(owned.outputs.find((output) => output.id === 'business-case').ownershipProven, true);
+  assert.equal(owned.correction.class, 'agent-authoring');
+  assert.equal(owned.correction.sameTurn, true);
+});
+
+test('Epic story-spec generation stays behind the authored-output publication preflight', async () => {
+  const source = await readFile(new URL('../src/initiative-evidence.mjs', import.meta.url), 'utf8');
+  const publish = source.slice(source.indexOf('export async function publishInitiativePhase'));
+  const authoredPreflight = publish.indexOf('const authoringFindings = await initiativeOutputPlaceholderFindings');
+  const storySpecificationGenerator = publish.indexOf("if (phaseId === 'epic-planning')");
+  assert.ok(authoredPreflight >= 0 && storySpecificationGenerator >= 0);
+  assert.ok(authoredPreflight < storySpecificationGenerator,
+    'a placeholder refusal could generate or rewrite Epic story specifications before stopping');
 });
 
 test('an approved phase without an approval for its exact bundle fails governance', async () => {

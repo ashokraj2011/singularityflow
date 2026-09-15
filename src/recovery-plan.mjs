@@ -8,7 +8,7 @@ import {
   normalizeRequiredTestCommand, structuredTestCommandRequiredError
 } from './code-delivery-tests.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
-import { inspectRequiredArtifactContent } from './publication-preflight.mjs';
+import { inspectPhaseAuthoredReviewContent } from './publication-preflight.mjs';
 import { applicationChangeSetProjection, applicationPathContext } from './work-intervals.mjs';
 import { publishedGenerationCommit } from './generation-boundary.mjs';
 import { phasePublicationCommand } from './manual-authorship.mjs';
@@ -179,7 +179,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, { gene
       }));
     }
   } else {
-    artifactFindings = await inspectRequiredArtifactContent(root, config, workflow, phase);
+    artifactFindings = await inspectPhaseAuthoredReviewContent(root, config, workflow, phase);
     blockers.push(...artifactFindings.map((finding) => ({
       ...finding, blocking: true, phase: phase.id, generation: Number(phase.generation) + 1,
       details: {

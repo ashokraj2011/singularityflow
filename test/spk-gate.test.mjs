@@ -321,6 +321,19 @@ test('an approval without its checklist is not an approval', async () => {
     git(root, 'add', '.');
     git(root, 'commit', '-m', '[DRIVE-1][phase:specification][submit] immutable review evidence');
 
+    const submittedArtifact = path.join(
+      root, 'singularity', 'work-items', 'DRIVE-1',
+      workflow.phases.specification.requiredArtifact.path
+    );
+    const submittedBytes = await readFile(submittedArtifact, 'utf8');
+    await writeFile(submittedArtifact, `${submittedBytes}\nTODO revise after submission.\n`);
+    await assert.rejects(
+      () => approvePhase(root, config, workflow, { phaseId: 'specification', persist: false }),
+      (error) => error.code === 'ARTIFACT_AUTHORING_INCOMPLETE'
+        && /cannot be approved while review artifacts are incomplete/.test(error.message)
+    );
+    await writeFile(submittedArtifact, submittedBytes);
+
     await assert.rejects(
       () => approvePhase(root, config, workflow, { phaseId: 'specification', persist: false }),
       /checklist article 'completeness' has no decision/

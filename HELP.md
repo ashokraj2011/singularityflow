@@ -1744,6 +1744,26 @@ Lifecycle mutations normally follow the configured order:
 prepare/edit → publish generation → submit → approve or reject
 ```
 
+Before asking Copilot or another client to submit, use the compact lifecycle
+projection instead of interpreting the full status document:
+
+```bash
+singularity-flow status [WORK-ID] --submission-readiness --json
+```
+
+The `sflow-submission-readiness` result exposes `classification`,
+`lifecycleReady`, `phaseId`, `phaseStatus`, `currentGeneration`,
+`publishedGeneration`, `publicationRecorded`, `pendingSynchronization`,
+`confirmationRequired`, `sequenceGate`, `command`, and `reasonCode`. Returned
+submission commands are pinned to the inspected Work ID. Its `validation` field is
+`deferred-to-submit`. This means a ready result says that the selected current
+phase is in the lifecycle state required to **attempt** submission; it does
+not run repository tests, quality checks, acceptance coverage, conformance,
+or any other configured submission gate. Only `singularity-flow submit` can
+prove that those gates pass. Clients must not infer publication from an
+artifact's `in_progress` label or invent defaults for fields absent from the
+ordinary status document.
+
 Each sequence guard is configured as `hard` or `soft` in `singularity/workflow.yml`. A missing `sequenceGates` section means every gate is `hard`, preserving existing repository behavior. Global values may be overridden for a work type. The fully resolved policy is snapshotted at work-item creation, so changing the base branch configuration does not alter an active item.
 
 ```yaml
@@ -3199,7 +3219,7 @@ singularity-flow mcp design-sources status [--json]
 singularity-flow mcp design-sources promote <RECORD-ID> --confirm <RECORD-ID> [--reason TEXT]
 singularity-flow visual status [--json]
 singularity-flow visual compare --expected RECORD-OR-PATH --actual RECORD-OR-PATH [--profile ID] [--json]
-singularity-flow status [WORK-ID] [--json]
+singularity-flow status [WORK-ID] [--git-shadow] [--submission-readiness] [--json]
 singularity-flow approvals [WORK-ID] [--json]  # alias: approval-chain
 singularity-flow progress [WORK-ID] [--json|--markdown]
 singularity-flow receipt show [WORK-ID] [--packet SHA256] [--json|--markdown]
@@ -3271,7 +3291,7 @@ singularity-flow phase rollover [PHASE] [--json|--confirm CURRENT-DIGEST]
 singularity-flow phase publish [PHASE] [--usage-json FILE]
 singularity-flow artifact add <PATH...> [--kind KIND] [--phase PHASE]
 singularity-flow artifact scan [--phase PHASE]
-singularity-flow submit [PHASE] [--phase PHASE]
+singularity-flow submit [PHASE] [--work-id WORK-ID] [--phase PHASE]
 singularity-flow approve [PHASE] [--work-id WORK-ID] [--fetch]
 singularity-flow reject [PHASE] [--work-id WORK-ID] [--fetch] --reason TEXT [--to PHASE]
 singularity-flow reopen [WORK-ID] [--fetch] --reason TEXT --to PHASE

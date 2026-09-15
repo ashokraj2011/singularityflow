@@ -13,9 +13,24 @@ related:
   - reconciliation
   - approvals
   - nextsteps
-version: 2
+version: 3
 ---
 `sflow submit` checks the sequence gates — phase order, current generation, artifact published and pushed, hash match, required checks, final reconciliation — and refuses with a to-do list when any fail: each unmet gate, its evidence, and the exact repair command, closing with what was preserved ("Nothing was submitted. Nothing was lost."). Hard gates protect invariants and cannot be overridden; soft gates accept a typed, recorded override. `sflow validate` runs checks without side effects. On success the phase enters awaiting_approval and reviewers are notified with a link.
+
+`sflow status [WORK-ID] --submission-readiness --json` is the compact,
+read-only lifecycle preflight for clients such as `/sf-submit`. Its
+`sflow-submission-readiness` result reports `classification`,
+`lifecycleReady`, `phaseId`, `phaseStatus`, `currentGeneration`,
+`publishedGeneration`, `publicationRecorded`, `pendingSynchronization`, the
+next Work-ID-pinned `command`, `confirmationRequired`, `sequenceGate`, and a
+stable `reasonCode`. A soft gate remains reachable only through its existing
+explicit human confirmation; the projection never confirms it. `validation` is always
+`deferred-to-submit`: readiness means only that the lifecycle permits a
+submission attempt. Tests, quality checks, acceptance coverage, conformance,
+and other configured gates still run when submission is attempted. Clients
+must consume this explicit projection rather than derive publication state
+from the full status tree, an artifact's `in_progress` label, or a
+generation-zero binding event.
 
 ## Purpose and prerequisites
 
@@ -23,13 +38,13 @@ Use this topic when the current goal matches **sequence gates**. Start in a gove
 
 ## Use it from each surface
 
-- **Shell:** `sflow submit`, `sflow validate`, `sflow gate`. Run `singularity-flow submit --help` for the exact forms supported by this build.
+- **Shell:** run `sflow status [WORK-ID] --submission-readiness --json` for the read-only lifecycle preflight; use `sflow submit`, `sflow validate`, or `sflow gate` for actual checks and governed actions. Run `singularity-flow submit --help` for the exact forms supported by this build.
 - **Copilot:** `/sf-submit`. The skill must preserve the CLI result and ask before any governed mutation.
 - **VS Code:** open Singularity Flow **Lifecycle**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow
 
-1. Read the current state with `sflow home`, `sflow status`, or the relevant list/status form.
+1. Read the current state with `sflow home`, `sflow status`, or the relevant list/status form. Before submission, use `sflow status [WORK-ID] --submission-readiness --json` and treat readiness only as permission to attempt the next command.
 2. Review the repository, workspace, Work ID, phase, actor, and any warnings before selecting an action.
 3. Preview or prepare the operation when the command offers a dry-run, plan, packet, or exact confirmation.
 4. Run the smallest applicable command from this topic. Do not substitute an undocumented subcommand.

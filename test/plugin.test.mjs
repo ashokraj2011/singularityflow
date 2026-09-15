@@ -490,6 +490,14 @@ test('approval skill is explicitly user-invoked', async () => {
 
 test('submit skill presents generated documents before approval', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-submit', 'SKILL.md'), 'utf8');
+  assert.match(content, /status <WORK-ID> --submission-readiness --json/);
+  assert.match(content, /resultType.*exactly `sflow-submission-readiness`/s);
+  assert.match(content, /Read `lifecycleReady` only as the explicit boolean/);
+  assert.match(content, /never infer it from raw `status --json`/);
+  assert.match(content, /`publishedGeneration` equal to `currentGeneration`.*normal ready-to-submit state/s);
+  assert.match(content, /confirmationRequired: true.*Only the human/s);
+  assert.match(content, /Work-ID-pinned submit command/);
+  assert.match(content, /stop without preparing, regenerating, publishing, modifying files, or guessing/);
   assert.match(content, /every generated current-phase document/);
   assert.match(content, /singularity-flow phase show <phase>/);
   assert.match(content, /show them before offering approval or rejection/);

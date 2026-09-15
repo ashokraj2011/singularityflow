@@ -15,9 +15,21 @@ related:
   - starting-work
   - sequence-gates
   - pins
-version: 2
+version: 3
 ---
 A story moves through the phases of its pinned work type (e.g. requirements → design → implementation → verification). Each phase produces artifacts as numbered generations; a rejection requires a fresh generation — history is never rewritten. State lives in `singularity/work-items/<ID>/` on the story branch: workflow.json (authority), artifacts, approvals, context, telemetry, evidence.
+
+For automation and Copilot, `sflow status [WORK-ID] --submission-readiness --json`
+returns a compact read-only view of the current
+phase's lifecycle readiness. A published phase normally remains `in_progress`
+until submission, so that label does not mean it must be republished. The
+projection distinguishes that state from an unpublished generation and from
+pending synchronization. Returned submission commands are pinned to the
+inspected Work ID, and soft gates remain explicit human confirmation points.
+It says only whether submission may be attempted;
+`validation` remains `deferred-to-submit`, and repository tests, quality
+checks, acceptance coverage, conformance, and other gates still run during
+submission.
 
 ## Purpose and prerequisites
 
@@ -25,7 +37,7 @@ Use this topic when the current goal matches **story lifecycle**. Start in a gov
 
 ## Use it from each surface
 
-- **Shell:** `sflow status`, `sflow finalize`, `sflow cancel`, `sflow reopen`, `sflow progress`. Run `singularity-flow status --help` for the exact forms supported by this build.
+- **Shell:** `sflow status`, `sflow status --submission-readiness --json`, `sflow finalize`, `sflow cancel`, `sflow reopen`, `sflow progress`. Run `singularity-flow status --help` for the exact forms supported by this build.
 - **Copilot:** `/sf-status`, `/sf-finalize`, `/sf-cancel`, `/sf-progress`. The skill must preserve the CLI result and ask before any governed mutation.
 - **VS Code:** open Singularity Flow **Lifecycle**. The extension renders engine results; it does not independently decide lifecycle state.
 

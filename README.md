@@ -2557,7 +2557,7 @@ evidence workflow.
 | `singularity-flow session repair-selection <ID> --confirm <ID>` | Repair only the machine-local checkout selection for an existing managed Story worktree. |
 | `singularity-flow session status` | Inspect work-item and agent binding readiness for the current Copilot session. |
 | `sflow-inbox [--offline] [--json]` | Fetch and list committed remote phases awaiting approval; equivalent to `singularity-flow inbox`. |
-| `singularity-flow status [ID]` | Show phase, governed agent, artifacts, human approvals, usage, and warnings. |
+| `singularity-flow status [ID]` | Show phase, governed agent, artifacts, human approvals, usage, and warnings. Add `--submission-readiness --json` for the compact read-only lifecycle preflight used before a submission attempt; it does not run the submission gates. |
 | `singularity-flow approvals [ID]` | Show the ordered phase approval chain with governed document names, authority groups, thresholds, and recorded approvers. Use `--json` to include invalidated decision history. |
 | `singularity-flow progress [ID]` | Show deterministic completion percentage and phase/approval progress. |
 | `singularity-flow report [ID] [--format md\|html\|json]` | Derive wall-clock timing, approval latency, rework, token, cost, and bottleneck metrics. |
@@ -2603,7 +2603,7 @@ evidence workflow.
 | `singularity-flow phase show [PHASE]` | Display every generated phase document, its review metadata, and text content. |
 | `singularity-flow phase rollover [PHASE]` | Preview an exact digest, then safely open a successor to changed consumed bytes without discarding the published generation. |
 | `singularity-flow phase publish [PHASE]` | Validate, annotate, commit, and push one generation. |
-| `singularity-flow submit [PHASE]` | Run checks and publish an approval request. |
+| `singularity-flow submit [PHASE] [--work-id WORK-ID]` | Run checks and publish an approval request for the explicitly selected Story. |
 | `singularity-flow approve [PHASE] --work-id ID --fetch` | Verify human authority, activate the phase agent, and record/push the exact-hash decision. Omit `--work-id` for the active Story. |
 | `singularity-flow reject [PHASE] --work-id ID --fetch --to PHASE --reason TEXT` | Record a governed change request, reopen an awaiting-approval Story, invalidate downstream state, commit, and push. Omit `--work-id` for the active Story. |
 | `singularity-flow reopen [ID] --fetch --to PHASE --reason TEXT [--gate-recovery --confirm SHA256]` | Return a completed Story to an allowed phase. `--gate-recovery` previews a content-bound exception only when the final gate assigns a blocker to a phase outside ordinary `rejectTo`; repeat it with the emitted digest to commit and push the governed reopen. |

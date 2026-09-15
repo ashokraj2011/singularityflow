@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "ef5f84b3b044eab7ad0825573b45d9594e9084fb",
+  "sourceCommit": "7b80687df007b4539f268ef13cb2c4bc99063039",
   "topicCount": 64,
-  "contentSha256": "4d80a000c30a909484d375e98288a15412ba63ed21fd764f1db05f170d6e3a42",
+  "contentSha256": "4450c62cd27973a2bc416752ba3899bbcedf641cf1b958cd83b80f2b2564886d",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -408,8 +408,8 @@
     {
       "id": "sequence-gates",
       "title": "Sequence gates and submission",
-      "version": 2,
-      "sha256": "b5e0dbb7df5e575c415aa686b41e91b442cd9836644e6aa743ff8bfea6cf27ce",
+      "version": 3,
+      "sha256": "2e269fe874da4ee485f195bb98c70056237a61613e0f43c188a3bd8388da8fa0",
       "routingSha256": "33e8926d2944073e4592ede7af57a6157686383cb9c55d14e098952138abcbae",
       "file": "sequence-gates.md"
     },
@@ -448,8 +448,8 @@
     {
       "id": "story-lifecycle",
       "title": "Story lifecycle, phases, and generations",
-      "version": 2,
-      "sha256": "3145671c1536b3b31623853061451bff0cefd26859149399c8da1c2650a1b80a",
+      "version": 3,
+      "sha256": "5cd262cc5946cd2f63012a291716f985c9157ff7014e2af831cc9472727e0acd",
       "routingSha256": "ba05ed458214e52a31a5cf002c0104c63bb35ae9dc202dd81fca74cac023a886",
       "file": "story-lifecycle.md"
     },

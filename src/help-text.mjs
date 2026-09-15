@@ -154,7 +154,7 @@ Usage:
   singularity-flow adhoc promote [SESSION-ID] [--json]
   singularity-flow adhoc close [SESSION-ID] --local-only [--json]
   singularity-flow inbox [--offline] [--json]
-  singularity-flow status [WORK-ID] [--git-shadow] [--json]
+  singularity-flow status [WORK-ID] [--git-shadow] [--submission-readiness] [--json]
   singularity-flow progress [WORK-ID] [--json|--markdown]
   singularity-flow report [WORK-ID] [--format md|html|json] [--out FILE] [--timings]
   singularity-flow report [WORK-ID] --recap [--length brief|standard|full] [--locale TAG] [--timezone ZONE]
@@ -539,7 +539,7 @@ Usage:
   singularity-flow artifact scan [--phase PHASE]
   singularity-flow pr describe [WORK-ID] [--format markdown|json] [--clipboard] [--write] [--yes]
   singularity-flow pr [WORK-ID] [--json] [--create] [--yes]
-  singularity-flow submit [PHASE] [--phase PHASE] [--skip-checks] [--candidate-snapshot SHA256]
+  singularity-flow submit [PHASE] [--work-id WORK-ID] [--phase PHASE] [--skip-checks] [--candidate-snapshot SHA256]
   singularity-flow approve [PHASE] [--work-id WORK-ID] [--fetch] [--phase PHASE] [--yes] [--candidate-snapshot SHA256]
     [--article ID=satisfied|exception|not-applicable]... [--article-reason TEXT]... [--checklist FILE]
     [--witness-mapping SHA256=satisfied|exception|not-applicable]...

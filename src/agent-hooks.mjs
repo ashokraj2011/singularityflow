@@ -278,12 +278,12 @@ function isConsumedGenerationTerminalCallAllowed(payload, phase) {
   const id = '[A-Za-z0-9._-]+';
   const safeFlow = [
     `^${flow} nextsteps(?: ${id})?(?: --json)?$`,
-    `^${flow} status(?: ${id})?(?: --git-shadow)?(?: --json)?$`,
+    `^${flow} status(?: ${id})?(?: --git-shadow)?(?: --submission-readiness)?(?: --json)?$`,
     `^${flow} recover ${id}(?: --phase ${id})?(?: --json)?$`,
     `^${flow} phase begin ${phase.id}(?: --adopt-existing --confirm sha256:[a-f0-9]{64})?(?: --json)?$`,
     `^${flow} phase rollover ${phase.id}(?: --json| --confirm sha256:[a-f0-9]{64})?$`,
     `^${flow} phase show ${phase.id}(?: --json| --show-artifact){0,2}$`,
-    `^${flow} submit ${phase.id}(?: --no-checks)?(?: --json)?$`,
+    `^${flow} submit ${phase.id}(?: --work-id ${id})?(?: --skip-checks)?(?: --json)?$`,
     `^${flow} phase publish ${phase.id} --authored (?:governed-agent|deterministic) --channel (?:copilot-host|kernel-generator)(?: --change-origin [a-z-]+)*(?: --usage-json [A-Za-z0-9._/-]+)?(?: --json)?$`,
     `^${flow} (?:doctor|logs)(?: [A-Za-z0-9._:-]+| --[A-Za-z0-9-]+(?: [A-Za-z0-9._:+-]+)?)*$`,
     `^${flow} documents (?:list|view)(?: [A-Za-z0-9._:-]+| --[A-Za-z0-9-]+(?: [A-Za-z0-9._:+/-]+)?)*$`,

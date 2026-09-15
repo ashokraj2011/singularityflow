@@ -226,7 +226,19 @@ test('Copilot cannot mutate a consumed code generation or claim human authorship
     toolArgs: { command: `cd '${root}' && singularity-flow submit implementation` }
   }), {});
   assert.deepEqual(await agentGuardHook(root, definition, current, {
+    toolName: 'run_in_terminal',
+    toolArgs: { command: 'singularity-flow submit implementation --work-id HOOK-1' }
+  }), {});
+  assert.deepEqual(await agentGuardHook(root, definition, current, {
+    toolName: 'run_in_terminal',
+    toolArgs: { command: 'singularity-flow submit implementation --work-id HOOK-1 --skip-checks --json' }
+  }), {});
+  assert.deepEqual(await agentGuardHook(root, definition, current, {
     toolName: 'run_in_terminal', toolArgs: { command: 'singularity-flow recover HOOK-1 --phase implementation --json' }
+  }), {});
+  assert.deepEqual(await agentGuardHook(root, definition, current, {
+    toolName: 'run_in_terminal',
+    toolArgs: { command: 'singularity-flow status HOOK-1 --submission-readiness --json' }
   }), {});
   assert.deepEqual(await agentGuardHook(root, definition, current, {
     toolName: 'run_in_terminal', toolArgs: { command: 'singularity-flow phase rollover implementation --json' }

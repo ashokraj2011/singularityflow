@@ -90,6 +90,12 @@ test('progress and document commands upload, list, and view files, images, and F
 
   const workflowFile = path.join(root, 'singularity/work-items/DOCS-1/workflow.json'); const workflow = JSON.parse(await readFile(workflowFile, 'utf8')); const intake = path.join(root, 'singularity/work-items/DOCS-1', workflow.phases.intake.requiredArtifact.path);
   await writeFile(intake, (await readFile(intake, 'utf8')).replace(/TODO:[^\n]*/g, 'Complete intake evidence with measurable acceptance outcomes and linked design context.'));
+  let readiness = JSON.parse(flow(root, ['status', 'DOCS-1', '--submission-readiness', '--json']).stdout);
+  assert.equal(readiness.resultType, 'sflow-submission-readiness');
+  assert.equal(readiness.classification, 'generation-required');
+  assert.equal(readiness.currentGeneration, 0);
+  assert.equal(readiness.publishedGeneration, null);
+  assert.equal(readiness.lifecycleReady, false);
   const publication = flow(root, ['phase', 'publish', 'intake']);
   assert.match(publication.stdout, /Published intake generation 1 at [0-9a-f]{8}/);
   // The default is the inventory — what was produced, where, and how to read it. Printing every
@@ -99,6 +105,18 @@ test('progress and document commands upload, list, and view files, images, and F
   assert.match(publication.stdout, /sha256:[0-9a-f]{12}/);
   assert.doesNotMatch(publication.stdout, /--- BEGIN /);
   assert.match(publication.stdout, /Add --show-artifact to print/);
+  readiness = JSON.parse(flow(root, ['status', 'DOCS-1', '--submission-readiness', '--json']).stdout);
+  assert.equal(readiness.classification, 'ready-to-attempt');
+  assert.equal(readiness.phaseStatus, 'in_progress');
+  assert.equal(readiness.currentGeneration, 1);
+  assert.equal(readiness.publishedGeneration, 1);
+  assert.equal(readiness.publicationRecorded, true);
+  assert.equal(readiness.lifecycleReady, true);
+  assert.equal(readiness.command, 'singularity-flow submit intake --work-id DOCS-1');
+  const storyReadiness = JSON.parse(flow(root, [
+    'story', 'status', 'DOCS-1', '--submission-readiness', '--json'
+  ]).stdout);
+  assert.deepEqual(storyReadiness, readiness, 'Story status and direct status share one readiness contract');
   const review = flow(root, ['phase', 'show', 'intake']);
   assert.match(review.stdout, /Generated documents ready for review DOCS-1 · intake · generation 1/);
   assert.match(review.stdout, /PHASE-INTAKE/);
@@ -121,6 +139,11 @@ test('progress and document commands upload, list, and view files, images, and F
   // A submit used to run to several hundred lines. The compact evidence receipt adds review facts,
   // but the result still has to remain findable without dumping artifact bodies.
   assert.ok(submission.stdout.split('\n').length < 40, `submit printed ${submission.stdout.split('\n').length} lines`);
+  readiness = JSON.parse(flow(root, ['status', 'DOCS-1', '--submission-readiness', '--json']).stdout);
+  assert.equal(readiness.classification, 'already-submitted');
+  assert.equal(readiness.phaseStatus, 'awaiting_approval');
+  assert.equal(readiness.lifecycleReady, false);
+  assert.match(readiness.command, /^singularity-flow approve intake /);
   const submissionFull = flow(root, ['submit', '--show-artifact'], { allowFailure: true });
   const approval = flow(root, ['approve', '--yes']);
   assert.match(approval.stdout, /Generated documents ready for review/);

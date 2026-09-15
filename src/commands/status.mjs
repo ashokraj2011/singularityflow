@@ -24,6 +24,25 @@ function summary(workflow) {
 
 export async function run(_argv, { positionals, options }) {
   const root = repoRoot();
+  if (optionBoolean(options, 'submission-readiness')) {
+    const [
+      { loadAcceptedStoryExecution },
+      { storyPublicationPending },
+      { submissionReadinessSnapshot, submissionReadinessText }
+    ] = await Promise.all([
+      import('../accepted-story-execution.mjs'),
+      import('../state-stores.mjs'),
+      import('../submission-readiness.mjs')
+    ]);
+    const { definition, workflow } = await loadAcceptedStoryExecution(root, positionals[1]);
+    const pendingSynchronization = await storyPublicationPending(
+      root, definition, workflow.workItem.id, { migrate: false }
+    );
+    const readiness = submissionReadinessSnapshot(workflow, { pendingSynchronization });
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(readiness, null, 2));
+    else console.log(submissionReadinessText(readiness));
+    return;
+  }
   const gitShadow = optionBoolean(options, 'git-shadow');
   const gitShadowObservations = [];
   let currentBranch = null;

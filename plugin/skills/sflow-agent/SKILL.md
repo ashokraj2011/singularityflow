@@ -11,7 +11,7 @@ argument-hint: "[WORK-ID]"
 <!-- sflow-output-contract: explicit-selection -->
 **Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
+**Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
 1. Run `singularity-flow agent <WORK-ID>`; omit the ID when the current branch already identifies it.
 2. The phase default is automatic. Only ask the contributor when more than one compatible agent is available or they explicitly request a change.

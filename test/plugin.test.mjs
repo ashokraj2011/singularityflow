@@ -28,7 +28,7 @@ test('SGOS creation is an explicit proposal-only Copilot journey', async () => {
   assert.match(content, /ask_user/);
   assert.match(content, /Invocation of this skill is not that confirmation/);
   assert.match(content, /unratified proposals/);
-  assert.match(content, /Never run `intent ratify`, `intent compile`, `program approve`, `process start`/);
+  assert.match(content, /Never run `singularity-flow intent ratify`, `singularity-flow intent compile`, `singularity-flow program approve`, `singularity-flow process start`/);
   assert.match(content, /Never claim[\s\S]*granted authority/);
 });
 
@@ -39,9 +39,8 @@ test('session and progress skills ground every follow-up command in the resolved
   assert.match(session, /exact `repositoryPath` returned/);
   assert.match(session, /same returned `repositoryPath`/);
   assert.match(progress, /session current --json/);
-  assert.match(progress, /Require `ready=true`/);
-  assert.match(progress, /exact returned `repositoryPath`/);
-  assert.match(progress, /do not rely on a prior child command to have changed the shell directory/i);
+  assert.match(progress, /explicit Work ID[\s\S]*do not require or change the active Story/i);
+  assert.match(progress, /Without an ID[\s\S]*session current --json[\s\S]*exact `repositoryPath`/i);
 });
 
 test('plugin can audit and safely repair branch initialization before a work session exists', async () => {
@@ -89,8 +88,8 @@ test('capability mapping reviews and activates the exact proposal instead of sto
   assert.match(content, /capability activate <REVIEW-BRANCH>.*--confirm <FULL-PROPOSAL-COMMIT> --json/s);
   assert.match(content, /CAPABILITY_CONFIGURATION_UNPROTECTED/);
   assert.match(content, /--acknowledge-unprotected/);
-  assert.match(content, /external review[\s\S]*same exact-hash `capability activate` command again/i);
-  assert.match(content, /`capability publish` is a[\s\S]*projection-repair command/i);
+  assert.match(content, /external review[\s\S]*same exact-hash `singularity-flow capability activate` command again/i);
+  assert.match(content, /`singularity-flow capability publish` is a[\s\S]*projection-repair command/i);
   assert.doesNotMatch(content, /Ask the contributor to review and merge[\s\S]*capability publish/);
 });
 
@@ -101,6 +100,30 @@ test('document skill manages active and detached evidence with explicit conseque
   assert.match(content, /epic sources detach/);
   assert.match(content, /invalidated phases/i);
   assert.match(content, /explicit[\s\S]*confirmation/i);
+  assert.match(content, /Only after it[\s\S]*documents detach[\s\S]*--yes/i);
+  assert.match(content, /epic sources detach[\s\S]*--yes/i);
+});
+
+test('mutation skills carry reviewed confirmations into noninteractive CLI forms', async () => {
+  const upload = await readFile(path.join(pluginRoot, 'skills', 'sflow-upload', 'SKILL.md'), 'utf8');
+  const epicPublish = await readFile(path.join(pluginRoot, 'skills', 'sflow-epic-publish', 'SKILL.md'), 'utf8');
+  const epicComplete = await readFile(path.join(pluginRoot, 'skills', 'sflow-epic-complete', 'SKILL.md'), 'utf8');
+  const materialize = await readFile(path.join(pluginRoot, 'skills', 'sflow-initiative-materialize', 'SKILL.md'), 'utf8');
+  const impact = await readFile(path.join(pluginRoot, 'skills', 'sflow-impact', 'SKILL.md'), 'utf8');
+  const submit = await readFile(path.join(pluginRoot, 'skills', 'sflow-submit', 'SKILL.md'), 'utf8');
+
+  assert.match(upload, /Only after confirmation[\s\S]*documents detach[\s\S]*--yes/i);
+  assert.match(upload, /Only after confirmation[\s\S]*epic sources detach[\s\S]*--yes/i);
+  assert.match(epicPublish, /epic jira apply --epic <EPIC-KEY> --plan <SHA-256> --confirm <EPIC-KEY>/);
+  assert.match(epicComplete, /epic complete <EPIC-KEY> --confirm <EPIC-KEY>/);
+  assert.match(materialize, /initiative breakdown --initiative <INIT-ID> --json/);
+  assert.match(materialize, /initiative materialize --initiative <INIT-ID> --dry-run --json/);
+  assert.match(materialize, /initiative materialize --initiative <INIT-ID> --confirm <INIT-ID> --json/);
+  assert.doesNotMatch(materialize, /no bypass flag/i);
+  assert.match(impact, /singularity-flow impact evidence collect <PROVIDER> <FILE>/);
+  assert.match(submit, /Fingerprint the refusal code plus current artifact\/check hashes/i);
+  assert.match(submit, /Stop on an unchanged fingerprint or after three distinct changed fingerprints/i);
+  assert.match(submit, /Never loop quality commands/i);
 });
 
 test('plugin provides direct Jira connection, assigned work, sprint board, and guarded update skills', async () => {
@@ -189,8 +212,8 @@ test('initial phase skills require interactive clarification instead of silently
   }
   assert.match(next, /selected action is `\/sf-code`.*do not imitate or inline.*Next in Copilot: \/sf-code.*stop/is);
   assert.match(next, /never rewrite it to `\/sf-phase`/i);
-  assert.match(next, /deterministic convergence.*singularity-flow prepare convergence.*inspect that result's `next\[\]`/is);
-  assert.match(next, /publish only if preparation returns `convergence\.publish`/i);
+  assert.match(next, /returned SFlow skill route[\s\S]*complete its preflight[\s\S]*at most its one authorized action/is);
+  assert.match(next, /Never run `singularity-flow next`/);
   assert.match(requirements, /required.*evidence looks complete/is);
   assert.match(epicRequirements, /epic sources answer/);
   assert.match(code, /publication deterministically infers supported structured runners/i);
@@ -219,7 +242,7 @@ test('generic generation skills branch on the resolved clarification mode before
     assert.ok(offStart > status && whenNeededStart > offStart && requiredStart > whenNeededStart
       && branchesEnd > requiredStart, `${name} must define ordered off/when-needed/required branches`);
     assert.match(off, /do not ask/i, `${name} must not ask in off mode`);
-    assert.match(off, /(?:do not|or) run `clarification record`/i,
+    assert.match(off, /(?:do not|or) run `singularity-flow clarification record`/i,
       `${name} must not record in off mode`);
     assert.match(off, /continue directly/i, `${name} must continue in off mode`);
     assert.match(whenNeeded, /ask and record[^.]*only when material ambiguity remains/i,
@@ -292,7 +315,8 @@ test('Copilot phase authoring repairs structured draft findings before publicati
   for (const [name, content] of [['workflow agent', workflowAgent], ['workflow rules', workflowRules]]) {
     assert.match(content, /singularity-flow phase draft-check <phase> --json/,
       `${name} omits the shared authoring preflight`);
-    assert.match(content, /publish only when .*ready/i, `${name} may publish an unready draft`);
+    assert.match(content, /(?:publish only when .*ready|only when .*ready[^.]*publish)/i,
+      `${name} may publish an unready draft`);
     assert.match(content, /(?:at most|after) three (?:distinct changed )?fingerprints/i,
       `${name} lacks a bounded correction budget`);
     assert.match(content, /stop on an unchanged fingerprint/i,
@@ -304,8 +328,8 @@ test('Copilot phase authoring repairs structured draft findings before publicati
   const next = await readFile(path.join(pluginRoot, 'skills', 'sflow-next', 'SKILL.md'), 'utf8');
   assert.match(next, /selected skill.*draft-check.*correct every agent finding/is);
   assert.match(next, /Never publish a delegated action/);
-  assert.match(next, /route agent(?:-authored)? correction to `\/sf-phase`/i);
-  assert.match(next, /not an internal publication retry loop/i);
+  assert.match(next, /selected action is `\/sf-code`[\s\S]*do not imitate or inline[\s\S]*stop/is);
+  assert.match(next, /ARTIFACT_AUTHORING_INCOMPLETE[\s\S]*one recheck[\s\S]*not a retry loop/is);
 });
 
 test('generation skills use the phase-configured publication producer and channel', async () => {
@@ -554,7 +578,7 @@ test('submit skill presents generated documents before approval', async () => {
   assert.match(content, /status <WORK-ID> --submission-readiness --json/);
   assert.match(content, /resultType.*exactly `sflow-submission-readiness`/s);
   assert.match(content, /Read `lifecycleReady` only as the explicit boolean/);
-  assert.match(content, /never infer it from raw `status --json`/);
+  assert.match(content, /never infer it from raw `singularity-flow status --json`/);
   assert.match(content, /`publishedGeneration` equal to `currentGeneration`.*normal ready-to-submit state/s);
   assert.match(content, /confirmationRequired: true.*Only the human/s);
   assert.match(content, /Work-ID-pinned submit command/);
@@ -606,18 +630,32 @@ test('report skill is read-only and preserves unavailable usage disclosure', asy
 
 test('nextsteps skill delegates to the read-only deterministic action planner', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-nextsteps', 'SKILL.md'), 'utf8');
-  assert.match(content, /singularity-flow nextsteps <arguments>/);
+  assert.match(content, /singularity-flow nextsteps <WORK-ID> --json[\s\S]*singularity-flow nextsteps --json/);
   assert.match(content, /NOW.*THEN.*ALTERNATIVE/s);
   assert.match(content, /Keep this operation read-only/);
 });
 
 test('next skill executes one action and preserves explicit approval controls', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-next', 'SKILL.md'), 'utf8');
+  assert.match(content, /First run `singularity-flow session current --json`[^.]*returned `repositoryPath` as cwd for every subsequent command/i);
+  assert.ok(content.indexOf('singularity-flow session current --json') < content.indexOf('singularity-flow nextsteps <WORK-ID> --json'),
+    'session resolution must precede nextsteps');
   assert.match(content, /singularity-flow next`/);
+  assert.match(content, /Never run `singularity-flow next`/);
+  assert.ok(content.indexOf('singularity-flow nextsteps <WORK-ID> --json') < content.indexOf('Never run `singularity-flow next`'),
+    'the read-only projection must precede the generic-command prohibition');
+  assert.match(content, /complete its preflight[\s\S]*execute at most its one authorized action/i);
+  assert.match(content, /returned SFlow skill route \(any `\/sf-\*` or `\/sflow-\*` route\)/i);
   assert.doesNotMatch(content, /next --task "<current objective>"/);
   assert.match(content, /shared repository model/);
   assert.match(content, /singularity-flow nextsteps <WORK-ID> --json/);
   assert.match(content, /ACTIVE_SUBJECT_MISMATCH/);
+  assert.match(content, /state=publication_pending[^.]*first `NOW` command equals `singularity-flow sync`/i);
+  assert.match(content, /show it and explain it retries only the retained commit/i);
+  assert.match(content, /singularity-flow sync <WORK-ID>[^.]*once in the verified cwd/i);
+  assert.match(content, /never follow `THEN`, invoke `\/sf-nextsteps` or `\/sf-next`, or retry/i);
+  assert.ok(content.indexOf('state=publication_pending') < content.indexOf('singularity-flow sync <WORK-ID>'),
+    'pending-publication state must be verified before the one-shot sync');
   assert.match(content, /explicit consent/);
   assert.match(content, /singularity-flow wm ensure/);
   assert.match(content, /Do not start it while waiting/);
@@ -775,7 +813,7 @@ test('auto skill keeps planning storyless and requires exact human ratification'
   assert.match(content, /--confirm <PACKET-SHA256>/);
   assert.match(content, /complete checkpoint SHA-256/);
   assert.match(content, /type the exact flight ID as confirmation/);
-  assert.match(content, /Never invoke `auto flight-step` directly/);
+  assert.match(content, /Never invoke `singularity-flow auto flight-step` directly/);
 });
 
 test('start skill falls back to a one-time receipt when Copilot has no persistent stdin bridge', async () => {

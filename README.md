@@ -504,8 +504,12 @@ singularity-flow fresh-install --checkout /path/to/singularityflow
 singularity-flow fresh-install --checkout /path/to/singularityflow --yes
 ```
 
-From inside the product checkout, `--checkout` may be omitted. The equivalent
-low-level entry point remains `./install.sh --factory-reset [--yes]`.
+From inside the product checkout, `--checkout` may be omitted. The guarded command first
+validates the required executable and registry, resolves one exact source commit and tree, and
+stages those bytes in a private detached worktree. Destructive reset begins only after that
+preflight succeeds, and installation executes the staged immutable source rather than the mutable
+checkout. The legacy `./install.sh --factory-reset` form is refused because it could load checkout
+dependencies before `npm ci`.
 
 This broader mode deletes **every registered workspace directory**, including
 its managed repository clones, documents, generated artifacts, and local caches.
@@ -1138,7 +1142,7 @@ specification outputs Jira receives. Those files and hashes are part of the
 reviewed write plan and are uploaded with hash-stamped filenames to the Epic,
 every Story, or both. After all blocking Stories are complete and their exact
 review packets, GitHub checks, and conformance tree hashes match, the Product
-Owner runs `singularity-flow epic complete <EPIC-KEY>` or uses the wizard to
+Owner runs `singularity-flow epic complete <EPIC-KEY> --confirm <EPIC-KEY>` or uses the wizard to
 create and push the immutable Epic completion report.
 
 ## Built-in help
@@ -1448,10 +1452,9 @@ pair. Fully exit any running Copilot CLI process, then open a new terminal and s
 repository after installation; environment variables cannot be injected into a process that was
 already running.
 
-`--factory-reset` is the deliberate exception to the installer's normal
-non-destructive behavior. Without `--yes` it is preview-only. With `--yes`, it
-applies the validated machine-wide deletion boundary described above before the
-normal build and installation steps begin.
+Direct `./install.sh --factory-reset` is intentionally refused. A machine-wide reset must be
+previewed and run through `singularity-flow fresh-install`; that trusted CLI boundary verifies
+every deletion target and stages the exact reviewed source commit before removing anything.
 
 ## Configuration
 

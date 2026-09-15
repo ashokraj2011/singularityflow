@@ -10,7 +10,7 @@ argument-hint: "[test scope or environment]"
 <!-- sflow-output-contract: clarification-and-artifact -->
 **Output contract:** Use the complete governed prompt and approved inputs, obey the pinned clarification mode, then publish and show configured artifacts.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
+**Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
 1. Run `singularity-flow verify --json`. It resolves state and kernel operations. Stop at `recovery` or `approval`; otherwise continue with the returned authoring path.
 1. Run `singularity-flow status --json`; stop if the current phase is not `verification`. Use that governed workflow as Story context.

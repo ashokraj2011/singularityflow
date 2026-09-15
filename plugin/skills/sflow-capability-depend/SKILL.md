@@ -7,7 +7,7 @@ argument-hint: "<TARGET-CAPABILITY>@<REFERENCE>"
 # Depend on a capability contract
 
 <!-- sflow-output-contract: explicit-selection -->
-**Output contract:** Relay exact contract resolution or refusal and the proposal identity; never activate it.
+**Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 

@@ -188,7 +188,11 @@ singularity-flow fresh-install --yes
 ```
 
 From another directory, add `--checkout ~/src/singularityflow` to either command.
-`./install.sh --factory-reset [--yes]` remains the low-level equivalent.
+The legacy `./install.sh --factory-reset` form is refused because it could load checkout
+dependencies before `npm ci`. Always use `singularity-flow fresh-install`; before deletion it
+validates the required executable and registry, pins an exact source commit and tree, and stages
+those immutable bytes in a private detached worktree. The reset then executes only that reviewed
+source. If staging or preflight fails, no reset begins.
 
 ### Clean local workspaces without reinstalling
 

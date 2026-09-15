@@ -6,17 +6,17 @@ import os from 'node:os';
 import path from 'node:path';
 import * as style from './style.mjs';
 import { stdin as input, stdout as output } from 'node:process';
-import { chmodSync, existsSync } from 'node:fs';
+import { chmodSync, constants as fsConstants, existsSync } from 'node:fs';
 import { addPhase, defineWorkflow, editPhase, editWorkflow, listWorkflows, upsertPhaseOutput } from './workflow-authoring.mjs';
 import {
   activateWorkflowConfigurationProposal, assertLocalConfigurationAuthoringAllowed,
   inspectWorkflowConfigurationProposal, listWorkflowConfigurationProposals,
   proposeConfigurationChange
 } from './configuration-proposal.mjs';
-import { chmod, lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, mkdtemp, open, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
-import { SingularityFlowError, exists, nowIso, optionBoolean, optionNumber, optionString, optionStrings, parseArgs, posix, readJson, requirePositional, run, secureRepositoryPath, snapshot, table, writeJson, writeText } from './util.mjs';
+import { SingularityFlowError, commandExists, exists, nowIso, optionBoolean, optionNumber, optionString, optionStrings, parseArgs, posix, readJson, requirePositional, run, secureRepositoryPath, snapshot, table, writeJson, writeText } from './util.mjs';
 import { add, assertClean, branch, changedFiles, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitCommonDir, gitDir, hasUpstream, head, identity, localBranches, preflightPushBranch, prepareRemoteBranchTracking, pullFastForward, refExists, refHead, remoteBranches, repoRoot } from './git.mjs';
 import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
@@ -184,7 +184,10 @@ import {
 import { createPullRequest, createStoryPullRequest, epicPullRequestPlan, storyPullRequestPlan, updateStoryPullRequest } from './pull-request.mjs';
 import { copyToClipboard } from './clipboard.mjs';
 import { epicCheckStory, epicReviewDecision, epicReviewStory, listEpicReviewInbox } from './epic-review.mjs';
-import { completeEpicDelivery, epicDeliveryReadiness } from './epic-completion.mjs';
+import {
+  assertEpicCompletionAuthorized, completeEpicDelivery, epicCompletionAuthorizationStatus,
+  epicDeliveryReadiness
+} from './epic-completion.mjs';
 
 import {
   currentLocalEpicReservation, reserveLocalEpicBranch, syncLocalEpicReservation
@@ -228,8 +231,16 @@ import { canonicalCommand, commandDefinition, operationById, SECRETS_SUBCOMMANDS
 import { action as narrationAction, commandResult, effects, noEffects, noop, succeeded } from './narration/command-result.mjs';
 import { emitCommandResult } from './narration/emit.mjs';
 import { factoryResetAll, factoryResetAllPlan, factoryResetPlan, factoryResetRepository } from './factory-reset.mjs';
-import { localReset, localResetPlan } from './fresh-install-reset.mjs';
-import { applyLocalReinstall, reinstallPlanText, resolveReinstallPlan } from './reinstall.mjs';
+import {
+  FRESH_INSTALL_CONFIRMATION, freshInstallReset, freshInstallResetPlan, localReset, localResetPlan,
+  installerGeneratedResetPaths, sameResetPathIdentity
+} from './fresh-install-reset.mjs';
+import {
+  applyLocalReinstall, assertReinstallNodeVersion, normalizeReinstallRegistry, reinstallPlanText,
+  resolveReinstallPlan
+} from './reinstall.mjs';
+import { withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
+import { readLocalGitBlobs } from './git-blob-batch.mjs';
 import { capabilityDoctor } from './capability-doctor.mjs';
 import { inspectStatePlanes, reconcileStateProjections } from './state-planes.mjs';
 import {
@@ -727,49 +738,609 @@ async function localResetCommand(options) {
   return result;
 }
 
+const FRESH_INSTALL_TRUST_PATHS = Object.freeze(['package.json', 'install.sh']);
+const FRESH_INSTALL_REGULAR_MODES = new Set(['100644', '100755']);
+
+function freshInstallGitEnvironment(environment = process.env) {
+  const sanitized = withoutGitProcessOverrides(environment);
+  // These variables are path overrides rather than repository identity. A guarded local proof
+  // must not let an ambient wrapper select configuration, and it does not need user/system config:
+  // remote access is never performed across this boundary.
+  delete sanitized.GIT_CONFIG_GLOBAL;
+  delete sanitized.GIT_CONFIG_SYSTEM;
+  delete sanitized.GIT_ATTR_NOSYSTEM;
+  return {
+    ...sanitized,
+    GIT_NO_REPLACE_OBJECTS: '1',
+    GIT_OPTIONAL_LOCKS: '0',
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_SYSTEM: os.devNull,
+    GIT_CONFIG_GLOBAL: os.devNull,
+    GIT_ATTR_NOSYSTEM: '1',
+    // Index/worktree enumeration is part of source admission. Never let repository fsmonitor
+    // configuration run a hook or daemon while deciding whether destructive reset may begin.
+    GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_KEY_0: 'core.fsmonitor',
+    GIT_CONFIG_VALUE_0: 'false'
+  };
+}
+
+function freshInstallMaterializedPath(checkout, relative) {
+  const components = String(relative ?? '').split('/');
+  if (!relative || relative.startsWith('/') || relative.includes('\\')
+      || /[\0\r\n\ufffd]/u.test(relative)
+      || components.some((component) => !component || component === '.' || component === '..')
+      || components[0].toLowerCase() === '.git') {
+    throw new SingularityFlowError(
+      `The reviewed source tree contains a path that cannot be materialized safely: ${JSON.stringify(relative)}`
+    );
+  }
+  const candidate = path.resolve(checkout, ...components);
+  const rel = path.relative(checkout, candidate);
+  if (!rel || rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) {
+    throw new SingularityFlowError(
+      `The reviewed source tree escapes its private materialization: ${JSON.stringify(relative)}`
+    );
+  }
+  return candidate;
+}
+
+function freshInstallHeadEntry(checkout, revision, relative, environment) {
+  const result = run('git', ['ls-tree', '-z', revision, '--', relative], {
+    cwd: checkout,
+    env: environment,
+    allowFailure: true,
+    timeoutClass: 'local-read'
+  });
+  const records = result.status === 0 ? result.stdout.split('\0').filter(Boolean) : [];
+  if (records.length !== 1) return null;
+  const separator = records[0].indexOf('\t');
+  if (separator < 0 || records[0].slice(separator + 1) !== relative) return null;
+  const [mode, type, object] = records[0].slice(0, separator).split(' ');
+  return mode && type && object ? { mode, type, object } : null;
+}
+
+function freshInstallIndexEntry(checkout, relative, environment) {
+  const result = run('git', ['ls-files', '--stage', '-z', '--', relative], {
+    cwd: checkout,
+    env: environment,
+    allowFailure: true,
+    timeoutClass: 'local-read'
+  });
+  const records = result.status === 0 ? result.stdout.split('\0').filter(Boolean) : [];
+  if (records.length !== 1) return null;
+  const separator = records[0].indexOf('\t');
+  if (separator < 0 || records[0].slice(separator + 1) !== relative) return null;
+  const [mode, object, stage] = records[0].slice(0, separator).split(' ');
+  return mode && object && stage === '0' ? { mode, object } : null;
+}
+
+function freshInstallIndexEntries(checkout, environment) {
+  const result = run('git', ['ls-files', '--stage', '-z'], {
+    cwd: checkout,
+    env: environment,
+    allowFailure: true,
+    timeoutClass: 'local-read'
+  });
+  if (result.status !== 0) return { result, entries: null };
+  const entries = new Map();
+  for (const record of result.stdout.split('\0').filter(Boolean)) {
+    const separator = record.indexOf('\t');
+    const [mode, object, stage] = separator < 0 ? [] : record.slice(0, separator).split(' ');
+    const relative = separator < 0 ? '' : record.slice(separator + 1);
+    if (!mode || !/^[a-f0-9]{40,64}$/u.test(object ?? '') || stage !== '0' || !relative
+        || entries.has(relative)) return { result, entries: null };
+    entries.set(relative, { mode, object });
+  }
+  return { result, entries };
+}
+
+function freshInstallUntrackedEntries(checkout, environment) {
+  const result = run('git', ['ls-files', '--others', '--exclude-standard', '-z'], {
+    cwd: checkout,
+    env: environment,
+    allowFailure: true,
+    timeoutClass: 'local-read'
+  });
+  if (result.status !== 0) return { result, entries: null };
+  const entries = result.stdout.split('\0').filter(Boolean);
+  for (const relative of entries) {
+    try { freshInstallMaterializedPath(checkout, relative); }
+    catch {
+      throw new SingularityFlowError(
+        `Refusing fresh install because an untracked path cannot be reviewed safely: ${JSON.stringify(relative)}`
+      );
+    }
+  }
+  return { result, entries };
+}
+
+function freshInstallBlobIdentity(bytes, object) {
+  const algorithm = object.length === 64 ? 'sha256' : 'sha1';
+  return createHash(algorithm)
+    .update(Buffer.from(`blob ${bytes.length}\0`, 'utf8'))
+    .update(bytes)
+    .digest('hex');
+}
+
+async function freshInstallRegularBytes(absolute) {
+  const before = await lstat(absolute).catch(() => null);
+  if (!before?.isFile() || before.isSymbolicLink()) return null;
+  let handle;
+  try {
+    handle = await open(absolute, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+    const opened = await handle.stat();
+    const afterOpen = await lstat(absolute).catch(() => null);
+    if (!opened.isFile() || !afterOpen?.isFile() || afterOpen.isSymbolicLink()
+        || (before.ino && opened.ino && (before.ino !== opened.ino || before.dev !== opened.dev))
+        || (afterOpen.ino && opened.ino
+          && (afterOpen.ino !== opened.ino || afterOpen.dev !== opened.dev))) return null;
+    const bytes = await handle.readFile();
+    const afterRead = await handle.stat();
+    if (afterRead.size !== bytes.length || (opened.ino && afterRead.ino
+        && (opened.ino !== afterRead.ino || opened.dev !== afterRead.dev))) return null;
+    return bytes;
+  } catch {
+    return null;
+  } finally {
+    await handle?.close().catch(() => {});
+  }
+}
+
+async function freshInstallChanges(checkout, environment, treeEntries) {
+  const index = freshInstallIndexEntries(checkout, environment);
+  const untracked = freshInstallUntrackedEntries(checkout, environment);
+  if (!index.entries || !untracked.entries) return { result: index.result, changes: null };
+  const changes = [];
+  const reviewed = new Set();
+  for (const entry of treeEntries) {
+    reviewed.add(entry.relative);
+    const indexed = index.entries.get(entry.relative);
+    if (!indexed || indexed.mode !== entry.mode || indexed.object !== entry.object) {
+      changes.push({ status: 'I ', file: entry.relative });
+      continue;
+    }
+    const bytes = await freshInstallRegularBytes(freshInstallMaterializedPath(checkout, entry.relative));
+    if (!bytes || freshInstallBlobIdentity(bytes, entry.object) !== entry.object) {
+      changes.push({ status: bytes ? ' M' : ' D', file: entry.relative });
+    }
+  }
+  for (const relative of index.entries.keys()) {
+    if (!reviewed.has(relative)) changes.push({ status: 'I ', file: relative });
+  }
+  for (const relative of untracked.entries) changes.push({ status: '??', file: relative });
+  return { result: index.result, changes };
+}
+
+function generatedFreshInstallRelativeRoots(checkout, targets) {
+  return (targets ?? []).map((target) => path.relative(checkout, path.resolve(target)))
+    .filter((relative) => relative && relative !== '..' && !relative.startsWith(`..${path.sep}`)
+      && !path.isAbsolute(relative))
+    .map((relative) => relative.split(path.sep).join('/'));
+}
+
+export async function trustedFreshInstallSource(checkout, { installerGeneratedPaths = [] } = {}) {
+  // Do not allow local replacement refs to reinterpret HEAD while proving the executable bytes.
+  // Disabling optional locks also keeps this trust preflight read-only.
+  const environment = freshInstallGitEnvironment();
+  const problems = [];
+  const bytes = new Map();
+  const treeEntries = [];
+  const commitResult = run('git', ['rev-parse', '--verify', 'HEAD^{commit}'], {
+    cwd: checkout, env: environment, allowFailure: true, timeoutClass: 'local-read'
+  });
+  const commit = commitResult.status === 0 ? commitResult.stdout.trim() : '';
+  if (!commit) problems.push('HEAD does not resolve to one reviewed commit');
+  const treeResult = commit ? run('git', ['rev-parse', '--verify', `${commit}^{tree}`], {
+    cwd: checkout, env: environment, allowFailure: true, timeoutClass: 'local-read'
+  }) : { status: 1, stdout: '' };
+  const tree = treeResult.status === 0 ? treeResult.stdout.trim() : '';
+  if (!tree) problems.push('the reviewed commit does not resolve to one source tree');
+  if (commit) {
+    const entries = run('git', ['ls-tree', '-rz', '--full-tree', commit], {
+      cwd: checkout, env: environment, allowFailure: true, timeoutClass: 'local-read'
+    });
+    if (entries.status !== 0) {
+      problems.push('the reviewed source tree could not be enumerated');
+    } else {
+      for (const record of entries.stdout.split('\0').filter(Boolean)) {
+        const separator = record.indexOf('\t');
+        const [mode, type, object] = separator < 0 ? [] : record.slice(0, separator).split(' ');
+        const relative = separator < 0 ? '<malformed-entry>' : record.slice(separator + 1);
+        if (!FRESH_INSTALL_REGULAR_MODES.has(mode) || type !== 'blob') {
+          problems.push(`${relative} has unsupported tracked mode ${mode || 'unknown'} (${type || 'unknown'}); fresh-install source must contain only regular files`);
+          continue;
+        }
+        try {
+          freshInstallMaterializedPath(checkout, relative);
+          treeEntries.push(Object.freeze({ mode, object, relative }));
+        } catch (error) {
+          problems.push(error.message);
+        }
+      }
+    }
+  }
+  for (const relative of FRESH_INSTALL_TRUST_PATHS) {
+    const absolute = path.join(checkout, relative);
+    const info = await lstat(absolute).catch(() => null);
+    if (!info?.isFile() || info.isSymbolicLink()) {
+      problems.push(`${relative} is missing, is not a regular file, or is a symbolic link`);
+      continue;
+    }
+
+    const head = commit ? freshInstallHeadEntry(checkout, commit, relative, environment) : null;
+    const index = freshInstallIndexEntry(checkout, relative, environment);
+    if (!head || head.type !== 'blob' || !FRESH_INSTALL_REGULAR_MODES.has(head.mode)) {
+      problems.push(`${relative} is not a regular file tracked at HEAD`);
+    }
+    if (!index || !FRESH_INSTALL_REGULAR_MODES.has(index.mode)) {
+      problems.push(`${relative} is not a regular stage-0 file in the Git index`);
+    }
+
+    const current = await freshInstallRegularBytes(absolute);
+    if (!current) problems.push(`${relative} could not be read as one stable regular file`);
+    if (current) {
+      const currentObject = freshInstallBlobIdentity(current, head?.object ?? index?.object ?? '0'.repeat(40));
+      if (head && index && (head.object !== index.object || head.mode !== index.mode)) {
+        problems.push(`${relative} has staged content or mode changes that do not match HEAD`);
+      }
+      if (head && currentObject !== head.object) {
+        problems.push(`${relative} working-tree bytes do not match HEAD`);
+      }
+      if (index && currentObject !== index.object) {
+        problems.push(`${relative} working-tree bytes do not match the Git index`);
+      }
+      bytes.set(relative, current);
+    }
+  }
+
+  if (problems.length) {
+    throw new SingularityFlowError(
+      'Refusing fresh install before running install.sh, including reset preview, because the source is not exact reviewed Git bytes:\n'
+      + `${problems.map((problem) => `- ${problem}`).join('\n')}\n`
+      + 'Both package.json and install.sh must be regular files tracked at HEAD and in the index, with identical HEAD, index, and working-tree bytes. '
+      + 'Commit the reviewed versions, or stash/restore changes to both files, then retry.'
+    );
+  }
+
+  // An untracked source file is executable input just as surely as a modified tracked file. Prove
+  // the complete non-ignored working tree here before any checkout code runs. Ignored dependency
+  // content is handled separately: reset runs in this trusted process, and the verified installer
+  // takes its normal path through `npm ci` before dependency-backed checkout code is loaded.
+  const dirty = await freshInstallChanges(checkout, environment, treeEntries);
+  if (dirty.result.status !== 0 || !dirty.changes) {
+    throw new SingularityFlowError(
+      `Refusing fresh install because tracked source cleanliness could not be verified in ${checkout}. `
+      + 'Repair the checkout and retry.'
+    );
+  }
+  const generatedRoots = generatedFreshInstallRelativeRoots(checkout, installerGeneratedPaths);
+  const unreviewed = dirty.changes.filter(({ status, file }) => status !== '??'
+    || !generatedRoots.some((root) => file === root || file.startsWith(`${root}/`)));
+  if (unreviewed.length) {
+    throw new SingularityFlowError(
+      'Refusing fresh install before running install.sh, including reset preview, because the checkout has staged, modified, or unreviewed untracked files:\n'
+      + `${unreviewed.map(({ status, file }) => `${status} ${file}`).join('\n')}\n`
+      + 'Commit, stash, or remove the reviewed source changes, then retry. Only generated roots shown by the reset preview are removable.'
+    );
+  }
+  const currentCommit = run('git', ['rev-parse', '--verify', 'HEAD^{commit}'], {
+    cwd: checkout, env: environment, allowFailure: true, timeoutClass: 'local-read'
+  });
+  if (currentCommit.status !== 0 || currentCommit.stdout.trim() !== commit) {
+    throw new SingularityFlowError(
+      'Refusing fresh install because the selected checkout changed commits during source admission. Retry from a stable checkout.'
+    );
+  }
+  return Object.freeze({
+    bytes,
+    commit,
+    tree,
+    entries: Object.freeze(treeEntries)
+  });
+}
+
+export function preflightFreshInstallRuntime({
+  cliOnly = false,
+  registry = null,
+  environment = process.env,
+  existsCommand = commandExists,
+  execute = run
+} = {}) {
+  assertReinstallNodeVersion();
+  const required = ['bash', 'git', 'node', 'npm', ...(cliOnly ? [] : ['copilot'])];
+  const missing = required.filter((command) => !existsCommand(command, { environment }));
+  if (missing.length) {
+    throw new SingularityFlowError(
+      `Fresh install requires these commands before any state can be reset: ${missing.join(', ')}.`
+    );
+  }
+
+  let selected = registry;
+  if (!selected) {
+    const configured = execute('npm', ['config', 'get', 'registry'], {
+      env: environment,
+      allowFailure: true
+    });
+    if (configured.status !== 0 || !configured.stdout.trim()) {
+      throw new SingularityFlowError(
+        'Fresh install could not resolve the configured npm registry before reset. Pass --registry <URL> or repair npm configuration.'
+      );
+    }
+    selected = configured.stdout.trim();
+  }
+  return Object.freeze({ registry: normalizeReinstallRegistry(selected), required });
+}
+
+async function removeFreshInstallWorktree(staging, { throwOnFailure = false } = {}) {
+  if (!staging) return true;
+  try {
+    await rm(staging.parent, { recursive: true, force: true });
+    return true;
+  } catch (error) {
+    if (!throwOnFailure) return false;
+    throw new SingularityFlowError(
+      `The private fresh-install source could not be removed safely: ${staging.checkout}. `
+      + `The filesystem reported: ${error.message}`
+    );
+  }
+}
+
+/**
+ * Create a private standalone local clone bound to the already-admitted commit and tree. The clone
+ * copies objects instead of sharing a worktree/config file or hard-linked object lifetime with the
+ * mutable origin. `--no-checkout` plus an empty template prevents checkout/template hooks; Node
+ * then materializes exact batched blob bytes without filters. The original branch may move
+ * afterward without changing a byte the installer can consume.
+ */
+export async function stageTrustedFreshInstallSource(checkout, source) {
+  const parent = await mkdtemp(path.join(path.dirname(checkout), '.sflow-fresh-install-source-'));
+  const staged = path.join(parent, 'source');
+  const hooks = path.join(parent, 'disabled-hooks');
+  await mkdir(hooks, { mode: 0o700 });
+  const environment = freshInstallGitEnvironment();
+  const staging = Object.freeze({
+    parent, checkout: staged, origin: checkout, commit: source.commit, tree: source.tree,
+    kind: 'standalone-clone'
+  });
+  let registered = false;
+  try {
+    const added = run('git', [
+      '-c', `core.hooksPath=${hooks}`, 'clone', '--local', '--no-hardlinks', '--no-checkout',
+      '--no-tags', `--template=${hooks}`, checkout, staged
+    ], {
+      cwd: path.dirname(checkout), env: environment, allowFailure: true,
+      // This copies a complete local object database and can legitimately outlive a read probe,
+      // but it must still have a finite operation boundary.
+      timeoutMs: 120_000
+    });
+    if (added.status !== 0) {
+      throw new SingularityFlowError(
+        `Git could not create the private fresh-install source: ${(added.stderr || added.stdout || `exit ${added.status}`).trim()}`
+      );
+    }
+    registered = true;
+    const pinned = run('git', ['update-ref', 'refs/heads/sflow-fresh-install-source', source.commit], {
+      cwd: staged, env: environment, allowFailure: true, timeoutClass: 'local-read'
+    });
+    const selected = pinned.status === 0
+      ? run('git', ['symbolic-ref', 'HEAD', 'refs/heads/sflow-fresh-install-source'], {
+        cwd: staged, env: environment, allowFailure: true, timeoutClass: 'local-read'
+      })
+      : { status: 1, stdout: '', stderr: '' };
+    if (pinned.status !== 0 || selected.status !== 0) {
+      throw new SingularityFlowError('Git could not pin the private fresh-install source revision.');
+    }
+    const detached = run('git', ['remote', 'remove', 'origin'], {
+      cwd: staged, env: environment, allowFailure: true, timeoutClass: 'local-read'
+    });
+    if (detached.status !== 0) {
+      throw new SingularityFlowError('Git could not detach the private fresh-install source from its mutable origin.');
+    }
+    // Populate the no-checkout clone's index without touching the worktree, then write
+    // every admitted blob ourselves. `checkout-index` would execute repository/global smudge and
+    // process filters, turning Git configuration into pre-reset code execution authority.
+    const indexed = run('git', [
+      '-c', `core.hooksPath=${hooks}`, 'read-tree', '--reset', source.commit
+    ], { cwd: staged, env: environment, allowFailure: true, timeoutClass: 'local-read' });
+    if (indexed.status !== 0) {
+      throw new SingularityFlowError(
+        `Git could not index the pinned fresh-install tree: ${(indexed.stderr || indexed.stdout || `exit ${indexed.status}`).trim()}`
+      );
+    }
+    const blobs = readLocalGitBlobs(staged, (source.entries ?? []).map((entry) => entry.object), {
+      env: environment,
+      label: 'Fresh-install source tree',
+      code: 'FRESH_INSTALL_SOURCE_INVALID'
+    });
+    for (const entry of source.entries ?? []) {
+      const target = freshInstallMaterializedPath(staged, entry.relative);
+      const blob = blobs.get(entry.object);
+      if (!blob) {
+        throw new SingularityFlowError(
+          `Git could not read admitted blob ${entry.object} for ${entry.relative}.`
+        );
+      }
+      await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
+      await writeFile(target, blob, { mode: entry.mode === '100755' ? 0o755 : 0o644 });
+      await chmod(target, entry.mode === '100755' ? 0o755 : 0o644);
+      const written = await readFile(target);
+      const identity = freshInstallBlobIdentity(written, entry.object);
+      if (identity !== entry.object) {
+        throw new SingularityFlowError(
+          `The private fresh-install bytes for ${entry.relative} do not match admitted blob ${entry.object}.`
+        );
+      }
+    }
+
+    const stagedCommit = run('git', ['rev-parse', '--verify', 'HEAD^{commit}'], {
+      cwd: staged, env: environment, allowFailure: true, timeoutClass: 'local-read'
+    });
+    const stagedTree = run('git', ['rev-parse', '--verify', 'HEAD^{tree}'], {
+      cwd: staged, env: environment, allowFailure: true, timeoutClass: 'local-read'
+    });
+    if (stagedCommit.status !== 0 || stagedCommit.stdout.trim() !== source.commit
+        || stagedTree.status !== 0 || stagedTree.stdout.trim() !== source.tree) {
+      throw new SingularityFlowError('The private fresh-install source does not match the admitted commit and tree.');
+    }
+    for (const relative of FRESH_INSTALL_TRUST_PATHS) {
+      const stagedBytes = await readFile(path.join(staged, relative));
+      if (!stagedBytes.equals(source.bytes.get(relative))) {
+        throw new SingularityFlowError(`The private fresh-install ${relative} bytes differ from the admitted installer source.`);
+      }
+    }
+    const dirty = await freshInstallChanges(staged, environment, source.entries ?? []);
+    if (dirty.result.status !== 0 || !dirty.changes || dirty.changes.length) {
+      throw new SingularityFlowError(
+        'The private fresh-install source was not a clean materialization of the admitted tree.'
+      );
+    }
+    return staging;
+  } catch (error) {
+    if (registered) await removeFreshInstallWorktree(staging).catch(() => false);
+    else await rm(parent, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+export async function disposeFreshInstallSource(staging) {
+  return removeFreshInstallWorktree(staging, { throwOnFailure: true });
+}
+
+function renderFreshInstallPlan(plan) {
+  console.log(`Singularity Flow fresh-install reset — ${plan.completed ? 'complete' : 'preview'}`);
+  console.log(`Registered workspaces to delete: ${plan.workspaces.length}`);
+  for (const workspace of plan.workspaces) console.log(`- ${workspace.name}: ${workspace.path}`);
+  if (plan.missingRegistrations.length) {
+    console.log(`Already-missing registrations: ${plan.missingRegistrations.length}`);
+    for (const target of plan.missingRegistrations) console.log(`- ${target}`);
+  }
+  if (plan.installerGeneratedPaths.length) {
+    console.log('Generated state in this installer checkout:');
+    for (const target of plan.installerGeneratedPaths) console.log(`- ${target}`);
+  }
+  console.log('Additional reset targets:');
+  for (const target of plan.remove.slice(plan.installerGeneratedPaths.length + plan.workspaces.length)) {
+    console.log(`- ${target}`);
+  }
+  if (!plan.completed) {
+    console.log('\nPreview only: nothing was deleted. Review the paths above, then add --yes.');
+  }
+}
+
 async function freshInstallCommand(options) {
   if (optionBoolean(options, 'json')) {
     throw new SingularityFlowError('fresh-install streams the installer output and does not support --json. Run it without --json.');
   }
   const requestedCheckout = path.resolve(optionString(options, 'checkout', process.cwd()));
   const checkout = await realpath(requestedCheckout).catch(() => requestedCheckout);
-  const resolved = run('git', ['rev-parse', '--show-toplevel'], { cwd: checkout, allowFailure: true });
-  if (resolved.status !== 0 || path.resolve(resolved.stdout.trim()) !== checkout) {
+  const resolved = run('git', ['rev-parse', '--show-toplevel'], {
+    cwd: checkout,
+    env: freshInstallGitEnvironment(),
+    allowFailure: true,
+    timeoutClass: 'local-read'
+  });
+  if (resolved.status !== 0 || !sameResetPathIdentity(resolved.stdout, checkout)) {
     throw new SingularityFlowError(
       `Fresh install requires the root of a Singularity Flow source checkout. Use --checkout <directory>: ${checkout}`
     );
   }
-  const packageFile = path.join(checkout, 'package.json');
-  const installer = path.join(checkout, 'install.sh');
-  const packageInfo = await lstat(packageFile).catch(() => null);
-  const installerInfo = await lstat(installer).catch(() => null);
-  if (!packageInfo?.isFile() || packageInfo.isSymbolicLink() || !installerInfo?.isFile() || installerInfo.isSymbolicLink()) {
-    throw new SingularityFlowError(`The selected checkout does not contain regular package.json and install.sh files: ${checkout}`);
-  }
+  const cliOnly = optionBoolean(options, 'cli-only');
+  // Resolve every local prerequisite and the exact registry before even previewing a destructive
+  // apply. In particular, a missing Git Bash or invalid registry must leave every workspace and
+  // machine-state byte untouched.
+  const runtime = preflightFreshInstallRuntime({
+    cliOnly,
+    registry: optionString(options, 'registry'),
+    environment: process.env
+  });
+  const resetOptions = {
+    homeDirectory: os.homedir(),
+    projectDirectory: checkout,
+    environment: process.env
+  };
+  // Classify only the fixed installer-owned roots first. Source admission still rejects every
+  // unrelated byte, while these candidates make the documented generated-root cleanup reachable.
+  // The complete reset planner below repeats the classification and refuses any discrepancy before
+  // deletion.
+  const installerGeneratedPaths = await installerGeneratedResetPaths(checkout, {
+    environment: process.env
+  });
+  const source = await trustedFreshInstallSource(checkout, {
+    installerGeneratedPaths
+  });
+  const preview = await freshInstallResetPlan(resetOptions);
   let manifest;
-  try { manifest = JSON.parse(await readFile(packageFile, 'utf8')); }
-  catch (error) { throw new SingularityFlowError(`Unable to read ${packageFile}: ${error.message}`); }
+  try { manifest = JSON.parse(source.bytes.get('package.json').toString('utf8')); }
+  catch (error) { throw new SingularityFlowError(`Unable to read ${path.join(checkout, 'package.json')}: ${error.message}`); }
   if (manifest.name !== 'singularity-flow') {
     throw new SingularityFlowError(`The selected checkout is not the Singularity Flow product repository: ${checkout}`);
   }
-  const trackedInstaller = run('git', ['ls-files', '--error-unmatch', '--', 'install.sh'], {
-    cwd: checkout,
-    allowFailure: true
-  });
-  if (trackedInstaller.status !== 0) {
-    throw new SingularityFlowError(`Refusing to run an untracked installer: ${installer}`);
+  const confirmed = optionBoolean(options, 'yes');
+  if (!confirmed) {
+    renderFreshInstallPlan(preview);
+    return { checkout, sourceRevision: source.commit, sourceTree: source.tree, applied: false };
   }
-  const installerArgs = [installer, '--factory-reset'];
-  if (optionBoolean(options, 'yes')) installerArgs.push('--yes');
-  const registry = optionString(options, 'registry');
-  if (registry) installerArgs.push('--registry', registry);
-  if (optionBoolean(options, 'cli-only')) installerArgs.push('--cli-only');
-  if (options['copilot-telemetry'] === false) installerArgs.push('--no-copilot-telemetry');
-  const result = run('bash', installerArgs, { cwd: checkout, stdio: 'inherit', allowFailure: true });
-  if (result.status !== 0) {
-    throw new SingularityFlowError(`Fresh install failed with exit code ${result.status}. Review the installer output above.`);
+
+  let staging = await stageTrustedFreshInstallSource(checkout, source);
+  let retainForRecovery = false;
+  try {
+    const syntax = run('bash', ['-n'], {
+      cwd: staging.checkout,
+      input: source.bytes.get('install.sh'),
+      allowFailure: true
+    });
+    if (syntax.status !== 0) {
+      throw new SingularityFlowError(
+        `The admitted install.sh did not pass Bash syntax validation: ${(syntax.stderr || syntax.stdout || `exit ${syntax.status}`).trim()}`
+      );
+    }
+
+    // Perform the destructive reset inside the already-running, installed CLI. Delegating it to a
+    // checkout module before `npm ci` would let ignored dependencies participate in deletion.
+    // freshInstallReset plans again while holding the machine barrier, so a late registry or dirty
+    // checkout change is still refused before its first rename.
+    const reset = await freshInstallReset({
+      ...resetOptions,
+      confirmation: FRESH_INSTALL_CONFIRMATION
+    });
+    renderFreshInstallPlan(reset);
+
+    // The private standalone clone is fixed to the admitted commit/tree. The caller's branch can
+    // move cleanly during reset without changing installation input. Feed the already-admitted
+    // installer through stdin as a second check-to-execute defence; every other source byte comes
+    // from that private worktree. The origin variables affect only the durable success receipt.
+    const installerArgs = ['-s', '--', '--no-update', '--registry', runtime.registry];
+    if (cliOnly) installerArgs.push('--cli-only');
+    if (options['copilot-telemetry'] === false) installerArgs.push('--no-copilot-telemetry');
+    const result = run('bash', installerArgs, {
+      cwd: staging.checkout,
+      env: {
+        ...freshInstallGitEnvironment(),
+        SINGULARITY_FLOW_FRESH_INSTALL_ORIGIN: checkout,
+        SINGULARITY_FLOW_FRESH_INSTALL_COMMIT: source.commit,
+        SINGULARITY_FLOW_FRESH_INSTALL_TREE: source.tree
+      },
+      stdio: ['pipe', 'inherit', 'inherit'],
+      input: source.bytes.get('install.sh'),
+      allowFailure: true
+    });
+    if (result.status !== 0) {
+      retainForRecovery = true;
+      throw new SingularityFlowError(
+        `Fresh install failed with exit code ${result.status}. The exact staged source was retained at ${staging.checkout}. `
+        + 'After reviewing the installer output, run the exact journal-bound recovery command it printed, if present; '
+        + 'that command streams the pinned installer blob and carries the original checkout and commit/tree binding. '
+        + 'If no recovery command was printed, retry fresh-install from the original checkout.'
+      );
+    }
+    await disposeFreshInstallSource(staging);
+    staging = null;
+    return { checkout, sourceRevision: source.commit, sourceTree: source.tree, applied: true };
+  } catch (error) {
+    if (staging && !retainForRecovery) await removeFreshInstallWorktree(staging).catch(() => false);
+    throw error;
   }
-  return { checkout, applied: optionBoolean(options, 'yes') };
 }
 
 async function reinstallCommand(options) {
@@ -12909,19 +13480,19 @@ async function epicCommand(positionals, options) {
       if (optionBoolean(options, 'dry-run')) {
         if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ plan: result.plan, publication: null }, null, 2));
         console.log(`Jira write plan ${result.plan.sha256} previewed. Nothing was committed or pushed.`);
-        console.log(`Publish it with singularity-flow epic jira apply.`);
+        console.log(`Next command: singularity-flow epic jira apply --epic ${initiativeId} --plan ${result.plan.sha256} --confirm ${initiativeId}`);
         return;
       }
       const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { system: 'jira', operation: 'plan', planSha256: result.plan.sha256 } }, `[${initiativeId}][epic:jira-plan] ${result.plan.sha256.slice(0, 12)}`);
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ plan: result.plan, publication }, null, 2));
       console.log(`Created and published Jira write plan ${result.plan.sha256}.`);
-      console.log(`Review it, then run singularity-flow epic create-stories --plan ${result.plan.sha256}.`);
+      console.log(`Review it, then run: singularity-flow epic jira apply --epic ${initiativeId} --plan ${result.plan.sha256} --confirm ${initiativeId}`);
       return;
     }
     if (optionBoolean(options, 'dry-run')) {
       throw new SingularityFlowError(
         `Applying reviewed plan ${planSha256} writes to Jira and cannot be previewed. `
-        + 'Run singularity-flow epic jira apply --plan <sha256> when you are ready.');
+        + `After review, run exactly: singularity-flow epic jira apply --epic ${initiativeId} --plan ${planSha256} --confirm ${initiativeId}`);
     }
     if (!(await confirmInitiativeExact(`Create the reviewed Jira Stories and canonical Git branches for ${initiativeId}?`, initiativeId, options))) throw new SingularityFlowError('Epic Story creation cancelled.');
     const applied = await applyJiraWritePlan(root, initiativeId, {
@@ -12971,12 +13542,34 @@ async function epicCommand(positionals, options) {
   if (subcommand === 'complete') {
     const root = repoRoot();
     const initiativeId = positionals[2] ?? branch(root);
+    const completionActor = identity(root);
+    const previewState = await loadInitiativeAggregate(root, initiativeId);
+    const authorization = await epicCompletionAuthorizationStatus(root, initiativeId, {
+      actor: completionActor,
+      initiative: previewState.initiative
+    });
     if (optionBoolean(options, 'dry-run')) {
-      const readiness = await epicDeliveryReadiness(root, initiativeId);
-      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(readiness, null, 2));
+      const readiness = await epicDeliveryReadiness(root, initiativeId, {
+        portfolio: previewState.portfolio,
+        initiative: previewState.initiative
+      });
+      const preview = { ...readiness, authorization };
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(preview, null, 2));
       console.log(`Epic ${initiativeId}: ${readiness.readyStories}/${readiness.requiredStories} blocking Stories ready.`);
+      console.log(`${authorization.ready ? '✓' : '!'} Completion authority: ${authorization.ready
+        ? `${authorization.actor} belongs to ${authorization.requiredAuthority}`
+        : authorization.message}`);
+      console.warn(`Warning: ${authorization.warning}`);
       readiness.stories.forEach((story) => console.log(`${story.ready ? '✓' : story.blocking ? '!' : '○'} ${story.workId} · ${story.status}${story.problems.length ? ` · ${story.problems.join('; ')}` : ''}`));
       return;
+    }
+    // Authorization is checked before asking for a destructive confirmation. It is checked again
+    // against the fresh post-synchronization aggregate inside the revision-bound publication unit.
+    if (!authorization.ready) {
+      await assertEpicCompletionAuthorized(root, initiativeId, {
+        actor: completionActor,
+        initiative: previewState.initiative
+      });
     }
     if (!(await confirmInitiativeExact(`Mark Epic ${initiativeId} complete against the exact Story review and conformance hashes?`, initiativeId, options))) {
       throw new SingularityFlowError('Epic completion cancelled.');
@@ -12984,11 +13577,28 @@ async function epicCommand(positionals, options) {
     const synchronized = await syncInitiativeRepositories(root, initiativeId);
     const synced = await loadInitiativeAggregate(root, initiativeId);
     const syncPublication = await commitInitiativeChange(root, synced.portfolio, synced.initiative, { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { operation: 'completion-preflight' } }, `[${initiativeId}][epic:sync] completion preflight`);
-    const result = await completeEpicDelivery(root, initiativeId, {
-      confirmation: initiativeId,
-      actor: identity(root)
+    // The synchronization publication changes both HEAD and the persisted Initiative fingerprint.
+    // Reload instead of reusing `synced`: its revision token deliberately names the pre-sync state,
+    // so a second transaction with that aggregate must fail the state CAS.
+    const completionState = await loadInitiativeAggregate(root, initiativeId);
+    let result;
+    const publication = await commitInitiativeChange(root, completionState.portfolio, completionState.initiative, {
+      type: LIFECYCLE_EVENT.WORK_COMPLETED,
+      payload: { operation: 'epic-delivery-completion' }
+    }, `[${initiativeId}][epic:complete] governed decision`, {
+      beforeStateWrite: async () => {
+        result = await completeEpicDelivery(root, initiativeId, {
+          confirmation: initiativeId,
+          actor: completionActor,
+          portfolio: completionState.portfolio,
+          initiative: completionState.initiative
+        });
+        return result;
+      },
+      eventFromResult: (transitionResult) => ({
+        payload: { completionSha256: transitionResult.record.sha256 }
+      })
     });
-    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: LIFECYCLE_EVENT.WORK_COMPLETED, payload: { completionSha256: result.record.sha256 } }, `[${initiativeId}][epic:complete] ${result.record.sha256.slice(0, 12)}`);
     const output = { record: result.record, reportPath: result.reportPath, synchronized, publications: { sync: syncPublication, completion: publication } };
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(output, null, 2));
     console.log(`Epic ${initiativeId} marked complete.`);

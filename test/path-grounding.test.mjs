@@ -76,10 +76,12 @@ test('the skill boundary lattice keeps entry points storyless without weakening 
     'sflow-workspace-session', 'sflow-workspaces'
   ];
   const repositoryEntry = [
-    'sflow-adhoc', 'sflow-auto', 'sflow-factory-reset', 'sflow-init', 'sflow-reset-all',
-    'sflow-resume', 'sflow-return', 'sflow-session', 'sflow-sgos-create', 'sflow-learn', 'sflow-start',
-    'sflow-story-fetch', 'sflow-story-inbox', 'sflow-story-start', 'sflow-workflows',
-    'sflow-workspace-impact', 'sflow-worldmodel'
+    'sflow-adhoc', 'sflow-approvals', 'sflow-auto', 'sflow-documents', 'sflow-factory-reset',
+    'sflow-impact', 'sflow-inbox', 'sflow-init', 'sflow-inspect', 'sflow-learn', 'sflow-nextsteps',
+    'sflow-progress', 'sflow-receipt', 'sflow-report', 'sflow-reset-all', 'sflow-resume', 'sflow-return',
+    'sflow-session', 'sflow-sgos-create', 'sflow-snapshot', 'sflow-stack', 'sflow-start', 'sflow-status',
+    'sflow-story-fetch', 'sflow-story-inbox', 'sflow-story-start', 'sflow-upload', 'sflow-watch',
+    'sflow-workflows', 'sflow-workspace-impact', 'sflow-worldmodel'
   ];
   for (const name of machineEntry) {
     assert.equal(registry.skills[name]?.executionBoundary, 'machine', `${name} must work before repository or Story selection`);
@@ -125,8 +127,9 @@ test('every generated skill boundary forbids home search and uses only its decla
       assert.doesNotMatch(declared, /session current|ready.*workId/, name);
     } else {
       assert.equal(executionBoundary, 'story', `${name} declares an unknown execution boundary`);
-      assert.match(declared, /`singularity-flow session current --json` → verified `ready`\/`workId`, cwd=`repositoryPath`/, name);
-      assert.match(declared, /`singularity\/work-items\/<WORK-ID>\/`/, name);
+      assert.match(declared, /`singularity-flow session current --json` → `ready`\/`workId`, cwd=`repositoryPath`/, name);
+      assert.match(declared, /use CLI\/`workItemRoot` paths/, name);
+      assert.doesNotMatch(content, /singularity\/work-items\/<WORK-ID>/, name);
     }
   }
 });

@@ -7,18 +7,18 @@ argument-hint: "show|explain <ELEMENT-ID>|sources <ELEMENT-ID>|validate|doctor|e
 # Inspect generated architecture
 
 <!-- sflow-output-contract: explicit-selection -->
-**Output contract:** Collect required choices explicitly; never infer; preserve errors and next actions.
+**Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
 1. Run `singularity-flow workspace current --json`; use verified `repositoryPath` as cwd.
-2. For a base overview run `singularity-flow architecture show`. For one element run `architecture explain <ELEMENT-ID>` or `architecture sources <ELEMENT-ID>`.
+2. For a base overview run `singularity-flow architecture show`. For one element run `singularity-flow architecture explain <ELEMENT-ID>` or `singularity-flow architecture sources <ELEMENT-ID>`.
 3. Use `--work-id <ID> --planned` only for an explicitly requested approved Story overlay.
-4. Use `architecture validate` or `architecture doctor` for read-only diagnosis.
+4. Use `singularity-flow architecture validate` or `singularity-flow architecture doctor` for read-only diagnosis.
 5. Export only to an explicitly supplied repository-relative destination. Run `singularity-flow architecture export --format calm --out <FILE>` as preflight, show destination, digest and effects, then ask for confirmation. Only then rerun with its `--confirm <SHA256>`.
 6. When the user explicitly asks to create an architecture intent, require an exact Work ID and repository-relative candidate file, show the exact mutation, then run `singularity-flow architecture intent init --work-id <ID> --from <FILE>`. The candidate must name the active owner phase and may omit `generation`; omission means the owner's next publication (`P+1`). Report whether the draft was created or already identical. Do not hand-edit the managed intent.
 7. When the user explicitly asks to revise an existing intent, first show its current digest, require the exact `--expect-intent sha256:<DIGEST>` value and a repository-relative candidate file, then run `singularity-flow architecture intent revise --work-id <ID> --from <FILE> --expect-intent sha256:<DIGEST>`. Revision is a compare-and-swap under the Story lock and cannot change the owner phase or generation. On conflict, re-read and ask the user to review the newer intent; never retry with a substituted digest.
 8. For explicit verification, run `singularity-flow architecture intent verify --work-id <ID>`. On dirty-source refusal, stop without capture. Append `--candidate-snapshot sha256:<DIGEST>` only when the user supplied the exact reviewed current Candidate; never substitute an older one. For `WMC_INTENT_REPORT_MISMATCH`, preserve the report, repair the named input, rerun verification, and review the replacement before retrying the gate.
 9. Init/revise creates only an unapproved draft. Governed order is owner-phase publish, submit, approve; enforcement consumes only that publication-bound approval.
-10. Never edit `singularity/world-model/projections/arch.calm.json`, its source map, a planned projection, a managed architecture intent, or a receipt. Direct the user to the exact source returned by `architecture explain`.
+10. Never edit `singularity/world-model/projections/arch.calm.json`, its source map, a planned projection, a managed architecture intent, or a receipt. Direct the user to the exact source returned by `singularity-flow architecture explain`.
 11. Never call a model, approve an intent, publish or submit a Story phase, or execute a returned lifecycle action.

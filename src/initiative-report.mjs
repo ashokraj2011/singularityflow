@@ -272,7 +272,7 @@ async function resolveInitiativeNextActions(root, initiativeId) {
     action: 'materialize',
     command: initiative.resolution.profile === 'epic-planning'
       ? `singularity-flow epic create-stories --epic ${initiativeId}`
-      : `singularity-flow initiative materialize ${initiativeId} --dry-run`,
+      : `singularity-flow initiative materialize --initiative ${initiativeId} --dry-run`,
     reason: initiative.resolution.profile === 'epic-planning'
       ? 'The combined Story plan and specification package is approved, but Jira Stories and canonical repository branches have not been fully materialized.'
       : 'The Story plan is approved but repository Story branches have not been fully materialized.'

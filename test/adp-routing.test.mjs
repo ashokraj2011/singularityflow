@@ -67,7 +67,10 @@ test('every shipped contract class routes somewhere', async () => {
   assert.match(boundary, /ready.*workId/);
   assert.match(boundary, /cwd=`repositoryPath`/);
   assert.match(boundary, /never `\$HOME`/);
-  assert.match(boundary, /singularity\/work-items\/<WORK-ID>\//);
+  assert.match(boundary, /CLI\/`workItemRoot` paths/,
+    'Story skills must use the immutable CLI-resolved work-item root');
+  assert.doesNotMatch(boundary, /singularity\/work-items\/<WORK-ID>\//,
+    'the generated boundary must not hardcode the legacy work-item layout');
 });
 
 test('the class that both asks and drafts is told which it is doing', () => {

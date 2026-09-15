@@ -9,7 +9,7 @@ argument-hint: "[WORK-ID] [--include <slice>]"
 <!-- sflow-output-contract: concise-relay -->
 **Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
+**Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
 1. Run `singularity-flow snapshot $ARGUMENTS --json`.
 2. Preserve the revision, included slices, freshness, not-modified result, warnings, and timings.

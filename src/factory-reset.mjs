@@ -310,7 +310,12 @@ async function directoryChainGuard(root, relativeDirectory, label) {
     if (info && !info.isDirectory()) {
       throw new SingularityFlowError(`${label} must contain only directories: ${target}`);
     }
-    entries.push({ target, token: statToken(info), exists: Boolean(info) });
+    // A directory guard protects pathname identity, not directory contents. Reset itself and
+    // unrelated processes may legitimately add/remove children (notably in the system temp
+    // directory), which changes size/mtime/ctime without redirecting the path. Device, inode,
+    // mode, and birth time still detect replacement or a symlink swap without treating those
+    // harmless child mutations as a collision.
+    entries.push({ target, token: objectIdentityToken(info), exists: Boolean(info) });
   }
   return { label, entries };
 }
@@ -318,10 +323,10 @@ async function directoryChainGuard(root, relativeDirectory, label) {
 async function assertDirectoryChainGuard(guard) {
   for (const expected of guard.entries) {
     const current = await stableLstat(expected.target);
-    if (Boolean(current) !== expected.exists || statToken(current) !== expected.token) {
+    if (Boolean(current) !== expected.exists || objectIdentityToken(current) !== expected.token) {
       throw resetCollision(
         `${guard.label} changed while factory reset was operating. No path through the changed parent was modified.`,
-        { path: expected.target, expected, current: current ? statToken(current) : null }
+        { path: expected.target, expected, current: current ? objectIdentityToken(current) : null }
       );
     }
   }

@@ -34,7 +34,7 @@ folder or branch names, and do not repair governed state by hand.
    initialize a state branch, rebuild a model, or change policy unless asked.
 
 For an unrelated-history proposal, offer the two fsck-reported choices: recreate the
-capability from current `sflow/config`, or run the guarded `capability discard-proposal`
+capability from current `sflow/config`, or run the guarded `singularity-flow capability discard-proposal`
 command with the full current commit and a contributor-supplied reason. Never use raw
 Git deletion, and never discard a valid proposal.
 

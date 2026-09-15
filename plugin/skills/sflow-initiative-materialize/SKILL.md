@@ -12,10 +12,11 @@ argument-hint: "[--initiative INIT-ID]"
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
-1. Run `singularity-flow initiative breakdown --json` and `singularity-flow initiative materialize --dry-run --json`.
-2. Show every Epic, story, repository, branch, blocking flag, dependency, contract, Jira operation, and reachability problem.
-3. Ask the contributor to type the exact initiative ID. Never infer, autocomplete, or submit it on their behalf.
-4. Run `singularity-flow initiative materialize` in a persistent terminal and send the exact user-entered ID to that process. If persistent input is unavailable, stop without mutation; materialization has no bypass flag.
-5. Report each repository/branch/commit receipt, Jira receipt when enabled, partial failure, retry status, commit, and push.
+1. Require the exact initiative ID from the invocation or ask the contributor for it. Never infer or autocomplete it.
+2. Run `singularity-flow initiative breakdown --initiative <INIT-ID> --json` and `singularity-flow initiative materialize --initiative <INIT-ID> --dry-run --json`.
+3. Show every Epic, story, repository, branch, blocking flag, dependency, contract, Jira operation, and reachability problem.
+4. Ask the contributor to type the exact initiative ID as mutation confirmation. Never infer, autocomplete, or submit it on their behalf.
+5. Only after that exact confirmation, run `singularity-flow initiative materialize --initiative <INIT-ID> --confirm <INIT-ID> --json`. A persistent terminal is not required; never supply or infer the confirmation before the contributor provides it.
+6. Report each repository/branch/commit receipt, Jira receipt when enabled, partial failure, retry status, commit, and push.
 
 Never force-push, overwrite an unrelated branch, or describe a partial result as complete.

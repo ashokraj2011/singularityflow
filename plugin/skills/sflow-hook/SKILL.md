@@ -9,7 +9,7 @@ argument-hint: "turn-intent|turn-end|agent-start|session-start|agent-guard"
 <!-- sflow-output-contract: deterministic-mutation -->
 **Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
+**Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
 Hooks are host integration points, not shortcuts for lifecycle commands.
 

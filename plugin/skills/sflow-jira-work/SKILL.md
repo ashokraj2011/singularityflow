@@ -15,7 +15,7 @@ argument-hint: "[WORK-ID] [--project KEY] [--type Story]"
 No MCP server or IDE Jira plugin is used.
 
 - Check the connection with `/sf-jira-status`.
-- List assigned work with `/sf-jira-assigned` (`singularity-flow jira assigned`; `jira list` remains an alias).
+- List assigned work with `/sf-jira-assigned` (`singularity-flow jira assigned`; `singularity-flow jira list` remains an alias).
 - Browse active and future sprint Stories without backlog with `/sf-jira-board`.
 - Make a separately confirmed status, assignee, priority, sprint, or comment change with `/sf-jira-update`.
 - Retrieve a specific item with `singularity-flow jira pull <WORK-ID>` (`show` remains an alias).

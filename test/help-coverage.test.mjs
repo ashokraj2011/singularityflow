@@ -38,6 +38,24 @@ test('every registered command has a served topic and complete command page', as
   }
 });
 
+test('phase and Epic help expose the guarded forms used by Copilot skills', () => {
+  const phase = renderCommandHelp('phase');
+  const initiative = renderCommandHelp('initiative');
+  const epic = renderCommandHelp('epic');
+  assert.match(phase, /singularity-flow phase draft-check \[PHASE\] \[--json\]/);
+  assert.match(initiative, /singularity-flow initiative phase draft-check \[PHASE\] \[--initiative INIT-ID\] \[--json\]/);
+  assert.match(epic, /singularity-flow epic jira apply --epic EPIC-KEY --plan SHA256 --confirm EPIC-KEY/);
+});
+
+test('canonical manuals require exact Epic confirmation for completion', async () => {
+  for (const file of ['HELP.md', 'README.md']) {
+    const source = await readFile(path.join(root, file), 'utf8');
+    assert.match(source,
+      /singularity-flow epic complete <EPIC-KEY> --confirm <EPIC-KEY>|singularity-flow epic complete MOB-100 --confirm MOB-100/,
+      `${file} omits exact Epic completion confirmation`);
+  }
+});
+
 test('every served topic is a surface-aware tutorial', async () => {
   const topics = await loadTopics();
   assert.equal(topics.length, 64);

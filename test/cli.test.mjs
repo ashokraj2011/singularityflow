@@ -52,11 +52,49 @@ test('--help --all prints the complete usage reference', () => {
     assert.match(result.stdout, /singularity-flow agent \[WORK-ID\]/);
     assert.match(result.stdout, /singularity-flow inbox \[--offline\] \[--json\]/);
     assert.match(result.stdout, /singularity-flow phase show \[PHASE\] \[--json\]/);
+    assert.match(result.stdout, /singularity-flow phase draft-check \[PHASE\] \[--json\]/);
+    assert.match(result.stdout, /singularity-flow initiative phase draft-check \[PHASE\]/);
+    assert.match(result.stdout, /singularity-flow epic jira apply --epic EPIC-KEY --plan SHA256 --confirm EPIC-KEY/);
     assert.match(result.stdout, /singularity-flow factory-reset \[--dry-run\]/);
     assert.match(result.stdout, /sflow reset-all \[--yes\]/);
     assert.match(result.stdout, /singularity-flow fresh-install \[--checkout DIRECTORY\]/);
     assert.match(result.stdout, /singularity-flow wm cleanup \[--force\]/);
   }
+});
+
+test('runtime Epic Jira guidance carries every exact guarded operand', async () => {
+  const source = await readFile(path.join(root, 'src', 'cli.mjs'), 'utf8');
+  assert.doesNotMatch(source, /Publish it with singularity-flow epic jira apply\.`/,
+    'a preview must not recommend an apply command without its Epic, plan, and confirmation');
+  assert.doesNotMatch(source, /Review it, then run singularity-flow epic create-stories --plan/,
+    'published plans must use the reviewed epic jira apply surface');
+  assert.doesNotMatch(source, /Run singularity-flow epic jira apply --plan <sha256>/,
+    'a refusal must not omit the exact Epic and confirmation operands');
+  assert.match(source,
+    /singularity-flow epic jira apply --epic \$\{initiativeId\} --plan \$\{result\.plan\.sha256\} --confirm \$\{initiativeId\}/);
+  assert.match(source,
+    /singularity-flow epic jira apply --epic \$\{initiativeId\} --plan \$\{planSha256\} --confirm \$\{initiativeId\}/);
+});
+
+test('Epic completion checks authority before confirmation and publishes the decision as one unit of work', async () => {
+  const source = await readFile(path.join(root, 'src', 'cli.mjs'), 'utf8');
+  const start = source.indexOf("if (subcommand === 'complete')", source.indexOf('async function epicCommand'));
+  const end = source.indexOf("if (subcommand === 'review-choice')", start);
+  assert.ok(start >= 0 && end > start, 'Epic completion command block must remain discoverable');
+  const block = source.slice(start, end);
+  const authority = block.indexOf('epicCompletionAuthorizationStatus');
+  const confirmation = block.indexOf('confirmInitiativeExact');
+  assert.ok(authority >= 0 && authority < confirmation,
+    'completion authority must be resolved before exact confirmation is requested');
+  assert.match(block, /const preview = \{ \.\.\.readiness, authorization \}/,
+    'dry-run must expose authorization readiness alongside delivery readiness');
+  assert.match(block,
+    /const syncPublication = await commitInitiativeChange[\s\S]*const completionState = await loadInitiativeAggregate[\s\S]*commitInitiativeChange\(root, completionState\.portfolio, completionState\.initiative/,
+    'completion must reload the persisted Initiative revision after its synchronization publication');
+  assert.match(block, /commitInitiativeChange[\s\S]*beforeStateWrite:[\s\S]*completeEpicDelivery/,
+    'completion artifact and state writes must occur inside the publication unit of work');
+  assert.match(block, /eventFromResult:[\s\S]*completionSha256/,
+    'the finalized completion digest must be bound into the lifecycle event');
 });
 
 test('package exposes the one-shot sf-reset-all executable', async () => {

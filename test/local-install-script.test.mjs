@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
-import { chmod, copyFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -122,14 +122,26 @@ test('local installer performs a safe ordered pull, pack, global install, and pl
   assert.match(script, /REINSTALL_ARGS=\(reinstall --checkout "\$PROJECT_DIR"\)/);
   assert.ok(script.indexOf('if [[ "$CLEAN_REINSTALL" == "on" ]]') < script.indexOf('REQUIRED_COMMANDS=(git node npm)'),
     'clean reinstall must delegate before the normal installer can require or execute Git');
-  assert.match(script, /fresh-install-reset\.mjs --yes/);
-  assert.ok(script.indexOf('fresh-install-reset.mjs --yes') < script.indexOf("git status --porcelain"));
+  assert.doesNotMatch(script, /node scripts\/fresh-install-reset\.mjs/,
+    'direct installer reset must not load checkout JavaScript before npm ci');
+  assert.ok(script.indexOf('direct ./install.sh --factory-reset is no longer a trusted entry point')
+    < script.indexOf('REQUIRED_COMMANDS=(git node npm)'),
+  'legacy reset must refuse before checkout commands or dependencies can run');
   assert.match(script, /code --uninstall-extension singularityflow\.singularity-flow-vscode/);
   assert.match(script, /npm run vscode:package/);
   assert.match(script, /WARNING: full test suite skipped by request/);
   assert.match(script, /code --install-extension "\$VSIX_PATH" --force/);
   assert.match(script, /activation-current\.json/);
   assert.match(script, /INSTALL_RECOVERY_COMMAND/);
+  assert.match(script, /git -C "\$origin" cat-file blob "\$expected" > "\$temporary"/,
+    'guarded recovery materializes the pinned Git blob instead of executing a mutable retained file');
+  assert.match(script, /git -C "\$origin" hash-object --no-filters "\$temporary"/,
+    'guarded recovery verifies the complete materialized blob before Bash parses it');
+  assert.match(script, /SINGULARITY_FLOW_FRESH_INSTALL_ORIGIN="\$origin"/);
+  assert.match(script, /if ! rm -f -- "\$PINNED_INSTALL_ARTIFACT_HELPER"; then[\s\S]*installation is complete/,
+    'best-effort validator cleanup must not turn a committed installation into a false failure');
+  assert.match(script, /"\$INSTALL_RECEIPT_CHECKOUT"[\s\S]*"\$\{INSTALL_RECEIPT_SOURCE_COMMIT:--\}" "\$\{INSTALL_RECEIPT_SOURCE_TREE:--\}"/,
+    'the durable receipt names the original checkout and immutable admitted source');
   assert.match(script, /lease-acquire/);
   assert.match(script, /lease-heartbeat/);
   assert.match(script, /lease-release/);
@@ -845,6 +857,339 @@ test('Unix installer rejects Node older than 20 before checkout or package mutat
   });
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /Node\.js 20 or newer is required; found v18\.20\.8/);
+});
+
+test('legacy direct factory reset refuses before loading ignored checkout code', async () => {
+  const fixture = await mkdtemp(path.join(os.tmpdir(), 'sflow-legacy-factory-reset-'));
+  await copyFile(path.join(root, 'install.sh'), path.join(fixture, 'install.sh'));
+  await chmod(path.join(fixture, 'install.sh'), 0o755);
+  await mkdir(path.join(fixture, 'scripts'), { recursive: true });
+  await writeFile(path.join(fixture, 'scripts', 'fresh-install-reset.mjs'),
+    'await import("node:fs/promises").then(({writeFile}) => writeFile("checkout-code-ran", "yes"));\n');
+
+  const result = spawnSync('bash', [path.join(fixture, 'install.sh'), '--factory-reset', '--yes'], {
+    cwd: fixture,
+    encoding: 'utf8'
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /direct \.\/install\.sh --factory-reset is no longer a trusted entry point/);
+  assert.match(result.stderr, /singularity-flow fresh-install --checkout/);
+  assert.equal(await stat(path.join(fixture, 'checkout-code-ran')).then(() => false, () => true), true);
+});
+
+test('source reset helper is preview-only and renders a shell-safe installed-CLI handoff', async (t) => {
+  const fixture = await mkdtemp(path.join(os.tmpdir(), 'sflow-source-reset-helper-'));
+  const home = path.join(fixture, 'home');
+  const scripts = path.join(fixture, 'scripts');
+  const source = path.join(fixture, 'src');
+  const imported = path.join(fixture, 'checkout-module-imported');
+  await mkdir(home);
+  await mkdir(scripts);
+  await mkdir(source);
+  await copyFile(path.join(root, 'scripts', 'fresh-install-reset.mjs'),
+    path.join(scripts, 'fresh-install-reset.mjs'));
+  await writeFile(path.join(source, 'fresh-install-reset.mjs'), [
+    'import { writeFile } from "node:fs/promises";',
+    `await writeFile(${JSON.stringify(imported)}, "unsafe checkout module ran\\n");`,
+    'export async function freshInstallResetPlan() { throw new Error("must not run"); }',
+    ''
+  ].join('\n'));
+  t.after(() => rm(fixture, { recursive: true, force: true }));
+
+  const refused = spawnSync(process.execPath, [path.join(scripts, 'fresh-install-reset.mjs'), '--yes'], {
+    cwd: fixture,
+    encoding: 'utf8',
+    env: { ...process.env, HOME: home }
+  });
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /source-checkout helper cannot delete data/);
+  assert.equal(await stat(imported).then(() => false, () => true), true,
+    'destructive mode must refuse before importing checkout-controlled modules');
+
+  await writeFile(path.join(source, 'fresh-install-reset.mjs'), [
+    'export async function freshInstallResetPlan() {',
+    '  return { workspaces: [], missingRegistrations: [], installerGeneratedPaths: [], remove: [] };',
+    '}',
+    ''
+  ].join('\n'));
+  const hostileCheckout = path.join(fixture, 'checkout-$(touch${IFS}PWNED)');
+  await mkdir(hostileCheckout);
+  const preview = spawnSync(process.execPath, [path.join(scripts, 'fresh-install-reset.mjs')], {
+    cwd: hostileCheckout,
+    encoding: 'utf8',
+    env: { ...process.env, HOME: home }
+  });
+  assert.equal(preview.status, 0, preview.stderr);
+  const prefix = '  macOS/Linux: ';
+  const rendered = preview.stdout.split('\n').find((line) => line.startsWith(prefix))?.slice(prefix.length);
+  assert.ok(rendered, 'preview must provide the safely quoted installed-CLI handoff');
+
+  const bin = path.join(fixture, 'bin');
+  const captured = path.join(fixture, 'captured-argv.txt');
+  await mkdir(bin);
+  await writeFile(path.join(bin, 'singularity-flow'), [
+    '#!/bin/sh',
+    'printf "%s\\n" "$@" > "$SFLOW_CAPTURE"',
+    ''
+  ].join('\n'));
+  await chmod(path.join(bin, 'singularity-flow'), 0o755);
+  const executed = spawnSync('bash', ['-c', rendered], {
+    cwd: hostileCheckout,
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, SFLOW_CAPTURE: captured }
+  });
+  assert.equal(executed.status, 0, executed.stderr);
+  assert.equal(await stat(path.join(hostileCheckout, 'PWNED')).then(() => false, () => true), true,
+    'copying the rendered handoff must not evaluate checkout-path substitutions');
+  assert.equal(await readFile(captured, 'utf8'),
+    `fresh-install\n--checkout\n${await realpath(hostileCheckout)}\n--yes\n`);
+});
+
+test('fresh-install recovery executes the pinned installer blob after retained file tampering', async (t) => {
+  const fixture = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-recovery-'));
+  const probe = path.join(fixture, 'recovery-result.txt');
+  t.after(() => rm(fixture, { recursive: true, force: true }));
+  spawnSync('git', ['init', '-b', 'main'], { cwd: fixture, encoding: 'utf8' });
+  spawnSync('git', ['config', 'user.name', 'Recovery Tester'], { cwd: fixture, encoding: 'utf8' });
+  spawnSync('git', ['config', 'user.email', 'recovery@example.com'], { cwd: fixture, encoding: 'utf8' });
+  await writeFile(path.join(fixture, 'install.sh'), [
+    '#!/usr/bin/env bash',
+    'printf "pinned:%s\\n" "$*" > "$SFLOW_RECOVERY_PROBE"',
+    ''
+  ].join('\n'));
+  await chmod(path.join(fixture, 'install.sh'), 0o755);
+  spawnSync('git', ['add', 'install.sh'], { cwd: fixture, encoding: 'utf8' });
+  const committed = spawnSync('git', ['commit', '-m', 'pinned installer'], {
+    cwd: fixture, encoding: 'utf8'
+  });
+  assert.equal(committed.status, 0, committed.stderr);
+  const commit = spawnSync('git', ['rev-parse', 'HEAD^{commit}'], {
+    cwd: fixture, encoding: 'utf8'
+  }).stdout.trim();
+  const tree = spawnSync('git', ['rev-parse', 'HEAD^{tree}'], {
+    cwd: fixture, encoding: 'utf8'
+  }).stdout.trim();
+
+  const installer = await readFile(path.join(root, 'install.sh'), 'utf8');
+  const start = installer.indexOf('set_install_recovery_command() {');
+  const end = installer.indexOf('\n}\n\nload_activation_record()', start);
+  assert.ok(start >= 0 && end > start, 'the recovery renderer must remain independently testable');
+  const definition = installer.slice(start, end + 2);
+  const rendered = spawnSync('bash', ['-c', [
+    definition,
+    'PROJECT_DIR="$1"',
+    'INSTALL_RECEIPT_CHECKOUT="$1"',
+    'INSTALL_RECEIPT_SOURCE_COMMIT="$2"',
+    'INSTALL_RECEIPT_SOURCE_TREE="$3"',
+    'set_install_recovery_command',
+    'printf "%s" "$INSTALL_RECOVERY_COMMAND"'
+  ].join('\n'), 'fresh-recovery-render', fixture, commit, tree], {
+    cwd: fixture,
+    encoding: 'utf8'
+  });
+  assert.equal(rendered.status, 0, rendered.stderr);
+  assert.match(rendered.stdout, /cat-file blob/);
+  assert.match(rendered.stdout, /--from-staged-artifacts/);
+
+  await writeFile(path.join(fixture, 'install.sh'), [
+    '#!/usr/bin/env bash',
+    'printf "TAMPERED\\n" > "$SFLOW_RECOVERY_PROBE"',
+    ''
+  ].join('\n'));
+  const recovered = spawnSync('bash', ['-c', rendered.stdout], {
+    cwd: os.tmpdir(),
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      SFLOW_RECOVERY_PROBE: probe,
+      GIT_DIR: path.join(fixture, 'wrong-git-dir'),
+      GIT_INDEX_FILE: path.join(fixture, 'wrong-index')
+    }
+  });
+  assert.equal(recovered.status, 0, recovered.stderr);
+  assert.equal(await readFile(probe, 'utf8'), 'pinned:--from-staged-artifacts\n');
+});
+
+test('fresh-install recovery fails closed when its pinned installer blob cannot be read', async (t) => {
+  const fixture = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-recovery-missing-'));
+  const probe = path.join(fixture, 'recovery-result.txt');
+  t.after(() => rm(fixture, { recursive: true, force: true }));
+  spawnSync('git', ['init', '-b', 'main'], { cwd: fixture, encoding: 'utf8' });
+  spawnSync('git', ['config', 'user.name', 'Recovery Reader Tester'], { cwd: fixture, encoding: 'utf8' });
+  spawnSync('git', ['config', 'user.email', 'recovery-reader@example.com'], { cwd: fixture, encoding: 'utf8' });
+  await writeFile(path.join(fixture, 'install.sh'), [
+    '#!/usr/bin/env bash',
+    'printf "RECOVERY-RAN\\n" > "$SFLOW_RECOVERY_PROBE"',
+    ''
+  ].join('\n'));
+  spawnSync('git', ['add', 'install.sh'], { cwd: fixture, encoding: 'utf8' });
+  const committed = spawnSync('git', ['commit', '-m', 'recovery reader fixture'], {
+    cwd: fixture, encoding: 'utf8'
+  });
+  assert.equal(committed.status, 0, committed.stderr);
+
+  const installer = await readFile(path.join(root, 'install.sh'), 'utf8');
+  const start = installer.indexOf('set_install_recovery_command() {');
+  const end = installer.indexOf('\n}\n\nload_activation_record()', start);
+  assert.ok(start >= 0 && end > start, 'the recovery renderer must remain independently testable');
+  const definition = installer.slice(start, end + 2);
+  const missingCommit = '0'.repeat(40);
+  const rendered = spawnSync('bash', ['-c', [
+    definition,
+    'PROJECT_DIR="$1"',
+    'INSTALL_RECEIPT_CHECKOUT="$1"',
+    'INSTALL_RECEIPT_SOURCE_COMMIT="$2"',
+    'INSTALL_RECEIPT_SOURCE_TREE="$3"',
+    'set_install_recovery_command',
+    'printf "%s" "$INSTALL_RECOVERY_COMMAND"'
+  ].join('\n'), 'fresh-recovery-render-missing', fixture, missingCommit, missingCommit], {
+    cwd: fixture,
+    encoding: 'utf8'
+  });
+  assert.equal(rendered.status, 0, rendered.stderr);
+  assert.match(rendered.stdout, /pipefail/);
+
+  const recovered = spawnSync('bash', ['-c', rendered.stdout], {
+    cwd: os.tmpdir(),
+    encoding: 'utf8',
+    env: { ...process.env, SFLOW_RECOVERY_PROBE: probe }
+  });
+  assert.notEqual(recovered.status, 0,
+    'the recovery command must preserve the immutable-reader failure through the pipeline');
+  assert.equal(await stat(probe).then(() => false, () => true), true,
+    'no recovery program executes when the immutable installer blob is unavailable');
+});
+
+test('fresh-install recovery never executes a partial installer stream', async (t) => {
+  const fixture = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-recovery-partial-'));
+  const fakeBin = path.join(fixture, 'bin');
+  const probe = path.join(fixture, 'recovery-result.txt');
+  t.after(() => rm(fixture, { recursive: true, force: true }));
+  await mkdir(fakeBin);
+  spawnSync('git', ['init', '-b', 'main'], { cwd: fixture, encoding: 'utf8' });
+  spawnSync('git', ['config', 'user.name', 'Recovery Partial Tester'], { cwd: fixture, encoding: 'utf8' });
+  spawnSync('git', ['config', 'user.email', 'recovery-partial@example.com'], { cwd: fixture, encoding: 'utf8' });
+  await writeFile(path.join(fixture, 'install.sh'), '#!/usr/bin/env bash\nexit 0\n');
+  spawnSync('git', ['add', 'install.sh'], { cwd: fixture, encoding: 'utf8' });
+  const committed = spawnSync('git', ['commit', '-m', 'partial reader fixture'], {
+    cwd: fixture, encoding: 'utf8'
+  });
+  assert.equal(committed.status, 0, committed.stderr);
+  const commit = spawnSync('git', ['rev-parse', 'HEAD^{commit}'], {
+    cwd: fixture, encoding: 'utf8'
+  }).stdout.trim();
+  const tree = spawnSync('git', ['rev-parse', 'HEAD^{tree}'], {
+    cwd: fixture, encoding: 'utf8'
+  }).stdout.trim();
+  const installerObject = spawnSync('git', ['rev-parse', 'HEAD:install.sh'], {
+    cwd: fixture, encoding: 'utf8'
+  }).stdout.trim();
+
+  const installer = await readFile(path.join(root, 'install.sh'), 'utf8');
+  const start = installer.indexOf('set_install_recovery_command() {');
+  const end = installer.indexOf('\n}\n\nload_activation_record()', start);
+  const definition = installer.slice(start, end + 2);
+  const rendered = spawnSync('bash', ['-c', [
+    definition,
+    'PROJECT_DIR="$1"',
+    'INSTALL_RECEIPT_CHECKOUT="$1"',
+    'INSTALL_RECEIPT_SOURCE_COMMIT="$2"',
+    'INSTALL_RECEIPT_SOURCE_TREE="$3"',
+    'set_install_recovery_command',
+    'printf "%s" "$INSTALL_RECOVERY_COMMAND"'
+  ].join('\n'), 'fresh-recovery-render-partial', fixture, commit, tree], {
+    cwd: fixture,
+    encoding: 'utf8'
+  });
+  assert.equal(rendered.status, 0, rendered.stderr);
+  await writeFile(path.join(fakeBin, 'git'), [
+    '#!/usr/bin/env bash',
+    'case " $* " in',
+    `  *" rev-parse "*) printf '%s\\n' ${JSON.stringify(installerObject)} ;;`,
+    '  *" cat-file "*)',
+    "    printf '%s\\n' '#!/usr/bin/env bash' 'printf PARTIAL-RAN > \"$SFLOW_RECOVERY_PROBE\"'",
+    '    exit 23',
+    '    ;;',
+    `  *" hash-object "*) printf '%s\\n' ${JSON.stringify(installerObject)} ;;`,
+    '  *) exit 24 ;;',
+    'esac',
+    ''
+  ].join('\n'));
+  await chmod(path.join(fakeBin, 'git'), 0o755);
+
+  const recovered = spawnSync('bash', ['-c', rendered.stdout], {
+    cwd: os.tmpdir(),
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      PATH: `${fakeBin}${path.delimiter}${process.env.PATH}`,
+      SFLOW_RECOVERY_PROBE: probe
+    }
+  });
+  assert.notEqual(recovered.status, 0,
+    'the temporary-file admission step preserves an early reader failure');
+  assert.equal(await stat(probe).then(() => false, () => true), true,
+    'partial installer bytes are never parsed or executed');
+});
+
+test('fresh-install recovery reconstructs its validator before mutable helper code can run', async (t) => {
+  const fixture = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-helper-recovery-'));
+  const home = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-helper-home-'));
+  const pinnedMarker = path.join(home, 'pinned-validator-ran');
+  const tamperedMarker = path.join(home, 'tampered-validator-ran');
+  t.after(() => Promise.all([
+    rm(fixture, { recursive: true, force: true }), rm(home, { recursive: true, force: true })
+  ]));
+  spawnSync('git', ['init', '-b', 'main'], { cwd: fixture, encoding: 'utf8' });
+  spawnSync('git', ['config', 'user.name', 'Recovery Helper Tester'], { cwd: fixture, encoding: 'utf8' });
+  spawnSync('git', ['config', 'user.email', 'recovery-helper@example.com'], { cwd: fixture, encoding: 'utf8' });
+  const installer = await readFile(path.join(root, 'install.sh'));
+  await writeFile(path.join(fixture, 'install.sh'), installer);
+  await chmod(path.join(fixture, 'install.sh'), 0o755);
+  await writeFile(path.join(fixture, 'package.json'), '{"name":"singularity-flow","version":"0.0.0"}\n');
+  await mkdir(path.join(fixture, 'scripts'));
+  await writeFile(path.join(fixture, 'scripts', 'install-staged-artifacts.mjs'), [
+    'import { writeFile } from "node:fs/promises";',
+    'await writeFile(process.env.SFLOW_PINNED_VALIDATOR_MARKER, `pinned:${process.argv[2]}\\n`);',
+    'process.stdout.write("deliberately-invalid-validator-result\\n");',
+    ''
+  ].join('\n'));
+  spawnSync('git', ['add', '.'], { cwd: fixture, encoding: 'utf8' });
+  const committed = spawnSync('git', ['commit', '-m', 'pinned recovery source'], {
+    cwd: fixture, encoding: 'utf8'
+  });
+  assert.equal(committed.status, 0, committed.stderr);
+  const commit = spawnSync('git', ['rev-parse', 'HEAD^{commit}'], {
+    cwd: fixture, encoding: 'utf8'
+  }).stdout.trim();
+  const tree = spawnSync('git', ['rev-parse', 'HEAD^{tree}'], {
+    cwd: fixture, encoding: 'utf8'
+  }).stdout.trim();
+  await writeFile(path.join(fixture, 'scripts', 'install-staged-artifacts.mjs'), [
+    'import { writeFile } from "node:fs/promises";',
+    'await writeFile(process.env.SFLOW_TAMPERED_VALIDATOR_MARKER, "tampered\\n");',
+    'process.stdout.write("forged-result\\n");',
+    ''
+  ].join('\n'));
+
+  const recovered = spawnSync('bash', ['-s', '--', '--from-staged-artifacts'], {
+    cwd: fixture,
+    input: installer,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      HOME: home,
+      SINGULARITY_FLOW_FRESH_INSTALL_ORIGIN: fixture,
+      SINGULARITY_FLOW_FRESH_INSTALL_COMMIT: commit,
+      SINGULARITY_FLOW_FRESH_INSTALL_TREE: tree,
+      SFLOW_PINNED_VALIDATOR_MARKER: pinnedMarker,
+      SFLOW_TAMPERED_VALIDATOR_MARKER: tamperedMarker
+    }
+  });
+  assert.notEqual(recovered.status, 0, 'the deliberately incomplete pinned validator refuses recovery');
+  assert.equal(await readFile(pinnedMarker, 'utf8'), 'pinned:lease-acquire\n');
+  assert.equal(await stat(tamperedMarker).then(() => false, () => true), true,
+    'working-tree helper bytes never execute');
 });
 
 test('--skip-tests is refused for destructive or isolated reinstall modes', () => {

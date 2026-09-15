@@ -11,8 +11,7 @@ argument-hint: "check|show|generate|except"
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
-1. Use `singularity-flow constitution check --json` or `show --json` for read-only inspection.
+1. Use `singularity-flow constitution check --json` or `singularity-flow constitution show --json` for read-only inspection.
 2. Preview generation with `singularity-flow constitution generate --dry-run`; do not replace a customised file without an explicit reviewed request.
 3. For an exception, require the exact article ID, reason, scope, expiry, and Work ID as applicable. Show that an exception is an auditable waiver, not approval.
 4. Run only the requested mutation and preserve output path, hash, actor, scope, expiry, commit, and push result.
-

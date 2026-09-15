@@ -38,6 +38,99 @@ const MODEL_OPERATION_PATTERNS = Object.freeze({
   'workspace.impact.analyze': /\bsingularity-flow\s+workspace\s+impact\s+analyze\b/
 });
 
+// Inline code that starts with a registered command root and includes an operand/subcommand is
+// executable guidance, not a conceptual label. Requiring the binary prefix keeps copied commands
+// valid after Copilot context resets and prevents regressions such as `phase show` or `recover
+// <WORK-ID>` being interpreted as shell programs. Single-word vocabulary labels remain allowed.
+export function bareOperationalCommands(body, commandRoots = new Set(operationCatalog().map((entry) => entry.command))) {
+  const matches = [];
+  for (const match of body.matchAll(/`([^`\r\n]+)`/g)) {
+    const value = match[1].trim();
+    if (!/\s/.test(value) || value.startsWith('singularity-flow ')) continue;
+    const root = value.split(/\s+/, 1)[0];
+    if (commandRoots.has(root)) matches.push(value);
+  }
+  return [...new Set(matches)].sort();
+}
+
+// These are cross-surface contracts, not style preferences. A skill can have valid frontmatter,
+// remain inside its token budget, and still send Copilot down a command form the CLI rejects or
+// perform a mutation before its promised review. Keep the small set of high-risk invariants in the
+// fast checker so `install.sh --skip-tests` cannot package that drift.
+const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
+  'sflow-impact': {
+    required: [/singularity-flow impact evidence collect <PROVIDER> <FILE>/],
+    forbidden: [/use `evidence collect <PROVIDER> <FILE>/]
+  },
+  'sflow-documents': {
+    required: [
+      /documents detach <DOCUMENT-ID>[^`]*--yes/,
+      /epic sources detach <SOURCE-ID>[^`]*--yes/,
+      /Only after it/
+    ]
+  },
+  'sflow-upload': {
+    required: [
+      /documents detach <DOCUMENT-ID>[^`]*--yes/,
+      /epic sources detach <SOURCE-ID>[^`]*--yes/,
+      /Only after confirmation/
+    ]
+  },
+  'sflow-epic-publish': {
+    required: [/epic jira apply --epic <EPIC-KEY> --plan <SHA-256> --confirm <EPIC-KEY>/]
+  },
+  'sflow-epic-complete': {
+    required: [/epic complete <EPIC-KEY> --confirm <EPIC-KEY>/]
+  },
+  'sflow-initiative-materialize': {
+    required: [
+      /initiative breakdown --initiative <INIT-ID> --json/,
+      /initiative materialize --initiative <INIT-ID> --dry-run --json/,
+      /initiative materialize --initiative <INIT-ID> --confirm <INIT-ID> --json/
+    ],
+    forbidden: [/no bypass flag/i]
+  },
+  'sflow-submit': {
+    required: [
+      /Fingerprint the refusal code plus current artifact\/check hashes/i,
+      /Stop on an unchanged fingerprint or after three distinct changed fingerprints/i,
+      /Never loop quality commands/i
+    ]
+  },
+  'sflow-next': {
+    required: [
+      /First run `singularity-flow session current --json`[^.]*returned `repositoryPath` as cwd for every subsequent command/i,
+      /Never run `singularity-flow next`/,
+      /returned SFlow skill route \(any `\/sf-\*` or `\/sflow-\*` route\)/i,
+      /complete its preflight[^.]*execute at most its one authorized action/i,
+      /state=publication_pending[^.]*first `NOW` command equals `singularity-flow sync`/i,
+      /singularity-flow sync <WORK-ID>[^.]*once in the verified cwd/i,
+      /never follow `THEN`, invoke `\/sf-nextsteps` or `\/sf-next`, or retry/i,
+      /singularity-flow phase show <phase> --json/i,
+      /singularity-flow recover <WORK-ID> --phase <phase> --json/i
+    ],
+    forbidden: [
+      /Then run `singularity-flow next` once/i,
+      /run `phase show <phase> --json`/i,
+      /run `recover`/i
+    ]
+  },
+  'sflow-workflow-rules': {
+    required: [
+      /Never run `singularity-flow next`/,
+      /singularity-flow nextsteps <WORK-ID> --json/,
+      /returned SFlow skill route/,
+      /explicit contributor consent/i,
+      /zero-byte World-Model context/i
+    ],
+    forbidden: [
+      /if stale, build and recompose identically/i,
+      /Run `singularity-flow next` only when/i,
+      /repository contains `singularity\/work-items`/i
+    ]
+  }
+});
+
 function executionBoundary(kind = 'story') {
   if (kind === 'machine') {
     return '**Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.';
@@ -54,7 +147,7 @@ function executionBoundary(kind = 'story') {
   // tool. `ready` and `workId` are checked before mutation so a stale workspace lead cannot silently
   // replace the Story selected before `/clear`. Keeping this generated makes the rule catalog-wide.
   if (kind === 'story') {
-    return '**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.';
+    return '**Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.';
   }
   throw new Error(`unknown skill execution boundary '${kind}'`);
 }
@@ -141,6 +234,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     .filter((entry) => entry.modelPolicy !== 'never')
     .map((entry) => entry.id)
     .sort();
+  const commandRoots = new Set(operationCatalog().map((entry) => entry.command));
   const auditedModelOperations = Object.keys(MODEL_OPERATION_PATTERNS).sort();
   if (JSON.stringify(catalogModelOperations) !== JSON.stringify(auditedModelOperations)) {
     errors.push(`skill model-operation patterns are stale: catalog=${catalogModelOperations.join(', ')}; audit=${auditedModelOperations.join(', ')}`);
@@ -200,10 +294,26 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     }
     if (!skill.body.includes(marker)) errors.push(`${name}: missing '${classPolicy.outputContract}' output contract`);
     if (!skill.body.includes(boundaryMarker) || !skill.body.includes(boundaryText)) errors.push(`${name}: missing generated execution boundary`);
+    if (skill.body.includes('singularity/work-items/<WORK-ID>')) {
+      errors.push(`${name}: hard-codes the default Story root instead of using immutable workflow.resolution.workItemRoot or a CLI-returned path`);
+    }
+    const bareCommands = bareOperationalCommands(skill.body, commandRoots);
+    if (bareCommands.length) {
+      errors.push(`${name}: operational command fragment(s) must include the singularity-flow prefix: ${bareCommands.map((value) => `\`${value}\``).join(', ')}`);
+    }
     if (kernelModelPolicy === 'never' && modelOperations.length) {
       errors.push(`${name}: never-model skill names model-capable operation(s): ${modelOperations.join(', ')}`);
     }
     if (kernelModelPolicy === 'conditional' && !modelOperations.length) errors.push(`${name}: conditional model policy has no model-capable operation reference`);
+    const semanticContract = SKILL_SEMANTIC_CONTRACTS[name];
+    for (const pattern of semanticContract?.required ?? []) {
+      pattern.lastIndex = 0;
+      if (!pattern.test(skill.body)) errors.push(`${name}: required semantic contract is missing (${pattern})`);
+    }
+    for (const pattern of semanticContract?.forbidden ?? []) {
+      pattern.lastIndex = 0;
+      if (pattern.test(skill.body)) errors.push(`${name}: forbidden stale semantic contract remains (${pattern})`);
+    }
     if (bodyTokens > maximum) errors.push(`${name}: body is ${bodyTokens} estimated tokens; maximum is ${maximum}`);
     else if (bodyTokens > classPolicy.warningTokens) warnings.push(`${name}: body is ${bodyTokens} estimated tokens; warning threshold is ${classPolicy.warningTokens}`);
     rows.push({

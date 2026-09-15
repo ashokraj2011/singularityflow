@@ -10,7 +10,7 @@ argument-hint: "[implementation focus]"
 <!-- sflow-output-contract: clarification-and-artifact -->
 **Output contract:** Use the complete governed prompt and approved inputs, obey the pinned clarification mode, then publish and show configured artifacts.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
+**Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
 
 Run `/sflow-code` with the supplied focus and stop when it returns. `/sflow-code` owns authoring, test evidence, and the single publication transaction; this alias must not publish, submit, or approve again.

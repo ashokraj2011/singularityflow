@@ -7,7 +7,7 @@ argument-hint: "<PATH> --approver <GROUP>"
 # Protect a capability path
 
 <!-- sflow-output-contract: explicit-selection -->
-**Output contract:** Show the path, owner, required group, and exact proposal result; never activate it.
+**Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 

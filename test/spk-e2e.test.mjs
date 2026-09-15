@@ -197,7 +197,7 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   // A not-applicable marker is not a reviewed decision. Publication must reject it even though a
   // non-empty `testReason` used to make acceptance arithmetic treat it as complete.
   await write(root, planningPath, planningDocument
-    .replace('`tests/payments-retry.test.mjs`', 'not-applicable: fixme decide how this is tested'));
+    .replace('`tests/payments-retry.test.mjs`', 'not-applicable: specific reason'));
   sflow(root, ['artifact', 'scan', '--phase', 'planning']);
   const placeholderReason = sflow(root, [
     'phase', 'publish', 'planning', '--authored', 'human', '--channel', 'manual-in-place'

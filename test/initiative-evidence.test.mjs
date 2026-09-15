@@ -148,6 +148,10 @@ test('initiative outputs cannot reach publication or approval with unresolved pl
   assert.equal(draft.correction.maximumChangedFingerprints, 3);
   assert.equal(draft.modelInvocations, 0);
   assert.equal(draft.mutates, false);
+  assert.deepEqual(draft.commands, {
+    recheck: 'singularity-flow initiative phase draft-check define --initiative INIT-EVIDENCE --json',
+    publish: 'singularity-flow initiative phase publish define --initiative INIT-EVIDENCE'
+  });
   assert.match(draft.findings.map((finding) => finding.message).join('\n'),
     /define\/business-case.*unresolved placeholder 'FIXME'/);
   assert.equal(await readFile(businessCase, 'utf8'), beforeCheck);

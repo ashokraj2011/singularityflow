@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { auditSkillPolicy, loadSkillPolicy } from '../scripts/skill-policy.mjs';
+import { auditSkillPolicy, bareOperationalCommands, loadSkillPolicy } from '../scripts/skill-policy.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -19,6 +19,20 @@ test('every public skill has a bounded class and output contract', async () => {
     'sflow-workflow-rules', 'sflow-workspace', 'sflow-workspace-impact', 'sflow-worldmodel'
   ]);
   assert.ok(result.rows.filter((row) => row.kernelModelPolicy === 'never').every((row) => row.modelOperations.length === 0));
+});
+
+test('skill policy rejects executable bare SFlow command fragments but permits concepts and full commands', () => {
+  assert.deepEqual(bareOperationalCommands([
+    'Run `phase show implementation --json`.',
+    'Then `recover <WORK-ID> --phase implementation --json`.'
+  ].join('\n')), [
+    'phase show implementation --json',
+    'recover <WORK-ID> --phase implementation --json'
+  ]);
+  assert.deepEqual(bareOperationalCommands([
+    'Run `singularity-flow phase show implementation --json`.',
+    'Use the `recover` intent or `/sf-recover` route.'
+  ].join('\n')), []);
 });
 
 /**

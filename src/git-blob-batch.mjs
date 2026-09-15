@@ -38,6 +38,7 @@ export function readLocalGitBlobs(root, objectIds, {
     env: localEnv,
     input,
     allowFailure: true,
+    timeoutClass: 'local-read',
     maxBuffer: Math.max(1024, unique.length * 160)
   });
   const rows = String(checked.stdout ?? '').trimEnd().split('\n');
@@ -91,6 +92,7 @@ export function readLocalGitBlobs(root, objectIds, {
       input: `${entries.map((entry) => entry.oid).join('\n')}\n`,
       encoding: 'buffer',
       allowFailure: true,
+      timeoutClass: 'local-read',
       maxBuffer: expectedBytes + (entries.length * 160) + 1024
     });
     const bytes = Buffer.isBuffer(batch.stdout) ? batch.stdout : Buffer.from(batch.stdout ?? '');

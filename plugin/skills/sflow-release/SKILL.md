@@ -10,7 +10,7 @@ argument-hint: "[target environment or release window]"
 <!-- sflow-output-contract: clarification-and-artifact -->
 **Output contract:** Use the complete governed prompt and approved inputs, obey the pinned clarification mode, then publish and show configured artifacts.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
+**Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
 1. Run `singularity-flow status --json`; stop if the current phase is not `release`. Use that governed workflow as Story context.
 2. Run `singularity-flow wm compose --phase release --evidence` and use the complete returned prompt. If composition reports unavailable World-Model intelligence—missing or unreachable, or stale under staleness `fail`—continue with its explicit zero-context evidence and ordinary repository access. Show any exact returned recovery command only as an optional improvement; do not run it from this skill or make it a prerequisite for release work. Never add the Story title or a conversational release target as `--task`. Use available shared release, operations, security, and evidence grounding.

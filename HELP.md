@@ -440,7 +440,7 @@ singularity-flow epic planning publish
 singularity-flow epic stories metadata STORY-001 set component checkout
 singularity-flow epic stories tasks STORY-001 add --title "Add integration tests"
 singularity-flow epic jira preview --artifact epic-requirements/requirements-specification --artifact epic-planning/parent-specification --artifact-to epic
-singularity-flow epic jira apply --plan <exact-sha256>
+singularity-flow epic jira apply --epic MOB-100 --plan <exact-sha256> --confirm MOB-100
 singularity-flow story inbox --assigned-to-me
 singularity-flow story start MOB-123 --fetch
 singularity-flow story fetch MOB-123 --directory ../mobile
@@ -453,7 +453,7 @@ singularity-flow epic merge-plan --epic MOB-100
 singularity-flow stack sync --epic MOB-100         # publish the enforced order to orphan state branches
 singularity-flow stack status --epic MOB-100       # recompute live status without publishing
 singularity-flow epic complete MOB-100 --dry-run
-singularity-flow epic complete MOB-100
+singularity-flow epic complete MOB-100 --confirm MOB-100
 ```
 
 ### Where Story branches come from, and how they land
@@ -635,7 +635,7 @@ generated Story and `both` does both. Repository policy must include
 metadata and reuse the matching hash-stamped filename instead of uploading a
 second copy.
 
-After Story reviews, `epic complete --dry-run` reports every blocking Story
+After Story reviews, `singularity-flow epic complete <EPIC-KEY> --dry-run` reports every blocking Story
 that is still missing a complete canonical workflow, approved conformance tree,
 submitted packet, or passing exact-SHA evidence. The mutating command requires
 exact Epic-ID confirmation and writes
@@ -3288,7 +3288,7 @@ singularity-flow documents fetch --provider <ID> --ref <ITEM> [--name NAME] [--l
 singularity-flow prepare [PHASE] [--json]
 singularity-flow phase show [PHASE] [--json]
 singularity-flow phase draft-check [PHASE] [--json]
-singularity-flow initiative phase draft-check [PHASE] [--json]
+singularity-flow initiative phase draft-check [PHASE] [--initiative INIT-ID] [--json]
 singularity-flow phase rollover [PHASE] [--json|--confirm CURRENT-DIGEST]
 singularity-flow phase publish [PHASE] [--usage-json FILE]
 singularity-flow artifact add <PATH...> [--kind KIND] [--phase PHASE]

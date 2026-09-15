@@ -1059,8 +1059,10 @@ const PAGES = Object.freeze({
     seeAlso: ['phase', 'artifact', 'nextsteps']
   },
   phase: {
-    summary: 'Begin, inspect, safely roll over, or publish a governed phase generation.',
+    summary: 'Check, begin, inspect, safely roll over, or publish a governed phase generation.',
     description: [
+      '`phase draft-check` validates the current artifact without mutation and returns structured',
+      'correction findings before any publication attempt.',
       '`phase begin` establishes a code-generation boundary before source mutation. `phase publish`',
       'records a new generation: it registers the artifacts, captures authorship and model usage,',
       'and commits the result as one governed transition.',
@@ -1072,6 +1074,7 @@ const PAGES = Object.freeze({
       'grounding policy, or a phase out of sequence. Nothing is written when it refuses.'
     ],
     options: [
+      ['draft-check PHASE', 'Read-only authored-content validation with stable correction findings and a fingerprint.'],
       ['--adopt-existing --confirm DIGEST', 'Explicitly adopt reviewed source that predates begin when Story policy permits it.'],
       ['rollover PHASE [--confirm DIGEST]', 'Preview, then open, a successor generation without discarding the published generation.'],
       ['--authored human|governed-agent|external-tool', 'Who produced the artifact. Record it explicitly.'],
@@ -1080,6 +1083,8 @@ const PAGES = Object.freeze({
       ['--usage-json FILE', 'Attach model usage for a governed-agent generation.']
     ],
     examples: [
+      ['singularity-flow phase draft-check planning --json',
+        'Checks the current planning artifact before publication without changing lifecycle state.'],
       ['singularity-flow phase begin implementation',
         'Creates or returns the open generation intent before implementation source changes.'],
       ['singularity-flow phase rollover implementation',

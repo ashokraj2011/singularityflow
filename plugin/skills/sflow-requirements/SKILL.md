@@ -10,10 +10,10 @@ argument-hint: "[additional business context]"
 <!-- sflow-output-contract: clarification-and-artifact -->
 **Output contract:** Use the complete governed prompt and approved inputs, obey the pinned clarification mode, then publish and show configured artifacts.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
+**Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
 1. Run `singularity-flow status --json`; stop unless the current phase is `requirements`. Use its governed workflow.
-2. Run `documents list`; view relevant inputs before deciding what is unclear.
+2. Run `singularity-flow documents list`; view relevant inputs before deciding what is unclear.
 3. Run `singularity-flow wm compose --phase requirements` and use its complete prompt. If World-Model intelligence is unavailable, continue with zero context and ordinary repository access; show recovery only as optional. Never derive `--task` from Story text.
 4. Execute the composed prompt's **Human clarification checkpoint** before preparation. Use `ask_user` for one concise batch and wait. This starter phase is `required`: even when the evidence looks complete, ask the contributor to confirm your concise interpretation of outcome, scope, and acceptance criteria. Write the accepted batch to a temporary JSON file, run `singularity-flow clarification record requirements --response-file <file>`, and stop if the record is rejected as absent or stale. Incorporate accepted answers into the artifact. If `ask_user` is unavailable, display the questions and stop before preparation.
 5. Run `singularity-flow prepare requirements` and read the returned path and `source.json`.

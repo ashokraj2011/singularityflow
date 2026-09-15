@@ -527,6 +527,7 @@ Usage:
   singularity-flow clarification record [PHASE] (--question TEXT --answer TEXT | --marker TEXT --answer TEXT | --response-file FILE)
     [--why TEXT] [--status answered|deferred] [--blocking] [--owner TEXT] [--impact TEXT] [--replace]
   singularity-flow phase show [PHASE] [--json]
+  singularity-flow phase draft-check [PHASE] [--json]
   singularity-flow phase begin [PHASE] [--json]
     [--adopt-existing|--adopt-current-interval] [--confirm CHANGE-SET-DIGEST]
   singularity-flow phase rollover [PHASE] [--json|--confirm CURRENT-DIGEST]
@@ -634,6 +635,7 @@ Usage:
   singularity-flow initiative applicability [--json]
   singularity-flow initiative applicability set <POLICY> <yes|no> [--reason TEXT] [--json]
   singularity-flow initiative phase [publish] [PHASE]
+  singularity-flow initiative phase draft-check [PHASE] [--initiative INIT-ID] [--json]
   singularity-flow initiative context [PHASE] [--agent ID] [--dry-run] [--json]
   singularity-flow initiative documents [PHASE] [--json]
   singularity-flow initiative checklist [PHASE] [--json]
@@ -642,8 +644,8 @@ Usage:
   singularity-flow initiative verify [PHASE] [--json]
   singularity-flow initiative approve <OUTPUT|CHECK|phase> [--selection-receipt TOKEN]
   singularity-flow initiative reject <OUTPUT|CHECK|phase> --reason TEXT
-  singularity-flow initiative breakdown [--probe] [--json]
-  singularity-flow initiative materialize [--dry-run] [--confirm INIT-ID]
+  singularity-flow initiative breakdown [--initiative INIT-ID] [--probe] [--json]
+  singularity-flow initiative materialize [--initiative INIT-ID] [--dry-run] [--confirm INIT-ID]
   singularity-flow initiative jira-adopt EPIC-KEY [--repository JIRA-KEY=REPO] [--dry-run]
   singularity-flow initiative jira-plan
   singularity-flow initiative jira-apply --plan SHA256 [--confirm INIT-ID]
@@ -672,7 +674,8 @@ Usage:
     adopt <JIRA-KEY> --repository ID --requirements REQ-nnn --acceptance-criteria AC-nnn
     metadata <PLAN-ID> list|set|remove|clear [KEY] [VALUE]
     tasks <PLAN-ID> list|add|update|remove [TASK-ID] [--title TEXT] [--description TEXT]
-  singularity-flow epic jira preview|apply [--epic EPIC-KEY] [--plan SHA256]
+  singularity-flow epic jira preview [--epic EPIC-KEY] [--artifact PHASE/OUTPUT]... [--artifact-to epic|stories|both]
+  singularity-flow epic jira apply --epic EPIC-KEY --plan SHA256 --confirm EPIC-KEY
   singularity-flow epic create-stories [--epic EPIC-KEY] [--plan SHA256] [--confirm EPIC-KEY]  Deprecated mapping target
     [--artifact PHASE/OUTPUT]... [--artifact-to epic|stories|both]
   singularity-flow epic status|sync|next|report|resume|journey [EPIC-KEY]

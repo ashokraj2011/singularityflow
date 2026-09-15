@@ -164,6 +164,10 @@ test('every action name the journey can emit maps to exactly one canonical actio
   // 'approve-phase', the renderer compared against 'approve', nothing matched, and the click fell
   // through to a fallback that navigated to the stage the user was already on.
   const report = await readFile(path.join(packageRoot, 'src', 'initiative-report.mjs'), 'utf8');
+  assert.match(report, /singularity-flow initiative materialize --initiative \$\{initiativeId\} --dry-run/,
+    'materialization guidance must use the supported explicit Initiative selector');
+  assert.doesNotMatch(report, /singularity-flow initiative materialize \$\{initiativeId\}/,
+    'a positional Initiative ID is ignored by the materialize command');
   const emitted = [...new Set([...report.matchAll(/action: '([a-z-]+)'/g)].map((match) => match[1]))];
   assert.ok(emitted.includes('approve-phase'), 'fixture should still cover the action that regressed');
 

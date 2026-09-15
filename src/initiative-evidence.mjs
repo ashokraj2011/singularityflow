@@ -327,8 +327,8 @@ export async function initiativePhaseDraftCheck(root, initiativeId, requestedPha
         : 'Open the exact output and provide the missing reviewed content. SFlow cannot prove that the current agent owns every affected output and will not replace human or unknown-authored content automatically.'
     }),
     commands: Object.freeze({
-      recheck: `singularity-flow initiative phase draft-check ${phaseId} --json`,
-      publish: `singularity-flow initiative phase publish ${phaseId}`
+      recheck: `singularity-flow initiative phase draft-check ${phaseId} --initiative ${initiativeId} --json`,
+      publish: `singularity-flow initiative phase publish ${phaseId} --initiative ${initiativeId}`
     }),
     mutates: false,
     modelInvocations: 0

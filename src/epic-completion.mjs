@@ -1,14 +1,22 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { identity } from './git.mjs';
+import { authorityDescription, isAuthorized } from './initiative-evidence.mjs';
 import { loadInitiativeBreakdown } from './initiative-repositories.mjs';
 import {
-  loadInitiative, saveInitiativeDraft, secureInitiativePath
+  loadInitiative, secureInitiativePath
 } from './state-stores.mjs';
 import {
   SingularityFlowError, nowIso, writeJson, writeText
 } from './util.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
+
+const EPIC_COMPLETION_AUTHORITY = 'product-approvers';
+const EPIC_COMPLETION_AUTHORITY_CODES = new Set([
+  'EPIC_COMPLETION_AUTHORITY_MISSING',
+  'EPIC_COMPLETION_AUTHORITY_INVALID',
+  'EPIC_COMPLETION_UNAUTHORIZED'
+]);
 
 function canonical(value) {
   if (Array.isArray(value)) return value.map(canonical);
@@ -21,7 +29,109 @@ function hash(value) {
 }
 
 function actorKey(actor) {
-  return actor.email?.toLowerCase() ?? actor.name;
+  return actor?.email?.toLowerCase() ?? actor?.name;
+}
+
+function completionApprovalPolicy(initiative) {
+  const policy = initiative.resolution?.phases
+    ?.find((phase) => phase.id === 'epic-planning')?.bundleApproval;
+  if (!policy || policy.mode === 'none') {
+    throw new SingularityFlowError(
+      `Epic '${initiative.initiative.id}' has no configured Product Owner approval authority in its immutable epic-planning resolution; completion is refused.`,
+      {
+        code: 'EPIC_COMPLETION_AUTHORITY_MISSING',
+        details: {
+          initiativeId: initiative.initiative.id,
+          requiredAuthority: EPIC_COMPLETION_AUTHORITY,
+          resolutionSha256: initiative.resolution?.resolutionSha256 ?? null
+        }
+      }
+    );
+  }
+  const authorities = new Set([
+    ...(policy.authorities ?? []),
+    ...(policy.chain ?? []).map((step) => step.authority)
+  ]);
+  if (!authorities.has(EPIC_COMPLETION_AUTHORITY)) {
+    throw new SingularityFlowError(
+      `Epic '${initiative.initiative.id}' immutable epic-planning resolution does not assign completion to '${EPIC_COMPLETION_AUTHORITY}'; completion is refused.`,
+      {
+        code: 'EPIC_COMPLETION_AUTHORITY_INVALID',
+        details: {
+          initiativeId: initiative.initiative.id,
+          requiredAuthority: EPIC_COMPLETION_AUTHORITY,
+          configuredAuthorities: [...authorities].sort(),
+          resolutionSha256: initiative.resolution?.resolutionSha256 ?? null
+        }
+      }
+    );
+  }
+  return policy;
+}
+
+export async function assertEpicCompletionAuthorized(root, initiativeId, {
+  actor = null,
+  initiative: suppliedInitiative = null
+} = {}) {
+  const initiative = suppliedInitiative ?? (await loadInitiative(root, initiativeId)).initiative;
+  if (initiative.resolution.profile !== 'epic-planning') {
+    throw new SingularityFlowError('Epic delivery completion is available only for the epic-planning profile.', {
+      code: 'EPIC_COMPLETION_PROFILE_REQUIRED',
+      details: { initiativeId, profile: initiative.resolution.profile }
+    });
+  }
+  const resolvedActor = actor ?? identity(root);
+  const policy = completionApprovalPolicy(initiative);
+  // Completion is the final Product Owner decision, not another signature in the planning chain.
+  // A chain check without decision history deliberately accepts the union for other callers; that
+  // would let (for example) an architecture reviewer complete an Epic. Narrow this decision to the
+  // immutable Product Owner authority instead.
+  const completionPolicy = {
+    mode: 'required',
+    authorities: [EPIC_COMPLETION_AUTHORITY],
+    minimum: 1,
+    chain: null
+  };
+  if (!isAuthorized(initiative.resolution, completionPolicy, resolvedActor)) {
+    throw new SingularityFlowError(
+      `${actorKey(resolvedActor) ?? 'Unconfigured local Git identity'} is not authorized to record the Product Owner completion decision for Epic '${initiativeId}'. Required authority: ${authorityDescription(completionPolicy)}.`,
+      {
+        code: 'EPIC_COMPLETION_UNAUTHORIZED',
+        details: {
+          initiativeId,
+          actor: actorKey(resolvedActor) ?? null,
+          requiredAuthority: EPIC_COMPLETION_AUTHORITY,
+          resolutionSha256: initiative.resolution?.resolutionSha256 ?? null
+        }
+      }
+    );
+  }
+  return { actor: resolvedActor, policy: completionPolicy, planningPolicy: policy };
+}
+
+export async function epicCompletionAuthorizationStatus(root, initiativeId, options = {}) {
+  try {
+    const authorization = await assertEpicCompletionAuthorized(root, initiativeId, options);
+    return {
+      ready: true,
+      code: null,
+      actor: actorKey(authorization.actor),
+      requiredAuthority: EPIC_COMPLETION_AUTHORITY,
+      identityAssurance: 'configured-local',
+      warning: 'Local Git identity is configurable and is not cryptographic authentication.'
+    };
+  } catch (error) {
+    if (!EPIC_COMPLETION_AUTHORITY_CODES.has(error?.code)) throw error;
+    return {
+      ready: false,
+      code: error.code,
+      actor: error.details?.actor ?? null,
+      requiredAuthority: EPIC_COMPLETION_AUTHORITY,
+      identityAssurance: 'configured-local',
+      message: error.message,
+      warning: 'Local Git identity is configurable and is not cryptographic authentication.'
+    };
+  }
 }
 
 function latest(values = []) {
@@ -73,10 +183,19 @@ function storyReadiness(story, observed) {
   };
 }
 
-export async function epicDeliveryReadiness(root, initiativeId) {
-  const { portfolio, initiative } = await loadInitiative(root, initiativeId);
+export async function epicDeliveryReadiness(root, initiativeId, {
+  portfolio: suppliedPortfolio = null,
+  initiative: suppliedInitiative = null
+} = {}) {
+  const loaded = suppliedInitiative && suppliedPortfolio
+    ? { portfolio: suppliedPortfolio, initiative: suppliedInitiative }
+    : await loadInitiative(root, initiativeId, suppliedPortfolio);
+  const { portfolio, initiative } = loaded;
   if (initiative.resolution.profile !== 'epic-planning') {
-    throw new SingularityFlowError(`Epic delivery completion is available only for the epic-planning profile.`);
+    throw new SingularityFlowError('Epic delivery completion is available only for the epic-planning profile.', {
+      code: 'EPIC_COMPLETION_PROFILE_REQUIRED',
+      details: { initiativeId, profile: initiative.resolution.profile }
+    });
   }
   const breakdown = await loadInitiativeBreakdown(root, portfolio, initiativeId);
   const stories = breakdown.stories.map((story) => storyReadiness(story, initiative.childStories?.[story.id]));
@@ -128,20 +247,35 @@ export function renderEpicCompletionReport(record) {
 
 export async function completeEpicDelivery(root, initiativeId, {
   confirmation,
-  actor = null
+  actor = null,
+  portfolio: suppliedPortfolio = null,
+  initiative: suppliedInitiative = null
 } = {}) {
   if (confirmation !== initiativeId) {
-    throw new SingularityFlowError(`Epic completion requires exact Epic confirmation '${initiativeId}'.`);
+    throw new SingularityFlowError(`Epic completion requires exact Epic confirmation '${initiativeId}'.`, {
+      code: 'EPIC_COMPLETION_CONFIRMATION_REQUIRED',
+      details: { initiativeId }
+    });
   }
-  const readiness = await epicDeliveryReadiness(root, initiativeId);
+  const loaded = suppliedInitiative && suppliedPortfolio
+    ? { portfolio: suppliedPortfolio, initiative: suppliedInitiative }
+    : await loadInitiative(root, initiativeId, suppliedPortfolio);
+  const { portfolio, initiative } = loaded;
+  const authorization = await assertEpicCompletionAuthorized(root, initiativeId, { actor, initiative });
+  const readiness = await epicDeliveryReadiness(root, initiativeId, { portfolio, initiative });
   if (!readiness.ready) {
-    throw new SingularityFlowError(`Epic cannot be completed: ${readiness.blockers.join(' | ')}.`);
+    throw new SingularityFlowError(`Epic cannot be completed: ${readiness.blockers.join(' | ')}.`, {
+      code: 'EPIC_COMPLETION_NOT_READY',
+      details: { initiativeId, blockers: readiness.blockers }
+    });
   }
-  const { portfolio, initiative } = await loadInitiative(root, initiativeId);
   if (initiative.delivery?.status === 'complete') {
-    throw new SingularityFlowError(`Epic delivery is already complete at ${initiative.delivery.completedAt}.`);
+    throw new SingularityFlowError(`Epic delivery is already complete at ${initiative.delivery.completedAt}.`, {
+      code: 'EPIC_COMPLETION_ALREADY_COMPLETE',
+      details: { initiativeId, completedAt: initiative.delivery.completedAt }
+    });
   }
-  const resolvedActor = actor ?? identity(root);
+  const resolvedActor = authorization.actor;
   const base = {
     schemaVersion: currentSchemaVersion('epic-completion-decision'),
     initiativeId,
@@ -187,6 +321,8 @@ export async function completeEpicDelivery(root, initiativeId, {
     phase: null,
     detail: `${readiness.readyStories}/${readiness.requiredStories} blocking Stories matched; ${record.sha256.slice(0, 12)}`
   });
-  await saveInitiativeDraft(root, portfolio, initiative);
+  // The caller owns persistence. Production callers run this transition inside
+  // commitInitiativeChange.beforeStateWrite, whose revision CAS, subject lock, full-directory
+  // preimage, and rollback keep the record, report, and state one atomic publication unit.
   return { portfolio, initiative, readiness, record, reportPath: reportPath.relative };
 }

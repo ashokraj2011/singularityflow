@@ -10,7 +10,7 @@ disable-model-invocation: true
 <!-- sflow-output-contract: concise-relay -->
 **Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
+**Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
 1. Run `singularity-flow wm show-prompt`, forwarding `$ARGUMENTS` unchanged when present.
 2. The default command is read-only. `--record-audit` may create the immutable local generation-prompt receipt and prompt-audit entry used for a real Copilot handoff. Do not build the world model, prepare or publish an artifact, create a Git commit, or change workflow state.

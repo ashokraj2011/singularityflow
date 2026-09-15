@@ -12,11 +12,11 @@ import { fileURLToPath } from 'node:url';
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
 
-function command(executable, args, cwd, { ok = true } = {}) {
+function command(executable, args, cwd, { ok = true, env = {} } = {}) {
   const result = spawnSync(executable, args, {
     cwd,
     encoding: 'utf8',
-    env: { ...process.env, NODE_ENV: 'test' }
+    env: { ...process.env, NODE_ENV: 'test', ...env }
   });
   if (ok) assert.equal(result.status, 0, `${executable} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
   return result;
@@ -41,6 +41,35 @@ test('reset path classification follows Windows case-insensitive filesystem iden
   assert.equal(repositoryPathCovers('.GITHUB/AGENTS/', '.github/agents/qa.agent.md', 'darwin'), true);
   assert.equal(repositoryPathCovers('.GITHUB/AGENTS/', '.github/agents/qa.agent.md', 'linux'), false,
     'case-distinct Linux paths remain distinct');
+});
+
+test('fresh-install root identity accepts portable Windows drive and UNC spellings', async () => {
+  const { resetPathIdentity, sameResetPathIdentity } = await import('../src/fresh-install-reset.mjs');
+  assert.equal(sameResetPathIdentity('C:/Users/Ashok/Flow', 'c:\\Users\\Ashok\\Flow\\', 'win32'), true);
+  assert.equal(sameResetPathIdentity('/c/Users/Ashok/Flow', 'C:\\Users\\Ashok\\Flow', 'win32'), true);
+  assert.equal(sameResetPathIdentity('//SERVER/Share/Flow', '\\\\server\\share\\flow\\', 'win32'), true);
+  assert.equal(sameResetPathIdentity('\\\\?\\UNC\\SERVER\\Share\\Flow', '//server/share/flow', 'win32'), true);
+  assert.equal(sameResetPathIdentity('C:/Users/Ashok/Flow', 'D:/Users/Ashok/Flow', 'win32'), false);
+  assert.equal(resetPathIdentity('/', 'linux'), '/');
+});
+
+test('fresh-install workspace deletion refuses roots, protected roots, and their ancestors', async () => {
+  const { assertNarrowWorkspaceRoot } = await import('../src/fresh-install-reset.mjs');
+  const base = path.join(os.tmpdir(), 'sflow-narrow-workspace-contract');
+  const home = path.join(base, 'home', 'ashok');
+  const project = path.join(base, 'product', 'singularity-flow');
+  const options = { homeDirectory: home, projectDirectory: project };
+  for (const target of [
+    path.parse(base).root,
+    home,
+    project,
+    path.dirname(home),
+    path.dirname(project)
+  ]) {
+    assert.throws(() => assertNarrowWorkspaceRoot(target, options), /Refusing|installer checkout is inside/);
+  }
+  assert.doesNotThrow(() => assertNarrowWorkspaceRoot(path.join(home, 'workspaces', 'demo'), options),
+    'an ordinary workspace below HOME remains a narrow eligible target');
 });
 
 test('factory-reset scope is bound to the canonical clone even at the same revision', async (t) => {
@@ -2175,8 +2204,9 @@ test('forget-only clears machine state from inside a workspace while preserving 
     workspacePath: created.workspace.path,
     disposition: 'preserved'
   }]);
-  assert.equal(preview.capabilityState.registryFile, path.join(machine, 'leads.json'));
-  assert.equal(preview.capabilityState.cacheRoot, path.join(machine, 'organisation-cache'));
+  const canonicalMachine = await realpath(machine);
+  assert.equal(preview.capabilityState.registryFile, path.join(canonicalMachine, 'leads.json'));
+  assert.equal(preview.capabilityState.cacheRoot, path.join(canonicalMachine, 'organisation-cache'));
   assert.match(preview.preserve.join('\n'), /repository-local recovery record/);
 
   await assert.rejects(() => localReset({ ...resetOptions, confirmation: 'RESET LOCAL' }),
@@ -2238,7 +2268,8 @@ test('forget-only removes supported custom state paths, tolerates a corrupt regi
   const options = { homeDirectory: home, projectDirectory: project, environment, forgetOnly: true };
   const preview = await localResetPlan(options);
   assert.match(preview.registryWarning, /Unreadable workspace registry will be forgotten/);
-  assert.equal(preview.vscodeReset.marker, environment.SINGULARITY_FLOW_VSCODE_RESET_MARKER);
+  assert.equal(preview.vscodeReset.marker,
+    path.join(await realpath(custom), path.basename(environment.SINGULARITY_FLOW_VSCODE_RESET_MARKER)));
   await localReset({ ...options, confirmation: 'FORGET LOCAL' });
   assert.equal(await missing(environment.SINGULARITY_FLOW_WORKSPACE_REGISTRY), true);
   assert.equal(await missing(environment.SINGULARITY_FLOW_ACTIVE_WORKSPACE), true);
@@ -2262,6 +2293,64 @@ test('forget-only removes supported custom state paths, tolerates a corrupt regi
     environment: { SINGULARITY_FLOW_ORGANISATION_CACHE: linkedTarget },
     forgetOnly: true
   }), /must not be a symbolic link/);
+});
+
+test('reset canonicalizes custom state paths and refuses symlink-ancestor escapes into protected roots', async (t) => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-reset-canonical-targets-'));
+  const home = path.join(base, 'home-root');
+  const project = path.join(base, 'product-root');
+  const aliases = path.join(base, 'aliases');
+  await mkdir(home);
+  await mkdir(project);
+  await mkdir(aliases);
+  t.after(() => rm(base, { recursive: true, force: true }));
+
+  // The configured leaf is not itself a symlink. Its parent is, which used to bypass lexical
+  // containment checks and let moveToStaging follow the alias during destructive application.
+  const homeParentAlias = path.join(aliases, 'home-parent');
+  const projectParentAlias = path.join(aliases, 'project-parent');
+  await symlink(path.dirname(home), homeParentAlias);
+  await symlink(path.dirname(project), projectParentAlias);
+  const homeThroughAncestor = path.join(homeParentAlias, path.basename(home));
+  const projectThroughAncestor = path.join(projectParentAlias, path.basename(project));
+
+  const protectedRegistry = path.join(project, 'protected-workspaces.json');
+  const protectedJournal = path.join(project, 'protected-journal');
+  await writeFile(protectedRegistry, '[]\n');
+  await mkdir(protectedJournal);
+  await writeFile(path.join(protectedJournal, 'receipt.json'), '{"preserve":true}\n');
+
+  const { localResetPlan } = await import('../src/fresh-install-reset.mjs');
+  await assert.rejects(() => localResetPlan({
+    homeDirectory: home,
+    projectDirectory: project,
+    environment: { SINGULARITY_FLOW_ORGANISATION_CACHE: homeThroughAncestor },
+    forgetOnly: true
+  }), /Refusing broad or protected custom capability cache/);
+  await assert.rejects(() => localResetPlan({
+    homeDirectory: home,
+    projectDirectory: project,
+    environment: {
+      SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(
+        projectThroughAncestor, path.basename(protectedRegistry)
+      )
+    },
+    forgetOnly: true
+  }), /Refusing broad or protected custom workspace registry/);
+  await assert.rejects(() => localResetPlan({
+    homeDirectory: home,
+    projectDirectory: project,
+    environment: {
+      SINGULARITY_FLOW_LOCAL_JOURNAL: path.join(
+        projectThroughAncestor, path.basename(protectedJournal)
+      )
+    },
+    forgetOnly: true
+  }), /Refusing broad or protected custom local work journal/);
+
+  assert.equal(await readFile(protectedRegistry, 'utf8'), '[]\n');
+  assert.equal(await readFile(path.join(protectedJournal, 'receipt.json'), 'utf8'),
+    '{"preserve":true}\n');
 });
 
 test('local-reset CLI keeps non-interactive preview and confirmation mode-bound', async () => {
@@ -2359,9 +2448,10 @@ test('fresh install reset removes only untracked generated state from its instal
 
   const { freshInstallReset, freshInstallResetPlan } = await import('../src/fresh-install-reset.mjs');
   const preview = await freshInstallResetPlan({ homeDirectory: home, projectDirectory: checkout, environment: {} });
+  const canonicalCheckout = await realpath(checkout);
   assert.deepEqual(preview.installerGeneratedPaths, [
-    path.join(checkout, '.github', 'agents'),
-    path.join(checkout, 'singularity')
+    path.join(canonicalCheckout, '.github', 'agents'),
+    path.join(canonicalCheckout, 'singularity')
   ]);
   await freshInstallReset({
     homeDirectory: home,
@@ -2373,6 +2463,61 @@ test('fresh install reset removes only untracked generated state from its instal
   assert.equal(await missing(path.join(checkout, '.github', 'agents')), true);
   assert.equal(await readFile(path.join(checkout, 'product.txt'), 'utf8'), 'tracked product source\n');
   assert.equal(git(checkout, 'status', '--porcelain'), '');
+});
+
+test('fresh install reset refuses generated roots that contain ignored private files', async (t) => {
+  const home = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-ignored-home-'));
+  const checkout = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-ignored-checkout-'));
+  t.after(() => Promise.all([
+    rm(home, { recursive: true, force: true }), rm(checkout, { recursive: true, force: true })
+  ]));
+  git(checkout, 'init', '-b', 'main');
+  git(checkout, 'config', 'user.name', 'Fresh Reset Ignored Tester');
+  git(checkout, 'config', 'user.email', 'fresh-reset-ignored@example.com');
+  await writeFile(path.join(checkout, '.gitignore'), 'singularity/private.txt\n');
+  await writeFile(path.join(checkout, 'product.txt'), 'tracked product source\n');
+  git(checkout, 'add', '.gitignore', 'product.txt');
+  git(checkout, 'commit', '-m', 'product baseline');
+  await mkdir(path.join(checkout, 'singularity'));
+  await writeFile(path.join(checkout, 'singularity', 'workflow.yml'), 'version: 2\n');
+  await writeFile(path.join(checkout, 'singularity', 'private.txt'), 'must remain private\n');
+
+  const { freshInstallResetPlan } = await import('../src/fresh-install-reset.mjs');
+  await assert.rejects(
+    () => freshInstallResetPlan({ homeDirectory: home, projectDirectory: checkout, environment: {} }),
+    /contains ignored or private files:[\s\S]*singularity\/private\.txt/
+  );
+  assert.equal(await readFile(path.join(checkout, 'singularity', 'workflow.yml'), 'utf8'), 'version: 2\n');
+  assert.equal(await readFile(path.join(checkout, 'singularity', 'private.txt'), 'utf8'), 'must remain private\n');
+});
+
+test('fresh install Git safety probes are bounded and fail closed', async (t) => {
+  const home = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-probe-home-'));
+  const checkout = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-probe-checkout-'));
+  const bin = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-probe-bin-'));
+  t.after(() => Promise.all([
+    rm(home, { recursive: true, force: true }),
+    rm(checkout, { recursive: true, force: true }),
+    rm(bin, { recursive: true, force: true })
+  ]));
+  const fakeGit = path.join(bin, 'git');
+  await writeFile(fakeGit, '#!/usr/bin/env bash\nexec sleep 5\n');
+  await chmod(fakeGit, 0o755);
+
+  const { freshInstallResetPlan } = await import('../src/fresh-install-reset.mjs');
+  const started = Date.now();
+  await assert.rejects(
+    () => freshInstallResetPlan({
+      homeDirectory: home,
+      projectDirectory: checkout,
+      environment: {
+        PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+        SINGULARITY_FLOW_GIT_LOCAL_TIMEOUT_MS: '25'
+      }
+    }),
+    /checkout-state-unavailable/
+  );
+  assert.ok(Date.now() - started < 2_000, 'a stuck Git safety probe must not hang reset planning');
 });
 
 test('fresh install reset still refuses unrelated installer checkout changes', async () => {
@@ -2394,34 +2539,453 @@ test('fresh install reset still refuses unrelated installer checkout changes', a
   assert.equal(await readFile(path.join(checkout, 'product.txt'), 'utf8'), 'uncommitted source edit\n');
 });
 
-test('fresh-install CLI delegates preview and confirmed reinstall to a validated product checkout', async () => {
+test('fresh-install prerequisite and registry admission cannot mutate machine state', async (t) => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-preflight-'));
+  const home = path.join(base, 'home');
+  const checkout = path.join(base, 'checkout');
+  const machine = path.join(home, '.singularity-flow');
+  const sentinel = path.join(machine, 'must-remain.txt');
+  // The aggregate test runner deliberately pins every process to its own machine-state files.
+  // HOME alone therefore does not isolate a nested CLI: inherited explicit paths take precedence
+  // and would make this test inspect (or, on a regression, mutate) the runner's shared registry.
+  // Bind every reset-aware override to this fixture so admission is exercised against the exact
+  // corrupt registry below and no failed assertion can escape the fixture boundary.
+  const environment = {
+    HOME: home,
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(machine, 'workspaces.json'),
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(machine, 'active-workspace.json'),
+    SINGULARITY_FLOW_LEAD_REGISTRY: path.join(machine, 'leads.json'),
+    SINGULARITY_FLOW_ORGANISATION_CACHE: path.join(machine, 'organisation-cache'),
+    SINGULARITY_FLOW_LOCAL_JOURNAL: path.join(machine, 'local-work-journal'),
+    SINGULARITY_FLOW_VSCODE_RESET_MARKER: path.join(machine, 'vscode-fresh-reset-pending.json')
+  };
+  t.after(() => rm(base, { recursive: true, force: true }));
+  await mkdir(machine, { recursive: true });
+  await mkdir(checkout);
+  await writeFile(sentinel, 'preflight must not move me\n');
+  git(checkout, 'init', '-b', 'main');
+  git(checkout, 'config', 'user.name', 'Fresh Install Preflight Tester');
+  git(checkout, 'config', 'user.email', 'fresh-install-preflight@example.com');
+  await writeFile(path.join(checkout, 'package.json'), '{"name":"singularity-flow"}\n');
+  await writeFile(path.join(checkout, 'install.sh'), '#!/usr/bin/env bash\nexit 0\n');
+  await chmod(path.join(checkout, 'install.sh'), 0o755);
+  git(checkout, 'add', 'package.json', 'install.sh');
+  git(checkout, 'commit', '-m', 'reviewed source');
+
+  const { preflightFreshInstallRuntime } = await import('../src/cli.mjs');
+  assert.throws(() => preflightFreshInstallRuntime({
+    cliOnly: true,
+    registry: 'https://npm.example.com/',
+    existsCommand: (name) => name !== 'bash',
+    execute: () => { throw new Error('registry lookup must not run with an explicit registry'); }
+  }), /requires these commands before any state can be reset: bash/);
+  assert.equal(await readFile(sentinel, 'utf8'), 'preflight must not move me\n');
+
+  const invalid = command(process.execPath, [
+    cli, 'fresh-install', '--checkout', checkout, '--yes', '--cli-only', '--registry', 'file:///private/npm'
+  ], packageRoot, { ok: false, env: environment });
+  assert.ifError(invalid.error);
+  assert.notEqual(invalid.status, null, `fresh-install did not exit normally (signal: ${invalid.signal ?? 'none'})`);
+  assert.notEqual(invalid.status, 0, 'an invalid npm registry must be refused');
+  assert.match(invalid.stderr, /npm registry must use http:\/\/ or https:\/\//);
+  assert.equal(await readFile(sentinel, 'utf8'), 'preflight must not move me\n');
+
+  await writeFile(path.join(machine, 'workspaces.json'), '{not valid json\n');
+  const invalidWorkspaceRegistry = command(process.execPath, [
+    cli, 'fresh-install', '--checkout', checkout, '--yes', '--cli-only',
+    '--registry', 'https://npm.example.com/'
+  ], packageRoot, { ok: false, env: environment });
+  assert.ifError(invalidWorkspaceRegistry.error);
+  assert.notEqual(invalidWorkspaceRegistry.status, null,
+    `fresh-install did not exit normally (signal: ${invalidWorkspaceRegistry.signal ?? 'none'})`);
+  assert.notEqual(invalidWorkspaceRegistry.status, 0, 'an unreadable workspace registry must be refused');
+  assert.match(invalidWorkspaceRegistry.stderr, /Refusing a full reset with an unreadable workspace registry/);
+  assert.equal(await readFile(sentinel, 'utf8'), 'preflight must not move me\n');
+  assert.equal(await readFile(path.join(machine, 'workspaces.json'), 'utf8'), '{not valid json\n');
+});
+
+test('fresh-install immutable staging survives a clean source branch commit swap', async (t) => {
+  const checkout = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-commit-swap-'));
+  let staging = null;
+  t.after(async () => {
+    if (staging) {
+      const { disposeFreshInstallSource } = await import('../src/cli.mjs');
+      await disposeFreshInstallSource(staging).catch(() => false);
+    }
+    await rm(checkout, { recursive: true, force: true });
+  });
+  git(checkout, 'init', '-b', 'main');
+  git(checkout, 'config', 'user.name', 'Fresh Install Swap Tester');
+  git(checkout, 'config', 'user.email', 'fresh-install-swap@example.com');
+  await writeFile(path.join(checkout, 'package.json'), '{"name":"singularity-flow","generation":1}\n');
+  await writeFile(path.join(checkout, 'install.sh'), '#!/usr/bin/env bash\nprintf "generation-one\\n"\n');
+  await writeFile(path.join(checkout, 'product.txt'), 'generation one\n');
+  await chmod(path.join(checkout, 'install.sh'), 0o755);
+  git(checkout, 'add', '.');
+  git(checkout, 'commit', '-m', 'reviewed generation one');
+
+  const {
+    disposeFreshInstallSource, stageTrustedFreshInstallSource, trustedFreshInstallSource
+  } = await import('../src/cli.mjs');
+  const source = await trustedFreshInstallSource(checkout);
+  await writeFile(path.join(checkout, 'package.json'), '{"name":"singularity-flow","generation":2}\n');
+  await writeFile(path.join(checkout, 'install.sh'), '#!/usr/bin/env bash\nprintf "generation-two\\n"\n');
+  await writeFile(path.join(checkout, 'product.txt'), 'generation two\n');
+  git(checkout, 'add', '.');
+  git(checkout, 'commit', '-m', 'clean generation two swap');
+  assert.notEqual(git(checkout, 'rev-parse', 'HEAD'), source.commit);
+
+  staging = await stageTrustedFreshInstallSource(checkout, source);
+  assert.equal(git(staging.checkout, 'rev-parse', 'HEAD^{commit}'), source.commit);
+  assert.equal(git(staging.checkout, 'rev-parse', 'HEAD^{tree}'), source.tree);
+  assert.equal(await readFile(path.join(staging.checkout, 'product.txt'), 'utf8'), 'generation one\n');
+  assert.equal(await readFile(path.join(staging.checkout, 'install.sh'), 'utf8'),
+    '#!/usr/bin/env bash\nprintf "generation-one\\n"\n');
+  await disposeFreshInstallSource(staging);
+  staging = null;
+});
+
+test('fresh-install source admission rejects tracked symlinks and gitlinks', async (t) => {
+  async function fixture(label) {
+    const checkout = await mkdtemp(path.join(os.tmpdir(), `sflow-fresh-tree-mode-${label}-`));
+    t.after(() => rm(checkout, { recursive: true, force: true }));
+    git(checkout, 'init', '-b', 'main');
+    git(checkout, 'config', 'user.name', 'Fresh Install Tree Tester');
+    git(checkout, 'config', 'user.email', 'fresh-install-tree@example.com');
+    await writeFile(path.join(checkout, 'package.json'), '{"name":"singularity-flow"}\n');
+    await writeFile(path.join(checkout, 'install.sh'), '#!/usr/bin/env bash\nexit 0\n');
+    await chmod(path.join(checkout, 'install.sh'), 0o755);
+    return checkout;
+  }
+  const { trustedFreshInstallSource } = await import('../src/cli.mjs');
+
+  await t.test('symlink', async () => {
+    const checkout = await fixture('symlink');
+    await symlink('/tmp/outside-fresh-install', path.join(checkout, 'outside-link'));
+    git(checkout, 'add', '.');
+    git(checkout, 'commit', '-m', 'tracked symlink');
+    await assert.rejects(() => trustedFreshInstallSource(checkout),
+      /outside-link has unsupported tracked mode 120000/);
+  });
+
+  await t.test('gitlink', async () => {
+    const checkout = await fixture('gitlink');
+    git(checkout, 'add', 'package.json', 'install.sh');
+    git(checkout, 'commit', '-m', 'regular baseline');
+    const object = git(checkout, 'rev-parse', 'HEAD');
+    git(checkout, 'update-index', '--add', '--cacheinfo', `160000,${object},nested-product`);
+    git(checkout, 'commit', '-m', 'tracked gitlink');
+    await assert.rejects(() => trustedFreshInstallSource(checkout),
+      /nested-product has unsupported tracked mode 160000/);
+  });
+});
+
+test('fresh-install preview never executes configured clean or process filters', async (t) => {
+  const checkout = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-filter-proof-'));
+  const home = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-filter-home-'));
+  const marker = path.join(home, 'filter-executed');
+  const filter = path.join(home, 'evil-filter.sh');
+  t.after(() => Promise.all([
+    rm(checkout, { recursive: true, force: true }),
+    rm(home, { recursive: true, force: true })
+  ]));
+  git(checkout, 'init', '-b', 'main');
+  git(checkout, 'config', 'user.name', 'Fresh Install Filter Tester');
+  git(checkout, 'config', 'user.email', 'fresh-install-filter@example.com');
+  await writeFile(filter, `#!/usr/bin/env bash\nprintf executed > ${JSON.stringify(marker)}\ncat\n`);
+  await chmod(filter, 0o755);
+  await writeFile(path.join(checkout, '.gitattributes'), '*.txt filter=evil\n');
+  await writeFile(path.join(checkout, 'package.json'), '{"name":"singularity-flow"}\n');
+  await writeFile(path.join(checkout, 'install.sh'), '#!/usr/bin/env bash\nexit 0\n');
+  await writeFile(path.join(checkout, 'product.txt'), 'reviewed bytes\n');
+  await chmod(path.join(checkout, 'install.sh'), 0o755);
+  git(checkout, 'add', '.');
+  git(checkout, 'commit', '-m', 'reviewed filtered source');
+  git(checkout, 'config', 'filter.evil.clean', filter);
+  git(checkout, 'config', 'filter.evil.process', filter);
+  // Make Git's stat cache racy enough that a `git status` implementation would ask the configured
+  // clean/process filter to compare these otherwise identical bytes.
+  await writeFile(path.join(checkout, 'product.txt'), 'reviewed bytes\n');
+  await rm(marker, { force: true });
+
+  const preview = command(process.execPath, [
+    cli, 'fresh-install', '--checkout', checkout, '--cli-only', '--registry', 'https://npm.example.com/'
+  ], packageRoot, { env: { HOME: home } });
+  assert.match(preview.stdout, /fresh-install reset — preview/);
+  assert.equal(await missing(marker), true,
+    'admission enumerates Git identities and hashes raw files in Node; it never invokes filters');
+});
+
+test('fresh-install refusal escapes crafted untracked filenames in diagnostics', async (t) => {
+  const checkout = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-untracked-name-'));
+  const home = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-untracked-home-'));
+  t.after(() => Promise.all([
+    rm(checkout, { recursive: true, force: true }), rm(home, { recursive: true, force: true })
+  ]));
+  git(checkout, 'init', '-b', 'main');
+  git(checkout, 'config', 'user.name', 'Fresh Install Filename Tester');
+  git(checkout, 'config', 'user.email', 'fresh-install-filename@example.com');
+  await writeFile(path.join(checkout, 'package.json'), '{"name":"singularity-flow"}\n');
+  await writeFile(path.join(checkout, 'install.sh'), '#!/usr/bin/env bash\nexit 0\n');
+  await chmod(path.join(checkout, 'install.sh'), 0o755);
+  git(checkout, 'add', '.');
+  git(checkout, 'commit', '-m', 'reviewed product source');
+  await writeFile(path.join(checkout, 'crafted\nFAKE SUCCESS'), 'untracked\n');
+
+  const preview = command(process.execPath, [
+    cli, 'fresh-install', '--checkout', checkout, '--cli-only', '--registry', 'https://npm.example.com/'
+  ], packageRoot, { ok: false, env: { HOME: home } });
+  assert.match(preview.stderr, /crafted\\nFAKE SUCCESS/,
+    'the diagnostic contains one JSON-escaped filename, not attacker-controlled terminal lines');
+  assert.doesNotMatch(preview.stderr, /crafted\nFAKE SUCCESS/);
+});
+
+test('fresh-install CLI delegates preview and confirmed reinstall to a validated product checkout', async (t) => {
   const checkout = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-cli-checkout-'));
+  const home = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-cli-home-'));
+  t.after(() => Promise.all([
+    rm(checkout, { recursive: true, force: true }), rm(home, { recursive: true, force: true })
+  ]));
+  const invocationLog = path.join(home, 'invocation.log');
   git(checkout, 'init', '-b', 'main');
   git(checkout, 'config', 'user.name', 'Fresh Install CLI Tester');
   git(checkout, 'config', 'user.email', 'fresh-install-cli@example.com');
   await writeFile(path.join(checkout, 'package.json'), '{"name":"singularity-flow"}\n');
-  await writeFile(path.join(checkout, 'install.sh'), '#!/usr/bin/env bash\nprintf "%s\\n" "$*" >> invocation.log\n');
+  await writeFile(path.join(checkout, 'install.sh'), [
+    '#!/usr/bin/env bash',
+    'printf "args=%s source=%s origin=%s commit=%s tree=%s cwd=%s\\n" "$*" "${BASH_SOURCE[0]}" "${SINGULARITY_FLOW_FRESH_INSTALL_ORIGIN:-}" "${SINGULARITY_FLOW_FRESH_INSTALL_COMMIT:-}" "${SINGULARITY_FLOW_FRESH_INSTALL_TREE:-}" "$PWD" >> "$SFLOW_TEST_INVOCATION_LOG"',
+    ''
+  ].join('\n'));
   await chmod(path.join(checkout, 'install.sh'), 0o755);
   git(checkout, 'add', 'package.json', 'install.sh');
   git(checkout, 'commit', '-m', 'product checkout');
+  await mkdir(path.join(checkout, 'singularity'), { recursive: true });
+  await writeFile(path.join(checkout, 'singularity', 'generated-before-reset.txt'), 'remove me\n');
+  const canonicalCheckout = await realpath(checkout);
+  const sourceCommit = git(checkout, 'rev-parse', 'HEAD^{commit}');
+  const sourceTree = git(checkout, 'rev-parse', 'HEAD^{tree}');
 
-  command(process.execPath, [cli, 'fresh-install', '--checkout', checkout], packageRoot);
+  const preview = command(process.execPath, [cli, 'fresh-install', '--checkout', checkout], packageRoot, {
+    env: {
+      HOME: home,
+      GIT_DIR: path.join(home, 'ambient-wrong.git'),
+      GIT_INDEX_FILE: path.join(home, 'ambient-wrong.index')
+    }
+  });
+  assert.match(preview.stdout, /fresh-install reset — preview/);
+  assert.match(preview.stdout, /Generated state in this installer checkout/);
+  assert.match(preview.stdout, /singularity/);
+  assert.match(preview.stdout, /Preview only: nothing was deleted/);
+  assert.equal(await missing(path.join(checkout, 'invocation.log')), true,
+    'preview is resolved by the trusted running CLI and must not execute checkout code');
   command(process.execPath, [
     cli, 'fresh-install', '--checkout', checkout, '--yes', '--registry', 'https://npm.example.com/',
     '--cli-only', '--no-copilot-telemetry'
-  ], packageRoot);
-  assert.equal(await readFile(path.join(checkout, 'invocation.log'), 'utf8'), [
-    '--factory-reset',
-    '--factory-reset --yes --registry https://npm.example.com/ --cli-only --no-copilot-telemetry',
-    ''
-  ].join('\n'));
+  ], packageRoot, {
+    env: {
+      HOME: home,
+      SFLOW_TEST_INVOCATION_LOG: invocationLog,
+      GIT_DIR: path.join(home, 'ambient-wrong.git'),
+      GIT_INDEX_FILE: path.join(home, 'ambient-wrong.index')
+    }
+  });
+  const invoked = await readFile(invocationLog, 'utf8');
+  assert.match(invoked, new RegExp(
+    `^args=--no-update --registry https://npm\\.example\\.com/ --cli-only --no-copilot-telemetry source= origin=${canonicalCheckout.replaceAll('\\', '\\\\')} commit=${sourceCommit} tree=${sourceTree} cwd=`
+  ));
+  assert.ok(!invoked.endsWith(`cwd=${canonicalCheckout}\n`),
+    'the installer runs in an immutable private clone, not the mutable source checkout');
+  assert.equal(await missing(path.join(checkout, 'singularity')), true,
+    'the exact planner-proven generated root is reachable and removed before installation');
+  assert.equal((await readdir(path.dirname(checkout))).some((entry) =>
+    entry.startsWith('.sflow-fresh-install-source-')), false,
+    'a successful activation removes its private source without making the receipt depend on it');
 });
 
-test('fresh-install CLI refuses an arbitrary checkout or untracked installer', async () => {
+test('the reviewed installer resolves PROJECT_DIR from canonical cwd when executed as verified stdin', async (t) => {
+  const checkout = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-cli-stdin-root-'));
+  t.after(() => rm(checkout, { recursive: true, force: true }));
+  const installer = await readFile(path.join(packageRoot, 'install.sh'), 'utf8');
+  const boundary = installer.indexOf('ORIGINAL_ARGUMENTS=("$@")');
+  assert.ok(boundary > 0, 'the project-root initialization must precede installer argument handling');
+  const rootProbe = `${installer.slice(0, boundary)}printf '%s\\n' "$PROJECT_DIR"\n`;
+  const result = spawnSync('bash', ['-s'], {
+    cwd: checkout,
+    input: rootProbe,
+    encoding: 'utf8'
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), await realpath(checkout));
+});
+
+test('fresh-install reset never loads ignored checkout modules before locked dependency installation', async (t) => {
+  const checkout = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-cli-ignored-dependency-'));
+  const home = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-cli-ignored-home-'));
+  t.after(() => Promise.all([
+    rm(checkout, { recursive: true, force: true }), rm(home, { recursive: true, force: true })
+  ]));
+  const invocationLog = path.join(home, 'invocation.log');
+  git(checkout, 'init', '-b', 'main');
+  git(checkout, 'config', 'user.name', 'Fresh Install Dependency Tester');
+  git(checkout, 'config', 'user.email', 'fresh-install-dependency@example.com');
+  await writeFile(path.join(checkout, '.gitignore'), 'node_modules/\nscripts/fresh-install-reset.mjs\n');
+  await writeFile(path.join(checkout, 'package.json'), '{"name":"singularity-flow"}\n');
+  await writeFile(path.join(checkout, 'install.sh'), [
+    '#!/usr/bin/env bash',
+    'test "$1" = "--no-update"',
+    'printf "installer-ran\\n" > "$SFLOW_TEST_INVOCATION_LOG"',
+    ''
+  ].join('\n'));
+  await chmod(path.join(checkout, 'install.sh'), 0o755);
+  git(checkout, 'add', '.gitignore', 'package.json', 'install.sh');
+  git(checkout, 'commit', '-m', 'reviewed fresh-install source');
+
+  await mkdir(path.join(checkout, 'scripts'), { recursive: true });
+  await writeFile(path.join(checkout, 'scripts', 'fresh-install-reset.mjs'),
+    'await import("node:fs/promises").then(({writeFile}) => writeFile("ignored-code-ran", "yes"));\n');
+  await mkdir(path.join(checkout, 'node_modules', 'yaml'), { recursive: true });
+  await writeFile(path.join(checkout, 'node_modules', 'yaml', 'package.json'),
+    '{"name":"yaml","type":"module","main":"index.js"}\n');
+  await writeFile(path.join(checkout, 'node_modules', 'yaml', 'index.js'),
+    'await import("node:fs/promises").then(({writeFile}) => writeFile("ignored-dependency-ran", "yes"));\n');
+
+  const preview = command(process.execPath, [
+    cli, 'fresh-install', '--checkout', checkout, '--cli-only', '--registry', 'https://npm.example.com/'
+  ], packageRoot, {
+    env: { HOME: home }
+  });
+  assert.match(preview.stdout, /fresh-install reset — preview/);
+  assert.equal(await missing(path.join(checkout, 'invocation.log')), true);
+  assert.equal(await missing(path.join(checkout, 'ignored-code-ran')), true);
+  assert.equal(await missing(path.join(checkout, 'ignored-dependency-ran')), true);
+
+  command(process.execPath, [
+    cli, 'fresh-install', '--checkout', checkout, '--yes', '--cli-only', '--registry', 'https://npm.example.com/'
+  ], packageRoot, {
+    env: { HOME: home, SFLOW_TEST_INVOCATION_LOG: invocationLog }
+  });
+  assert.equal(await readFile(invocationLog, 'utf8'), 'installer-ran\n');
+  assert.equal(await missing(path.join(checkout, 'ignored-code-ran')), true);
+  assert.equal(await missing(path.join(checkout, 'ignored-dependency-ran')), true);
+});
+
+test('fresh-install CLI refuses an arbitrary checkout with untracked trust anchors', async (t) => {
   const checkout = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-cli-refuse-'));
+  t.after(() => rm(checkout, { recursive: true, force: true }));
   git(checkout, 'init', '-b', 'main');
   await writeFile(path.join(checkout, 'package.json'), '{"name":"singularity-flow"}\n');
   await writeFile(path.join(checkout, 'install.sh'), '#!/usr/bin/env bash\nexit 0\n');
   const result = command(process.execPath, [cli, 'fresh-install', '--checkout', checkout], packageRoot, { ok: false });
-  assert.match(result.stderr, /Refusing to run an untracked installer/);
+  assert.match(result.stderr, /package\.json is not a regular file tracked at HEAD/);
+  assert.match(result.stderr, /install\.sh is not a regular stage-0 file in the Git index/);
+  assert.match(result.stderr, /Commit the reviewed versions, or stash\/restore changes/);
+});
+
+test('fresh-install CLI never runs modified, staged, or symbolic-link trust anchors', async (t) => {
+  async function fixture(label) {
+    const checkout = await mkdtemp(path.join(os.tmpdir(), `sflow-fresh-cli-trust-${label}-`));
+    t.after(() => rm(checkout, { recursive: true, force: true }));
+    git(checkout, 'init', '-b', 'main');
+    git(checkout, 'config', 'user.name', 'Fresh Install Trust Tester');
+    git(checkout, 'config', 'user.email', 'fresh-install-trust@example.com');
+    const packageBytes = '{"name":"singularity-flow"}\n';
+    const installerBytes = '#!/usr/bin/env bash\nprintf "invoked\\n" > invoked.log\n';
+    await writeFile(path.join(checkout, 'package.json'), packageBytes);
+    await writeFile(path.join(checkout, 'install.sh'), installerBytes);
+    await chmod(path.join(checkout, 'install.sh'), 0o755);
+    git(checkout, 'add', 'package.json', 'install.sh');
+    git(checkout, 'commit', '-m', 'reviewed fresh-install source');
+    return { checkout, installerBytes };
+  }
+
+  async function refused(checkout, pattern) {
+    const result = command(process.execPath, [cli, 'fresh-install', '--checkout', checkout], packageRoot, { ok: false });
+    assert.match(result.stderr, /before running install\.sh, including reset preview/);
+    assert.match(result.stderr, pattern);
+    assert.equal(await missing(path.join(checkout, 'invoked.log')), true, 'untrusted installer bytes must never run');
+  }
+
+  await t.test('unstaged installer bytes', async () => {
+    const { checkout } = await fixture('unstaged-installer');
+    await writeFile(path.join(checkout, 'install.sh'), '#!/usr/bin/env bash\nprintf "invoked\\n" > invoked.log\n# unreviewed\n');
+    await refused(checkout, /install\.sh working-tree bytes do not match HEAD/);
+  });
+
+  await t.test('staged installer bytes', async () => {
+    const { checkout } = await fixture('staged-installer');
+    await writeFile(path.join(checkout, 'install.sh'), '#!/usr/bin/env bash\nprintf "invoked\\n" > invoked.log\n# staged but uncommitted\n');
+    git(checkout, 'add', 'install.sh');
+    await refused(checkout, /install\.sh has staged content or mode changes that do not match HEAD/);
+  });
+
+  await t.test('staged installer differs even when the working file was restored', async () => {
+    const { checkout, installerBytes } = await fixture('staged-index-only');
+    await writeFile(path.join(checkout, 'install.sh'), `${installerBytes}# staged only\n`);
+    git(checkout, 'add', 'install.sh');
+    await writeFile(path.join(checkout, 'install.sh'), installerBytes);
+    await refused(checkout, /install\.sh working-tree bytes do not match the Git index/);
+  });
+
+  await t.test('modified product manifest', async () => {
+    const { checkout } = await fixture('modified-package');
+    await writeFile(path.join(checkout, 'package.json'), '{"name":"singularity-flow","unreviewed":true}\n');
+    await refused(checkout, /package\.json working-tree bytes do not match HEAD/);
+  });
+
+  await t.test('staged product manifest', async () => {
+    const { checkout } = await fixture('staged-package');
+    await writeFile(path.join(checkout, 'package.json'), '{"name":"singularity-flow","staged":true}\n');
+    git(checkout, 'add', 'package.json');
+    await refused(checkout, /package\.json has staged content or mode changes that do not match HEAD/);
+  });
+
+  await t.test('symbolic-link installer', async () => {
+    const { checkout } = await fixture('symlink-installer');
+    await writeFile(path.join(checkout, 'replacement.sh'), '#!/usr/bin/env bash\nprintf "invoked\\n" > invoked.log\n');
+    await rm(path.join(checkout, 'install.sh'));
+    await symlink('replacement.sh', path.join(checkout, 'install.sh'));
+    await refused(checkout, /install\.sh is missing, is not a regular file, or is a symbolic link/);
+  });
+});
+
+test('fresh-install CLI refuses dirty tracked reset source before invoking the reviewed installer', async (t) => {
+  const checkout = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-cli-dirty-source-'));
+  t.after(() => rm(checkout, { recursive: true, force: true }));
+  git(checkout, 'init', '-b', 'main');
+  git(checkout, 'config', 'user.name', 'Fresh Install Source Tester');
+  git(checkout, 'config', 'user.email', 'fresh-install-source@example.com');
+  await mkdir(path.join(checkout, 'scripts'));
+  await writeFile(path.join(checkout, 'package.json'), '{"name":"singularity-flow"}\n');
+  await writeFile(path.join(checkout, 'install.sh'), '#!/usr/bin/env bash\nprintf "invoked\\n" > invoked.log\n');
+  await writeFile(path.join(checkout, 'scripts', 'fresh-install-reset.mjs'), 'export const reviewed = true;\n');
+  await chmod(path.join(checkout, 'install.sh'), 0o755);
+  git(checkout, 'add', 'package.json', 'install.sh', 'scripts/fresh-install-reset.mjs');
+  git(checkout, 'commit', '-m', 'reviewed fresh-install source');
+  await writeFile(path.join(checkout, 'scripts', 'fresh-install-reset.mjs'), 'throw new Error("unreviewed source ran");\n');
+
+  const result = command(process.execPath, [cli, 'fresh-install', '--checkout', checkout], packageRoot, { ok: false });
+  assert.match(result.stderr, /checkout has staged, modified, or unreviewed untracked files/);
+  assert.match(result.stderr, /scripts\/fresh-install-reset\.mjs/);
+  assert.match(result.stderr, /Commit, stash, or remove the reviewed source changes/);
+  assert.equal(await missing(path.join(checkout, 'invoked.log')), true);
+});
+
+test('fresh-install CLI refuses untracked checkout input before the verified installer can run', async (t) => {
+  const checkout = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-cli-untracked-source-'));
+  t.after(() => rm(checkout, { recursive: true, force: true }));
+  git(checkout, 'init', '-b', 'main');
+  git(checkout, 'config', 'user.name', 'Fresh Install Source Tester');
+  git(checkout, 'config', 'user.email', 'fresh-install-source@example.com');
+  await mkdir(path.join(checkout, 'scripts'));
+  await writeFile(path.join(checkout, 'package.json'), '{"name":"singularity-flow"}\n');
+  await writeFile(path.join(checkout, 'install.sh'), '#!/usr/bin/env bash\nprintf "invoked\\n" > invoked.log\n');
+  await chmod(path.join(checkout, 'install.sh'), 0o755);
+  git(checkout, 'add', 'package.json', 'install.sh');
+  git(checkout, 'commit', '-m', 'reviewed fresh-install source');
+  await writeFile(path.join(checkout, 'scripts', 'fresh-install-reset.mjs'), 'throw new Error("unreviewed source ran");\n');
+
+  const result = command(process.execPath, [cli, 'fresh-install', '--checkout', checkout], packageRoot, { ok: false });
+  assert.match(result.stderr, /checkout has staged, modified, or unreviewed untracked files/);
+  assert.match(result.stderr, /\?\? scripts\/fresh-install-reset\.mjs/);
+  assert.equal(await missing(path.join(checkout, 'invoked.log')), true);
 });

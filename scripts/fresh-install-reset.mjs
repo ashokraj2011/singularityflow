@@ -1,36 +1,56 @@
 #!/usr/bin/env node
 import process from 'node:process';
-import { freshInstallReset, freshInstallResetPlan, FRESH_INSTALL_CONFIRMATION } from '../src/fresh-install-reset.mjs';
 
 const args = new Set(process.argv.slice(2));
-const apply = args.has('--yes');
 
-try {
-  const options = {
-    homeDirectory: process.env.HOME,
-    projectDirectory: process.cwd(),
-    environment: process.env,
-    ...(apply ? { confirmation: FRESH_INSTALL_CONFIRMATION } : {})
-  };
-  const result = apply ? await freshInstallReset(options) : await freshInstallResetPlan(options);
-  if (args.has('--json')) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-  else {
-    console.log(`Singularity Flow fresh-install reset — ${result.completed ? 'complete' : 'preview'}`);
-    console.log(`Registered workspaces to delete: ${result.workspaces.length}`);
-    for (const workspace of result.workspaces) console.log(`  - ${workspace.name}: ${workspace.path}`);
-    if (result.missingRegistrations.length) {
-      console.log(`Already-missing registrations: ${result.missingRegistrations.length}`);
-      for (const target of result.missingRegistrations) console.log(`  - ${target}`);
+function posixQuote(value) {
+  return `'${String(value).replaceAll("'", `'"'"'`)}'`;
+}
+
+function powershellQuote(value) {
+  return `'${String(value).replaceAll("'", "''")}'`;
+}
+
+// This source-checkout helper is intentionally preview-only. Destructive reset code must come
+// from the already-installed, reviewed CLI rather than modules that the checkout can replace.
+if (args.has('--yes')) {
+  console.error('Fresh install reset refused: this source-checkout helper cannot delete data.');
+  console.error('Use the trusted installed CLI: singularity-flow fresh-install --checkout DIRECTORY --yes');
+  process.exitCode = 1;
+} else {
+  try {
+    const { freshInstallResetPlan } = await import('../src/fresh-install-reset.mjs');
+    const result = await freshInstallResetPlan({
+      homeDirectory: process.env.HOME,
+      projectDirectory: process.cwd(),
+      environment: process.env
+    });
+    if (args.has('--json')) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    else {
+      console.log('Singularity Flow fresh-install reset — preview');
+      console.log(`Registered workspaces to delete: ${result.workspaces.length}`);
+      for (const workspace of result.workspaces) console.log(`  - ${workspace.name}: ${workspace.path}`);
+      if (result.missingRegistrations.length) {
+        console.log(`Already-missing registrations: ${result.missingRegistrations.length}`);
+        for (const target of result.missingRegistrations) console.log(`  - ${target}`);
+      }
+      if (result.installerGeneratedPaths.length) {
+        console.log('Generated state in this installer checkout:');
+        for (const target of result.installerGeneratedPaths) console.log(`  - ${target}`);
+      }
+      console.log('Additional reset targets:');
+      for (const target of result.remove.slice(
+        result.installerGeneratedPaths.length + result.workspaces.length
+      )) console.log(`  - ${target}`);
+      const recoveryArgv = [
+        'singularity-flow', 'fresh-install', '--checkout', process.cwd(), '--yes'
+      ];
+      console.log('\nDeletion must use the trusted installed CLI:');
+      console.log(`  macOS/Linux: ${recoveryArgv.map(posixQuote).join(' ')}`);
+      console.log(`  PowerShell: & ${recoveryArgv.map(powershellQuote).join(' ')}`);
     }
-    if (result.installerGeneratedPaths.length) {
-      console.log('Generated state in this installer checkout:');
-      for (const target of result.installerGeneratedPaths) console.log(`  - ${target}`);
-    }
-    console.log('Additional reset targets:');
-    for (const target of result.remove.slice(result.installerGeneratedPaths.length + result.workspaces.length)) console.log(`  - ${target}`);
-    if (!apply) console.log(`\nTo delete this exact boundary and reinstall, run: ./install.sh --factory-reset --yes`);
+  } catch (error) {
+    console.error(`Fresh install reset refused: ${error.message}`);
+    process.exitCode = error.exitCode ?? 1;
   }
-} catch (error) {
-  console.error(`Fresh install reset refused: ${error.message}`);
-  process.exitCode = error.exitCode ?? 1;
 }

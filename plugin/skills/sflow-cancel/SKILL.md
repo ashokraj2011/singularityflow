@@ -9,7 +9,7 @@ argument-hint: "[WORK-ID] --reason 'explanation'"
 <!-- sflow-output-contract: deterministic-mutation -->
 **Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
+**Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
 This is an explicit human lifecycle decision, not an artifact-generation task.
 

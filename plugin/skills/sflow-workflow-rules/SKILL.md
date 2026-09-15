@@ -1,6 +1,6 @@
 ---
 name: sflow-workflow-rules
-description: Background rules for Singularity Flow-managed SDLC work. Load when a repository contains singularity/work-items or when the user discusses Singularity Flow phases, approvals, handoffs, or artifact registration.
+description: Background rules for Singularity Flow-managed SDLC work. Load when a repository has governed Story state at its configured work-item root or when the user discusses Singularity Flow phases, approvals, handoffs, or artifact registration.
 disable-model-invocation: true
 user-invocable: false
 ---
@@ -11,25 +11,15 @@ user-invocable: false
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
-`/sf-session` is setup only: stop after its report. Do not inspect artifacts/source or infer delivery work from an ID.
+`/sf-session` is setup only; stop after its report. `workflow.json` is state, `singularity/workflow.yml` defines policy, and `.github/agents` owns prompts/views.
 
-`workflow.json` is state; `singularity/workflow.yml` defines profiles, phases, templates, and authorities. `.github/agents` owns prompts/views.
-
-1. Run `singularity-flow status` before changing files and read approved artifacts from earlier phases.
-2. Work only on the exact branch stored in `workflow.json`.
-3. Do not skip phases or edit lifecycle state files manually.
-4. Put each required phase document under `singularity/work-items/<WORK-ID>/artifacts/<phase>/`.
-5. Register changed files with `singularity-flow artifact add` or `singularity-flow artifact scan`.
-6. Never run `singularity-flow approve` unless the user explicitly invokes the approval skill or directly asks to approve.
-7. Never edit `workflow.json`, `STATUS.md`, or approval snapshots by hand.
-8. Never store secrets in the repository.
-9. Treat approved artifacts as inputs; record deviations.
-10. Before configured-producer publish run `singularity-flow phase draft-check <phase> --json`; correct agent findings now, stop on an unchanged fingerprint or after three fingerprints, and publish only when `ready`. Never invent/pad, nest models, or overwrite producers. Race-time `ARTIFACT_AUTHORING_INCOMPLETE`: one retry, never loop. Show documents.
-11. Run `singularity-flow gate` before requesting review. A merge-ready pull request must pass `singularity-flow gate --terminal`.
-12. Tag tests with full pinned clauses such as `@ac:WORK-ID:AC-001`; bare identities are refused when ambiguous.
-13. Before reasoning, compose the exact phase/task prompt; if stale, build and recompose identically. Add `--evidence` for verification/review/release.
-14. Treat `singularity/work-items/<WORK-ID>/inputs/` and `documents.json` as managed supporting evidence. Upload through `singularity-flow documents upload`, list/view by stable document ID, and never edit the catalog manually.
-15. Never choose a workflow for the user. Use the phase-default agent unless `/sf-agent` is explicitly invoked. Approval comes only from a matching human authority.
-16. Run `singularity-flow next` only when the user explicitly invokes `/sf-next` or directly asks to execute the next lifecycle action. Execute one action only; approval must retain human-authority validation, exact confirmation, commit, and push.
-17. In each handoff show `/sf-*` first, then its `singularity-flow ...` equivalent. Never give a CLI-only action when a direct skill exists.
-18. Execute each clarification checkpoint and record accepted answers before agent publication. Never turn a hypothesis into a requirement, criterion, design, or specification decision without human confirmation.
+1. Before Story work run `singularity-flow session current --json`; require `ready`, use its `repositoryPath` as cwd, then run `singularity-flow status <WORK-ID> --json`. Repository-only configuration uses its own guarded skill.
+2. Use only the returned branch, immutable `workflow.resolution.workItemRoot`, and CLI-returned artifact/input paths. Never assume a default root, skip phases, or hand-edit lifecycle state, `STATUS.md`, `documents.json`, or approvals.
+3. Create phase documents only at paths returned by `singularity-flow prepare <PHASE>` or `singularity-flow phase show <PHASE> --json`. Upload evidence with `singularity-flow documents upload`; register changes with `singularity-flow artifact add` or `singularity-flow artifact scan`.
+4. Never store secrets. Treat approved artifacts as inputs and record deviations.
+5. Before agent publication run `singularity-flow phase draft-check <phase> --json`; correct findings from evidence, stop on an unchanged fingerprint or after three fingerprints, and publish only when `ready` with the configured producer/channel. On race-time `ARTIFACT_AUTHORING_INCOMPLETE`, recheck once; never invent, pad, nest models, overwrite producers, or loop.
+6. Run `singularity-flow gate` before review and `singularity-flow gate --terminal` before merge readiness. Tag tests with full clauses such as `@ac:WORK-ID:AC-001`.
+7. Compose the exact phase prompt. If World-Model intelligence is missing, stale, or unreachable, continue with explicit zero-byte World-Model context and ordinary file access. An exact returned `singularity-flow wm ensure ...` command is optional and may run once only after separate explicit contributor consent; never delay phase work. Add `--evidence` for verification/review/release.
+8. Never choose a workflow. Use the phase-default agent unless `/sf-agent` was invoked; only matching human authority may approve, and `singularity-flow approve` requires an explicit approval request.
+9. Never run `singularity-flow next`. For `/sf-next`, run `singularity-flow nextsteps <WORK-ID> --json`, load the first `NOW` returned SFlow skill route, complete its preflight, execute at most one authorized action, and stop.
+10. Show `/sf-*` before its complete `singularity-flow ...` equivalent. Record accepted clarifications before publication; never turn a hypothesis into a requirement or design decision.

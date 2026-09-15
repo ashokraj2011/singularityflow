@@ -246,6 +246,29 @@ if (existsSync(path.join(root, 'examples', 'singularity-flow-approve.yml'))) {
     try { return !commands.includes(canonicalCommand(name)); } catch { return true; }
   });
   if (unknown.length) fail(`Help pages describe commands that do not exist: ${unknown.join(', ')}`);
+  const guardedForms = [
+    ['phase', 'singularity-flow phase draft-check [PHASE] [--json]'],
+    ['initiative', 'singularity-flow initiative phase draft-check [PHASE] [--initiative INIT-ID] [--json]'],
+    ['epic', 'singularity-flow epic jira apply --epic EPIC-KEY --plan SHA256 --confirm EPIC-KEY']
+  ];
+  for (const [command, form] of guardedForms) {
+    if (!synopsisFor(command).includes(form)) fail(`${command} help omits guarded form: ${form}`);
+  }
+  const cliSource = await readFile(path.join(root, 'src', 'cli.mjs'), 'utf8');
+  const staleEpicJiraGuidance = [
+    /Publish it with singularity-flow epic jira apply\.`/,
+    /Review it, then run singularity-flow epic create-stories --plan/,
+    /Run singularity-flow epic jira apply --plan <sha256>/
+  ];
+  for (const pattern of staleEpicJiraGuidance) {
+    if (pattern.test(cliSource)) fail(`CLI emits incomplete guarded Epic Jira guidance: ${pattern}`);
+  }
+  for (const pattern of [
+    /singularity-flow epic jira apply --epic \$\{initiativeId\} --plan \$\{result\.plan\.sha256\} --confirm \$\{initiativeId\}/,
+    /singularity-flow epic jira apply --epic \$\{initiativeId\} --plan \$\{planSha256\} --confirm \$\{initiativeId\}/
+  ]) {
+    if (!pattern.test(cliSource)) fail(`CLI omits exact guarded Epic Jira guidance: ${pattern}`);
+  }
 }
 
 // Corporate installations may not provide GitHub Actions. Keep validation and packaging local and

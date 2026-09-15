@@ -1,7 +1,20 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# A normal source install runs this file by pathname. The guarded `fresh-install` command instead
+# supplies the already-verified Git bytes on stdin, closing the check-to-exec replacement window;
+# in that form BASH_SOURCE is empty and the verified checkout is the process working directory.
+if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
+  PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+else
+  PROJECT_DIR="$(pwd -P)"
+fi
+INSTALL_RECEIPT_CHECKOUT="$PROJECT_DIR"
+INSTALL_RECEIPT_SOURCE_COMMIT=""
+INSTALL_RECEIPT_SOURCE_TREE=""
+FRESH_INSTALL_ORIGIN="${SINGULARITY_FLOW_FRESH_INSTALL_ORIGIN:-}"
+FRESH_INSTALL_COMMIT="${SINGULARITY_FLOW_FRESH_INSTALL_COMMIT:-}"
+FRESH_INSTALL_TREE="${SINGULARITY_FLOW_FRESH_INSTALL_TREE:-}"
 ORIGINAL_ARGUMENTS=("$@")
 PUBLIC_REGISTRY="https://registry.npmjs.org/"
 # Precedence: --registry, Singularity-specific environment, standard npm environment,
@@ -85,14 +98,14 @@ usage() {
     'Usage: ./install.sh [--registry URL] [--no-copilot-telemetry] [--cli-only | --vscode-only | --skip-vscode | --skip-copilot] [--no-update] [--skip-tests] [--refresh-vsce-toolchain] [--no-workspace-configuration-refresh]' \
     '       ./install.sh --from-staged-artifacts' \
     '       ./install.sh --clean-reinstall [--dry-run | --confirm "REINSTALL SINGULARITY FLOW <fingerprint>"] [--registry URL] [--cli-only]' \
-    '       ./install.sh --factory-reset [--yes] [--registry URL] [--cli-only]' \
+    '       singularity-flow fresh-install [--checkout DIRECTORY] [--yes] [--registry URL] [--cli-only]' \
     '' \
     'Pull, build, test, package, and globally install the Singularity Flow CLI,' \
     'and build the VS Code extension,' \
     'replace all previous Copilot plugin copies, and enable metadata-only' \
     'Copilot OpenTelemetry for model, token, and cost collection.' \
     '' \
-    '--factory-reset previews a machine-wide fresh install. Add --yes to delete' \
+    'singularity-flow fresh-install previews a machine-wide reset. Add --yes to delete' \
     'every validated registered workspace and its clones, all Singularity local' \
     'state and managed Copilot assets, then reinstall this checkout.' \
     '' \
@@ -107,7 +120,8 @@ usage() {
     '--skip-copilot installs the CLI and VS Code extension without requiring or replacing standalone Copilot assets' \
     '--no-update builds the exact clean checkout currently selected instead of running git pull' \
     '--from-staged-artifacts resumes only the exact journal-bound artifacts from an interrupted activation' \
-    '--refresh-vsce-toolchain reinstalls the cached VSCE packaging toolchain instead of reusing it'
+    '--refresh-vsce-toolchain reinstalls the cached VSCE packaging toolchain instead of reusing it' \
+    '--factory-reset is a refused legacy form; use singularity-flow fresh-install so reset code comes from the trusted installed CLI'
 }
 
 while (($#)); do
@@ -266,6 +280,16 @@ if [[ "$CLEAN_REINSTALL" == "on" && "$REINSTALL_DRY_RUN" == "on" && -n "$REINSTA
   exit 1
 fi
 
+# The old low-level form loaded checkout JavaScript before npm ci. An ignored or locally replaced
+# dependency could therefore participate in a destructive reset even when every tracked file was
+# clean. The guarded CLI now performs preview/deletion in its already-installed runtime, then feeds
+# these verified installer bytes through stdin on the normal --no-update path.
+if [[ "$FACTORY_RESET" == "on" ]]; then
+  printf '%s\n' 'Error: direct ./install.sh --factory-reset is no longer a trusted entry point.' >&2
+  printf 'Use: singularity-flow fresh-install --checkout %q%s\n' "$PROJECT_DIR" "$([[ "$FACTORY_RESET_CONFIRMED" == "on" ]] && printf ' --yes')" >&2
+  exit 1
+fi
+
 # Clean reinstall deliberately delegates before the normal installer asks Git for a checkout
 # status or performs its pull. The Node planner validates source files and packaged artifacts,
 # but neither this path nor its implementation executes Git or discovers workspace repositories.
@@ -299,6 +323,59 @@ done
 NODE_MAJOR="$(node -p 'Number(process.versions.node.split(".")[0])' 2>/dev/null || true)"
 [[ "$NODE_MAJOR" =~ ^[0-9]+$ ]] || { printf '%s\n' 'Error: could not determine the Node.js version.' >&2; exit 1; }
 (( NODE_MAJOR >= 20 )) || { printf 'Error: Node.js 20 or newer is required; found %s.\n' "$(node --version 2>/dev/null || printf unknown)" >&2; exit 1; }
+
+# A guarded fresh install builds from a private standalone clone, but its durable success receipt
+# must name the stable checkout the user reviewed. All three values are required together and are
+# bound back to the staged Git commit/tree before any package operation. Recovery carries the same
+# values in its journal-disclosed command, so a retained stage never becomes the permanent source
+# path in current.json.
+if [[ -n "$FRESH_INSTALL_ORIGIN$FRESH_INSTALL_COMMIT$FRESH_INSTALL_TREE" ]]; then
+  if [[ -z "$FRESH_INSTALL_ORIGIN" || -z "$FRESH_INSTALL_COMMIT" || -z "$FRESH_INSTALL_TREE" ]]; then
+    printf '%s\n' 'Error: guarded fresh-install origin, commit, and tree must be provided together.' >&2
+    exit 1
+  fi
+  # Recovery may be pasted into a shell that carries repository selectors or command-scoped Git
+  # configuration. None of that ambient authority may redirect the retained source proof. Preserve
+  # ordinary Git config discovery, proxy variables and credential helpers, but remove selectors and
+  # explicitly suppress fsmonitor execution for every guarded installer Git child.
+  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+    GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_NAMESPACE GIT_CEILING_DIRECTORIES \
+    GIT_DISCOVERY_ACROSS_FILESYSTEM GIT_SHALLOW_FILE GIT_REPLACE_REF_BASE GIT_EXEC_PATH \
+    GIT_TEMPLATE_DIR GIT_SSL_NO_VERIFY GIT_SSH GIT_SSH_COMMAND GIT_SSH_VARIANT \
+    GIT_ASKPASS GIT_ASKPASS_REQUIRE SSH_ASKPASS SSH_ASKPASS_REQUIRE GIT_PROXY_COMMAND \
+    GIT_EDITOR GIT_SEQUENCE_EDITOR GIT_PAGER GIT_EXTERNAL_DIFF GIT_CONFIG \
+    GIT_CONFIG_PARAMETERS GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM GIT_CONFIG_NOSYSTEM \
+    GIT_ATTR_NOSYSTEM GIT_CURL_VERBOSE GIT_REDIRECT_STDERR
+  for GIT_OVERRIDE_NAME in "${!GIT_CONFIG_@}"; do
+    case "$GIT_OVERRIDE_NAME" in
+      GIT_CONFIG_COUNT|GIT_CONFIG_KEY_*|GIT_CONFIG_VALUE_*) unset "$GIT_OVERRIDE_NAME" ;;
+    esac
+  done
+  for GIT_OVERRIDE_NAME in "${!GIT_TRACE@}"; do unset "$GIT_OVERRIDE_NAME"; done
+  export GIT_NO_REPLACE_OBJECTS=1 GIT_OPTIONAL_LOCKS=0
+  export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_GLOBAL=/dev/null
+  export GIT_ATTR_NOSYSTEM=1
+  export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.fsmonitor GIT_CONFIG_VALUE_0=false
+  command -v git >/dev/null 2>&1 || { printf '%s\n' 'Error: guarded fresh-install recovery requires git.' >&2; exit 1; }
+  STAGED_SOURCE_COMMIT="$(git -C "$PROJECT_DIR" rev-parse --verify 'HEAD^{commit}' 2>/dev/null || true)"
+  STAGED_SOURCE_TREE="$(git -C "$PROJECT_DIR" rev-parse --verify 'HEAD^{tree}' 2>/dev/null || true)"
+  if [[ "$STAGED_SOURCE_COMMIT" != "$FRESH_INSTALL_COMMIT" || "$STAGED_SOURCE_TREE" != "$FRESH_INSTALL_TREE" ]]; then
+    printf '%s\n' 'Error: guarded fresh-install staging no longer matches its admitted commit and tree.' >&2
+    exit 1
+  fi
+  INSTALL_RECEIPT_CHECKOUT="$(cd "$FRESH_INSTALL_ORIGIN" 2>/dev/null && pwd -P || true)"
+  if [[ -z "$INSTALL_RECEIPT_CHECKOUT" ]]; then
+    printf '%s\n' 'Error: guarded fresh-install origin checkout is unavailable.' >&2
+    exit 1
+  fi
+  if ! git -C "$INSTALL_RECEIPT_CHECKOUT" cat-file -e "$FRESH_INSTALL_COMMIT^{commit}" 2>/dev/null \
+      || [[ "$(git -C "$INSTALL_RECEIPT_CHECKOUT" rev-parse --verify "$FRESH_INSTALL_COMMIT^{tree}" 2>/dev/null || true)" != "$FRESH_INSTALL_TREE" ]]; then
+    printf '%s\n' 'Error: guarded fresh-install origin cannot prove the admitted commit and tree.' >&2
+    exit 1
+  fi
+  INSTALL_RECEIPT_SOURCE_COMMIT="$FRESH_INSTALL_COMMIT"
+  INSTALL_RECEIPT_SOURCE_TREE="$FRESH_INSTALL_TREE"
+fi
 # Git Bash can expose an MSYS pseudo-PID through $$, while Node's process.kill uses the native
 # Windows process namespace. Ask a Node child for its native parent PID so every helper observes
 # and records the same cross-platform shell identity.
@@ -430,11 +507,45 @@ refresh_registered_workspace_configurations() {
   singularity-flow workspace refresh-configuration
 }
 
-INSTALL_ARTIFACT_HELPER="$PROJECT_DIR/scripts/install-staged-artifacts.mjs"
 INSTALL_MANIFEST_DIR="$HOME/.singularity-flow/installations"
 mkdir -p "$INSTALL_MANIFEST_DIR"
 chmod 700 "$INSTALL_MANIFEST_DIR"
 INSTALL_ACTIVATION_JOURNAL="$INSTALL_MANIFEST_DIR/activation-current.json"
+PINNED_INSTALL_ARTIFACT_HELPER=""
+if [[ -n "$INSTALL_RECEIPT_SOURCE_COMMIT" ]]; then
+  # Recovery executes this validator repeatedly (lease, journal and artifact checks). Keep its path
+  # stable for the journal, but atomically reconstruct its bytes from the pinned commit before the
+  # first invocation so a retained-worktree edit cannot become recovery code.
+  PINNED_INSTALL_ARTIFACT_HELPER="$INSTALL_MANIFEST_DIR/fresh-install-validator-${INSTALL_RECEIPT_SOURCE_COMMIT}.mjs"
+  PINNED_INSTALL_ARTIFACT_HELPER_TEMP="$(mktemp "$INSTALL_MANIFEST_DIR/.fresh-install-validator.XXXXXX")"
+  PINNED_INSTALL_ARTIFACT_HELPER_OBJECT="$(git -C "$INSTALL_RECEIPT_CHECKOUT" rev-parse --verify \
+    "${INSTALL_RECEIPT_SOURCE_COMMIT}:scripts/install-staged-artifacts.mjs" 2>/dev/null || true)"
+  case "$PINNED_INSTALL_ARTIFACT_HELPER_OBJECT" in
+    *[!0-9a-f]*|'')
+      rm -f -- "$PINNED_INSTALL_ARTIFACT_HELPER_TEMP"
+      printf '%s\n' 'Error: guarded fresh-install could not resolve its pinned activation validator.' >&2
+      exit 1
+      ;;
+  esac
+  if ! git -C "$INSTALL_RECEIPT_CHECKOUT" cat-file blob \
+      "$PINNED_INSTALL_ARTIFACT_HELPER_OBJECT" > "$PINNED_INSTALL_ARTIFACT_HELPER_TEMP"; then
+    rm -f -- "$PINNED_INSTALL_ARTIFACT_HELPER_TEMP"
+    printf '%s\n' 'Error: guarded fresh-install could not materialize its pinned activation validator.' >&2
+    exit 1
+  fi
+  PINNED_INSTALL_ARTIFACT_HELPER_ACTUAL="$(git -C "$INSTALL_RECEIPT_CHECKOUT" hash-object \
+    --no-filters "$PINNED_INSTALL_ARTIFACT_HELPER_TEMP" 2>/dev/null || true)"
+  if [[ "$PINNED_INSTALL_ARTIFACT_HELPER_ACTUAL" != "$PINNED_INSTALL_ARTIFACT_HELPER_OBJECT" ]]; then
+    rm -f -- "$PINNED_INSTALL_ARTIFACT_HELPER_TEMP"
+    printf '%s\n' 'Error: guarded fresh-install activation validator bytes are incomplete or do not match the reviewed Git object.' >&2
+    exit 1
+  fi
+  chmod 600 "$PINNED_INSTALL_ARTIFACT_HELPER_TEMP"
+  mv -f -- "$PINNED_INSTALL_ARTIFACT_HELPER_TEMP" "$PINNED_INSTALL_ARTIFACT_HELPER"
+  INSTALL_ARTIFACT_HELPER="$PINNED_INSTALL_ARTIFACT_HELPER"
+else
+  INSTALL_ARTIFACT_HELPER="$PROJECT_DIR/scripts/install-staged-artifacts.mjs"
+fi
 [[ -f "$INSTALL_ARTIFACT_HELPER" ]] || {
   printf 'Error: staged-artifact validator is missing: %s\n' "$INSTALL_ARTIFACT_HELPER" >&2
   exit 1
@@ -487,6 +598,67 @@ release_activation_lease() {
   return 1
 }
 
+set_install_recovery_command() {
+  if [[ -n "$INSTALL_RECEIPT_SOURCE_COMMIT" ]]; then
+    # Never execute the retained worktree copy by pathname: it is recoverable state, not immutable
+    # authority, and could be edited after a failed activation. Read the reviewed installer blob
+    # straight from the pinned commit into a private temporary file, verify its raw Git identity,
+    # and only then let Bash parse it in the retained worktree. The child receives the same
+    # origin/commit/tree proof and a sanitized Git environment.
+    local -a recovery_environment=(env \
+      -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_OBJECT_DIRECTORY \
+      -u GIT_ALTERNATE_OBJECT_DIRECTORIES -u GIT_COMMON_DIR -u GIT_NAMESPACE \
+      -u GIT_CEILING_DIRECTORIES -u GIT_DISCOVERY_ACROSS_FILESYSTEM -u GIT_SHALLOW_FILE \
+      -u GIT_REPLACE_REF_BASE -u GIT_EXEC_PATH -u GIT_TEMPLATE_DIR -u GIT_SSL_NO_VERIFY \
+      -u GIT_SSH -u GIT_SSH_COMMAND -u GIT_SSH_VARIANT -u GIT_ASKPASS \
+      -u GIT_ASKPASS_REQUIRE -u SSH_ASKPASS -u SSH_ASKPASS_REQUIRE -u GIT_PROXY_COMMAND \
+      -u GIT_EDITOR -u GIT_SEQUENCE_EDITOR -u GIT_PAGER -u GIT_EXTERNAL_DIFF \
+      -u GIT_CONFIG -u GIT_CONFIG_PARAMETERS -u GIT_CONFIG_COUNT -u GIT_CONFIG_GLOBAL \
+      -u GIT_CONFIG_SYSTEM -u GIT_CONFIG_NOSYSTEM -u GIT_ATTR_NOSYSTEM \
+      -u GIT_CURL_VERBOSE -u GIT_REDIRECT_STDERR)
+    local recovery_script
+    recovery_script='set -euo pipefail
+for git_override_name in "${!GIT_CONFIG_@}"; do
+  case "$git_override_name" in (GIT_CONFIG_COUNT|GIT_CONFIG_KEY_*|GIT_CONFIG_VALUE_*) unset "$git_override_name";; esac
+done
+for git_override_name in "${!GIT_TRACE@}"; do unset "$git_override_name"; done
+export GIT_NO_REPLACE_OBJECTS=1 GIT_OPTIONAL_LOCKS=0
+export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_GLOBAL=/dev/null
+export GIT_ATTR_NOSYSTEM=1
+export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.fsmonitor GIT_CONFIG_VALUE_0=false
+origin="$1"
+commit="$2"
+tree="$3"
+stage="$4"
+temporary="$(mktemp "${TMPDIR:-/tmp}/sflow-fresh-install-recovery.XXXXXXXX")"
+cleanup_recovery_installer() { rm -f -- "$temporary"; }
+trap cleanup_recovery_installer EXIT HUP INT TERM
+expected="$(git -C "$origin" rev-parse --verify "${commit}:install.sh")"
+case "$expected" in (*[!0-9a-f]*|"") printf "%s\n" "Error: pinned installer identity is invalid." >&2; exit 1;; esac
+git -C "$origin" cat-file blob "$expected" > "$temporary"
+actual="$(git -C "$origin" hash-object --no-filters "$temporary")"
+if [[ "$actual" != "$expected" ]]; then
+  printf "%s\n" "Error: pinned installer bytes are incomplete or do not match the reviewed Git object." >&2
+  exit 1
+fi
+cd -- "$stage"
+SINGULARITY_FLOW_FRESH_INSTALL_ORIGIN="$origin" \
+SINGULARITY_FLOW_FRESH_INSTALL_COMMIT="$commit" \
+SINGULARITY_FLOW_FRESH_INSTALL_TREE="$tree" \
+  bash -s -- --from-staged-artifacts < "$temporary"'
+    printf -v INSTALL_RECOVERY_COMMAND '%q ' "${recovery_environment[@]}" \
+      GIT_NO_REPLACE_OBJECTS=1 GIT_OPTIONAL_LOCKS=0 \
+      GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_GLOBAL=/dev/null \
+      GIT_ATTR_NOSYSTEM=1 \
+      GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.fsmonitor GIT_CONFIG_VALUE_0=false \
+      bash -o pipefail -c "$recovery_script" sflow-fresh-install-recovery \
+      "$INSTALL_RECEIPT_CHECKOUT" "$INSTALL_RECEIPT_SOURCE_COMMIT" \
+      "$INSTALL_RECEIPT_SOURCE_TREE" "$PROJECT_DIR"
+  else
+    printf -v INSTALL_RECOVERY_COMMAND '%q ' "$PROJECT_DIR/install.sh" --from-staged-artifacts
+  fi
+}
+
 load_activation_record() {
   local output fields=()
   output="$(node "$INSTALL_ARTIFACT_HELPER" resume \
@@ -513,7 +685,7 @@ load_activation_record() {
   ENABLE_COPILOT_TELEMETRY="${fields[8]}"
   RECOVERY_WORKSPACE_CONFIGURATION_REFRESH="${fields[9]}"
   REFRESH_REGISTERED_WORKSPACE_CONFIGURATION="$RECOVERY_WORKSPACE_CONFIGURATION_REFRESH"
-  printf -v INSTALL_RECOVERY_COMMAND '%q ' "$PROJECT_DIR/install.sh" --from-staged-artifacts
+  set_install_recovery_command
   if [[ "${fields[10]}" != "${INSTALL_RECOVERY_COMMAND% }" ]]; then
     printf '%s\n' 'Error: activation journal recovery command does not match this checkout.' >&2
     return 1
@@ -583,24 +755,6 @@ if [[ "$FROM_STAGED_ARTIFACTS" == "on" ]]; then
   export NPM_CONFIG_REGISTRY="$REGISTRY"
   printf 'Resuming exact staged Singularity Flow %s artifacts; source preparation and packaging are skipped.\n' "$PACKAGE_VERSION"
 else
-if [[ "$FACTORY_RESET" == "on" ]]; then
-  printf '%s\n' 'Validating the complete fresh-install deletion boundary...'
-  node scripts/fresh-install-reset.mjs
-  if [[ "$FACTORY_RESET_CONFIRMED" != "on" ]]; then
-    printf '%s\n' 'Preview only: nothing was deleted. Review the paths above, then add --yes.'
-    exit 0
-  fi
-  printf '%s\n' 'Removing previous managed Copilot plugin copies...'
-  if [[ "$CLI_ONLY" != "on" ]] && command -v singularity-flow >/dev/null 2>&1; then
-    singularity-flow plugin uninstall >/dev/null 2>&1 || true
-  fi
-  if command -v code >/dev/null 2>&1; then
-    code --uninstall-extension singularityflow.singularity-flow-vscode >/dev/null 2>&1 || true
-  fi
-  node scripts/fresh-install-reset.mjs --yes
-  printf '%s\n' 'Validated workspace clones and Singularity machine state removed.'
-fi
-
 if [[ -n "$(git status --porcelain)" ]]; then
   printf '%s\n' 'Error: the checkout has uncommitted changes outside the validated factory-reset boundary. Commit or stash them before installation.' >&2
   git status --short >&2
@@ -840,7 +994,7 @@ PACKAGE_VERSION="$(node -p 'require(process.argv[1]).version' "$PROJECT_DIR/pack
     && "$ENABLE_COPILOT_TELEMETRY" == "on" ]]; then
     resolve_copilot_telemetry_paths
   fi
-  printf -v INSTALL_RECOVERY_COMMAND '%q ' "$PROJECT_DIR/install.sh" --from-staged-artifacts
+  set_install_recovery_command
   RETAINED_ARTIFACT_OUTPUT="$(node "$INSTALL_ARTIFACT_HELPER" create \
     --journal "$INSTALL_ACTIVATION_JOURNAL" \
     --checkout "$PROJECT_DIR" \
@@ -1230,7 +1384,7 @@ set_surface_state manifest applying activating manifest-started
 INSTALL_MANIFEST_TEMP="$(mktemp "$INSTALL_MANIFEST_DIR/current.json.XXXXXX")"
 node -e '
   const fs = require("node:fs");
-  const [file, version, checkout, journalFile, workspaceRefresh, previousManifestFile, previousManifestExisted] = process.argv.slice(1);
+  const [file, version, checkout, sourceCommit, sourceTree, journalFile, workspaceRefresh, previousManifestFile, previousManifestExisted] = process.argv.slice(1);
   const journal = JSON.parse(fs.readFileSync(journalFile, "utf8"));
   const previousManifest = previousManifestExisted === "on"
     ? JSON.parse(fs.readFileSync(previousManifestFile, "utf8"))
@@ -1244,6 +1398,7 @@ node -e '
     status: journal.skippedSurfaces.length ? "complete-with-skips" : "complete",
     version,
     checkout,
+    source: sourceCommit === "-" ? null : { commit: sourceCommit, tree: sourceTree },
     artifacts: {
       tarball: journal.surfaceStates.cli === "applied"
         ? journal.artifacts.tarball : journal.previous.cli ?? priorArtifacts.tarball ?? null,
@@ -1261,7 +1416,8 @@ node -e '
     activation: { journal: journalFile, operationId: journal.operationId },
     installedAt: new Date().toISOString()
   }, null, 2) + "\n", {mode: 0o600});
-' "$INSTALL_MANIFEST_TEMP" "$PACKAGE_VERSION" "$PROJECT_DIR" "$INSTALL_ACTIVATION_JOURNAL" \
+' "$INSTALL_MANIFEST_TEMP" "$PACKAGE_VERSION" "$INSTALL_RECEIPT_CHECKOUT" \
+  "${INSTALL_RECEIPT_SOURCE_COMMIT:--}" "${INSTALL_RECEIPT_SOURCE_TREE:--}" "$INSTALL_ACTIVATION_JOURNAL" \
   "$([[ "$RECOVERY_WORKSPACE_CONFIGURATION_REFRESH" == "on" ]] && printf pending || printf skipped)" \
   "${PREVIOUS_MANIFEST_SNAPSHOT:--}" "$PREVIOUS_MANIFEST_EXISTED"
 mv "$INSTALL_MANIFEST_TEMP" "$PREVIOUS_MANIFEST_TARGET"
@@ -1298,6 +1454,12 @@ else
 fi
 release_activation_lease
 trap - EXIT
+if [[ -n "$PINNED_INSTALL_ARTIFACT_HELPER" ]]; then
+  if ! rm -f -- "$PINNED_INSTALL_ARTIFACT_HELPER"; then
+    printf 'WARNING: installation is complete, but the temporary pinned activation validator could not be removed: %s\n' \
+      "$PINNED_INSTALL_ARTIFACT_HELPER" >&2
+  fi
+fi
 
 if [[ "$VSCODE_ONLY" == "on" ]]; then
   printf '\nInstalled Singularity Flow VS Code extension %s\n' "$PACKAGE_VERSION"
@@ -1306,7 +1468,10 @@ else
 fi
 # Named explicitly, because the CLI on PATH is a *copy* and not a link to this checkout: editing
 # these sources changes nothing about the installed command until install.sh runs again.
-printf 'Built from checkout: %s\n' "$PROJECT_DIR"
+printf 'Built from checkout: %s\n' "$INSTALL_RECEIPT_CHECKOUT"
+if [[ -n "$INSTALL_RECEIPT_SOURCE_COMMIT" ]]; then
+  printf 'Built from immutable source: %s (tree %s)\n' "$INSTALL_RECEIPT_SOURCE_COMMIT" "$INSTALL_RECEIPT_SOURCE_TREE"
+fi
 if [[ -n "$TARBALL_PATH" ]]; then printf 'Distribution tarball: %s\n' "$TARBALL_PATH"; fi
 printf 'Registry: %s\n' "$REGISTRY"
 if [[ "$VSCODE_ONLY" == "on" ]]; then

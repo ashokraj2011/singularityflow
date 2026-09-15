@@ -94,7 +94,7 @@ skills:
   sflow-agent: { class: interactive }
   sflow-agents: { class: echo, executionBoundary: repository }
   sflow-admin: { class: conversational, executionBoundary: machine }
-  sflow-approvals: { class: echo }
+  sflow-approvals: { class: echo, executionBoundary: repository }
   sflow-approve: { class: review }
   sflow-assign: { class: mutation }
   sflow-auto: { class: interactive, kernelModelPolicy: conditional, executionBoundary: repository }
@@ -115,7 +115,7 @@ skills:
   sflow-plan: { class: echo }
   sflow-converge: { class: echo }
   sflow-doctor: { class: echo, executionBoundary: machine }
-  sflow-documents: { class: mutation }
+  sflow-documents: { class: mutation, executionBoundary: repository }
   sflow-epic-complete: { class: review, executionBoundary: repository }
   sflow-epic-drift: { class: mutation, executionBoundary: repository }
   sflow-epic-journey: { class: echo, executionBoundary: repository }
@@ -149,10 +149,10 @@ skills:
   sflow-home: { class: guided, executionBoundary: machine }
   sflow-hook: { class: mutation }
   sflow-implement: { class: generative }
-  sflow-inbox: { class: echo }
+  sflow-inbox: { class: echo, executionBoundary: repository }
   sflow-init: { class: mutation, executionBoundary: repository }
-  sflow-impact: { class: mutation }
-  sflow-inspect: { class: conversational }
+  sflow-impact: { class: mutation, executionBoundary: repository }
+  sflow-inspect: { class: conversational, executionBoundary: repository }
   sflow-initiative-approve: { class: review, executionBoundary: repository }
   sflow-initiative-checklist: { class: echo, executionBoundary: repository }
   sflow-initiative-documents: { class: echo, executionBoundary: repository }
@@ -177,23 +177,23 @@ skills:
   sflow-logs: { class: echo, executionBoundary: repository }
   sflow-mcp: { class: mutation, executionBoundary: repository }
   sflow-next: { class: mutation, kernelModelPolicy: conditional }
-  sflow-nextsteps: { class: conversational }
+  sflow-nextsteps: { class: conversational, executionBoundary: repository }
   sflow-phase: { class: generative }
   sflow-plugin: { class: mutation, executionBoundary: machine }
   sflow-pr: { class: mutation }
-  sflow-progress: { class: echo }
+  sflow-progress: { class: echo, executionBoundary: repository }
   sflow-push: { class: mutation, executionBoundary: machine }
   sflow-prompt-log: { class: mutation, executionBoundary: repository }
   sflow-quickstart: { class: echo, executionBoundary: machine }
   sflow-recommend: { class: conversational, executionBoundary: machine }
   sflow-repositories: { class: interactive, executionBoundary: machine }
-  sflow-receipt: { class: echo }
+  sflow-receipt: { class: echo, executionBoundary: repository }
   sflow-refresh-branch: { class: mutation }
   sflow-regression-investigate: { class: generative }
   sflow-recover: { class: mutation }
   sflow-reject: { class: review }
   sflow-release: { class: generative }
-  sflow-report: { class: echo }
+  sflow-report: { class: echo, executionBoundary: repository }
   sflow-requirements: { class: generative }
   sflow-reset-all: { class: mutation, executionBoundary: repository }
   sflow-resume: { class: interactive, executionBoundary: repository }
@@ -205,11 +205,11 @@ skills:
   sflow-session: { class: interactive, executionBoundary: repository }
   sflow-show: { class: echo }
   sflow-show-prompt: { class: echo }
-  sflow-snapshot: { class: echo }
+  sflow-snapshot: { class: echo, executionBoundary: repository }
   sflow-spec: { class: mutation, kernelModelPolicy: conditional }
-  sflow-stack: { class: mutation }
+  sflow-stack: { class: mutation, executionBoundary: repository }
   sflow-start: { class: interactive, executionBoundary: repository }
-  sflow-status: { class: conversational }
+  sflow-status: { class: conversational, executionBoundary: repository }
   sflow-story-branch: { class: interactive, executionBoundary: repository }
   sflow-story-checks: { class: mutation }
   sflow-story-fetch: { class: interactive, executionBoundary: repository }
@@ -218,10 +218,10 @@ skills:
   sflow-story-start: { class: interactive, kernelModelPolicy: conditional, executionBoundary: repository }
   sflow-submit: { class: review }
   sflow-telemetry: { class: echo, executionBoundary: repository }
-  sflow-upload: { class: mutation }
+  sflow-upload: { class: mutation, executionBoundary: repository }
   sflow-verify: { class: generative }
   sflow-visual: { class: mutation }
-  sflow-watch: { class: echo }
+  sflow-watch: { class: echo, executionBoundary: repository }
   sflow-workflow-rules: { class: conversational, kernelModelPolicy: conditional, executionBoundary: repository }
   sflow-workflows: { class: mutation, executionBoundary: repository }
   sflow-workspace: { class: interactive, kernelModelPolicy: conditional, executionBoundary: machine }

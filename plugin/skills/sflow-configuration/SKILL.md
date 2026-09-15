@@ -13,6 +13,5 @@ argument-hint: "validate|save <path>|publish"
 
 1. Run `singularity-flow configuration validate --json` before proposing any write.
 2. For save, require the exact reviewed source path. For publish, show the changed governed files, target configuration branch, commit message, and remote state.
-3. Require an explicit mutation request, then run only the selected `configuration save` or `configuration publish` operation.
+3. Require an explicit mutation request, then run only the selected `singularity-flow configuration save` or `singularity-flow configuration publish` operation.
 4. Report validation, commit, push, and active-work invalidation effects. Never edit lifecycle snapshots or publish directly to an application branch.
-

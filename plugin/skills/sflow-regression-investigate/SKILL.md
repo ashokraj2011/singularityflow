@@ -10,7 +10,7 @@ disable-model-invocation: true
 <!-- sflow-output-contract: clarification-and-artifact -->
 **Output contract:** Use the complete governed prompt and approved inputs, obey the pinned clarification mode, then publish and show configured artifacts.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
+**Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
 1. Ask for the last known-good revision if it is known, the bad revision (default `HEAD`), and any affected paths.
 2. Run `singularity-flow regression analyze --base main [--good <REF>] [--bad <REF>] [--path <PATH>]... --json`.

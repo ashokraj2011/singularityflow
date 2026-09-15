@@ -127,7 +127,9 @@ The package contains:
 
 Start with the [documentation map](docs/README.md),
 [pending-work roadmap](docs/PENDING-WORK-ROADMAP.md), and
-[glossary](docs/GLOSSARY.md). For a complete explanation of the runtime, prompt composition, world model,
+[glossary](docs/GLOSSARY.md). The [Git branches and stored state guide](docs/GIT-BRANCH-STORAGE.md)
+explains the application, Story, configuration, review, and orphan state branches and their safe
+retention rules. For a complete explanation of the runtime, prompt composition, world model,
 phase lifecycle, Git state transfer, approvals, Epic planning, Jira, workspaces,
 VS Code, telemetry, and security boundaries, read
 [How Singularity Flow works](FRAMEWORK-GUIDE.md). The

@@ -42,6 +42,7 @@ is not part of the current product.
 | Track a personal outcome across Stories or Initiatives | [Goals, outcomes, and governed work](topics/goals-and-outcomes.md) |
 | Rehearse the first run and use bounded DX diagnostics | [Developer Experience Layer](DEVELOPER-EXPERIENCE-LAYER.md) |
 | Create and manage workspaces | [Workspaces](../WORKSPACES.md) |
+| Understand every Git branch SFlow creates and what it stores | [Git branches and stored state](GIT-BRANCH-STORAGE.md) |
 | Refresh configuration and state branches in older workspaces | [Existing-workspace configuration refresh](../README-REFRESH-EXISTING-WORKSPACES.md) |
 | Configure workflows, agents, prompts, skills, and templates | [Framework guide](../FRAMEWORK-GUIDE.md) |
 | Browse and share every packaged Copilot skill offline | [Singularity Flow Skill Catalog](SINGULARITY-FLOW-SKILLS.html) |
@@ -66,6 +67,7 @@ is not part of the current product.
 | Runtime internals and prompt composition | [Under the hood](UNDER-THE-HOOD.md) |
 | Additive intent compiler and bounded governed runtime | [SGOS](SGOS.md) |
 | Which state plane owns each fact | [State authority](STATE-AUTHORITY.md) |
+| Which Git branches carry code, configuration, lifecycle state, reviews, and proof | [Git branches and stored state](GIT-BRANCH-STORAGE.md) |
 | Approved clause-driven specification architecture | [Clause-driven specifications](CLAUSE-DRIVEN-SPECIFICATIONS.md) |
 | Witnessed clauses, bounded knowledge, and observe-only testcase evidence | [Witnessed Engineering Loop](WEL-SPEC.md) |
 | Understand WEL trust, privacy, parser, and two-plane storage boundaries | [WEL threat model](WEL-THREAT-MODEL.md), [authority ADR](adr/0008-wel-authority-and-storage.md), [JUnit identity ADR](adr/0009-wel-junit5-local-identity.md), and [Jest/Vitest identity ADR](adr/0015-wel-javascript-local-identity.md) |

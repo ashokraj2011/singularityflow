@@ -727,7 +727,6 @@
 name: sflow-about
 description: Explain what Singularity Flow is, its current version, Git-native workflow model, main capabilities, and collision-safe sflow command namespace.
 disable-model-invocation: true
-argument-hint: &quot;&quot;
 
 ---
 # About Singularity Flow
@@ -6119,7 +6118,7 @@ disable-model-invocation: true
     <details>
       <summary>
         <span class="skill-number">091</span>
-        <span class="skill-title"><strong>sflow-plugin</strong><span>Inspect, install, or uninstall the packaged Singularity Flow Copilot plugin without touching governed repositories.</span></span>
+        <span class="skill-title"><strong>sflow-plugin</strong><span>Inspect, verify, install, or uninstall the packaged Singularity Flow Copilot plugin without touching governed repositories.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
       <div class="skill-content">
@@ -6128,11 +6127,11 @@ disable-model-invocation: true
           <span class="pill">mutation</span>
           <span class="pill">machine boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~225 body tokens</span>
+          <span class="pill">~264 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-plugin</code></dd></div>
-          <div><dt>Arguments</dt><dd><code>list|path|install|uninstall</code></dd></div>
+          <div><dt>Arguments</dt><dd><code>list|verify [--json]|path|install|uninstall</code></dd></div>
           <div><dt>Model-capable operations</dt><dd>none</dd></div>
           <div><dt>Source</dt><dd><code>plugin/skills/sflow-plugin/SKILL.md</code></dd></div>
         </dl>
@@ -6142,9 +6141,9 @@ disable-model-invocation: true
         </div>
         <pre data-source="sflow-plugin"><code>---
 name: sflow-plugin
-description: Inspect, install, or uninstall the packaged Singularity Flow Copilot plugin without touching governed repositories.
+description: Inspect, verify, install, or uninstall the packaged Singularity Flow Copilot plugin without touching governed repositories.
 disable-model-invocation: true
-argument-hint: &quot;list|path|install|uninstall&quot;
+argument-hint: &quot;list|verify [--json]|path|install|uninstall&quot;
 ---
 # Manage the Copilot plugin
 
@@ -6153,11 +6152,10 @@ argument-hint: &quot;list|path|install|uninstall&quot;
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.
 
-1. Run `singularity-flow plugin list` or `singularity-flow plugin path` before changing installation state.
+1. Run `singularity-flow plugin list`, `singularity-flow plugin verify --json`, or `singularity-flow plugin path` before changing installation state. Verification must use the CLI&#39;s bounded scoped inventories; never substitute an unscoped Copilot JSON listing.
 2. For install or uninstall, show the exact plugin identity and target path and require an explicit request.
-3. Run only the requested `singularity-flow plugin install|uninstall` command and relay discovery or restart guidance.
+3. Run only the requested `singularity-flow plugin install|uninstall|verify` command and relay discovery or restart guidance.
 4. Never remove personal skills, edit a governed repository, or substitute a full reinstall unless the user asks for that broader operation.
-
 </code></pre>
       </div>
     </details>

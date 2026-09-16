@@ -1341,7 +1341,7 @@ if [[ "$SURFACE_COPILOT_STATE" == "pending" ]]; then
   step_begin 'Replacing previous Copilot plugin copies'
   set_surface_state copilot applying activating copilot-plugin-started
   node "$CANDIDATE_CLI_EXECUTABLE" plugin install
-  copilot_plugin_present || activation_failed 1
+  node "$CANDIDATE_CLI_EXECUTABLE" plugin verify
   set_surface_state copilot applied activating copilot-plugin copilot-plugin
   step_end
 fi

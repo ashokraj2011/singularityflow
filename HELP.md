@@ -102,8 +102,11 @@ Install or refresh the GitHub Copilot plugin:
 ```bash
 singularity-flow plugin install
 copilot plugin list
-copilot plugins list --kind skill
+singularity-flow plugin verify
 ```
+
+Copilot equivalent: `/sf-plugin verify`. Verification requires the plugin and every managed
+user-scope `sf-*` and plugin-scope `sflow-*` skill to be present and enabled.
 
 The install command copies the full governed skill contracts to
 `~/.copilot/skills/sf-*/SKILL.md`. These are personal Copilot skills and therefore
@@ -2592,7 +2595,7 @@ Preferred direct skills use the collision-safe `sf-` prefix. The equivalent
 | `/sf-jira-initiative` | Browse Epics, adopt child stories into an initiative, and prepare reviewed Jira write plans |
 | `/sf-workflow-rules` | Explain deterministic workflow rules |
 
-If commands do not appear, run `singularity-flow plugin install`, close existing Copilot sessions, start a new session, and check `copilot plugins list --kind skill`.
+If commands do not appear, run `singularity-flow plugin install`, close existing Copilot sessions, start a new session, and run `singularity-flow plugin verify` (Copilot: `/sf-plugin verify`).
 
 ## CLI to Copilot skill mapping
 
@@ -2616,7 +2619,7 @@ From a clean clone, the supported local update/install workflow is:
 
 `npm run install:local` invokes the same script.
 
-It performs a fast-forward-only pull, asks for the npm registry, installs locked dependencies, builds the VS Code extension, runs tests and checks, creates the tarball, replaces the global CLI, removes old plugin identities, and installs the current marketplace plugin. It also installs a named `sflow_copilot` convenience helper; it never shadows the user's `copilot` command or modifies persistent OpenTelemetry settings. Start an SFlow-owned, metadata-only process with `singularity-flow copilot`. After explicit machine-local disclosure, each launch writes a separate raw stream below the repository's Git common directory. Prompt, response, source, and tool content capture is forced off. Publication commits only sanitized phase summaries under `singularity/work-items/<WORK-ID>/telemetry/` for Git state transfer.
+It performs a fast-forward-only pull, asks for the npm registry, installs locked dependencies, builds the VS Code extension, runs tests and checks, creates the tarball, replaces the global CLI, removes old plugin identities, and installs the bundled plugin by default (or the approved organisation marketplace plugin when explicitly configured). It also installs a named `sflow_copilot` convenience helper; it never shadows the user's `copilot` command or modifies persistent OpenTelemetry settings. Start an SFlow-owned, metadata-only process with `singularity-flow copilot`. After explicit machine-local disclosure, each launch writes a separate raw stream below the repository's Git common directory. Prompt, response, source, and tool content capture is forced off. Publication commits only sanitized phase summaries under `singularity/work-items/<WORK-ID>/telemetry/` for Git state transfer.
 
 For a company Artifactory or registry:
 
@@ -2880,10 +2883,10 @@ Run:
 ```bash
 singularity-flow plugin install
 copilot plugin list
-copilot plugins list --kind skill
+singularity-flow plugin verify
 ```
 
-Only `singularity-flow@singularity-flow` should remain. Close existing Copilot sessions because sessions do not always reload newly installed skills.
+Exactly one identity should remain: `singularity-flow` for the default bundled installation, or `singularity-flow@singularity-flow` when an organisation marketplace is configured. Close existing Copilot sessions because sessions do not always reload newly installed skills.
 
 ### Start or approval says an interactive terminal is required
 
@@ -3348,7 +3351,7 @@ singularity-flow architecture export --out <REPOSITORY-RELATIVE-PATH> [--json]
 singularity-flow jira assigned|list|pull|fields
 singularity-flow jira status|projects|epics|children|permissions|boards|board
 singularity-flow jira transitions|transition|assign|priority|sprint|comment
-singularity-flow plugin install|uninstall|list|path
+singularity-flow plugin install|uninstall|list|verify|path
 singularity-flow configuration save <PATH> [--propose]
 singularity-flow configuration publish [--message TEXT] [--json]
 singularity-flow constitution check|show [--work-type ID] [--path FILE] [--json]

@@ -1223,7 +1223,7 @@ review-packet binding, and its explicit containment boundary.
 
 ### One-command local update and installation
 
-From a clean clone, update the tracked branch, create the distribution tarball, install it globally, remove any previous Copilot plugin identities, and install one current marketplace plugin:
+From a clean clone, update the tracked branch, create the distribution tarball, install it globally, remove any previous Copilot plugin identities, and install the bundled plugin by default (or one approved organisation marketplace plugin when explicitly configured):
 
 ```bash
 ./install.sh
@@ -2722,8 +2722,10 @@ Install the personal Copilot plugin with:
 
 ```bash
 singularity-flow plugin install
-copilot plugins list --kind skill
+singularity-flow plugin verify
 ```
+
+Copilot equivalent: `/sf-plugin verify`.
 
 The installer removes both the direct installation (`singularity-flow`) and any
 existing marketplace installation (`singularity-flow@singularity-flow`), then
@@ -2733,6 +2735,11 @@ the shorter `sf-*` names. Personal skills can be invoked directly, so this remov
 the plugin namespace from day-to-day commands. Running the command again safely
 replaces managed aliases; it refuses to overwrite an unrelated personal `sf-*`
 skill.
+
+After either a bundled or organisation-marketplace installation, run
+`singularity-flow plugin verify` (Copilot: `/sf-plugin verify`). Verification
+requires exactly one enabled plugin identity and every packaged `sflow-*` and
+direct `sf-*` skill to be discovered and enabled.
 
 The default alias directory is `~/.copilot/skills`. Corporate installations may
 choose another approved directory, provided Copilot is also configured to scan
@@ -2811,8 +2818,9 @@ available beside an open change request in the VS Code Lifecycle tree and throug
 The `sf-` prefix prevents collisions with generic skills such as `/start`,
 `/status`, and `/approve`. Existing `/sf-*` and qualified
 `/singularity-flow/sflow-*` invocations remain compatible. After upgrading, run
-`singularity-flow plugin install`, close existing Copilot sessions, and confirm
-that `copilot plugins list --kind skill` reports `sf-*` personal skills.
+`singularity-flow plugin install`, close existing Copilot sessions, and confirm with
+`singularity-flow plugin verify` (Copilot: `/sf-plugin verify`) that the plugin and
+every managed `sf-*` and `sflow-*` skill are present and enabled.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for invariants,
 [workflow snapshots and the WFA roadmap](docs/WFA-WORKFLOW-SNAPSHOTS.md), and

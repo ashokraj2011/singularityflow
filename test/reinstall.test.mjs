@@ -87,6 +87,8 @@ async function fixture() {
 
 function commandHarness({ installed = false, code = true, copilot = true, npmRoot = '' } = {}) {
   const calls = [];
+  const copilotPlugins = new Set(installed
+    ? ['singularity-flow', 'singularity-flow@singularity-flow'] : []);
   const exists = (command) => command === 'node' || command === 'npm'
     || (command === 'code' && code) || (command === 'copilot' && copilot);
   const execute = (command, args, options = {}) => {
@@ -97,9 +99,35 @@ function commandHarness({ installed = false, code = true, copilot = true, npmRoo
     if (command === 'npm' && args[0] === 'list') return ok(installed
       ? JSON.stringify({ dependencies: { 'singularity-flow': { version: VERSION } } })
       : '{}');
-    if (command === 'copilot' && words === 'plugin list') return ok(installed
-      ? 'singularity-flow\nsingularity-flow@singularity-flow\n'
-      : '');
+    if (command === 'copilot' && args[0] === 'plugin' && args[1] === 'uninstall') {
+      copilotPlugins.delete(args[2]);
+      return ok('');
+    }
+    if (command === 'copilot' && args[0] === 'plugin' && args[1] === 'install') {
+      copilotPlugins.add('singularity-flow');
+      return ok('');
+    }
+    if (command === 'copilot' && words === 'plugin list') {
+      return ok([...copilotPlugins].join('\n'));
+    }
+    if (command === 'copilot' && words === 'plugins list --kind plugin --scope user --json') {
+      return ok(JSON.stringify({
+        plugins: [...copilotPlugins].map((name) => ({
+          kind: 'plugin', name: name.split('@')[0], scope: 'user', enabled: true, version: VERSION
+        })),
+        errors: []
+      }));
+    }
+    if (command === 'copilot' && words === 'plugins list --kind skill --scope user --json') {
+      return ok(JSON.stringify({
+        plugins: [{ kind: 'skill', name: 'sf-test', scope: 'user', enabled: true }], errors: []
+      }));
+    }
+    if (command === 'copilot' && words === 'plugins list --kind skill --scope plugin --json') {
+      return ok(JSON.stringify({
+        plugins: [{ kind: 'skill', name: 'sflow-test', scope: 'plugin', enabled: true }], errors: []
+      }));
+    }
     if (command === 'code' && args[0] === '--list-extensions') return ok(installed
       ? `singularityflow.singularity-flow-vscode@${VERSION}\n`
       : '');
@@ -296,9 +324,12 @@ test('reinstall refuses stale confirmation, applies exact bytes, and upgrades a 
   assert.equal(await readFile(path.join(context.home, '.singularity-flow', 'active-workspace.json'), 'utf8'), '{"workspace":"keep"}\n');
   assert.equal(applyHarness.calls.some((call) => call.command === 'git'), false);
   for (const identity of ['singularity-flow', 'singularity-flow@singularity-flow']) {
-    assert.ok(applyHarness.calls.some((call) => call.command === 'copilot'
+  assert.ok(applyHarness.calls.some((call) => call.command === 'copilot'
       && call.args.join(' ') === `plugin uninstall ${identity}`));
   }
+  const scopedVerification = applyHarness.calls.find((call) => call.command === 'copilot'
+    && call.args.join(' ') === 'plugins list --kind skill --scope user --json');
+  assert.equal(scopedVerification.options.env.SINGULARITY_FLOW_COPILOT_SKILLS_DIR, skills);
   const npmInstall = applyHarness.calls.find((call) => call.command === 'npm' && call.args[0] === 'install');
   assert.equal(npmInstall.options.env.NPM_CONFIG_REGISTRY, plan.registry);
   assert.ok(npmInstall.args.includes(`--registry=${plan.registry}`));

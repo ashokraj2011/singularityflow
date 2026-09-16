@@ -101,6 +101,7 @@ test('local installer performs a safe ordered pull, pack, global install, and pl
   assert.match(script, /npm install --global "\$TARBALL_PATH" --cache "\$ACTIVATION_TRANSACTION_CACHE" --registry="\$REGISTRY"/);
   assert.match(script, /INSTALLED_CLI_VERSION="\$\(singularity-flow --version\)"/);
   assert.match(script, /node "\$CANDIDATE_CLI_EXECUTABLE" plugin install/);
+  assert.match(script, /node "\$CANDIDATE_CLI_EXECUTABLE" plugin verify/);
   assert.match(script, /sflow_copilot\(\)/);
   assert.match(script, /singularity-flow copilot/);
   assert.doesNotMatch(script, /^\s*'copilot\(\) \{'/m, 'the installer must never shadow manual Copilot');
@@ -448,6 +449,7 @@ fi`;
     `code --install-extension ${activation.artifacts.vsix.path} --force`,
     'code --list-extensions --show-versions',
     'private-cli plugin install',
+    'private-cli plugin verify',
     'singularity-flow workspace refresh-configuration',
     'copilot plugin list'
   ]) assert.match(commands, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));

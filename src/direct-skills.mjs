@@ -62,6 +62,10 @@ function sourceSkills(sourceRoot) {
     .sort((left, right) => left.directName.localeCompare(right.directName));
 }
 
+export function bundledDirectSkillNames({ sourceRoot = bundledSkillDirectory() } = {}) {
+  return sourceSkills(path.resolve(sourceRoot)).map((skill) => skill.directName);
+}
+
 function managedSkill(file) {
   try {
     return fs.readFileSync(file, 'utf8').includes(MANAGED_MARKER);

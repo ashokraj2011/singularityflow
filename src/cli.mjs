@@ -53,7 +53,9 @@ import { clearHelpMetrics, helpMetricsStatus, setHelpMetrics } from './help-metr
 import { assertPhaseSequence, withConfirmationPort } from './sequence.mjs';
 import { addComment, assignIssue, discoverJiraConnection, getIssue, getIssueHierarchy, getMyPermissions, issueToMarkdown, listBoards, listBoardStories, listEpicStories, listEpics, listFields, listIssueTransitions, listMyIssues, listProjects, moveIssueToSprint, setIssuePriority, transitionIssue } from './jira.mjs';
 import { jiraDoctor, jiraDoctorText } from './jira-doctor.mjs';
-import { installPlugin, listPlugins, pluginPath, uninstallPlugin } from './plugin.mjs';
+import {
+  installPlugin, listPlugins, pluginPath, uninstallPlugin, verifyPluginInstallation
+} from './plugin.mjs';
 import { runGovernanceGate } from './governance.mjs';
 import { gateRecoveryReopenPlan } from './gate-recovery.mjs';
 import {
@@ -9315,6 +9317,12 @@ async function pluginCommand(positionals, options) {
   if (subcommand === 'install') return installPlugin();
   if (subcommand === 'uninstall') return uninstallPlugin();
   if (subcommand === 'list') return listPlugins();
+  if (subcommand === 'verify') {
+    const result = verifyPluginInstallation();
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+    else console.log(`Copilot plugin verified: ${result.pluginIdentity}; ${result.enabledPluginSkills} packaged /sflow-* skills and ${result.enabledDirectSkills} direct /sf-* skills enabled.`);
+    return;
+  }
   if (subcommand === 'path') return console.log(pluginPath());
   throw new SingularityFlowError(`Unknown plugin subcommand: ${subcommand}`);
 }

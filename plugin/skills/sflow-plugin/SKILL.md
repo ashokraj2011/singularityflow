@@ -1,8 +1,8 @@
 ---
 name: sflow-plugin
-description: Inspect, install, or uninstall the packaged Singularity Flow Copilot plugin without touching governed repositories.
+description: Inspect, verify, install, or uninstall the packaged Singularity Flow Copilot plugin without touching governed repositories.
 disable-model-invocation: true
-argument-hint: "list|path|install|uninstall"
+argument-hint: "list|verify [--json]|path|install|uninstall"
 ---
 # Manage the Copilot plugin
 
@@ -11,8 +11,7 @@ argument-hint: "list|path|install|uninstall"
 <!-- sflow-execution-boundary -->
 **Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.
 
-1. Run `singularity-flow plugin list` or `singularity-flow plugin path` before changing installation state.
+1. Run `singularity-flow plugin list`, `singularity-flow plugin verify --json`, or `singularity-flow plugin path` before changing installation state. Verification must use the CLI's bounded scoped inventories; never substitute an unscoped Copilot JSON listing.
 2. For install or uninstall, show the exact plugin identity and target path and require an explicit request.
-3. Run only the requested `singularity-flow plugin install|uninstall` command and relay discovery or restart guidance.
+3. Run only the requested `singularity-flow plugin install|uninstall|verify` command and relay discovery or restart guidance.
 4. Never remove personal skills, edit a governed repository, or substitute a full reinstall unless the user asks for that broader operation.
-

@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { installPlugin, uninstallPlugin } from '../src/plugin.mjs';
+import {
+  installPlugin, uninstallPlugin, verifyPluginInstallation
+} from '../src/plugin.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const pluginRoot = path.join(root, 'plugin');
@@ -527,6 +529,11 @@ test('every skill has valid matching frontmatter', async () => {
     assert.match(name, /^sflow-/, `${entry.name} must use the collision-safe sflow- prefix`);
     assert.ok(description, `${entry.name} missing description`);
     assert.match(name, /^[a-z0-9-]+$/);
+    const argumentHint = content.match(/^argument-hint:\s*([^\n]*)$/m)?.[1]?.trim();
+    if (argumentHint !== undefined) {
+      assert.ok(argumentHint.replace(/^(?:""|'')$/u, ''),
+        `${entry.name} must omit argument-hint instead of declaring an empty value`);
+    }
   }
 });
 
@@ -891,6 +898,7 @@ test('initiative Copilot skills expose orchestration without agent authority sho
 test('plugin install replaces old copies before installing the bundled local plugin', () => {
   const calls = [];
   const aliasCalls = [];
+  const verificationCalls = [];
   const execute = (command, args, options) => {
     calls.push({ command, args, options });
     return { status: 0, stdout: '', stderr: '' };
@@ -905,16 +913,24 @@ test('plugin install replaces old copies before installing the bundled local plu
       aliasCalls.push('install');
       return { installed: ['sf-submit'], targetRoot: '/tmp/copilot/skills' };
     },
+    verify: (options) => {
+      verificationCalls.push(options);
+      return { enabledDirectSkills: 1, pluginIdentity: 'singularity-flow' };
+    },
     log: () => {}
   });
 
   assert.deepEqual(calls.map((call) => call.args), [
     ['plugin', 'uninstall', 'singularity-flow'],
     ['plugin', 'uninstall', 'singularity-flow@singularity-flow'],
+    ['plugin', 'list'],
     ['plugin', 'install', pluginRoot]
   ]);
   assert.equal(calls.at(-1).options.stdio, 'inherit');
   assert.deepEqual(aliasCalls, ['install']);
+  assert.deepEqual(verificationCalls.map((entry) => ({
+    expectedDirectSkills: entry.expectedDirectSkills, targetRoot: entry.targetRoot
+  })), [{ expectedDirectSkills: ['sf-submit'], targetRoot: '/tmp/copilot/skills' }]);
 });
 
 test('plugin install uses an explicitly configured organization marketplace', () => {
@@ -931,17 +947,147 @@ test('plugin install uses an explicitly configured organization marketplace', ()
     developmentSource: undefined,
     marketplaceSource: 'company/singularity-flow',
     installAliases: () => ({ installed: ['sf-submit'], targetRoot: '/tmp/copilot/skills' }),
+    verify: () => ({ enabledDirectSkills: 1, pluginIdentity: 'singularity-flow@singularity-flow' }),
     log: () => {}
   });
 
   assert.deepEqual(calls.map((call) => call.args), [
     ['plugin', 'uninstall', 'singularity-flow'],
     ['plugin', 'uninstall', 'singularity-flow@singularity-flow'],
+    ['plugin', 'list'],
     ['plugin', 'marketplace', 'add', 'company/singularity-flow'],
     ['plugin', 'marketplace', 'update', 'singularity-flow'],
     ['plugin', 'install', 'singularity-flow@singularity-flow']
   ]);
   assert.equal(calls.at(-1).options.stdio, 'inherit');
+});
+
+test('plugin verification uses bounded user-scope JSON and requires every direct skill enabled', () => {
+  const calls = [];
+  const env = { COPILOT_HOME: '/users/test/.company-copilot' };
+  const execute = (command, args, options) => {
+    calls.push({ command, args, options });
+    if (args.join(' ') === 'plugin list') {
+      return { status: 0, stdout: 'Installed plugins:\n  • singularity-flow (v0.9.0)\n', stderr: '' };
+    }
+    if (args.join(' ') === 'plugins list --kind plugin --scope user --json') {
+      return {
+        status: 0,
+        stdout: JSON.stringify({
+          plugins: [{ kind: 'plugin', name: 'singularity-flow', scope: 'user', enabled: true, version: '0.9.0' }],
+          errors: []
+        }),
+        stderr: ''
+      };
+    }
+    if (args.join(' ') === 'plugins list --kind skill --scope user --json') {
+      return {
+        status: 0,
+        stdout: JSON.stringify({
+          plugins: [
+            { kind: 'skill', name: 'sf-about', scope: 'user', enabled: true },
+            { kind: 'skill', name: 'sf-submit', scope: 'user', enabled: true }
+          ],
+          errors: [{ path: '/unrelated/personal-skill', message: 'unrelated failure' }]
+        }),
+        stderr: ''
+      };
+    }
+    if (args.join(' ') === 'plugins list --kind skill --scope plugin --json') {
+      return {
+        status: 0,
+        stdout: JSON.stringify({
+          plugins: [
+            { kind: 'skill', name: 'sflow-about', scope: 'plugin', enabled: true },
+            { kind: 'skill', name: 'sflow-submit', scope: 'plugin', enabled: true }
+          ],
+          errors: []
+        }),
+        stderr: ''
+      };
+    }
+    throw new Error(`Unexpected command: ${command} ${args.join(' ')}`);
+  };
+  const result = verifyPluginInstallation({
+    execute, exists: () => true, expectedDirectSkills: ['sf-about', 'sf-submit'],
+    targetRoot: '/users/test/.copilot/skills', env
+  });
+  assert.equal(result.pluginIdentity, 'singularity-flow');
+  assert.equal(result.pluginVersion, '0.9.0');
+  assert.equal(result.enabledDirectSkills, 2);
+  assert.equal(result.enabledPluginSkills, 2);
+  assert.equal(result.unrelatedDiscoveryErrors, 1);
+  assert.deepEqual(calls.map((call) => call.args), [
+    ['plugin', 'list'],
+    ['plugins', 'list', '--kind', 'plugin', '--scope', 'user', '--json'],
+    ['plugins', 'list', '--kind', 'skill', '--scope', 'user', '--json'],
+    ['plugins', 'list', '--kind', 'skill', '--scope', 'plugin', '--json']
+  ]);
+  assert.equal(calls.every((call) => call.options.env === env), true);
+});
+
+test('plugin verification refuses disabled, missing, duplicate, and errored managed skills', () => {
+  const verify = (
+    payload,
+    pluginOutput = 'Installed plugins:\n  • singularity-flow (v0.9.0)\n',
+    structuredPlugin = { kind: 'plugin', name: 'singularity-flow', scope: 'user', enabled: true }
+  ) =>
+    verifyPluginInstallation({
+      exists: () => true,
+      expectedDirectSkills: ['sf-about', 'sf-submit'],
+      targetRoot: '/users/test/.copilot/skills',
+      execute: (_command, args) => {
+        const command = args.join(' ');
+        if (command === 'plugin list') return { status: 0, stdout: pluginOutput, stderr: '' };
+        if (command === 'plugins list --kind plugin --scope user --json') {
+          return { status: 0, stdout: JSON.stringify({
+            plugins: [structuredPlugin],
+            errors: []
+          }), stderr: '' };
+        }
+        if (command === 'plugins list --kind skill --scope plugin --json') {
+          return { status: 0, stdout: JSON.stringify({
+            plugins: [
+              { kind: 'skill', name: 'sflow-about', scope: 'plugin', enabled: true },
+              { kind: 'skill', name: 'sflow-submit', scope: 'plugin', enabled: true }
+            ], errors: []
+          }), stderr: '' };
+        }
+        return { status: 0, stdout: JSON.stringify(payload), stderr: '' };
+      }
+    });
+  assert.throws(() => verify({
+    plugins: [
+      { kind: 'skill', name: 'sf-about', scope: 'user', enabled: false },
+      { kind: 'skill', name: 'sf-submit', scope: 'user', enabled: true }
+    ], errors: []
+  }), /disabled direct skills: sf-about/);
+  assert.throws(() => verify({
+    plugins: [{ kind: 'skill', name: 'sf-about', scope: 'user', enabled: true }], errors: []
+  }), /missing direct skills: sf-submit/);
+  assert.throws(() => verify({
+    plugins: [
+      { kind: 'skill', name: 'sf-about', scope: 'user', enabled: true },
+      { kind: 'skill', name: 'sf-submit', scope: 'user', enabled: true },
+      { kind: 'skill', name: 'sf-submit', scope: 'user', enabled: true }
+    ], errors: []
+  }), /duplicated direct skills: sf-submit/);
+  assert.throws(() => verify({
+    plugins: [
+      { kind: 'skill', name: 'sf-about', scope: 'user', enabled: true },
+      { kind: 'skill', name: 'sf-submit', scope: 'user', enabled: true }
+    ], errors: [{ path: '/users/test/.copilot/skills/sf-submit/SKILL.md', message: 'invalid frontmatter' }]
+  }), /discovery errors/);
+  assert.throws(() => verify({ plugins: [], errors: [] },
+    'Installed plugins:\n  • singularity-flow (v0.9.0)\n  • singularity-flow@singularity-flow (v0.9.0)\n'),
+  /expected exactly one.*found 2/);
+  assert.throws(() => verify({
+    plugins: [
+      { kind: 'skill', name: 'sf-about', scope: 'user', enabled: true },
+      { kind: 'skill', name: 'sf-submit', scope: 'user', enabled: true }
+    ], errors: []
+  }, undefined, { kind: 'plugin', name: 'singularity-flow', scope: 'user', enabled: false }),
+  /structured plugin verification failed.*enabled: false/);
 });
 
 test('plugin uninstall removes both known Copilot identities', () => {
@@ -961,7 +1107,24 @@ test('plugin uninstall removes both known Copilot identities', () => {
   });
   assert.deepEqual(calls.map((call) => call.args), [
     ['plugin', 'uninstall', 'singularity-flow'],
-    ['plugin', 'uninstall', 'singularity-flow@singularity-flow']
+    ['plugin', 'uninstall', 'singularity-flow@singularity-flow'],
+    ['plugin', 'list']
   ]);
   assert.deepEqual(aliasCalls, ['uninstall']);
+});
+
+test('plugin replacement refuses to continue when an old Copilot identity survives uninstall', () => {
+  const calls = [];
+  assert.throws(() => installPlugin({
+    exists: () => true,
+    execute: (_command, args) => {
+      calls.push(args);
+      return args.join(' ') === 'plugin list'
+        ? { status: 0, stdout: 'singularity-flow@singularity-flow\n', stderr: '' }
+        : { status: 1, stdout: '', stderr: 'locked' };
+    },
+    installAliases: () => { throw new Error('aliases must not be touched'); },
+    log: () => {}
+  }), /removal left installed identity.*singularity-flow@singularity-flow/);
+  assert.equal(calls.some((args) => args[0] === 'plugin' && args[1] === 'install'), false);
 });

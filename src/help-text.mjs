@@ -607,7 +607,7 @@ Usage:
   singularity-flow jira sprint <WORK-ID> --to SPRINT-ID --confirm <WORK-ID> [--json]
   singularity-flow jira comment <WORK-ID> --text TEXT --confirm <WORK-ID> [--json]
   singularity-flow plugin install                     Installs plugin plus direct /sf-* personal skills
-  singularity-flow plugin uninstall | list | path
+  singularity-flow plugin uninstall | list | verify [--json] | path
   singularity-flow snapshot [WORK-ID] [--include SLICE] [--if-revision HASH] [--timings] [--git-shadow] --json
   singularity-flow configuration validate --json
   singularity-flow configuration explain [--pointer JSON-POINTER] [--json]

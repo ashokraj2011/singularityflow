@@ -10,6 +10,7 @@ import { installDirectSkills, isManagedDirectSkill, uninstallDirectSkills } from
 import { commandExists, run, SingularityFlowError } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { copilotSkillForCommand } from './copilot-guidance.mjs';
+import { verifyPluginInstallation } from './plugin.mjs';
 import {
   acquireActivationLease, inspectVsix, releaseActivationLease
 } from '../scripts/install-staged-artifacts.mjs';
@@ -757,6 +758,9 @@ export async function applyLocalReinstall(plan, {
       executeOrThrow(execute, 'copilot', ['plugin', 'install', pluginRoot], { env, stdio: 'inherit' });
       const aliases = installAliases({ sourceRoot: path.join(pluginRoot, 'skills'), targetRoot: plan.installed.skillsRoot });
       expectedDirectSkills = aliases.installed;
+      verifyPluginInstallation({
+        execute, exists, expectedDirectSkills, targetRoot: plan.installed.skillsRoot, env
+      });
       await replaceTelemetryWrapper({ homeDirectory, enabled: plan.telemetry });
     }
     const verified = inspectLocalProduct({ execute, exists, homeDirectory, environment: env });

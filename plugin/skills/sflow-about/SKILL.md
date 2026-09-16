@@ -2,7 +2,6 @@
 name: sflow-about
 description: Explain what Singularity Flow is, its current version, Git-native workflow model, main capabilities, and collision-safe sflow command namespace.
 disable-model-invocation: true
-argument-hint: ""
 
 ---
 # About Singularity Flow

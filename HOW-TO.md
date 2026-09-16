@@ -123,7 +123,7 @@ No workflow database is required. The branch contains the transferable state; `.
 
 ## 1. Install from a clone
 
-The single supported local installer pulls, builds, tests, packages, globally installs, removes old Copilot plugin copies, and installs the current marketplace plugin:
+The single supported local installer pulls, builds, tests, packages, globally installs, removes old Copilot plugin copies, and installs the bundled plugin by default (or the approved organisation marketplace plugin when explicitly configured):
 
 ```bash
 git clone <company-git-url>
@@ -147,8 +147,11 @@ Keep credentials in `.npmrc`; never put credentials in the registry URL. Verify 
 ```bash
 singularity-flow --version
 copilot plugin list
-copilot plugins list --kind skill
+singularity-flow plugin verify
 ```
+
+Copilot equivalent: `/sf-plugin verify`. The verifier uses bounded user and plugin scope inventories
+and requires the plugin and every installer-managed skill to be present and enabled.
 
 Expected version: `0.9.0`. Start a new Copilot session after plugin installation so the refreshed skills and bundled agent are discovered.
 

@@ -1053,6 +1053,83 @@ test('Story start materializes approved configuration without requiring it on ap
   }
 });
 
+test('Story publication refusal occurs before automatic approval enrollment', async () => {
+  const fixture = await repositoryFixture();
+  try {
+    await ensureConfigurationBranch(fixture.remote);
+    const checkout = path.join(fixture.root, 'story-readiness-refusal');
+    run('git', ['clone', '-q', fixture.remote, checkout], { cwd: fixture.root });
+    run('git', ['config', 'user.name', 'Blocked Story Tester'], { cwd: checkout });
+    run('git', ['config', 'user.email', 'blocked.story@example.com'], { cwd: checkout });
+    const authorityBefore = run('git', ['rev-parse', CONFIGURATION_BRANCH], {
+      cwd: fixture.remote
+    }).stdout.trim();
+    run('git', ['config', 'remote.origin.pushurl', path.join(fixture.root, 'missing.git')], {
+      cwd: checkout
+    });
+
+    const started = spawnSync(process.execPath, [
+      cli, 'start', 'CFG-REFUSED', '--json', '--title', 'Refuse before enrollment',
+      '--description', 'A failed Story destination must not mutate approval membership.',
+      '--from-branch', 'main', '--work-type', 'chore', '--agent', 'developer'
+    ], { cwd: checkout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
+
+    assert.notEqual(started.status, 0);
+    assert.match(started.stderr, /Cannot publish the new Story branch|publication/i);
+    assert.equal(run('git', ['rev-parse', CONFIGURATION_BRANCH], {
+      cwd: fixture.remote
+    }).stdout.trim(), authorityBefore, 'configuration authority remains unchanged');
+    const approvedWorkflow = YAML.parse(run('git', [
+      'show', `${CONFIGURATION_BRANCH}:singularity/workflow.yml`
+    ], { cwd: fixture.remote }).stdout);
+    assert.ok(Object.values(approvedWorkflow.approvalAuthorities).every((authority) =>
+      !authority.members.some((member) => member.email === 'blocked.story@example.com')),
+    'a refused Story cannot enroll its caller into approval authorities');
+    assert.equal(run('git', [
+      'show-ref', '--verify', '--quiet', 'refs/heads/CFG-REFUSED'
+    ], { cwd: fixture.remote, allowFailure: true }).status, 1);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('Story intake refusal occurs before automatic approval enrollment', async () => {
+  const fixture = await repositoryFixture();
+  try {
+    await ensureConfigurationBranch(fixture.remote);
+    const checkout = path.join(fixture.root, 'story-intake-refusal');
+    run('git', ['clone', '-q', fixture.remote, checkout], { cwd: fixture.root });
+    run('git', ['config', 'user.name', 'Cancelled Story Tester'], { cwd: checkout });
+    run('git', ['config', 'user.email', 'cancelled.story@example.com'], { cwd: checkout });
+    const authorityBefore = run('git', ['rev-parse', CONFIGURATION_BRANCH], {
+      cwd: fixture.remote
+    }).stdout.trim();
+
+    const started = spawnSync(process.execPath, [
+      cli, 'start', 'CFG-INPUT-REFUSED', '--json', '--from-branch', 'main',
+      '--work-type', 'chore', '--agent', 'developer'
+    ], { cwd: checkout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
+
+    assert.notEqual(started.status, 0);
+    assert.match(started.stderr, /intake source|--jira|--title/i);
+    assert.equal(run('git', ['rev-parse', CONFIGURATION_BRANCH], {
+      cwd: fixture.remote
+    }).stdout.trim(), authorityBefore, 'configuration authority remains unchanged');
+    const approvedWorkflow = YAML.parse(run('git', [
+      'show', `${CONFIGURATION_BRANCH}:singularity/workflow.yml`
+    ], { cwd: fixture.remote }).stdout);
+    assert.ok(Object.values(approvedWorkflow.approvalAuthorities).every((authority) =>
+      !authority.members.some((member) => member.email === 'cancelled.story@example.com')),
+    'a refused intake cannot enroll its caller into approval authorities');
+    assert.equal(run('git', ['branch', '--show-current'], { cwd: checkout }).stdout.trim(), 'main');
+    assert.equal(run('git', [
+      'show-ref', '--verify', '--quiet', 'refs/heads/CFG-INPUT-REFUSED'
+    ], { cwd: fixture.remote, allowFailure: true }).status, 1);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test('Story start recovers from a verified state mirror when sflow/config is unavailable', async () => {
   const fixture = await repositoryFixture();
   try {
@@ -1341,6 +1418,54 @@ test('automatic identity enrollment obeys the approved configuration switch', as
     ], { cwd: fixture.remote }).stdout);
     assert.ok(Object.values(after.approvalAuthorities).every((authority) =>
       !authority.members.some((member) => member.email === 'unlisted@example.com')));
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('Story identity enrollment refuses a configuration authority that advanced after intake', async () => {
+  const fixture = await repositoryFixture();
+  try {
+    await ensureConfigurationBranch(fixture.remote);
+    const authority = await resolveRemoteStoryConfigurationAuthority(fixture.remote);
+    const snapshot = await loadStoryConfigurationSnapshot(authority);
+
+    const advancing = path.join(fixture.root, 'concurrent-configuration-publisher');
+    run('git', ['clone', '-q', '-b', CONFIGURATION_BRANCH, fixture.remote, advancing], {
+      cwd: fixture.root
+    });
+    run('git', ['config', 'user.name', 'Concurrent Configuration Publisher'], { cwd: advancing });
+    run('git', ['config', 'user.email', 'publisher@example.com'], { cwd: advancing });
+    const workflowFile = path.join(advancing, 'singularity/workflow.yml');
+    await writeFile(workflowFile, `${await readFile(workflowFile, 'utf8')}\n# concurrent authority advance\n`);
+    run('git', ['add', 'singularity/workflow.yml'], { cwd: advancing });
+    run('git', ['commit', '-qm', 'advance approved configuration'], { cwd: advancing });
+    run('git', ['push', '-q', 'origin', CONFIGURATION_BRANCH], { cwd: advancing });
+    const advancedCommit = run('git', ['rev-parse', 'HEAD'], { cwd: advancing }).stdout.trim();
+    assert.notEqual(advancedCommit, snapshot.sourceCommit);
+
+    const checkout = path.join(fixture.root, 'stale-story-intake-checkout');
+    run('git', ['clone', '-q', fixture.remote, checkout], { cwd: fixture.root });
+    run('git', ['config', 'user.name', 'Late Story Developer'], { cwd: checkout });
+    run('git', ['config', 'user.email', 'late-story@example.com'], { cwd: checkout });
+
+    await assert.rejects(
+      publishCurrentIdentityToConfiguration(checkout, {
+        automatic: true,
+        configurationSnapshot: snapshot,
+        expectedSourceCommit: snapshot.sourceCommit
+      }),
+      (error) => error?.code === 'STORY_CONFIGURATION_AUTHORITY_STALE'
+        && /changed after Story choices were frozen/.test(error.message)
+    );
+
+    assert.equal((await configurationBranchHead(fixture.remote)).sha, advancedCommit,
+      'the stale Story must not publish an enrollment commit over the newer authority');
+    const current = YAML.parse(run('git', [
+      'show', `${CONFIGURATION_BRANCH}:singularity/workflow.yml`
+    ], { cwd: fixture.remote }).stdout);
+    assert.ok(Object.values(current.approvalAuthorities).every((entry) =>
+      !entry.members.some((member) => member.email === 'late-story@example.com')));
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }

@@ -4318,7 +4318,8 @@ test('a failure shows the sentence, not the log line that carries it', () => {
 
 const {
   EMPTY_INTAKE_FORM, SHAPES, intakeCommand, intakeHtml, intakeIdentifier, intakeProblems,
-  mintsIdentifier, needsProfile, referenceRepositoryEntries
+  mintsIdentifier, needsProfile, referenceRepositoryEntries, storyPreflightCommand,
+  storyWorkflowSelection
 } = await import(source('views/intake-form.ts'));
 
 const INTAKE_CHOICES = {
@@ -4496,6 +4497,50 @@ test('a Story is the one shape that asks how it will be judged done', () => {
   assert.match(intakeHtml(form), /Story workflow/);
   assert.match(intakeHtml(form), /data-work-type="feature"/);
   assert.match(intakeHtml(form), /reproduction/);
+  assert.deepEqual(storyPreflightCommand(form), [
+    'workspace', 'branches', '--json', '--intake', '--preflight-story', 'checkout-retry',
+    '--from-branch', 'main', '--work-type', 'feature'
+  ]);
+});
+
+test('Story preflight drops a launch-checkout workflow absent from the exact selected base', async () => {
+  assert.equal(storyWorkflowSelection('feature', INTAKE_CHOICES.storyWorkflows), 'feature');
+  assert.equal(storyWorkflowSelection('feature', [{
+    id: 'release-only', label: 'Release only', description: '', phases: ['intake']
+  }]), null);
+  const panel = await readFile(source('views/intake-panel.ts'), 'utf8');
+  assert.match(panel, /result\.intake\?\.storyWorkflows/);
+  assert.match(panel, /storyWorkflows: exactBaseWorkflows/);
+  assert.match(panel, /Choose a Story workflow available on the selected base branch/);
+});
+
+test('Story-start readiness distinguishes blocking findings from non-blocking advisories', () => {
+  const warning = 'No shared configuration snapshot is pinned yet; the selected base remains authoritative.';
+  const ready = intakeHtml(intake({
+    shape: 'story', tracker: 'none', id: 'checkout-retry', title: 'Retry checkout',
+    description: 'Retry once', basePreflightWarnings: [warning],
+    basePreflightRefreshRecommended: true
+  }));
+  assert.match(ready, /Story-start readiness confirmed/);
+  assert.match(ready, /Ready with advisory information/);
+  assert.match(ready, /No shared configuration snapshot is pinned/);
+  assert.match(ready, /data-workflow-refresh/);
+
+  const blocked = intake({
+    shape: 'story', tracker: 'none', id: 'checkout-retry', title: 'Retry checkout',
+    description: 'Retry once', basePreflightPassed: false,
+    basePreflightReason: "Phase 'verification' has no installed default governed agent.",
+    basePreflightRefreshRecommended: true
+  });
+  assert.match(intakeProblems(blocked).join(' '), /no installed default governed agent/);
+  assert.match(intakeHtml(blocked), /Refresh or reinitialize repository configuration/);
+
+  const gitOnly = intakeHtml({
+    ...blocked,
+    basePreflightReason: 'The destination ref cannot be pushed.',
+    basePreflightRefreshRecommended: false
+  });
+  assert.doesNotMatch(gitOnly, /data-workflow-refresh/);
 });
 
 test('Story intake carries explicit read-only repository URLs and branches without making them delivery repos', () => {
@@ -4648,6 +4693,10 @@ test('Story intake refuses to fall through to an interactive workflow prompt', (
   });
   assert.match(intakeProblems(missing).join(' '), /Could not load Story workflows/);
   assert.match(intakeHtml(missing), /Could not load Story workflows/);
+  assert.deepEqual(storyPreflightCommand(missing), [
+    'workspace', 'branches', '--json', '--intake', '--preflight-story', 'checkout-retry',
+    '--from-branch', 'main'
+  ], 'the selected base can recover its exact workflow catalog without a launch-checkout choice');
 
   const selected = { ...missing, storyWorkflows: INTAKE_CHOICES.storyWorkflows,
     workType: 'bugfix', workflowReason: null };
@@ -4710,7 +4759,7 @@ test('an intake form still missing something disables the button and lists why',
     shape: 'story', tracker: 'none', id: 'checkout-retry', title: 'A', description: 'B',
     basePreflightPassed: false, basePreflightChecking: true
   }));
-  assert.match(waitingForRemote, /Checking remote branch freshness/);
+  assert.match(waitingForRemote, /Checking approved configuration, workflow agents, and every required remote/);
   assert.match(waitingForRemote, /<button type="button" data-submit="start" disabled>/);
 });
 

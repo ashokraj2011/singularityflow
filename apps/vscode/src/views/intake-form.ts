@@ -108,6 +108,10 @@ export interface IntakeForm {
   basePreflightPassed: boolean;
   basePreflightChecking: boolean;
   basePreflightReason: string | null;
+  /** Non-blocking Story-start readiness findings returned by the governed engine. */
+  basePreflightWarnings: string[];
+  /** Whether the readiness result points at repository configuration as the repair surface. */
+  basePreflightRefreshRecommended: boolean;
   inFlight: InFlight[];
   busy: boolean;
   error: string | null;
@@ -134,6 +138,7 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   referenceRepositories: [],
   baseBranch: null, baseBranchChoices: [], baseRemote: null, baseBranchReason: null,
   basePreflightPassed: false, basePreflightChecking: false, basePreflightReason: null,
+  basePreflightWarnings: [], basePreflightRefreshRecommended: false,
   workflowReason: null, workflowCatalogReason: null,
   jiraConfigured: false, jiraReason: null,
   githubConfigured: true, githubReason: null, inFlight: [], busy: false, error: null,
@@ -258,7 +263,7 @@ export function intakeProblems(form: IntakeForm): string[] {
           ? 'Choose the remote base branch from which the Story branch will be created.'
           : 'No remote base branch is available for this Story.'));
     } else if (form.basePreflightChecking) {
-      problems.push('Checking remote branch freshness and publication access…');
+      problems.push('Checking Story-start readiness for configuration, workflow agents, and publication access…');
     } else if (!form.basePreflightPassed) {
       problems.push(form.basePreflightReason
         ?? 'Remote publication preflight must succeed before this Story can start.');
@@ -325,6 +330,29 @@ export function intakeCommand(form: IntakeForm): string[] {
     args.push('--acceptance-criteria', form.acceptanceCriteria.trim());
   }
   return args;
+}
+
+/**
+ * The read-only engine command that proves a Story can start with the currently selected workflow.
+ *
+ * Keeping this beside `intakeCommand` prevents the editor preview from checking only Git while the
+ * eventual mutation also depends on the approved workflow and its governed agents.
+ */
+export function storyPreflightCommand(form: IntakeForm): string[] | null {
+  const identifier = intakeIdentifier(form);
+  if (form.shape !== 'story' || !identifier || !form.baseBranch) return null;
+  return [
+    'workspace', 'branches', '--json', '--intake', '--preflight-story', identifier,
+    '--from-branch', form.baseBranch,
+    ...(form.workType ? ['--work-type', form.workType] : [])
+  ];
+}
+
+/** Preserve a workflow choice only when the exact selected-base catalog still offers it. */
+export function storyWorkflowSelection(
+  current: string | null, workflows: readonly ProfileChoice[]
+): string | null {
+  return workflows.some((workflow) => workflow.id === current) ? current : null;
 }
 
 interface ReferenceRepositoryEntry { id: string; repository: string; branch: string }
@@ -526,11 +554,19 @@ function baseBranchHtml(form: IntakeForm): string {
         <span class="choice-detail">${total > 1 ? `all ${choice.total} required repositories` : `published on ${escape(form.baseRemote ?? 'the configured remote')}`}</span>
       </label>`).join('')}
     </div>
-    ${form.baseBranch && form.basePreflightPassed ? `<p class="meta">Confirmed: create <code>${escape(intakeIdentifier(form) || '<Story ID>')}</code>
+    ${form.baseBranch && form.basePreflightPassed ? `<p class="meta">Story-start readiness confirmed for
+      workflow <code>${escape(form.workType ?? '')}</code>: create <code>${escape(intakeIdentifier(form) || '<Story ID>')}</code>
       from <code>${escape(form.baseRemote ?? 'remote')}/${escape(form.baseBranch)}</code> and publish only
-      <code>${escape(form.baseRemote ?? 'remote')}/refs/heads/${escape(intakeIdentifier(form) || '<Story ID>')}</code>.</p>` : ''}
-    ${form.basePreflightChecking ? '<p class="meta">Checking every required remote…</p>' : ''}
+      <code>${escape(form.baseRemote ?? 'remote')}/refs/heads/${escape(intakeIdentifier(form) || '<Story ID>')}</code>.
+      The engine recomputes these checks immediately before mutation.</p>` : ''}
+    ${form.basePreflightChecking ? '<p class="meta">Checking approved configuration, workflow agents, and every required remote…</p>' : ''}
     ${form.baseBranch && form.basePreflightReason ? `<p class="blockers">${escape(form.basePreflightReason)}</p>` : ''}
+    ${form.basePreflightWarnings.length ? `<div class="notice warning" role="status">
+      <strong>Ready with advisory information</strong>
+      <ul>${form.basePreflightWarnings.map((warning) => `<li>${escape(warning)}</li>`).join('')}</ul>
+    </div>` : ''}
+    ${form.basePreflightRefreshRecommended ? `<p><button type="button" class="secondary" data-workflow-refresh>
+      Refresh or reinitialize repository configuration</button></p>` : ''}
   </section>`;
 }
 

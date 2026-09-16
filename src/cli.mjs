@@ -210,6 +210,12 @@ import {
 import {
   preflightInitialStoryDocuments, stageInitialStoryDocuments
 } from './story-start-documents.mjs';
+import {
+  assertStoryStartReady, inspectStoryStartReadiness
+} from './story-start-readiness.mjs';
+import {
+  loadLegacyMaterializedStoryDefinition, loadLegacyStoryBaseContext,
+} from './story-start-base-configuration.mjs';
 import { analyzeWorkspaceImpact, listWorkspaceImpacts, previewWorkspaceImpact, promoteWorkspaceImpact, workspaceImpactStatus } from './workspace-impact.mjs';
 import {
   activateWorkspaceContext, activateWorkspaceStoryContext, activeWorkspaceFile,
@@ -1433,7 +1439,8 @@ async function helpCommand(positionals, options) {
  * current checkout has governance but no approved configuration authority exists anywhere.
  */
 function assertBaseCarriesGovernance(root, {
-  config, branchName, base, remote, currentBranch, configurationRemote
+  config, branchName, base, remote, currentBranch, configurationRemote,
+  allowExistingStoryBranch = true
 }) {
   // Reached only when this repository carries its own governance in the working tree — the `init`
   // path. A bootstrapped repository has no local definition at all: it resolves configuration from
@@ -1442,7 +1449,7 @@ function assertBaseCarriesGovernance(root, {
   // Only meaningful when the definition is in this working tree. A repository governed from the
   // workspace lead's `sflow/config` branch legitimately has no definition on its own base branch.
   if (configurationRemote || !config || !base) return;
-  if (refExists(root, `refs/heads/${branchName}`)) return;
+  if (allowExistingStoryBranch && refExists(root, `refs/heads/${branchName}`)) return;
   const baseRef = [`refs/heads/${base}`, `refs/remotes/${remote}/${base}`]
     .find((ref) => refExists(root, ref));
   if (!baseRef || fileAtRef(root, baseRef, WORKFLOW_PATH) !== null) return;
@@ -1806,6 +1813,98 @@ export async function startCommand(positionals, options) {
       return resumeCommand(['resume', id], { ...options, fetch: true });
     }
   }
+  // An Epic may already have published the Story branch and its seed without creating lifecycle
+  // state. In legacy branch-local mode that exact seed tip—not the checkout used to launch this
+  // command—owns workflow, agent, document and publication policy. Resolve it before receipts,
+  // external-source checks, document admission, Git preflight or readiness use policy.
+  const materializedSeedRef = approvedRemoteStoryExists && refExists(root, remoteStoryRef)
+    ? remoteStoryRef
+    : refExists(root, localStoryRef) ? localStoryRef : null;
+  // Freeze the exact published seed tip even when workflow policy comes from the shared
+  // configuration authority. The seed is separate governed input: configuration authority may
+  // decide how a Story starts, but it cannot make a concurrently replaced Epic seed safe to use.
+  // This commit is also the checkout/recovery/publication lease below, so every later operation
+  // either advances the bytes inspected here or refuses before enrollment and checkout.
+  const candidateMaterializedSeedCommit = materializedSeedRef
+    ? refHead(root, materializedSeedRef)
+    : null;
+  // Read from the immutable commit, not the mutable branch name. Otherwise a ref movement between
+  // reading the seed and resolving its commit could bind seed bytes from one revision to the lease
+  // for another revision and the later equality check would be meaningless.
+  const materializedSeedText = candidateMaterializedSeedCommit
+    ? fileAtRef(root, candidateMaterializedSeedCommit, storySeedRelative)
+    : null;
+  const materializedSeedCommit = materializedSeedText === null
+    ? null
+    : candidateMaterializedSeedCommit;
+  let materializedSeed = null;
+  const assertMaterializedSeedUnchanged = async ({ observeRemote = false } = {}) => {
+    if (!materializedSeedCommit) return;
+    if (!materializedSeedRef || !refExists(root, materializedSeedRef)) {
+      throw new SingularityFlowError(
+        `Materialized Story branch '${canonicalBranch}' disappeared after its seed was accepted. Refresh the Story seed and retry; nothing was changed.`,
+        { code: 'STORY_SEED_CHANGED' }
+      );
+    }
+    const observedRefCommit = refHead(root, materializedSeedRef);
+    if (observedRefCommit !== materializedSeedCommit) {
+      throw new SingularityFlowError(
+        `Materialized Story branch '${canonicalBranch}' moved after its seed was accepted. Refresh the Story seed and retry; nothing was changed.`,
+        {
+          code: 'STORY_SEED_CHANGED',
+          details: {
+            storyBranch: canonicalBranch,
+            seedCommit: materializedSeedCommit,
+            observedCommit: observedRefCommit
+          }
+        }
+      );
+    }
+    if (!observeRemote || materializedSeedRef !== remoteStoryRef) return;
+    // A person may spend minutes answering intake prompts. Re-observe the authoritative Story ref
+    // after those prompts and immediately before automatic enrollment, rather than trusting the
+    // earlier remote-tracking ref. This is a read-only ls-remote, not another fetch or checkout.
+    const currentDestination = await observeStoryDestination(remote);
+    const observedRemoteCommit = currentDestination.authority?.ok === true
+      ? currentDestination.authority.refs.get(advertisedStoryRef) ?? null
+      : null;
+    if (observedRemoteCommit !== materializedSeedCommit) {
+      throw new SingularityFlowError(
+        `Materialized Story branch '${canonicalBranch}' moved while Story intake was being reviewed. Refresh the Story seed and retry; nothing was changed.`,
+        {
+          code: 'STORY_SEED_CHANGED',
+          details: {
+            storyBranch: canonicalBranch,
+            seedCommit: materializedSeedCommit,
+            observedCommit: observedRemoteCommit
+          }
+        }
+      );
+    }
+  };
+  if (materializedSeedText !== null) {
+    materializedSeed = YAML.parse(materializedSeedText)?.story ?? null;
+    if ((materializedSeed?.workId ?? materializedSeed?.id) !== id) {
+      throw new SingularityFlowError(
+        `Published Story branch '${canonicalBranch}' carries a seed for a different Story. Nothing was changed.`,
+        { code: 'STORY_BRANCH_EXISTS' }
+      );
+    }
+    if (!materializedSeed.parentBranch || !materializedSeed.baseCommit) {
+      throw new SingularityFlowError(
+        `Materialized Story '${id}' does not record its pinned parent branch and base commit. Nothing was changed.`,
+        { code: 'STORY_BASE_INVALID' }
+      );
+    }
+    if (!approvedConfigurationSnapshot) {
+      config = await loadLegacyMaterializedStoryDefinition(root, {
+        remote,
+        storyBranch: canonicalBranch,
+        seedCommit: materializedSeedCommit
+      });
+      validateId(config, id);
+    }
+  }
   if (receiptToken) {
     const resolveReceipt = () => resolveSelectionReceipt(root, config, receiptToken, {
       action: 'start', workId: id
@@ -1848,25 +1947,6 @@ export async function startCommand(positionals, options) {
 
   const preselectedWorkType = receipt?.answers['workflow-template'] ?? optionString(options, 'work-type');
 
-  const materializedSeedText = fileAtRef(root,
-    refExists(root, remoteStoryRef) ? remoteStoryRef : localStoryRef,
-    storySeedRelative);
-  let materializedSeed = null;
-  if (materializedSeedText !== null) {
-    materializedSeed = YAML.parse(materializedSeedText)?.story ?? null;
-    if ((materializedSeed?.workId ?? materializedSeed?.id) !== id) {
-      throw new SingularityFlowError(
-        `Published Story branch '${canonicalBranch}' carries a seed for a different Story. Nothing was changed.`,
-        { code: 'STORY_BRANCH_EXISTS' }
-      );
-    }
-    if (!materializedSeed.parentBranch || !materializedSeed.baseCommit) {
-      throw new SingularityFlowError(
-        `Materialized Story '${id}' does not record its pinned parent branch and base commit. Nothing was changed.`,
-        { code: 'STORY_BASE_INVALID' }
-      );
-    }
-  }
   if (refExists(root, localStoryRef) && !localStory && !materializedSeed) {
     throw new SingularityFlowError(
       `Local branch '${canonicalBranch}' exists but contains neither governed Story state nor a materialized Story seed. `
@@ -1901,7 +1981,7 @@ export async function startCommand(positionals, options) {
         ? [explicitBase]
         : [];
   const {
-    storyBaseForRepository, preflightStoryRepositories,
+    assertApprovedCapabilityRepositoryPlan, storyBaseForRepository, preflightStoryRepositories,
     capabilityPublicationPlan, prepareCapabilityRepositories, printCapabilityBase,
     preflightIncludesRepository, preflightPublicationAuthority,
     preflightWorldModelAuthorityRefreshes
@@ -1927,7 +2007,11 @@ export async function startCommand(positionals, options) {
         remote,
         defaultBranch: config?.defaultBaseBranch ?? applicationDefault,
         capabilityId: optionString(options, 'capability'),
-        configurationSnapshot: approvedConfigurationSnapshot
+        configurationSnapshot: approvedConfigurationSnapshot,
+        // Legacy intake must choose a base before it can know which branch-local capability map is
+        // authoritative. Treat the machine-local workspace membership as a provisional read-only
+        // inventory, then validate it against the exact selected-base map below before mutation.
+        deferCapabilityAuthority: !approvedConfigurationSnapshot
       });
   if (explicitBase && storyBase.scope === 'capability') {
     throw new SingularityFlowError(
@@ -1937,10 +2021,49 @@ export async function startCommand(positionals, options) {
   }
   const baseAtStart = storyBase.localBase;
   const workflowCapabilityId = optionString(options, 'capability') ?? storyBase.capability ?? null;
+  // With no shared authority, the selected remote base itself owns policy. Refresh and fully load
+  // its bounded configuration before document policy, publication policy, capability preflight or
+  // readiness can observe the launch checkout's potentially divergent workflow.
+  let legacyBaseConfigurationCommit = null;
+  let legacyCapabilityEvidence = null;
+  if (!approvedConfigurationSnapshot && !materializedSeed) {
+    const fetchAuthority = configuredRemoteAuthority(root, remote, { direction: 'fetch' });
+    if (!fetchAuthority.url) {
+      throw new SingularityFlowError(
+        `Story remote '${remote}' has no credential-free fetch authority. Nothing was changed.`,
+        { code: 'STORY_REMOTE_UNREACHABLE' }
+      );
+    }
+    await fetchRemote(root, remote, { transportRemote: fetchAuthority.url });
+    const selectedBaseRef = `refs/remotes/${remote}/${baseAtStart}`;
+    if (!refExists(root, selectedBaseRef)) {
+      throw new SingularityFlowError(
+        `Selected base branch '${baseAtStart}' is no longer published by remote '${remote}'. Nothing was changed.`,
+        { code: 'STORY_BASE_INVALID' }
+      );
+    }
+    legacyBaseConfigurationCommit = refHead(root, selectedBaseRef);
+    const selectedBaseConfiguration = await loadLegacyStoryBaseContext(root, {
+      remote, baseBranch: baseAtStart, baseCommit: legacyBaseConfigurationCommit,
+      capabilityId: workflowCapabilityId
+    });
+    config = selectedBaseConfiguration.definition;
+    legacyCapabilityEvidence = selectedBaseConfiguration.capabilityEvidence;
+    if (storyBase.scope === 'capability') {
+      assertApprovedCapabilityRepositoryPlan(
+        storyBase.plan.repositories,
+        legacyCapabilityEvidence?.capability,
+        null,
+        { portfolio: legacyCapabilityEvidence?.portfolio ?? null }
+      );
+    }
+    validateId(config, id);
+  }
   const publishRequired = (config?.git?.publish ?? 'required') !== 'off';
   let capabilityPreflight = null;
   let capabilityPublications = [];
   let publicationAuthority = null;
+  let startReadiness = null;
   // A published configuration authority always governs a new Story, including when start was
   // launched from an older pinned Story or an application base still contains a legacy workflow.
   // The legacy base remains a fallback only when no usable sflow/config/state mirror exists.
@@ -1952,7 +2075,8 @@ export async function startCommand(positionals, options) {
   // invalid higher-priority authority. The resolver now distinguishes an unrelated unmarked `state`
   // branch from those failures, so swallowing an exception here would only reintroduce stale policy.
   let automaticEnrollment = null;
-  if (!configurationAuthority && !baseCarriesConfiguration) {
+  if (!configurationAuthority && !materializedSeedCommit
+      && !baseCarriesConfiguration) {
     throw new SingularityFlowError(
       `Missing ${WORKFLOW_PATH}. Neither an approved ${CONFIGURATION_BRANCH} branch nor a verified `
       + `state configuration mirror is available for this repository or its active workspace lead. `
@@ -1973,11 +2097,11 @@ export async function startCommand(positionals, options) {
   preloadedManual = storyFile
     ? await loadManualStory(id, { storyFile, title, description, acceptanceCriteria })
     : null;
-  // Resolve every deterministic policy input before automatic enrollment is allowed to publish a
-  // shared configuration commit. Interactive work-type choice and documents supplied by that later
-  // prompt remain deferred, but explicit/receipt/seed choices have no reason to mutate authority
-  // before a malformed workflow, forbidden reference set, or disallowed document can be refused.
-  const deterministicWorkType = preselectedWorkType ?? materializedSeed?.suggestedWorkType ?? null;
+  // Explicit, receipt and already-materialized choices can be validated immediately. An ordinary
+  // base may itself contain an Epic seed, so defer an otherwise-interactive workflow choice until
+  // the exact refreshed base ref is available below; this preserves the seed as reviewed input
+  // without letting enrollment happen before the choice is known.
+  let deterministicWorkType = preselectedWorkType ?? materializedSeed?.suggestedWorkType ?? null;
   const validateDeterministicStartPolicy = async (definition, snapshot, evidence = []) => {
     let resolved = null;
     if (deterministicWorkType) {
@@ -1991,7 +2115,7 @@ export async function startCommand(positionals, options) {
       ? resolveEffectiveCapabilityPolicy(
         retainedCapabilityMap.definition, retainedCapabilityMap.capabilityId
       ).policy
-      : {};
+      : legacyCapabilityEvidence?.capability?.policy ?? {};
     if (resolved) {
       const referenceMode = resolved.referenceRepositoryPolicy?.mode ?? 'optional';
       if (referenceMode === 'off' && referenceRequests.length) {
@@ -2056,76 +2180,16 @@ export async function startCommand(positionals, options) {
   // to its exact advertised commit before enrollment as well: an inaccessible or missing reference
   // is an intake refusal, not authority to add a person to sflow/config.
   const referencePins = await resolveReferenceRepositoryPins(referenceRequests, { localNamespace: id });
-  // Enrollment is completed before the Story branch and its immutable configuration snapshot are
-  // created. A failed configuration push stops here, so the Story can never pin the older authority
-  // and then discover at approval time that the person who started it was omitted.
-  if (!materializedSeed && configurationAuthority?.branch === CONFIGURATION_BRANCH
-      && config.approvalSecurity?.autoEnrollNewIdentities !== false) {
-    const enrollment = await publishCurrentIdentityToConfiguration(root, {
-      target: '*', automatic: true, configurationSnapshot: approvedConfigurationSnapshot
-    });
-    automaticEnrollment = enrollment;
-    if (enrollment.changed && !enrollment.pushed) {
-      throw new SingularityFlowError(
-        `Automatic approval enrollment is pending publication. ${enrollment.nextAction?.command
-          ? `Run: ${enrollment.nextAction.command}`
-          : 'Open Push recovery, publish the retained configuration commit, and start again.'}`,
-        { code: 'CONFIGURATION_ENROLLMENT_PENDING' }
-      );
-    }
-    if (enrollment.changed) {
-      const enrollmentParent = run('git', ['rev-parse', `${enrollment.commit}^`], {
-        cwd: root, allowFailure: true
-      }).stdout.trim();
-      if (!approvedConfigurationSnapshot?.sourceCommit
-          || enrollmentParent !== approvedConfigurationSnapshot.sourceCommit) {
-        throw new SingularityFlowError(
-          'Approved configuration changed after Story choices were frozen and before automatic enrollment. Refresh Story intake and retry; no Story checkout was changed.',
-          {
-            code: 'STORY_CONFIGURATION_AUTHORITY_STALE',
-            details: {
-              selectedCommit: approvedConfigurationSnapshot?.sourceCommit ?? null,
-              enrollmentParent: enrollmentParent || null,
-              enrollmentCommit: enrollment.commit
-            }
-          }
-        );
-      }
-      // Enrollment advances the same authority revision selected above. Refresh the exact pin so
-      // work-type validation and materialization agree on the post-enrollment configuration rather
-      // than racing the old observation against the newly published commit.
-      configurationAuthority = await resolveNewStoryConfigurationAuthority(root, {
-        pinnedRemote: currentPin.valid ? currentPin.source.repository : null
-      });
-      if (!configurationAuthority || configurationAuthority.commit !== enrollment.commit) {
-        throw new SingularityFlowError(
-          'Approved configuration changed again after automatic enrollment. Refresh Story intake and retry; nothing was changed.',
-          { code: 'STORY_CONFIGURATION_AUTHORITY_STALE' }
-        );
-      }
-      approvedConfigurationSnapshot = await loadStoryConfigurationSnapshot(configurationAuthority);
-      config = approvedConfigurationSnapshot.definition;
-      validateConfigurationSnapshotCapabilities(approvedConfigurationSnapshot, {
-        capabilityId: workflowCapabilityId
-      });
-    }
-  }
-  // Enrollment is a narrow membership change, but never trust that assumption across the mutation
-  // boundary. Re-resolve the selected workflow and capability policy from the exact post-enrollment
-  // snapshot, then apply it to the already-frozen evidence and reference set before any Story Git
-  // preflight or checkout begins.
-  deterministicPolicy = await validateDeterministicStartPolicy(
-    approvedConfigurationSnapshot?.definition ?? config,
-    approvedConfigurationSnapshot,
-    documentCapture.evidence
-  );
+  // Complete the read-only capability and Git publication proof before automatic enrollment. A
+  // contributor must never leave a shared membership commit behind only to discover that the base,
+  // destination ref, or office Git policy prevents this Story from starting.
   capabilityPreflight = storyBase.scope === 'capability'
     ? await preflightStoryRepositories(storyBase.workspaceRoot, storyBase.plan, canonicalBranch, {
         remote, publishRequired, lifecycleRoot: root, capabilityId: storyBase.capability,
-        configurationSnapshot: approvedConfigurationSnapshot
+        configurationSnapshot: approvedConfigurationSnapshot,
+        capabilityEvidence: legacyCapabilityEvidence
       })
     : null;
-  capabilityPublications = await capabilityPublicationPlan(capabilityPreflight, root);
   const originalBranch = branch(root);
   // Fetch and prove the exact source and destination before the first checkout or session change.
   // Listing branches establishes read access; this dry-run additionally establishes that the
@@ -2164,14 +2228,56 @@ export async function startCommand(positionals, options) {
     );
   }
   const baseCommitAtStart = materializedSeed?.baseCommit ?? refHead(root, remoteBaseRef);
+  if (legacyBaseConfigurationCommit && baseCommitAtStart !== legacyBaseConfigurationCommit) {
+    throw new SingularityFlowError(
+      `Selected base '${baseAtStart}' moved while its workflow policy was being checked. Refresh Story intake and retry; nothing was changed.`,
+      {
+        code: 'STORY_BASE_INVALID',
+        details: {
+          baseBranch: baseAtStart,
+          policyCommit: legacyBaseConfigurationCommit,
+          observedCommit: baseCommitAtStart
+        }
+      }
+    );
+  }
+  await assertMaterializedSeedUnchanged();
+  const baseSeedText = materializedSeed ? null : fileAtRef(root, remoteBaseRef, storySeedRelative);
+  const baseSeed = baseSeedText == null ? null : YAML.parse(baseSeedText)?.story ?? null;
+  if (baseSeed && baseSeed.workId !== id && baseSeed.id !== id) {
+    throw new SingularityFlowError(
+      `Story seed ${storySeedRelative} does not belong to Work ID '${id}'.`
+    );
+  }
+  if (!deterministicWorkType) {
+    const seedChoiceAllowed = !storyFile && !title && !description && !acceptanceCriteria;
+    deterministicWorkType = (seedChoiceAllowed ? baseSeed?.suggestedWorkType : null)
+      ?? await selectWorkType(config, {
+        selection: null,
+        nonInteractiveHint: 'Pass --work-type <id> to choose one without a terminal.'
+      });
+  }
+  if (deterministicWorkType === 'poc-workflow') {
+    normalizeMcpTargetOrigin(optionString(options, 'target-url'), {
+      required: true,
+      label: 'POC target URL'
+    });
+  }
+  deterministicPolicy = await validateDeterministicStartPolicy(
+    approvedConfigurationSnapshot?.definition ?? config,
+    approvedConfigurationSnapshot,
+    documentCapture.evidence
+  );
   // A materialized Epic Story branch already contains its governed seed commit. Its lineage base is
   // still the parent commit recorded in the seed, but Story-start recovery must recognize the
   // branch tip that existed before intake began or any later refusal becomes an unrecoverable
   // "unrecognized commit" loop.
-  const recoveryBaseCommit = materializedSeed ? refHead(root, remoteStoryRef) : baseCommitAtStart;
+  const recoveryBaseCommit = materializedSeed
+    ? materializedSeedCommit
+    : baseCommitAtStart;
   if (publishRequired && !capabilityPreflight) {
     const dryRun = await preflightPushBranch(
-      root, remote, materializedSeed ? remoteStoryRef : remoteBaseRef, canonicalBranch,
+      root, remote, materializedSeed ? materializedSeedCommit : remoteBaseRef, canonicalBranch,
       { transportRemote: publicationAuthority.url }
     );
     if (dryRun.status !== 0) {
@@ -2184,8 +2290,194 @@ export async function startCommand(positionals, options) {
   }
   assertBaseCarriesGovernance(root, {
     config, branchName: canonicalBranch, base: baseAtStart, remote, currentBranch: originalBranch,
-    configurationRemote: configurationAuthority?.remote ?? null
+    configurationRemote: configurationAuthority?.remote
+      ?? (materializedSeedCommit ? remote : null)
   });
+  const readinessRepositories = capabilityPreflight?.map((entry) => ({
+    id: entry.repository,
+    baseBranch: entry.baseBranch,
+    baseCommit: entry.baseCommit,
+    destinationRef: entry.destinationRef,
+    publishRequired: entry.publishRequired
+  })) ?? [{
+    id: 'lifecycle', baseBranch: baseAtStart, baseCommit: baseCommitAtStart,
+    destinationRef: advertisedStoryRef, publishRequired
+  }];
+  startReadiness = inspectStoryStartReadiness({
+    workId: id,
+    definition: approvedConfigurationSnapshot?.definition ?? config,
+    configurationSnapshot: approvedConfigurationSnapshot,
+    workType: deterministicWorkType,
+    capabilityId: workflowCapabilityId,
+    baseBranch: baseAtStart,
+    repositories: readinessRepositories,
+    publicationRequired: publishRequired,
+    surface: optionBoolean(options, 'json') ? 'machine' : 'shell'
+  });
+  assertStoryStartReady(startReadiness);
+
+  // Freeze every human/external intake choice and admit every document before the first shared
+  // configuration mutation. A cancelled prompt, Jira failure, or disallowed interactive document
+  // must leave both sflow/config and the application checkout untouched.
+  const receiptSource = receipt?.answers['intake-source'] ?? null;
+  if (declaredSource && receiptSource && declaredSource !== receiptSource) {
+    throw new SingularityFlowError(
+      `Selection receipt chose ${receiptSource} intake, but the start command explicitly requests ${declaredSource} intake.`);
+  }
+  const frozenSeed = materializedSeed ?? baseSeed;
+  const frozenManualSeed = frozenSeed && !storyFile && !title && !description && !acceptanceCriteria
+    ? frozenSeed : null;
+  const sourceMode = declaredSource
+    ?? receiptSource
+    ?? (frozenSeed ? 'manual' : null)
+    ?? await selectIntakeSource({
+      selection: null,
+      nonInteractiveHint: 'Pass --jira, or --title with --description, to say where the work came from.'
+    });
+  const manual = sourceMode === 'manual'
+    ? (frozenManualSeed
+        ? await loadManualStory(id, {
+          title: frozenManualSeed.title ?? id,
+          description: frozenManualSeed.description ?? '',
+          acceptanceCriteria: (frozenManualSeed.acceptanceCriteria ?? []).join('\n')
+        })
+        : preloadedManual ?? (storyFile || title || description || acceptanceCriteria
+          ? await loadManualStory(id, { storyFile, title, description, acceptanceCriteria })
+          : await promptManualStory(id)))
+    : null;
+  const normalizedManualSource = manual ? normalizeWorkSource(manual.source) : null;
+  let source = requestedExternalSource
+    ?? (sourceMode === 'jira'
+      ? normalizeWorkSource(await getIssue(id), { rawRef: id, fetchedAt: nowIso() })
+      : {
+          ...normalizedManualSource,
+          // Manual source.json predates WorkSourceV1 and stores criteria as Markdown. Preserve that
+          // public artifact shape while the normalized hash and provider contract remain list-based.
+          acceptanceCriteria: manual.source.acceptanceCriteria
+        });
+  let supportingDocuments = [
+    ...(preloadedManual ? [] : (manual?.documents ?? [])),
+    ...(documentCapture?.inputs ?? [])
+  ];
+  const workType = deterministicWorkType;
+  const targetOrigin = normalizeMcpTargetOrigin(optionString(options, 'target-url'), {
+    required: workType === 'poc-workflow',
+    label: 'POC target URL'
+  });
+  if (targetOrigin) source = { ...source, targetOrigin };
+  let resolvedWorkType = assertPlannedClaimsReady(resolveWorkType(config, workType));
+  const retainedCapabilityMapBeforeEnrollment = validateConfigurationSnapshotCapabilities(
+    approvedConfigurationSnapshot, { capabilityId: workflowCapabilityId }
+  );
+  const capabilityPolicyBeforeEnrollment = retainedCapabilityMapBeforeEnrollment?.definition
+      && retainedCapabilityMapBeforeEnrollment.capabilityId
+    ? resolveEffectiveCapabilityPolicy(
+      retainedCapabilityMapBeforeEnrollment.definition,
+      retainedCapabilityMapBeforeEnrollment.capabilityId
+    ).policy
+    : legacyCapabilityEvidence?.capability?.policy ?? {};
+  const exactDocumentCapture = await preflightInitialStoryDocuments(supportingDocuments, {
+    repositoryRoot: root,
+    maxFileBytes: Math.min(
+      resolvedWorkType.documents?.maxFileBytes ?? 26214400,
+      capabilityPolicyBeforeEnrollment.maxDocumentBytes ?? Number.MAX_SAFE_INTEGER
+    ),
+    allowedMimeTypes: Object.hasOwn(capabilityPolicyBeforeEnrollment, 'allowedMimeTypes')
+      ? capabilityPolicyBeforeEnrollment.allowedMimeTypes : null
+  });
+  await documentCapture?.dispose().catch(() => {});
+  documentCapture = exactDocumentCapture;
+  supportingDocuments = documentCapture.inputs;
+  const referenceMode = resolvedWorkType.referenceRepositoryPolicy?.mode ?? 'optional';
+  if (referenceMode === 'off' && referencePins.length) {
+    throw new SingularityFlowError(
+      `Work type '${workType}' does not allow reference repositories.`,
+      { code: 'REFERENCE_REPOSITORIES_NOT_ALLOWED' }
+    );
+  }
+  if (referenceMode === 'required' && !referencePins.length) {
+    throw new SingularityFlowError(
+      `Work type '${workType}' requires at least one read-only reference repository at intake. `
+      + 'Pass paired --reference-repository ID=URL and --reference-branch ID=BRANCH options.',
+      { code: 'REFERENCE_REPOSITORIES_REQUIRED' }
+    );
+  }
+  // Human intake can outlive the earlier fetch. Re-observe the exact published seed immediately
+  // before automatic enrollment so a concurrent Epic rematerialization cannot leave a membership
+  // commit behind for a Story whose accepted seed is no longer current.
+  await assertMaterializedSeedUnchanged({ observeRemote: true });
+  // Enrollment is a separate shared-configuration mutation. It is allowed only after every Story
+  // input and Git destination has passed the read-only readiness gate above. The exact-parent check
+  // proves the enrollment commit advances the snapshot we inspected rather than a concurrent edit.
+  if (configurationAuthority?.branch === CONFIGURATION_BRANCH
+      && config.approvalSecurity?.autoEnrollNewIdentities !== false) {
+    const enrollment = await publishCurrentIdentityToConfiguration(root, {
+      target: '*', automatic: true, configurationSnapshot: approvedConfigurationSnapshot,
+      expectedSourceCommit: approvedConfigurationSnapshot?.sourceCommit ?? null
+    });
+    automaticEnrollment = enrollment;
+    if (enrollment.changed && !enrollment.pushed) {
+      throw new SingularityFlowError(
+        `Automatic approval enrollment is pending publication. ${enrollment.nextAction?.command
+          ? `Run: ${enrollment.nextAction.command}`
+          : 'Open Push recovery, publish the retained configuration commit, and start again.'}`,
+        { code: 'CONFIGURATION_ENROLLMENT_PENDING' }
+      );
+    }
+    if (enrollment.changed) {
+      const enrollmentParent = run('git', ['rev-parse', `${enrollment.commit}^`], {
+        cwd: root, allowFailure: true
+      }).stdout.trim();
+      if (!approvedConfigurationSnapshot?.sourceCommit
+          || enrollmentParent !== approvedConfigurationSnapshot.sourceCommit) {
+        throw new SingularityFlowError(
+          'Approved configuration changed after Story choices were frozen and before automatic enrollment. Refresh Story intake and retry; no Story checkout was changed.',
+          {
+            code: 'STORY_CONFIGURATION_AUTHORITY_STALE',
+            details: {
+              selectedCommit: approvedConfigurationSnapshot?.sourceCommit ?? null,
+              enrollmentParent: enrollmentParent || null,
+              enrollmentCommit: enrollment.commit
+            }
+          }
+        );
+      }
+      configurationAuthority = await resolveNewStoryConfigurationAuthority(root, {
+        pinnedRemote: currentPin.valid ? currentPin.source.repository : null
+      });
+      if (!configurationAuthority || configurationAuthority.commit !== enrollment.commit) {
+        throw new SingularityFlowError(
+          'Approved configuration changed again after automatic enrollment. Refresh Story intake and retry; nothing was changed.',
+          { code: 'STORY_CONFIGURATION_AUTHORITY_STALE' }
+        );
+      }
+      approvedConfigurationSnapshot = await loadStoryConfigurationSnapshot(configurationAuthority);
+      config = approvedConfigurationSnapshot.definition;
+      validateConfigurationSnapshotCapabilities(approvedConfigurationSnapshot, {
+        capabilityId: workflowCapabilityId
+      });
+      deterministicPolicy = await validateDeterministicStartPolicy(
+        config, approvedConfigurationSnapshot, documentCapture.evidence
+      );
+      startReadiness = inspectStoryStartReadiness({
+        workId: id,
+        definition: config,
+        configurationSnapshot: approvedConfigurationSnapshot,
+        workType: deterministicWorkType,
+        capabilityId: workflowCapabilityId,
+        baseBranch: baseAtStart,
+        repositories: readinessRepositories,
+        publicationRequired: publishRequired,
+        surface: optionBoolean(options, 'json') ? 'machine' : 'shell'
+      });
+      assertStoryStartReady(startReadiness);
+    }
+  }
+  // Candidate retention writes immutable machine-local SGOS sidecars. Persist it only after
+  // enrollment and its refreshed readiness proof so a refused enrollment or authority race leaves
+  // no Story-specific candidate authority behind.
+  capabilityPublications = await capabilityPublicationPlan(capabilityPreflight, root);
+
   const originalSession = await loadSession(root, { required: false });
   const originalCopilotSession = await loadCopilotSession(root);
   const siblingRepositories = storyBase.scope === 'capability'
@@ -2227,7 +2519,18 @@ export async function startCommand(positionals, options) {
   let configurationSnapshot = null;
   let configurationRestorePoint = null;
   const checkoutResult = await checkout(root, canonicalBranch, materializedSeed
-    ? { base: baseAtStart, fetch: true, existingOnly: true, remote }
+    // The remote-tracking ref was refreshed and compared with materializedSeedCommit above. Do not
+    // fetch it a second time after the Story-start journal exists: that could replace the checked
+    // out seed after readiness approved different bytes. The eventual push is separately protected
+    // by publicationExpectedRemoteSha using the same immutable commit.
+    ? {
+        base: baseAtStart,
+        fetch: false,
+        existingOnly: true,
+        remote,
+        exactCommit: materializedSeedCommit,
+        exactCommitErrorCode: 'STORY_SEED_CHANGED'
+      }
     : { base: baseAtStart, fetch: false, remote, preferRemoteBase: true });
   createdBranch = checkoutResult.startsWith('created-from-');
   await updateStoryStartJournal(root, id, startJournal.transactionId, {
@@ -2283,106 +2586,22 @@ export async function startCommand(positionals, options) {
   if (receiptToken && !receipt) {
     throw new SingularityFlowError('A start selection receipt requires an initialized governed definition before checkout.');
   }
-  const receiptSource = receipt?.answers['intake-source'] ?? null;
-  if (declaredSource && receiptSource && declaredSource !== receiptSource) {
-    throw new SingularityFlowError(
-      `Selection receipt chose ${receiptSource} intake, but the start command explicitly requests ${declaredSource} intake.`);
-  }
-  // A materialized Story arrives on a branch carrying its own governed seed — the requirements, the
-  // specification and the traceability are already pinned there. Asking where the work came from is
-  // asking a question the branch has already answered, and asking it interactively made starting a
-  // materialized Story impossible without a terminal.
-  const seeded = existsSync(path.join(root, 'singularity', 'seeds', `${id}.yml`));
-  const sourceMode = declaredSource
-    ?? receiptSource
-    ?? (seeded ? 'manual' : null)
-    ?? await selectIntakeSource({
-      selection: null,
-      nonInteractiveHint: 'Pass --jira, or --title with --description, to say where the work came from.'
-    });
-  // A governed seed already carries the title, the description and the acceptance criteria the
-  // manual prompts ask for — they were written during planning and hash-pinned onto this branch.
-  // Asking again invites a second, divergent answer to a question already settled.
-  const seed = seeded && !storyFile && !title && !description && !acceptanceCriteria
-    ? YAML.parse(await readFile(path.join(root, 'singularity', 'seeds', `${id}.yml`), 'utf8'))?.story ?? null
-    : null;
-  const manual = sourceMode === 'manual'
-    ? (seed
-        ? await loadManualStory(id, {
-          title: seed.title ?? id,
-          description: seed.description ?? '',
-          acceptanceCriteria: (seed.acceptanceCriteria ?? []).join('\n')
-        })
-        : preloadedManual ?? (storyFile || title || description || acceptanceCriteria
-          ? await loadManualStory(id, { storyFile, title, description, acceptanceCriteria })
-          : await promptManualStory(id)))
-    : null;
-  const normalizedManualSource = manual ? normalizeWorkSource(manual.source) : null;
-  let source = requestedExternalSource
-    ?? (sourceMode === 'jira'
-      ? normalizeWorkSource(await getIssue(id), { rawRef: id, fetchedAt: nowIso() })
-      : {
-          ...normalizedManualSource,
-          // Manual source.json predates WorkSourceV1 and stores criteria as Markdown. Preserve that
-          // public artifact shape while the normalized hash and provider contract remain list-based.
-          acceptanceCriteria: manual.source.acceptanceCriteria
-        });
-  let supportingDocuments = [
-    // A prepared story file was already included in the pre-checkout capture. Interactive manual
-    // documents become known only here and are added before the exact-policy capture below.
-    ...(preloadedManual ? [] : (manual?.documents ?? [])),
-    ...(documentCapture?.inputs ?? [])
-  ];
-  // The seed's `suggestedWorkType` is the planning phase's answer to this question, so it is used
-  // rather than asked again. `--work-type` covers the unseeded case without a terminal.
-  const workType = await selectWorkType(config, {
-    selection: receipt?.answers['workflow-template'] ?? optionString(options, 'work-type') ?? seed?.suggestedWorkType ?? null,
-    nonInteractiveHint: 'Pass --work-type <id> to choose one without a terminal.'
+  // Re-run the same pure gate against the exact definition materialized onto the Story checkout
+  // before any governed state, commit, or publication is created, closing the preflight race.
+  resolvedWorkType = assertPlannedClaimsReady(resolveWorkType(config, workType));
+  startReadiness = inspectStoryStartReadiness({
+    workId: id,
+    definition: config,
+    configurationSnapshot: approvedConfigurationSnapshot,
+    workType,
+    capabilityId: workflowCapabilityId,
+    baseBranch: baseAtStart,
+    repositories: readinessRepositories,
+    publicationRequired: publishRequired,
+    surface: optionBoolean(options, 'json') ? 'machine' : 'shell'
   });
-  const targetOrigin = normalizeMcpTargetOrigin(optionString(options, 'target-url'), {
-    required: workType === 'poc-workflow',
-    label: 'POC target URL'
-  });
-  if (targetOrigin) source = { ...source, targetOrigin };
-  const resolvedWorkType = assertPlannedClaimsReady(resolveWorkType(config, workType));
-  const retainedCapabilityMap = validateConfigurationSnapshotCapabilities(approvedConfigurationSnapshot, {
-    capabilityId: workflowCapabilityId
-  });
-  const capabilityPolicy = retainedCapabilityMap?.definition && retainedCapabilityMap.capabilityId
-    ? resolveEffectiveCapabilityPolicy(
-      retainedCapabilityMap.definition, retainedCapabilityMap.capabilityId
-    ).policy
-    : {};
-  const exactDocumentCapture = await preflightInitialStoryDocuments(supportingDocuments, {
-    repositoryRoot: root,
-    maxFileBytes: Math.min(
-      resolvedWorkType.documents?.maxFileBytes ?? 26214400,
-      capabilityPolicy.maxDocumentBytes ?? Number.MAX_SAFE_INTEGER
-    ),
-    allowedMimeTypes: Object.hasOwn(capabilityPolicy, 'allowedMimeTypes')
-      ? capabilityPolicy.allowedMimeTypes : null
-  });
-  await documentCapture?.dispose().catch(() => {});
-  documentCapture = exactDocumentCapture;
-  supportingDocuments = documentCapture.inputs;
-  // Materialize only after the user has selected a work type and its policy has resolved. This
-  // prevents an interactive cancellation or a reference-forbidden workflow from leaving an
-  // orphaned checkout. The checkout remains machine-local, ignored and detached; it is never a
-  // delivery repository and SFlow never resets, branches, commits, or pushes it.
-  const referenceMode = resolvedWorkType.referenceRepositoryPolicy?.mode ?? 'optional';
-  if (referenceMode === 'off' && referencePins.length) {
-    throw new SingularityFlowError(
-      `Work type '${workType}' does not allow reference repositories.`,
-      { code: 'REFERENCE_REPOSITORIES_NOT_ALLOWED' }
-    );
-  }
-  if (referenceMode === 'required' && !referencePins.length) {
-    throw new SingularityFlowError(
-      `Work type '${workType}' requires at least one read-only reference repository at intake. `
-      + 'Pass paired --reference-repository ID=URL and --reference-branch ID=BRANCH options.',
-      { code: 'REFERENCE_REPOSITORIES_REQUIRED' }
-    );
-  }
+  assertStoryStartReady(startReadiness);
+  await validateDeterministicStartPolicy(config, approvedConfigurationSnapshot, documentCapture.evidence);
   const referenceRepositories = await materializeReferenceRepositories(root, referencePins);
   const selectedAgent = await activatePhaseAgent(
     root, config, id, resolvedWorkType.phases[0], optionString(options, 'agent') ?? null
@@ -2436,7 +2655,8 @@ export async function startCommand(positionals, options) {
           // Always carry the verified catalog digest across the preflight/creation boundary. The
           // creation guard applies it only when resolution selected a capability, including one
           // inferred from the approved map; collection-only catalogs remain capability-free.
-          capabilityMapSha256: configurationSnapshot?.files?.[CAPABILITIES_PATH] ?? null,
+          capabilityMapSha256: configurationSnapshot?.files?.[CAPABILITIES_PATH]
+            ?? legacyCapabilityEvidence?.mapSha256 ?? null,
           referenceRepositories,
           worldModelAuthorityRefreshes: preflightWorldModelAuthorityRefreshes(capabilityPreflight)
         });
@@ -2554,6 +2774,7 @@ export async function startCommand(positionals, options) {
       repositoryPath: root,
       workType,
       currentPhase: workflow.currentPhase,
+      readiness: startReadiness,
       documents: supportingDocuments.length,
       // Present only when a capability base was chosen, so `--json` consumers can tell the
       // single-repository start from the capability-wide one instead of inferring it.
@@ -2623,6 +2844,14 @@ export async function startCommand(positionals, options) {
   });
   if (!optionBoolean(options, 'json')) {
     summary(workflow);
+    console.log(`Story-start readiness: ${startReadiness.status} · configuration, workflow agents, and Git publication verified.`);
+    for (const warning of startReadiness.warnings ?? []) console.log(`Readiness advisory: ${warning.message}`);
+    if (startReadiness.warnings?.some((warning) => warning.id === 'configuration-authority')) {
+      printCommandRoutes(startReadiness.upgrade.shell, {
+        skill: startReadiness.upgrade.copilot,
+        label: 'Review the optional configuration upgrade'
+      });
+    }
     if (automaticEnrollment?.changed) {
       console.log(`Approval enrollment: current Git identity added to configured authorities on ${CONFIGURATION_BRANCH}@${automaticEnrollment.commit.slice(0, 12)} (published).`);
     }
@@ -12222,10 +12451,11 @@ async function workspaceCommand(positionals, options) {
         }))
       : null;
     return withApprovedConfigurationRead(root, async () => {
-      const definition = await loadConfig(root);
+      let definition = await loadConfig(root);
       const approvedConfigurationSnapshot = configurationReadSnapshot(root);
       const {
-        storyBaseCatalog, storyBaseForRepository, preflightStoryRepositories
+        assertApprovedCapabilityRepositoryPlan, storyBaseCatalog, storyBaseForRepository,
+        preflightStoryRepositories
       } = await import('./capability-start.mjs');
       // Story workflows deliberately come from the latest approved definition because Story start
       // consumes that same authority. Keep the two execution contracts explicit in one response.
@@ -12244,7 +12474,7 @@ async function workspaceCommand(positionals, options) {
         : { workflows: [], reason: null };
       const packagedStoryWorkflows = packagedCatalog.workflows
         .filter((workflow) => workflow.installed === false);
-      const intake = intakeRequested ? {
+      let intake = intakeRequested ? {
           ...intakeProfiles,
           // Intake may offer only installed work types: these are the exact profiles Story start can
           // pin from this already-validated approved definition. Re-reading the packaged workflow
@@ -12266,18 +12496,23 @@ async function workspaceCommand(positionals, options) {
           workflowCatalogReason: packagedCatalog.reason,
           workflowReason: null
         } : null;
+      const storyId = optionString(options, 'preflight-story');
+      const selectedBaseValues = optionStrings(options, 'from-branch');
       const catalog = await storyBaseCatalog(root, {
         remote: definition.git?.remote ?? 'origin',
         defaultBranch: definition.defaultBaseBranch,
         capabilityId: optionString(options, 'capability'),
-        configurationSnapshot: approvedConfigurationSnapshot
+        configurationSnapshot: approvedConfigurationSnapshot,
+        // With no shared configuration authority, the exact base chosen later in this request is
+        // the only map allowed to authorize the provisional workspace repository set.
+        deferCapabilityAuthority: !approvedConfigurationSnapshot
       });
-      const storyId = optionString(options, 'preflight-story');
       let preflight = null;
       if (storyId) {
         validateId(definition, storyId);
+        const preflightWorkType = optionString(options, 'work-type');
         const selected = await storyBaseForRepository(root, {
-          values: optionStrings(options, 'from-branch'),
+          values: selectedBaseValues,
           interactive: false,
           remote: definition.git?.remote ?? 'origin',
           defaultBranch: definition.defaultBaseBranch,
@@ -12285,18 +12520,125 @@ async function workspaceCommand(positionals, options) {
           configurationSnapshot: approvedConfigurationSnapshot,
           catalog
         });
+        let legacyBaseConfigurationCommit = null;
+        let legacyCapabilityEvidence = null;
+        if (!approvedConfigurationSnapshot) {
+          const fetchAuthority = configuredRemoteAuthority(root, selected.remote, {
+            direction: 'fetch'
+          });
+          if (!fetchAuthority.url) {
+            throw new SingularityFlowError(
+              `Story remote '${selected.remote}' has no credential-free fetch authority. Nothing was changed.`,
+              { code: 'STORY_REMOTE_UNREACHABLE' }
+            );
+          }
+          await fetchRemote(root, selected.remote, { transportRemote: fetchAuthority.url });
+          const selectedBaseRef = `refs/remotes/${selected.remote}/${selected.localBase}`;
+          if (!refExists(root, selectedBaseRef)) {
+            throw new SingularityFlowError(
+              `Selected base branch '${selected.localBase}' is no longer published by remote '${selected.remote}'. Nothing was changed.`,
+              { code: 'STORY_BASE_INVALID' }
+            );
+          }
+          legacyBaseConfigurationCommit = refHead(root, selectedBaseRef);
+          const selectedBaseConfiguration = await loadLegacyStoryBaseContext(root, {
+            remote: selected.remote,
+            baseBranch: selected.localBase,
+            baseCommit: legacyBaseConfigurationCommit,
+            capabilityId: selected.capability
+          });
+          definition = selectedBaseConfiguration.definition;
+          legacyCapabilityEvidence = selectedBaseConfiguration.capabilityEvidence;
+          if (selected.scope === 'capability') {
+            assertApprovedCapabilityRepositoryPlan(
+              selected.plan.repositories,
+              legacyCapabilityEvidence?.capability,
+              null,
+              { portfolio: legacyCapabilityEvidence?.portfolio ?? null }
+            );
+          }
+          validateId(definition, storyId);
+          // Do not throw on a workflow selected from the launch checkout. The exact selected base
+          // may intentionally carry a different catalog. Return that catalog with a blocked
+          // readiness result so non-interactive surfaces can replace their choices and let the
+          // user select one valid for this base without mutating anything.
+          if (intake) {
+            intake = {
+              ...intake,
+              storyWorkflows: Object.entries(definition.workTypes).map(([id, workflow]) => ({
+                id, label: workflow.label ?? id, description: workflow.description ?? '',
+                phases: workflow.phases ?? [], references: workflow.references?.mode ?? 'optional',
+                governs: 'story', installed: true
+              }))
+            };
+          }
+        }
+        const publishRequired = (definition.git?.publish ?? 'required') !== 'off';
         const repositories = await preflightStoryRepositories(
           selected.workspaceRoot, selected.plan, storyId,
           {
             remote: selected.remote,
-            publishRequired: (definition.git?.publish ?? 'required') !== 'off',
+            publishRequired,
             lifecycleRoot: root,
             capabilityId: selected.capability,
-            configurationSnapshot: approvedConfigurationSnapshot
+            configurationSnapshot: approvedConfigurationSnapshot,
+            capabilityEvidence: legacyCapabilityEvidence
           }
         );
+        if (legacyBaseConfigurationCommit) {
+          const observedCommit = refHead(
+            root, `refs/remotes/${selected.remote}/${selected.localBase}`
+          );
+          if (observedCommit !== legacyBaseConfigurationCommit) {
+            throw new SingularityFlowError(
+              `Selected base '${selected.localBase}' moved while its workflow policy was being checked. Refresh Story intake and retry; nothing was changed.`,
+              {
+                code: 'STORY_BASE_INVALID',
+                details: {
+                  baseBranch: selected.localBase,
+                  policyCommit: legacyBaseConfigurationCommit,
+                  observedCommit
+                }
+              }
+            );
+          }
+        }
+        // When there is no approved sflow/config authority, this command is using the legacy
+        // branch-local definition. Prove that the exact freshly fetched base selected above carries
+        // that definition too. Otherwise the editor could show a green preflight from main's local
+        // workflow even though Story start would cut a branch that immediately loses governance.
+        if (!approvedConfigurationSnapshot) {
+          assertBaseCarriesGovernance(root, {
+            config: definition,
+            branchName: storyId,
+            base: selected.localBase,
+            remote: selected.remote,
+            currentBranch: branch(root),
+            configurationRemote: null,
+            // This is a new-Story preview of the selected base. A stale local branch with the same
+            // name cannot substitute for governance on that exact remote base.
+            allowExistingStoryBranch: false
+          });
+        }
+        const readiness = inspectStoryStartReadiness({
+          workId: storyId,
+          definition,
+          configurationSnapshot: approvedConfigurationSnapshot,
+          workType: preflightWorkType,
+          capabilityId: selected.capability,
+          baseBranch: selected.localBase,
+          repositories: repositories.map((entry) => ({
+            id: entry.repository,
+            baseBranch: entry.baseBranch,
+            baseCommit: entry.baseCommit,
+            destinationRef: entry.destinationRef,
+            publishRequired: entry.publishRequired
+          })),
+          publicationRequired: publishRequired,
+          surface: 'vscode-preflight'
+        });
         preflight = {
-          passed: true,
+          passed: readiness.ready,
           storyBranch: storyId,
           remote: selected.remote,
           destinationRef: `refs/heads/${storyId}`,
@@ -12307,7 +12649,8 @@ async function workspaceCommand(positionals, options) {
             baseCommit: entry.baseCommit,
             destinationRef: entry.destinationRef,
             publishRequired: entry.publishRequired
-          }))
+          })),
+          readiness
         };
       }
       const result = {

@@ -799,13 +799,41 @@ export async function checkout(root, name, {
   fetched = false,
   existingOnly = false,
   remote = 'origin',
-  preferRemoteBase = fetch
+  preferRemoteBase = fetch,
+  exactCommit = null,
+  exactCommitErrorCode = 'BRANCH_CHANGED'
 } = {}) {
   validBranch(root, name);
   if (fetch) await fetchRemote(root, remote);
   const synchronize = fetch || fetched;
+  const immutableCommit = exactCommit == null
+    ? null
+    : refHead(root, `${exactCommit}^{commit}`);
+  if (exactCommit != null && immutableCommit !== exactCommit) {
+    throw new SingularityFlowError(
+      `Branch ${name} cannot be checked out because its accepted commit is unavailable.`,
+      {
+        code: exactCommitErrorCode,
+        details: { branch: name, expectedCommit: exactCommit, observedCommit: immutableCommit }
+      }
+    );
+  }
+  const assertExactRef = (ref) => {
+    if (!immutableCommit) return;
+    const observedCommit = refHead(root, ref);
+    if (observedCommit !== immutableCommit) {
+      throw new SingularityFlowError(
+        `Branch ${name} moved after its accepted commit was frozen.`,
+        {
+          code: exactCommitErrorCode,
+          details: { branch: name, ref, expectedCommit: immutableCommit, observedCommit }
+        }
+      );
+    }
+  };
   if (branch(root) === name) {
-    if (synchronize && refExists(root, `refs/remotes/${remote}/${name}`)) {
+    assertExactRef(`refs/heads/${name}`);
+    if (!immutableCommit && synchronize && refExists(root, `refs/remotes/${remote}/${name}`)) {
       if (!hasUpstream(root)) {
         configureUpstream(root, name, remote);
       }
@@ -816,8 +844,9 @@ export async function checkout(root, name, {
     return 'already-current';
   }
   if (refExists(root, `refs/heads/${name}`)) {
+    assertExactRef(`refs/heads/${name}`);
     git(['switch', name], { cwd: root, stdio: 'inherit' });
-    if (synchronize && refExists(root, `refs/remotes/${remote}/${name}`)) {
+    if (!immutableCommit && synchronize && refExists(root, `refs/remotes/${remote}/${name}`)) {
       if (!hasUpstream(root)) {
         configureUpstream(root, name, remote);
       }
@@ -826,7 +855,10 @@ export async function checkout(root, name, {
     return 'checked-out-local';
   }
   if (refExists(root, `refs/remotes/${remote}/${name}`)) {
-    git(['switch', '--no-track', '-c', name, `${remote}/${name}`], { cwd: root, stdio: 'inherit' });
+    assertExactRef(`refs/remotes/${remote}/${name}`);
+    git(['switch', '--no-track', '-c', name, immutableCommit ?? `${remote}/${name}`], {
+      cwd: root, stdio: 'inherit'
+    });
     configureUpstream(root, name, remote);
     return 'tracked-remote';
   }

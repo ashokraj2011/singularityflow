@@ -288,6 +288,42 @@ test('fetching repairs an existing single-branch workspace clone', async () => {
   assert.equal(hasUpstream(clone), true);
 });
 
+test('exact checkout refuses a divergent local branch instead of resolving a mutable ref', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-exact-checkout-'));
+  const source = path.join(base, 'source');
+  const remote = path.join(base, 'origin.git');
+  const clone = path.join(base, 'clone');
+  run('git', ['init', '-b', 'main', source], { cwd: base });
+  run('git', ['config', 'user.name', 'Planner'], { cwd: source });
+  run('git', ['config', 'user.email', 'planner@example.com'], { cwd: source });
+  await writeFile(path.join(source, 'README.md'), '# Exact checkout\n');
+  run('git', ['add', '.'], { cwd: source });
+  run('git', ['commit', '-m', 'Initial'], { cwd: source });
+  run('git', ['clone', '--bare', source, remote], { cwd: base });
+  run('git', ['switch', '-c', 'STORY-SEED'], { cwd: source });
+  await writeFile(path.join(source, 'seed.txt'), 'accepted seed\n');
+  run('git', ['add', '.'], { cwd: source });
+  run('git', ['commit', '-m', 'Materialize seed'], { cwd: source });
+  const accepted = run('git', ['rev-parse', 'HEAD'], { cwd: source }).stdout.trim();
+  run('git', ['push', remote, 'STORY-SEED'], { cwd: source });
+  run('git', ['clone', remote, clone], { cwd: base });
+  await fetchRemote(clone);
+  run('git', ['branch', 'STORY-SEED', 'main'], { cwd: clone });
+
+  await assert.rejects(
+    () => checkout(clone, 'STORY-SEED', {
+      existingOnly: true,
+      exactCommit: accepted,
+      exactCommitErrorCode: 'STORY_SEED_CHANGED'
+    }),
+    (error) => error?.code === 'STORY_SEED_CHANGED'
+  );
+  assert.equal(run('git', ['branch', '--show-current'], { cwd: clone }).stdout.trim(), 'main');
+  assert.equal(run('git', ['rev-parse', 'STORY-SEED'], { cwd: clone }).stdout.trim(),
+    run('git', ['rev-parse', 'main'], { cwd: clone }).stdout.trim(),
+  'the divergent local branch is not reset or replaced');
+});
+
 test('a fetched new work branch starts from the refreshed remote base rather than stale local main', async () => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-work-base-'));
   const source = path.join(base, 'source');

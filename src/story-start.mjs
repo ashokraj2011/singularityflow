@@ -1,5 +1,7 @@
 import path from 'node:path';
-import { assertPlannedClaimsReady, loadDefinition, resolveWorkType } from './config.mjs';
+import {
+  assertPlannedClaimsReady, loadDefinition, resolveWorkType
+} from './config.mjs';
 import {
   assertClean,
   branch,
@@ -15,7 +17,8 @@ import {
   head
 } from './git.mjs';
 import {
-  capabilityPublicationPlan, preflightStoryRepositories, prepareCapabilityRepositories,
+  assertApprovedCapabilityRepositoryPlan, capabilityPublicationPlan,
+  preflightStoryRepositories, prepareCapabilityRepositories,
   preflightIncludesRepository, preflightPublicationAuthority,
   preflightWorldModelAuthorityRefreshes, storyBaseForRepository
 } from './capability-start.mjs';
@@ -28,7 +31,7 @@ import {
   validateId,
   workDirRelative
 } from './state-stores.mjs';
-import { SingularityFlowError } from './util.mjs';
+import { run, SingularityFlowError } from './util.mjs';
 import { normalizeMcpTargetOrigin } from './mcp-target.mjs';
 import { writeReturnLocator } from './return-locator.mjs';
 import { pinAcceptedChangeFlightPlan } from './change-flight-plan.mjs';
@@ -50,6 +53,10 @@ import {
 import {
   preflightInitialStoryDocuments, stageInitialStoryDocuments
 } from './story-start-documents.mjs';
+import {
+  assertStoryStartReady, inspectStoryStartReadiness
+} from './story-start-readiness.mjs';
+import { loadLegacyStoryBaseContext } from './story-start-base-configuration.mjs';
 import { documentSetLifecycleBinding } from './document-publication.mjs';
 import { validateConfigurationSnapshotCapabilities } from './capability-context.mjs';
 import { resolveEffectiveCapabilityPolicy } from './capabilities.mjs';
@@ -309,6 +316,8 @@ export async function startStory(root, {
   let capabilityPreflight = null;
   let capabilityPublications = [];
   let publicationAuthority = null;
+  let legacyCapabilityEvidence = null;
+  let startReadiness = null;
   let startJournal = null;
   let configurationSnapshot = null;
   let workflow = null;
@@ -333,9 +342,47 @@ export async function startStory(root, {
       remote,
       defaultBranch: initialDefinition.defaultBaseBranch,
       capabilityId,
-      configurationSnapshot: approvedConfigurationSnapshot
+      configurationSnapshot: approvedConfigurationSnapshot,
+      // A legacy interactive caller may choose its base only after this read-only inventory. Do
+      // not reject it using divergent launch-checkout map bytes; exact-base evidence is required
+      // and validated below before any Story or configuration mutation.
+      deferCapabilityAuthority: !approvedConfigurationSnapshot
     });
     const selectedCapabilityId = capabilityId ?? storyBase.capability ?? null;
+    let legacyBaseConfigurationCommit = null;
+    if (!approvedConfigurationSnapshot) {
+      const baseFetchAuthority = configuredRemoteAuthority(root, remote, { direction: 'fetch' });
+      if (!baseFetchAuthority.url) {
+        throw new SingularityFlowError(
+          `Story remote '${remote}' has no credential-free fetch authority. Nothing was changed.`,
+          { code: 'STORY_REMOTE_UNREACHABLE' }
+        );
+      }
+      await fetchRemote(root, remote, { transportRemote: baseFetchAuthority.url });
+      const selectedBaseRef = `refs/remotes/${remote}/${storyBase.localBase}`;
+      if (!refExists(root, selectedBaseRef)) {
+        throw new SingularityFlowError(
+          `Selected base branch '${storyBase.localBase}' is no longer published by remote '${remote}'. Nothing was changed.`,
+          { code: 'STORY_BASE_INVALID' }
+        );
+      }
+      legacyBaseConfigurationCommit = refHead(root, selectedBaseRef);
+      const selectedBaseConfiguration = await loadLegacyStoryBaseContext(root, {
+        remote, baseBranch: storyBase.localBase, baseCommit: legacyBaseConfigurationCommit,
+        capabilityId: selectedCapabilityId
+      });
+      initialDefinition = selectedBaseConfiguration.definition;
+      legacyCapabilityEvidence = selectedBaseConfiguration.capabilityEvidence;
+      if (storyBase.scope === 'capability') {
+        assertApprovedCapabilityRepositoryPlan(
+          storyBase.plan.repositories,
+          legacyCapabilityEvidence?.capability,
+          null,
+          { portfolio: legacyCapabilityEvidence?.portfolio ?? null }
+        );
+      }
+      validateId(initialDefinition, id);
+    }
     // Validate the exact retained catalog and selected capability before automatic enrollment is
     // allowed to mutate the shared configuration authority. A refused Story start must not leave an
     // otherwise unrelated approval-membership commit behind.
@@ -349,7 +396,7 @@ export async function startStory(root, {
       ? resolveEffectiveCapabilityPolicy(
         retainedCapabilityMap.definition, retainedCapabilityMap.capabilityId
       ).policy
-      : {};
+      : legacyCapabilityEvidence?.capability?.policy ?? {};
     const maxFileBytes = Math.min(
       resolvedDocumentPolicy.maxFileBytes ?? 26214400,
       capabilityPolicy.maxDocumentBytes ?? Number.MAX_SAFE_INTEGER
@@ -363,44 +410,14 @@ export async function startStory(root, {
       allowedMimeTypes: Object.hasOwn(capabilityPolicy, 'allowedMimeTypes')
         ? capabilityPolicy.allowedMimeTypes : null
     });
-    if (configurationAuthority?.branch === CONFIGURATION_BRANCH
-        && initialDefinition.approvalSecurity?.autoEnrollNewIdentities !== false) {
-      const enrollment = await publishCurrentIdentityToConfiguration(root, {
-        target: '*', automatic: true, configurationSnapshot: approvedConfigurationSnapshot
-      });
-      if (enrollment.changed && !enrollment.pushed) {
-        throw new SingularityFlowError(
-          `Automatic approval enrollment is pending publication. ${enrollment.nextAction?.command
-            ? `Run: ${enrollment.nextAction.command}`
-            : 'Publish the retained configuration commit and start again.'}`,
-          { code: 'CONFIGURATION_ENROLLMENT_PENDING' }
-        );
-      }
-      if (enrollment.changed) {
-        configurationAuthority = await resolveNewStoryConfigurationAuthority(root, {
-          pinnedRemote: pinnedConfigurationRemote
-        });
-        if (!configurationAuthority || configurationAuthority.commit !== enrollment.commit) {
-          throw new SingularityFlowError(
-            'Approved configuration changed again after automatic enrollment. Refresh Story intake and retry; nothing was changed.',
-            { code: 'STORY_CONFIGURATION_AUTHORITY_STALE' }
-          );
-        }
-        approvedConfigurationSnapshot = await loadStoryConfigurationSnapshot(configurationAuthority);
-        initialDefinition = approvedConfigurationSnapshot.definition;
-        validateConfigurationSnapshotCapabilities(approvedConfigurationSnapshot, {
-          capabilityId: selectedCapabilityId
-        });
-      }
-    }
     const publishRequired = (initialDefinition.git?.publish ?? 'required') !== 'off';
     capabilityPreflight = storyBase.scope === 'capability'
       ? await preflightStoryRepositories(storyBase.workspaceRoot, storyBase.plan, id, {
           remote, publishRequired, lifecycleRoot: root, capabilityId: storyBase.capability,
-          configurationSnapshot: approvedConfigurationSnapshot
+          configurationSnapshot: approvedConfigurationSnapshot,
+          capabilityEvidence: legacyCapabilityEvidence
         })
       : null;
-    capabilityPublications = await capabilityPublicationPlan(capabilityPreflight, root);
     const rootFetchedByCapabilityPreflight = preflightIncludesRepository(capabilityPreflight, root);
     if (rootFetchedByCapabilityPreflight) {
       publicationAuthority = preflightPublicationAuthority(capabilityPreflight, root);
@@ -432,6 +449,19 @@ export async function startStory(root, {
       );
     }
     baseCommit = refHead(root, remoteBaseRef);
+    if (legacyBaseConfigurationCommit && baseCommit !== legacyBaseConfigurationCommit) {
+      throw new SingularityFlowError(
+        `Selected base '${storyBase.localBase}' moved while its workflow policy was being checked. Refresh Story intake and retry; nothing was changed.`,
+        {
+          code: 'STORY_BASE_INVALID',
+          details: {
+            baseBranch: storyBase.localBase,
+            policyCommit: legacyBaseConfigurationCommit,
+            observedCommit: baseCommit
+          }
+        }
+      );
+    }
     if (expectedBaseCommit && baseCommit !== expectedBaseCommit) {
       throw new SingularityFlowError(
         `Selected base '${storyBase.localBase}' moved from accepted revision ${expectedBaseCommit.slice(0, 12)} to ${baseCommit.slice(0, 12)}. Nothing was changed.`,
@@ -456,6 +486,100 @@ export async function startStory(root, {
     if (afterPublicationPreflight) {
       await afterPublicationPreflight({ authority: publicationAuthority });
     }
+    const readinessRepositories = capabilityPreflight?.map((entry) => ({
+      id: entry.repository,
+      baseBranch: entry.baseBranch,
+      baseCommit: entry.baseCommit,
+      destinationRef: entry.destinationRef,
+      publishRequired: entry.publishRequired
+    })) ?? [{
+      id: 'lifecycle',
+      baseBranch: storyBase.localBase,
+      baseCommit,
+      destinationRef: `refs/heads/${id}`,
+      publishRequired
+    }];
+    startReadiness = inspectStoryStartReadiness({
+      workId: id,
+      definition: initialDefinition,
+      configurationSnapshot: approvedConfigurationSnapshot,
+      workType,
+      capabilityId: selectedCapabilityId,
+      baseBranch: storyBase.localBase,
+      repositories: readinessRepositories,
+      publicationRequired: publishRequired,
+      surface: 'programmatic'
+    });
+    assertStoryStartReady(startReadiness);
+    // Approval enrollment is the first shared durable mutation. Keep it behind the complete
+    // read-only Story/Git readiness proof so a rejected base, destination, or office push rule can
+    // never leave an unrelated membership commit behind.
+    if (configurationAuthority?.branch === CONFIGURATION_BRANCH
+        && initialDefinition.approvalSecurity?.autoEnrollNewIdentities !== false) {
+      const selectedConfigurationCommit = approvedConfigurationSnapshot?.sourceCommit ?? null;
+      const enrollment = await publishCurrentIdentityToConfiguration(root, {
+        target: '*', automatic: true, configurationSnapshot: approvedConfigurationSnapshot,
+        expectedSourceCommit: selectedConfigurationCommit
+      });
+      if (enrollment.changed && !enrollment.pushed) {
+        throw new SingularityFlowError(
+          `Automatic approval enrollment is pending publication. ${enrollment.nextAction?.command
+            ? `Run: ${enrollment.nextAction.command}`
+            : 'Publish the retained configuration commit and start again.'}`,
+          { code: 'CONFIGURATION_ENROLLMENT_PENDING' }
+        );
+      }
+      if (enrollment.changed) {
+        const enrollmentParent = run('git', ['rev-parse', `${enrollment.commit}^`], {
+          cwd: root, allowFailure: true
+        }).stdout.trim();
+        if (!selectedConfigurationCommit || enrollmentParent !== selectedConfigurationCommit) {
+          throw new SingularityFlowError(
+            'Approved configuration changed after Story choices were frozen and before automatic enrollment. Refresh Story intake and retry; no Story checkout was changed.',
+            {
+              code: 'STORY_CONFIGURATION_AUTHORITY_STALE',
+              details: {
+                selectedCommit: selectedConfigurationCommit,
+                enrollmentParent: enrollmentParent || null,
+                enrollmentCommit: enrollment.commit
+              }
+            }
+          );
+        }
+        configurationAuthority = await resolveNewStoryConfigurationAuthority(root, {
+          pinnedRemote: pinnedConfigurationRemote
+        });
+        if (!configurationAuthority || configurationAuthority.commit !== enrollment.commit) {
+          throw new SingularityFlowError(
+            'Approved configuration changed again after automatic enrollment. Refresh Story intake and retry; nothing was changed.',
+            { code: 'STORY_CONFIGURATION_AUTHORITY_STALE' }
+          );
+        }
+        approvedConfigurationSnapshot = await loadStoryConfigurationSnapshot(configurationAuthority);
+        initialDefinition = approvedConfigurationSnapshot.definition;
+        validateConfigurationSnapshotCapabilities(approvedConfigurationSnapshot, {
+          capabilityId: selectedCapabilityId
+        });
+        assertPlannedClaimsReady(resolveWorkType(initialDefinition, workType));
+        startReadiness = inspectStoryStartReadiness({
+          workId: id,
+          definition: initialDefinition,
+          configurationSnapshot: approvedConfigurationSnapshot,
+          workType,
+          capabilityId: selectedCapabilityId,
+          baseBranch: storyBase.localBase,
+          repositories: readinessRepositories,
+          publicationRequired: publishRequired,
+          surface: 'programmatic'
+        });
+        assertStoryStartReady(startReadiness);
+      }
+    }
+    // Candidate retention writes immutable machine-local SGOS sidecars. Keep that persistence
+    // behind enrollment and its refreshed readiness proof so an enrollment refusal or authority
+    // race leaves no Story-specific candidate authority behind.
+    capabilityPublications = await capabilityPublicationPlan(capabilityPreflight, root);
+
     const siblings = storyBase.scope === 'capability'
       ? storyBase.plan.repositories.map((repository) => {
           const target = repoRoot(path.resolve(storyBase.workspaceRoot, repository.path));
@@ -585,7 +709,8 @@ export async function startStory(root, {
         // Always carry the verified catalog digest across the preflight/creation boundary. The
         // creation guard applies it only when resolution selected a capability, so a valid
         // collection-only catalog remains capability-free.
-        capabilityMapSha256: configurationSnapshot?.files?.['singularity/capabilities.yml'] ?? null,
+        capabilityMapSha256: configurationSnapshot?.files?.['singularity/capabilities.yml']
+          ?? legacyCapabilityEvidence?.mapSha256 ?? null,
         executionOrigin: auto?.executionOrigin ?? null,
         worldModelAuthorityRefreshes: preflightWorldModelAuthorityRefreshes(capabilityPreflight)
       });
@@ -696,6 +821,7 @@ export async function startStory(root, {
       promptVariant: workflow.measurement.plan.variantId ?? null
     } : { status: workflow.measurement?.status ?? 'not-enrolled' },
     astWarm,
+    readiness: startReadiness,
     capabilityPublication,
     ...(storyBase.scope === 'capability' ? {
       capabilityBase: {

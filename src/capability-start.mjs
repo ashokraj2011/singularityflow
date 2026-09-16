@@ -186,11 +186,12 @@ function portfolioFromConfigurationSnapshot(snapshot) {
  * Bind a machine-local workspace plan to the exact approved delivery definition.
  *
  * Workspace paths are navigation state. They cannot add, omit, or redirect repositories which the
- * reviewed capability and portfolio say move together. This check runs before branch inventory or
- * fetch so a stale workspace cannot contact or mutate an unrelated repository.
+ * reviewed capability and portfolio say move together. Approved-authority callers run this before
+ * branch inventory. Legacy interactive callers may use the workspace only for provisional,
+ * read-only branch discovery, but must run this against the chosen base before fetch or mutation.
  */
 export function assertApprovedCapabilityRepositoryPlan(
-  repositories, capability, configurationSnapshot = null
+  repositories, capability, configurationSnapshot = null, { portfolio: retainedPortfolio = null } = {}
 ) {
   if (!capability) return null;
   const planned = [...new Set((repositories ?? []).map((repository) => repository.id))].sort();
@@ -207,7 +208,7 @@ export function assertApprovedCapabilityRepositoryPlan(
     );
   }
 
-  const portfolio = portfolioFromConfigurationSnapshot(configurationSnapshot);
+  const portfolio = retainedPortfolio ?? portfolioFromConfigurationSnapshot(configurationSnapshot);
   // Older approved configurations used capabilities.yml as the only repository catalog and ship
   // the starter's intentionally empty portfolio. Their exact delivery IDs are still enforced.
   // Once an approved portfolio declares any repository, its remote/default/required identity is
@@ -291,7 +292,8 @@ async function storyRepositoryPlan(root, {
   remote = 'origin',
   defaultBranch = 'main',
   capabilityId = null,
-  configurationSnapshot = null
+  configurationSnapshot = null,
+  deferCapabilityAuthority = false
 } = {}) {
   const context = await workspaceMemberContextForRepository(
     root, activeWorkspaceFile(), workspaceRegistryFile(), { strict: true }
@@ -308,20 +310,23 @@ async function storyRepositoryPlan(root, {
     const repositories = capabilityRepositories(workspace, capability);
     // The exact approved overlay is already active for CLI/VS Code choice collection. When a
     // caller has retained the operation snapshot, use it directly; otherwise resolve through that
-    // request-local overlay (or the Story pin) before touching any capability remote. Machine-local
-    // workspace membership alone is never enough to decide which repositories move together.
+    // request-local overlay (or the Story pin) before touching any capability remote. The one
+    // explicit deferral is legacy base selection: it inventories the validated workspace read-only,
+    // then the caller must bind this plan to the exact chosen-base map before any mutation.
     const approvedCapability = configurationSnapshot
       ? (await resolveStoryConfigurationSnapshotCapability(
           configurationSnapshot, capability
         )).capability
-      : await resolveLifecycleCapability(root, {
+      : deferCapabilityAuthority ? null : await resolveLifecycleCapability(root, {
           capabilityId: capability,
           required: true,
           offline: true
         });
-    assertApprovedCapabilityRepositoryPlan(
-      repositories, approvedCapability, configurationSnapshot
-    );
+    if (approvedCapability) {
+      assertApprovedCapabilityRepositoryPlan(
+        repositories, approvedCapability, configurationSnapshot
+      );
+    }
     return {
       scope: 'capability',
       capability,
@@ -421,6 +426,7 @@ export async function storyBaseForRepository(root, {
   defaultBranch = 'main',
   capabilityId = null,
   configurationSnapshot = null,
+  deferCapabilityAuthority = false,
   catalog: suppliedCatalog = null
 } = {}) {
   // `workspace branches --preflight-story` has already paid for an exact remote inventory so it can
@@ -437,7 +443,7 @@ export async function storyBaseForRepository(root, {
     // that each selected branch is published before any checkout or Story write. This removes one
     // broad ls-remote per repository without turning a cached/local observation into authority.
     const plan = await storyRepositoryPlan(root, {
-      remote, defaultBranch, capabilityId, configurationSnapshot
+      remote, defaultBranch, capabilityId, configurationSnapshot, deferCapabilityAuthority
     });
     if (plan.identityFailure) {
       catalog = {
@@ -462,7 +468,7 @@ export async function storyBaseForRepository(root, {
     }
   } else {
     catalog = await storyBaseCatalog(root, {
-      remote, defaultBranch, capabilityId, configurationSnapshot
+      remote, defaultBranch, capabilityId, configurationSnapshot, deferCapabilityAuthority
     });
   }
   if (catalog.unreachable.length) {
@@ -569,6 +575,7 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
   remote = 'origin', publishRequired = true, lifecycleRoot = null,
   capabilityId = plan?.record?.capability ?? null,
   configurationSnapshot = null,
+  capabilityEvidence = null,
   workers = DEFAULT_REMOTE_WORKERS,
   runGit = runRemoteGitAsync
 } = {}) {
@@ -581,8 +588,18 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
   if (lifecycleRoot && capabilityId) {
     const configurationAuthority = configurationSnapshot
       ? configurationSnapshot.authority
-      : await resolveStoryConfigurationAuthority(lifecycleRoot, remote);
-    if (configurationSnapshot) {
+      : capabilityEvidence ? null : await resolveStoryConfigurationAuthority(lifecycleRoot, remote);
+    if (capabilityEvidence) {
+      approvedCapability = capabilityEvidence.capability ?? null;
+      if (!approvedCapability || approvedCapability.id !== capabilityId
+          || !capabilityEvidence.mapSha256
+          || approvedCapability.map?.sha256 !== capabilityEvidence.mapSha256) {
+        throw new SingularityFlowError(
+          `Selected-base capability evidence does not bind capability '${capabilityId}' to one exact map. Nothing was changed.`,
+          { code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID' }
+        );
+      }
+    } else if (configurationSnapshot) {
       approvedCapability = (await resolveStoryConfigurationSnapshotCapability(
         configurationSnapshot, capabilityId
       )).capability;
@@ -600,7 +617,8 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
       });
     }
     assertApprovedCapabilityRepositoryPlan(
-      plan.repositories, approvedCapability, configurationSnapshot
+      plan.repositories, approvedCapability, configurationSnapshot,
+      { portfolio: capabilityEvidence?.portfolio ?? null }
     );
   }
   // Validate every local precondition before the first network operation. Fetches may update only
@@ -642,14 +660,11 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
       worldModelDefinition: repositoryDefinition
     });
   }
-  // All repository identities are now proven as one set. Expanding the fetch refspec is a local
-  // mutation, so defer it until a later sibling cannot fail identity validation and leave earlier
-  // checkouts partially changed.
-  for (const candidate of candidates) {
-    run('git', ['remote', 'set-branches', remote, '*'], {
-      cwd: candidate.root, allowFailure: false
-    });
-  }
+  // Keep preflight observational with respect to repository configuration. The fetch below already
+  // carries the exact all-heads destination refspec it needs, so rewriting remote.<name>.fetch here
+  // would only leave a persistent machine-local change behind when a later fetch or push probe is
+  // refused. Any checkout policy that wants a broader default refspec belongs to preparation, after
+  // the complete Story-start readiness gate.
   const fetched = await mapLimit(candidates, workers, async (candidate) => {
     incrementCommandCounter('git.remote-fetch');
     const transport = frozenRemoteTransport(candidate.fetchAuthority.url);

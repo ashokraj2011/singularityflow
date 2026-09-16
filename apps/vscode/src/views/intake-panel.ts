@@ -12,7 +12,7 @@ import { navigateTo } from './navigate.ts';
 import { integerField, registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import {
   EMPTY_INTAKE_FORM, intakeCommand, intakeHtml, intakeIdentifier, intakeProblems, INTAKE_SCRIPT,
-  referenceRepositoryEntries, SHAPES,
+  referenceRepositoryEntries, SHAPES, storyPreflightCommand, storyWorkflowSelection,
   type BaseBranchChoice, type InFlight, type IntakeForm, type ProfileChoice,
   type ReferenceRepositoryDraft, type Shape, type Tracker
 } from './intake-form.ts';
@@ -42,6 +42,60 @@ export interface IntakeDefaults {
   source?: 'jira' | 'github-issue' | 'manual' | null;
   workType?: string | null;
   summary?: string | null;
+}
+
+interface StoryStartReadinessCheck {
+  id?: string;
+  status?: 'pass' | 'warning' | 'block';
+  code?: string;
+  message?: string;
+}
+
+interface StoryStartReadinessResult {
+  ready?: boolean;
+  checks?: StoryStartReadinessCheck[];
+  blockers?: StoryStartReadinessCheck[];
+  warnings?: StoryStartReadinessCheck[];
+}
+
+interface EngineStoryWorkflow {
+  id?: string;
+  label?: string;
+  description?: string;
+  phases?: string[];
+  governs?: string;
+  installed?: boolean;
+  references?: 'off' | 'optional' | 'required';
+}
+
+/** Keep the launch catalog and exact-base preflight catalog on one validation path. */
+function storyWorkflowChoices(entries: EngineStoryWorkflow[] = []): ProfileChoice[] {
+  return entries.filter((entry) => entry.id && entry.governs === 'story'
+    && entry.installed !== false).map((entry) => ({
+    id: entry.id!, label: entry.label ?? entry.id!, description: entry.description ?? '',
+    phases: entry.phases ?? [], referenceMode: entry.references ?? 'optional'
+  }));
+}
+
+function emptyStoryPreflight(): Pick<IntakeForm,
+  'basePreflightPassed' | 'basePreflightChecking' | 'basePreflightReason'
+  | 'basePreflightWarnings' | 'basePreflightRefreshRecommended'> {
+  return {
+    basePreflightPassed: false,
+    basePreflightChecking: false,
+    basePreflightReason: null,
+    basePreflightWarnings: [],
+    basePreflightRefreshRecommended: false
+  };
+}
+
+/** Configuration repair is offered only for findings the refresh/reinitialize journey can address. */
+function configurationRefreshRelevant(readiness: StoryStartReadinessResult | undefined): boolean {
+  return (readiness?.checks ?? []).some((entry) =>
+    (entry.id === 'configuration-authority' && entry.status !== 'pass')
+    || (entry.id === 'workflow' && entry.status === 'block'
+      && entry.code !== 'STORY_WORKFLOW_SELECTION_PENDING')
+    || (entry.id === 'governed-agents' && entry.status === 'block'));
 }
 
 /** Project the store's already-fresh lifecycle slice into the compact rows Intake renders. */
@@ -197,10 +251,7 @@ export class IntakePanel {
         intake?: {
           profiles?: { id?: string; label?: string; description?: string; phases?: string[] }[];
           profileReason?: string | null;
-          storyWorkflows?: {
-            id?: string; label?: string; description?: string; phases?: string[]; governs?: string;
-            installed?: boolean; references?: 'off' | 'optional' | 'required';
-          }[];
+          storyWorkflows?: EngineStoryWorkflow[];
           availableStoryWorkflows?: {
             id?: string; label?: string; description?: string; phases?: string[]; governs?: string;
             installed?: boolean; references?: 'off' | 'optional' | 'required';
@@ -215,11 +266,7 @@ export class IntakePanel {
         description: entry.description ?? '',
         phases: entry.phases ?? []
       }));
-      const storyWorkflows: ProfileChoice[] = (listed.intake?.storyWorkflows ?? []).filter((entry) =>
-        entry.id && entry.governs === 'story' && entry.installed !== false).map((entry) => ({
-        id: entry.id!, label: entry.label ?? entry.id!, description: entry.description ?? '',
-        phases: entry.phases ?? [], referenceMode: entry.references ?? 'optional'
-      }));
+      const storyWorkflows = storyWorkflowChoices(listed.intake?.storyWorkflows);
       const availableStoryWorkflows: ProfileChoice[] =
         (listed.intake?.availableStoryWorkflows ?? []).filter((entry) =>
           entry.id && entry.governs === 'story' && entry.installed === false).map((entry) => ({
@@ -254,9 +301,7 @@ export class IntakePanel {
         baseBranchReason: unreachable.length
           ? `Could not read ${unreachable.map((entry) => entry.repository).join(', ')}. Remote access is required before starting a Story.`
           : null,
-        basePreflightPassed: false,
-        basePreflightChecking: false,
-        basePreflightReason: null,
+        ...emptyStoryPreflight(),
         githubConfigured: true,
         githubReason: null,
         inFlight: this.inFlight
@@ -269,7 +314,7 @@ export class IntakePanel {
         workflowCatalogReason: null,
         workflowReason: `Could not load Story workflows: ${reason}`,
         baseBranchChoices: [], baseBranch: null, baseRemote: null, baseBranchReason: reason,
-        basePreflightPassed: false, basePreflightChecking: false, basePreflightReason: null,
+        ...emptyStoryPreflight(),
         inFlight: this.inFlight
       });
     }
@@ -333,7 +378,7 @@ export class IntakePanel {
         this.preflightVersion += 1;
         this.update({
           shape: shape.id, error: null,
-          basePreflightPassed: false, basePreflightChecking: false, basePreflightReason: null
+          ...emptyStoryPreflight()
         });
       }
     },
@@ -344,7 +389,7 @@ export class IntakePanel {
       this.preflightVersion += 1;
       this.update({
         tracker: tracker as Tracker, error: null,
-        basePreflightPassed: false, basePreflightChecking: false, basePreflightReason: null
+        ...emptyStoryPreflight()
       });
       return this.preflightBaseBranch();
     },
@@ -358,14 +403,19 @@ export class IntakePanel {
         this.preflightVersion += 1;
         this.update({
           baseBranch: choice.branch, error: null,
-          basePreflightPassed: false, basePreflightChecking: false, basePreflightReason: null
+          ...emptyStoryPreflight()
         });
         return this.preflightBaseBranch();
       }
     },
     workType: (message) => {
       const workflow = this.form.storyWorkflows.find((entry) => entry.id === stringField(message, 'value'));
-      if (workflow) this.update({ workType: workflow.id, error: null });
+      if (workflow) {
+        this.cancelBasePreflight();
+        this.preflightVersion += 1;
+        this.update({ workType: workflow.id, error: null, ...emptyStoryPreflight() });
+        return this.preflightBaseBranch();
+      }
     },
     workflowRefresh: () => vscode.commands.executeCommand(
       'singularityFlow.refreshRepositorySetup', {
@@ -408,7 +458,7 @@ export class IntakePanel {
         this.update({
           [field]: value,
           ...(invalidatesPreflight ? {
-            basePreflightPassed: false, basePreflightChecking: false, basePreflightReason: null
+            ...emptyStoryPreflight()
           } : {})
         } as Partial<IntakeForm>);
         if (invalidatesPreflight) return this.preflightBaseBranch();
@@ -534,34 +584,66 @@ export class IntakePanel {
    */
   private async preflightBaseBranch(): Promise<void> {
     this.cancelBasePreflight();
-    const storyId = intakeIdentifier(this.form);
-    const branch = this.form.baseBranch;
-    if (this.form.shape !== 'story' || !storyId || !branch) return;
+    const command = storyPreflightCommand(this.form);
+    if (!command) return;
     const version = ++this.preflightVersion;
     const controller = new AbortController();
     this.preflightController = controller;
-    this.update({ basePreflightPassed: false, basePreflightChecking: true, basePreflightReason: null });
+    this.update({ ...emptyStoryPreflight(), basePreflightChecking: true });
     try {
-      const result = await this.client.run<{ preflight?: { passed?: boolean } }>([
-        'workspace', 'branches', '--json', '--preflight-story', storyId,
-        '--from-branch', branch
-      ], controller.signal);
+      const result = await this.client.run<{
+        preflight?: { passed?: boolean; readiness?: StoryStartReadinessResult };
+        intake?: { storyWorkflows?: EngineStoryWorkflow[] };
+      }>(command, controller.signal);
       if (version !== this.preflightVersion) return;
-      if (!result.preflight?.passed) {
+      const readiness = result.preflight?.readiness;
+      // The selected remote base, not the launch checkout, owns a legacy workflow catalog. Replace
+      // the choices with the exact-base response before interpreting readiness. If the previous
+      // choice does not exist there, clear it and require a visible user selection.
+      const exactBaseWorkflows = storyWorkflowChoices(result.intake?.storyWorkflows);
+      const catalogReturned = Array.isArray(result.intake?.storyWorkflows);
+      const exactWorkType = catalogReturned
+        ? storyWorkflowSelection(this.form.workType, exactBaseWorkflows)
+        : this.form.workType;
+      const warnings = (readiness?.warnings ?? [])
+        .map((entry) => entry.message?.trim())
+        .filter((message): message is string => Boolean(message));
+      const refreshRecommended = configurationRefreshRelevant(readiness);
+      if (!result.preflight?.passed || !readiness || readiness.ready === false
+          || exactWorkType === null) {
         this.update({
+          ...(catalogReturned ? {
+            storyWorkflows: exactBaseWorkflows,
+            workType: exactWorkType,
+            workflowReason: exactWorkType === null
+              ? 'Choose a Story workflow available on the selected base branch.' : null
+          } : {}),
           basePreflightPassed: false, basePreflightChecking: false,
-          basePreflightReason: 'The remote publication preflight did not return a passing result.'
+          basePreflightReason: exactWorkType === null
+            ? 'Choose a Story workflow available on the selected base branch.'
+            : readiness?.blockers?.find((entry) => entry.message)?.message
+            ?? (readiness
+              ? 'Story-start readiness did not return a passing result.'
+              : 'The engine did not return Story-start readiness. Reload or update Singularity Flow before retrying.'),
+          basePreflightWarnings: warnings,
+          basePreflightRefreshRecommended: refreshRecommended
         });
         return;
       }
       this.update({
-        basePreflightPassed: true, basePreflightChecking: false, basePreflightReason: null
+        ...(catalogReturned ? {
+          storyWorkflows: exactBaseWorkflows, workType: exactWorkType, workflowReason: null
+        } : {}),
+        basePreflightPassed: true, basePreflightChecking: false, basePreflightReason: null,
+        basePreflightWarnings: warnings,
+        basePreflightRefreshRecommended: refreshRecommended
       });
     } catch (error) {
       if (version !== this.preflightVersion) return;
       this.update({
         basePreflightPassed: false, basePreflightChecking: false,
-        basePreflightReason: (error as Error).message
+        basePreflightReason: (error as Error).message,
+        basePreflightWarnings: [], basePreflightRefreshRecommended: false
       });
     } finally {
       if (this.preflightController === controller) this.preflightController = null;

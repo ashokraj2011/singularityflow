@@ -373,6 +373,40 @@ async function extractConfiguration(root, authority, destination, { selectPaths 
 }
 
 /**
+ * Mount the bounded configuration assets from one already-frozen repository commit.
+ *
+ * This is deliberately not an approved-authority snapshot: it exists for the legacy mode where a
+ * selected application base still carries its own workflow. Callers supply the exact commit proven
+ * by their fetch and receive no authority snapshot that could later be mistaken for sflow/config.
+ */
+export async function withRepositoryConfigurationCommitRead(root, {
+  commit, ref = null
+} = {}, fn) {
+  const frozenCommit = String(commit ?? '').trim();
+  if (!/^[0-9a-f]{40,64}$/.test(frozenCommit)) {
+    throw new SingularityFlowError('Selected base configuration requires one exact Git commit.', {
+      code: 'STORY_BASE_INVALID'
+    });
+  }
+  const authority = Object.freeze({
+    kind: 'repository-base',
+    ref: String(ref ?? frozenCommit),
+    commit: frozenCommit
+  });
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-base-config-read-'));
+  try {
+    const assetPolicy = await extractConfiguration(root, authority, temporaryRoot);
+    return await withConfigurationReadRoot(root, temporaryRoot, authority, () => fn(authority), {
+      assetPolicy,
+      // Branch-local governance is compatibility input, not shared approved authority.
+      configurationSnapshot: null
+    });
+  } finally {
+    await removeTemporaryTree(temporaryRoot);
+  }
+}
+
+/**
  * Use the working-tree configuration when present; otherwise mount the verified approved commit in
  * a disposable directory. Online new-work reads select the same remote authority as Story start and
  * retain one private snapshot without changing refs, HEAD, index, or application files. Explicit

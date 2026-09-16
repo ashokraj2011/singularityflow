@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
 
+import { ensureConfigurationBranch } from '../src/configuration-branch.mjs';
+
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
 
@@ -67,6 +69,51 @@ function start(root, id, extra = []) {
   ]);
 }
 
+async function seedRaceGitEnvironment({ base, remote, storyBranch, seedCommit, replacementCommit }) {
+  const realGit = run('which', ['git'], base).stdout.trim();
+  const wrappers = path.join(base, `seed-race-${storyBranch}`);
+  const wrapper = path.join(wrappers, 'git');
+  const initialFetchSeen = path.join(wrappers, 'initial-fetch-seen');
+  const raceApplied = path.join(wrappers, 'race-applied');
+  await mkdir(wrappers, { recursive: true });
+  await writeFile(wrapper, `#!/usr/bin/env node
+const fs = require('node:fs');
+const { spawnSync } = require('node:child_process');
+const args = process.argv.slice(2);
+const realGit = ${JSON.stringify(realGit)};
+const initialFetchSeen = ${JSON.stringify(initialFetchSeen)};
+const raceApplied = ${JSON.stringify(raceApplied)};
+const broadRefspec = '+refs/heads/*:refs/remotes/origin/*';
+const initialStoryFetch = args[0] === 'fetch' && args[1] === '--prune'
+  && args[2] === 'origin' && !args.includes(broadRefspec);
+if (initialStoryFetch) fs.writeFileSync(initialFetchSeen, 'yes');
+const postFreezeRefresh = args[0] === 'fetch' && args.includes(broadRefspec)
+  && fs.existsSync(initialFetchSeen) && !fs.existsSync(raceApplied);
+if (postFreezeRefresh) {
+  const moved = spawnSync(realGit, [
+    '--git-dir', ${JSON.stringify(remote)}, 'update-ref',
+    ${JSON.stringify(`refs/heads/${storyBranch}`)},
+    ${JSON.stringify(replacementCommit)}, ${JSON.stringify(seedCommit)}
+  ], { encoding: 'utf8' });
+  if (moved.status !== 0) {
+    if (moved.stdout) process.stdout.write(moved.stdout);
+    if (moved.stderr) process.stderr.write(moved.stderr);
+    process.exit(moved.status || 1);
+  }
+  fs.writeFileSync(raceApplied, 'yes');
+}
+const result = spawnSync(realGit, args, {
+  cwd: process.cwd(), env: process.env, stdio: 'inherit'
+});
+process.exit(result.status == null ? 1 : result.status);
+`);
+  await chmod(wrapper, 0o755);
+  return {
+    env: { PATH: `${wrappers}${path.delimiter}${process.env.PATH}` },
+    raceApplied
+  };
+}
+
 test('Story start cuts from the selected remote base and publishes only its own branch', async () => {
   const { root } = await repository();
   const baseBefore = git(root, 'ls-remote', 'origin', 'refs/heads/release/24.3').stdout.split(/\s+/)[0];
@@ -82,6 +129,12 @@ test('Story start cuts from the selected remote base and publishes only its own 
   assert.equal(git(root, 'merge-base', '--is-ancestor', baseBefore, localHead).status, 0);
   assert.equal(result.data.base.branch, 'release/24.3');
   assert.equal(result.data.base.commit, baseBefore);
+  assert.equal(result.data.readiness.resultType, 'story-start-readiness');
+  assert.equal(result.data.readiness.ready, true);
+  assert.equal(result.data.readiness.base.branch, 'release/24.3');
+  assert.deepEqual(Object.values(result.data.readiness.receipt.baseCommits), [baseBefore]);
+  assert.ok(result.data.readiness.checks.some((entry) =>
+    entry.code === 'STORY_OPTIONAL_INTELLIGENCE_NON_BLOCKING' && entry.status === 'pass'));
   assert.deepEqual(result.data.publication, {
     remote: 'origin', branch: 'STORY-42', ref: 'refs/heads/STORY-42',
     pushed: true, commit: localHead
@@ -135,7 +188,8 @@ test('resume fetches once and fast-forwards from the exact refreshed remote ref 
 });
 
 test('a materialized Epic Story uses its pinned parent branch and commit as read-only base evidence', async () => {
-  const { root } = await repository();
+  const { root, remote } = await repository();
+  await ensureConfigurationBranch(remote);
   const baseCommit = git(root, 'rev-parse', 'origin/release/24.3').stdout.trim();
   git(root, 'switch', '-c', 'STORY-SEEDED', 'origin/release/24.3');
   const seedDirectory = path.join(root, 'singularity/seeds');
@@ -159,8 +213,12 @@ test('a materialized Epic Story uses its pinned parent branch and commit as read
   git(root, 'push', '-u', 'origin', 'HEAD:refs/heads/STORY-SEEDED');
   git(root, 'switch', 'main');
   git(root, 'branch', '-D', 'STORY-SEEDED');
+  git(root, 'config', 'user.name', 'Seed Consumer');
+  git(root, 'config', 'user.email', 'seed.consumer@example.com');
 
-  const result = JSON.parse(flow(root, ['start', 'STORY-SEEDED', '--json']).stdout);
+  const result = JSON.parse(flow(root, ['start', 'STORY-SEEDED', '--json'], {
+    env: { SINGULARITY_FLOW_TEST_IDENTITY: 'Seed Consumer' }
+  }).stdout);
   const workflow = JSON.parse(await readFile(
     path.join(root, 'singularity/work-items/STORY-SEEDED/workflow.json'), 'utf8'
   ));
@@ -171,6 +229,201 @@ test('a materialized Epic Story uses its pinned parent branch and commit as read
   assert.equal(workflow.workItem.baseCommit, baseCommit);
   assert.equal(result.data.publication.ref, 'refs/heads/STORY-SEEDED');
   assert.equal(result.data.publication.pushed, true);
+  assert.equal(result.data.approvalEnrollment?.automatic, true,
+    'a new user adopting an Epic seed is enrolled before the Story starts');
+  const approved = YAML.parse(git(
+    root, 'show', 'origin/sflow/config:singularity/workflow.yml'
+  ).stdout);
+  assert.ok(Object.values(approved.approvalAuthorities).every((authority) =>
+    authority.members.some((member) => member.email === 'seed.consumer@example.com')),
+  'the seeded Story user is enrolled in every configured Story approval authority');
+});
+
+test('approved configuration refuses a materialized Epic seed that moves before enrollment or checkout', {
+  skip: process.platform === 'win32'
+}, async () => {
+  const { base, root, remote } = await repository();
+  await ensureConfigurationBranch(remote);
+  const configBefore = git(base, '--git-dir', remote, 'rev-parse', 'refs/heads/sflow/config').stdout.trim();
+  const mainBefore = git(root, 'rev-parse', 'HEAD').stdout.trim();
+  const baseCommit = git(root, 'rev-parse', 'origin/release/24.3').stdout.trim();
+  const storyBranch = 'STORY-SEED-APPROVED-RACE';
+  git(root, 'switch', '-c', storyBranch, 'origin/release/24.3');
+  const seedDirectory = path.join(root, 'singularity/seeds');
+  await mkdir(seedDirectory, { recursive: true });
+  await writeFile(path.join(seedDirectory, `${storyBranch}.yml`), YAML.stringify({
+    version: 1,
+    initiative: { id: 'EPIC-SEED-RACE' },
+    story: {
+      id: storyBranch,
+      workId: storyBranch,
+      title: 'Approved seed race',
+      description: 'Refuse a concurrently replaced materialized seed.',
+      acceptanceCriteria: ['Enrollment and checkout wait for an immutable seed.'],
+      suggestedWorkType: 'feature',
+      parentBranch: 'release/24.3',
+      baseCommit
+    }
+  }));
+  git(root, 'add', `singularity/seeds/${storyBranch}.yml`);
+  git(root, 'commit', '--quiet', '-m', `[EPIC-SEED-RACE][story:${storyBranch}][seed] Link initiative`);
+  const seedCommit = git(root, 'rev-parse', 'HEAD').stdout.trim();
+  git(root, 'push', '--quiet', '-u', 'origin', `HEAD:refs/heads/${storyBranch}`);
+  await writeFile(path.join(root, 'replacement.txt'), 'concurrent replacement\n');
+  git(root, 'add', 'replacement.txt');
+  git(root, 'commit', '--quiet', '-m', 'Concurrent seed replacement');
+  const replacementCommit = git(root, 'rev-parse', 'HEAD').stdout.trim();
+  git(root, 'push', '--quiet', 'origin', `HEAD:refs/heads/race-${storyBranch}`);
+  git(root, 'switch', 'main');
+  git(root, 'branch', '-D', storyBranch);
+  git(root, 'config', 'user.name', 'Seed Race Consumer');
+  git(root, 'config', 'user.email', 'seed.race.consumer@example.com');
+  const race = await seedRaceGitEnvironment({
+    base, remote, storyBranch, seedCommit, replacementCommit
+  });
+
+  const refused = flow(root, ['start', storyBranch, '--json'], {
+    allowFailure: true,
+    env: {
+      ...race.env,
+      SINGULARITY_FLOW_TEST_IDENTITY: 'Seed Race Consumer'
+    }
+  });
+
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /"code": "STORY_SEED_CHANGED"/);
+  assert.equal(await readFile(race.raceApplied, 'utf8'), 'yes');
+  assert.equal(git(root, 'branch', '--show-current').stdout.trim(), 'main');
+  assert.equal(git(root, 'rev-parse', 'HEAD').stdout.trim(), mainBefore);
+  assert.equal(git(base, '--git-dir', remote, 'rev-parse', 'refs/heads/sflow/config').stdout.trim(), configBefore,
+    'automatic identity enrollment must not advance approved configuration after a seed race');
+  assert.equal(run('git', [
+    'show-ref', '--verify', '--quiet', `refs/heads/${storyBranch}`
+  ], root, { allowFailure: true }).status, 1,
+  'the materialized Story must not be checked out locally');
+  await assert.rejects(readFile(
+    path.join(root, `singularity/work-items/${storyBranch}/workflow.json`)
+  ), /ENOENT/);
+});
+
+test('a legacy materialized Epic Story uses workflow policy from its exact seed tip', async () => {
+  const { root } = await repository();
+  const baseCommit = git(root, 'rev-parse', 'origin/release/24.3').stdout.trim();
+  git(root, 'switch', '-c', 'STORY-SEED-POLICY', 'origin/release/24.3');
+  const seedWorkflowFile = path.join(root, 'singularity/workflow.yml');
+  const seedWorkflow = YAML.parse(await readFile(seedWorkflowFile, 'utf8'));
+  seedWorkflow.git.publish = 'required';
+  seedWorkflow.workTypes.feature.label = 'Seed-tip governed feature';
+  await writeFile(seedWorkflowFile, YAML.stringify(seedWorkflow));
+  const seedDirectory = path.join(root, 'singularity/seeds');
+  await mkdir(seedDirectory, { recursive: true });
+  await writeFile(path.join(seedDirectory, 'STORY-SEED-POLICY.yml'), YAML.stringify({
+    version: 1,
+    initiative: { id: 'EPIC-SEED-POLICY' },
+    story: {
+      id: 'STORY-SEED-POLICY',
+      workId: 'STORY-SEED-POLICY',
+      title: 'Use seed-tip policy',
+      description: 'The materialized branch carries newer workflow policy than main.',
+      acceptanceCriteria: ['The exact seed tip governs Story creation.'],
+      suggestedWorkType: 'feature',
+      parentBranch: 'release/24.3',
+      baseCommit
+    }
+  }));
+  git(root, 'add', 'singularity/workflow.yml', 'singularity/seeds/STORY-SEED-POLICY.yml');
+  git(root, 'commit', '--quiet', '-m', '[EPIC-SEED-POLICY][story:STORY-SEED-POLICY][seed] Link initiative');
+  git(root, 'push', '--quiet', '-u', 'origin', 'HEAD:refs/heads/STORY-SEED-POLICY');
+  const seedTip = git(root, 'rev-parse', 'HEAD').stdout.trim();
+
+  git(root, 'switch', 'main');
+  git(root, 'branch', '-D', 'STORY-SEED-POLICY');
+  const launchWorkflowFile = path.join(root, 'singularity/workflow.yml');
+  const launchWorkflow = YAML.parse(await readFile(launchWorkflowFile, 'utf8'));
+  launchWorkflow.git.publish = 'off';
+  launchWorkflow.workTypes.feature.label = 'Divergent launch-checkout feature';
+  await writeFile(launchWorkflowFile, YAML.stringify(launchWorkflow));
+  git(root, 'add', 'singularity/workflow.yml');
+  git(root, 'commit', '--quiet', '-m', 'Diverge launch checkout from materialized seed');
+
+  const result = JSON.parse(flow(root, ['start', 'STORY-SEED-POLICY', '--json']).stdout);
+  const workflow = JSON.parse(await readFile(
+    path.join(root, 'singularity/work-items/STORY-SEED-POLICY/workflow.json'), 'utf8'
+  ));
+
+  assert.equal(result.data.readiness.base.repositories[0].publishRequired, true);
+  assert.equal(result.data.publication.pushed, true);
+  assert.equal(workflow.workItem.workTypeLabel, 'Seed-tip governed feature');
+  assert.equal(workflow.workItem.baseBranch, 'release/24.3');
+  assert.equal(workflow.workItem.baseCommit, baseCommit);
+  assert.notEqual(result.data.publication.commit, seedTip,
+    'the opening governed commit advances the exact materialized seed tip');
+  assert.equal(git(root, 'ls-remote', 'origin', 'refs/heads/STORY-SEED-POLICY')
+    .stdout.split(/\s+/)[0], result.data.publication.commit);
+});
+
+test('legacy configuration refuses a materialized Epic seed that moves before checkout', {
+  skip: process.platform === 'win32'
+}, async () => {
+  const { base, root, remote } = await repository();
+  const mainBefore = git(root, 'rev-parse', 'HEAD').stdout.trim();
+  const remoteMainBefore = git(base, '--git-dir', remote, 'rev-parse', 'refs/heads/main').stdout.trim();
+  const baseCommit = git(root, 'rev-parse', 'origin/release/24.3').stdout.trim();
+  const storyBranch = 'STORY-SEED-LEGACY-RACE';
+  git(root, 'switch', '-c', storyBranch, 'origin/release/24.3');
+  const seedDirectory = path.join(root, 'singularity/seeds');
+  await mkdir(seedDirectory, { recursive: true });
+  await writeFile(path.join(seedDirectory, `${storyBranch}.yml`), YAML.stringify({
+    version: 1,
+    initiative: { id: 'EPIC-SEED-LEGACY-RACE' },
+    story: {
+      id: storyBranch,
+      workId: storyBranch,
+      title: 'Legacy seed race',
+      description: 'Refuse a concurrently replaced branch-local seed.',
+      acceptanceCriteria: ['Checkout waits for an immutable legacy seed.'],
+      suggestedWorkType: 'feature',
+      parentBranch: 'release/24.3',
+      baseCommit
+    }
+  }));
+  git(root, 'add', `singularity/seeds/${storyBranch}.yml`);
+  git(root, 'commit', '--quiet', '-m', `[EPIC-SEED-LEGACY-RACE][story:${storyBranch}][seed] Link initiative`);
+  const seedCommit = git(root, 'rev-parse', 'HEAD').stdout.trim();
+  git(root, 'push', '--quiet', '-u', 'origin', `HEAD:refs/heads/${storyBranch}`);
+  await writeFile(path.join(root, 'replacement.txt'), 'concurrent replacement\n');
+  git(root, 'add', 'replacement.txt');
+  git(root, 'commit', '--quiet', '-m', 'Concurrent legacy seed replacement');
+  const replacementCommit = git(root, 'rev-parse', 'HEAD').stdout.trim();
+  git(root, 'push', '--quiet', 'origin', `HEAD:refs/heads/race-${storyBranch}`);
+  git(root, 'switch', 'main');
+  git(root, 'branch', '-D', storyBranch);
+  const race = await seedRaceGitEnvironment({
+    base, remote, storyBranch, seedCommit, replacementCommit
+  });
+
+  const refused = flow(root, ['start', storyBranch, '--json'], {
+    allowFailure: true,
+    env: race.env
+  });
+
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /"code": "STORY_SEED_CHANGED"/);
+  assert.equal(await readFile(race.raceApplied, 'utf8'), 'yes');
+  assert.equal(git(root, 'branch', '--show-current').stdout.trim(), 'main');
+  assert.equal(git(root, 'rev-parse', 'HEAD').stdout.trim(), mainBefore);
+  assert.equal(git(base, '--git-dir', remote, 'rev-parse', 'refs/heads/main').stdout.trim(), remoteMainBefore);
+  assert.equal(run('git', [
+    '--git-dir', remote, 'show-ref', '--verify', '--quiet', 'refs/heads/sflow/config'
+  ], base, { allowFailure: true }).status, 1,
+  'legacy refusal must not create a shared configuration branch');
+  assert.equal(run('git', [
+    'show-ref', '--verify', '--quiet', `refs/heads/${storyBranch}`
+  ], root, { allowFailure: true }).status, 1,
+  'the materialized Story must not be checked out locally');
+  await assert.rejects(readFile(
+    path.join(root, `singularity/work-items/${storyBranch}/workflow.json`)
+  ), /ENOENT/);
 });
 
 test('non-interactive Story start requires an explicit base before mutation', async () => {
@@ -201,7 +454,7 @@ test('workspace branch preflight proves the exact destination without creating i
   const originalHead = git(root, 'rev-parse', 'HEAD').stdout.trim();
   const preflight = flow(root, [
     'workspace', 'branches', '--json', '--preflight-story', 'STORY-PREVIEW',
-    '--from-branch', 'release/24.3', '--timings'
+    '--from-branch', 'release/24.3', '--work-type', 'feature', '--timings'
   ]);
   const result = JSON.parse(preflight.stdout);
 
@@ -210,11 +463,98 @@ test('workspace branch preflight proves the exact destination without creating i
   assert.equal(result.preflight.remote, 'origin');
   assert.equal(result.preflight.destinationRef, 'refs/heads/STORY-PREVIEW');
   assert.equal(result.preflight.repositories[0].baseBranch, 'release/24.3');
+  assert.equal(result.preflight.readiness.resultType, 'story-start-readiness');
+  assert.equal(result.preflight.readiness.ready, true);
+  assert.equal(result.preflight.readiness.workType, 'feature');
+  assert.equal(result.preflight.readiness.upgrade.safeToApply, false);
+  assert.equal(result.preflight.readiness.upgrade.shell,
+    'singularity-flow workspace reinitialize --dry-run --json');
+  assert.equal(result.preflight.readiness.upgrade.copilot, '/sf-admin');
+  assert.deepEqual(Object.values(result.preflight.readiness.receipt.baseCommits),
+    [result.preflight.repositories[0].baseCommit]);
   assert.match(preflight.stderr, /git\.remote-inventory=1(?:\s|$)/,
     'choice rendering and same-command preflight must reuse one remote inventory');
   assert.equal(git(root, 'branch', '--show-current').stdout.trim(), 'main');
   assert.equal(git(root, 'rev-parse', 'HEAD').stdout.trim(), originalHead);
   assert.equal(git(root, 'ls-remote', 'origin', 'refs/heads/STORY-PREVIEW').stdout.trim(), '');
+});
+
+test('workspace preflight derives publication policy from the exact selected legacy base', async () => {
+  const { root } = await repository();
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const launchWorkflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  launchWorkflow.git.publish = 'off';
+  launchWorkflow.workTypes.feature.label = 'Divergent launch-checkout feature';
+  await writeFile(workflowFile, YAML.stringify(launchWorkflow));
+  git(root, 'add', 'singularity/workflow.yml');
+  git(root, 'commit', '--quiet', '-m', 'Diverge launch checkout policy');
+
+  const result = JSON.parse(flow(root, [
+    'workspace', 'branches', '--json', '--intake',
+    '--preflight-story', 'STORY-BASE-POLICY',
+    '--from-branch', 'release/24.3', '--work-type', 'feature'
+  ]).stdout);
+
+  assert.equal(result.preflight.passed, true);
+  assert.equal(result.preflight.repositories[0].publishRequired, true,
+    'the selected base requires publication even though the launch checkout disables it');
+  assert.equal(result.preflight.readiness.base.repositories[0].publishRequired, true);
+  assert.equal(result.intake.storyWorkflows.find((workflow) => workflow.id === 'feature')?.label,
+    'Feature', 'the workflow selector reflects the exact selected base');
+});
+
+test('workspace preflight returns the exact selected-base workflow catalog before selection', async () => {
+  const { root } = await repository();
+  git(root, 'switch', 'release/24.3');
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(workflowFile, 'utf8'));
+  definition.workTypes['release-only'] = {
+    ...definition.workTypes.feature,
+    label: 'Release-only delivery'
+  };
+  delete definition.workTypes.feature;
+  await writeFile(workflowFile, YAML.stringify(definition));
+  git(root, 'add', 'singularity/workflow.yml');
+  git(root, 'commit', '--quiet', '-m', 'Use a release-only Story workflow');
+  git(root, 'push', '--quiet', 'origin', 'release/24.3');
+  git(root, 'switch', 'main');
+
+  const staleChoice = JSON.parse(flow(root, [
+    'workspace', 'branches', '--json', '--intake',
+    '--preflight-story', 'STORY-BASE-CATALOG',
+    '--from-branch', 'release/24.3', '--work-type', 'feature'
+  ]).stdout);
+  assert.equal(staleChoice.preflight.passed, false);
+  assert.equal(staleChoice.preflight.readiness.ready, false);
+  assert.ok(staleChoice.intake.storyWorkflows.some((workflow) =>
+    workflow.id === 'release-only' && workflow.label === 'Release-only delivery'));
+  assert.equal(staleChoice.intake.storyWorkflows.some((workflow) => workflow.id === 'feature'),
+    false, 'the launch checkout workflow is not offered for the selected base');
+
+  const selected = JSON.parse(flow(root, [
+    'workspace', 'branches', '--json', '--intake',
+    '--preflight-story', 'STORY-BASE-CATALOG',
+    '--from-branch', 'release/24.3', '--work-type', 'release-only'
+  ]).stdout);
+  assert.equal(selected.preflight.passed, true);
+  assert.equal(selected.preflight.readiness.workType, 'release-only');
+});
+
+test('Story start derives publication policy from the exact selected legacy base', async () => {
+  const { root } = await repository();
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const launchWorkflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  launchWorkflow.git.publish = 'off';
+  await writeFile(workflowFile, YAML.stringify(launchWorkflow));
+  git(root, 'add', 'singularity/workflow.yml');
+  git(root, 'commit', '--quiet', '-m', 'Disable publication only on launch checkout');
+
+  const result = JSON.parse(start(root, 'STORY-BASE-PUBLISH').stdout);
+
+  assert.equal(result.data.readiness.base.repositories[0].publishRequired, true);
+  assert.equal(result.data.publication.pushed, true);
+  assert.match(git(root, 'ls-remote', 'origin', 'refs/heads/STORY-BASE-PUBLISH').stdout,
+    /^[0-9a-f]{40}\s+refs\/heads\/STORY-BASE-PUBLISH$/m);
 });
 
 test('workspace intake aggregates profiles, installed workflows, and one remote inventory', async () => {
@@ -259,6 +599,69 @@ test('workspace branch choices use approved configuration when application main 
   assert.equal(result.unreachable.length, 0);
   assert.equal(git(root, 'rev-parse', 'HEAD').stdout.trim(), headBefore);
   assert.equal(git(root, 'status', '--porcelain=v1').stdout, '');
+});
+
+test('workspace intake and preflight prefer approved configuration over a divergent local workflow', async () => {
+  const { base, root, remote } = await repository();
+  git(root, 'push', 'origin', 'main:refs/heads/sflow/config');
+
+  const publisher = path.join(base, 'configuration-publisher');
+  git(base, 'clone', '--quiet', '--branch', 'sflow/config', remote, publisher);
+  git(publisher, 'config', 'user.name', 'Configuration Publisher');
+  git(publisher, 'config', 'user.email', 'configuration.publisher@example.com');
+  const approvedWorkflowFile = path.join(publisher, 'singularity/workflow.yml');
+  const approvedWorkflow = YAML.parse(await readFile(approvedWorkflowFile, 'utf8'));
+  approvedWorkflow.workTypes.feature.label = 'Approved authority feature';
+  await writeFile(approvedWorkflowFile, YAML.stringify(approvedWorkflow));
+  git(publisher, 'add', 'singularity/workflow.yml');
+  git(publisher, 'commit', '--quiet', '-m', 'Publish approved workflow label');
+  git(publisher, 'push', '--quiet', 'origin', 'sflow/config');
+  const approvedCommit = git(publisher, 'rev-parse', 'HEAD').stdout.trim();
+
+  const localWorkflowFile = path.join(root, 'singularity/workflow.yml');
+  const localWorkflow = YAML.parse(await readFile(localWorkflowFile, 'utf8'));
+  localWorkflow.workTypes.feature.label = 'Divergent local feature';
+  await writeFile(localWorkflowFile, YAML.stringify(localWorkflow));
+
+  const result = JSON.parse(flow(root, [
+    'workspace', 'branches', '--json', '--intake',
+    '--preflight-story', 'STORY-AUTHORITY-PREVIEW',
+    '--from-branch', 'release/24.3', '--work-type', 'feature'
+  ]).stdout);
+
+  assert.equal(result.intake.storyWorkflows.find((workflow) => workflow.id === 'feature')?.label,
+    'Approved authority feature');
+  assert.equal(result.preflight.passed, true);
+  assert.equal(result.preflight.readiness.authority.branch, 'sflow/config');
+  assert.equal(result.preflight.readiness.authority.commit, approvedCommit);
+  assert.ok(result.preflight.readiness.checks.some((entry) =>
+    entry.code === 'CONFIGURATION_AUTHORITY_VALID' && entry.status === 'pass'));
+  assert.equal(git(root, 'branch', '--show-current').stdout.trim(), 'main');
+  assert.equal(YAML.parse(await readFile(localWorkflowFile, 'utf8')).workTypes.feature.label,
+    'Divergent local feature', 'the approved read must not rewrite the application checkout');
+});
+
+test('workspace preflight refuses a legacy base that does not carry the local workflow', async () => {
+  const { root } = await repository();
+  git(root, 'switch', 'release/24.3');
+  git(root, 'rm', 'singularity/workflow.yml');
+  git(root, 'commit', '--quiet', '-m', 'Remove governance from release base');
+  git(root, 'push', '--quiet', 'origin', 'release/24.3');
+  git(root, 'switch', 'main');
+  git(root, 'branch', 'STORY-LEGACY-NO-GOVERNANCE', 'main');
+
+  const refused = flow(root, [
+    'workspace', 'branches', '--json', '--preflight-story', 'STORY-LEGACY-NO-GOVERNANCE',
+    '--from-branch', 'release/24.3', '--work-type', 'feature'
+  ], { allowFailure: true });
+
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /"code": "STORY_CONFIGURATION_AUTHORITY_MISSING"/);
+  assert.match(refused.stderr,
+    /Selected base branch 'release\/24\.3' does not contain singularity\/workflow\.yml/);
+  assert.equal(git(root, 'branch', '--show-current').stdout.trim(), 'main');
+  assert.equal(git(root, 'ls-remote', 'origin',
+    'refs/heads/STORY-LEGACY-NO-GOVERNANCE').stdout.trim(), '');
 });
 
 test('remote publication preflight failure creates no branch, Story state, or session change', async () => {

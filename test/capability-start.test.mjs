@@ -443,6 +443,59 @@ test('publication preflight checks every required repository before any branch m
   }
 });
 
+test('Story preflight preserves every configured remote fetch refspec on success and refusal', async () => {
+  const base = await mkdtemp(path.join(tmpdir(), 'sflow-capability-refspec-'));
+  const repositories = [
+    await repository(base, 'payments-api', ['main']),
+    await repository(base, 'payments-web', ['main'])
+  ];
+  const { published } = await publishedBranchesAsync(repositories);
+  const resolution = resolveCapabilityBase({
+    repositories: published, selection: parseBaseSelection(['main'])
+  });
+  const expected = new Map();
+  for (const repository of repositories) {
+    const root = path.join(base, repository.path);
+    git(root, 'config', '--local', '--unset-all', 'remote.origin.fetch');
+    git(root, 'config', '--local', '--add', 'remote.origin.fetch',
+      '+refs/heads/main:refs/remotes/origin/main');
+    git(root, 'config', '--local', '--add', 'remote.origin.fetch',
+      '+refs/heads/release/*:refs/remotes/origin/releases/*');
+    expected.set(repository.id,
+      git(root, 'config', '--local', '--get-all', 'remote.origin.fetch').stdout);
+  }
+  const assertRefspecsUnchanged = () => {
+    for (const repository of repositories) {
+      const root = path.join(base, repository.path);
+      assert.equal(
+        git(root, 'config', '--local', '--get-all', 'remote.origin.fetch').stdout,
+        expected.get(repository.id),
+        `${repository.id} retains its exact configured fetch refspecs`
+      );
+    }
+  };
+  const refusesStory = (args) => args[0] === 'push'
+    && args.some((argument) => argument.endsWith(':refs/heads/S-REFSPEC-REFUSED'));
+  const runGit = async (args) => ({
+    status: refusesStory(args) ? 1 : 0,
+    stdout: '',
+    stderr: refusesStory(args) ? 'policy refusal' : ''
+  });
+
+  await preflightStoryRepositories(base, { repositories, resolution }, 'S-REFSPEC-READY', {
+    runGit
+  });
+  assertRefspecsUnchanged();
+
+  await assert.rejects(
+    () => preflightStoryRepositories(base, { repositories, resolution }, 'S-REFSPEC-REFUSED', {
+      runGit
+    }),
+    (error) => error?.code === 'STORY_PUBLICATION_PREFLIGHT_FAILED'
+  );
+  assertRefspecsUnchanged();
+});
+
 test('publication dry-run probes use bounded concurrency and preserve repository order', async () => {
   const base = await mkdtemp(path.join(tmpdir(), 'sflow-capability-'));
   const repositories = await Promise.all(Array.from({ length: 5 }, (_, index) =>

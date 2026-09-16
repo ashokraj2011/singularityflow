@@ -1325,7 +1325,11 @@ export async function loadDefinition(root, { storyBootstrap = false } = {}) {
   // configuration while deferring mutable authoring resources (live agents/templates) until the
   // accepted Story snapshot has been verified. Sharing that value with a normal load would let a
   // relaxed bootstrap accidentally weaken a repository-management command later in the scope.
-  return scopedRead(`config.definition:${root}:${storyBootstrap ? 'story-bootstrap' : 'current'}`,
+  // Configuration overlays deliberately keep the application root stable while swapping the
+  // bounded configuration root. Include both in the cache identity or a launch-checkout parse can
+  // leak into a later exact-base/approved-authority read in the same command.
+  const definitionRoot = configurationReadRoot(root);
+  return scopedRead(`config.definition:${root}:${definitionRoot}:${storyBootstrap ? 'story-bootstrap' : 'current'}`,
     () => loadDefinitionUncached(root, { storyBootstrap }));
 }
 

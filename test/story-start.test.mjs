@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import {
   mkdir, mkdtemp, readFile, rename, rm, stat, symlink, writeFile
 } from 'node:fs/promises';
@@ -8,6 +9,7 @@ import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
 import YAML from 'yaml';
+import { storyBaseCatalog } from '../src/capability-start.mjs';
 import { loadDefinition } from '../src/config.mjs';
 import { onboardRepository } from '../src/onboard.mjs';
 import { manualStorySource, startStory } from '../src/story-start.mjs';
@@ -676,6 +678,38 @@ test('Story start refuses a remote retarget after its push authority is captured
   }
 });
 
+test('programmatic Story start uses publication policy from the exact selected legacy base', async (t) => {
+  const root = await repository();
+  t.after(() => Promise.all([
+    rm(root, { recursive: true, force: true }),
+    rm(`${root}.git`, { recursive: true, force: true })
+  ]));
+  run('git', ['switch', '-c', 'release-policy'], root);
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const baseWorkflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  baseWorkflow.git.publish = 'required';
+  await writeFile(workflowFile, YAML.stringify(baseWorkflow));
+  run('git', ['add', 'singularity/workflow.yml'], root);
+  run('git', ['commit', '-m', 'Require publication on selected base'], root);
+  run('git', ['push', '-u', 'origin', 'release-policy'], root);
+  run('git', ['switch', 'main'], root);
+
+  const created = await startStory(root, {
+    id: 'WORK-BASE-POLICY',
+    source: manualStorySource('WORK-BASE-POLICY', {
+      title: 'Use exact selected base policy'
+    }),
+    workType: 'feature',
+    baseBranch: 'release-policy'
+  });
+
+  assert.equal(created.readiness.base.repositories[0].publishRequired, true);
+  assert.equal(created.publication.pushed, true);
+  assert.match(run('git', [
+    'ls-remote', 'origin', 'refs/heads/WORK-BASE-POLICY'
+  ], root).stdout, /^[0-9a-f]{40}\s+refs\/heads\/WORK-BASE-POLICY$/m);
+});
+
 test('Story intake pins refreshed remote configuration and world-model files from a named corporate remote', async () => {
   const source = await repository();
   const initialDefinitionPath = path.join(source, 'singularity/workflow.yml');
@@ -793,7 +827,7 @@ test('POC Story intake requires and durably pins the authorized browser origin',
   assert.deepEqual(resumed.workflow.mcpAuthorizations.playwright.origins, ['https://staging.example.test']);
 });
 
-test('desktop Story intake publishes every capability repository and returns a recoverable result', async () => {
+test('desktop Story intake binds a divergent launch checkout to the exact selected-base capability map', async () => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-desktop-capability-story-'));
   const workspaceRoot = path.join(base, 'workspace');
   const repositoriesRoot = path.join(workspaceRoot, 'repos');
@@ -835,6 +869,33 @@ test('desktop Story intake publishes every capability repository and returns a r
   run('git', ['add', 'singularity/capabilities.yml', 'singularity/portfolio.yml'], lead.source);
   run('git', ['commit', '-m', 'map payments capability'], lead.source);
   run('git', ['push', 'origin', 'main'], lead.source);
+  await ensureConfigurationBranch(lead.remote);
+  run('git', ['switch', '-c', 'release-capability'], lead.source);
+  run('git', ['push', '-u', 'origin', 'release-capability'], lead.source);
+  const selectedBaseMap = run('git', [
+    'show', 'HEAD:singularity/capabilities.yml'
+  ], lead.source).stdout;
+  const selectedBaseMapSha256 = createHash('sha256').update(selectedBaseMap).digest('hex');
+  run('git', ['switch', 'main'], lead.source);
+
+  run('git', ['switch', '-c', 'release-capability'], sibling.source);
+  run('git', ['push', '-u', 'origin', 'release-capability'], sibling.source);
+  run('git', ['switch', 'main'], sibling.source);
+
+  // The checkout used to launch intake is intentionally stale: it omits one repository which the
+  // exact selected base still governs. Start must not use these bytes for repository planning,
+  // policy, or the digest pinned into the new Story.
+  const divergentCapabilities = YAML.parse(await readFile(
+    path.join(lead.source, 'singularity/capabilities.yml'), 'utf8'
+  ));
+  divergentCapabilities.capabilities.payments.repositories = ['lead'];
+  divergentCapabilities.capabilities.payments.leadRepository = 'lead';
+  const divergentPortfolio = YAML.parse(await readFile(portfolioPath, 'utf8'));
+  delete divergentPortfolio.repositories.sibling;
+  await writeFile(path.join(lead.source, 'singularity/capabilities.yml'), YAML.stringify(divergentCapabilities));
+  await writeFile(portfolioPath, YAML.stringify(divergentPortfolio));
+  run('git', ['add', 'singularity/capabilities.yml', 'singularity/portfolio.yml'], lead.source);
+  run('git', ['commit', '-m', 'diverge launch checkout capability map'], lead.source);
 
   await writeFile(path.join(workspaceRoot, 'workspace.json'), `${JSON.stringify({
     version: 1,
@@ -864,13 +925,59 @@ test('desktop Story intake publishes every capability repository and returns a r
   process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = selection;
   process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registry;
   try {
+    const provisionalCatalog = await storyBaseCatalog(lead.source, {
+      defaultBranch: 'main', capabilityId: 'payments', deferCapabilityAuthority: true
+    });
+    assert.equal(provisionalCatalog.scope, 'capability');
+    assert.deepEqual(provisionalCatalog.repositories.map((repository) => repository.id), [
+      'lead', 'sibling'
+    ]);
+    assert.ok(provisionalCatalog.choices.some((choice) => (
+      choice.branch === 'release-capability' && choice.everywhere
+    )), 'legacy interactive intake can choose a base before exact-base map validation');
+
+    const siblingCommonDirectory = path.resolve(
+      sibling.source,
+      run('git', ['rev-parse', '--git-common-dir'], sibling.source).stdout.trim()
+    );
+    const candidateStore = path.join(
+      siblingCommonDirectory, 'singularity-flow', 'sgos', 'candidates'
+    );
+    const rejectConfigurationHook = path.join(lead.remote, 'hooks', 'pre-receive');
+    run('git', ['config', 'user.email', 'new-story-identity@example.com'], lead.source);
+    await assert.rejects(
+      () => startStory(lead.source, {
+        id: 'WORK-CAP-REFUSED',
+        source: manualStorySource('WORK-CAP-REFUSED', {
+          title: 'Refuse enrollment before candidate retention'
+        }),
+        workType: 'feature', baseBranch: 'release-capability', capabilityId: 'payments',
+        afterPublicationPreflight: async () => {
+          await writeFile(rejectConfigurationHook, `#!/bin/sh
+while read old new ref; do
+  if [ "$ref" = "refs/heads/sflow/config" ]; then
+    echo "configuration enrollment rejected" >&2
+    exit 1
+  fi
+done
+exit 0
+`);
+          run('chmod', ['+x', rejectConfigurationHook], lead.source);
+        }
+      }),
+      (error) => error?.code === 'CONFIGURATION_ENROLLMENT_PENDING'
+    );
+    await assert.rejects(stat(candidateStore), (error) => error?.code === 'ENOENT');
+    await rm(rejectConfigurationHook);
+
     const started = await startStory(lead.source, {
       id: 'WORK-CAP-1',
       source: manualStorySource('WORK-CAP-1', { title: 'Coordinate capability change' }),
-      workType: 'feature', baseBranch: 'main', capabilityId: 'payments'
+      workType: 'feature', baseBranch: 'release-capability', capabilityId: 'payments'
     });
     assert.deepEqual(started.capabilityPublication.pending, []);
     assert.deepEqual(started.capabilityPublication.published.map((entry) => entry.repository), ['sibling']);
+    assert.equal(started.workflow.resolution.capability.map.sha256, selectedBaseMapSha256);
     assert.match(run('git', ['ls-remote', sibling.remote, 'refs/heads/WORK-CAP-1'], sibling.source).stdout, /refs\/heads\/WORK-CAP-1/);
   } finally {
     if (previousSelection == null) delete process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;

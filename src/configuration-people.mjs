@@ -191,7 +191,7 @@ function snapshotEnrollmentResult(snapshot, actor, member, {
 export async function publishCurrentIdentityToConfiguration(root, {
   target = '*', solo = false, allowSelfApproval = null,
   autoEnrollNewIdentities = null, automatic = false, transport = {},
-  configurationSnapshot = null
+  configurationSnapshot = null, expectedSourceCommit = null
 } = {}) {
   for (const [name, value] of Object.entries({ allowSelfApproval, autoEnrollNewIdentities })) {
     if (value != null && typeof value !== 'boolean') {
@@ -200,10 +200,24 @@ export async function publishCurrentIdentityToConfiguration(root, {
   }
   const actor = identity(root);
   const member = normalizedMember(actor);
+  if (expectedSourceCommit != null) {
+    if (!/^[0-9a-f]{40,64}$/u.test(String(expectedSourceCommit))) {
+      throw new SingularityFlowError('Expected configuration source commit must be one exact Git commit.');
+    }
+    if (configurationSnapshot?.sourceCommit !== expectedSourceCommit) {
+      throw new SingularityFlowError(
+        'The expected configuration source commit does not match the verified Story snapshot.',
+        { code: 'STORY_CONFIGURATION_AUTHORITY_STALE' }
+      );
+    }
+  }
   const snapshotResult = snapshotEnrollmentResult(configurationSnapshot, actor, member, {
     target, solo, allowSelfApproval, autoEnrollNewIdentities, automatic
   });
-  if (snapshotResult) return snapshotResult;
+  // Ordinary configuration UI calls retain the no-network no-op fast path. Story start supplies an
+  // expected source commit: it must compare the live authority even when the frozen snapshot says
+  // no edit is needed, otherwise a concurrent policy advance can be silently ignored.
+  if (snapshotResult && expectedSourceCommit == null) return snapshotResult;
   const remoteUrl = await resolveConfigurationRemote(root);
   if (!remoteUrl) {
     throw new SingularityFlowError(
@@ -223,6 +237,22 @@ export async function publishCurrentIdentityToConfiguration(root, {
       );
     }
     const previousCommit = run('git', ['rev-parse', 'HEAD'], { cwd: scratch }).stdout.trim();
+    if (expectedSourceCommit != null && previousCommit !== expectedSourceCommit) {
+      throw new SingularityFlowError(
+        'Approved configuration changed after Story choices were frozen. Refresh Story intake and retry; no enrollment was published.',
+        {
+          code: 'STORY_CONFIGURATION_AUTHORITY_STALE',
+          details: { selectedCommit: expectedSourceCommit, currentCommit: previousCommit }
+        }
+      );
+    }
+    if (snapshotResult) {
+      return {
+        ...snapshotResult,
+        commit: previousCommit,
+        source: 'verified-current-configuration-snapshot'
+      };
+    }
     const workflowText = await readFile(path.join(scratch, WORKFLOW_PATH), 'utf8').catch(() => null);
     if (workflowText == null) throw new SingularityFlowError(`${CONFIGURATION_BRANCH} does not contain ${WORKFLOW_PATH}.`);
     const workflow = parseDocument(workflowText, WORKFLOW_PATH);

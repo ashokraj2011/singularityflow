@@ -74,10 +74,15 @@ function bindActionContext(action, workId, repositoryHead, context) {
 async function choiceSets(root, definition, action, workflow = null) {
   if (action === 'start') {
     const { storyBaseCatalog } = await import('./capability-start.mjs');
+    const configurationSnapshot = configurationReadSnapshot(root);
     const catalog = await storyBaseCatalog(root, {
       remote: definition.git?.remote ?? 'origin',
       defaultBranch: definition.defaultBaseBranch ?? 'main',
-      configurationSnapshot: configurationReadSnapshot(root)
+      configurationSnapshot,
+      // The receipt records a base choice first. In legacy repositories the exact capability map
+      // can be loaded only from that selected base, so this initial remote inventory is provisional
+      // and Story start must validate it before consuming the receipt or mutating a checkout.
+      deferCapabilityAuthority: !configurationSnapshot
     });
     if (catalog.unreachable.length) {
       const first = catalog.unreachable[0];

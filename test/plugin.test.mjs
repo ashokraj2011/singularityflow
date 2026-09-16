@@ -793,10 +793,14 @@ test('interactive lifecycle skills ask only for durable human choices', async ()
   assert.match(start, /workspace current --json/);
   assert.doesNotMatch(start, /session current --json/);
   assert.match(start, /ask_user/, 'start must collect the human workflow choice interactively');
-  assert.match(start, /write_bash/, 'start must answer the same interactive CLI process');
   assert.match(start, /Never infer or preselect/, 'start must prohibit model-selected workflow defaults');
   assert.match(start, /unavailable or disabled/, 'start must fail safely when interactive questions are unavailable');
-  assert.match(start, /Choose workflow template/);
+  assert.match(start, /workspace branches --json --intake/);
+  assert.match(start, /choose one base and one workflow/i);
+  assert.match(start, /--from-branch <BASE> --work-type <WORKFLOW>/);
+  assert.match(start, /never ask for, infer, or accept a second workflow choice/i);
+  assert.doesNotMatch(start, /Choose workflow template/);
+  assert.doesNotMatch(start, /write_bash/);
   assert.doesNotMatch(start, /Choose governed agent/);
   assert.match(start, /phase-default governed agent/);
   assert.match(start, /desiredOutcome/);
@@ -857,7 +861,27 @@ test('start skill falls back to a one-time receipt when Copilot has no persisten
   assert.match(content, /--selection-receipt <TOKEN>/);
   assert.match(content, /15 minutes/);
   assert.match(content, /consumes the receipt exactly once/i);
-  assert.match(content, /Never infer/);
+  assert.match(content, /never infer/i);
+});
+
+test('start skill previews and recomputes read-only readiness before Story mutation', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-start', 'SKILL.md'), 'utf8');
+  const authorityDiscovery = content.indexOf('workspace branches --json --intake');
+  const workflowChoice = content.indexOf('Choose one base and one workflow');
+  assert.ok(authorityDiscovery >= 0 && authorityDiscovery < workflowChoice,
+    'approved authority discovery must precede base/workflow selection');
+  assert.match(content, /code-only application branch is valid/);
+  assert.match(content, /never run `init` merely because `singularity\/workflow\.yml` is absent locally/i);
+  assert.doesNotMatch(content, /singularity-flow init --work-id/);
+  assert.match(content,
+    /workspace branches --json --intake --preflight-story <WORK-ID> --from-branch <BASE> --work-type <WORKFLOW>/);
+  assert.match(content, /exact-base `intake\.storyWorkflows`/);
+  assert.match(content, /recomputes the same readiness immediately before mutation/);
+  assert.match(content, /World Model, AST, model-provider, telemetry, and Copilot availability are advisory/);
+  assert.match(content, /singularity-flow workspace reinitialize --dry-run --json/);
+  assert.match(content, /Copilot `\/sf-admin`/);
+  assert.match(content, /Never apply a persistent configuration upgrade from this skill/);
+  assert.match(content, /enrollment.*only after the read-only publication preflight succeeds/i);
 });
 
 test('governed-agent skill persists only local prompt context', async () => {

@@ -101,15 +101,57 @@ builds it again.
 
 ## Installing — Windows, macOS, and Linux
 
-The complete CLI/plugin and VSIX installation uses the same three commands on every platform.
-Prerequisites are Node.js 20 or newer, Git, VS Code, and GitHub Copilot CLI when installing the
-bundled Copilot plugin.
+A promoted `dist/` directory is a complete operator handoff. Keep its npm tarball, VSIX,
+`RELEASE.json`, `SHA256SUMS`, and install/uninstall scripts together. Prerequisites are Node.js 20
+or newer, VS Code, and GitHub Copilot CLI when installing all surfaces. Git and a source checkout
+are not required.
 
 ```bash
-npm install --global <registry-or-path>/singularity-flow-<version>.tgz
-singularity-flow plugin install
-code --install-extension <path>/singularity-flow-vscode-<version>.vsix --force
+# macOS or Linux
+./install.sh --artifact-key /trusted/artifact-builder-public.pem
+
+# Windows PowerShell
+.\install.ps1 --artifact-key C:\trusted\artifact-builder-public.pem
+
+# Windows Command Prompt
+install.cmd --artifact-key C:\trusted\artifact-builder-public.pem
 ```
+
+Obtain the artifact-builder public key through an independent organisation trust channel and keep
+it outside the release directory. `SINGULARITY_FLOW_ARTIFACT_PUBLIC_KEY` may name the same absolute
+path instead of repeating `--artifact-key`. Each wrapper first runs the built-in-only
+`bootstrap.mjs`: it verifies the Ed25519 artifact receipt against that key and copies the npm
+tarball and VSIX through open descriptors into a private directory. Only then does it execute the
+`sf-install` runner from the verified npm snapshot. Before any mutation, that runner re-verifies the
+release manifest, every distributed script and artifact digest, package/VSIX identities, version
+parity, and the signed receipt. Operator assets must byte-match their canonical copies inside the
+signed package. The installer never runs Git, rebuilds, or downloads a different SFlow package.
+Registry credentials remain in `.npmrc`; use `--registry <URL>` for an approved corporate registry
+and `--cli-only` when only the terminal CLI is wanted.
+
+The wrapper and `bootstrap.mjs` must be obtained through the organisation's authenticated software
+distribution channel. The artifact signature proves the npm/VSIX pair before package code runs; it
+does not retroactively authenticate a bootstrap that was already executed. This is the same trust
+boundary as an OS-signed installer: delivery authenticates the launcher, while the independently
+obtained Ed25519 key authenticates the product payload.
+
+The bootstrap copies the release metadata, operator assets, signed product pair, and trusted public
+key bytes into private snapshots. Package execution consumes only those snapshots; the mutable
+handoff directory and original key pathname remain provenance for operator-facing retry commands,
+not later installation inputs.
+
+Use `--dry-run` for a no-change fingerprinted preview. A normal invocation is itself the explicit
+installation request and applies immediately. Workspace configuration is preserved and is never
+refreshed implicitly; the completed installer prints both the shell and Copilot refresh commands.
+
+For an upgrade, admission also requires exact retained rollback bytes for every installed managed
+CLI or VS Code surface. Before the first product mutation, the installer durably snapshots that
+authority, managed Copilot skills, telemetry files, shell-profile bytes, and `current.json`. It marks
+each surface before mutation and compensates in reverse order on a refusal, verification failure, or
+handled interrupt. A process death leaves `distribution-install-pending.json`; the exact installer
+retry acquires the shared activation lease, restores and verifies the prior state, and only then may
+start the candidate again. Missing or changed rollback authority fails closed without claiming that
+the product is healthy.
 
 The first VS Code activation performs six bounded, offline checks (bundle, Node, Git, CLI, local
 state writability, and repository classification). A healthy install opens My Work. A failed check
@@ -242,9 +284,11 @@ Install or replace it locally:
 code --install-extension apps/vscode/singularity-flow-vscode-0.9.0.vsix --force
 ```
 
-The command above creates a developer-only VSIX. For corporate distribution, upload only the exact
-tarball and VSIX promoted into `dist/` by the signed build-once flow. A VSIX is platform-neutral and
-requires no DMG, NSIS installer, code-signing certificate, notarization, or custom auto-updater.
+The command above creates a developer-only VSIX. For corporate distribution, publish the complete
+promoted `dist/` directory through the approved channel; the tarball and VSIX remain the only two
+product artifacts, while its receipt, checksums, wrappers, bootstrap, and README are required
+operator/trust assets. A VSIX is platform-neutral and requires no DMG, NSIS installer,
+code-signing certificate, notarization, or custom auto-updater.
 
 ## Build a developer CLI tarball
 
@@ -298,6 +342,33 @@ An installer process reporting success is not sufficient proof of activation. Ea
 is verified before the next one begins, and the journal is committed only after all selected surfaces
 pass. An activation or compensation verification failure leaves the journal recoverable as
 `rollback-failed` rather than claiming success.
+
+## Uninstalling the distributed product
+
+Use the uninstaller from the same retained release directory. Its first invocation is a no-change
+preview and prints a state-bound confirmation; `--yes` is the one-command reviewed form.
+
+```bash
+# macOS/Linux
+./uninstall.sh --artifact-key /trusted/artifact-builder-public.pem
+./uninstall.sh --artifact-key /trusted/artifact-builder-public.pem --yes
+
+# Windows PowerShell
+.\uninstall.ps1 --artifact-key C:\trusted\artifact-builder-public.pem
+.\uninstall.ps1 --artifact-key C:\trusted\artifact-builder-public.pem --yes
+
+# Windows Command Prompt
+uninstall.cmd --artifact-key C:\trusted\artifact-builder-public.pem
+uninstall.cmd --artifact-key C:\trusted\artifact-builder-public.pem --yes
+```
+
+The uninstaller removes only the global npm package, the Singularity Flow VS Code extension, both
+known Copilot plugin identities, marker-owned direct `/sf-*` skills, and the installer-owned
+telemetry helper/profile lines. The CLI is removed last, so a VS Code or Copilot refusal remains
+retryable. It preserves repositories, worktrees, branches, capability maps, state/config branches,
+workspace clones, work items, prompt logs, credentials, VS Code state, personal skills, retained
+release artifacts, and historical receipts. Completion writes a local uninstall receipt and moves
+the former `current.json` into installation history rather than deleting its audit evidence.
 
 ## Credentials
 

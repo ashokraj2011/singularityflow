@@ -1223,6 +1223,28 @@ review-packet binding, and its explicit containment boundary.
 
 ### One-command local update and installation
 
+For an end-user or office-laptop distribution, keep the promoted release directory intact and use
+its platform wrapper; do not clone this source repository:
+
+```bash
+# macOS/Linux
+./install.sh --artifact-key /trusted/artifact-builder-public.pem
+
+# Windows PowerShell / Command Prompt
+.\install.ps1 --artifact-key C:\trusted\artifact-builder-public.pem
+install.cmd --artifact-key C:\trusted\artifact-builder-public.pem
+```
+
+Those distribution scripts verify the signed artifact receipt against an independently obtained
+artifact-builder public key before executing package code, snapshot the exact local tarball and
+VSIX, then validate the release manifest, checksums, identities, versions, and canonical operator
+assets. They run no Git command. Use
+`--dry-run` for a preview, `--registry <URL>` for an approved corporate registry, or `--cli-only`
+without Copilot/VS Code. To remove only installed product surfaces while preserving every
+repository, workspace, credential, personal skill, and retained audit artifact, run the matching
+`uninstall.sh`, `uninstall.ps1`, or `uninstall.cmd`; preview first or add `--yes`. See
+[DISTRIBUTION.md](DISTRIBUTION.md).
+
 From a clean clone, update the tracked branch, create the distribution tarball, install it globally, remove any previous Copilot plugin identities, and install the bundled plugin by default (or one approved organisation marketplace plugin when explicitly configured):
 
 ```bash

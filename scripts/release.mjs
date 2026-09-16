@@ -27,7 +27,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
-  copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile
+  chmod, copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile
 } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -48,6 +48,13 @@ import { readStableReleaseJson } from '../src/secure-release-files.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const extension = path.join(root, 'apps', 'vscode');
 const dist = path.join(root, 'dist');
+const distributionAssets = path.join(root, 'distribution');
+const operatorScripts = Object.freeze([
+  'bootstrap.mjs',
+  'install.cmd', 'install.ps1', 'install.sh',
+  'uninstall.cmd', 'uninstall.ps1', 'uninstall.sh'
+]);
+const operatorDocumentation = Object.freeze(['README.md']);
 const argv = process.argv.slice(2);
 const dryRun = argv.includes('--dry-run');
 const skipTests = argv.includes('--skip-tests');
@@ -237,18 +244,28 @@ async function main() {
     vsixPath: path.join(candidateDist, path.basename(vsix))
   });
 
+  // Distribution helpers are operator assets, not a third product artifact. They are copied from
+  // the same clean Git tree, checksummed beside the signed pair, and byte-checked at runtime against
+  // the canonical copies embedded inside the signed npm tarball.
+  for (const name of [...operatorScripts, ...operatorDocumentation]) {
+    await copyFile(path.join(distributionAssets, name), path.join(candidateDist, name));
+  }
+  if (process.platform !== 'win32') {
+    await Promise.all(['install.sh', 'uninstall.sh']
+      .map((name) => chmod(path.join(candidateDist, name), 0o755)));
+  }
+
   const names = (await readdir(candidateDist)).sort();
   const sums = [];
-  const artifacts = [];
   for (const name of names) {
     const digest = await sha256(path.join(candidateDist, name));
     sums.push(`${digest}  ${name}`);
-    artifacts.push({
-      name,
-      kind: name.endsWith('.vsix') ? 'vscode-extension' : 'cli-and-copilot-plugin',
-      sha256: digest
-    });
   }
+  const artifacts = [path.basename(tarball), path.basename(vsix)].map((name) => ({
+    name,
+    kind: name.endsWith('.vsix') ? 'vscode-extension' : 'cli-and-copilot-plugin',
+    sha256: sums.find((entry) => entry.endsWith(`  ${name}`)).slice(0, 64)
+  }));
   await writeFile(path.join(candidateDist, 'SHA256SUMS'), `${sums.join('\n')}\n`);
   await writeFile(path.join(candidateDist, 'RELEASE.json'), `${JSON.stringify({
     version,
@@ -257,7 +274,9 @@ async function main() {
     npm: artifactReceipt.packagingProfile.npmVersion,
     zlib: artifactReceipt.packagingProfile.zlibVersion,
     artifactReceiptSha256: artifactReceipt.signature.payloadSha256,
-    artefacts: names
+    artefacts: [path.basename(tarball), path.basename(vsix)],
+    operatorScripts,
+    operatorDocumentation
   }, null, 2)}\n`);
   await writeFile(path.join(candidateDist, 'RELEASE-CHANNEL.json'), `${JSON.stringify(releaseChannelManifest({
     version,
@@ -277,12 +296,13 @@ async function main() {
     `Release ${version} promoted from ${commit.slice(0, 12)}:`,
     ...names.map((name) => `  dist/${name}`),
     '',
-    'Upload both artefacts to the internal registry, then install them with:',
-    `  npm install --global <registry>/${path.basename(tarball)}`,
-    '  singularity-flow plugin install',
-    `  code --install-extension <path>/${path.basename(vsix)}`,
+    'Distribute this complete directory. Install or uninstall with:',
+    '  macOS/Linux: ./install.sh --artifact-key /trusted/builder-public.pem',
+    '  PowerShell:   .\\install.ps1 --artifact-key C:\\trusted\\builder-public.pem',
+    '  Command Prompt: install.cmd --artifact-key C:\\trusted\\builder-public.pem',
+    'Use the corresponding uninstall script with the same independently obtained public key.',
     '',
-    'Those commands are the same on Windows, macOS and Linux.',
+    'The scripts validate the exact local tarball, VSIX, checksums, identities, and version.',
     ''
   ].join('\n'));
   } finally {

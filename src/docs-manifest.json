@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "da403606231bf8eb0a3bd7a47ef81ac9379482be",
+  "sourceCommit": "82fd8efc43efb334aae94c409b8ed476cc2e495f",
   "topicCount": 64,
-  "contentSha256": "779441a70372e3270459497a3dfd4d737f69d3e08d9582e23801104c93c787ef",
+  "contentSha256": "d7386a93acc8e6f976602f773735f7b19e596fad2aad526929d5daf6feccc075",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -248,9 +248,9 @@
     {
       "id": "installation-and-upgrades",
       "title": "Installation, initialization, and upgrades",
-      "version": 10,
-      "sha256": "33a9b6c5d222419218fe908d5332b208a530f255feb77b2ec2a887bff2fb349a",
-      "routingSha256": "b38bc9bb5408028531fcb9441e5a8175fad398f48b33b7ce3b12a88fbd1c18f8",
+      "version": 13,
+      "sha256": "2af767ebf06d61682b38d592d3d06bd20f5626e653e881823ecc631e3737f380",
+      "routingSha256": "9282900d02a0dc95200075b3b65d398903af09edd17350009d3f3379eee4b584",
       "file": "installation-and-upgrades.md"
     },
     {
@@ -392,9 +392,9 @@
     {
       "id": "resets-and-cleanup",
       "title": "Reset, cleanup, and fresh installation",
-      "version": 4,
-      "sha256": "1ac5fed479daf97d7bf7b0b5fd0b3bfe0432146da0286857f897c9624d89a6f9",
-      "routingSha256": "52c6204fe80c347cbfb9f8abdd8034b7a80cd69980b28589520f47236132ee9c",
+      "version": 5,
+      "sha256": "fd9972fd8a5a892ab915f6616be5e1f5975693748db42c2ded43ddcdc090eef7",
+      "routingSha256": "6a466026dd470566f0b40ffddd76705c52ba2bf2968c4d8c0b282e5f60b0b3e4",
       "file": "resets-and-cleanup.md"
     },
     {

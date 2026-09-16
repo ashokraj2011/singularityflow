@@ -3377,9 +3377,27 @@ const families = [
   family({ id: 'local-bundle-manifest', currentVersion: 1, immutable: true }),
   family({
     id: 'installation-current', currentVersion: 2, minimumReadableVersion: 2,
-    paths: [/^\$local\/installations\/current\.json$/]
+    paths: [
+      /^\$local\/installations\/current\.json$/,
+      /^\$local\/installations\/installed-before-uninstall-[^/]+\.json$/
+    ]
   }),
   family({ id: 'reinstall-plan', currentVersion: 1, paths: [/^\$temp\/singularity-flow-reinstall-plans\/.+\/reinstall-plan\.json$/] }),
+  family({
+    id: 'distribution-install-transaction', currentVersion: 1,
+    paths: [/^\$local\/installations\/distribution-install-pending\.json$/]
+  }),
+  family({
+    id: 'product-uninstall-transaction', currentVersion: 1,
+    paths: [/^\$local\/installations\/uninstall-pending\.json$/]
+  }),
+  family({
+    id: 'product-uninstall-receipt', currentVersion: 1,
+    paths: [
+      /^\$local\/installations\/uninstall-current\.json$/,
+      /^\$local\/installations\/uninstall-\d{4}-[^/]+-[0-9a-f-]{36}\.json$/
+    ]
+  }),
   family({ id: 'story-stack', currentVersion: 1, paths: [/^\$state\/orchestration\/stacks\/[^/]+\.json$/], immutable: true }),
   family({ id: 'workspace-impact-report', currentVersion: 1, paths: [/^\$workspace\/.+\/impact\/[^/]+\/report\.json$/] }),
   family({ id: 'worldmodel-checkpoint', currentVersion: 1, paths: [/^singularity\/world-model\/.+\/\.checkpoints\/.+\/state\.json$/] }),

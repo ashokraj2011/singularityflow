@@ -8,6 +8,7 @@ aliases:
 questions:
   - How do I reinstall SFlow on Windows?
   - How do I install SFlow on macOS?
+  - How do I install a promoted SFlow distribution without a source checkout?
   - How do I safely reinitialize an existing workspace?
 commands:
   - init
@@ -21,7 +22,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 10
+version: 13
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing governed application history.
 
@@ -31,8 +32,8 @@ Use this topic when the current goal matches **installation and upgrades**. Star
 
 ## Use it from each surface
 
-- **Shell:** `sflow init`, `sflow bootstrap`, `sflow quickstart`, `sflow plugin`, `sflow fresh-install`, `sflow reinstall`. Run `singularity-flow init --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-init`, `/sf-quickstart`, `/sf-reinstall`. The skill must preserve the CLI result and ask before any governed mutation.
+- **Shell:** `sflow init`, `sflow bootstrap`, `sflow quickstart`, `sflow plugin`, `sflow fresh-install`, `sflow reinstall`. A promoted distribution is installed with its platform wrapper: `./install.sh`, `.\install.ps1`, or `install.cmd`. Run `singularity-flow init --help` for the exact forms supported by this build.
+- **Copilot:** `/sf-init`, `/sf-quickstart`, `/sf-reinstall`. There is no Copilot equivalent for the machine-level promoted-distribution install because Copilot may not be installed yet. After installation, use `/sf-refresh-configuration` to refresh registered repositories; the shell equivalent is `singularity-flow workspace refresh-configuration`.
 - **VS Code:** open Singularity Flow **Lifecycle**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow
@@ -42,6 +43,48 @@ Use this topic when the current goal matches **installation and upgrades**. Star
 3. Preview or prepare the operation when the command offers a dry-run, plan, packet, or exact confirmation.
 4. Run the smallest applicable command from this topic. Do not substitute an undocumented subcommand.
 5. Re-read state after completion. In Copilot, return to `/sf-home`; in VS Code, refresh the relevant view if it has not already refreshed.
+
+## Install a promoted distribution
+
+A promoted release directory contains exactly one npm tarball, one VSIX, `RELEASE.json`,
+`SHA256SUMS`, and platform install and uninstall wrappers. Keep the directory intact and run the
+wrapper from that directory:
+
+- macOS/Linux shell: `./install.sh --artifact-key /trusted/artifact-builder-public.pem`
+- Windows PowerShell: `.\install.ps1 --artifact-key C:\trusted\artifact-builder-public.pem`
+- Windows Command Prompt: `install.cmd --artifact-key C:\trusted\artifact-builder-public.pem`
+
+Obtain the public key independently from the organisation's trust channel and keep it outside the
+release directory; `SINGULARITY_FLOW_ARTIFACT_PUBLIC_KEY` may name it instead. The wrappers verify
+the artifact-builder signature and snapshot the exact pair before executing the packaged
+`sf-install` runner. They do not clone a repository or call Git. Before changing the machine, the
+runner verifies the release manifest, every checksum, package and VSIX identity/version, and each
+operator asset against the signed package's canonical copy.
+
+The wrapper and `bootstrap.mjs` must come from an authenticated organisation delivery channel. The
+receipt authenticates the npm/VSIX payload before package code runs; it cannot authenticate a
+launcher that was already started.
+
+Use `--dry-run` for a no-change preview. Use `--cli-only` when only the terminal CLI is required,
+or `--no-copilot-telemetry` to omit the managed telemetry helper. Corporate registry credentials
+belong in the user's `.npmrc`; pass `--registry <URL>` only with a credential-free registry URL.
+The install activates the new CLI last, so a failed VSIX or Copilot-surface activation does not
+first remove the working CLI. A successful install preserves workspace configuration and prints
+both explicit refresh forms:
+
+- **Shell:** `singularity-flow workspace refresh-configuration`
+- **Copilot:** `/sf-refresh-configuration`
+
+An upgrade must prove exact retained rollback bytes for each existing managed CLI and VS Code
+surface before changing anything. The installer durably snapshots those bytes plus managed
+Copilot skills, telemetry/profile files, and the installation receipt. A refusal or handled
+interrupt restores and verifies touched surfaces in reverse order. If the process dies, retry the
+same platform installer; it completes the retained `distribution-install-pending.json` rollback
+before admitting a new activation.
+
+The packaged runners can also be invoked directly as `sf-install --release-dir <DIRECTORY>
+--artifact-key <PUBLIC-KEY>` after
+they are available on `PATH`, but the platform wrapper is the normal distribution entry point.
 
 When `./install.sh` performs a normal source install, it runs `workspace refresh-configuration`
 against every unique repository registered by every non-archived workspace. Refresh operates in
@@ -113,13 +156,15 @@ for a validated one. The flag is refused for `--factory-reset` and `--clean-rein
 
 ## State and safety
 
-These commands can mutate governed or machine-local state: `init`, `bootstrap`, `quickstart`, `plugin`, `fresh-install`, `reinstall`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
+These commands can mutate governed or machine-local state: `init`, `bootstrap`, `quickstart`, `plugin`, `fresh-install`, `reinstall`, and `sf-install`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth. Distribution installation changes product surfaces only; it does not refresh repositories unless the separately displayed refresh command is reviewed and run.
 
 ## Troubleshooting
 
 - If the selected Story or branch is wrong, stop and use `sflow home`, `sflow session`, or `sflow workspace list` before retrying.
 - If a command refuses because state moved, refresh and use the newly rendered action instead of replaying an old handle or confirmation.
 - If publication or synchronization is pending, follow the exact recovery command in the refusal and verify with `sflow doctor`.
+- If a distribution wrapper refuses the release directory, restore the complete promoted directory instead of editing its manifest, checksums, or scripts.
+- If VS Code asks for a restart, close every VS Code process and retry the same distribution install; the existing CLI remains available because CLI activation occurs last.
 - If a Copilot or VS Code action is unavailable, use the displayed CLI fallback; do not guess a command from the label.
 
 ## Related topics

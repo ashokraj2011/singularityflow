@@ -90,13 +90,14 @@ test('release test summary requires every explicit zero-outcome counter', () => 
 });
 
 test('artifacts build once while platform verification and promotion consume exact bytes', async () => {
-  const [release, receipt, mergedReceipt, builder, vsixSmoke, gitignore] = await Promise.all([
+  const [release, receipt, mergedReceipt, builder, vsixSmoke, gitignore, packageManifest] = await Promise.all([
     readFile(path.join(root, 'scripts/release.mjs'), 'utf8'),
     readFile(path.join(root, 'scripts/verification-receipt.mjs'), 'utf8'),
     readFile(path.join(root, 'scripts/merge-verification-receipts.mjs'), 'utf8'),
     readFile(path.join(root, 'scripts/build-release-artifacts.mjs'), 'utf8'),
     readFile(path.join(root, 'scripts/packaged-vsix-engine-smoke.mjs'), 'utf8'),
-    readFile(path.join(root, '.gitignore'), 'utf8')
+    readFile(path.join(root, '.gitignore'), 'utf8'),
+    readFile(path.join(root, 'package.json'), 'utf8').then(JSON.parse)
   ]);
   assert.ok(release.indexOf('recoverReleaseDirectoryPromotion(dist)')
       < release.indexOf('assertReleaseCheckoutClean(root'),
@@ -127,6 +128,18 @@ test('artifacts build once while platform verification and promotion consume exa
     'promotion must never repackage the npm artifact');
   assert.doesNotMatch(release, /vscode-dev\.mjs[^\n]*--package/,
     'promotion must never rebuild the VSIX');
+  assert.match(release, /const operatorScripts = Object\.freeze\(\[/,
+    'promotion must publish the cross-platform install and uninstall wrappers');
+  assert.match(release, /copyFile\(path\.join\(distributionAssets, name\), path\.join\(candidateDist, name\)\)/,
+    'operator wrappers must enter the same atomic release-directory candidate');
+  assert.match(release, /operatorScripts,\n\s+operatorDocumentation/,
+    'RELEASE.json must distinguish operator assets from the two product artifacts');
+  assert.match(release, /artefacts: \[path\.basename\(tarball\), path\.basename\(vsix\)\]/,
+    'the npm tarball and VSIX must remain the only product artifacts');
+  assert.ok(packageManifest.files.includes('distribution/'),
+    'the signed npm package must carry canonical wrapper bytes for runtime comparison');
+  assert.equal(packageManifest.bin['sf-install'], 'bin/sf-install.mjs');
+  assert.equal(packageManifest.bin['sf-uninstall'], 'bin/sf-uninstall.mjs');
 
   assert.ok((receipt.match(/verifyReleaseArtifactReceipt\(/g) ?? []).length >= 2,
     'a platform cell must verify the immutable pair before and after its tests');

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
@@ -10,7 +11,9 @@ import {
   skillForCommandLine, skillsForCommand
 } from '../src/command-skills.mjs';
 import { loadHelpDocument } from '../src/help.mjs';
-import { safeCommandGuidance } from '../src/safe-command-guidance.mjs';
+import {
+  renderCommandPromptCommand, renderPlatformCommand, safeCommandGuidance
+} from '../src/safe-command-guidance.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -181,6 +184,34 @@ test('safe guidance preserves Windows paths and marks incomplete ellipses displa
   assert.ok(incomplete);
   assert.equal(incomplete.copyable, false);
   assert.equal(incomplete.platformCommands, null);
+});
+
+test('platform command rendering keeps substitutions, quotes, and spaces inside argv', () => {
+  const adversarial = [
+    '$(printf SUBSTITUTED)', '`printf BACKTICK`', "single'quote", 'two words', '"double"'
+  ];
+  const command = renderPlatformCommand([
+    process.execPath, '-e', 'process.stdout.write(JSON.stringify(process.argv.slice(1)))',
+    ...adversarial
+  ], 'linux');
+  const result = spawnSync('/bin/sh', ['-c', command], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), adversarial);
+
+  const windows = renderPlatformCommand([
+    'C:\\Program Files\\SFlow\\install.cmd', ...adversarial
+  ], 'win32');
+  assert.match(windows, /^& 'C:\\Program Files\\SFlow\\install\.cmd'/u);
+  assert.match(windows, /'\$\(printf SUBSTITUTED\)'/u);
+  assert.match(windows, /'single''quote'/u);
+  const commandPrompt = renderCommandPromptCommand([
+    'C:\\Program Files\\SFlow\\install.cmd', ...adversarial
+  ]);
+  assert.match(commandPrompt, /^powershell\.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand [A-Za-z0-9+/]+=*$/u);
+  const encoded = commandPrompt.split(' ').at(-1);
+  assert.equal(Buffer.from(encoded, 'base64').toString('utf16le'), windows);
+  assert.throws(() => renderPlatformCommand(['sf-install', 'line\nbreak']), /control characters/u);
+  assert.throws(() => renderCommandPromptCommand(['sf-install', 'line\nbreak']), /control characters/u);
 });
 
 test('a policy-selected custom code phase keeps the generic code-authoring Copilot route', () => {

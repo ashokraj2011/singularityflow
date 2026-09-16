@@ -19,6 +19,7 @@ import {
   VSIX_SOURCE_MANIFEST_ENV,
   VSIX_SOURCE_MANIFEST_SHA256_ENV
 } from '../src/vsix-source-manifest.mjs';
+import { renderPlatformCommand } from '../src/safe-command-guidance.mjs';
 import {
   acquireActivationLease, releaseActivationLease
 } from '../scripts/install-staged-artifacts.mjs';
@@ -187,6 +188,20 @@ test('reinstall preview builds first and preserves every repository and workspac
     readFile(path.join(context.checkout, '.git', 'singularity-flow', 'session.json'), 'utf8'),
     readFile(path.join(context.home, '.singularity-flow', 'workspaces.json'), 'utf8')
   ]), before);
+});
+
+test('reinstall preview renders reviewed values as argv rather than shell source', async () => {
+  const context = await fixture();
+  const plan = await preview(context, commandHarness());
+  const checkout = "/tmp/SFlow $(printf INJECTED) `printf BACKTICK` O'Brien";
+  const hostile = { ...plan, checkout };
+  const expected = renderPlatformCommand([
+    'singularity-flow', 'reinstall', '--checkout', checkout,
+    '--registry', plan.registry, '--confirm', plan.confirmation
+  ]);
+  const rendered = reinstallPlanText(hostile);
+  assert.ok(rendered.includes(`Shell: ${expected}`));
+  assert.doesNotMatch(rendered, /Shell: .*"\$\(/u);
 });
 
 test('full reinstall carries sealed source authority into Git-less VSIX packaging', async () => {
@@ -388,7 +403,10 @@ test('missing Copilot requires cli-only while missing code is an explicitly skip
   assert.match(cliText, /isolated CLI build/);
   assert.doesNotMatch(cliText, /VSIX completed/);
   assert.match(cliText, /--cli-only/);
-  assert.match(cliText, new RegExp(`--registry ${JSON.stringify(cliPlan.registry)}`));
+  assert.ok(cliText.includes(renderPlatformCommand([
+    'singularity-flow', 'reinstall', '--checkout', cliPlan.checkout,
+    '--registry', cliPlan.registry, '--confirm', cliPlan.confirmation, '--cli-only'
+  ])));
   const noCode = await preview(context, commandHarness({ code: false }));
   assert.ok(noCode.remove.some((item) => item.includes('code CLI unavailable; skipped')));
 });
@@ -549,7 +567,9 @@ test('all validation and packaging finishes before removal and failures print a 
     exists: harness.exists
   }), (error) => {
     assert.match(error.message, /simulated registry outage/);
-    assert.match(error.message, /sf-reinstall --checkout/);
+    assert.ok(error.message.includes(renderPlatformCommand([
+      'sf-reinstall', '--checkout', plan.checkout, '--confirm', plan.confirmation
+    ])));
     assert.match(error.message, new RegExp(plan.fingerprint));
     return true;
   });

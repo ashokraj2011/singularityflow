@@ -125,6 +125,42 @@ function quoteToken(value, platform) {
     : `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
+/**
+ * Render an argv vector as one copyable command without ever treating an argument as shell text.
+ *
+ * JSON string syntax is not shell quoting: POSIX shells still expand `$()` and backticks inside a
+ * JSON double-quoted string.  This is the shared presentation boundary for command guidance.  It
+ * deliberately uses single-quoted words on POSIX and PowerShell and refuses control characters so
+ * a rendered command always remains one visible command line.
+ */
+export function renderPlatformCommand(argv, platform = process.platform) {
+  if (!Array.isArray(argv) || argv.length === 0) {
+    throw new TypeError('Command argv must be a non-empty array.');
+  }
+  const normalized = argv.map((value) => {
+    if (typeof value !== 'string' || !value || /[\u0000-\u001f\u007f]/u.test(value)) {
+      throw new TypeError('Command argv values must be non-empty strings without control characters.');
+    }
+    return value;
+  });
+  const command = normalized.map((token) => quoteToken(token, platform)).join(' ');
+  return platform === 'win32' ? `& ${command}` : command;
+}
+
+/**
+ * Render exact argv for cmd.exe without relying on cmd's unsafe quoting and expansion rules.
+ *
+ * `%NAME%`, `!NAME!`, carets, ampersands, and parentheses can remain active even inside ordinary
+ * cmd.exe quotes. Encode the already-safe PowerShell argv invocation as UTF-16LE instead; the
+ * resulting Base64 token contains no cmd metacharacters and works from Command Prompt on every
+ * supported Windows installation.
+ */
+export function renderCommandPromptCommand(argv) {
+  const powershell = renderPlatformCommand(argv, 'win32');
+  const encoded = Buffer.from(powershell, 'utf16le').toString('base64');
+  return `powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand ${encoded}`;
+}
+
 function normalizedSkill(value) {
   if (typeof value !== 'string') return null;
   const candidate = value.trim();
@@ -157,9 +193,9 @@ export function validateSafeSflowCommand(value) {
     argv: Object.freeze(executable.slice(1)),
     copyable,
     platformCommands: copyable ? Object.freeze({
-      darwin: executable.map((token) => quoteToken(token, 'darwin')).join(' '),
-      linux: executable.map((token) => quoteToken(token, 'linux')).join(' '),
-      win32: `& ${executable.map((token) => quoteToken(token, 'win32')).join(' ')}`
+      darwin: renderPlatformCommand(executable, 'darwin'),
+      linux: renderPlatformCommand(executable, 'linux'),
+      win32: renderPlatformCommand(executable, 'win32')
     }) : null
   });
 }

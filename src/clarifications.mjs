@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { realpath } from 'node:fs/promises';
 import { markerPolicy, markerQuestionHash } from './clarification-markers.mjs';
 import { groundingRecordRelative } from './grounding.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
@@ -118,6 +119,24 @@ function normalizeResponse(value, index) {
   };
 }
 
+function normalizedFilesystemPath(value) {
+  const resolved = path.resolve(value);
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+}
+
+async function sameExistingFile(left, right) {
+  if (normalizedFilesystemPath(left) === normalizedFilesystemPath(right)) return true;
+  const [canonicalLeft, canonicalRight] = await Promise.all([
+    realpath(left).catch(() => path.resolve(left)),
+    realpath(right).catch(() => path.resolve(right))
+  ]);
+  return normalizedFilesystemPath(canonicalLeft) === normalizedFilesystemPath(canonicalRight);
+}
+
+function responseArrayFromPayload(payload) {
+  return Array.isArray(payload) ? payload : payload?.responses ?? payload?.questions;
+}
+
 /**
  * The clarification record for one generation, or null.
  *
@@ -143,7 +162,8 @@ export function answeredMarkerHashes(record) {
 }
 
 export async function recordClarificationResponses(root, definition, workflow, phase, {
-  responses, actor, agent, replace = false, generation = phase.generation + 1
+  responses, actor, agent, replace = false, generation = phase.generation + 1,
+  responseFile = null
 } = {}) {
   const policy = assertClarificationRecordingAllowed(definition, workflow, phase);
   if (!Array.isArray(responses) || !responses.length) throw new SingularityFlowError('Record at least one clarification response.');
@@ -159,9 +179,30 @@ export async function recordClarificationResponses(root, definition, workflow, p
     throw new SingularityFlowError(`The composed prompt for ${phase.id} generation ${generation} is missing or stale. Re-run singularity-flow wm compose --phase ${phase.id}.`);
   }
   const relative = clarificationRecordRelative(definition, workflow, phase, generation);
+  const destination = path.join(root, relative);
+  let stagedAtDestination = false;
+  if (responseFile && await sameExistingFile(responseFile, destination)) {
+    const stagedPayload = await readJson(destination);
+    const hasDurableSchemaVersion = !Array.isArray(stagedPayload)
+      && stagedPayload != null
+      && typeof stagedPayload === 'object'
+      && Object.hasOwn(stagedPayload, 'schemaVersion');
+    if (!hasDurableSchemaVersion) {
+      const stagedResponses = responseArrayFromPayload(stagedPayload);
+      if (!Array.isArray(stagedResponses)
+          || JSON.stringify(stagedResponses) !== JSON.stringify(responses)) {
+        throw new SingularityFlowError(
+          'Clarification response input changed after it was read; no durable record was written. '
+          + 'Re-read the response file and retry.',
+          { code: 'CLARIFICATION_RESPONSE_FILE_CHANGED' }
+        );
+      }
+      stagedAtDestination = true;
+    }
+  }
   let previous = null;
-  if (!replace && await exists(path.join(root, relative))) {
-    previous = readRecord('clarification-record', await readJson(path.join(root, relative))).record;
+  if (!replace && !stagedAtDestination && await exists(destination)) {
+    previous = readRecord('clarification-record', await readJson(destination)).record;
   }
   if (previous && (previous.promptSha256 !== promptInfo.sha256 || previous.groundingRecordSha256 !== groundingInfo.sha256)) {
     throw new SingularityFlowError(`The existing clarification record is bound to an older prompt. Re-run with --replace after reviewing the current prompt.`);
@@ -194,8 +235,8 @@ export async function recordClarificationResponses(root, definition, workflow, p
     recordedBy: actor ?? null,
     agent: agent ?? grounding.agent ?? null
   };
-  await writeJson(path.join(root, relative), record);
-  const info = await snapshot(path.join(root, relative));
+  await writeJson(destination, record);
+  const info = await snapshot(destination);
   return { record, path: relative, sha256: info.sha256 };
 }
 
@@ -315,7 +356,7 @@ export function renderClarificationProtocol(value, phaseId) {
     '- For each question, explain briefly why the answer changes the governed output. Offer a recommended/default choice when the evidence supports one.',
     '- Do not infer an answer from generic knowledge. The user may explicitly answer “unknown” or defer a non-blocking decision.',
     '- After the response, incorporate confirmed answers into the phase artifact as decisions. Keep explicitly deferred items in Open questions with their impact and owner.',
-    `- Record the accepted response batch with \`singularity-flow clarification record ${phaseId} --response-file <json>\`. The record is bound to this exact prompt and prospective generation.`,
+    `- Stage only {"responses":[...]} at the Git-private path returned by \`git rev-parse --git-path singularity-flow/clarification-responses/${phaseId}-gen<N>.json\`, then run \`singularity-flow clarification record ${phaseId} --response-file <that-path>\` and remove the staging file after success. Never write response input to the CLI-owned \`singularity/work-items/**/context/clarifications-*.json\` durable path.`,
     '- A material unresolved decision remains blocking through specification publication; do not hide it behind a recommendation or placeholder.',
     '- If `ask_user` is unavailable, print the numbered questions and stop before authoring or publication. Never turn missing interactivity into silent assumptions.',
     '- Do not author or publish the governed output until the checkpoint is complete.'

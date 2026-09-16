@@ -68,6 +68,30 @@ test('phase draft check reports actionable authoring findings without changing b
   }
 });
 
+test('phase draft check reports duplicated or truncated managed metadata before publish', async () => {
+  const item = await fixture();
+  try {
+    item.phase.authoringBaseline = {
+      generation: 1, path: item.phase.requiredArtifact.path,
+      fingerprint: 'sha256:baseline', bytes: 1
+    };
+    await writeFile(item.absolute, [
+      '<!-- singularity-flow:metadata', '{', '  "schemaVersion": 1', '}', '-->', '',
+      '<!-- singularity-flow:metadata', '{', '  "schemaVersion": 1,',
+      '# Plan', '', 'Implement the approved sequence and mapped tests.', ''
+    ].join('\n'));
+    const result = await phaseDraftCheck(item.root, item.config, item.workflow, item.phase, {
+      session: boundSession(item)
+    });
+    assert.equal(result.status, 'correction-required');
+    assert.equal(result.findings[0].code, 'artifact.metadata.invalid');
+    assert.equal(result.findings[0].line, 7);
+    assert.match(result.findings[0].message, /rerun prepare once to restore the engine-owned envelope/i);
+  } finally {
+    await rm(item.root, { recursive: true, force: true });
+  }
+});
+
 test('phase draft check never offers same-turn overwrite for human review content', async () => {
   const item = await fixture({ producer: 'human' });
   try {

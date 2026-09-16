@@ -161,6 +161,7 @@ import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import {
   artifactFindingMessage, authoredArtifactFingerprint, authoredArtifactText,
   inspectPhaseAuthoredReviewContent, requiredArtifactRepoPath,
+  repairPreparedArtifactMetadata,
   validatePhaseAuthoredReviewContent as validatePhaseAuthoredReviewContentPreflight
 } from './publication-preflight.mjs';
 import {
@@ -1505,6 +1506,13 @@ export async function preparePhase(root, config, workflow, requested = undefined
   return result.path;
 }
 
+function committedArtifactBaseline(root, relativePath) {
+  const result = run('git', ['show', `HEAD:${relativePath}`], {
+    cwd: root, allowFailure: true, maxBuffer: 16 * 1024 * 1024
+  });
+  return result.status === 0 ? result.stdout : null;
+}
+
 export async function beginPhaseGeneration(root, config, workflow, {
   phaseId = workflow.currentPhase,
   adoptExisting = false,
@@ -1585,6 +1593,25 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
   });
   const target = securedTarget.absolute;
   const artifactExistedBeforePreparation = securedTarget.exists;
+  const canonicalMetadata = artifactMetadataBlock(storyArtifactMetadata(workflow, phase));
+  let preparedArtifactText = null;
+  let metadataRepair = null;
+  if (!dryRun && artifactExistedBeforePreparation) {
+    const currentArtifactText = await readFile(target, 'utf8');
+    const repaired = repairPreparedArtifactMetadata(currentArtifactText, {
+      canonicalMetadata,
+      baselineText: committedArtifactBaseline(root, targetRelative)
+    });
+    if (!repaired) {
+      throw new SingularityFlowError(
+        `Phase ${phase.id} artifact metadata is malformed and its author-owned boundary cannot be recovered safely. `
+        + 'The artifact was preserved unchanged; inspect the recovery report before retrying prepare.',
+        { code: 'ARTIFACT_METADATA_REPAIR_UNSAFE', details: { path: targetRelative } }
+      );
+    }
+    preparedArtifactText = repaired.text;
+    metadataRepair = repaired.status;
+  }
   const session = await loadSession(root, { required: false });
   const executionCatalog = workflow.workflowSnapshot
     ? await resolveStoryExecutionCatalog(root, config, workflow)
@@ -1629,11 +1656,8 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
       // The convergence kernel already rendered this artifact from its sealed projection. A
       // publication retry still refreshes declared input records and managed metadata, but must
       // never replace the canonical body with the generic deterministic phase scaffold.
-      let canonicalArtifact = await readFile(target, 'utf8');
+      let canonicalArtifact = preparedArtifactText;
       canonicalArtifact = applyInputsBlock(canonicalArtifact, rendered.text, inputs.mode);
-      if (!/^<!-- singularity-flow:metadata\n[\s\S]*?\n-->/.test(canonicalArtifact)) {
-        canonicalArtifact = `${artifactMetadataBlock(storyArtifactMetadata(workflow, phase))}\n\n${canonicalArtifact}`;
-      }
       await writeText(target, canonicalArtifact);
       if (workflowInputsMode(workflow) !== 'off' && resolvedPhaseInputs(workflow, phase).length) {
         const recorded = await recordInputs(root, workflow, phase, inputs, { itemDirectory });
@@ -1663,6 +1687,7 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
         path: posix(path.relative(root, target)),
         ...inputs,
         renderedSha256: rendered.sha256,
+        metadataRepair,
         remoteOutputs: remote.outputs,
         remoteWarnings: remote.warnings
       };
@@ -1709,7 +1734,7 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
         ''
       ].join('\n');
     } else if (artifactExistedBeforePreparation) {
-      text = normalizeArtifactTemplateCompatibility(await readFile(target, 'utf8'), {
+      text = normalizeArtifactTemplateCompatibility(preparedArtifactText, {
         id: workflow.workItem.id
       });
     }
@@ -1728,7 +1753,18 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
     // into prompts. Never inject this block into an existing, user-authored artifact on a retry.
     const referenceContext = referenceRepositoryContextMarkdown(references);
     if (!artifactExistedBeforePreparation && referenceContext) text = `${referenceContext}\n\n${text}`;
-    if (!/^<!-- singularity-flow:metadata\n[\s\S]*?\n-->/.test(text)) text = `${artifactMetadataBlock(storyArtifactMetadata(workflow, phase))}\n\n${text}`;
+    if (!artifactExistedBeforePreparation) {
+      const initialized = repairPreparedArtifactMetadata(text, { canonicalMetadata });
+      if (!initialized) {
+        throw new SingularityFlowError(
+          `Phase ${phase.id} template contains malformed Singularity Flow metadata. `
+          + 'The artifact was not written; refresh the approved template before retrying prepare.',
+          { code: 'ARTIFACT_TEMPLATE_METADATA_INVALID', details: { path: targetRelative } }
+        );
+      }
+      text = initialized.text;
+      metadataRepair = initialized.status;
+    }
     await writeText(target, text);
     const targetGeneration = Number(phase.generation) + 1;
     // Capture only bytes the kernel itself just rendered. Capturing an existing generation-one
@@ -1758,7 +1794,11 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
       await updateRemoteOutputRenderedHashes(root, workflow, phase, { itemDirectory, generation: phase.generation + 1 });
     }
   }
-  return { phase, path: posix(path.relative(root, target)), ...inputs, renderedSha256: rendered.sha256, remoteOutputs: remote.outputs, remoteWarnings: remote.warnings };
+  return {
+    phase, path: posix(path.relative(root, target)), ...inputs,
+    renderedSha256: rendered.sha256, metadataRepair,
+    remoteOutputs: remote.outputs, remoteWarnings: remote.warnings
+  };
 }
 
 const SOURCE_EXTENSIONS = new Set([

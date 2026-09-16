@@ -4298,7 +4298,8 @@ async function clarificationCommand(positionals, options) {
       responses,
       actor: session.actor,
       agent: session.agent,
-      replace: optionBoolean(options, 'replace')
+      replace: optionBoolean(options, 'replace'),
+      responseFile: responseFile ? path.resolve(responseFile) : null
     }));
   console.log(`Recorded ${result.record.responses.length} human clarification response${result.record.responses.length === 1 ? '' : 's'} for ${phase.id} generation ${result.record.generation}.`);
   console.log(`Record: ${result.path} · SHA-256: ${result.sha256}`);

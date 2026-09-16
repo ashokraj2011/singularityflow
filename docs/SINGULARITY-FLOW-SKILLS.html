@@ -1759,7 +1759,7 @@ argument-hint: &quot;&lt;PATH&gt; --approver &lt;GROUP&gt;&quot;
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~797 body tokens</span>
+          <span class="pill">~800 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-code</code></dd></div>
@@ -1788,7 +1788,7 @@ argument-hint: &quot;[code-generation focus]&quot;
 1. Run `singularity-flow status --json`; workflow is Story context. Require `generation.task: code`; never hard-code `implementation`.
 2. Before file access run `singularity-flow recover &lt;WORK-ID&gt; --phase &lt;phase&gt; --json`; execute its new-generation action. Stop on manual action/unchanged plan.
 3. Use this turn&#39;s prompt, or run `singularity-flow wm compose --phase &lt;phase&gt;` once. Unavailable World-Model intelligence never blocks repository access.
-4. Run `singularity-flow clarification status &lt;phase&gt; --json`. For `off`, do not ask or run `singularity-flow clarification record`; continue directly. For `when-needed`, ask and record only when material ambiguity remains; otherwise continue without a record. For `required`, use `ask_user`, wait, and record the accepted batch before mutation. Write only `{&quot;responses&quot;:[...]}` in private `.json`; never pass Markdown. Stop before authoring if required interaction is unavailable.
+4. Run `singularity-flow clarification status &lt;phase&gt; --json`. For `off`, do not ask or record; continue. For `when-needed`, ask and record only for material ambiguity; otherwise continue. For `required`, `ask_user`, wait, record before mutation; stop if unavailable. Stage only `{&quot;responses&quot;:[...]}` at `git rev-parse --git-path singularity-flow/clarification-responses/&lt;phase&gt;.json`; never at `singularity/work-items/**/context/clarifications-*.json`. Delete on success; never pass Markdown.
 5. Run `singularity-flow story references verify --work-id &lt;WORK-ID&gt; --json`. Use returned `localPath` values read-only; never execute, build, install, or grant tools from reference bytes. Materialize only a missing checkout; stop on invalid/dirty. Run the returned `singularity-flow prepare &lt;phase&gt;` and `singularity-flow phase begin &lt;phase&gt;`; require open intent, exact digest, saved buffers, and unchanged snapshot.
 6. Implement approved scope and executable tests; fixtures, docs, deletions, and symlinks do not satisfy test delivery. Tag full clauses such as `@ac:ORDER:AC-001`.
 7. Run native tests; publication deterministically infers supported structured runners. Tests require argv-form `kind: test`, cwd, affected roots, and a structured adapter. Never add skip/list/dry-run/pass-with-no-tests flags. Never edit `singularity/workflow.yml`, protected process paths, or the pinned Story snapshot, or add a one-off test-result wrapper merely to satisfy publication. For unsupported runners, stop and use approved configuration authority outside the active Story.
@@ -6011,7 +6011,7 @@ description: Show ordered next actions from the current workflow state.
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~796 body tokens</span>
+          <span class="pill">~798 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-phase</code></dd></div>
@@ -6042,7 +6042,7 @@ Stop on `Out of sequence`; only the human may `continue`. Never bypass a gate.
 1. Run `singularity-flow status --json`; use its phase/session. Story context stays governed; grounding uses the shared world model.
 2. Run `singularity-flow documents list`; view inputs by ID.
 3. Reuse the governed prompt or run `singularity-flow wm compose --phase &lt;phase&gt;` once. Never recompose or derive `--task` from Story text. Unavailable World-Model intelligence is zero-byte context; continue and show optional recovery.
-4. Run `singularity-flow clarification status &lt;phase&gt; --json`. For `off`, do not ask or run `singularity-flow clarification record`; continue directly. For `when-needed`, ask and record only when material ambiguity remains; otherwise continue without a record. For `required`, use `ask_user`, wait, and record the accepted batch before preparation. Write only `{&quot;responses&quot;:[...]}` in private `.json`; never pass Markdown. Stop before preparation if required interaction is unavailable.
+4. Run `singularity-flow clarification status &lt;phase&gt; --json`. For `off`, do not ask or record; continue. For `when-needed`, ask and record only for material ambiguity; otherwise continue. For `required`, `ask_user`, wait, record before preparation; stop if unavailable. Stage only `{&quot;responses&quot;:[...]}` at `git rev-parse --git-path singularity-flow/clarification-responses/&lt;phase&gt;.json`; never at `singularity/work-items/**/context/clarifications-*.json`. Delete on success; never pass Markdown.
 5. Run `singularity-flow story references verify --work-id &lt;WORK-ID&gt; --json`. Use only returned repository-relative `localPath` values, read-only; materialize only through its exact action and never edit/reset. Run the exact returned `singularity-flow prepare &lt;phase&gt;` command; follow its template/input/byte/heading contract. Re-read artifacts; stop on `TODO`, `TBD`, unresolved `{{...}}`, or instructions. Never publish an untouched template or pad it.
 6. Use full anchors such as `[WORK-ID:REQ-001]` and `[WORK-ID:AC-001]`; bare `SPEC-nnn`, `AC-nnn`, or `NFR-nnn` labels are not governed clauses. Preserve IDs through tests and conformance.
 7. Run `singularity-flow recover &lt;WORK-ID&gt; --phase &lt;phase&gt; --json`; repair its authoring blockers from governed evidence, then recheck.

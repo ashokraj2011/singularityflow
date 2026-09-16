@@ -13,7 +13,8 @@ import { buildGenerationAuthorship, normalizeAuthorshipOptions } from '../src/ma
 import { withOperationContext } from '../src/operation-context.mjs';
 import {
   artifactPlaceholderFindings, authoredArtifactFingerprint, inspectArtifactContent,
-  inspectPhaseAuthoredReviewContent, inspectRequiredArtifactContent, phaseAuthoredReviewArtifacts
+  inspectManagedArtifactMetadata, inspectPhaseAuthoredReviewContent, inspectRequiredArtifactContent,
+  phaseAuthoredReviewArtifacts, repairPreparedArtifactMetadata
 } from '../src/publication-preflight.mjs';
 import { setAgentSession } from '../src/session.mjs';
 import { generationStartPublicationBinding } from '../src/generation-boundary.mjs';
@@ -304,6 +305,54 @@ function inContext(root, run) {
     command: 'test'
   }, run);
 }
+
+test('managed metadata inspection and repair recover only a bounded truncated duplicate', () => {
+  const canonical = [
+    '<!-- singularity-flow:metadata', '{', '  "schemaVersion": 1,',
+    '  "workId": "DRAFT-1",', '  "workType": "feature"', '}', '-->'
+  ].join('\n');
+  const baseline = `${canonical}\n\n# Specification - DRAFT-1\n\nTemplate instructions.\n`;
+  const body = '# Specification — DRAFT-1\n\nThe approved behavior is fully specified.\n'
+    .split('\n').map((line) => `  ${line}`).join('\n');
+  const duplicatePrefix = canonical.split('\n').slice(0, 5).join('\n');
+  const corrupt = `${canonical}\n\n${duplicatePrefix}\n${body}`;
+
+  assert.deepEqual(inspectManagedArtifactMetadata(corrupt), {
+    status: 'duplicate-or-misplaced', line: 9,
+    leading: `${canonical}\n\n`
+  });
+  const repaired = repairPreparedArtifactMetadata(corrupt, {
+    canonicalMetadata: canonical, baselineText: baseline
+  });
+  assert.equal(repaired.status, 'removed-duplicate-truncated-envelope');
+  assert.equal(repaired.text, `${canonical}\n\n# Specification — DRAFT-1\n\nThe approved behavior is fully specified.\n`);
+  assert.equal(inspectManagedArtifactMetadata(repaired.text).status, 'valid');
+
+  const ambiguous = `${canonical}\n\nAuthored preface.\n${duplicatePrefix}\n${body}`;
+  assert.equal(repairPreparedArtifactMetadata(ambiguous, {
+    canonicalMetadata: canonical, baselineText: baseline
+  }), null, 'repair never guesses across author-owned prose');
+});
+
+test('prepare safely removes the known duplicated truncated metadata envelope', async (t) => {
+  const context = await fixture('repair-truncated-metadata');
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  const baseline = await readFile(context.target, 'utf8');
+  const leading = baseline.match(/^<!-- singularity-flow:metadata\n[\s\S]*?\n-->\s*/u)?.[0];
+  assert.ok(leading, 'fixture has the committed engine-owned envelope');
+  const duplicatePrefix = leading.trimEnd().split('\n').slice(0, 5).join('\n');
+  const body = baseline.slice(leading.length).split('\n').map((line) => `  ${line}`).join('\n');
+  await writeFile(context.target, `${leading}${duplicatePrefix}\n${body}`);
+
+  const result = await inContext(context.root, () => preparePhaseInputs(
+    context.root, context.config, context.workflow, 'intake'
+  ));
+  const repaired = await readFile(context.target, 'utf8');
+  assert.equal(result.metadataRepair, 'removed-duplicate-truncated-envelope');
+  assert.equal(inspectManagedArtifactMetadata(repaired).status, 'valid');
+  assert.equal((repaired.match(/<!-- singularity-flow:metadata/gu) ?? []).length, 1);
+  assert.equal(authoredArtifactFingerprint(repaired), authoredArtifactFingerprint(baseline));
+});
 
 test('phase preparation refuses a symlinked required artifact without reading its target', async (t) => {
   const context = await fixture('artifact-symlink');

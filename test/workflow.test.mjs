@@ -124,6 +124,32 @@ test('off-mode clarification record emits recovery before reading response input
   )), false);
 });
 
+test('clarification record repairs a raw response envelope staged at its durable path', async () => {
+  const root = await repository();
+  const workId = 'CLARIFICATION-STAGING-1';
+  flow(root, [
+    'start', workId, '--from-branch', 'main', '--work-type', 'feature', '--agent', 'product-owner',
+    '--title', 'Repair clarification staging',
+    '--description', 'Prove the CLI schema-stamps a response envelope accidentally placed at its output path.'
+  ]);
+  flow(root, ['wm', 'compose', '--phase', 'intake']);
+
+  const durable = path.join(
+    root, 'singularity/work-items', workId, 'context/clarifications-intake-gen1.json'
+  );
+  const responses = [{ question: 'Is the bounded outcome correct?', answer: 'Yes; retain the stated scope.' }];
+  await writeFile(durable, `${JSON.stringify({ responses }, null, 2)}\n`);
+  flow(root, ['clarification', 'record', 'intake', '--response-file', durable]);
+
+  const recorded = JSON.parse(await readFile(durable, 'utf8'));
+  assert.equal(recorded.schemaVersion, 1);
+  assert.equal(recorded.workId, workId);
+  assert.equal(recorded.phase, 'intake');
+  assert.equal(recorded.generation, 1);
+  assert.equal(recorded.responses.length, 1);
+  assert.equal(recorded.responses[0].answer, 'Yes; retain the stated scope.');
+});
+
 test('failed start restores the caller branch and both previous local sessions', async () => {
   const root = await repository();
   const sessionFile = path.join(root, '.git/singularity-flow/session.json');

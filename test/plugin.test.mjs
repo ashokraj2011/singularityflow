@@ -205,13 +205,17 @@ test('initial phase skills require interactive clarification instead of silently
   for (const content of [workflowAgent, phase, requirements, code, epicRequirements]) {
     assert.match(content, /ask_user/);
     assert.match(content, /wait/i);
-    assert.match(content, /stop before (?:authoring|preparation)/i);
+    assert.match(content, /(?:stop before (?:authoring|preparation)|record before (?:preparation|mutation); stop if unavailable)/i);
   }
   for (const content of [phase, code]) {
-    assert.match(content, /private.*\.json/i);
+    assert.match(content, /git rev-parse --git-path singularity-flow\/clarification-responses/i);
+    assert.match(content, /never at `singularity\/work-items\/\*\*\/context\/clarifications-\*\.json`/i);
+    assert.match(content, /Delete on success/i);
     assert.match(content, /Never pass Markdown/i);
     assert.match(content, /"responses"/);
   }
+  assert.match(workflowAgent, /git rev-parse --git-path singularity-flow\/clarification-responses/i);
+  assert.match(workflowAgent, /never use the CLI-owned `singularity\/work-items\/\*\*\/context\/clarifications-\*\.json` path/i);
   assert.match(next, /selected action is `\/sf-code`.*do not imitate or inline.*Next in Copilot: \/sf-code.*stop/is);
   assert.match(next, /never rewrite it to `\/sf-phase`/i);
   assert.match(next, /returned SFlow skill route[\s\S]*complete its preflight[\s\S]*at most its one authorized action/is);
@@ -234,11 +238,11 @@ test('generic generation skills branch on the resolved clarification mode before
     const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
     const status = content.indexOf('singularity-flow clarification status <phase> --json');
     const firstQuestion = content.indexOf('`ask_user`');
-    const firstRecord = content.indexOf('clarification record');
+    const firstRecord = content.indexOf('ask and record', status);
     const offStart = content.indexOf('For `off`', status);
     const whenNeededStart = content.indexOf('For `when-needed`', offStart);
     const requiredStart = content.indexOf('For `required`', whenNeededStart);
-    const branchesEnd = content.indexOf('Write only', requiredStart);
+    const branchesEnd = content.indexOf('Stage only', requiredStart);
     const off = content.slice(offStart, whenNeededStart);
     const whenNeeded = content.slice(whenNeededStart, requiredStart);
     const required = content.slice(requiredStart, branchesEnd);
@@ -249,14 +253,14 @@ test('generic generation skills branch on the resolved clarification mode before
     assert.ok(offStart > status && whenNeededStart > offStart && requiredStart > whenNeededStart
       && branchesEnd > requiredStart, `${name} must define ordered off/when-needed/required branches`);
     assert.match(off, /do not ask/i, `${name} must not ask in off mode`);
-    assert.match(off, /(?:do not|or) run `singularity-flow clarification record`/i,
+    assert.match(off, /do not ask or record/i,
       `${name} must not record in off mode`);
-    assert.match(off, /continue directly/i, `${name} must continue in off mode`);
-    assert.match(whenNeeded, /ask and record[^.]*only when material ambiguity remains/i,
+    assert.match(off, /continue/i, `${name} must continue in off mode`);
+    assert.match(whenNeeded, /ask and record[^.]*only for material ambiguity/i,
       `${name} must condition questions and recording on material ambiguity`);
-    assert.match(whenNeeded, /otherwise continue without a record/i,
+    assert.match(whenNeeded, /otherwise continue/i,
       `${name} must let when-needed continue without a fabricated checkpoint`);
-    assert.match(required, /`ask_user`[^.]*wait[^.]*record the accepted batch/i,
+    assert.match(required, /`ask_user`[^.]*wait[^.]*record before/i,
       `${name} must always pause and persist the required checkpoint`);
     assert.match(required, /before (?:preparation|mutation)/i,
       `${name} must complete required clarification before authoring begins`);

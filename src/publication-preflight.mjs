@@ -13,6 +13,7 @@ const PLACEHOLDER = /\b(?:TODO|TBD|FIXME|TBC)\b|\{\{[^}]+\}\}|\[\s*(?:describe|a
 const EXPLICIT_UPPERCASE_PLACEHOLDER = /\b(?:XXX|PLACEHOLDER)\b/g;
 const MANAGED_INPUTS = /<!-- singularity-flow:inputs:start -->[\s\S]*?<!-- singularity-flow:inputs:end -->/g;
 const MANAGED_METADATA = /^<!-- singularity-flow:(?:initiative-)?metadata\n[\s\S]*?\n-->\s*/;
+const MANAGED_METADATA_MARKER = /<!-- singularity-flow:(?:initiative-)?metadata/u;
 const SINGLE_WORD_ANGLE_PLACEHOLDERS = new Set([
   'benefit', 'capability', 'decision', 'module', 'owner', 'path', 'requirement', 'role'
 ]);
@@ -40,6 +41,95 @@ export function authoredArtifactText(text, { preserveLines = false } = {}) {
   const source = String(text ?? '');
   const withoutMetadata = source.replace(MANAGED_METADATA, (block) => preserveLines ? maskBlock(block) : '');
   return withoutMetadata.replace(MANAGED_INPUTS, (block) => preserveLines ? maskBlock(block) : '');
+}
+
+/**
+ * Inspect the engine-owned metadata envelope without trusting its JSON payload.
+ *
+ * Publication replaces this envelope from durable workflow state. Authoring tools therefore only
+ * need to prove that there is exactly one complete envelope at byte zero and that another marker
+ * was not copied into author-owned prose. Approved input blocks may quote an upstream artifact and
+ * are excluded for the same reason they are excluded by the publication boundary.
+ */
+export function inspectManagedArtifactMetadata(text) {
+  const source = String(text ?? '');
+  const leading = source.match(MANAGED_METADATA)?.[0] ?? null;
+  const authoredRegion = (leading == null ? source : source.slice(leading.length))
+    // Keep offsets stable so the reported line still refers to the original artifact.
+    .replace(MANAGED_INPUTS, (block) => block.replace(/[^\n]/gu, ' '));
+  const markerIndex = authoredRegion.search(MANAGED_METADATA_MARKER);
+  if (leading != null && markerIndex < 0) {
+    return Object.freeze({ status: 'valid', line: null, leading });
+  }
+  if (leading == null && markerIndex < 0) {
+    return Object.freeze({ status: 'missing', line: 1, leading: null });
+  }
+  const absoluteIndex = leading == null
+    ? markerIndex
+    : leading.length + markerIndex;
+  return Object.freeze({
+    status: leading == null && absoluteIndex === 0 ? 'malformed' : 'duplicate-or-misplaced',
+    line: lineAt(source, Math.max(0, absoluteIndex)),
+    leading
+  });
+}
+
+function normalizedHeading(line) {
+  return String(line ?? '').trim()
+    .replace(/[\u2010-\u2015-]+/gu, '-')
+    .replace(/\s+/gu, ' ')
+    .toLocaleLowerCase('en-US');
+}
+
+function dedentMarkdown(text) {
+  const lines = String(text).replaceAll('\r\n', '\n').split('\n');
+  const indents = lines.filter((line) => line.trim()).map((line) => /^ */u.exec(line)?.[0].length ?? 0);
+  const indent = indents.length ? Math.min(...indents) : 0;
+  return indent > 0 ? lines.map((line) => line.slice(Math.min(indent, line.length))).join('\n') : lines.join('\n');
+}
+
+/**
+ * Repair only the bounded corruption produced when an editor starts authoring inside the managed
+ * JSON prefix and a later prepare prepends a fresh canonical envelope.
+ *
+ * The candidate must begin where author-owned content normally begins, share a substantial exact
+ * prefix with the canonical envelope, and resume at the same first Markdown heading as the Git
+ * baseline. Anything less certain remains a refusal; this helper never guesses where prose starts.
+ */
+export function repairPreparedArtifactMetadata(text, { canonicalMetadata, baselineText = null } = {}) {
+  const source = String(text ?? '');
+  const canonical = String(canonicalMetadata ?? '').trimEnd();
+  const placement = inspectManagedArtifactMetadata(source);
+  if (placement.status === 'valid') return Object.freeze({ status: 'unchanged', text: source });
+  if (placement.status === 'missing') {
+    return Object.freeze({ status: 'inserted', text: `${canonical}\n\n${source}` });
+  }
+
+  const initial = source.match(MANAGED_METADATA)?.[0] ?? '';
+  const authoredRegion = source.slice(initial.length);
+  const candidate = authoredRegion.trimStart();
+  if (candidate.search(MANAGED_METADATA_MARKER) !== 0) return null;
+
+  const candidateLines = candidate.replaceAll('\r\n', '\n').split('\n');
+  const canonicalLines = canonical.replaceAll('\r\n', '\n').split('\n');
+  let shared = 0;
+  while (shared < candidateLines.length && shared < canonicalLines.length
+      && candidateLines[shared] === canonicalLines[shared]) shared += 1;
+  if (shared < 4) return null;
+
+  const recoveredBody = dedentMarkdown(candidateLines.slice(shared).join('\n')).trimStart();
+  const recoveredHeading = recoveredBody.split('\n').find((line) => /^#{1,6}\s+\S/u.test(line.trim())) ?? '';
+  const baselineBody = baselineText == null ? '' : authoredArtifactText(baselineText).trimStart();
+  const baselineHeading = baselineBody.split(/\r?\n/u)
+    .find((line) => /^#{1,6}\s+\S/u.test(line.trim())) ?? '';
+  if (!recoveredHeading
+      || (!baselineHeading && !initial)
+      || (baselineHeading && normalizedHeading(recoveredHeading) !== normalizedHeading(baselineHeading))) return null;
+
+  return Object.freeze({
+    status: initial ? 'removed-duplicate-truncated-envelope' : 'replaced-truncated-envelope',
+    text: `${canonical}\n\n${recoveredBody}`
+  });
 }
 
 /** Whitespace-only padding cannot make an untouched prepared template look authored. */
@@ -152,6 +242,7 @@ function requiredHeadingFindings(text, required, pathName) {
 }
 
 const FINDING_PRIORITY = Object.freeze({
+  'artifact.metadata.invalid': 0,
   'artifact.placeholder.unresolved': 10,
   'artifact.template.unchanged': 20,
   'artifact.heading.missing': 30,
@@ -289,9 +380,19 @@ export async function inspectRequiredArtifactContent(root, config, workflow, pha
     contract,
     baseline: phase.authoringBaseline ?? null
   });
+  const metadata = phase.authoringBaseline == null ? null : inspectManagedArtifactMetadata(text);
+  // A model may replace the complete prepared file with author-owned prose; publication restores
+  // the canonical envelope. Only a remaining marker is an integrity problem. Missing metadata is
+  // therefore compatible, while truncated, duplicated, or displaced metadata is never accepted.
+  const metadataFindings = metadata && !['valid', 'missing'].includes(metadata.status) ? [{
+    code: 'artifact.metadata.invalid', category: 'integrity', path: required,
+    line: metadata.line, value: metadata.status, bytes: Buffer.byteLength(text),
+    minimumBytes: null, fingerprint: inspected.fingerprint
+  }] : [];
+  const findings = [...metadataFindings, ...inspected.findings];
   return placeholders
-    ? inspected.findings
-    : inspected.findings.filter((finding) => finding.code !== 'artifact.placeholder.unresolved');
+    ? findings
+    : findings.filter((finding) => finding.code !== 'artifact.placeholder.unresolved');
 }
 
 function reviewableMarkdownPath(relativePath) {
@@ -404,6 +505,9 @@ export async function inspectPhaseAuthoredReviewContent(root, config, workflow, 
 export function artifactFindingMessage(finding) {
   const label = finding.artifactScope === 'supporting' ? 'Supporting review artifact' : 'Required artifact';
   if (finding.code === 'artifact.required.missing') return `Required artifact missing: ${finding.path}`;
+  if (finding.code === 'artifact.metadata.invalid') {
+    return `Required artifact ${finding.path} has ${finding.value} Singularity Flow metadata at line ${finding.line}; rerun prepare once to restore the engine-owned envelope without changing authored content.`;
+  }
   if (finding.code === 'artifact.required.too-short') {
     return `Required artifact ${finding.path} has ${finding.bytes} authored bytes; minimum ${finding.minimumBytes}.`;
   }

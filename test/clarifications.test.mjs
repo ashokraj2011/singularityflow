@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -63,6 +63,8 @@ test('required clarification produces an explicit interactive stop before author
   assert.match(rendered, /interactive `ask_user` tool/);
   assert.match(rendered, /Derive every question only from the current Story/);
   assert.match(rendered, /Never reuse example questions or placeholder text from templates/);
+  assert.match(rendered, /git rev-parse --git-path singularity-flow\/clarification-responses\/requirements-gen<N>\.json/);
+  assert.match(rendered, /Never write response input to the CLI-owned `singularity\/work-items\/\*\*\/context\/clarifications-\*\.json` durable path/);
   assert.match(rendered, /Do not author or publish/);
   assert.match(rendered, /scope, acceptance criteria/);
 });
@@ -129,6 +131,79 @@ test('required clarification is bound to the exact prompt and prospective genera
   await writeFile(path.join(value.root, value.promptPath), '# Changed governed prompt\n');
   const stale = await verifyClarificationRecord(value.root, value.definition, value.workflow, value.phase);
   assert.match(stale.errors.join('\n'), /prompt snapshot hash differs/);
+});
+
+test('a raw response envelope staged at the durable path is atomically adopted and schema-stamped', async () => {
+  const value = await clarificationFixture();
+  const relative = clarificationRecordRelative(value.definition, value.workflow, value.phase);
+  const destination = path.join(value.root, relative);
+  const responses = [{ question: 'Is the described scope correct?', answer: 'Yes; exclude account migration.' }];
+  await writeFile(destination, `${JSON.stringify({ responses }, null, 2)}\n`);
+
+  const recorded = await recordClarificationResponses(
+    value.root, value.definition, value.workflow, value.phase, {
+      actor: { name: 'Product Owner', email: 'owner@example.com' },
+      agent: 'product-owner',
+      responses,
+      responseFile: destination
+    }
+  );
+
+  const persisted = JSON.parse(await readFile(destination, 'utf8'));
+  assert.equal(persisted.schemaVersion, 1);
+  assert.equal(persisted.workId, 'WORK-1');
+  assert.equal(persisted.phase, 'requirements');
+  assert.equal(persisted.generation, 1);
+  assert.deepEqual(persisted.responses, recorded.record.responses);
+  assert.equal((await verifyClarificationRecord(
+    value.root, value.definition, value.workflow, value.phase
+  )).errors.length, 0);
+});
+
+test('same-path response adoption refuses changed input without overwriting its bytes', async () => {
+  const value = await clarificationFixture();
+  const relative = clarificationRecordRelative(value.definition, value.workflow, value.phase);
+  const destination = path.join(value.root, relative);
+  const staged = {
+    responses: [{ question: 'Which boundary applies?', answer: 'The public API only.' }]
+  };
+  await writeFile(destination, `${JSON.stringify(staged, null, 2)}\n`);
+  const before = await readFile(destination, 'utf8');
+
+  await assert.rejects(
+    recordClarificationResponses(value.root, value.definition, value.workflow, value.phase, {
+      actor: { name: 'Product Owner', email: 'owner@example.com' },
+      agent: 'product-owner',
+      responses: [{ question: 'Which boundary applies?', answer: 'A changed answer.' }],
+      responseFile: destination
+    }),
+    (error) => error.code === 'CLARIFICATION_RESPONSE_FILE_CHANGED'
+  );
+  assert.equal(await readFile(destination, 'utf8'), before);
+});
+
+test('a versioned durable clarification record is never mistaken for same-path staging', async () => {
+  const value = await clarificationFixture();
+  const first = await recordClarificationResponses(
+    value.root, value.definition, value.workflow, value.phase, {
+      actor: { name: 'Product Owner', email: 'owner@example.com' },
+      agent: 'product-owner',
+      responses: [{ question: 'Is the scope correct?', answer: 'Yes.' }]
+    }
+  );
+  const destination = path.join(value.root, first.path);
+  const before = await readFile(destination, 'utf8');
+
+  await assert.rejects(
+    recordClarificationResponses(value.root, value.definition, value.workflow, value.phase, {
+      actor: { name: 'Product Owner', email: 'owner@example.com' },
+      agent: 'product-owner',
+      responses: first.record.responses,
+      responseFile: destination
+    }),
+    /duplicated/
+  );
+  assert.equal(await readFile(destination, 'utf8'), before);
 });
 
 test('materially deferred clarification remains a hard publication blocker', async () => {

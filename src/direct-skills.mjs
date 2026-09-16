@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -62,8 +63,71 @@ function sourceSkills(sourceRoot) {
     .sort((left, right) => left.directName.localeCompare(right.directName));
 }
 
+function contentSha256(content) {
+  return `sha256:${createHash('sha256').update(content, 'utf8').digest('hex')}`;
+}
+
 export function bundledDirectSkillNames({ sourceRoot = bundledSkillDirectory() } = {}) {
   return sourceSkills(path.resolve(sourceRoot)).map((skill) => skill.directName);
+}
+
+/**
+ * Prove that every installed, managed `/sf-*` alias is byte-for-byte the alias rendered from the
+ * currently running package. Copilot's inventory reports names and enabled state only; without
+ * this check an older skill body can survive an upgrade and still look healthy.
+ */
+export function verifyDirectSkillContents({
+  sourceRoot = bundledSkillDirectory(),
+  targetRoot = copilotSkillsDirectory(),
+  expectedNames = null
+} = {}) {
+  const sources = sourceSkills(path.resolve(sourceRoot));
+  const byName = new Map(sources.map((skill) => [skill.directName, skill]));
+  const selected = expectedNames == null ? sources : expectedNames.map((name) => {
+    const skill = byName.get(name);
+    if (!skill) {
+      throw new SingularityFlowError(
+        `Cannot verify unknown bundled direct Copilot skill '${name}'. Reinstall from one complete Singularity Flow package.`
+      );
+    }
+    return skill;
+  });
+  const resolvedTarget = path.resolve(targetRoot);
+  const missing = [];
+  const stale = [];
+  const invalid = [];
+  const records = [];
+  for (const skill of selected) {
+    const file = path.join(resolvedTarget, skill.directName, 'SKILL.md');
+    let stat;
+    try { stat = fs.lstatSync(file); }
+    catch (error) {
+      if (error?.code === 'ENOENT') { missing.push(skill.directName); continue; }
+      throw error;
+    }
+    if (!stat.isFile() || stat.isSymbolicLink()) { invalid.push(skill.directName); continue; }
+    const actual = fs.readFileSync(file, 'utf8');
+    const expectedSha256 = contentSha256(skill.content);
+    const actualSha256 = contentSha256(actual);
+    records.push(Object.freeze({ name: skill.directName, expectedSha256, actualSha256 }));
+    if (actual !== skill.content) stale.push(skill.directName);
+  }
+  if (missing.length || stale.length || invalid.length) {
+    const details = [
+      ...(missing.length ? [`missing: ${missing.join(', ')}`] : []),
+      ...(stale.length ? [`stale: ${stale.join(', ')}`] : []),
+      ...(invalid.length ? [`not regular files: ${invalid.join(', ')}`] : [])
+    ];
+    throw new SingularityFlowError(
+      `Installed direct Copilot skill content does not match this Singularity Flow build (${details.join(' | ')}). `
+      + 'Run singularity-flow plugin install, then restart Copilot Chat or reload VS Code before retrying.'
+    );
+  }
+  return Object.freeze({
+    targetRoot: resolvedTarget,
+    verified: selected.length,
+    records: Object.freeze(records)
+  });
 }
 
 function managedSkill(file) {

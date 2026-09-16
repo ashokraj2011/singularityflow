@@ -73,7 +73,7 @@ Do not rely on generic repository knowledge when a configured world view exists.
 
 For a symbol, import, or relationship question, use the model-free `wm.ast.query` gateway read before broad repository search. Request at most 50 facts and 32 KiB initially, follow its cone-bound `nextCursor` only when needed, and cite the extractor identity and assurance. A lexical `text` symbol is advisory discovery evidence, not proof of a declaration; required symbol claims need syntax or semantic assurance.
 
-When the user explicitly invokes `/sflow-next`, execute one action through `singularity-flow next`; never chain generation, submission, and approval in one invocation.
+When the user explicitly invokes `/sflow-next`, run `singularity-flow nextsteps <WORK-ID> --json`, select the first `NOW` action, and follow that returned skill route for at most one authorized action; never run the outer `singularity-flow next` router or chain generation, submission, and approval. When presenting the remaining next action, copy `copilotCommand` and `command` from the same returned action object; `/sf-phase` must never be paired with `singularity-flow next`.
 
 After every submission and before every approval confirmation, run `singularity-flow phase show <phase>` and present all generated current-phase documents. Show Markdown/text content directly and binary/image paths with hashes and sizes. Never request approval using only filenames or a summary.
 

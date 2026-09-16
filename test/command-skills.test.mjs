@@ -192,3 +192,20 @@ test('a policy-selected custom code phase keeps the generic code-authoring Copil
   assert.equal(guidance.skill, '/sf-code');
   assert.equal(guidance.copilotCommand, '/sf-code');
 });
+
+test('router and resolved phase actions cannot be presented as one equivalent pair', () => {
+  const router = safeCommandGuidance('singularity-flow next');
+  assert.ok(router);
+  assert.equal(router.copilotCommand, '/sf-next');
+
+  const phase = safeCommandGuidance('singularity-flow prepare planning');
+  assert.ok(phase);
+  assert.equal(phase.copilotCommand, '/sf-phase');
+
+  assert.equal(safeCommandGuidance({
+    command: 'singularity-flow next', skill: '/sf-phase'
+  }), null);
+  assert.equal(safeCommandGuidance({
+    command: 'singularity-flow prepare planning', skill: '/sf-next'
+  }), null);
+});

@@ -91,8 +91,14 @@ test('phase handoffs always show the Copilot action and terminal equivalent', as
   ];
   for (const name of phaseSkills) {
     const content = await readFile(path.join(root, 'plugin', 'skills', name, 'SKILL.md'), 'utf8');
-    assert.match(content, /Next in Copilot: \/sf-/, `${name} must lead its handoff with a Copilot command`);
-    assert.match(content, /Terminal equivalent: singularity-flow /, `${name} must include the terminal equivalent`);
+    if (name === 'sflow-next') {
+      assert.match(content, /Next action \(choose one surface\):/);
+      assert.match(content, /`Copilot: \/sf-\.\.\.`/);
+      assert.match(content, /`Shell: singularity-flow \.\.\.`/);
+    } else {
+      assert.match(content, /Next in Copilot: \/sf-/, `${name} must lead its handoff with a Copilot command`);
+      assert.match(content, /Terminal equivalent: singularity-flow /, `${name} must include the terminal equivalent`);
+    }
   }
   const verify = await readFile(path.join(root, 'plugin', 'skills', 'sflow-verify', 'SKILL.md'), 'utf8');
   assert.match(verify, /Next in Copilot: \/sf-submit verification/);

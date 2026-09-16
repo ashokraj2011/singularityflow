@@ -10,7 +10,8 @@ import {
   installDirectSkills,
   isManagedDirectSkill,
   renderDirectSkill,
-  uninstallDirectSkills
+  uninstallDirectSkills,
+  verifyDirectSkillContents
 } from '../src/direct-skills.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -87,6 +88,26 @@ test('direct skill installation refuses to overwrite an unrelated personal skill
     /would overwrite personal skill.*sf-submit/
   );
   assert.match(await readFile(path.join(targetRoot, 'sf-submit', 'SKILL.md'), 'utf8'), /Personal instructions/);
+});
+
+test('direct skill verification rejects an enabled but stale installed alias', async () => {
+  const fixture = await mkdtemp(path.join(os.tmpdir(), 'sflow-direct-verify-'));
+  const targetRoot = path.join(fixture, 'skills');
+  const installed = installDirectSkills({ sourceRoot, targetRoot });
+  const current = verifyDirectSkillContents({
+    sourceRoot, targetRoot, expectedNames: installed.installed
+  });
+  assert.equal(current.verified, installed.installed.length);
+  assert.ok(current.records.every((record) => record.actualSha256 === record.expectedSha256));
+
+  const nextFile = path.join(targetRoot, 'sf-next', 'SKILL.md');
+  await writeFile(nextFile, (await readFile(nextFile, 'utf8')).replace(
+    'Never run `singularity-flow next`.',
+    'Then run `singularity-flow next` once.'
+  ));
+  assert.throws(() => verifyDirectSkillContents({
+    sourceRoot, targetRoot, expectedNames: installed.installed
+  }), /does not match.*stale: sf-next.*plugin install.*restart/is);
 });
 
 test('direct skill uninstall removes only Singularity-managed aliases', async () => {

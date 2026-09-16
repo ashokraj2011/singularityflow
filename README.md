@@ -1735,6 +1735,12 @@ sflow-next
 # equivalent: singularity-flow next
 ```
 
+Those two commands are the **router pair**. After the router selects an action, report that
+action's own pair separately. For example, phase generation is `Copilot: /sf-phase` and
+`Shell: singularity-flow prepare planning`; `/sf-phase` is never the equivalent of
+`singularity-flow next`. A completed action and the remaining next action are also reported under
+separate labels, so a recommendation is never described as something already executed.
+
 The command performs exactly one lifecycle action. It recovers a pending push, prepares and grounds the active generation, submits an already-published generation, opens the normal interactive approval flow, or runs the terminal gate after completion. Lifecycle grounding uses the shared repository world model keyed by its scoped source snapshot; Story context comes from the governed workflow prompt, so starting another Story does not create a task-guide requirement or regenerate unchanged repository grounding. The legacy `--task` flag is accepted for compatibility and ignored by lifecycle grounding; use explicit `wm ensure/compose --task` commands only when intentionally requesting an ad-hoc task guide. Copilot completes and publishes a prepared artifact; it does not silently chain that publication into submission. Approval verifies the real reviewer identity and authority group, activates the phase agent, then requires exact phase confirmation; every approval gets its own commit and push.
 
 ## Progress

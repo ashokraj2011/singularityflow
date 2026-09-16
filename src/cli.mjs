@@ -9320,7 +9320,7 @@ async function pluginCommand(positionals, options) {
   if (subcommand === 'verify') {
     const result = verifyPluginInstallation();
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
-    else console.log(`Copilot plugin verified: ${result.pluginIdentity}; ${result.enabledPluginSkills} packaged /sflow-* skills and ${result.enabledDirectSkills} direct /sf-* skills enabled.`);
+    else console.log(`Copilot plugin verified: ${result.pluginIdentity}; ${result.enabledPluginSkills} packaged /sflow-* skills enabled, ${result.enabledDirectSkills} direct /sf-* skills enabled, and ${result.contentVerifiedDirectSkills} direct skill files match this build exactly.`);
     return;
   }
   if (subcommand === 'path') return console.log(pluginPath());

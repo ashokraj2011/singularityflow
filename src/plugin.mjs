@@ -2,7 +2,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { commandExists, SingularityFlowError, run } from './util.mjs';
 import {
-  bundledDirectSkillNames, installDirectSkills, uninstallDirectSkills
+  bundledDirectSkillNames, installDirectSkills, uninstallDirectSkills, verifyDirectSkillContents
 } from './direct-skills.mjs';
 
 const PLUGIN_NAME = 'singularity-flow';
@@ -94,10 +94,13 @@ function skillInventoryFailures(payload, expectedNames, scope) {
 }
 
 /**
- * Prove that Copilot sees one SFlow plugin and every installer-managed direct skill as enabled.
+ * Prove that Copilot sees one SFlow plugin and every installer-managed direct skill as enabled,
+ * then prove that every direct skill file is the exact alias rendered by this running build.
  *
  * `copilot plugin list` alone is not sufficient: Copilot can accept the plugin while refusing an
- * individual skill because its frontmatter is invalid. Keep every inventory explicitly scoped to
+ * individual skill because its frontmatter is invalid. Inventory also exposes no content digest,
+ * so enabled same-name stale aliases require the separate byte verification below. Keep every
+ * inventory explicitly scoped to
  * `user` or `plugin`; the unscoped JSON can exceed Copilot's 64 KiB output limit on a normally
  * configured developer machine and arrive truncated.
  */
@@ -106,7 +109,9 @@ export function verifyPluginInstallation({
   exists = commandExists,
   expectedDirectSkills = bundledDirectSkillNames(),
   targetRoot = null,
-  env = process.env
+  env = process.env,
+  directSourceRoot = null,
+  verifyDirectContents = verifyDirectSkillContents
 } = {}) {
   requireCopilot(exists);
   const pluginList = execute('copilot', ['plugin', 'list'], {
@@ -163,13 +168,22 @@ export function verifyPluginInstallation({
       ...(relevantDirectErrors.length ? [`direct-skill discovery errors: ${relevantDirectErrors.map((error) => JSON.stringify(error)).join('; ')}`] : []),
       ...(relevantPluginSkillErrors.length ? [`plugin-skill discovery errors: ${relevantPluginSkillErrors.map((error) => JSON.stringify(error)).join('; ')}`] : [])
     ];
-    throw new SingularityFlowError(`Copilot skill verification failed (${details.join(' | ')}).`);
+    throw new SingularityFlowError(
+      `Copilot skill verification failed (${details.join(' | ')}). `
+      + 'Run singularity-flow plugin install, then restart Copilot Chat or reload VS Code before retrying.'
+    );
   }
+  const contentVerification = verifyDirectContents({
+    sourceRoot: directSourceRoot ?? undefined,
+    targetRoot: targetRoot ?? undefined,
+    expectedNames: expectedDirectSkills
+  });
   return {
     pluginIdentity: identities[0],
     pluginVersion: pluginEntries[0].version ?? null,
     expectedDirectSkills: [...expectedDirectSkills],
     enabledDirectSkills: expectedDirectSkills.length,
+    contentVerifiedDirectSkills: contentVerification.verified,
     enabledPluginSkills: expectedPluginSkills.length,
     unrelatedDiscoveryErrors: pluginInventory.errors.length + directInventory.errors.length
       + pluginSkillInventory.errors.length - pluginErrors.length - relevantDirectErrors.length

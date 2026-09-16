@@ -759,7 +759,8 @@ export async function applyLocalReinstall(plan, {
       const aliases = installAliases({ sourceRoot: path.join(pluginRoot, 'skills'), targetRoot: plan.installed.skillsRoot });
       expectedDirectSkills = aliases.installed;
       verifyPluginInstallation({
-        execute, exists, expectedDirectSkills, targetRoot: plan.installed.skillsRoot, env
+        execute, exists, expectedDirectSkills, targetRoot: plan.installed.skillsRoot,
+        directSourceRoot: path.join(pluginRoot, 'skills'), env
       });
       await replaceTelemetryWrapper({ homeDirectory, enabled: plan.telemetry });
     }

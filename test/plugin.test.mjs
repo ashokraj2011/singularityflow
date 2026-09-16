@@ -216,6 +216,11 @@ test('initial phase skills require interactive clarification instead of silently
   assert.match(next, /never rewrite it to `\/sf-phase`/i);
   assert.match(next, /returned SFlow skill route[\s\S]*complete its preflight[\s\S]*at most its one authorized action/is);
   assert.match(next, /Never run `singularity-flow next`/);
+  assert.match(next, /copy the first `NOW` action's `copilotCommand` and `command` from that same action object/i);
+  assert.match(next, /never pair `\/sf-phase` with `singularity-flow next`/i);
+  assert.match(workflowAgent, /never run the outer `singularity-flow next` router/i);
+  assert.match(workflowAgent, /`copilotCommand` and `command` from the same returned action object/i);
+  assert.match(workflowAgent, /`\/sf-phase` must never be paired with `singularity-flow next`/i);
   assert.match(requirements, /required.*evidence looks complete/is);
   assert.match(epicRequirements, /epic sources answer/);
   assert.match(code, /publication deterministically infers supported structured runners/i);
@@ -1010,12 +1015,18 @@ test('plugin verification uses bounded user-scope JSON and requires every direct
   };
   const result = verifyPluginInstallation({
     execute, exists: () => true, expectedDirectSkills: ['sf-about', 'sf-submit'],
-    targetRoot: '/users/test/.copilot/skills', env
+    targetRoot: '/users/test/.copilot/skills', env,
+    verifyDirectContents: ({ targetRoot, expectedNames }) => {
+      assert.equal(targetRoot, '/users/test/.copilot/skills');
+      assert.deepEqual(expectedNames, ['sf-about', 'sf-submit']);
+      return { verified: 2 };
+    }
   });
   assert.equal(result.pluginIdentity, 'singularity-flow');
   assert.equal(result.pluginVersion, '0.9.0');
   assert.equal(result.enabledDirectSkills, 2);
   assert.equal(result.enabledPluginSkills, 2);
+  assert.equal(result.contentVerifiedDirectSkills, 2);
   assert.equal(result.unrelatedDiscoveryErrors, 1);
   assert.deepEqual(calls.map((call) => call.args), [
     ['plugin', 'list'],
@@ -1036,6 +1047,7 @@ test('plugin verification refuses disabled, missing, duplicate, and errored mana
       exists: () => true,
       expectedDirectSkills: ['sf-about', 'sf-submit'],
       targetRoot: '/users/test/.copilot/skills',
+      verifyDirectContents: () => ({ verified: 2 }),
       execute: (_command, args) => {
         const command = args.join(' ');
         if (command === 'plugin list') return { status: 0, stdout: pluginOutput, stderr: '' };
@@ -1061,7 +1073,7 @@ test('plugin verification refuses disabled, missing, duplicate, and errored mana
       { kind: 'skill', name: 'sf-about', scope: 'user', enabled: false },
       { kind: 'skill', name: 'sf-submit', scope: 'user', enabled: true }
     ], errors: []
-  }), /disabled direct skills: sf-about/);
+  }), /disabled direct skills: sf-about.*plugin install.*restart/is);
   assert.throws(() => verify({
     plugins: [{ kind: 'skill', name: 'sf-about', scope: 'user', enabled: true }], errors: []
   }), /missing direct skills: sf-submit/);

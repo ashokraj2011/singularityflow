@@ -108,6 +108,7 @@ test('nextsteps text preserves timing and reason and shows both Shell and Copilo
   const snapshot = nextStepsSnapshot({ workflow: workflow() });
   const text = nextStepsText(snapshot);
   assert.match(text, /NEXT-1 — next actions/);
+  assert.match(text, /Guided router: Copilot \/sf-next · Shell singularity-flow next/);
   assert.match(text, /NOW — .*\n   Shell: singularity-flow prepare intake/);
   assert.match(text, /THEN — .*\n   Shell: singularity-flow phase publish intake --authored governed-agent --channel copilot-host/);
   assert.match(text, /THEN — .*\n   Shell: singularity-flow submit intake/);

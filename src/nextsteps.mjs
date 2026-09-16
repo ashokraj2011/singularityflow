@@ -195,7 +195,7 @@ export function nextStepsText(snapshot) {
     `State: ${snapshot.state}`,
     snapshot.branch ? `Branch: ${snapshot.branch}` : null,
     snapshot.currentPhase ? `Current phase: ${snapshot.currentPhase}` : null,
-    snapshot.workId ? 'Automatic next action in Copilot: /sf-next' : null,
+    snapshot.workId ? 'Guided router: Copilot /sf-next · Shell singularity-flow next' : null,
     ''
   ].filter((line) => line !== null);
   // Every action names both equivalent entry points. The reason leads; neither the shell nor

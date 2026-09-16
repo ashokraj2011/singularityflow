@@ -22,7 +22,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 13
+version: 14
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing governed application history.
 
@@ -75,12 +75,32 @@ both explicit refresh forms:
 - **Shell:** `singularity-flow workspace refresh-configuration`
 - **Copilot:** `/sf-refresh-configuration`
 
+Build, test, package, and artifact-retention output means only that candidate artifacts are staged;
+it does not mean that installed product surfaces changed. A matching semantic version is also
+insufficient because different builds can carry the same version. A full installation is complete
+only when the final activation banner is exactly
+`Singularity Flow product activation — COMPLETE AND VERIFIED`.
+Before printing it, the installer must prove that the installed `singularity-flow --build` output
+exactly matches the admitted candidate, verify every selected surface (including
+`singularity-flow plugin verify --json` when Copilot is selected), and commit
+`~/.singularity-flow/installations/current.json`. An explicitly narrowed install reports
+`Singularity Flow product activation — PARTIAL BY REQUEST` instead of full completion. A normal
+install whose optional manager is unavailable reports `Singularity Flow product activation —
+COMPLETE WITH SKIPS` and names the skipped surface in the receipt. If no recognized final activation
+banner appears, follow the printed recovery command or committed-receipt verification commands and
+do not infer success from package output, a matching version, or a subset of healthy surfaces.
+
 An upgrade must prove exact retained rollback bytes for each existing managed CLI and VS Code
 surface before changing anything. The installer durably snapshots those bytes plus managed
 Copilot skills, telemetry/profile files, and the installation receipt. A refusal or handled
 interrupt restores and verifies touched surfaces in reverse order. If the process dies, retry the
 same platform installer; it completes the retained `distribution-install-pending.json` rollback
 before admitting a new activation.
+
+A legacy clean reinstall is different only when no trusted prior product bytes exist yet. It cannot
+claim to restore an unknown old build. If apply fails after removal, it retains the verified new
+candidate and prints one exact roll-forward recovery command. Its successful schema-v2 receipt gives
+later upgrades the exact rollback authority needed for automatic compensation.
 
 The packaged runners can also be invoked directly as `sf-install --release-dir <DIRECTORY>
 --artifact-key <PUBLIC-KEY>` after

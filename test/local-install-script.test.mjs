@@ -100,6 +100,10 @@ test('local installer performs a safe ordered pull, pack, global install, and pl
     'rollback must remove a CLI that the failed transaction introduced onto an initially fresh machine');
   assert.match(script, /npm install --global "\$TARBALL_PATH" --cache "\$ACTIVATION_TRANSACTION_CACHE" --registry="\$REGISTRY"/);
   assert.match(script, /INSTALLED_CLI_VERSION="\$\(singularity-flow --version\)"/);
+  assert.match(script, /singularity-flow --build/,
+    'activation must verify build provenance, not only the long-lived semantic version');
+  assert.match(script, /development checkout/,
+    'activation must refuse an unstamped checkout identity before replacing product surfaces');
   assert.match(script, /node "\$CANDIDATE_CLI_EXECUTABLE" plugin install/);
   assert.match(script, /node "\$CANDIDATE_CLI_EXECUTABLE" plugin verify/);
   assert.match(script, /sflow_copilot\(\)/);
@@ -153,6 +157,10 @@ test('local installer performs a safe ordered pull, pack, global install, and pl
   assert.match(script, /--expected-revision "\$INSTALL_ACTIVATION_JOURNAL_REVISION"/);
   assert.ok(script.indexOf('acquire_activation_lease create') < script.indexOf('node "$INSTALL_ARTIFACT_HELPER" create'));
   assert.ok(script.indexOf('write_activation_journal complete complete') < script.lastIndexOf('release_activation_lease'));
+  assert.equal(script.indexOf('trap - ERR INT TERM HUP', script.indexOf('write_activation_journal complete complete')), -1,
+    'post-commit refresh and receipt work must remain protected by the committed-activation handler');
+  assert.match(script, /The normal final activation banner may not have been emitted;[\s\S]*Inspect committed receipt:[\s\S]*Verify exact CLI build:/,
+    'a post-commit interruption must print deterministic receipt and exact-build verification');
   const cliPreflight = script.slice(script.indexOf('preflight_private_cli()'), script.indexOf('\nrestore_vscode_surface()'));
   assert.match(cliPreflight, /npm install --prefix "\$temporary"/);
   assert.match(cliPreflight, /rm -rf -- "\$target"/,
@@ -184,6 +192,9 @@ test('local installer performs a safe ordered pull, pack, global install, and pl
   assert.ok(script.indexOf('code --install-extension "$VSIX_PATH" --force') < script.indexOf('npm install --global "$TARBALL_PATH"'),
     'the globally callable CLI must be the final active product surface replaced');
   assert.ok(script.indexOf('node "$CANDIDATE_CLI_EXECUTABLE" plugin install') < script.indexOf('npm install --global "$TARBALL_PATH"'));
+  const completionBanner = script.indexOf("printf '\\nSingularity Flow product activation");
+  assert.ok(completionBanner > script.indexOf('write_activation_journal complete complete'),
+    'the product completion banner must be emitted only after the durable activation receipt commits');
 });
 
 test('Windows Git Bash wrapper validates CRLF support and delegates to the canonical installer', async () => {
@@ -342,12 +353,16 @@ if [[ " $* " == *" --prefix "* ]]; then
   printf '%s\\n' \\
     'import { appendFileSync } from "node:fs";' \\
     'if (process.argv[2] === "--version") console.log("${version}");' \\
+    'else if (process.argv[2] === "--build") console.log(process.env.INSTALL_TEST_CANDIDATE_DEVELOPMENT_BUILD === "1" ? "${version} (development checkout, not a stamped package)" : "${version} (fixture-build-01234567)");' \\
     'else if (process.env.INSTALL_TEST_LOG) appendFileSync(process.env.INSTALL_TEST_LOG, "private-cli " + process.argv.slice(2).join(" ") + "\\\\n");' \\
     > "$prefix/node_modules/singularity-flow/bin/singularity-flow.mjs"
   exit 0
 fi
 if [[ " $* " == *" --global "* && "\${INSTALL_TEST_REMOVE_CLI_AFTER_GLOBAL:-}" == "1" ]]; then
   rm -f "$INSTALL_TEST_BIN/singularity-flow"
+fi
+if [[ " $* " == *" --global "* && "\${INSTALL_TEST_CLI_BUILD_MISMATCH_ONCE:-}" == "1" ]]; then
+  : > "$HOME/.sflow-global-installed"
 fi
 if [[ " $* " == *" --global "* && "\${INSTALL_TEST_FAIL_AFTER_GLOBAL:-}" == "1" ]]; then
   if [[ -f "$HOME/.sflow-global-failed-once" ]]; then
@@ -379,6 +394,17 @@ if [[ "$*" == "--version" ]]; then
     printf "%s\\n" "${version}"
   fi
 fi
+if [[ "$*" == "--build" ]]; then
+  if [[ "\${INSTALL_TEST_CLI_PRIOR_BUILD_MISMATCH:-}" == "1" ]]; then
+    printf "%s\\n" "${version} (unretained-fixture-build-fedcba98)"
+  elif [[ "\${INSTALL_TEST_CLI_BUILD_MISMATCH_ONCE:-}" == "1" \
+    && -f "$HOME/.sflow-global-installed" && ! -f "$HOME/.sflow-cli-build-mismatch-seen" ]]; then
+    : > "$HOME/.sflow-cli-build-mismatch-seen"
+    printf "%s\\n" "${version} (stale-fixture-build-89abcdef)"
+  else
+    printf "%s\\n" "${version} (fixture-build-01234567)"
+  fi
+fi
 if [[ "$*" == "workflow list --json" ]]; then
   printf '%s\\n' '[{"id":"benchmarking-a","status":"available","installed":false},{"id":"feature","status":"current","installed":true}]'
 fi`;
@@ -401,7 +427,13 @@ fi`;
     }
   });
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
-  assert.match(result.stdout, new RegExp(`Installed Singularity Flow ${version.replaceAll('.', '\\.')}`));
+  assert.match(result.stdout, /Singularity Flow product activation[^\n]*(?:COMPLETE|VERIFIED)/iu);
+  assert.equal(result.stdout.trimEnd().split(/\r?\n/u).at(-1),
+    'Singularity Flow product activation — COMPLETE AND VERIFIED');
+  assert.match(result.stdout, new RegExp(
+    `Installed CLI build: ${version.replaceAll('.', '\\.')} \\(fixture-build-01234567\\)`
+  ));
+  assert.match(result.stdout, /Installation receipt: .*[/\\]installations[/\\]current\.json/u);
   assert.match(result.stdout, /SFlow Copilot launcher helper: enabled/);
   assert.match(result.stdout, /Prompt and response content capture remains disabled/);
   assert.match(result.stdout, /Use sflow copilot for consented, story-scoped local usage capture/);
@@ -445,6 +477,8 @@ fi`;
     'npm install --prefix',
     `npm install --global ${activation.artifacts.tarball.path}`,
     'singularity-flow --version',
+    'singularity-flow --build',
+    'singularity-flow plugin verify --json',
     'npm run vscode:package',
     `code --install-extension ${activation.artifacts.vsix.path} --force`,
     'code --list-extensions --show-versions',
@@ -487,12 +521,92 @@ fi`;
   });
   assert.equal(standardEnvironment.status, 0, `${standardEnvironment.stdout}\n${standardEnvironment.stderr}`);
   assert.match(standardEnvironment.stdout, new RegExp(`Using npm registry: ${registry.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  assert.match(standardEnvironment.stdout, /PARTIAL BY REQUEST/iu,
+    'CLI-only installation must not use the all-surfaces completion presentation');
+  const cliOnlyReceipt = JSON.parse(await readFile(
+    path.join(fixture, '.singularity-flow', 'installations', 'current.json'), 'utf8'
+  ));
+  assert.equal(cliOnlyReceipt.status, 'partial-by-request',
+    'the durable receipt must agree with the explicit partial activation banner');
   const environmentCommands = (await readFile(log, 'utf8')).split('\n').filter((line) => line.startsWith('npm '));
   assert.ok(environmentCommands.length >= 6);
   for (const command of environmentCommands) {
     assert.match(command, new RegExp(` registry=${registry.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`),
       `NPM_CONFIG_REGISTRY must reach: ${command}`);
   }
+
+  await writeFile(log, '');
+  const withoutTelemetry = spawnSync('bash', [
+    path.join(fixture, 'install.sh'), '--no-copilot-telemetry', '--no-update', '--skip-tests',
+    '--no-workspace-configuration-refresh'
+  ], {
+    cwd: fixture,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      HOME: fixture,
+      SHELL: '/bin/zsh',
+      PATH: `${bin}:/usr/bin:/bin`,
+      INSTALL_TEST_LOG: log,
+      INSTALL_TEST_TARBALL: stagedTarball,
+      INSTALL_TEST_VSIX: stagedVsix,
+      NPM_CONFIG_REGISTRY: registry,
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: activeWorkspace
+    }
+  });
+  assert.equal(withoutTelemetry.status, 0, `${withoutTelemetry.stdout}\n${withoutTelemetry.stderr}`);
+  assert.equal(withoutTelemetry.stdout.trimEnd().split(/\r?\n/u).at(-1),
+    'Singularity Flow product activation — PARTIAL BY REQUEST',
+    'an explicit telemetry omission must not claim complete all-surface activation');
+
+  await writeFile(log, '');
+  const unstampedCandidate = spawnSync('bash', [
+    path.join(fixture, 'install.sh'), '--cli-only', '--no-update', '--skip-tests',
+    '--no-workspace-configuration-refresh'
+  ], {
+    cwd: fixture,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      HOME: fixture,
+      SHELL: '/bin/zsh',
+      PATH: `${bin}:/usr/bin:/bin`,
+      INSTALL_TEST_LOG: log,
+      INSTALL_TEST_CANDIDATE_DEVELOPMENT_BUILD: '1',
+      INSTALL_TEST_TARBALL: stagedTarball,
+      INSTALL_TEST_VSIX: stagedVsix,
+      NPM_CONFIG_REGISTRY: registry,
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: activeWorkspace
+    }
+  });
+  assert.notEqual(unstampedCandidate.status, 0);
+  assert.match(unstampedCandidate.stderr, /unstamped development checkout.*not an installable package/iu);
+  assert.doesNotMatch(`${unstampedCandidate.stdout}\n${unstampedCandidate.stderr}`,
+    /Singularity Flow product activation[^\n]*(?:COMPLETE|VERIFIED)/iu);
+  const unstampedCommands = await readFile(log, 'utf8');
+  assert.match(unstampedCommands, /npm install --prefix/,
+    'the retained package must be inspected in an isolated private prefix');
+  assert.doesNotMatch(unstampedCommands, /npm install --global/,
+    'an unstamped candidate is refused before replacing the global CLI');
+
+  await writeFile(log, '');
+  const recoveredUnstampedCandidate = spawnSync('bash', [
+    path.join(fixture, 'install.sh'), '--from-staged-artifacts'
+  ], {
+    cwd: fixture,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      HOME: fixture,
+      SHELL: '/bin/zsh',
+      PATH: `${bin}:/usr/bin:/bin`,
+      INSTALL_TEST_LOG: log,
+      NPM_CONFIG_REGISTRY: registry,
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: activeWorkspace
+    }
+  });
+  assert.equal(recoveredUnstampedCandidate.status, 0,
+    `${recoveredUnstampedCandidate.stdout}\n${recoveredUnstampedCandidate.stderr}`);
 
   await writeFile(log, '');
   const skipped = spawnSync('bash', [
@@ -567,6 +681,8 @@ fi`;
   });
   assert.equal(withoutCopilot.status, 0, `${withoutCopilot.stdout}\n${withoutCopilot.stderr}`);
   assert.match(withoutCopilot.stdout, /no Git fetch or pull was run/);
+  assert.match(withoutCopilot.stdout, /PARTIAL BY REQUEST/iu,
+    'an explicit Copilot omission must remain visible in the final result');
   const withoutCopilotCommands = await readFile(log, 'utf8');
   assert.doesNotMatch(withoutCopilotCommands, /git pull --ff-only/);
   assert.doesNotMatch(withoutCopilotCommands, /^copilot /m);
@@ -593,6 +709,8 @@ fi`;
   });
   assert.equal(vscodeOnly.status, 0, `${vscodeOnly.stdout}\n${vscodeOnly.stderr}`);
   assert.match(vscodeOnly.stdout, /VS Code-only installation complete/);
+  assert.match(vscodeOnly.stdout, /PARTIAL BY REQUEST/iu,
+    'VS Code-only installation must not imply that the CLI and Copilot surfaces were activated');
   const vscodeOnlyCommands = await readFile(log, 'utf8');
   assert.match(vscodeOnlyCommands, /npm run vscode:package/);
   assert.match(vscodeOnlyCommands, /code --install-extension/);
@@ -603,6 +721,13 @@ fi`;
   assert.doesNotMatch(vscodeOnlyCommands, /singularity-flow workspace refresh-configuration/);
   assert.doesNotMatch(vscodeOnlyCommands, /^singularity-flow /m);
   assert.doesNotMatch(vscodeOnlyCommands, /^copilot /m);
+  const vscodeOnlyReceipt = JSON.parse(await readFile(
+    path.join(fixture, '.singularity-flow', 'installations', 'current.json'), 'utf8'
+  ));
+  assert.equal(vscodeOnlyReceipt.status, 'partial-by-request');
+  assert.deepEqual(vscodeOnlyReceipt.build, {
+    cli: `${version} (fixture-build-01234567)`
+  }, 'VS Code-only activation must preserve the exact identity of the untouched CLI');
   await fake('copilot', 'if [[ "$*" == "plugin list" ]]; then printf "%s\\n" "Installed plugins: singularity-flow@singularity-flow"; fi');
 
   const journalPath = path.join(fixture, '.singularity-flow', 'installations', 'activation-current.json');
@@ -635,6 +760,8 @@ fi`;
   });
   assert.notEqual(compensated.status, 0);
   assert.match(compensated.stderr, /every touched surface was restored/);
+  assert.doesNotMatch(`${compensated.stdout}\n${compensated.stderr}`,
+    /Singularity Flow product activation[^\n]*(?:COMPLETE|VERIFIED)/iu);
   const compensatedJournal = JSON.parse(await readFile(journalPath, 'utf8'));
   assert.equal(compensatedJournal.status, 'rolled-back');
   assert.deepEqual(compensatedJournal.rollbackFailures, []);
@@ -667,6 +794,8 @@ fi`;
   });
   assert.notEqual(missingCli.status, 0);
   assert.match(missingCli.stderr, /singularity-flow is not available on PATH/);
+  assert.doesNotMatch(`${missingCli.stdout}\n${missingCli.stderr}`,
+    /Singularity Flow product activation[^\n]*(?:COMPLETE|VERIFIED)/iu);
   assert.match(missingCli.stderr, /--from-staged-artifacts/);
   const missingCliJournal = JSON.parse(await readFile(journalPath, 'utf8'));
   assert.equal(missingCliJournal.status, 'rollback-failed');
@@ -724,6 +853,68 @@ fi`;
   assert.equal(mismatchedCliJournal.revision, repairedRollbackJournal.revision);
 
   await writeFile(log, '');
+  const mismatchedPriorBuild = spawnSync('bash', [
+    path.join(fixture, 'install.sh'), '--cli-only', '--no-update', '--skip-tests'
+  ], {
+    cwd: fixture,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      HOME: fixture,
+      SHELL: '/bin/zsh',
+      PATH: `${bin}:/usr/bin:/bin`,
+      INSTALL_TEST_LOG: log,
+      INSTALL_TEST_CLI_PRIOR_BUILD_MISMATCH: '1',
+      INSTALL_TEST_TARBALL: stagedTarball,
+      INSTALL_TEST_VSIX: stagedVsix,
+      NPM_CONFIG_REGISTRY: registry,
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: activeWorkspace
+    }
+  });
+  assert.notEqual(mismatchedPriorBuild.status, 0);
+  assert.match(mismatchedPriorBuild.stderr,
+    /installed CLI build .* does not match retained rollback build/u);
+  assert.match(mismatchedPriorBuild.stderr, /No product surface was changed/u);
+  assert.doesNotMatch(`${mismatchedPriorBuild.stdout}\n${mismatchedPriorBuild.stderr}`,
+    /Product activation starts now/u,
+    'prior-build drift must refuse before the product mutation boundary');
+  const mismatchedPriorBuildJournal = JSON.parse(await readFile(journalPath, 'utf8'));
+  assert.equal(mismatchedPriorBuildJournal.status, 'rolled-back');
+  assert.deepEqual(mismatchedPriorBuildJournal.completedSurfaces, [],
+    'prior-build drift may retain a recovery receipt but must not activate a product surface');
+
+  await rm(path.join(fixture, '.sflow-cli-build-mismatch-seen'), { force: true });
+  await rm(path.join(fixture, '.sflow-global-installed'), { force: true });
+  await writeFile(log, '');
+  const mismatchedBuild = spawnSync('bash', [
+    path.join(fixture, 'install.sh'), '--cli-only', '--no-update', '--skip-tests',
+    '--no-workspace-configuration-refresh'
+  ], {
+    cwd: fixture,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      HOME: fixture,
+      SHELL: '/bin/zsh',
+      PATH: `${bin}:/usr/bin:/bin`,
+      INSTALL_TEST_LOG: log,
+      INSTALL_TEST_CLI_BUILD_MISMATCH_ONCE: '1',
+      INSTALL_TEST_TARBALL: stagedTarball,
+      INSTALL_TEST_VSIX: stagedVsix,
+      NPM_CONFIG_REGISTRY: registry,
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: activeWorkspace
+    }
+  });
+  assert.notEqual(mismatchedBuild.status, 0);
+  assert.match(mismatchedBuild.stderr,
+    /installed CLI build .* does not match admitted candidate build/u);
+  assert.match(mismatchedBuild.stderr, /every touched surface was restored/u);
+  assert.doesNotMatch(`${mismatchedBuild.stdout}\n${mismatchedBuild.stderr}`,
+    /Singularity Flow product activation[^\n]*(?:COMPLETE|VERIFIED)/iu);
+  const mismatchedBuildJournal = JSON.parse(await readFile(journalPath, 'utf8'));
+  assert.equal(mismatchedBuildJournal.status, 'rolled-back');
+
+  await writeFile(log, '');
   const mismatchedVsix = spawnSync('bash', [
     path.join(fixture, 'install.sh'), '--vscode-only', '--no-update', '--skip-tests'
   ], {
@@ -745,8 +936,8 @@ fi`;
   assert.notEqual(mismatchedVsix.status, 0);
   assert.match(mismatchedVsix.stderr, /installed vsix version 0\.0\.1 does not match retained rollback version/);
   const mismatchedVsixJournal = JSON.parse(await readFile(journalPath, 'utf8'));
-  assert.equal(mismatchedVsixJournal.operationId, repairedRollbackJournal.operationId);
-  assert.equal(mismatchedVsixJournal.revision, repairedRollbackJournal.revision);
+  assert.equal(mismatchedVsixJournal.operationId, mismatchedBuildJournal.operationId);
+  assert.equal(mismatchedVsixJournal.revision, mismatchedBuildJournal.revision);
 
   await writeFile(log, '');
   await rm(path.join(fixture, '.sflow-code-failed-once'), { force: true });
@@ -836,7 +1027,7 @@ fi`;
   const completedManifest = JSON.parse(await readFile(
     path.join(fixture, '.singularity-flow', 'installations', 'current.json'), 'utf8'
   ));
-  assert.equal(completedManifest.status, 'complete');
+  assert.equal(completedManifest.status, 'partial-by-request');
   assert.equal(completedManifest.workspaceRefresh, 'complete');
 });
 

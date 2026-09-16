@@ -70,9 +70,9 @@ test('user documentation advertises current Copilot skill discovery and qualifie
     ['README.md', 'HELP.md', 'HOW-TO.md'].map(async (file) => [file, await readFile(path.join(root, file), 'utf8')])
   );
   for (const [file, content] of documents) {
-    assert.doesNotMatch(content, /copilot skill list/, `${file} must use the current Copilot resource-list command`);
+    assert.doesNotMatch(content, /copilot plugins list --kind/, `${file} must not advertise the retired scoped inventory command`);
     assert.doesNotMatch(content, /\/singularity-flow:sflow-/, `${file} must not advertise the obsolete colon-qualified syntax`);
   }
   assert.match(documents.find(([file]) => file === 'README.md')[1], /\/singularity-flow\/sflow-/);
-  assert.match(documents.find(([file]) => file === 'README.md')[1], /copilot plugins list --kind skill/);
+  assert.match(documents.find(([file]) => file === 'README.md')[1], /copilot skill list --json/);
 });

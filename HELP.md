@@ -106,7 +106,9 @@ singularity-flow plugin verify
 ```
 
 Copilot equivalent: `/sf-plugin verify`. Verification requires the plugin and every managed
-user-scope `sf-*` and plugin-scope `sflow-*` skill to be present and enabled.
+direct `sf-*` and packaged `sflow-*` skill to be present and enabled at its exact expected
+path or source. Direct alias bytes must match the running build; current path-bearing Copilot
+inventories also verify the packaged skill bytes.
 
 The install command copies the full governed skill contracts to
 `~/.copilot/skills/sf-*/SKILL.md`. These are personal Copilot skills and therefore
@@ -250,6 +252,10 @@ credentials, or personal Copilot skills. It replaces only the global npm package
 the two Singularity Flow Copilot plugin identities, marker-owned `/sf-*` skills,
 the VS Code extension, and the managed telemetry wrapper. The machine-local receipt
 is stored under `~/.singularity-flow/installations/`.
+The first clean reinstall of a legacy installation may have no trustworthy old product bytes to
+restore. A post-removal failure therefore retains the verified candidate and prints its exact
+roll-forward recovery command. Once the schema-v2 receipt exists, later admitted upgrades can use
+its exact prior artifacts for automatic compensation.
 
 ## Multi-repository initiatives
 
@@ -2643,6 +2649,16 @@ telemetry, and workspace configuration refresh. It cannot be combined with `--cl
 the network update. The normal installer verifies and executes the packaged CLI in a
 digest-addressed isolated prefix before any product mutation. It then installs and verifies the VSIX,
 Copilot plugin, and telemetry files before replacing and verifying the globally callable npm CLI last.
+Build, test, package, and retained-artifact output is staging, not activation. A matching semantic
+version is not enough because different builds can share it. Full installation is complete only
+after the installed `singularity-flow --build` output exactly matches the admitted candidate, every
+selected surface verifies—including `singularity-flow plugin verify --json` when Copilot is
+installed—and `~/.singularity-flow/installations/current.json` is committed. The exact final proof
+is `Singularity Flow product activation — COMPLETE AND VERIFIED`; an explicitly narrowed install
+instead says `Singularity Flow product activation — PARTIAL BY REQUEST`, while a normal install
+whose optional manager is unavailable says `Singularity Flow product activation — COMPLETE WITH
+SKIPS` and records the skipped surface.
+
 An activation journal supplies `--from-staged-artifacts` if a later surface fails. Before activation,
 both validated archives and the exact prior rollback artifacts are retained under
 `~/.singularity-flow/installations/versions/sha256/<digest>/`; the journal binds those paths instead
@@ -2652,7 +2668,10 @@ package step. Any failure before the installation receipt commits restores and v
 surface. Recovery completes an interrupted rollback before retrying the exact candidate. If restoration
 cannot be verified, the journal records `rollback-failed` and blocks a new activation; it never treats
 a prior version label as restorable bytes. Workspace configuration refresh remains a separate Git
-operation after product activation.
+operation after product activation. If no recognized final activation banner appears, use the
+printed recovery command and do not infer success from build/package output, a version label, or a
+subset of healthy surfaces. If activation committed before that banner, follow the printed receipt
+inspection and exact-build verification commands instead of rerunning installation blindly.
 
 To replace only installed product tooling from this checkout—without `git pull` or
 any repository/workspace mutation—use:

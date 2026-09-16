@@ -150,8 +150,10 @@ copilot plugin list
 singularity-flow plugin verify
 ```
 
-Copilot equivalent: `/sf-plugin verify`. The verifier uses bounded user and plugin scope inventories
-and requires the plugin and every installer-managed skill to be present and enabled.
+Copilot equivalent: `/sf-plugin verify`. The verifier prefers Copilot's flat plugin and skill JSON
+inventories, falls back to bounded legacy scoped inventories only when `--json` is unsupported,
+and requires the plugin and every installer-managed skill to be present and enabled. Direct aliases
+are always byte-checked; the current path-bearing inventory also byte-checks packaged skills.
 
 Expected version: `0.9.0`. Start a new Copilot session after plugin installation so the refreshed skills and bundled agent are discovered.
 

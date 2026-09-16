@@ -69,7 +69,9 @@ test('a stamped module still parses, and carries the commit it was built from', 
   const loaded = await import(`data:text/javascript,${encodeURIComponent(
     stamped.replace("import { VERSION } from './version.mjs';", `const VERSION = '${VERSION}';`))}`);
   assert.deepEqual({ ...loaded.BUILD_INFO }, facts);
-  assert.match(loaded.versionLine(), /0123456789abcdef0123456789abcdef01234567|01234567/);
+  assert.match(loaded.versionLine(), /0123456789abcdef0123456789abcdef01234567/);
+  assert.doesNotMatch(loaded.versionLine(), /\(01234567(?:\s|·|\))/u,
+    'the install identity must not abbreviate immutable provenance');
 });
 
 test('stamping safely preserves backslashes, quotes, newlines, and replacement tokens', async () => {
@@ -93,6 +95,11 @@ test('a dirty packing tree is disclosed, because that build is not reproducible'
   const stamped = stamp(source, { ...buildInfoFacts(), dirty: true });
   assert.match(stamped, /dirty: true/);
   assert.match(buildDescription({ commit: 'abcdef1234', dirty: true }), /dirty tree/);
+});
+
+test('source-digest build identity retains the complete digest', () => {
+  const digest = `sha256:${'ab'.repeat(32)}`;
+  assert.match(buildDescription({ sourceSha256: digest }), new RegExp(`source ${digest}`));
 });
 
 test('build provenance uses the exported source date epoch', () => {

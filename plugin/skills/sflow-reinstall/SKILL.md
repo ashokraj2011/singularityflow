@@ -11,8 +11,8 @@ argument-hint: "--checkout <path> [--registry <url>]"
 **Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
 <!-- sflow-execution-boundary -->
 **Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.
-installation surfaces, and perform the exact confirmed transaction. Preserve its complete preview,
-verification result, recovery command, and receipt path.
+Preview the installation surfaces, and perform the exact confirmed transaction. Preserve its complete
+preview, verification result, recovery command, and receipt path.
 
 This operation replaces product tooling only. It never modifies, deletes, scans, fetches, checks out,
 commits, or pushes a Git repository. It preserves every repository `singularity/`, `.singularity/`,
@@ -39,8 +39,17 @@ credentials; Node.js; npm; and personal Copilot skills that lack the managed mar
    ```
 
    Repeat the same `--registry`, `--cli-only`, and telemetry choices used for the preview.
-6. Report the verified CLI, VS Code extension, Copilot plugin, direct-skill inventory, and the
-   machine-local receipt under `~/.singularity-flow/installations/`.
+6. Treat build, test, package, and artifact-retention output as staging only. A matching semantic
+   version does not prove which build was activated. Report a full installation only when the final
+   banner is exactly `Singularity Flow product activation — COMPLETE AND VERIFIED`, the installed
+   `singularity-flow --build` identity matches the admitted candidate, all selected surfaces verify
+   (including `singularity-flow plugin verify --json` when Copilot is selected), and
+   `~/.singularity-flow/installations/current.json` is committed. Report an explicitly narrowed
+   install as `Singularity Flow product activation — PARTIAL BY REQUEST`. An unavailable optional
+   manager reports `Singularity Flow product activation — COMPLETE WITH SKIPS` and the skipped surface.
+7. Report the verified CLI build, VS Code extension, Copilot plugin, direct-skill inventory, and the
+   committed machine-local installation receipt.
 
-Never substitute `factory-reset`, `local-reset`, `fresh-install`, `git clean`, or a home-directory
-search. If application fails after removal, preserve and show the CLI's recovery command exactly.
+Never substitute reset commands, `git clean`, or home-directory search. Without a recognized final
+banner, show the exact recovery command and never infer success. A legacy install lacking retained
+prior bytes recovers forward from the verified candidate; do not claim rollback.

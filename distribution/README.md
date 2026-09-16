@@ -28,6 +28,16 @@ the installation receipt. A failure or handled interrupt restores and verifies t
 reverse order. An abrupt process death leaves `distribution-install-pending.json`; retry the exact
 installer command to complete that rollback before a new activation starts.
 
+Build, package, checksum, and private-staging messages are not installation completion. The
+installer rejects a globally reachable CLI that has the right semantic version but a different
+`singularity-flow --build` identity. Full activation is complete only after selected surfaces
+verify, `~/.singularity-flow/installations/current.json` commits, and the final output says exactly
+`Singularity Flow product activation — COMPLETE AND VERIFIED`. A `--cli-only` result instead says
+`Singularity Flow product activation — PARTIAL BY REQUEST`; when an optional manager is unavailable,
+the result says `Singularity Flow product activation — COMPLETE WITH SKIPS` and records the skipped
+surface. If none of these final banners appears, use the printed recovery command; do not infer
+success from the earlier artifact output.
+
 ## Uninstall
 
 The first invocation is a no-change preview and prints a fingerprinted confirmation.

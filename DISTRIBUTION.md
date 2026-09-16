@@ -197,7 +197,8 @@ and validates the exact retained tarball or VSIX needed to restore every previou
 that this mode will replace. If a prior managed surface is present but its recorded rollback path,
 identity, or SHA-256 cannot be proved, installation stops before the first mutation. It does not
 substitute a same-version download, a mutable checkout artifact, or the CLI currently found on
-`PATH`.
+`PATH`. These build, package, validation, and retention steps stage artifacts only; they are not
+product activation.
 
 Each admitted activation reconstructs a fresh private candidate CLI from the retained candidate
 tarball and uses that verified copy for Copilot plugin installation. It does not depend on, or
@@ -208,6 +209,12 @@ bindings, requested modes, per-surface transitions, operation ID, and revision i
 `activation-current.json`. One process-owned activation lease excludes concurrent installers;
 every journal update is bound to its operation ID and expected revision, and a dead lease owner is
 reclaimed safely.
+
+Semantic-version equality is not activation proof because two builds can report the same version.
+The installed `singularity-flow --build` identity must exactly match the admitted candidate. Every
+selected surface must then verify; when Copilot is selected this includes
+`singularity-flow plugin verify --json`. The installer atomically commits
+`~/.singularity-flow/installations/current.json` only after those checks pass.
 
 After the first surface mutation, `ERR`, `INT`, `TERM`, or `HUP` starts a bounded compensating
 rollback in reverse order: the installation receipt, global CLI, telemetry, Copilot, then VSIX. A
@@ -329,6 +336,13 @@ existing schema-v2 receipt binds it to verified content-addressed bytes; otherwi
 before packaging or product removal and directs the operator to a full clean reinstall.
 `./install.sh --clean-reinstall` delegates to this same planner.
 
+That source clean-reinstall planner is also the migration boundary for a legacy installation whose
+old exact bytes were never retained. In that one case it cannot honestly restore an unknown prior
+build: a post-removal failure retains the verified candidate bundle and prints one exact
+roll-forward recovery command. After the schema-v2 receipt has been established, normal source
+upgrades and promoted-distribution installs can admit exact prior bytes and compensate touched
+surfaces automatically.
+
 Automatic rollback is available only after admission proved exact restoration material for every
 managed surface being replaced. This fail-closed rule is why an older installation that has only a
 version label, but no trusted `current.json` artifact binding, must first be repaired or reinstalled
@@ -338,9 +352,17 @@ Neither automatic compensation nor a manual downgrade rewrites repository state,
 manifests, credentials, or active work. Do not run repository reset or `local-reset` as an
 upgrade/rollback step.
 
-An installer process reporting success is not sufficient proof of activation. Each selected surface
-is verified before the next one begins, and the journal is committed only after all selected surfaces
-pass. An activation or compensation verification failure leaves the journal recoverable as
+An installer process exiting or reporting build/package success is not sufficient proof of
+activation. Full installation is complete only when the committed receipt and selected-surface
+checks are followed by the exact final banner
+`Singularity Flow product activation — COMPLETE AND VERIFIED`. Explicitly narrowed modes instead
+report `Singularity Flow product activation — PARTIAL BY REQUEST`; that result must not be presented
+as an all-surface installation. A normal install whose optional manager is unavailable reports
+`Singularity Flow product activation — COMPLETE WITH SKIPS` and binds the skipped surface in the
+receipt. If no recognized final activation banner appears, run the exact recovery command printed
+by the installer, or its committed-receipt verification commands when activation already committed;
+do not infer success from a matching version or a subset of healthy surfaces.
+An activation or compensation verification failure leaves the journal recoverable as
 `rollback-failed` rather than claiming success.
 
 ## Uninstalling the distributed product

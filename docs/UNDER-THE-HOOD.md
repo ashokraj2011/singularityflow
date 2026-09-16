@@ -230,9 +230,21 @@ Inspect an installation with:
 which singularity-flow
 readlink "$(which singularity-flow)"
 singularity-flow --version
-copilot plugin list
-copilot plugins list --kind skill
+singularity-flow --build
+copilot plugin list --json
+copilot skill list --json
+singularity-flow plugin verify --json
 ```
+
+Verification prefers the current flat plugin and skill inventories. It requires one exact,
+enabled `singularity-flow` or `singularity-flow@singularity-flow` identity; every direct
+`sf-*` skill at its exact normalized personal-skill path; and every packaged `sflow-*` skill
+with Copilot's `plugin` source. Every protocol compares the rendered direct aliases against
+the running build. The current path-bearing inventory also lets verification compare each
+discovered packaged `SKILL.md`, rejecting missing, stale, symlinked, or non-regular files. If
+and only if `copilot plugin list --json` explicitly reports that `--json` is unsupported,
+verification uses the older bounded plural/scoped inventories, which do not report packaged
+skill paths; malformed modern JSON, an unexpected schema, and operational errors fail closed.
 
 ## 3. The Node.js entry point
 
@@ -653,8 +665,9 @@ singularity-flow --version
 Confirm Copilot has the expected plugin and skills:
 
 ```bash
-copilot plugin list
-copilot plugins list --kind skill
+copilot plugin list --json
+copilot skill list --json
+singularity-flow plugin verify --json
 ```
 
 Inspect deterministic state:

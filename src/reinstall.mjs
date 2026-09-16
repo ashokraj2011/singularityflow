@@ -176,6 +176,54 @@ function executeOrThrow(execute, command, args, options = {}) {
   return result;
 }
 
+async function packageCliBuild({
+  packageRoot, expectedVersion, execute, environment, label
+}) {
+  const executable = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
+  await regularFile(executable, `${label} bin/singularity-flow.mjs`);
+  const result = executeOrThrow(execute, process.execPath, [executable, '--build'], {
+    env: environment,
+    timeoutMs: productTimeout(
+      environment, 'SINGULARITY_FLOW_PRODUCT_READ_TIMEOUT_MS', PRODUCT_READ_TIMEOUT_MS
+    )
+  });
+  const build = String(result.stdout ?? '').trim();
+  if (!build.startsWith(`${expectedVersion} (`) || !build.endsWith(')') || /[\r\n]/u.test(build)
+      || /development checkout|not a stamped package/iu.test(build)) {
+    throw new SingularityFlowError(
+      `The ${label} CLI returned an invalid build identity: ${build || 'unavailable'}.`
+    );
+  }
+  return build;
+}
+
+async function admittedCliBuild(plan, candidateSource, execute, environment) {
+  return packageCliBuild({
+    packageRoot: candidateSource,
+    expectedVersion: plan.version,
+    execute,
+    environment,
+    label: 'admitted candidate'
+  });
+}
+
+function liveCliBuild(execute, environment, expectedVersion, label = 'installed') {
+  const result = executeOrThrow(execute, 'singularity-flow', ['--build'], {
+    env: environment,
+    timeoutMs: productTimeout(
+      environment, 'SINGULARITY_FLOW_PRODUCT_READ_TIMEOUT_MS', PRODUCT_READ_TIMEOUT_MS
+    )
+  });
+  const build = String(result.stdout ?? '').trim();
+  if (!build.startsWith(`${expectedVersion} (`) || !build.endsWith(')') || /[\r\n]/u.test(build)
+      || /development checkout|not a stamped package/iu.test(build)) {
+    throw new SingularityFlowError(
+      `The ${label} CLI returned an invalid build identity: ${build || 'unavailable'}.`
+    );
+  }
+  return build;
+}
+
 function productTimeout(environment, name, fallback) {
   const value = Number(environment?.[name] ?? fallback);
   return Number.isFinite(value) && value > 0 ? Math.trunc(value) : fallback;
@@ -467,7 +515,7 @@ function reinstallFingerprint({ checkout, version, tarballSha256, vsixSha256 }) 
 function distributionInstallFingerprint({
   directory, artifactKeyPath, entrypoint, version, releaseSha256, sumsSha256, receiptSha256, signerKeySha256,
   tarballSha256, vsixSha256, rollbackTarballSha256, rollbackVsixSha256, rollbackPackageSha256,
-  registry, cliOnly, telemetry, installed
+  rollbackCliBuild, registry, cliOnly, telemetry, installed
 }) {
   return sha256(JSON.stringify({
     directory, artifactKeyPath, entrypoint: entrypoint ? path.resolve(entrypoint) : null,
@@ -475,6 +523,7 @@ function distributionInstallFingerprint({
     tarballSha256, vsixSha256, rollbackTarballSha256: rollbackTarballSha256 ?? null,
     rollbackVsixSha256: rollbackVsixSha256 ?? null,
     rollbackPackageSha256: rollbackPackageSha256 ?? null,
+    rollbackCliBuild: rollbackCliBuild ?? null,
     registry, cliOnly: Boolean(cliOnly),
     telemetry: Boolean(telemetry), installed: comparableInstalledState(installed)
   })).slice(0, 16);
@@ -821,16 +870,20 @@ export async function prepareDistributionInstall({
       throw new SingularityFlowError('The retained VS Code rollback artifact changed while it was snapshotted.');
     }
   }
-  const stagedPackage = cliOnly ? null : await stageDistributionPackage({
+  // Every distribution mode needs a privately staged executable so activation can compare the
+  // exact candidate build identity with the command that becomes reachable on PATH. A matching
+  // semantic version is deliberately insufficient because release builds keep that version stable.
+  const stagedPackage = await stageDistributionPackage({
     tarball: distribution.tarball.path,
     directory: distribution.snapshotDirectory,
     registry: effectiveRegistry,
     execute,
     environment
   });
-  const priorPackage = !cliOnly && priorTarball && (
-    installed.copilotPlugins.length || installed.managedDirectSkills.length
-  ) ? await stageDistributionPackage({
+  // Stage the retained package for every installed CLI, including CLI-only upgrades. Its exact
+  // executable build identity—not just its semver and archive digest—must reproduce the live CLI
+  // before any installed surface is touched.
+  const priorPackage = priorTarball ? await stageDistributionPackage({
       tarball: priorTarball,
       directory: distribution.snapshotDirectory,
       registry: effectiveRegistry,
@@ -839,6 +892,25 @@ export async function prepareDistributionInstall({
       prefixName: 'rollback-package'
     }) : null;
   const priorPackageSha256 = priorPackage ? await packageTreeSha256(priorPackage) : null;
+  const priorCliBuild = priorPackage ? await packageCliBuild({
+    packageRoot: priorPackage,
+    expectedVersion: installed.npmVersion,
+    execute,
+    environment,
+    label: 'retained rollback'
+  }) : null;
+  if (priorCliBuild) {
+    const observedCliBuild = liveCliBuild(
+      execute, environment, installed.npmVersion, 'currently installed'
+    );
+    if (observedCliBuild !== priorCliBuild) {
+      throw new SingularityFlowError(
+        `The retained CLI rollback package reports build '${priorCliBuild}', but the currently `
+        + `installed CLI reports '${observedCliBuild}'. Run one full source install to refresh `
+        + 'the retained rollback authority before applying this distribution. No product surface was changed.'
+      );
+    }
+  }
   const fingerprint = distributionInstallFingerprint({
     directory: originDirectory,
     artifactKeyPath: originKeyPath,
@@ -853,6 +925,7 @@ export async function prepareDistributionInstall({
     rollbackTarballSha256: prior.tarball?.sha256 ?? null,
     rollbackVsixSha256: prior.vsix?.sha256 ?? null,
     rollbackPackageSha256: priorPackageSha256,
+    rollbackCliBuild: priorCliBuild,
     registry: effectiveRegistry,
     cliOnly,
     telemetry,
@@ -887,7 +960,8 @@ export async function prepareDistributionInstall({
         vsix: priorVsix,
         vsixSha256: prior.vsix?.sha256 ?? null,
         package: priorPackage,
-        packageSha256: priorPackageSha256
+        packageSha256: priorPackageSha256,
+        cliBuild: priorCliBuild
       }
     },
     artifacts: {
@@ -960,20 +1034,18 @@ async function validatePreparedPlan(plan) {
     if (bundleDirectory !== cacheDirectory
         || path.dirname(path.resolve(plan.bundle?.tarball ?? '')) !== cacheDirectory
         || path.dirname(path.resolve(plan.bundle?.vsix ?? '')) !== cacheDirectory
-        || (!plan.cliOnly && path.resolve(plan.bundle?.source ?? '') !== expectedSource)
-        || (plan.cliOnly && plan.bundle?.source !== null)
+        || path.resolve(plan.bundle?.source ?? '') !== expectedSource
         || !plan.distribution?.receiptSha256
         || !plan.distribution?.authority?.signerKeySha256) {
       throw new SingularityFlowError(
         'The private distribution snapshot escaped its fingerprinted plan cache. Re-run the distribution installer preview.'
       );
     }
-    if (!plan.cliOnly) {
-      await Promise.all([
-        regularFile(path.join(expectedSource, 'package.json'), 'private distribution package.json'),
-        regularFile(path.join(expectedSource, 'plugin', 'plugin.json'), 'private distribution plugin/plugin.json')
-      ]);
-    }
+    await Promise.all([
+      regularFile(path.join(expectedSource, 'package.json'), 'private distribution package.json'),
+      regularFile(path.join(expectedSource, 'plugin', 'plugin.json'), 'private distribution plugin/plugin.json'),
+      regularFile(path.join(expectedSource, 'bin', 'singularity-flow.mjs'), 'private distribution CLI')
+    ]);
     const rollback = plan.distribution.rollback;
     const expectedRollbackTarball = path.join(cacheDirectory, 'rollback-singularity-flow.tgz');
     const expectedRollbackVsix = path.join(cacheDirectory, 'rollback-singularity-flow.vsix');
@@ -998,21 +1070,28 @@ async function validatePreparedPlan(plan) {
         );
       }
     }
-    if (!plan.cliOnly && (plan.installed.copilotPlugins.length
-        || plan.installed.managedDirectSkills.length)) {
+    if (plan.installed.npmVersion) {
       if (path.resolve(String(rollback?.package ?? '')) !== expectedRollbackPackage) {
         throw new SingularityFlowError(
-          'The private Copilot rollback package escaped its fingerprinted plan cache.'
+          'The private CLI rollback package escaped its fingerprinted plan cache.'
         );
       }
       await Promise.all([
         regularFile(path.join(rollback?.package ?? '', 'package.json'), 'private rollback package.json'),
-        regularFile(path.join(rollback?.package ?? '', 'plugin', 'plugin.json'), 'private rollback plugin/plugin.json')
+        regularFile(path.join(rollback?.package ?? '', 'plugin', 'plugin.json'), 'private rollback plugin/plugin.json'),
+        regularFile(path.join(rollback?.package ?? '', 'bin', 'singularity-flow.mjs'), 'private rollback CLI')
       ]);
       if (!rollback.packageSha256
           || await packageTreeSha256(rollback.package) !== rollback.packageSha256) {
         throw new SingularityFlowError(
-          'The private Copilot rollback package changed after distribution preview.'
+          'The private CLI rollback package changed after distribution preview.'
+        );
+      }
+      if (!String(rollback.cliBuild ?? '').startsWith(`${plan.installed.npmVersion} (`)
+          || !String(rollback.cliBuild).endsWith(')')
+          || /[\r\n]/u.test(String(rollback.cliBuild))) {
+        throw new SingularityFlowError(
+          'The private CLI rollback package has no valid exact build binding.'
         );
       }
     }
@@ -1036,6 +1115,7 @@ async function validatePreparedPlan(plan) {
       rollbackTarballSha256: plan.distribution?.rollback?.tarballSha256,
       rollbackVsixSha256: plan.distribution?.rollback?.vsixSha256,
       rollbackPackageSha256: plan.distribution?.rollback?.packageSha256,
+      rollbackCliBuild: plan.distribution?.rollback?.cliBuild,
       registry: plan.registry,
       cliOnly: plan.cliOnly,
       telemetry: plan.telemetry,
@@ -1479,6 +1559,7 @@ async function writeCurrentInstallationReceipt(plan, verified, receipt, homeDire
     schemaVersion: currentSchemaVersion('installation-current'),
     status: Object.values(surfaces).every(Boolean) ? 'complete' : 'complete-with-skips',
     version: plan.version,
+    build: { cli: verified.cliBuild },
     checkout: plan.checkout,
     artifacts,
     surfaces,
@@ -1702,7 +1783,8 @@ async function beginDistributionTransaction(plan, { homeDirectory, environment }
     vsix: null,
     vsixSha256: rollbackSource.vsixSha256 ?? null,
     package: null,
-    packageSha256: rollbackSource.packageSha256 ?? null
+    packageSha256: rollbackSource.packageSha256 ?? null,
+    cliBuild: rollbackSource.cliBuild ?? null
   };
   if (rollbackSource.tarball) {
     rollback.tarball = path.join(rollbackDirectory, 'singularity-flow.tgz');
@@ -1731,7 +1813,8 @@ async function beginDistributionTransaction(plan, { homeDirectory, environment }
     });
     await Promise.all([
       regularFile(path.join(rollback.package, 'package.json'), 'durable rollback package.json'),
-      regularFile(path.join(rollback.package, 'plugin', 'plugin.json'), 'durable rollback plugin/plugin.json')
+      regularFile(path.join(rollback.package, 'plugin', 'plugin.json'), 'durable rollback plugin/plugin.json'),
+      regularFile(path.join(rollback.package, 'bin', 'singularity-flow.mjs'), 'durable rollback CLI')
     ]);
     if (await packageTreeSha256(rollback.package) !== rollback.packageSha256) {
       throw new SingularityFlowError(
@@ -1893,6 +1976,18 @@ async function loadDistributionTransaction({ homeDirectory }) {
   ))) {
     throw new SingularityFlowError(`Pending distribution transaction contains escaped rollback authority: ${pending}`);
   }
+  if (state.installed?.npmVersion && (
+    !state.rollback?.tarball
+    || !/^sha256:[a-f0-9]{64}$/u.test(String(state.rollback.tarballSha256 ?? ''))
+    || !state.rollback?.package
+    || !String(state.rollback.cliBuild ?? '').startsWith(`${state.installed.npmVersion} (`)
+    || !String(state.rollback.cliBuild).endsWith(')')
+    || /[\r\n]/u.test(String(state.rollback.cliBuild))
+  )) {
+    throw new SingularityFlowError(
+      `Pending distribution transaction has no exact CLI rollback build authority: ${pending}`
+    );
+  }
   if (!Array.isArray(state.receiptBaseline)
       || state.receiptBaseline.some((name) => !distributionReceiptName(name, state.fingerprint))) {
     throw new SingularityFlowError(`Pending distribution transaction has an unsafe receipt baseline: ${pending}`);
@@ -1946,6 +2041,18 @@ async function rollbackDistributionTransaction(transaction, {
         || priorCli.version !== transaction.state.installed.npmVersion) {
       failures.push('authority: retained CLI rollback bytes are missing or changed');
     }
+    const retainedPackageBuild = await packageCliBuild({
+      packageRoot: rollback.package,
+      expectedVersion: transaction.state.installed.npmVersion,
+      execute: invoke,
+      environment,
+      label: 'retained rollback'
+    }).catch(() => null);
+    if (!rollback.packageSha256
+        || await packageTreeSha256(rollback.package).catch(() => null) !== rollback.packageSha256
+        || retainedPackageBuild !== rollback.cliBuild) {
+      failures.push('authority: retained CLI rollback package build is missing or changed');
+    }
   }
   if (transaction.state.installed.vscodeVersion) {
     const priorVsix = await inspectVsix(rollback.vsix).catch(() => null);
@@ -1954,8 +2061,10 @@ async function rollbackDistributionTransaction(transaction, {
       failures.push('authority: retained VS Code rollback bytes are missing or changed');
     }
   }
-  if (transaction.state.installed.copilotPlugins.length
-      || transaction.state.installed.managedDirectSkills.length) {
+  if (!transaction.state.installed.npmVersion && (
+    transaction.state.installed.copilotPlugins.length
+      || transaction.state.installed.managedDirectSkills.length
+  )) {
     const plugin = await lstat(path.join(String(rollback.package ?? ''), 'plugin', 'plugin.json'))
       .catch(() => null);
     if (!plugin?.isFile() || plugin.isSymbolicLink()
@@ -2055,6 +2164,45 @@ async function rollbackDistributionTransaction(transaction, {
       });
     }
   });
+  if (transaction.state.installed.npmVersion) {
+    try {
+      const restoredBuild = liveCliBuild(
+        invoke, environment, transaction.state.installed.npmVersion, 'restored'
+      );
+      if (restoredBuild !== rollback.cliBuild) {
+        transaction.state.surfaces.cli = 'verification-failed';
+        failures.push(
+          `CLI: restored build '${restoredBuild}' does not match '${rollback.cliBuild}'`
+        );
+      }
+    } catch (error) {
+      transaction.state.surfaces.cli = 'verification-failed';
+      failures.push(`CLI: ${error.message}`);
+    }
+  }
+  if (transaction.state.installed.copilotPlugins.length) {
+    try {
+      verifyPluginInstallation({
+        execute: invoke,
+        exists,
+        expectedDirectSkills: transaction.state.installed.managedDirectSkills,
+        targetRoot: transaction.state.skillsRoot,
+        directSourceRoot: path.join(rollback.package, 'plugin', 'skills'),
+        env: environment
+      });
+    } catch (error) {
+      transaction.state.surfaces.copilot = 'verification-failed';
+      failures.push(`Copilot: ${error.message}`);
+    }
+  }
+  for (const binding of transaction.state.skillSnapshots) {
+    const target = path.join(transaction.state.skillsRoot, binding.name);
+    if (await packageTreeSha256(target).catch(() => null) !== binding.sha256
+        || !await ordinaryManagedSkill(target)) {
+      transaction.state.surfaces.skills = 'verification-failed';
+      failures.push(`direct skills: restored bytes do not match for ${binding.name}`);
+    }
+  }
   if (failures.length) {
     transaction.state = {
       ...transaction.state,
@@ -2235,22 +2383,6 @@ export async function applyLocalReinstall(plan, {
         }
       }
     }
-    if (plan.operation === 'distribution-product-install' && !plan.cliOnly) {
-      const candidatePrefix = path.join(plan.bundle.stagingParent, 'candidate-package');
-      await rm(candidatePrefix, { recursive: true, force: true });
-      const extracted = await stageDistributionPackage({
-        tarball: plan.bundle.tarball,
-        directory: plan.bundle.stagingParent,
-        registry: plan.registry,
-        execute: boundedExecute,
-        environment: env
-      });
-      if (path.resolve(extracted) !== path.resolve(plan.bundle.source)) {
-        throw new SingularityFlowError(
-          'The verified distribution package did not re-extract to its fingerprinted private path.'
-        );
-      }
-    }
     const observedInstalled = inspectLocalProduct({
       execute, exists, homeDirectory, environment, strict: true
     });
@@ -2273,6 +2405,25 @@ export async function applyLocalReinstall(plan, {
         'Installed product state changed after preview. Preview again before replacing any surface.'
       );
     }
+    if (plan.operation === 'distribution-product-install' && plan.installed.npmVersion) {
+      const rollback = plan.distribution.rollback;
+      const retainedBuild = await packageCliBuild({
+        packageRoot: rollback.package,
+        expectedVersion: plan.installed.npmVersion,
+        execute: boundedExecute,
+        environment: env,
+        label: 'retained rollback'
+      });
+      const observedBuild = liveCliBuild(
+        boundedExecute, env, plan.installed.npmVersion, 'currently installed'
+      );
+      if (retainedBuild !== rollback.cliBuild || observedBuild !== rollback.cliBuild) {
+        throw new SingularityFlowError(
+          `Installed CLI build changed after preview (retained '${retainedBuild}', live `
+          + `'${observedBuild}', expected '${rollback.cliBuild}'). Preview again before replacing any surface.`
+        );
+      }
+    }
     if (plan.cliOnly) {
       const installed = inspectLocalProduct({
         execute, exists, homeDirectory, environment: env, strict: true
@@ -2281,6 +2432,25 @@ export async function applyLocalReinstall(plan, {
         cliOnly: true, installed, homeDirectory, checkout: plan.checkout
       });
     }
+    // Reconstruct the executable and plugin inputs from the exact retained tarball immediately
+    // before activation. The preview cache is mutable machine state and is never executable
+    // authority, even though the tarball itself is digest-bound by the confirmed plan.
+    const candidatePrefix = path.join(plan.bundle.stagingParent, 'candidate-package');
+    await rm(candidatePrefix, { recursive: true, force: true });
+    const candidateSource = await stageDistributionPackage({
+      tarball: plan.bundle.tarball,
+      directory: plan.bundle.stagingParent,
+      registry: plan.registry,
+      execute: boundedExecute,
+      environment: env
+    });
+    if (plan.operation === 'distribution-product-install'
+        && path.resolve(candidateSource) !== path.resolve(plan.bundle.source)) {
+      throw new SingularityFlowError(
+        'The verified distribution package did not re-extract to its fingerprinted private path.'
+      );
+    }
+    const expectedCliBuild = await admittedCliBuild(plan, candidateSource, boundedExecute, env);
     if (plan.operation === 'distribution-product-install') {
       distributionTransaction = await beginDistributionTransaction(plan, {
         homeDirectory, environment: env
@@ -2313,7 +2483,7 @@ export async function applyLocalReinstall(plan, {
       // Use the already admitted candidate package, never the old global CLI, while the callable
       // global CLI remains untouched. Distribution runs use the package executing this process;
       // source reinstall uses the isolated, validated source copy that produced the tarball.
-      const candidatePluginRoot = path.join(plan.bundle.source, 'plugin');
+      const candidatePluginRoot = path.join(candidateSource, 'plugin');
       executeOrThrow(boundedExecute, 'copilot', ['plugin', 'install', candidatePluginRoot], {
         env, stdio: 'inherit', timeoutMs: mutationTimeout
       });
@@ -2365,9 +2535,27 @@ export async function applyLocalReinstall(plan, {
     if (cliVersion !== plan.version) {
       throw new SingularityFlowError(`Installed CLI reports ${cliVersion || 'no version'}, expected ${plan.version}.`);
     }
-    const verified = inspectLocalProduct({
-      execute, exists, homeDirectory, environment: env, strict: true
-    });
+    const cliBuild = executeOrThrow(boundedExecute, 'singularity-flow', ['--build'], {
+      env,
+      timeoutMs: productTimeout(env, 'SINGULARITY_FLOW_PRODUCT_READ_TIMEOUT_MS', PRODUCT_READ_TIMEOUT_MS)
+    }).stdout.trim();
+    if (cliBuild !== expectedCliBuild) {
+      throw new SingularityFlowError(
+        `Installed CLI build '${cliBuild || 'unavailable'}' does not match the admitted candidate build '${expectedCliBuild}'.`
+      );
+    }
+    if (!plan.cliOnly) {
+      executeOrThrow(boundedExecute, 'singularity-flow', ['plugin', 'verify', '--json'], {
+        env,
+        timeoutMs: productTimeout(env, 'SINGULARITY_FLOW_PRODUCT_READ_TIMEOUT_MS', PRODUCT_READ_TIMEOUT_MS)
+      });
+    }
+    const verified = {
+      ...inspectLocalProduct({
+        execute, exists, homeDirectory, environment: env, strict: true
+      }),
+      cliBuild
+    };
     if (!plan.cliOnly && !verified.copilotPlugins.length) throw new SingularityFlowError('Copilot plugin verification did not find Singularity Flow.');
     if (!plan.cliOnly && JSON.stringify(verified.managedDirectSkills) !== JSON.stringify(expectedDirectSkills)) {
       throw new SingularityFlowError(
@@ -2602,9 +2790,18 @@ function applyCommandArgv(plan, executable) {
   return parts;
 }
 
+function completedActivationOutcome(plan) {
+  if (plan.cliOnly || !plan.telemetry) return 'PARTIAL BY REQUEST';
+  if (plan.verified?.codeAvailable === false) return 'COMPLETE WITH SKIPS';
+  return 'COMPLETE AND VERIFIED';
+}
+
 export function reinstallPlanText(plan) {
+  const heading = plan.completed
+    ? 'Singularity Flow local product reinstall — result'
+    : 'Singularity Flow local product reinstall — preview';
   const lines = [
-    `Singularity Flow local product reinstall — ${plan.completed ? 'complete' : 'preview'}`,
+    heading,
     `Checkout: ${plan.checkout}`,
     `Version: ${plan.version}`,
     `Registry: ${plan.registry}`,
@@ -2621,6 +2818,7 @@ export function reinstallPlanText(plan) {
       ? 'The isolated CLI build, reinstall safety tests, and npm tarball completed before this preview.'
       : 'The isolated CLI and VS Code builds, reinstall safety tests, npm tarball, and VSIX completed before this preview.';
     lines.push('', artifacts,
+      'Candidate artifacts are staged only; product activation has not started.',
       'No Git command was run and no installed product or repository was changed.',
       `Confirmation required: ${plan.confirmation}`,
       ...renderedShellLines(applyCommandArgv(plan, 'singularity-flow'), '', {
@@ -2631,14 +2829,27 @@ export function reinstallPlanText(plan) {
         posixLabel: 'Short shell alias', windowsQualifier: 'Short alias — '
       }));
   } else {
-    lines.push('', `Receipt: ${plan.receipt}`, 'Local tooling was replaced. Repository and workspace data were preserved.');
+    lines.push(
+      '',
+      `Installed CLI build: ${plan.verified?.cliBuild ?? 'unavailable'}`,
+      `Copilot plugin and managed skills: ${plan.cliOnly ? 'not selected' : 'verified through the installed CLI'}`,
+      `VS Code extension: ${plan.cliOnly ? 'not selected' : plan.verified?.vscodeVersion ?? 'skipped because the code CLI was unavailable'}`,
+      `Installation receipt: ${plan.receipt}`,
+      'Selected product surfaces and their exact build identity were verified after activation.',
+      'Repository and workspace data were preserved.',
+      '',
+      `Singularity Flow product activation — ${completedActivationOutcome(plan)}`
+    );
   }
   return lines.join('\n');
 }
 
 export function distributionInstallPlanText(plan) {
+  const heading = plan.completed
+    ? 'Singularity Flow distribution install — result'
+    : 'Singularity Flow distribution install — preview';
   const lines = [
-    `Singularity Flow distribution install — ${plan.completed ? 'complete' : 'preview'}`,
+    heading,
     `Release directory: ${plan.checkout}`,
     `Version: ${plan.version}`,
     `Bundle fingerprint: ${plan.fingerprint}`,
@@ -2661,6 +2872,7 @@ export function distributionInstallPlanText(plan) {
     lines.push(
       '',
       'The release manifest, checksums, npm package identity, VSIX identity, and version match.',
+      'Candidate artifacts are staged only; product activation has not started.',
       'No Git command was run and no installed product or repository was changed.',
       `Confirmation required: ${plan.confirmation}`,
       ...renderedShellLines(command, '', { posixLabel: 'Shell' }),
@@ -2669,8 +2881,14 @@ export function distributionInstallPlanText(plan) {
   } else {
     lines.push(
       '',
-      `Receipt: ${plan.receipt}`,
-      'Installation verified. Repository, workspace, credential, and personal-skill data were preserved.'
+      `Installed CLI build: ${plan.verified?.cliBuild ?? 'unavailable'}`,
+      `Copilot plugin and managed skills: ${plan.cliOnly ? 'not selected' : 'verified through the installed CLI'}`,
+      `VS Code extension: ${plan.cliOnly ? 'not selected' : plan.verified?.vscodeVersion ?? 'skipped because the code CLI was unavailable'}`,
+      `Installation receipt: ${plan.receipt}`,
+      'Selected product surfaces and their exact build identity were verified after activation.',
+      'Repository, workspace, credential, and personal-skill data were preserved.',
+      '',
+      `Singularity Flow product activation — ${completedActivationOutcome(plan)}`
     );
   }
   return lines.join('\n');

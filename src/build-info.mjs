@@ -47,9 +47,11 @@ export function versionLine(info = BUILD_INFO) {
 
 export function buildDescription(info = BUILD_INFO) {
   if (!info?.commit && !info?.sourceSha256) return 'development checkout, not a stamped package';
+  // This line is also the installer comparison identity. Abbreviating the commit or source digest
+  // makes a human label shorter but weakens a machine equality check through prefix collisions.
   const parts = [info.commit
-    ? info.commit.slice(0, 8)
-    : `source ${String(info.sourceSha256).slice(0, 12)}`];
+    ? info.commit
+    : `source ${String(info.sourceSha256)}`];
   if (info.dirty) parts.push('dirty tree');
   if (info.branch) parts.push(info.branch);
   if (info.builtAt) parts.push(`built ${info.builtAt}`);

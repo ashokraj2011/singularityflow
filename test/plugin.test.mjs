@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readdir, readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -1000,15 +1001,281 @@ test('plugin install uses an explicitly configured organization marketplace', ()
   assert.equal(calls.at(-1).options.stdio, 'inherit');
 });
 
-test('plugin verification uses bounded user-scope JSON and requires every direct skill enabled', () => {
+async function pluginVerificationFixture(t, expectedDirectSkills = ['sf-about', 'sf-submit']) {
+  const fixture = await mkdtemp(path.join(os.tmpdir(), 'sflow-plugin-verify-'));
+  t.after(() => rm(fixture, { recursive: true, force: true }));
+  const targetRoot = path.join(fixture, 'personal-skills');
+  const sourceRoot = path.join(fixture, 'bundled-skills');
+  const installedRoot = path.join(fixture, 'installed-plugin-skills');
+  const directEntries = [];
+  const pluginEntries = [];
+  for (const directName of expectedDirectSkills) {
+    const pluginName = `sflow-${directName.slice('sf-'.length)}`;
+    const content = Buffer.from(`---\nname: ${pluginName}\n---\n\n# ${pluginName}\n`, 'utf8');
+    const sourceDirectory = path.join(sourceRoot, pluginName);
+    const installedDirectory = path.join(installedRoot, pluginName);
+    await mkdir(sourceDirectory, { recursive: true });
+    await mkdir(installedDirectory, { recursive: true });
+    await writeFile(path.join(sourceDirectory, 'SKILL.md'), content);
+    await writeFile(path.join(installedDirectory, 'SKILL.md'), content);
+    directEntries.push({
+      name: directName,
+      source: 'personal-copilot',
+      path: path.join(targetRoot, directName),
+      enabled: true
+    });
+    pluginEntries.push({
+      name: pluginName,
+      source: 'plugin',
+      path: installedDirectory,
+      enabled: true
+    });
+  }
+  return {
+    expectedDirectSkills,
+    targetRoot,
+    sourceRoot,
+    installedRoot,
+    directEntries,
+    pluginEntries,
+    skillEntries: [...directEntries, ...pluginEntries]
+  };
+}
+
+function modernVerificationExecute({
+  calls = [],
+  pluginEntries = [{
+    name: 'singularity-flow', marketplace: '', version: '0.9.0', enabled: true, source: 'installed'
+  }],
+  skillEntries,
+  pluginStderr = '',
+  skillStderr = ''
+}) {
+  return (command, args, options) => {
+    calls.push({ command, args, options });
+    if (args.join(' ') === 'plugin list --json') {
+      return { status: 0, stdout: JSON.stringify(pluginEntries), stderr: pluginStderr };
+    }
+    if (args.join(' ') === 'skill list --json') {
+      return { status: 0, stdout: JSON.stringify(skillEntries), stderr: skillStderr };
+    }
+    throw new Error(`Unexpected command: ${command} ${args.join(' ')}`);
+  };
+}
+
+function modernVerificationOptions(fixture, execute, overrides = {}) {
+  return {
+    execute,
+    exists: () => true,
+    expectedDirectSkills: fixture.expectedDirectSkills,
+    targetRoot: fixture.targetRoot,
+    directSourceRoot: fixture.sourceRoot,
+    verifyDirectContents: () => ({ verified: fixture.expectedDirectSkills.length }),
+    ...overrides
+  };
+}
+
+test('plugin verification prefers modern flat inventories and verifies both installed skill surfaces', async (t) => {
+  const fixture = await pluginVerificationFixture(t);
+  const calls = [];
+  const env = { COPILOT_HOME: '/users/test/.company-copilot' };
+  const skillEntries = fixture.skillEntries.map((entry) => entry.name === 'sf-submit'
+    ? { ...entry, path: path.join(fixture.targetRoot, 'nested', '..', entry.name) }
+    : entry);
+  skillEntries.push({
+    name: 'unrelated-builtin', source: 'builtin', path: '/copilot/builtin/unrelated', enabled: true
+  });
+  const execute = modernVerificationExecute({
+    calls,
+    skillEntries,
+    pluginEntries: [
+      { name: 'other-plugin', marketplace: '', version: '1.0.0', enabled: true, source: 'installed' },
+      { name: 'singularity-flow', marketplace: '', version: '0.9.0', enabled: true, source: 'installed' }
+    ],
+    pluginStderr: 'warning: unrelated plugin cache entry was ignored\nnotice: another cache entry was retained',
+    skillStderr: `warning: ${path.join(fixture.targetRoot, 'personal-unrelated', 'SKILL.md')} has invalid frontmatter`
+  });
+  let directVerification;
+  const result = verifyPluginInstallation(modernVerificationOptions(fixture, execute, {
+    env,
+    verifyDirectContents: (options) => {
+      directVerification = options;
+      return { verified: 2 };
+    }
+  }));
+
+  assert.equal(result.inventoryProtocol, 'modern');
+  assert.equal(result.pluginIdentity, 'singularity-flow');
+  assert.equal(result.pluginVersion, '0.9.0');
+  assert.equal(result.enabledDirectSkills, 2);
+  assert.equal(result.enabledPluginSkills, 2);
+  assert.equal(result.contentVerifiedDirectSkills, 2);
+  assert.equal(result.contentVerifiedPluginSkills, 2);
+  assert.equal(result.unrelatedDiscoveryErrors, 3);
+  assert.deepEqual(result.unrelatedDiscoveryDiagnostics, [
+    'warning: unrelated plugin cache entry was ignored',
+    'notice: another cache entry was retained',
+    `warning: ${path.join(fixture.targetRoot, 'personal-unrelated', 'SKILL.md')} has invalid frontmatter`
+  ]);
+  assert.deepEqual(directVerification, {
+    sourceRoot: fixture.sourceRoot,
+    targetRoot: fixture.targetRoot,
+    expectedNames: ['sf-about', 'sf-submit']
+  });
+  assert.deepEqual(calls.map((call) => call.args), [
+    ['plugin', 'list', '--json'],
+    ['skill', 'list', '--json']
+  ]);
+  assert.equal(calls.every((call) => call.options.env === env), true);
+  assert.equal(calls.every((call) => call.options.timeoutMs === 30_000), true,
+    'every Copilot inventory probe must have a bounded installer-safe deadline');
+});
+
+test('modern plugin verification requires one exact enabled direct or marketplace identity', async (t) => {
+  const fixture = await pluginVerificationFixture(t, ['sf-about']);
+  const verify = (pluginEntries) => verifyPluginInstallation(modernVerificationOptions(
+    fixture,
+    modernVerificationExecute({ pluginEntries, skillEntries: fixture.skillEntries })
+  ));
+
+  assert.equal(verify([{
+    name: 'singularity-flow', marketplace: 'singularity-flow', version: '0.9.0',
+    enabled: true, source: 'marketplace'
+  }]).pluginIdentity, 'singularity-flow@singularity-flow');
+  assert.throws(() => verify([{
+    name: 'singularity-flow', marketplace: '', version: '0.9.0', enabled: false, source: 'installed'
+  }]), /structured plugin verification failed.*enabled: false/is);
+  assert.throws(() => verify([
+    { name: 'singularity-flow', marketplace: '', enabled: true, source: 'installed' },
+    { name: 'singularity-flow', marketplace: 'singularity-flow', enabled: true, source: 'marketplace' }
+  ]), /structured plugin verification failed.*entries: 2/is);
+  assert.throws(() => verify([{
+    name: 'singularity-flow', marketplace: 'untrusted-marketplace', enabled: true, source: 'marketplace'
+  }]), /identity: singularity-flow@untrusted-marketplace/is);
+});
+
+test('modern plugin verification refuses missing, disabled, duplicate, misplaced, and wrong-source skills', async (t) => {
+  const fixture = await pluginVerificationFixture(t);
+  const verify = (mutate, skillStderr = '') => {
+    const entries = fixture.skillEntries.map((entry) => ({ ...entry }));
+    mutate(entries);
+    return verifyPluginInstallation(modernVerificationOptions(
+      fixture,
+      modernVerificationExecute({ skillEntries: entries, skillStderr })
+    ));
+  };
+
+  assert.throws(() => verify((entries) => {
+    entries.find((entry) => entry.name === 'sf-about').enabled = false;
+  }), /disabled direct skills: sf-about.*plugin install.*restart/is);
+  assert.throws(() => verify((entries) => {
+    entries.splice(entries.findIndex((entry) => entry.name === 'sf-submit'), 1);
+  }), /missing direct skills: sf-submit/is);
+  assert.throws(() => verify((entries) => {
+    entries.push({ ...entries.find((entry) => entry.name === 'sf-submit') });
+  }), /duplicated direct skills: sf-submit/is);
+  assert.throws(() => verify((entries) => {
+    entries.find((entry) => entry.name === 'sf-submit').path = '/wrong/personal/skills/sf-submit';
+  }), /wrong-path direct skills: sf-submit/is);
+  assert.throws(() => verify((entries) => {
+    entries.find((entry) => entry.name === 'sflow-about').enabled = false;
+  }), /disabled plugin skills: sflow-about/is);
+  assert.throws(() => verify((entries) => {
+    entries.splice(entries.findIndex((entry) => entry.name === 'sflow-submit'), 1);
+  }), /missing plugin skills: sflow-submit/is);
+  assert.throws(() => verify((entries) => {
+    entries.find((entry) => entry.name === 'sflow-submit').source = 'personal-copilot';
+  }), /wrong-source plugin skills: sflow-submit/is);
+  assert.throws(() => verify((entries) => {
+    entries.push({ ...entries.find((entry) => entry.name === 'sflow-submit') });
+  }), /duplicated plugin skills: sflow-submit/is);
+  assert.throws(() => verify((entries) => {
+    entries.push({
+      ...entries.find((entry) => entry.name === 'sflow-submit'),
+      source: 'personal-copilot',
+      path: '/personal/collision/sflow-submit'
+    });
+  }), /duplicated plugin skills: sflow-submit/is);
+  assert.throws(() => verify(() => {},
+    `warning: invalid skill ${path.join(fixture.targetRoot, 'sf-submit', 'SKILL.md')}`),
+  /skill discovery errors/is);
+});
+
+test('modern plugin verification rejects invalid packaged and bundled skill files', async (t) => {
+  const cases = [
+    ['missing', async (file) => rm(file)],
+    ['stale', async (file) => writeFile(file, 'stale packaged skill')],
+    ['not regular files', async (file) => { await rm(file); await mkdir(file); }],
+    ['not regular files', async (file, fixture) => {
+      await rm(file);
+      try {
+        await symlink(path.join(fixture.sourceRoot, 'sflow-about', 'SKILL.md'), file);
+      } catch (error) {
+        if (error?.code === 'EPERM' || error?.code === 'EACCES') return false;
+        throw error;
+      }
+      return true;
+    }],
+    ['not regular files', async (_file, fixture) => {
+      const sourceDirectory = path.join(fixture.sourceRoot, 'sflow-about');
+      const installedDirectory = path.join(fixture.installedRoot, 'sflow-about');
+      await rm(installedDirectory, { recursive: true });
+      try {
+        await symlink(sourceDirectory, installedDirectory, 'dir');
+      } catch (error) {
+        if (error?.code === 'EPERM' || error?.code === 'EACCES') return false;
+        throw error;
+      }
+      return true;
+    }],
+    ['missing bundled source', async (_file, fixture) => {
+      await rm(path.join(fixture.sourceRoot, 'sflow-about', 'SKILL.md'));
+    }],
+    ['bundled sources are not regular files', async (_file, fixture) => {
+      const sourceFile = path.join(fixture.sourceRoot, 'sflow-about', 'SKILL.md');
+      await rm(sourceFile);
+      await mkdir(sourceFile);
+    }]
+  ];
+  for (const [expected, mutate] of cases) {
+    await t.test(`refuses ${expected} packaged bytes`, async (subtest) => {
+      const fixture = await pluginVerificationFixture(subtest, ['sf-about']);
+      const file = path.join(fixture.installedRoot, 'sflow-about', 'SKILL.md');
+      const mutated = await mutate(file, fixture);
+      if (mutated === false) {
+        subtest.skip('filesystem does not permit creating a symlink');
+        return;
+      }
+      assert.throws(() => verifyPluginInstallation(modernVerificationOptions(
+        fixture,
+        modernVerificationExecute({ skillEntries: fixture.skillEntries })
+      )), new RegExp(`packaged Copilot skill content.*${expected}.*sflow-about`, 'is'));
+    });
+  }
+});
+
+test('plugin verification preserves the direct byte verifier refusal', async (t) => {
+  const fixture = await pluginVerificationFixture(t, ['sf-about']);
+  assert.throws(() => verifyPluginInstallation(modernVerificationOptions(
+    fixture,
+    modernVerificationExecute({ skillEntries: fixture.skillEntries }),
+    { verifyDirectContents: () => { throw new Error('stale direct alias'); } }
+  )), /stale direct alias/);
+});
+
+test('plugin verification falls back to bounded legacy inventories only for unsupported --json', () => {
   const calls = [];
   const env = { COPILOT_HOME: '/users/test/.company-copilot' };
   const execute = (command, args, options) => {
     calls.push({ command, args, options });
-    if (args.join(' ') === 'plugin list') {
+    const rendered = args.join(' ');
+    if (rendered === 'plugin list --json') {
+      return { status: 1, stdout: '', stderr: "error: unknown option '--json'" };
+    }
+    if (rendered === 'plugin list') {
       return { status: 0, stdout: 'Installed plugins:\n  • singularity-flow (v0.9.0)\n', stderr: '' };
     }
-    if (args.join(' ') === 'plugins list --kind plugin --scope user --json') {
+    if (rendered === 'plugins list --kind plugin --scope user --json') {
       return {
         status: 0,
         stdout: JSON.stringify({
@@ -1018,7 +1285,7 @@ test('plugin verification uses bounded user-scope JSON and requires every direct
         stderr: ''
       };
     }
-    if (args.join(' ') === 'plugins list --kind skill --scope user --json') {
+    if (rendered === 'plugins list --kind skill --scope user --json') {
       return {
         status: 0,
         stdout: JSON.stringify({
@@ -1028,10 +1295,10 @@ test('plugin verification uses bounded user-scope JSON and requires every direct
           ],
           errors: [{ path: '/unrelated/personal-skill', message: 'unrelated failure' }]
         }),
-        stderr: ''
+        stderr: 'warning: another unrelated personal skill was skipped'
       };
     }
-    if (args.join(' ') === 'plugins list --kind skill --scope plugin --json') {
+    if (rendered === 'plugins list --kind skill --scope plugin --json') {
       return {
         status: 0,
         stdout: JSON.stringify({
@@ -1044,63 +1311,139 @@ test('plugin verification uses bounded user-scope JSON and requires every direct
         stderr: ''
       };
     }
-    throw new Error(`Unexpected command: ${command} ${args.join(' ')}`);
+    throw new Error(`Unexpected command: ${command} ${rendered}`);
   };
   const result = verifyPluginInstallation({
-    execute, exists: () => true, expectedDirectSkills: ['sf-about', 'sf-submit'],
-    targetRoot: '/users/test/.copilot/skills', env,
-    verifyDirectContents: ({ targetRoot, expectedNames }) => {
+    execute,
+    exists: () => true,
+    expectedDirectSkills: ['sf-about', 'sf-submit'],
+    targetRoot: '/users/test/.copilot/skills',
+    directSourceRoot: '/package/plugin/skills',
+    env,
+    verifyDirectContents: ({ sourceRoot, targetRoot, expectedNames }) => {
+      assert.equal(sourceRoot, '/package/plugin/skills');
       assert.equal(targetRoot, '/users/test/.copilot/skills');
       assert.deepEqual(expectedNames, ['sf-about', 'sf-submit']);
       return { verified: 2 };
     }
   });
+  assert.equal(result.inventoryProtocol, 'legacy');
   assert.equal(result.pluginIdentity, 'singularity-flow');
   assert.equal(result.pluginVersion, '0.9.0');
   assert.equal(result.enabledDirectSkills, 2);
   assert.equal(result.enabledPluginSkills, 2);
   assert.equal(result.contentVerifiedDirectSkills, 2);
-  assert.equal(result.unrelatedDiscoveryErrors, 1);
+  assert.equal(result.contentVerifiedPluginSkills, null);
+  assert.equal(result.unrelatedDiscoveryErrors, 2);
   assert.deepEqual(calls.map((call) => call.args), [
+    ['plugin', 'list', '--json'],
     ['plugin', 'list'],
     ['plugins', 'list', '--kind', 'plugin', '--scope', 'user', '--json'],
     ['plugins', 'list', '--kind', 'skill', '--scope', 'user', '--json'],
     ['plugins', 'list', '--kind', 'skill', '--scope', 'plugin', '--json']
   ]);
   assert.equal(calls.every((call) => call.options.env === env), true);
+  assert.equal(calls.every((call) => call.options.timeoutMs === 30_000), true,
+    'legacy compatibility probes must retain the same bounded deadline');
 });
 
-test('plugin verification refuses disabled, missing, duplicate, and errored managed skills', () => {
+test('plugin verification bounds a configured product read timeout', async (t) => {
+  const fixture = await pluginVerificationFixture(t, ['sf-about']);
+  const calls = [];
+  const env = { SINGULARITY_FLOW_PRODUCT_READ_TIMEOUT_MS: '999999' };
+  verifyPluginInstallation(modernVerificationOptions(
+    fixture,
+    modernVerificationExecute({ calls, skillEntries: fixture.skillEntries }),
+    { env }
+  ));
+  assert.deepEqual(calls.map((call) => call.options.timeoutMs), [120_000, 120_000]);
+});
+
+test('plugin verification does not fall back for malformed modern JSON, schema errors, or operational failures', () => {
+  const cases = [
+    [{ status: 0, stdout: '{not json', stderr: '' }, /invalid plugin inventory JSON/],
+    [{ status: 0, stdout: JSON.stringify({ plugins: [] }), stderr: '' }, /was not a flat array/],
+    [{ status: 0, stdout: JSON.stringify([{ name: 'singularity-flow', enabled: true }]), stderr: '' }, /valid marketplace field/],
+    [{ status: 1, stdout: '', stderr: 'permission denied while loading configuration' }, /permission denied/]
+  ];
+  for (const [response, expected] of cases) {
+    const calls = [];
+    assert.throws(() => verifyPluginInstallation({
+      exists: () => true,
+      expectedDirectSkills: ['sf-about'],
+      targetRoot: '/users/test/.copilot/skills',
+      verifyDirectContents: () => ({ verified: 1 }),
+      execute: (_command, args) => {
+        calls.push(args);
+        return response;
+      }
+    }), expected);
+    assert.deepEqual(calls, [['plugin', 'list', '--json']]);
+  }
+
+  const pluginResponse = {
+    status: 0,
+    stdout: JSON.stringify([{
+      name: 'singularity-flow', marketplace: '', enabled: true, source: 'installed'
+    }]),
+    stderr: ''
+  };
+  for (const [response, expected] of [
+    [{ status: 0, stdout: '{not json', stderr: '' }, /invalid skill inventory JSON/],
+    [{ status: 0, stdout: JSON.stringify({ skills: [] }), stderr: '' }, /was not a flat array/],
+    [{ status: 1, stdout: '', stderr: "error: unknown option '--json'" }, /Copilot skill verification failed/]
+  ]) {
+    const calls = [];
+    assert.throws(() => verifyPluginInstallation({
+      exists: () => true,
+      expectedDirectSkills: ['sf-about'],
+      targetRoot: '/users/test/.copilot/skills',
+      verifyDirectContents: () => ({ verified: 1 }),
+      execute: (_command, args) => {
+        calls.push(args);
+        return args.join(' ') === 'plugin list --json' ? pluginResponse : response;
+      }
+    }), expected);
+    assert.deepEqual(calls, [
+      ['plugin', 'list', '--json'],
+      ['skill', 'list', '--json']
+    ]);
+  }
+});
+
+test('legacy plugin verification still refuses disabled, missing, duplicate, and errored managed skills', () => {
   const verify = (
     payload,
     pluginOutput = 'Installed plugins:\n  • singularity-flow (v0.9.0)\n',
     structuredPlugin = { kind: 'plugin', name: 'singularity-flow', scope: 'user', enabled: true }
-  ) =>
-    verifyPluginInstallation({
-      exists: () => true,
-      expectedDirectSkills: ['sf-about', 'sf-submit'],
-      targetRoot: '/users/test/.copilot/skills',
-      verifyDirectContents: () => ({ verified: 2 }),
-      execute: (_command, args) => {
-        const command = args.join(' ');
-        if (command === 'plugin list') return { status: 0, stdout: pluginOutput, stderr: '' };
-        if (command === 'plugins list --kind plugin --scope user --json') {
-          return { status: 0, stdout: JSON.stringify({
-            plugins: [structuredPlugin],
-            errors: []
-          }), stderr: '' };
-        }
-        if (command === 'plugins list --kind skill --scope plugin --json') {
-          return { status: 0, stdout: JSON.stringify({
-            plugins: [
-              { kind: 'skill', name: 'sflow-about', scope: 'plugin', enabled: true },
-              { kind: 'skill', name: 'sflow-submit', scope: 'plugin', enabled: true }
-            ], errors: []
-          }), stderr: '' };
-        }
-        return { status: 0, stdout: JSON.stringify(payload), stderr: '' };
+  ) => verifyPluginInstallation({
+    exists: () => true,
+    expectedDirectSkills: ['sf-about', 'sf-submit'],
+    targetRoot: '/users/test/.copilot/skills',
+    verifyDirectContents: () => ({ verified: 2 }),
+    execute: (_command, args) => {
+      const command = args.join(' ');
+      if (command === 'plugin list --json') {
+        return { status: 1, stdout: '', stderr: "error: unexpected argument '--json' found" };
       }
-    });
+      if (command === 'plugin list') return { status: 0, stdout: pluginOutput, stderr: '' };
+      if (command === 'plugins list --kind plugin --scope user --json') {
+        return { status: 0, stdout: JSON.stringify({
+          plugins: [structuredPlugin],
+          errors: []
+        }), stderr: '' };
+      }
+      if (command === 'plugins list --kind skill --scope plugin --json') {
+        return { status: 0, stdout: JSON.stringify({
+          plugins: [
+            { kind: 'skill', name: 'sflow-about', scope: 'plugin', enabled: true },
+            { kind: 'skill', name: 'sflow-submit', scope: 'plugin', enabled: true }
+          ], errors: []
+        }), stderr: '' };
+      }
+      return { status: 0, stdout: JSON.stringify(payload), stderr: '' };
+    }
+  });
   assert.throws(() => verify({
     plugins: [
       { kind: 'skill', name: 'sf-about', scope: 'user', enabled: false },

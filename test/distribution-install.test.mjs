@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { appendFileSync, cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -15,19 +15,28 @@ import { distributionFixture, fileSha256 } from './helpers/distribution-artifact
 
 function harness(version, {
   badInstalledVersion = false,
+  badInstalledBuild = false,
   beforeVersion = null,
   initialInstalled = false,
   pluginIdentity = null,
-  fullSurfaces = false
+  fullSurfaces = false,
+  badRestoredBuild = false,
+  badRestoredPlugin = false,
+  tamperRestoredPackagedSkill = false,
+  tamperRestoredSkill = false
 } = {}) {
   const calls = [];
+  const build = `${version} (distribution-fixture-build-01234567)`;
   let installed = initialInstalled;
   let plugin = pluginIdentity;
+  let installedPluginRoot = null;
   let vscodeVersion = null;
+  let globalInstallCount = 0;
+  let pluginInstallCount = 0;
   const exists = (command) => ['node', 'npm', ...(fullSurfaces ? ['copilot', 'code'] : [])]
     .includes(command);
   const ok = (stdout = '') => ({ status: 0, stdout, stderr: '' });
-  const execute = (command, args) => {
+  const execute = (command, args, options = {}) => {
     calls.push([command, ...args]);
     if (command === 'npm' && args.join(' ') === 'config get registry') return ok('https://registry.npmjs.org/\n');
     if (command === 'npm' && args[0] === 'list') {
@@ -36,12 +45,15 @@ function harness(version, {
     if (command === 'npm' && args[0] === 'install' && args[1] === '--prefix') {
       const packageRoot = path.join(args[2], 'node_modules', 'singularity-flow');
       mkdirSync(path.join(packageRoot, 'plugin'), { recursive: true });
+      mkdirSync(path.join(packageRoot, 'bin'), { recursive: true });
       writeFileSync(path.join(packageRoot, 'package.json'), `${JSON.stringify({
         name: 'singularity-flow', version
       })}\n`);
       writeFileSync(path.join(packageRoot, 'plugin', 'plugin.json'), `${JSON.stringify({
         name: 'singularity-flow', version
       })}\n`);
+      writeFileSync(path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+        `if (process.argv[2] === '--build') console.log(${JSON.stringify(build)});\n`);
       const skill = path.join(packageRoot, 'plugin', 'skills', 'sflow-help');
       mkdirSync(skill, { recursive: true });
       writeFileSync(path.join(skill, 'SKILL.md'), [
@@ -49,10 +61,36 @@ function harness(version, {
       ].join('\n'));
       return ok();
     }
-    if (command === 'npm' && args[0] === 'install') { installed = true; return ok(); }
+    if (command === 'npm' && args[0] === 'install') {
+      if (args[1] === '--global') globalInstallCount += 1;
+      installed = true;
+      return ok();
+    }
     if (command === 'npm' && args[0] === 'uninstall') { installed = false; return ok(); }
     if (command === 'copilot' && args.join(' ') === 'plugin list') {
       return ok(plugin ? `${plugin}\n` : '');
+    }
+    if (command === 'copilot' && args.join(' ') === 'plugin list --json') {
+      if (!plugin) return ok('[]');
+      const [name, marketplace = ''] = plugin.split('@');
+      return ok(JSON.stringify([{
+        name, marketplace, version,
+        enabled: !(badRestoredPlugin && pluginInstallCount >= 2), source: 'installed'
+      }]));
+    }
+    if (command === 'copilot' && args.join(' ') === 'skill list --json') {
+      const skillsRoot = options.env?.SINGULARITY_FLOW_COPILOT_SKILLS_DIR
+        ?? path.join(options.env?.HOME ?? os.homedir(), '.copilot', 'skills');
+      return ok(JSON.stringify([
+        {
+          name: 'sf-help', description: 'Help', source: 'personal-copilot',
+          path: path.join(skillsRoot, 'sf-help'), enabled: true
+        },
+        {
+          name: 'sflow-help', description: 'Help', source: 'plugin',
+          path: path.join(installedPluginRoot, 'skills', 'sflow-help'), enabled: true
+        }
+      ]));
     }
     if (command === 'copilot' && args[0] === 'plugins' && args[1] === 'list'
         && args[2] === '--kind' && args[4] === '--scope' && args[6] === '--json') {
@@ -73,7 +111,19 @@ function harness(version, {
       return ok();
     }
     if (command === 'copilot' && args[0] === 'plugin' && args[1] === 'install') {
+      pluginInstallCount += 1;
       plugin = 'singularity-flow';
+      installedPluginRoot = path.join(
+        options.env?.HOME ?? os.homedir(), '.copilot', 'plugin-cache', 'singularity-flow'
+      );
+      rmSync(installedPluginRoot, { recursive: true, force: true });
+      cpSync(args[2], installedPluginRoot, { recursive: true });
+      if (tamperRestoredPackagedSkill && pluginInstallCount >= 2) {
+        appendFileSync(
+          path.join(installedPluginRoot, 'skills', 'sflow-help', 'SKILL.md'),
+          '\ntampered after plugin restore\n'
+        );
+      }
       return ok();
     }
     if (command === 'code' && args.join(' ') === '--list-extensions --show-versions') {
@@ -85,11 +135,25 @@ function harness(version, {
     }
     if (command === 'code' && args[0] === '--uninstall-extension') {
       vscodeVersion = null;
+      if (tamperRestoredSkill) {
+        const skillsRoot = options.env?.SINGULARITY_FLOW_COPILOT_SKILLS_DIR
+          ?? path.join(options.env?.HOME ?? os.homedir(), '.copilot', 'skills');
+        appendFileSync(path.join(skillsRoot, 'sf-help', 'SKILL.md'), '\ntampered after restore\n');
+      }
       return ok();
     }
     if (command === 'singularity-flow' && args.join(' ') === '--version') {
       beforeVersion?.();
       return ok(`${badInstalledVersion ? '0.0.0-bad' : version}\n`);
+    }
+    if (command === process.execPath && args.at(-1) === '--build') return ok(`${build}\n`);
+    if (command === 'singularity-flow' && args.join(' ') === '--build') {
+      const restoredMismatch = badRestoredBuild && globalInstallCount >= 2;
+      return ok(`${badInstalledBuild || restoredMismatch
+        ? `${version} (stale-distribution-build-89abcdef)` : build}\n`);
+    }
+    if (command === 'singularity-flow' && args.join(' ') === 'plugin verify --json') {
+      return ok('{"status":"verified"}\n');
     }
     return ok();
   };
@@ -111,6 +175,16 @@ async function seedRetainedTarball(item) {
     artifacts: { tarball: { path: target, sha256: `sha256:${digest}` } }
   }, null, 2)}\n`, { mode: 0o600 });
   return target;
+}
+
+async function seedManagedDirectSkill(home) {
+  const directory = path.join(home, '.copilot', 'skills', 'sf-help');
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  await writeFile(path.join(directory, 'SKILL.md'), [
+    '---', 'name: sf-help', 'description: Help', '---',
+    '<!-- managed-by: singularity-flow direct-skill-alias -->', '# Help', ''
+  ].join('\n'));
+  return directory;
 }
 
 async function fixture(t) {
@@ -142,7 +216,13 @@ test('distribution preview validates exact artifacts without Git or product muta
   assert.equal(plan.operation, 'distribution-product-install');
   assert.match(plan.confirmation, /^INSTALL SINGULARITY FLOW [a-f0-9]{16}$/u);
   assert.match(distributionInstallPlanText(plan), /No Git command was run/u);
-  assert.equal(commands.calls.some(([command, verb]) => command === 'npm' && verb === 'install'), false);
+  assert.match(distributionInstallPlanText(plan), /staged only; product activation has not started/u);
+  assert.equal(commands.calls.some(([command, verb, scope]) => (
+    command === 'npm' && verb === 'install' && scope === '--global'
+  )), false, 'preview may stage a private candidate but cannot replace the global CLI');
+  assert.ok(commands.calls.some(([command, verb, scope]) => (
+    command === 'npm' && verb === 'install' && scope === '--prefix'
+  )), 'preview stages the exact signed candidate so build identity is known before mutation');
   assert.equal(commands.calls.some(([command]) => command === 'git'), false);
 });
 
@@ -173,6 +253,57 @@ test('distribution preview shell command preserves hostile paths as literal argv
   assert.doesNotMatch(rendered, /Shell: .*"\$\(/u);
 });
 
+test('distribution preview binds every installed CLI to its retained exact build', async (t) => {
+  const item = await fixture(t);
+  await seedRetainedTarball(item);
+  const commands = harness(item.release.version, { initialInstalled: true });
+  const plan = await prepareDistributionInstall({
+    releaseDirectory: item.release.directory,
+    artifactKey: item.release.publicKeyPath,
+    cliOnly: true,
+    execute: commands.execute,
+    exists: commands.exists,
+    homeDirectory: item.home,
+    environment: { ...process.env, HOME: item.home },
+    tempRoot: item.temp
+  });
+  assert.equal(plan.distribution.rollback.cliBuild,
+    `${item.release.version} (distribution-fixture-build-01234567)`);
+  assert.match(plan.distribution.rollback.packageSha256, /^sha256:[a-f0-9]{64}$/u);
+  assert.ok(plan.distribution.rollback.package.endsWith(
+    path.join('rollback-package', 'node_modules', 'singularity-flow')
+  ));
+  const liveBuild = commands.calls.findIndex(([command, ...args]) => (
+    command === 'singularity-flow' && args.join(' ') === '--build'
+  ));
+  const firstGlobalMutation = commands.calls.findIndex(([command, verb, scope]) => (
+    command === 'npm' && verb === 'install' && scope === '--global'
+  ));
+  assert.ok(liveBuild >= 0);
+  assert.equal(firstGlobalMutation, -1, 'preview cannot mutate the global CLI');
+});
+
+test('distribution preview refuses retained CLI bytes that do not reproduce the live build', async (t) => {
+  const item = await fixture(t);
+  await seedRetainedTarball(item);
+  const commands = harness(item.release.version, {
+    initialInstalled: true, badInstalledBuild: true
+  });
+  await assert.rejects(() => prepareDistributionInstall({
+    releaseDirectory: item.release.directory,
+    artifactKey: item.release.publicKeyPath,
+    cliOnly: true,
+    execute: commands.execute,
+    exists: commands.exists,
+    homeDirectory: item.home,
+    environment: { ...process.env, HOME: item.home },
+    tempRoot: item.temp
+  }), /retained CLI rollback package reports build .* currently installed CLI reports/u);
+  assert.equal(commands.calls.some(([command, verb, scope]) => (
+    command === 'npm' && verb === 'install' && scope === '--global'
+  )), false);
+});
+
 test('distribution applies the admitted tarball and records retained exact bytes', async (t) => {
   const item = await fixture(t);
   const commands = harness(item.release.version);
@@ -195,14 +326,63 @@ test('distribution applies the admitted tarball and records retained exact bytes
     environment: options.environment
   });
   assert.equal(completed.completed, true);
-  const install = commands.calls.find(([command, verb]) => command === 'npm' && verb === 'install');
+  assert.equal(completed.verified.cliBuild,
+    `${item.release.version} (distribution-fixture-build-01234567)`);
+  assert.match(distributionInstallPlanText(completed),
+    /Singularity Flow product activation — PARTIAL BY REQUEST/u);
+  assert.ok(distributionInstallPlanText(completed).endsWith(
+    'Singularity Flow product activation — PARTIAL BY REQUEST'
+  ));
+  assert.match(distributionInstallPlanText(completed), /Installed CLI build:/u);
+  assert.match(distributionInstallPlanText(completed), /Installation receipt:/u);
+  const install = commands.calls.find(([command, verb, scope]) => (
+    command === 'npm' && verb === 'install' && scope === '--global'
+  ));
   assert.equal(path.resolve(install[3]), path.resolve(plan.bundle.tarball));
   assert.equal(commands.calls.some(([command]) => command === 'git'), false);
   const current = JSON.parse(await readFile(
     path.join(item.home, '.singularity-flow', 'installations', 'current.json'), 'utf8'
   ));
   assert.equal(current.version, item.release.version);
+  assert.deepEqual(current.build, {
+    cli: `${item.release.version} (distribution-fixture-build-01234567)`
+  });
   assert.match(current.artifacts.tarball.path, /versions[/\\]sha256[/\\][a-f0-9]{64}[/\\]singularity-flow\.tgz$/u);
+});
+
+test('distribution install refuses same-version stale CLI build provenance', async (t) => {
+  const item = await fixture(t);
+  const commands = harness(item.release.version, { badInstalledBuild: true });
+  const environment = { ...process.env, HOME: item.home };
+  const plan = await prepareDistributionInstall({
+    releaseDirectory: item.release.directory,
+    artifactKey: item.release.publicKeyPath,
+    cliOnly: true,
+    execute: commands.execute,
+    exists: commands.exists,
+    homeDirectory: item.home,
+    environment,
+    tempRoot: item.temp
+  });
+  await assert.rejects(() => applyLocalReinstall(plan, {
+    confirmation: plan.confirmation,
+    execute: commands.execute,
+    exists: commands.exists,
+    homeDirectory: item.home,
+    environment
+  }), (error) => {
+    assert.match(error.message,
+      /Installed CLI build .* does not match the admitted candidate build/u);
+    assert.match(error.message, /Every touched product surface was restored and verified/u);
+    return true;
+  });
+  assert.ok(commands.calls.some(([command, ...args]) => command === 'singularity-flow'
+    && args.join(' ') === '--version'));
+  assert.ok(commands.calls.some(([command, ...args]) => command === 'singularity-flow'
+    && args.join(' ') === '--build'));
+  await assert.rejects(() => readFile(path.join(
+    item.home, '.singularity-flow', 'installations', 'current.json'
+  )), /ENOENT/u);
 });
 
 test('late distribution failure restores every touched surface and clears its transaction', async (t) => {
@@ -234,6 +414,165 @@ test('late distribution failure restores every touched surface and clears its tr
   await assert.rejects(() => readFile(path.join(
     item.home, '.singularity-flow', 'installations', 'current.json'
   )), /ENOENT/u);
+});
+
+test('distribution rollback refuses to claim restoration when the exact CLI build differs', async (t) => {
+  const item = await fixture(t);
+  await seedRetainedTarball(item);
+  const commands = harness(item.release.version, {
+    initialInstalled: true,
+    badInstalledVersion: true,
+    badRestoredBuild: true
+  });
+  const environment = { ...process.env, HOME: item.home };
+  const plan = await prepareDistributionInstall({
+    releaseDirectory: item.release.directory,
+    artifactKey: item.release.publicKeyPath,
+    cliOnly: true,
+    execute: commands.execute,
+    exists: commands.exists,
+    homeDirectory: item.home,
+    environment,
+    tempRoot: item.temp
+  });
+  await assert.rejects(() => applyLocalReinstall(plan, {
+    confirmation: plan.confirmation,
+    execute: commands.execute,
+    exists: commands.exists,
+    homeDirectory: item.home,
+    environment
+  }), (error) => {
+    assert.match(error.message, /restored build .* does not match/u);
+    assert.doesNotMatch(error.message, /Every touched product surface was restored and verified/u);
+    return true;
+  });
+  const pending = JSON.parse(await readFile(path.join(
+    item.home, '.singularity-flow', 'installations', 'distribution-install-pending.json'
+  ), 'utf8'));
+  assert.equal(pending.status, 'rollback-failed');
+});
+
+test('distribution rollback verifies restored Copilot enabled inventory', async (t) => {
+  const item = await fixture(t);
+  await seedRetainedTarball(item);
+  const commands = harness(item.release.version, {
+    initialInstalled: true,
+    pluginIdentity: 'singularity-flow',
+    fullSurfaces: true,
+    badInstalledVersion: true,
+    badRestoredPlugin: true
+  });
+  const environment = { ...process.env, HOME: item.home };
+  const plan = await prepareDistributionInstall({
+    releaseDirectory: item.release.directory,
+    artifactKey: item.release.publicKeyPath,
+    cliOnly: false,
+    telemetry: false,
+    execute: commands.execute,
+    exists: commands.exists,
+    homeDirectory: item.home,
+    environment,
+    tempRoot: item.temp
+  });
+  await assert.rejects(() => applyLocalReinstall(plan, {
+    confirmation: plan.confirmation,
+    execute: commands.execute,
+    exists: commands.exists,
+    homeDirectory: item.home,
+    environment
+  }), (error) => {
+    assert.match(error.message, /Copilot structured plugin verification failed/u);
+    assert.doesNotMatch(error.message, /Every touched product surface was restored and verified/u);
+    return true;
+  });
+  assert.ok(commands.calls.some(([command, ...args]) => (
+    command === 'copilot' && args.join(' ') === 'plugin list --json'
+  )));
+  const pending = JSON.parse(await readFile(path.join(
+    item.home, '.singularity-flow', 'installations', 'distribution-install-pending.json'
+  ), 'utf8'));
+  assert.equal(pending.status, 'rollback-failed');
+});
+
+test('distribution rollback verifies restored Copilot packaged skill content', async (t) => {
+  const item = await fixture(t);
+  await Promise.all([seedRetainedTarball(item), seedManagedDirectSkill(item.home)]);
+  const commands = harness(item.release.version, {
+    initialInstalled: true,
+    pluginIdentity: 'singularity-flow',
+    fullSurfaces: true,
+    badInstalledVersion: true,
+    tamperRestoredPackagedSkill: true
+  });
+  const environment = { ...process.env, HOME: item.home };
+  const plan = await prepareDistributionInstall({
+    releaseDirectory: item.release.directory,
+    artifactKey: item.release.publicKeyPath,
+    cliOnly: false,
+    telemetry: false,
+    execute: commands.execute,
+    exists: commands.exists,
+    homeDirectory: item.home,
+    environment,
+    tempRoot: item.temp
+  });
+  await assert.rejects(() => applyLocalReinstall(plan, {
+    confirmation: plan.confirmation,
+    execute: commands.execute,
+    exists: commands.exists,
+    homeDirectory: item.home,
+    environment
+  }), (error) => {
+    assert.match(error.message, /packaged Copilot skill content .*stale: sflow-help/u);
+    assert.doesNotMatch(error.message, /Every touched product surface was restored and verified/u);
+    return true;
+  });
+  assert.ok(commands.calls.some(([command, ...args]) => (
+    command === 'copilot' && args.join(' ') === 'skill list --json'
+  )));
+  const pending = JSON.parse(await readFile(path.join(
+    item.home, '.singularity-flow', 'installations', 'distribution-install-pending.json'
+  ), 'utf8'));
+  assert.equal(pending.status, 'rollback-failed');
+});
+
+test('distribution rollback verifies final restored direct-skill bytes', async (t) => {
+  const item = await fixture(t);
+  await Promise.all([seedRetainedTarball(item), seedManagedDirectSkill(item.home)]);
+  const commands = harness(item.release.version, {
+    initialInstalled: true,
+    fullSurfaces: true,
+    badInstalledVersion: true,
+    tamperRestoredSkill: true
+  });
+  const environment = { ...process.env, HOME: item.home };
+  const plan = await prepareDistributionInstall({
+    releaseDirectory: item.release.directory,
+    artifactKey: item.release.publicKeyPath,
+    cliOnly: false,
+    telemetry: false,
+    execute: commands.execute,
+    exists: commands.exists,
+    homeDirectory: item.home,
+    environment,
+    tempRoot: item.temp
+  });
+  assert.deepEqual(plan.installed.managedDirectSkills, ['sf-help']);
+  await assert.rejects(() => applyLocalReinstall(plan, {
+    confirmation: plan.confirmation,
+    execute: commands.execute,
+    exists: commands.exists,
+    homeDirectory: item.home,
+    environment
+  }), (error) => {
+    assert.match(error.message, /restored bytes do not match for sf-help/u);
+    assert.doesNotMatch(error.message, /Every touched product surface was restored and verified/u);
+    return true;
+  });
+  const pending = JSON.parse(await readFile(path.join(
+    item.home, '.singularity-flow', 'installations', 'distribution-install-pending.json'
+  ), 'utf8'));
+  assert.equal(pending.status, 'rollback-failed');
 });
 
 test('late receipt failure removes the false completed reinstall audit', async (t) => {
@@ -289,7 +628,9 @@ test('distribution apply refuses a cached plan whose operative installed path wa
     homeDirectory: item.home,
     environment: options.environment
   }), /does not match its fingerprint|Installed product state changed after preview/u);
-  assert.equal(commands.calls.some(([command, verb]) => command === 'npm' && verb === 'install'), false);
+  assert.equal(commands.calls.some(([command, verb, scope]) => (
+    command === 'npm' && verb === 'install' && scope === '--global'
+  )), false);
 });
 
 test('distribution binds retained Copilot rollback package bytes before product mutation', async (t) => {
@@ -389,6 +730,9 @@ test('distribution telemetry opt-out removes every managed profile activation', 
     environment
   });
   assert.equal(completed.completed, true);
+  assert.ok(distributionInstallPlanText(completed).endsWith(
+    'Singularity Flow product activation — PARTIAL BY REQUEST'
+  ), 'an explicit telemetry omission must not claim complete all-surface activation');
   for (const profile of [zsh, bash]) {
     const contents = await readFile(profile, 'utf8');
     assert.doesNotMatch(contents, /Singularity Flow: Copilot model\/token\/cost telemetry/u);

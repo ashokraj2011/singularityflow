@@ -50,7 +50,12 @@ INSTALL_ACTIVATION_JOURNAL_REVISION=""
 INSTALL_ACTIVATION_LEASE_ACTIVE="off"
 INSTALL_ACTIVATION_HEARTBEAT_PID=""
 CANDIDATE_CLI_EXECUTABLE=""
+CANDIDATE_CLI_BUILD=""
 PREVIOUS_CLI_EXECUTABLE=""
+PREVIOUS_CLI_BUILD=""
+PREVIOUS_CLI_OBSERVED_BUILD=""
+CURRENT_CLI_BUILD=""
+INSTALLED_CLI_BUILD=""
 PREVIOUS_CLI_PRESENT="off"
 PREVIOUS_CLI_PATH=""
 PREVIOUS_CLI_SHA256=""
@@ -963,6 +968,14 @@ PACKAGE_VERSION="$(node -p 'require(process.argv[1]).version' "$PROJECT_DIR/pack
       printf '%s\n' 'Error: the existing managed CLI identity could not be read; refusing activation before mutation.' >&2
       exit 1
     fi
+    if ! PREVIOUS_CLI_OBSERVED_BUILD="$(singularity-flow --build 2>/dev/null)" \
+      || [[ -z "$PREVIOUS_CLI_OBSERVED_BUILD" \
+        || "$PREVIOUS_CLI_OBSERVED_BUILD" == *$'\n'* \
+        || "$PREVIOUS_CLI_OBSERVED_BUILD" == *$'\r'* ]]; then
+      printf '%s\n' 'Error: the existing managed CLI exact build could not be read; refusing activation before mutation.' >&2
+      printf '%s\n' 'Run the reviewed clean-reinstall preview to migrate a legacy installation without an exact build identity.' >&2
+      exit 1
+    fi
   fi
   PREVIOUS_VSCODE_VERSION='-'
   if [[ "$CLI_ONLY" != "on" && "$SKIP_VSCODE" != "on" ]] && command -v code >/dev/null 2>&1; then
@@ -1133,7 +1146,7 @@ copilot_plugin_present() {
 }
 
 preflight_private_cli() {
-  local tarball="$1" digest="$2" version="$3" role="$4" target temporary executable observed
+  local tarball="$1" digest="$2" version="$3" role="$4" target temporary executable observed observed_build
   [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || return 1
   target="$INSTALL_MANIFEST_DIR/transactions/$INSTALL_ACTIVATION_OPERATION_ID/private-cli-$role"
   temporary="$(mktemp -d "$INSTALL_MANIFEST_DIR/transactions/$INSTALL_ACTIVATION_OPERATION_ID/.private-cli-${role}.XXXXXX")"
@@ -1148,13 +1161,34 @@ preflight_private_cli() {
   }
   observed="$(node "$executable" --version)" || { rm -rf -- "$temporary"; return 1; }
   [[ "$observed" == "$version" ]] || { rm -rf -- "$temporary"; return 1; }
+  if ! observed_build="$(node "$executable" --build 2>/dev/null)"; then observed_build=""; fi
+  if [[ "$role" == "candidate" ]]; then
+    case "$observed_build" in
+      "$version ("*")") ;;
+      *) rm -rf -- "$temporary"; return 1 ;;
+    esac
+    case "$observed_build" in
+      *"development checkout"*|*"not a stamped package"*)
+        printf "Error: candidate CLI build '%s' is an unstamped development checkout, not an installable package.\n" \
+          "$observed_build" >&2
+        rm -rf -- "$temporary"
+        return 1
+        ;;
+    esac
+    if [[ "$observed_build" == *$'\n'* || "$observed_build" == *$'\r'* ]]; then
+      rm -rf -- "$temporary"
+      return 1
+    fi
+  fi
   [[ ! -e "$target" && ! -L "$target" ]] || rm -rf -- "$target"
   mv "$temporary" "$target"
   executable="$target/node_modules/singularity-flow/bin/singularity-flow.mjs"
   if [[ "$role" == "candidate" ]]; then
     CANDIDATE_CLI_EXECUTABLE="$executable"
+    CANDIDATE_CLI_BUILD="$observed_build"
   else
     PREVIOUS_CLI_EXECUTABLE="$executable"
+    PREVIOUS_CLI_BUILD="$observed_build"
   fi
 }
 
@@ -1196,13 +1230,17 @@ restore_telemetry_surface() {
 }
 
 restore_cli_surface() {
-  local observed
+  local observed observed_build
   if [[ "$PREVIOUS_CLI_PRESENT" == "on" ]]; then
     npm install --global "$PREVIOUS_CLI_PATH" --cache "$ACTIVATION_TRANSACTION_CACHE" --registry="$REGISTRY" || return 1
     hash -r
     command -v singularity-flow >/dev/null 2>&1 || return 1
     observed="$(singularity-flow --version)" || return 1
-    [[ "$observed" == "$PREVIOUS_CLI_ARTIFACT_VERSION" ]]
+    [[ "$observed" == "$PREVIOUS_CLI_ARTIFACT_VERSION" ]] || return 1
+    if [[ -n "$PREVIOUS_CLI_BUILD" ]]; then
+      observed_build="$(singularity-flow --build)" || return 1
+      [[ "$observed_build" == "$PREVIOUS_CLI_BUILD" ]]
+    fi
   else
     npm uninstall --global singularity-flow --cache "$ACTIVATION_TRANSACTION_CACHE" --registry="$REGISTRY" >/dev/null 2>&1 || true
     hash -r
@@ -1253,6 +1291,17 @@ activation_failed() {
   # invalid and harmful because every surface and the exact receipt already committed together.
   if [[ "$ACTIVATION_STATUS" == "complete" ]]; then
     printf '\nInstallation activation committed before %s; product surfaces remain coherent.\n' "$reason" >&2
+    printf '%s\n' 'The normal final activation banner may not have been emitted; verify the committed receipt instead of inferring failure or rerunning installation.' >&2
+    printf 'Inspect committed receipt: %s\n' "$PREVIOUS_MANIFEST_TARGET" >&2
+    if command -v singularity-flow >/dev/null 2>&1; then
+      printf '%s\n' 'Verify exact CLI build: singularity-flow --build' >&2
+      if [[ "$CLI_ONLY" != "on" && "$VSCODE_ONLY" != "on" && "$SKIP_COPILOT" != "on" ]]; then
+        printf '%s\n' 'Verify Copilot surfaces: singularity-flow plugin verify --json' >&2
+      fi
+      if [[ "$RECOVERY_WORKSPACE_CONFIGURATION_REFRESH" == "on" ]]; then
+        printf '%s\n' 'Resume workspace refresh: singularity-flow workspace refresh-configuration' >&2
+      fi
+    fi
     exit "$exit_code"
   fi
   if rollback_activation "$reason"; then
@@ -1289,8 +1338,25 @@ if [[ "$PREVIOUS_CLI_PRESENT" == "on" || "$PREVIOUS_COPILOT_PRESENT" == "on" ]];
   step_begin 'Verifying the prior CLI rollback artifact'
   preflight_private_cli "$PREVIOUS_CLI_PATH" "$PREVIOUS_CLI_SHA256" \
     "$PREVIOUS_CLI_ARTIFACT_VERSION" previous
+  if [[ "$FROM_STAGED_ARTIFACTS" != "on" && "$PREVIOUS_CLI_PRESENT" == "on" ]]; then
+    CURRENT_CLI_BUILD=""
+    if ! CURRENT_CLI_BUILD="$(singularity-flow --build 2>/dev/null)" \
+      || [[ "$CURRENT_CLI_BUILD" != "$PREVIOUS_CLI_OBSERVED_BUILD" \
+        || "$CURRENT_CLI_BUILD" != "$PREVIOUS_CLI_BUILD" ]]; then
+      printf "Error: installed CLI build '%s' does not match retained rollback build '%s'.\n" \
+        "${CURRENT_CLI_BUILD:-unavailable}" "${PREVIOUS_CLI_BUILD:-unavailable}" >&2
+      printf '%s\n' 'No product surface was changed. Run the reviewed clean-reinstall preview to repair the installation receipt.' >&2
+      if ! rollback_activation prior-build-mismatch; then
+        printf 'CRITICAL: the no-mutation refusal could not close its recovery journal: %s\n' \
+          "$INSTALL_ACTIVATION_JOURNAL" >&2
+      fi
+      exit 1
+    fi
+  fi
   step_end
 fi
+printf '%s\n' 'Validated artifacts are staged only; installed product surfaces have not changed.'
+printf '%s\n' 'Product activation starts now. Build and package messages above are not installation completion.'
 
 trap activation_failed ERR
 trap 'activation_signal INT 130' INT
@@ -1373,6 +1439,15 @@ if [[ "$SURFACE_CLI_STATE" == "pending" ]]; then
     printf 'Error: installed CLI reports %s; expected %s.\n' "${INSTALLED_CLI_VERSION:-no version}" "$PACKAGE_VERSION" >&2
     activation_failed 1
   fi
+  INSTALLED_CLI_BUILD="$(singularity-flow --build)" || activation_failed 1
+  if [[ "$INSTALLED_CLI_BUILD" != "$CANDIDATE_CLI_BUILD" ]]; then
+    printf "Error: installed CLI build '%s' does not match admitted candidate build '%s'.\n" \
+      "${INSTALLED_CLI_BUILD:-unavailable}" "$CANDIDATE_CLI_BUILD" >&2
+    activation_failed 1
+  fi
+  if [[ "$SURFACE_COPILOT_STATE" == "applied" ]]; then
+    singularity-flow plugin verify --json >/dev/null || activation_failed 1
+  fi
   set_surface_state cli applied activating cli cli
   step_end
 fi
@@ -1384,7 +1459,7 @@ set_surface_state manifest applying activating manifest-started
 INSTALL_MANIFEST_TEMP="$(mktemp "$INSTALL_MANIFEST_DIR/current.json.XXXXXX")"
 node -e '
   const fs = require("node:fs");
-  const [file, version, checkout, sourceCommit, sourceTree, journalFile, workspaceRefresh, previousManifestFile, previousManifestExisted] = process.argv.slice(1);
+  const [file, version, checkout, sourceCommit, sourceTree, cliBuild, journalFile, workspaceRefresh, previousManifestFile, previousManifestExisted] = process.argv.slice(1);
   const journal = JSON.parse(fs.readFileSync(journalFile, "utf8"));
   const previousManifest = previousManifestExisted === "on"
     ? JSON.parse(fs.readFileSync(previousManifestFile, "utf8"))
@@ -1393,10 +1468,19 @@ node -e '
     ? previousManifest.artifacts ?? {}
     : { tarball: previousManifest?.tarball ?? null, vsix: previousManifest?.vsix ?? null };
   const priorSurfaces = previousManifest?.surfaces ?? {};
+  const partialByRequest = journal.mode.cliOnly || journal.mode.vscodeOnly
+    || journal.mode.skipVscode || journal.mode.skipCopilot || !journal.mode.telemetry;
   fs.writeFileSync(file, JSON.stringify({
     schemaVersion: 2,
-    status: journal.skippedSurfaces.length ? "complete-with-skips" : "complete",
+    status: partialByRequest
+      ? "partial-by-request"
+      : journal.skippedSurfaces.length ? "complete-with-skips" : "complete",
     version,
+    build: {
+      cli: journal.surfaceStates.cli === "applied"
+        ? (cliBuild === "-" ? null : cliBuild)
+        : previousManifest?.build?.cli ?? null
+    },
     checkout,
     source: sourceCommit === "-" ? null : { commit: sourceCommit, tree: sourceTree },
     artifacts: {
@@ -1417,13 +1501,12 @@ node -e '
     installedAt: new Date().toISOString()
   }, null, 2) + "\n", {mode: 0o600});
 ' "$INSTALL_MANIFEST_TEMP" "$PACKAGE_VERSION" "$INSTALL_RECEIPT_CHECKOUT" \
-  "${INSTALL_RECEIPT_SOURCE_COMMIT:--}" "${INSTALL_RECEIPT_SOURCE_TREE:--}" "$INSTALL_ACTIVATION_JOURNAL" \
+  "${INSTALL_RECEIPT_SOURCE_COMMIT:--}" "${INSTALL_RECEIPT_SOURCE_TREE:--}" "${INSTALLED_CLI_BUILD:--}" "$INSTALL_ACTIVATION_JOURNAL" \
   "$([[ "$RECOVERY_WORKSPACE_CONFIGURATION_REFRESH" == "on" ]] && printf pending || printf skipped)" \
   "${PREVIOUS_MANIFEST_SNAPSHOT:--}" "$PREVIOUS_MANIFEST_EXISTED"
 mv "$INSTALL_MANIFEST_TEMP" "$PREVIOUS_MANIFEST_TARGET"
 set_surface_state manifest applied activating manifest manifest
 write_activation_journal complete complete
-trap - ERR INT TERM HUP
 
 # Workspace Git refresh is deliberately outside product activation. If it is slow, interrupted, or
 # rejected, current.json remains a coherent installed-product receipt with an explicit pending flag.
@@ -1461,11 +1544,30 @@ if [[ -n "$PINNED_INSTALL_ARTIFACT_HELPER" ]]; then
   fi
 fi
 
-if [[ "$VSCODE_ONLY" == "on" ]]; then
-  printf '\nInstalled Singularity Flow VS Code extension %s\n' "$PACKAGE_VERSION"
-else
-  printf '\nInstalled Singularity Flow %s\n' "$PACKAGE_VERSION"
+ACTIVATION_OUTCOME='COMPLETE AND VERIFIED'
+if [[ "$CLI_ONLY" == "on" || "$VSCODE_ONLY" == "on" || "$SKIP_VSCODE" == "on" || "$SKIP_COPILOT" == "on" || "$ENABLE_COPILOT_TELEMETRY" == "off" ]]; then
+  ACTIVATION_OUTCOME='PARTIAL BY REQUEST'
+elif [[ "$SURFACE_VSCODE_STATE" == "skipped" || "$SURFACE_COPILOT_STATE" == "skipped" ]]; then
+  ACTIVATION_OUTCOME='COMPLETE WITH SKIPS'
 fi
+printf '\n'
+if [[ -n "$INSTALLED_CLI_BUILD" ]]; then
+  printf 'Installed CLI build: %s\n' "$INSTALLED_CLI_BUILD"
+else
+  printf '%s\n' 'Installed CLI build: not selected; the global CLI was left unchanged.'
+fi
+if [[ "$SURFACE_VSCODE_STATE" == "applied" ]]; then
+  printf 'VS Code extension: verified %s\n' "$INSTALLED_VSCODE_VERSION"
+else
+  printf 'VS Code extension: %s\n' "$SURFACE_VSCODE_STATE"
+fi
+if [[ "$SURFACE_COPILOT_STATE" == "applied" ]]; then
+  printf '%s\n' 'Copilot plugin and managed skills: verified through the installed CLI'
+else
+  printf 'Copilot plugin and managed skills: %s\n' "$SURFACE_COPILOT_STATE"
+fi
+printf 'Installation receipt: %s\n' "$PREVIOUS_MANIFEST_TARGET"
+printf '%s\n' 'The final activation banner below is the completion signal; build/package messages are not.'
 # Named explicitly, because the CLI on PATH is a *copy* and not a link to this checkout: editing
 # these sources changes nothing about the installed command until install.sh runs again.
 printf 'Built from checkout: %s\n' "$INSTALL_RECEIPT_CHECKOUT"
@@ -1477,10 +1579,10 @@ printf 'Registry: %s\n' "$REGISTRY"
 if [[ "$VSCODE_ONLY" == "on" ]]; then
   printf '%s\n' 'VS Code-only installation complete; the global CLI, standalone Copilot assets, telemetry, and workspace configuration were not changed.'
 elif [[ "$CLI_ONLY" != "on" && "$SKIP_COPILOT" != "on" ]]; then
-  copilot plugin list
   printf '%s\n' 'Open a new terminal, then start a new Copilot session to load the refreshed skills and telemetry environment.'
 elif [[ "$SKIP_COPILOT" == "on" ]]; then
   printf '%s\n' 'CLI and VS Code installation complete; standalone Copilot plugin/skills and telemetry setup were skipped.'
 else
   printf '%s\n' 'CLI-only installation complete; VS Code was not built and Copilot plugin/telemetry setup was skipped.'
 fi
+printf '\nSingularity Flow product activation — %s\n' "$ACTIVATION_OUTCOME"

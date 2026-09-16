@@ -25,6 +25,7 @@ import {
 } from '../scripts/install-staged-artifacts.mjs';
 
 const VERSION = '9.8.7';
+const BUILD = `${VERSION} (fixture-build-01234567)`;
 const MANAGED = '<!-- managed-by: singularity-flow direct-skill-alias -->';
 
 function storedZip(name, body) {
@@ -66,12 +67,15 @@ async function fixture() {
   const temp = path.join(root, 'tmp');
   await mkdir(path.join(checkout, 'plugin', 'skills', 'sflow-test'), { recursive: true });
   await mkdir(path.join(checkout, 'apps', 'vscode'), { recursive: true });
+  await mkdir(path.join(checkout, 'bin'), { recursive: true });
   await mkdir(path.join(checkout, 'singularity'), { recursive: true });
   await mkdir(path.join(checkout, '.singularity'), { recursive: true });
   await mkdir(path.join(checkout, '.git', 'singularity-flow'), { recursive: true });
   await mkdir(path.join(home, '.singularity-flow'), { recursive: true });
   await mkdir(temp, { recursive: true });
   await writeFile(path.join(checkout, 'package.json'), JSON.stringify({ name: 'singularity-flow', version: VERSION }));
+  await writeFile(path.join(checkout, 'bin', 'singularity-flow.mjs'),
+    `if (process.argv[2] === '--build') console.log(${JSON.stringify(BUILD)});\n`);
   await writeFile(path.join(checkout, 'install.sh'), '#!/bin/sh\n');
   await writeFile(path.join(checkout, 'plugin', 'plugin.json'), JSON.stringify({ name: 'singularity-flow', version: VERSION }));
   await writeFile(path.join(checkout, 'apps', 'vscode', 'package.json'), JSON.stringify({
@@ -86,17 +90,37 @@ async function fixture() {
   return { root, checkout, home, temp };
 }
 
-function commandHarness({ installed = false, code = true, copilot = true, npmRoot = '' } = {}) {
+function commandHarness({
+  installed = false, code = true, copilot = true, npmRoot = '', homeDirectory = null
+} = {}) {
   const calls = [];
   const copilotPlugins = new Set(installed
     ? ['singularity-flow', 'singularity-flow@singularity-flow'] : []);
+  let installedPluginRoot = null;
   const exists = (command) => command === 'node' || command === 'npm'
     || (command === 'code' && code) || (command === 'copilot' && copilot);
   const execute = (command, args, options = {}) => {
     calls.push({ command, args: [...args], options });
     const words = args.join(' ');
+    if (command === process.execPath && args.at(-1) === '--build') return ok(`${BUILD}\n`);
     if (command === 'npm' && words === 'config get registry') return ok('https://registry.npmjs.org/\n');
     if (command === 'npm' && words === 'root --global') return ok(`${npmRoot}\n`);
+    if (command === 'npm' && args[0] === 'install' && args[1] === '--prefix') {
+      const packageRoot = path.join(args[2], 'node_modules', 'singularity-flow');
+      fs.mkdirSync(path.join(packageRoot, 'bin'), { recursive: true });
+      fs.mkdirSync(path.join(packageRoot, 'plugin', 'skills', 'sflow-test'), { recursive: true });
+      fs.writeFileSync(path.join(packageRoot, 'package.json'), JSON.stringify({
+        name: 'singularity-flow', version: VERSION
+      }));
+      fs.writeFileSync(path.join(packageRoot, 'plugin', 'plugin.json'), JSON.stringify({
+        name: 'singularity-flow', version: VERSION
+      }));
+      fs.writeFileSync(path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+        `if (process.argv[2] === '--build') console.log(${JSON.stringify(BUILD)});\n`);
+      fs.writeFileSync(path.join(packageRoot, 'plugin', 'skills', 'sflow-test', 'SKILL.md'),
+        '---\nname: sflow-test\n---\n# Test\n');
+      return ok('');
+    }
     if (command === 'npm' && args[0] === 'list') return ok(installed
       ? JSON.stringify({ dependencies: { 'singularity-flow': { version: VERSION } } })
       : '{}');
@@ -106,10 +130,31 @@ function commandHarness({ installed = false, code = true, copilot = true, npmRoo
     }
     if (command === 'copilot' && args[0] === 'plugin' && args[1] === 'install') {
       copilotPlugins.add('singularity-flow');
+      installedPluginRoot = args[2];
       return ok('');
     }
     if (command === 'copilot' && words === 'plugin list') {
       return ok([...copilotPlugins].join('\n'));
+    }
+    if (command === 'copilot' && words === 'plugin list --json') {
+      return ok(JSON.stringify([...copilotPlugins].map((identity) => {
+        const [name, marketplace = ''] = identity.split('@');
+        return { name, marketplace, version: VERSION, enabled: true, source: 'installed' };
+      })));
+    }
+    if (command === 'copilot' && words === 'skill list --json') {
+      const skillsRoot = options.env?.SINGULARITY_FLOW_COPILOT_SKILLS_DIR
+        ?? path.join(homeDirectory ?? options.env?.HOME ?? os.homedir(), '.copilot', 'skills');
+      return ok(JSON.stringify([
+        {
+          name: 'sf-test', description: 'Test', source: 'personal-copilot',
+          path: path.join(skillsRoot, 'sf-test'), enabled: true
+        },
+        {
+          name: 'sflow-test', description: 'Test', source: 'plugin',
+          path: path.join(installedPluginRoot, 'skills', 'sflow-test'), enabled: true
+        }
+      ]));
     }
     if (command === 'copilot' && words === 'plugins list --kind plugin --scope user --json') {
       return ok(JSON.stringify({
@@ -133,6 +178,10 @@ function commandHarness({ installed = false, code = true, copilot = true, npmRoo
       ? `singularityflow.singularity-flow-vscode@${VERSION}\n`
       : '');
     if (command === 'singularity-flow' && words === '--version') return ok(`${VERSION}\n`);
+    if (command === 'singularity-flow' && words === '--build') return ok(`${BUILD}\n`);
+    if (command === 'singularity-flow' && words === 'plugin verify --json') {
+      return ok('{"status":"verified"}\n');
+    }
     return ok('');
   };
   return { calls, exists, execute };
@@ -180,6 +229,7 @@ test('reinstall preview builds first and preserves every repository and workspac
   assert.match(plan.confirmation, /^REINSTALL SINGULARITY FLOW [0-9a-f]{16}$/);
   assert.equal(plan.registry, 'https://artifacts.example.test/api/npm/npm-virtual/');
   assert.match(reinstallPlanText(plan), /No Git command was run/);
+  assert.match(reinstallPlanText(plan), /staged only; product activation has not started/u);
   assert.equal(harness.calls.some((call) => call.command === 'git'), false);
   assert.equal(harness.calls.some((call) => ['install', 'uninstall'].includes(call.args[0])), false);
   assert.deepEqual(await Promise.all([
@@ -284,7 +334,7 @@ test('reinstall refuses stale confirmation, applies exact bytes, and upgrades a 
   const npmRoot = path.join(context.root, 'global-node-modules');
   await mkdir(npmRoot, { recursive: true });
   await cp(plan.bundle.source, path.join(npmRoot, 'singularity-flow'), { recursive: true });
-  const applyHarness = commandHarness({ installed: true, npmRoot });
+  const applyHarness = commandHarness({ installed: true, npmRoot, homeDirectory: context.home });
   await assert.rejects(
     applyLocalReinstall(plan, {
       confirmation: 'REINSTALL SINGULARITY FLOW wrong', homeDirectory: context.home,
@@ -308,6 +358,13 @@ test('reinstall refuses stale confirmation, applies exact bytes, and upgrades a 
     ...applyHarness
   });
   assert.equal(result.completed, true);
+  assert.match(reinstallPlanText(result),
+    /Singularity Flow product activation — COMPLETE AND VERIFIED/u);
+  assert.ok(reinstallPlanText(result).endsWith(
+    'Singularity Flow product activation — COMPLETE AND VERIFIED'
+  ));
+  assert.match(reinstallPlanText(result), /Installed CLI build:/u);
+  assert.match(reinstallPlanText(result), /Installation receipt:/u);
   assert.ok(result.receipt.startsWith(path.join(context.home, '.singularity-flow', 'installations')));
   assert.equal(
     result.installationManifest,
@@ -317,6 +374,7 @@ test('reinstall refuses stale confirmation, applies exact bytes, and upgrades a 
   assert.equal(current.schemaVersion, 2);
   assert.equal(current.status, 'complete');
   assert.equal(current.version, VERSION);
+  assert.deepEqual(current.build, { cli: BUILD });
   assert.equal(current.checkout, plan.checkout);
   assert.equal(current.artifacts.tarball.sha256, `sha256:${plan.artifacts.tarballSha256}`);
   assert.equal(current.artifacts.vsix.sha256, `sha256:${plan.artifacts.vsixSha256}`);
@@ -332,6 +390,11 @@ test('reinstall refuses stale confirmation, applies exact bytes, and upgrades a 
     cli: true, vscode: true, copilot: true, telemetry: true, manifest: true
   });
   assert.deepEqual(current.reinstall, { fingerprint: plan.fingerprint, receipt: result.receipt });
+  assert.equal(result.verified.cliBuild, BUILD);
+  assert.ok(applyHarness.calls.some((call) => call.command === 'singularity-flow'
+    && call.args.join(' ') === '--build'));
+  assert.ok(applyHarness.calls.some((call) => call.command === 'singularity-flow'
+    && call.args.join(' ') === 'plugin verify --json'));
   assert.equal(await readFile(path.join(skills, 'sf-personal', 'SKILL.md'), 'utf8'), '# personal\n');
   assert.match(await readFile(path.join(skills, 'sf-test', 'SKILL.md'), 'utf8'), new RegExp(MANAGED));
   await assert.rejects(readFile(path.join(skills, 'sf-old', 'SKILL.md')), /ENOENT/);
@@ -342,12 +405,92 @@ test('reinstall refuses stale confirmation, applies exact bytes, and upgrades a 
   assert.ok(applyHarness.calls.some((call) => call.command === 'copilot'
       && call.args.join(' ') === `plugin uninstall ${identity}`));
   }
-  const scopedVerification = applyHarness.calls.find((call) => call.command === 'copilot'
-    && call.args.join(' ') === 'plugins list --kind skill --scope user --json');
-  assert.equal(scopedVerification.options.env.SINGULARITY_FLOW_COPILOT_SKILLS_DIR, skills);
+  const skillVerification = applyHarness.calls.find((call) => call.command === 'copilot'
+    && call.args.join(' ') === 'skill list --json');
+  assert.equal(skillVerification.options.env.SINGULARITY_FLOW_COPILOT_SKILLS_DIR, skills);
   const npmInstall = applyHarness.calls.find((call) => call.command === 'npm' && call.args[0] === 'install');
   assert.equal(npmInstall.options.env.NPM_CONFIG_REGISTRY, plan.registry);
   assert.ok(npmInstall.args.includes(`--registry=${plan.registry}`));
+});
+
+test('reinstall refuses the same semantic version when the installed build provenance differs', async () => {
+  const context = await fixture();
+  const previewHarness = commandHarness();
+  const plan = await preview(context, previewHarness, { cliOnly: true });
+  const npmRoot = path.join(context.root, 'global-node-modules');
+  await mkdir(npmRoot, { recursive: true });
+  await cp(plan.bundle.source, path.join(npmRoot, 'singularity-flow'), { recursive: true });
+  const base = commandHarness({ npmRoot });
+  const execute = (command, args, options) => {
+    if (command === 'singularity-flow' && args.join(' ') === '--build') {
+      base.calls.push({ command, args: [...args], options });
+      return ok(`${VERSION} (stale-fixture-build-89abcdef)\n`);
+    }
+    return base.execute(command, args, options);
+  };
+  await assert.rejects(applyLocalReinstall(plan, {
+    confirmation: plan.confirmation,
+    homeDirectory: context.home,
+    ...base,
+    execute
+  }), (error) => {
+    assert.match(error.message,
+      /Installed CLI build .* does not match the admitted candidate build/u);
+    assert.match(error.message, /same exact command|recovery/iu);
+    return true;
+  });
+  assert.ok(base.calls.some((call) => call.command === 'singularity-flow'
+    && call.args.join(' ') === '--version'));
+  assert.ok(base.calls.some((call) => call.command === 'singularity-flow'
+    && call.args.join(' ') === '--build'));
+  assert.equal(fs.existsSync(path.join(
+    context.home, '.singularity-flow', 'installations', 'current.json'
+  )), false, 'a same-version stale build cannot commit a successful installation receipt');
+});
+
+test('reinstall refuses an unstamped development candidate before product mutation', async () => {
+  const context = await fixture();
+  const plan = await preview(context, commandHarness(), { cliOnly: true, telemetry: false });
+  const harness = commandHarness();
+  const execute = (command, args, options) => {
+    if (command === process.execPath && args.at(-1) === '--build') {
+      harness.calls.push({ command, args: [...args], options });
+      return ok(`${VERSION} (development checkout, not a stamped package)\n`);
+    }
+    return harness.execute(command, args, options);
+  };
+  await assert.rejects(applyLocalReinstall(plan, {
+    confirmation: plan.confirmation,
+    homeDirectory: context.home,
+    ...harness,
+    execute
+  }), /invalid build identity.*development checkout/iu);
+  assert.equal(harness.calls.some((call) => call.command === 'npm'
+    && call.args[0] === 'install' && call.args[1] === '--global'), false);
+  assert.equal(harness.calls.some((call) => call.command === 'copilot'
+    && ['install', 'uninstall'].includes(call.args[1])), false,
+  'an unstamped candidate is rejected before any Copilot mutation');
+  assert.equal(harness.calls.some((call) => call.command === 'code'
+    && ['--install-extension', '--uninstall-extension'].includes(call.args[0])), false,
+  'an unstamped candidate is rejected before any VS Code mutation');
+});
+
+test('telemetry opt-out is reported as partial activation by request', async () => {
+  const context = await fixture();
+  const harness = commandHarness({ code: false, homeDirectory: context.home });
+  const plan = await preview(context, harness, { telemetry: false });
+  const result = await applyLocalReinstall(plan, {
+    confirmation: plan.confirmation,
+    homeDirectory: context.home,
+    ...harness
+  });
+  assert.equal(result.completed, true);
+  assert.equal(result.verified.telemetryManaged, false);
+  const current = JSON.parse(await readFile(result.installationManifest, 'utf8'));
+  assert.equal(current.surfaces.telemetry, false);
+  assert.ok(reinstallPlanText(result).endsWith(
+    'Singularity Flow product activation — PARTIAL BY REQUEST'
+  ));
 });
 
 test('cached reinstall confirmation is bound to checkout, registry, artifacts, and options', async () => {
@@ -471,7 +614,8 @@ test('CLI-only reinstall refuses an installed VSIX without trusted rollback auth
     ...applyHarness
   }), /CLI-only clean reinstall cannot preserve rollback authority.*full clean reinstall/su);
   assert.equal(
-    applyHarness.calls.some((call) => call.command === 'npm' && call.args[0] === 'install'),
+    applyHarness.calls.some((call) => call.command === 'npm'
+      && call.args[0] === 'install' && call.args[1] === '--global'),
     false,
     'apply refuses before replacing the global package'
   );
@@ -480,7 +624,7 @@ test('CLI-only reinstall refuses an installed VSIX without trusted rollback auth
 
 test('CLI-only reinstall preserves an untouched VSIX only from an already trusted schema-v2 binding', async () => {
   const context = await fixture();
-  const harness = commandHarness({ installed: true });
+  const harness = commandHarness({ installed: true, homeDirectory: context.home });
   const bytes = storedZip('extension/package.json', Buffer.from(JSON.stringify({
     publisher: 'singularityflow', name: 'singularity-flow-vscode', version: VERSION
   })));
@@ -515,6 +659,13 @@ test('CLI-only reinstall preserves an untouched VSIX only from an already truste
   assert.equal(current.surfaces.vscode, true);
   assert.equal(current.surfaces.copilot, false);
   assert.equal(current.status, 'complete-with-skips');
+  assert.match(reinstallPlanText(result),
+    /Singularity Flow product activation — PARTIAL BY REQUEST/u);
+  assert.ok(reinstallPlanText(result).endsWith(
+    'Singularity Flow product activation — PARTIAL BY REQUEST'
+  ));
+  assert.match(reinstallPlanText(result), /Installed CLI build:/u);
+  assert.match(reinstallPlanText(result), /Installation receipt:/u);
 });
 
 test('clean reinstall shares the normal installer activation lease before any product mutation', async () => {
@@ -548,7 +699,7 @@ test('clean reinstall shares the normal installer activation lease before any pr
 test('all validation and packaging finishes before removal and failures print a retryable recovery command', async () => {
   const context = await fixture();
   const events = [];
-  const harness = commandHarness({ installed: true });
+  const harness = commandHarness({ installed: true, homeDirectory: context.home });
   const plan = await preview(context, harness, {
     build: async (options) => {
       events.push('bundle-validated');
@@ -557,7 +708,9 @@ test('all validation and packaging finishes before removal and failures print a 
   });
   const execute = (command, args, options = {}) => {
     events.push(`${command}:${args.join(' ')}`);
-    if (command === 'npm' && args[0] === 'install') return { status: 1, stdout: '', stderr: 'simulated registry outage' };
+    if (command === 'npm' && args[0] === 'install' && args[1] === '--global') {
+      return { status: 1, stdout: '', stderr: 'simulated registry outage' };
+    }
     return harness.execute(command, args, options);
   };
   await assert.rejects(applyLocalReinstall(plan, {

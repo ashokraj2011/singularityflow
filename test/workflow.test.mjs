@@ -449,7 +449,7 @@ test('next executes one valid lifecycle action at a time', async () => {
   let workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   const prepared = flow(root, ['next', '--task', 'Capture automatic intake'], { selection: selection('feature', 'product-owner') });
   assert.match(prepared.stdout, /Next step prepared: generate 'intake'/);
-  assert.match(flow(root, ['nextsteps']).stdout, /Automatic next action in Copilot: \/sf-next/);
+  assert.match(flow(root, ['nextsteps']).stdout, /Guided router: Copilot \/sf-next/);
   await completeArtifact(root, workflow, 'intake');
   flow(root, ['phase', 'publish', 'intake'], { selection: selection('feature', 'product-owner') });
 

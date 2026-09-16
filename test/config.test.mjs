@@ -800,7 +800,7 @@ test('spec-driven phases use approval-bound summaries while legacy work types re
   assert.equal(feature.phases.find((phase) => phase.id === 'design').inputs[0].projection, undefined);
 });
 
-test('approved-summary preserved headings are validated against visible producer-template headings', async () => {
+test('the exact historical split Verification heading is projected without rewriting approved bytes', async () => {
   const brokenComma = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-brief-heading-comma-'));
   await initializeDefinition(brokenComma);
   const workflowFile = path.join(brokenComma, 'singularity/workflow.yml');
@@ -810,10 +810,33 @@ test('approved-summary preserved headings are validated against visible producer
     'and non-functional checks'
   ];
   await writeFile(workflowFile, YAML.stringify(workflow));
-  await assert.rejects(() => loadDefinition(brokenComma), (error) => {
+  const approvedBytes = await readFile(workflowFile, 'utf8');
+  const loaded = await loadDefinition(brokenComma);
+  const release = resolveWorkType(loaded, 'spec-driven-standard').phases
+    .find((phase) => phase.id === 'release');
+  assert.deepEqual(release.inputs[1].preserve, [
+    'Acceptance and specification results',
+    'Negative, regression, security, and non-functional checks'
+  ]);
+  assert.equal(await readFile(workflowFile, 'utf8'), approvedBytes,
+    'a configuration read rewrote governed workflow bytes');
+});
+
+test('approved-summary preserved headings are validated against visible producer-template headings', async () => {
+  const customSplit = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-brief-heading-custom-'));
+  await initializeDefinition(customSplit);
+  const customWorkflowFile = path.join(customSplit, 'singularity/workflow.yml');
+  const customWorkflow = YAML.parse(await readFile(customWorkflowFile, 'utf8'));
+  customWorkflow.workTypes['spec-driven-standard'].templateOverrides.verification = 'common/intake.md';
+  customWorkflow.workTypes['spec-driven-standard'].phaseOverrides.release.inputs[1].preserve = [
+    'Acceptance and specification results', 'Negative', 'regression', 'security',
+    'and non-functional checks'
+  ];
+  await writeFile(customWorkflowFile, YAML.stringify(customWorkflow));
+  await assert.rejects(() => loadDefinition(customSplit), (error) => {
     assert.equal(error.code, 'AGENT_BRIEF_PRESERVE_HEADING_MISSING');
-    assert.match(error.message, /preserves heading 'Negative'/);
-    assert.match(error.message, /common\/verification\.md/);
+    assert.match(error.message, /preserves heading 'Acceptance and specification results'/);
+    assert.match(error.message, /common\/intake\.md/);
     return true;
   });
 

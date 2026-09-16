@@ -540,6 +540,35 @@ test('workspace preflight returns the exact selected-base workflow catalog befor
   assert.equal(selected.preflight.readiness.workType, 'release-only');
 });
 
+test('Story intake reads the exact historical split heading from approved configuration', async () => {
+  const { base, root, remote } = await repository();
+  await ensureConfigurationBranch(remote);
+
+  const authority = path.join(base, 'legacy-approved-configuration');
+  git(base, 'clone', '--quiet', '--branch', 'sflow/config', remote, authority);
+  git(authority, 'config', 'user.name', 'Configuration Publisher');
+  git(authority, 'config', 'user.email', 'configuration.publisher@example.com');
+  const workflowFile = path.join(authority, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(workflowFile, 'utf8'));
+  const verification = definition.workTypes['spec-driven-standard']
+    .phaseOverrides.release.inputs.find((input) => input.phase === 'verification');
+  verification.preserve = [
+    'Acceptance and specification results', 'Negative', 'regression', 'security',
+    'and non-functional checks'
+  ];
+  await writeFile(workflowFile, YAML.stringify(definition));
+  git(authority, 'add', 'singularity/workflow.yml');
+  git(authority, 'commit', '--quiet', '-m', 'Retain historical packaged workflow');
+  git(authority, 'push', '--quiet', 'origin', 'sflow/config');
+
+  const result = JSON.parse(flow(root, [
+    'workspace', 'branches', '--json', '--intake'
+  ]).stdout);
+  assert.equal(result.intake.workflowReason, null);
+  assert.ok(result.intake.storyWorkflows.some((workflow) =>
+    workflow.id === 'spec-driven-standard'));
+});
+
 test('Story start derives publication policy from the exact selected legacy base', async () => {
   const { root } = await repository();
   const workflowFile = path.join(root, 'singularity/workflow.yml');

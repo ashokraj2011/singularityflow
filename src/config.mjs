@@ -538,6 +538,61 @@ export function normalizeSequenceGates(value = {}, overrides = {}) {
   ]);
 }
 
+const LEGACY_SPLIT_VERIFICATION_HEADING = Object.freeze([
+  'Acceptance and specification results',
+  'Negative',
+  'regression',
+  'security',
+  'and non-functional checks'
+]);
+
+const CANONICAL_VERIFICATION_HEADINGS = Object.freeze([
+  'Acceptance and specification results',
+  'Negative, regression, security, and non-functional checks'
+]);
+
+function exactStrings(left, right) {
+  return Array.isArray(left)
+    && left.length === right.length
+    && left.every((entry, index) => entry === right[index]);
+}
+
+/**
+ * Project one exact historical package typo into its intended in-memory configuration.
+ *
+ * An older packaged `spec-driven-standard` profile wrote a Markdown heading containing commas as
+ * an unquoted YAML flow-sequence item. YAML correctly parsed that one heading as four separate
+ * values, so the stricter heading-contract validator introduced later refuses otherwise healthy
+ * approved `sflow/config` authorities before their Story snapshots can migrate. Repair only the
+ * exact shipped producer, consumer, phase sequence, and five-string value. Near matches and custom
+ * templates remain visible configuration errors, and the governed YAML bytes are never rewritten
+ * by a read.
+ */
+export function applyWorkflowCompatibility(definition) {
+  const workType = definition?.workTypes?.['spec-driven-standard'];
+  const phases = workType?.phases;
+  if (!exactStrings(phases, [
+    'specification', 'planning', 'implementation', 'convergence', 'verification', 'release'
+  ])) return definition;
+
+  const verificationTemplate = workType.templateOverrides?.verification
+    ?? definition?.phases?.verification?.defaultTemplate;
+  const releaseTemplate = workType.templateOverrides?.release
+    ?? definition?.phases?.release?.defaultTemplate;
+  if (verificationTemplate !== 'common/verification.md'
+      || releaseTemplate !== 'spec-driven/release.md') return definition;
+
+  const inputs = workType.phaseOverrides?.release?.inputs;
+  if (!Array.isArray(inputs)) return definition;
+  for (const input of inputs) {
+    if (input?.phase !== 'verification'
+        || input.projection !== 'approved-summary'
+        || !exactStrings(input.preserve, LEGACY_SPLIT_VERIFICATION_HEADING)) continue;
+    input.preserve = [...CANONICAL_VERIFICATION_HEADINGS];
+  }
+  return definition;
+}
+
 export function normalizePhaseInputs(value, label = 'Phase inputs') {
   if (value == null) return [];
   if (!Array.isArray(value)) throw new SingularityFlowError(`${label} must be an array.`);
@@ -1410,7 +1465,9 @@ async function loadDefinitionUncached(root, { storyBootstrap = false } = {}) {
     type: 'file'
   });
   if (workflow.exists) {
-    const definition = YAML.parse(await readFile(workflow.absolute, 'utf8'));
+    const definition = applyWorkflowCompatibility(
+      YAML.parse(await readFile(workflow.absolute, 'utf8'))
+    );
     // An accepted Story owns exact governed-agent bytes in its WFA closure. Parsing today's live
     // files before that closure is even located would let a deleted or malformed replacement deny
     // offline resume. Bootstrap therefore loads only the declarative workflow shape; the shared

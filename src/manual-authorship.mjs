@@ -223,7 +223,9 @@ export function assertProducerAllowed(phase, producer) {
   }
 }
 
-function validateArtifactBytes(bytes, contract, label, { text = null, baseline = null } = {}) {
+function validateArtifactBytes(bytes, contract, label, {
+  text = null, baseline = null, retrySkill = '/sf-phase'
+} = {}) {
   const needsTextValidation = Boolean(contract.validation?.requiredHeadings?.length || contract.validation?.forbiddenPlaceholders?.length);
   if (needsTextValidation && text == null) {
     throw new SingularityFlowError(`${label} is binary but its artifact contract requires text validation.`, { code: 'MANUAL_ARTIFACT_INVALID' });
@@ -248,13 +250,15 @@ function validateArtifactBytes(bytes, contract, label, { text = null, baseline =
       details: {
         findings: inspected.findings,
         fingerprint: inspected.fingerprint,
-        retry: { skill: '/sf-phase', maximumAttempts: 1, requiresFingerprintChange: true }
+        retry: { skill: retrySkill, maximumAttempts: 1, requiresFingerprintChange: true }
       }
     }
   );
 }
 
-export async function importManualArtifact({ sourcePath, targetPath, contract, baseline = null }) {
+export async function importManualArtifact({
+  sourcePath, targetPath, contract, baseline = null, retrySkill = '/sf-phase'
+}) {
   const info = await lstat(sourcePath).catch(() => null);
   if (!info?.isFile() || info.isSymbolicLink()) {
     throw new SingularityFlowError('Manual artifact source must be an existing regular file and must not be a symbolic link.', { code: 'MANUAL_ARTIFACT_INVALID' });
@@ -270,7 +274,7 @@ export async function importManualArtifact({ sourcePath, targetPath, contract, b
     authored = Buffer.from(authoredArtifactText(sanitized), 'utf8');
   }
   const text = /^(?:text\/|application\/(?:json|yaml)$)/.test(mediaType) ? original.toString('utf8') : null;
-  validateArtifactBytes(authored, contract, path.basename(sourcePath), { text, baseline });
+  validateArtifactBytes(authored, contract, path.basename(sourcePath), { text, baseline, retrySkill });
   const after = await readFile(sourcePath);
   if (sha256(after) !== sha256(original)) {
     throw new SingularityFlowError('Manual artifact source changed while it was being imported. Retry with a stable file.', { code: 'MANUAL_ARTIFACT_INVALID' });
@@ -279,7 +283,9 @@ export async function importManualArtifact({ sourcePath, targetPath, contract, b
   return Object.freeze({ kind: 'import', filename: path.basename(sourcePath), mediaType, sha256: sha256(authored), bytes: authored.length });
 }
 
-async function inspectPreparedArtifact(targetPath, contract, { baseline = null, deterministic = false } = {}) {
+async function inspectPreparedArtifact(targetPath, contract, {
+  baseline = null, deterministic = false, retrySkill = '/sf-phase'
+} = {}) {
   const info = await lstat(targetPath).catch(() => null);
   if (!info?.isFile() || info.isSymbolicLink()) throw new SingularityFlowError('Prepared artifact must be a regular file and must not be a symbolic link.', { code: 'MANUAL_ARTIFACT_INVALID' });
   const bytes = await readFile(targetPath);
@@ -303,7 +309,8 @@ async function inspectPreparedArtifact(targetPath, contract, { baseline = null, 
   } else {
     validateArtifactBytes(authored, contract, path.basename(targetPath), {
       text: /^(?:text\/|application\/(?:json|yaml)$)/.test(mediaType) ? bytes.toString('utf8') : null,
-      baseline
+      baseline,
+      retrySkill
     });
   }
   return Object.freeze({ kind: 'in-place', filename: path.basename(targetPath), mediaType, sha256: sha256(authored), bytes: authored.length });

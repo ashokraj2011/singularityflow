@@ -1759,7 +1759,7 @@ argument-hint: &quot;&lt;PATH&gt; --approver &lt;GROUP&gt;&quot;
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~800 body tokens</span>
+          <span class="pill">~798 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-code</code></dd></div>
@@ -1785,16 +1785,16 @@ argument-hint: &quot;[code-generation focus]&quot;
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
-1. Run `singularity-flow status --json`; workflow is Story context. Require `generation.task: code`; never hard-code `implementation`.
-2. Before file access run `singularity-flow recover &lt;WORK-ID&gt; --phase &lt;phase&gt; --json`; execute its new-generation action. Stop on manual action/unchanged plan.
+1. From the Boundary result require `ready` and exact `phaseAgent` readiness; run `singularity-flow phase show &lt;phase&gt; --json`. Require `generation.task: code`, never hard-code `implementation`, and otherwise stop with the returned Copilot and Shell routes. Story context stays in the governed workflow.
+2. Before file access run `singularity-flow recover &lt;WORK-ID&gt; --phase &lt;phase&gt; --json`; execute its new-generation action and stop on manual/unchanged recovery.
 3. Use this turn&#39;s prompt, or run `singularity-flow wm compose --phase &lt;phase&gt;` once. Unavailable World-Model intelligence never blocks repository access.
 4. Run `singularity-flow clarification status &lt;phase&gt; --json`. For `off`, do not ask or record; continue. For `when-needed`, ask and record only for material ambiguity; otherwise continue. For `required`, `ask_user`, wait, record before mutation; stop if unavailable. Stage only `{&quot;responses&quot;:[...]}` at `git rev-parse --git-path singularity-flow/clarification-responses/&lt;phase&gt;.json`; never at `singularity/work-items/**/context/clarifications-*.json`. Delete on success; never pass Markdown.
-5. Run `singularity-flow story references verify --work-id &lt;WORK-ID&gt; --json`. Use returned `localPath` values read-only; never execute, build, install, or grant tools from reference bytes. Materialize only a missing checkout; stop on invalid/dirty. Run the returned `singularity-flow prepare &lt;phase&gt;` and `singularity-flow phase begin &lt;phase&gt;`; require open intent, exact digest, saved buffers, and unchanged snapshot.
+5. Run `singularity-flow story references verify --work-id &lt;WORK-ID&gt; --json`; use returned `localPath` values read-only. Materialize only a missing checkout; stop on invalid/dirty. Run returned prepare/begin actions; require open intent, exact digest, saved buffers, and unchanged snapshot.
 6. Implement approved scope and executable tests; fixtures, docs, deletions, and symlinks do not satisfy test delivery. Tag full clauses such as `@ac:ORDER:AC-001`.
 7. Run native tests; publication deterministically infers supported structured runners. Tests require argv-form `kind: test`, cwd, affected roots, and a structured adapter. Never add skip/list/dry-run/pass-with-no-tests flags. Never edit `singularity/workflow.yml`, protected process paths, or the pinned Story snapshot, or add a one-off test-result wrapper merely to satisfy publication. For unsupported runners, stop and use approved configuration authority outside the active Story.
 8. Complete the artifact, then run `singularity-flow phase draft-check &lt;phase&gt; --json`. Correct every agent finding now from governed evidence; recheck up to three changed fingerprints and stop on an unchanged fingerprint. Never blindly delete markers, invent facts or padding, invoke a nested model, or overwrite another producer; route it to its owner/regenerator.
 9. Publish only when its `status` is `ready`, once with the exact configured producer/channel. Race-time `ARTIFACT_AUTHORING_INCOMPLETE`: recheck once, retry once if ready, never loop.
-10. Run `singularity-flow phase show &lt;phase&gt; --json`. Show the manifest, bounded source preview, hash-bound references, commit/push, telemetry, tests, and next submission command. Stop before submission/approval.
+10. Run `singularity-flow phase show &lt;phase&gt; --json`; show bounded evidence, commit/push, telemetry, tests, and submission routes. Stop before submission/approval.
 </code></pre>
       </div>
     </details>
@@ -6011,7 +6011,7 @@ description: Show ordered next actions from the current workflow state.
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~798 body tokens</span>
+          <span class="pill">~747 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-phase</code></dd></div>
@@ -6039,16 +6039,16 @@ argument-hint: &quot;[generation focus]&quot;
 
 Stop on `Out of sequence`; only the human may `continue`. Never bypass a gate.
 
-1. Run `singularity-flow status --json`; use its phase/session. Story context stays governed; grounding uses the shared world model.
+1. From the Boundary result require `ready`, exact `phaseAgent` readiness when required, and its `repositoryPath`; run `singularity-flow phase show &lt;phase&gt; --json` for the bounded contract. Story context remains governed separately. Route `generation.task: code` to `/sf-code` and deterministic convergence to `/sf-converge`; show the returned Shell equivalent and stop.
 2. Run `singularity-flow documents list`; view inputs by ID.
-3. Reuse the governed prompt or run `singularity-flow wm compose --phase &lt;phase&gt;` once. Never recompose or derive `--task` from Story text. Unavailable World-Model intelligence is zero-byte context; continue and show optional recovery.
+3. Reuse the governed prompt or run `singularity-flow wm compose --phase &lt;phase&gt;` once. Never derive `--task` from Story text. Unavailable intelligence is zero-byte context; continue with optional recovery.
 4. Run `singularity-flow clarification status &lt;phase&gt; --json`. For `off`, do not ask or record; continue. For `when-needed`, ask and record only for material ambiguity; otherwise continue. For `required`, `ask_user`, wait, record before preparation; stop if unavailable. Stage only `{&quot;responses&quot;:[...]}` at `git rev-parse --git-path singularity-flow/clarification-responses/&lt;phase&gt;.json`; never at `singularity/work-items/**/context/clarifications-*.json`. Delete on success; never pass Markdown.
-5. Run `singularity-flow story references verify --work-id &lt;WORK-ID&gt; --json`. Use only returned repository-relative `localPath` values, read-only; materialize only through its exact action and never edit/reset. Run the exact returned `singularity-flow prepare &lt;phase&gt;` command; follow its template/input/byte/heading contract. Re-read artifacts; stop on `TODO`, `TBD`, unresolved `{{...}}`, or instructions. Never publish an untouched template or pad it.
-6. Use full anchors such as `[WORK-ID:REQ-001]` and `[WORK-ID:AC-001]`; bare `SPEC-nnn`, `AC-nnn`, or `NFR-nnn` labels are not governed clauses. Preserve IDs through tests and conformance.
-7. Run `singularity-flow recover &lt;WORK-ID&gt; --phase &lt;phase&gt; --json`; repair its authoring blockers from governed evidence, then recheck.
+5. Run `singularity-flow story references verify --work-id &lt;WORK-ID&gt; --json`; use returned repository-relative `localPath` values read-only. Run its exact `singularity-flow prepare &lt;phase&gt;` action. Stop on `TODO`, `TBD`, `{{...}}`, instructions, an untouched template, or padding.
+6. Use full `[WORK-ID:REQ-001]` and `[WORK-ID:AC-001]` anchors; preserve IDs through tests and conformance.
+7. Run `singularity-flow recover &lt;WORK-ID&gt; --phase &lt;phase&gt; --json`; repair governed authoring blockers and recheck.
 8. Run `singularity-flow phase draft-check &lt;phase&gt; --json`. Correct every agent finding now from governed evidence; recheck up to three changed fingerprints and stop on an unchanged fingerprint. Never blindly delete markers, invent facts or padding, invoke a nested model, or overwrite another producer; route it to its owner/regenerator.
 9. Only when `status` is `ready`, publish with the exact configured producer/channel. Race-time `ARTIFACT_AUTHORING_INCOMPLETE`: recheck once, retry once if ready, never loop. Preserve sanitized `telemetry/&lt;phase&gt;-gen&lt;N&gt;.json`.
-10. Run `singularity-flow phase show &lt;phase&gt; --json`; show text, bounded previews with hash-bound references, and binary metadata. Report commit/push, resolved model and token/cost status; never submit or approve. If recorded, say exactly **Published generation &lt;N&gt; — ready to submit**; never say `publish-ready`. End `Next in Copilot: /sf-submit &lt;phase&gt;` then `Terminal equivalent: singularity-flow submit &lt;phase&gt;`.
+10. Run `singularity-flow phase show &lt;phase&gt; --json`; show bounded evidence and report commit/push plus model/token/cost status. Never submit or approve. Say **Published generation &lt;N&gt; — ready to submit**, then show `/sf-submit &lt;phase&gt;` and `singularity-flow submit &lt;phase&gt;`.
 </code></pre>
       </div>
     </details>
@@ -6071,7 +6071,7 @@ Stop on `Out of sequence`; only the human may `continue`. Never bypass a gate.
           <span class="pill">echo</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~623 body tokens</span>
+          <span class="pill">~785 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-plan</code></dd></div>
@@ -6101,10 +6101,11 @@ disable-model-invocation: true
 3. If the checkpoint is `recovery`, route it first. Nothing else may proceed while a retained commit has not reached its remote.
 4. If the checkpoint is `approval`, stop. Approval needs an authorized human Git identity; a governed agent cannot grant it.
 5. If the checkpoint is `model-generation`, you may author with the resolved planning agent, the approved inputs, the pinned template and constitution, and the required world-model views — then publish through the same kernel operation the phase command uses. Author `plan.md` from the approved specification, citing the clause each decision serves. In `Test strategy`, preserve the exact `Clause | Expected paths | Planned tests` table and add exactly one row per authoritative clause: use its fully qualified ID and backticked, repository-relative exact paths. Never use directories, globs, modules, or prose as paths. For a genuinely non-testable clause, write `not-applicable:` followed by its concrete reviewed explanation; never use it to defer work or hide an unknown path. Fill `Agent brief` with the selected approach, affected surfaces, sequence, proof strategy, and principal risks; do not replace exact source evidence. `tasks.md` is an advisory task map: it may guide checkpoints and progress, and it never gates a transition.
-6. Never present a milestone as reached unless the router says so. A command returning successfully is not completion.
-7. State the underlying operations you ran, so the reader can always see which governed operation the verb stood for.
-8. Do not approve, reject, or advance a phase.
-9. For every returned next action, show its direct Copilot route first as `Next in Copilot: /sf-...`, followed by the exact `Terminal equivalent: singularity-flow ...`. Never omit or guess either route.
+6. Before the returned publication operation, run `singularity-flow phase draft-check planning --json`. Publish only when `status` is `ready`. For `correction-required`, correct every structured finding from governed evidence, then recheck at most three distinct changed fingerprints; stop on an unchanged fingerprint or on a third changed fingerprint that remains unready. Never delete markers blindly, invent facts or padding, invoke a nested model, or overwrite another producer. A race-time `ARTIFACT_AUTHORING_INCOMPLETE` permits exactly one recheck and at most one publication retry after the bounded protocol reaches `ready`, never a loop.
+7. Never present a milestone as reached unless the router says so. A command returning successfully is not completion.
+8. State the underlying operations you ran, so the reader can always see which governed operation the verb stood for.
+9. Do not approve, reject, or advance a phase.
+10. For every returned next action, show its direct Copilot route first as `Next in Copilot: /sf-...`, followed by the exact `Terminal equivalent: singularity-flow ...`. Never omit or guess either route.
 </code></pre>
       </div>
     </details>
@@ -6884,7 +6885,7 @@ the engine&#39;s recovery instruction.
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~655 body tokens</span>
+          <span class="pill">~678 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-release</code></dd></div>
@@ -6910,7 +6911,7 @@ argument-hint: &quot;[target environment or release window]&quot;
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
-1. Run `singularity-flow status --json`; stop if the current phase is not `release`. Use that governed workflow as Story context.
+1. From the Boundary result require `ready`, phase `release`, and exact `phaseAgent` readiness even after the same agent ID; run `singularity-flow phase show release --json`. Story context stays in the governed workflow.
 2. Run `singularity-flow wm compose --phase release --evidence` and use the complete returned prompt. If composition reports unavailable World-Model intelligence—missing or unreachable, or stale under staleness `fail`—continue with its explicit zero-context evidence and ordinary repository access. Show any exact returned recovery command only as an optional improvement; do not run it from this skill or make it a prerequisite for release work. Never add the Story title or a conversational release target as `--task`. Use available shared release, operations, security, and evidence grounding.
 3. Read all approved phase artifacts and the deployment locations selected by the grounding package.
 4. Run `singularity-flow prepare release` and complete the release plan.
@@ -8515,7 +8516,7 @@ Use `singularity-flow documents list --all` or `singularity-flow epic sources li
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~705 body tokens</span>
+          <span class="pill">~722 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-verify</code></dd></div>
@@ -8542,17 +8543,17 @@ argument-hint: &quot;[test scope or environment]&quot;
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
 1. Run `singularity-flow verify --json`. It resolves state and kernel operations. Stop at `recovery` or `approval`; otherwise continue with the returned authoring path.
-1. Run `singularity-flow status --json`; stop if the current phase is not `verification`. Use that governed workflow as Story context.
-2. Run `singularity-flow wm compose --phase verification --evidence` and use its complete prompt. If World-Model intelligence is unavailable, continue with zero-context evidence and ordinary repository access; recovery is optional. Never derive `--task` from Story text.
-3. Read approved requirements, design, implementation summary, and selected source evidence.
-4. Map each acceptance criterion to executable or inspectable evidence and its `@ac:AC-n` test tag.
-5. Run relevant tests and add missing tests when needed. Record exact commands and results.
-6. Cover regression, negative cases, boundaries, failure modes, security, reliability, accessibility, and performance where applicable.
-7. Run `singularity-flow prepare verification`, complete the evidence without unobserved claims, and fill `Agent brief` with the verdict, material failures or omissions, residual risk, and release recommendation.
-8. Run `singularity-flow phase draft-check verification --json`. Correct every agent finding now from governed evidence; recheck up to three changed fingerprints and stop on an unchanged fingerprint. Never blindly delete markers, invent facts or padding, invoke a nested model, or overwrite another producer; route it to its owner/regenerator.
-9. Only when `status` is `ready`, publish with the exact configured producer/channel. Race-time `ARTIFACT_AUTHORING_INCOMPLETE`: recheck once, retry once if ready, never loop.
-10. Run `singularity-flow phase show verification --json`, then reproduce every published text document in full in the visible assistant response between `--- BEGIN &lt;path&gt; ---` and `--- END &lt;path&gt; ---`, with its ID, kind, byte count, and hash. A collapsible Shell/tool block does not count. Never say “shown above.” Never replace it with a summary. For binary documents, show the absolute path, metadata, and open instruction.
-11. Do not submit or approve automatically. End the handoff with the direct Copilot action first, followed by its terminal equivalent:
+2. From the Boundary result require `ready`, phase `verification`, and exact `phaseAgent` readiness; run `singularity-flow phase show verification --json`. Story context stays in the governed workflow.
+3. Run `singularity-flow wm compose --phase verification --evidence` and use its complete prompt. If World-Model intelligence is unavailable, continue with zero-context evidence and ordinary repository access; recovery is optional. Never derive `--task` from Story text.
+4. Read approved requirements, design, implementation summary, and selected source evidence.
+5. Map each acceptance criterion to executable or inspectable evidence and its `@ac:AC-n` test tag.
+6. Run relevant tests and add missing tests when needed. Record exact commands and results.
+7. Cover regression, negative cases, boundaries, failure modes, security, reliability, accessibility, and performance where applicable.
+8. Run `singularity-flow prepare verification`, complete the evidence without unobserved claims, and fill `Agent brief` with the verdict, material failures or omissions, residual risk, and release recommendation.
+9. Run `singularity-flow phase draft-check verification --json`. Correct every agent finding now from governed evidence; recheck up to three changed fingerprints and stop on an unchanged fingerprint. Never blindly delete markers, invent facts or padding, invoke a nested model, or overwrite another producer; route it to its owner/regenerator.
+10. Only when `status` is `ready`, publish with the exact configured producer/channel. Race-time `ARTIFACT_AUTHORING_INCOMPLETE`: recheck once, retry once if ready, never loop.
+11. Run `singularity-flow phase show verification --json`, then reproduce every published text document in full in the visible assistant response between `--- BEGIN &lt;path&gt; ---` and `--- END &lt;path&gt; ---`, with its ID, kind, byte count, and hash. A collapsible Shell/tool block does not count. Never say “shown above.” Never replace it with a summary. For binary documents, show the absolute path, metadata, and open instruction.
+12. Do not submit or approve automatically. End the handoff with the direct Copilot action first, followed by its terminal equivalent:
    - `Next in Copilot: /sf-submit verification`
    - `Terminal equivalent: singularity-flow submit verification`
 </code></pre>

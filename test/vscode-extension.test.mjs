@@ -2038,6 +2038,7 @@ test('the journey reports where the Epic stands and what it is waiting on', () =
   assert.match(journey.nextAction.command, /initiative phase define/);
   assert.equal(journey.nextAction.skill, '/sf-initiative-phase');
   assert.equal(journey.nextAction.copilotCommand, '/sf-initiative-phase');
+  assert.deepEqual(journey.nextAction.argv.slice(0, 3), ['initiative', 'phase', 'define']);
 });
 
 test('the Work Journey renders and copies both validated action routes', async () => {
@@ -2061,7 +2062,7 @@ test('the journey fails closed when a serialized action is unsafe or contradicts
 test('the Work Journey host executes only the action retained by the validated view model', async () => {
   const extensionSource = await readFile(source('extension.ts'), 'utf8');
   assert.match(extensionSource,
-    /const journey = buildJourney\(store\.current\.snapshot\);[\s\S]{0,900}commandArgv\(journey\.nextAction\.command\)/,
+    /const journey = buildJourney\(store\.current\.snapshot\);[\s\S]{0,900}command: \[\.\.\.journey\.nextAction\.argv\]/,
     'the click path must not re-read an unvalidated raw initiative next action');
   assert.doesNotMatch(extensionSource,
     /const next = store\.current\.snapshot\?\.initiative\?\.nextActions\?\.\[0\]/);
@@ -2124,6 +2125,7 @@ test('the Work Journey uses explicit readiness for generation and submission pre
   assert.equal(seeded.nextAction.execution, 'prefill');
   assert.equal(seeded.nextAction.skill, '/sf-phase');
   assert.equal(seeded.nextAction.command, 'singularity-flow prepare design');
+  assert.deepEqual(seeded.nextAction.argv, ['prepare', 'design']);
   assert.equal(seeded.nextAction.copilotCommand, '/sf-phase');
 
   const published = buildJourney(storySnapshot({ generation: 1 }));
@@ -2133,6 +2135,8 @@ test('the Work Journey uses explicit readiness for generation and submission pre
   assert.equal(published.nextAction.execution, 'run');
   assert.equal(published.nextAction.command,
     'singularity-flow submit design --work-id STORY-42');
+  assert.deepEqual(published.nextAction.argv,
+    ['submit', 'design', '--work-id', 'STORY-42']);
   assert.equal(published.nextAction.copilotCommand, '/sf-submit');
 
   const unavailable = storySnapshot({ generation: 1 });

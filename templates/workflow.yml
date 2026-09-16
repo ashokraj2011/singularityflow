@@ -759,7 +759,10 @@ workTypes:
       plan: { milestone: planning-approved }
       implement: { milestone: implementation-published }
       converge: { milestone: convergence-advanced }
-      verify: { milestone: verification-approved }
+      # Verification owns the terminal release phase as well. Keeping release outside every verb
+      # lets the five-verb rail report its final milestone while a Story still has governed work
+      # remaining. The milestone is therefore reached only when both phases are complete.
+      verify: { milestone: release-approved, phases: [verification, release] }
     # One constitution per approved configuration [SPK:REQ-090]. Shipped at `warn` rather than
     # `enforce` because `init` does not create one and the shipped examples must never become
     # active policy on installation [SPK:REQ-099] — so `enforce` out of the box would refuse every
@@ -780,24 +783,25 @@ workTypes:
     phaseOverrides:
       planning:
         inputs:
-          - { phase: specification, projection: approved-summary, preserve: [Requirements, Non-functional requirements, Boundary conditions], maximumSummaryBytes: 32768, expansion: hash-bound-reference, fallback: whole }
+          - { phase: specification, projection: approved-summary, preserve: [Requirements, Non-functional requirements, Boundary conditions], maximumSummaryBytes: 32768, expansion: hash-bound-reference, fallback: block }
       implementation:
         inputs:
-          - { phase: specification, projection: approved-summary, preserve: [Requirements, Non-functional requirements, Boundary conditions], maximumSummaryBytes: 32768, expansion: hash-bound-reference, fallback: whole }
-          - { phase: planning, projection: approved-summary, preserve: [Test strategy, Risks and rollback], maximumSummaryBytes: 24576, expansion: hash-bound-reference, fallback: whole }
+          - { phase: specification, projection: approved-summary, preserve: [Requirements, Non-functional requirements, Boundary conditions], maximumSummaryBytes: 32768, expansion: hash-bound-reference, fallback: block }
+          - { phase: planning, projection: approved-summary, preserve: [Test strategy, Risks and rollback], maximumSummaryBytes: 24576, expansion: hash-bound-reference, fallback: block }
       convergence:
         inputs:
-          - { phase: specification, projection: approved-summary, preserve: [Requirements, Non-functional requirements, Boundary conditions], maximumSummaryBytes: 32768, expansion: hash-bound-reference, fallback: whole }
-          - { phase: planning, projection: approved-summary, preserve: [Test strategy, Risks and rollback], maximumSummaryBytes: 24576, expansion: hash-bound-reference, fallback: whole }
-          - { phase: implementation, projection: approved-summary, preserve: [Changed components and decisions, Tests and operational notes], maximumSummaryBytes: 24576, expansion: hash-bound-reference, fallback: whole }
+          - { phase: specification, projection: approved-summary, preserve: [Requirements, Non-functional requirements, Boundary conditions], maximumSummaryBytes: 32768, expansion: hash-bound-reference, fallback: block }
+          - { phase: planning, projection: approved-summary, preserve: [Test strategy, Risks and rollback], maximumSummaryBytes: 24576, expansion: hash-bound-reference, fallback: block }
+          - { phase: implementation, projection: approved-summary, preserve: [Changed components and decisions, Tests and operational notes], maximumSummaryBytes: 24576, expansion: hash-bound-reference, fallback: block }
       verification:
         inputs:
-          - { phase: specification, projection: approved-summary, preserve: [Requirements, Non-functional requirements, Boundary conditions], maximumSummaryBytes: 32768, expansion: hash-bound-reference, fallback: whole }
-          - { phase: planning, projection: approved-summary, preserve: [Test strategy, Risks and rollback], maximumSummaryBytes: 24576, expansion: hash-bound-reference, fallback: whole }
-          - { phase: implementation, projection: approved-summary, preserve: [Changed components and decisions, Tests and operational notes], maximumSummaryBytes: 24576, expansion: hash-bound-reference, fallback: whole }
+          - { phase: specification, projection: approved-summary, preserve: [Requirements, Non-functional requirements, Boundary conditions], maximumSummaryBytes: 32768, expansion: hash-bound-reference, fallback: block }
+          - { phase: planning, projection: approved-summary, preserve: [Test strategy, Risks and rollback], maximumSummaryBytes: 24576, expansion: hash-bound-reference, fallback: block }
+          - { phase: implementation, projection: approved-summary, preserve: [Changed components and decisions, Tests and operational notes], maximumSummaryBytes: 24576, expansion: hash-bound-reference, fallback: block }
       release:
         inputs:
-          - { phase: verification, projection: approved-summary, preserve: [Acceptance and specification results, Negative, regression, security, and non-functional checks], maximumSummaryBytes: 24576, expansion: hash-bound-reference, fallback: whole }
+          - { phase: convergence }
+          - { phase: verification, projection: approved-summary, preserve: [Acceptance and specification results, "Negative, regression, security, and non-functional checks"], maximumSummaryBytes: 24576, expansion: hash-bound-reference, fallback: block }
 phases:
   intake:
     label: Intake

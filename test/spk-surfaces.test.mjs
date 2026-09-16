@@ -38,7 +38,7 @@ const DEFINITION = {
         plan: { milestone: 'planning-approved' },
         implement: { milestone: 'implementation-published' },
         converge: { milestone: 'convergence-advanced' },
-        verify: { milestone: 'verification-approved' }
+        verify: { milestone: 'release-approved', phases: ['verification', 'release'] }
       }
     },
     feature: { phases: ['intake', 'requirements'] }

@@ -781,8 +781,54 @@ test('spec-driven phases use approval-bound summaries while legacy work types re
   ]);
   assert.equal(implementation.inputs[0].expansion, 'hash-bound-reference');
   assert.deepEqual(implementation.inputs[1].preserve, ['Test strategy', 'Risks and rollback']);
+  assert.ok(specDriven.phases.flatMap((phase) => phase.inputs)
+    .filter((input) => input.projection === 'approved-summary')
+    .every((input) => input.fallback === 'block'),
+  'an empty Agent brief can still inject the whole upstream artifact');
+  const release = specDriven.phases.find((phase) => phase.id === 'release');
+  assert.deepEqual(release.inputs.map((input) => [input.phase, input.projection ?? 'full']), [
+    ['convergence', 'full'], ['verification', 'approved-summary']
+  ]);
+  assert.deepEqual(release.inputs[1].preserve, [
+    'Acceptance and specification results',
+    'Negative, regression, security, and non-functional checks'
+  ]);
+  assert.deepEqual(definition.workTypes['spec-driven-standard'].fastPath.verify, {
+    milestone: 'release-approved', phases: ['verification', 'release']
+  });
   const feature = resolveWorkType(definition, 'feature');
   assert.equal(feature.phases.find((phase) => phase.id === 'design').inputs[0].projection, undefined);
+});
+
+test('approved-summary preserved headings are validated against visible producer-template headings', async () => {
+  const brokenComma = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-brief-heading-comma-'));
+  await initializeDefinition(brokenComma);
+  const workflowFile = path.join(brokenComma, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.workTypes['spec-driven-standard'].phaseOverrides.release.inputs[1].preserve = [
+    'Acceptance and specification results', 'Negative', 'regression', 'security',
+    'and non-functional checks'
+  ];
+  await writeFile(workflowFile, YAML.stringify(workflow));
+  await assert.rejects(() => loadDefinition(brokenComma), (error) => {
+    assert.equal(error.code, 'AGENT_BRIEF_PRESERVE_HEADING_MISSING');
+    assert.match(error.message, /preserves heading 'Negative'/);
+    assert.match(error.message, /common\/verification\.md/);
+    return true;
+  });
+
+  const ambiguous = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-brief-heading-ambiguous-'));
+  await initializeDefinition(ambiguous);
+  const verificationTemplate = path.join(
+    ambiguous, 'singularity/templates/common/verification.md'
+  );
+  await writeFile(verificationTemplate,
+    `${await readFile(verificationTemplate, 'utf8')}\n## Acceptance and specification results\n\nDuplicate.\n`);
+  await assert.rejects(() => loadDefinition(ambiguous), (error) => {
+    assert.equal(error.code, 'AGENT_BRIEF_PRESERVE_HEADING_AMBIGUOUS');
+    assert.match(error.message, /matching headings are at lines/);
+    return true;
+  });
 });
 
 test('planned-claim topology is inferred, resolved, and pinned for specification workflows', async () => {

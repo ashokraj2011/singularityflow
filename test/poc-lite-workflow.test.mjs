@@ -186,6 +186,11 @@ test('POC Lite completes its one human boundary with --no-model and a local bare
   lifecycle('prepare', 'poc-lite-verify');
   publish('poc-lite-verify');
   lifecycle('submit', 'poc-lite-verify');
+  await assert.rejects(
+    readFile(path.join(root, '.git/singularity-flow/session.json'), 'utf8'),
+    (error) => error?.code === 'ENOENT',
+    'a deterministic next phase must not synthesize a governed-agent session'
+  );
   lifecycle('prepare', 'poc-lite-finalize');
   publish('poc-lite-finalize');
   lifecycle('submit', 'poc-lite-finalize');

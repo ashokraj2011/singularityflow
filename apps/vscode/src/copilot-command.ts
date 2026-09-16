@@ -10,9 +10,12 @@ import { safeCommandGuidance } from '../../../src/safe-command-guidance.mjs';
 
 export type CommandGuidance = Readonly<{
   command: string;
+  executable: 'singularity-flow';
+  argv: readonly string[];
   skill: string;
   copilotCommand: string;
   copyable: boolean;
+  platformCommands: Readonly<{ darwin: string; linux: string; win32: string }> | null;
 }>;
 
 /**
@@ -26,8 +29,11 @@ export function commandGuidance(value: unknown): CommandGuidance | null {
   const guidance = safeCommandGuidance(value) as CommandGuidance | null;
   return guidance == null ? null : Object.freeze({
     command: guidance.command,
+    executable: guidance.executable,
+    argv: Object.freeze([...guidance.argv]),
     skill: guidance.skill,
     copilotCommand: guidance.copilotCommand,
-    copyable: guidance.copyable
+    copyable: guidance.copyable,
+    platformCommands: guidance.platformCommands
   });
 }

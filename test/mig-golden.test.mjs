@@ -5,7 +5,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { validateAutoContractRecord } from '../src/auto/auto-contract-records.mjs';
-import { migrationRegistrySnapshot, readRecord } from '../src/schema-migrations.mjs';
+import { currentSchemaVersion, migrationRegistrySnapshot, readRecord } from '../src/schema-migrations.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const fixtureFile = path.join(root, 'test', 'fixtures', 'schema-migrations', 'goldens.json');
@@ -94,7 +94,7 @@ test('legacy Story convergence policy migrates to the kernel-owned deterministic
       }]
     }
   }).record;
-  assert.equal(migrated.schemaVersion, 6);
+  assert.equal(migrated.schemaVersion, currentSchemaVersion('story-workflow'));
   assert.equal(migrated.phases.convergence.generationPolicy.requirement, 'required');
   assert.deepEqual(migrated.phases.convergence.generationPolicy.allowedProducers, ['deterministic']);
   assert.equal(migrated.phases.convergence.generationPolicy.defaultProducer, 'deterministic');
@@ -118,10 +118,57 @@ test('story-workflow v5 migration adds only null architecture evidence bindings'
       }
     }
   }).record;
-  assert.equal(migrated.schemaVersion, 6);
+  assert.equal(migrated.schemaVersion, currentSchemaVersion('story-workflow'));
   assert.equal(migrated.phases.planning.generationPublications[0].architectureIntent, null);
   assert.equal(migrated.phases.planning.generationPublications[0].architectureDecision, null);
   assert.equal(migrated.phases.planning.submissionArchitectureDecision, null);
+});
+
+test('story-workflow v6 migration repairs only the shipped Spec-Driven Release contract', () => {
+  const legacyVerification = {
+    phase: 'verification', projection: 'approved-summary',
+    preserve: [
+      'Acceptance and specification results', 'Negative', 'regression', 'security',
+      'and non-functional checks'
+    ],
+    maximumSummaryBytes: 24576, expansion: 'hash-bound-reference', fallback: 'whole',
+    path: 'artifacts/verification/test-evidence.md'
+  };
+  const source = {
+    schemaVersion: 6,
+    workItem: { id: 'SPK-LEGACY', workType: 'spec-driven-standard' },
+    resolution: { workType: 'spec-driven-standard', phases: [
+      { id: 'convergence', artifact: { path: 'artifacts/convergence/convergence.md' } },
+      { id: 'release', template: 'spec-driven/release.md', inputs: [legacyVerification] }
+    ] },
+    phases: { convergence: { requiredArtifact: { path: 'artifacts/convergence/convergence.md' } },
+      release: { inputs: [legacyVerification] } }
+  };
+  const result = readRecord('story-workflow', source);
+  const migrated = result.record;
+  assert.deepEqual(result.migratedThrough, [{ from: 6, to: 7 }]);
+  assert.equal(migrated.schemaVersion, currentSchemaVersion('story-workflow'));
+  for (const release of [
+    migrated.resolution.phases.find((phase) => phase.id === 'release'),
+    migrated.phases.release
+  ]) {
+    assert.deepEqual(release.inputs.map((input) => input.phase), ['convergence', 'verification']);
+    assert.deepEqual(release.inputs[0], {
+      phase: 'convergence', optional: false, maxBytes: null,
+      path: 'artifacts/convergence/convergence.md'
+    });
+    assert.deepEqual(release.inputs[1].preserve, [
+      'Acceptance and specification results',
+      'Negative, regression, security, and non-functional checks'
+    ]);
+  }
+  assert.deepEqual(source.resolution.phases.at(-1).inputs, [legacyVerification],
+    'read-side compatibility rewrote governed stored bytes');
+
+  const custom = structuredClone(source);
+  custom.resolution.phases.at(-1).template = 'custom/release.md';
+  assert.deepEqual(readRecord('story-workflow', custom).record.resolution.phases.at(-1).inputs,
+    [legacyVerification], 'a custom pinned profile acquired the packaged migration');
 });
 
 test('generation-publication v1 migration preserves history with explicit null architecture bindings', () => {

@@ -51,7 +51,20 @@ function expansionHandle(workflow, producer, repositoryPath) {
   const submission = [...(workflow.lineage?.submissions ?? [])].reverse().find((entry) =>
     entry.phase === producer.id && entry.generation === producer.generation
   );
-  return submission?.projection?.artifacts?.find((artifact) => artifact.path === repositoryPath)?.reference?.handle ?? null;
+  const submitted = submission?.projection?.artifacts
+    ?.find((artifact) => artifact.path === repositoryPath)?.reference?.handle ?? null;
+  if (submitted) return submitted;
+  // An authority-approved intent amendment is a real specification generation, but intentionally
+  // has no synthetic phase submission. Its approval binds a reference to the exact proposed bytes
+  // that the authority reviewed; accept only that same-generation, active source binding.
+  const amendment = [...(producer.approvals ?? [])].reverse().find((approval) =>
+    !approval.invalidatedAt
+      && approval.decision === 'approved'
+      && approval.intentAmendmentId
+      && Number(approval.generation) === Number(producer.generation)
+      && approval.agentBriefSource?.path === repositoryPath
+  );
+  return amendment?.agentBriefSource?.reference?.handle ?? null;
 }
 
 export function workflowInputsMode(workflow) {

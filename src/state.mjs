@@ -55,7 +55,8 @@ import {
   evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery, resolveDeliveryQualityCommands,
   verifyCodeDeliveryReceipt
 } from './delivery-evidence.mjs';
-import { pinCodeDeliveryTask } from './code-delivery-policy.mjs';
+import { generationSkillForPhase, pinCodeDeliveryTask } from './code-delivery-policy.mjs';
+import { directCopilotSkill } from './copilot-guidance.mjs';
 import {
   beginCodeGeneration, consumeGenerationIntent, persistGenerationPublicationRecord,
   publishedGenerationCommit, verifyOpenGenerationIntent
@@ -127,6 +128,7 @@ import { evaluateExternalCommandForModelMode, externalCommandText } from './exte
 import { assertProducerAllowed, phasePublicationCommand } from './manual-authorship.mjs';
 import { consumeRepairAttempt, repairBudgetPhaseForRejection } from './repair-budget.mjs';
 import { normalizeMcpTargetOrigin } from './mcp-target.mjs';
+import { referenceRevision, registerReference } from './harness-imports.mjs';
 import {
   assertAstLifecycleGate, evaluateAstLifecycleGate, persistAstLifecycleReceipt,
   requireAstLifecycleReceipt
@@ -2367,7 +2369,12 @@ export async function publishGeneration(root, config, workflow, {
   architectureCandidateSnapshot = null
 } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'publish a generation');
-  const phase = await assertPhaseSequence(root, workflow, 'publish a generation', { requestedPhase: phaseId }); const session = await loadSession(root);
+  const phase = await assertPhaseSequence(root, workflow, 'publish a generation', { requestedPhase: phaseId });
+  // Deterministic generation is kernel-owned and deliberately carries no phase-agent session.
+  // Its explicit authorship still binds the human Git identity that invoked the publication.
+  const session = authorship?.producer === 'deterministic'
+    ? { actor: authorship.actor ?? identity(root), agent: null }
+    : await loadSession(root);
   if (phaseRequiresCodeDelivery(phase)
       && phase.generationIntent?.status === 'consumed'
       && Number(phase.generationIntent.generation) === Number(phase.generation)) {
@@ -2430,7 +2437,7 @@ export async function publishGeneration(root, config, workflow, {
           findings: contentFindings,
           fingerprint: contentFindings.find((finding) => finding.fingerprint)?.fingerprint ?? null,
           retry: {
-            skill: '/sf-phase', maximumAttempts: 1, requiresFingerprintChange: true,
+            skill: directCopilotSkill(generationSkillForPhase(phase)), maximumAttempts: 1, requiresFingerprintChange: true,
             command: phasePublicationCommand(phase)
           }
         }
@@ -3309,7 +3316,7 @@ export function qualityValidationVerdict(checks = [], { required = false } = {})
 
 async function submitPhaseTransition(root, config, workflow, {
   phaseId, runChecks = true, persist = true, submissionContext = null,
-  architectureCandidateSnapshot = null
+  architectureCandidateSnapshot = null, actor = null, agent = undefined
 } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'submit for approval');
   const requestedPhase = workflow.phases?.[phaseId ?? workflow.currentPhase] ?? null;
@@ -3323,7 +3330,10 @@ async function submitPhaseTransition(root, config, workflow, {
     assertRequiredConvergenceApproval(requestedPhase);
     await assertConvergencePublicationReady(root, config, workflow, requestedPhase);
   }
-  const phase = await assertPhaseSequence(root, workflow, 'submit for approval', { requestedPhase: phaseId }); const session = await loadSession(root);
+  const phase = await assertPhaseSequence(root, workflow, 'submit for approval', { requestedPhase: phaseId });
+  const session = actor
+    ? { actor, agent: agent ?? null }
+    : await loadSession(root);
   // Repair legacy generations whose raw reporter output was registered as a phase artifact. The
   // normalized test-execution receipt is durable evidence; `.sflow/results/**` is disposable
   // command transport and commonly changes timestamps on every otherwise identical test run.
@@ -3813,7 +3823,7 @@ export async function submitPhase(root, config, workflow, options = {}) {
  */
 export async function submitConfirmedConvergencePhase(root, config, workflow, {
   confirmation, phaseId = 'convergence', runChecks = true, persist = true,
-  architectureCandidateSnapshot = null
+  architectureCandidateSnapshot = null, actor = identity(root), agent = null
 } = {}) {
   const phase = workflow.phases?.[phaseId] ?? null;
   if (phase?.id !== 'convergence') throw convergenceAdvanceRequired(workflow, { phase: phase?.id ?? null });
@@ -3823,6 +3833,8 @@ export async function submitConfirmedConvergencePhase(root, config, workflow, {
     runChecks,
     persist,
     architectureCandidateSnapshot,
+    actor,
+    agent,
     submissionContext: CONFIRMED_CONVERGENCE_SUBMISSION
   });
 }
@@ -3844,6 +3856,8 @@ export async function approvePhase(root, config, workflow, {
   checklist = [],
   witnessMappings = [],
   architectureCandidateSnapshot = null,
+  actor: decisionActor = null,
+  agent: decisionAgent = undefined,
   persist = true
 } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'approve');
@@ -4080,7 +4094,9 @@ export async function approvePhase(root, config, workflow, {
       `Phase ${phase.id} downstream agent-brief review failed:\n- ${briefReview.errors.join('\n- ')}`
     );
   }
-  const session = await loadSession(root);
+  const session = decisionActor
+    ? { actor: decisionActor, agent: decisionAgent ?? null }
+    : await loadSession(root);
   const actor = session.actor;
   const key = actorKey(actor);
   const active = phase.approvals.filter((item) => !item.invalidatedAt && item.decision === 'approved');
@@ -4446,7 +4462,10 @@ async function createReworkForwardCheckpoint(root, config, workflow, {
   return { ...checkpoint, integrity: { sha256: reworkCheckpointIntegrity(checkpoint) } };
 }
 
-export async function rejectPhase(root, config, workflow, { phaseId, target, reason, clauseIds = [], members = [], convergenceRework = null, channel = 'terminal', actionContext = null } = {}) {
+export async function rejectPhase(root, config, workflow, {
+  phaseId, target, reason, clauseIds = [], members = [], convergenceRework = null,
+  channel = 'terminal', actionContext = null, actor = null, agent = undefined
+} = {}) {
   await assertNoPendingPublication(root, config, workflow, 'reject');
   /**
    * Governed rework out of convergence `[SPK:REQ-182]`.
@@ -4494,7 +4513,9 @@ export async function rejectPhase(root, config, workflow, { phaseId, target, rea
   if (phase.approvalPolicy.changeRequests?.commentRequired !== false && !reason?.trim()) {
     throw new SingularityFlowError('A change-request comment is required.');
   }
-  const session = await loadSession(root);
+  const session = actor
+    ? { actor, agent: agent ?? null }
+    : await loadSession(root);
   const authority = requireApprovalAuthority(
     workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
     phase.approvalPolicy,
@@ -4688,7 +4709,9 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   decision,
   reason = null,
   channel = 'terminal',
-  actionContext = null
+  actionContext = null,
+  actor = identity(root),
+  agent = null
 } = {}) {
   if (!['approve', 'reject'].includes(decision)) {
     throw new SingularityFlowError("Intent-amendment decision must be 'approve' or 'reject'.", {
@@ -4712,13 +4735,12 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
       code: 'INTENT_AMENDMENT_UNSUPPORTED'
     });
   }
-  const session = await loadSession(root);
   const authority = requireApprovalAuthority(
     workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
     specification.approvalPolicy,
-    session.actor
+    actor
   );
-  const key = actorKey(session.actor);
+  const key = actorKey(actor);
   const decisions = [...(proposal.decisions ?? [])];
   if (decisions.some((entry) => actorKey(entry.actor) === key)) {
     throw new SingularityFlowError(`${key} already decided intent amendment ${proposal.id}; decisions require distinct identities.`);
@@ -4733,8 +4755,8 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   const recorded = {
     decision: decision === 'approve' ? 'approved' : 'rejected',
     at,
-    actor: structuredClone(session.actor),
-    agent: session.agent ?? null,
+    actor: structuredClone(actor),
+    agent,
     authorityGroup: authority.authorityGroup,
     identityAssurance: authority.identityAssurance,
     channel,
@@ -4752,7 +4774,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     proposal.decision = recorded;
     Object.assign(summary, { status: 'rejected', decidedAt: at, decision: recorded });
     workflow.history.push({
-      at, actor: key, agent: session.agent, event: 'intent_amendment_rejected',
+      at, actor: key, agent, event: 'intent_amendment_rejected',
       phase: 'specification', detail: `${proposal.id}: ${recorded.reason ?? 'rejected by specification authority'}`
     });
     await persistIntentAmendmentRecord(root, config, workflow, summary, proposal);
@@ -4829,7 +4851,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   specification.approvedAt = at;
   specification.approvedBy = key;
   specification.generatedAt = at;
-  specification.generatedBy = structuredClone(proposal.proposedBy ?? session.actor);
+  specification.generatedBy = structuredClone(proposal.proposedBy ?? actor);
   specification.generatedAgent = null;
   specification.authorship = [
     ...(specification.authorship ?? []).filter((entry) => Number(entry.generation) !== Number(specification.generation)),
@@ -4837,7 +4859,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
       schemaVersion: currentSchemaVersion('artifact-authorship'),
       producer: 'human',
       channel: 'manual-in-place',
-      actor: structuredClone(proposal.proposedBy ?? session.actor),
+      actor: structuredClone(proposal.proposedBy ?? actor),
       governedAgentContext: null,
       kernelModel: { invoked: false, status: 'exact', invocationIds: [] },
       externalAiUse: { value: 'none', status: 'self-reported' },
@@ -4858,6 +4880,32 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     architectureIntent: structuredClone(amendmentArchitectureIntent),
     architectureDecision: null
   };
+  // The ordinary submit ceremony registers a model-safe expansion reference against the immutable
+  // generation commit. An approved amendment deliberately has no synthetic submission packet, but
+  // its proposed bytes already exist in the immutable proposal commit. Register that reviewed
+  // source so downstream `fallback: block` briefs retain the same exact expansion guarantee.
+  const amendmentReferenceRevision = referenceRevision(
+    root, head(root), proposal.specification.proposedPath
+  );
+  const amendmentReference = await registerReference(root, {
+    repository: {
+      id: config.repository?.id ?? path.basename(root),
+      origin: config.repository?.origin ?? null
+    },
+    subject: {
+      kind: 'story', id: workflow.workItem.id, branch: workflow.workItem.branch,
+      subjectRevision: specification.generation
+    },
+    artifact: {
+      phaseId: specification.id,
+      generation: specification.generation,
+      outputId: specification.requiredArtifact?.id ?? 'specification',
+      path: proposal.specification.proposedPath,
+      mediaType: 'text/markdown'
+    },
+    revision: amendmentReferenceRevision,
+    visibility: 'model'
+  });
   specification.approvals.push(amendmentApproval);
   await updateArtifactMetadata(root, config, workflow, specification);
   await registerApprovedSnapshot(root, config, workflow, specification);
@@ -4904,7 +4952,12 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     amendmentApproval.agentBriefSource = approvedSource ? {
       path: approvedSource.path,
       sha256: approvedSource.sha256,
-      size: approvedSource.size
+      size: approvedSource.size,
+      reference: {
+        handle: amendmentReference.handle,
+        recordHash: amendmentReference.recordHash,
+        sourcePath: proposal.specification.proposedPath
+      }
     } : null;
     amendmentApproval.agentBriefs = agentBriefs.map((brief) => ({
       consumerPhase: brief.consumerPhase,
@@ -5027,7 +5080,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     revalidatedPhases: []
   });
   workflow.history.push({
-    at, actor: key, agent: session.agent, event: 'intent_amendment_approved', phase: 'specification',
+    at, actor: key, agent, event: 'intent_amendment_approved', phase: 'specification',
     detail: `${proposal.id} created specification generation ${specification.generation}; `
       + `${affectedPhases.length} phase(s) affected and ${proposal.application.preservedEvidence.length} evidence item(s) preserved`
   });
@@ -5045,7 +5098,10 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
 }
 
 /** Record the human beat required before an amended Story can be submitted again. */
-export async function acknowledgeIntentAmendment(root, config, workflow, proposalId = null) {
+export async function acknowledgeIntentAmendment(root, config, workflow, proposalId = null, {
+  actor = identity(root),
+  agent = null
+} = {}) {
   const summary = proposalId
     ? intentAmendmentSummary(workflow, proposalId)
     : pendingIntentAmendmentAcknowledgement(workflow);
@@ -5055,10 +5111,9 @@ export async function acknowledgeIntentAmendment(root, config, workflow, proposa
     });
   }
   if (summary.acknowledgedAt) return { ...summary, acknowledged: false };
-  const session = await loadSession(root);
   const at = nowIso();
   summary.acknowledgedAt = at;
-  summary.acknowledgedBy = structuredClone(session.actor);
+  summary.acknowledgedBy = structuredClone(actor);
   summary.acknowledgementRequired = false;
   for (const phase of Object.values(workflow.phases ?? {})) {
     if (phase.intentAmendmentRevalidation?.id === summary.id) {
@@ -5068,10 +5123,10 @@ export async function acknowledgeIntentAmendment(root, config, workflow, proposa
   const record = await readJson(await intentAmendmentPath(root, config, workflow, summary.recordPath,
     'Intent-amendment record', { mustExist: true, type: 'file' }));
   record.acknowledgedAt = at;
-  record.acknowledgedBy = structuredClone(session.actor);
+  record.acknowledgedBy = structuredClone(actor);
   await persistIntentAmendmentRecord(root, config, workflow, summary, record);
   workflow.history.push({
-    at, actor: actorKey(session.actor), agent: session.agent, event: 'intent_amendment_acknowledged',
+    at, actor: actorKey(actor), agent, event: 'intent_amendment_acknowledged',
     phase: workflow.currentPhase, detail: `${summary.id} acknowledged before downstream revalidation`
   });
   return { ...summary, acknowledged: true };

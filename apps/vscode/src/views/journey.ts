@@ -48,11 +48,14 @@ const ACTION_VERBS: Record<string, string> = {
   next: 'Do the next step'
 };
 
-export function actionLabel(nextAction: { command: string; reason?: string }): string {
-  const tokens = String(nextAction.command).trim().split(/\s+/);
-  // Skip the binary name, then take the first token that is a word rather than a flag or a value.
-  const verb = tokens.slice(1).find((token) => /^[a-z][a-z-]*$/.test(token));
-  const phase = tokens.slice(1).find((token, index) => index > 0 && /^[a-z][a-z-]*$/.test(token) && token !== verb);
+export function actionLabel(nextAction: {
+  command: string; argv?: readonly string[]; reason?: string
+}): string {
+  const tokens = nextAction.argv ?? [];
+  // The engine-validated argv is authoritative. Presentation never reparses the shell rendering.
+  const verb = tokens.find((token) => /^[a-z][a-z-]*$/.test(token));
+  const phase = tokens.find((token, index) => index > 0
+    && /^[a-z][a-z-]*$/.test(token) && token !== verb);
   const base = (verb && ACTION_VERBS[verb]) ?? 'Run the next step';
   return verb === 'agent' || verb === 'submit' || verb === 'prepare'
     ? (phase ? `${base} for ${phase}` : base)

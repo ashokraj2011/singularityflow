@@ -50,7 +50,7 @@ import { persistGenerationPublicationRecord } from '../generation-publication-st
 import { sameRepositoryRemote } from '../initiative-repositories.mjs';
 import { getIssue, getIssueProperty, listMyIssues } from '../jira.mjs';
 import { invokeModel, resolveModelProvider } from '../model-runner.mjs';
-import { loadSession } from '../session.mjs';
+import { activateWorkItemSession } from '../session.mjs';
 import {
   evaluateSpecAcceptance,
   extractClauses,
@@ -75,7 +75,9 @@ import { mkdir, readFile } from 'node:fs/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { extractInputsBlock } from '../inputs.mjs';
 import { withSubjectLock } from '../subject-lock.mjs';
-import { STORY_LINEAGE_PROPERTY, activatePhaseAgent, activeActionContext, confirm, summary } from './kernel.mjs';
+import {
+  STORY_LINEAGE_PROPERTY, actionActor, activatePhaseAgent, activeActionContext, confirm, summary
+} from './kernel.mjs';
 import { capabilityBaseForRepository, prepareCapabilityRepositories, printCapabilityBase } from '../capability-start.mjs';
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
 import { safeCommandGuidance } from '../safe-command-guidance.mjs';
@@ -1224,7 +1226,10 @@ export async function storyAdjudicateCommand(positionals, options) {
       });
       await assertConvergenceSources(root, existing, { itemRelative: subject.itemRelative });
 
-      const session = await loadSession(root);
+      // Adjudication is a human governance decision, not governed-agent authorship. Deterministic
+      // convergence deliberately has no phase-agent session, so bind the decision to the current
+      // Git identity instead of requiring an unrelated authoring session.
+      const actor = actionActor(root);
       const at = nowIso();
       const decisions = itemIds.map((id) => ({
         itemId: id,
@@ -1232,7 +1237,7 @@ export async function storyAdjudicateCommand(positionals, options) {
         classification: optionString(options, 'classification') ?? null,
         reason: optionString(options, 'reason'),
         clauseIds: optionStrings(options, 'clause'),
-        actor: actorKey(session.actor),
+        actor: actorKey(actor),
         at
       }));
       const kept = (existing.findings ?? [])
@@ -1328,7 +1333,10 @@ async function proposeIntentAmendment(root, config, workflow, verifiedConvergenc
   }
   const records = verifiedConvergence.current.records;
   const radius = intentAmendmentBlastRadius(diff, records);
-  const session = await loadSession(root);
+  // An intent amendment is proposed by a person after convergence adjudication. The convergence
+  // phase is deterministic and therefore has no governed-agent session; Git identity is the
+  // durable human identity for this decision path.
+  const actor = actionActor(root);
   const index = (workflow.intentAmendments ?? []).length + 1;
   const id = `AMD-${String(index).padStart(3, '0')}`;
   const directory = amendmentDirectoryRelative(root, config, workflow);
@@ -1345,7 +1353,7 @@ async function proposeIntentAmendment(root, config, workflow, verifiedConvergenc
     workId: workflow.workItem.id,
     status: 'proposed',
     proposedAt,
-    proposedBy: structuredClone(session.actor),
+    proposedBy: structuredClone(actor),
     reason: reason.trim(),
     convergence: {
       iteration: projection.iteration,
@@ -1371,7 +1379,7 @@ async function proposeIntentAmendment(root, config, workflow, verifiedConvergenc
     id,
     status: 'proposed',
     proposedAt,
-    proposedBy: structuredClone(session.actor),
+    proposedBy: structuredClone(actor),
     reason: reason.trim(),
     proposalSha256: proposal.proposalSha256,
     recordPath,
@@ -1418,8 +1426,8 @@ async function proposeIntentAmendment(root, config, workflow, verifiedConvergenc
         workflow.intentAmendments.push(summary);
         workflow.history.push({
           at: proposedAt,
-          actor: actorKey(session.actor),
-          agent: session.agent,
+          actor: actorKey(actor),
+          agent: null,
           event: 'intent_amendment_proposed',
           phase: 'convergence',
           detail: `${id} proposes ${diff.changed.length} clause change(s): ${diff.changed.join(', ')}`
@@ -1515,7 +1523,9 @@ async function decideProposedIntentAmendment(root, config, workflow, proposalId,
           decision,
           reason: optionString(options, 'reason'),
           channel: 'terminal',
-          actionContext: activeActionContext()
+          actionContext: activeActionContext(),
+          actor: actionActor(root),
+          agent: null
         });
         return transition;
       },
@@ -1557,7 +1567,10 @@ async function acknowledgeApprovedIntentAmendment(root, config, workflow, propos
     {
       rollbackWorkflow: beforeWorkflow,
       beforeStateWrite: async () => {
-        acknowledgement = await acknowledgeIntentAmendment(root, config, workflow, proposalId);
+        acknowledgement = await acknowledgeIntentAmendment(root, config, workflow, proposalId, {
+          actor: actionActor(root),
+          agent: null
+        });
       }
     }
   );
@@ -1593,6 +1606,11 @@ export async function storyIntentAmendmentCommand(positionals, options) {
   if (action === 'decide') {
     const proposalId = requirePositional(positionals, 3, 'intent amendment ID');
     const result = await decideProposedIntentAmendment(root, config, workflow, proposalId, options);
+    // An approved amendment reopens the first affected authored phase without passing through the
+    // ordinary approve/reject commands. Rebind that exact phase now; on rejection the Story stays
+    // in deterministic convergence and activation correctly keeps the agent session empty.
+    const rebound = await loadAcceptedStoryExecution(root, workflow.workItem.id);
+    await activateWorkItemSession(root, rebound.config, rebound.workflow);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     if (!result.transition.reached) {
       console.log(`Recorded approval for ${proposalId}; ${result.transition.proposal.approvals.reached}/${result.transition.proposal.approvals.required} authority decisions.`);
@@ -1716,7 +1734,9 @@ export async function storyReworkCommand(positionals, options) {
             findingIds: rework.map((finding) => finding.id)
           },
           channel: 'terminal',
-          actionContext: activeActionContext()
+          actionContext: activeActionContext(),
+          actor: actionActor(root),
+          agent: null
         });
       },
       afterOwnedWrites: async () => {
@@ -1727,6 +1747,8 @@ export async function storyReworkCommand(positionals, options) {
       worktreeGuard: postTransitionGuard
     }
   );
+  const rebound = await loadAcceptedStoryExecution(root, workflow.workItem.id);
+  await activateWorkItemSession(root, rebound.config, rebound.workflow);
   console.log(`Returned ${workflow.workItem.id} to implementation for ${rework.length} convergence finding(s); commit ${returned.sha.slice(0, 8)}.`);
   console.log(`Clauses: ${clauseIds.join(', ') || 'none recorded'}`);
   console.log('Prior convergence records, findings and approvals are preserved. The next implementation publication opens iteration '

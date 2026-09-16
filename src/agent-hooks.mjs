@@ -3,21 +3,24 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { currentPhase } from './state-stores.mjs';
 import { loadDefinition, normalizeSessionPolicy } from './config.mjs';
-import { branch } from './git.mjs';
+import { branch, identity } from './git.mjs';
 import { AGENT_MAPPING_PATH, agentStatus, resolveCopilotAgent } from './agents.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { repositoryLogger } from './logging.mjs';
 import { initiativeRelative } from './state-stores.mjs';
 import {
   bindAgentToCopilotSession, loadCopilotSession, loadCopilotTurnIntent, loadSession, agentSessionStatus,
-  recordCopilotSession, setAgentSession, setNativeCopilotAgentSession, validAgentSession
+  recordCopilotSession, restoreAgentSession, setAgentSession, setNativeCopilotAgentSession,
+  validAgentSession
 } from './session.mjs';
 import {
   activeWorkspaceFile, workspaceMemberContextForRepository, workspacePromptLabel,
   workspaceRegistryFile
 } from './workspace-context.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
-import { phasePublicationAuthorship, phasePublicationCommand } from './manual-authorship.mjs';
+import {
+  phasePublicationAuthorship, phasePublicationCommand, phaseUsesDeterministicGeneration
+} from './manual-authorship.mjs';
 import { DEFAULT_WORK_ITEM_ROOT, workItemWorkflowRelative } from './work-item-location.mjs';
 import { resolveStoryExecutionCatalog } from './story-execution-context.mjs';
 
@@ -157,21 +160,25 @@ export async function sessionStartAgentHook(root, definition, workflow, payload 
         ? !activeWorkId
         : false;
   const selectedWorkId = workItemSelectionRequired ? null : activeWorkId;
-  const phaseAgent = phase?.defaultAgent
+  const deterministicPhase = Boolean(phase && phaseUsesDeterministicGeneration(phase));
+  const phaseAgent = deterministicPhase ? null : phase?.defaultAgent
     ?? definition.agentCatalog?.find((agent) => agent.defaultFor.includes(phase?.id))?.id
     ?? null;
   const valid = selectedWorkId ? validAgentSession(definition, existing, selectedWorkId, null, phase?.id ?? null) : false;
-  if (selectedWorkId && phase && !phaseAgent) throw new Error(`Phase '${phase.id}' has no configured governed agent.`);
+  if (selectedWorkId && phase && !deterministicPhase && !phaseAgent) throw new Error(`Phase '${phase.id}' has no configured governed agent.`);
   const record = await recordCopilotSession(root, {
     sessionId, source: workspaceSelectionGate ? 'workspace' : source,
     repositoryRoot: root, workId: selectedWorkId, candidateWorkId: activeWorkId, phase: phase?.id ?? null, policy,
     workItemSelectionRequired,
-    selectionRequired: false, selectedAgent: valid ? existing.agent : phaseAgent,
+    selectionRequired: false, selectedAgent: deterministicPhase ? null : valid ? existing.agent : phaseAgent,
     startedAt: new Date().toISOString()
   });
   let active = existing;
-  if (!workItemSelectionRequired && phase && !valid) {
-    active = await setAgentSession(root, definition, existing?.actor ?? null, phaseAgent, selectedWorkId, { phaseId: phase.id, source: 'phase-default' });
+  if (!workItemSelectionRequired && deterministicPhase) {
+    await restoreAgentSession(root, null);
+    active = null;
+  } else if (!workItemSelectionRequired && phase && !valid) {
+    active = await setAgentSession(root, definition, existing?.actor ?? identity(root), phaseAgent, selectedWorkId, { phaseId: phase.id, source: 'phase-default' });
   }
   if (!workItemSelectionRequired && active && sessionId) active = await bindAgentToCopilotSession(root, definition, selectedWorkId, record, phase?.id ?? null);
   if (workItemSelectionRequired) return {
@@ -180,7 +187,7 @@ export async function sessionStartAgentHook(root, definition, workflow, payload 
   if (!workflow) return { additionalContext: `No Singularity Flow work item is active on this branch.${workspaceContext} Use /sf-session to attach to a remote work/Jira ID.${pathGroundingContext(root)}` };
   const agent = active?.agent;
   const context = phase
-    ? `Singularity Flow work item ${workflow.workItem.id} is at ${phase.id} (${phase.status}).${workspaceContext}${agent ? ` Governed agent ${agent} is active; change it with /sf-agent. Agent instructions never replace human identity or approval authority.` : ''} Before changing lifecycle state, run /sf-nextsteps. Never approve automatically.`
+    ? `Singularity Flow work item ${workflow.workItem.id} is at ${phase.id} (${phase.status}).${workspaceContext}${deterministicPhase ? ' This phase is kernel-owned and deterministic; no governed phase agent is active.' : agent ? ` Governed agent ${agent} is active; change it with /sf-agent. Agent instructions never replace human identity or approval authority.` : ''} Before changing lifecycle state, run /sf-nextsteps. Never approve automatically.`
     : `Singularity Flow work item ${workflow.workItem.id} is complete.${workspaceContext} Run the governance gate before handoff.`;
   return { additionalContext: `${context}${pathGroundingContext(root, activeWorkId, workItemRoot)}` };
 }

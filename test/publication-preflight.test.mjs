@@ -12,7 +12,7 @@ import { recoveryPlan, recoveryText } from '../src/collaboration.mjs';
 import { buildGenerationAuthorship, normalizeAuthorshipOptions } from '../src/manual-authorship.mjs';
 import { withOperationContext } from '../src/operation-context.mjs';
 import {
-  artifactPlaceholderFindings, authoredArtifactFingerprint, inspectArtifactContent,
+  artifactFindingMessage, artifactPlaceholderFindings, authoredArtifactFingerprint, inspectArtifactContent,
   inspectManagedArtifactMetadata, inspectPhaseAuthoredReviewContent, inspectRequiredArtifactContent,
   phaseAuthoredReviewArtifacts, repairPreparedArtifactMetadata
 } from '../src/publication-preflight.mjs';
@@ -467,12 +467,16 @@ test('artifact preflight reports every authored placeholder and excludes approve
     'Owner: {{owner}}',
     'Path: <path or module>',
     'Run with <AUTHORIZED-URL>.',
+    '<!-- TODO and <hidden path> are authoring guidance, not authored placeholders. -->',
+    '`TODO inside inline code remains executable documentation.`',
     '<!-- singularity-flow:inputs:start -->',
     'TBD approved upstream text with <legacy path>.',
     '<!-- singularity-flow:inputs:end -->'
   ].join('\n'));
-  assert.deepEqual(findings.map((finding) => finding.value), ['TODO', '{{owner}}', '<path or module>']);
-  assert.deepEqual(findings.map((finding) => finding.line), [3, 4, 5]);
+  assert.deepEqual(findings.map((finding) => finding.value), [
+    'TODO', '{{owner}}', '<path or module>', 'TODO'
+  ]);
+  assert.deepEqual(findings.map((finding) => finding.line), [3, 4, 5, 8]);
 });
 
 test('artifact preflight recognizes conventional unfinished markers without flagging ordinary prose', () => {
@@ -608,6 +612,34 @@ test('one content inspection counts only authored bytes and reports every blocke
     'artifact.required.too-short'
   ]);
   assert.equal(inspected.findings[0].value, 'TODO');
+});
+
+test('content inspection reports an unclosed HTML comment at its exact opening line', () => {
+  const text = [
+    '# Implementation', '',
+    '## Agent brief', '',
+    'TODO replace this authoring marker.', '',
+    '<!-- authoring guidance was accidentally left open',
+    '## Test strategy', '',
+    'This hidden tail is not authored Markdown.'
+  ].join('\n');
+  const inspected = inspectArtifactContent(text, {
+    path: 'implementation-summary.md',
+    contract: {
+      minimumBytes: 1,
+      validation: { requiredHeadings: ['Agent brief', 'Test strategy'] }
+    }
+  });
+
+  assert.deepEqual(inspected.findings.slice(0, 2).map((finding) => finding.code), [
+    'artifact.comment.unclosed',
+    'artifact.placeholder.unresolved'
+  ]);
+  const comment = inspected.findings[0];
+  assert.equal(comment.line, 7);
+  assert.match(artifactFindingMessage(comment), /unclosed HTML comment opened at line 7/u);
+  assert.ok(inspected.findings.some((finding) => finding.code === 'artifact.heading.missing'
+    && finding.value === 'Test strategy'));
 });
 
 test('an untouched prepared template is refused before publication mutates phase state', async () => {

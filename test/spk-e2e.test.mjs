@@ -156,6 +156,8 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   // ---- specification ---------------------------------------------------------------------------
   await write(root, `singularity/work-items/${WORK}/artifacts/specification/spec.md`, [
     '# Specification — Retry a failed payment', '',
+    '## Agent brief', '',
+    'Permit an authorized payments operator to retry without mutating the failed attempt.', '',
     '## Actors', '', 'An operator holding the payments role.', '',
     '## User scenarios', '',
     '- **Given** a payment that failed at the provider',
@@ -163,7 +165,11 @@ test('a Story runs specification through release from a fresh clone', async (t) 
     '  **Then** a new attempt is created and the original is preserved.', '',
     '## Requirements', '',
     '- The system creates a new attempt when an operator retries a failed payment. [E2E:REQ-001]',
-    '- The system preserves the original failed attempt and its provider response. [E2E:REQ-002]', ''
+    '- The system preserves the original failed attempt and its provider response. [E2E:REQ-002]', '',
+    '## Non-functional requirements', '',
+    'Retry processing remains deterministic and append-only.', '',
+    '## Boundary conditions', '',
+    'Only failed provider attempts are eligible and the original record is immutable.', ''
   ].join('\n'));
   await completePhase(root, 'specification', { articles: SATISFIED });
   assert.equal((await workflowOf(root)).phases.specification.status, 'approved');
@@ -183,6 +189,8 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   const planningPath = `singularity/work-items/${WORK}/artifacts/planning/plan.md`;
   const planningDocument = [
     '# Implementation plan — Retry a failed payment', '',
+    '## Agent brief', '',
+    'Add an append-only retry path and prove both governed requirements with focused tests.', '',
     '## Approach', '', 'Append a new attempt row rather than mutating the failed one.', '',
     '## Affected surfaces', '',
     '| Surface | Change | Serves |', '|---|---|---|',
@@ -191,7 +199,9 @@ test('a Story runs specification through release from a fresh clone', async (t) 
     '## Test strategy', '',
     '| Clause | Expected paths | Planned tests |', '|---|---|---|',
     '| `E2E:REQ-001` | `src/payments/retry.ts` | `tests/payments-retry.test.mjs` |',
-    '| `E2E:REQ-002` | `src/payments/attempts.ts` | `tests/payments-attempts.test.mjs` |', ''
+    '| `E2E:REQ-002` | `src/payments/attempts.ts` | `tests/payments-attempts.test.mjs` |', '',
+    '## Risks and rollback', '',
+    'Risk is accidental mutation of the failed attempt; rollback removes the retry handler and append helper.', ''
   ].join('\n');
 
   // A not-applicable marker is not a reviewed decision. Publication must reject it even though a
@@ -253,10 +263,14 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   ].join('\n'));
   await write(root, `singularity/work-items/${WORK}/artifacts/implementation/implementation-summary.md`, [
     '# Implementation summary', '',
+    '## Agent brief', '',
     'Added the retry handler. The append-only change to attempts is not done yet, so this generation',
     'deliberately claims only one of the two requirements — the convergence iteration below is what',
     'that omission is for.', '',
-    '## Changes', '', '- `src/payments/retry.ts`: new retry handler serving E2E:REQ-001.', ''
+    '## Changed components and decisions', '',
+    '- `src/payments/retry.ts`: new retry handler serving E2E:REQ-001.', '',
+    '## Tests and operational notes', '',
+    '`tests/payments-retry.test.mjs` verifies deterministic retry output; append-only coverage remains pending.', ''
   ].join('\n'));
   await write(root, `singularity/work-items/${WORK}/artifacts/implementation/operator-notes.md`, [
     '# Operator notes', '',
@@ -324,11 +338,14 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   ].join('\n'));
   await write(root, `singularity/work-items/${WORK}/artifacts/implementation/implementation-summary.md`, [
     '# Implementation summary', '',
+    '## Agent brief', '',
     'Second generation. Attempts are now append-only, so the original failed attempt and its provider',
     'response are preserved alongside the new one.', '',
-    '## Changes', '',
+    '## Changed components and decisions', '',
     '- `src/payments/retry.ts`: retry handler serving E2E:REQ-001.',
-    '- `src/payments/attempts.ts`: append-only attempts serving E2E:REQ-002.', ''
+    '- `src/payments/attempts.ts`: append-only attempts serving E2E:REQ-002.', '',
+    '## Tests and operational notes', '',
+    'Focused retry and append-only tests cover both governed requirements.', ''
   ].join('\n'));
   await completePhase(root, 'implementation');
 
@@ -353,6 +370,8 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   const amendmentFile = path.join(await mkdtemp(path.join(os.tmpdir(), 'sflow-e2e-amendment-')), 'spec.md');
   await writeFile(amendmentFile, [
     '# Specification — Retry a failed payment', '',
+    '## Agent brief', '',
+    'Limit append-only retries to authorized payments operators and retain exact traceability.', '',
     '## Actors', '', 'An operator holding the payments role.', '',
     '## User scenarios', '',
     '- **Given** a payment that failed at the provider',
@@ -360,7 +379,11 @@ test('a Story runs specification through release from a fresh clone', async (t) 
     '  **Then** a new attempt is created and the original is preserved.', '',
     '## Requirements', '',
     '- Only an operator holding the payments role may create a new attempt for a failed payment. [E2E:REQ-001]',
-    '- Every retry preserves the original failed attempt and its provider response without mutation. [E2E:REQ-002]', ''
+    '- Every retry preserves the original failed attempt and its provider response without mutation. [E2E:REQ-002]', '',
+    '## Non-functional requirements', '',
+    'Retry processing remains deterministic and append-only.', '',
+    '## Boundary conditions', '',
+    'Only failed provider attempts are eligible and role authorization is mandatory.', ''
   ].join('\n'));
   const proposed = JSON.parse(sflow(root, ['story', 'intent-amendment', 'propose',
     '--file', amendmentFile, '--reason', 'Make retry authority explicit.', '--json']).stdout);
@@ -377,8 +400,8 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   const amendedBriefs = amended.phases.specification.agentBriefs
     .filter((entry) => entry.generation === 2);
   assert.equal(amendedBriefs.length, 4, 'the amended approved generation did not recreate downstream briefs');
-  assert.ok(amendedBriefs.every((entry) => entry.status === 'fallback-whole'),
-    'a summary-free amended specification did not retain the configured whole-artifact fallback');
+  assert.ok(amendedBriefs.every((entry) => entry.status === 'ready'),
+    'the amended specification did not create bounded reviewed briefs');
   const amendmentApproval = amended.phases.specification.approvals
     .find((entry) => entry.intentAmendmentId === 'AMD-001' && !entry.invalidatedAt);
   const amendmentProjection = amended.publicationProjections
@@ -544,10 +567,13 @@ test('a Story runs specification through release from a fresh clone', async (t) 
 
   await write(root, `singularity/work-items/${WORK}/artifacts/verification/test-evidence.md`, [
     '# Test evidence', '',
+    '## Agent brief', '',
     'Both requirements are covered by executed checks against the second implementation generation.', '',
-    '## Results', '',
+    '## Acceptance and specification results', '',
     '- E2E:REQ-001 — retry creates a new attempt: passed.',
     '- E2E:REQ-002 — the original failed attempt is preserved: passed.', '',
+    '## Negative, regression, security, and non-functional checks', '',
+    'Authorization, immutability, and deterministic behavior passed without residual failures.', '',
     '## Environment', '', 'Local Node test runner against the Story branch head.', ''
   ].join('\n'));
   await completePhase(root, 'verification');

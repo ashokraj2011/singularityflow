@@ -7,7 +7,11 @@ import {
 } from './manual-authorship.mjs';
 
 function action(timing, skill, command, reason, metadata = {}) {
-  return copilotAction({ timing, skill, command, reason, modelPolicy: 'never', availability: 'available', ...metadata });
+  const candidate = copilotAction({
+    timing, skill, command, reason, modelPolicy: 'never', availability: 'available', ...metadata
+  });
+  const guidance = safeCommandGuidance(candidate);
+  return guidance ? Object.freeze({ ...candidate, ...guidance }) : candidate;
 }
 
 function nextPhase(workflow, currentId) {

@@ -5,73 +5,17 @@ import path from 'node:path';
 
 import { recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { normalizeMarkdownHeading, parseMarkdownStructure } from './markdown-structure.mjs';
 import { nowIso, posix, SingularityFlowError, snapshot, writeJson, writeText } from './util.mjs';
 
 const SUMMARY_HEADINGS = Object.freeze(['agent brief', 'executive summary', 'summary', 'tl;dr', 'overview']);
 const MANAGED_INPUTS = /<!-- singularity-flow:inputs:start -->[\s\S]*?<!-- singularity-flow:inputs:end -->/g;
 
 function sha256(value) { return createHash('sha256').update(value).digest('hex'); }
-function normalizeHeading(value) {
-  return String(value).replace(/\s*\{#[^}]+\}\s*$/, '').normalize('NFKC').trim().toLocaleLowerCase('en-US');
-}
 
-function headings(text) {
-  const source = String(text);
-  const found = [];
-  let offset = 0;
-  let lineNumber = 0;
-  let fence = null;
-  let htmlComment = false;
-  for (const lineWithBreak of source.match(/.*(?:\r?\n|$)/g) ?? []) {
-    if (!lineWithBreak) continue;
-    lineNumber += 1;
-    const line = lineWithBreak.replace(/\r?\n$/, '');
-    let visible = line;
-    if (htmlComment) {
-      const end = visible.indexOf('-->');
-      if (end === -1) visible = '';
-      else {
-        visible = visible.slice(end + 3);
-        htmlComment = false;
-      }
-    }
-    if (!htmlComment) {
-      const start = visible.indexOf('<!--');
-      if (start !== -1) {
-        const end = visible.indexOf('-->', start + 4);
-        if (end === -1) htmlComment = true;
-        visible = visible.slice(0, start);
-      }
-    }
-    const fenceMatch = visible.match(/^\s*(`{3,}|~{3,})/);
-    if (fenceMatch) {
-      if (!fence) fence = { character: fenceMatch[1][0], length: fenceMatch[1].length };
-      else if (fenceMatch[1][0] === fence.character && fenceMatch[1].length >= fence.length) fence = null;
-      offset += lineWithBreak.length;
-      continue;
-    }
-    if (!fence) {
-      const match = visible.match(/^(#{1,6})[ \t]+(.+?)\s*#*\s*$/);
-      if (match) found.push({
-        level: match[1].length,
-        title: match[2],
-        normalized: normalizeHeading(match[2]),
-        line: lineNumber,
-        index: offset,
-        contentStart: offset + line.length
-      });
-    }
-    offset += lineWithBreak.length;
-  }
-  return found.map((heading, index) => ({
-    ...heading,
-    end: found.slice(index + 1).find((candidate) => candidate.level <= heading.level)?.index ?? source.length
-  }));
-}
-
-function sectionFor(text, requested, parsedHeadings = headings(text)) {
-  const normalized = normalizeHeading(requested);
-  const matches = parsedHeadings.filter((heading) => heading.normalized === normalized);
+function sectionFor(requested, structure) {
+  const normalized = normalizeMarkdownHeading(requested);
+  const matches = structure.headings.filter((heading) => heading.normalized === normalized);
   if (!matches.length) return null;
   if (matches.length > 1) throw new SingularityFlowError(
     `Agent-brief heading '${requested}' is ambiguous at lines ${matches.map((heading) => heading.line).join(', ')}.`,
@@ -81,12 +25,12 @@ function sectionFor(text, requested, parsedHeadings = headings(text)) {
     }
   );
   const selected = matches[0];
-  const body = String(text).slice(selected.contentStart, selected.end).trim();
-  return { heading: selected.title.trim(), body, markdown: String(text).slice(selected.index, selected.end).trim() };
-}
-
-function authoredText(value) {
-  return String(value).replace(/<!--[^]*?-->/g, '').trim();
+  const body = structure.visibleText.slice(selected.contentStart, selected.end).trim();
+  return {
+    heading: selected.title.trim(),
+    body,
+    markdown: structure.visibleText.slice(selected.index, selected.end).trim()
+  };
 }
 
 function withoutManagedInputs(value) {
@@ -168,14 +112,28 @@ export async function planAgentBriefs(root, workflow, producerPhase, {
   };
   const markdown = await readFile(sourcePath, 'utf8');
   const authoredMarkdown = withoutManagedInputs(markdown);
-  const parsedHeadings = headings(authoredMarkdown);
+  const structure = parseMarkdownStructure(authoredMarkdown);
+  const unclosed = structure.unclosedComments[0];
+  if (unclosed) {
+    throw new SingularityFlowError(
+      `Phase ${producerPhase.id} cannot create approved agent briefs because ${relativeArtifact} contains an unclosed HTML comment opened at line ${unclosed.line}.`,
+      {
+        code: 'ARTIFACT_COMMENT_UNCLOSED',
+        details: {
+          path: source.path,
+          line: unclosed.line,
+          lines: [unclosed.line]
+        }
+      }
+    );
+  }
   const created = [];
   const pendingWrites = [];
   for (const { consumer, declaration } of consumers) {
     const policy = briefPolicy(declaration);
     const paths = agentBriefRelativePaths(itemRelative, producerPhase.id, generation, consumer.id);
-    const summary = SUMMARY_HEADINGS.map((heading) => sectionFor(authoredMarkdown, heading, parsedHeadings))
-      .find((section) => section && authoredText(section.body));
+    const summary = SUMMARY_HEADINGS.map((heading) => sectionFor(heading, structure))
+      .find((section) => section?.body.trim());
     const preserved = [];
     let status = 'ready';
     let rendered = null;
@@ -193,8 +151,8 @@ export async function planAgentBriefs(root, workflow, producerPhase, {
       // fallback and blocks otherwise publishable legacy/manual artifacts. The whole artifact is
       // already the lossless projection in that branch, so there is nothing separate to preserve.
       for (const heading of policy.preserve) {
-        const section = sectionFor(authoredMarkdown, heading, parsedHeadings);
-        if (!section || !authoredText(section.body)) {
+        const section = sectionFor(heading, structure);
+        if (!section || !section.body.trim()) {
           throw new SingularityFlowError(
             `Phase ${producerPhase.id} cannot create the approved agent brief for ${consumer.id}: preserved section '${heading}' is missing or empty.`,
             {
@@ -203,7 +161,7 @@ export async function planAgentBriefs(root, workflow, producerPhase, {
             }
           );
         }
-        if (normalizeHeading(section.heading) === normalizeHeading(summary.heading)) continue;
+        if (normalizeMarkdownHeading(section.heading) === normalizeMarkdownHeading(summary.heading)) continue;
         preserved.push(section);
       }
       rendered = renderedBrief({ workflow, producerPhase: effectiveProducer, consumer, source, summary, preserved });

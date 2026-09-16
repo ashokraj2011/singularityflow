@@ -35,6 +35,8 @@ test('nextsteps works before initialization and without an active work item', ()
 
   const requested = nextStepsSnapshot({ branch: 'main', requestedWorkId: 'ENG-42' });
   assert.equal(requested.actions[0].command, 'singularity-flow resume ENG-42 --fetch');
+  assert.equal(requested.actions[0].executable, 'singularity-flow');
+  assert.deepEqual(requested.actions[0].argv, ['resume', 'ENG-42', '--fetch']);
 });
 
 test('active generation plan includes current, subsequent, alternative, and following-phase actions', () => {
@@ -42,6 +44,11 @@ test('active generation plan includes current, subsequent, alternative, and foll
   assert.deepEqual(steps.map((item) => item.skill), ['/sf-phase', '/sf-phase', '/sf-submit', '/sf-approve', '/sf-reject', '/sf-cancel', '/sf-phase']);
   assert.deepEqual(steps.map((item) => item.timing), ['now', 'then', 'then', 'then', 'alternative', 'alternative', 'then']);
   assert.equal(steps[1].command, 'singularity-flow phase publish intake --authored governed-agent --channel copilot-host');
+  assert.deepEqual(steps[1].argv, [
+    'phase', 'publish', 'intake', '--authored', 'governed-agent', '--channel', 'copilot-host'
+  ]);
+  assert.deepEqual(steps.find((item) => item.command.includes('approve intake')).argv,
+    ['approve', 'intake', '--work-id', 'NEXT-1', '--fetch']);
   assert.match(steps.at(-1).reason, /Requirements/);
 });
 

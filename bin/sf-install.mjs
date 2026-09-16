@@ -85,7 +85,7 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(`Singularity Flow distribution install failed: ${error.message}`);
-  process.exitCode = 1;
+main().catch(async (error) => {
+  const { reportCliFailure } = await import('../src/cli-failure.mjs');
+  await reportCliFailure(error, []);
 });

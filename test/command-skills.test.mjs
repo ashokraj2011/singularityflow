@@ -224,6 +224,37 @@ test('a policy-selected custom code phase keeps the generic code-authoring Copil
   assert.equal(guidance.copilotCommand, '/sf-code');
 });
 
+test('structured command argv is authoritative and disagreement fails closed', () => {
+  const structured = safeCommandGuidance({
+    executable: 'singularity-flow',
+    argv: ['resume', 'WORK-123', '--fetch']
+  });
+  assert.ok(structured);
+  assert.equal(structured.executable, 'singularity-flow');
+  assert.deepEqual(structured.argv, ['resume', 'WORK-123', '--fetch']);
+  assert.match(structured.command, /resume WORK-123 --fetch$/u);
+  assert.equal(structured.copilotCommand, '/sf-resume');
+
+  const matching = safeCommandGuidance({
+    command: 'singularity-flow phase publish implementation --authored governed-agent --channel copilot-host',
+    executable: 'singularity-flow',
+    argv: ['phase', 'publish', 'implementation', '--authored', 'governed-agent', '--channel', 'copilot-host'],
+    skill: '/sf-code'
+  });
+  assert.ok(matching);
+  assert.equal(matching.argv.at(-1), 'copilot-host');
+  assert.equal(matching.skill, '/sf-code');
+
+  assert.equal(safeCommandGuidance({
+    command: 'singularity-flow resume WORK-123 --fetch',
+    executable: 'singularity-flow',
+    argv: ['resume', 'WORK-123']
+  }), null);
+  assert.equal(safeCommandGuidance({
+    executable: 'singularity-flow', argv: ['resume', 'WORK-123', '--token', 'secret']
+  }), null);
+});
+
 test('router and resolved phase actions cannot be presented as one equivalent pair', () => {
   const router = safeCommandGuidance('singularity-flow next');
   assert.ok(router);

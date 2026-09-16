@@ -22,6 +22,7 @@ import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resol
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow, commitAndPublish, CONFIG_PATH, createWorkflow, currentPhase, generationResultDigest, generationResultMatches, loadConfig, preparePhase, preparePhaseInputs, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, storyWelEnrollmentStatus, submitConfirmedConvergencePhase, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir, workDirRelative } from './state-stores.mjs';
 import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
+import { directCopilotSkill } from './copilot-guidance.mjs';
 import { phasePreparationCommandLines } from './phase-preparation-guidance.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { generationStartPublicationBinding, verifyOpenGenerationIntent } from './generation-boundary.mjs';
@@ -78,7 +79,7 @@ import {
   assertProducerAllowed, buildGenerationAuthorship, effectivePhasePublicationProducer,
   importManualArtifact, inspectDeterministicInPlaceArtifact, inspectInPlaceArtifact,
   normalizeAuthorshipOptions, phasePublicationCommand, phasePublicationCommandForProducer,
-  phasePublicationContract
+  phasePublicationContract, phaseUsesDeterministicGeneration
 } from './manual-authorship.mjs';
 import { phaseDraftCheck } from './phase-draft-check.mjs';
 import { assertConvergencePublicationReady } from './convergence-context.mjs';
@@ -5721,14 +5722,20 @@ async function phaseCommand(positionals, options) {
     throw new SingularityFlowError('--usage-json is valid only with --authored governed-agent. Manual and deterministic publication record model usage as not-invoked.');
   }
   assertProducerAllowed(requestedPhase, authorshipOptions.producer);
-  const session = await loadSession(root);
+  const deterministicPublication = authorshipOptions.producer === 'deterministic';
+  const session = deterministicPublication
+    ? { actor: actionActor(root), agent: null }
+    : await loadSession(root);
   const targetPath = path.join(workDir(root, config, workflow.workItem.id), requestedPhase.requiredArtifact.path);
   const targetRelative = path.relative(root, targetPath).replaceAll(path.sep, '/');
   const publicationArtifactContract = {
     ...requestedPhase.requiredArtifact,
     generation: Number(requestedPhase.generation) + 1
   };
-  const publicationAuthoringOptions = { baseline: requestedPhase.authoringBaseline ?? null };
+  const publicationAuthoringOptions = {
+    baseline: requestedPhase.authoringBaseline ?? null,
+    retrySkill: directCopilotSkill(generationSkillForPhase(requestedPhase))
+  };
   const deterministicConvergence = requestedPhase.id === 'convergence';
   const inspectPublicationArtifact = deterministicConvergence
     ? (candidatePath) => inspectDeterministicInPlaceArtifact(candidatePath, publicationArtifactContract)
@@ -5785,7 +5792,8 @@ async function phaseCommand(positionals, options) {
           ? await importManualArtifact({
               sourcePath: path.resolve(sourcePath), targetPath,
               contract: publicationArtifactContract,
-              baseline: publicationAuthoringOptions.baseline
+              baseline: publicationAuthoringOptions.baseline,
+              retrySkill: publicationAuthoringOptions.retrySkill
             })
           : await inspectPublicationArtifact(targetPath);
         const authorship = buildGenerationAuthorship({
@@ -6354,11 +6362,13 @@ async function runSubmitCommand(positionals, options, submitContext) {
         const submit = requested.id === 'convergence'
           ? submitConfirmedConvergencePhase
           : submitPhase;
+        const deterministicSubmission = phaseUsesDeterministicGeneration(requested);
         phase = await submit(root, config, workflow, {
           phaseId: requested.id,
           runChecks: !optionBoolean(options, 'skip-checks'),
           architectureCandidateSnapshot: optionString(options, 'candidate-snapshot'),
           persist: false,
+          ...(deterministicSubmission ? { actor: actionActor(root), agent: null } : {}),
           ...(requested.id === 'convergence'
             ? { confirmation: convergenceConfirmation }
             : {})
@@ -6374,6 +6384,14 @@ async function runSubmitCommand(positionals, options, submitContext) {
   const approvalMode = phase.approvalPolicy?.mode ?? 'required';
   const completedWithoutReview = phase.status === 'approved' && approvalMode === 'none';
   const completedByPolicy = phase.status === 'approved' && approvalMode === 'policy';
+  if (phase.status === 'approved') {
+    // No-approval and policy-waived submission advance inside the submit transaction, without a
+    // later approve command to perform the handoff. Bind the exact committed next phase now; a
+    // stale prior-phase session must never be reported ready merely because the next phase happens
+    // to use the same agent ID.
+    const afterSubmission = await loadAcceptedStoryExecution(root, workflow.workItem.id);
+    await activateWorkItemSession(root, afterSubmission.config, afterSubmission.workflow);
+  }
   if (completedWithoutReview) console.log(`\nCompleted ${phase.id} phase (configured approval mode: none).`);
   else if (completedByPolicy) console.log(`\nCompleted ${phase.id} phase using its deterministic policy waiver.`);
   else console.log(`\nSubmitted ${phase.id} phase for approval.`);
@@ -6738,12 +6756,14 @@ async function decisionWorkflow(positionals, options, action) {
   const receipt = receiptToken
     ? await resolveSelectionReceipt(root, config, receiptToken, { action, workId: workflow.workItem.id, workflow })
     : null;
-  const session = await activatePhaseAgent(
-    root, config, workflow.workItem.id, phase, optionString(options, 'agent') ?? null,
-    // `config` already carries this Story's verified saved agent catalog. Passing the workflow
-    // here would verify the same closure a second time inside the same approval operation.
-    null
-  );
+  const session = phaseUsesDeterministicGeneration(phase)
+    ? { actor: actionActor(root), agent: null }
+    : await activatePhaseAgent(
+        root, config, workflow.workItem.id, phase, optionString(options, 'agent') ?? null,
+        // `config` already carries this Story's verified saved agent catalog. Passing the workflow
+        // here would verify the same closure a second time inside the same approval operation.
+        null
+      );
   for (const override of (workflow.sequenceOverrides ?? []).slice(overridesBefore)) {
     override.actor = session.actor;
     override.agent = session.agent;
@@ -6906,6 +6926,8 @@ async function approveCommand(positionals, options) {
       checklist,
       witnessMappings,
       architectureCandidateSnapshot: optionString(options, 'candidate-snapshot'),
+      actor: session.actor,
+      agent: session.agent,
       persist: false
     }),
     {
@@ -6937,6 +6959,14 @@ async function approveCommand(positionals, options) {
       // "already approved" refusal after a successful gate transition.
       console.warn(`Warning: approval succeeded, but selection receipt cleanup is pending: ${error.message}`);
     }
+  }
+  // Approval may cross a phase boundary. Rebind from the committed aggregate rather than the
+  // caller's pre-transaction object so a same-agent transition (for example verification →
+  // release) still changes the phase binding, and deterministic convergence clears agent
+  // authority instead of inheriting the previous phase's session.
+  {
+    const accepted = await loadAcceptedStoryExecution(root, workflow.workItem.id);
+    await activateWorkItemSession(root, accepted.config, accepted.workflow);
   }
   console.log(publication.pushed
     ? `Approval decision committed ${publication.sha.slice(0, 8)} and pushed to ${config.git?.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}.`
@@ -6975,7 +7005,9 @@ async function rejectCommand(positionals, options) {
       clauseIds: optionStrings(options, 'clause'),
       members: optionStrings(options, 'member'),
       channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : 'terminal',
-      actionContext: activeActionContext()
+      actionContext: activeActionContext(),
+      actor: session.actor,
+      agent: session.agent
     }),
     {
       eventFromResult: (transition) => ({
@@ -6986,6 +7018,10 @@ async function rejectCommand(positionals, options) {
       })
     }
   );
+  {
+    const accepted = await loadAcceptedStoryExecution(root, workflow.workItem.id);
+    await activateWorkItemSession(root, accepted.config, accepted.workflow);
+  }
   console.log(`Recorded ${phase.changeRequest.id}. Comment: ${phase.changeRequest.comment}`);
   if (phase.changeRequest.clauseIds?.length) console.log(`Clauses requiring revision: ${phase.changeRequest.clauseIds.join(', ')}`);
   if (phase.changeRequest.members?.length) {
@@ -7102,6 +7138,10 @@ async function reopenCommand(positionals, options) {
       })
     }
   );
+  {
+    const accepted = await loadAcceptedStoryExecution(root, workflow.workItem.id);
+    await activateWorkItemSession(root, accepted.config, accepted.workflow);
+  }
   console.log(`Reopened ${workflow.workItem.id} at ${result.phase.id} with ${result.changeRequest.id}.`);
   console.log(publication.pushed
     ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
@@ -8922,9 +8962,11 @@ async function sessionCommand(positionals, options) {
         }
       );
     }
-    const activeSession = await loadSession(executionRoot, { required: false });
+    const phaseSession = workflow
+      ? await agentSessionStatus(executionRoot, definition, workflow)
+      : null;
     const result = {
-      ready: context.selectionStatus === 'ready',
+      ready: context.selectionStatus === 'ready' && (phaseSession?.ready ?? true),
       workspaceId: context.workspaceId ?? null,
       workspaceName: context.workspaceName ?? null,
       repositoryId: context.repositoryId ?? null,
@@ -8937,7 +8979,11 @@ async function sessionCommand(positionals, options) {
       head: head(executionRoot),
       phase: workflow?.currentPhase ?? null,
       status: workflow?.status ?? null,
-      activeAgent: activeSession?.workId === actualWorkId ? activeSession.agent ?? null : null,
+      activeAgent: phaseSession?.activeAgent ?? null,
+      phaseAgent: phaseSession?.phaseAgent ?? {
+        required: false, phaseId: null, expectedAgent: null, sessionPhaseId: null,
+        activeAgent: null, valid: true, reason: 'no-active-story', handoff: null
+      },
       selectionSource: context.selectionSource ?? null,
       selectionStatus: context.selectionStatus ?? 'ready'
     };
@@ -8945,6 +8991,15 @@ async function sessionCommand(positionals, options) {
     console.log(`Repository: ${result.repositoryPath}`);
     console.log(`Story: ${result.workId ?? 'not selected'} · branch ${result.branch}`);
     console.log(`Phase: ${result.phase ?? '—'} · status ${result.status ?? '—'}`);
+    if (result.phaseAgent.required) {
+      console.log(`Phase agent: ${result.activeAgent ?? 'not ready'} · ${result.phaseAgent.reason}`);
+      if (result.phaseAgent.handoff) {
+        printCommandRoutes(result.phaseAgent.handoff.command, {
+          skill: result.phaseAgent.handoff.copilotCommand,
+          label: 'Rebind the phase session'
+        });
+      }
+    } else if (result.phase) console.log('Phase agent: not required (deterministic phase).');
     console.log(`Selection: ${result.selectionSource} · ${result.selectionStatus}`);
     return result;
   }

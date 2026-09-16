@@ -26,7 +26,6 @@ import { RepositorySnapshotFileCache } from './snapshot-file-cache.ts';
 import type { RepositorySnapshot } from './cli/snapshot.ts';
 import { ConfigurationValidator } from './validation.ts';
 import { approveWithReceipt, resolvePlaceholders, runGovernedAction, runPlannedAction } from './actions.ts';
-import { commandArgv } from './commands.ts';
 import { LifecycleTreeProvider } from './views/lifecycle.ts';
 import type { JourneyMessage } from './views/journey.ts';
 import { buildJourney } from './views/journey-model.ts';
@@ -4656,7 +4655,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return runNode({
           kind: 'action', id: `${journey.kind}:journey:next`,
           label: journey.nextAction.label ?? journey.nextAction.reason,
-          command: commandArgv(journey.nextAction.command)
+          command: [...journey.nextAction.argv]
         });
       }
       return;

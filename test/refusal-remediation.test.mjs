@@ -73,11 +73,12 @@ test('the refusal envelope pairs every bounded transport diagnostic with a Copil
   const envelope = refusalEnvelope(Object.assign(new Error('Git access failed.'), {
     code: 'REMOTE_AUTHENTICATION', details: { diagnosticAction, remoteFailure }
   }), ['capability', 'proposals']);
-  assert.deepEqual(envelope.error.diagnosticAction, {
-    ...diagnosticAction,
-    skill: '/sf-workspace-bootstrap',
-    copilotCommand: '/sf-workspace-bootstrap'
-  });
+  assert.equal(envelope.error.diagnosticAction.command, diagnosticAction.command);
+  assert.equal(envelope.error.diagnosticAction.executable, 'singularity-flow');
+  assert.deepEqual(envelope.error.diagnosticAction.argv,
+    ['workspace', 'doctor', '--network', '--json']);
+  assert.equal(envelope.error.diagnosticAction.skill, '/sf-workspace-bootstrap');
+  assert.equal(envelope.error.diagnosticAction.copilotCommand, '/sf-workspace-bootstrap');
   assert.deepEqual(envelope.error.remoteFailure, remoteFailure);
   assert.equal(envelope.remediationPlan.steps[0].command, diagnosticAction.command);
 });
@@ -121,11 +122,10 @@ test('the refusal envelope derives missing routes and preserves valid Auto relay
   const derived = refusalEnvelope(Object.assign(new Error('Blocked.'), {
     details: { diagnosticAction: { command: 'singularity-flow status --json' } }
   }), ['status']);
-  assert.deepEqual(derived.error.diagnosticAction, {
-    command: 'singularity-flow status --json',
-    skill: '/sf-status',
-    copilotCommand: '/sf-status'
-  });
+  assert.equal(derived.error.diagnosticAction.command, 'singularity-flow status --json');
+  assert.deepEqual(derived.error.diagnosticAction.argv, ['status', '--json']);
+  assert.equal(derived.error.diagnosticAction.skill, '/sf-status');
+  assert.equal(derived.error.diagnosticAction.copilotCommand, '/sf-status');
 
   const auto = refusalEnvelope(Object.assign(new Error('Paused.'), {
     details: { diagnosticAction: {
@@ -134,11 +134,13 @@ test('the refusal envelope derives missing routes and preserves valid Auto relay
       copilotCommand: '/sf-auto pause AFL-1 --json'
     } }
   }), ['auto']);
-  assert.deepEqual(auto.error.diagnosticAction, {
-    command: 'singularity-flow auto pause AFL-1 --json',
-    skill: '/sf-auto',
-    copilotCommand: '/sf-auto pause AFL-1 --json'
-  });
+  assert.equal(auto.error.diagnosticAction.command,
+    'singularity-flow auto pause AFL-1 --json');
+  assert.deepEqual(auto.error.diagnosticAction.argv,
+    ['auto', 'pause', 'AFL-1', '--json']);
+  assert.equal(auto.error.diagnosticAction.skill, '/sf-auto');
+  assert.equal(auto.error.diagnosticAction.copilotCommand,
+    '/sf-auto pause AFL-1 --json');
 });
 
 test('FOS:AC-044 FOS refusals provide bounded real commands without executing recovery', () => {
@@ -267,6 +269,7 @@ test('incomplete authoring refusals lead with a read-only draft check and bounde
   assert.equal(plan.steps[0].command, 'singularity-flow phase draft-check planning --json');
   assert.deepEqual(plan.steps[0].argv, ['phase', 'draft-check', 'planning', '--json']);
   assert.equal(plan.steps[0].kind, 'diagnostic');
+  assert.equal(plan.steps[0].skill, '/sf-phase');
   assert.equal(plan.steps[0].copyable, true);
   assert.match(plan.steps[0].label, /without changing repository or lifecycle state/);
   assert.equal(plan.steps[1].id, 'correct-authored-draft');
@@ -277,6 +280,21 @@ test('incomplete authoring refusals lead with a read-only draft check and bounde
   assert.equal(plan.retry.automatic, false);
   assert.match(plan.retry.label, /draft check reports ready/);
   assert.equal(plan.steps[2].command, 'singularity-flow doctor --json');
+});
+
+test('incomplete code authoring preserves the engine-selected code correction route', () => {
+  const error = Object.assign(new Error("Phase implementation contains unresolved placeholder 'TODO'."), {
+    code: 'ARTIFACT_AUTHORING_INCOMPLETE',
+    details: {
+      phase: 'implementation',
+      retry: { skill: '/sf-code', maximumAttempts: 1, requiresFingerprintChange: true }
+    }
+  });
+  const plan = refusalRemediationPlan(error, ['phase', 'publish', 'implementation', '--json']);
+  assert.equal(plan.steps[0].command,
+    'singularity-flow phase draft-check implementation --json');
+  assert.equal(plan.steps[0].skill, '/sf-code');
+  assert.equal(plan.steps[0].copilotCommand, '/sf-code');
 });
 
 test('incomplete authoring remediation derives a safe phase from lifecycle argv forms', () => {

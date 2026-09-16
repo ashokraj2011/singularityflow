@@ -125,6 +125,28 @@ function quoteToken(value, platform) {
     : `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
+function canonicalDisplayToken(value) {
+  return /^[A-Za-z0-9_./:@%+=,-]+$/u.test(value)
+    ? value
+    : `'${value.replaceAll("'", `'"'"'`)}'`;
+}
+
+function commandFromArgv(executable, argv) {
+  return [executable, ...argv].map(canonicalDisplayToken).join(' ');
+}
+
+function normalizedCommandArgv(input) {
+  if (!Array.isArray(input?.argv)) return null;
+  const executable = input.executable == null ? 'singularity-flow' : String(input.executable).trim();
+  if (!['singularity-flow', 'sflow'].includes(executable)) return null;
+  if (input.argv.some((value) => typeof value !== 'string' || !value
+      || /[\u0000-\u001f\u007f]/u.test(value))) return null;
+  const argv = input.argv.map(String);
+  const command = commandFromArgv(executable, argv);
+  const safe = validateSafeSflowCommand(command);
+  return safe ? { ...safe, executable: 'singularity-flow' } : null;
+}
+
 /**
  * Render an argv vector as one copyable command without ever treating an argument as shell text.
  *
@@ -190,6 +212,7 @@ export function validateSafeSflowCommand(value) {
   const copyable = !displayGrammar.displayOnly;
   return Object.freeze({
     command,
+    executable: 'singularity-flow',
     argv: Object.freeze(executable.slice(1)),
     copyable,
     platformCommands: copyable ? Object.freeze({
@@ -210,7 +233,16 @@ export function validateSafeSflowCommand(value) {
 export function safeCommandGuidance(value) {
   const input = typeof value === 'string' ? { command: value } : (value ?? {});
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
-  const safe = validateSafeSflowCommand(input.command);
+  const fromCommand = input.command == null ? null : validateSafeSflowCommand(input.command);
+  const fromArgv = input.argv == null ? null : normalizedCommandArgv(input);
+  if (input.command != null && !fromCommand) return null;
+  if (input.argv != null && !fromArgv) return null;
+  if (fromCommand && fromArgv && (
+    fromCommand.executable !== fromArgv.executable
+      || fromCommand.argv.length !== fromArgv.argv.length
+      || fromCommand.argv.some((entry, index) => entry !== fromArgv.argv[index])
+  )) return null;
+  const safe = fromCommand ?? fromArgv;
   if (!safe) return null;
   const canonicalSkill = normalizedSkill(skillForCommandLine(safe.command));
   if (!canonicalSkill) return null;
@@ -222,7 +254,7 @@ export function safeCommandGuidance(value) {
   const allowedSkills = new Set([canonicalSkill]);
   const phaseId = safe.argv[0] === 'prepare'
     ? safe.argv[1]
-    : safe.argv[0] === 'phase' && ['begin', 'publish'].includes(safe.argv[1])
+    : safe.argv[0] === 'phase' && ['begin', 'publish', 'draft-check', 'show'].includes(safe.argv[1])
       ? safe.argv[2]
       : null;
   // A repository may name a code-delivery phase freely. The engine-selected `/sf-code` assertion

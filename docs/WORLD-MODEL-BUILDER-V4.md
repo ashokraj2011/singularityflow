@@ -136,6 +136,13 @@ runtime. In a compatibility repository, `--format v4` is a one-command override:
 versioned reads, or publish the YAML setting so every surface resolves v4 consistently. `--local`
 validates without publishing. `--rebuild` deliberately bypasses exact cache reuse.
 
+The one-command override does not reinterpret legacy-v3 view names. When `workflow.yml` still uses
+legacy names such as `business`, `architecture`, or `testing`, an override with no `--views` selects
+all active installed registered contracts; an explicit `--views` value is validated only against
+the registered-v4 catalog. Use `sflow wm views` to list those exact IDs. Once `workflow.yml` itself
+declares `format: registered-v4`, every configured phase, agent, and repository view is validated
+strictly and an unknown or version-mismatched ID fails closed with the catalog and repair command.
+
 `composer: deterministic` makes no model call. `model-optional` remains deterministic when the
 registered facts are sufficient; `model-required` invokes the governed provider. `--model MODEL`
 selects the concrete model only after the composer requires one—it does not turn model composition

@@ -7,6 +7,8 @@ import { SingularityFlowError, nowIso, run } from './util.mjs';
 import { normalizeSessionPolicy } from './config.mjs';
 import { currentSchemaVersion, readRecord, stampCurrentRecord } from './schema-migrations.mjs';
 import { resolveStoryExecutionCatalog } from './story-execution-context.mjs';
+import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
+import { identity } from './git.mjs';
 
 const SESSION_FAMILY = 'session-registry';
 const COPILOT_SESSION_FAMILY = 'copilot-session';
@@ -268,6 +270,9 @@ export async function clearCopilotTurnIntent(root, sessionId = null) {
 export function validAgentSession(definition, session, workId, copilotSessionId = null, phaseId = null) {
   if (!session || session.workId !== workId || !definition.agents?.[session.agent]) return false;
   if (phaseId && session.phaseId !== phaseId) return false;
+  // An explicit same-phase override is a recorded local execution choice, not approval authority.
+  // The exact Story and phase binding remain mandatory, while the configured default is exposed as
+  // guidance rather than silently invalidating an already-audited override.
   return !copilotSessionId || session.copilotSessionId === copilotSessionId;
 }
 
@@ -314,6 +319,28 @@ export async function activateWorkItemSession(root, definition, workflow) {
     });
   }
   const phase = workflow.phases?.[phaseId] ?? null;
+  if (phaseUsesDeterministicGeneration(phase)) {
+    // Kernel-owned phases consume repository evidence directly. Carrying the previous phase's
+    // governed agent across this boundary makes a stale session look authoritative and can turn a
+    // deterministic projection into apparent agent authorship. Clear it explicitly; the next
+    // agent-authored phase will bind its own phase default even when that agent ID happens to be
+    // the same as the phase before this one.
+    await restoreAgentSession(root, null);
+    return recordCopilotSession(root, {
+      ...(copilot ?? {}),
+      sessionId: copilot?.sessionId ?? null,
+      source: copilot?.source ?? 'startup',
+      repositoryRoot: root,
+      workId: workflow.workItem.id,
+      candidateWorkId: workflow.workItem.id,
+      phase: phaseId,
+      policy,
+      workItemSelectionRequired: false,
+      selectionRequired: false,
+      selectedAgent: null,
+      workItemSelectedAt: nowIso()
+    });
+  }
   const defaultAgent = phase?.defaultAgent
     ? definition.agents?.[phase.defaultAgent]
     : definition.agentCatalog?.find((agent) => agent.defaultFor.includes(phaseId));
@@ -336,7 +363,10 @@ export async function activateWorkItemSession(root, definition, workflow) {
     selectedAgent: activeAgent,
     workItemSelectedAt: nowIso()
   });
-  if (!valid) await setAgentSession(root, definition, existing?.actor ?? null, activeAgent, workflow.workItem.id, { phaseId, source: 'phase-default' });
+  // A deterministic phase deliberately clears its prior governed-agent record. When the next
+  // authored phase begins there may therefore be no actor to carry forward; bind the fresh phase
+  // session to the repository's current Git identity instead of creating an unusable null actor.
+  if (!valid) await setAgentSession(root, definition, existing?.actor ?? identity(root), activeAgent, workflow.workItem.id, { phaseId, source: 'phase-default' });
   if (record.sessionId) await bindAgentToCopilotSession(root, definition, workflow.workItem.id, record, phaseId);
   return record;
 }
@@ -350,19 +380,53 @@ export async function agentSessionStatus(root, definition, workflow) {
     : policy.workItemSelection === 'prompt' || (policy.workItemSelection === 'reuse' && !workflow);
   const workId = workItemSelectionRequired ? null : workflow?.workItem?.id ?? copilot?.workId ?? null;
   const phaseId = workflow?.currentPhase ?? copilot?.phase ?? null;
+  const phase = phaseId ? workflow?.phases?.[phaseId] ?? null : null;
+  const agentRequired = Boolean(phaseId && !phaseUsesDeterministicGeneration(phase));
+  const expectedAgent = agentRequired ? phase?.defaultAgent ?? null : null;
   const baseValid = workId ? validAgentSession(definition, session, workId, null, phaseId) : false;
   const bound = baseValid && (!copilot?.sessionId || session.copilotSessionId === copilot.sessionId);
+  const phaseAgentValid = !agentRequired || bound;
+  const phaseAgentReason = !agentRequired
+    ? phaseId ? 'deterministic-phase-does-not-require-agent' : 'no-active-phase'
+    : !session ? 'active-session-missing'
+      : session.workId !== workId ? 'active-session-bound-to-different-work'
+        : session.phaseId !== phaseId ? 'active-session-bound-to-different-phase'
+          : !definition.agents?.[session.agent] ? 'active-session-agent-unavailable'
+            : copilot?.sessionId && session.copilotSessionId !== copilot.sessionId
+                ? 'active-session-bound-to-different-copilot-session'
+                : 'ready';
+  const handoff = agentRequired && !phaseAgentValid && workId
+    ? {
+        fromPhaseId: session?.phaseId ?? null,
+        fromAgent: session?.agent ?? null,
+        toPhaseId: phaseId,
+        toAgent: expectedAgent,
+        copilotCommand: '/sf-session',
+        command: `singularity-flow session attach ${workId} --json`
+      }
+    : null;
   return {
     workId,
     candidateWorkId: copilot?.candidateWorkId ?? workflow?.workItem?.id ?? null,
     copilotSessionId: copilot?.sessionId ?? null,
     source: copilot?.source ?? null,
     policy,
-    activeAgent: baseValid ? session.agent : null,
+    phase: phaseId,
+    activeAgent: phaseAgentValid && agentRequired ? session.agent : null,
     bound,
+    phaseAgent: {
+      required: agentRequired,
+      phaseId,
+      expectedAgent,
+      sessionPhaseId: session?.phaseId ?? null,
+      activeAgent: session?.agent ?? null,
+      valid: phaseAgentValid,
+      reason: phaseAgentReason,
+      handoff
+    },
     workItemSelectionRequired,
     selectionRequired: false,
-    ready: !workItemSelectionRequired,
+    ready: !workItemSelectionRequired && phaseAgentValid,
     choices: Object.entries(definition.agents ?? {}).map(([id, agent]) => ({ id, label: agent.label ?? id, description: agent.description ?? '' }))
   };
 }

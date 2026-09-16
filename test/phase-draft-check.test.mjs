@@ -183,3 +183,34 @@ test('an awaiting-approval artifact requires a new generation instead of changin
     await rm(item.root, { recursive: true, force: true });
   }
 });
+
+test('draft correction uses the task owner instead of hard-coding the generic phase skill', async () => {
+  const code = await fixture();
+  const convergence = await fixture({ producer: 'deterministic' });
+  try {
+    code.phase.id = 'implementation';
+    code.phase.generationPolicy.task = 'code';
+    code.workflow.currentPhase = 'implementation';
+    code.workflow.phases = { implementation: code.phase };
+    const codeResult = await phaseDraftCheck(
+      code.root, code.config, code.workflow, code.phase,
+      { session: boundSession(code, { phaseId: 'implementation', agent: 'developer' }) }
+    );
+    assert.equal(codeResult.correction.skill, '/sf-code');
+
+    convergence.phase.id = 'convergence';
+    convergence.phase.generationPolicy.defaultProducer = 'deterministic';
+    convergence.phase.generationPolicy.allowedProducers = ['deterministic'];
+    convergence.workflow.currentPhase = 'convergence';
+    convergence.workflow.phases = { convergence: convergence.phase };
+    const convergenceResult = await phaseDraftCheck(
+      convergence.root, convergence.config, convergence.workflow, convergence.phase
+    );
+    assert.equal(convergenceResult.configuredProducer, 'deterministic');
+    assert.equal(convergenceResult.correction.skill, null,
+      'kernel regeneration is never presented as agent authoring');
+  } finally {
+    await rm(code.root, { recursive: true, force: true });
+    await rm(convergence.root, { recursive: true, force: true });
+  }
+});

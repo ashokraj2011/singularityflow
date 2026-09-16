@@ -25,11 +25,12 @@ function explicitCommands(error) {
   return values.map(safeCommand).filter(Boolean);
 }
 
-function step(id, label, command = null, kind = 'diagnostic') {
-  const guidance = command == null ? null : safeCommandGuidance(command);
+function step(id, label, command = null, kind = 'diagnostic', skill = null) {
+  const guidance = command == null ? null : safeCommandGuidance({ command, ...(skill ? { skill } : {}) });
   if (command != null && !guidance) return null;
   return Object.freeze({
     id, label, command: guidance?.command ?? null,
+    executable: guidance?.executable ?? null,
     skill: guidance?.skill ?? null,
     copilotCommand: guidance?.copilotCommand ?? null,
     argv: guidance?.argv ?? null,
@@ -222,10 +223,11 @@ const KNOWN = Object.freeze({
     const command = subject.kind === 'initiative'
       ? `singularity-flow initiative phase draft-check ${subject.phase} --json`
       : `singularity-flow phase draft-check ${subject.phase} --json`;
+    const correctionSkill = subject.kind === 'story' ? error?.details?.retry?.skill ?? null : null;
     return [
       step('inspect-authored-draft',
         `Inspect every reviewable '${subject.phase}' draft artifact and its exact authoring findings without changing repository or lifecycle state.`,
-        command, 'diagnostic'),
+        command, 'diagnostic', correctionSkill),
       step('correct-authored-draft',
         'Have the current author correct every reported finding in the draft, then rerun the same read-only draft check. Do not delete markers blindly, invent missing facts, invoke another model, publish, submit, or approve from recovery guidance.',
         null, 'remediation')
@@ -314,8 +316,12 @@ export function refusalEnvelope(error, argv = []) {
       message: redactDiagnosticText(error?.message ?? String(error)),
       ...(diagnostic ? { diagnosticAction: {
         command: diagnostic.command,
+        executable: diagnostic.executable,
+        argv: diagnostic.argv,
         skill: diagnostic.skill,
-        copilotCommand: diagnostic.copilotCommand
+        copilotCommand: diagnostic.copilotCommand,
+        copyable: diagnostic.copyable,
+        platformCommands: diagnostic.platformCommands
       } } : {}),
       ...(remoteFailure ? { remoteFailure } : {})
     },

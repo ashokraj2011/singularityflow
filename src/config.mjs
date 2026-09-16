@@ -83,6 +83,7 @@ import {
   hasRetiredPackagedAssetHistory, isCurrentPackagedAssetHash,
   isRetiredPackagedAsset, packagedAssetSha256
 } from './packaged-asset-history.mjs';
+import { normalizeMarkdownHeading, parseMarkdownStructure } from './markdown-structure.mjs';
 
 export const WORKFLOW_PATH = 'singularity/workflow.yml';
 export const CONTROL_ROOT = 'singularity';
@@ -1333,6 +1334,75 @@ export async function loadDefinition(root, { storyBootstrap = false } = {}) {
     () => loadDefinitionUncached(root, { storyBootstrap }));
 }
 
+/**
+ * Validate approved-summary section contracts against the producer template before a Story starts.
+ *
+ * Runtime brief generation still validates the authored artifact because people may remove or
+ * empty a section while authoring. This earlier check catches impossible configuration — including
+ * YAML flow-sequence commas that accidentally split one heading into several values — while the
+ * configuration can still be reviewed and repaired safely.
+ */
+export async function validateAgentBriefHeadingContracts(root, definition) {
+  const parsedByTemplate = new Map();
+  for (const workTypeId of Object.keys(definition.workTypes ?? {})) {
+    const resolved = resolveWorkType(definition, workTypeId);
+    const phaseById = new Map(resolved.phases.map((phase) => [phase.id, phase]));
+    for (const consumer of resolved.phases) {
+      for (const declaration of consumer.inputs ?? []) {
+        if (declaration.projection !== 'approved-summary' || !(declaration.preserve?.length)) continue;
+        const producer = phaseById.get(declaration.phase);
+        if (!producer) continue; // resolveWorkType reports invalid phase references independently.
+        if (isAgentTemplateReference(producer.template)) {
+          throw new SingularityFlowError(
+            `Work type '${workTypeId}' phase '${consumer.id}' cannot declare preserved headings for dynamic Agent template '${producer.template}'. Use a governed repository template so the heading contract can be validated before Story start.`,
+            { code: 'AGENT_BRIEF_PRESERVE_TEMPLATE_DYNAMIC' }
+          );
+        }
+        let parsed = parsedByTemplate.get(producer.template);
+        if (!parsed) {
+          const file = await secureRepositoryPath(
+            root, path.join(definition.templatesRoot, producer.template),
+            { label: `Template for work type '${workTypeId}' phase '${producer.id}'`, mustExist: true, type: 'file' }
+          );
+          parsed = parseMarkdownStructure(await readFile(file.absolute, 'utf8'));
+          parsedByTemplate.set(producer.template, parsed);
+        }
+        if (parsed.unclosedComments.length) {
+          throw new SingularityFlowError(
+            `Template '${producer.template}' has an unclosed HTML comment beginning at line ${parsed.unclosedComments[0].line}; preserved-heading contracts cannot be validated.`,
+            {
+              code: 'TEMPLATE_COMMENT_UNCLOSED',
+              details: { workType: workTypeId, phase: producer.id, template: producer.template,
+                line: parsed.unclosedComments[0].line }
+            }
+          );
+        }
+        for (const requested of declaration.preserve) {
+          const normalized = normalizeMarkdownHeading(requested);
+          const matches = parsed.headings.filter((heading) => heading.normalized === normalized);
+          if (matches.length !== 1) {
+            throw new SingularityFlowError(
+              matches.length
+                ? `Work type '${workTypeId}' phase '${consumer.id}' preserves ambiguous heading '${requested}' from ${producer.template}; matching headings are at lines ${matches.map((heading) => heading.line).join(', ')}.`
+                : `Work type '${workTypeId}' phase '${consumer.id}' preserves heading '${requested}', but ${producer.template} has no visible heading with that name.`,
+              {
+                code: matches.length
+                  ? 'AGENT_BRIEF_PRESERVE_HEADING_AMBIGUOUS'
+                  : 'AGENT_BRIEF_PRESERVE_HEADING_MISSING',
+                details: {
+                  workType: workTypeId, consumerPhase: consumer.id, producerPhase: producer.id,
+                  template: producer.template, heading: requested,
+                  matchingLines: matches.map((heading) => heading.line)
+                }
+              }
+            );
+          }
+        }
+      }
+    }
+  }
+}
+
 async function loadDefinitionUncached(root, { storyBootstrap = false } = {}) {
   const definitionRoot = configurationReadRoot(root);
   const workflow = await secureRepositoryPath(root, WORKFLOW_PATH, {
@@ -1416,6 +1486,7 @@ async function loadDefinitionUncached(root, { storyBootstrap = false } = {}) {
         });
         if (!template.exists) throw new SingularityFlowError(`Template missing for work type '${workTypeId}' phase '${phase.id}': ${path.posix.join(definition.templatesRoot, phase.template)}`);
       }
+      await validateAgentBriefHeadingContracts(root, definition);
       await validateWorldModelPromptViewReferences(root, definition);
     }
     return definition;

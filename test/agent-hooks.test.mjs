@@ -54,6 +54,90 @@ test('phase activation selects the configured agent automatically and reselects 
   assert.equal(session.phaseId, 'implementation');
 });
 
+test('same-agent phase transitions still require an exact phase rebind', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-same-agent-phase-'));
+  const qaDefinition = structuredClone(definition);
+  qaDefinition.agents.qa = {
+    id: 'qa', label: 'QA', description: 'Verify and release',
+    phases: ['verification', 'release'], defaultFor: ['verification', 'release'],
+    worldModelViews: ['testing'], sha256: 'qa-sha', scope: 'repository'
+  };
+  qaDefinition.agentCatalog = Object.values(qaDefinition.agents);
+  const current = {
+    workItem: { id: 'HOOK-QA' }, currentPhase: 'verification', status: 'in_progress',
+    phases: {
+      verification: { id: 'verification', status: 'in_progress', defaultAgent: 'qa' },
+      release: { id: 'release', status: 'not_started', defaultAgent: 'qa' }
+    },
+    resolution: { session: { workItemSelection: 'off', requireBeforeTools: false } }
+  };
+  await activateWorkItemSession(root, qaDefinition, current);
+  current.currentPhase = 'release';
+  current.phases.verification.status = 'approved';
+  current.phases.release.status = 'in_progress';
+
+  const stale = await agentSessionStatus(root, qaDefinition, current);
+  assert.equal(stale.ready, false);
+  assert.equal(stale.activeAgent, null);
+  assert.equal(stale.phaseAgent.reason, 'active-session-bound-to-different-phase');
+  assert.deepEqual(stale.phaseAgent.handoff, {
+    fromPhaseId: 'verification', fromAgent: 'qa', toPhaseId: 'release', toAgent: 'qa',
+    copilotCommand: '/sf-session', command: 'singularity-flow session attach HOOK-QA --json'
+  });
+
+  await activateWorkItemSession(root, qaDefinition, current);
+  const rebound = await agentSessionStatus(root, qaDefinition, current);
+  assert.equal(rebound.ready, true);
+  assert.equal(rebound.activeAgent, 'qa');
+  assert.equal(rebound.phaseAgent.sessionPhaseId, 'release');
+});
+
+test('deterministic convergence explicitly clears and exempts the phase agent', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-deterministic-agent-'));
+  const current = workflow({ workItemSelection: 'off', requireBeforeTools: false });
+  await activateWorkItemSession(root, definition, current);
+  current.currentPhase = 'convergence';
+  current.phases.convergence = {
+    id: 'convergence', status: 'in_progress', defaultAgent: 'architect',
+    generationPolicy: { defaultProducer: 'deterministic', allowedProducers: ['deterministic'] }
+  };
+  const activation = await activateWorkItemSession(root, definition, current);
+  assert.equal(activation.selectedAgent, null);
+  assert.equal(await loadSession(root, { required: false }), null);
+  const status = await agentSessionStatus(root, definition, current);
+  assert.equal(status.ready, true);
+  assert.equal(status.activeAgent, null);
+  assert.deepEqual(status.phaseAgent, {
+    required: false, phaseId: 'convergence', expectedAgent: null,
+    sessionPhaseId: null, activeAgent: null, valid: true,
+    reason: 'deterministic-phase-does-not-require-agent', handoff: null
+  });
+});
+
+test('Copilot session-start never synthesizes a phase agent for deterministic convergence', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-deterministic-hook-'));
+  const current = workflow({ workItemSelection: 'off', requireBeforeTools: false });
+  await setAgentSession(root, definition, 'User <user@example.com>', 'architect', 'HOOK-1', {
+    phaseId: 'design'
+  });
+  current.currentPhase = 'convergence';
+  current.phases.convergence = {
+    id: 'convergence', status: 'in_progress', defaultAgent: 'architect',
+    generationPolicy: { defaultProducer: 'deterministic', allowedProducers: ['deterministic'] }
+  };
+
+  const started = await sessionStartAgentHook(root, definition, current, {
+    sessionId: 'copilot-deterministic', source: 'startup'
+  });
+  assert.match(started.additionalContext, /kernel-owned and deterministic/);
+  assert.doesNotMatch(started.additionalContext, /Governed agent architect is active/);
+  assert.equal(await loadSession(root, { required: false }), null);
+  const status = await agentSessionStatus(root, definition, current);
+  assert.equal(status.ready, true);
+  assert.equal(status.activeAgent, null);
+  assert.equal(status.phaseAgent.reason, 'deterministic-phase-does-not-require-agent');
+});
+
 test('terminal Story sessions attach without inventing a null phase agent', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-terminal-agent-'));
   const current = workflow({ workItemSelection: 'off', requireBeforeTools: false });
@@ -89,6 +173,11 @@ test('explicit agent override is local, audited, and does not grant approval aut
   assert.equal(session.phaseCompatibilityOverride.phase, 'design');
   assert.equal(session.actor, 'User <user@example.com>');
   assert.equal(session.approvalAuthority, undefined);
+  const current = workflow({ workItemSelection: 'off', requireBeforeTools: false });
+  const status = await agentSessionStatus(root, definition, current);
+  assert.equal(status.ready, true, 'a recorded same-phase explicit override remains a valid session');
+  assert.equal(status.activeAgent, 'developer');
+  assert.equal(status.phaseAgent.expectedAgent, 'architect', 'the phase default remains visible guidance');
 });
 
 test('Copilot custom-agent mapping changes instructions but preserves the governed work item', async () => {

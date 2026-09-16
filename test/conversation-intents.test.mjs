@@ -32,6 +32,11 @@ test('ordinary developer language maps to the seven closed intents', () => {
     assert.equal(Object.values(result.effects).every((value) => value === false), true);
     assert.equal(Object.hasOwn(result, 'utterance'), false, 'raw developer prose is not retained');
   }
+  assert.equal(
+    planDeveloperConversation('Generate the active phase').route.recommendedSkill,
+    '/sf-next',
+    'unbound natural-language generation must resolve the phase owner before routing'
+  );
 });
 
 test('help classifies answer shape without selecting an action', () => {

@@ -171,9 +171,13 @@ export interface InitiativeBreakdown {
 export interface NextAction {
   action: string;
   command: string;
+  executable?: 'singularity-flow';
+  argv?: string[];
   /** Optional producer assertions; the presentation boundary rejects either when it mismatches. */
   skill?: string | null;
   copilotCommand?: string | null;
+  copyable?: boolean;
+  platformCommands?: { darwin: string; linux: string; win32: string } | null;
   /** Why the engine is asking for this, shown as-is: it is already written for a human. */
   reason: string;
   modelPolicy?: 'never' | 'optional' | 'required';

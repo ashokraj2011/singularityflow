@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "26924557bc91afd4ce080b03e850717e51802126",
+  "sourceCommit": "6d21ad8112c55642231e38e4979f087a0f1359ef",
   "topicCount": 64,
-  "contentSha256": "f83f1b392bf5d57aba6a2778766a4c0f88b98aeca0c5cf266fcb30652e06aa13",
+  "contentSha256": "511af3e6fecdf5370bffb930f39ea5b7ca609c0ea279ad2a22460b9b74dd6d5a",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -176,8 +176,8 @@
     {
       "id": "fast-path-verbs",
       "title": "The five verbs",
-      "version": 2,
-      "sha256": "07ef77c29dc811f4cbaa156992a04019746a0d88f1a5dd84942464f6a29aac20",
+      "version": 3,
+      "sha256": "d3d89073dce9eab81c9e437c0e3f742d7184055ae2a3a4121e08ca81356d1fc0",
       "routingSha256": "d777f4eef9dfb5a5ed879f921ec895a467b1a417dbff84da0450549b74392720",
       "file": "fast-path-verbs.md"
     },

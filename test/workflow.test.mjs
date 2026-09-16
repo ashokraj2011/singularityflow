@@ -886,6 +886,9 @@ test('bugfix profile is immutable and rejection reopens an allowed earlier phase
   flow(root, ['resume', workId], { selection: selection('bugfix', 'qa') }); flow(root, ['phase', 'publish', 'reproduction'], { selection: selection('bugfix', 'qa') }); flow(root, ['submit'], { selection: selection('bugfix', 'qa') });
   flow(root, ['reject', '--to', 'intake', '--reason', 'Need stronger impact evidence'], { selection: selection('bugfix', 'qa') });
   workflow = JSON.parse(await readFile(workflowFile, 'utf8')); assert.equal(workflow.currentPhase, 'intake'); assert.equal(workflow.phases.intake.rejectionReason, 'Need stronger impact evidence'); assert.equal(workflow.workItem.workType, 'bugfix');
+  const rejectionSession = JSON.parse(await readFile(path.join(root, '.git/singularity-flow/session.json'), 'utf8'));
+  assert.equal(rejectionSession.phaseId, 'intake', 'rejection must rebind its earlier target phase');
+  assert.equal(rejectionSession.agent, 'product-owner', 'rejection must activate the target phase default');
   assert.deepEqual(workflow.changeRequests.map(({ id, status, sourcePhase, targetPhase, comment }) => ({ id, status, sourcePhase, targetPhase, comment })), [{
     id: 'CR-001', status: 'open', sourcePhase: 'reproduction', targetPhase: 'intake', comment: 'Need stronger impact evidence'
   }]);
@@ -924,6 +927,9 @@ test('completed work can be reopened only through an authorized governed change 
   assert.match(result.stdout, /Reopened REOPEN-1 at implementation with CR-001/);
   const reopened = JSON.parse(await readFile(workflowFile, 'utf8'));
   assert.equal(reopened.status, 'in_progress'); assert.equal(reopened.currentPhase, 'implementation');
+  const reopenedSession = JSON.parse(await readFile(path.join(root, '.git/singularity-flow/session.json'), 'utf8'));
+  assert.equal(reopenedSession.phaseId, 'implementation', 'reopen must bind its selected target phase');
+  assert.equal(reopenedSession.agent, 'developer');
   assert.equal(reopened.phases.implementation.status, 'in_progress');
   assert.equal(reopened.phases.implementation.generationPolicy.task, 'analyze',
     'reopen must preserve the pinned non-code chore contract');

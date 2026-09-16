@@ -89,6 +89,7 @@ export interface Journey {
   blockers: string[];
   nextAction: {
     command: string; reason: string; label?: string;
+    executable: 'singularity-flow'; argv: readonly string[];
     execution?: 'run' | 'prefill'; skill: string; copilotCommand: string; copyable: boolean;
   } | null;
   /** Set when there is nothing to render, with the reason. */
@@ -246,6 +247,8 @@ function storyJourneyOf(
     nextAction: presentation?.kind === 'ready-to-submit' && actionRoutes
       ? {
           command: actionRoutes.command,
+          executable: actionRoutes.executable,
+          argv: actionRoutes.argv,
           copilotCommand: actionRoutes.copilotCommand,
           copyable: actionRoutes.copyable,
           reason: presentation.statusLabel,
@@ -254,6 +257,8 @@ function storyJourneyOf(
       : presentation?.kind === 'generation-required' && actionRoutes
         ? {
             command: actionRoutes.command,
+            executable: actionRoutes.executable,
+            argv: actionRoutes.argv,
             copilotCommand: actionRoutes.copilotCommand,
             copyable: actionRoutes.copyable,
             reason: presentation.statusLabel,
@@ -389,6 +394,8 @@ function initiativeJourneyOf(initiative: InitiativeSnapshot, selectedStageId: st
     blockers,
     nextAction: nextRoutes ? {
       command: nextRoutes.command,
+      executable: nextRoutes.executable,
+      argv: nextRoutes.argv,
       skill: nextRoutes.skill,
       copilotCommand: nextRoutes.copilotCommand,
       copyable: nextRoutes.copyable,

@@ -2,6 +2,8 @@ import { assertConvergencePublicationReady } from './convergence-context.mjs';
 import {
   effectivePhasePublicationProducer, phasePublicationCommand
 } from './manual-authorship.mjs';
+import { generationSkillForPhase } from './code-delivery-policy.mjs';
+import { directCopilotSkill } from './copilot-guidance.mjs';
 import {
   artifactFindingMessage, inspectPhaseAuthoredReviewContent, phaseAuthoredReviewArtifacts
 } from './publication-preflight.mjs';
@@ -84,6 +86,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
   }
 
   const repairClass = correctionClass(producer);
+  const generationSkill = directCopilotSkill(generationSkillForPhase(phase));
   const awaitingApproval = phase.status === 'awaiting_approval';
   const clean = findings.length === 0;
   return Object.freeze({
@@ -113,7 +116,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
       requiresNewGeneration: awaitingApproval && !clean,
       maximumChangedFingerprints: 3,
       guidance: clean ? null : correctionGuidance(repairClass, phase),
-      skill: repairClass === 'agent-authoring' ? '/sf-phase' : null
+      skill: repairClass === 'agent-authoring' ? generationSkill : null
     }),
     commands: Object.freeze({
       recheck: `singularity-flow phase draft-check ${phase.id} --json`,

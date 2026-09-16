@@ -1256,6 +1256,67 @@ function storyWorkflowV5ToV6(source) {
   return migrated;
 }
 
+const LEGACY_SPLIT_VERIFICATION_HEADING = Object.freeze([
+  'Acceptance and specification results',
+  'Negative',
+  'regression',
+  'security',
+  'and non-functional checks'
+]);
+
+function sameStrings(left, right) {
+  return Array.isArray(left)
+    && left.length === right.length
+    && left.every((entry, index) => entry === right[index]);
+}
+
+function repairedSpecDrivenReleaseInputs(inputs, convergencePath) {
+  const repaired = (inputs ?? []).map((input) => {
+    if (input?.phase !== 'verification'
+        || input?.projection !== 'approved-summary'
+        || !sameStrings(input.preserve, LEGACY_SPLIT_VERIFICATION_HEADING)) return input;
+    return {
+      ...input,
+      preserve: [
+        'Acceptance and specification results',
+        'Negative, regression, security, and non-functional checks'
+      ]
+    };
+  });
+  if (!repaired.some((input) => input?.phase === 'convergence')) {
+    // Older pinned Stories did not ask convergence to produce a Release brief. Adding a summary
+    // projection here would require manufacturing a historical brief after publication. A full,
+    // approval-bound input instead consumes the exact deterministic artifact that already exists
+    // (or will exist) and leaves the stored Story bytes untouched.
+    repaired.unshift({
+      phase: 'convergence', optional: false, maxBytes: null,
+      path: convergencePath ?? 'artifacts/convergence/convergence.md'
+    });
+  }
+  return repaired;
+}
+
+function storyWorkflowV6ToV7(source) {
+  const migrated = clone(source);
+  migrated.schemaVersion = 7;
+  if ((migrated.workItem?.workType ?? migrated.resolution?.workType) !== 'spec-driven-standard') {
+    return migrated;
+  }
+  const resolvedRelease = migrated.resolution?.phases?.find((phase) => phase.id === 'release');
+  // Limit the compatibility projection to the shipped Spec-Driven Release contract. A custom
+  // profile that happens to reuse the work-type ID retains its exact pinned policy.
+  if (resolvedRelease?.template !== 'spec-driven/release.md') return migrated;
+  const convergencePath = migrated.resolution?.phases?.find((phase) => phase.id === 'convergence')
+    ?.artifact?.path ?? migrated.phases?.convergence?.requiredArtifact?.path;
+  resolvedRelease.inputs = repairedSpecDrivenReleaseInputs(resolvedRelease.inputs, convergencePath);
+  if (migrated.phases?.release) {
+    migrated.phases.release.inputs = repairedSpecDrivenReleaseInputs(
+      migrated.phases.release.inputs, convergencePath
+    );
+  }
+  return migrated;
+}
+
 function generationPublicationV1ToV2(source) {
   // v1 predates both architecture bindings. Reject records that merely relabel a v2-shaped
   // publication as v1; the migration is a compatibility reader, not a downgrade escape hatch.
@@ -2528,13 +2589,14 @@ const families = [
     ]
   }),
   family({
-    id: 'story-workflow', currentVersion: 6,
+    id: 'story-workflow', currentVersion: 7,
     steps: [
       migration(1, 2, storyWorkflowV1ToV2),
       migration(2, 3, identity(3)),
       migration(3, 4, storyWorkflowV3ToV4),
       migration(4, 5, storyWorkflowV4ToV5),
-      migration(5, 6, storyWorkflowV5ToV6)
+      migration(5, 6, storyWorkflowV5ToV6),
+      migration(6, 7, storyWorkflowV6ToV7)
     ],
     paths: [/^(?:singularity|\.sdlc)\/work-items\/[^/]+\/workflow\.json$/], unversionedAs: 1
   }),

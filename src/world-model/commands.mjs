@@ -89,6 +89,9 @@ export function scopedWorldModelV4Command(config, command) {
 
 export function configuredWorldModelV4ViewSelections(config, options = {}, phase = null) {
   const explicit = optionString(options, 'views') ?? optionString(options, 'view');
+  const requestedFormat = optionString(options, 'format');
+  const compatibilityOverride = ['v4', 'wmb-v4', 'registered-v4'].includes(requestedFormat)
+    && config.definition?.worldModel?.format !== 'registered-v4';
   const activeContracts = BUILTIN_VIEW_REGISTRY.contracts.filter(
     (contract) => contract.validity.status === 'active'
   );
@@ -132,25 +135,41 @@ export function configuredWorldModelV4ViewSelections(config, options = {}, phase
     if (failures.length) {
       const code = failures.length === 1 && failures[0].error?.code === 'WMB_VIEW_VERSION_UNSUPPORTED'
         ? 'WMB_VIEW_VERSION_UNSUPPORTED' : 'WMB_VIEW_UNKNOWN';
+      const failedViews = failures.map(({ entry }) => entry);
+      const registeredViews = all.map((entry) => `${entry.viewId}@${entry.version}`);
+      const recovery = label === 'CLI selection'
+        ? "Run 'singularity-flow wm views', then pass --views <registered-id,...> or --views all."
+        : label === 'configuration'
+          ? "Run 'singularity-flow wm views', replace worldModel.views with registered contract IDs, or remove worldModel.views to select every active contract."
+          : "Run 'singularity-flow wm views', then update the approved phase and agent view assignments to registered contract IDs.";
       throw new SingularityFlowError(
-        `Unknown, inactive, or version-mismatched configured WMB v4 view(s): ${failures.map(({ entry }) => entry).join(', ')}.`,
+        `Unknown, inactive, or version-mismatched WMB v4 ${label} view(s): ${failedViews.join(', ')}. ${recovery}`,
         {
           code,
           details: {
-            views: failures.map(({ entry }) => entry),
-            registeredViews: all.map((entry) => `${entry.viewId}@${entry.version}`)
+            source: label,
+            views: failedViews,
+            registeredViews,
+            command: 'singularity-flow wm views',
+            retry: 'singularity-flow wm build --format registered-v4 --views all'
           }
         }
       );
     }
     return [...new Map(selected.map((entry) => [entry.viewId, entry])).values()];
   };
-  const configuredRaw = config.definition?.worldModel?.views ?? [];
+  // A one-command v4 override in a legacy-v3 repository selects the v4 runtime, not a migration
+  // of the approved legacy catalog. Names such as `business` and `architecture` are legacy
+  // projection IDs and must never be guessed into unrelated registered contracts. An explicit
+  // CLI view selection is validated below; otherwise the override uses every active installed
+  // contract. Once the repository itself declares registered-v4, configuration and phase/agent
+  // references remain strict and fail closed.
+  const configuredRaw = compatibilityOverride ? [] : config.definition?.worldModel?.views ?? [];
   const configured = normalize(configuredRaw, 'configuration');
   const configuredById = new Map(configured.map((entry) => [entry.viewId, entry]));
   if (explicit) return normalize(String(explicit).split(','), 'CLI selection', configuredById)
     .sort((left, right) => compareText(left.viewId, right.viewId));
-  const phaseRaw = phase && config.phases?.[phase]?.declaredViews?.length
+  const phaseRaw = !compatibilityOverride && phase && config.phases?.[phase]?.declaredViews?.length
     ? config.phases[phase].declaredViews : [];
   const phaseViews = normalize(phaseRaw, `phase '${phase}'`, configuredById);
   let values = phaseViews.length ? phaseViews : configured;

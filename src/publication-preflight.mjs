@@ -5,6 +5,7 @@ import path from 'node:path';
 
 import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
 import { memberRoot, resolvedArtifactSet } from './artifact-sets.mjs';
+import { normalizeMarkdownHeading, parseMarkdownStructure } from './markdown-structure.mjs';
 
 const PLACEHOLDER = /\b(?:TODO|TBD|FIXME|TBC)\b|\{\{[^}]+\}\}|\[\s*(?:describe|add|insert|provide|record)[^\]]*\]/gi;
 // These words are useful in ordinary prose when lower-cased. Treat only the conventional uppercase
@@ -182,17 +183,18 @@ function anglePlaceholderFindings(text) {
  * Managed approved inputs and kernel metadata preserve their line count but cannot make the
  * consumer fail publication: those bytes were governed by their producer and are evidence here.
  */
-export function artifactPlaceholderFindings(text) {
+export function artifactPlaceholderFindings(text, { structure = null } = {}) {
   const authored = authoredArtifactText(text, { preserveLines: true });
-  const regular = [...authored.matchAll(PLACEHOLDER)].map((match) => ({
+  const visible = (structure ?? parseMarkdownStructure(authored)).visibleText;
+  const regular = [...visible.matchAll(PLACEHOLDER)].map((match) => ({
     value: match[0], index: match.index
   }));
-  const explicitUppercase = [...authored.matchAll(EXPLICIT_UPPERCASE_PLACEHOLDER)]
+  const explicitUppercase = [...visible.matchAll(EXPLICIT_UPPERCASE_PLACEHOLDER)]
     .map((match) => ({ value: match[0], index: match.index }))
     .filter((finding) => !regular.some((candidate) => finding.index >= candidate.index
       && finding.index + finding.value.length <= candidate.index + candidate.value.length));
   const seen = new Set();
-  return [...regular, ...explicitUppercase, ...anglePlaceholderFindings(authored)]
+  return [...regular, ...explicitUppercase, ...anglePlaceholderFindings(visible)]
     .sort((left, right) => left.index - right.index)
     .filter((finding) => {
       const key = `${finding.index}:${finding.value}`;
@@ -200,26 +202,15 @@ export function artifactPlaceholderFindings(text) {
       seen.add(key);
       return true;
     })
-    .map((finding) => ({ value: finding.value, line: lineAt(authored, finding.index) }));
+    .map((finding) => ({ value: finding.value, line: lineAt(visible, finding.index) }));
 }
 
-function markdownHeadings(text) {
-  return [...String(text).matchAll(/^(#{1,6})\s+(.+?)\s*#*\s*$/gm)].map((match) => ({
-    level: match[1].length,
-    name: match[2].trim(),
-    normalized: match[2].trim().toLocaleLowerCase('en-US'),
-    line: lineAt(text, match.index),
-    start: match.index,
-    bodyStart: match.index + match[0].length
-  }));
-}
-
-function requiredHeadingFindings(text, required, pathName) {
+function requiredHeadingFindings(structure, required, pathName) {
   if (!required?.length) return [];
-  const headings = markdownHeadings(text);
+  const { headings, visibleText } = structure;
   const findings = [];
   for (const requested of required) {
-    const normalized = String(requested).trim().toLocaleLowerCase('en-US');
+    const normalized = normalizeMarkdownHeading(requested);
     const index = headings.findIndex((heading) => heading.normalized === normalized);
     if (index < 0) {
       findings.push({
@@ -229,10 +220,7 @@ function requiredHeadingFindings(text, required, pathName) {
       continue;
     }
     const heading = headings[index];
-    const next = headings.slice(index + 1).find((candidate) => candidate.level <= heading.level);
-    const body = text.slice(heading.bodyStart, next?.start ?? text.length)
-      .replace(/<!--[\s\S]*?-->/g, '')
-      .trim();
+    const body = visibleText.slice(heading.contentStart, heading.end).trim();
     if (!body) findings.push({
       code: 'artifact.heading.empty', category: 'authoring', path: pathName, line: heading.line,
       value: String(requested), bytes: null, minimumBytes: null
@@ -243,6 +231,7 @@ function requiredHeadingFindings(text, required, pathName) {
 
 const FINDING_PRIORITY = Object.freeze({
   'artifact.metadata.invalid': 0,
+  'artifact.comment.unclosed': 5,
   'artifact.placeholder.unresolved': 10,
   'artifact.template.unchanged': 20,
   'artifact.heading.missing': 30,
@@ -256,21 +245,27 @@ export function inspectArtifactContent(text, {
   path: pathName = 'artifact', contract = {}, baseline = null
 } = {}) {
   const authored = authoredArtifactText(text);
+  const inspectionText = authoredArtifactText(text, { preserveLines: true });
+  const structure = parseMarkdownStructure(inspectionText);
   const bytes = Buffer.byteLength(authored);
   const fingerprint = authoredArtifactFingerprint(authored);
   const findings = [];
 
-  for (const placeholder of artifactPlaceholderFindings(text)) findings.push({
+  for (const comment of structure.unclosedComments) findings.push({
+    code: 'artifact.comment.unclosed', category: 'authoring', path: pathName,
+    line: comment.line, value: '<!--', bytes, minimumBytes: null, fingerprint
+  });
+  for (const placeholder of artifactPlaceholderFindings(text, { structure })) findings.push({
     code: 'artifact.placeholder.unresolved', category: 'authoring', path: pathName,
     line: placeholder.line, value: placeholder.value, bytes, minimumBytes: null, fingerprint
   });
   for (const forbidden of contract.validation?.forbiddenPlaceholders ?? []) {
     const escaped = String(forbidden).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const match = new RegExp(escaped, 'i').exec(authored);
+    const match = new RegExp(escaped, 'i').exec(structure.visibleText);
     if (match && !findings.some((finding) => finding.value.toLocaleLowerCase('en-US') === String(forbidden).toLocaleLowerCase('en-US'))) {
       findings.push({
         code: 'artifact.placeholder.unresolved', category: 'authoring', path: pathName,
-        line: lineAt(authored, match.index), value: String(forbidden), bytes,
+        line: lineAt(structure.visibleText, match.index), value: String(forbidden), bytes,
         minimumBytes: null, fingerprint
       });
     }
@@ -280,7 +275,7 @@ export function inspectArtifactContent(text, {
     code: 'artifact.template.unchanged', category: 'authoring', path: pathName, line: null,
     value: null, bytes, minimumBytes: null, fingerprint
   });
-  findings.push(...requiredHeadingFindings(authored, contract.validation?.requiredHeadings, pathName)
+  findings.push(...requiredHeadingFindings(structure, contract.validation?.requiredHeadings, pathName)
     .map((finding) => ({ ...finding, bytes, fingerprint })));
   const minimum = contract.minimumBytes ?? 1;
   const maximum = contract.maximumBytes ?? Number.MAX_SAFE_INTEGER;
@@ -490,7 +485,13 @@ export async function inspectPhaseAuthoredReviewContent(root, config, workflow, 
     if (text == null) continue;
     const bytes = Buffer.byteLength(authoredArtifactText(text));
     const fingerprint = authoredArtifactFingerprint(text);
-    for (const placeholder of artifactPlaceholderFindings(text)) findings.push({
+    const structure = parseMarkdownStructure(authoredArtifactText(text, { preserveLines: true }));
+    for (const comment of structure.unclosedComments) findings.push({
+      code: 'artifact.comment.unclosed', category: 'authoring', path: relative,
+      line: comment.line, value: '<!--', bytes, minimumBytes: null, fingerprint,
+      artifactScope: 'supporting'
+    });
+    for (const placeholder of artifactPlaceholderFindings(text, { structure })) findings.push({
       code: 'artifact.placeholder.unresolved', category: 'authoring', path: relative,
       line: placeholder.line, value: placeholder.value, bytes, minimumBytes: null, fingerprint,
       artifactScope: 'supporting'
@@ -516,6 +517,9 @@ export function artifactFindingMessage(finding) {
   }
   if (finding.code === 'artifact.placeholder.unresolved') {
     return `${label} ${finding.path} contains unresolved placeholder '${finding.value}' at line ${finding.line}.`;
+  }
+  if (finding.code === 'artifact.comment.unclosed') {
+    return `${label} ${finding.path} contains an unclosed HTML comment opened at line ${finding.line}.`;
   }
   if (finding.code === 'artifact.template.unchanged') {
     return `Required artifact ${finding.path} still matches its prepared template.`;

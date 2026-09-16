@@ -225,6 +225,91 @@ test('registered-v4 view configuration fails closed instead of broadening an unk
   }, { views: 'dev.impact@4' }), ['dev.impact']);
 });
 
+test('one-command registered-v4 override does not reinterpret legacy-v3 view IDs', () => {
+  const compatibility = {
+    definition: {
+      worldModel: {
+        views: [
+          'business', 'architecture', 'development', 'testing', 'release', 'operations', 'security'
+        ]
+      }
+    },
+    phases: {
+      intake: {
+        declaredViews: ['business', 'architecture'],
+        agentViews: ['development']
+      }
+    }
+  };
+  assert.deepEqual(configuredWorldModelV4ViewSelections(
+    compatibility, { format: 'registered-v4' }, 'intake'
+  ).map((entry) => entry.reference), [
+    'arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4'
+  ]);
+  assert.deepEqual(configuredWorldModelV4ViewSelections(
+    compatibility, { format: 'registered-v4', views: 'dev.impact@4' }, 'intake'
+  ).map((entry) => entry.reference), ['dev.impact@4']);
+  assert.throws(
+    () => configuredWorldModelV4ViewSelections(
+      compatibility, { format: 'registered-v4', views: 'business' }, 'intake'
+    ),
+    (error) => error.code === 'WMB_VIEW_UNKNOWN'
+      && error.details?.source === 'CLI selection'
+      && error.details?.command === 'singularity-flow wm views'
+      && /--views all/.test(error.message)
+  );
+});
+
+test('wm build --format registered-v4 works against the packaged legacy-v3 catalog', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-wmb-v4-override-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, ['init', '-q', '-b', 'main']);
+  git(root, ['config', 'user.name', 'WMB Test']);
+  git(root, ['config', 'user.email', 'wmb@example.invalid']);
+  await writeFile(path.join(root, 'application.mjs'), 'export const ready = true;\n');
+  await initializeDefinition(root);
+  git(root, ['add', '.']);
+  git(root, ['commit', '-q', '-m', 'initialize legacy world-model fixture']);
+
+  const definition = YAML.parse(await readFile(
+    path.join(root, 'singularity', 'workflow.yml'), 'utf8'
+  ));
+  assert.notEqual(definition.worldModel.format, 'registered-v4');
+  assert.ok(definition.worldModel.views.includes('business'));
+
+  const planned = await quiet(() => worldModelCommand(root, ['wm', 'plan'], {
+    format: 'registered-v4', json: true
+  }));
+  assert.deepEqual(planned.plan.views.map((entry) => `${entry.viewId}@${entry.viewVersion}`), [
+    'arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4'
+  ]);
+  const built = await quiet(() => worldModelCommand(root, ['wm', 'build'], {
+    format: 'registered-v4', json: true
+  }));
+  assert.equal(built.status, 'completed');
+  assert.deepEqual(built.views.map((entry) => entry.viewId).sort(), [
+    'arch.contracts', 'biz.rules', 'dev.hotspots', 'dev.impact'
+  ]);
+  assert.ok(built.publication?.commit);
+});
+
+test('approved registered-v4 configuration remains strict and gives a repair route', () => {
+  const configured = {
+    definition: {
+      worldModel: { format: 'registered-v4', views: ['business', 'dev.impact'] }
+    },
+    phases: {}
+  };
+  assert.throws(
+    () => configuredWorldModelV4ViewSelections(configured, { format: 'registered-v4' }),
+    (error) => error.code === 'WMB_VIEW_UNKNOWN'
+      && error.details?.source === 'configuration'
+      && error.details?.views.includes('business')
+      && error.details?.registeredViews.includes('dev.impact@4')
+      && /remove worldModel\.views/.test(error.message)
+  );
+});
+
 test('version-qualified configured views resolve the exact published manifest entry', () => {
   const config = { definition: { worldModel: { views: ['dev.impact'] } }, phases: {}, staleness: 'warn' };
   const resolved = resolveWorldModelV4Grounding('/unused', config, {

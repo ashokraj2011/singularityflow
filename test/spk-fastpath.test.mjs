@@ -32,7 +32,7 @@ const DEFINITION = {
         plan: { milestone: 'planning-approved' },
         implement: { milestone: 'implementation-published' },
         converge: { milestone: 'convergence-advanced' },
-        verify: { milestone: 'verification-approved' }
+        verify: { milestone: 'release-approved', phases: ['verification', 'release'] }
       }
     },
     // A work type that says nothing about the fast path must not silently acquire it.
@@ -73,7 +73,7 @@ test('a verb proposes exactly what the advanced planner proposes', () => {
   // drifted — a verb that answered from its own rules would show up here as a different command.
   for (const [phase, verb] of [
     ['specification', 'specify'], ['planning', 'plan'], ['implementation', 'implement'],
-    ['convergence', 'converge'], ['verification', 'verify']
+    ['convergence', 'converge'], ['verification', 'verify'], ['release', 'verify']
   ]) {
     for (const status of ['in_progress', 'awaiting_approval']) {
       const workflow = story(phase, { [phase]: status });
@@ -165,6 +165,21 @@ test('reaching a milestone hands over to the next verb', () => {
   assert.equal(nextVerb(profile, 'implement'), 'converge', 'implement must not skip convergence');
   assert.equal(nextVerb(profile, 'converge'), 'verify');
   assert.equal(nextVerb(profile, 'verify'), null, 'the last verb must not invent a successor');
+});
+
+test('verify owns release and cannot report terminal completion before release is approved', () => {
+  const profile = fastPathProfile(DEFINITION, 'spec-driven-standard');
+  const awaitingRelease = story('release', { verification: 'approved', release: 'in_progress' });
+  assert.equal(verbForPhase(awaitingRelease, profile, 'release'), 'verify');
+  assert.equal(milestoneReached(awaitingRelease, profile, 'verify'), false);
+  assert.equal(planFastPath(awaitingRelease, DEFINITION, 'verify').outcome, 'checkpoint');
+
+  const completed = story(null, { verification: 'approved', release: 'approved' });
+  completed.currentPhase = null;
+  assert.equal(milestoneReached(completed, profile, 'verify'), true);
+  const plan = planFastPath(completed, DEFINITION, 'verify');
+  assert.equal(plan.outcome, 'milestone-reached');
+  assert.equal(plan.restState, 'complete');
 });
 
 test('a pending publication outranks everything, including an apparent milestone', () => {

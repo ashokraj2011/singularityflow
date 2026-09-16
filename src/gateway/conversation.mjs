@@ -127,7 +127,10 @@ const ROUTES = Object.freeze([
   }),
   route({
     id: 'act-generate', intent: 'act', label: 'Generate the active phase',
-    operationId: 'work.continue', skill: '/sf-phase', automatic: false, confirmation: 'host-confirm',
+    // Intent classification has no signed phase contract. Route through the deterministic current
+    // action selector instead of guessing `/sf-phase`; code and convergence phases have different
+    // authoring owners and must remain task-aware.
+    operationId: 'work.continue', skill: '/sf-next', automatic: false, confirmation: 'host-confirm',
     patterns: [/\b(generate|author|write|implement|verify)\b(?:.{0,28}\b(phase|requirements?|design|spec|artifact|work|change)\b)?/]
   }),
   route({

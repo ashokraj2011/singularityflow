@@ -328,6 +328,54 @@ test('agent brief planning reports authored ambiguous headings before writing pr
     'read-only brief planning wrote a derived projection');
 });
 
+test('agent brief planning rejects an unclosed artifact comment before any projection write', async () => {
+  const declaration = {
+    phase: 'requirements', optional: false, maxBytes: null, projection: 'approved-summary',
+    preserve: [], maximumSummaryBytes: 4096,
+    expansion: 'hash-bound-reference', fallback: 'block'
+  };
+  const value = await fixture('enforce', declaration);
+  await writeFile(value.producerPath, [
+    '# Requirements', '',
+    '## Agent brief', '',
+    'Use the approved contract and its focused tests.', '',
+    '<!-- guidance accidentally left open',
+    'This content must not disappear into a projection.'
+  ].join('\n'));
+
+  await assert.rejects(
+    () => createAgentBriefs(value.root, value.workflow, value.workflow.phases.requirements, value),
+    (error) => error.code === 'ARTIFACT_COMMENT_UNCLOSED'
+      && error.details.line === 7
+      && error.details.lines[0] === 7
+  );
+  assert.equal(await exists(path.join(value.itemDirectory, 'context', 'briefs')), false,
+    'brief generation partially wrote a projection before structural validation completed');
+});
+
+test('agent brief parsing treats comment-looking text inside inline and fenced code as content', async () => {
+  const declaration = {
+    phase: 'requirements', optional: false, maxBytes: null, projection: 'approved-summary',
+    preserve: ['Test strategy'], maximumSummaryBytes: 4096,
+    expansion: 'hash-bound-reference', fallback: 'block'
+  };
+  const value = await fixture('enforce', declaration);
+  const [brief] = await publishBrief(value, [
+    '# Requirements', '',
+    '## Agent brief', '',
+    'Keep the literal `<!-- inline example -->` in the reviewed guidance.', '',
+    '```markdown', '<!-- fenced example -->', '## not-a-real-section', '```', '',
+    '## Test strategy', '',
+    'Run the focused module tests.'
+  ].join('\n'));
+
+  assert.equal(brief.status, 'ready');
+  const rendered = await readFile(path.join(value.root, brief.renderedPath), 'utf8');
+  assert.match(rendered, /<!-- inline example -->/u);
+  assert.match(rendered, /<!-- fenced example -->/u);
+  assert.match(rendered, /Run the focused module tests/u);
+});
+
 test('brief tampering fails closed and whole-artifact fallback does not require summary-only preserved sections', async () => {
   const declaration = {
     phase: 'requirements', optional: false, maxBytes: null, projection: 'approved-summary',

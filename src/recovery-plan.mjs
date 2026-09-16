@@ -13,6 +13,12 @@ import { applicationChangeSetProjection, applicationPathContext } from './work-i
 import { publishedGenerationCommit } from './generation-boundary.mjs';
 import { phasePublicationCommand } from './manual-authorship.mjs';
 import { assertConvergencePublicationReady } from './convergence-context.mjs';
+import { generationSkillForPhase } from './code-delivery-policy.mjs';
+import { directCopilotSkill } from './copilot-guidance.mjs';
+
+function generationSkill(phase) {
+  return directCopilotSkill(generationSkillForPhase(phase));
+}
 
 function action({ id, mode = 'guided', detail, command = null, skill = null, evidence = null, retry = null }) {
   return {
@@ -30,7 +36,7 @@ function artifactActions(workflow, phase, findings) {
     id: `prepare-artifact:${phase.id}`,
     detail: `Create the required ${phase.id} artifact at ${first.path}.`,
     command: `singularity-flow prepare ${phase.id}`,
-    skill: '/sf-phase', evidence: { path: first.path, line: null }
+    skill: generationSkill(phase), evidence: { path: first.path, line: null }
   })];
   return [action({
     id: `complete-artifact:${phase.id}`,
@@ -38,7 +44,7 @@ function artifactActions(workflow, phase, findings) {
       ? `Complete all ${findings.length} authoring blocker(s), starting at ${first.path}:${first.line}. A Copilot host must re-author from the governed prompt before retrying.`
       : `Complete all ${findings.length} authoring blocker(s) at ${first.path}. A Copilot host must re-author from the governed prompt before retrying.`,
     command: `singularity-flow phase show ${phase.id} --show-artifact`,
-    skill: '/sf-phase', evidence: { path: first.path, line: first.line },
+    skill: generationSkill(phase), evidence: { path: first.path, line: first.line },
     retry: {
       maximumAttempts: 1,
       requiresFingerprintChange: true,
@@ -202,7 +208,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, { gene
         id: `repair-agent-brief-source:${phase.id}`,
         detail: `${error.message} Edit only the authored source; approved managed inputs and existing published briefs remain preserved.`,
         command: `singularity-flow phase show ${phase.id} --show-artifact`,
-        skill: '/sf-phase',
+        skill: generationSkill(phase),
         evidence: {
           path: `${itemRelative}/${phase.requiredArtifact.path}`,
           line: error.details?.lines?.[0] ?? null

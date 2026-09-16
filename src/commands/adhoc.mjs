@@ -11,6 +11,12 @@ import {
 } from '../adhoc/session.mjs';
 import { observeAdhocEffects } from '../adhoc/effect-set.mjs';
 import { readSessionRecord, resolveSessionId } from '../adhoc/session-store.mjs';
+import { actionCommandLines } from '../copilot-guidance.mjs';
+
+function adhocActionLines(command, label = 'Continue') {
+  if (typeof command !== 'string' || !command.trim()) return [];
+  return actionCommandLines({ command, skill: '/sf-adhoc' }, label);
+}
 
 function emit(value, json) {
   if (json) console.log(JSON.stringify(value, null, 2));
@@ -27,11 +33,15 @@ function render(value) {
     ];
     if (value.packet) {
       lines.push(`Packet: ${value.packet.packetSha256}`);
-      lines.push('', 'Publish this exact packet:');
-      lines.push(`singularity-flow adhoc publish ${value.sessionId} --confirm ${value.packet.packetSha256}`);
+      lines.push('', ...adhocActionLines(
+        `singularity-flow adhoc publish ${value.sessionId} --confirm ${value.packet.packetSha256}`,
+        'Publish this exact packet'
+      ));
     } else if (value.eligibility?.promotionReasons?.length) {
       lines.push(`Promotion required: ${value.eligibility.promotionReasons.join('; ')}`);
-      lines.push(`singularity-flow adhoc promote ${value.sessionId}`);
+      lines.push(...adhocActionLines(
+        `singularity-flow adhoc promote ${value.sessionId}`, 'Prepare the governed handoff'
+      ));
     }
     return lines.join('\n');
   }
@@ -46,7 +56,7 @@ function render(value) {
         ? [`Protected path contact: ${value.policy.protectedPaths.map((entry) => entry.path).join(', ')}`]
         : []),
       '', 'Candidate intent is advisory. Confirm or edit it:',
-      value.nextActions[0]
+      ...adhocActionLines(value.nextActions[0])
     ].join('\n');
   }
   if (value?.session && value?.baseline) {
@@ -84,7 +94,10 @@ function render(value) {
       `Objective: ${value.intent.objective}`,
       `Intent: ${value.intent.intentSha256}`,
       `${value.dispositions.summary.unresolved} resource(s) need a disposition.`,
-      `singularity-flow adhoc claim --all --clause ${value.intent.successCriteria[0].id}`
+      ...adhocActionLines(
+        `singularity-flow adhoc claim --all --clause ${value.intent.successCriteria[0].id}`,
+        'Claim the observed resources'
+      )
     ].join('\n');
   }
   if (value?.kind === 'adhoc-change-disposition-map') {
@@ -97,7 +110,11 @@ function render(value) {
     ].join('\n');
   }
   if (value?.kind === 'adhoc-promotion-checkpoint') {
-    return `Promotion checkpoint ${value.checkpointSha256}\nWork preserved on ${value.preservedBranch}.\nNext: ${value.nextAction}`;
+    return [
+      `Promotion checkpoint ${value.checkpointSha256}`,
+      `Work preserved on ${value.preservedBranch}.`,
+      ...adhocActionLines(value.nextAction)
+    ].join('\n');
   }
   return JSON.stringify(value, null, 2);
 }

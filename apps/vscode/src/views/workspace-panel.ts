@@ -22,6 +22,7 @@ import {
 import { SingularityFlowClient, type CliLocation } from '../cli/client.ts';
 import { formatCliArgsForDisplay } from '../cli/runner.ts';
 import type { StartWizardProgress } from './start-wizard.ts';
+import { commandGuidanceText } from './command-guidance.ts';
 
 export interface WorkspaceCreated {
   directory: string;
@@ -62,7 +63,7 @@ interface BootstrapSession {
   };
   result?: { workspace?: { path?: string; leadRepository?: string } } | null;
   fault?: { message?: string } | null;
-  nextAction?: { command?: string; skill?: string } | null;
+  nextAction?: { command?: string; skill?: string; copilotCommand?: string } | null;
 }
 
 export class WorkspacePanel {
@@ -362,11 +363,13 @@ export class WorkspacePanel {
       if (!prepared.preflight?.ready) {
         const details = (prepared.preflight?.findings ?? [])
           .filter((finding) => finding.severity === 'blocker')
-          .map((finding) => `${finding.message}${finding.action ? ` ${finding.action}` : ''}`)
+          .map((finding) => `${finding.message}${finding.action
+            ? `\n${commandGuidanceText(finding.action) ?? ''}` : ''}`.trim())
           .join(' ');
+        const next = commandGuidanceText(prepared.nextAction);
         this.update({
           busy: false,
-          error: `${details || 'Workspace preflight did not pass.'} Setup ${prepared.bootstrapId} was saved and can be resumed. ${prepared.nextAction?.command ?? ''}`.trim()
+          error: `${details || 'Workspace preflight did not pass.'} Setup ${prepared.bootstrapId} was saved and can be resumed.${next ? `\n${next}` : ''}`.trim()
         });
         return;
       }
@@ -383,9 +386,10 @@ export class WorkspacePanel {
         'Create workspace'
       );
       if (confirmed !== 'Create workspace') {
+        const next = commandGuidanceText(prepared.nextAction);
         this.update({
           busy: false,
-          error: `Setup ${prepared.bootstrapId} is saved. Resume it later with ${prepared.nextAction?.command ?? `/sf-workspace-bootstrap ${prepared.bootstrapId}`}.`
+          error: `Setup ${prepared.bootstrapId} is saved.${next ? ` Resume it later with:\n${next}` : ' Open workspace setup to resume it later.'}`
         });
         return;
       }
@@ -404,8 +408,9 @@ export class WorkspacePanel {
 
       const directory = result.result?.workspace?.path;
       if (!directory) {
+        const next = commandGuidanceText(result.nextAction);
         throw new Error(
-          `${result.fault?.message ?? 'The workspace was not materialized.'} Setup ${result.bootstrapId} remains resumable. ${result.nextAction?.command ?? ''}`.trim()
+          `${result.fault?.message ?? 'The workspace was not materialized.'} Setup ${result.bootstrapId} remains resumable.${next ? `\n${next}` : ''}`.trim()
         );
       }
 

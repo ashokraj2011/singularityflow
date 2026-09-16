@@ -201,6 +201,7 @@ skills:
   sflow-review: { class: review }
   sflow-run: { class: mutation, kernelModelPolicy: conditional }
   sflow-secrets: { class: mutation, executionBoundary: repository }
+  sflow-sgos: { class: interactive, executionBoundary: repository }
   sflow-sgos-create: { class: interactive, executionBoundary: repository }
   sflow-session: { class: interactive, executionBoundary: repository }
   sflow-show: { class: echo }

@@ -8,6 +8,7 @@ import test from 'node:test';
 import {
   REINITIALIZATION_SCHEMA_POLICY, reinitializeWorkspaces
 } from '../src/workspace-reinitialize.mjs';
+import { safeCommandGuidance } from '../src/safe-command-guidance.mjs';
 
 async function fixture(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-reinitialize-'));
@@ -138,6 +139,10 @@ test('workspace reinitialize is plan-first with structured shell-safe recovery',
       } else {
         assert.match(error.details.nextAction.command, /'team'"'"'s demo'/);
       }
+      const guidance = safeCommandGuidance(error.details.nextAction);
+      assert.ok(guidance, 'workspace reinitialize recovery must be presentable');
+      assert.equal(guidance.skill, '/sf-admin');
+      assert.equal(guidance.copilotCommand, '/sf-admin');
       return true;
     }
   );

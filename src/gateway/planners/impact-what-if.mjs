@@ -51,7 +51,7 @@ export async function impactWhatIf({ operation = null, arguments: args = {}, sub
       executable: false,
       fallback: {
         label: 'Start in the terminal',
-        command: `sflow impact start ${plan.planId} --work-id WORK-ID --work-type TYPE --confirm ${plan.planId}`
+        command: `sflow impact start ${plan.planId} --work-id <WORK-ID> --work-type <TYPE> --confirm ${plan.planId}`
       }
     }],
     restState: null,

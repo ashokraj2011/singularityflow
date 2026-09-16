@@ -7,70 +7,12 @@
  * guidance still wins; this module fills only the gap and never executes an action.
  */
 
-import { commandDefinition } from './command-registry.mjs';
 import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
+import {
+  safeCommandGuidance, validateSafeSflowCommand
+} from './safe-command-guidance.mjs';
 
-const SAFE_COMMAND = /^(?:singularity-flow|sflow)(?:\s|$)/;
-const SECRET_SHAPE = /(?:--(?:token|secret|password|credential|authorization|cookie|api[-_]?key|private[-_]?key|selection[-_]?receipt)\b|:\/\/[^\s/@:]+:[^\s/@]+@)/i;
-
-function tokenizeCommand(command) {
-  const tokens = [];
-  let current = '';
-  let quote = null;
-  let escaped = false;
-  for (const character of command) {
-    if (escaped) { current += character; escaped = false; continue; }
-    if (character === '\\' && quote !== "'") { escaped = true; continue; }
-    if (quote) {
-      if (character === quote) quote = null;
-      else current += character;
-      continue;
-    }
-    if (character === '"' || character === "'") { quote = character; continue; }
-    if (/\s/.test(character)) {
-      if (current) { tokens.push(current); current = ''; }
-      continue;
-    }
-    // Angle-bracket placeholders are documentation syntax and make the step non-copyable below.
-    // Shell operators remain forbidden even inside a producer-supplied recovery string.
-    if (';&|`$'.includes(character)) return null;
-    current += character;
-  }
-  if (escaped || quote) return null;
-  if (current) tokens.push(current);
-  return tokens;
-}
-
-function quoteToken(value, platform) {
-  return platform === 'win32'
-    ? `'${value.replaceAll("'", "''")}'`
-    : `'${value.replaceAll("'", `'"'"'`)}'`;
-}
-
-function safeCommand(value) {
-  const command = typeof value === 'string' ? value.trim() : '';
-  if (!command || command.length > 2_000 || /[\r\n\u0000-\u001f\u007f]/.test(command)
-      || !SAFE_COMMAND.test(command) || SECRET_SHAPE.test(command)) return null;
-  const tokens = tokenizeCommand(command);
-  if (!tokens?.length || !['singularity-flow', 'sflow'].includes(tokens[0])) return null;
-  const executable = tokens[0] === 'sflow' ? ['singularity-flow', ...tokens.slice(1)] : tokens;
-  const top = executable[1];
-  if (!top || (top.startsWith('-') && !['--help', '--version'].includes(top))) return null;
-  if (!top.startsWith('-')) {
-    try { commandDefinition(top); } catch { return null; }
-  }
-  const copyable = !executable.some((token) => /<[^>]+>/.test(token));
-  return Object.freeze({
-    command: executable.join(' '),
-    argv: Object.freeze(executable.slice(1)),
-    copyable,
-    platformCommands: copyable ? Object.freeze({
-      darwin: executable.map((token) => quoteToken(token, 'darwin')).join(' '),
-      linux: executable.map((token) => quoteToken(token, 'linux')).join(' '),
-      win32: `& ${executable.map((token) => quoteToken(token, 'win32')).join(' ')}`
-    }) : null
-  });
-}
+const safeCommand = validateSafeSflowCommand;
 
 function explicitCommands(error) {
   const details = error?.details ?? {};
@@ -84,13 +26,15 @@ function explicitCommands(error) {
 }
 
 function step(id, label, command = null, kind = 'diagnostic') {
-  const safe = command == null ? null : safeCommand(command);
-  if (command != null && !safe) return null;
+  const guidance = command == null ? null : safeCommandGuidance(command);
+  if (command != null && !guidance) return null;
   return Object.freeze({
-    id, label, command: safe?.command ?? null,
-    argv: safe?.argv ?? null,
-    copyable: safe?.copyable ?? false,
-    platformCommands: safe?.platformCommands ?? null,
+    id, label, command: guidance?.command ?? null,
+    skill: guidance?.skill ?? null,
+    copilotCommand: guidance?.copilotCommand ?? null,
+    argv: guidance?.argv ?? null,
+    copyable: guidance?.copyable ?? false,
+    platformCommands: guidance?.platformCommands ?? null,
     kind, execution: 'user-reviewed'
   });
 }
@@ -359,6 +303,7 @@ export function refusalRemediationPlan(error, argv = []) {
 
 export function refusalEnvelope(error, argv = []) {
   const diagnosticAction = error?.details?.diagnosticAction;
+  const diagnostic = diagnosticAction?.command ? safeCommandGuidance(diagnosticAction) : null;
   const remoteFailure = error?.details?.remoteFailure;
   return {
     schemaVersion: 1, // schema-transient: process-boundary result, never persisted
@@ -367,9 +312,10 @@ export function refusalEnvelope(error, argv = []) {
     error: {
       code: error?.code ?? 'SINGULARITY_FLOW_ERROR',
       message: redactDiagnosticText(error?.message ?? String(error)),
-      ...(diagnosticAction?.command ? { diagnosticAction: {
-        command: diagnosticAction.command,
-        skill: diagnosticAction.skill ?? null
+      ...(diagnostic ? { diagnosticAction: {
+        command: diagnostic.command,
+        skill: diagnostic.skill,
+        copilotCommand: diagnostic.copilotCommand
       } } : {}),
       ...(remoteFailure ? { remoteFailure } : {})
     },
@@ -380,7 +326,11 @@ export function refusalEnvelope(error, argv = []) {
 export function renderRefusalPlan(plan) {
   const lines = ['Recovery plan:'];
   for (const [index, entry] of plan.steps.entries()) {
-    lines.push(`  ${index + 1}. ${entry.label}${entry.command ? ` — ${entry.command}` : ''}`);
+    lines.push(`  ${index + 1}. ${entry.label}`);
+    if (entry.command) {
+      lines.push(`     Shell: ${entry.command}`);
+      lines.push(`     Copilot: ${entry.copilotCommand}`);
+    }
   }
   lines.push(`  Then: ${plan.retry.label}`);
   return lines.join('\n');

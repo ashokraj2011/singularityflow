@@ -72,6 +72,11 @@ test('a partial form says so rather than submitting fewer arguments', () => {
     { terminal: 'sflow workspace materialize --target-path ...' });
   assert.match(html, /no input for: targetPath/);
   assert.match(html, /Terminal equivalent/);
+  assert.match(html, /<strong>Shell<\/strong>/);
+  assert.match(html, /<strong>Copilot<\/strong>/);
+  assert.match(html, /\/sf-workspace/);
+  assert.match(html, /Copy Shell/);
+  assert.match(html, /Copy Copilot/);
 });
 
 test('a real schema renders every field it declares', () => {

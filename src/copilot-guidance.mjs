@@ -1,4 +1,4 @@
-import { primarySkillForCommand } from './command-skills.mjs';
+import { skillForCommandLine } from './command-skills.mjs';
 
 /**
  * User-facing Copilot commands use the direct, globally installed `/sf-*` aliases.
@@ -12,41 +12,46 @@ export function directCopilotSkill(skill) {
   return value.replace(/^\/sflow-/, '/sf-');
 }
 
+/** Return the installed skill id without any invocation arguments. */
+export function directCopilotSkillId(skill) {
+  const value = directCopilotSkill(skill);
+  return value?.match(/^\/sf-[a-z0-9]+(?:-[a-z0-9]+)*(?=\s|$)/u)?.[0] ?? null;
+}
+
 export function copilotSkillForCommand(command, fallback = '/sf-next') {
+  return directCopilotSkill(skillForCommandLine(command)) ?? fallback;
+}
+
+/**
+ * Return the complete Copilot invocation for one shell command.
+ *
+ * Most guided skills intentionally discover their remaining inputs from governed state, so their
+ * direct id is the complete invocation. The SGOS relay is different: its contract requires the
+ * exact CLI family and subcommand, and therefore receives the complete argument tail.
+ */
+export function copilotCommandForCommand(command, skill = null, fallback = '/sf-next') {
+  const explicit = directCopilotSkill(skill);
+  if (explicit && /\s/u.test(explicit)) return explicit;
+  const selected = explicit ?? copilotSkillForCommand(command, fallback);
   const value = String(command ?? '').trim();
-  const match = value.match(/^singularity-flow\s+([^\s]+)(?:\s+([^\s]+))?/);
-  if (!match) return fallback;
-  const [, first, second] = match;
-  if (first === 'phase' || first === 'prepare') return '/sf-phase';
-  if (first === 'intent' && (second === 'workflow-guide' || second === 'workflow-create')) {
-    return '/sf-sgos-create';
+  if (selected === '/sf-sgos') {
+    const match = value.match(/^(?:singularity-flow|sflow)\s+(.+)$/u);
+    return match ? `${selected} ${match[1]}` : selected;
   }
-  if (first === 'initiative') {
-    const mapped = {
-      approve: 'approve', checklist: 'checklist', documents: 'documents', evidence: 'evidence',
-      materialize: 'materialize', next: 'next', phase: 'phase', start: 'start', status: 'status'
-    }[second];
-    return mapped ? `/sf-initiative-${mapped}` : '/sf-initiative-next';
+  if (selected === '/sf-auto') {
+    const match = value.match(/^(?:singularity-flow|sflow)\s+auto(?:\s+(.+))?$/u);
+    return match?.[1] ? `${selected} ${match[1]}` : selected;
   }
-  if (first === 'epic') {
-    const mapped = {
-      'create-stories': 'publish',
-      report: 'status'
-    }[second] ?? second;
-    return mapped ? `/sf-epic-${mapped}` : '/sf-epic-next';
-  }
-  try {
-    return directCopilotSkill(primarySkillForCommand(first)) ?? fallback;
-  } catch {
-    return fallback;
-  }
+  return selected;
 }
 
 export function copilotAction({ skill = null, command, ...rest }) {
+  const directSkill = directCopilotSkill(skill) ?? copilotSkillForCommand(command);
   return {
     ...rest,
-    skill: directCopilotSkill(skill) ?? copilotSkillForCommand(command),
-    command
+    skill: directSkill,
+    command,
+    copilotCommand: copilotCommandForCommand(command, directSkill)
   };
 }
 
@@ -145,7 +150,7 @@ export function submissionReadinessPresentation(readiness) {
 }
 
 /**
- * The two lines that offer one action: the command, then the Copilot skill that wraps it.
+ * The paired routes that offer one action: the shell command, then the Copilot skill that wraps it.
  *
  * The command leads. This rendered the other way round — the skill as the headline and the command
  * beneath it — which told someone reading a terminal that the thing in front of them was the
@@ -153,7 +158,8 @@ export function submissionReadinessPresentation(readiness) {
  */
 export function actionCommandLines({ skill, command }, label = 'Run') {
   return [
-    `${label}: ${command}`,
-    `In Copilot: ${directCopilotSkill(skill) ?? copilotSkillForCommand(command)}`
+    `${label}:`,
+    `Shell: ${command}`,
+    `Copilot: ${copilotCommandForCommand(command, skill)}`
   ];
 }

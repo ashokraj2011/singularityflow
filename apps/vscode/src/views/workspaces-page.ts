@@ -13,6 +13,7 @@ import {
   type WorkspaceFosAction, type WorkspaceFosOutcome, type WorkspaceRecoveryAction
 } from './workspaces-model.ts';
 import { escape, icon } from './webview.ts';
+import { commandGuidanceHtml } from './command-guidance.ts';
 
 function rowHtml(row: WorkspaceRow, selected: string | null): string {
   return `
@@ -400,10 +401,11 @@ function recoveryContinuation(action: WorkspaceRecoveryAction): string {
 function recoveryActionHtml(action: WorkspaceRecoveryAction | null | undefined): string {
   if (!action?.command) return '';
   const continuation = recoveryContinuation(action);
+  const guidance = commandGuidanceHtml(action, { shellCopy: continuation });
+  if (!guidance) return '';
   return `<div class="command-hint">${action.cwd
-    ? `<span class="muted">Run in <code>${escape(action.cwd)}</code></span><br>` : ''}
-    <code>${escape(action.command)}</code>
-    <button type="button" class="secondary" data-copy-command="${escape(continuation)}">Copy command</button></div>`;
+    ? `<span class="muted">Run in <code>${escape(action.cwd)}</code></span>` : ''}
+    ${guidance}</div>`;
 }
 
 function topologyIssueSubject(issue: NonNullable<WorkspaceConfigurationRefreshResult['topologyIssues']>[number]): string {

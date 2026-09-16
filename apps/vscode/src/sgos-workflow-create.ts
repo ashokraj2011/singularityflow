@@ -5,10 +5,11 @@ import * as vscode from 'vscode';
 import type { SingularityFlowClient } from './cli/client.ts';
 import {
   SGOS_LOWER_KEBAB, SGOS_SHA256, sgosWorkflowCreateArguments,
-  sgosRatificationPreviewArguments, sgosTerminalCommand, sgosWorkflowCreateReview,
+  sgosCommand, sgosRatificationPreviewArguments, sgosTerminalCommand, sgosWorkflowCreateReview,
   sgosWorkflowOutputPaths, sgosWorkspaceBindingIssue, validSgosDraftPath,
   type SgosWorkflowCreateSelection
 } from './sgos-workflow-create-model.ts';
+import { commandGuidance } from './copilot-command.ts';
 
 type GuideOperation = {
   readonly id: string;
@@ -313,13 +314,16 @@ export async function showSgosWorkflowCreator(client: SingularityFlowClient): Pr
     await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(workflow), {
       preview: false, viewColumn: vscode.ViewColumn.Beside
     });
+    const ratificationArgs = sgosRatificationPreviewArguments(selection);
+    const guidance = commandGuidance(sgosCommand(ratificationArgs));
     const action = await vscode.window.showInformationMessage(
-      `Created ${selection.declarationOut} and ${selection.workflowOut}. The Workflow is not ratified or executable.`,
-      'Copy ratification preview command', 'Open Command Center'
+      `Created ${selection.declarationOut} and ${selection.workflowOut}. The Workflow is not ratified or executable.${guidance
+        ? `\nShell: ${guidance.command}\nCopilot: ${guidance.copilotCommand}` : ''}`,
+      ...(guidance?.copyable ? ['Copy Shell preview', 'Copy Copilot preview'] : []), 'Open Command Center'
     );
-    if (action === 'Copy ratification preview command') {
+    if (action === 'Copy Shell preview' && guidance?.copyable) {
       const command = sgosTerminalCommand(
-        sgosRatificationPreviewArguments(selection), repository,
+        ratificationArgs, repository,
         process.platform === 'win32' ? 'powershell' : 'posix',
         [client.location.executable, client.location.cli], true
       );
@@ -327,6 +331,9 @@ export async function showSgosWorkflowCreator(client: SingularityFlowClient): Pr
       await vscode.window.showInformationMessage(
         `Copied the model-free ratification preview command with its repository directory (${process.platform === 'win32' ? 'PowerShell' : 'POSIX shell'}). Review it before running.`
       );
+    } else if (action === 'Copy Copilot preview' && guidance?.copyable) {
+      await vscode.env.clipboard.writeText(guidance.copilotCommand);
+      await vscode.window.showInformationMessage('Copied the governed Copilot ratification preview command. Review it before sending.');
     } else if (action === 'Open Command Center') {
       await vscode.commands.executeCommand('singularityFlow.openCommandCenter');
     }

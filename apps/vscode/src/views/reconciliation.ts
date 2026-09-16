@@ -12,6 +12,7 @@ import { navigateTo } from './navigate.ts';
 import type { IconName } from './webview.ts';
 import type { SingularityFlowClient } from '../cli/client.ts';
 import type { WorkspaceStore } from '../state.ts';
+import { COMMAND_GUIDANCE_COPY_SCRIPT, commandGuidanceHtml } from './command-guidance.ts';
 
 const VERDICT_PILL: Record<string, { className: string; label: string; icon: IconName }> = {
   aligned: { className: 'ok', label: 'aligned', icon: 'ok' },
@@ -45,11 +46,16 @@ function levelHtml(level: ReconciliationLevel): string {
 
 function remedyHtml(level: ReconciliationLevel): string {
   if (!level.remedy) return '';
-  const looksLikeCommand = level.remedy.startsWith('singularity-flow ');
-  return `<p class="remedy">${looksLikeCommand
-    ? `To resolve: <code>${escape(level.remedy)}</code>`
-    : escape(level.remedy)}</p>`;
+  const routed = commandGuidanceHtml(level.remedy);
+  const commandShaped = /^\s*(?:singularity-flow|sflow)\b/u.test(level.remedy);
+  return routed || (commandShaped ? '' : `<p class="remedy">${escape(level.remedy)}</p>`);
 }
+
+const SCRIPT = `
+  document.addEventListener('click', (event) => {
+    ${COMMAND_GUIDANCE_COPY_SCRIPT}
+  });
+`;
 
 function bodyHtml(reconciliation: Reconciliation): string {
   if (reconciliation.empty) return `<div class="empty"><p>${escape(reconciliation.empty)}</p></div>`;
@@ -150,7 +156,8 @@ export class ReconciliationPanel {
       'Reconciliation',
       bodyHtml(buildReconciliation(this.store.current.snapshot, this.mergePlan)),
       contentSecurityPolicy(this.panel.webview, token),
-      token
+      token,
+      SCRIPT
     );
   }
 

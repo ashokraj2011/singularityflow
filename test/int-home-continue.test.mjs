@@ -86,6 +86,14 @@ test('with no workspace Home offers only rootless setup and recovery paths', asy
   ]);
   assert.equal(result.data.counts, null);
   assert.equal(result.why[0].code, 'home.no-workspace-selected');
+  const prepare = result.next.find((entry) => entry.handle === 'home:workspace.prepare.guide');
+  assert.deepEqual(prepare.fallback, {
+    label: 'Prepare a new workspace',
+    command: 'singularity-flow workspace prepare',
+    skill: '/sf-workspace-bootstrap',
+    copilotCommand: '/sf-workspace-bootstrap',
+    copyable: true
+  });
 });
 
 test('the cross-workspace briefing is declared unavailable when the registry cannot answer', () => {

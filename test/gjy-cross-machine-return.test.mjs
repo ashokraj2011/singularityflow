@@ -95,9 +95,12 @@ test('return previews and reconstructs a published Story in a fresh clone withou
   assert.notEqual(refused.status, 0);
   assert.equal(git(second, ['branch', '--show-current']).stdout.trim(), 'main');
 
-  run(process.execPath, [cli, 'return', 'WRK-RETURN-2', '--apply', '--confirm', 'WRK-RETURN-2'], {
+  const applied = run(process.execPath, [cli, 'return', 'WRK-RETURN-2', '--apply', '--confirm', 'WRK-RETURN-2'], {
     cwd: second, env
   });
+  assert.match(applied.stdout, /Next:\nShell: singularity-flow prepare implement/);
+  assert.match(applied.stdout, /Copilot: \/sf-code/);
+  assert.doesNotMatch(applied.stdout, /Copilot: \/sf-implement/);
   assert.equal(git(second, ['branch', '--show-current']).stdout.trim(), 'WRK-RETURN-2');
   assert.equal(git(second, ['rev-parse', 'HEAD']).stdout.trim(), plan.sourceCommit);
 

@@ -17,6 +17,7 @@
  * needs a marker it can see without knowing which schema it is restoring.
  */
 import { escape } from './webview.ts';
+import { commandGuidance } from '../copilot-command.ts';
 
 /** The shape `formModel()` returns. Declared here so the page can be typed against the model. */
 export type FormField = {
@@ -151,9 +152,15 @@ export function formHtml(view: FormView, {
    * Display-only, and doubly useful when the form is partial: it is the complete way to do what a
    * partial form cannot.
    */
-  const equivalent = terminal
-    ? `<details class="sf-terminal"><summary>Terminal equivalent</summary><pre data-terminal>${
-      escape(terminal)}</pre></details>`
+  const guidance = commandGuidance(terminal);
+  const equivalent = guidance
+    ? `<details class="sf-terminal" data-terminal-equivalent><summary>Terminal equivalent — Shell and Copilot</summary>
+      <strong>Shell</strong><pre data-terminal>${escape(guidance.command)}</pre>
+      <button type="button" data-copy-terminal="shell" ${guidance.copyable ? '' : 'hidden'}>Copy Shell</button>
+      <strong>Copilot</strong><pre data-copilot-terminal>${escape(guidance.copilotCommand)}</pre>
+      <button type="button" data-copy-terminal="copilot" ${guidance.copyable ? '' : 'hidden'}>Copy Copilot</button>
+      <p data-terminal-placeholders ${guidance.copyable ? 'hidden' : ''}>Replace the shown placeholders before running this command.</p>
+    </details>`
     : '';
 
   return `<form class="sf-form" data-schema="${escape(view.schemaId)}">${fields}${gap}${equivalent}</form>`;

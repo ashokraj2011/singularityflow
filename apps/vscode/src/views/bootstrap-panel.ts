@@ -15,6 +15,7 @@ import {
 } from './map-capability-form.ts';
 import type { StartWizardProgress } from './start-wizard.ts';
 import { formatCliArgsForDisplay } from '../cli/runner.ts';
+import { commandGuidance } from '../copilot-command.ts';
 import {
   clearMapCapabilityOperation, LEGACY_MAP_CAPABILITY_OPERATION_KEY,
   migrateLegacyMapCapabilityOperation, readMapCapabilityOperations,
@@ -69,7 +70,7 @@ interface RepositoryInspection {
   checkedLeads?: string[];
   failures?: Array<string | {
     lead?: string; code?: string; classification?: string; retryable?: boolean; message?: string;
-    diagnosticAction?: { command?: string; skill?: string } | null;
+    diagnosticAction?: { command?: string; skill?: string; copilotCommand?: string } | null;
   }>;
   authorityScope?: string;
   completeness?: string;
@@ -691,6 +692,7 @@ export class BootstrapPanel {
     this.form.inspectionPendingMatches = [];
     this.form.inspectionMessage = null;
     this.form.inspectionRecoveryCommand = null;
+    this.form.inspectionRecoveryCopilotCommand = null;
     this.form.inspectionFailures = [];
     this.form.inspectionCompleteness = null;
     this.form.inspectionAuthorityScope = null;
@@ -1012,7 +1014,8 @@ export class BootstrapPanel {
     }
     const revision = ++this.inspectionRevision;
     this.update({ inspectionStatus: 'checking', inspectionComplete: false,
-      inspectionMatches: [], inspectionPendingMatches: [], inspectionMessage: null, inspectionFailures: [],
+      inspectionMatches: [], inspectionPendingMatches: [], inspectionMessage: null,
+      inspectionRecoveryCommand: null, inspectionRecoveryCopilotCommand: null, inspectionFailures: [],
       inspectionCompleteness: null, inspectionAuthorityScope: null, inspectionCheckedLeadCount: 0,
       inspectionProposalCoverage: null, inspectionProposalTotal: 0, inspectionProposalInspected: 0,
       inspectionBoundRepositoryUrl: null,
@@ -1027,10 +1030,12 @@ export class BootstrapPanel {
     if (explicitLead) argv.push('--include-proposals');
     if (options.includeKnownAuthorities) argv.push('--include-proposals');
     const terminalCommand = `singularity-flow ${formatCliArgsForDisplay(argv)}`;
+    const terminalGuidance = commandGuidance(terminalCommand);
     const { result, error } = await this.run(argv);
     if (revision !== this.inspectionRevision || repositoryUrl !== this.form.repositoryUrl.trim()) return;
     if (error) return void this.update({ inspectionStatus: 'inconclusive', inspectionComplete: false,
-      inspectionMessage: error, inspectionRecoveryCommand: terminalCommand,
+      inspectionMessage: error, inspectionRecoveryCommand: terminalGuidance?.command ?? null,
+      inspectionRecoveryCopilotCommand: terminalGuidance?.copilotCommand ?? null,
       inspectionFailures: [], inspectionCompleteness: null,
       inspectionAuthorityScope: null, inspectionProposalCoverage: null,
       inspectionCheckedLeadCount: 0 });
@@ -1051,14 +1056,15 @@ export class BootstrapPanel {
     const failures = (inspected.failures ?? []).map((failure) => {
       if (typeof failure === 'string') return failure;
       const message = failure?.message ?? failure?.code ?? 'Capability-map authority could not be inspected.';
-      const action = failure?.diagnosticAction?.command
-        ? ` Diagnostic: ${failure.diagnosticAction.command}` : '';
+      const guidance = commandGuidance(failure?.diagnosticAction);
+      const action = guidance
+        ? ` Shell: ${guidance.command} Copilot: ${guidance.copilotCommand}` : '';
       return `${failure?.lead ? `${failure.lead}: ` : ''}${message}${action}`;
     });
-    const recoveryCommand = (inspected.failures ?? [])
+    const recoveryGuidance = (inspected.failures ?? [])
       .flatMap((failure) => typeof failure === 'string'
-        ? [] : [failure?.diagnosticAction?.command])
-      .find((command): command is string => Boolean(command));
+        ? [] : [commandGuidance(failure?.diagnosticAction)])
+      .find((guidance) => guidance != null) ?? (failures.length ? terminalGuidance : null);
     const availableLeads = explicitLead
       ? [...new Set([...this.form.leads, explicitLead])]
       : this.form.leads;
@@ -1075,7 +1081,8 @@ export class BootstrapPanel {
     this.form = { ...this.form, leads: availableLeads,
       inspectionStatus: status, inspectionMatches: matches, inspectionPendingMatches: pendingMatches,
       inspectionMessage: null, inspectionFailures: failures,
-      inspectionRecoveryCommand: recoveryCommand ?? (failures.length ? terminalCommand : null),
+      inspectionRecoveryCommand: recoveryGuidance?.command ?? null,
+      inspectionRecoveryCopilotCommand: recoveryGuidance?.copilotCommand ?? null,
       inspectionCompleteness: inspected.completeness ?? null,
       inspectionAuthorityScope: inspected.authorityScope ?? null,
       inspectionProposalCoverage: inspected.proposalCoverage ?? null,
@@ -1216,8 +1223,21 @@ export class BootstrapPanel {
 
     if (message?.type === 'copyCommand' && typeof message.value === 'string'
       && message.value === this.form.inspectionRecoveryCommand) {
-      await vscode.env.clipboard.writeText(message.value);
+      const route = commandGuidance({ command: this.form.inspectionRecoveryCommand,
+        copilotCommand: this.form.inspectionRecoveryCopilotCommand });
+      if (!route?.copyable || message.value !== route.command) return;
+      await vscode.env.clipboard.writeText(route.command);
       void vscode.window.showInformationMessage('Singularity Flow terminal continuation copied.');
+      return;
+    }
+
+    if (message?.type === 'copyCopilotCommand' && typeof message.value === 'string'
+      && message.value === this.form.inspectionRecoveryCopilotCommand) {
+      const route = commandGuidance({ command: this.form.inspectionRecoveryCommand,
+        copilotCommand: this.form.inspectionRecoveryCopilotCommand });
+      if (!route?.copyable || message.value !== route.copilotCommand) return;
+      await vscode.env.clipboard.writeText(route.copilotCommand);
+      void vscode.window.showInformationMessage('Singularity Flow Copilot continuation copied.');
       return;
     }
 

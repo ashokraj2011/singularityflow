@@ -1,5 +1,6 @@
 import { phaseNeedsGeneration, workflowGuide } from './guide.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
+import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import {
   effectivePhasePublicationProducer, phasePublicationCommand, phasePublicationCommandForProducer
@@ -197,13 +198,18 @@ export function nextStepsText(snapshot) {
     snapshot.workId ? 'Automatic next action in Copilot: /sf-next' : null,
     ''
   ].filter((line) => line !== null);
-  // The command first, the skill after it. This read the other way round — Copilot's skill name as
-  // the headline and the command as its "CLI equivalent" — which told someone reading a terminal
-  // that the thing they are using is the secondary way to use the product.
+  // Every action names both equivalent entry points. The reason leads; neither the shell nor
+  // Copilot is presented as the secondary product surface.
   snapshot.actions.forEach((item, index) => {
-    lines.push(`${index + 1}. ${item.timing.toUpperCase()} — ${item.command}`);
-    lines.push(`   ${item.reason}`);
-    if (item.skill) lines.push(`   In Copilot: ${item.skill}`);
+    lines.push(`${index + 1}. ${item.timing.toUpperCase()} — ${item.reason}`);
+    const guidance = safeCommandGuidance(item);
+    if (guidance) {
+      lines.push(`   Shell: ${guidance.command}`);
+      lines.push(`   Copilot: ${guidance.copilotCommand}`);
+    } else {
+      lines.push('   Shell: unavailable — the supplied command was not safe to display.');
+      lines.push('   Copilot: unavailable — ask /sf-next for a current governed action.');
+    }
   });
   return `${lines.join('\n')}\n`;
 }

@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 import { initializeDefinition, resolveWorkType } from '../src/config.mjs';
-import { recoveryPlan } from '../src/collaboration.mjs';
+import { recoveryPlan, recoveryText } from '../src/collaboration.mjs';
 import { buildGenerationAuthorship, normalizeAuthorshipOptions } from '../src/manual-authorship.mjs';
 import { withOperationContext } from '../src/operation-context.mjs';
 import {
@@ -629,6 +629,20 @@ test('recovery exposes the same authored-byte findings and a bounded Copilot ret
     command: 'singularity-flow phase publish intake --authored governed-agent --channel copilot-host'
   });
   assert.equal(action.skill, '/sf-phase');
+});
+
+test('branch recovery exposes one structured Shell and Copilot pair', () => {
+  const rendered = recoveryText({
+    workId: 'PREFLIGHT-1', planId: 'sha256:plan', branch: 'main',
+    targetBranch: 'PREFLIGHT-1', phaseId: 'intake', blockers: [], applied: false,
+    actions: [{
+      id: 'branch', safe: true, automatic: false,
+      detail: 'Switch to the governed Story checkout.',
+      command: 'singularity-flow resume PREFLIGHT-1 --fetch', skill: '/sf-resume'
+    }]
+  });
+  assert.match(rendered, /Shell: singularity-flow resume PREFLIGHT-1 --fetch/);
+  assert.match(rendered, /Copilot: \/sf-resume/);
 });
 
 test('scaffold angle placeholders are rejected but immutable approved-input placeholders are ignored', async () => {

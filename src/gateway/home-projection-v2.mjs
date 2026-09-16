@@ -5,6 +5,7 @@
  * below carries an authority-issued opaque handle; this module cannot mint or infer authority.
  */
 import { recordSha256 } from '../records.mjs';
+import { safeCommandGuidance } from '../safe-command-guidance.mjs';
 import { primaryAction } from './result.mjs';
 
 export const HOME_PROJECTION_SCHEMA_VERSION = 2;
@@ -23,6 +24,7 @@ function boundedContextLabel(value) {
 
 function uiAction(action) {
   if (!action) return null;
+  const fallback = action.fallback ? safeCommandGuidance(action.fallback) : null;
   return Object.freeze({
     id: action.id,
     handle: action.handle,
@@ -34,10 +36,12 @@ function uiAction(action) {
     emphasis: action.emphasis,
     executable: action.executable,
     slots: Object.freeze({ ...(action.slots ?? {}) }),
-    fallback: action.fallback ? Object.freeze({
+    fallback: fallback ? Object.freeze({
       label: action.fallback.label ?? action.label,
-      command: action.fallback.command ?? null,
-      skill: action.fallback.skill ?? null
+      command: fallback.command,
+      skill: fallback.skill,
+      copilotCommand: fallback.copilotCommand,
+      copyable: fallback.copyable
     }) : null
   });
 }

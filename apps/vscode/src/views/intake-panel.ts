@@ -169,7 +169,8 @@ export class IntakePanel {
     if (this.disposed) return;
     this.form = {
       ...this.form,
-      ...(Object.hasOwn(changes, 'error') && changes.error === null ? { recoveryCommand: null } : {}),
+      ...(Object.hasOwn(changes, 'error') && changes.error === null
+        ? { recoveryCommand: null, recoveryRouteCommand: null } : {}),
       ...changes
     };
     this.render();
@@ -576,7 +577,7 @@ export class IntakePanel {
       });
       return;
     }
-    this.update({ busy: true, error: null, recoveryCommand: null });
+    this.update({ busy: true, error: null, recoveryCommand: null, recoveryRouteCommand: null });
 
     const args = intakeCommand(this.form);
     this.output.appendLine(`\n$ ${terminalCommand(
@@ -615,7 +616,9 @@ export class IntakePanel {
       this.update({
         busy: false,
         error: failure instanceof CliTimeoutError ? failure.summary : failure.message,
-        recoveryCommand: failure instanceof CliTimeoutError ? failure.terminalCommand : null
+        recoveryCommand: failure instanceof CliTimeoutError ? failure.terminalCommand : null,
+        recoveryRouteCommand: failure instanceof CliTimeoutError
+          ? `singularity-flow ${args.slice(0, 2).join(' ')}` : null
       });
     }
   }

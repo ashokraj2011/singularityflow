@@ -42,6 +42,7 @@ import {
   createCapabilityAuthorityLink, publishCapabilityAuthorityLinkSet, readCapabilityAuthorityLink
 } from '../src/capability-authority-link.mjs';
 import { withRepositoryResetBarrier } from '../src/subject-lock.mjs';
+import { safeCommandGuidance } from '../src/safe-command-guidance.mjs';
 import {
   createLedgerIntent, LEDGER_SCHEMA_VERSION,
   canonicalJson as ledgerCanonicalJson, sha256 as ledgerSha256
@@ -582,6 +583,7 @@ test('repository inspection finds an exact URL in registered capability maps wit
       assert.match(error.details.remoteFailure.evidence.diagnosticSha256, /^[a-f0-9]{64}$/);
       assert.match(error.details.diagnosticAction.command,
         /workspace doctor --network --repository/);
+      assert.equal(error.details.diagnosticAction.skill, '/sf-workspace-bootstrap');
       assert.doesNotMatch(JSON.stringify(error.details), /stderr|does not appear to be/);
       return true;
   });
@@ -592,17 +594,34 @@ test('suggested Git diagnostic commands use portable placeholders for unsafe rem
   let command = null;
   await assert.rejects(readOrganisation(remote, { refresh: true }), (error) => {
     command = error.details.diagnosticAction.command;
-    assert.match(command, /--repository\s+LEAD_URL/);
+    assert.match(command, /--repository\s+<LEAD-URL>/);
     assert.doesNotMatch(command, /printf|injected|tick|whoami|[`$()&]/);
     return true;
   });
+  const guidance = safeCommandGuidance(command);
+  assert.ok(guidance, 'the diagnostic remains displayable with both invocation forms');
+  assert.equal(guidance.copyable, false, 'an unresolved remote placeholder is never executable');
+  assert.equal(guidance.skill, '/sf-workspace-bootstrap');
+});
 
-  const parsed = spawnSync('sh', ['-c', `set -- ${command}; printf '%s\\n' "$@"`], {
-    encoding: 'utf8'
-  });
-  assert.equal(parsed.status, 0, parsed.stderr);
-  assert.equal(parsed.stderr, '');
-  assert.ok(parsed.stdout.split('\n').includes('LEAD_URL'), parsed.stdout);
+test('capability authority diagnostics always retain their exact Copilot doctor route', async () => {
+  for (const command of [
+    'singularity-flow capability leads --json',
+    'singularity-flow capability fsck --lead https://example.test/platform.git --json',
+    'singularity-flow capability fsck --repository <DELIVERY-URL> --lead https://example.test/platform.git --json'
+  ]) {
+    const guidance = safeCommandGuidance({ command, skill: '/sf-capability-doctor' });
+    assert.ok(guidance, command);
+    assert.equal(guidance.skill, '/sf-capability-doctor');
+    assert.equal(guidance.copilotCommand, '/sf-capability-doctor');
+  }
+
+  const source = await readFile(fileURLToPath(new URL('../src/organisation.mjs', import.meta.url)), 'utf8');
+  assert.doesNotMatch(
+    source,
+    /(?:capability leads --json|capabilityCommand\('fsck'|capability fsck)[\s\S]{0,180}skill:\s*'\/sf-capability-map'/u,
+    'lead discovery and fsck assertions must not contradict the exact command crosswalk'
+  );
 });
 
 test('the machine lead registry never returns or newly stores credential-bearing remotes', async () => {
@@ -683,8 +702,8 @@ test('capability review commands use placeholders for shell-special lead paths',
     'sflow/config-change/capability/map-safe',
     'a'.repeat(40)
   );
-  assert.match(commands.review, /--lead LEAD_URL/);
-  assert.match(commands.activate, /--lead LEAD_URL/);
+  assert.match(commands.review, /--lead <LEAD-URL>/);
+  assert.match(commands.activate, /--lead <LEAD-URL>/);
   assert.doesNotMatch(JSON.stringify(commands), /echo-owned|[;&`$()]/);
 
   const powershellSplat = capabilityProposalCommands(
@@ -692,8 +711,8 @@ test('capability review commands use placeholders for shell-special lead paths',
     'sflow/config-change/capability/map-safe',
     'a'.repeat(40)
   );
-  assert.match(powershellSplat.review, /--lead LEAD_URL/);
-  assert.match(powershellSplat.activate, /--lead LEAD_URL/);
+  assert.match(powershellSplat.review, /--lead <LEAD-URL>/);
+  assert.match(powershellSplat.activate, /--lead <LEAD-URL>/);
   assert.doesNotMatch(JSON.stringify(powershellSplat), /@args/);
 });
 
@@ -1794,7 +1813,9 @@ test('capability inspect-repository CLI emits the read-only discovery result', a
   assert.match(partial.stdout, /already-mapped/);
   assert.match(partial.stderr, /pending proposal coverage: partial/);
   assert.match(partial.stderr, /no new mapping is authorized/);
-  assert.match(partial.stderr, /Diagnose: singularity-flow workspace doctor --network --repository/);
+  assert.match(partial.stdout, /Diagnose:/);
+  assert.match(partial.stdout, /Shell: singularity-flow workspace doctor --network --repository/);
+  assert.match(partial.stdout, /Copilot: \/sf-workspace-bootstrap/);
 });
 
 test('capability proposal transport failures emit structured JSON diagnostics', async () => {
@@ -2286,7 +2307,7 @@ test('capability review does not offer package repair for a customized MCP misma
     assert.equal(inspected.configurationErrorCode, 'MCP_AGENT_TOOLS_MISMATCH');
     assert.equal(inspected.repairable, false,
       'an unrelated historical asset does not make a customized mismatching agent repairable');
-    assert.equal(inspected.repairAction.skill, '/sf-capability-map');
+    assert.equal(inspected.repairAction.skill, '/sf-capability-doctor');
     assert.match(inspected.repairAction.command, /capability fsck/);
     assert.doesNotMatch(inspected.repairAction.command, /repair-proposal/);
   } finally {
@@ -4001,7 +4022,7 @@ exit 0
           assert.match(error.details.remoteFailure.evidence.diagnosticSha256, /^[a-f0-9]{64}$/);
           assert.ok(error.details.remoteFailure.evidence.diagnosticBytes > 0);
           assert.match(error.details.nextAction.command,
-            /^singularity-flow capability organisation (?:LEAD_URL|\S+) --refresh --json$/);
+            /^singularity-flow capability organisation (?:<LEAD-URL>|\S+) --refresh --json$/);
           assert.equal(error.details.nextAction.skill, '/sf-capability-map');
           assert.doesNotMatch(JSON.stringify(error), /LEAKMARK|password=/,
             'raw provider and hook diagnostics must not escape the Git boundary');
@@ -4055,7 +4076,7 @@ test('capability mapping preserves literal remote identities while keeping recov
   ].sort(), 'each exact authority keeps its own observation and default branch');
 
   await assert.rejects(() => mapCapability(blue, { capabilityId: '' }), (error) => {
-    assert.match(error.details.nextAction.command, /--lead\s+LEAD_URL/,
+    assert.match(error.details.nextAction.command, /--lead\s+<LEAD-URL>/,
       'a remote with shell-special path bytes uses an explicit portable placeholder');
     assert.doesNotMatch(error.details.nextAction.command, /\?blue/,
       'the suggested command cannot reinterpret literal path bytes in a shell');

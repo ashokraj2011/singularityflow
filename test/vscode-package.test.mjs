@@ -22,6 +22,7 @@ import { stampBuildInfo } from '../src/build-info-stamp.mjs';
 import {
   VSIX_SOURCE_MANIFEST_ENV,
   VSIX_SOURCE_MANIFEST_SHA256_ENV,
+  VSIX_REQUIRED_CLI_RUNTIME,
   writeVsixSourceManifest
 } from '../src/vsix-source-manifest.mjs';
 
@@ -81,6 +82,10 @@ test('the installed VS Code CLI carries the canonical Help manual', async () => 
 
   const extension = await mkdtemp(path.join(os.tmpdir(), 'sflow-vscode-package-'));
   const staged = await stageCli({ rootDir: root, extensionDir: extension });
+  for (const relative of VSIX_REQUIRED_CLI_RUNTIME) {
+    assert.equal(existsSync(path.join(staged, ...relative.split('/'))), true,
+      `the installed CLI must carry ${relative}`);
+  }
   const result = spawnSync(process.execPath, [
     path.join(staged, 'bin', 'singularity-flow.mjs'), 'help', '--json'
   ], { cwd: extension, encoding: 'utf8' });
@@ -140,6 +145,7 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
   await Promise.all([
     mkdir(path.join(repository, 'bin'), { recursive: true }),
     mkdir(path.join(repository, 'src'), { recursive: true }),
+    mkdir(path.join(repository, 'plugin', 'skills', 'sflow-sgos'), { recursive: true }),
     mkdir(path.join(repository, 'toolchains', 'npm-pack'), { recursive: true }),
     mkdir(path.join(privateNpm, 'node_modules', 'npm', 'bin'), { recursive: true })
   ]);
@@ -157,6 +163,9 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     writeFile(path.join(repository, '.gitignore'), 'node_modules/\nextension/\n*.tgz\n'),
     writeFile(path.join(repository, 'bin', 'tool.mjs'), '#!/usr/bin/env node\n'),
     writeFile(path.join(repository, 'src', 'build-info.mjs'), buildInfoSource),
+    writeFile(path.join(repository, 'src', 'safe-command-guidance.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'phase-preparation-guidance.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'plugin', 'skills', 'sflow-sgos', 'SKILL.md'), '# fixture\n'),
     writeFile(path.join(repository, 'package.json'), '{"name":"fixture","version":"1.0.0"}\n'),
     writeFile(path.join(repository, 'toolchains', 'npm-pack', 'package.json'), `${JSON.stringify({
       name: 'fixture-npm-pack-toolchain',
@@ -181,7 +190,9 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
       }
     }, null, 2)}\n`)
   ]);
-  runGit(['add', '.gitignore', 'bin/tool.mjs', 'src/build-info.mjs', 'package.json',
+  runGit(['add', '.gitignore', 'bin/tool.mjs', 'src/build-info.mjs',
+    'src/safe-command-guidance.mjs', 'src/phase-preparation-guidance.mjs',
+    'plugin/skills/sflow-sgos/SKILL.md', 'package.json',
     'package-lock.json', 'toolchains/npm-pack/package.json']);
   runGit(['commit', '-q', '-m', 'Fixture']);
 
@@ -280,6 +291,15 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
       }
     }),
     /Stamped build provenance bytes/
+  );
+  assert.equal(existsSync(path.join(repository, 'extension', 'cli')), false);
+
+  // A newly authored runtime module that was not added to Git used to disappear from a dirty
+  // developer VSIX and fail only when a user ran the installed CLI. Refuse at staging instead.
+  runGit(['rm', '--cached', 'src/safe-command-guidance.mjs']);
+  await assert.rejects(
+    stageCli({ rootDir: repository, extensionDir: path.join(repository, 'extension') }),
+    /Staged CLI is missing required runtime file: src\/safe-command-guidance\.mjs.*Add the file to the Git index/
   );
   assert.equal(existsSync(path.join(repository, 'extension', 'cli')), false);
 });

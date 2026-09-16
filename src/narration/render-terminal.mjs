@@ -11,6 +11,7 @@ import { approvalChainText } from '../approval-chain.mjs';
 import { contextXrayText } from '../context-xray.mjs';
 import { tokenLedgerText } from '../token-ledger.mjs';
 import { table } from '../util.mjs';
+import { safeCommandGuidance } from '../safe-command-guidance.mjs';
 import * as style from '../style.mjs';
 
 /**
@@ -44,7 +45,13 @@ function whyLines(result) {
       // A terminal has no links, so the deep link is the command that would follow it. Explaining
       // *why* something was refused is only half an answer when the reader does not yet know what
       // the thing being refused is called `[DOC:REQ-041]`.
-      if (entry.topic) lines.push(`      ↳ sflow explain ${entry.topic}`);
+      if (entry.topic) {
+        const guidance = safeCommandGuidance(`sflow explain ${entry.topic}`);
+        if (guidance) {
+          lines.push(`      ↳ Shell: ${guidance.command}`);
+          lines.push(`        Copilot: ${guidance.copilotCommand}`);
+        }
+      }
       return lines.join('\n');
     });
 }
@@ -53,8 +60,22 @@ function nextLines(result) {
   const order = { NOW: 0, SOON: 1, LATER: 2 };
   return [...result.next]
     .sort((a, b) => (order[a.rank] - order[b.rank]) || a.id.localeCompare(b.id))
-    // The command is the thing the reader came for, so it is the thing that carries the emphasis.
-    .map((entry) => `  ${style.detail(entry.rank.padEnd(5))} ${entry.label}\n        ${style.action(entry.command)}`);
+    // Every continuation has two equivalent entry points. Keeping the labels explicit prevents a
+    // terminal command from being mistaken for the only supported route, and prevents Copilot from
+    // guessing a slash command from prose.
+    .map((entry) => {
+      const guidance = safeCommandGuidance(entry);
+      return guidance
+        ? [
+          `  ${style.detail(entry.rank.padEnd(5))} ${entry.label}`,
+          `        Shell: ${style.action(guidance.command)}`,
+          `        Copilot: ${style.action(guidance.copilotCommand)}`
+        ].join('\n')
+        : [
+          `  ${style.detail(entry.rank.padEnd(5))} ${entry.label}`,
+          `        ${style.detail('Command guidance unavailable: the supplied route was not safe or did not match.')}`
+        ].join('\n');
+    });
 }
 
 function goalLines(result) {

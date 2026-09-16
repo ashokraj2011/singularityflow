@@ -2036,6 +2036,35 @@ test('the journey reports where the Epic stands and what it is waiting on', () =
   assert.equal(journey.artifacts.length, 3, 'the current phase contributes its artifacts');
   assert.equal(journey.repositories.length, 2);
   assert.match(journey.nextAction.command, /initiative phase define/);
+  assert.equal(journey.nextAction.skill, '/sf-initiative-phase');
+  assert.equal(journey.nextAction.copilotCommand, '/sf-initiative-phase');
+});
+
+test('the Work Journey renders and copies both validated action routes', async () => {
+  const sourceText = await readFile(source('views/journey.ts'), 'utf8');
+  assert.match(sourceText, /<b>Shell:<\/b>[\s\S]*journey\.nextAction\.command/);
+  assert.match(sourceText, /<b>Copilot:<\/b>[\s\S]*journey\.nextAction\.copilotCommand/);
+  assert.match(sourceText, /data-copy-route=/);
+  assert.match(sourceText, /navigator\.clipboard\.writeText\(target\.dataset\.copyRoute\)/);
+});
+
+test('the journey fails closed when a serialized action is unsafe or contradicts its Copilot route', () => {
+  const unsafe = structuredClone(snapshot);
+  unsafe.initiative.nextActions[0].command = 'singularity-flow initiative phase define; touch escaped';
+  assert.equal(buildJourney(unsafe).nextAction, null);
+
+  const mismatched = structuredClone(snapshot);
+  mismatched.initiative.nextActions[0].skill = '/sf-docs';
+  assert.equal(buildJourney(mismatched).nextAction, null);
+});
+
+test('the Work Journey host executes only the action retained by the validated view model', async () => {
+  const extensionSource = await readFile(source('extension.ts'), 'utf8');
+  assert.match(extensionSource,
+    /const journey = buildJourney\(store\.current\.snapshot\);[\s\S]{0,900}commandArgv\(journey\.nextAction\.command\)/,
+    'the click path must not re-read an unvalidated raw initiative next action');
+  assert.doesNotMatch(extensionSource,
+    /const next = store\.current\.snapshot\?\.initiative\?\.nextActions\?\.\[0\]/);
 });
 
 test('the journey rail selects any Story phase and exposes its artifacts and approvers', () => {
@@ -2094,17 +2123,27 @@ test('the Work Journey uses explicit readiness for generation and submission pre
   assert.equal(seeded.nextAction.label, 'Generate and publish Design');
   assert.equal(seeded.nextAction.execution, 'prefill');
   assert.equal(seeded.nextAction.skill, '/sf-phase');
+  assert.equal(seeded.nextAction.command, 'singularity-flow prepare design');
+  assert.equal(seeded.nextAction.copilotCommand, '/sf-phase');
 
   const published = buildJourney(storySnapshot({ generation: 1 }));
   assert.equal(published.currentStage.publicationLabel,
     'Published generation 1 — ready to submit');
   assert.equal(published.nextAction.label, 'Submit for approval');
   assert.equal(published.nextAction.execution, 'run');
+  assert.equal(published.nextAction.command,
+    'singularity-flow submit design --work-id STORY-42');
+  assert.equal(published.nextAction.copilotCommand, '/sf-submit');
 
   const unavailable = storySnapshot({ generation: 1 });
   delete unavailable.submissionReadiness;
   assert.equal(buildJourney(unavailable).nextAction, null,
     'file presence and generation number alone do not enable Submit');
+
+  const mismatched = storySnapshot();
+  mismatched.submissionReadiness.nextSkill = '/sf-docs';
+  assert.equal(buildJourney(mismatched).nextAction, null,
+    'a lifecycle action with a contradictory Copilot route is not rendered or executable');
 });
 
 test('Epic artifact rows attribute only the approval bound to that artifact', () => {
@@ -3294,7 +3333,7 @@ test('capability mapping checks the Git URL before revealing capability details'
   assert.match(pending, /data-map-details hidden/);
 });
 
-test('repository inspection unlocks only safe outcomes and explains blocked outcomes', () => {
+test('repository inspection unlocks only safe outcomes and explains blocked outcomes', async () => {
   const repositoryUrl = 'https://git.example/payments.git';
   const known = mapCapabilityHtml({
     ...EMPTY_MAP_FORM, repositoryUrl, inspectionStatus: 'known-repository-unassigned',
@@ -3326,6 +3365,22 @@ test('repository inspection unlocks only safe outcomes and explains blocked outc
     assert.match(blocked, /lead could not be inspected/);
     assert.match(blocked, /data-map-details hidden/);
   }
+
+  const recovery = mapCapabilityHtml({
+    ...EMPTY_MAP_FORM, repositoryUrl, inspectionStatus: 'inconclusive',
+    inspectionRecoveryCommand: 'singularity-flow workspace doctor --network --json',
+    inspectionRecoveryCopilotCommand: '/sf-workspace-bootstrap'
+  });
+  assert.match(recovery, /Shell: <code>singularity-flow workspace doctor --network --json<\/code>/);
+  assert.match(recovery, /Copilot: <code>\/sf-workspace-bootstrap<\/code>/);
+  assert.match(recovery, /data-map-copy-command=/);
+  assert.match(recovery, /data-map-copy-copilot=/);
+  assert.match(MAP_CAPABILITY_SCRIPT, /type: 'copyCopilotCommand'/);
+  const bootstrap = await readFile(source('views/bootstrap-panel.ts'), 'utf8');
+  assert.match(bootstrap, /commandGuidance\(failure\?\.diagnosticAction\)/,
+    'remote diagnostics pass through the shared safe CLI-to-Copilot resolver');
+  assert.match(bootstrap, /inspectionRecoveryCopilotCommand: recoveryGuidance\?\.copilotCommand/,
+    'the derived Copilot continuation stays paired with the exact shell command');
 });
 
 test('capability mapping rejects credential-bearing remotes without reflecting their secrets', () => {
@@ -4187,21 +4242,25 @@ test('a failure shows the sentence, not the log line that carries it', () => {
     status: 'failed',
     error: {
       message: 'Git access is unavailable.',
-      diagnosticAction: { command: 'singularity-flow workspace doctor --network --repository URL --json' }
+      diagnosticAction: {
+        command: 'singularity-flow workspace doctor --network --repository URL --json',
+        skill: '/sf-workspace-bootstrap'
+      }
     }
   })), [
     'Git access is unavailable.',
-    'Diagnose: singularity-flow workspace doctor --network --repository URL --json'
+    'Shell: singularity-flow workspace doctor --network --repository URL --json',
+    'Copilot: /sf-workspace-bootstrap'
   ].join('\n'));
   assert.equal(humanError(JSON.stringify({
     rendered: { headline: 'Publication pending' },
-    next: [{ command: 'singularity-flow sync' }]
-  })), 'Publication pending\nNext: singularity-flow sync');
+    next: [{ command: 'singularity-flow sync', skill: '/sf-next' }]
+  })), 'Publication pending\nShell: singularity-flow sync\nCopilot: /sf-next');
   assert.equal(humanError(JSON.stringify({
     resultType: 'sflow-refusal-plan',
     error: { message: 'Auto mode is disabled.' },
-    remediationPlan: { steps: [{ command: 'singularity-flow explain auto-mode' }] }
-  })), 'Auto mode is disabled.\nNext: singularity-flow explain auto-mode');
+    remediationPlan: { steps: [{ command: 'singularity-flow explain auto-mode', skill: '/sf-docs' }] }
+  })), 'Auto mode is disabled.\nShell: singularity-flow explain auto-mode\nCopilot: /sf-docs');
   assert.equal(humanError(JSON.stringify({
     resultType: 'sflow-refusal-plan',
     error: {
@@ -4209,13 +4268,29 @@ test('a failure shows the sentence, not the log line that carries it', () => {
       message: "Agent 'poc-analyst' references unknown phase 'poc-intake'."
     },
     remediationPlan: { steps: [
-      { command: 'singularity-flow workspace refresh-configuration --dry-run' },
+      { command: 'singularity-flow workspace refresh-configuration --dry-run', skill: '/sf-workspace' },
       { command: 'singularity-flow factory-reset --dry-run --json' }
     ] }
   })), [
     "Agent 'poc-analyst' references unknown phase 'poc-intake'.",
-    'Next: singularity-flow workspace refresh-configuration --dry-run'
+    'Shell: singularity-flow workspace refresh-configuration --dry-run',
+    'Copilot: /sf-workspace'
   ].join('\n'));
+  assert.equal(humanError(JSON.stringify({
+    error: {
+      message: 'Unsafe action was refused.',
+      diagnosticAction: {
+        command: 'singularity-flow status --json; touch escaped',
+        skill: '/sf-status'
+      }
+    }
+  })), 'Unsafe action was refused.');
+  assert.equal(humanError(JSON.stringify({
+    error: {
+      message: 'Mismatched action was refused.',
+      diagnosticAction: { command: 'singularity-flow status --json', skill: '/sf-docs' }
+    }
+  })), 'Mismatched action was refused.');
   for (const unsafe of [
     'Singularity Flow error: {"password":"LEAKMARK"}',
     'Singularity Flow error: http.extraHeader="Authorization: Basic LEAKMARK"',
@@ -4646,11 +4721,16 @@ test('a refused start is reported on the form that caused it', () => {
   const timeout = intakeHtml(intake({
     shape: 'story',
     error: 'The CLI timed out.',
-    recoveryCommand: "cd '/work/api' && 'singularity-flow' 'start' 'WRK-17'"
+    recoveryCommand: "cd '/work/api' && 'singularity-flow' 'start' 'WRK-17'",
+    recoveryRouteCommand: 'singularity-flow start'
   }));
-  assert.match(timeout, /Continue from a terminal/);
+  assert.match(timeout, /Continue safely/);
   assert.match(timeout, /singularity-flow/);
   assert.match(timeout, /WRK-17/);
+  assert.match(timeout, /<strong>Shell:<\/strong>/);
+  assert.match(timeout, /<strong>Copilot:<\/strong> <code>\/sf-start<\/code>/);
+  assert.match(timeout, /Copy Shell/);
+  assert.match(timeout, /Copy Copilot/);
   assert.match(timeout, /data-submit="recover-start"/);
   assert.match(timeout, /Check and open created Story/);
   assert.match(timeout, /role="status" aria-live="polite"/);
@@ -4905,6 +4985,9 @@ test('workspace reinitialization renders configuration, schemas and capability p
   assert.match(html, /One durable record requires recovery/);
   assert.match(html, /Run in <code>\/work\/commerce\/team&#39;s platform<\/code>/);
   assert.match(html, /<code>singularity-flow doctor --json<\/code>/);
+  assert.match(html, /<code>\/sf-doctor<\/code>/);
+  assert.match(html, /Copy Shell/);
+  assert.match(html, /Copy Copilot/);
   assert.match(html, /data-copy-command="cd &#39;\/work\/commerce\/team&#39;&quot;&#39;&quot;&#39;s platform&#39; &amp;&amp; singularity-flow doctor --json"/);
   assert.ok(html.includes(
     'data-copy-command="Set-Location &#39;C:\\Work\\team&#39;&#39;s api&#39;; singularity-flow doctor --json"'
@@ -5856,8 +5939,12 @@ test('capability proposals have an exact review and activation UI', async () => 
   assert.match(dashboard, /No proposals waiting/);
   assert.match(dashboard, /ready for exact review/);
   assert.match(dashboard, /blocked by validation/);
-  assert.match(dashboard, /failure\?\.diagnosticAction\?\.command/,
-    'proposal transport failures expose their exact safe diagnostic command');
+  assert.match(dashboard, /commandPair\('Diagnostic', entry\.failure\?\.diagnosticAction\)/,
+    'proposal transport failures expose their exact safe diagnostic command pair');
+  assert.match(dashboard, /commandGuidance/,
+    'proposal recovery commands use the shared CLI-to-Copilot presentation boundary');
+  assert.match(dashboard, /Copilot: <code>/,
+    'proposal diagnostics always show their derived Copilot equivalent beside the shell command');
   assert.match(dashboard, /Show merged history/);
   assert.match(dashboard, /'--all'/,
     'the same UI can inspect retained merged proposal branches without making them actionable');
@@ -5874,6 +5961,10 @@ test('capability proposals have an exact review and activation UI', async () => 
   assert.match(dashboard, /If the remote branch moved, the operation refuses/,
     'the confirmation explains the exact-SHA lease before deletion');
   const panel = await readFile(source('views/capability-proposal.ts'), 'utf8');
+  assert.match(panel, /commandGuidanceHtml/,
+    'the exact proposal review uses the shared Shell-to-Copilot trust boundary');
+  assert.match(panel, /COMMAND_GUIDANCE_COPY_SCRIPT/,
+    'the proposal review copies only the routes returned by that boundary');
   assert.match(panel, /capability', 'proposal'/);
   assert.match(panel, /capability', 'activate'/);
   assert.match(panel, /--confirm', proposal\.proposalCommit/,

@@ -460,8 +460,8 @@ test('next executes one valid lifecycle action at a time', async () => {
   assert.equal(workflow.phases.intake.status, 'in_progress');
 
   const submitted = flow(root, ['next'], { selection: selection('feature', 'product-owner') });
-  assert.match(submitted.stdout, /Run: singularity-flow submit intake/);
-  assert.match(submitted.stdout, /In Copilot: \/sf-submit intake/);
+  assert.match(submitted.stdout, /Shell: singularity-flow submit intake/);
+  assert.match(submitted.stdout, /Copilot: \/sf-submit/);
   workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   assert.equal(workflow.phases.intake.status, 'awaiting_approval');
 
@@ -791,7 +791,11 @@ test('figma-mobile completes the governed design-to-visual-conformance lifecycle
     let workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
     assert.equal(workflow.currentPhase, phaseId);
     flow(root, ['prepare', phaseId], { selection: selection('figma-mobile', agents[phaseId]) });
-    flow(root, ['resume', workId], { selection: selection('figma-mobile', agents[phaseId]) });
+    const resumed = flow(root, ['resume', workId], { selection: selection('figma-mobile', agents[phaseId]) });
+    assert.match(resumed.stdout, new RegExp(`Shell: singularity-flow prepare ${phaseId}`));
+    assert.match(resumed.stdout, new RegExp(`Copilot: ${phaseId === 'implementation' ? '/sf-code' : '/sf-phase'}`));
+    assert.doesNotMatch(resumed.stdout, new RegExp(`/sf-${phaseId}(?:\\s|$)`),
+      'workflow phase ids must not be invented as Copilot skill names');
     workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
     const completedArtifact = await completeArtifact(root, workflow, phaseId);
     if (phaseId === 'mobile-spec') {

@@ -78,6 +78,7 @@ import { withSubjectLock } from '../subject-lock.mjs';
 import { STORY_LINEAGE_PROPERTY, activatePhaseAgent, activeActionContext, confirm, summary } from './kernel.mjs';
 import { capabilityBaseForRepository, prepareCapabilityRepositories, printCapabilityBase } from '../capability-start.mjs';
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
+import { safeCommandGuidance } from '../safe-command-guidance.mjs';
 import { recordSha256 } from '../records.mjs';
 import { verifyWorkflowSnapshot, workflowSnapshotDrift } from '../workflow-snapshots.mjs';
 import { resolveStoryExecutionContext } from '../story-execution-context.mjs';
@@ -85,6 +86,18 @@ import {
   materializeReferenceRepositories, parseReferenceRepositoryOptions, resolveReferenceRepositoryPins,
   storyReferenceRepositories, verifyReferenceRepositories
 } from '../reference-repositories.mjs';
+
+function printCommandRoutes(command, { skill = null, indent = '', label = null } = {}) {
+  if (label) console.log(`${indent}${label}:`);
+  const guidance = safeCommandGuidance({ command, skill });
+  if (!guidance) {
+    console.log(`${indent}Shell: unavailable — the supplied command was not safe to display.`);
+    console.log(`${indent}Copilot: unavailable — ask /sf-next for a current governed action.`);
+    return;
+  }
+  console.log(`${indent}Shell: ${guidance.command}`);
+  console.log(`${indent}Copilot: ${guidance.copilotCommand}`);
+}
 
 /**
  * Commands this service delegates to that still live in the router. Dynamic so the cycle stays
@@ -361,8 +374,7 @@ export async function storyFetchCommand(positionals, options) {
   console.log(`Story ${storyKey} is ready in ${target}.`);
   console.log(`Lineage: ${property.epic?.jiraKey ?? property.epic?.id} → ${seed.story.planId} → ${storyKey}`);
   console.log(`Workflow: ${workflow.workItem.workType} · current phase ${workflow.currentPhase ?? 'complete'}`);
-  console.log('Run: singularity-flow next');
-  console.log('In Copilot: /sf-next');
+  printCommandRoutes('singularity-flow next', { label: 'Continue' });
 }
 
 /**
@@ -500,7 +512,10 @@ export async function storyCommand(positionals, options) {
       console.log(`${entry.status === 'ready' ? '✓' : entry.status === 'missing' ? '○' : '✗'} ${entry.id} · ${entry.requestedBranch} @ ${entry.commit.slice(0, 12)} · ${entry.localPath}`);
       if (entry.reason) console.warn(`  ${entry.reason}`);
     }
-    if (verification.nextAction) console.log(`Next: ${verification.nextAction.replace('<WORK-ID>', workflow.workItem.id)}`);
+    if (verification.nextAction) printCommandRoutes(
+      verification.nextAction.replace('<WORK-ID>', workflow.workItem.id),
+      { label: 'Next' }
+    );
     return;
   }
   if (subcommand === 'workflow') {
@@ -1147,20 +1162,30 @@ export async function storyConvergeCommand(positionals, options) {
   console.log('is unimplemented or the change unplanned — only a human can say that.');
   console.log(`\nAllowed next: ${projection.allowedNext.join(', ') || 'none'}`);
   if (projection.allowedNext.includes('adjudicate')) {
-    console.log('  singularity-flow story adjudicate <ITEM-ID> --disposition rework|update-intent|accepted-deviation|dismissed|deferred [--reason TEXT] [--clause <CLAUSE-ID> ...]');
+    printCommandRoutes(
+      'singularity-flow story adjudicate <ITEM-ID> --disposition <rework|update-intent|accepted-deviation|dismissed|deferred> [--reason <TEXT>] [--clause <CLAUSE-ID> ...]',
+      { indent: '  ', label: 'Adjudicate' }
+    );
     console.log('  --clause is required when the disposition is update-intent.');
   }
   if (projection.allowedNext.includes('create-rework')) {
     // `story rework`, not `reject convergence`. Convergence is `in_progress` when its findings are
     // adjudicated, and `reject` requires a submitted phase — so the instruction printed here used
     // to be one the reader could not carry out, which is worse than printing nothing.
-    console.log('  singularity-flow story rework --confirm');
+    printCommandRoutes('singularity-flow story rework --confirm', { indent: '  ', label: 'Create rework' });
   }
   if (projection.allowedNext.includes('propose-intent-amendment')) {
-    console.log('  singularity-flow story intent-amendment propose --file <AMENDED-SPEC.md> --reason <TEXT>');
+    printCommandRoutes(
+      'singularity-flow story intent-amendment propose --file <AMENDED-SPEC.md> --reason <TEXT>',
+      { indent: '  ', label: 'Propose intent amendment' }
+    );
   }
   if (projection.allowedNext.includes('advance-to-verification')) {
-    console.log(`  singularity-flow story advance --work-id ${workflow.workItem.id}`);
+    printCommandRoutes(`singularity-flow story advance --work-id ${workflow.workItem.id}`, {
+      skill: '/sf-submit',
+      indent: '  ',
+      label: 'Advance to verification'
+    });
   }
 }
 
@@ -1559,7 +1584,10 @@ export async function storyIntentAmendmentCommand(positionals, options) {
     const result = await proposeIntentAmendment(root, config, workflow, verified, options);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`Proposed ${result.proposal.id} for ${result.proposal.diff.changed.join(', ')}; commit ${result.publication.sha.slice(0, 8)}.`);
-    console.log(`Authority decision: singularity-flow story intent-amendment decide ${result.proposal.id} --decision approve|reject --confirm ${result.proposal.id}`);
+    printCommandRoutes(
+      `singularity-flow story intent-amendment decide ${result.proposal.id} --decision <approve|reject> --confirm ${result.proposal.id}`,
+      { label: 'Authority decision' }
+    );
     return;
   }
   if (action === 'decide') {
@@ -1576,7 +1604,10 @@ export async function storyIntentAmendmentCommand(positionals, options) {
     }
     console.log(`Approved ${proposalId}; specification generation ${result.transition.proposal.application.toSpecificationGeneration} is active.`);
     console.log(`${result.transition.affectedPhases.length} phase(s) require revalidation; ${result.transition.preservedEvidence.length} unaffected evidence item(s) were preserved.`);
-    console.log(`Acknowledge before submitting: singularity-flow story intent-amendment acknowledge ${proposalId}`);
+    printCommandRoutes(
+      `singularity-flow story intent-amendment acknowledge ${proposalId}`,
+      { label: 'Acknowledge before submitting' }
+    );
     return;
   }
   if (action === 'acknowledge') {
@@ -1728,8 +1759,10 @@ export async function storyReworkRollForwardCommand(_positionals, options) {
       preview.stagedPaths.forEach((candidate) => console.log(`  ${candidate}`));
     }
     console.log('\nNo file, lifecycle state, commit, or remote was changed.');
-    console.log('Review the listed paths, then run:');
-    console.log(`singularity-flow story rework roll-forward --work-id ${preview.workId} --change-request ${preview.changeRequestId} --confirm ${preview.confirmation}`);
+    printCommandRoutes(
+      `singularity-flow story rework roll-forward --work-id ${preview.workId} --change-request ${preview.changeRequestId} --confirm ${preview.confirmation}`,
+      { label: 'Review the listed paths, then run' }
+    );
     return;
   }
   if (confirmation !== preview.confirmation) {
@@ -1840,7 +1873,11 @@ export async function storyAdvanceCommand(positionals, options) {
       console.log(`Findings: ${projection.findings.length}. Bound to reconciliation ${projection.bindings.reconciliation.sha256.slice(0, 12)}.`);
       console.log(`Confirmation digest: ${reviewed.snapshotSha256}`);
       console.log('No lifecycle state, file, commit, or remote changed.');
-      return console.log(`After reviewing this exact result, run: singularity-flow story advance --work-id ${workflow.workItem.id} --confirm ${reviewed.snapshotSha256}`);
+      printCommandRoutes(
+        `singularity-flow story advance --work-id ${workflow.workItem.id} --confirm ${reviewed.snapshotSha256}`,
+        { skill: '/sf-submit', label: 'After reviewing this exact result, run' }
+      );
+      return;
     }
     if (confirmation !== reviewed.snapshotSha256) {
       throw new SingularityFlowError(

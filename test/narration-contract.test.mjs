@@ -85,6 +85,35 @@ test('NCL-004 reassurance is derived from effects, never authored beside them', 
   assert.doesNotMatch(renderCommandResult(changed), /were changed\./);
 });
 
+test('every narrated continuation includes exact Shell and Copilot routes', () => {
+  const result = base();
+  assert.equal(result.next[0].command, 'singularity-flow validate');
+  assert.equal(result.next[0].skill, '/sf-doctor');
+  const rendered = renderCommandResult(result);
+  assert.match(rendered, /Shell: singularity-flow validate/);
+  assert.match(rendered, /Copilot: \/sf-doctor/);
+});
+
+test('an SGOS continuation preserves its full Copilot relay command', () => {
+  const result = commandResult({
+    operation: { id: 'sgos-status', classification: 'read' },
+    status: 'noop',
+    outcome: noop('fos.authority-current', { authority: 'state' }),
+    effects: noEffects(),
+    why: [],
+    next: [action({
+      id: 'process-status', label: 'Inspect process state',
+      command: 'singularity-flow process status --json', kind: 'informational'
+    })],
+    restState: null
+  });
+  assert.equal(result.next[0].skill, '/sf-sgos');
+  assert.equal(result.next[0].copilotCommand, '/sf-sgos process status --json');
+  const rendered = renderCommandResult(result);
+  assert.match(rendered, /Shell: .*singularity-flow process status --json/);
+  assert.match(rendered, /Copilot: .*\/sf-sgos process status --json/);
+});
+
 test('active Goals render through the supported terminal status vocabulary', () => {
   const result = commandResult({
     operation: { id: 'goal.list', classification: 'read' },
@@ -179,6 +208,98 @@ test('NCL-005 runtime validation rejects values the JSON schema forbids', () => 
     ...result,
     next: [{ ...result.next[0], modelPolicy: 'sometimes' }]
   }), /modelPolicy/);
+  assert.throws(() => validateCommandResult({
+    ...result,
+    next: [{ ...result.next[0], skill: '/sf-not valid' }]
+  }), /installed direct Copilot skill/);
+});
+
+test('the command-result schema matches runtime subject and documentation reason vocabulary', async () => {
+  const schema = JSON.parse(await readFile(new URL('../schemas/command-result.schema.json', import.meta.url), 'utf8'));
+  const subjectKinds = schema.properties.subject.properties.kind.enum;
+  for (const kind of ['goal', 'outcome', 'adhoc']) {
+    assert.ok(subjectKinds.includes(kind), `schema must accept runtime subject kind '${kind}'`);
+    const result = base({ subject: { kind, id: `${kind}-1` } });
+    assert.equal(result.subject.kind, kind);
+  }
+
+  const whyProperties = schema.properties.why.items.properties;
+  assert.ok(whyProperties.source.enum.includes('docs'));
+  assert.deepEqual(whyProperties.topic, {
+    type: 'string',
+    pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
+  });
+  const documented = base({
+    why: [because('docs.no-such-topic', 'docs', { topic: 'help-and-docs' })]
+  });
+  assert.equal(documented.why[0].source, 'docs');
+  assert.equal(documented.why[0].topic, 'help-and-docs');
+  const rendered = renderCommandResult(documented);
+  assert.match(rendered, /Shell: .*sflow explain help-and-docs/);
+  assert.match(rendered, /Copilot: .*\/sf-docs/);
+});
+
+test('Copilot continuation commands enforce the schema byte-independent character ceiling', async () => {
+  const schema = JSON.parse(await readFile(new URL('../schemas/command-result.schema.json', import.meta.url), 'utf8'));
+  const limit = schema.properties.next.items.properties.copilotCommand.maxLength;
+  assert.equal(limit, 4096);
+
+  const result = base();
+  const prefix = '/sf-help ';
+  const atLimit = `${prefix}${'x'.repeat(limit - [...prefix].length)}`;
+  assert.throws(() => validateCommandResult({
+    ...result,
+    next: [{ ...result.next[0], copilotCommand: atLimit }]
+  }), /safe registered Shell\/Copilot pair/,
+  'a within-limit producer route must still match the command crosswalk');
+  assert.throws(() => validateCommandResult({
+    ...result,
+    next: [{ ...result.next[0], copilotCommand: `${atLimit}x` }]
+  }), /copilotCommand must be at most 4096 characters/);
+
+  // JSON Schema maxLength counts Unicode code points, not UTF-16 code units. Runtime follows it
+  // even though a non-canonical route is rejected independently by the strict pair validator.
+  const emojiOverLimit = `${prefix}${'🚀'.repeat(limit + 1)}`;
+  assert.throws(() => validateCommandResult({
+    ...result,
+    next: [{ ...result.next[0], copilotCommand: emojiOverLimit }]
+  }), /copilotCommand must be at most 4096 characters/);
+});
+
+test('terminal narration never reflects a secret-bearing or mismatched producer route', () => {
+  const result = base();
+  const rendered = renderCommandResult({
+    ...result,
+    next: [{ ...result.next[0], command: 'singularity-flow status', skill: '/sf-status',
+      copilotCommand: '/sf-status --token TOPSECRET' }]
+  });
+  assert.doesNotMatch(rendered, /TOPSECRET|--token/u);
+  assert.match(rendered, /Command guidance unavailable/u);
+});
+
+test('schema version 1 remains compatible with continuation actions created before Copilot routes', async () => {
+  const schema = JSON.parse(await readFile(new URL('../schemas/command-result.schema.json', import.meta.url), 'utf8'));
+  const required = schema.properties.next.items.required;
+  assert.ok(!required.includes('skill'));
+  assert.ok(!required.includes('copilotCommand'));
+
+  const current = base();
+  const priorV1Action = { ...current.next[0] };
+  delete priorV1Action.skill;
+  delete priorV1Action.copilotCommand;
+  assert.doesNotThrow(() => validateCommandResult({
+    ...current,
+    next: [priorV1Action]
+  }, { requireEnvelope: true }));
+  const legacyRendered = renderCommandResult({ ...current, next: [priorV1Action] });
+  assert.match(legacyRendered, /Shell: .*singularity-flow validate/);
+  assert.match(legacyRendered, /Copilot: .*\/sf-doctor/);
+  assert.doesNotMatch(legacyRendered, /undefined/);
+
+  // New producers still populate both routes even though old persisted envelopes remain readable.
+  const produced = action({ id: 'status', label: 'Show status', command: 'singularity-flow status' });
+  assert.equal(produced.skill, '/sf-status');
+  assert.equal(produced.copilotCommand, '/sf-status');
 });
 
 test('NCL-005 output validation requires the versioned command-result envelope', () => {

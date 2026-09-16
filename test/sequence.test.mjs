@@ -74,16 +74,19 @@ function assertSequenceFailure(result, ...patterns) {
     assert.match(result.stderr, /\nWhy:\n/);
     assert.match(result.stderr, /\nNext:\n/);
     assert.match(result.stderr, /^ {2}NOW\s+\S/m, 'a ranked next action is offered');
-    assert.match(result.stderr, /^ {8}singularity-flow \S/m, 'the next action is a runnable command');
+    assert.match(result.stderr, /^ {8}Shell: singularity-flow \S/m, 'the next action has a runnable shell command');
+    assert.match(result.stderr, /^ {8}Copilot: \/sf-\S/m, 'the next action has a runnable Copilot command');
     assert.match(result.stderr, /No governed state, files, publications or external systems were changed\./);
   } else {
     assert.match(result.stderr, /Required next action:/);
     // Soft warnings still use the legacy guidance prose, which ranks its actions — "Run next",
     // "Then", "Alternative". What matters is that the runnable command leads the line, whichever
     // rank it carries, rather than sitting under a Copilot skill name.
-    assert.match(result.stderr, /^(Run next|Then|Alternative|Run): singularity-flow \S/m,
+    assert.match(result.stderr, /^(Run next|Then|Alternative|Run):\nShell: singularity-flow \S/m,
       'the guidance leads with a runnable command');
-    assert.doesNotMatch(result.stderr, /^[A-Za-z ]*in Copilot: \/sf-\S+\n(Run|Then|Alternative)/m,
+    assert.match(result.stderr, /^Copilot: \/sf-\S+/m,
+      'the guidance includes a Copilot command');
+    assert.doesNotMatch(result.stderr, /^[A-Za-z ]*in Copilot: \/sf-\S+\n(Run|Then|Alternative)/mi,
       'a Copilot skill is headlining a command instead of annotating it');
   }
   for (const pattern of patterns) assert.match(result.stderr, pattern);

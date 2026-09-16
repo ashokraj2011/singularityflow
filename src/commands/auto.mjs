@@ -33,6 +33,7 @@ import {
 } from '../auto/auto-entry-modes.mjs';
 import { loadImpactDefinition } from '../impact-config.mjs';
 import { compareImpactReceipts, listImpactReceipts } from '../impact.mjs';
+import { actionCommandLines } from '../copilot-guidance.mjs';
 
 const SUBCOMMANDS = new Set([
   'plan', 'show-plan', 'start', 'list', 'status', 'report', 'compare',
@@ -40,6 +41,11 @@ const SUBCOMMANDS = new Set([
   'continue', 'adopt', 'recover', 'repair', 'needs-you', 'respond', 'switch-unit'
 ]);
 const BIN = fileURLToPath(new URL('../../bin/singularity-flow.mjs', import.meta.url));
+
+function autoActionLines(command, label = 'Continue') {
+  if (typeof command !== 'string' || !command.trim()) return [];
+  return actionCommandLines({ command, skill: '/sf-auto' }, label);
+}
 
 function emitAuto(value, {
   operation, classification = 'read', state = null, card, json, changed = false,
@@ -110,7 +116,10 @@ function planCard(plan) {
   if (plan.proposal.unresolvedDecisions.length) lines.push(`Unresolved decisions: ${plan.proposal.unresolvedDecisions.join('; ')}`);
   if (plan.proposal.predictedPaths.length) lines.push(`Predicted paths: ${plan.proposal.predictedPaths.join(', ')}`);
   if (plan.safety.reasons.length) lines.push(`Cannot start because: ${plan.safety.reasons.join('; ')}`);
-  lines.push('', 'No Story or branch has been created.', '', `To start exactly this Plan:`, `singularity-flow auto start --plan ${plan.planId} --confirm ${packet.packetSha256}`);
+  lines.push('', 'No Story or branch has been created.', '', ...autoActionLines(
+    `singularity-flow auto start --plan ${plan.planId} --confirm ${packet.packetSha256}`,
+    'Start exactly this Plan'
+  ));
   return lines.join('\n');
 }
 
@@ -126,7 +135,7 @@ function statusCard(state) {
     `Plan: ${state.planId}`,
     `Checkpoint: ${state.checkpointSha256}`,
     `Stopped because: ${state.stopReason}`,
-    `Next: ${state.nextAction}`
+    '', ...autoActionLines(state.nextAction)
   ].join('\n');
 }
 
@@ -187,7 +196,7 @@ function adoptionCard(value) {
     'The confirmed bytes remain pre-auto-adhoc and have not been copied or relabelled.'
   ];
   if (plan) lines.push('', planCard(plan));
-  else lines.push('', `Reviewed handoff action: ${handoff.nextAction}`);
+  else lines.push('', ...autoActionLines(handoff.nextAction, 'Reviewed handoff action'));
   return lines.join('\n');
 }
 
@@ -203,7 +212,10 @@ function repairCard(value) {
     `Budget: exactly ${repairPlan.attemptNumber} repair attempt`,
     `Plan hash: ${repairPlan.repairPlanSha256}`,
     '', 'No repair has run.', '',
-    `To run exactly this repair: singularity-flow auto repair ${repairPlan.flightId} --refusal ${value.refusal?.refusalId ?? '<REFUSAL-ID>'} --confirm ${repairPlan.repairPlanSha256}`
+    ...autoActionLines(
+      `singularity-flow auto repair ${repairPlan.flightId} --refusal ${value.refusal?.refusalId ?? '<REFUSAL-ID>'} --confirm ${repairPlan.repairPlanSha256}`,
+      'Run exactly this repair'
+    )
   ].join('\n');
 }
 
@@ -218,7 +230,10 @@ function switchCard(value) {
     `Reason: ${plan.reason}`,
     `Plan hash: ${plan.switchPlanSha256}`,
     '', 'The current Execution Unit has not changed.', '',
-    `To apply exactly this switch: singularity-flow auto switch-unit ${plan.flightId} --execution-unit ${plan.toExecutionUnit} --confirm ${plan.switchPlanSha256}`
+    ...autoActionLines(
+      `singularity-flow auto switch-unit ${plan.flightId} --execution-unit ${plan.toExecutionUnit} --confirm ${plan.switchPlanSha256}`,
+      'Apply exactly this switch'
+    )
   ].join('\n');
 }
 
@@ -230,7 +245,7 @@ function listCard(states) {
     ...states.map((state) => [
       `${state.flightId} · ${state.status}`,
       `  Story ${state.story?.workId ?? 'unavailable'} · phase ${state.story?.phase ?? 'unknown'} · checkpoint ${state.checkpointSha256}`,
-      `  Next: ${state.nextAction}`
+      ...autoActionLines(state.nextAction).map((line) => `  ${line}`)
     ].join('\n'))
   ].join('\n');
 }

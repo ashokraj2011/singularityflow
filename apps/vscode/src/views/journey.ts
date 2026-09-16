@@ -141,7 +141,7 @@ function packsHtml(journey: Journey): string {
       </tr>`).join('')}</tbody></table>`;
 }
 
-function bodyHtml(journey: Journey): string {
+export function journeyBodyHtml(journey: Journey): string {
   if (journey.empty) return `<div class="empty"><p>${escape(journey.empty)}</p></div>`;
 
   const blockers = journey.blockers.length
@@ -183,8 +183,17 @@ function bodyHtml(journey: Journey): string {
       <!-- The button says what pressing it does; the argv is the supporting detail beneath it. It
            was the other way round, so the only filled button on the page was labelled with a raw
            command line and the readable sentence sat above it doing nothing. -->
-      <button data-run="next">${escape(journey.nextAction.label ?? actionLabel(journey.nextAction))}</button>
-      <p class="command-hint"><code>${escape(journey.nextAction.command)}</code></p>
+      ${journey.nextAction.copyable
+    ? `<button data-run="next">${escape(journey.nextAction.label ?? actionLabel(journey.nextAction))}</button>`
+    : '<p class="muted">Replace the shown placeholders before continuing.</p>'}
+      <div class="command-hint journey-command-routes">
+        <p><b>Shell:</b> <code>${escape(journey.nextAction.command)}</code>
+          ${journey.nextAction.copyable
+    ? `<button type="button" class="secondary" data-copy-route="${escape(journey.nextAction.command)}">Copy shell</button>` : ''}</p>
+        <p><b>Copilot:</b> <code>${escape(journey.nextAction.copilotCommand)}</code>
+          ${journey.nextAction.copyable
+    ? `<button type="button" class="secondary" data-copy-route="${escape(journey.nextAction.copilotCommand)}">Copy Copilot</button>` : ''}</p>
+      </div>
     </section>` : ''}
 
     <section class="journey-rail"><h2>${icon('epic')}Lifecycle</h2>
@@ -206,13 +215,14 @@ function bodyHtml(journey: Journey): string {
 }
 
 /** The page can only name an action and an id. What either means is decided by the extension. */
-const SCRIPT = `
+export const JOURNEY_SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-phase],[data-open],[data-approve],[data-run],[data-pin]');
+    const target = event.target.closest('[data-phase],[data-open],[data-approve],[data-run],[data-pin],[data-copy-route]');
     if (!target) return;
     event.preventDefault();
-    if (target.dataset.phase) vscode.postMessage({ type: 'phase', id: target.dataset.phase });
+    if (target.dataset.copyRoute) navigator.clipboard.writeText(target.dataset.copyRoute).catch(() => {});
+    else if (target.dataset.phase) vscode.postMessage({ type: 'phase', id: target.dataset.phase });
     else if (target.dataset.open) vscode.postMessage({ type: 'open', id: target.dataset.open });
     else if (target.dataset.approve) vscode.postMessage({ type: 'approve', id: target.dataset.approve });
     else if (target.dataset.run) vscode.postMessage({ type: 'run' });
@@ -324,10 +334,10 @@ export class JourneyPanel {
     const token = nonce();
     this.panel.webview.html = page(
       'Journey',
-      bodyHtml(buildJourney(this.store.current.snapshot, this.selectedStageId)),
+      journeyBodyHtml(buildJourney(this.store.current.snapshot, this.selectedStageId)),
       contentSecurityPolicy(this.panel.webview, token),
       token,
-      SCRIPT,
+      JOURNEY_SCRIPT,
       { nav: 'journey' }
     );
   }

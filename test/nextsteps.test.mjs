@@ -104,18 +104,15 @@ test('a no-approval phase never offers review actions and post-submit state targ
   assert.equal(afterActions.some((item) => /(?:prepare|submit|phase publish) intake/.test(item.command)), false);
 });
 
-test('nextsteps text leads with the command and preserves timing, reason, and skill', () => {
-  // The command is what someone reading a terminal is going to run, so it is the headline. This read
-  // the other way round — the Copilot skill first, the command beneath it as a "CLI equivalent" —
-  // which told the reader that the thing in front of them was the secondary way to use the product.
+test('nextsteps text preserves timing and reason and shows both Shell and Copilot routes', () => {
   const snapshot = nextStepsSnapshot({ workflow: workflow() });
   const text = nextStepsText(snapshot);
   assert.match(text, /NEXT-1 — next actions/);
-  assert.match(text, /NOW — singularity-flow prepare intake/);
-  assert.match(text, /THEN — singularity-flow phase publish intake --authored governed-agent --channel copilot-host/);
-  assert.match(text, /THEN — singularity-flow submit intake/);
-  assert.match(text, /ALTERNATIVE — singularity-flow reject/);
-  assert.match(text, /In Copilot: \/sf-phase/);
+  assert.match(text, /NOW — .*\n   Shell: singularity-flow prepare intake/);
+  assert.match(text, /THEN — .*\n   Shell: singularity-flow phase publish intake --authored governed-agent --channel copilot-host/);
+  assert.match(text, /THEN — .*\n   Shell: singularity-flow submit intake/);
+  assert.match(text, /ALTERNATIVE — .*\n   Shell: singularity-flow reject/);
+  assert.match(text, /Copilot: \/sf-phase/);
 });
 
 test('agent trust and synchronization prerequisites precede generation', () => {

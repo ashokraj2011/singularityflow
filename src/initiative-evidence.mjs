@@ -784,7 +784,7 @@ export async function evaluateInitiativePhase(root, portfolio, initiative, phase
       continue;
     }
     const message = check.status === 'unanswered'
-      ? `checklist ${phaseId}/${check.id} needs an applicability decision: run singularity-flow initiative applicability set ${check.applicabilityPolicy} yes|no --reason "..."`
+      ? `checklist ${phaseId}/${check.id} needs an applicability decision; use the returned governed next action`
       : `checklist ${phaseId}/${check.id} is ${check.status}`;
     if (check.gate === 'block') errors.push(message);
     else if (check.gate === 'warn') warnings.push(message);

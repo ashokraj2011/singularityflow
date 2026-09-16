@@ -15,6 +15,7 @@
  * reader, no confusion about what is governed evidence and what is documentation.
  */
 import { resolveHelp } from '../help-service.mjs';
+import { actionCommandLines, copilotAction } from '../copilot-guidance.mjs';
 export { citationLine, docsHandle, parseDocsHandle, servedBody } from '../help-service.mjs';
 import { citationLine, docsHandle, servedBody } from '../help-service.mjs';
 import {
@@ -242,7 +243,10 @@ export async function run(argv, { positionals, options } = { positionals: [], op
     console.log('Concept');
     console.log(served.text);
     if (served.truncated) {
-      console.log(`\n[truncated at ${served.bytes} bytes — expand with: sflow show ${served.handle} --section <heading>]`);
+      console.log(`\n[truncated at ${served.bytes} bytes]`);
+      for (const line of actionCommandLines(copilotAction({
+        command: `sflow show ${served.handle} --section <heading>`
+      }), 'Expand')) console.log(line);
     }
     console.log(citationLine(provenance));
     if (here) {

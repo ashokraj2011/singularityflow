@@ -5,6 +5,7 @@ import {
 import { navigateTo } from './navigate.ts';
 import { integerField, registerMessageRouter } from './messages.ts';
 import { screenGitRemotes } from './map-capability-form.ts';
+import { commandGuidance } from '../copilot-command.ts';
 
 interface LeadRepository { url: string }
 
@@ -19,11 +20,11 @@ interface CapabilityProposalSummary {
   configurationError?: string | null;
   configurationErrorCode?: string | null;
   repairable?: boolean;
-  repairAction?: { command?: string } | null;
+  repairAction?: { command?: string; skill?: string; copilotCommand?: string } | null;
   failure?: {
     code?: string; message?: string;
-    diagnosticAction?: { command?: string } | null;
-    nextAction?: { command?: string };
+    diagnosticAction?: { command?: string; skill?: string; copilotCommand?: string } | null;
+    nextAction?: { command?: string; skill?: string; copilotCommand?: string };
   };
 }
 
@@ -43,6 +44,23 @@ type Run = (argv: string[]) => Promise<{ result: unknown; error: string | null }
 
 function shortName(branch: string): string {
   return branch.replace(/^sflow\/config-change\/capability\/map-/, '');
+}
+
+function commandPair(label: string, value: unknown): string {
+  const guidance = commandGuidance(value);
+  if (!guidance) return '';
+  return `<small><strong>${escape(label)}</strong></small>
+    <small>Shell: <code>${escape(guidance.command)}</code></small>
+    <small>Copilot: <code>${escape(guidance.copilotCommand)}</code></small>`;
+}
+
+function remediation(value: unknown): string {
+  const paired = commandPair('Remediation', value);
+  if (paired) return paired;
+  const text = typeof value === 'string' ? value.trim() : '';
+  // A command-shaped value that failed the shared safety check is omitted, not downgraded to prose.
+  if (!text || /^(?:singularity-flow|sflow)(?:\s|$)/u.test(text)) return '';
+  return `<p>Remediation: ${escape(text)}</p>`;
 }
 
 function proposalsHtml(entries: ProposalEntry[], leads: number, failures: LeadFailure[],
@@ -68,10 +86,10 @@ function proposalsHtml(entries: ProposalEntry[], leads: number, failures: LeadFa
         <small>${escape(entry.proposalCommit.slice(0, 12))} · ${entry.changedFiles.length} changed file${entry.changedFiles.length === 1 ? '' : 's'} · ${entry.merged ? 'merged history' : entry.valid ? 'ready for exact review' : escape(entry.status ?? 'blocked by validation')}</small>
         ${entry.configurationError ? `<small class="error-text">${escape(entry.configurationError)}</small>` : ''}
         ${entry.repairable ? '<small>Open this review to prepare the exact packaged compatibility repair.</small>' : ''}
-        ${entry.repairAction?.command ? `<small>Recovery: <code>${escape(entry.repairAction.command)}</code></small>` : ''}
+        ${commandPair('Recovery', entry.repairAction)}
         ${entry.failure?.message ? `<small class="error-text">${escape(entry.failure.message)}</small>` : ''}
-        ${entry.failure?.diagnosticAction?.command ? `<small>Diagnostic: <code>${escape(entry.failure.diagnosticAction.command)}</code></small>` : ''}
-        ${entry.failure?.nextAction?.command ? `<small>Recovery: <code>${escape(entry.failure.nextAction.command)}</code></small>` : ''}
+        ${commandPair('Diagnostic', entry.failure?.diagnosticAction)}
+        ${commandPair('Recovery', entry.failure?.nextAction)}
       </button>${entry.discardable ? `<button class="secondary" data-discard="${index}" aria-label="Discard stale proposal ${escape(shortName(entry.branch))}">${icon('remove')} Discard stale proposal</button>` : ''}</div>`).join('')}</div>
   </section>`).join('');
   const integrityHtml = integrity.map((entry) => {
@@ -81,7 +99,7 @@ function proposalsHtml(entries: ProposalEntry[], leads: number, failures: LeadFa
       <span class="count-badge">${issues.length}</span></div>
       ${issues.length ? issues.map((check) => `<div class="notice ${check.status === 'fail' ? 'error' : 'governance-warning'}"><p><strong>${escape(check.id)}</strong>: ${escape(check.summary)}</p>
         ${check.branch ? `<p><code>${escape(check.branch)}${check.commit ? `@${escape(check.commit)}` : ''}</code></p>` : ''}
-        ${check.remediation ? `<p>Remediation: <code>${escape(check.remediation)}</code></p>` : ''}</div>`).join('')
+        ${remediation(check.remediation)}</div>`).join('')
         : '<div class="notice ok"><p>No capability authority or proposal-integrity issues were detected.</p></div>'}</section>`;
   }).join('');
   return `${brandLockup()}

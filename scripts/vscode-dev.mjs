@@ -33,7 +33,8 @@ import {
   exactGitRoot, reproducibleBuildEnvironment, verifiedPackagingProvenance, vscodeBuildIdentity
 } from './reproducible-build.mjs';
 import {
-  VSIX_CLI_PAYLOAD, readVerifiedVsixSourceManifest, vsixSourceManifestRequested
+  VSIX_CLI_PAYLOAD, VSIX_REQUIRED_CLI_RUNTIME,
+  readVerifiedVsixSourceManifest, vsixSourceManifestRequested
 } from '../src/vsix-source-manifest.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -1023,6 +1024,19 @@ async function stageTrackedPayload({ rootDir, staged, environment }) {
   return false;
 }
 
+async function assertRequiredCliRuntime(staged) {
+  for (const relative of VSIX_REQUIRED_CLI_RUNTIME) {
+    const target = path.join(staged, ...relative.split('/'));
+    const metadata = await lstat(target).catch(() => null);
+    if (!metadata?.isFile() || metadata.isSymbolicLink()) {
+      throw new Error([
+        `Staged CLI is missing required runtime file: ${relative}.`,
+        'Add the file to the Git index before packaging, then retry.'
+      ].join(' '));
+    }
+  }
+}
+
 function gitIndexFile(rootDir, relative) {
   const result = spawnSync('git', ['show', `:${relative}`], { cwd: rootDir, encoding: null });
   if (result.error || result.status !== 0) {
@@ -1146,6 +1160,7 @@ export async function stageCli({
         await copyRegularTree(path.join(rootDir, entry), path.join(staged, entry));
       }
     }
+    await assertRequiredCliRuntime(staged);
     // Re-materialize from lock integrity rather than trusting mutable/ignored repository
     // node_modules bytes. The preceding full npm ci primes the configured registry/cache, so this
     // bounded production-only install is normally local and closes an otherwise unverifiable leak.

@@ -14,6 +14,7 @@
 import { message, type Message, type Slots } from './result-messages.ts';
 import { homeDelta, type HomeAcknowledgement, type HomeDelta } from './home-acknowledgement.ts';
 import { buildAutoCards, type AutoCardView } from './auto-cards-model.ts';
+import { commandGuidance } from '../copilot-command.ts';
 
 /** One gate, as the reader meets it. `[UXH:REQ-062]` */
 export type ChecklistRow = {
@@ -56,6 +57,9 @@ export type CardAction = {
   readonly executable: boolean;
   readonly detail: string | null;
   readonly command: string | null;
+  readonly skill: string | null;
+  readonly copilotCommand: string | null;
+  readonly copyable: boolean;
 };
 
 export type HomeAttentionView = {
@@ -145,7 +149,9 @@ export type ResultCardView = {
   readonly guidance: {
     readonly context: { readonly workspace: string | null; readonly workId: string | null; readonly phase: string | null };
     readonly recommendation: {
-      readonly command: string; readonly skill: string | null; readonly reason: string | null;
+      readonly command: string; readonly skill: string; readonly copilotCommand: string;
+      readonly copyable: boolean;
+      readonly reason: string | null;
       readonly confirmationRequired: boolean; readonly effect: string;
     } | null;
     readonly preflight: readonly { readonly id: string; readonly state: string; readonly detail: string }[];
@@ -238,6 +244,7 @@ function headlineOf(result: any, gates: ResultCardView['gates']): string {
 
 function actionOf(entry: any): CardAction {
   const text = message(entry.reasonCode, entry.slots ?? {});
+  const routes = entry.fallback ? commandGuidance(entry.fallback) : null;
   return {
     id: entry.id,
     handle: entry.handle,
@@ -254,7 +261,10 @@ function actionOf(entry: any): CardAction {
      * Display-only. Pressing the button still goes through the handle — a card that offered a
      * command as the way to act would be the second dispatch path this design exists to remove.
      */
-    command: entry.fallback?.command ?? null
+    command: routes?.command ?? null,
+    skill: routes?.skill ?? null,
+    copilotCommand: routes?.copilotCommand ?? null,
+    copyable: routes?.copyable ?? false
   };
 }
 
@@ -397,23 +407,33 @@ export function buildResultCard(result: any, { acknowledgement }: ResultCardOpti
         });
       })() : null,
     guidance: result.operation?.id === 'developer.next' && result.data?.guidance
-      ? Object.freeze({
-        context: Object.freeze({
-          workspace: result.data?.workspace?.name ?? result.data?.workspace?.id ?? null,
-          workId: result.data.guidance.workId ?? null,
-          phase: result.data.guidance.currentPhase ?? null
-        }),
-        recommendation: result.data.guidance.recommendation ? Object.freeze({
-          command: result.data.guidance.recommendation.command,
-          skill: result.data.guidance.recommendation.skill ?? null,
-          reason: result.data.guidance.recommendation.reason ?? null,
-          confirmationRequired: result.data.guidance.recommendation.confirmation?.required === true,
-          effect: result.data.guidance.recommendation.effect?.class ?? 'read'
-        }) : null,
-        preflight: Object.freeze([...(result.data.guidance.preflight ?? [])]),
-        evidence: result.data.guidance.evidence ?? null,
-        requiredInputs: Object.freeze([...(result.data.guidance.requiredInputs ?? [])])
-      }) : null,
+      ? (() => {
+        const rawRecommendation = result.data.guidance.recommendation;
+        // This data crossed the gateway/webview boundary. A recommendation is visible only when its
+        // shell route is a registered, bounded SFlow command and every producer-supplied route agrees
+        // with the canonical CLI-to-Copilot crosswalk. Invalid guidance remains useful as context,
+        // but it must not become a copyable command on the card.
+        const routes = rawRecommendation ? commandGuidance(rawRecommendation) : null;
+        return Object.freeze({
+          context: Object.freeze({
+            workspace: result.data?.workspace?.name ?? result.data?.workspace?.id ?? null,
+            workId: result.data.guidance.workId ?? null,
+            phase: result.data.guidance.currentPhase ?? null
+          }),
+          recommendation: routes ? Object.freeze({
+            command: routes.command,
+            skill: routes.skill,
+            copilotCommand: routes.copilotCommand,
+            copyable: routes.copyable,
+            reason: rawRecommendation.reason ?? null,
+            confirmationRequired: rawRecommendation.confirmation?.required === true,
+            effect: rawRecommendation.effect?.class ?? 'read'
+          }) : null,
+          preflight: Object.freeze([...(result.data.guidance.preflight ?? [])]),
+          evidence: result.data.guidance.evidence ?? null,
+          requiredInputs: Object.freeze([...(result.data.guidance.requiredInputs ?? [])])
+        });
+      })() : null,
     home: projection ? Object.freeze({
       asOf: String(projection.asOf),
       projectionRevision: String(projection.subjectRevision),

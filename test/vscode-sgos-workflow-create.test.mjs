@@ -61,7 +61,16 @@ test('native SGOS review explicitly stops before ratification or execution', () 
   assert.match(review, /Operation: sflow\.story\.inspect/);
   assert.match(review, /Independent verifier: sflow\.story\.inspect\.verify/);
   assert.match(review, /Exact command:/);
+  assert.match(review, /Shell: singularity-flow intent workflow-create/);
+  assert.match(review, /Copilot: \/sf-sgos-create/);
   assert.match(review, /does not ratify, compile, approve, or run/);
+});
+
+test('native SGOS review does not surface a command when its payload has no safe route', () => {
+  const review = sgosWorkflowCreateReview({ ...selection(), title: 'Unsafe\npayload' });
+  assert.match(review, /Shell: not displayed/);
+  assert.match(review, /Copilot: not displayed/);
+  assert.doesNotMatch(review.split('Exact command:')[1], /Unsafe\s+payload/);
 });
 
 test('ratification preview preserves argv boundaries and an explicit repository cwd', () => {
@@ -102,4 +111,11 @@ test('Command Center exposes the SGOS creator as an explicit user action', async
   ), 'utf8');
   assert.match(page, /data-create-workflow/);
   assert.match(page, /type:'createWorkflow'/);
+  const creator = await readFile(path.join(
+    root, 'apps', 'vscode', 'src', 'sgos-workflow-create.ts'
+  ), 'utf8');
+  assert.match(creator, /guidance\?\.copyable \? \['Copy Shell preview', 'Copy Copilot preview'\]/,
+    'native copy controls are available only for a complete validated command pair');
+  assert.match(creator, /action === 'Copy Shell preview' && guidance\?\.copyable/);
+  assert.match(creator, /action === 'Copy Copilot preview' && guidance\?\.copyable/);
 });

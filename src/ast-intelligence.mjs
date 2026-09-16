@@ -6,6 +6,7 @@ import path from 'node:path';
 import { gunzipSync } from 'node:zlib';
 
 import { normalizeAstPolicy, assuranceSatisfies } from './ast-policy.mjs';
+import { actionCommandLines, copilotAction } from './copilot-guidance.mjs';
 import {
   adapterDerivationKey, astAdapterManifestSha256, astAdapterRequest, discoverAstAdapters, executeAstAdapter,
   inspectAstAdapterArtifacts, validateAstAdapterManifest
@@ -2300,7 +2301,9 @@ function printResult(result, json) {
     console.log(`AST ${result.operation}: ${result.status} · ${result.assurance} assurance · ${result.coverage.processed}/${result.coverage.selected} files`);
     for (const diagnostic of result.diagnostics) console.log(`- ${diagnostic.code}: ${diagnostic.message ?? ''}`);
     if (result.nextCursor) {
-      console.log(`Next page: singularity-flow wm ast ${result.operation} --cursor ${result.nextCursor}`);
+      for (const line of actionCommandLines(copilotAction({
+        command: `singularity-flow wm ast ${result.operation} --cursor ${result.nextCursor}`
+      }), 'Next page')) console.log(line);
     }
   } else console.log(JSON.stringify(result, null, 2));
 }

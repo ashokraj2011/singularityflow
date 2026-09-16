@@ -25,6 +25,7 @@
  */
 import { buildResultCard, type ResultCardView } from './result-card-model.ts';
 import { message } from './result-messages.ts';
+import { commandGuidance } from '../copilot-command.ts';
 
 /** Where a card's facts came from, so the panel can say so rather than implying full fidelity. */
 export type RefusalFidelity = 'sflow-result-v2' | 'command-result-v1' | 'refusal-plan-v1' | 'message-only';
@@ -50,24 +51,14 @@ function structuredResult(stderr: string): any | null {
   return null;
 }
 
-const SAFE_RECOVERY_COMMAND = /^(?:singularity-flow|sflow)(?:\s|$)/;
-const SECRET_SHAPE = /(?:--(?:token|secret|password|credential|authorization|cookie|api[-_]?key|private[-_]?key|selection[-_]?receipt)\b|:\/\/[^\s/@:]+:[^\s/@]+@)/i;
-
-function safeRecoveryCommand(value: unknown): string | null {
-  const command = typeof value === 'string' ? value.trim() : '';
-  if (!command || command.length > 2_000 || /[\r\n\u0000-\u001f\u007f]/.test(command)
-      || !SAFE_RECOVERY_COMMAND.test(command) || SECRET_SHAPE.test(command)) return null;
-  return command;
-}
-
 /** Adapt bounded process-boundary guidance without claiming any effects or preservation. */
 function fromRefusalPlan(result: any, displayMessage: string): ResultCardView {
   const planned = Array.isArray(result.remediationPlan?.steps)
     ? result.remediationPlan.steps.slice(0, 3)
     : [];
   const actions = planned.flatMap((entry: any, index: number) => {
-    const command = safeRecoveryCommand(entry?.command);
-    if (!command) return [];
+    const guidance = commandGuidance(entry);
+    if (!guidance) return [];
     return [{
       id: String(entry?.id ?? `recovery:${index}`),
       handle: String(entry?.id ?? `recovery:${index}`),
@@ -76,7 +67,9 @@ function fromRefusalPlan(result: any, displayMessage: string): ResultCardView {
       interaction: 'navigation',
       executable: false,
       detail: 'Prepared for review. Opening it never runs the command.',
-      command
+      command: guidance.command,
+      skill: guidance.skill,
+      copilotCommand: guidance.copilotCommand
     }];
   });
   const code = String(result.error?.code ?? result.remediationPlan?.code ?? 'SINGULARITY_FLOW_ERROR');
@@ -156,21 +149,29 @@ function fromCommandResultV1(result: any): any {
       ? [{ code: 'work.nothing-was-carried-out', source: 'evidence', scope: 'all', reference: null, slots: {} }]
       : [],
     checklist: [],
-    next: (result.next ?? []).map((entry: any, index: number) => ({
-      handle: entry.handle ?? entry.command ?? `v1:${index}`,
-      id: entry.id ?? `v1:${index}`,
-      label: entry.label ?? entry.command ?? 'Continue',
-      rank: entry.rank ?? index,
-      kind: 'read',
-      reasonCode: entry.reasonCode ?? 'work.legal-now',
-      confirmation: 'none',
-      interaction: 'navigation',
-      /** v1 has no emphasis. Leading with the first action is the producer's own ordering. */
-      emphasis: index === 0 ? 'primary' : 'secondary',
-      executable: false,
-      slots: entry.slots ?? {},
-      fallback: entry.command ? { label: entry.label ?? entry.command, command: entry.command } : null
-    })),
+    next: (result.next ?? []).map((entry: any, index: number) => {
+      const guidance = commandGuidance(entry);
+      return {
+        handle: entry.handle ?? entry.command ?? `v1:${index}`,
+        id: entry.id ?? `v1:${index}`,
+        label: entry.label ?? entry.command ?? 'Continue',
+        rank: entry.rank ?? index,
+        kind: 'read',
+        reasonCode: entry.reasonCode ?? 'work.legal-now',
+        confirmation: 'none',
+        interaction: 'navigation',
+        /** v1 has no emphasis. Leading with the first action is the producer's own ordering. */
+        emphasis: index === 0 ? 'primary' : 'secondary',
+        executable: false,
+        slots: entry.slots ?? {},
+        fallback: guidance ? {
+          label: entry.label ?? guidance.command,
+          command: guidance.command,
+          skill: guidance.skill,
+          copilotCommand: guidance.copilotCommand
+        } : null
+      };
+    }),
     restState: result.restState ?? null,
     data: result.data ?? {}
   };

@@ -13,6 +13,7 @@ import {
   wrapCommandWithFaultRepair
 } from '../src/fault-repair.mjs';
 import { homeOverviewResult } from '../src/gateway/planners/home-overview.mjs';
+import { homeProjectionV2 } from '../src/gateway/home-projection-v2.mjs';
 import { canonicalJson } from '../src/specifications.mjs';
 import { initializeDefinition } from '../src/config.mjs';
 
@@ -579,8 +580,16 @@ test('Home promotes a redacted fault repair without displacing interrupted publi
   assert.equal(home.next[0].id, 'fault:fix:FLT-ABC');
   assert.equal(home.next[0].emphasis, 'primary');
   assert.equal(home.next[0].confirmation, 'ceremony');
-  assert.equal(home.next[0].fallback.skill, '/sf-fix FLT-ABC');
+  assert.equal(home.next[0].fallback.skill, '/sf-fix');
   assert.equal(home.next[0].fallback.command, 'singularity-flow fix FLT-ABC');
+  const projection = homeProjectionV2(home);
+  const fix = projection.prompt.goals.find((entry) => entry.id === 'fault:fix:FLT-ABC');
+  const diagnose = projection.prompt.goals.find((entry) => entry.id === 'fault:diagnose:FLT-ABC');
+  const evidence = projection.prompt.goals.find((entry) => entry.id === 'fault:evidence:FLT-ABC');
+  assert.deepEqual(
+    [fix?.fallback?.copilotCommand, diagnose?.fallback?.copilotCommand, evidence?.fallback?.copilotCommand],
+    ['/sf-fix', '/sf-fix', '/sf-fault']
+  );
   assert.equal(home.data.faults[0].summary, 'redacted summary');
   assert.equal(Object.hasOwn(home.data.faults[0], 'evidence'), false);
 

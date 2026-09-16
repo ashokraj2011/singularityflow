@@ -17,6 +17,7 @@ import { run } from '../src/util.mjs';
 import { ensureConfigurationBranch } from '../src/configuration-branch.mjs';
 import { fetchWorkspace } from '../src/workspace.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
+import { safeCommandGuidance } from '../src/safe-command-guidance.mjs';
 
 async function remoteFixture(branch = 'trunk') {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-bootstrap-guardian-'));
@@ -477,6 +478,12 @@ test('blocked preflight exposes classified recovery actions without losing the b
   assert.ok(prepared.recoveryActions.some((entry) => entry.id === 'inspect'));
   assert.ok(prepared.recoveryActions.some((entry) =>
     entry.finding?.includes('offline') && /Reconnect/.test(entry.instruction)));
+  for (const action of [prepared.nextAction, ...prepared.recoveryActions]) {
+    const guidance = safeCommandGuidance(action);
+    assert.ok(guidance, `workspace bootstrap action must be presentable: ${action.command}`);
+    assert.equal(guidance.skill, '/sf-workspace-bootstrap');
+    assert.equal(guidance.copilotCommand, '/sf-workspace-bootstrap');
+  }
   assert.equal((await readWorkspaceBootstrap(prepared.bootstrapId, { env })).bootstrapId,
     prepared.bootstrapId);
 });

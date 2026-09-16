@@ -371,14 +371,19 @@ async function retainCapabilityPushRecovery(record, { environment = process.env 
   return { recoveryId, expiresAt, registryFile };
 }
 
-function quoted(value, fallback = 'VALUE') {
+const COMMAND_PLACEHOLDERS = new Set([
+  '<VALUE>', '<LEAD-URL>', '<DELIVERY-URL>', '<PROPOSAL-BRANCH>', '<COMMIT-SHA>', '<REASON>'
+]);
+
+function quoted(value, fallback = '<VALUE>') {
   const text = String(value ?? '');
+  if (COMMAND_PLACEHOLDERS.has(text)) return text;
   if (/^[A-Za-z0-9][A-Za-z0-9._/@:=,+-]*$/.test(text)) return text;
   return fallback;
 }
 
 /** Preserve an executable authority exactly; unsafe input becomes a non-secret placeholder. */
-function commandRemote(value, fallback = 'LEAD_URL') {
+function commandRemote(value, fallback = '<LEAD-URL>') {
   const candidate = String(value ?? '').trim();
   if (!candidate) return fallback;
   try {
@@ -393,14 +398,19 @@ function commandRemote(value, fallback = 'LEAD_URL') {
   catch { return fallback; }
 }
 
+/** Keep the semantic placeholder when a reviewed remote cannot be rendered as one shell word. */
+function commandRemoteOperand(value, fallback = '<LEAD-URL>') {
+  return quoted(commandRemote(value, fallback), fallback);
+}
+
 function capabilityCommand(action, {
   remote, branch = null, commit = null, acknowledge = false, reason = null
 } = {}) {
   const args = ['singularity-flow', 'capability', action];
-  if (branch) args.push(quoted(branch, 'PROPOSAL_BRANCH'));
-  if (remote) args.push('--lead', quoted(commandRemote(remote)));
-  if (commit) args.push('--confirm', quoted(commit, 'COMMIT_SHA'));
-  if (reason) args.push('--reason', quoted(reason, 'REASON'));
+  if (branch) args.push(quoted(branch, '<PROPOSAL-BRANCH>'));
+  if (remote) args.push('--lead', commandRemoteOperand(remote));
+  if (commit) args.push('--confirm', quoted(commit, '<COMMIT-SHA>'));
+  if (reason) args.push('--reason', quoted(reason, '<REASON>'));
   if (acknowledge) args.push('--acknowledge-unprotected');
   args.push('--json');
   return args.join(' ');
@@ -411,9 +421,9 @@ function staleAuthorityLinkRetirementCommand(
 ) {
   return [
     'singularity-flow capability reconcile',
-    quoted(commandRemote(repository, 'DELIVERY_URL'), 'DELIVERY_URL'),
+    quoted(commandRemote(repository, '<DELIVERY-URL>'), '<DELIVERY-URL>'),
     '--remove-stale',
-    '--lead', quoted(commandRemote(lead), 'LEAD_URL'),
+    '--lead', quoted(commandRemote(lead), '<LEAD-URL>'),
     '--state-branch', quoted(stateBranch),
     '--json'
   ].join(' ');
@@ -454,7 +464,7 @@ function missingCapabilityConfigurationError(remote, proposals = []) {
           stage: 'review', state: 'configuration-authority-missing', remote,
           nextAction: {
             command: capabilityCommand('fsck', { remote }),
-            skill: '/sf-capability-map'
+            skill: '/sf-capability-doctor'
           },
           preserved: ['proposal-branches', 'application-branches']
         }),
@@ -561,7 +571,7 @@ function proposalContentAppearsInAuthorityHistory(root, base, proposal, target =
 
 function activationRecoveryConflict(remote, proposalBranch, proposalCommit, details = {}) {
   const nextAction = {
-    command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-map'
+    command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-doctor'
   };
   return new SingularityFlowError(
     'The original accepted capability target cannot be recovered unambiguously. No replacement audit or projection was written.', {
@@ -1130,7 +1140,7 @@ async function withCapabilityProposalCheckout(url, branch, operation, {
     code: 'CAPABILITY_LEAD_REQUIRED',
     details: capabilityRecovery({
       stage: 'review', state: 'input-refused', recoverable: true,
-      nextAction: { command: 'singularity-flow capability leads --json', skill: '/sf-capability-map' }
+      nextAction: { command: 'singularity-flow capability leads --json', skill: '/sf-capability-doctor' }
       })
   });
   // Review, repair, and activation can themselves be the next command after an uncertain prior
@@ -1308,7 +1318,7 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
     code: 'CAPABILITY_LEAD_REQUIRED',
     details: capabilityRecovery({
       stage: 'proposal', state: 'input-refused', recoverable: true,
-      nextAction: { command: 'singularity-flow capability leads --json', skill: '/sf-capability-map' }
+      nextAction: { command: 'singularity-flow capability leads --json', skill: '/sf-capability-doctor' }
     })
   });
 
@@ -1395,7 +1405,7 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
           details: {
             ...capabilityRecovery({
               stage: 'proposal', state: 'configuration-repair-required', remote,
-              nextAction: { command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-map' },
+              nextAction: { command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-doctor' },
               preserved: ['approved-configuration', 'application-branches', 'existing-proposals']
             }),
             underlyingCode: error?.code ?? 'CONFIGURATION_INVALID'
@@ -1860,7 +1870,7 @@ export async function readOrganisation(url, { refresh = false } = {}) {
     code: 'CAPABILITY_LEAD_REQUIRED',
     details: capabilityRecovery({
       stage: 'organisation-read', state: 'input-refused', recoverable: true,
-      nextAction: { command: 'singularity-flow capability leads --json', skill: '/sf-capability-map' }
+      nextAction: { command: 'singularity-flow capability leads --json', skill: '/sf-capability-doctor' }
     })
   });
   const branch = CONFIGURATION_BRANCH;
@@ -1908,8 +1918,8 @@ export async function readOrganisation(url, { refresh = false } = {}) {
           }),
           remoteFailure,
           diagnosticAction: {
-            command: `singularity-flow workspace doctor --network --repository ${quoted(commandRemote(remote))} --json`,
-            skill: '/sf-capability-map'
+            command: `singularity-flow workspace doctor --network --repository ${commandRemoteOperand(remote)} --json`,
+            skill: '/sf-workspace-bootstrap'
           }
         }
       }
@@ -1969,8 +1979,8 @@ export async function readOrganisation(url, { refresh = false } = {}) {
             }),
             remoteFailure,
             diagnosticAction: {
-              command: `singularity-flow workspace doctor --network --repository ${quoted(commandRemote(remote))} --json`,
-              skill: '/sf-capability-map'
+              command: `singularity-flow workspace doctor --network --repository ${commandRemoteOperand(remote)} --json`,
+              skill: '/sf-workspace-bootstrap'
             }
           }
         });
@@ -2258,8 +2268,8 @@ export async function inspectCapabilityRepository(repositoryUrl, {
         retryable: staleRemoteFailure?.retryable ?? false,
         evidence: staleRemoteFailure?.evidence ?? null,
         diagnosticAction: {
-          command: `singularity-flow workspace doctor --network --repository ${quoted(commandRemote(url))} --json`,
-          skill: '/sf-capability-map'
+          command: `singularity-flow workspace doctor --network --repository ${commandRemoteOperand(url)} --json`,
+          skill: '/sf-workspace-bootstrap'
         },
         message: `The approved capability map for '${failureLead}' could not be refreshed; the last validated cache was inspected.`
       } : null;
@@ -2340,7 +2350,10 @@ export async function inspectCapabilityRepository(repositoryUrl, {
           classification: remoteFailure?.classification ?? null,
           retryable: remoteFailure?.retryable ?? false,
           evidence: remoteFailure?.evidence ?? null,
-          diagnosticAction: error?.details?.diagnosticAction ?? null,
+          diagnosticAction: error?.details?.diagnosticAction ?? {
+            command: `singularity-flow workspace doctor --network --repository ${commandRemoteOperand(url)} --json`,
+            skill: '/sf-workspace-bootstrap'
+          },
           message: redactDiagnosticText(error?.message ?? String(error))
         },
         proposalFailure: null, proposalTransportFailures: []
@@ -2360,7 +2373,7 @@ export async function inspectCapabilityRepository(repositoryUrl, {
         ?? `The repository capability authority link is ${authorityLink.status}.`),
       diagnosticAction: {
         command: `singularity-flow capability fsck --lead ${quoted(commandRemote(repository))} --json`,
-        skill: '/sf-capability-map'
+        skill: '/sf-capability-doctor'
       }
     }] : []),
     ...inspected.flatMap((entry) => [
@@ -2410,8 +2423,8 @@ export async function inspectCapabilityRepository(repositoryUrl, {
       command: `singularity-flow capability publish --lead ${quoted(commandRemote(linkedLead))} --json`,
       skill: '/sf-capability-map'
     } : linkedInspection?.failure?.diagnosticAction ?? {
-      command: `singularity-flow capability fsck --repository ${quoted(commandRemote(repository, 'DELIVERY_URL'), 'DELIVERY_URL')} --lead ${quoted(commandRemote(linkedLead))} --json`,
-      skill: '/sf-capability-map'
+      command: `singularity-flow capability fsck --repository ${quoted(commandRemote(repository, '<DELIVERY-URL>'), '<DELIVERY-URL>')} --lead ${quoted(commandRemote(linkedLead))} --json`,
+      skill: '/sf-capability-doctor'
     };
     failures.push({
       lead: sanitizeRemote(linkedLead),
@@ -2912,7 +2925,7 @@ export async function mapCapability(leadUrl, {
     code: 'CAPABILITY_LEAD_REQUIRED',
     details: capabilityRecovery({
       stage: 'proposal', state: 'input-refused', recoverable: true,
-      nextAction: { command: 'singularity-flow capability leads --json', skill: '/sf-capability-map' }
+      nextAction: { command: 'singularity-flow capability leads --json', skill: '/sf-capability-doctor' }
     })
   });
   validateCapabilityMapRequest({
@@ -3555,7 +3568,7 @@ export async function publishOrganisationCapabilityMap(url, {
     code: 'CAPABILITY_LEAD_REQUIRED',
     details: capabilityRecovery({
       stage: 'projection', state: 'input-refused', recoverable: true,
-      nextAction: { command: 'singularity-flow capability leads --json', skill: '/sf-capability-map' }
+      nextAction: { command: 'singularity-flow capability leads --json', skill: '/sf-capability-doctor' }
     })
   });
   const baseBranch = CONFIGURATION_BRANCH;
@@ -3726,7 +3739,7 @@ function capabilityProposalFetchPages(entries, remote) {
           details: {
             ...capabilityRecovery({
               stage: 'review', state: 'proposal-ref-command-too-large', remote,
-              nextAction: { command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-map' },
+              nextAction: { command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-doctor' },
               preserved: ['approved-configuration', 'proposal-branches', 'application-branches']
             }),
             limits: {
@@ -3756,7 +3769,7 @@ export async function listCapabilityProposals(url, {
     code: 'CAPABILITY_LEAD_REQUIRED',
     details: capabilityRecovery({
       stage: 'review', state: 'input-refused', recoverable: true,
-      nextAction: { command: 'singularity-flow capability leads --json', skill: '/sf-capability-map' }
+      nextAction: { command: 'singularity-flow capability leads --json', skill: '/sf-capability-doctor' }
     })
   });
   const inspectedRepository = repositoryUrl == null
@@ -3807,8 +3820,8 @@ export async function listCapabilityProposals(url, {
           }),
           remoteFailure: publicRemoteFailure(failure),
           diagnosticAction: {
-            command: `singularity-flow workspace doctor --network --repository ${quoted(commandRemote(remote))} --json`,
-            skill: '/sf-capability-map'
+            command: `singularity-flow workspace doctor --network --repository ${commandRemoteOperand(remote)} --json`,
+            skill: '/sf-workspace-bootstrap'
           }
         }
       });
@@ -3854,8 +3867,8 @@ export async function listCapabilityProposals(url, {
         details: {
           remoteFailure,
           diagnosticAction: {
-            command: `singularity-flow workspace doctor --network --repository ${quoted(commandRemote(remote))} --json`,
-            skill: '/sf-capability-map'
+            command: `singularity-flow workspace doctor --network --repository ${commandRemoteOperand(remote)} --json`,
+            skill: '/sf-workspace-bootstrap'
           }
         }
       });
@@ -3897,8 +3910,8 @@ export async function listCapabilityProposals(url, {
           details: {
             remoteFailure: publicRemoteFailure(fetched.failure),
             diagnosticAction: {
-              command: `singularity-flow workspace doctor --network --repository ${quoted(commandRemote(remote))} --json`,
-              skill: '/sf-capability-map'
+              command: `singularity-flow workspace doctor --network --repository ${commandRemoteOperand(remote)} --json`,
+              skill: '/sf-workspace-bootstrap'
             }
           }
         }
@@ -4002,7 +4015,7 @@ export async function listCapabilityProposals(url, {
         details: {
           ...capabilityRecovery({
             stage: 'review', state: 'proposal-inspection-partial', remote,
-            nextAction: { command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-map' },
+            nextAction: { command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-doctor' },
             preserved: ['approved-configuration', 'proposal-branches', 'application-branches']
           }),
           coverage: {
@@ -4124,7 +4137,7 @@ async function validateInspectedCapabilityProposal(root, inspected, ref, {
         skill: '/sf-capability-map'
       } : {
         command: capabilityCommand('fsck', { remote: inspected.remote }),
-        skill: '/sf-capability-map'
+        skill: '/sf-capability-doctor'
       }
     };
   }
@@ -4617,7 +4630,7 @@ export async function discardStaleCapabilityProposal(url, branch, {
         code: 'CAPABILITY_PROPOSAL_DISCARD_FAILED',
         details: {
           lead: sanitizeRemote(remote), proposalBranch, proposalCommit: expected,
-          nextAction: { command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-map' },
+          nextAction: { command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-doctor' },
           preserved: ['proposal-branch', 'approved-configuration', 'application-branches']
         }
       }
@@ -4645,7 +4658,7 @@ export async function discardStaleCapabilityProposal(url, branch, {
     reason: explanation,
     discardedAt: new Date().toISOString(),
     preserved: ['approved-configuration', 'state-projection', 'application-branches', 'other-proposal-branches'],
-    nextAction: { command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-map' }
+    nextAction: { command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-doctor' }
   };
 }
 
@@ -4699,7 +4712,7 @@ export async function repairCapabilityProposal(url, branch, {
           details: capabilityRecovery({
             stage: 'proposal-repair', state: 'approved-configuration-repair-required', remote,
             branch: proposalBranch, commit: proposalCommit,
-            nextAction: { command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-map' },
+            nextAction: { command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-doctor' },
             preserved: ['approved-configuration', 'proposal-history', 'application-branches']
           })
         }
@@ -4743,7 +4756,7 @@ export async function repairCapabilityProposal(url, branch, {
               ...capabilityRecovery({
                 stage: 'proposal-repair', state: 'custom-review-required', remote,
                 branch: proposalBranch, commit: proposalCommit,
-                nextAction: { command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-map' },
+                nextAction: { command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-doctor' },
                 preserved: ['proposal-branch', 'approved-configuration', 'application-branches']
               }),
               underlyingCode: error?.code ?? 'CONFIGURATION_INVALID',
@@ -4776,7 +4789,7 @@ export async function repairCapabilityProposal(url, branch, {
             ...capabilityRecovery({
               stage: 'proposal-repair', state: 'custom-review-required', remote,
               branch: proposalBranch, commit: proposalCommit,
-              nextAction: { command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-map' },
+              nextAction: { command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-doctor' },
               preserved: ['proposal-branch', 'approved-configuration', 'application-branches']
             }),
             changedPaths
@@ -5090,7 +5103,7 @@ export async function activateCapabilityProposal(url, branch, {
               }),
               skill: '/sf-capability-map'
             }
-          : { command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-map' };
+          : { command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-doctor' };
         throw new SingularityFlowError(
           `Capability proposal is not operational: ${redactDiagnosticText(error?.message ?? String(error))} Nothing was changed.`, {
             code: repairableProposal
@@ -5209,7 +5222,7 @@ export async function activateCapabilityProposal(url, branch, {
         } catch (error) {
           run('git', ['merge', '--abort'], { cwd: root, env, allowFailure: true });
           const nextAction = {
-            command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-map'
+            command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-doctor'
           };
           throw new SingularityFlowError(
             `Capability proposal cannot produce an operational configuration after merging with the current authority: ${redactDiagnosticText(error?.message ?? String(error))} Nothing was pushed.`, {

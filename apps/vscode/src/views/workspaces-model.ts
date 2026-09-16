@@ -190,6 +190,7 @@ export interface WorkspaceRecoveryAction {
   shell?: 'posix' | 'powershell';
   cwd?: string;
   skill?: string;
+  copilotCommand?: string;
 }
 
 /** The complete UI context which one configuration preview or apply is allowed to affect. */

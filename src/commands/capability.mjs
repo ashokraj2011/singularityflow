@@ -1,6 +1,7 @@
 import path from 'node:path';
 
 import { listLeadRepositories, rememberLeadRepository } from '../lead-repositories.mjs';
+import { safeCommandGuidance } from '../safe-command-guidance.mjs';
 import {
   optionBoolean, optionString, optionStrings, SingularityFlowError
 } from '../util.mjs';
@@ -9,6 +10,18 @@ let legacy = null;
 let organisation = null;
 let explanationSupport = null;
 const DIRECT = new Set(['add', 'protect', 'depend', 'auto', 'show', 'leads', 'adopt-managed']);
+
+function printCommandRoutes(command, { skill = null, label = null } = {}) {
+  if (label) console.log(`${label}:`);
+  const guidance = safeCommandGuidance({ command, skill });
+  if (!guidance) {
+    console.log('Shell: unavailable — the supplied command was not safe to display.');
+    console.log('Copilot: unavailable — ask /sf-next for a current governed action.');
+    return;
+  }
+  console.log(`Shell: ${guidance.command}`);
+  console.log(`Copilot: ${guidance.copilotCommand}`);
+}
 
 function isDirect(context = {}) {
   return DIRECT.has(context.positionals?.[1] ?? 'show');
@@ -239,8 +252,11 @@ async function runMutation(subcommand, context) {
   console.log(`  commit: ${result.commit}`);
   console.log(`  receipt: ${result.receiptPath}`);
   console.log('Nothing has been applied yet.');
-  console.log(`Review: singularity-flow capability proposal ${result.branch} --lead ${lead}`);
-  console.log(`Activate after review: singularity-flow capability activate ${result.branch} --lead ${lead} --confirm ${result.commit}`);
+  printCommandRoutes(`singularity-flow capability proposal ${result.branch} --lead ${lead}`, { label: 'Review' });
+  printCommandRoutes(
+    `singularity-flow capability activate ${result.branch} --lead ${lead} --confirm ${result.commit}`,
+    { label: 'Activate after review' }
+  );
   return result;
 }
 
@@ -330,7 +346,10 @@ export async function run(argv, context = {}) {
       console.log(`  current map: ${result.plan.beforeSha256}`);
       console.log(`  plan: ${result.plan.planSha256}`);
       console.log('No file, proposal, Story, or authority was changed.');
-      console.log(`Confirm: singularity-flow capability adopt-managed --lead ${lead} --confirm ${result.plan.planSha256}`);
+      printCommandRoutes(
+        `singularity-flow capability adopt-managed --lead ${lead} --confirm ${result.plan.planSha256}`,
+        { label: 'Confirm' }
+      );
       return result;
     }
     if (result.alreadyManaged) {

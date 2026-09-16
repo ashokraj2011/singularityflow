@@ -27,7 +27,16 @@ test('an Auto policy refusal gives a capability-aware bounded plan without execu
     'singularity-flow configuration explain --pointer /auto --json',
     'singularity-flow capability show rule-engine --verbose --json'
   ]);
-  assert.match(renderRefusalPlan(plan), /Recovery plan:/);
+  assert.deepEqual(plan.steps.map((entry) => entry.skill), [
+    '/sf-docs', '/sf-configuration', '/sf-capabilities'
+  ]);
+  assert.deepEqual(plan.steps.map((entry) => entry.copilotCommand), [
+    '/sf-docs', '/sf-configuration', '/sf-capabilities'
+  ]);
+  const rendered = renderRefusalPlan(plan);
+  assert.match(rendered, /Recovery plan:/);
+  assert.match(rendered, /Shell: singularity-flow explain auto-mode/);
+  assert.match(rendered, /Copilot: \/sf-docs/);
 });
 
 test('producer recovery guidance is accepted only as a bounded credential-free SFlow command', () => {
@@ -58,15 +67,78 @@ test('the public CLI turns an otherwise plain refusal into one parseable recover
   ]);
 });
 
-test('the refusal envelope preserves existing bounded transport diagnostics', () => {
+test('the refusal envelope pairs every bounded transport diagnostic with a Copilot command', () => {
   const diagnosticAction = { command: 'singularity-flow workspace doctor --network --json' };
   const remoteFailure = { classification: 'authentication', retryable: true };
   const envelope = refusalEnvelope(Object.assign(new Error('Git access failed.'), {
     code: 'REMOTE_AUTHENTICATION', details: { diagnosticAction, remoteFailure }
   }), ['capability', 'proposals']);
-  assert.deepEqual(envelope.error.diagnosticAction, { ...diagnosticAction, skill: null });
+  assert.deepEqual(envelope.error.diagnosticAction, {
+    ...diagnosticAction,
+    skill: '/sf-workspace-bootstrap',
+    copilotCommand: '/sf-workspace-bootstrap'
+  });
   assert.deepEqual(envelope.error.remoteFailure, remoteFailure);
   assert.equal(envelope.remediationPlan.steps[0].command, diagnosticAction.command);
+});
+
+test('the refusal envelope preserves a safe full Copilot relay and drops unsafe diagnostics', () => {
+  const relayed = refusalEnvelope(Object.assign(new Error('SGOS check failed.'), {
+    details: { diagnosticAction: {
+      command: 'singularity-flow process inspect process.json --json',
+      copilotCommand: '/sf-sgos process inspect process.json --json'
+    } }
+  }), ['process']);
+  assert.equal(relayed.error.diagnosticAction.skill, '/sf-sgos');
+  assert.equal(relayed.error.diagnosticAction.copilotCommand,
+    '/sf-sgos process inspect process.json --json');
+
+  const unsafe = refusalEnvelope(Object.assign(new Error('Blocked.'), {
+    details: { diagnosticAction: {
+      command: 'singularity-flow retry --token office-secret'
+    } }
+  }), ['retry']);
+  assert.equal(unsafe.error.diagnosticAction, undefined);
+  assert.doesNotMatch(JSON.stringify(unsafe), /office-secret/);
+});
+
+test('the refusal envelope rejects unknown, hostile, and crosswalk-mismatched diagnostics', () => {
+  for (const diagnosticAction of [
+    { command: 'singularity-flow definitely-unknown --json' },
+    { command: 'singularity-flow status --json; touch escaped' },
+    { command: 'singularity-flow status --json', skill: '/sf-docs' },
+    { command: 'singularity-flow status --json', copilotCommand: '/sf-docs' },
+    { command: 'singularity-flow status --json', skill: '/sf-does-not-exist' }
+  ]) {
+    const envelope = refusalEnvelope(Object.assign(new Error('Blocked.'), {
+      details: { diagnosticAction }
+    }), ['status']);
+    assert.equal(envelope.error.diagnosticAction, undefined, JSON.stringify(diagnosticAction));
+  }
+});
+
+test('the refusal envelope derives missing routes and preserves valid Auto relays', () => {
+  const derived = refusalEnvelope(Object.assign(new Error('Blocked.'), {
+    details: { diagnosticAction: { command: 'singularity-flow status --json' } }
+  }), ['status']);
+  assert.deepEqual(derived.error.diagnosticAction, {
+    command: 'singularity-flow status --json',
+    skill: '/sf-status',
+    copilotCommand: '/sf-status'
+  });
+
+  const auto = refusalEnvelope(Object.assign(new Error('Paused.'), {
+    details: { diagnosticAction: {
+      command: 'singularity-flow auto pause AFL-1 --json',
+      skill: '/sf-auto',
+      copilotCommand: '/sf-auto pause AFL-1 --json'
+    } }
+  }), ['auto']);
+  assert.deepEqual(auto.error.diagnosticAction, {
+    command: 'singularity-flow auto pause AFL-1 --json',
+    skill: '/sf-auto',
+    copilotCommand: '/sf-auto pause AFL-1 --json'
+  });
 });
 
 test('FOS:AC-044 FOS refusals provide bounded real commands without executing recovery', () => {

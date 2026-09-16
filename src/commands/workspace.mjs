@@ -1,5 +1,6 @@
 import path from 'node:path';
 
+import { actionCommandLines, copilotAction } from '../copilot-guidance.mjs';
 import {
   activateWorkspaceContext, activeWorkspaceFile, discardUnsupportedWorkflowWorkspaces,
   readActiveWorkspaceContext, workspacePromptLabel, workspaceRegistryFile
@@ -45,7 +46,9 @@ export async function run(argv, context = {}) {
     if (activeContext.repositoryState !== 'ready') {
       console.log(`Repository state: ${activeContext.repositoryState}. Run workspace repair before starting Copilot.`);
     }
-    console.log('Start Copilot here: singularity-flow workspace copilot');
+    for (const line of actionCommandLines(copilotAction({
+      command: 'singularity-flow workspace copilot'
+    }), 'Start Copilot here')) console.log(line);
     console.log(`Shell directory: cd ${JSON.stringify(activeContext.repositoryPath)}`);
     return;
   }
@@ -81,7 +84,11 @@ export async function run(argv, context = {}) {
   if (!current) {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ active: false }, null, 2));
     if (action === 'prompt') return console.log('');
-    return console.log('No active workspace. Run singularity-flow workspace use <WORKSPACE>.');
+    console.log('No active workspace.');
+    for (const line of actionCommandLines(copilotAction({
+      command: 'singularity-flow workspace use <WORKSPACE>'
+    }), 'Select one')) console.log(line);
+    return;
   }
   let gitShadowSummary = null;
   if (gitShadow) {

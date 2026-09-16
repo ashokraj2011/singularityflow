@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import {
   brandLockup, contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
+import { COMMAND_GUIDANCE_COPY_SCRIPT, commandGuidanceHtml } from './command-guidance.ts';
 
 export interface CapabilityProposal {
   remote: string;
@@ -16,7 +17,7 @@ export interface CapabilityProposal {
   configurationError?: string | null;
   configurationErrorCode?: string | null;
   repairable?: boolean;
-  repairAction?: { command?: string; skill?: string } | null;
+  repairAction?: { command?: string; skill?: string; copilotCommand?: string } | null;
   invalidFiles: string[];
   changedFiles: Array<{ status: string; paths: string[] }>;
   diff: string;
@@ -34,7 +35,7 @@ interface ActivationResult {
   audit?: { recorded?: boolean; eventId?: string; sequence?: number; ledgerCommit?: string };
   failure?: { code?: string; classification?: string; retryable?: boolean; message?: string };
   externalAction?: { action: string; sourceBranch: string; targetBranch: string; proposalCommit: string } | null;
-  nextAction?: { command?: string; skill?: string } | null;
+  nextAction?: { command?: string; skill?: string; copilotCommand?: string } | null;
   preserved?: string[];
 }
 
@@ -68,13 +69,13 @@ function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: s
         : `Projection: ${projection?.reason ?? 'not available'}.`)}</p>${activated.audit?.eventId
           ? `<p>Activation audit: <code>${escape(activated.audit.eventId)}</code>${activated.audit.sequence == null ? '' : ` at ledger sequence ${activated.audit.sequence}`}.</p>`
           : ''}${activated.nextAction?.command
-            ? `<p><strong>Recovery:</strong> <code>${escape(activated.nextAction.command)}</code></p>` : ''}</div>`
+            ? commandGuidanceHtml(activated.nextAction, { shellLabel: 'Recovery — Shell', copilotLabel: 'Recovery — Copilot' }) : ''}</div>`
     : `<div class="notice governance-warning"><p><strong>Activation is waiting.</strong> ${escape(
       activated.failure?.message ?? `Status: ${activated.status ?? 'review-required'}.`
     )}</p>${activated.externalAction
       ? `<p>Merge <code>${escape(activated.externalAction.sourceBranch)}</code> into <code>${escape(activated.externalAction.targetBranch)}</code> through the repository review controls.</p>`
       : ''}${activated.nextAction?.command
-      ? `<p>After correcting the blocker, run the same exact activation: <code>${escape(activated.nextAction.command)}</code></p>`
+      ? `<p>After correcting the blocker, retry the same exact activation:</p>${commandGuidanceHtml(activated.nextAction)}`
       : ''}<p>Preserved: ${escape((activated.preserved ?? ['proposal branch', 'approved configuration', 'application branches']).join(', '))}.</p></div>`;
   return `${brandLockup({ compact: true })}
     <header class="inbox-header">
@@ -107,7 +108,7 @@ function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: s
       ${proposal.configurationError ? `<div class="notice governance-warning"><p><strong>Configuration compatibility needs attention.</strong> ${escape(proposal.configurationError)}</p>${proposal.repairable
         ? '<p>The recognized historical packaged files can be repaired on this proposal branch without changing approved configuration or application code. The new commit must be reviewed again.</p>'
         : proposal.repairAction?.command
-          ? `<p><strong>Next:</strong> <code>${escape(proposal.repairAction.command)}</code></p>`
+          ? commandGuidanceHtml(proposal.repairAction, { shellLabel: 'Next — Shell', copilotLabel: 'Next — Copilot' })
           : ''}</div>` : ''}
     </section>
     <section>
@@ -128,6 +129,7 @@ function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: s
 const SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
+    ${COMMAND_GUIDANCE_COPY_SCRIPT}
     const button = event.target.closest('button[data-action]');
     if (button && !button.disabled) vscode.postMessage({ type: button.dataset.action });
   });

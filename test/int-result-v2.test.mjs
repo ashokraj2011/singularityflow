@@ -132,10 +132,32 @@ test('next actions carry an opaque handle, and every field a host needs to rende
   assert.throws(() => read({ next: [{ handle: 'h', id: 'go', label: 'Go', kind: 'plan', reasonCode: 'work.legal-now', confirmation: 'maybe', interaction: 'form' }] }),
     /next\[0\]\.confirmation 'maybe' is not a confirmation class/);
   const result = read({
-    next: [{ handle: 'h', id: 'go', label: 'Go', kind: 'plan', reasonCode: 'work.legal-now', confirmation: 'host-confirm', interaction: 'form', fallback: { cli: 'sflow start' } }]
+    next: [{ handle: 'h', id: 'go', label: 'Go', kind: 'plan', reasonCode: 'work.legal-now', confirmation: 'host-confirm', interaction: 'form', fallback: { label: 'See status', command: 'sflow status' } }]
   });
   assert.equal(result.next[0].rank, 0);
-  assert.equal(result.next[0].fallback.cli, 'sflow start');
+  assert.deepEqual(result.next[0].fallback, {
+    label: 'See status', command: 'sflow status', skill: '/sf-status',
+    copilotCommand: '/sf-status', copyable: true
+  });
+});
+
+test('fallback command pairs fail closed on secrets and cross-journey mismatches', () => {
+  const next = (fallback) => [{
+    handle: 'h', id: 'go', label: 'Go', kind: 'plan', reasonCode: 'work.legal-now',
+    confirmation: 'host-confirm', interaction: 'form', fallback
+  }];
+  assert.equal(read({ next: next({
+    label: 'Wrong mutation', command: 'sflow status', skill: '/sf-submit'
+  }) }).next[0].fallback, null);
+  assert.equal(read({ next: next({
+    label: 'Secret', command: 'sflow status --token office-secret'
+  }) }).next[0].fallback, null);
+  assert.deepEqual(read({ next: next({
+    label: 'Fill this in', command: 'sflow resume <work-id>'
+  }) }).next[0].fallback, {
+    label: 'Fill this in', command: 'sflow resume <work-id>', skill: '/sf-resume',
+    copilotCommand: '/sf-resume', copyable: false
+  });
 });
 
 test('subject revisions are always present in shape, even when unknown', () => {

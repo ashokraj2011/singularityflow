@@ -101,6 +101,7 @@ import {
   trackHostBackgroundTask
 } from './host-performance.ts';
 import { GatewayStatusWorker } from './gateway-status-worker-client.ts';
+import { commandGuidanceText, safeCommandPair } from './views/command-guidance.ts';
 
 let extensionLifetime = new AbortController();
 
@@ -1757,7 +1758,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       for (const session of result.sessions ?? []) {
         output.appendLine(`  ${session.bootstrapId}: ${session.status} · ${session.workspaceName ?? session.workspaceId ?? ''}`);
-        if (session.nextAction?.command) output.appendLine(`    Recover: ${session.nextAction.command}`);
+        const recovery = commandGuidanceText(session.nextAction);
+        if (recovery) output.appendLine(`    Recover:\n${recovery}`);
       }
       output.show(true);
       void vscode.window.showInformationMessage(result.healthy
@@ -1766,8 +1768,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const findings = (result.machine?.findings ?? []).slice(0, 8).map((finding: any) =>
         `${finding.severity}: ${finding.message}`);
       const sessions = (result.sessions ?? []).slice(0, 8).map((session: any) =>
-        `${session.bootstrapId}: ${session.status}${session.nextAction?.command
-          ? ` · Recover: ${session.nextAction.command}` : ''}`);
+        `${session.bootstrapId}: ${session.status}${commandGuidanceText(session.nextAction)
+          ? ` · Recover:\n${commandGuidanceText(session.nextAction)}` : ''}`);
       return fosOutcome(
         'doctor', result.healthy ? 'completed' : 'attention',
         result.healthy ? 'Workspace checks passed' : 'Workspace setup needs attention',
@@ -1809,7 +1811,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const choices = sessions.map((entry) => ({
         label: entry.plan?.workspace?.name ?? entry.request?.workspaceName ?? entry.bootstrapId,
         description: entry.status,
-        detail: entry.plan?.workspace?.targetPath ?? entry.nextAction?.command ?? '',
+        detail: entry.plan?.workspace?.targetPath ?? commandGuidanceText(entry.nextAction) ?? '',
         entry
       }));
       const selected = choices.length === 1 ? choices[0] : await vscode.window.showQuickPick(choices, {
@@ -1852,10 +1854,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       } else {
         const blockers = (result.preflight?.findings ?? [])
           .filter((finding: any) => finding.severity === 'blocker')
-          .map((finding: any) => `${finding.message}${finding.action ? `\nRecovery: ${finding.action}` : ''}`);
+          .map((finding: any) => `${finding.message}${finding.action && commandGuidanceText(finding.action)
+            ? `\nRecovery:\n${commandGuidanceText(finding.action)}` : ''}`);
         const actions = (result.recoveryActions ?? [])
-          .filter((action: any) => action.command)
-          .map((action: any) => `${action.label ?? action.id}: ${action.command}`);
+          .map((action: any) => ({ action, guidance: commandGuidanceText(action) }))
+          .filter((entry: any) => entry.guidance)
+          .map((entry: any) => `${entry.action.label ?? entry.action.id}:\n${entry.guidance}`);
         const detail = [
           result.fault?.message,
           ...blockers,
@@ -2358,8 +2362,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             }
           }
           if (applied.materializationError) {
-            const failure = `${applied.materializationError}${applied.repairCommand
-              ? ` Recover with: ${applied.repairCommand}` : ''}`;
+            const recovery = commandGuidanceText(applied.repairCommand);
+            const failure = `${applied.materializationError}${recovery
+              ? ` Recover with:\n${recovery}` : ''}`;
             output.appendLine(`  attachment recorded; materialization pending: ${failure}`);
             void vscode.window.showWarningMessage(
               'Capability attached, but a repository still needs repair. Open the workspace and choose Repair workspace.'
@@ -2367,8 +2372,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             return null;
           }
           if (applied.retained?.length) {
-            const failure = `Capability detached, but ${applied.retained.length} checkout cleanup ${applied.retained.length === 1 ? 'item was' : 'items were'} retained for safe recovery.${applied.repairCommand
-              ? ` Recover with: ${applied.repairCommand}` : ''}`;
+            const recovery = commandGuidanceText(applied.repairCommand);
+            const failure = `Capability detached, but ${applied.retained.length} checkout cleanup ${applied.retained.length === 1 ? 'item was' : 'items were'} retained for safe recovery.${recovery
+              ? ` Recover with:\n${recovery}` : ''}`;
             output.appendLine(`  ${failure}`);
             void vscode.window.showWarningMessage(failure);
             // This is a durable partial success, not a clean completion. Keeping a visible failure
@@ -2799,14 +2805,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const recovery = terminalCommand(
           os.tmpdir(), doctorArgs, process.platform, location
         );
-        output.appendLine(`No registered workspace matched the requested repository. Recover with: ${recovery}`);
+        const recoveryRoute = safeCommandPair(
+          `singularity-flow ${formatCliArgsForDisplay(doctorArgs)}`
+        ) ?? (requestedUrl ? safeCommandPair(
+          'singularity-flow workspace doctor --network --repository <REPOSITORY-URL> --json'
+        ) : null);
+        const recoveryText = recoveryRoute
+          ? `Shell: ${recovery}\nCopilot: ${recoveryRoute.copilotCommand}`
+          : null;
+        output.appendLine(`No registered workspace matched the requested repository.${recoveryText
+          ? ` Recover with:\n${recoveryText}` : ''}`);
         const next = await vscode.window.showWarningMessage(
           'No registered workspace or open folder contains that repository.',
           {
             modal: true,
             detail: `${unreadable.length
               ? `${unreadable.length} registered workspace${unreadable.length === 1 ? '' : 's'} could not be read. Repair those registrations and retry.\n\n`
-              : ''}Nothing was changed. SFlow did not scan the home directory or clone a repository.\n\nRecovery: ${recovery}`
+              : ''}Nothing was changed. SFlow did not scan the home directory or clone a repository.${recoveryText
+              ? `\n\nRecovery:\n${recoveryText}` : ''}`
           },
           'Open Workspaces', 'Map a capability'
         );
@@ -4629,26 +4645,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const onJourneyMessage = async (message: JourneyMessage): Promise<void> => {
     if (message.type === 'pin') return addSource();
     if (message.type === 'run') {
-      const storyJourney = buildJourney(store.current.snapshot);
-      if (storyJourney.kind === 'story' && storyJourney.nextAction?.execution === 'prefill') {
+      const journey = buildJourney(store.current.snapshot);
+      if (journey.nextAction?.execution === 'prefill') {
         return vscode.commands.executeCommand('singularityFlow.prefillStoryPhaseGeneration', {
-          kind: 'action', id: 'story:journey:generate', label: storyJourney.nextAction.label ?? 'Generate phase',
-          prefill: storyJourney.nextAction.skill ?? undefined
+          kind: 'action', id: 'story:journey:generate', label: journey.nextAction.label ?? 'Generate phase',
+          prefill: journey.nextAction.skill
         });
       }
-      if (storyJourney.kind === 'story' && storyJourney.nextAction?.execution === 'run') {
+      if (journey.nextAction?.execution === 'run') {
         return runNode({
-          kind: 'action', id: 'story:journey:submit',
-          label: storyJourney.nextAction.label ?? 'Submit for approval',
-          command: commandArgv(storyJourney.nextAction.command)
+          kind: 'action', id: `${journey.kind}:journey:next`,
+          label: journey.nextAction.label ?? journey.nextAction.reason,
+          command: commandArgv(journey.nextAction.command)
         });
       }
-      const next = store.current.snapshot?.initiative?.nextActions?.[0];
-      if (!next) return;
-      return runNode({
-        kind: 'action', id: 'next', label: next.reason,
-        command: commandArgv(next.command)
-      });
+      return;
     }
     const node = nodeForOutput(message.outputId);
     if (!node) return;
@@ -5482,10 +5493,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           changed: boolean; pushed: boolean; commit: string;
           groups: Array<{ id: string; scope: string }>;
           transportIntent?: string; transportStatus?: string;
-          nextAction?: { command?: string } | null;
+          nextAction?: { command?: string; skill?: string; copilotCommand?: string } | null;
         }>(args);
         if (result.changed && !result.pushed) {
-          return `Configuration commit ${result.commit.slice(0, 8)} is retained, but publication is ${result.transportStatus ?? 'pending'}. ${result.nextAction?.command ? `Run: ${result.nextAction.command}` : 'Open Push recovery to continue.'}`;
+          const next = commandGuidanceText(result.nextAction);
+          return `Configuration commit ${result.commit.slice(0, 8)} is retained, but publication is ${result.transportStatus ?? 'pending'}. ${next ? `Continue with:\n${next}` : 'Open Push recovery to continue.'}`;
         }
         await refreshAfterKnownMutation();
         if (!result.changed) {

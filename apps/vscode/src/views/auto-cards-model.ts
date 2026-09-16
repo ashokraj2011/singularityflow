@@ -1,10 +1,16 @@
 /** Pure AUT v2 cards rendered by My Work's generic result surface. */
+import { commandGuidance } from '../copilot-command.ts';
+
 export type AutoCardActionView = {
   /** Stable host lookup identity. The webview never receives a mutable record handle. */
   readonly id: string;
   readonly label: string;
   /** Exact terminal prefill. Pressing the button never submits this command. */
   readonly command: string;
+  /** Equivalent reviewed Copilot journey. */
+  readonly skill: string;
+  /** Exact Copilot prefill including the Auto operation and reviewed arguments. */
+  readonly copilotCommand: string;
   /** The CAS/hash authority already embedded in command, when the action requires one. */
   readonly confirmation: string | null;
 };
@@ -141,7 +147,14 @@ function action(
   command: string | null, confirmation: string | null = null
 ): AutoCardActionView | null {
   if (!subject || !command) return null;
-  return Object.freeze({ id: `auto:${kind}:${subject}:${verb}`, label, command, confirmation });
+  const guidance = commandGuidance(command.startsWith('singularity-flow auto ')
+    ? { command, skill: '/sf-auto' }
+    : command);
+  if (!guidance) return null;
+  return Object.freeze({
+    id: `auto:${kind}:${subject}:${verb}`, label, command,
+    skill: guidance.skill, copilotCommand: guidance.copilotCommand, confirmation
+  });
 }
 
 function boundedActions(values: readonly (AutoCardActionView | null)[]): readonly AutoCardActionView[] {

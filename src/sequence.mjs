@@ -146,8 +146,8 @@ function gateRemediation(workflow, gate) {
         actions: [copilotAction({ command: 'singularity-flow sync' })]
       }
     : sequenceGuidance(workflow);
-  const commands = guidance.actions.map((entry) => entry.command).filter(Boolean);
-  if (!commands.length) {
+  const actions = guidance.actions.filter((entry) => entry.command);
+  if (!actions.length) {
     return [action({
       id: 'list-valid-actions',
       label: 'See every action this Story can take right now',
@@ -156,10 +156,11 @@ function gateRemediation(workflow, gate) {
       kind: 'remediation'
     })];
   }
-  return commands.map((command, index) => action({
+  return actions.map((entry, index) => action({
     id: `sequence-step-${index + 1}`,
-    label: index === 0 ? guidance.summary : `Then: ${command}`,
-    command,
+    label: index === 0 ? guidance.summary : `Then: ${entry.command}`,
+    command: entry.command,
+    skill: entry.skill,
     rank: index === 0 ? 'NOW' : 'SOON',
     kind: 'remediation'
   }));

@@ -16,6 +16,7 @@
 import { escape, icon } from './webview.ts';
 import { startWizardProgress, type StartWizardProgress } from './start-wizard.ts';
 import { gitRemoteProblem } from './map-capability-form.ts';
+import { commandGuidance } from '../copilot-command.ts';
 
 /** What is being started. The order is the order they nest in. */
 export type Shape = 'initiative' | 'epic' | 'story';
@@ -112,6 +113,8 @@ export interface IntakeForm {
   error: string | null;
   /** Exact, safely quoted terminal recovery for a CLI timeout. */
   recoveryCommand: string | null;
+  /** Credential-free logical SFlow command used only to resolve the matching Copilot journey. */
+  recoveryRouteCommand: string | null;
 }
 
 /** One offered base branch, and how much of the capability publishes it. */
@@ -134,7 +137,7 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   workflowReason: null, workflowCatalogReason: null,
   jiraConfigured: false, jiraReason: null,
   githubConfigured: true, githubReason: null, inFlight: [], busy: false, error: null,
-  recoveryCommand: null
+  recoveryCommand: null, recoveryRouteCommand: null
 };
 
 /** What each shape is, and — the part that matters — what it leads to. */
@@ -683,6 +686,7 @@ function inFlightHtml(form: IntakeForm): string {
 export function intakeHtml(form: IntakeForm, journey: StartWizardProgress | null = null): string {
   const problems = intakeProblems(form);
   const noun = form.shape === 'initiative' ? 'Initiative' : form.shape === 'epic' ? 'Epic' : 'Story';
+  const recoveryRoute = commandGuidance(form.recoveryRouteCommand);
   return `<div class="intake-view" aria-busy="${form.busy ? 'true' : 'false'}">
   ${startWizardProgress(journey)}
   <header>
@@ -727,9 +731,13 @@ export function intakeHtml(form: IntakeForm, journey: StartWizardProgress | null
       ? `Reserves a branch for this ${escape(noun.toLowerCase())}, which is what mints its identifier, and commits its first governed state.`
       : `Starts ${escape(noun.toLowerCase())} <code>${escape(intakeIdentifier(form))}</code> and commits its first governed state.`}</p>`}
     ${form.error ? `<div class="notice error" role="alert">${escape(form.error)}</div>` : ''}
-    ${form.recoveryCommand ? `<div class="notice warning" role="status" aria-live="polite"><strong>Continue from a terminal</strong>
+    ${form.recoveryCommand && recoveryRoute ? `<div class="notice warning" role="status" aria-live="polite"><strong>Continue safely</strong>
       <p>The command is bound to this repository and preserves every argument exactly.</p>
-      <pre class="terminal-command"><code>${escape(form.recoveryCommand)}</code></pre>
+      <p><strong>Shell:</strong></p><pre class="terminal-command"><code>${escape(form.recoveryCommand)}</code></pre>
+      ${recoveryRoute.copyable ? `<button type="button" class="secondary" data-copy-command="${escape(form.recoveryCommand)}">Copy Shell</button>` : ''}
+      <p><strong>Copilot:</strong> <code>${escape(recoveryRoute.copilotCommand)}</code></p>
+      ${recoveryRoute.copyable ? `<button type="button" class="secondary" data-copy-command="${escape(recoveryRoute.copilotCommand)}">Copy Copilot</button>` : ''}
+      ${recoveryRoute.copyable ? '' : '<p>Replace the shown placeholders before running this command.</p>'}
       ${form.shape === 'story' ? '<button type="button" class="secondary" data-submit="recover-start">Check and open created Story</button>' : ''}</div>` : ''}
     <p>
       <button type="button" data-submit="start" ${problems.length || form.busy ? 'disabled' : ''}>
@@ -743,6 +751,8 @@ export function intakeHtml(form: IntakeForm, journey: StartWizardProgress | null
 export const INTAKE_SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
+    const copyCommand = event.target.closest('[data-copy-command]');
+    if (copyCommand) return navigator.clipboard.writeText(copyCommand.dataset.copyCommand || '').catch(() => {});
     const addReference = event.target.closest('[data-reference-add]');
     if (addReference) return vscode.postMessage({ type: 'referenceAdd' });
     const removeReference = event.target.closest('[data-reference-remove]');

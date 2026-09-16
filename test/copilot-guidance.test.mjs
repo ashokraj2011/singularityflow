@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   actionCommandLines,
   copilotAction,
+  copilotCommandForCommand,
   copilotSkillForCommand,
   directCopilotSkill,
   submissionReadinessPresentation
@@ -17,7 +18,7 @@ test('user-facing skills always use the direct sf namespace', () => {
 test('CLI lifecycle commands map to installed direct Copilot skills', () => {
   assert.equal(copilotSkillForCommand('singularity-flow intent workflow-guide intent-ir.json'), '/sf-sgos-create');
   assert.equal(copilotSkillForCommand('singularity-flow intent workflow-create intent-ir.json'), '/sf-sgos-create');
-  assert.equal(copilotSkillForCommand('singularity-flow intent ratify intent-ir.json'), '/sf-workflows');
+  assert.equal(copilotSkillForCommand('singularity-flow intent ratify intent-ir.json'), '/sf-sgos');
   assert.equal(copilotSkillForCommand('singularity-flow prepare intake'), '/sf-phase');
   assert.equal(copilotSkillForCommand('singularity-flow submit intake'), '/sf-submit');
   assert.equal(copilotSkillForCommand('singularity-flow epic create-stories'), '/sf-epic-publish');
@@ -27,11 +28,89 @@ test('CLI lifecycle commands map to installed direct Copilot skills', () => {
   assert.equal(copilotSkillForCommand('singularity-flow not-a-command'), '/sf-next');
 });
 
+test('SGOS and learning commands never route through the workflow catalog skill', () => {
+  for (const family of [
+    'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit',
+    'device', 'authority-store', 'pack', 'memory', 'meta-tool'
+  ]) {
+    assert.equal(copilotSkillForCommand(`singularity-flow ${family} status`), '/sf-sgos', family);
+    assert.equal(copilotSkillForCommand(`sflow ${family} status`), '/sf-sgos', `sflow ${family}`);
+  }
+  assert.equal(copilotSkillForCommand('singularity-flow learn list'), '/sf-learn');
+  assert.equal(copilotSkillForCommand('sflow learn show lesson-1'), '/sf-learn');
+  assert.equal(copilotSkillForCommand('singularity-flow workflow list'), '/sf-workflows');
+});
+
+test('the SGOS Copilot command retains the exact family, subcommand, and arguments', () => {
+  assert.equal(
+    copilotCommandForCommand('singularity-flow process status --json'),
+    '/sf-sgos process status --json'
+  );
+  assert.equal(
+    copilotCommandForCommand('sflow policy show delivery --json'),
+    '/sf-sgos policy show delivery --json'
+  );
+  assert.equal(
+    copilotCommandForCommand('singularity-flow resume WORK-1', '/sf-resume WORK-1'),
+    '/sf-resume WORK-1'
+  );
+  assert.equal(
+    copilotCommandForCommand('singularity-flow auto pause AFL-1 --confirm sha256:abc'),
+    '/sf-auto pause AFL-1 --confirm sha256:abc'
+  );
+});
+
+test('Jira subcommands select their exact specialized Copilot skill', () => {
+  const cases = {
+    status: '/sf-jira-status',
+    doctor: '/sf-jira-doctor',
+    assigned: '/sf-jira-assigned',
+    list: '/sf-jira-assigned',
+    pull: '/sf-jira-story',
+    show: '/sf-jira-story',
+    get: '/sf-jira-story',
+    boards: '/sf-jira-board',
+    board: '/sf-jira-board',
+    transitions: '/sf-jira-update',
+    transition: '/sf-jira-update',
+    assign: '/sf-jira-update',
+    priority: '/sf-jira-update',
+    sprint: '/sf-jira-update',
+    comment: '/sf-jira-update',
+    projects: '/sf-jira-initiative',
+    epics: '/sf-jira-initiative',
+    children: '/sf-jira-initiative',
+    permissions: '/sf-jira-initiative',
+    fields: '/sf-jira-work'
+  };
+  for (const [subcommand, skill] of Object.entries(cases)) {
+    assert.equal(copilotSkillForCommand(`singularity-flow jira ${subcommand} argument`), skill, subcommand);
+  }
+});
+
+test('capability reads and diagnostics do not route through the mapping mutation journey', () => {
+  assert.equal(copilotSkillForCommand('singularity-flow capability show rule-engine --json'), '/sf-capabilities');
+  assert.equal(copilotSkillForCommand('singularity-flow capability organisation https://example.test/repo.git --json'), '/sf-capabilities');
+  assert.equal(copilotSkillForCommand('singularity-flow capability leads --json'), '/sf-capability-doctor');
+  assert.equal(copilotSkillForCommand('singularity-flow capability fsck --json'), '/sf-capability-doctor');
+  assert.equal(copilotSkillForCommand('singularity-flow capability map rule-engine --json'), '/sf-capability-map');
+});
+
+test('initiative and Epic routes are closed over real skill names', () => {
+  assert.equal(copilotSkillForCommand('singularity-flow initiative evidence add check-1'), '/sf-initiative-evidence');
+  assert.equal(copilotSkillForCommand('singularity-flow initiative unknown'), '/sf-initiative-next');
+  assert.equal(copilotSkillForCommand('singularity-flow epic planning prepare'), '/sf-epic-planning');
+  assert.equal(copilotSkillForCommand('singularity-flow epic report'), '/sf-epic-status');
+  assert.equal(copilotSkillForCommand('singularity-flow epic unknown'), '/sf-epic-next');
+});
+
 test('rendered action guidance leads with the command, then the Copilot skill', () => {
   const action = copilotAction({ skill: '/sflow-phase', command: 'singularity-flow prepare intake' });
+  assert.equal(action.copilotCommand, '/sf-phase');
   assert.deepEqual(actionCommandLines(action), [
-    'Run: singularity-flow prepare intake',
-    'In Copilot: /sf-phase'
+    'Run:',
+    'Shell: singularity-flow prepare intake',
+    'Copilot: /sf-phase'
   ]);
 });
 

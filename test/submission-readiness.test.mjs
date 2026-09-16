@@ -131,8 +131,8 @@ test('an ungenerated phase is not ready and never borrows generation zero from a
   assert.equal(result.nextSkill, '/sf-phase');
   assert.match(result.reasonCode, /generation/i);
   assert.match(submissionReadinessText(result), /Seeded draft — not published/);
-  assert.match(submissionReadinessText(result), /Next in Copilot: \/sf-phase/);
-  assert.match(submissionReadinessText(result), /Terminal equivalent: singularity-flow prepare specification/);
+  assert.match(submissionReadinessText(result), /Shell: singularity-flow prepare specification/);
+  assert.match(submissionReadinessText(result), /Copilot: \/sf-phase/);
 });
 
 test('an edited generation-zero artifact remains a draft until publication is recorded', () => {

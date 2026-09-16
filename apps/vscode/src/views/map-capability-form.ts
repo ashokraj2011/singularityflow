@@ -12,6 +12,7 @@
  * branch either — it is `state`, and it is created when a workspace is initialised.
  */
 import { createHash } from 'node:crypto';
+import { commandGuidance } from '../copilot-command.ts';
 import { CAPABILITY_KINDS } from './capability-model.ts';
 import { escape, icon } from './webview.ts';
 import { startWizardProgress, type StartWizardProgress } from './start-wizard.ts';
@@ -150,6 +151,7 @@ export interface MapCapabilityForm {
   inspectionPendingMatches: RepositoryInspectionPendingMatch[];
   inspectionMessage: string | null;
   inspectionRecoveryCommand: string | null;
+  inspectionRecoveryCopilotCommand: string | null;
   inspectionFailures: string[];
   inspectionCompleteness: string | null;
   inspectionAuthorityScope: string | null;
@@ -183,7 +185,7 @@ export const EMPTY_MAP_FORM: MapCapabilityForm = {
   lead: '', leads: [], capabilityId: '', name: '', kind: 'delivery',
   parent: '', parents: [], repositoryUrl: '', sourceRoots: '', sharedRoots: '',
   inspectionStatus: 'idle', inspectionMatches: [], inspectionPendingMatches: [], inspectionMessage: null,
-  inspectionRecoveryCommand: null,
+  inspectionRecoveryCommand: null, inspectionRecoveryCopilotCommand: null,
   inspectionFailures: [],
   inspectionCompleteness: null, inspectionAuthorityScope: null, inspectionCheckedLeadCount: 0,
   inspectionProposalCoverage: null,
@@ -385,6 +387,11 @@ export function mapCommand(form: MapCapabilityForm): string[] {
 }
 
 export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardProgress | null = null): string {
+  const inspectionRecovery = form.inspectionRecoveryCommand && form.inspectionRecoveryCopilotCommand
+    ? commandGuidance({
+      command: form.inspectionRecoveryCommand,
+      copilotCommand: form.inspectionRecoveryCopilotCommand
+    }) : null;
   const problems = mapProblems(form);
   const detailsVisible = form.collectionWithoutRepository || form.inspectionComplete;
   const identifierProblem = detailsVisible ? capabilityIdentifierProblem(form) : null;
@@ -450,8 +457,12 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
                     : 'Repository ownership could not be determined safely.'))}${form.inspectionFailures.length
                     ? `<ul>${form.inspectionFailures.map((failure) => `<li>${escape(failure)}</li>`).join('')}</ul>` : ''}
                     ${pendingInspectionMatches ? `<ul>${pendingInspectionMatches}</ul>` : ''}
-                    ${form.inspectionRecoveryCommand
-                      ? `<p><button type="button" class="secondary" data-map-copy-command="${escape(form.inspectionRecoveryCommand)}">Copy terminal continuation</button></p>`
+                    ${inspectionRecovery
+                      ? `<div class="command-pair"><p>Shell: <code>${escape(inspectionRecovery.command)}</code></p>
+                          <p>Copilot: <code>${escape(inspectionRecovery.copilotCommand)}</code></p>
+                          ${inspectionRecovery.copyable ? `<p><button type="button" class="secondary" data-map-copy-command="${escape(inspectionRecovery.command)}">Copy shell command</button>
+                            <button type="button" class="secondary" data-map-copy-copilot="${escape(inspectionRecovery.copilotCommand)}">Copy Copilot command</button></p>`
+    : '<p class="muted">Replace the shown placeholders before running this command.</p>'}</div>`
                       : ''}
                     ${form.inspectionStatus === 'inconclusive' && form.inspectionCompleteness === 'no-authorities'
                       ? `<div class="form-grid">
@@ -677,6 +688,8 @@ export const MAP_CAPABILITY_SCRIPT = `
     if (searchKnown) return vscode.postMessage({ type: 'searchKnownAuthorities' });
     const copyCommand = event.target.closest('[data-map-copy-command]');
     if (copyCommand) return vscode.postMessage({ type: 'copyCommand', value: copyCommand.dataset.mapCopyCommand });
+    const copyCopilot = event.target.closest('[data-map-copy-copilot]');
+    if (copyCopilot) return vscode.postMessage({ type: 'copyCopilotCommand', value: copyCopilot.dataset.mapCopyCopilot });
     const addMetadata = event.target.closest('[data-map-metadata-add]');
     if (addMetadata) return vscode.postMessage({ type: 'metadataAdd' });
     const removeMetadata = event.target.closest('[data-map-metadata-remove]');

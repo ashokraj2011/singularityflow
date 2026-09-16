@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { deriveHomeState } from '../src/gateway/home-work-projection.mjs';
 import { developerNext } from '../src/gateway/planners/developer-next.mjs';
 import { homeOverviewResult } from '../src/gateway/planners/home-overview.mjs';
+import { homeProjectionV2 } from '../src/gateway/home-projection-v2.mjs';
 import { recommendationNarration } from '../src/commands/recommend.mjs';
 
 const emptyGroups = () => ({
@@ -44,7 +45,10 @@ test('every surface recognizes a started Story through any registered branch', (
   assert.equal(result.data.activeWork?.id, 'WRK-890');
   assert.equal(result.next[0].id, 'home:work.continue');
   assert.equal(result.next[0].slots.work, 'WRK-890');
-  assert.equal(result.next[0].fallback.skill, '/sf-resume WRK-890');
+  assert.equal(result.next[0].fallback.skill, '/sf-resume');
+  const projection = homeProjectionV2(result);
+  assert.equal(projection.prompt.goals[0].fallback.command, 'singularity-flow resume WRK-890');
+  assert.equal(projection.prompt.goals[0].fallback.copilotCommand, '/sf-resume');
 });
 
 test('visible work on another branch is not advertised as current', () => {
@@ -138,8 +142,11 @@ test('a bound Story awaiting this actor\'s decision remains current and keeps re
   assert.deepEqual(home.data.repository, repository);
   assert.equal(home.next[0].id, 'home:review:story:WRK-19');
   assert.equal(home.next[0].slots.work, 'WRK-19');
-  assert.equal(home.next[0].fallback.skill, '/sf-approve WRK-19');
+  assert.equal(home.next[0].fallback.skill, '/sf-approvals');
   assert.equal(home.next[0].fallback.command, 'singularity-flow approvals WRK-19');
+  const projection = homeProjectionV2(home);
+  assert.equal(projection.prompt.goals[0].fallback.command, 'singularity-flow approvals WRK-19');
+  assert.equal(projection.prompt.goals[0].fallback.copilotCommand, '/sf-approvals');
 
   const recommended = await developerNext({ root: process.cwd(), context });
   assert.equal(recommended.data.guidance.workId, 'WRK-19');
@@ -159,7 +166,11 @@ test('an empty home leads to intake and every route names its Copilot skill', ()
     current: { repositoryId: 'calc', branch: 'main', repositoryScoped: false }
   });
   assert.equal(result.next[0].id, 'home:work.start.intake');
-  assert.equal(result.next[0].fallback.skill, '/sf-start <WORK-ID>');
+  assert.equal(result.next[0].fallback.skill, '/sf-start');
+  const projection = homeProjectionV2(result);
+  assert.equal(projection.prompt.goals[0].fallback.command, 'singularity-flow start <WORK-ID>');
+  assert.equal(projection.prompt.goals[0].fallback.copilotCommand, '/sf-start');
+  assert.equal(projection.prompt.goals[0].fallback.copyable, false);
   assert.ok(result.next.every((entry) => entry.fallback?.skill?.startsWith('/sf-')));
 });
 

@@ -6,6 +6,7 @@ import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } fr
 import { navigateTo } from './navigate.ts';
 import { enumField, registerMessageRouter } from './messages.ts';
 import { SCHEMA_REMEDIES, schemaRecordRemedy } from './surface-contracts.ts';
+import { COMMAND_GUIDANCE_COPY_SCRIPT, commandGuidanceHtml } from './command-guidance.ts';
 
 type Tab = 'repository' | 'capabilities' | 'workspace' | 'schema' | 'passport' | 'delivery';
 interface Check { id?: string; status?: string; state?: string; title?: string; message?: string; detail?: string; remedy?: string }
@@ -54,13 +55,24 @@ interface DeliveryProjection {
 
 const SCRIPT = `
   const vscode = window.__sfVscode;
-  document.addEventListener('click', (event) => { const el = event.target.closest('[data-message]'); if (el) vscode.postMessage({ type: el.dataset.message, tab: el.dataset.tab }); });
+  document.addEventListener('click', (event) => {
+    ${COMMAND_GUIDANCE_COPY_SCRIPT}
+    const el = event.target.closest('[data-message]');
+    if (el) vscode.postMessage({ type: el.dataset.message, tab: el.dataset.tab });
+  });
 `;
 
 function checks(values: unknown): string {
   const entries = list<Check>(values);
   if (!entries.length) return '<div class="empty"><p>No checks were returned for this scope.</p></div>';
-  return `<div class="check-list">${entries.map((check) => { const status = check.status ?? check.state ?? 'unknown'; return `<article class="card"><h3>${escape(check.title ?? check.id ?? 'Check')} <span class="badge">${escape(status)}</span></h3><p>${escape(bounded(check.message ?? check.detail ?? ''))}</p>${check.remedy ? `<p class="callout"><strong>Remedy:</strong> ${escape(bounded(check.remedy, 500))}</p>` : ''}</article>`; }).join('')}</div>`;
+  return `<div class="check-list">${entries.map((check) => {
+    const status = check.status ?? check.state ?? 'unknown';
+    const routedRemedy = check.remedy ? commandGuidanceHtml(check.remedy) : '';
+    const commandShaped = /^\s*(?:singularity-flow|sflow)\b/u.test(check.remedy ?? '');
+    const remedy = routedRemedy || (check.remedy && !commandShaped
+      ? `<p class="callout"><strong>Remedy:</strong> ${escape(bounded(check.remedy, 500))}</p>` : '');
+    return `<article class="card"><h3>${escape(check.title ?? check.id ?? 'Check')} <span class="badge">${escape(status)}</span></h3><p>${escape(bounded(check.message ?? check.detail ?? ''))}</p>${remedy}</article>`;
+  }).join('')}</div>`;
 }
 
 function genericChecks(value: unknown): unknown {

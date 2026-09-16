@@ -23,7 +23,7 @@
       "additionalProperties": false,
       "required": ["kind", "id"],
       "properties": {
-        "kind": { "enum": ["story", "initiative", "capability", "workspace", "repository"] },
+        "kind": { "enum": ["story", "initiative", "capability", "workspace", "repository", "goal", "outcome", "adhoc"] },
         "id": { "type": "string", "minLength": 1 }
       }
     },
@@ -58,9 +58,10 @@
         "required": ["code", "source"],
         "properties": {
           "code": { "type": "string", "pattern": "^[a-z0-9-]+(\\.[a-z0-9-]+)+$" },
-          "source": { "enum": ["pin", "policy", "gate", "sequence", "evidence", "config", "remote", "telemetry", "identity"] },
+          "source": { "enum": ["pin", "policy", "gate", "sequence", "evidence", "config", "remote", "telemetry", "identity", "docs"] },
           "ref": { "type": ["string", "null"] },
-          "slots": { "type": "object" }
+          "slots": { "type": "object" },
+          "topic": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" }
         }
       }
     },
@@ -75,6 +76,8 @@
           "id": { "type": "string", "minLength": 1 },
           "label": { "type": "string", "minLength": 1 },
           "command": { "type": "string", "minLength": 1 },
+          "skill": { "type": "string", "pattern": "^/sf-[a-z0-9]+(?:-[a-z0-9]+)*$" },
+          "copilotCommand": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^/sf-[a-z0-9]+(?:-[a-z0-9]+)*(?:\\s+.+)?$" },
           "rank": { "enum": ["NOW", "SOON", "LATER"] },
           "kind": { "enum": ["workflow", "remediation", "review", "informational"] },
           "modelPolicy": { "enum": ["never", "optional", "required"] }

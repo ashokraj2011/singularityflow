@@ -19,6 +19,7 @@ import { showRefusal } from './views/result-panel.ts';
 import type {
   ApprovalChecklistDecision, WitnessMappingDecision
 } from './views/approval-review.ts';
+import { commandGuidance } from './copilot-command.ts';
 
 /** Arguments that must be answered by a human before the command is allowed to run. */
 export interface Confirmation {
@@ -219,11 +220,15 @@ export async function runGovernedAction(
         const preview = await client.run<{
           confirmation: string; command: string; fromGeneration: number; toGeneration: number;
         }>(['phase', 'rollover', rolloverPhase, '--json']);
+        const guidance = commandGuidance(preview);
+        if (!guidance) {
+          throw new Error('The generation rollover preview did not return a safe Shell and Copilot route.');
+        }
         const confirmed = await vscode.window.showWarningMessage(
           `The published ${rolloverPhase} generation changed. Start generation ${preview.toGeneration} with the exact current bytes?`,
           {
             modal: true,
-            detail: `${preview.command}\n\nGeneration ${preview.fromGeneration} remains preserved. No code is discarded, stashed, or rewritten.`
+            detail: `Shell: ${guidance.command}\nCopilot: ${guidance.copilotCommand}\n\nGeneration ${preview.fromGeneration} remains preserved. No code is discarded, stashed, or rewritten.`
           },
           'Start new generation'
         );
@@ -295,20 +300,27 @@ export async function runPlannedAction(
     return false;
   }
 
-  const executable = plan.actions.filter((action) => action.executable);
+  const executable = plan.actions
+    .filter((action) => action.executable)
+    .map((action) => ({ action, guidance: commandGuidance(action) }))
+    .filter((entry): entry is { action: PlannedAction; guidance: NonNullable<ReturnType<typeof commandGuidance>> } =>
+      entry.guidance !== null);
   if (!executable.length) {
     const waiting = plan.actions.map((action) => `${action.order}. ${action.reason}`).join('\n');
     void vscode.window.showInformationMessage(
-      waiting ? `No governed action is executable yet. ${waiting}` : 'The workflow has no next action.'
+      waiting
+        ? `No governed action has a valid Shell and Copilot route yet. ${waiting}`
+        : 'The workflow has no next action.'
     );
     return false;
   }
 
-  const choice = await vscode.window.showQuickPick(executable.map((action) => ({
+  const choice = await vscode.window.showQuickPick(executable.map(({ action, guidance }) => ({
     label: action.reason,
-    description: action.command,
-    detail: `Plan ${plan.planId} · action ${action.actionId} · expires ${plan.expiresAt}`,
-    action
+    description: guidance.command,
+    detail: `Copilot: ${guidance.copilotCommand} · Plan ${plan.planId} · action ${action.actionId} · expires ${plan.expiresAt}`,
+    action,
+    guidance
   })), {
     title: 'Continue governed work',
     placeHolder: 'Choose one action from the exact current lifecycle plan',
@@ -320,7 +332,7 @@ export async function runPlannedAction(
     `Run the exact governed action “${choice.action.reason}”?`,
     {
       modal: true,
-      detail: `${choice.action.command}\n\nPlan ${plan.planId} is bound to ${plan.revision.branch}@${plan.revision.head.slice(0, 12)}. Any repository or lifecycle change invalidates it.`
+      detail: `Shell: ${choice.guidance.command}\nCopilot: ${choice.guidance.copilotCommand}\n\nPlan ${plan.planId} is bound to ${plan.revision.branch}@${plan.revision.head.slice(0, 12)}. Any repository or lifecycle change invalidates it.`
     },
     'Run exact action'
   );

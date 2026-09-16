@@ -10,6 +10,10 @@
  * a ref, or decides a lifecycle question. `effects` reports what the kernel already did.
  */
 import { SingularityFlowError } from '../util.mjs';
+import {
+  copilotCommandForCommand, copilotSkillForCommand, directCopilotSkillId
+} from '../copilot-guidance.mjs';
+import { safeCommandGuidance } from '../safe-command-guidance.mjs';
 import { MESSAGES, REASONS } from './messages.mjs';
 
 export const COMMAND_RESULT_SCHEMA_VERSION = 1;
@@ -27,6 +31,7 @@ const SUBJECT_KINDS = new Set([
   'story', 'initiative', 'capability', 'workspace', 'repository', 'goal', 'outcome', 'adhoc'
 ]);
 const ID_PATTERN = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/;
+const MAX_COPILOT_COMMAND_CODE_POINTS = 4096;
 
 /** Nothing happened. The only shape a refusal is allowed to declare. */
 export function noEffects() {
@@ -71,8 +76,18 @@ export function because(code, source, { ref = null, slots = {}, topic = null } =
 }
 
 /** One valid continuation. */
-export function action({ id, label, command, rank = 'NOW', kind = 'workflow', modelPolicy = 'never' }) {
-  return { id, label, command, rank, kind, modelPolicy };
+export function action({ id, label, command, skill = null, rank = 'NOW', kind = 'workflow', modelPolicy = 'never' }) {
+  const skillId = directCopilotSkillId(skill) ?? copilotSkillForCommand(command);
+  return {
+    id,
+    label,
+    command,
+    skill: skillId,
+    copilotCommand: copilotCommandForCommand(command, skill ?? skillId),
+    rank,
+    kind,
+    modelPolicy
+  };
 }
 
 function invalid(message) {
@@ -132,7 +147,27 @@ export function validateCommandResult(result, { requireEnvelope = false } = {}) 
 
   if (!Array.isArray(next)) invalid('next must be an array');
   for (const entry of next) {
-    if (!entry?.id || !entry?.label || !entry?.command) invalid('next[] entries need id, label and command');
+    if (!entry?.id || !entry?.label || !entry?.command) {
+      invalid('next[] entries need id, label and command');
+    }
+    if (entry.skill !== undefined
+      && (typeof entry.skill !== 'string' || !/^\/sf-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(entry.skill))) {
+      invalid(`next[].skill '${entry.skill}' must be an installed direct Copilot skill`);
+    }
+    if (entry.copilotCommand !== undefined) {
+      if (typeof entry.copilotCommand !== 'string') {
+        invalid('next[].copilotCommand must be a string');
+      }
+      if ([...entry.copilotCommand].length > MAX_COPILOT_COMMAND_CODE_POINTS) {
+        invalid(`next[].copilotCommand must be at most ${MAX_COPILOT_COMMAND_CODE_POINTS} characters`);
+      }
+      if (!/^\/sf-[a-z0-9]+(?:-[a-z0-9]+)*(?:\s+.+)?$/u.test(entry.copilotCommand)) {
+        invalid(`next[].copilotCommand '${entry.copilotCommand}' must be a direct Copilot command`);
+      }
+    }
+    if (!safeCommandGuidance(entry)) {
+      invalid(`next[] command guidance for '${entry.command}' must be a safe registered Shell/Copilot pair`);
+    }
     if (!NEXT_RANKS.has(entry.rank)) invalid(`next[].rank '${entry.rank}' must be one of ${[...NEXT_RANKS].join(', ')}`);
     if (!NEXT_KINDS.has(entry.kind)) invalid(`next[].kind '${entry.kind}' must be one of ${[...NEXT_KINDS].join(', ')}`);
     if (!MODEL_POLICIES.has(entry.modelPolicy)) invalid(`next[].modelPolicy '${entry.modelPolicy}' must be one of ${[...MODEL_POLICIES].join(', ')}`);

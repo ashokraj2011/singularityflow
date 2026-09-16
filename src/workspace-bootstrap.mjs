@@ -276,7 +276,7 @@ async function withLease(root, bootstrapId, operation) {
         })],
         nextAction: current.nextAction ?? {
           command: `singularity-flow workspace bootstrap status ${bootstrapId}`,
-          skill: `/sf-workspace-bootstrap ${bootstrapId}`
+          skill: '/sf-workspace-bootstrap'
         }
       });
     }
@@ -320,7 +320,7 @@ function bootstrapStatusAction(bootstrapId) {
   return {
     id: 'inspect', label: 'Inspect preserved setup',
     command: `singularity-flow workspace bootstrap status ${bootstrapId} --json`,
-    skill: `/sf-workspace-bootstrap ${bootstrapId}`
+    skill: '/sf-workspace-bootstrap'
   };
 }
 
@@ -328,7 +328,7 @@ function bootstrapResumeAction(session) {
   return {
     id: 'resume', label: 'Recheck and resume the same plan',
     command: `singularity-flow workspace bootstrap resume ${session.bootstrapId} --confirm ${session.plan.workspace.confirmation} --json`,
-    skill: `/sf-workspace-bootstrap ${session.bootstrapId}`
+    skill: '/sf-workspace-bootstrap'
   };
 }
 
@@ -336,7 +336,7 @@ function bootstrapRetryAction(session) {
   return {
     id: 'renew-attempts', label: 'Authorize another bounded recovery generation',
     command: `singularity-flow workspace bootstrap retry ${session.bootstrapId} --confirm ${session.plan.workspace.confirmation} --reason "corrected the reported blocker" --json`,
-    skill: `/sf-workspace-bootstrap ${session.bootstrapId}`
+    skill: '/sf-workspace-bootstrap'
   };
 }
 
@@ -352,7 +352,7 @@ function bootstrapRecoveryActions(session, blockers = []) {
       finding: entry.id,
       instruction: entry.action,
       command: entry.retryable ? resume.command : inspect.command,
-      skill: `/sf-workspace-bootstrap ${session.bootstrapId}`
+      skill: '/sf-workspace-bootstrap'
     })),
     inspect
   ];
@@ -529,12 +529,12 @@ export async function prepareWorkspaceBootstrap({
     workspaceJournal: null,
     result: null,
     fault: null,
-    nextAction: { command: `singularity-flow workspace bootstrap resume ${bootstrapId} --confirm ${plan.workspace.confirmation} --json`, skill: `/sf-workspace-bootstrap ${bootstrapId}` },
+    nextAction: { command: `singularity-flow workspace bootstrap resume ${bootstrapId} --confirm ${plan.workspace.confirmation} --json`, skill: '/sf-workspace-bootstrap' },
     recoveryActions: [
       {
         id: 'resume', label: 'Preflight and materialize the reviewed plan',
         command: `singularity-flow workspace bootstrap resume ${bootstrapId} --confirm ${plan.workspace.confirmation} --json`,
-        skill: `/sf-workspace-bootstrap ${bootstrapId}`
+        skill: '/sf-workspace-bootstrap'
       },
       bootstrapStatusAction(bootstrapId)
     ]
@@ -1328,7 +1328,7 @@ export async function resumeWorkspaceBootstrap(bootstrapId, {
           errorReference: faultRecord.faultKey,
           nextAction: {
             command: nextAction.command,
-            skill: `/sf-workspace-bootstrap ${bootstrapId}`
+            skill: '/sf-workspace-bootstrap'
           }
         }),
         workspaceJournal: workspaceExists ? { path: journalPath, bootstrapId } : null,

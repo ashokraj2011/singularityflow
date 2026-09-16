@@ -1,6 +1,7 @@
 import path from 'node:path';
 
 import { astContext, astQuery } from '../../ast-intelligence.mjs';
+import { actionCommandLines, copilotAction } from '../../copilot-guidance.mjs';
 import { optionBoolean, optionNumber, optionString, SingularityFlowError } from '../../util.mjs';
 import { fwmCanonicalJson, fwmSemanticSha256 } from './canonical.mjs';
 import {
@@ -430,7 +431,12 @@ export async function fwmReadCommand(root, reference, options = {}) {
       const fact = item.record;
       console.log(`  ${fact.kind}  ${fact.path ?? fact.sourceId ?? fact.id ?? ''}  ${fact.name ?? fact.target ?? fact.type ?? ''}`.trimEnd());
     });
-    if (result.continuation) console.log(`  continue: singularity-flow wm read ${result.resolvedView.reference} --cursor ${result.continuation}`);
+    if (result.continuation) {
+      const continuation = copilotAction({
+        command: `singularity-flow wm read ${result.resolvedView.reference} --cursor ${result.continuation}`
+      });
+      for (const line of actionCommandLines(continuation, 'Continue')) console.log(`  ${line}`);
+    }
   }
   return result;
 }

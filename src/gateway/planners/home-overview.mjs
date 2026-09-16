@@ -66,20 +66,20 @@ const ROOTLESS_CHOICES = Object.freeze({
 });
 
 const FALLBACKS = Object.freeze({
-  'work.continue': { command: 'singularity-flow resume <WORK-ID>', skill: '/sf-resume <WORK-ID>' },
-  'work.return': { command: 'singularity-flow story return <WORK-ID>', skill: '/sf-work-interval reconcile' },
+  'work.continue': { command: 'singularity-flow resume <WORK-ID>', skill: '/sf-resume' },
+  'work.return': { command: 'singularity-flow story return <WORK-ID>', skill: '/sf-return' },
   'work.list': { command: 'singularity-flow session candidates', skill: '/sf-session' },
-  'goal.next': { command: 'singularity-flow goal next <GOAL-ID>', skill: '/sf-goal inspect <GOAL-ID>' },
-  'work.start.intake': { command: 'singularity-flow start <WORK-ID>', skill: '/sf-start <WORK-ID>' },
-  'workspace.switch': { command: 'singularity-flow workspace list', skill: '/sf-workspace' },
-  'workspace.bootstrap.status': { command: 'singularity-flow workspace bootstrap status <BOOTSTRAP-ID>', skill: '/sf-workspace-bootstrap <BOOTSTRAP-ID>' },
-  'workspace.prepare.guide': { command: 'singularity-flow workspace prepare', skill: '/sf-workspace-create' },
+  'goal.next': { command: 'singularity-flow goal next <GOAL-ID>', skill: '/sf-goal' },
+  'work.start.intake': { command: 'singularity-flow start <WORK-ID>', skill: '/sf-start' },
+  'workspace.switch': { command: 'singularity-flow workspace list', skill: '/sf-workspaces' },
+  'workspace.bootstrap.status': { command: 'singularity-flow workspace bootstrap status <BOOTSTRAP-ID>', skill: '/sf-workspace-bootstrap' },
+  'workspace.prepare.guide': { command: 'singularity-flow workspace prepare', skill: '/sf-workspace-bootstrap' },
   'repository.open.guide': { command: 'singularity-flow workspace adopt <DIRECTORY> --id <ID> --dry-run', skill: '/sf-workspace' },
-  'workspace.doctor.guide': { command: 'singularity-flow workspace doctor', skill: '/sf-workspace' },
-  'workspace.explore.guide': { command: 'singularity-flow workspace list', skill: '/sf-workspace' },
+  'workspace.doctor.guide': { command: 'singularity-flow workspace doctor', skill: '/sf-workspace-bootstrap' },
+  'workspace.explore.guide': { command: 'singularity-flow workspace list', skill: '/sf-workspaces' },
   'impact.quick': { command: 'singularity-flow workspace impact', skill: '/sf-workspace-impact' },
-  'repository.explore': { command: 'singularity-flow status', skill: '/sf-inspect' },
-  'help.explain': { command: 'singularity-flow explain', skill: '/sf-help' }
+  'repository.explore': { command: 'singularity-flow status', skill: '/sf-status' },
+  'help.explain': { command: 'singularity-flow explain', skill: '/sf-docs' }
 });
 
 function fallbackFor(id, label, slots) {
@@ -87,7 +87,7 @@ function fallbackFor(id, label, slots) {
     return {
       label,
       command: `singularity-flow workspace bootstrap status ${slots.bootstrap}`,
-      skill: `/sf-workspace-bootstrap ${slots.bootstrap}`
+      skill: '/sf-workspace-bootstrap'
     };
   }
   if (id === 'work.list' && slots.work) {
@@ -168,19 +168,19 @@ function faultChoice(fault, action, rank, emphasis = 'secondary') {
       label: `Fix ${fault.faultId}`,
       reasonCode: 'fault.repair-guided',
       command: `singularity-flow fix ${fault.faultId}`,
-      skill: `/sf-fix ${fault.faultId}`
+      skill: '/sf-fix'
     },
     diagnose: {
       label: `Diagnose ${fault.faultId}`,
       reasonCode: 'fault.diagnose-first',
       command: `singularity-flow fix ${fault.faultId} --diagnose-only`,
-      skill: `/sf-fix ${fault.faultId} --diagnose-only`
+      skill: '/sf-fix'
     },
     evidence: {
       label: `Open evidence for ${fault.faultId}`,
       reasonCode: 'fault.open-evidence',
       command: `singularity-flow fault show ${fault.faultId}`,
-      skill: `/sf-fault show ${fault.faultId}`
+      skill: '/sf-fault'
     }
   };
   const definition = definitions[action];
@@ -216,7 +216,7 @@ function reviewChoice(work, rank, emphasis = 'secondary') {
     fallback: {
       label: `Review ${work.id}`,
       command: `singularity-flow approvals ${work.id}`,
-      skill: `/sf-approve ${work.id}`
+      skill: '/sf-approvals'
     },
     slots: { work: work.id, phase: work.phase ?? 'none' }
   }, 'review.packet', { workId: work.id, workKind });

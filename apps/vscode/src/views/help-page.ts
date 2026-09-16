@@ -1,6 +1,7 @@
 /** Searchable, offline rendering of the canonical Singularity Flow manual. */
 import {
   brandLockup, escape, icon } from './webview.ts';
+import { commandGuidance } from '../copilot-command.ts';
 
 export interface HelpTopic {
   id: string;
@@ -167,11 +168,18 @@ function answerHtml(answer: HelpAnswerView | null): string {
         ? 'The question overlaps more than one reviewed topic, so Singularity Flow did not guess.'
         : 'Try one of the nearest reviewed topics or filter the complete manual below.'}</p>${candidates}</section>`;
   }
+  const handoff = answer.handoff ? commandGuidance(answer.handoff) : null;
+  const handoffHtml = handoff ? `<div class="command-guidance">
+    <p><strong>Shell:</strong> <code>${escape(handoff.command)}</code>
+      ${handoff.copyable ? `<button class="secondary" data-copy="${escape(handoff.command)}" data-help-copy-topic="${escape(answer.topic.id)}">Copy Shell</button>` : ''}</p>
+    <p><strong>Copilot:</strong> <code>${escape(handoff.copilotCommand)}</code>
+      ${handoff.copyable ? `<button class="secondary" data-copy="${escape(handoff.copilotCommand)}" data-help-copy-topic="${escape(answer.topic.id)}">Copy Copilot</button>
+      <button class="secondary" data-prefill-help="${escape(handoff.skill)}" data-prefill-topic="${escape(answer.topic.id)}">Prepare ${escape(handoff.skill)}</button>` : ''}</p>
+    ${handoff.copyable ? '' : '<p class="muted">Replace the shown placeholders before running this command.</p>'}
+  </div>` : '';
   const actions = `<div class="form-actions">
     <button data-open-help-topic="${escape(answer.topic.id)}">Open topic</button>
-    ${answer.handoff ? `<button class="secondary" data-copy="${escape(answer.handoff.command)}" data-help-copy-topic="${escape(answer.topic.id)}">Copy command</button>
-      <button class="secondary" data-prefill-help="${escape(answer.handoff.skill)}" data-prefill-topic="${escape(answer.topic.id)}">Prepare ${escape(answer.handoff.skill)}</button>` : ''}
-  </div>`;
+  </div>${handoffHtml}`;
   const related = answer.related.length
     ? `<h3>Related questions</h3><div class="help-answer-choices">${answer.related.map((topic) => `<button class="secondary" data-question="${escape(topic.id)}" data-question-origin="followup">${escape(topic.title)}</button>`).join('')}</div>` : '';
   return `<section class="help-answer ok">

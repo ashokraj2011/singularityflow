@@ -30,6 +30,7 @@
 import { createHash } from 'node:crypto';
 
 import { canonicalJson } from '../specifications.mjs';
+import { safeCommandGuidance } from '../safe-command-guidance.mjs';
 import { isCatalogued, isWarningCode } from './catalog.mjs';
 import { SingularityFlowError } from '../util.mjs';
 
@@ -391,7 +392,16 @@ function frozenNextActions(entries) {
       slots: Object.freeze({ ...(entry.slots ?? {}) }),
       // An authorization decision is never executable by an ambient tool `[INT:CON-113]`.
       executable: entry.confirmation === 'ceremony' ? false : entry.executable !== false,
-      fallback: entry.fallback ? Object.freeze({ ...entry.fallback }) : null
+      fallback: entry.fallback ? (() => {
+        const guidance = safeCommandGuidance(entry.fallback);
+        return guidance ? Object.freeze({
+          label: entry.fallback.label ?? entry.label,
+          command: guidance.command,
+          skill: guidance.skill,
+          copilotCommand: guidance.copilotCommand,
+          copyable: guidance.copyable
+        }) : null;
+      })() : null
     };
     const navigation = plannerNavigationTarget(entry);
     if (navigation) {

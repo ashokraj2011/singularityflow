@@ -9,6 +9,7 @@ import { runGovernanceGate } from './governance.mjs';
 import { recoveryActionsForFindings } from './gate-recovery.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { nowIso, SingularityFlowError } from './util.mjs';
+import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { worktreeFingerprint } from './worktree-fingerprint.mjs';
 
 function actorKey(actor) { return actor?.login ?? actor?.email ?? actor?.name ?? 'unknown'; }
@@ -53,7 +54,12 @@ export async function recoveryPlan(root, config, workflow, { fetch = false, phas
     kind: 'story', id: workflow.workItem.id, migrate: false,
     roots: { workItemRoot: config.workItemRoot }
   });
-  if (branch(root) !== workflow.workItem.branch) actions.push({ id: 'branch', safe: true, automatic: false, detail: `Switch to ${workflow.workItem.branch} with singularity-flow resume ${workflow.workItem.id} --fetch.` });
+  if (branch(root) !== workflow.workItem.branch) actions.push({
+    id: 'branch', safe: true, automatic: false,
+    command: `singularity-flow resume ${workflow.workItem.id} --fetch`,
+    skill: '/sf-resume',
+    detail: `Switch to ${workflow.workItem.branch} and attach the governed Story checkout.`
+  });
   if (pending.status === 'pending') {
     blockers.push({
       code: 'publication.pending', category: 'transport', blocking: true,
@@ -219,10 +225,23 @@ export function recoveryText(plan) {
   if (plan.blockers?.length) lines.push('');
   for (const action of plan.actions) {
     lines.push(`${action.safe ? '✓' : '!'} ${action.id}: ${action.detail}${action.automatic ? ' [can apply]' : ''}`);
-    if (action.command) lines.push(`  Run: ${action.command}`);
-    if (action.skill) lines.push(`  In Copilot: ${action.skill}`);
+    if (action.command) {
+      const guidance = safeCommandGuidance(action);
+      if (guidance) {
+        lines.push(`  Shell: ${guidance.command}`);
+        lines.push(`  Copilot: ${guidance.copilotCommand}`);
+      } else lines.push('  Command guidance unavailable: the supplied route was not safe or did not match.');
+    }
   }
-  if (!plan.applied && plan.actions.some((item) => item.automatic)) lines.push('', `Apply safe actions: singularity-flow recover ${plan.workId} --apply --confirm ${plan.planId}${plan.actions.some((item) => item.id === 'fast-forward') ? ' --fetch' : ''}`);
+  if (!plan.applied && plan.actions.some((item) => item.automatic)) {
+    const command = `singularity-flow recover ${plan.workId} --apply --confirm ${plan.planId}${plan.actions.some((item) => item.id === 'fast-forward') ? ' --fetch' : ''}`;
+    const guidance = safeCommandGuidance({ command, skill: '/sf-recover' });
+    lines.push('', 'Apply safe actions:');
+    if (guidance) {
+      lines.push(`  Shell: ${guidance.command}`);
+      lines.push(`  Copilot: ${guidance.copilotCommand}`);
+    } else lines.push('  Command guidance unavailable: the supplied route was not safe or did not match.');
+  }
   if (plan.applied) lines.push('', `Applied ${plan.completed.length} safe action(s). No history was reset or rewritten.`);
   return `${lines.join('\n')}\n`;
 }

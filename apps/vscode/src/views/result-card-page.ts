@@ -86,6 +86,9 @@ export const RESULT_CARD_STYLE = `
 .sf-card-preserved { margin: 0; padding: 10px 12px; border-radius: 4px;
   background: var(--vscode-textBlockQuote-background); color: var(--vscode-foreground); }
 .sf-card-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
+.sf-card-action { display: grid; gap: 4px; min-width: min(100%, 220px); }
+.sf-action-routes { display: grid; gap: 2px; color: var(--vscode-descriptionForeground); font-size: .82em; }
+.sf-action-routes code { user-select: text; overflow-wrap: anywhere; white-space: normal; }
 .sf-card-actions button { font: inherit; padding: 5px 12px; border-radius: 3px; cursor: pointer;
   text-align: left; background: transparent; color: var(--vscode-foreground);
   border: 1px solid var(--vscode-panel-border); }
@@ -109,8 +112,13 @@ export const RESULT_CARD_STYLE = `
 .sf-guidance-context span { display: grid; gap: 2px; min-width: 0; color: var(--vscode-descriptionForeground); font-size: .85em; }
 .sf-guidance-context strong { color: var(--vscode-foreground); overflow-wrap: anywhere; }
 .sf-guidance-change { margin: 0; }
-.sf-guidance-command { margin: 0; padding: 8px; overflow-x: auto; user-select: text;
+.sf-guidance-routes { display: grid; gap: 6px; }
+.sf-guidance-command { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center;
+  gap: 8px; margin: 0; padding: 8px; overflow-x: auto;
   background: var(--vscode-textCodeBlock-background); border-radius: 4px; }
+.sf-guidance-command code { user-select: text; overflow-wrap: anywhere; white-space: normal; }
+.sf-guidance-command button { font: inherit; padding: 3px 9px; border-radius: 3px; cursor: pointer;
+  color: var(--vscode-foreground); background: transparent; border: 1px solid var(--vscode-panel-border); }
 .sf-guidance-list { margin: 6px 0 0; padding-left: 20px; }
 .sf-guidance-ready { color: var(--vscode-testing-iconPassed, var(--vscode-charts-green)); }
 .sf-guidance-attention, .sf-guidance-needed, .sf-guidance-unknown { color: var(--vscode-editorWarning-foreground); }
@@ -220,8 +228,18 @@ function button(action: CardAction, className: string): string {
   return `<button type="button" class="${className}" data-action-id="${escape(action.id)}"${title}>${escape(action.label)}</button>`;
 }
 
+function actionRoutes(action: CardAction): string {
+  if (!action.command && !action.copilotCommand && !action.skill) return '';
+  return `<span class="sf-action-routes">
+    ${action.command ? `<span>Shell: <code>${escape(action.command)}</code></span>` : ''}
+    ${action.copilotCommand || action.skill
+      ? `<span>Copilot: <code>${escape(action.copilotCommand ?? action.skill ?? '')}</code></span>` : ''}
+  </span>`;
+}
+
 function gateRow(row: ChecklistRow): string {
-  const fix = row.action ? button(row.action, 'fix') : '';
+  const fix = row.action
+    ? `<span class="sf-card-action">${button(row.action, 'fix')}${actionRoutes(row.action)}</span>` : '';
   const detail = row.detail ? `<span class="sf-gate-detail">${escape(row.detail)}</span>` : '';
   /**
    * `aria-label` carries the state in words.
@@ -373,7 +391,15 @@ function guidanceHtml(view: ResultCardView): string {
     <p class="sf-guidance-change"><b>This will change:</b> ${escape(effectLabels[guidance.recommendation.effect]
       ?? effectLabels.mutation)}${guidance.recommendation.confirmationRequired
     ? ' Nothing runs until you explicitly authorize the governed action.' : ''}</p>
-    <pre class="sf-guidance-command">${escape(guidance.recommendation.command)}</pre>` : '';
+    <div class="sf-guidance-routes" aria-label="Recommended command">
+      <p class="sf-guidance-command"><b>Shell</b><code>${escape(guidance.recommendation.command)}</code>
+        ${guidance.recommendation.copyable
+    ? `<button type="button" data-copy-route="${escape(guidance.recommendation.command)}">Copy shell</button>` : ''}</p>
+      <p class="sf-guidance-command"><b>Copilot</b><code>${escape(guidance.recommendation.copilotCommand)}</code>
+        ${guidance.recommendation.copyable
+    ? `<button type="button" data-copy-route="${escape(guidance.recommendation.copilotCommand)}">Copy Copilot</button>` : ''}</p>
+      ${guidance.recommendation.copyable ? '' : '<p class="muted">Replace the shown placeholders before running this command.</p>'}
+    </div>` : '';
   const preflight = guidance.preflight.length ? `<details><summary>Before you continue</summary>
     <ul class="sf-guidance-list">${guidance.preflight.map((entry) => `<li class="sf-guidance-${escape(entry.state)}">
       <b>${escape(entry.id)}</b> — ${escape(entry.detail)}</li>`).join('')}</ul></details>` : '';
@@ -410,7 +436,8 @@ function autoHtml(view: ResultCardView): string {
       ${card.actions.length ? `<div class="sf-auto-actions">${card.actions.map((action) => `
         <span class="sf-auto-action">
           <button type="button" data-auto-action-id="${escape(action.id)}">${escape(action.label)}</button>
-          <code>${escape(action.command)}</code>
+          <span>Shell: <code>${escape(action.command)}</code></span>
+          <span>Copilot: <code>${escape(action.copilotCommand)}</code></span>
         </span>`).join('')}</div>` : ''}
     </article>`).join('')}</section>`;
 }
@@ -560,7 +587,7 @@ export function resultCardHtml(view: ResultCardView, { now = Date.now() }: { now
   const footerActions = view.actions.filter((action) => !onRows.has(action.id));
   const actions = footerActions.length
     ? `<div class="sf-card-actions">${footerActions.map((action) =>
-      button(action, action.emphasis === 'primary' ? 'primary' : action.emphasis === 'link' ? 'link' : '')).join('')}</div>`
+      `<span class="sf-card-action">${button(action, action.emphasis === 'primary' ? 'primary' : action.emphasis === 'link' ? 'link' : '')}${actionRoutes(action)}</span>`).join('')}</div>`
     : '';
 
   /**
@@ -616,6 +643,12 @@ document.addEventListener('submit', (event) => {
   if (request) vscode.postMessage({ type: 'home.request', request });
 });
 document.addEventListener('click', (event) => {
+  const copy = event.target instanceof Element ? event.target.closest('[data-copy-route]') : null;
+  if (copy) {
+    const value = copy.getAttribute('data-copy-route');
+    if (value) void navigator.clipboard.writeText(value).catch(() => {});
+    return;
+  }
   const navigation = event.target instanceof Element ? event.target.closest('[data-result-nav]') : null;
   if (navigation) {
     const destination = navigation.getAttribute('data-result-nav');

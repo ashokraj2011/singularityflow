@@ -16,6 +16,8 @@ import { codeOccurrences } from './source-text.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const view = (name) => path.join(root, 'apps', 'vscode', 'src', 'views', name);
 const { fidelityNote, refusalFor } = await import(view('refusal.ts'));
+const { resultCardHtml } = await import(view('result-card-page.ts'));
+const { commandGuidance } = await import(path.join(root, 'apps', 'vscode', 'src', 'copilot-command.ts'));
 
 const cliError = (message, stderr = '', exitCode = 1) =>
   Object.assign(new Error(message), { stderr, exitCode, name: 'CliError' });
@@ -28,7 +30,10 @@ const V1 = JSON.stringify({
   outcome: { status: 'refused', messageId: 'submit.refused', slots: {} },
   effects: { stateChanged: false, filesChanged: false, publicationCreated: false, externalSystemsChanged: false },
   why: [{ code: 'work.blocked.approvals-outstanding', source: 'lifecycle', slots: {} }],
-  next: [{ label: 'Check readiness', command: 'sflow status --work-id PAY-1187', reasonCode: 'work.check-readiness' }],
+  next: [{
+    label: 'Check readiness', command: 'sflow status --work-id PAY-1187',
+    skill: '/sf-status', reasonCode: 'work.check-readiness'
+  }],
   restState: null,
   data: {}
 });
@@ -77,6 +82,7 @@ test('a v1 command-result becomes a card, with preservation derived from its eff
   assert.equal(card.preserved.length, 1);
   assert.match(card.preserved[0].label, /Nothing was carried out/);
   assert.equal(card.actions[0].command, 'sflow status --work-id PAY-1187');
+  assert.equal(card.actions[0].copilotCommand, '/sf-status');
   assert.equal(card.actions[0].emphasis, 'primary');
 });
 
@@ -123,10 +129,156 @@ test('a deterministic refusal plan becomes safe reviewable VS Code actions', () 
   assert.deepEqual(card.preserved, []);
   assert.equal(card.actions.length, 1);
   assert.equal(card.actions[0].command, 'singularity-flow explain auto-mode');
+  assert.equal(card.actions[0].skill, '/sf-docs');
+  assert.equal(card.actions[0].copilotCommand, '/sf-docs');
+  const html = resultCardHtml(card);
+  assert.match(html, /Shell:.*singularity-flow explain auto-mode/s);
+  assert.match(html, /Copilot:.*\/sf-docs/s);
   assert.equal(card.actions[0].executable, false);
   assert.match(card.actions[0].detail, /never runs/);
   assert.doesNotMatch(JSON.stringify(card), /office-secret/);
   assert.match(fidelityNote(fidelity), /never run them automatically/);
+});
+
+test('VS Code derives paired shell and Copilot routes without exposing credential-shaped commands', () => {
+  assert.deepEqual(commandGuidance('singularity-flow workspace doctor --network --json'), {
+    command: 'singularity-flow workspace doctor --network --json',
+    skill: '/sf-workspace-bootstrap',
+    copilotCommand: '/sf-workspace-bootstrap',
+    copyable: true
+  });
+  assert.deepEqual(commandGuidance({
+    command: 'singularity-flow process inspect process.json --json',
+    skill: '/sf-sgos',
+    copilotCommand: '/sf-sgos process inspect process.json --json'
+  }), {
+    command: 'singularity-flow process inspect process.json --json',
+    skill: '/sf-sgos',
+    copilotCommand: '/sf-sgos process inspect process.json --json',
+    copyable: true
+  });
+  assert.equal(commandGuidance('singularity-flow retry --token office-secret'), null);
+  assert.equal(commandGuidance('git status'), null);
+});
+
+test('VS Code accepts only canonical registered command and skill pairs', () => {
+  assert.deepEqual(commandGuidance('singularity-flow --help'), {
+    command: 'singularity-flow --help',
+    skill: '/sf-help',
+    copilotCommand: '/sf-help',
+    copyable: true
+  });
+  assert.deepEqual(commandGuidance('singularity-flow status --json'), {
+    command: 'singularity-flow status --json',
+    skill: '/sf-status',
+    copilotCommand: '/sf-status',
+    copyable: true
+  }, 'a missing producer skill is derived from the closed crosswalk');
+  assert.equal(commandGuidance('singularity-flow definitely-unknown --json'), null);
+  assert.equal(commandGuidance({
+    command: 'singularity-flow status --json', skill: '/sf-does-not-exist'
+  }), null);
+  assert.equal(commandGuidance({
+    command: 'singularity-flow status --json', skill: '/sf-docs'
+  }), null);
+  assert.equal(commandGuidance({
+    command: 'singularity-flow status --json', copilotCommand: '/sf-docs'
+  }), null);
+  for (const command of [
+    'singularity-flow status; touch escaped',
+    'singularity-flow status && touch escaped',
+    'singularity-flow status | cat',
+    'singularity-flow status `touch escaped`',
+    'singularity-flow status $(touch escaped)',
+    'singularity-flow status > escaped'
+  ]) assert.equal(commandGuidance(command), null, command);
+});
+
+test('VS Code preserves arguments only for canonical SGOS and Auto relays', () => {
+  assert.deepEqual(commandGuidance({
+    command: 'singularity-flow process status --json',
+    skill: '/sf-sgos',
+    copilotCommand: '/sf-sgos process status --json'
+  }), {
+    command: 'singularity-flow process status --json',
+    skill: '/sf-sgos',
+    copilotCommand: '/sf-sgos process status --json',
+    copyable: true
+  });
+  assert.deepEqual(commandGuidance({
+    command: 'singularity-flow auto pause AFL-1 --json',
+    skill: '/sf-auto',
+    copilotCommand: '/sf-auto pause AFL-1 --json'
+  }), {
+    command: 'singularity-flow auto pause AFL-1 --json',
+    skill: '/sf-auto',
+    copilotCommand: '/sf-auto pause AFL-1 --json',
+    copyable: true
+  });
+  assert.equal(commandGuidance({
+    command: 'singularity-flow process status --json',
+    copilotCommand: '/sf-sgos process inspect process.json --json'
+  }), null);
+  assert.equal(commandGuidance({
+    command: 'singularity-flow status --json', copilotCommand: '/sf-status --json'
+  }), null);
+});
+
+test('VS Code accepts a registered policy-selected generation skill without widening command families', () => {
+  assert.deepEqual(commandGuidance({
+    command: 'singularity-flow prepare implementation',
+    skill: '/sf-code',
+    copilotCommand: '/sf-code'
+  }), {
+    command: 'singularity-flow prepare implementation',
+    skill: '/sf-code',
+    copilotCommand: '/sf-code',
+    copyable: true
+  });
+  assert.deepEqual(commandGuidance({
+    command: 'singularity-flow phase publish convergence --authored deterministic',
+    skill: '/sf-converge',
+    copilotCommand: '/sf-converge'
+  }), {
+    command: 'singularity-flow phase publish convergence --authored deterministic',
+    skill: '/sf-converge',
+    copilotCommand: '/sf-converge',
+    copyable: true
+  });
+  assert.equal(commandGuidance({
+    command: 'singularity-flow status --json',
+    skill: '/sf-code',
+    copilotCommand: '/sf-code'
+  }), null);
+  assert.equal(commandGuidance({
+    command: 'singularity-flow prepare planning', skill: '/sf-code', copilotCommand: '/sf-code'
+  }), null);
+  assert.equal(commandGuidance({
+    command: 'singularity-flow phase publish intake', skill: '/sf-verify', copilotCommand: '/sf-verify'
+  }), null);
+});
+
+test('VS Code rejects cross-subcommand route escalation and keeps placeholders display-only', () => {
+  for (const [command, skill] of [
+    ['singularity-flow story adjudicate WRK-1', '/sf-story-start'],
+    ['singularity-flow documents view DOC-1', '/sf-upload'],
+    ['singularity-flow capability tree --json', '/sf-capability-add'],
+    ['singularity-flow workspace list --json', '/sf-workspace-bootstrap'],
+    ['singularity-flow jira status', '/sf-jira-update']
+  ]) assert.equal(commandGuidance({ command, skill }), null, command);
+
+  const placeholder = commandGuidance(
+    'singularity-flow story adjudicate <work-id> --disposition <rework|dismissed> --reason <reason>'
+  );
+  assert.equal(placeholder?.skill, '/sf-converge');
+  assert.equal(placeholder?.copyable, false);
+  assert.equal(commandGuidance(
+    'singularity-flow story intent-amendment decide amendment-1 --decision approve|reject'
+  ), null, 'a raw shell pipe is never presented as an actionable command');
+  assert.equal(commandGuidance(
+    'singularity-flow story intent-amendment decide amendment-1 --decision <approve|reject>'
+  )?.copyable, false, 'a bounded alternative is visible but requires a user choice');
+  assert.equal(commandGuidance('singularity-flow status foo<phase>bar'), null);
 });
 
 test('a caller headline is used only when the result named nothing itself', () => {

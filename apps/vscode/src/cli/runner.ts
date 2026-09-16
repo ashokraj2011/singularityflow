@@ -16,6 +16,7 @@ import { lstat, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { recordHostCliProcessCompleted, recordHostCliProcessStarted } from '../host-performance.ts';
+import { commandGuidance } from '../copilot-command.ts';
 
 /** Lifecycle snapshots include branch cataloguing and deterministic governance checks. */
 export const CLI_TIMEOUT_MS = 120_000;
@@ -1367,21 +1368,30 @@ export function humanError(stderr: string): string {
   try {
     const structured = JSON.parse(stderr.trim()) as {
       rendered?: { headline?: unknown };
-      error?: { message?: unknown; diagnosticAction?: { command?: unknown } };
-      next?: Array<{ command?: unknown }>;
-      remediationPlan?: { steps?: Array<{ command?: unknown }> };
+      error?: { message?: unknown; diagnosticAction?: {
+        command?: unknown; skill?: unknown; copilotCommand?: unknown;
+      } };
+      next?: Array<{ command?: unknown; skill?: unknown; copilotCommand?: unknown }>;
+      remediationPlan?: { steps?: Array<{
+        command?: unknown; skill?: unknown; copilotCommand?: unknown;
+      }> };
     };
     const headline = String(structured.rendered?.headline ?? structured.error?.message ?? '').trim();
-    const diagnostic = String(structured.error?.diagnosticAction?.command ?? '').trim();
-    const next = String(
-      structured.next?.find((entry) => entry?.command)?.command
-      ?? structured.remediationPlan?.steps?.find((entry) => entry?.command)?.command
-      ?? ''
-    ).trim();
+    const plannedEntries = [
+      ...(structured.next ?? []),
+      ...(structured.remediationPlan?.steps ?? [])
+    ].filter((entry) => entry?.command);
+    const diagnosticAction = structured.error?.diagnosticAction;
+    const guidance = [diagnosticAction, ...plannedEntries]
+      .map((entry) => commandGuidance(entry))
+      .find((entry) => entry != null) ?? null;
     if (headline) {
       const safeHeadline = safeDisplayDiagnosticText(headline);
-      if (diagnostic) return `${safeHeadline}\nDiagnose: ${safeDisplayDiagnosticText(diagnostic)}`;
-      if (next) return `${safeHeadline}\nNext: ${safeDisplayDiagnosticText(next)}`;
+      if (guidance) return [
+        safeHeadline,
+        `Shell: ${safeDisplayDiagnosticText(guidance.command)}`,
+        `Copilot: ${safeDisplayDiagnosticText(guidance.copilotCommand)}`
+      ].join('\n');
       return safeHeadline;
     }
   } catch { /* ordinary terminal diagnostics continue through the line-oriented path */ }

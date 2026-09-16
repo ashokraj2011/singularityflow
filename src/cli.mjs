@@ -22,6 +22,8 @@ import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resol
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow, commitAndPublish, CONFIG_PATH, createWorkflow, currentPhase, generationResultDigest, generationResultMatches, loadConfig, preparePhase, preparePhaseInputs, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, storyWelEnrollmentStatus, submitConfirmedConvergencePhase, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir, workDirRelative } from './state-stores.mjs';
 import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
+import { phasePreparationCommandLines } from './phase-preparation-guidance.mjs';
+import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { generationStartPublicationBinding, verifyOpenGenerationIntent } from './generation-boundary.mjs';
 import { applicationChangeSetProjection, applicationPathContext } from './work-intervals.mjs';
 import {
@@ -136,7 +138,6 @@ import {
   resolveStoryExecutionCatalog, resolveStoryExecutionContext
 } from './story-execution-context.mjs';
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
-
 import { installWorkflow, optionalWorkflowCatalog, simulateWorkflow, simulationText, validateWorkflowCatalog, workflowCatalog, workflowDiff } from './workflow-catalog.mjs';
 import { applyRecovery, assignPhase, recoveryPlan, recoveryText, watchSnapshot, watchText } from './collaboration.mjs';
 import { generationRecovery } from './recovery-plan.mjs';
@@ -270,6 +271,35 @@ import { ABOUT } from './about.mjs';
 import { VERSION } from './version.mjs';
 
 import { HELP } from './help-text.mjs';
+
+/**
+ * Print one actionable CLI instruction through both supported user surfaces.
+ *
+ * Keep this at the presentation boundary: callers still execute exactly one governed mutation,
+ * while a reader can choose either the shell command or the owning Copilot skill without having
+ * to translate the command by hand.
+ */
+function printCommandRoutes(command, { skill = null, indent = '', label = null } = {}) {
+  if (label) console.log(`${indent}${label}:`);
+  const guidance = safeCommandGuidance({ command, skill });
+  if (!guidance) {
+    console.log(`${indent}Shell: unavailable — the supplied command was not safe to display.`);
+    console.log(`${indent}Copilot: unavailable — ask /sf-next for a current governed action.`);
+    return;
+  }
+  console.log(`${indent}Shell: ${guidance.command}`);
+  console.log(`${indent}Copilot: ${guidance.copilotCommand}`);
+}
+
+/** The only deliberately Shell-only instruction: restore a locally retained Git stash commit. */
+function printStashRecoveryCommand(command, { indent = '', label = null } = {}) {
+  if (!/^git stash apply --index [a-f0-9]{40,64}$/u.test(String(command ?? ''))) {
+    throw new SingularityFlowError('The retained stash recovery command was malformed.');
+  }
+  if (label) console.log(`${indent}${label}:`);
+  console.log(`${indent}Shell: ${command}`);
+  console.log(`${indent}Copilot: unavailable — local Git stash restoration is intentionally Shell-only.`);
+}
 
 async function confirmExact(prompt, expected) {
   if (!input.isTTY || !output.isTTY) {
@@ -519,7 +549,7 @@ async function initCommand(options) {
         for (const file of status.missingFiles) console.log(`- ${file}`);
       }
       if (status.configurationError) console.log(`Configuration: ${status.configurationError}`);
-      if (nextCommand) console.log(`Fix: ${nextCommand}`);
+      if (nextCommand) printCommandRoutes(nextCommand, { label: 'Fix' });
     }
     return report;
   }
@@ -557,8 +587,9 @@ async function initCommand(options) {
   }
   if (workId) {
     console.log(`Initialized Singularity Flow on Work-ID branch ${workId}; the base branch was not modified.`);
-    console.log(`After reviewing, committing and pushing singularity/, run: singularity-flow start ${workId}`);
-    console.log(`In Copilot: /sf-start ${workId}`);
+    printCommandRoutes(`singularity-flow start ${workId}`, {
+      label: 'After reviewing, committing and pushing singularity/'
+    });
   }
 }
 
@@ -593,15 +624,17 @@ function renderFactoryResetPlan(plan) {
   }
   if (!plan.completed) {
     console.log(`\nConfirmation required: ${plan.confirmation}`);
-    console.log(plan.operation === 'factory-reset-all'
-      ? 'Run: sflow reset-all --yes'
-      : `Run: singularity-flow factory-reset --confirm ${JSON.stringify(plan.confirmation)} `
-        + `--expect-scope-sha256 ${plan.resetScopeSha256}`);
+    const command = plan.operation === 'factory-reset-all'
+      ? 'sflow reset-all --yes'
+      : `singularity-flow factory-reset --confirm ${JSON.stringify(plan.confirmation)} `
+        + `--expect-scope-sha256 ${plan.resetScopeSha256}`;
+    printCommandRoutes(command);
   } else {
     for (const warning of plan.warnings ?? []) console.log(`\nWarning: ${warning}`);
     console.log('\nThe replacement is intentionally uncommitted.');
-    for (const item of plan.next) console.log(`Next CLI step: ${item}`);
-    console.log('Copilot guide: /sf-nextsteps');
+    for (const item of plan.next) {
+      printCommandRoutes(item);
+    }
   }
 }
 
@@ -668,8 +701,8 @@ function renderLocalResetPlan(plan) {
   if (!plan.completed) {
     console.log(`\nConfirmation required: ${plan.confirmation}`);
     const modeFlag = forgetOnly ? ' --forget-only' : '';
-    console.log(`Run: singularity-flow local-reset${modeFlag} --confirm ${JSON.stringify(plan.confirmation)}`);
-    console.log(`Short command: sf-local-reset${modeFlag} --confirm ${JSON.stringify(plan.confirmation)}`);
+    const command = `singularity-flow local-reset${modeFlag} --confirm ${JSON.stringify(plan.confirmation)}`;
+    printCommandRoutes(command);
   } else {
     console.log(forgetOnly
       ? '\nLocal Singularity registrations and personalization are forgotten. Workspace and repository bytes were preserved.'
@@ -2728,9 +2761,7 @@ async function resumeCommand(positionals, options) {
   }
   const active = currentPhase(workflow);
   if (active && !json) {
-    const command = active.id === 'implementation' ? 'implement' : active.id === 'verification' ? 'verify' : active.id;
-    console.log(`\nRun: singularity-flow prepare ${active.id}`);
-    console.log(`In Copilot: /sf-${command}`);
+    console.log(`\n${phasePreparationCommandLines(active).join('\n')}`);
   }
   emitCommandResult(commandResult({
     operation: { id: 'resume', classification: 'mutation' },
@@ -2833,7 +2864,7 @@ async function returnCommand(positionals, options) {
     for (const repository of repositories.filter((entry) => entry.disposition !== 'existing-clone')) {
       console.log(`Required repository: ${repository.id} — ${repository.disposition}`);
     }
-    console.log(`Apply with: singularity-flow return ${subject.id} --apply --confirm ${subject.id}`);
+    printCommandRoutes(`singularity-flow return ${subject.id} --apply --confirm ${subject.id}`, { label: 'Apply' });
     return;
   }
   if (optionString(options, 'confirm') !== subject.id) {
@@ -2873,9 +2904,7 @@ async function returnCommand(positionals, options) {
   }
   const active = currentPhase(workflow);
   if (active && !json) {
-    const command = active.id === 'implementation' ? 'implement' : active.id === 'verification' ? 'verify' : active.id;
-    console.log(`Next: singularity-flow prepare ${active.id}`);
-    console.log(`In Copilot: /sf-${command}`);
+    console.log(phasePreparationCommandLines(active, 'Next').join('\n'));
   }
   emitCommandResult(commandResult({
     operation: { id: 'return', classification: 'mutation' },
@@ -2949,7 +2978,10 @@ export async function statusCommand(positionals, options) {
   const ledger = await ledgerStatus(root, workflow.resolution?.ledger ?? config.ledger ?? {});
   if (ledger.enabled) {
     console.log(`\nCapability ledger: ${ledger.initialized ? ledger.verification.valid ? 'verified' : 'invalid' : 'not initialized'} · pending ${ledger.pending?.length ?? 0} · local outbox ${ledger.outbox}`);
-    if (ledger.pending?.length) console.warn(`Run singularity-flow ledger reconcile ${workflow.workItem.id}.`);
+    if (ledger.pending?.length) {
+      console.warn('Ledger reconciliation is required.');
+      printCommandRoutes(`singularity-flow ledger reconcile ${workflow.workItem.id}`);
+    }
   }
 }
 
@@ -3087,8 +3119,10 @@ function printChangeFlightPlan(plan) {
     for (const finding of plan.unknowns) console.log(`? ${finding.subject}: ${finding.explanation}`);
   }
   console.log(`\nRecommended starting point\n${plan.recommendedStart.subject}`);
-  console.log(`\nReview a finding: sflow impact explain ${plan.planId} <finding-id>`);
-  console.log(`Start safely: sflow impact start ${plan.planId} --work-id <ID> --work-type <TYPE> --confirm ${plan.planId}`);
+  console.log('\nReview a finding');
+  printCommandRoutes(`sflow impact explain ${plan.planId} <finding-id>`);
+  console.log('\nStart safely');
+  printCommandRoutes(`sflow impact start ${plan.planId} --work-id <ID> --work-type <TYPE> --confirm ${plan.planId}`);
 }
 
 async function impactCommand(positionals, options) {
@@ -3154,7 +3188,8 @@ async function impactCommand(positionals, options) {
     });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`${result.idempotent ? 'Reused' : 'Started'} ${result.workId} from ${result.planId}.`);
-    console.log(`Branch: ${result.branch}\nIsolated worktree: ${result.worktree}\nResume: cd ${JSON.stringify(result.worktree)} && sflow resume ${result.workId}`);
+    console.log(`Branch: ${result.branch}\nIsolated worktree: ${result.worktree}`);
+    printCommandRoutes(`sflow resume ${result.workId}`, { label: `Resume from ${result.worktree}` });
     return;
   }
   if (action === 'disposition') {
@@ -3557,8 +3592,14 @@ async function actionCommand(positionals, options) {
       { key: 'intent', label: 'INTENT' }, { key: 'executable', label: 'READY' },
       { key: 'reason', label: 'REASON' }
     ]));
-    console.log(`Authorize after review: singularity-flow action authorize ${plan.planId} --action <id> --confirm <exact-action-id>`);
-    console.log(`Then execute once: singularity-flow action execute ${plan.planId} --action <id> --authorization <token>`);
+    printCommandRoutes(
+      `singularity-flow action authorize ${plan.planId} --action <id> --confirm <exact-action-id>`,
+      { label: 'Authorize after review' }
+    );
+    printCommandRoutes(
+      `singularity-flow action execute ${plan.planId} --action <id> --authorization <token>`,
+      { label: 'Then execute once' }
+    );
     return;
   }
   if (!['authorize', 'execute'].includes(subcommand)) {
@@ -3585,7 +3626,9 @@ async function actionCommand(positionals, options) {
     });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(authorization, null, 2));
     console.log(`One-time authorization: ${authorization.token}`);
-    console.log(`Execute: singularity-flow action execute ${plan.planId} --action ${action.actionId} --authorization ${authorization.token}`);
+    console.log('Execute:');
+    console.log(`Shell (private one-time token): singularity-flow action execute ${plan.planId} --action ${action.actionId} --authorization ${authorization.token}`);
+    console.log('Copilot: /sf-continue');
     return;
   }
   const authorization = action.confirmation?.required
@@ -3710,37 +3753,36 @@ async function nextCommand(options) {
   const config = accepted.config;
   let workflow = accepted.workflow;
   if (await storyPublicationPending(root, config, workflow.workItem.id)) {
-    console.log('Run: singularity-flow sync');
-    console.log('In Copilot: /sf-next');
+    printCommandRoutes('singularity-flow sync', { label: 'Publish the retained local commit' });
     console.log('Publish the retained local commit.');
     return syncCommand();
   }
   let phase = currentPhase(workflow);
   if (!phase) {
-    console.log('Run: singularity-flow gate --terminal');
-    console.log('In Copilot: /sf-next');
+    printCommandRoutes('singularity-flow gate --terminal', { label: 'Run the final governance gate' });
     console.log('Run the governance gate for the completed workflow.');
     return gateCommand({ ...options, terminal: true });
   }
   if (phase.status === 'awaiting_approval') {
-    console.log(`Run: singularity-flow approve ${phase.id} --work-id ${workflow.workItem.id} --fetch`);
-    console.log(`In Copilot: /sf-approve ${phase.id}`);
+    printCommandRoutes(`singularity-flow approve ${phase.id} --work-id ${workflow.workItem.id} --fetch`, {
+      label: `Review and decide '${phase.id}'`
+    });
     console.log(`Review and decide submitted phase '${phase.id}'.`);
     return approveCommand(['approve', workflow.workItem.id], { ...options, fetch: optionBoolean(options, 'fetch', true) });
   }
-  if (phase.status !== 'in_progress') throw new SingularityFlowError(`Cannot automatically continue phase '${phase.id}' while it is ${phase.status}.\nCopilot: /sf-nextsteps ${workflow.workItem.id}\nRun: singularity-flow nextsteps ${workflow.workItem.id}`);
+  if (phase.status !== 'in_progress') throw new SingularityFlowError(`Cannot automatically continue phase '${phase.id}' while it is ${phase.status}.\nShell: singularity-flow nextsteps ${workflow.workItem.id}\nCopilot: /sf-nextsteps ${workflow.workItem.id}`);
   if (!phaseNeedsGeneration(workflow, phase)) {
     if (phase.id === 'convergence') {
-      console.log(`Run: singularity-flow story advance --work-id ${workflow.workItem.id}`);
-      console.log('In Copilot: /sf-submit convergence');
+      printCommandRoutes(`singularity-flow story advance --work-id ${workflow.workItem.id}`, {
+        label: 'Review and advance convergence'
+      });
       console.log('Review the deterministic convergence result; only an explicit story advance --confirm may submit it.');
       const { storyAdvanceCommand } = await import('./commands/story.mjs');
       return storyAdvanceCommand([], {
         ...options, confirm: false, 'work-id': workflow.workItem.id
       });
     }
-    console.log(`Run: singularity-flow submit ${phase.id}`);
-    console.log(`In Copilot: /sf-submit ${phase.id}`);
+    printCommandRoutes(`singularity-flow submit ${phase.id}`, { label: `Submit '${phase.id}'` });
     console.log(`Submit published phase '${phase.id}' for approval.`);
     return submitCommand(['submit', phase.id], options);
   }
@@ -3829,17 +3871,23 @@ async function nextCommand(options) {
       console.log('Convergence remains blocked by the recorded human dispositions:');
     } else console.log('The deterministic projection is clear and ready to publish:');
     for (const action of preparedPhaseNextActions(workflow, phase, prepared).filter((entry) => entry.rank === 'NOW')) {
-      console.log(`  Run: ${action.command}`);
+      printCommandRoutes(action.command, { skill: action.skill, indent: '  ' });
     }
   } else {
     console.log('\nAfter authoring and validation, publish the generation:');
-    console.log(`  Run (configured producer): ${phasePublicationCommand(phase)}`);
+    const configuredCommand = phasePublicationCommand(phase);
+    const generationSkill = generationSkillForPhase(phase);
+    printCommandRoutes(configuredCommand, {
+      skill: generationSkill, indent: '  ', label: 'Configured producer'
+    });
     if (phase.generationPolicy?.defaultProducer !== 'human'
         && phase.generationPolicy?.allowedProducers?.includes('human')) {
-      console.log(`  Manual alternative (authored by you): ${phasePublicationCommandForProducer(phase, 'human')}`);
+      const manualCommand = phasePublicationCommandForProducer(phase, 'human');
+      printCommandRoutes(manualCommand, {
+        skill: generationSkill, indent: '  ', label: 'Manual alternative, authored by you'
+      });
     }
   }
-  console.log(`  In Copilot: ${generationSkillForPhase(phase)} ${phase.id}`);
 }
 
 async function documentsCommand(positionals, options) {
@@ -3907,11 +3955,11 @@ async function documentsCommand(positionals, options) {
     const result = { ...detached, publication, next };
     if (json) return console.log(JSON.stringify(result, null, 2));
     console.log(`Decision: ${detached.decision.sha256}`);
-    console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' retained locally; run singularity-flow sync'}`);
+    console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' retained locally'}`);
+    if (!publication.pushed) printCommandRoutes('singularity-flow sync', { label: 'Publish the retained commit' });
     console.log(`Invalidated phases: ${detached.affectedPhases.length ? detached.affectedPhases.join(', ') : 'none'}`);
     if (detached.reopenedPhase) console.log(`Reopened phase: ${detached.reopenedPhase}`);
-    console.log(`Run: singularity-flow nextsteps`);
-    console.log(`In Copilot: /sf-nextsteps`);
+    printCommandRoutes('singularity-flow nextsteps', { label: 'Continue' });
     return;
   }
   if (subcommand === 'preview') {
@@ -4081,7 +4129,8 @@ function preparedPhaseNextActions(workflow, phase, prepared) {
     narrationAction({
       id: 'prepare.author',
       label: 'Fill the artifact in, then publish this generation of it',
-      command: phasePublicationCommand(phase)
+      command: phasePublicationCommand(phase),
+      skill: generationSkillForPhase(phase)
     }),
     inputs
   ];
@@ -4131,7 +4180,8 @@ function preparedPhaseNextActions(workflow, phase, prepared) {
       label: 'Publish the reviewed deterministic convergence projection',
       command: phasePublicationCommandForProducer(
         phase, prepared.publicationProducer ?? phasePublicationContract(phase).producer
-      )
+      ),
+      skill: generationSkillForPhase(phase)
     }),
     inputs
   ];
@@ -4754,7 +4804,8 @@ async function mcpCommand(positionals, options) {
       local: optionBoolean(options, 'local'),
       replaceServer: optionBoolean(options, 'replace-server') || optionBoolean(options, 'replace')
     });
-    console.log(`${result.changed ? 'Updated' : 'Verified'} ${result.path} (${result.sha256.slice(0, 12)}). Review and commit it, then run 'singularity-flow mcp warm ${server} --network' before trusting or starting the server in VS Code or Copilot CLI. The managed host entry invokes the global singularity-flow launcher; a VSIX-only installation cannot serve it.`);
+    console.log(`${result.changed ? 'Updated' : 'Verified'} ${result.path} (${result.sha256.slice(0, 12)}). Review and commit it before trusting or starting the server in VS Code or Copilot CLI. The managed host entry invokes the global singularity-flow launcher; a VSIX-only installation cannot serve it.`);
+    printCommandRoutes(`singularity-flow mcp warm ${server} --network`, { label: 'Then warm it' });
     return;
   }
   const config = await loadConfig(root);
@@ -5249,7 +5300,8 @@ function printPhaseReview(review, { showArtifact = false } = {}) {
   }
   const readable = review.documents.filter((document) => !document.error && !document.binary && document.content != null);
   if (readable.length && !showArtifact) {
-    console.log(`\n${style.action('Read them:')} singularity-flow documents view <id> --work-id ${review.workId}`);
+    console.log('');
+    printCommandRoutes(`singularity-flow documents view <id> --work-id ${review.workId}`, { label: style.action('Read them') });
     console.log(style.detail(`Add --show-artifact to print ${readable.length === 1 ? 'the document' : `all ${readable.length} documents`} here instead.`));
   }
 }
@@ -5297,7 +5349,7 @@ async function phaseCommand(positionals, options) {
       else {
         console.log(`Generation rollover preview for ${phase.id}: ${phase.generation} -> ${phase.generation + 1}.`);
         console.log(`Confirm exact current bytes: ${expected}`);
-        console.log(`Run: ${plan.action.command}`);
+        printCommandRoutes(plan.action.command, { label: 'Continue' });
         console.log('Nothing was changed.');
       }
       return;
@@ -6184,8 +6236,11 @@ async function telemetryCommand(positionals, options) {
     console.log(`Pending generations: ${pending.length ? pending.map((item) => `${item.phase}@${item.generation}`).join(', ') : 'none'}`);
     if (!launches.launches.length && status.ready) console.log(`Legacy repository stream: ${status.completedChatSpans} completed chat span(s).`);
     if (launches.status === 'unavailable') console.log('Usage unavailable for this session. Your work can continue.');
-    if (!launches.preference.enabled) console.log('Enable future SFlow-owned launches with: singularity-flow telemetry enable');
-    else if (!launches.preference.disclosureAccepted) console.log('Review and accept the local collection disclosure with: singularity-flow telemetry enable');
+    if (!launches.preference.enabled) {
+      printCommandRoutes('singularity-flow telemetry enable', { label: 'Enable future SFlow-owned launches' });
+    } else if (!launches.preference.disclosureAccepted) {
+      printCommandRoutes('singularity-flow telemetry enable', { label: 'Review and accept the local collection disclosure' });
+    }
     return;
   }
   if (subcommand === 'probe') {
@@ -6854,10 +6909,12 @@ async function cancelCommand(positionals, options) {
     console.log(`Return to: ${result.baseBranch}`);
     console.log(`Local changes: ${result.changedPathCount} path(s)${result.changedPathCount ? ' → named recoverable stash' : ''}`);
     for (const candidate of result.changedPaths) console.log(`- ${candidate}`);
-    if (!result.applied) console.log(`Apply: singularity-flow cancel ${result.workId} --release --apply --confirm ${result.workId}`);
+    if (!result.applied) {
+      printCommandRoutes(`singularity-flow cancel ${result.workId} --release --apply --confirm ${result.workId}`, { label: 'Apply' });
+    }
     else if (result.stashSha) {
       console.log(`Preserved stash commit: ${result.stashSha}`);
-      console.log(`Restore when wanted: ${result.recoveryCommand}`);
+      printStashRecoveryCommand(result.recoveryCommand, { label: 'Restore when wanted' });
     }
     if (result.sessionWarning) console.log(`Warning: ${result.sessionWarning}`);
     return result;
@@ -6910,7 +6967,7 @@ async function cancelCommand(positionals, options) {
   const remainingChanges = changedFiles(root);
   if (remainingChanges.length) {
     console.log(`${remainingChanges.length} uncommitted path(s) remain on the archived branch.`);
-    console.log(`Preview safe release: singularity-flow cancel ${workflow.workItem.id} --release`);
+    printCommandRoutes(`singularity-flow cancel ${workflow.workItem.id} --release`, { label: 'Preview safe release' });
   }
 }
 
@@ -6928,7 +6985,7 @@ async function syncCommand(positionals = []) {
   if (direct.status === 'recovered') {
     console.log(`Rolled back the interrupted pre-commit publication for ${requestedId} to its exact durable pre-transaction state.`);
     if (direct.rescuePath) console.log(`Preserved the interrupted partial bytes at ${direct.rescuePath}.`);
-    console.log(`Run singularity-flow nextsteps ${requestedId} before retrying.`);
+    printCommandRoutes(`singularity-flow nextsteps ${requestedId}`, { label: 'Before retrying' });
     return direct;
   }
   if (direct.status === 'manual') {
@@ -6942,7 +6999,7 @@ async function syncCommand(positionals = []) {
   if (result.recoveredPrepared && result.restoredPrepared) {
     console.log(`Rolled back the interrupted pre-commit publication for ${workflow.workItem.id} to its exact durable pre-transaction state.`);
     if (result.rescuePath) console.log(`Preserved the interrupted partial bytes at ${result.rescuePath}.`);
-    console.log(`Run singularity-flow nextsteps ${workflow.workItem.id} before retrying.`);
+    printCommandRoutes(`singularity-flow nextsteps ${workflow.workItem.id}`, { label: 'Before retrying' });
   } else if (result.recoveredPrepared) {
     console.log(`Cleared the interrupted pre-commit publication for ${workflow.workItem.id}; HEAD and the working tree already matched its exact baseline. Retry the original command.`);
   } else if (result.noOp) {
@@ -7043,7 +7100,10 @@ async function ledgerCommand(positionals, options) {
     if (result.dryRun && result.pins.some((item) => item.restoreCandidate)) {
       const source = result.sourceRemote ? ` --source-remote ${result.sourceRemote}` : '';
       console.log('Remote restoration is never automatic. After reviewing the exact refs and commits:');
-      console.log(`  singularity-flow ledger repair --restore-remote${source} --confirm ${JSON.stringify(result.confirmation)}`);
+      printCommandRoutes(
+        `singularity-flow ledger repair --restore-remote${source} --confirm ${JSON.stringify(result.confirmation)}`,
+        { indent: '  ' }
+      );
     }
     if (!result.dryRun && !result.valid) {
       throw new SingularityFlowError('Ledger pin repair remains incomplete. Review the unresolved classifications above.', { exitCode: 2 });
@@ -7645,13 +7705,13 @@ async function workflowCommand(positionals, options) {
       if (result.externalAction) {
         console.log(`  repository review: merge ${result.externalAction.sourceBranch} into ${result.externalAction.targetBranch}`);
       }
-      if (result.nextAction) console.log(`  after recovery: ${result.nextAction}`);
+      if (result.nextAction) printCommandRoutes(result.nextAction, { indent: '  ', label: 'After recovery' });
       return;
     }
     console.log(result.alreadyMerged
       ? `${branch} was already merged into ${result.targetBranch}.`
       : `Merged ${branch}@${result.proposalCommit.slice(0, 12)} into ${result.targetBranch} at ${result.targetCommit.slice(0, 12)}.`);
-    console.log(`  Refresh workspace configuration: ${result.nextAction}`);
+    printCommandRoutes(result.nextAction, { indent: '  ', label: 'Refresh workspace configuration' });
     return;
   }
 
@@ -7666,7 +7726,7 @@ async function workflowCommand(positionals, options) {
     console.log(`Workflow configuration proposal published: ${result.branch}`);
     console.log(`  ${result.files.join(', ')}`);
     console.log(`  Approved ${result.baseBranch} and the current Story checkout were not changed.`);
-    console.log(`  Next: ${result.nextAction}`);
+    printCommandRoutes(result.nextAction, { indent: '  ', label: 'Next' });
     return true;
   };
 
@@ -7806,7 +7866,9 @@ async function workflowCommand(positionals, options) {
       if (printProposal(created)) return;
       console.log(`Created ${created.governs} phase ${created.phaseId} in ${created.path}.`);
       if (created.template) console.log(`  Starter template: ${created.template}`);
-      return console.log('  It runs nowhere until a workflow lists it: singularity-flow workflow edit <ID> --phases a,b,c');
+      console.log('  It runs nowhere until a workflow lists it.');
+      printCommandRoutes('singularity-flow workflow edit <ID> --phases a,b,c', { indent: '  ', label: 'Add it' });
+      return;
     }
     if (action === 'edit') {
       const changes = {};
@@ -8023,8 +8085,9 @@ function renderRepair(state) {
   console.log(`Verification: ${state.plan.verification.length ? state.plan.verification.map((entry) => entry.argv.join(' ')).join(' | ') : 'not yet pinned'}`);
   if (state.workspace) console.log(`Isolated branch: ${state.workspace.branch} · ${state.workspace.path}`);
   if (state.stopReason) console.log(`Reason: ${state.stopReason}`);
-  for (const command of repairNextActions(state)) console.log(`Next CLI step: ${command}`);
-  if (repairNextActions(state).length) console.log(`In Copilot: /sf-fix ${state.faultId}`);
+  for (const command of repairNextActions(state)) {
+    printCommandRoutes(command, { skill: '/sf-fix', label: 'Next repair step' });
+  }
 }
 
 async function fixCommand(positionals, options) {
@@ -8139,10 +8202,10 @@ async function runCommand(positionals, options) {
   if (!phase) { console.log('Workflow is complete. Running the final governance gate.'); return gateCommand({ terminal: true }); }
   if (phase.status === 'awaiting_approval') {
     console.log(`Guided run stopped: '${phase.id}' is awaiting human review and approval.`);
-    console.log(`Run: singularity-flow review ${phase.id}`);
-    console.log(`In Copilot: /sf-review ${phase.id}`);
-    console.log(`Run: singularity-flow approve ${phase.id} --work-id ${workflow.workItem.id} --fetch`);
-    console.log(`In Copilot: /sf-approve ${phase.id}`);
+    printCommandRoutes(`singularity-flow review ${phase.id}`, { label: 'Review' });
+    printCommandRoutes(`singularity-flow approve ${phase.id} --work-id ${workflow.workItem.id} --fetch`, {
+      label: 'Decide'
+    });
     return;
   }
   if (phaseNeedsGeneration(workflow, phase)) {
@@ -8158,7 +8221,6 @@ async function runCommand(positionals, options) {
     });
     console.log('Guided run stopped at the explicit convergence advancement boundary.');
     console.log('Use the exact digest-bound confirmation command printed by the review above.');
-    console.log('In Copilot: /sf-submit convergence');
     return;
   }
   const noApproval = phase.approvalPolicy?.mode === 'none';
@@ -8169,16 +8231,15 @@ async function runCommand(positionals, options) {
   );
   if (!submit) {
     console.log('No state changed.');
-    console.log(`Run: singularity-flow submit ${phase.id}`);
-    console.log(`In Copilot: /sf-submit ${phase.id}`);
+    printCommandRoutes(`singularity-flow submit ${phase.id}`, { label: 'Submit when ready' });
     return;
   }
   await submitCommand(['submit', phase.id], options);
   const afterSubmission = await loadStoryAggregate(root, config);
   const submittedPhase = afterSubmission.phases[phase.id];
   if (submittedPhase?.status === 'awaiting_approval') {
-    console.log(`Run: singularity-flow review ${phase.id}`);
-    console.log(`Guided run stopped at the approval boundary. In Copilot: /sf-review ${phase.id}`);
+    console.log('Guided run stopped at the approval boundary.');
+    printCommandRoutes(`singularity-flow review ${phase.id}`, { label: 'Review' });
   } else {
     const active = currentPhase(afterSubmission);
     if (active) console.log(`Guided run advanced to '${active.id}'. Follow the NEXT actions above.`);
@@ -8211,7 +8272,10 @@ async function cockpitCommand() {
   const accepted = await acceptedStoryExecutionIfPresent(root);
   if (!accepted) {
     console.log(`Singularity Flow cockpit\nRepository: ${root}\nBranch: ${branch(root)}\n\nNo work item is active on this branch.`);
-    console.log('Start: singularity-flow start <WORK-ID>\nResume: singularity-flow resume <WORK-ID> --fetch\nDiagnostics: singularity-flow doctor'); return;
+    printCommandRoutes('singularity-flow start <WORK-ID>', { label: 'Start' });
+    printCommandRoutes('singularity-flow resume <WORK-ID> --fetch', { label: 'Resume' });
+    printCommandRoutes('singularity-flow doctor', { label: 'Diagnostics' });
+    return;
   }
   const { config, workflow } = accepted;
   const progress = progressSnapshot(workflow); const session = await loadSession(root, { required: false }); const active = currentPhase(workflow);
@@ -8238,7 +8302,11 @@ async function cockpitCommand() {
   } catch (error) {
     console.warn(`\nCapability ledger: unavailable (${error?.message ?? String(error)})`);
   }
-  console.log('\nUseful views: singularity-flow progress · review · documents list · report · doctor');
+  console.log('\nUseful views:');
+  for (const command of [
+    'singularity-flow progress', 'singularity-flow review', 'singularity-flow documents list',
+    'singularity-flow report', 'singularity-flow doctor'
+  ]) printCommandRoutes(command, { indent: '  ' });
 }
 
 // The world-model builder runs Copilot inside an isolated, throwaway worktree (a temp directory
@@ -8953,7 +9021,9 @@ async function sessionCommand(positionals, options) {
   console.log(`Copilot session: ${status.copilotSessionId ?? 'not bound'}`);
   console.log(`Work-item selection: ${status.workItemSelectionRequired ? 'required' : 'complete'} · governed agent: ${status.activeAgent ?? 'phase default pending'}`);
   console.log(`Policy: work item ${status.policy.workItemSelection ?? 'off'} · phase agent automatic · before tools: ${status.policy.requireBeforeTools ? 'required' : 'not required'}`);
-  if (status.workItemSelectionRequired) console.log('Copilot: /sf-session\nRun: singularity-flow session attach <WORK-ID>');
+  if (status.workItemSelectionRequired) {
+    printCommandRoutes('singularity-flow session attach <WORK-ID>', { label: 'Select the Story' });
+  }
 }
 
 async function inboxCommand(options) {
@@ -9561,7 +9631,9 @@ async function capabilityCommand(positionals, options) {
     for (const failure of result.failures) {
       console.warn(`  ${failure.lead}: ${failure.message}`);
       if (failure.diagnosticAction?.command) {
-        console.warn(`    Diagnose: ${failure.diagnosticAction.command}`);
+        printCommandRoutes(failure.diagnosticAction.command, {
+          skill: failure.diagnosticAction.skill ?? null, indent: '    ', label: 'Diagnose'
+        });
       }
     }
     return;
@@ -9864,7 +9936,9 @@ async function capabilityCommand(positionals, options) {
     console.log(`Discarded stale capability proposal ${result.branch}@${result.proposalCommit}.`);
     console.log(`  reason: ${result.reason}`);
     console.log(`  preserved: ${result.preserved.join(', ')}`);
-    console.log(`  verify: ${result.nextAction.command}`);
+    printCommandRoutes(result.nextAction.command, {
+      skill: result.nextAction.skill ?? null, indent: '  ', label: 'Verify'
+    });
     return result;
   }
 
@@ -9888,15 +9962,21 @@ async function capabilityCommand(positionals, options) {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     if (!result.repaired) {
       console.log(`Capability proposal ${result.branch}@${result.proposalCommit} is already compatible.`);
-      return console.log(`  activate: ${result.nextAction.command}`);
+      return printCommandRoutes(result.nextAction.command, {
+        skill: result.nextAction.skill ?? null, indent: '  ', label: 'Activate'
+      });
     }
     console.log(`Prepared packaged compatibility repair for ${result.branch}.`);
     console.log(`  previous commit: ${result.previousProposalCommit}`);
     console.log(`  review commit: ${result.proposalCommit}`);
     for (const file of result.changedFiles) console.log(`  repaired: ${file}`);
     console.log('  approved configuration and application branches were not changed.');
-    console.log(`  review: ${result.nextAction.command}`);
-    console.log(`  after review: ${result.activationAction.command}`);
+    printCommandRoutes(result.nextAction.command, {
+      skill: result.nextAction.skill ?? null, indent: '  ', label: 'Review'
+    });
+    printCommandRoutes(result.activationAction.command, {
+      skill: result.activationAction.skill ?? null, indent: '  ', label: 'After review'
+    });
     return result;
   }
 
@@ -9919,9 +9999,13 @@ async function capabilityCommand(positionals, options) {
         + `${proposal.merged ? 'merged' : proposal.valid ? 'ready for review' : proposal.status ?? 'invalid'}`);
       if (proposal.failure?.message) console.log(`  blocked: ${proposal.failure.message}`);
       if (proposal.failure?.diagnosticAction?.command) {
-        console.log(`  diagnose: ${proposal.failure.diagnosticAction.command}`);
+        printCommandRoutes(proposal.failure.diagnosticAction.command, {
+          skill: proposal.failure.diagnosticAction.skill ?? null, indent: '  ', label: 'Diagnose'
+        });
       }
-      if (proposal.failure?.nextAction?.command) console.log(`  recover: ${proposal.failure.nextAction.command}`);
+      if (proposal.failure?.nextAction?.command) printCommandRoutes(proposal.failure.nextAction.command, {
+        skill: proposal.failure.nextAction.skill ?? null, indent: '  ', label: 'Recover'
+      });
     }
     return;
   }
@@ -9939,7 +10023,9 @@ async function capabilityCommand(positionals, options) {
     for (const file of proposal.changedFiles) console.log(`  ${file.status.padEnd(4)} ${file.paths.join(' -> ')}`);
     if (proposal.invalidFiles.length) console.log(`  refused files: ${proposal.invalidFiles.join(', ')}`);
     if (proposal.configurationError) console.log(`  configuration: ${proposal.configurationError}`);
-    if (proposal.repairAction?.command) console.log(`  recover: ${proposal.repairAction.command}`);
+    if (proposal.repairAction?.command) printCommandRoutes(proposal.repairAction.command, {
+      skill: proposal.repairAction.skill ?? null, indent: '  ', label: 'Recover'
+    });
     return;
   }
 
@@ -9970,7 +10056,9 @@ async function capabilityCommand(positionals, options) {
       if (result.externalAction) {
         console.log(`  repository review: merge ${result.externalAction.sourceBranch} into ${result.externalAction.targetBranch}`);
       }
-      if (result.nextAction?.command) console.log(`  after recovery: ${result.nextAction.command}`);
+      if (result.nextAction?.command) printCommandRoutes(result.nextAction.command, {
+        skill: result.nextAction.skill ?? null, indent: '  ', label: 'After recovery'
+      });
       return;
     }
     console.log(result.alreadyMerged
@@ -9983,7 +10071,9 @@ async function capabilityCommand(positionals, options) {
         ? `The ${result.projection.branch} capability projection is already current.`
         : `Capability projection not published: ${result.projection?.reason}.`);
     }
-    if (result.nextAction?.command) console.log(`Recovery: ${result.nextAction.command}`);
+    if (result.nextAction?.command) printCommandRoutes(result.nextAction.command, {
+      skill: result.nextAction.skill ?? null, label: 'Recovery'
+    });
     console.log(`Recorded activation audit ${result.audit.eventId} at ledger sequence ${result.audit.sequence}.`);
     return;
   }
@@ -10088,7 +10178,11 @@ async function capabilityCommand(positionals, options) {
       ? `Removed capability ${id} from ${result.path}.`
       : `Saved capability ${id} to ${result.path}.`);
     console.log('  This is a local authoring change; no governed state branch was created or moved.');
-    return console.log('  Governed route: singularity-flow capability edit <ID> --lead <URL> --mode set …');
+    printCommandRoutes('singularity-flow capability edit <ID> --lead <URL> --mode set …', {
+      indent: '  ',
+      label: 'Governed route'
+    });
+    return;
   }
 
   const definition = await loadCapabilities(root);
@@ -10313,7 +10407,11 @@ async function knowledgeCommand(positionals, options) {
     query: optionString(options, 'query') ?? null
   });
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(entries, null, 2));
-  if (!entries.length) return console.log('No knowledge entries yet. Harvest an approved initiative with: singularity-flow knowledge harvest');
+  if (!entries.length) {
+    console.log('No knowledge entries yet.');
+    printCommandRoutes('singularity-flow knowledge harvest', { label: 'Harvest an approved initiative' });
+    return;
+  }
   for (const { sha256, record } of entries) {
     const scope = Object.entries(record.scope).flatMap(([key, values]) => values.map((value) => `${key}:${value}`)).join(',');
     console.log(`${record.id}  ${record.type.padEnd(12)} ${record.status.padEnd(10)} ${scope.padEnd(28)} ${record.text}`);
@@ -10472,8 +10570,7 @@ async function initiativeCommand(positionals, options) {
     console.log(`Initiative ${initiativeId} started as ${profile}.`);
     console.log(initiativeFlowText(progress));
     console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
-    console.log('Run: singularity-flow epic requirements prepare');
-    console.log('In Copilot: /sf-epic-requirements');
+    printCommandRoutes('singularity-flow epic requirements prepare', { label: 'Prepare requirements' });
     if (profile === 'epic-planning') console.log('Repository world-model generation is deferred until each Jira Story has its canonical branch.');
     return;
   }
@@ -10525,7 +10622,7 @@ async function initiativeCommand(positionals, options) {
     if (direct.status === 'recovered') {
       console.log(`Rolled back the interrupted pre-commit Initiative publication for ${initiativeId}.`);
       if (direct.rescuePath) console.log(`Preserved the interrupted partial bytes at ${direct.rescuePath}.`);
-      console.log(`Run singularity-flow initiative next ${initiativeId} before retrying.`);
+      printCommandRoutes(`singularity-flow initiative next ${initiativeId}`, { label: 'Before retrying' });
       return;
     }
     if (direct.status === 'manual') {
@@ -10580,7 +10677,10 @@ async function initiativeCommand(positionals, options) {
         console.log(`    ${policy.question}${policy.reason ? `\n    reason: ${policy.reason}` : ''}`);
       }
       const pending = state.filter((policy) => !policy.answered);
-      if (pending.length) console.log(`\nsingularity-flow initiative applicability set ${pending[0].id} yes|no --reason "..."`);
+      if (pending.length) {
+        console.log('');
+        printCommandRoutes(`singularity-flow initiative applicability set ${pending[0].id} <yes|no> --reason <TEXT>`);
+      }
       return;
     }
     const policyId = requirePositional(positionals, 3, 'applicability policy');
@@ -10614,7 +10714,8 @@ async function initiativeCommand(positionals, options) {
         const included = initiativeOutputRequired(initiative, phaseId, output);
         console.log(`${included ? '[x]' : '[ ]'} ${output.id.padEnd(28)} ${output.required === false ? 'optional' : 'required'}  ${output.label}`);
       }
-      console.log(`\nsingularity-flow initiative outputs ${phaseId} --include ${available.filter((output) => initiativeOutputRequired(initiative, phaseId, output)).map((output) => output.id).join(',')} --reason "..."`);
+      console.log('');
+      printCommandRoutes(`singularity-flow initiative outputs ${phaseId} --include ${available.filter((output) => initiativeOutputRequired(initiative, phaseId, output)).map((output) => output.id).join(',')} --reason "..."`);
       return;
     }
     const session = await loadSession(root, { required: false });
@@ -11080,7 +11181,12 @@ async function initiativeCommand(positionals, options) {
     else {
       console.log(`${journey.stageLabel} · ${journey.completionPercent}% complete`);
       console.log(`Next: ${journey.nextAction.label}`);
-      if (journey.nextAction.command) console.log(`Command: ${journey.nextAction.command}`);
+      if (journey.nextAction.command) {
+        printCommandRoutes(journey.nextAction.command, {
+          skill: journey.nextAction.skill ?? null,
+          label: 'Continue'
+        });
+      }
       if (journey.nextAction.reason) console.log(journey.nextAction.reason);
     }
     return;
@@ -11093,7 +11199,7 @@ async function initiativeCommand(positionals, options) {
       result.warnings.forEach((message) => console.warn(`WARN: ${message}`));
       result.errors.forEach((message) => console.error(`ERROR: ${message}`));
       [...new Set(result.findings.map((finding) => finding.recovery?.command).filter(Boolean))]
-        .forEach((command) => console.error(`RECOVER: ${command}`));
+        .forEach((command) => printCommandRoutes(command, { label: 'Recover' }));
     }
     if (!result.valid) process.exitCode = 2;
     return;
@@ -11117,7 +11223,13 @@ async function initiativeCommand(positionals, options) {
     for (const finding of result.findings) {
       console.log(`BLOCKED ${finding.code}${finding.phase ? ` — owner ${finding.phase}` : ''}`);
       console.log(`  ${finding.details.message}`);
-      if (finding.recovery.command) console.log(`  Run: ${finding.recovery.command}`);
+      if (finding.recovery.command) {
+        printCommandRoutes(finding.recovery.command, {
+          skill: finding.recovery.skill ?? null,
+          indent: '  ',
+          label: 'Run'
+        });
+      }
       else console.log(`  Human authority required: ${finding.recovery.detail}`);
     }
     return;
@@ -11781,11 +11893,19 @@ function renderWorkspaceBootstrap(session) {
   if (session.recoveryActions?.length) {
     console.log('Recovery paths:');
     for (const action of session.recoveryActions) {
-      console.log(`  ${action.label ?? action.id}: ${action.command}`);
+      printCommandRoutes(action.command, {
+        skill: action.skill ?? null,
+        indent: '  ',
+        label: action.label ?? action.id
+      });
       if (action.instruction) console.log(`    ${action.instruction}`);
     }
-  } else if (session.nextAction?.command) console.log(`Next CLI step: ${session.nextAction.command}`);
-  if (session.nextAction?.skill) console.log(`Copilot: ${session.nextAction.skill}`);
+  } else if (session.nextAction?.command) {
+    printCommandRoutes(session.nextAction.command, {
+      skill: session.nextAction.skill ?? null,
+      label: 'Next step'
+    });
+  }
 }
 
 async function workspaceBootstrapInput(source, options) {
@@ -12057,9 +12177,13 @@ async function workspaceCommand(positionals, options) {
       for (const item of result.capabilityPortability.results) {
         console.log(`  Capability portability ${item.lead}: ${item.status}`);
         if (item.reason) console.log(`    ${item.reason}`);
-        if (item.nextAction) console.log(`    Recover: ${item.nextAction.command}`);
+        if (item.nextAction) printCommandRoutes(item.nextAction.command, {
+          skill: item.nextAction.skill ?? null, indent: '    ', label: 'Recover'
+        });
       }
-      if (result.nextAction) console.log(`Apply reviewed plan: ${result.nextAction.command}`);
+      if (result.nextAction) printCommandRoutes(result.nextAction.command, {
+        skill: result.nextAction.skill ?? null, label: 'Apply reviewed plan'
+      });
       else if (result.status === 'complete') {
         console.log('Configuration, workflow assets, state projections, capability locators, and readable schema versions are current.');
       }
@@ -12246,7 +12370,9 @@ async function workspaceCommand(positionals, options) {
     if (!current) {
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ active: false }, null, 2));
       if (subcommand === 'prompt') return console.log('');
-      return console.log('No active workspace. Run singularity-flow workspace use <WORKSPACE>.');
+      console.log('No active workspace.');
+      printCommandRoutes('singularity-flow workspace use <WORKSPACE>', { label: 'Select one' });
+      return;
     }
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ active: true, ...current }, null, 2));
     if (subcommand === 'prompt') return console.log(workspacePromptLabel(current));
@@ -12266,9 +12392,10 @@ async function workspaceCommand(positionals, options) {
     console.log(`\nActive context: ${workspacePromptLabel(context)}`);
     console.log(`Repository: ${context.repositoryPath}`);
     if (context.repositoryState !== 'ready') {
-      console.log(`Repository state: ${context.repositoryState}. Run workspace repair before starting Copilot.`);
+      console.log(`Repository state: ${context.repositoryState}. Repair it before starting Copilot.`);
+      printCommandRoutes('singularity-flow workspace repair <WORKSPACE>', { label: 'Repair' });
     }
-    console.log(`Start Copilot here: singularity-flow workspace copilot`);
+    printCommandRoutes('singularity-flow workspace copilot', { label: 'Start Copilot here' });
     console.log(`Shell directory: cd ${JSON.stringify(context.repositoryPath)}`);
     return;
   }
@@ -12447,7 +12574,8 @@ async function workspaceCommand(positionals, options) {
       else if (state?.created) console.log(`  created the ${state.branch} branch in ${localResult.workspace.leadRepository}`);
       else if (state) console.log(`  the ${state.branch} branch is already in ${localResult.workspace.leadRepository}`);
       if (state?.pinRepair && !state.pinRepair.valid) {
-        console.warn('  source-pin recovery remains incomplete; run singularity-flow ledger repair --dry-run in the lead repository.');
+        console.warn('  source-pin recovery remains incomplete. Run this in the lead repository:');
+        printCommandRoutes('singularity-flow ledger repair --dry-run', { indent: '  ' });
       }
       renderWorkspaceMaterialization(localResult);
       return renderWorkspaceStatus(localResult.status);
@@ -12640,7 +12768,7 @@ async function workspaceCommand(positionals, options) {
       console.log(`  Checkout retained for safety: ${repository.path} (${repository.reason})`);
     }
     if (result.retained?.length && result.repairCommand) {
-      console.log(`  Recover with: ${result.repairCommand}`);
+      printCommandRoutes(result.repairCommand, { indent: '  ', label: 'Recover' });
     }
     if (result.preservedLeadRepository) {
       console.log(`  Lead repository '${result.preservedLeadRepository}' remains in the workspace.`);
@@ -12650,7 +12778,7 @@ async function workspaceCommand(positionals, options) {
     }
     if (result.materializationError) {
       console.log(`  Attachment is recorded, but a required checkout could not be materialized: ${result.materializationError}`);
-      console.log(`  Recover with: ${result.repairCommand}`);
+      printCommandRoutes(result.repairCommand, { indent: '  ', label: 'Recover' });
     }
     return renderWorkspaceStatus(result.status);
   }
@@ -12696,7 +12824,8 @@ async function workspaceCommand(positionals, options) {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`Archived ${archived.workspace.name}. No active Stories were found; its checkout and artifacts are untouched.`);
     if (clearedSelection) console.log('The active workspace selection was cleared.');
-    return console.log('Restore it with singularity-flow workspace restore.');
+    printCommandRoutes('singularity-flow workspace restore', { label: 'Restore it' });
+    return;
   }
   if (subcommand === 'restore') {
     const restored = await restoreWorkspace(registry, workspacePath);
@@ -12999,8 +13128,9 @@ async function epicCommand(positionals, options) {
       const result = { initiativeId: reservation.id, source, reservation, publication };
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
       console.log(`Local Epic ${reservation.id} reserved, created, committed, and ${publication.pushed ? 'pushed' : 'recorded locally'}.`);
-      console.log(`Run: singularity-flow epic sources --epic ${reservation.id}`);
-      console.log(`In Copilot: /sf-epic-sources ${reservation.id}`);
+      printCommandRoutes(`singularity-flow epic sources --epic ${reservation.id}`, {
+        label: 'Add or inspect Epic sources'
+      });
       return;
     }
     return initiativeCommand(['initiative', 'start', requirePositional(positionals, 2, 'Jira Epic key')], {
@@ -13073,11 +13203,13 @@ async function epicCommand(positionals, options) {
       const result = { ...detached, publication };
       if (json) return console.log(JSON.stringify(result, null, 2));
       console.log(`Decision: ${detached.decision.sha256}`);
-      console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' retained locally; run singularity-flow initiative sync'}`);
+      console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' retained locally'}`);
+      if (!publication.pushed) {
+        printCommandRoutes(`singularity-flow initiative sync ${initiativeId}`, { label: 'Publish the retained commit' });
+      }
       console.log(`Invalidated phases: ${detached.affectedPhases.length ? detached.affectedPhases.join(', ') : 'none'}`);
       if (detached.reopenedPhase) console.log(`Reopened phase: ${detached.reopenedPhase}`);
-      console.log(`Run: singularity-flow initiative next ${initiativeId}`);
-      console.log(`In Copilot: /sf-initiative-next`);
+      printCommandRoutes(`singularity-flow initiative next ${initiativeId}`, { label: 'Continue' });
       return;
     }
     if (action === 'note' || action === 'answer') {
@@ -13480,13 +13612,13 @@ async function epicCommand(positionals, options) {
       if (optionBoolean(options, 'dry-run')) {
         if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ plan: result.plan, publication: null }, null, 2));
         console.log(`Jira write plan ${result.plan.sha256} previewed. Nothing was committed or pushed.`);
-        console.log(`Next command: singularity-flow epic jira apply --epic ${initiativeId} --plan ${result.plan.sha256} --confirm ${initiativeId}`);
+        printCommandRoutes(`singularity-flow epic jira apply --epic ${initiativeId} --plan ${result.plan.sha256} --confirm ${initiativeId}`, { label: 'Next command' });
         return;
       }
       const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { system: 'jira', operation: 'plan', planSha256: result.plan.sha256 } }, `[${initiativeId}][epic:jira-plan] ${result.plan.sha256.slice(0, 12)}`);
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ plan: result.plan, publication }, null, 2));
       console.log(`Created and published Jira write plan ${result.plan.sha256}.`);
-      console.log(`Review it, then run: singularity-flow epic jira apply --epic ${initiativeId} --plan ${result.plan.sha256} --confirm ${initiativeId}`);
+      printCommandRoutes(`singularity-flow epic jira apply --epic ${initiativeId} --plan ${result.plan.sha256} --confirm ${initiativeId}`, { label: 'Review it, then run' });
       return;
     }
     if (optionBoolean(options, 'dry-run')) {

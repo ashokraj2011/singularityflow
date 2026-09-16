@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import { actionCommandLines, copilotAction } from '../copilot-guidance.mjs';
 import { loadDefinition } from '../config.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { branch as currentBranch, repoRoot } from '../git.mjs';
@@ -216,7 +217,10 @@ function printSummary(value) {
     console.log('\nTop-level architecture');
     for (const item of value.topLevel) console.log(`  ${item.id} · ${item.type} · ${item.name}`);
   }
-  console.log('\nExpand safely: singularity-flow architecture explain <ELEMENT-ID>');
+  console.log('');
+  for (const line of actionCommandLines(copilotAction({
+    command: 'singularity-flow architecture explain <ELEMENT-ID>'
+  }), 'Expand safely')) console.log(line);
 }
 
 const INTENT_CANDIDATE_KEYS = new Set(['phase', 'generation', 'clauses']);
@@ -675,7 +679,11 @@ export async function run(_argv, { positionals, options } = {}) {
       const value = await baseProjection(root);
       const result = { status: 'ready', projectionSha256: value.built.projectionSha256,
         manifestSha256: value.store.manifest.manifestSha256, nextAction: 'singularity-flow architecture show' };
-      if (json) console.log(JSON.stringify(result, null, 2)); else console.log(`Architecture projection: ready\n${result.nextAction}`);
+      if (json) console.log(JSON.stringify(result, null, 2));
+      else console.log([
+        'Architecture projection: ready',
+        ...actionCommandLines(copilotAction(result.nextAction), 'Inspect it')
+      ].join('\n'));
       return result;
     } catch (error) {
       error.details = { ...(error.details ?? {}), nextAction: error.details?.nextAction ?? 'singularity-flow wm build --format registered-v4' };

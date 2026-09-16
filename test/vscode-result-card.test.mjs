@@ -22,7 +22,7 @@ import { homeOverviewResult } from '../src/gateway/planners/home-overview.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const view = (name) => path.join(root, 'apps', 'vscode', 'src', 'views', name);
 const { buildResultCard, gateSummary } = await import(view('result-card-model.ts'));
-const { RESULT_CARD_STYLE, resultCardHtml } = await import(view('result-card-page.ts'));
+const { RESULT_CARD_SCRIPT, RESULT_CARD_STYLE, resultCardHtml } = await import(view('result-card-page.ts'));
 const { RESULT_MESSAGES, fill, message } = await import(view('result-messages.ts'));
 
 const blocked = (blockers) => workReadinessResult({
@@ -161,6 +161,11 @@ test('a gate with a remediation carries its own fix action', () => {
   const row = card.checklist.find((entry) => entry.id === 'required-artifact-missing');
   assert.ok(row.action, 'the row has a fix action');
   assert.equal(row.action.id, 'fix:required-artifact-missing');
+  assert.match(row.action.command, /^(?:sflow|singularity-flow) /);
+  assert.match(row.action.skill, /^\/sf-/);
+  const html = resultCardHtml(card);
+  assert.match(html, /Shell:/);
+  assert.match(html, /Copilot:/);
 
   // A gate only a person can clear offers no button — that would be an invitation to go and do it.
   const waiting = buildResultCard(blocked(['approvals-outstanding']))
@@ -223,9 +228,13 @@ test('Auto cards prefill the exact current confirmation and never auto-submit it
   const start = card.auto[0].actions.find((action) => action.id.endsWith(':start'));
   assert.equal(start.command,
     `singularity-flow auto start --plan APL-AAAAAAAAAAAAAAAAAAAAAAAAAA --confirm ${packetSha256}`);
+  assert.equal(start.skill, '/sf-auto');
+  assert.equal(start.copilotCommand,
+    `/sf-auto start --plan APL-AAAAAAAAAAAAAAAAAAAAAAAAAA --confirm ${packetSha256}`);
   assert.equal(start.confirmation, packetSha256);
   assert.match(html, /data-auto-action-id="auto:plan:APL-AAAAAAAAAAAAAAAAAAAAAAAAAA:start"/);
   assert.match(html, new RegExp(`--confirm ${packetSha256}`));
+  assert.match(html, /Copilot:.*\/sf-auto start --plan APL-AAAAAAAAAAAAAAAAAAAAAAAAAA/s);
   assert.doesNotMatch(html, /type exact hash/);
 });
 
@@ -354,6 +363,64 @@ test('technical details are copyable and carry no path or prompt', () => {
   // Copyable is a property of the stylesheet, not the fragment: the details block selects on drag.
   assert.match(RESULT_CARD_STYLE, /\.sf-card details pre \{[^}]*user-select: text/);
   assert.match(resultCardHtml(card), /<details><summary>Technical details<\/summary>/);
+});
+
+test('developer recommendations retain one validated Shell and Copilot pair with copy controls', () => {
+  const result = {
+    schemaVersion: 2, resultType: 'sflow-result', kind: 'read',
+    operation: { id: 'developer.next', classification: 'read' }, subject: null,
+    outcome: { status: 'succeeded', messageId: 'gateway.developer-next', slots: { work: 'WRK-42' } },
+    effects: {}, why: [], warnings: [], preserved: [], checklist: [], next: [],
+    restState: 'informational',
+    data: {
+      workspace: { id: 'demo', name: 'Demo' },
+      guidance: {
+        workId: 'WRK-42', currentPhase: 'planning', preflight: [], requiredInputs: [], evidence: null,
+        recommendation: {
+          command: 'singularity-flow prepare planning', skill: '/sf-phase',
+          reason: 'Produce the planning artifact.', confirmation: { required: false },
+          effect: { class: 'generation' }
+        }
+      }
+    }
+  };
+  const card = buildResultCard(result);
+  assert.deepEqual(card.guidance.recommendation, {
+      command: 'singularity-flow prepare planning',
+      skill: '/sf-phase',
+      copilotCommand: '/sf-phase',
+      copyable: true,
+      reason: 'Produce the planning artifact.',
+    confirmationRequired: false,
+    effect: 'generation'
+  });
+  const html = resultCardHtml(card);
+  assert.match(html, /<b>Shell<\/b><code>singularity-flow prepare planning<\/code>/);
+  assert.match(html, /<b>Copilot<\/b><code>\/sf-phase<\/code>/);
+  assert.match(html, /data-copy-route="singularity-flow prepare planning"/);
+  assert.match(html, /data-copy-route="\/sf-phase"/);
+  assert.match(RESULT_CARD_SCRIPT, /navigator\.clipboard\.writeText\(value\)/);
+});
+
+test('developer recommendations fail closed on unsafe or mismatched routes', () => {
+  const result = {
+    schemaVersion: 2, resultType: 'sflow-result', kind: 'read',
+    operation: { id: 'developer.next', classification: 'read' }, subject: null,
+    outcome: { status: 'succeeded', messageId: 'gateway.developer-next', slots: { work: 'WRK-42' } },
+    effects: {}, why: [], warnings: [], preserved: [], checklist: [], next: [],
+    restState: 'informational',
+    data: { guidance: { preflight: [], requiredInputs: [], recommendation: {
+      command: 'singularity-flow prepare planning; touch escaped', skill: '/sf-phase'
+    } } }
+  };
+  assert.equal(buildResultCard(result).guidance.recommendation, null);
+
+  result.data.guidance.recommendation = {
+    command: 'singularity-flow prepare planning', skill: '/sf-docs'
+  };
+  const card = buildResultCard(result);
+  assert.equal(card.guidance.recommendation, null);
+  assert.doesNotMatch(resultCardHtml(card), /prepare planning|Copy shell|Copy Copilot/);
 });
 
 test('a fix action is not repeated below the rows it already appears on', () => {

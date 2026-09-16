@@ -79,7 +79,7 @@ test('the skill boundary lattice keeps entry points storyless without weakening 
     'sflow-adhoc', 'sflow-approvals', 'sflow-auto', 'sflow-documents', 'sflow-factory-reset',
     'sflow-impact', 'sflow-inbox', 'sflow-init', 'sflow-inspect', 'sflow-learn', 'sflow-nextsteps',
     'sflow-progress', 'sflow-receipt', 'sflow-report', 'sflow-reset-all', 'sflow-resume', 'sflow-return',
-    'sflow-session', 'sflow-sgos-create', 'sflow-snapshot', 'sflow-stack', 'sflow-start', 'sflow-status',
+    'sflow-session', 'sflow-sgos', 'sflow-sgos-create', 'sflow-snapshot', 'sflow-stack', 'sflow-start', 'sflow-status',
     'sflow-story-fetch', 'sflow-story-inbox', 'sflow-story-start', 'sflow-upload', 'sflow-watch',
     'sflow-workflows', 'sflow-workspace-impact', 'sflow-worldmodel'
   ];

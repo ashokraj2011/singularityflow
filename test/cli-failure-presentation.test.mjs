@@ -61,9 +61,11 @@ test('a mistyped command is corrected instead of merely rejected', () => {
   assert.match(stderr, /Unknown command 'stauts'\./);
   assert.match(stderr, /Did you mean .*'status'/);
   assert.match(stderr, /--help/);
+  assert.match(stderr, /Shell: singularity-flow --help/);
+  assert.match(stderr, /Copilot: \/sf-help/);
   // Appending all 2,450 lines of HELP was the previous answer to a typo, via a branch that could
   // never run because the registry threw first.
-  assert.ok(stderr.split('\n').length < 10, `a typo produced ${stderr.split('\n').length} lines`);
+  assert.ok(stderr.split('\n').length < 20, `a typo produced ${stderr.split('\n').length} lines`);
 });
 
 test('--verbose puts the diagnostics back on screen', () => {

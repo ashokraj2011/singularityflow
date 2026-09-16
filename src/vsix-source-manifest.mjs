@@ -10,6 +10,21 @@ export const VSIX_CLI_PAYLOAD = Object.freeze([
   'package.json', 'HELP.md', 'LICENSE'
 ]);
 
+/**
+ * Runtime files whose presence cannot be inferred from the broad payload roots alone.
+ *
+ * Git-backed developer packaging deliberately admits only indexed files. That boundary prevents an
+ * ignored archive or an ambient credential file from leaking into a VSIX, but it also means a newly
+ * introduced module can be imported by tracked code while still being absent from the staged CLI.
+ * Keep the cross-surface command-guidance entry points explicit here so staging fails at the copy
+ * boundary, with the missing path, instead of producing a VSIX that crashes on first command use.
+ */
+export const VSIX_REQUIRED_CLI_RUNTIME = Object.freeze([
+  'src/safe-command-guidance.mjs',
+  'src/phase-preparation-guidance.mjs',
+  'plugin/skills/sflow-sgos/SKILL.md'
+]);
+
 const FORMAT_VERSION = 1;
 const SHA256 = /^sha256:[a-f0-9]{64}$/u;
 const SOURCE_SHA256 = /^[a-f0-9]{64}$/u;

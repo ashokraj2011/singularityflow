@@ -21,6 +21,7 @@ import {
 import {
   phaseSubmissionPresentation, storyArtifactPublicationLabel
 } from './submission-presentation.ts';
+import { commandGuidance } from '../copilot-command.ts';
 
 export interface JourneyApproval {
   actor: string;
@@ -88,7 +89,7 @@ export interface Journey {
   blockers: string[];
   nextAction: {
     command: string; reason: string; label?: string;
-    execution?: 'run' | 'prefill'; skill?: string | null;
+    execution?: 'run' | 'prefill'; skill: string; copilotCommand: string; copyable: boolean;
   } | null;
   /** Set when there is nothing to render, with the reason. */
   empty: string | null;
@@ -221,6 +222,11 @@ function storyJourneyOf(
   const selectedStage = selectedStageFrom(stages, selectedStageId);
   const currentPhase = workflow.currentPhase ? workflow.phases[workflow.currentPhase] ?? null : null;
   const presentation = currentPhase ? phaseSubmissionPresentation(currentPhase, readiness) : null;
+  const actionRoutes = presentation?.kind === 'ready-to-submit' && readiness?.nextCommand
+    ? commandGuidance({ command: readiness.nextCommand, skill: '/sf-submit' })
+    : presentation?.kind === 'generation-required' && presentation.skill && readiness?.nextCommand
+      ? commandGuidance({ command: readiness.nextCommand, skill: presentation.skill })
+      : null;
   return {
     kind: 'story',
     id: workflow.workItem.id,
@@ -237,18 +243,22 @@ function storyJourneyOf(
     sources: [],
     repositories: [],
     blockers: [],
-    nextAction: presentation?.kind === 'ready-to-submit' && readiness?.nextCommand
+    nextAction: presentation?.kind === 'ready-to-submit' && actionRoutes
       ? {
-          command: readiness.nextCommand,
+          command: actionRoutes.command,
+          copilotCommand: actionRoutes.copilotCommand,
+          copyable: actionRoutes.copyable,
           reason: presentation.statusLabel,
-          label: 'Submit for approval', execution: 'run', skill: '/sf-submit'
+          label: 'Submit for approval', execution: 'run', skill: actionRoutes.skill
         }
-      : presentation?.kind === 'generation-required' && presentation.skill
+      : presentation?.kind === 'generation-required' && actionRoutes
         ? {
-            command: presentation.skill,
+            command: actionRoutes.command,
+            copilotCommand: actionRoutes.copilotCommand,
+            copyable: actionRoutes.copyable,
             reason: presentation.statusLabel,
             label: `Generate and publish ${currentStage?.label ?? 'current phase'}`,
-            execution: 'prefill', skill: presentation.skill
+            execution: 'prefill', skill: actionRoutes.skill
           }
         : null,
     empty: null
@@ -349,6 +359,10 @@ function initiativeJourneyOf(initiative: InitiativeSnapshot, selectedStageId: st
   }));
 
   const next = initiative.nextActions?.[0] ?? null;
+  // Initiative next actions also arrive from serialized engine state. Do not expose or execute one
+  // until the shared command boundary proves the shell command and any supplied Copilot route are
+  // the same registered journey.
+  const nextRoutes = next ? commandGuidance(next) : null;
 
   return {
     kind: 'initiative',
@@ -373,7 +387,14 @@ function initiativeJourneyOf(initiative: InitiativeSnapshot, selectedStageId: st
       }))
     })),
     blockers,
-    nextAction: next ? { command: next.command, reason: next.reason } : null,
+    nextAction: nextRoutes ? {
+      command: nextRoutes.command,
+      skill: nextRoutes.skill,
+      copilotCommand: nextRoutes.copilotCommand,
+      copyable: nextRoutes.copyable,
+      reason: next?.reason ?? 'Continue with the next governed step.',
+      execution: 'run'
+    } : null,
     empty: null
   };
 }

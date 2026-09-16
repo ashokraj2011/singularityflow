@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fetchRemote, fileAtRef, remoteBranches } from './git.mjs';
 import { table } from './util.mjs';
 import { buildRepositorySubjectIndexFromRefs } from './repository-subject-index.mjs';
+import { copilotCommandForCommand } from './copilot-guidance.mjs';
 
 function activeApprovals(phase) {
   return (phase.approvals ?? []).filter((item) => !item.invalidatedAt && item.decision === 'approved');
@@ -92,7 +93,7 @@ export async function approvalInbox(root, definition, { fetch = true, now = new 
 
 export function approvalInboxText(snapshot) {
   const warning = snapshot.unavailableCount
-    ? `\nWarning: ${snapshot.unavailableCount} governed state record(s) are unavailable or conflicting; they were not treated as absent. Run singularity-flow doctor.\n`
+    ? `\nWarning: ${snapshot.unavailableCount} governed state record(s) are unavailable or conflicting; they were not treated as absent.\nShell: singularity-flow doctor\nCopilot: ${copilotCommandForCommand('singularity-flow doctor')}\n`
     : '';
   if (!snapshot.items.length) return `Pending approval inbox — ${snapshot.remote}\n\nNo phases are awaiting approval on readable committed remote work-item branches.${warning}\n`;
   const rows = snapshot.items.map((item) => ({
@@ -114,5 +115,5 @@ export function approvalInboxText(snapshot) {
     { key: 'waiting', label: 'WAITING' },
     { key: 'authorities', label: 'AUTHORITY GROUPS' },
     { key: 'commit', label: 'REMOTE COMMIT' }
-  ])}${warning}\nChoose an item in Copilot with /sf-inbox. Run: singularity-flow session attach <WORK/JIRA-ID>.\n`;
+  ])}${warning}\nChoose an item:\nShell: singularity-flow session attach <WORK/JIRA-ID>\nCopilot: /sf-inbox\n`;
 }

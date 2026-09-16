@@ -102,7 +102,7 @@ function capabilityPublishAction(remote) {
   const exact = assertCredentialFreeRemote(remote);
   return commandAction([
     'singularity-flow', 'capability', 'publish', '--lead',
-    commandArgument(exact, 'LEAD_URL'), '--json'
+    commandArgument(exact, '<LEAD-URL>'), '--json'
   ], { skill: '/sf-capability-map' });
 }
 
@@ -374,8 +374,8 @@ async function selectedTopology(registryFile, results, services, { observeLeads 
           reason: redactDiagnosticText(error?.message ?? String(error)),
           nextAction: commandAction([
             'singularity-flow', 'workspace', 'doctor', '--network', '--repository',
-            commandArgument(lead.remote, 'LEAD_URL'), '--json'
-          ], { skill: '/sf-workspace' })
+            commandArgument(lead.remote, '<LEAD-URL>'), '--json'
+          ], { skill: '/sf-workspace-bootstrap' })
         });
       }
     });

@@ -7,6 +7,7 @@ import { recordHelpMetric } from './support-runtime-client.ts';
 import { PACKAGE_ROOT } from '../../../src/package-root.mjs';
 import { planDeveloperConversation } from '../../../src/gateway/conversation.mjs';
 import { activeRepositoryContext, gatewaySession, type GatewayRepositoryContext } from './gateway-runtime-client.ts';
+import { commandGuidance } from './copilot-command.ts';
 import { buildResultCard } from './views/result-card-model.ts';
 
 const PARTICIPANT_ID = 'singularity-flow.sflow';
@@ -195,16 +196,29 @@ export function registerSflowChat(
       arguments: [topic.id]
     });
     if (answer.handoff) {
-      stream.button({
-        command: 'singularityFlow.copyHelpCommand',
-        title: 'Copy command',
-        arguments: [answer.handoff.command, topic.id]
-      });
-      stream.button({
-        command: 'singularityFlow.prefillHelpAction',
-        title: `Prepare ${answer.handoff.skill}`,
-        arguments: [answer.handoff.skill, topic.id]
-      });
+      const guidance = commandGuidance(answer.handoff);
+      if (guidance) {
+        stream.markdown(`\n**Shell:** \`${guidance.command}\`\n\n**Copilot:** \`${guidance.copilotCommand}\`\n`);
+        if (guidance.copyable) {
+          stream.button({
+            command: 'singularityFlow.copyHelpCommand',
+            title: 'Copy Shell',
+            arguments: [guidance.command, topic.id]
+          });
+          stream.button({
+            command: 'singularityFlow.copyHelpCommand',
+            title: 'Copy Copilot',
+            arguments: [guidance.copilotCommand, topic.id]
+          });
+          stream.button({
+            command: 'singularityFlow.prefillHelpAction',
+            title: `Prepare ${guidance.skill}`,
+            arguments: [guidance.skill, topic.id]
+          });
+        } else {
+          stream.markdown('\nReplace the shown placeholders before running this command.\n');
+        }
+      }
     }
     const followups = (answer.related ?? []).map((relatedTopic) => ({
       prompt: relatedTopic.id,

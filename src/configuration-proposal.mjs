@@ -29,7 +29,7 @@ import { removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
 
 const REVIEW_PREFIX = 'sflow/config-change/workflow/';
 
-function quoted(value, fallback = 'VALUE') {
+function quoted(value, fallback = '<VALUE>') {
   const text = String(value ?? '');
   if (/^[A-Za-z0-9][A-Za-z0-9._/@:=,+-]*$/.test(text)) return text;
   return fallback;
@@ -37,8 +37,8 @@ function quoted(value, fallback = 'VALUE') {
 
 function workflowProposalCommand(action, branch, commit = null, acknowledge = false) {
   const args = ['singularity-flow', 'workflow', action];
-  if (branch) args.push(quoted(branch, 'PROPOSAL_BRANCH'));
-  if (commit) args.push('--confirm', quoted(commit, 'COMMIT_SHA'));
+  if (branch) args.push(quoted(branch, '<PROPOSAL-BRANCH>'));
+  if (commit) args.push('--confirm', quoted(commit, '<COMMIT-SHA>'));
   if (acknowledge) args.push('--acknowledge-unprotected');
   args.push('--json');
   return args.join(' ');

@@ -1269,7 +1269,8 @@ test('@sflow and Help Center share model-free cited resolution and only prefill 
   assert.match(response.markdown.join(''), /topic project-binding v1/);
   assert.equal(response.references.length, 1, 'the packaged source is attached as a reference');
   assert.ok(response.buttons.some((button) => button.title === 'Open in Help Center'));
-  assert.ok(response.buttons.some((button) => button.title === 'Copy command'));
+  assert.ok(response.buttons.some((button) => button.title === 'Copy Shell'));
+  assert.ok(response.buttons.some((button) => button.title === 'Copy Copilot'));
   assert.ok(response.buttons.some((button) => /Prepare \/sf-/.test(button.title)));
   assert.equal(answer.metadata.topicId, 'project-binding');
   assert.equal(registered.terminals.length, 0, 'answering help executes no lifecycle command');
@@ -4984,7 +4985,7 @@ test('capability review does not infer repairability from MCP-shaped error prose
         repairable: false,
         repairAction: {
           command: `singularity-flow capability fsck --lead ${lead}`,
-          skill: '/sf-capability-map'
+          skill: '/sf-capability-doctor'
         },
         invalidFiles: [],
         changedFiles: [{ status: 'M', paths: ['.github/agents/product-designer.agent.md'] }],
@@ -5706,6 +5707,8 @@ test('Git URL maintenance renders no-match recovery as a shell-safe exact comman
     'the remote is a single quoted argument, not shell syntax');
   assert.doesNotMatch(detail, /--repository\s+"https:/,
     'JSON double-quote rendering would still evaluate command substitution in POSIX shells');
+  assert.match(detail, /Copilot: \/sf-workspace-bootstrap/,
+    'the same recovery is also available through the canonical Copilot journey');
   assert.match(detail, /Nothing was changed/);
 });
 

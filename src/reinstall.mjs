@@ -9,6 +9,7 @@ import { stampBuildInfoFile } from './build-info-stamp.mjs';
 import { installDirectSkills, isManagedDirectSkill, uninstallDirectSkills } from './direct-skills.mjs';
 import { commandExists, run, SingularityFlowError } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { copilotSkillForCommand } from './copilot-guidance.mjs';
 import {
   acquireActivationLease, inspectVsix, releaseActivationLease
 } from '../scripts/install-staged-artifacts.mjs';
@@ -881,11 +882,13 @@ export function reinstallPlanText(plan) {
     const artifacts = plan.cliOnly
       ? 'The isolated CLI build, reinstall safety tests, and npm tarball completed before this preview.'
       : 'The isolated CLI and VS Code builds, reinstall safety tests, npm tarball, and VSIX completed before this preview.';
+    const command = renderedApplyCommand(plan, 'singularity-flow');
     lines.push('', artifacts,
       'No Git command was run and no installed product or repository was changed.',
       `Confirmation required: ${plan.confirmation}`,
-      `Run: ${renderedApplyCommand(plan, 'singularity-flow')}`,
-      `Short: ${renderedApplyCommand(plan, 'sf-reinstall')}`);
+      `Shell: ${command}`,
+      `Copilot: ${copilotSkillForCommand(command)}`,
+      `Short shell alias: ${renderedApplyCommand(plan, 'sf-reinstall')}`);
   } else {
     lines.push('', `Receipt: ${plan.receipt}`, 'Local tooling was replaced. Repository and workspace data were preserved.');
   }

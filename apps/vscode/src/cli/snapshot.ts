@@ -171,6 +171,9 @@ export interface InitiativeBreakdown {
 export interface NextAction {
   action: string;
   command: string;
+  /** Optional producer assertions; the presentation boundary rejects either when it mismatches. */
+  skill?: string | null;
+  copilotCommand?: string | null;
   /** Why the engine is asking for this, shown as-is: it is already written for a human. */
   reason: string;
   modelPolicy?: 'never' | 'optional' | 'required';

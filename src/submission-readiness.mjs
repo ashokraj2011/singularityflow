@@ -249,7 +249,7 @@ export function submissionReadinessText(snapshot) {
     artifactState,
     snapshot.confirmationRequired ? `Human confirmation required: soft gate ${snapshot.sequenceGate}` : null,
     `Full artifact, test, policy, and evidence validation: ${snapshot.validation}`,
-    snapshot.nextSkill ? `Next in Copilot: ${snapshot.nextSkill}` : null,
-    snapshot.nextCommand ? `Terminal equivalent: ${snapshot.nextCommand}` : null
+    snapshot.nextCommand ? `Shell: ${snapshot.nextCommand}` : null,
+    snapshot.nextSkill ? `Copilot: ${snapshot.nextSkill}` : null
   ].filter(Boolean).join('\n');
 }

@@ -82,6 +82,7 @@ import { latestWorldModelBuildDiagnostics } from './world-model-build-diagnostic
 import { compilePromptSections } from './prompt-budget.mjs';
 import { tokenEconomyDigest } from './token-economy.mjs';
 import { activeClauseCapsule } from './active-clause-capsule.mjs';
+import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { compileWorldModelSynthesisPrompt } from './world-model-synthesis-budget.mjs';
 import {
   configuredWorldModelV4CapabilityId, configuredWorldModelV4ViewSelections,
@@ -112,6 +113,18 @@ import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
 import { tokenReductionShadowFailure } from './token-reduction/shadow-record.mjs';
 
 let tokenReductionShadowRuntimePromise = null;
+
+function printCommandRoutes(command, { skill = null, indent = '', label = null, stream = console.log } = {}) {
+  if (label) stream(`${indent}${label}:`);
+  const guidance = safeCommandGuidance({ command, skill });
+  if (!guidance) {
+    stream(`${indent}Shell: unavailable — the supplied command was not safe to display.`);
+    stream(`${indent}Copilot: unavailable — ask /sf-next for a current governed action.`);
+    return;
+  }
+  stream(`${indent}Shell: ${guidance.command}`);
+  stream(`${indent}Copilot: ${guidance.copilotCommand}`);
+}
 
 async function tokenReductionShadowRuntime() {
   // Model composition is already asynchronous. Load the candidate-only implementation from the
@@ -4117,7 +4130,10 @@ async function ensure(root, config, options, requestedPhase = null) {
       ? '  The existing shared light model was reused; no provider was invoked and no model bytes were replaced.'
       : `  The full build failed: ${result.degraded.reason}`);
     console.log('  Semantic analysis was not performed. The model remains reusable until you explicitly request replacement:');
-    console.log(`    singularity-flow wm build${plan.phase ? ` --phase ${plan.phase}` : ''} --depth ${plan.depth}`);
+    printCommandRoutes(
+      `singularity-flow wm build${plan.phase ? ` --phase ${plan.phase}` : ''} --depth ${plan.depth}`,
+      { indent: '    ' }
+    );
   } else {
     const selections = plan.selections.map((item) => item.kind === 'core' ? `core/${item.tier}` : `${item.view}/${item.tier}`).join(', ');
     console.log(`${style.mark('pass')} world-model grounding ready${plan.phase ? ` for ${plan.phase}` : ''}: ${selections}`);
@@ -4534,7 +4550,10 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
       } else {
         console.error(`Grounding warning: ${error.message}`);
       }
-      console.error(`Grounding recovery: singularity-flow wm doctor`);
+      printCommandRoutes('singularity-flow wm doctor', {
+        label: 'Grounding recovery',
+        stream: console.error
+      });
       groundingAvailable = false;
       groundingAvailability = {
         status: 'unavailable',

@@ -25,6 +25,7 @@ import { createMessageRouter, stringField } from './messages.ts';
 import { FORM_STYLE, formHtml, type FormView } from './form-page.ts';
 import { navigateTo } from './navigate.ts';
 import { contentSecurityPolicy, escape, navigationTarget, nonce, page } from './webview.ts';
+import { commandGuidance } from '../copilot-command.ts';
 
 /**
  * The pure half of the form layer, loaded from the CLI package.
@@ -120,10 +121,24 @@ const FORM_SCRIPT = `
   }
   form.addEventListener('input', changed);
   form.addEventListener('change', changed);
+  form.addEventListener('click', function (event) {
+    const copy = event.target.closest('[data-copy-terminal]');
+    if (!copy) return;
+    const selector = copy.dataset.copyTerminal === 'copilot' ? '[data-copilot-terminal]' : '[data-terminal]';
+    const value = form.querySelector(selector)?.textContent || '';
+    navigator.clipboard.writeText(value).catch(function () {});
+  });
   window.addEventListener('message', function (event) {
     if (event.data && event.data.type === 'sflow.form.terminal') {
+      const equivalent = form.querySelector('[data-terminal-equivalent]');
+      if (equivalent) equivalent.hidden = !event.data.command || !event.data.copilotCommand;
       const pre = form.querySelector('[data-terminal]');
       if (pre) pre.textContent = event.data.command;
+      const copilot = form.querySelector('[data-copilot-terminal]');
+      if (copilot) copilot.textContent = event.data.copilotCommand;
+      for (const button of form.querySelectorAll('[data-copy-terminal]')) button.hidden = !event.data.copyable;
+      const placeholderNotice = form.querySelector('[data-terminal-placeholders]');
+      if (placeholderNotice) placeholderNotice.hidden = Boolean(event.data.copyable);
     }
   });
   form.addEventListener('submit', function (event) {
@@ -194,10 +209,13 @@ export function showForm(next: FormRequest): boolean {
          * in the client because `terminalEquivalent` is the same function the parity suite pastes
          * through the CLI's parser; a second copy in the webview would be a second answer.
          */
+        const equivalent = commandGuidance(terminalEquivalent(request.command,
+          coerceForm(request.schemaId, parseValues(message, 'shown') ?? parsed)));
         void panel?.webview.postMessage({
           type: 'sflow.form.terminal',
-          command: terminalEquivalent(request.command,
-            coerceForm(request.schemaId, parseValues(message, 'shown') ?? parsed))
+          command: equivalent?.command ?? '',
+          copilotCommand: equivalent?.copilotCommand ?? '',
+          copyable: equivalent?.copyable === true
         });
       },
       'sflow.form.submit': (message) => {

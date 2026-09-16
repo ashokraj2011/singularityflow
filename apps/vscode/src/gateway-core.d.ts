@@ -182,6 +182,23 @@ declare module '*/gateway/conversation.mjs' {
   };
 }
 
+declare module '*/copilot-guidance.mjs' {
+  export function directCopilotSkillId(skill: unknown): string | null;
+  export function copilotSkillForCommand(command: unknown, fallback?: string): string;
+  export function copilotCommandForCommand(command: unknown, skill?: unknown, fallback?: string): string;
+}
+
+declare module '*/safe-command-guidance.mjs' {
+  export function safeCommandGuidance(value: unknown): {
+    readonly command: string;
+    readonly skill: string;
+    readonly copilotCommand: string;
+    readonly argv: readonly string[];
+    readonly copyable: boolean;
+    readonly platformCommands: Readonly<Record<'darwin' | 'linux' | 'win32', string>> | null;
+  } | null;
+}
+
 interface HelpTopicContract {
   readonly id: string;
   readonly title: string;

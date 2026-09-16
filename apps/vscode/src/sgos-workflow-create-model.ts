@@ -5,6 +5,7 @@
  * terminal user can review; declaration construction and every safety check remain in the engine.
  */
 import path from 'node:path';
+import { commandGuidance } from './copilot-command.ts';
 
 export type SgosWorkflowCreateSelection = {
   readonly intentPath: string;
@@ -81,8 +82,12 @@ function shellQuote(value: string): string {
 }
 
 export function sgosWorkflowCreateCommand(selection: SgosWorkflowCreateSelection): string {
-  return ['singularity-flow', ...sgosWorkflowCreateArguments(selection)]
-    .map(shellQuote).join(' ');
+  return sgosCommand(sgosWorkflowCreateArguments(selection));
+}
+
+/** Credential-free logical command used by the shared Shell/Copilot crosswalk. */
+export function sgosCommand(args: readonly string[]): string {
+  return ['singularity-flow', ...args].map(shellQuote).join(' ');
 }
 
 /** Build the exact mutation request shown in the final native confirmation. */
@@ -135,6 +140,7 @@ export function sgosWorkflowCreateArguments(
 }
 
 export function sgosWorkflowCreateReview(selection: SgosWorkflowCreateSelection): string {
+  const guidance = commandGuidance(sgosWorkflowCreateCommand(selection));
   return [
     `Intent IR: ${selection.intentPath}`,
     `Policy snapshot: ${selection.policyPath}`,
@@ -149,7 +155,8 @@ export function sgosWorkflowCreateReview(selection: SgosWorkflowCreateSelection)
     `Workflow IR: ${selection.workflowOut}`,
     '',
     'Exact command:',
-    sgosWorkflowCreateCommand(selection),
+    guidance ? `Shell: ${guidance.command}` : 'Shell: not displayed because the payload has no safe command route',
+    guidance ? `Copilot: ${guidance.copilotCommand}` : 'Copilot: not displayed because the payload has no safe command route',
     '',
     'This creates two reviewable files. It does not ratify, compile, approve, or run the Workflow.'
   ].join('\n');

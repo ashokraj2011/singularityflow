@@ -472,6 +472,11 @@ test('session skill synchronizes work-item state and activates the phase agent a
   assert.match(content, /default governed agent is activated automatically/);
   assert.match(content, /Never create, merge, rebase, reset, force-checkout, stash, or discard work/);
   assert.match(content, /session-setup-only skill/);
+  assert.match(content, /every.*returned `actions` entry/i);
+  assert.match(content, /`Copilot: <copilotCommand>`.*`Shell: <command>`/s);
+  assert.match(content, /Copy both route fields from the same action object/);
+  assert.match(content, /Never collapse prepare, phase publish, submit, approve/);
+  assert.match(content, /or omit either surface/i);
   assert.match(content, /End the turn immediately/);
 });
 

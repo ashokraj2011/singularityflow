@@ -8,6 +8,7 @@ import { SingularityFlowError, exists, nowIso, posix, run, snapshot, writeJson, 
 import { assertPhaseSequence, enforceSequenceGate } from './sequence.mjs';
 import { sourceRuntime, storageAdapter } from './epic-sources.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { agentBriefReviewDocuments } from './agent-briefs.mjs';
 
 const DOCUMENT_MANIFEST_SCHEMA_VERSION = currentSchemaVersion('document-manifest');
 export const STORY_DOCUMENT_RESOURCE_LIMITS = Object.freeze({
@@ -650,20 +651,55 @@ export async function documentCatalog(root, config, workflow, { includeDetached 
       if (!(await exists(path.join(root, artifact.path)))) continue; extraIndex += 1;
       records.push({ id: `ART-${phaseId.toUpperCase()}-${String(extraIndex).padStart(2, '0')}`, type: 'artifact', label: path.basename(artifact.path), kind: artifact.kind, path: artifact.path, mimeType: mimeType(artifact.path), size: artifact.size, sha256: artifact.sha256, phase: phaseId, status: artifact.status, generation: phase.generation });
     }
+    for (const brief of agentBriefReviewDocuments(workflow, phase).filter((entry) => entry.id && entry.path)) {
+      let info = null;
+      try {
+        const absolute = await governedDocumentPath(root, config, workflow, { id: brief.id, path: brief.path });
+        info = await snapshot(absolute);
+      } catch {
+        // Keep the packet-bound registry entry visible. The eventual view/approval preflight emits
+        // the precise missing, escaped, symlinked, or non-file refusal instead of hiding the brief.
+      }
+      records.push({
+        id: brief.id,
+        aliases: brief.legacyId ? [brief.legacyId] : [],
+        type: 'agent-brief',
+        label: `Agent brief for ${brief.consumerPhase}`,
+        kind: 'agent-brief',
+        path: brief.path,
+        recordPath: brief.recordPath,
+        mimeType: 'text/markdown',
+        size: info?.size ?? null,
+        // The published/submitted projection hash is the authority. Never bless current bytes by
+        // recomputing their hash while constructing the catalog.
+        sha256: brief.sha256,
+        phase: phaseId,
+        producerPhase: phaseId,
+        consumerPhase: brief.consumerPhase,
+        status: brief.status,
+        generation: brief.generation,
+        integritySha256: brief.integritySha256,
+        sourceSha256: brief.sourceSha256
+      });
+    }
   }
   return records;
 }
 
 export async function viewDocument(root, config, workflow, reference, { includeDetached = false } = {}) {
   const records = await documentCatalog(root, config, workflow, { includeDetached }); const normalized = reference.toLowerCase();
-  const matches = records.filter((item) => item.id.toLowerCase() === normalized || item.path?.toLowerCase() === normalized || path.basename(item.path ?? '').toLowerCase() === normalized);
+  const matches = records.filter((item) => item.id.toLowerCase() === normalized
+    || item.path?.toLowerCase() === normalized
+    || path.basename(item.path ?? '').toLowerCase() === normalized
+    || (item.aliases ?? []).some((alias) => alias.toLowerCase() === normalized));
   if (!matches.length) throw new SingularityFlowError(`Document '${reference}' was not found. Run singularity-flow documents list.`);
   if (matches.length > 1) throw new SingularityFlowError(`Document reference '${reference}' is ambiguous; use its document ID.`);
   const record = matches[0]; if (record.type === 'url') return { record, content: null, binary: false };
   const extension = path.extname(record.path).toLowerCase(); const binary = !TEXT_EXTENSIONS.has(extension) && !record.mimeType.startsWith('text/');
   const absolute = await governedDocumentPath(root, config, workflow, record);
   const current = await snapshot(absolute);
-  if (record.sha256 && (current.sha256 !== record.sha256 || current.size !== record.size)) {
+  if ((record.sha256 && current.sha256 !== record.sha256)
+      || (record.size != null && current.size !== record.size)) {
     throw new SingularityFlowError(`Document '${record.id}' no longer matches its committed catalog hash. Expected ${record.sha256}, found ${current.sha256}.`);
   }
   if (binary) return {

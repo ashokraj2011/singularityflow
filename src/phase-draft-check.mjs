@@ -4,6 +4,7 @@ import {
 } from './manual-authorship.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
+import { convergenceReviewRoute } from './convergence-review-route.mjs';
 import {
   artifactFindingMessage, inspectPhaseAuthoredReviewContent, phaseAuthoredReviewArtifacts
 } from './publication-preflight.mjs';
@@ -70,11 +71,13 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
   const reviewDraft = await phaseAuthoredReviewArtifacts(root, config, workflow, phase);
   const artifact = reviewDraft.artifacts.find((entry) => entry.scope === 'primary');
   let findings = [];
+  let convergenceReview = null;
 
   if (phase.id === 'convergence') {
     try {
       await assertConvergencePublicationReady(root, config, workflow, phase);
     } catch (error) {
+      convergenceReview = convergenceReviewRoute(error, workflow);
       findings = [{
         code: `convergence.${String(error.code ?? 'not-ready').toLocaleLowerCase('en-US').replaceAll('_', '-')}`,
         category: 'projection', path: error.details?.path ?? artifact.path,
@@ -85,7 +88,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     findings = await inspectPhaseAuthoredReviewContent(root, config, workflow, phase);
   }
 
-  const repairClass = correctionClass(producer);
+  const repairClass = convergenceReview?.class ?? correctionClass(producer);
   const generationSkill = directCopilotSkill(generationSkillForPhase(phase));
   const awaitingApproval = phase.status === 'awaiting_approval';
   const clean = findings.length === 0;
@@ -115,13 +118,16 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
       sameTurn: repairClass === 'agent-authoring' && !awaitingApproval,
       requiresNewGeneration: awaitingApproval && !clean,
       maximumChangedFingerprints: 3,
-      guidance: clean ? null : correctionGuidance(repairClass, phase),
-      skill: repairClass === 'agent-authoring' ? generationSkill : null
+      guidance: clean ? null : convergenceReview?.guidance ?? correctionGuidance(repairClass, phase),
+      skill: convergenceReview?.skill ?? (repairClass === 'agent-authoring' ? generationSkill : null)
     }),
     commands: Object.freeze({
       recheck: `singularity-flow phase draft-check ${phase.id} --json`,
       recover: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`,
-      publish: phasePublicationCommand(phase)
+      // A correction-required projection is not publishable. Returning an executable publish
+      // command beside the blocker made hosts offer the illegal action even when `status` was red.
+      publish: clean ? phasePublicationCommand(phase) : null,
+      next: convergenceReview?.command ?? null
     }),
     mutates: false,
     modelInvocations: 0

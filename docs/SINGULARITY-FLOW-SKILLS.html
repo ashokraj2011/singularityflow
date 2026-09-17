@@ -1141,19 +1141,18 @@ argument-hint: &quot;[WORK-ID] [--fetch]&quot;
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
 &lt;!-- sflow-turn-boundary: approval-only --&gt;
-**Turn boundary — approval-only:** This is review, not authority to execute the reviewed plan. The typed phase ID is only a selection answer; it is not approval by itself. The approval CLI is the sole permitted mutation, including its governed commit/push. Never edit, create, delete, or patch repository files; never run tests, checks, builds, raw `git`, or separate commit/push; never delegate work; and never run submit, `next`, `nextsteps`, `/sf-next`, phase begin, generation, or next-phase work. Any refusal, mismatch, objection, or failed approval ends this turn.
+**Turn boundary — approval-only:** The typed phase ID is only a selection answer; it is not approval by itself. The approval CLI is the sole permitted mutation. Never edit, create, delete, or patch repository files; never run tests, checks, builds, raw `git`, or separate commit/push; never delegate work; and never run submit, `next`, `nextsteps`, `/sf-next`, phase begin, generation, or next-phase work. Any refusal or mismatch ends this turn. A failed approval ends this turn.
 
 Git identity—not agent selection—must match an approval authority.
 
 1. Run `singularity-flow choices begin approve &lt;WORK-ID&gt; --fetch --json` first; use its phase, generation, hashes, review packet, and token.
-2. Run `singularity-flow phase show &lt;phase&gt; --json` for `approvalContext.phase`. Require Work ID, phase, generation, paths, and SHA-256 values to match `approvalContext`; otherwise stop as a review-integrity failure.
+2. Run `singularity-flow phase show &lt;phase&gt; --json`. Match Work ID, phase, generation, ordinary artifacts, and every brief&#39;s `documentId`, `documentPath`, and `documentSha256` to `approvalContext`. A brief&#39;s legacy `path` is its internal JSON integrity record, not a review-document path. Use this response; do not perform a second `singularity-flow documents view` lookup. Only `fallback-whole` may lack a brief document. Any mismatch is a review-integrity failure.
 3. **Always show the generated artifacts in Copilot before asking for a decision.** In a visible assistant response, reproduce every returned generated current-phase text document in full, including `agent-brief`, between `--- BEGIN &lt;path&gt; ---` and `--- END &lt;path&gt; ---`, with ID, kind, bytes, generation, and full SHA-256. A Shell/tool block does not satisfy artifact review. If response bounds require several messages, continue until every document is visible; never truncate or summarize instead. Never say “shown above.” Never ask for approval based only on a filename or summary.
-4. Show reviewer/authority, phase agent, checks, usage, prior decisions, generator, packet hash, and self-approval warning. Unauthorized identity stops.
+4. Show identity/authority, agent, checks, usage, decisions, generator, packet hash, and self-approval warning. Unauthorized identity stops.
 5. Only now: Ask the reviewer to type the exact phase ID from `approvalContext.phase`. Do not supply, autocomplete, infer, or silently record it. Run `singularity-flow choices answer &lt;TOKEN&gt; phase-confirmation &lt;TYPED-PHASE&gt; --json`, then `singularity-flow approve &lt;TYPED-PHASE&gt; --work-id &lt;WORK-ID&gt; --fetch --selection-receipt &lt;TOKEN&gt;` only when `ready: true`. Never add `--yes`; the CLI revalidates and consumes the receipt exactly once.
-6. On `Out of sequence` or `Soft sequence warning`, render any current artifacts, relay the refusal, leave `continue` to the human, and stop.
-7. Require the approval result to report its governed commit/publication. Otherwise report unverified approval and stop; never retry or infer success.
-8. Report commit/push, reviewer, authority, agent, assurance, self-approval, remaining threshold, and next phase. Do not execute another tool afterward.
-9. Reproduce `Context boundary` and `Next Copilot actions` as display-only handoff text; immediately end this turn before the next phase.
+6. On a sequence refusal, render current artifacts, relay it, leave `continue` to the human, and stop.
+7. Require a governed commit/publication result; otherwise report unverified approval and stop.
+8. Report commit/push, reviewer, authority, agent, assurance, self-approval, threshold, and next phase. Reproduce `Context boundary` and `Next Copilot actions` as display-only handoff text; immediately end this turn before the next phase.
 </code></pre>
       </div>
     </details>
@@ -4077,7 +4076,7 @@ disable-model-invocation: true
           <span class="pill">mutation</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~702 body tokens</span>
+          <span class="pill">~734 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-init</code></dd></div>
@@ -4115,7 +4114,8 @@ For explicitly requested smart or zero-manual initialization, require a fresh re
 4. Activate only after exact confirmation. Preserve the receipt, commit, readiness, and next
    command. Proposal-only and review-proposal files are not active law.
 5. Run metadata-only `singularity-flow precheck --quick --json`. Offer Copilot `/sf-ready` and
-   Shell `singularity-flow precheck --run --json`. Only `/sf-ready` executes repository code.
+   Shell `singularity-flow precheck --run --scope dependency-test --json`. Only the readiness flow
+   (`/sf-ready` or its shown Shell equivalent)—not init—executes the confirmed repository plan.
 
 On `INI_RECOVERY_REQUIRED`, run only its exact
 `singularity-flow init --recover --proposal &lt;SHA256&gt; --json`; never edit its journal.
@@ -4135,7 +4135,8 @@ For ordinary `init`, `--check`, or `--repair`, continue with the compatible work
    `singularity-flow doctor --offline --json`. Report every remaining failure
    and warning with its exact fix.
 6. Show `git status --short` and added files. Do not commit or push repair automatically.
-7. Before the first Story, offer `/sf-ready` and `singularity-flow precheck --run --json`.
+7. Before the first Story, offer `/sf-ready` and
+   `singularity-flow precheck --run --scope dependency-test --json`.
 
 If the initial check is complete, make no changes and say that the branch is
 already initialized.
@@ -6447,7 +6448,7 @@ access, and no model is invoked.
     <details>
       <summary>
         <span class="skill-number">097</span>
-        <span class="skill-title"><strong>sflow-ready</strong><span>Prove dependencies, build, structured tests, and bounded application startup before a Story worktree is created; repair only reviewed repository setup outside Story work.</span></span>
+        <span class="skill-title"><strong>sflow-ready</strong><span>Prove locked packages, installation health, test-framework setup, and existing unit tests before a Story worktree; optionally repair only reviewed dependency/test setup.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
       <div class="skill-content">
@@ -6456,11 +6457,11 @@ access, and no model is invoked.
           <span class="pill">interactive</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~708 body tokens</span>
+          <span class="pill">~692 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-ready</code></dd></div>
-          <div><dt>Arguments</dt><dd><code>[--repair]</code></dd></div>
+          <div><dt>Arguments</dt><dd><code>[--repair] [--full]</code></dd></div>
           <div><dt>Model-capable operations</dt><dd>none</dd></div>
           <div><dt>Source</dt><dd><code>plugin/skills/sflow-ready/SKILL.md</code></dd></div>
         </dl>
@@ -6470,48 +6471,46 @@ access, and no model is invoked.
         </div>
         <pre data-source="sflow-ready"><code>---
 name: sflow-ready
-description: Prove dependencies, build, structured tests, and bounded application startup before a Story worktree is created; repair only reviewed repository setup outside Story work.
+description: Prove locked packages, installation health, test-framework setup, and existing unit tests before a Story worktree; optionally repair only reviewed dependency/test setup.
 disable-model-invocation: true
-argument-hint: &quot;[--repair]&quot;
+argument-hint: &quot;[--repair] [--full]&quot;
 
 ---
 # Make a repository ready before Story work
 
 &lt;!-- sflow-output-contract: explicit-selection --&gt;
-**Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, exact command results, and next actions.
+**Output contract:** Require explicit choices; preserve errors, exact results, and next actions.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
-This is setup, not feature work. Never change product behavior, weaken tests, install global tools,
-run audit-fix/upgrades, record secrets, commit caches/results, or enter a Story worktree.
+This is setup, not feature work. Never change product behavior, weaken tests, edit assertions,
+snapshots, or fixtures, skip tests, lower thresholds, upgrade versions, install global tools, record
+secrets, or enter a Story worktree. Build, quality, application-start, watch, and end-to-end commands
+are forbidden unless `$ARGUMENTS` contains `--full`; use full only for approved policy requiring it.
 
-1. Require the exact Git root and a clean working tree. Run `singularity-flow init --check --json`,
-   then `singularity-flow precheck --quick --json`. Repair missing packaged SFlow assets through
-   `/sf-init`; do not overwrite custom configuration.
-2. Run `singularity-flow precheck --run --json` once. This is a plan only. Show its exact base
-   revision, manifest/lock digest, shell-free dependency/build/test/start commands, structured test
-   adapter, timeouts, omissions, and `planId`. Do not execute the plan yet.
-3. Use `ask_user` to confirm that exact `planId`. If interactive choice is unavailable, stop and
-   show both routes: Copilot `/sf-ready`; Shell
-   `singularity-flow precheck --run --confirm-plan &lt;PLAN-ID&gt; --json`.
-4. Execute once. Report each outcome, adapter/probe assurance, and Git-private receipt.
-5. A passing run changes no tracked repository path. Continue to `/sf-start`. Never commit local
-   dependency directories, virtual environments, build products, test reports, or the readiness
-   receipt.
-6. On failure, classify it before changing anything:
-   - **local-only:** missing locked dependencies or disposable cache; rerun the exact frozen restore;
-   - **committable setup:** manifest script, lockfile, wrapper executable bit, test-runner/reporter
-     configuration, or explicit startup probe metadata;
-   - **product/test behavior:** source/assertion failure or ambiguous framework/version/port. Stop.
-7. For committable setup, show paths and use `ask_user`. Create
-   `sflow/readiness/&lt;PLAN-DIGEST-PREFIX&gt;`, edit only confirmed paths, and show the complete diff.
-8. After explicit diff approval, rerun the readiness plan. If it passes, commit only the reviewed
-   paths with a repository-readiness message. Do not push or merge unless separately requested.
-   The commit changes the base: rerun `singularity-flow precheck --run`, confirm its new `planId`,
-   and record the final receipt.
-9. Report the exact commit, remaining blockers, and both handoffs: Copilot `/sf-start`; Shell
-   `singularity-flow start &lt;WORK-ID&gt;`. A protected-base or push-rule refusal retains the setup
-   branch and must never create a Story.
+1. Require the exact Git root and clean tree. Run `singularity-flow init --check --json`, then
+   `singularity-flow precheck --quick --json`. Use `/sf-init` for missing packaged assets; preserve
+   customization.
+2. Select `dependency-test` unless `$ARGUMENTS` contains `--full`. Run
+   `singularity-flow precheck --run --scope &lt;SCOPE&gt; --json` once; it is a plan only. Show the exact
+   base, manifest/lock digest, locked dependencies, existing unit commands, structured adapter,
+   timeouts, omissions, scope, and `planId`. Narrow scope rejects build, quality, start, watch,
+   end-to-end, and newly authored tests.
+3. Use `ask_user` to confirm the exact `planId`; otherwise stop with Copilot `/sf-ready` and Shell
+   `singularity-flow precheck --run --scope &lt;SCOPE&gt; --confirm-plan &lt;PLAN-ID&gt; --json`. Execute once.
+4. Report each result and the Git-private receipt. A pass changes no tracked path. Never commit local
+   dependency directories, virtual environments, build output, test reports, or the receipt.
+5. Classify failure: **local-only** missing packages/cache permits the exact frozen restore;
+   **committable setup** permits only manifest script, lockfile, wrapper bit, runner/reporter, or
+   non-watch/headless unit configuration; **existing unit failure** is reported with counts and
+   offered as a separate Bug-fix Story, never repaired here.
+6. Without `--repair`, stop. With it, ask before committable setup, create
+   `sflow/readiness/&lt;PLAN-DIGEST-PREFIX&gt;`, edit only confirmed paths, and show the full diff.
+7. After explicit diff approval, rerun readiness and commit only the reviewed paths. Do not push or
+   merge unless separately requested. The commit changes the base: rerun the scoped plan, confirm
+   its new `planId`, and record the final receipt.
+8. Report the commit/blockers and handoffs: Copilot `/sf-start`; Shell
+   `singularity-flow start &lt;WORK-ID&gt;`. A Git refusal retains the setup branch and creates no Story.
 </code></pre>
       </div>
     </details>
@@ -6650,7 +6649,7 @@ Use the durable workspace, work-item, evidence, and repository records. Never in
           <span class="pill">mutation</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~393 body tokens</span>
+          <span class="pill">~609 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-recover</code></dd></div>
@@ -6678,10 +6677,12 @@ argument-hint: &quot;[WORK-ID]&quot;
 1. Run `singularity-flow recover $ARGUMENTS --fetch --json` without `--apply` and show the complete recovery plan, blocker evidence, exact file/line, preserved state, and `planId`.
 2. Diagnosis is deterministic and model-free. Do not use a model to classify, clear, or reinterpret a blocker. AST absence is never a recovery blocker.
 3. Stop when authored content must change, the tree is dirty, branches diverge, the remote is inaccessible, or the plan requires human authority. Open or name the exact evidence; never invent replacement content.
-4. Ask for explicit confirmation of the exact `planId` before applying automatic actions.
-5. Only then run `singularity-flow recover $ARGUMENTS --fetch --apply --confirm &lt;planId&gt;`. If the plan is stale, inspect again; never reuse the old hash.
-6. Re-run the read-only inspection once after an applied action. Retry the original lifecycle command only when its blocker fingerprint changed.
-7. Report retained commit, remote ref, fast-forward, pending-publication status, changed effects, and preserved work. Never reset, rebase, force-push, stash, discard work, edit authored artifacts, or grant approval authority.
+4. For a phase-scoped plan—including prepare, generation begin/rollover, draft check, publish, submit, approve, reject, reopen, amendment decisions, and convergence rework—keep repair inside the returned phase. Preserve every published generation and authored change; never restart the Story, reinitialize the repository, edit its pinned workflow snapshot, or route to broad repository repair when the plan names a phase action. A configuration dependency may be repaired outside the Story, but the Story stays paused in the same phase and resumes there. Optional telemetry or post-commit local-session refresh failure is advisory and must never be treated as a phase or rollback failure.
+5. An approval refusal ends the approval-only turn. In a new turn, use the returned `/sf-reject` path when reviewed bytes must change; never repair and approve in one turn.
+6. Ask for explicit confirmation of the exact `planId` before applying automatic actions.
+7. Only then run `singularity-flow recover $ARGUMENTS --fetch --apply --confirm &lt;planId&gt;`. If the plan is stale, inspect again; never reuse the old hash.
+8. Re-run the read-only inspection once after an applied action. Retry the original lifecycle command only when its blocker fingerprint changed.
+9. Report retained commit, remote ref, fast-forward, pending-publication status, changed effects, and preserved work. Never reset, rebase, force-push, stash, discard work, edit authored artifacts, or grant approval authority.
 </code></pre>
       </div>
     </details>
@@ -8027,7 +8028,7 @@ Do not merge or force-push. After a Story merge, synchronize the stack again bef
           <span class="pill">interactive</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~728 body tokens</span>
+          <span class="pill">~734 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-start</code></dd></div>
@@ -8058,7 +8059,7 @@ argument-hint: &quot;&lt;WORK-ID&gt; [--jira | manual story details] [documents 
 3. Run `singularity-flow workspace branches --json --intake`. With approved remote configuration, a code-only application branch is valid. On authority failure show Shell `singularity-flow workspace reinitialize --dry-run --json` and Copilot `/sf-admin`; never run `init` merely because `singularity/workflow.yml` is absent locally.
 4. Never infer or preselect. Choose one base and one workflow: choose `&lt;BASE&gt;`; run `singularity-flow workspace branches --json --intake --preflight-story &lt;WORK-ID&gt; --from-branch &lt;BASE&gt;` without `--work-type`; choose `&lt;WORKFLOW&gt;` only from its exact-base `intake.storyWorkflows`.
 5. With `ask_user`, collect Jira or manual `desiredOutcome`, `acceptanceCriteria`, scope, risks, and documents. A read-only reference needs ID, credential-free URL, and branch; pair `--reference-repository ID=URL --reference-branch ID=BRANCH`. Never search the workspace, home directory, filesystem root, or temporary directories. Pass `--jira`/`--story-file` and documents.
-6. Run `singularity-flow workspace branches --json --intake --preflight-story &lt;WORK-ID&gt; --from-branch &lt;BASE&gt; --work-type &lt;WORKFLOW&gt;`. World Model, AST, model-provider, telemetry, and Copilot availability are advisory. On missing/stale repository readiness, stop before worktree creation and show `/sf-ready` plus `singularity-flow precheck --run --json`. Never apply a persistent configuration upgrade from this skill.
+6. Run `singularity-flow workspace branches --json --intake --preflight-story &lt;WORK-ID&gt; --from-branch &lt;BASE&gt; --work-type &lt;WORKFLOW&gt;`. World Model, AST, model-provider, telemetry, and Copilot availability are advisory. On missing/stale repository readiness, stop before worktree creation and show `/sf-ready` plus `singularity-flow precheck --run --scope dependency-test --json`. Never apply a persistent configuration upgrade from this skill.
 7. Start with the same base/workflow; never ask for, infer, or accept a second workflow choice. Start recomputes the same readiness immediately before mutation. `poc-workflow` needs `--target-url`; the phase-default governed agent is automatic. If `ask_user` is unavailable or disabled, use step 8 or stop.
 8. Without `ask_user`, require pinned configuration. Run `singularity-flow choices begin start &lt;WORK-ID&gt; --json`, then `singularity-flow choices answer &lt;TOKEN&gt;` and pass `--selection-receipt &lt;TOKEN&gt;`; it lasts 15 minutes and the command consumes the receipt exactly once.
 9. Report readiness, exact base, receipt, and next action. Enrollment occurs only after the read-only publication preflight succeeds. Offer `/sf-next` and `/sf-phase`.

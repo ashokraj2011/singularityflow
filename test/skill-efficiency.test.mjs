@@ -115,7 +115,8 @@ test('approval remains explicit-only and displays the full governed artifact', a
     'approval must resolve the requested Story and phase before reading artifacts');
   assert.ok(content.indexOf('phase show <phase> --json') < content.indexOf('Only now: Ask the reviewer'),
     'every artifact must be visibly rendered before confirmation is requested');
-  assert.match(content, /paths, and SHA-256 values to match `approvalContext`/);
+  assert.match(content, /documentId`, `documentPath`, and `documentSha256`/);
+  assert.match(content, /do not perform a second `singularity-flow documents view` lookup/);
   assert.match(content, /If response bounds require several messages, continue until every document is visible/);
   assert.match(content, /sflow-turn-boundary: approval-only/);
   assert.match(content, /approval CLI is the sole permitted mutation/i);

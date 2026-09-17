@@ -33,7 +33,7 @@ const REPOSITORY_MUTATION_LEASE_EXCLUSIONS = new Set([
 // Copilot or another host starts the CLI outside a Git checkout.
 export const ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS = new Set([
   'about', 'help', 'explain', 'guide', 'show', 'quickstart', 'home',
-  'init', 'bootstrap', 'onboard', 'authority', 'cache',
+  'init', 'precheck', 'bootstrap', 'onboard', 'authority', 'cache',
   'factory-reset', 'reset-all', 'local-reset', 'fresh-install', 'reinstall',
   'workspace', 'session', 'repositories', 'plugin', 'goal', 'journal', 'push', 'local'
 ]);

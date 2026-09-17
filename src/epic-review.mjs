@@ -269,22 +269,12 @@ export async function epicReviewDecision(root, initiativeId, storyReference, {
       { operation: 'the Epic review approval commit' }
     )
     : null;
-  // Approval defers its durable writes to the state write's `phase-approved` branch, so `persist:
-  // false` outside the unit is correct and matches the CLI. Rejection has no such branch —
-  // `rejectPhase` writes its own decision file, artifact metadata and workflow.json — so it has to
-  // run inside `beforeStateWrite` to sit within the rollback boundary. It previously ran before the
-  // unit opened, which meant a refusal anywhere in the publication preflight left the Story clone
-  // with the rejection fully persisted, every approval from the target phase onward invalidated,
-  // and no audit commit. The CLI's own reject has always run inside the transaction; this was the
-  // same operation with the boundary in the wrong place.
-  let outcome = decision === 'approve'
-    ? await approvePhase(selected.clone, selected.config, selected.workflow, {
-      phaseId: preview.phase,
-      channel,
-      checklist,
-      persist: false
-    })
-    : null;
+  // Both decisions begin only after the publication unit has opened its journal and acquired the
+  // Story lock. Approval mutates the aggregate even with `persist: false`; performing it before
+  // remote/revision preflight left a long-lived caller holding an approval that was never committed
+  // when that preflight refused. Rejection also writes decision and metadata files. Keeping both in
+  // `beforeStateWrite` gives them the same durable and in-memory rollback boundary as the CLI.
+  let outcome = null;
   const publication = await commitAndPublish(
     selected.clone,
     selected.config,
@@ -296,13 +286,22 @@ export async function epicReviewDecision(root, initiativeId, storyReference, {
       rollbackWorkflow: workflowBeforeDecision,
       stabilityGuard: architectureApprovalStabilityGuard,
       beforeStateWrite: async () => {
-        if (decision === 'approve') return;
-        outcome = await rejectPhase(selected.clone, selected.config, selected.workflow, {
-          phaseId: preview.phase,
-          target: target ?? preview.phase,
-          reason,
-          channel
-        });
+        if (decision === 'approve') {
+          outcome = await approvePhase(selected.clone, selected.config, selected.workflow, {
+            phaseId: preview.phase,
+            channel,
+            checklist,
+            persist: false
+          });
+        } else {
+          outcome = await rejectPhase(selected.clone, selected.config, selected.workflow, {
+            phaseId: preview.phase,
+            target: target ?? preview.phase,
+            reason,
+            channel
+          });
+        }
+        return outcome;
       }
     }
   );

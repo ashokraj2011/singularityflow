@@ -22,7 +22,7 @@ import {
   withSubjectLock
 } from '../src/subject-lock.mjs';
 import { SnapshotCoordinator } from '../src/snapshot-coordinator.mjs';
-import { StoryStateStore } from '../src/state-stores.mjs';
+import { STATE_REVISION, StoryStateStore } from '../src/state-stores.mjs';
 import { inspectStatePlanes, reconcileStateProjections } from '../src/state-planes.mjs';
 import { evaluateSequence, applySequenceDecision, assertPhaseSequence, withConfirmationPort } from '../src/sequence.mjs';
 import { loadDefinition } from '../src/config.mjs';
@@ -634,6 +634,8 @@ test('assignment changes are persisted only by publication and roll back on fail
   const stateFile = path.join(workDir(root, definition, workflow.workItem.id), 'workflow.json');
   const beforeText = await readFile(stateFile, 'utf8');
   const beforeState = JSON.parse(beforeText);
+  const beforeAggregate = structuredClone(workflow);
+  const beforeRevision = structuredClone(workflow[STATE_REVISION]);
 
   await assert.rejects(() => store.transact(
     workflow,
@@ -654,6 +656,8 @@ test('assignment changes are persisted only by publication and roll back on fail
   assert.deepEqual(restored.collaboration, beforeState.collaboration, 'the transaction must restore collaboration state');
   assert.equal(restored.currentPhase, beforeState.currentPhase, 'the transaction must restore the active phase');
   assert.deepEqual(restored.history, beforeState.history, 'the transaction must restore lifecycle history');
+  assert.deepEqual(workflow, beforeAggregate, 'the supplied aggregate must be restored in memory');
+  assert.deepEqual(workflow[STATE_REVISION], beforeRevision, 'the in-memory revision receipt must also be restored');
   const reloaded = await store.loadAggregate('KERNEL-1');
   assert.equal(reloaded.collaboration.assignments[phaseId], undefined);
   assert.equal(
@@ -661,6 +665,18 @@ test('assignment changes are persisted only by publication and roll back on fail
     false,
     'a failed assignment publication must not leave an authoritative event projection'
   );
+
+  const retry = await store.transact(
+    workflow,
+    { type: 'configuration-changed', phaseId, payload: { assignee: 'mobile-team' } },
+    '[KERNEL-1][phase:intake][assign] mobile-team retry',
+    (aggregate) => assignPhase(aggregate, phaseId, 'mobile-team', {
+      actor: { name: 'Kernel Tester', email: 'kernel@example.com' },
+      agent: 'developer'
+    })
+  );
+  assert.equal(retry.value.assignee, 'mobile-team');
+  assert.equal(workflow.collaboration.assignments[phaseId].assignee, 'mobile-team');
 });
 
 test('reconciler repairs every declared Story projection without changing canonical state', async () => {
@@ -1133,4 +1149,27 @@ test('cancel and reject mutate inside the transaction, not before it', async () 
     assert.doesNotMatch(source, /await commitAndPublish\(/,
       `${command} does not mutate and then publish separately`);
   }
+});
+
+test('post-commit phase handoffs cannot turn reject or reopen into a false lifecycle failure', async () => {
+  // Reject and reopen have already committed (and may already have pushed) before they refresh the
+  // machine-local phase session. A local write or session-activation failure at that point must be
+  // an advisory with an explicit resume route, never a non-zero result that invites a duplicate
+  // governed mutation.
+  const cli = await readFile(path.join(packageRoot, 'src', 'cli.mjs'), 'utf8');
+  const body = (name) => {
+    const start = cli.indexOf(`async function ${name}(`);
+    assert.ok(start > 0, `${name} exists`);
+    return cli.slice(start, cli.indexOf('\nasync function ', start + 1));
+  };
+  assert.match(body('rejectCommand'),
+    /await postPublicationStep\('the returned-phase session activation',[\s\S]*activateWorkItemSession/);
+  assert.match(body('reopenCommand'),
+    /await postPublicationStep\('the reopened-phase session activation',[\s\S]*activateWorkItemSession/);
+
+  const story = await readFile(path.join(packageRoot, 'src', 'commands', 'story.mjs'), 'utf8');
+  assert.match(story,
+    /await postPublicationSessionStep\('the amended-phase session activation',[\s\S]*activateWorkItemSession/);
+  assert.match(story,
+    /await postPublicationSessionStep\('the convergence-rework session activation',[\s\S]*activateWorkItemSession/);
 });

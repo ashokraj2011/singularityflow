@@ -15,6 +15,7 @@ import { phasePublicationCommand } from './manual-authorship.mjs';
 import { assertConvergencePublicationReady } from './convergence-context.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
+import { convergenceReviewRoute } from './convergence-review-route.mjs';
 
 function generationSkill(phase) {
   return directCopilotSkill(generationSkillForPhase(phase));
@@ -170,18 +171,20 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, { gene
     try {
       await assertConvergencePublicationReady(root, config, workflow, phase);
     } catch (error) {
+      const review = convergenceReviewRoute(error, workflow);
       blockers.push({
         code: `convergence.${String(error.code ?? 'not-ready').toLocaleLowerCase('en-US').replaceAll('_', '-')}`,
         category: 'convergence', blocking: true, phase: phase.id,
         generation: Number(phase.generation) + 1,
         path: error.details?.path ?? null, line: null, value: null,
-        details: { sourceCode: error.code ?? null, message: error.message }
+        details: { sourceCode: error.code ?? null, message: error.message, ...(error.details ?? {}) }
       });
       actions.push(action({
-        id: 'prepare-convergence',
-        detail: 'Recompute the canonical projection from the current bound inputs, then follow only its returned review or publication action.',
-        command: 'singularity-flow prepare convergence',
-        skill: '/sflow-converge'
+        id: review ? `convergence-${review.kind}` : 'prepare-convergence',
+        detail: review?.guidance
+          ?? 'Recompute the canonical projection from the current bound inputs, then follow only its returned review or publication action.',
+        command: review?.command ?? 'singularity-flow prepare convergence',
+        skill: review?.skill ?? '/sf-converge'
       }));
     }
   } else {
@@ -228,6 +231,8 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, { gene
         for (const [index, command] of testCommands.entries()) normalizeRequiredTestCommand(command, index);
         if (!testCommands.length) throw structuredTestCommandRequiredError(phase);
       } catch (error) {
+        const configurationDependency = error.code === 'CODE_DELIVERY_TEST_COMMAND_REQUIRED'
+          || error.code === 'CODE_TEST_RESULT_REQUIRED';
         blockers.push({
           code: 'code.delivery.incomplete', category: 'code-delivery', blocking: true,
           phase: phase.id, generation: Number(phase.generation) + 1,
@@ -235,10 +240,19 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, { gene
           details: { sourceCode: error.code ?? null, message: error.message, ...(error.details ?? {}) }
         });
         actions.push(action({
-          id: `complete-code-delivery:${phase.id}`,
-          detail: error.message,
-          command: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id}`,
-          skill: '/sf-code'
+          id: configurationDependency
+            ? `repair-code-delivery-configuration:${phase.id}`
+            : `complete-code-delivery:${phase.id}`,
+          detail: configurationDependency
+            ? `${error.message} The current phase remains in progress. Repair approved configuration outside the Story, refresh it, then resume this same phase; do not edit its pinned workflow snapshot.`
+            : `${error.message} Keep this phase in progress, complete its application and test evidence, then inspect recovery again before publication.`,
+          // Never point recovery back to itself. Configuration deficiencies have a separate
+          // authority boundary; incomplete source/test work returns to the engine-selected code
+          // producer while preserving this phase and its prior publications.
+          command: configurationDependency
+            ? 'singularity-flow workflow validate --json'
+            : `singularity-flow phase show ${phase.id} --json`,
+          skill: configurationDependency ? '/sf-workflows' : '/sf-code'
         }));
       }
     }

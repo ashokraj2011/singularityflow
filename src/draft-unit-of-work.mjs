@@ -73,6 +73,7 @@ export class DraftUnitOfWork {
     operation,
     write,
     validate = null,
+    afterRollback = null,
     fault = null
   } = {}) {
     const root = this.root;
@@ -178,6 +179,7 @@ export class DraftUnitOfWork {
             subject,
             preserveCurrent: true
           });
+          if (afterRollback) await afterRollback(restoration);
         } catch (restoreFailure) {
           await updatePublicationJournal(root, subject, {
             stage: 'rollback-failed',

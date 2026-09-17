@@ -6,9 +6,11 @@ import { combineUsageMetrics, providerTokenArithmetic, usageMetric } from './mod
 import { exists, nowIso, snapshot, writeJson } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { listTelemetryLaunches, telemetryRawPath, telemetryWorktreeId } from './telemetry-provision.mjs';
+import { withSubjectLock } from './subject-lock.mjs';
 
 const CURSOR_SCHEMA = currentSchemaVersion('telemetry-cursor');
 const RECORD_SCHEMA = currentSchemaVersion('phase-telemetry');
+const CURSOR_SUBJECT = Object.freeze({ kind: 'telemetry-cursor', id: 'shared' });
 
 async function managedTelemetrySetup() {
   const file = process.env.SINGULARITY_FLOW_COPILOT_TELEMETRY_SETUP_FILE
@@ -77,17 +79,85 @@ async function loadCursors(root) {
   return readRecord('telemetry-cursor', await readFile(file)).record;
 }
 
+function cursorWarning(action, error) {
+  const code = typeof error?.code === 'string' ? error.code : 'local-state-unavailable';
+  console.warn(
+    `Warning: optional Copilot telemetry cursor ${action} was skipped (${code}); `
+    + 'phase work continues and usage will be reported as unavailable or partial.'
+  );
+}
+
+async function withCursorLock(root, operation) {
+  let lastError = null;
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    try { return await withSubjectLock(root, CURSOR_SUBJECT, operation); }
+    catch (error) {
+      lastError = error;
+      if (error?.code !== 'SUBJECT_LOCK_BUSY') throw error;
+      // Machine-local cursor updates are tiny. Bounded retry prevents two Story worktrees from
+      // losing one another's read-modify-write without letting optional telemetry stall a phase.
+      await new Promise((resolve) => setTimeout(resolve, 5 * (attempt + 1)));
+    }
+  }
+  throw lastError;
+}
+
+/** Snapshot only one Story's machine-local telemetry cursors for draft rollback. */
+export async function captureTelemetryCursorsForWorkItem(root, workId) {
+  try {
+    return await withCursorLock(root, async () => {
+      const prefix = `${String(workId)}:`;
+      const state = await loadCursors(root);
+      return Object.fromEntries(Object.entries(state.cursors ?? {})
+        .filter(([key]) => key.startsWith(prefix))
+        .map(([key, value]) => [key, structuredClone(value)]));
+    });
+  } catch (error) {
+    cursorWarning('snapshot', error);
+    return null;
+  }
+}
+
+/** Restore one Story's cursors without clobbering concurrent cursor state for other Stories. */
+export async function restoreTelemetryCursorsForWorkItem(root, workId, snapshot = null) {
+  if (snapshot == null) return { restored: false, skipped: true };
+  try {
+    return await withCursorLock(root, async () => {
+      const prefix = `${String(workId)}:`;
+      const state = await loadCursors(root);
+      for (const key of Object.keys(state.cursors ?? {})) {
+        if (key.startsWith(prefix)) delete state.cursors[key];
+      }
+      Object.assign(state.cursors, structuredClone(snapshot));
+      await writeJson(cursorsPath(root), state);
+      return { restored: true, skipped: false };
+    });
+  } catch (error) {
+    // Cursor state is optional observation bookkeeping. Durable Story rollback already succeeded,
+    // so local telemetry cleanup must never relabel that authoritative recovery as failed.
+    cursorWarning('restore', error);
+    return { restored: false, skipped: true };
+  }
+}
+
 export async function beginTelemetryCapture(root, workflow, phase) {
   const generation = phase.generation + 1;
   const key = cursorKey(workflow, phase, generation);
-  const state = await loadCursors(root);
-  if (state.cursors[key]) return state.cursors[key];
   const raw = rawTelemetryPath(root);
   const info = await stat(raw).catch(() => null);
   const cursor = { workId: workflow.workItem.id, phase: phase.id, generation, offset: info?.size ?? 0, startedAt: nowIso() };
-  state.cursors[key] = cursor;
-  await writeJson(cursorsPath(root), state);
-  return cursor;
+  try {
+    return await withCursorLock(root, async () => {
+      const state = await loadCursors(root);
+      if (state.cursors[key]) return state.cursors[key];
+      state.cursors[key] = cursor;
+      await writeJson(cursorsPath(root), state);
+      return cursor;
+    });
+  } catch (error) {
+    cursorWarning('write', error);
+    return { ...cursor, persistence: 'unavailable' };
+  }
 }
 
 function decoded(value) {
@@ -246,7 +316,13 @@ export function groupedUsage(spans) {
 export async function collectCopilotUsage(root, workflow, phase, { generation } = {}) {
   const raw = rawTelemetryPath(root);
   const info = await stat(raw).catch(() => null);
-  const state = await loadCursors(root);
+  let state;
+  let cursorUnavailable = false;
+  try { state = await loadCursors(root); }
+  catch {
+    state = { schemaVersion: CURSOR_SCHEMA, cursors: {} };
+    cursorUnavailable = true;
+  }
   const key = cursorKey(workflow, phase, generation);
   const cursor = state.cursors[key] ?? { offset: info?.size ?? 0, startedAt: nowIso(), missing: true };
   const since = Date.parse(cursor.startedAt);
@@ -290,7 +366,8 @@ export async function collectCopilotUsage(root, workflow, phase, { generation } 
     warnings.push(...parsed.warnings);
     privacyDiagnostics.push(...parsed.privacyDiagnostics);
   }
-  if (cursor.missing) warnings.push('Telemetry cursor was missing; only spans matching the active phase time window were considered.');
+  if (cursorUnavailable) warnings.push('Telemetry cursor state was unreadable; only spans matching the active phase time window were considered.');
+  else if (cursor.missing) warnings.push('Telemetry cursor was missing; only spans matching the active phase time window were considered.');
   if (!spans.length) warnings.push('No completed Copilot chat spans were available before publication.');
   return {
     usage: groupedUsage(spans), spans: spans.length, rawBytes: launchBytes + legacyBytes,

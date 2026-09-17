@@ -17,12 +17,17 @@ const safeCommand = validateSafeSflowCommand;
 function explicitCommands(error) {
   const details = error?.details ?? {};
   const values = [
-    details?.diagnosticAction?.command,
-    typeof details?.nextAction === 'string' ? details.nextAction : details?.nextAction?.command,
+    details?.diagnosticAction,
+    typeof details?.nextAction === 'string' ? { command: details.nextAction } : details?.nextAction,
     details?.recoveryCommand,
+    details?.retry,
     ...(Array.isArray(details?.recoveryCommands) ? details.recoveryCommands : [])
   ];
-  return values.map(safeCommand).filter(Boolean);
+  return values.map((value) => {
+    if (typeof value === 'string') return safeCommandGuidance({ command: value });
+    if (!value?.command) return null;
+    return safeCommandGuidance(value);
+  }).filter(Boolean);
 }
 
 function step(id, label, command = null, kind = 'diagnostic', skill = null) {
@@ -51,6 +56,17 @@ function lowerKebab(value) {
   return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(candidate) ? candidate : null;
 }
 
+function safeWorkId(value) {
+  const candidate = typeof value === 'string' ? value.trim() : '';
+  return /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(candidate) ? candidate : null;
+}
+
+function phaseOperation(argv) {
+  if (argv[0] === 'phase') return argv[1] ?? 'phase';
+  if (argv[0] === 'initiative' && argv[1] === 'phase') return argv[2] ?? 'phase';
+  return argv[0] ?? null;
+}
+
 function artifactAuthoringPhase(argv, error) {
   const details = error?.details ?? {};
   for (const candidate of [details.phase, details.phaseId, details.currentPhase]) {
@@ -60,7 +76,16 @@ function artifactAuthoringPhase(argv, error) {
 
   const selected = optionValue(argv, 'phase');
   if (selected) return selected;
-  if (argv[0] === 'phase' && ['publish', 'approve', 'submit'].includes(argv[1])) {
+  if (['prepare', 'inputs', 'submit', 'approve', 'reject'].includes(argv[0])) {
+    return lowerKebab(argv[1]);
+  }
+  if (argv[0] === 'clarification' && ['status', 'record'].includes(argv[1])) {
+    return lowerKebab(argv[2]);
+  }
+  if (argv[0] === 'converge') return 'convergence';
+  if (argv[0] === 'phase' && [
+    'begin', 'rollover', 'draft-check', 'show', 'publish', 'approve', 'submit'
+  ].includes(argv[1])) {
     return lowerKebab(argv[2]);
   }
   if (argv[0] === 'initiative' && argv[1] === 'phase'
@@ -69,6 +94,72 @@ function artifactAuthoringPhase(argv, error) {
   }
   if (['approve', 'submit'].includes(argv[0])) return lowerKebab(argv[1]);
   return null;
+}
+
+function phaseRemediationContext(argv, error) {
+  if (argv[0] === 'initiative' || error?.details?.subjectKind === 'initiative') return null;
+  const phaseId = artifactAuthoringPhase(argv, error);
+  if (!phaseId) return null;
+  const details = error?.details ?? {};
+  const workId = safeWorkId(details.workId)
+    ?? safeWorkId(optionValueRaw(argv, 'work-id'));
+  const operation = phaseOperation(argv);
+  const approvalTurn = operation === 'approve';
+  const recoveryCommand = `singularity-flow recover${workId ? ` ${workId}` : ''} --phase ${phaseId} --json`;
+  const retry = !approvalTurn && details?.retry?.command
+    ? safeCommandGuidance({
+        command: details.retry.command,
+        ...(details.retry.skill ? { skill: details.retry.skill } : {})
+      })
+    : null;
+  return Object.freeze({
+    scope: 'phase',
+    workId,
+    phaseId,
+    operation,
+    strategy: approvalTurn ? 'new-turn-repair' : 'repair-current-phase',
+    automaticAdvance: false,
+    historyRewrite: false,
+    recoveryCommand,
+    retryCommand: retry?.command ?? null,
+    retrySkill: retry?.skill ?? null,
+    turn: approvalTurn ? 'new-turn' : 'current-turn'
+  });
+}
+
+function optionValueRaw(argv, name) {
+  const index = argv.findIndex((value) => value === `--${name}`);
+  return index >= 0 ? String(argv[index + 1] ?? '').trim() : '';
+}
+
+function phaseContainmentSteps(context) {
+  if (!context) return [];
+  const recover = step(
+    'inspect-current-phase',
+    `Inspect and repair only phase '${context.phaseId}'; prior publications and authored work remain preserved.`,
+    context.recoveryCommand,
+    'remediation',
+    '/sf-recover'
+  );
+  const show = step(
+    'inspect-current-phase-evidence',
+    `Review the bounded '${context.phaseId}' evidence before changing or retrying it.`,
+    `singularity-flow phase show ${context.phaseId} --json`,
+    'diagnostic'
+  );
+  if (context.turn === 'new-turn') {
+    return [
+      recover ? Object.freeze({ ...recover, turn: 'new-turn' }) : null,
+      step(
+        'leave-approval-turn',
+        'End this approval-only turn. If submitted evidence must change, use /sf-reject in a new turn to choose an allowed repair target and provide the human reason; author, submit, and approve again from fresh evidence.',
+        null,
+        'remediation'
+      ),
+      show ? Object.freeze({ ...show, turn: 'new-turn' }) : null
+    ].filter(Boolean);
+  }
+  return [recover, show].filter(Boolean);
 }
 
 function artifactAuthoringSubject(argv, error) {
@@ -218,6 +309,10 @@ const KNOWN = Object.freeze({
       ]
     : [],
   ARTIFACT_AUTHORING_INCOMPLETE: (argv, error) => {
+    // Approval is an evidence-only turn. Once the submitted bytes are incomplete or stale, the
+    // reviewer must leave that turn and use the governed rejection/repair path; suggesting an edit
+    // and an approval retry here would make the approval surface violate its own boundary.
+    if (phaseOperation(argv) === 'approve') return [];
     const subject = artifactAuthoringSubject(argv, error);
     if (!subject) return [];
     const command = subject.kind === 'initiative'
@@ -273,20 +368,46 @@ function deduplicate(steps) {
 
 export function refusalRemediationPlan(error, argv = []) {
   const code = String(error?.code ?? 'SINGULARITY_FLOW_ERROR');
-  const explicit = explicitCommands(error).map((command, index) => step(
+  const phaseContext = phaseRemediationContext(argv, error);
+  const phaseSteps = phaseContainmentSteps(phaseContext);
+  let explicit = explicitCommands(error).map((command, index) => step(
     `producer-${index + 1}`, 'Follow the recovery action supplied by the refusing operation.', command.command,
-    index === 0 ? 'remediation' : 'diagnostic'
+    index === 0 ? 'remediation' : 'diagnostic', command.skill
   ));
+  if (phaseContext?.turn === 'new-turn') {
+    // The approval surface is evidence-only. A producer emitted by an older refusal may still name
+    // `approve` as its retry, but following it would contradict the new-turn boundary and can loop
+    // forever against stale reviewed bytes. Keep the phase containment plan authoritative and let a
+    // later authoring/submission turn mint the next approval action from fresh state.
+    explicit = explicit.filter((entry) => !(
+      entry?.argv?.[0] === 'approve'
+      || (entry?.argv?.[0] === 'phase' && entry?.argv?.[1] === 'approve')
+    ));
+  }
   const known = KNOWN[code]?.(argv, error) ?? [];
   const authoringIncomplete = code === 'ARTIFACT_AUTHORING_INCOMPLETE' && known.length > 0;
   const nonDuplicateExplicit = authoringIncomplete
     ? explicit.filter((entry) => !known.some((knownEntry) => knownEntry?.command === entry?.command))
     : explicit;
-  const ordered = authoringIncomplete
-    ? [...known, ...nonDuplicateExplicit, ...genericSteps(argv)]
-    : [...nonDuplicateExplicit, ...known, ...genericSteps(argv)];
+  // Phase failures stay inside the phase repair boundary. Exact producer guidance still wins, but
+  // broad command help/doctor/recommend fallbacks are reserved for errors that carry no safe phase
+  // identity. This makes future uncoded phase refusals recoverable without adding another code-keyed
+  // entry here, and keeps approval repair outside the approval-only turn.
+  const ordered = phaseContext
+    ? phaseContext.turn === 'new-turn'
+      // Reserve the bounded recovery/new-turn steps before the global three-step presentation cap;
+      // arbitrary producer diagnostics must never displace the instruction that ends approval.
+      ? [...phaseSteps, ...known, ...nonDuplicateExplicit]
+      : authoringIncomplete
+        ? [...known, ...phaseSteps, ...nonDuplicateExplicit]
+        : [...nonDuplicateExplicit, ...known, ...phaseSteps]
+    : authoringIncomplete
+      ? [...known, ...nonDuplicateExplicit, ...genericSteps(argv)]
+      : [...nonDuplicateExplicit, ...known, ...genericSteps(argv)];
   const steps = deduplicate(ordered);
-  const retryLabel = code === 'CLARIFICATION_MODE_OFF'
+  const retryLabel = phaseContext?.turn === 'new-turn'
+    ? 'Do not retry approval in this turn. Repair and resubmit through governed phase actions, then begin a fresh approval turn.'
+    : code === 'CLARIFICATION_MODE_OFF'
     ? 'Do not retry clarification recording while the pinned mode is off; continue the phase instead.'
     : authoringIncomplete
       ? 'Retry the original command only after the author has corrected every finding and the same read-only draft check reports ready.'
@@ -295,10 +416,16 @@ export function refusalRemediationPlan(error, argv = []) {
     schemaVersion: 1, // schema-transient: process-boundary guidance, never persisted
     status: 'blocked',
     code,
+    ...(phaseContext ? { context: phaseContext } : {}),
     steps: Object.freeze(steps),
     retry: Object.freeze({
       label: retryLabel,
-      automatic: false
+      automatic: false,
+      ...(phaseContext ? {
+        turn: phaseContext.turn,
+        command: phaseContext.retryCommand,
+        skill: phaseContext.retrySkill
+      } : {})
     })
   });
 }
@@ -331,6 +458,14 @@ export function refusalEnvelope(error, argv = []) {
 
 export function renderRefusalPlan(plan) {
   const lines = ['Recovery plan:'];
+  if (plan.context?.scope === 'phase') {
+    lines.push(
+      `  Scope: phase ${plan.context.phaseId} — repair in place; no automatic advance or history rewrite.`
+    );
+    if (plan.context.turn === 'new-turn') {
+      lines.push('  Turn boundary: end the current approval turn; remediation starts in a new turn.');
+    }
+  }
   for (const [index, entry] of plan.steps.entries()) {
     lines.push(`  ${index + 1}. ${entry.label}`);
     if (entry.command) {

@@ -17,6 +17,16 @@ import { VERSION } from './version.mjs';
 // version explicit without registering it in the durable migration registry.
 export const STORY_START_READINESS_FORMAT_VERSION = 1;
 
+export function requiredRepositoryReadinessScope(definition = {}) {
+  const policy = {
+    ...(definition?.repositoryReadiness ?? {}),
+    ...(definition?.initialization?.proof?.preStory ?? {})
+  };
+  return (policy.build ?? 'off') !== 'off' || (policy.applicationStart ?? 'off') !== 'off'
+    ? 'full'
+    : 'dependency-test';
+}
+
 function canonical(value) {
   if (Array.isArray(value)) return value.map(canonical);
   if (value && typeof value === 'object') {
@@ -144,6 +154,7 @@ export function inspectStoryStartReadiness({
     ...(definition?.initialization?.proof?.preStory ?? {})
   };
   const repositoryReadinessRequired = repositoryReadinessPolicy.requiredBeforeStory === true;
+  const readinessScope = requiredRepositoryReadinessScope(definition);
   if (repositoryReadinessRequired) {
     const receipts = repositoryReadiness?.repositories
       ?? (normalizedRepositories.length === 1 && repositoryReadiness
@@ -171,7 +182,7 @@ export function inspectStoryStartReadiness({
     checks.push(complete
       ? check(
           'repository-execution', 'pass', 'STORY_REPOSITORY_READINESS_VALID',
-          'Dependencies, build, structured tests, and detected startup were proven for the exact Story base.'
+          'Locked dependency and existing structured-test readiness is policy-complete for the exact Story base.'
         )
       : check(
           'repository-execution', 'block', 'STORY_REPOSITORY_READINESS_REQUIRED',
@@ -212,6 +223,10 @@ export function inspectStoryStartReadiness({
     authority,
     base: Object.freeze({ branch: baseBranch, repositories: Object.freeze(normalizedRepositories) }),
     runtime: runtimeIdentity(),
+    repositoryExecution: Object.freeze({
+      required: repositoryReadinessRequired,
+      scope: readinessScope
+    }),
     checks: Object.freeze(checks),
     blockers: Object.freeze(blocking),
     warnings: Object.freeze(warnings),
@@ -238,6 +253,8 @@ export function assertStoryStartReady(readiness) {
   const configurationRepair = ['configuration-authority', 'workflow', 'governed-agents']
     .includes(first?.id);
   const repositoryRepair = first?.id === 'repository-execution';
+  const repositoryScope = readiness?.repositoryExecution?.scope ?? 'dependency-test';
+  const repositorySkill = repositoryScope === 'full' ? '/sf-ready --full' : '/sf-ready';
   throw new SingularityFlowError(first?.message ?? 'Story-start readiness failed.', {
     code: first?.code ?? 'STORY_START_NOT_READY',
     details: {
@@ -247,9 +264,9 @@ export function assertStoryStartReady(readiness) {
         nextSkill: readiness.upgrade?.copilot ?? null,
         recoveryCommands: [readiness.upgrade?.shell].filter(Boolean)
       } : repositoryRepair ? {
-        nextAction: 'singularity-flow precheck --run --json',
-        nextSkill: '/sf-ready',
-        recoveryCommands: ['singularity-flow precheck --run --json']
+        nextAction: `singularity-flow precheck --run --scope ${repositoryScope} --json`,
+        nextSkill: repositorySkill,
+        recoveryCommands: [`singularity-flow precheck --run --scope ${repositoryScope} --json`]
       } : {})
     }
   });

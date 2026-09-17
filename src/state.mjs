@@ -100,6 +100,7 @@ import {
 import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
 import { lifecycleEvent, recordPublicationProjection } from './lifecycle-event.mjs';
 import { publishLifecycleChange } from './publication-unit-of-work.mjs';
+import { captureAggregateRecovery, restoreAggregateRecovery } from './aggregate-recovery.mjs';
 import { validateDocumentPublicationTree } from './document-publication.mjs';
 import { deliverLifecycleNotifications, warnNotificationFailures } from './notifications.mjs';
 import { readConfigurationSource } from './configuration-branch.mjs';
@@ -5991,6 +5992,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
     }
   }
   const priorWorkflow = rollbackWorkflow ?? structuredClone(workflow);
+  const workflowRecovery = captureAggregateRecovery(workflow, priorWorkflow);
   // The whole work directory, not just `workflow.json`.
   //
   // `state.write` is not one write: the approval path rewrites the artifact's metadata block in
@@ -6139,13 +6141,23 @@ export async function commitAndPublish(root, config, workflow, event, message, e
       // Captured before the projection mutates it in place, so a publication that fails after the
       // write leaves no record of an event that never happened — and covering every file the write
       // touches, not only the aggregate.
-      // The captured bytes are the aggregate too, so restoring them is the whole undo — writing
-      // `priorWorkflow` on top would re-serialise a file that is already correct.
+      // The captured bytes are the aggregate too, so restoring them is the whole durable undo. The
+      // in-memory object is restored separately below without re-serialising the already-correct
+      // file.
       rollback: async (preimage, recoveryOptions = {}) => {
-        return restorePublicationPreimage(root, preimage, {
+        const restoration = await restorePublicationPreimage(root, preimage, {
           subject: envelope.subject,
           ...recoveryOptions
         });
+        // The publication unit restores every durable Story byte, but callers may keep the same
+        // aggregate object alive (the state store, VS Code command services, and tests all do).
+        // Leaving that object mutated after a pre-commit refusal makes an immediate retry observe
+        // a generation, approval, or phase transition that never became authoritative. Restore the
+        // supplied object only from this rollback callback: it is invoked iff the durable preimage
+        // was restored. A push failure deliberately does not come through here because its exact
+        // governed commit is retained as the new stable recovery boundary.
+        restoreAggregateRecovery(workflow, workflowRecovery);
+        return restoration;
       },
       validate: async () => {
         const validation = await validateWorkflow(root, config, workflow);
@@ -6177,16 +6189,35 @@ export async function commitAndPublish(root, config, workflow, event, message, e
   if (workflow[Symbol.for('singularity-flow.state-revision')]) {
     workflow[Symbol.for('singularity-flow.state-revision')].head = result.sha;
   }
-  if (result.pushed && !publicationTail) await clearPendingPublication(root, {
-    kind: 'story', id: workflow.workItem.id,
-    legacyPath: legacyPendingPublicationPath(root, config, workflow.workItem.id)
-  });
+  let pendingCleanup = { status: 'not-required' };
+  if (result.pushed && !publicationTail) {
+    try {
+      await clearPendingPublication(root, {
+        kind: 'story', id: workflow.workItem.id,
+        legacyPath: legacyPendingPublicationPath(root, config, workflow.workItem.id)
+      });
+      pendingCleanup = { status: 'complete' };
+    } catch (error) {
+      // The exact governed commit is already created and pushed. A failure to remove its local
+      // retry marker is recoverable machine state, not a failed lifecycle mutation; throwing here
+      // invites the caller to publish the same transition again. Keep the marker for `sync` to
+      // verify and clear, and return the committed outcome with a bounded warning instead.
+      pendingCleanup = {
+        status: 'pending',
+        code: typeof error?.code === 'string' ? error.code : 'LOCAL_PENDING_CLEANUP_FAILED'
+      };
+      console.warn(
+        `Warning: governed commit ${result.sha.slice(0, 8)} was pushed, but its local publication marker could not be cleared. `
+        + 'Do not repeat the lifecycle action; run singularity-flow sync to verify and clear the marker.'
+      );
+    }
+  }
   const notifications = await deliverLifecycleNotifications({
     channels: workflow.resolution?.collaboration?.notifications ?? config.collaboration?.notifications ?? [],
     event: result.event
   });
   warnNotificationFailures(notifications);
-  return { ...result, notifications };
+  return { ...result, notifications, pendingCleanup };
 }
 
 export async function syncPublication(root, config, workflow, { fault = null } = {}) {

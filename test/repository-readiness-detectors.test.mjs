@@ -56,6 +56,17 @@ test('dependency restore is absent without the selected manager lockfile', () =>
   assert.equal(detected.commands.verification.length, 1);
 });
 
+test('competing Node lockfiles are a dependency ambiguity, not a test ambiguity', () => {
+  const detected = runSmartInitDetectors(snapshot({
+    'package.json': `${JSON.stringify({ name: 'ambiguous', scripts: { test: 'node --test' } })}\n`,
+    'package-lock.json': '{}\n',
+    'pnpm-lock.yaml': 'lockfileVersion: 9\n'
+  }));
+  const ambiguity = detected.ambiguities.find((entry) => entry.id === 'node-package-manager:.');
+  assert.ok(ambiguity);
+  assert.equal(ambiguity.purpose, 'dependency');
+});
+
 test('canonical start is preferred and command metadata never contains the script body', () => {
   const secretBody = 'node server.mjs --token do-not-copy-this';
   const detected = nodeDetection({

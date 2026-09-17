@@ -383,7 +383,7 @@ export function renderCommandResult(result) {
     return [
       style.heading(headline(result)),
       `Plan: ${plan.planId}`,
-      `Source: ${plan.sourceCommit} · ${plan.platform}/${plan.arch}`,
+      `Source: ${plan.sourceCommit} · ${plan.platform}/${plan.arch} · scope ${plan.scope ?? 'full'}`,
       `Structured tests: ${plan.structuredTestContract.status}`,
       ...(plan.blockers?.length
         ? ['', style.heading('Resolve before execution:'),

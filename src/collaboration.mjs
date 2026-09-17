@@ -147,6 +147,17 @@ export async function recoveryPlan(root, config, workflow, { fetch = false, phas
     } : null,
     revision,
     blockers,
+    phaseRepairRequired: phaseRecovery.blockers.length > 0,
+    containment: phase ? {
+      scope: 'phase',
+      phaseId: phase.id,
+      phaseStatus: phase.status,
+      generation: phase.generation,
+      strategy: pending.status === 'pending' ? 'roll-forward-exact-commit' : 'repair-current-phase',
+      publishedGenerationsPreserved: true,
+      automaticDiscard: false,
+      historyRewrite: false
+    } : null,
     // Publication-pending and a terminal remote gate can describe the same retained sync. Collapse
     // automatic commands so --apply never replays one recovery operation twice.
     actions: [...new Map(actions.map((entry) => [
@@ -217,6 +228,13 @@ export function recoveryText(plan) {
     plan.phaseId ? `Phase: ${plan.phaseId}` : null,
     ''
   ].filter((line) => line !== null);
+  if (plan.containment?.scope === 'phase') {
+    lines.push(
+      `Containment: ${plan.containment.strategy} in ${plan.containment.phaseId} generation ${plan.containment.generation}.`,
+      'Published generations are preserved; recovery never discards authored work or rewrites history.',
+      ''
+    );
+  }
   for (const blocker of plan.blockers ?? []) {
     const location = blocker.path ? `${blocker.path}${blocker.line ? `:${blocker.line}` : ''}` : null;
     lines.push(`BLOCKED ${blocker.code}${location ? ` — ${location}` : ''}`);

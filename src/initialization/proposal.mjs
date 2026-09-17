@@ -68,9 +68,9 @@ function initializationPolicy(detection, selections) {
       preStory: {
         requiredBeforeStory: true,
         dependencyHydration: 'when-detected',
-        build: 'when-detected',
+        build: 'off',
         structuredTests: 'required-for-code',
-        applicationStart: 'when-detected',
+        applicationStart: 'off',
         receiptScope: 'git-private-exact-base'
       },
       gaps: readiness === 'ready' ? [] : [{

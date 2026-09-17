@@ -3,7 +3,9 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import YAML from 'yaml';
 
-import { inspectStoryStartReadiness } from '../src/story-start-readiness.mjs';
+import {
+  assertStoryStartReady, inspectStoryStartReadiness
+} from '../src/story-start-readiness.mjs';
 
 const CONFIG_COMMIT = 'a'.repeat(40);
 const BASE_COMMIT = 'b'.repeat(40);
@@ -154,6 +156,39 @@ test('an enforced pre-Story repository receipt must match the exact selected bas
   assert.ok(ready.checks.some((entry) =>
     entry.code === 'STORY_REPOSITORY_READINESS_VALID'));
   assert.notEqual(ready.receipt.readinessSha256, missing.receipt.readinessSha256);
+});
+
+test('repository readiness remediation selects full scope for enabled build or start proof', async () => {
+  const definition = await shippedDefinition();
+  definition.repositoryReadiness = {
+    requiredBeforeStory: true,
+    dependencyHydration: 'required',
+    build: 'required',
+    structuredTests: 'required-for-code',
+    applicationStart: 'off'
+  };
+  const result = inspectStoryStartReadiness(facts(definition, { repositoryReadiness: null }));
+
+  assert.equal(result.repositoryExecution.scope, 'full');
+  assert.throws(() => assertStoryStartReady(result), (error) => {
+    assert.equal(error.details?.nextSkill, '/sf-ready --full');
+    assert.equal(error.details?.nextAction,
+      'singularity-flow precheck --run --scope full --json');
+    return true;
+  });
+});
+
+test('legacy when-detected build policy retains full-scope readiness', async () => {
+  const definition = await shippedDefinition();
+  definition.repositoryReadiness = {
+    requiredBeforeStory: true,
+    dependencyHydration: 'when-detected',
+    build: 'when-detected',
+    structuredTests: 'required-for-code',
+    applicationStart: 'off'
+  };
+  const result = inspectStoryStartReadiness(facts(definition, { repositoryReadiness: null }));
+  assert.equal(result.repositoryExecution.scope, 'full');
 });
 
 test('capability Story readiness requires an exact receipt for every repository', async () => {

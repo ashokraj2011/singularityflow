@@ -12,9 +12,9 @@ import {
 const DEFAULT_POLICY = Object.freeze({
   requiredBeforeStory: false,
   dependencyHydration: 'when-detected',
-  build: 'when-detected',
+  build: 'off',
   structuredTests: 'required-for-code',
-  applicationStart: 'when-detected',
+  applicationStart: 'off',
   receiptScope: 'git-private-exact-base'
 });
 

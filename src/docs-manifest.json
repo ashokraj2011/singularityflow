@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "087612c0623e030be29d15db426a2d09c62b3097",
+  "sourceCommit": "ac50cd041dd840927b776aea7ff45b510fb4c708",
   "topicCount": 64,
-  "contentSha256": "d7c7b0dce37131188abb3f3830280a481cd1a7fdc11f943019eebc750ac84fad",
+  "contentSha256": "31d0eef766e397cd506e6b5e411f0c4a363e33f122bda00bf0714f23bc9a2d39",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -360,8 +360,8 @@
     {
       "id": "recovery",
       "title": "Recovery — nothing is ever lost",
-      "version": 6,
-      "sha256": "d9e3a9e3e53918fc4e539dd822bc276711501a80460de29936e81ab30c3e74c3",
+      "version": 8,
+      "sha256": "467ec875f8ec1c03298115b4ea169c8e90ac69bc446772ad856001273674b7e4",
       "routingSha256": "36c528b9d6d19e6cb6fbff5168bb2c203071e18874e1a230c7300b67342c40cd",
       "file": "recovery.md"
     },
@@ -424,8 +424,8 @@
     {
       "id": "smart-initialization",
       "title": "Smart repository initialization",
-      "version": 3,
-      "sha256": "bbcb864a4185c48058b0665b7202932cf1c11cd9c2024ffe175770e2628ac3ec",
+      "version": 4,
+      "sha256": "152524d57589baf4490e1b9145d89a4536187fe662ac8233b282824247f1b3af",
       "routingSha256": "e090e2b732fd9a3a198bc89359fb479e0fc8302cf1806c9c61891e0e019c12bf",
       "file": "smart-initialization.md"
     },

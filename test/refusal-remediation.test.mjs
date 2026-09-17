@@ -279,7 +279,11 @@ test('incomplete authoring refusals lead with a read-only draft check and bounde
   assert.ok(plan.steps.every((entry) => entry.execution === 'user-reviewed'));
   assert.equal(plan.retry.automatic, false);
   assert.match(plan.retry.label, /draft check reports ready/);
-  assert.equal(plan.steps[2].command, 'singularity-flow doctor --json');
+  assert.equal(plan.steps[2].command, 'singularity-flow recover --phase planning --json');
+  assert.equal(plan.steps[2].skill, '/sf-recover');
+  assert.equal(plan.context.scope, 'phase');
+  assert.equal(plan.context.strategy, 'repair-current-phase');
+  assert.equal(plan.context.historyRewrite, false);
 });
 
 test('incomplete code authoring preserves the engine-selected code correction route', () => {
@@ -295,14 +299,33 @@ test('incomplete code authoring preserves the engine-selected code correction ro
     'singularity-flow phase draft-check implementation --json');
   assert.equal(plan.steps[0].skill, '/sf-code');
   assert.equal(plan.steps[0].copilotCommand, '/sf-code');
+  assert.equal(plan.retry.command, null);
+});
+
+test('phase remediation preserves an exact safe producer retry without replacing phase recovery', () => {
+  const retry = 'singularity-flow phase publish implementation --authored governed-agent --channel copilot-host';
+  const plan = refusalRemediationPlan(Object.assign(new Error('Implementation needs correction.'), {
+    code: 'ARTIFACT_AUTHORING_INCOMPLETE',
+    details: {
+      phase: 'implementation',
+      workId: 'CODE-9',
+      retry: { command: retry, skill: '/sf-code', maximumAttempts: 1 }
+    }
+  }), ['phase', 'publish', 'implementation']);
+  assert.equal(plan.retry.command, retry);
+  assert.equal(plan.retry.skill, '/sf-code');
+  assert.equal(plan.steps[0].skill, '/sf-code');
+  assert.ok(plan.steps.some((entry) => entry.command ===
+    'singularity-flow recover CODE-9 --phase implementation --json'));
 });
 
 test('incomplete authoring remediation derives a safe phase from lifecycle argv forms', () => {
   const forms = [
+    [['phase', 'begin', 'implementation'], 'implementation'],
+    [['phase', 'rollover', 'implementation'], 'implementation'],
+    [['phase', 'draft-check', 'planning'], 'planning'],
     [['phase', 'publish', 'implementation'], 'implementation'],
-    [['phase', 'approve', 'verification'], 'verification'],
     [['phase', 'submit', 'convergence'], 'convergence'],
-    [['approve', 'release'], 'release'],
     [['submit', '--phase', 'specification'], 'specification']
   ];
   for (const [argv, phase] of forms) {
@@ -313,6 +336,65 @@ test('incomplete authoring remediation derives a safe phase from lifecycle argv 
       `singularity-flow phase draft-check ${phase} --json`, argv.join(' '));
     assert.equal(plan.steps[0].copyable, true, argv.join(' '));
   }
+});
+
+test('approval authoring failures end the approval turn and route to governed phase repair', () => {
+  for (const argv of [
+    ['phase', 'approve', 'verification'],
+    ['approve', 'release', '--work-id', 'WORK-7']
+  ]) {
+    const phase = argv.includes('verification') ? 'verification' : 'release';
+    const plan = refusalRemediationPlan(Object.assign(new Error('Submitted evidence is incomplete.'), {
+      code: 'ARTIFACT_AUTHORING_INCOMPLETE'
+    }), argv);
+    assert.equal(plan.context.strategy, 'new-turn-repair');
+    assert.equal(plan.retry.turn, 'new-turn');
+    assert.match(plan.retry.label, /Do not retry approval in this turn/);
+    assert.equal(plan.steps[0].command,
+      `singularity-flow recover${argv.includes('WORK-7') ? ' WORK-7' : ''} --phase ${phase} --json`);
+    assert.equal(plan.steps[0].turn, 'new-turn');
+    assert.equal(plan.steps[1].command, null);
+    assert.match(plan.steps[1].label, /use \/sf-reject in a new turn/);
+    assert.ok(plan.steps.every((entry) => !String(entry.command).startsWith('singularity-flow approve')));
+  }
+});
+
+test('approval containment rejects stale approval retries and cannot be displaced by producer steps', () => {
+  const plan = refusalRemediationPlan(Object.assign(new Error('Approval evidence changed.'), {
+    code: 'APPROVAL_EVIDENCE_STALE',
+    details: {
+      phase: 'verification',
+      workId: 'WORK-9',
+      retry: { command: 'singularity-flow approve verification', skill: '/sf-approve' },
+      recoveryCommands: [
+        'singularity-flow doctor --json',
+        'singularity-flow recommend --json',
+        'singularity-flow phase show verification --json'
+      ]
+    }
+  }), ['approve', 'verification', '--work-id', 'WORK-9']);
+
+  assert.equal(plan.steps.length, 3);
+  assert.equal(plan.steps[0].command,
+    'singularity-flow recover WORK-9 --phase verification --json');
+  assert.equal(plan.steps[1].command, null);
+  assert.match(plan.steps[1].label, /use \/sf-reject in a new turn/);
+  assert.equal(plan.steps[2].command, 'singularity-flow phase show verification --json');
+  assert.doesNotMatch(JSON.stringify(plan), /singularity-flow approve verification/);
+  assert.doesNotMatch(JSON.stringify(plan.steps), /doctor|recommend/);
+});
+
+test('an uncoded phase refusal receives bounded phase-local recovery instead of generic doctor guidance', () => {
+  const plan = refusalRemediationPlan(Object.assign(new Error('Future phase validator refused.'), {
+    code: 'FUTURE_PHASE_VALIDATOR',
+    details: { phase: 'planning', workId: 'WORK-8' }
+  }), ['phase', 'publish', 'planning']);
+  assert.deepEqual(plan.steps.map((entry) => entry.command), [
+    'singularity-flow recover WORK-8 --phase planning --json',
+    'singularity-flow phase show planning --json'
+  ]);
+  assert.equal(plan.context.scope, 'phase');
+  assert.doesNotMatch(JSON.stringify(plan), /doctor|recommend/);
 });
 
 test('incomplete authoring remediation rejects unsafe phase metadata and preserves generic fallback', () => {

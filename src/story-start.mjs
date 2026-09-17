@@ -54,7 +54,7 @@ import {
   preflightInitialStoryDocuments, stageInitialStoryDocuments
 } from './story-start-documents.mjs';
 import {
-  assertStoryStartReady, inspectStoryStartReadiness
+  assertStoryStartReady, inspectStoryStartReadiness, requiredRepositoryReadinessScope
 } from './story-start-readiness.mjs';
 import { loadLegacyStoryBaseContext } from './story-start-base-configuration.mjs';
 import { documentSetLifecycleBinding } from './document-publication.mjs';
@@ -503,7 +503,8 @@ export async function startStory(root, {
     const repositoryReadiness = await collectRepositoryReadinessEvidence(
       capabilityPreflight?.map((entry) => ({
         id: entry.repository, root: entry.root, baseCommit: entry.baseCommit
-      })) ?? [{ id: 'lifecycle', root, baseCommit }]
+      })) ?? [{ id: 'lifecycle', root, baseCommit }],
+      { scope: requiredRepositoryReadinessScope(initialDefinition) }
     );
     startReadiness = inspectStoryStartReadiness({
       workId: id,

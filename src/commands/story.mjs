@@ -81,6 +81,7 @@ import {
 import { capabilityBaseForRepository, prepareCapabilityRepositories, printCapabilityBase } from '../capability-start.mjs';
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
 import { safeCommandGuidance } from '../safe-command-guidance.mjs';
+import { redactDiagnosticText } from '../git-remote-diagnostics.mjs';
 import { recordSha256 } from '../records.mjs';
 import { verifyWorkflowSnapshot, workflowSnapshotDrift } from '../workflow-snapshots.mjs';
 import { resolveStoryExecutionContext } from '../story-execution-context.mjs';
@@ -99,6 +100,24 @@ function printCommandRoutes(command, { skill = null, indent = '', label = null }
   }
   console.log(`${indent}Shell: ${guidance.command}`);
   console.log(`${indent}Copilot: ${guidance.copilotCommand}`);
+}
+
+/**
+ * Once a governed Story decision is committed, refreshing the machine-local session is recovery
+ * convenience rather than part of the decision. Keep that tail bounded so a local cache, file, or
+ * session problem cannot make a durable success look like a failed mutation that should be run a
+ * second time.
+ */
+async function postPublicationSessionStep(label, workId, operation) {
+  try {
+    return { ok: true, value: await operation() };
+  } catch (error) {
+    console.warn(`Warning: governed publication succeeded, but ${label} could not be completed: ${redactDiagnosticText(error?.message ?? String(error))}`);
+    printCommandRoutes(`singularity-flow resume ${workId} --fetch`, {
+      label: 'Refresh local phase/session state'
+    });
+    return { ok: false, value: null, error };
+  }
 }
 
 /**
@@ -1609,8 +1628,10 @@ export async function storyIntentAmendmentCommand(positionals, options) {
     // An approved amendment reopens the first affected authored phase without passing through the
     // ordinary approve/reject commands. Rebind that exact phase now; on rejection the Story stays
     // in deterministic convergence and activation correctly keeps the agent session empty.
-    const rebound = await loadAcceptedStoryExecution(root, workflow.workItem.id);
-    await activateWorkItemSession(root, rebound.config, rebound.workflow);
+    await postPublicationSessionStep('the amended-phase session activation', workflow.workItem.id, async () => {
+      const rebound = await loadAcceptedStoryExecution(root, workflow.workItem.id);
+      return activateWorkItemSession(root, rebound.config, rebound.workflow);
+    });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     if (!result.transition.reached) {
       console.log(`Recorded approval for ${proposalId}; ${result.transition.proposal.approvals.reached}/${result.transition.proposal.approvals.required} authority decisions.`);
@@ -1747,8 +1768,10 @@ export async function storyReworkCommand(positionals, options) {
       worktreeGuard: postTransitionGuard
     }
   );
-  const rebound = await loadAcceptedStoryExecution(root, workflow.workItem.id);
-  await activateWorkItemSession(root, rebound.config, rebound.workflow);
+  await postPublicationSessionStep('the convergence-rework session activation', workflow.workItem.id, async () => {
+    const rebound = await loadAcceptedStoryExecution(root, workflow.workItem.id);
+    return activateWorkItemSession(root, rebound.config, rebound.workflow);
+  });
   console.log(`Returned ${workflow.workItem.id} to implementation for ${rework.length} convergence finding(s); commit ${returned.sha.slice(0, 8)}.`);
   console.log(`Clauses: ${clauseIds.join(', ') || 'none recorded'}`);
   console.log('Prior convergence records, findings and approvals are preserved. The next implementation publication opens iteration '

@@ -171,6 +171,8 @@ test('repository commands can route through the explicitly selected workspace', 
   assert.equal(await activeWorkspaceRepositoryRoot('status', { env }), await realpath(repository));
   assert.equal(await activeWorkspaceRepositoryRoot('workspace', { env }), null,
     'workspace administration must not be redirected into its current selection');
+  assert.equal(await activeWorkspaceRepositoryRoot('precheck', { env }), null,
+    'pre-Story dependency and test readiness must inspect the invoking repository');
   assert.equal(await activeWorkspaceRepositoryRoot('capability', { env, subcommand: 'map' }), null,
     'organisation capability onboarding must work before a workspace exists');
   for (const subcommand of [

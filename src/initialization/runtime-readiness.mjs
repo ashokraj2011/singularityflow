@@ -16,6 +16,8 @@ import { captureSmartInitSnapshot } from './source-snapshot.mjs';
 
 const PURPOSE_ORDER = Object.freeze(['dependency', 'build', 'quality', 'test', 'start']);
 const PURPOSE_RANK = new Map(PURPOSE_ORDER.map((purpose, index) => [purpose, index]));
+const READINESS_SCOPES = Object.freeze(['full', 'dependency-test']);
+const READINESS_SCOPE_SET = new Set(READINESS_SCOPES);
 const DEFAULT_TIMEOUTS_MS = Object.freeze({
   dependency: 10 * 60_000,
   build: 10 * 60_000,
@@ -35,6 +37,25 @@ const RESULT_REASONS = new Set([
   'aborted', 'launch-survived', 'non-zero-exit', 'process-tree-not-quiescent',
   'start-exited-before-survival', 'timeout'
 ]);
+
+function readinessScope(value = 'full') {
+  const scope = String(value ?? 'full');
+  if (!READINESS_SCOPE_SET.has(scope)) throw new SingularityFlowError(
+    `Unknown repository readiness scope '${scope}'.`,
+    { code: 'REPOSITORY_READINESS_SCOPE_INVALID', details: { scope, supported: READINESS_SCOPES } }
+  );
+  return scope;
+}
+
+function recordedReceiptScope(receipt) {
+  // Receipts written before scopes were introduced are full readiness receipts.
+  return readinessScope(receipt?.scope ?? 'full');
+}
+
+function scopeAllowsReceipt(requestedScope, receiptScope) {
+  return requestedScope === receiptScope
+    || (requestedScope === 'dependency-test' && receiptScope === 'full');
+}
 
 function digest(value) {
   return `sha256:${recordSha256(value)}`;
@@ -67,7 +88,7 @@ function assertCleanTrackedTree(root) {
   const changed = trackedChanges(root);
   if (changed.length) {
     throw new SingularityFlowError(
-      `Repository readiness requires a clean tracked tree; ${changed.length} tracked path(s) are changed.`,
+      `Repository readiness requires a clean tracked tree; ${changed.length} tracked path(s) are changed: ${changed.slice(0, 20).join(', ')}.`,
       { code: 'REPOSITORY_READINESS_TRACKED_DIRTY', details: { changedPaths: changed } }
     );
   }
@@ -313,6 +334,7 @@ function publicStructuredTest(command) {
  * Nothing is executed and no model is involved.
  */
 export async function buildRepositoryReadinessPlan(root, options = {}) {
+  const scope = readinessScope(options.scope);
   assertCleanTrackedTree(root);
   const platform = options.platform ?? process.platform;
   const arch = options.arch ?? process.arch;
@@ -321,28 +343,37 @@ export async function buildRepositoryReadinessPlan(root, options = {}) {
   let inferredTests = [];
   let testInferenceError = null;
   try {
-    inferredTests = await (options.inferTestCommands ?? inferRepositoryTestCommands)(root);
+    inferredTests = await (options.inferTestCommands ?? inferRepositoryTestCommands)(root, {
+      unitOnly: scope === 'dependency-test'
+    });
   } catch (error) {
     testInferenceError = { code: error?.code ?? 'TEST_INFERENCE_FAILED' };
   }
   const detectorCommands = [
     ...(detectorOutput.commands?.dependency ?? []).map((command) => normalizedCommand(command, 'dependency', 'smart-init-detector', { ...options, platform })),
-    ...(detectorOutput.commands?.build ?? []).map((command) => normalizedCommand(command, 'build', 'smart-init-detector', { ...options, platform })),
-    ...(detectorOutput.commands?.quality ?? []).map((command) => normalizedCommand(command, 'quality', 'smart-init-detector', { ...options, platform })),
-    ...(detectorOutput.commands?.start ?? []).map((command) => normalizedCommand(command, 'start', 'smart-init-detector', { ...options, platform }))
+    ...(scope === 'full' ? (detectorOutput.commands?.build ?? []).map((command) => normalizedCommand(
+      command, 'build', 'smart-init-detector', { ...options, platform }
+    )) : []),
+    ...(scope === 'full' ? (detectorOutput.commands?.quality ?? []).map((command) => normalizedCommand(
+      command, 'quality', 'smart-init-detector', { ...options, platform }
+    )) : []),
+    ...(scope === 'full' ? (detectorOutput.commands?.start ?? []).map((command) => normalizedCommand(
+      command, 'start', 'smart-init-detector', { ...options, platform }
+    )) : [])
   ];
   const testCommands = [
     ...inferredTests.map((command) => normalizedCommand(
       command, 'test', 'structured-test-inference', { ...options, platform }
     )),
-    ...(detectorOutput.commands?.verification ?? []).map((command) => normalizedCommand(
+    ...(scope === 'full' ? (detectorOutput.commands?.verification ?? []).map((command) => normalizedCommand(
       command, 'test', 'smart-init-detector', { ...options, platform }
-    ))
+    )) : [])
   ];
   const detectedScopes = new Set(detectorCommands.map((command) =>
     `${command.purpose}\0${command.workingDirectory}`));
   const manifestFallbackCommands = manifestCommands(snapshot, { ...options, platform })
-    .filter((command) => !detectedScopes.has(`${command.purpose}\0${command.workingDirectory}`));
+    .filter((command) => !detectedScopes.has(`${command.purpose}\0${command.workingDirectory}`))
+    .filter((command) => scope === 'full' || command.purpose === 'dependency');
   const commands = deduplicateCommands([
     ...detectorCommands,
     ...manifestFallbackCommands,
@@ -362,6 +393,8 @@ export async function buildRepositoryReadinessPlan(root, options = {}) {
     error: testInferenceError
   };
   const ambiguities = structuredClone(detectorOutput.ambiguities ?? [])
+    .filter((ambiguity) => scope === 'full'
+      || !['build', 'quality', 'start'].includes(ambiguity.purpose))
     .sort((left, right) => String(left.id ?? '').localeCompare(String(right.id ?? ''), 'en'));
   const blockers = [
     ...ambiguities.map((ambiguity) => ({
@@ -384,6 +417,7 @@ export async function buildRepositoryReadinessPlan(root, options = {}) {
   const core = {
     schemaVersion: 1,
     kind: 'repository-readiness-plan',
+    scope,
     sourceCommit: snapshot.subject.baseCommit,
     sourceManifestSha256: snapshot.sourceManifestSha256,
     repositoryFingerprint: snapshot.subject.repositoryFingerprint,
@@ -551,19 +585,23 @@ function receiptDirectory(root) {
   return path.join(gitCommonDir(root), 'singularity-flow', 'repository-readiness');
 }
 
-function receiptFile(root, commit, platform = process.platform, arch = process.arch) {
+function receiptFile(root, commit, platform = process.platform, arch = process.arch, scope = 'full') {
   if (!/^[0-9a-f]{40,64}$/iu.test(String(commit ?? ''))) {
     throw new SingularityFlowError('Repository readiness receipt requires an exact commit.', {
       code: 'REPOSITORY_READINESS_COMMIT_INVALID'
     });
   }
-  return path.join(receiptDirectory(root), `${String(commit).toLowerCase()}-${safeId(platform)}-${safeId(arch)}.json`);
+  const normalizedScope = readinessScope(scope);
+  const suffix = normalizedScope === 'full' ? '' : `-${safeId(normalizedScope)}`;
+  return path.join(receiptDirectory(root), `${String(commit).toLowerCase()}-${safeId(platform)}-${safeId(arch)}${suffix}.json`);
 }
 
 async function writeReceipt(root, receipt) {
   const directory = receiptDirectory(root);
   await mkdir(directory, { recursive: true, mode: 0o700 });
-  const target = receiptFile(root, receipt.sourceCommit, receipt.platform, receipt.arch);
+  const target = receiptFile(
+    root, receipt.sourceCommit, receipt.platform, receipt.arch, recordedReceiptScope(receipt)
+  );
   const temporary = path.join(directory, `.${path.basename(target)}.${randomUUID()}.tmp`);
   try {
     await writeFile(temporary, `${JSON.stringify(receipt, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
@@ -643,6 +681,7 @@ export async function executeRepositoryReadinessPlan(root, {
   const core = {
     schemaVersion: RECEIPT_SCHEMA_VERSION,
     kind: 'repository-readiness-receipt',
+    scope: plan.scope,
     status: 'pass',
     sourceCommit: plan.sourceCommit,
     sourceManifestSha256: plan.sourceManifestSha256,
@@ -668,42 +707,64 @@ function receiptIntegrity(receipt) {
   return supplied === digest(core);
 }
 
+function planIdMatchesReceipt(plan, receipt) {
+  if (receipt.scope !== undefined) return plan.planId === receipt.planId;
+  const legacyCore = structuredClone(plan);
+  delete legacyCore.planId;
+  delete legacyCore.scope;
+  return digest(legacyCore) === receipt.planId;
+}
+
 export async function loadRepositoryReadinessReceipt(root, {
-  commit = head(root), platform = process.platform, arch = process.arch
+  commit = head(root), platform = process.platform, arch = process.arch, scope = 'full',
+  allowFullFallback = true
 } = {}) {
-  const file = receiptFile(root, commit, platform, arch);
-  try {
-    const receipt = readRecord(RECEIPT_FAMILY, await readFile(file)).record;
-    if (!receiptIntegrity(receipt)
-        || receipt.sourceCommit !== String(commit).toLowerCase()
-        || receipt.platform !== platform
-        || receipt.arch !== arch
-        || !/^sha256:[0-9a-f]{64}$/u.test(receipt.planId ?? '')
-        || !/^sha256:[0-9a-f]{64}$/u.test(receipt.sourceManifestSha256 ?? '')) {
-      throw new SingularityFlowError(
-        'Repository readiness receipt failed its integrity check.',
-        { code: 'REPOSITORY_READINESS_RECEIPT_INVALID', details: { file } }
-      );
+  const requestedScope = readinessScope(scope);
+  const candidateScopes = [requestedScope];
+  if (requestedScope === 'dependency-test' && allowFullFallback) candidateScopes.push('full');
+  for (const candidateScope of candidateScopes) {
+    const file = receiptFile(root, commit, platform, arch, candidateScope);
+    try {
+      const receipt = readRecord(RECEIPT_FAMILY, await readFile(file)).record;
+      const receiptScope = recordedReceiptScope(receipt);
+      if (!receiptIntegrity(receipt)
+          || receipt.sourceCommit !== String(commit).toLowerCase()
+          || receipt.platform !== platform
+          || receipt.arch !== arch
+          || !scopeAllowsReceipt(requestedScope, receiptScope)
+          || receiptScope !== candidateScope
+          || !/^sha256:[0-9a-f]{64}$/u.test(receipt.planId ?? '')
+          || !/^sha256:[0-9a-f]{64}$/u.test(receipt.sourceManifestSha256 ?? '')) {
+        throw new SingularityFlowError(
+          'Repository readiness receipt failed its integrity check.',
+          { code: 'REPOSITORY_READINESS_RECEIPT_INVALID', details: { file } }
+        );
+      }
+      return { receipt, file };
+    } catch (error) {
+      if (error?.code === 'ENOENT') continue;
+      if (error instanceof SingularityFlowError) throw error;
+      throw new SingularityFlowError('Repository readiness receipt is unreadable.', {
+        code: 'REPOSITORY_READINESS_RECEIPT_INVALID', cause: error, details: { file }
+      });
     }
-    return { receipt, file };
-  } catch (error) {
-    if (error?.code === 'ENOENT') return null;
-    if (error instanceof SingularityFlowError) throw error;
-    throw new SingularityFlowError('Repository readiness receipt is unreadable.', {
-      code: 'REPOSITORY_READINESS_RECEIPT_INVALID', cause: error, details: { file }
-    });
   }
+  return null;
 }
 
 /** Validate a Git-private receipt for the exact checked-out base commit and current source manifest. */
 export async function inspectRepositoryReadinessReceipt(root, {
   commit = head(root), sourceManifestSha256 = null, platform = process.platform, arch = process.arch,
-  recompute = sourceManifestSha256 === null
+  recompute = sourceManifestSha256 === null, scope = 'full', allowFullFallback = true
 } = {}) {
-  const loaded = await loadRepositoryReadinessReceipt(root, { commit, platform, arch });
+  const requestedScope = readinessScope(scope);
+  const loaded = await loadRepositoryReadinessReceipt(root, {
+    commit, platform, arch, scope: requestedScope, allowFullFallback
+  });
   if (!loaded) return { status: 'missing', receipt: null, reasons: ['receipt-missing'] };
   const reasons = [];
   const { receipt } = loaded;
+  const receiptScope = recordedReceiptScope(receipt);
   if (receipt.status !== 'pass') reasons.push('receipt-not-passing');
   if (receipt.sourceCommit !== commit) reasons.push('commit-mismatch');
   if (receipt.platform !== platform || receipt.arch !== arch) reasons.push('runtime-mismatch');
@@ -716,11 +777,12 @@ export async function inspectRepositoryReadinessReceipt(root, {
         const currentPlan = await buildRepositoryReadinessPlan(root, {
           platform,
           arch,
+          scope: receiptScope,
           timeouts: receipt.executionPolicy?.timeoutsMs,
           startSurvivalMs: receipt.executionPolicy?.startSurvivalMs
         });
         expectedManifest = currentPlan.sourceManifestSha256;
-        expectedPlanId = currentPlan.planId;
+        expectedPlanId = planIdMatchesReceipt(currentPlan, receipt) ? receipt.planId : currentPlan.planId;
       } catch {
         reasons.push('current-plan-unavailable');
       }
@@ -755,6 +817,8 @@ export async function hydrateRepositoryDependencies(root, {
   now = Date.now,
   platform = process.platform,
   arch = process.arch,
+  scope = 'full',
+  allowFullFallback = true,
   ...planOptions
 } = {}) {
   const currentCommit = head(root);
@@ -762,7 +826,10 @@ export async function hydrateRepositoryDependencies(root, {
     `Dependency hydration requires checked-out commit ${commit}; current HEAD is ${currentCommit}.`,
     { code: 'REPOSITORY_READINESS_HYDRATION_COMMIT_MISMATCH' }
   );
-  const loaded = await loadRepositoryReadinessReceipt(root, { commit, platform, arch });
+  const requestedScope = readinessScope(scope);
+  const loaded = await loadRepositoryReadinessReceipt(root, {
+    commit, platform, arch, scope: requestedScope, allowFullFallback
+  });
   if (!loaded) {
     if (required) throw new SingularityFlowError(
       `Dependency hydration requires a passing repository-readiness receipt for ${commit}.`,
@@ -774,6 +841,7 @@ export async function hydrateRepositoryDependencies(root, {
     };
   }
   const { receipt } = loaded;
+  const receiptScope = recordedReceiptScope(receipt);
   if (receipt.status !== 'pass') throw new SingularityFlowError(
     'Dependency hydration requires a passing repository-readiness receipt.',
     { code: 'REPOSITORY_READINESS_RECEIPT_NOT_PASSING' }
@@ -782,11 +850,12 @@ export async function hydrateRepositoryDependencies(root, {
     ...planOptions,
     platform,
     arch,
+    scope: receiptScope,
     timeouts: receipt.executionPolicy?.timeoutsMs,
     startSurvivalMs: receipt.executionPolicy?.startSurvivalMs,
     requireStructuredTest: receipt.structuredTestContract?.requiredForCode
   });
-  if (plan.planId !== receipt.planId
+  if (!planIdMatchesReceipt(plan, receipt)
       || plan.sourceCommit !== receipt.sourceCommit
       || plan.sourceManifestSha256 !== receipt.sourceManifestSha256) {
     throw new SingularityFlowError(
@@ -870,3 +939,4 @@ export async function hydrateRepositoryDependencies(root, {
 
 export const REPOSITORY_READINESS_PURPOSE_ORDER = PURPOSE_ORDER;
 export const REPOSITORY_READINESS_DEFAULT_TIMEOUTS_MS = DEFAULT_TIMEOUTS_MS;
+export const REPOSITORY_READINESS_SCOPES = READINESS_SCOPES;

@@ -1834,6 +1834,37 @@ test('first creation hands its absent preimage into publication and restores no-
   assert.equal(git(['status', '--porcelain'], root), '');
 });
 
+test('a failed draft transaction restores caller-owned in-memory state after durable rollback', async () => {
+  const root = await repository('sflow-draft-memory-rollback-');
+  const subject = { kind: 'story', id: 'DRAFT-MEMORY', branch: 'main' };
+  const target = 'draft-state.json';
+  const aggregate = { status: 'before', generation: 0 };
+  const prior = structuredClone(aggregate);
+  await writeFile(path.join(root, target), `${JSON.stringify(aggregate)}\n`);
+  git(['add', target], root);
+  git(['commit', '-m', 'draft memory baseline'], root);
+
+  await assert.rejects(() => runDraftTransaction(root, {
+    subject,
+    operation: 'prepare:intake',
+    allowedPaths: [target],
+    write: async () => {
+      aggregate.status = 'partial';
+      aggregate.generation = 1;
+      await writeFile(path.join(root, target), `${JSON.stringify(aggregate)}\n`);
+      throw new Error('draft authoring failed');
+    },
+    afterRollback: () => {
+      for (const key of Object.keys(aggregate)) delete aggregate[key];
+      Object.assign(aggregate, structuredClone(prior));
+    }
+  }), /draft authoring failed/);
+
+  assert.deepEqual(aggregate, prior);
+  assert.deepEqual(JSON.parse(await readFile(path.join(root, target), 'utf8')), prior);
+  assert.equal(await pathExists(publicationJournalPath(root, subject.kind, subject.id)), false);
+});
+
 test('a lock left by a killed process is reclaimed for Story and Initiative subjects', async (t) => {
   const lockModule = pathToFileURL(path.join(packageRoot, 'src/subject-lock.mjs')).href;
   for (const kind of kinds) {

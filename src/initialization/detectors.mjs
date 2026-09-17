@@ -135,7 +135,7 @@ function detectNode(snapshot, files) {
       facts.push(managerFact); managerEvidence.push(managerFact.id);
     } else if (lockManagers.length > 1) {
       ambiguities.push({
-        id: `node-package-manager:${directory}`, purpose: 'verify', scope: directory,
+        id: `node-package-manager:${directory}`, purpose: 'dependency', scope: directory,
         candidates: lockManagers.map(([id]) => id).sort(),
         reason: 'Multiple package-manager lockfile families are present and packageManager is not declared.'
       });

@@ -78,6 +78,56 @@ test('spec-driven submission binds downstream briefs to the reviewed generation 
   }
   assert.notEqual(packet.agentBriefs[0].sourceSha256, source.sha256,
     'submission metadata may change the review artifact without redefining the published brief source');
+
+  const approval = JSON.parse(flow(root, [
+    'choices', 'begin', 'approve', 'BRIEF-1', '--json'
+  ]).stdout);
+  const review = JSON.parse(flow(root, ['phase', 'show', 'specification', '--json']).stdout);
+  const catalog = JSON.parse(flow(root, ['documents', 'list', '--json']).stdout);
+  assert.equal(approval.approvalContext.agentBriefs.length, 4);
+  for (const brief of approval.approvalContext.agentBriefs) {
+    assert.match(brief.documentId, /^agent-brief-specification-gen1-/);
+    assert.equal(brief.documentPath, brief.renderedPath);
+    assert.equal(brief.documentSha256, brief.renderedSha256);
+    const registered = catalog.find((entry) => entry.id === brief.documentId);
+    const shown = review.documents.find((entry) => entry.id === brief.documentId);
+    assert.ok(registered, `${brief.documentId} is registered for document lookup`);
+    assert.ok(shown, `${brief.documentId} is present in phase review`);
+    assert.equal(registered.path, brief.documentPath);
+    assert.equal(registered.sha256, brief.documentSha256);
+    assert.equal(registered.generation, approval.approvalContext.generation);
+    assert.equal(shown.path, registered.path);
+    assert.equal(shown.sha256, registered.sha256);
+    assert.equal(shown.content, await readFile(path.join(root, brief.documentPath), 'utf8'));
+    const legacyId = brief.documentId.replace('-gen1-', '-');
+    for (const reference of [brief.documentId, legacyId, brief.documentPath]) {
+      const viewed = JSON.parse(flow(root, [
+        'documents', 'view', reference, '--work-id', 'BRIEF-1', '--json'
+      ]).stdout);
+      assert.equal(viewed.record.id, brief.documentId);
+      assert.equal(viewed.verifiedSha256, brief.documentSha256);
+      assert.equal(viewed.content, shown.content);
+    }
+  }
+
+  const tamperedBrief = approval.approvalContext.agentBriefs[0];
+  await writeFile(path.join(root, tamperedBrief.documentPath), '# altered after submission\n');
+  const refusedView = flow(root, [
+    'documents', 'view', tamperedBrief.documentId, '--work-id', 'BRIEF-1', '--json'
+  ], { allowFailure: true });
+  assert.notEqual(refusedView.status, 0);
+  assert.match(refusedView.stderr, /no longer matches its committed catalog hash/);
+  const tamperedReview = JSON.parse(flow(root, ['phase', 'show', 'specification', '--json']).stdout);
+  const refusedDocument = tamperedReview.documents.find((entry) => entry.id === tamperedBrief.documentId);
+  assert.match(refusedDocument.error, /no longer matches its committed catalog hash/);
+  assert.equal(refusedDocument.content, undefined, 'phase review never presents altered brief bytes');
+  git(root, ['add', tamperedBrief.documentPath]);
+  git(root, ['commit', '-m', 'tamper with submitted brief fixture']);
+  const refusedApproval = flow(root, [
+    'choices', 'begin', 'approve', 'BRIEF-1', '--json'
+  ], { allowFailure: true });
+  assert.notEqual(refusedApproval.status, 0);
+  assert.match(refusedApproval.stderr, /Approval review documents are unavailable or invalid/);
 });
 
 function git(root, args, options = {}) {

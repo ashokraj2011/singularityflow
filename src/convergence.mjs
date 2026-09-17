@@ -840,6 +840,13 @@ function normalizedConvergenceArtifactBody(value) {
 export function assertConvergencePublishable(projection, authoredArtifactBody) {
   assertConvergenceIntegrity(projection);
   const allowed = projection.allowedNext ?? [];
+  const disposed = new Set((projection.findings ?? []).map((finding) => finding.itemId));
+  const candidateItems = (projection.candidateSnapshot ?? []).length
+    ? projection.candidateSnapshot
+    : projection.candidates ?? [];
+  const undisposedItemIds = [...(projection.facts ?? []), ...candidateItems]
+    .map((item) => item.id)
+    .filter((id) => !disposed.has(id));
   if (!allowed.includes('advance-to-verification')
       || (projection.unresolvedBlockers ?? []).length > 0) {
     throw new SingularityFlowError(
@@ -851,6 +858,7 @@ export function assertConvergencePublishable(projection, authoredArtifactBody) {
         details: {
           iteration: projection.iteration,
           allowedNext: allowed,
+          undisposedItemIds,
           unresolvedBlockers: projection.unresolvedBlockers ?? []
         }
       }

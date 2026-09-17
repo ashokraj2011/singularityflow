@@ -507,12 +507,15 @@ export function isTestQualityCommand(command) {
 }
 
 /** Repository-native, deterministic defaults. No model is needed to identify a build manifest. */
-export async function inferRepositoryTestCommands(root) {
+export async function inferRepositoryTestCommands(root, { unitOnly = false } = {}) {
   const regular = async (relative) => (await secureRepositoryPath(root, relative, {
     label: 'Repository test manifest', type: 'file'
   })).exists;
-  const inferred = async (system, manifest) => {
-    const command = await inferModuleTestCommand(root, { root: '.', system, manifest });
+  const inferred = async (system, manifest, options = {}) => {
+    const command = await inferModuleTestCommand(root, { root: '.', system, manifest }, {
+      unitOnly,
+      ...options
+    });
     const legacyRootIds = {
       maven: 'maven-tests', gradle: 'gradle-tests', go: 'go-tests', rust: 'cargo-tests',
       python: 'python-tests', node: 'node-tests'
@@ -530,8 +533,13 @@ export async function inferRepositoryTestCommands(root) {
   }
   if (await regular('package.json')) {
     const manifest = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
-    const script = String(manifest.scripts?.test ?? '').trim();
-    if (script && !/no test specified/i.test(script)) return inferred('node', 'package.json');
+    const candidates = unitOnly ? ['test:unit', 'unit', 'test'] : ['test'];
+    for (const nodeScript of candidates) {
+      const script = String(manifest.scripts?.[nodeScript] ?? '').trim();
+      if (!script || /no test specified/i.test(script)) continue;
+      const commands = await inferred('node', 'package.json', { nodeScript });
+      if (commands.length) return commands;
+    }
   }
   return [];
 }

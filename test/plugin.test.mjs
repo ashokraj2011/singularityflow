@@ -61,17 +61,19 @@ test('plugin can audit and safely repair branch initialization before a work ses
 test('repository readiness proves execution and confines setup repair before Story creation', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-ready', 'SKILL.md'), 'utf8');
   assert.match(content, /no Story required/i);
-  assert.match(content, /precheck --run --json[\s\S]*plan only/i);
+  assert.match(content, /Select `dependency-test` unless[\s\S]*precheck --run --scope <SCOPE> --json[\s\S]*plan only/i);
   assert.match(content, /--confirm-plan <PLAN-ID>/);
   assert.match(content, /locked dependencies|frozen restore/i);
-  assert.match(content, /structured test\s+adapter/i);
+  assert.match(content, /structured\s+(?:test\s+)?adapter/i);
+  assert.match(content, /Build, quality, application-start[\s\S]*forbidden unless[\s\S]*--full/i);
+  assert.match(content, /existing unit failure[\s\S]*separate Bug-fix Story/i);
   assert.match(content, /sflow\/readiness\/<PLAN-DIGEST-PREFIX>/);
   assert.match(content, /explicit diff approval/i);
   assert.match(content, /commit only the reviewed\s+paths/i);
   assert.match(content, /commit changes the base[\s\S]*new `planId`/i);
-  assert.match(content, /Never change product behavior, weaken tests/i);
+  assert.match(content, /Never change product behavior, weaken\s+tests/i);
   assert.match(content, /Never commit local[\s\S]*dependency directories[\s\S]*test reports/i);
-  assert.match(content, /Do not push or merge unless separately requested/i);
+  assert.match(content, /Do not push or\s+merge unless separately requested/i);
 });
 
 test('plugin provides one upload-first skill for Epic and Story evidence', async () => {
@@ -608,6 +610,9 @@ test('approval skill is explicitly user-invoked', async () => {
   assert.match(content, /Never ask for approval based only on a filename or summary/);
   assert.match(content, /choices begin approve <WORK-ID> --fetch --json/);
   assert.match(content, /phase-confirmation <TYPED-PHASE>/);
+  assert.match(content, /documentId`, `documentPath`, and `documentSha256`/);
+  assert.match(content, /internal JSON integrity record, not a review-document path/);
+  assert.match(content, /do not perform a second `singularity-flow documents view` lookup/);
   assert.match(content, /approve <TYPED-PHASE> --work-id <WORK-ID> --fetch --selection-receipt <TOKEN>/);
   assert.match(content, /Never add `--yes`/);
   assert.match(content, /consumes the receipt exactly once/i);

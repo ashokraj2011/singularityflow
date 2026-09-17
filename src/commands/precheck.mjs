@@ -21,17 +21,20 @@ export async function run(argv, { options } = {}) {
   );
   const root = repoRoot();
   if (execute) {
+    const scope = optionString(options, 'scope', 'dependency-test');
     const confirmation = optionString(options, 'confirm-plan');
     if (!confirmation) {
-      const plan = await buildRepositoryReadinessPlan(root);
-      const command = `singularity-flow precheck --run --confirm-plan ${plan.planId} --json`;
+      const plan = await buildRepositoryReadinessPlan(root, { scope });
+      const command = `singularity-flow precheck --run --scope ${plan.scope} --confirm-plan ${plan.planId} --json`;
       return emitCommandResult(commandResult({
         operation: { id: 'precheck.run.plan', classification: 'read' },
         outcome: succeeded('precheck.run-planned', { commands: plan.commands.length }),
         effects: noEffects(),
         next: plan.blockers.length ? [] : [action({
           id: 'precheck-run-confirm',
-          label: 'Run the exact reviewed dependency, build, test, and application-start plan.',
+          label: plan.scope === 'dependency-test'
+            ? 'Run the exact reviewed locked-dependency and existing-unit-test plan.'
+            : 'Run the exact reviewed dependency, build, test, and application-start plan.',
           command,
           skill: '/sf-ready',
           kind: 'review'
@@ -40,7 +43,7 @@ export async function run(argv, { options } = {}) {
         data: { plan }
       }), { json: optionBoolean(options, 'json'), restStateWhenIdle: null });
     }
-    const result = await executeRepositoryReadinessPlan(root, { confirmation });
+    const result = await executeRepositoryReadinessPlan(root, { confirmation, scope });
     return emitCommandResult(commandResult({
       operation: { id: 'precheck.run.execute', classification: 'mutation' },
       outcome: succeeded('precheck.run-completed', {

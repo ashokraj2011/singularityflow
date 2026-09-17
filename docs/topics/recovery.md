@@ -20,7 +20,7 @@ commands:
 related:
   - checkpoints-pause-continue
   - sequence-gates
-version: 6
+version: 8
 ---
 Publication is a transaction: verified preconditions, an integrity-bound preimage written to the local journal, one isolated commit of allowlisted paths, compare-and-swap branch advance, and push without force. If the process dies before the commit, `sflow sync` reclaims its dead subject lock, preserves the partial bytes under `.git/singularity-flow/publication-rescues/`, and restores the exact pre-transaction governed state. If the commit exists but push failed, sync retries that exact commit once without regenerating or rewriting it. A live command is reported as active and is never rolled back. A branch-head race refuses rather than clobbering — reload and retry. A dead laptop costs nothing already committed: clone and `sflow resume`. `sflow doctor` diagnoses; `sflow recover` produces a content-addressed, model-free plan for transport, artifact, Agent Brief, code-delivery, and generation-intent blockers. Concurrent writes to the same work item are serialized by a subject lock and caught by a state fingerprint even when uncommitted.
 
@@ -31,7 +31,7 @@ Use this topic when the current goal matches **recovery**. Start in a governed c
 ## Use it from each surface
 
 - **Shell:** `sflow recover [WORK-ID] --phase <phase> --json` inspects without writing. An automatic action requires `--apply --confirm <planId>`. `sflow sync`, `sflow doctor`, and `sflow refresh-branch` remain available for their narrower roles.
-- **Copilot:** `/sf-doctor`, `/sf-refresh-branch`. The skill must preserve the CLI result and ask before any governed mutation.
+- **Copilot:** `/sf-recover`, `/sf-doctor`, `/sf-refresh-branch`. The skill must preserve the CLI result and ask before any governed mutation.
 - **VS Code:** open Singularity Flow **Lifecycle**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow
@@ -43,6 +43,22 @@ Use this topic when the current goal matches **recovery**. Start in a governed c
 5. For an automatic action, confirm the exact `planId`. The command recomputes repository HEAD and the worktree fingerprint and refuses a stale plan.
 6. Re-read recovery once after completion. Retry the original lifecycle command only when its fingerprint changed.
 
+Every phase refusal uses the same containment rule. The current phase remains the repair boundary;
+published generations stay immutable, authored work is not discarded, and recovery never advances
+the lifecycle or rewrites history. A read-only phase recovery plan names the exact blocker and the
+owning producer (`/sf-phase`, `/sf-code`, or another configured route). Configuration defects are
+repaired through configuration authority while the Story stays paused in the same phase; the pinned
+Story snapshot is never hand-edited. An approval failure ends the approval-only turn. If reviewed
+bytes must change, a new turn uses `/sf-reject` to choose an allowed repair target, followed by fresh
+authoring, submission, and approval.
+
+This applies to prepare, generation begin, generation rollover, draft checks, publication,
+submission, and approval. A failed approval never offers another approval retry against stale
+evidence: the approval turn ends, and any content repair starts through `/sf-reject` in a new turn.
+Optional Copilot telemetry cursor corruption, contention, or local write failure cannot block phase
+work or turn a successfully restored draft into a failed rollback; usage is reported as partial or
+unavailable instead.
+
 For an interrupted publication, `sflow sync` selects the recovery action from the journal boundary:
 
 - **Live owner:** stop and return to the terminal running the reported PID.
@@ -53,6 +69,17 @@ For an interrupted publication, `sflow sync` selects the recovery action from th
 ## State and safety
 
 Recovery inspection is read-only and never invokes a model or AST. `recover --apply`, `sync`, and `refresh-branch` can mutate governed or machine-local state and remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Pre-commit rollback touches only the governed roots named by the integrity-checked journal; unrelated source edits and staged files are not reset. Only system-owned transport and exact preimage restoration are automatic. Source, authored artifacts, policy, approvals, and human answers are never invented or repaired by a model. AST or a language pack being unavailable is advisory and cannot block recovery or ordinary file-based work.
+
+The rollback boundary restores both durable files and the same in-memory Story aggregate retained by
+long-lived hosts, so an immediate retry cannot see a phase transition that was refused. After a
+governed commit lands, session refresh and review rendering are presentation work: failures there are
+reported as warnings with a resume route and never relabel the committed lifecycle mutation as a
+failure or invite a duplicate publish, submit, approval, rejection, reopen, amendment decision, or
+convergence-rework decision.
+
+The same rule covers local pending-marker cleanup after a successful push. The committed/pushed
+transition is reported as successful, the marker remains available for exact verification, and
+`sflow sync` (or `sflow initiative sync`) clears it without repeating the lifecycle mutation.
 
 ## Troubleshooting
 

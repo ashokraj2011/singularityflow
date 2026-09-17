@@ -280,12 +280,40 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   assert.equal((await workflowOf(root)).phases.implementation.status, 'approved');
 
   // ---- convergence, iteration one ---------------------------------------------------------------
+  const preparedConvergence = JSON.parse(sflow(root, ['prepare', 'convergence', '--json']).stdout);
+  const preparedAdjudication = preparedConvergence.next.find((action) => action.id === 'convergence.adjudicate');
+  assert.ok(preparedAdjudication, 'normal convergence preparation did not stop for human adjudication');
+  assert.equal(preparedAdjudication.skill, '/sf-converge');
+  assert.match(preparedAdjudication.command, /story adjudicate/);
+  assert.ok(!preparedConvergence.next.some((action) => action.id === 'convergence.publish'),
+    'normal convergence preparation offered publication before human review');
   const first = sflow(root, ['story', 'converge', '--json']);
   const iteration = JSON.parse(first.stdout);
   assert.equal(iteration.iteration, 1);
   assert.ok(iteration.facts.length > 0, 'convergence found nothing on a Story with an unclaimed requirement');
   assert.deepEqual(iteration.allowedNext, ['adjudicate'], 'undisposed facts allowed something other than adjudication');
   assert.deepEqual(iteration.findings, [], 'a fact became a finding without a human');
+  const reviewRequired = JSON.parse(sflow(root, ['phase', 'draft-check', 'convergence', '--json']).stdout);
+  assert.equal(reviewRequired.status, 'correction-required');
+  assert.equal(reviewRequired.correction.class, 'human-input',
+    'a human convergence checkpoint was mislabeled as deterministic regeneration');
+  assert.equal(reviewRequired.correction.skill, '/sf-converge');
+  assert.match(reviewRequired.commands.next, new RegExp(`story adjudicate ${iteration.facts[0].id}`));
+  assert.match(reviewRequired.commands.next, /--clause <CLAUSE-ID>/,
+    'the update-intent option omitted its required clause argument');
+  assert.equal(reviewRequired.commands.publish, null,
+    'a blocked convergence draft exposed an illegal publication action');
+  assert.doesNotMatch(reviewRequired.correction.guidance, /prepare convergence again/i,
+    'the draft check offered the same regeneration loop before adjudication');
+  const reviewRecovery = JSON.parse(sflow(root, [
+    'recover', '--phase', 'convergence', '--json'
+  ]).stdout);
+  const adjudicationRecovery = reviewRecovery.actions.find((action) => action.id === 'convergence-adjudicate');
+  assert.ok(adjudicationRecovery, 'phase recovery did not preserve the convergence human-review action');
+  assert.match(adjudicationRecovery.command, new RegExp(`story adjudicate ${iteration.facts[0].id}`));
+  assert.equal(adjudicationRecovery.automatic, false, 'recovery must never auto-adjudicate a finding');
+  assert.ok(!reviewRecovery.actions.some((action) => action.id === 'prepare-convergence'),
+    'phase recovery offered deterministic regeneration before required adjudication');
 
   // Every fact describes the record, never the implementation `[SPK:CON-033]`.
   for (const fact of iteration.facts) {

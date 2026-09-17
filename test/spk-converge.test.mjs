@@ -416,6 +416,7 @@ test('candidate source and deterministic phase artifact are exact projections', 
     () => assertConvergencePublishable(projection, markdown),
     (error) => error.code === 'CONVERGENCE_REVIEW_REQUIRED'
       && error.details.allowedNext.includes('adjudicate')
+      && error.details.undisposedItemIds.includes(candidate.id)
   );
 
   const clear = {

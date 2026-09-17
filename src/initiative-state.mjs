@@ -45,6 +45,7 @@ import { withSubjectLock } from './subject-lock.mjs';
 import { lifecycleEvent, recordPublicationProjection } from './lifecycle-event.mjs';
 import { publishLifecycleChange } from './publication-unit-of-work.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { captureAggregateRecovery, restoreAggregateRecovery } from './aggregate-recovery.mjs';
 
 export const INITIATIVE_STATE_SCHEMA_VERSION = currentSchemaVersion('initiative-state');
 
@@ -1144,7 +1145,9 @@ export async function commitInitiativeChange(root, portfolio, initiative, event,
   // The transition may update source manifests, prompt-composition records, detach decisions and
   // projections as well as state.json. Capture the complete governed Initiative directory so a
   // pre-commit failure cannot leave any part of an unpublished decision behind.
-  void rollbackInitiative;
+  const initiativeRecovery = captureAggregateRecovery(
+    initiative, rollbackInitiative ?? structuredClone(initiative)
+  );
   const initiativeDirectory = initiativeRelative(portfolio, initiative.initiative.id);
   const result = await publishLifecycleChange(root, {
     subject: envelope.subject,
@@ -1198,10 +1201,14 @@ export async function commitInitiativeChange(root, portfolio, initiative, event,
       },
       // Restore the complete governed Initiative directory: a publication that fails after any
       // manifest, context, decision, projection, or state write must leave no unpublished change.
-      rollback: (preimage, recoveryOptions = {}) => restorePublicationPreimage(root, preimage, {
-        subject: envelope.subject,
-        ...recoveryOptions
-      })
+      rollback: async (preimage, recoveryOptions = {}) => {
+        const restoration = await restorePublicationPreimage(root, preimage, {
+          subject: envelope.subject,
+          ...recoveryOptions
+        });
+        restoreAggregateRecovery(initiative, initiativeRecovery);
+        return restoration;
+      }
     },
     publication: {
       mode, remote, branch: initiative.initiative.branch,
@@ -1223,11 +1230,26 @@ export async function commitInitiativeChange(root, portfolio, initiative, event,
   if (initiative[Symbol.for('singularity-flow.state-revision')]) {
     initiative[Symbol.for('singularity-flow.state-revision')].head = result.sha;
   }
-  if (result.pushed) await clearPendingPublication(root, {
-    kind: 'initiative', id: initiative.initiative.id,
-    legacyPath: legacyInitiativePendingPublicationPath(root, portfolio, initiative.initiative.id)
-  });
-  return result;
+  let pendingCleanup = { status: 'not-required' };
+  if (result.pushed) {
+    try {
+      await clearPendingPublication(root, {
+        kind: 'initiative', id: initiative.initiative.id,
+        legacyPath: legacyInitiativePendingPublicationPath(root, portfolio, initiative.initiative.id)
+      });
+      pendingCleanup = { status: 'complete' };
+    } catch (error) {
+      pendingCleanup = {
+        status: 'pending',
+        code: typeof error?.code === 'string' ? error.code : 'LOCAL_PENDING_CLEANUP_FAILED'
+      };
+      console.warn(
+        `Warning: governed Initiative commit ${result.sha.slice(0, 8)} was pushed, but its local publication marker could not be cleared. `
+        + 'Do not repeat the lifecycle action; run singularity-flow initiative sync to verify and clear the marker.'
+      );
+    }
+  }
+  return { ...result, pendingCleanup };
 }
 
 export async function syncInitiativePublication(root, portfolio, initiative, { fault = null } = {}) {

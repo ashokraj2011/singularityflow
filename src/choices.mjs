@@ -7,6 +7,8 @@ import { SingularityFlowError, nowIso, writeAtomic } from './util.mjs';
 import { recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { configurationReadSnapshot } from './configuration-read-scope.mjs';
+import { agentBriefReviewDocuments, verifyAgentBriefsForReview } from './agent-briefs.mjs';
+import { workDirRelative } from './state-stores.mjs';
 
 const RECEIPT_TTL_MS = 15 * 60 * 1000;
 const RECEIPT_LOCK_TIMEOUT_MS = 5 * 1000;
@@ -43,23 +45,51 @@ function approvalContext(workflow) {
   ) ?? [...(workflow.lineage?.submissions ?? [])].reverse().find((entry) =>
     entry.phase === phase.id && entry.generation === phase.generation
   );
+  const reviewDocuments = new Map(agentBriefReviewDocuments(workflow, phase)
+    .map((document) => [document.consumerPhase, document]));
+  const packetBriefs = packet?.projection?.agentBriefs;
+  const contextBriefs = Array.isArray(packetBriefs)
+    ? packetBriefs
+    : (phase.agentBriefs ?? []).filter((brief) => brief.generation === phase.generation);
   return {
     phase: phase.id,
     label: phase.label,
     generation: phase.generation,
     submittedAt: phase.submittedAt ?? null,
     artifacts: (phase.artifacts ?? []).map((artifact) => ({ path: artifact.path, sha256: artifact.sha256 ?? null })),
-    agentBriefs: (packet?.projection?.agentBriefs ?? []).map((brief) => ({
-      consumerPhase: brief.consumerPhase,
-      status: brief.status,
-      path: brief.path,
-      renderedPath: brief.renderedPath,
-      renderedSha256: brief.renderedSha256,
-      integritySha256: brief.integritySha256
-    })),
+    agentBriefs: contextBriefs.map((brief) => {
+      const document = reviewDocuments.get(brief.consumerPhase) ?? null;
+      return {
+        consumerPhase: brief.consumerPhase,
+        status: brief.status,
+        // `path` is the immutable integrity record. The review document is deliberately named
+        // separately so clients never try to resolve the JSON record as the human-readable brief.
+        path: brief.path,
+        renderedPath: brief.renderedPath,
+        renderedSha256: brief.renderedSha256,
+        integritySha256: brief.integritySha256,
+        documentId: document?.id ?? null,
+        documentPath: document?.path ?? null,
+        documentSha256: document?.sha256 ?? null
+      };
+    }),
     reviewPacketSha256: packet?.packetSha256 ?? null,
     submittedSourceCommit: packet?.projection?.sourceCommit ?? null
   };
+}
+
+async function assertApprovalBriefsReviewable(root, definition, workflow) {
+  const phase = workflow?.currentPhase ? workflow.phases?.[workflow.currentPhase] : null;
+  if (!phase || phase.status !== 'awaiting_approval') return;
+  const review = await verifyAgentBriefsForReview(root, workflow, phase, {
+    itemRelative: workDirRelative(definition, workflow.workItem.id)
+  });
+  if (!review.valid) {
+    throw new SingularityFlowError(
+      `Approval review documents are unavailable or invalid:\n- ${review.errors.join('\n- ')}`,
+      { code: 'APPROVAL_AGENT_BRIEF_INVALID', details: { phase: phase.id, generation: phase.generation, errors: review.errors } }
+    );
+  }
 }
 
 function bindActionContext(action, workId, repositoryHead, context) {
@@ -262,6 +292,7 @@ async function removeExpired(root) {
 }
 
 export async function beginSelectionReceipt(root, definition, { action, workId, workflow = null }) {
+  if (action === 'approve') await assertApprovalBriefsReviewable(root, definition, workflow);
   return beginCustomSelectionReceipt(root, {
     action,
     workId,
@@ -316,6 +347,7 @@ export async function selectionReceiptStatus(root, token) {
 }
 
 export async function resolveSelectionReceipt(root, definition, token, { action, workId, workflow = null }) {
+  if (action === 'approve') await assertApprovalBriefsReviewable(root, definition, workflow);
   return resolveCustomSelectionReceipt(root, token, {
     action,
     workId,

@@ -126,7 +126,7 @@ test('required repository readiness refuses before an isolated Story worktree is
 
   assert.notEqual(failed.status, 0);
   assert.match(failed.stderr, /Repository readiness must pass.*before a Story worktree is created/su);
-  assert.match(failed.stderr, /singularity-flow precheck --run --json/u);
+  assert.match(failed.stderr, /singularity-flow precheck --run --scope dependency-test --json/u);
   assert.match(failed.stderr, /\/sf-ready/u);
   assert.equal(git(root, ['worktree', 'list', '--porcelain']), before);
   assert.equal(run('git', [
@@ -161,8 +161,11 @@ test('a receipt-authorized Story worktree hydrates its locked local dependencies
   run('git', ['commit', '-qm', 'configure exact-base readiness'], root);
   run('git', ['push', '-q', 'origin', 'main'], root);
 
-  const plan = await buildRepositoryReadinessPlan(root);
-  await executeRepositoryReadinessPlan(root, { confirmation: plan.planId });
+  const plan = await buildRepositoryReadinessPlan(root, { scope: 'dependency-test' });
+  await executeRepositoryReadinessPlan(root, {
+    confirmation: plan.planId,
+    scope: 'dependency-test'
+  });
   const started = run(process.execPath, [cli,
     'start', 'ISO-HYDRATED-1', '--isolated-worktree', '--json', '--from-branch', 'main',
     '--work-type', 'quick-fix', '--title', 'Hydrate the managed checkout',

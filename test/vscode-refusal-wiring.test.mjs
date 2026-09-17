@@ -19,6 +19,23 @@ const { fidelityNote, refusalFor } = await import(view('refusal.ts'));
 const { resultCardHtml } = await import(view('result-card-page.ts'));
 const { commandGuidance } = await import(path.join(root, 'apps', 'vscode', 'src', 'copilot-command.ts'));
 
+function expectedGuidance(command, argv, skill, copilotCommand = skill) {
+  const rendered = ['singularity-flow', ...argv].map((entry) => `'${entry}'`).join(' ');
+  return {
+    command,
+    executable: 'singularity-flow',
+    argv,
+    skill,
+    copilotCommand,
+    copyable: true,
+    platformCommands: {
+      darwin: rendered,
+      linux: rendered,
+      win32: `& ${rendered}`
+    }
+  };
+}
+
 const cliError = (message, stderr = '', exitCode = 1) =>
   Object.assign(new Error(message), { stderr, exitCode, name: 'CliError' });
 
@@ -141,39 +158,32 @@ test('a deterministic refusal plan becomes safe reviewable VS Code actions', () 
 });
 
 test('VS Code derives paired shell and Copilot routes without exposing credential-shaped commands', () => {
-  assert.deepEqual(commandGuidance('singularity-flow workspace doctor --network --json'), {
-    command: 'singularity-flow workspace doctor --network --json',
-    skill: '/sf-workspace-bootstrap',
-    copilotCommand: '/sf-workspace-bootstrap',
-    copyable: true
-  });
+  assert.deepEqual(commandGuidance('singularity-flow workspace doctor --network --json'),
+    expectedGuidance(
+      'singularity-flow workspace doctor --network --json',
+      ['workspace', 'doctor', '--network', '--json'],
+      '/sf-workspace-bootstrap'
+    ));
   assert.deepEqual(commandGuidance({
     command: 'singularity-flow process inspect process.json --json',
     skill: '/sf-sgos',
     copilotCommand: '/sf-sgos process inspect process.json --json'
-  }), {
-    command: 'singularity-flow process inspect process.json --json',
-    skill: '/sf-sgos',
-    copilotCommand: '/sf-sgos process inspect process.json --json',
-    copyable: true
-  });
+  }), expectedGuidance(
+    'singularity-flow process inspect process.json --json',
+    ['process', 'inspect', 'process.json', '--json'],
+    '/sf-sgos',
+    '/sf-sgos process inspect process.json --json'
+  ));
   assert.equal(commandGuidance('singularity-flow retry --token office-secret'), null);
   assert.equal(commandGuidance('git status'), null);
 });
 
 test('VS Code accepts only canonical registered command and skill pairs', () => {
-  assert.deepEqual(commandGuidance('singularity-flow --help'), {
-    command: 'singularity-flow --help',
-    skill: '/sf-help',
-    copilotCommand: '/sf-help',
-    copyable: true
-  });
-  assert.deepEqual(commandGuidance('singularity-flow status --json'), {
-    command: 'singularity-flow status --json',
-    skill: '/sf-status',
-    copilotCommand: '/sf-status',
-    copyable: true
-  }, 'a missing producer skill is derived from the closed crosswalk');
+  assert.deepEqual(commandGuidance('singularity-flow --help'),
+    expectedGuidance('singularity-flow --help', ['--help'], '/sf-help'));
+  assert.deepEqual(commandGuidance('singularity-flow status --json'),
+    expectedGuidance('singularity-flow status --json', ['status', '--json'], '/sf-status'),
+    'a missing producer skill is derived from the closed crosswalk');
   assert.equal(commandGuidance('singularity-flow definitely-unknown --json'), null);
   assert.equal(commandGuidance({
     command: 'singularity-flow status --json', skill: '/sf-does-not-exist'
@@ -199,22 +209,22 @@ test('VS Code preserves arguments only for canonical SGOS and Auto relays', () =
     command: 'singularity-flow process status --json',
     skill: '/sf-sgos',
     copilotCommand: '/sf-sgos process status --json'
-  }), {
-    command: 'singularity-flow process status --json',
-    skill: '/sf-sgos',
-    copilotCommand: '/sf-sgos process status --json',
-    copyable: true
-  });
+  }), expectedGuidance(
+    'singularity-flow process status --json',
+    ['process', 'status', '--json'],
+    '/sf-sgos',
+    '/sf-sgos process status --json'
+  ));
   assert.deepEqual(commandGuidance({
     command: 'singularity-flow auto pause AFL-1 --json',
     skill: '/sf-auto',
     copilotCommand: '/sf-auto pause AFL-1 --json'
-  }), {
-    command: 'singularity-flow auto pause AFL-1 --json',
-    skill: '/sf-auto',
-    copilotCommand: '/sf-auto pause AFL-1 --json',
-    copyable: true
-  });
+  }), expectedGuidance(
+    'singularity-flow auto pause AFL-1 --json',
+    ['auto', 'pause', 'AFL-1', '--json'],
+    '/sf-auto',
+    '/sf-auto pause AFL-1 --json'
+  ));
   assert.equal(commandGuidance({
     command: 'singularity-flow process status --json',
     copilotCommand: '/sf-sgos process inspect process.json --json'
@@ -229,22 +239,20 @@ test('VS Code accepts a registered policy-selected generation skill without wide
     command: 'singularity-flow prepare implementation',
     skill: '/sf-code',
     copilotCommand: '/sf-code'
-  }), {
-    command: 'singularity-flow prepare implementation',
-    skill: '/sf-code',
-    copilotCommand: '/sf-code',
-    copyable: true
-  });
+  }), expectedGuidance(
+    'singularity-flow prepare implementation',
+    ['prepare', 'implementation'],
+    '/sf-code'
+  ));
   assert.deepEqual(commandGuidance({
     command: 'singularity-flow phase publish convergence --authored deterministic',
     skill: '/sf-converge',
     copilotCommand: '/sf-converge'
-  }), {
-    command: 'singularity-flow phase publish convergence --authored deterministic',
-    skill: '/sf-converge',
-    copilotCommand: '/sf-converge',
-    copyable: true
-  });
+  }), expectedGuidance(
+    'singularity-flow phase publish convergence --authored deterministic',
+    ['phase', 'publish', 'convergence', '--authored', 'deterministic'],
+    '/sf-converge'
+  ));
   assert.equal(commandGuidance({
     command: 'singularity-flow status --json',
     skill: '/sf-code',

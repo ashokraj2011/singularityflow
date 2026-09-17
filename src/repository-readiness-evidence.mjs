@@ -12,6 +12,7 @@ function publicReceipt(inspection) {
   return Object.freeze({
     status: inspection?.status ?? 'missing',
     reasons: Object.freeze([...(inspection?.reasons ?? [])]),
+    scope: receipt?.scope ?? 'full',
     sourceCommit: receipt?.sourceCommit ?? null,
     receiptSha256: receipt?.receiptSha256 ?? null,
     structuredTestContract: receipt?.structuredTestContract ?? null,
@@ -24,10 +25,13 @@ function publicReceipt(inspection) {
   });
 }
 
-export async function collectRepositoryReadinessEvidence(repositories = []) {
+export async function collectRepositoryReadinessEvidence(repositories = [], {
+  scope = 'dependency-test'
+} = {}) {
   const pairs = await Promise.all(repositories.map(async (entry) => {
     const inspection = await inspectRepositoryReadinessReceipt(entry.root, {
       commit: entry.baseCommit,
+      scope: entry.scope ?? scope,
       // A selected remote base need not be the current checkout. The immutable receipt already
       // seals its source-manifest and plan; exact commit/platform/architecture lookup is enough.
       recompute: false

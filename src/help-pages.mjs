@@ -1711,7 +1711,7 @@ const PAGES = Object.freeze({
     seeAlso: ['precheck', 'bootstrap', 'doctor', 'start']
   },
   precheck: {
-    summary: 'Inspect repository law, or review and run bounded pre-Story dependency, build, test, and startup checks.',
+    summary: 'Inspect repository law, or review and run bounded pre-Story dependency and existing-test checks.',
     description: [
       'Quick precheck validates the activation receipt, workflow binding, configuration origins,',
       'implicit repository capability, wrapper or PATH metadata, and declared proof readiness.',
@@ -1722,13 +1722,15 @@ const PAGES = Object.freeze({
     options: [
       ['--quick', 'Run metadata-only readiness inspection. Incompatible with --run.'],
       ['--run', 'Preview repository commands, or execute them with the exact --confirm-plan digest.'],
+      ['--scope dependency-test|full', 'Default: dependency-test, for locked packages and existing unit tests only. Full also includes build, quality, and startup when approved policy requires them.'],
       ['--confirm-plan SHA256', 'Execute only the freshly recomputed readiness plan with this exact digest.'],
       ['--json', 'Return a structured CommandResult containing the precheck receipt.']
     ],
     examples: [
       ['singularity-flow precheck --quick --json', 'Inspect activated initialization law without executing repository commands.'],
-      ['singularity-flow precheck --run --json', 'Preview exact dependency, build, structured-test, and startup argv.'],
-      ['singularity-flow precheck --run --confirm-plan sha256:<PLAN> --json', 'Run one exact reviewed plan and record its Git-private receipt.']
+      ['singularity-flow precheck --run --scope dependency-test --json', 'Preview only locked dependency restore and existing structured unit tests.'],
+      ['singularity-flow precheck --run --scope dependency-test --confirm-plan sha256:<PLAN> --json', 'Run the exact narrow plan and record its separately scoped Git-private receipt.'],
+      ['singularity-flow precheck --run --scope full --json', 'Preview the broader compatibility profile, also available in Copilot as /sf-ready --full.']
     ],
     seeAlso: ['init', 'doctor', 'configuration']
   },

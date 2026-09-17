@@ -13,7 +13,7 @@ related:
   - workspaces-and-sessions
   - capability-management
   - recovery
-version: 3
+version: 4
 ---
 Smart initialization turns a fresh local Git repository into an explicitly accepted Singularity
 Flow repository without asking people to hand-author commands or capability maps. It is a bounded,
@@ -90,15 +90,19 @@ Quick precheck never runs application code. Before the first Story, use the sepa
 journey:
 
 ```text
-singularity-flow precheck --run --json
-singularity-flow precheck --run --confirm-plan sha256:<PLAN> --json
+singularity-flow precheck --run --scope dependency-test --json
+singularity-flow precheck --run --scope dependency-test --confirm-plan sha256:<PLAN> --json
 ```
 
 Copilot users run `/sf-ready`. The first command is effect-free and shows exact shell-free argv for
-locked dependency restore, build, structured tests, and any unambiguous application-start smoke
-probe. The second runs only that freshly recomputed plan with deadlines and process-tree cleanup.
-It refuses ambiguous startup commands, missing structured test evidence for code repositories,
-tracked or unexpected untracked changes, and a stale plan digest.
+locked dependency restore and the repository's existing structured unit tests. It does not build,
+lint, start the application, enter watch mode, or invent new tests. The second runs only that
+freshly recomputed, scope-bound plan with deadlines and process-tree cleanup. It refuses ambiguous
+package managers, Node test scripts that mix unit and browser/end-to-end stages without a dedicated
+unit script, missing structured test evidence for code repositories, tracked or unexpected
+untracked changes, and a stale plan digest. `dependency-test` is also the CLI default when `--scope`
+is omitted. `--scope full` (Copilot `/sf-ready --full`) remains available for repositories whose
+approved policy explicitly requires build or startup evidence.
 
 A passing run stores a hash-only receipt under the Git common directory. It contains no stdout,
 stderr, prompt, secret, or dependency cache. The receipt is bound to the exact commit, source
@@ -107,11 +111,12 @@ readiness, Story start checks that receipt for every selected capability reposit
 governed state. The managed Story worktree may replay only the receipt-authorized locked dependency
 restore so later phases receive their local dependencies without changing source bytes.
 
-If setup is wrong, `/sf-ready` may propose a separate `sflow/readiness/<digest>` branch for reviewed
-manifest, lockfile, wrapper-bit, test-runner, or startup-probe configuration. It never repairs
-product behavior, weakens tests, upgrades dependencies, commits caches/results, pushes, or merges
-without separate authority. After a setup commit, generate and confirm a new plan because the base
-identity changed.
+If setup is wrong, `/sf-ready --repair` may propose a separate `sflow/readiness/<digest>` branch for
+reviewed manifest, lockfile, wrapper-bit, test-runner, reporter, or non-watch/headless configuration.
+It never repairs product behavior or assertion failures, edits snapshots or fixtures, weakens tests,
+upgrades dependencies, commits caches/results, pushes, or merges without separate authority. A
+failing existing unit test is reported and routed to a Bug-fix Story. After a setup commit, generate
+and confirm a new plan because the base identity changed.
 
 ## State and safety
 

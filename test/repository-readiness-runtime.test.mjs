@@ -75,6 +75,7 @@ test('repository readiness builds one deterministic, purpose-ordered shell-free 
     const first = await buildRepositoryReadinessPlan(root, { startSurvivalMs: 25 });
     const second = await buildRepositoryReadinessPlan(root, { startSurvivalMs: 25 });
     assert.equal(first.planId, second.planId);
+    assert.equal(first.scope, 'full');
     assert.match(first.planId, /^sha256:[0-9a-f]{64}$/u);
     assert.deepEqual(first.commands.map((command) => command.purpose), [
       'dependency', 'build', 'quality', 'test', 'start'
@@ -88,6 +89,79 @@ test('repository readiness builds one deterministic, purpose-ordered shell-free 
       assert.ok(Array.isArray(command.argv));
       assert.equal(command.argv.some((argument) => /(?:&&|\|\||;)/u.test(argument)), false);
     }
+  });
+});
+
+test('dependency-test readiness includes only dependency and structured test commands', async () => {
+  await withRepository(async (root) => {
+    const detectorOutput = {
+      commands: {
+        dependency: [{ id: 'detector-dependency', launcher: 'npm', args: ['ci'], workingDirectory: '.' }],
+        build: [{ id: 'detector-build', launcher: 'npm', args: ['run', 'build'], workingDirectory: '.' }],
+        quality: [{ id: 'detector-quality', launcher: 'npm', args: ['run', 'lint'], workingDirectory: '.' }],
+        verification: [{ id: 'detector-verification', launcher: 'npm', args: ['test'], workingDirectory: '.' }],
+        start: [{ id: 'detector-start', launcher: 'npm', args: ['start'], workingDirectory: '.' }]
+      },
+      stacks: ['node'],
+      ambiguities: [
+        { id: 'dependency-choice', purpose: 'verify' },
+        { id: 'build-choice', purpose: 'build' },
+        { id: 'quality-choice', purpose: 'quality' },
+        { id: 'start-choice', purpose: 'start' }
+      ]
+    };
+    const inferTestCommands = async () => [{
+      id: 'structured-unit', argv: ['node', '--test'], workingDirectory: '.',
+      affectedRoots: ['.'], result: { adapter: 'node-tap' }
+    }];
+    const scoped = await buildRepositoryReadinessPlan(root, {
+      scope: 'dependency-test', detectorOutput, inferTestCommands
+    });
+    const full = await buildRepositoryReadinessPlan(root, { detectorOutput, inferTestCommands });
+
+    assert.equal(scoped.scope, 'dependency-test');
+    assert.notEqual(scoped.planId, full.planId);
+    assert.deepEqual(scoped.commands.map((command) => [command.id, command.purpose, command.source]), [
+      ['detector-dependency', 'dependency', 'smart-init-detector'],
+      ['structured-unit', 'test', 'structured-test-inference']
+    ]);
+    assert.deepEqual(scoped.ambiguities.map((ambiguity) => ambiguity.id), ['dependency-choice']);
+    assert.deepEqual(scoped.blockers.map((blocker) => blocker.subject), ['dependency-choice']);
+  });
+});
+
+test('dependency-test readiness selects a dedicated unit script instead of a composite browser suite', async () => {
+  await withRepository(async (root) => {
+    const manifestFile = path.join(root, 'package.json');
+    const manifest = JSON.parse(await readFile(manifestFile, 'utf8'));
+    manifest.scripts.test = 'node --test && playwright test';
+    manifest.scripts['test:unit'] = 'node --test';
+    await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
+    run('git', ['add', 'package.json'], { cwd: root });
+    run('git', ['commit', '-qm', 'add explicit unit suite'], { cwd: root });
+
+    const plan = await buildRepositoryReadinessPlan(root, { scope: 'dependency-test' });
+    const tests = plan.commands.filter((command) => command.purpose === 'test');
+    assert.equal(plan.status, 'ready');
+    assert.deepEqual(tests.map((command) => command.argv), [['npm', 'run', 'test:unit']]);
+    assert.equal(tests.some((command) => command.argv.some((argument) => /playwright/iu.test(argument))), false);
+  });
+});
+
+test('dependency-test readiness refuses a composite browser suite when no unit-only command exists', async () => {
+  await withRepository(async (root) => {
+    const manifestFile = path.join(root, 'package.json');
+    const manifest = JSON.parse(await readFile(manifestFile, 'utf8'));
+    manifest.scripts.test = 'node --test && playwright test';
+    await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
+    run('git', ['add', 'package.json'], { cwd: root });
+    run('git', ['commit', '-qm', 'use composite test suite'], { cwd: root });
+
+    const plan = await buildRepositoryReadinessPlan(root, { scope: 'dependency-test' });
+    assert.equal(plan.commands.some((command) => command.purpose === 'test'), false);
+    assert.equal(plan.structuredTestContract.status, 'missing');
+    assert.ok(plan.blockers.some((blocker) =>
+      blocker.code === 'REPOSITORY_READINESS_STRUCTURED_TEST_REQUIRED'));
   });
 });
 
@@ -187,6 +261,7 @@ test('successful readiness writes and validates a Git-private receipt bound to H
     ]);
     assert.equal(observed.at(-1).mode, 'launch-survival');
     assert.equal(outcome.receipt.status, 'pass');
+    assert.equal(outcome.receipt.scope, 'full');
     assert.equal(outcome.receipt.planId, plan.planId);
     assert.equal(outcome.receipt.sourceCommit, plan.sourceCommit);
     assert.equal(outcome.receipt.sourceManifestSha256, plan.sourceManifestSha256);
@@ -200,6 +275,59 @@ test('successful readiness writes and validates a Git-private receipt bound to H
     });
     const bytes = await readFile(outcome.file, 'utf8');
     assert.doesNotMatch(bytes, /node --test|node server|npm ci/u);
+  });
+});
+
+test('dependency-test readiness writes a separate scoped receipt without replacing full evidence', async () => {
+  await withRepository(async (root) => {
+    const runCommand = async () => passingResult();
+    const fullPlan = await buildRepositoryReadinessPlan(root);
+    const full = await executeRepositoryReadinessPlan(root, {
+      confirmation: fullPlan.planId, runCommand
+    });
+    const fullBytes = await readFile(full.file, 'utf8');
+    const scopedPlan = await buildRepositoryReadinessPlan(root, { scope: 'dependency-test' });
+    const scoped = await executeRepositoryReadinessPlan(root, {
+      scope: 'dependency-test', confirmation: scopedPlan.planId, runCommand
+    });
+
+    assert.equal(scoped.receipt.scope, 'dependency-test');
+    assert.notEqual(scoped.file, full.file);
+    assert.match(scoped.file, /-dependency-test\.json$/u);
+    assert.equal(await readFile(full.file, 'utf8'), fullBytes);
+    assert.equal((await loadRepositoryReadinessReceipt(root)).receipt.receiptSha256,
+      full.receipt.receiptSha256);
+    assert.equal((await loadRepositoryReadinessReceipt(root, { scope: 'dependency-test' }))
+      .receipt.receiptSha256, scoped.receipt.receiptSha256);
+    assert.equal((await inspectRepositoryReadinessReceipt(root, { scope: 'dependency-test' })).status,
+      'pass');
+  });
+});
+
+test('dependency-test consumers may safely fall back to full receipts, never the reverse', async () => {
+  await withRepository(async (root) => {
+    const fullPlan = await buildRepositoryReadinessPlan(root);
+    const full = await executeRepositoryReadinessPlan(root, {
+      confirmation: fullPlan.planId, runCommand: async () => passingResult()
+    });
+    const fallback = await loadRepositoryReadinessReceipt(root, { scope: 'dependency-test' });
+    assert.equal(fallback.file, full.file);
+    assert.equal(fallback.receipt.scope, 'full');
+    assert.equal((await inspectRepositoryReadinessReceipt(root, { scope: 'dependency-test' })).status,
+      'pass');
+    assert.equal((await hydrateRepositoryDependencies(root, {
+      scope: 'dependency-test', runCommand: async () => passingResult()
+    })).status, 'pass');
+  });
+
+  await withRepository(async (root) => {
+    const scopedPlan = await buildRepositoryReadinessPlan(root, { scope: 'dependency-test' });
+    await executeRepositoryReadinessPlan(root, {
+      scope: 'dependency-test', confirmation: scopedPlan.planId,
+      runCommand: async () => passingResult()
+    });
+    assert.equal(await loadRepositoryReadinessReceipt(root), null);
+    assert.equal((await inspectRepositoryReadinessReceipt(root)).status, 'missing');
   });
 });
 

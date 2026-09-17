@@ -850,9 +850,9 @@ export function normalizeRepositoryReadinessPolicy(value = {}) {
   return {
     requiredBeforeStory: value.requiredBeforeStory ?? false,
     dependencyHydration: value.dependencyHydration ?? 'when-detected',
-    build: value.build ?? 'when-detected',
+    build: value.build ?? 'off',
     structuredTests: value.structuredTests ?? 'required-for-code',
-    applicationStart: value.applicationStart ?? 'when-detected',
+    applicationStart: value.applicationStart ?? 'off',
     receiptScope: value.receiptScope ?? 'git-private-exact-base'
   };
 }

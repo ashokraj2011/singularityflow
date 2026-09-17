@@ -53,6 +53,7 @@ test('phase draft check reports actionable authoring findings without changing b
     assert.equal(result.mutates, false);
     assert.match(result.findings[0].message, /unresolved placeholder 'TODO'.*line 3/i);
     assert.equal(result.commands.recheck, 'singularity-flow phase draft-check planning --json');
+    assert.equal(result.commands.publish, null, 'a red draft check must not expose an executable publish action');
     assert.equal(await readFile(item.absolute, 'utf8'), before);
 
     await writeFile(item.absolute, '# Plan\n\nImplement the approved change, then run the mapped tests.\n');

@@ -57,6 +57,52 @@ export function agentBriefRelativePaths(itemRelative, producerPhase, generation,
   return { record: `${base}.json`, rendered: `${base}.md` };
 }
 
+/**
+ * Stable public identity for the human-readable projection a reviewer is asked to inspect.
+ *
+ * Generation is part of the identity deliberately: reopening a phase must never make an old
+ * approval link silently resolve to a newer projection for the same consumer.
+ */
+export function agentBriefDocumentId(producerPhase, generation, consumerPhase) {
+  return `agent-brief-${producerPhase}-gen${generation}-${consumerPhase}`;
+}
+
+/**
+ * Resolve review documents from the submitted packet when one exists, otherwise from the phase
+ * publication that has not yet been submitted. This is the single identity contract shared by
+ * approval choices, phase review, and the public document registry.
+ */
+export function agentBriefReviewDocuments(workflow, producerPhase) {
+  const generation = Number(producerPhase?.generation ?? 0);
+  if (!producerPhase?.id || generation < 1) return [];
+  const submitted = [...(workflow.lineage?.submissions ?? [])].reverse().find((entry) =>
+    entry.phase === producerPhase.id && entry.generation === generation
+  );
+  const submittedBriefs = submitted?.projection?.agentBriefs;
+  const briefs = Array.isArray(submittedBriefs)
+    ? submittedBriefs
+    : (producerPhase.agentBriefs ?? []).filter((brief) => brief.generation === generation);
+  return briefs.map((brief) => {
+    const renderedPath = brief.renderedPath ?? null;
+    return {
+      id: renderedPath
+        ? agentBriefDocumentId(producerPhase.id, generation, brief.consumerPhase)
+        : null,
+      legacyId: renderedPath ? `agent-brief-${producerPhase.id}-${brief.consumerPhase}` : null,
+      producerPhase: producerPhase.id,
+      consumerPhase: brief.consumerPhase,
+      generation,
+      status: brief.status,
+      recordPath: brief.path,
+      path: renderedPath,
+      sha256: brief.renderedSha256 ?? null,
+      integritySha256: brief.integritySha256 ?? null,
+      sourceSha256: brief.sourceSha256 ?? null,
+      sourceBytes: brief.sourceBytes ?? null
+    };
+  });
+}
+
 function consumersFor(workflow, producerPhase) {
   return (workflow.resolution?.phases ?? []).flatMap((consumer) =>
     (consumer.inputs ?? [])

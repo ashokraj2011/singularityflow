@@ -24,7 +24,8 @@ For explicitly requested smart or zero-manual initialization, require a fresh re
 4. Activate only after exact confirmation. Preserve the receipt, commit, readiness, and next
    command. Proposal-only and review-proposal files are not active law.
 5. Run metadata-only `singularity-flow precheck --quick --json`. Offer Copilot `/sf-ready` and
-   Shell `singularity-flow precheck --run --json`. Only `/sf-ready` executes repository code.
+   Shell `singularity-flow precheck --run --scope dependency-test --json`. Only the readiness flow
+   (`/sf-ready` or its shown Shell equivalent)—not init—executes the confirmed repository plan.
 
 On `INI_RECOVERY_REQUIRED`, run only its exact
 `singularity-flow init --recover --proposal <SHA256> --json`; never edit its journal.
@@ -44,7 +45,8 @@ For ordinary `init`, `--check`, or `--repair`, continue with the compatible work
    `singularity-flow doctor --offline --json`. Report every remaining failure
    and warning with its exact fix.
 6. Show `git status --short` and added files. Do not commit or push repair automatically.
-7. Before the first Story, offer `/sf-ready` and `singularity-flow precheck --run --json`.
+7. Before the first Story, offer `/sf-ready` and
+   `singularity-flow precheck --run --scope dependency-test --json`.
 
 If the initial check is complete, make no changes and say that the branch is
 already initialized.

@@ -1,9 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { groupedUsage, parseCopilotTelemetry, recordPhaseTelemetry } from '../src/telemetry.mjs';
+import {
+  beginTelemetryCapture, captureTelemetryCursorsForWorkItem, collectCopilotUsage,
+  groupedUsage, parseCopilotTelemetry, recordPhaseTelemetry,
+  restoreTelemetryCursorsForWorkItem
+} from '../src/telemetry.mjs';
+import { run } from '../src/util.mjs';
+
+async function telemetryRepository() {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-tel-cursors-'));
+  run('git', ['init', '-q', '-b', 'main'], { cwd: root });
+  return root;
+}
 
 test('Copilot telemetry parser accepts direct and OTLP attribute encodings', () => {
   const direct = {
@@ -123,4 +134,41 @@ test('mixed captured and unavailable launches cannot produce an exact phase rece
     { itemDirectory, itemRelative: 'singularity/work-items/WRK-1' }
   );
   assert.equal(result.status, 'partial');
+});
+
+test('corrupt optional cursor state never blocks phase capture or usage collection', async () => {
+  const root = await telemetryRepository();
+  const cursorFile = path.join(root, '.git', 'singularity-flow', 'telemetry-cursors.json');
+  await mkdir(path.dirname(cursorFile), { recursive: true });
+  await writeFile(cursorFile, '{not-json\n');
+  const workflow = { workItem: { id: 'WRK-CURSOR' } };
+  const phase = { id: 'planning', generation: 0 };
+
+  const cursor = await beginTelemetryCapture(root, workflow, phase);
+  assert.equal(cursor.workId, 'WRK-CURSOR');
+  assert.equal(cursor.persistence, 'unavailable');
+
+  const usage = await collectCopilotUsage(root, workflow, phase, { generation: 1 });
+  assert.match(usage.warnings.join('\n'), /cursor state was unreadable/i);
+  assert.equal(usage.spans, 0);
+});
+
+test('one Story cursor rollback preserves cursor updates for other Stories', async () => {
+  const root = await telemetryRepository();
+  const phase = { id: 'planning', generation: 0 };
+  const originalA = await captureTelemetryCursorsForWorkItem(root, 'WORK-A');
+  assert.deepEqual(originalA, {});
+
+  await Promise.all([
+    beginTelemetryCapture(root, { workItem: { id: 'WORK-A' } }, phase),
+    beginTelemetryCapture(root, { workItem: { id: 'WORK-B' } }, phase)
+  ]);
+  const restored = await restoreTelemetryCursorsForWorkItem(root, 'WORK-A', originalA);
+  assert.equal(restored.restored, true);
+
+  const record = JSON.parse(await readFile(
+    path.join(root, '.git', 'singularity-flow', 'telemetry-cursors.json'), 'utf8'
+  ));
+  assert.equal(record.cursors['WORK-A:planning:1'], undefined);
+  assert.equal(record.cursors['WORK-B:planning:1'].workId, 'WORK-B');
 });

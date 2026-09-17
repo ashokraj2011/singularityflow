@@ -30,9 +30,11 @@ async function repository(t) {
   return root;
 }
 
-test('precheck --run previews exact argv and exposes matching Shell and Copilot confirmation', async (t) => {
+test('precheck dependency-test scope previews only locked dependencies and existing tests', async (t) => {
   const root = await repository(t);
-  const result = spawnSync(process.execPath, [cli, 'precheck', '--run', '--json'], {
+  const result = spawnSync(process.execPath, [cli,
+    'precheck', '--run', '--scope', 'dependency-test', '--json'
+  ], {
     cwd: root, encoding: 'utf8'
   });
   assert.equal(result.status, 0, result.stderr);
@@ -40,20 +42,46 @@ test('precheck --run previews exact argv and exposes matching Shell and Copilot 
   assert.equal(payload.operation.id, 'precheck.run.plan');
   assert.equal(payload.effects.stateChanged, false);
   assert.match(payload.data.plan.planId, /^sha256:[0-9a-f]{64}$/u);
+  assert.equal(payload.data.plan.scope, 'dependency-test');
+  assert.deepEqual(payload.data.plan.commands.map((command) => command.purpose), ['dependency', 'test']);
   assert.deepEqual(payload.data.plan.commands[0].argv, ['npm', 'ci']);
   assert.equal(payload.data.plan.structuredTestContract.status, 'available');
   assert.equal(payload.next[0].skill, '/sf-ready');
   assert.equal(payload.next[0].copilotCommand, '/sf-ready');
   assert.match(payload.next[0].command, new RegExp(payload.data.plan.planId, 'u'));
+  assert.match(payload.next[0].command, /--scope dependency-test/u);
   assert.equal(run('git', ['status', '--porcelain'], { cwd: root }).stdout.trim(), '');
+});
+
+test('precheck defaults to the safe dependency-test scope', async (t) => {
+  const root = await repository(t);
+  const result = spawnSync(process.execPath, [cli, 'precheck', '--run', '--json'], {
+    cwd: root, encoding: 'utf8'
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.data.plan.scope, 'dependency-test');
+  assert.deepEqual(payload.data.plan.commands.map((command) => command.purpose),
+    ['dependency', 'test']);
 });
 
 test('precheck execution refuses a non-current plan digest before any command runs', async (t) => {
   const root = await repository(t);
   const result = spawnSync(process.execPath, [cli,
-    'precheck', '--run', '--confirm-plan', `sha256:${'0'.repeat(64)}`, '--json'
+    'precheck', '--run', '--scope', 'dependency-test',
+    '--confirm-plan', `sha256:${'0'.repeat(64)}`, '--json'
   ], { cwd: root, encoding: 'utf8' });
   assert.notEqual(result.status, 0);
   assert.match(`${result.stdout}\n${result.stderr}`, /REPOSITORY_READINESS_CONFIRMATION_MISMATCH|confirmation must equal/u);
+  assert.equal(run('git', ['status', '--porcelain'], { cwd: root }).stdout.trim(), '');
+});
+
+test('precheck refuses an unknown readiness scope before running repository commands', async (t) => {
+  const root = await repository(t);
+  const result = spawnSync(process.execPath, [cli,
+    'precheck', '--run', '--scope', 'everything', '--json'
+  ], { cwd: root, encoding: 'utf8' });
+  assert.notEqual(result.status, 0);
+  assert.match(`${result.stdout}\n${result.stderr}`, /scope.*full.*dependency-test|REPOSITORY_READINESS_SCOPE_INVALID/iu);
   assert.equal(run('git', ['status', '--porcelain'], { cwd: root }).stdout.trim(), '');
 });

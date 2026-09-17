@@ -31,7 +31,10 @@ import {
   assertAutoCandidateMatches, observeAutoCandidateWorktree
 } from './auto/auto-candidate.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
-import { copilotTelemetryStatus } from './telemetry.mjs';
+import {
+  captureTelemetryCursorsForWorkItem, copilotTelemetryStatus,
+  restoreTelemetryCursorsForWorkItem
+} from './telemetry.mjs';
 import { contextXray } from './context-xray.mjs';
 import { compileEvidencePacket, expandEvidencePacketHandle } from './evidence-packet.mjs';
 import {
@@ -63,6 +66,7 @@ import {
   inspectWorkflowGrounding, workflowGroundingMaterializationPlan, worldModelCommand
 } from './worldmodel.mjs';
 import { runDraftTransaction } from './draft-unit-of-work.mjs';
+import { captureAggregateRecovery, restoreAggregateRecovery } from './aggregate-recovery.mjs';
 import {
   automaticMaterializationDecision, effectiveMaterializationPolicy
 } from './world-model-materialization.mjs';
@@ -127,7 +131,7 @@ import { filterLogEntries, logFilePath, normalizeLogLevel, parseLogLines, redact
 import { collectWorkspaceLogs } from './workspace-logs.mjs';
 import { doctorSnapshot, doctorText } from './doctor.mjs';
 import { GitRemoteSession, runRemoteGitAsync } from './git-execution.mjs';
-import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
+import { configuredRemoteAuthority, redactDiagnosticText } from './git-remote-diagnostics.mjs';
 import { createReviewBundle, reviewHtml, reviewMarkdown, witnessMappingReview } from './review.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import {
@@ -212,7 +216,7 @@ import {
   preflightInitialStoryDocuments, stageInitialStoryDocuments
 } from './story-start-documents.mjs';
 import {
-  assertStoryStartReady, inspectStoryStartReadiness
+  assertStoryStartReady, inspectStoryStartReadiness, requiredRepositoryReadinessScope
 } from './story-start-readiness.mjs';
 import { collectRepositoryReadinessEvidence } from './repository-readiness-evidence.mjs';
 import { hydrateRepositoryDependencies } from './initialization/runtime-readiness.mjs';
@@ -300,6 +304,23 @@ function printCommandRoutes(command, { skill = null, indent = '', label = null }
   }
   console.log(`${indent}Shell: ${guidance.command}`);
   console.log(`${indent}Copilot: ${guidance.copilotCommand}`);
+}
+
+/**
+ * A governed commit is the lifecycle outcome; presentation and local-session refresh are a tail.
+ * Once the commit has landed, a tail failure must not turn success into a red lifecycle refusal
+ * that invites a duplicate mutation. Report it as bounded local recovery and keep exit status 0.
+ */
+async function postPublicationStep(label, workId, operation) {
+  try {
+    return { ok: true, value: await operation() };
+  } catch (error) {
+    console.warn(`Warning: governed publication succeeded, but ${label} could not be completed: ${redactDiagnosticText(error?.message ?? String(error))}`);
+    printCommandRoutes(`singularity-flow resume ${workId} --fetch`, {
+      label: 'Refresh local phase/session state'
+    });
+    return { ok: false, value: null, error };
+  }
 }
 
 /** The only deliberately Shell-only instruction: restore a locally retained Git stash commit. */
@@ -1506,9 +1527,10 @@ async function assertLaunchCheckoutRepositoryReady(sourceRoot, definition, sourc
   const required = definition?.repositoryReadiness?.requiredBeforeStory === true
     || definition?.initialization?.proof?.preStory?.requiredBeforeStory === true;
   if (!required) return null;
+  const scope = requiredRepositoryReadinessScope(definition);
   const evidence = await collectRepositoryReadinessEvidence([{
     id: 'lifecycle', root: sourceRoot, baseCommit: sourceCommit
-  }]);
+  }], { scope });
   const receipt = evidence.repositories.lifecycle;
   if (receipt?.status === 'pass' && receipt.sourceCommit === sourceCommit) return evidence;
   throw new SingularityFlowError(
@@ -1518,9 +1540,9 @@ async function assertLaunchCheckoutRepositoryReady(sourceRoot, definition, sourc
       details: {
         sourceCommit,
         reasons: receipt?.reasons ?? ['receipt-missing'],
-        nextAction: 'singularity-flow precheck --run --json',
-        nextSkill: '/sf-ready',
-        recoveryCommands: ['singularity-flow precheck --run --json']
+        nextAction: `singularity-flow precheck --run --scope ${scope} --json`,
+        nextSkill: scope === 'full' ? '/sf-ready --full' : '/sf-ready',
+        recoveryCommands: [`singularity-flow precheck --run --scope ${scope} --json`]
       }
     }
   );
@@ -1600,7 +1622,8 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
         && readinessPolicy.dependencyHydration !== 'off') {
       await hydrateRepositoryDependencies(prepared.repositoryPath, {
         commit: launchBaseCommit,
-        required: readinessPolicy.dependencyHydration === 'required'
+        required: readinessPolicy.dependencyHydration === 'required',
+        scope: requiredRepositoryReadinessScope(launchDefinition)
       });
     }
     const configurationHandoff = await bindIsolatedStoryConfiguration(sealedConfiguration, prepared);
@@ -2358,7 +2381,8 @@ export async function startCommand(positionals, options) {
   const repositoryReadiness = await collectRepositoryReadinessEvidence(
     capabilityPreflight?.map((entry) => ({
       id: entry.repository, root: entry.root, baseCommit: entry.baseCommit
-    })) ?? [{ id: 'lifecycle', root, baseCommit: baseCommitAtStart }]
+    })) ?? [{ id: 'lifecycle', root, baseCommit: baseCommitAtStart }],
+    { scope: requiredRepositoryReadinessScope(approvedConfigurationSnapshot?.definition ?? config) }
   );
   startReadiness = inspectStoryStartReadiness({
     workId: id,
@@ -4346,19 +4370,54 @@ async function documentsCommand(positionals, options) {
 
 function pathForDisplay(root, relative) { return path.join(root, relative); }
 
-function storyDraftTransaction(root, config, workflow, operation, write, validate = null) {
-  return runDraftTransaction(root, {
-    subject: {
-      kind: 'story',
-      id: workflow.workItem.id,
-      branch: workflowPublicationBranch(root, workflow)
-    },
-    expectedRevision: workflow[Symbol.for('singularity-flow.state-revision')] ?? null,
-    allowedPaths: [posix(path.relative(root, workDir(root, config, workflow.workItem.id)))],
-    operation,
-    write,
-    validate
-  });
+async function storyDraftTransaction(root, config, workflow, operation, write, validate = null) {
+  let aggregateRecovery = null;
+  let telemetryRecovery = null;
+  try {
+    return await runDraftTransaction(root, {
+      subject: {
+        kind: 'story',
+        id: workflow.workItem.id,
+        branch: workflowPublicationBranch(root, workflow)
+      },
+      expectedRevision: workflow[Symbol.for('singularity-flow.state-revision')] ?? null,
+      allowedPaths: [posix(path.relative(root, workDir(root, config, workflow.workItem.id)))],
+      operation,
+      // Capture caller-visible and optional machine-local state only after the Story lock and durable
+      // draft journal exist. Capturing earlier lets a competing same-Story command complete between
+      // snapshot and acquisition, after which this rollback could erase its valid cursor state.
+      write: async (...args) => {
+        aggregateRecovery = captureAggregateRecovery(workflow);
+        telemetryRecovery = await captureTelemetryCursorsForWorkItem(
+          root, workflow.workItem.id
+        );
+        return write(...args);
+      },
+      validate,
+      afterRollback: async () => {
+        if (aggregateRecovery) restoreAggregateRecovery(workflow, aggregateRecovery);
+        await restoreTelemetryCursorsForWorkItem(
+          root, workflow.workItem.id, telemetryRecovery
+        );
+      }
+    });
+  } catch (error) {
+    // Preserve safe phase identity at the transaction boundary even when the user omitted the
+    // optional phase argument (for example `phase begin`). The shared refusal presenter can then
+    // keep recovery inside this Story and phase instead of falling back to repository-wide doctor.
+    const phaseId = String(operation).split(':').at(-1);
+    if (error && typeof error === 'object' && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(phaseId)) {
+      try {
+        error.details = {
+          ...(error.details && typeof error.details === 'object' ? error.details : {}),
+          workId: workflow.workItem.id,
+          phase: phaseId,
+          operation
+        };
+      } catch { /* A frozen provider error keeps its original safe refusal. */ }
+    }
+    throw error;
+  }
 }
 
 /**
@@ -5411,7 +5470,9 @@ async function wmCommand(positionals, options) {
 
 async function phaseReview(root, config, workflow, phase) {
   const records = (await documentCatalog(root, config, workflow))
-    .filter((record) => record.type === 'artifact' && record.phase === phase.id);
+    .filter((record) => ['artifact', 'agent-brief'].includes(record.type)
+      && record.phase === phase.id
+      && Number(record.generation ?? phase.generation) === Number(phase.generation));
   const documents = [];
   for (const record of records) {
     try {
@@ -5456,23 +5517,6 @@ async function phaseReview(root, config, workflow, phase) {
         error: error?.message ?? String(error)
       });
     }
-  }
-  for (const brief of (phase.agentBriefs ?? []).filter((entry) => entry.generation === phase.generation && entry.renderedPath)) {
-    const absolute = path.join(root, brief.renderedPath);
-    const info = await snapshot(absolute);
-    documents.push({
-      id: `agent-brief-${phase.id}-${brief.consumerPhase}`,
-      label: `Agent brief for ${brief.consumerPhase}`,
-      kind: 'agent-brief',
-      path: brief.renderedPath,
-      mimeType: 'text/markdown',
-      size: info.size,
-      sha256: info.sha256,
-      generation: phase.generation,
-      binary: false,
-      absolutePath: pathForDisplay(root, brief.renderedPath),
-      content: await readFile(absolute, 'utf8')
-    });
   }
   const testcaseObservations = [];
   for (const execution of phase.deliveryEvidence?.testExecutions ?? []) {
@@ -5726,6 +5770,10 @@ async function phaseCommand(positionals, options) {
     for (const finding of result.findings) console.log(`  - ${finding.message}`);
     if (result.status === 'correction-required') {
       console.log(`Correction: ${result.correction.guidance}`);
+      if (result.commands.next) printCommandRoutes(result.commands.next, {
+        skill: result.correction.skill,
+        label: 'Next'
+      });
       console.log(`Recheck: ${result.commands.recheck}`);
     } else {
       console.log(`Publish: ${result.commands.publish}`);
@@ -5993,7 +6041,13 @@ async function phaseCommand(positionals, options) {
     console.log(`Telemetry record: ${telemetry.path}`);
     if (telemetry.status === 'pending') console.log('Telemetry will be reconciled automatically on the next submit action, after Copilot exports this completed turn.');
   }
-  printPhaseReview(await phaseReview(root, config, workflow, phase), { showArtifact: optionBoolean(options, 'show-artifact') });
+  const publishedReview = await postPublicationStep(
+    'the phase review projection', workflow.workItem.id,
+    () => phaseReview(root, config, workflow, phase)
+  );
+  if (publishedReview.ok) {
+    printPhaseReview(publishedReview.value, { showArtifact: optionBoolean(options, 'show-artifact') });
+  }
 }
 
 async function artifactCommand(positionals, options) {
@@ -6437,9 +6491,20 @@ async function runSubmitCommand(positionals, options, submitContext) {
       worktreeGuard: submissionStabilityGuard
     }
   );
-  if (!reviewPacket) throw new SingularityFlowError('Submission review packet was not created.');
+  if (!reviewPacket) {
+    console.warn('Warning: the governed submission commit succeeded, but its review packet was not returned to the caller. Do not submit again; reload the committed Story and inspect recovery.');
+    printCommandRoutes(`singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`, {
+      label: 'Inspect committed submission evidence'
+    });
+  }
   const registrationRepairs = (phase.artifactRegistrationRepairs ?? []).slice(registrationRepairCount);
-  const evidenceReceipt = await composeEvidenceReceipt(root, config, workflow, reviewPacket.packet);
+  const evidenceReceiptResult = reviewPacket
+    ? await postPublicationStep(
+        'the evidence-receipt projection', workflow.workItem.id,
+        () => composeEvidenceReceipt(root, config, workflow, reviewPacket.packet)
+      )
+    : { ok: false, value: null };
+  const evidenceReceipt = evidenceReceiptResult.value;
   const approvalMode = phase.approvalPolicy?.mode ?? 'required';
   const completedWithoutReview = phase.status === 'approved' && approvalMode === 'none';
   const completedByPolicy = phase.status === 'approved' && approvalMode === 'policy';
@@ -6448,8 +6513,10 @@ async function runSubmitCommand(positionals, options, submitContext) {
     // later approve command to perform the handoff. Bind the exact committed next phase now; a
     // stale prior-phase session must never be reported ready merely because the next phase happens
     // to use the same agent ID.
-    const afterSubmission = await loadAcceptedStoryExecution(root, workflow.workItem.id);
-    await activateWorkItemSession(root, afterSubmission.config, afterSubmission.workflow);
+    await postPublicationStep('the next-phase session activation', workflow.workItem.id, async () => {
+      const afterSubmission = await loadAcceptedStoryExecution(root, workflow.workItem.id);
+      return activateWorkItemSession(root, afterSubmission.config, afterSubmission.workflow);
+    });
   }
   if (completedWithoutReview) console.log(`\nCompleted ${phase.id} phase (configured approval mode: none).`);
   else if (completedByPolicy) console.log(`\nCompleted ${phase.id} phase using its deterministic policy waiver.`);
@@ -6459,9 +6526,17 @@ async function runSubmitCommand(positionals, options, submitContext) {
   }
   console.log(`Commit: ${publication.sha.slice(0, 8)} — ${phase.status === 'approved' ? 'complete phase' : 'request approval'} (${workflow.workItem.id})`);
   console.log(`Push: ${publication.pushed ? `${config.git?.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}` : 'disabled by git.publish: off'}`);
-  console.log(`Review packet: ${reviewPacket.path} (${reviewPacket.packet.packetSha256.slice(0, 12)})`);
-  console.log(`\n${renderEvidenceReceipt(evidenceReceipt)}`);
-  printPhaseReview(await phaseReview(root, config, workflow, phase), { showArtifact: optionBoolean(options, 'show-artifact') });
+  if (reviewPacket) {
+    console.log(`Review packet: ${reviewPacket.path} (${reviewPacket.packet.packetSha256.slice(0, 12)})`);
+  }
+  if (evidenceReceipt) console.log(`\n${renderEvidenceReceipt(evidenceReceipt)}`);
+  const submittedReview = await postPublicationStep(
+    'the submitted phase review projection', workflow.workItem.id,
+    () => phaseReview(root, config, workflow, phase)
+  );
+  if (submittedReview.ok) {
+    printPhaseReview(submittedReview.value, { showArtifact: optionBoolean(options, 'show-artifact') });
+  }
   // The trailer is narrated. It used to name a Copilot skill and a CLI equivalent chosen by hand
   // here; NEXT now comes from the deterministic planner against the state the submission left.
   const advanced = currentPhase(workflow);
@@ -6475,7 +6550,7 @@ async function runSubmitCommand(positionals, options, submitContext) {
     data: {
       commit: publication.sha,
       pushed: publication.pushed,
-      reviewPacket: reviewPacket.packet.packetSha256,
+      reviewPacket: reviewPacket?.packet?.packetSha256 ?? null,
       evidenceReceipt,
       registrationRepairs
     }
@@ -7023,10 +7098,10 @@ async function approveCommand(positionals, options) {
   // caller's pre-transaction object so a same-agent transition (for example verification →
   // release) still changes the phase binding, and deterministic convergence clears agent
   // authority instead of inheriting the previous phase's session.
-  {
+  await postPublicationStep('the next-phase session activation', workflow.workItem.id, async () => {
     const accepted = await loadAcceptedStoryExecution(root, workflow.workItem.id);
-    await activateWorkItemSession(root, accepted.config, accepted.workflow);
-  }
+    return activateWorkItemSession(root, accepted.config, accepted.workflow);
+  });
   console.log(publication.pushed
     ? `Approval decision committed ${publication.sha.slice(0, 8)} and pushed to ${config.git?.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}.`
     : `Approval decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
@@ -7077,10 +7152,10 @@ async function rejectCommand(positionals, options) {
       })
     }
   );
-  {
+  await postPublicationStep('the returned-phase session activation', workflow.workItem.id, async () => {
     const accepted = await loadAcceptedStoryExecution(root, workflow.workItem.id);
-    await activateWorkItemSession(root, accepted.config, accepted.workflow);
-  }
+    return activateWorkItemSession(root, accepted.config, accepted.workflow);
+  });
   console.log(`Recorded ${phase.changeRequest.id}. Comment: ${phase.changeRequest.comment}`);
   if (phase.changeRequest.clauseIds?.length) console.log(`Clauses requiring revision: ${phase.changeRequest.clauseIds.join(', ')}`);
   if (phase.changeRequest.members?.length) {
@@ -7197,10 +7272,10 @@ async function reopenCommand(positionals, options) {
       })
     }
   );
-  {
+  await postPublicationStep('the reopened-phase session activation', workflow.workItem.id, async () => {
     const accepted = await loadAcceptedStoryExecution(root, workflow.workItem.id);
-    await activateWorkItemSession(root, accepted.config, accepted.workflow);
-  }
+    return activateWorkItemSession(root, accepted.config, accepted.workflow);
+  });
   console.log(`Reopened ${workflow.workItem.id} at ${result.phase.id} with ${result.changeRequest.id}.`);
   console.log(publication.pushed
     ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
@@ -12742,7 +12817,8 @@ async function workspaceCommand(positionals, options) {
         const repositoryReadiness = await collectRepositoryReadinessEvidence(
           repositories.map((entry) => ({
             id: entry.repository, root: entry.root, baseCommit: entry.baseCommit
-          }))
+          })),
+          { scope: requiredRepositoryReadinessScope(definition) }
         );
         const readiness = inspectStoryStartReadiness({
           workId: storyId,

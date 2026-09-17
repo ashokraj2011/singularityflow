@@ -201,21 +201,38 @@ export function nodeTestReachableFromPackageScripts(scripts, entry = 'test') {
   return packageRunnerReachableFromScripts(scripts, containsNodeTestRunner, entry);
 }
 
-function angularKarmaReachableFromPackageScripts(manifest) {
+function safeUnitNodeScript(script) {
+  const value = String(script ?? '').trim();
+  if (!value || /(?:^|[^a-z])(playwright|cypress|e2e|acceptance|integration)(?:[^a-z]|$)/iu.test(value)) {
+    return false;
+  }
+  // Readiness may invoke one known unit-test runner, never an opaque shell pipeline that can hide
+  // builds, browser suites, or unrelated follow-on commands behind a familiar script name.
+  if (/[;&|]/u.test(value)) return false;
+  return /(?:^|\s)(?:jest|vitest)(?:\s|$)/iu.test(value)
+    || /^ng(?:\.cmd)?\s+test(?:\s|$)/iu.test(value)
+    || containsNodeTestRunner(value);
+}
+
+function angularKarmaReachableFromPackageScripts(manifest, scriptName = 'test') {
   const dependencies = {
     ...(manifest.dependencies ?? {}),
     ...(manifest.devDependencies ?? {}),
     ...(manifest.peerDependencies ?? {})
   };
   const hasKarma = Object.hasOwn(dependencies, 'karma');
-  const script = String(manifest.scripts?.test ?? '').trim();
+  const script = String(manifest.scripts?.[scriptName] ?? '').trim();
   // Appended npm arguments are guaranteed to reach Angular only for a direct top-level invocation.
   // Composite and nested scripts stay unsupported rather than risking a watch-mode publication hang.
   return hasKarma
     && /^ng(?:\.cmd)?[ \t]+test(?:[ \t]+[-A-Za-z0-9_./:=]+)*[ \t]*$/i.test(script);
 }
 
-export async function inferModuleTestCommand(root, module, { platform = process.platform } = {}) {
+export async function inferModuleTestCommand(root, module, {
+  platform = process.platform,
+  nodeScript = 'test',
+  unitOnly = false
+} = {}) {
   const cwd = module.root === '.' ? '' : module.root;
   const at = (name) => exists(path.join(root, cwd, name));
   const resultBase = `.sflow/results/${module.system}-tests`;
@@ -240,11 +257,13 @@ export async function inferModuleTestCommand(root, module, { platform = process.
     }
     case 'node': {
       const manifest = JSON.parse(await readFile(path.join(root, cwd, 'package.json'), 'utf8'));
-      const script = String(manifest.scripts?.test ?? '');
+      const script = String(manifest.scripts?.[nodeScript] ?? '');
+      if (unitOnly && !safeUnitNodeScript(script)) return null;
       const manager = await nodePackageManager(root, module.root, manifest);
-      const testCommand = manager === 'npm' ? ['npm', 'test']
-        : manager === 'yarn' ? ['yarn', 'test']
-          : manager === 'pnpm' ? ['pnpm', 'test'] : ['bun', 'run', 'test'];
+      const testCommand = manager === 'npm' && nodeScript === 'test' ? ['npm', 'test']
+        : manager === 'npm' ? ['npm', 'run', nodeScript]
+          : manager === 'yarn' ? ['yarn', nodeScript]
+            : manager === 'pnpm' ? ['pnpm', nodeScript] : ['bun', 'run', nodeScript];
       const testArgv = ['npm', 'pnpm', 'bun'].includes(manager)
         ? [...testCommand, '--'] : testCommand;
       if (/\bjest\b/i.test(script)) return {
@@ -263,7 +282,7 @@ export async function inferModuleTestCommand(root, module, { platform = process.
       // repository dependency. Capture its bounded final TOTAL summary instead, so ordinary
       // Angular repositories gain structured execution evidence without a Story editing protected
       // workflow configuration or committing a one-off wrapper script.
-      if (angularKarmaReachableFromPackageScripts(manifest)) return {
+      if (angularKarmaReachableFromPackageScripts(manifest, nodeScript)) return {
         id: module.root === '.' ? 'angular-tests' : `${module.root}-angular-tests`, kind: 'test',
         argv: [...testArgv, '--watch=false', '--browsers=ChromeHeadless', '--no-progress'],
         workingDirectory: module.root, affectedRoots: [module.root], modelPolicy: 'never',
@@ -272,7 +291,7 @@ export async function inferModuleTestCommand(root, module, { platform = process.
       // Preserve the exact top-level repository test command. Following only explicit package
       // script references lets a composite `npm test` expose nested `node --test` evidence while
       // its exit status still covers every later stage (for example Playwright).
-      if (nodeTestReachableFromPackageScripts(manifest.scripts ?? {})) return {
+      if (nodeTestReachableFromPackageScripts(manifest.scripts ?? {}, nodeScript)) return {
         id: `${module.root}-node-tests`, kind: 'test',
         argv: testCommand,
         workingDirectory: module.root, affectedRoots: [module.root], modelPolicy: 'never',

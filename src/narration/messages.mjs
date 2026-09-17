@@ -190,6 +190,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `REV activation profile: ${slot(s.activationProfile)}.`,
     preserves: true
   },
+  'revision.activation-reported': {
+    headline: (s) => `REV activation profile: ${slot(s.activationProfile)}; ${slot(s.blockerCount, '0')} prerequisite(s) remain.`,
+    preserves: true
+  },
   'revision.attachments-capabilities-reported': {
     headline: () => 'Opaque Copilot uploads have no verifiable bytes; genuine local file references can use the guarded registration bridge.',
     preserves: true

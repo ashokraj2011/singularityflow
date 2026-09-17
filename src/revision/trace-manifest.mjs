@@ -84,14 +84,30 @@ function expectedEnabled(profile, advertisedCapabilities) {
   return expected;
 }
 
-function testCallTitle(ts, node) {
+function testCall(ts, node) {
   if (!ts.isCallExpression(node) || !node.arguments.length) return null;
-  const callee = node.expression;
-  const name = ts.isIdentifier(callee) ? callee.text
-    : ts.isPropertyAccessExpression(callee) ? callee.name.text : null;
-  if (!['test', 'it', 'describe'].includes(name)) return null;
+  function parts(expression) {
+    if (ts.isIdentifier(expression)) return [expression.text];
+    if (ts.isPropertyAccessExpression(expression)) {
+      const prefix = parts(expression.expression);
+      return prefix ? [...prefix, expression.name.text] : null;
+    }
+    return null;
+  }
+  const names = parts(node.expression);
+  if (!names || !['test', 'it', 'describe'].includes(names[0])) return null;
+  const modifiers = names.slice(1);
+  const suite = names[0] === 'describe' || modifiers.includes('describe');
+  if (!suite && modifiers.some((name) => !['skip', 'todo', 'only'].includes(name))) return null;
   const title = node.arguments[0];
-  return ts.isStringLiteral(title) || ts.isNoSubstitutionTemplateLiteral(title) ? title.text : null;
+  if (!ts.isStringLiteral(title) && !ts.isNoSubstitutionTemplateLiteral(title)) return null;
+  const controlled = node.arguments.some((argument) => ts.isObjectLiteralExpression(argument)
+    && argument.properties.some((property) => ts.isPropertyAssignment(property)
+      && ['skip', 'todo', 'only'].includes(ts.isIdentifier(property.name)
+        || ts.isStringLiteral(property.name) ? property.name.text : null)
+      && property.initializer.kind !== ts.SyntaxKind.FalseKeyword));
+  return { title: title.text, kind: suite ? 'suite' : 'test',
+    disabled: modifiers.some((name) => name !== 'describe') || controlled };
 }
 
 /** Only syntactically identified test callbacks count; comments and test names alone never witness an AC. */
@@ -102,20 +118,20 @@ export async function collectRevisionTestBodies(source, filename = 'test/witness
   const parsed = ts.createSourceFile(filename, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
   if (parsed.parseDiagnostics.length) fail(`test source '${filename}' has parser diagnostics`);
   const bodies = [];
-  function visit(node, ancestors) {
-    const title = testCallTitle(ts, node);
-    const callback = title == null ? null : [...node.arguments].reverse().find((argument) =>
+  function visit(node, ancestors, inheritedDisabled = false) {
+    const call = testCall(ts, node);
+    const callback = call == null ? null : [...node.arguments].reverse().find((argument) =>
       ts.isArrowFunction(argument) || ts.isFunctionExpression(argument));
-    if (title != null && callback) {
-      const namePath = [...ancestors, title];
-      const disabled = node.arguments.some((argument) => ts.isObjectLiteralExpression(argument)
-        && argument.properties.some((property) => ts.isPropertyAssignment(property)
-          && ['skip', 'todo'].includes(property.name.getText(parsed))));
-      bodies.push({ namePath, bodySha256: sha256(callback.body.getText(parsed)), disabled });
-      ts.forEachChild(callback.body, (child) => visit(child, namePath));
+    if (call && callback) {
+      const namePath = [...ancestors, call.title];
+      const disabled = inheritedDisabled || call.disabled;
+      if (call.kind === 'test') {
+        bodies.push({ namePath, bodySha256: sha256(callback.body.getText(parsed)), disabled });
+      }
+      ts.forEachChild(callback.body, (child) => visit(child, namePath, disabled));
       return;
     }
-    ts.forEachChild(node, (child) => visit(child, ancestors));
+    ts.forEachChild(node, (child) => visit(child, ancestors, inheritedDisabled));
   }
   visit(parsed, []);
   return bodies;
@@ -150,14 +166,15 @@ async function checkWitness(id, row, repositoryRoot, cache) {
   const matches = source.bodies.filter((body) =>
     JSON.stringify(body.namePath) === JSON.stringify(row.namePath));
   if (matches.length !== 1) fail(`${id} witness name path is missing or duplicated`);
-  if (matches[0].disabled) fail(`${id} witness is skipped or todo`);
+  if (matches[0].disabled) fail(`${id} witness is skipped, todo, or focused`);
   if (matches[0].bodySha256 !== row.bodySha256) fail(`${id} witness body changed`);
 }
 
 /** Structural and source witness gate. Runtime activation is checked independently of claims. */
 export async function validateRevisionTraceManifest(manifest, {
   repositoryRoot,
-  runtimeCapabilities = revisionRuntimeCapabilities
+  runtimeCapabilities = revisionRuntimeCapabilities,
+  witnessContext = null
 } = {}) {
   try { readRecord('revision-trace-manifest', manifest); }
   catch { fail('top-level schema version is unreadable'); }
@@ -177,10 +194,16 @@ export async function validateRevisionTraceManifest(manifest, {
   if (profile !== 'disabled') {
     for (const flag of [
       'publicRoutePreviewAvailable', 'publicPacketPlanningAvailable', 'manualCaptureAvailable',
-      'candidateHeadCasAvailable', 'codeResultAvailable', 'publicationBridgeAvailable'
+      'candidateHeadCasAvailable', 'codeResultAvailable', 'publicationBridgeAvailable',
+      'releaseWitnessExecutionAvailable'
     ]) {
       if (runtimeCapabilities[flag] !== true) fail(`active profile lacks runtime bridge '${flag}'`);
     }
+  }
+  if (profile !== 'disabled' && (!exactKeys(witnessContext, ['sourceCommit', 'platformProfile'])
+      || !/^[a-f0-9]{40,64}$/.test(witnessContext.sourceCommit)
+      || !/^[a-z0-9][a-z0-9._-]{2,127}$/.test(witnessContext.platformProfile))) {
+    fail('active witnesses require an exact source commit and supported platform profile');
   }
   const capabilities = manifest.advertisedCapabilities;
   if (!Array.isArray(capabilities) || capabilities.some((value) => !KNOWN_CAPABILITIES.has(value))
@@ -237,7 +260,9 @@ export async function validateRevisionTraceManifest(manifest, {
     advertisedCapabilities: Object.freeze([...capabilities]),
     enabledCriterionCount: enabled.size,
     deferredCriterionCount: deferred.size,
-    manifestSha256: sha256(JSON.stringify(manifest))
+    manifestSha256: sha256(JSON.stringify(manifest)),
+    sourceCommit: profile === 'disabled' ? null : witnessContext.sourceCommit,
+    platformProfile: profile === 'disabled' ? null : witnessContext.platformProfile
   });
 }
 

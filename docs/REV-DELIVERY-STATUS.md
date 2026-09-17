@@ -2,7 +2,7 @@
 
 The source specification is `SPEC-REV-Revision-Loop-Strong-v0.6.md`. Its decision owner and validator are still unset; it explicitly forbids default activation without its release gate. This document records the implemented slice and the remaining work without treating attachment intake as an executable Revision Loop.
 
-Check the installed execution boundary with `singularity-flow revision capabilities --json`. A result of `activationProfile: "disabled"` means there is no safe command or configuration toggle to start a code revision loop in that build.
+Check the installed execution boundary with `singularity-flow revision capabilities --json`; run `singularity-flow revision activation --json` from a repository to see its exact pilot prerequisites. Both commands are read-only. A result of `activationProfile: "disabled"` means there is no safe command or configuration toggle to start a code revision loop in that build.
 
 ## Available now
 
@@ -17,6 +17,8 @@ Check the installed execution boundary with `singularity-flow revision capabilit
 The implementation now has an append-only, machine-local loop journal with selected-head CAS and precheck binding; a pure head-bound precheck; exact application-tree publication selection; private isolated declarative attempt and immutable child-candidate freeze; a manual-capture planner; and candidate-bound Code-check planning, probe, and result projection. Story publication has a disabled-by-default internal opt-in that checks the selected head before Story-owned writes, checks the admitted application tree, and records a private local commit attestation. If the attestation write fails after the ref advances, both remote and local-only modes retain an exact pending marker; sync completes that attestation before pushing or clearing the marker. These are tested primitives, not a `/sflow-revise` execution route.
 
 The Code-check probe deliberately returns `observed-unverified`, even when an injected executor exits successfully. It is not a trusted isolated test runner, a verified result receipt, a Testing/Verification phase verdict, or publication authority. The context reader likewise refuses CLI-only use when it cannot establish the editor's unsaved-buffer state. A self-hashed receipt or user assertion is not substituted for that observation.
+
+A fixed-worker broker can now execute bounded declarative write/delete/wait operations and return non-promoting exact bytes after cleanup. It does not run model agents, shell commands, or tests, cannot itself admit a retained Candidate, and cannot satisfy the pilot Code-check or witness requirements. The pilot activation inspector names those gaps rather than inviting a flag-only override.
 
 `REV_POC_SINGLE_REPO` and `REV_FULL_DEFAULT` remain disabled. The REV trace manifest in this working tree names the disabled loop profile, advertises no loop-execution or Code-result mutations, and explicitly defers their applicable criteria. Feedback-attachment intake is a separately available, confirmed mutation and is not certified by this disabled loop trace. Release packaging checks the manifest even when the full test suite is skipped. Changing a flag alone cannot activate the pilot.
 

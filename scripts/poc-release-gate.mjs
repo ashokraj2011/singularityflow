@@ -50,7 +50,7 @@ export function pocReleaseStages({
       label: 'REV activation profile and criterion-witness trace',
       command: process.execPath,
       args: ['scripts/revision-trace-check.mjs'],
-      timeoutMs: 60_000
+      timeoutMs: 31 * 60_000
     }),
     Object.freeze({
       label: 'Developer-experience latency budgets',

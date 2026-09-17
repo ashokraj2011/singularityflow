@@ -14,7 +14,7 @@ import {
   feedbackAttachmentFormats
 } from '../revision/feedback-attachments.mjs';
 import { createFeedbackAttachmentStore } from '../revision/feedback-attachment-store.mjs';
-import { revisionRuntimeCapabilities } from '../revision/runtime.mjs';
+import { inspectRevisionPilotActivation, revisionRuntimeCapabilities } from '../revision/runtime.mjs';
 
 function refuse(code, message) { throw new SingularityFlowError(message, { code }); }
 
@@ -209,6 +209,16 @@ const CAPABILITIES = Object.freeze({
 });
 
 export async function run(_argv, { positionals, options } = {}) {
+  if (positionals?.[1] === 'activation') {
+    const report = await inspectRevisionPilotActivation({ repositoryRoot: repoRoot() });
+    return emit(
+      { id: 'revision.activation', classification: 'read' }, null,
+      succeeded('revision.activation-reported', {
+        activationProfile: report.activationProfile,
+        blockerCount: report.blockers.length
+      }), noEffects(), report, options, { restState: null }
+    );
+  }
   if (positionals?.[1] === 'capabilities') {
     return emit(
       { id: 'revision.capabilities', classification: 'read' }, null,
@@ -219,7 +229,7 @@ export async function run(_argv, { positionals, options } = {}) {
     );
   }
   if (positionals?.[1] !== 'attachments') {
-    refuse('UNKNOWN_SUBCOMMAND', 'Use: singularity-flow revision capabilities, or revision attachments capabilities|preview|register|list|status|remove-preview|remove.');
+    refuse('UNKNOWN_SUBCOMMAND', 'Use: singularity-flow revision activation|capabilities, or revision attachments capabilities|preview|register|list|status|remove-preview|remove.');
   }
   const action = positionals[2];
   if (action === 'capabilities') {

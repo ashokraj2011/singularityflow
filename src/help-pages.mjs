@@ -1396,9 +1396,10 @@ const PAGES = Object.freeze({
     seeAlso: ['wm', 'capability', 'phase']
   },
   revision: {
-    summary: 'Inspect REV availability or stage verified feedback files; no revision runs.',
+    summary: 'Inspect REV activation or stage verified feedback files; no revision runs.',
     description: [
-      'Revision capabilities reports the active execution profile. REV code execution is disabled.',
+      'Revision activation reports repository-specific pilot prerequisites without changing state.',
+      'Revision capabilities reports the installed execution profile. Code execution requires every pilot gate.',
       'The attachments subcommand reports the native Copilot byte bridge as unavailable for opaque',
       'uploads; a genuine local VS Code file URI',
       'can be verified and registered only after a separate confirmation. A chat-visible file',
@@ -1420,6 +1421,7 @@ const PAGES = Object.freeze({
       ['--json', 'Emit the capability, preview, receipt, or list as structured JSON.']
     ],
     examples: [
+      ['singularity-flow revision activation --json', 'Inspect the exact repository pilot blockers; this does not activate REV.'],
       ['singularity-flow revision capabilities --json', 'Inspect the REV execution profile and unavailable boundaries without starting a loop.'],
       ['singularity-flow revision attachments capabilities --json', 'Inspect supported formats and the current Copilot byte-bridge boundary.'],
       ['singularity-flow revision attachments preview --file review.md --feedback-stdin --json', 'Preview one Story/phase-bound local-file import with exact feedback on standard input.'],

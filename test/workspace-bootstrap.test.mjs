@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 
 import { probeGitRemote } from '../src/git-remote-diagnostics.mjs';
+import { gitEmptyConfigPath } from '../src/git-isolation-paths.mjs';
 import {
   abandonWorkspaceBootstrap, prepareWorkspaceBootstrap, readWorkspaceBootstrap,
   enterpriseGitDiagnostics, portableWorkspacePathFindings, preflightWorkspaceBootstrap,
@@ -726,8 +727,8 @@ test('workspace doctor probes repeatable explicit URLs without a bootstrap sessi
   assert.equal(remoteCalls.length, 1);
   const gitEnv = remoteCalls[0].env;
   assert.equal(gitEnv.GIT_DIR, undefined, 'ambient repository selectors do not reach the probe');
-  assert.equal(gitEnv.GIT_CONFIG_GLOBAL, os.devNull);
-  assert.equal(gitEnv.GIT_CONFIG_SYSTEM, os.devNull);
+  assert.equal(gitEnv.GIT_CONFIG_GLOBAL, gitEmptyConfigPath());
+  assert.equal(gitEnv.GIT_CONFIG_SYSTEM, gitEmptyConfigPath());
   assert.equal(gitEnv.GIT_CONFIG_NOSYSTEM, '1');
   assert.equal(gitEnv.GIT_CONFIG_KEY_0, 'http.proxy');
   assert.equal(gitEnv.GIT_CONFIG_VALUE_0, secretProxy,

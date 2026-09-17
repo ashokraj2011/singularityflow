@@ -4,6 +4,7 @@ import { actionActor, activatePhaseAgent, activeActionContext, confirm, summary 
 import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
+import { gitEmptyConfigPath } from './git-isolation-paths.mjs';
 import * as style from './style.mjs';
 import { stdin as input, stdout as output } from 'node:process';
 import { chmodSync, constants as fsConstants, existsSync } from 'node:fs';
@@ -819,8 +820,8 @@ function freshInstallGitEnvironment(environment = process.env) {
     GIT_NO_REPLACE_OBJECTS: '1',
     GIT_OPTIONAL_LOCKS: '0',
     GIT_CONFIG_NOSYSTEM: '1',
-    GIT_CONFIG_SYSTEM: os.devNull,
-    GIT_CONFIG_GLOBAL: os.devNull,
+    GIT_CONFIG_SYSTEM: gitEmptyConfigPath(),
+    GIT_CONFIG_GLOBAL: gitEmptyConfigPath(),
     GIT_ATTR_NOSYSTEM: '1',
     // Index/worktree enumeration is part of source admission. Never let repository fsmonitor
     // configuration run a hook or daemon while deciding whether destructive reset may begin.

@@ -10,6 +10,7 @@ import YAML from 'yaml';
 
 import { run } from '../src/util.mjs';
 import { runRemoteGitAsync } from '../src/git-execution.mjs';
+import { gitEmptyConfigPath } from '../src/git-isolation-paths.mjs';
 import { rememberWorkspace } from '../src/workspace.mjs';
 import { installWorkflow } from '../src/workflow-catalog.mjs';
 import { loadDefinition } from '../src/config.mjs';
@@ -515,8 +516,8 @@ test('confirmed refresh preserves allowlisted enterprise Git transport and auth 
   assert.equal(isolated.GIT_DIR, undefined);
   assert.equal(isolated.GIT_WORK_TREE, undefined);
   assert.equal(isolated.GIT_CONFIG_NOSYSTEM, '1');
-  assert.equal(isolated.GIT_CONFIG_GLOBAL, os.devNull);
-  assert.equal(isolated.GIT_CONFIG_SYSTEM, os.devNull);
+  assert.equal(isolated.GIT_CONFIG_GLOBAL, gitEmptyConfigPath());
+  assert.equal(isolated.GIT_CONFIG_SYSTEM, gitEmptyConfigPath());
   assert.equal(isolated.GIT_TRACE_CURL, undefined);
   assert.equal(isolated.GIT_TRACE2_EVENT, undefined);
   const admittedConfiguration = Object.entries(isolated)

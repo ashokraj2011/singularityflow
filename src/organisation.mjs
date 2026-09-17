@@ -67,6 +67,7 @@ import {
 import {
   enterpriseGitEnvironment, withoutGitProcessOverrides
 } from './git-enterprise-environment.mjs';
+import { gitDisabledHooksPath } from './git-isolation-paths.mjs';
 import {
   GitRemoteSession, requireRemoteObservation, runRemoteGitAsync
 } from './git-execution.mjs';
@@ -526,7 +527,7 @@ async function loadDefinitionAtGitRef(root, ref, { env = process.env } = {}) {
   let attached = false;
   try {
     const added = run('git', [
-      '-c', `core.hooksPath=${os.devNull}`,
+      '-c', `core.hooksPath=${gitDisabledHooksPath()}`,
       'worktree', 'add', '--detach', '--', scratch, ref
     ], { cwd: root, env, allowFailure: true });
     if (added.status !== 0) {
@@ -540,7 +541,7 @@ async function loadDefinitionAtGitRef(root, ref, { env = process.env } = {}) {
     return await loadDefinition(scratch);
   } finally {
     if (attached) run('git', [
-      '-c', `core.hooksPath=${os.devNull}`,
+      '-c', `core.hooksPath=${gitDisabledHooksPath()}`,
       'worktree', 'remove', '--force', '--', scratch
     ], { cwd: root, env, allowFailure: true });
     await removeTemporaryTree(scratch);

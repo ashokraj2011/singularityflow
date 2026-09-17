@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { gitEmptyConfigPath } from './git-isolation-paths.mjs';
 import { lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { copilotSkillsDirectory, uninstallDirectSkills } from './direct-skills.mjs';
 import { machineStateRoot } from './factory-reset.mjs';
@@ -30,8 +31,8 @@ function resetGitEnvironment(environment = process.env) {
     GIT_NO_REPLACE_OBJECTS: '1',
     GIT_OPTIONAL_LOCKS: '0',
     GIT_CONFIG_NOSYSTEM: '1',
-    GIT_CONFIG_SYSTEM: os.devNull,
-    GIT_CONFIG_GLOBAL: os.devNull,
+    GIT_CONFIG_SYSTEM: gitEmptyConfigPath(),
+    GIT_CONFIG_GLOBAL: gitEmptyConfigPath(),
     GIT_ATTR_NOSYSTEM: '1',
     GIT_CONFIG_COUNT: '1',
     GIT_CONFIG_KEY_0: 'core.fsmonitor',

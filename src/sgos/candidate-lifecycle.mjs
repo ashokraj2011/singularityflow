@@ -18,6 +18,7 @@ import {
   publicationPushOutcome, pushCommitToBranchAsync
 } from '../git.mjs';
 import { configuredRemoteAuthority } from '../git-remote-diagnostics.mjs';
+import { gitDisabledHooksPath } from '../git-isolation-paths.mjs';
 import { configurationReadRoot } from '../configuration-read-scope.mjs';
 import {
   sealMachineLocalPublicationReceipt, verifyMachineLocalPublicationReceipt
@@ -618,7 +619,7 @@ export async function verifySgosLifecycleCandidate(root, candidateId, {
     GIT_NO_LAZY_FETCH: '1',
     GIT_CONFIG_COUNT: '1',
     GIT_CONFIG_KEY_0: 'core.hooksPath',
-    GIT_CONFIG_VALUE_0: os.devNull
+    GIT_CONFIG_VALUE_0: gitDisabledHooksPath()
   };
   try {
     if (signal?.aborted) fail('Lifecycle Candidate verification was cancelled.', 'AUTO_STOP_REQUESTED');

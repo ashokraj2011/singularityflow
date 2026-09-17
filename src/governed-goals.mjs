@@ -21,6 +21,7 @@ import {
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { SingularityFlowError, run } from './util.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
+import { gitDisabledHooksPath } from './git-isolation-paths.mjs';
 import { LIFECYCLE_EVENT, lifecycleEvent } from './lifecycle-event.mjs';
 import { publishLifecycleChange } from './publication-unit-of-work.mjs';
 
@@ -388,7 +389,7 @@ function goalObjectEnvironment() {
     GCM_INTERACTIVE: 'Never',
     GIT_CONFIG_COUNT: '1',
     GIT_CONFIG_KEY_0: 'core.hooksPath',
-    GIT_CONFIG_VALUE_0: os.devNull
+    GIT_CONFIG_VALUE_0: gitDisabledHooksPath()
   };
 }
 
@@ -592,7 +593,7 @@ async function commitDetached(root, baseCommit, id, policy, message, writer, {
     // repository/global post-checkout hook and arbitrary smudge filters from .gitattributes.
     // Keep the administrative worktree/branch binding but leave its worktree empty; the Candidate
     // unit builds the exact commit from the base tree plus the bounded Goal path in a private index.
-    const worktreePrefix = ['-c', `core.hooksPath=${os.devNull}`, 'worktree', 'add', '--no-checkout'];
+    const worktreePrefix = ['-c', `core.hooksPath=${gitDisabledHooksPath()}`, 'worktree', 'add', '--no-checkout'];
     git(root, initialLocal
       ? [...worktreePrefix, temporary, id]
       : [...worktreePrefix, '-b', id, temporary, baseCommit]);

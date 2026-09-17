@@ -9,6 +9,7 @@
 import os from 'node:os';
 
 import { run } from './util.mjs';
+import { gitEmptyConfigPath } from './git-isolation-paths.mjs';
 
 const ENTERPRISE_GIT_CONFIG_PATTERN = [
   String.raw`http\.(proxy|proxyauthmethod|sslcainfo|sslcapath|sslbackend|schannelusesslcainfo)`,
@@ -163,8 +164,8 @@ export function enterpriseGitEnvironment(sourceEnv = process.env, { runCommand =
     ...env,
     GIT_NO_REPLACE_OBJECTS: '1',
     GIT_CONFIG_NOSYSTEM: '1',
-    GIT_CONFIG_SYSTEM: os.devNull,
-    GIT_CONFIG_GLOBAL: os.devNull,
+    GIT_CONFIG_SYSTEM: gitEmptyConfigPath(),
+    GIT_CONFIG_GLOBAL: gitEmptyConfigPath(),
     GIT_ATTR_NOSYSTEM: '1',
     GIT_CONFIG_COUNT: String(enterpriseConfiguration.length)
   };

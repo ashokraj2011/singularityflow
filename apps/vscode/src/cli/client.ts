@@ -131,6 +131,8 @@ function enabledBooleanOption(args: string[], name: string): boolean {
  */
 function cacheableRead(args: string[]): boolean {
   return !(args[0] === 'configuration' && args[1] === 'validate')
+    // Revocation can arrive from another process; the chat status command must see the store now.
+    && !(args[0] === 'revision' && args[1] === 'attachments' && args[2] === 'status')
     // A destructive apply is guarded by a second byte-current preview. Reusing the first preview
     // here would turn that freshness check into a comparison with its own cached answer.
     && args[0] !== 'factory-reset';
@@ -138,6 +140,11 @@ function cacheableRead(args: string[]): boolean {
 
 export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (!args[0]) return 'unknown';
+  // Preview writes an expiring private plan cache. It is not a cacheable read even though it does
+  // not alter Story/Git state; register appends a durable private receipt.
+  if (args[0] === 'revision' && args[1] === 'attachments') {
+    return ['capabilities', 'list', 'status'].includes(args[2] ?? '') ? 'read' : 'mutation';
+  }
   if (args[0] === 'factory-reset') {
     return enabledBooleanOption(args, 'dry-run') ? 'read' : 'mutation';
   }
@@ -468,6 +475,11 @@ export class SingularityFlowClient {
   /** Everything else, for the governed actions the tree offers. */
   run<T = unknown>(args: string[], signal?: AbortSignal): Promise<T> {
     return this.invoke<T>(args, this.timeoutFor(args, signal !== undefined), signal);
+  }
+
+  /** JSON CLI result with private stdin payload; input is never appended to child argv. */
+  runWithInput<T = unknown>(args: string[], input: string, signal?: AbortSignal): Promise<T> {
+    return this.invoke<T>(args, this.timeoutFor(args, signal !== undefined), signal, true, input);
   }
 
   /**

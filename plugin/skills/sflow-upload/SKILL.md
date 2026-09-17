@@ -1,6 +1,6 @@
 ---
 name: sflow-upload
-description: Attach, inspect, list, or governably detach local files, folders, images, PDFs, Figma exports, notes, and HTTPS references owned by an Epic or Story.
+description: Attach, inspect, list, or governably detach files, folders, images, PDFs, Figma exports, notes, and HTTPS references for an Epic or Story.
 disable-model-invocation: true
 argument-hint: "attach <PATH...> [--epic EPIC-ID] | list [OWNER-ID] | view <ID> [--work-id WORK-ID] | detach <ID> --reason TEXT [--epic EPIC-ID]"
 
@@ -13,20 +13,21 @@ argument-hint: "attach <PATH...> [--epic EPIC-ID] | list [OWNER-ID] | view <ID> 
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
+REV feedback: use `/sf-revision-attachments`; ordinary upload cannot bypass its importer.
+
 1. Use explicit `--epic` for an Epic. Story reads may use their documented Work-ID form. Story attach and detach do not support `--work-id`: require `singularity-flow session current --json` to identify the exact attached Story, or ask the user to attach it first. Never append an unsupported selector.
-2. Resolve attach, list, view, or detach; show owner and target before mutation.
+2. Resolve the action; show owner and target before mutation.
 3. For an Epic:
-   - Upload a file with `singularity-flow epic sources add --epic <EPIC-KEY> --file <PATH>`.
-   - Run once per path; expand directories in deterministic path order.
+   - Use `singularity-flow epic sources add --epic <EPIC-KEY> --file <PATH>` once per file; expand directories in deterministic order.
    - Record authored text with `singularity-flow epic sources note --epic <EPIC-KEY> --text-file <PATH>`.
    - Record an HTTPS reference with `singularity-flow epic sources add --epic <EPIC-KEY> --url <URL> --label "<LABEL>"`.
    - Add `--provider`, `--mime`, or `--label` only when provided or required by repository policy.
 4. For the verified attached Story:
    - Upload files or complete export directories with `singularity-flow documents upload <PATH...>`.
    - Record an HTTPS reference with `singularity-flow documents upload --url <URL> --label "<LABEL>"`.
-5. Respect phase, provider, size, and sequence policy. Stop on hard gates; let the user decide on soft warnings.
+5. Respect phase, provider, size, and sequence gates; leave soft warnings to the user.
 6. Never expose credentials, follow a URL implicitly, invent a MIME type when detection is available, or bypass the managed catalog.
-7. Print every stable source/document ID, SHA-256, size, path/provider, commit, and push result plus next `/sf-*` command.
+7. Report each stable source/document ID, SHA-256, size, path/provider, commit, push result, and next `/sf-*` command.
 
 For detachment:
 

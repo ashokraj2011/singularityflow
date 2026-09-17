@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "ac50cd041dd840927b776aea7ff45b510fb4c708",
-  "topicCount": 64,
-  "contentSha256": "31d0eef766e397cd506e6b5e411f0c4a363e33f122bda00bf0714f23bc9a2d39",
+  "sourceCommit": "433e2517950d36e4f2417372e4a5b78641087c83",
+  "topicCount": 65,
+  "contentSha256": "940148e0b820cd659292ba2569d081d5d4717c329956ba8f1c5790a3c468c9bb",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -112,9 +112,9 @@
     {
       "id": "copilot-and-surfaces",
       "title": "Copilot, VS Code, and shell surfaces",
-      "version": 5,
-      "sha256": "21b500a49479957b12c53e4f6f4fafab1c8cc8dcd5fe88b1237e389d3c9e4674",
-      "routingSha256": "1797df65f3cc35268579d41981bfd4d03a74eea328ede27a0156869e856c06ca",
+      "version": 8,
+      "sha256": "e4daf939a3fadaa70e07d71186c38aac6f7db3f02fa7e908754e1acf9d549925",
+      "routingSha256": "67cb5270f225f45ecf1358a176ff906fbc914d883459b1101c8444405f8cd16c",
       "file": "copilot-and-surfaces.md"
     },
     {
@@ -392,10 +392,18 @@
     {
       "id": "resets-and-cleanup",
       "title": "Reset, cleanup, and fresh installation",
-      "version": 5,
-      "sha256": "fd9972fd8a5a892ab915f6616be5e1f5975693748db42c2ded43ddcdc090eef7",
+      "version": 6,
+      "sha256": "4622d7dbdd706894551dc6bc243dfc7cd0d607e8835a89ae28b515e8df5ad798",
       "routingSha256": "6a466026dd470566f0b40ffddd76705c52ba2bf2968c4d8c0b282e5f60b0b3e4",
       "file": "resets-and-cleanup.md"
+    },
+    {
+      "id": "revision-feedback-attachments",
+      "title": "Revision feedback attachment staging",
+      "version": 4,
+      "sha256": "5e62ab1c851d59b48f69c3d275da6de8cb583738ac37e1360218d8635977ec60",
+      "routingSha256": "2377aa615ffd138c3bebf438ea0538d552323920bfeb60de11445242b6bda2e9",
+      "file": "revision-feedback-attachments.md"
     },
     {
       "id": "secrets",

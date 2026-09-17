@@ -186,6 +186,42 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Cleared ${slot(s.removed, '0')} local help-metrics record(s).`,
     preserves: false
   },
+  'revision.attachments-capabilities-reported': {
+    headline: () => 'Opaque Copilot uploads have no verifiable bytes; genuine local file references can use the guarded registration bridge.',
+    preserves: true
+  },
+  'revision.attachments-listed': {
+    headline: (s) => `${slot(s.count, '0')} feedback attachment set(s) registered for ${slot(s.phaseId)}.`,
+    preserves: true
+  },
+  'revision.attachments-preview-staged': {
+    headline: (s) => `Previewed ${slot(s.name)} and staged private plan ${slot(s.planId)} for confirmation. No feedback evidence or revision was registered.`,
+    preserves: false
+  },
+  'revision.attachments-registered': {
+    headline: (s) => `Registered feedback attachment set ${slot(s.attachmentSetSha256)} (${slot(s.count, '0')} file(s)). No revision or approval was started.`,
+    preserves: false
+  },
+  'revision.attachments-already-registered': {
+    headline: (s) => `Feedback attachment set ${slot(s.attachmentSetSha256)} was already registered; the exact retry made no change.`,
+    preserves: true
+  },
+  'revision.attachments-status-reported': {
+    headline: (s) => `${slot(s.count, '0')} feedback attachment set status record(s) for ${slot(s.phaseId)}.`,
+    preserves: true
+  },
+  'revision.attachments-removal-preview-staged': {
+    headline: (s) => `Staged removal plan ${slot(s.planId)}. Registered evidence is unchanged until confirmation.`,
+    preserves: false
+  },
+  'revision.attachments-removed': {
+    headline: (s) => `Excluded attachment set ${slot(s.attachmentSetSha256)} from future routing. Original local proof remains auditable.`,
+    preserves: false
+  },
+  'revision.attachments-already-removed': {
+    headline: (s) => `Attachment set ${slot(s.attachmentSetSha256)} was already excluded; the exact retry made no change.`,
+    preserves: true
+  },
   'sequence.refused': {
     headline: (s) => `Cannot ${slot(s.action, 'do that')}${s.phase ? ` for ${slot(s.phase)}` : ''} yet.`,
     preserves: true

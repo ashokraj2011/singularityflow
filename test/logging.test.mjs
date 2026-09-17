@@ -317,6 +317,28 @@ test('CLI argv redaction removes rejected remote and option secrets before durab
   }
 });
 
+test('revision attachment argv never logs feedback prose or local file paths', () => {
+  const redacted = redactCommandArgv([
+    'revision', 'attachments', 'preview', '--file', '/private/design-review.md',
+    '--feedback', 'Change the price rule for customer 123', '--json'
+  ]);
+  assert.deepEqual(redacted, [
+    'revision', 'attachments', 'preview', '--file', REDACTED,
+    '--feedback', REDACTED, '--json'
+  ]);
+  const keyed = redactCommandArgv([
+    'revision', 'attachments', 'preview', '--file=/private/design-review.md',
+    '--feedback=Change the price rule for customer 123'
+  ]);
+  assert.deepEqual(keyed.slice(-2), [`--file=${REDACTED}`, `--feedback=${REDACTED}`]);
+  const globalOptionFirst = redactCommandArgv([
+    '--json', 'revision', 'attachments', 'preview', '--file', '/private/design-review.md',
+    '--feedback', 'Change the price rule for customer 123'
+  ]);
+  assert.equal(globalOptionFirst.at(-3), REDACTED);
+  assert.equal(globalOptionFirst.at(-1), REDACTED);
+});
+
 test('redaction survives cycles, depth, and error objects without throwing', () => {
   const cyclic = { name: 'root' };
   cyclic.self = cyclic;

@@ -33,6 +33,7 @@
           { "name": "why", "description": "Explain a blocker or refusal" },
           { "name": "how", "description": "Show the reviewed procedure for a task" },
           { "name": "recover", "description": "Find the safe recovery path for a failure" },
+          { "name": "attachments", "description": "Preview 1–5 local files, show set status, or stage guarded removal" },
           { "name": "topics", "description": "List reviewed offline help topics" }
         ]
       }

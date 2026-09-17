@@ -41,6 +41,20 @@ Git publication. A Copilot response alone never advances the workflow.
 Use `/sf-upload` or `/sflow-upload` to register files, directories, screenshots, exported designs,
 or HTTPS references. The command reports the stable ID, hash, provider/path, commit, and push.
 
+For revision feedback, use `/sf-revision-attachments` instead of ordinary Story upload. The
+current slice stages selected files against the Story and phase: preview their hashes, types,
+sizes, extraction status, and selections, then explicitly confirm registration. Registration
+alone does not start a revision or put a file in a model packet. In VS Code,
+`@sflow /attachments` can preview 1–5 local `file:` references from the exact active Story
+worktree and offers a separate registration confirmation. `@sflow /attachments status` and
+`@sflow /attachments remove sha256:<SET>` inspect or exclude a set after review. A file visible in Copilot
+chat is not governed evidence unless the host exposes its original bytes or a verifiable local
+reference. When it does not, the skill reports
+`REV_CHAT_ATTACHMENT_UNAVAILABLE` and offers the local-file path; it never turns a chat summary
+into a document. PDF/DOCX/image registration is disabled until approved malware scanning and validated
+parsing exist. The full `/sflow-revise` execution loop and opaque Copilot attachment-byte bridge are not active in
+this slice. Run `sflow explain revision-feedback-attachments` for the exact intake boundary.
+
 World-model generation is a repository operation and can run without an Epic or Story:
 
 ```bash

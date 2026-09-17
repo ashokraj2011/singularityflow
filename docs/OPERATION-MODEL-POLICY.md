@@ -444,6 +444,13 @@ Every public operation is classified before its implementation module is importe
 | return.plan | read | never | — | — |
 | review.render | read | never | — | — |
 | review.write | mutation | never | — | — |
+| revision.attachments.capabilities | read | never | — | — |
+| revision.attachments.list | read | never | — | — |
+| revision.attachments.preview | mutation | never | — | — |
+| revision.attachments.register | mutation | never | — | — |
+| revision.attachments.remove | mutation | never | — | — |
+| revision.attachments.remove-preview | mutation | never | — | — |
+| revision.attachments.status | read | never | — | — |
 | run | mutation | never | — | — |
 | secrets.protect | mutation | never | — | — |
 | secrets.scan | read | never | — | — |

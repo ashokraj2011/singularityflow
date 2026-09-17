@@ -1557,7 +1557,9 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
 
     if (timeoutMs !== null) {
       timer = setTimeout(() => {
-        const recoveryCommand = cliArgsAreReplaySafe(args) ? terminalCommand(
+        // A command consuming private stdin is not replayable from argv alone. Never print a
+        // deceptively complete recovery command that omits its exact input payload.
+        const recoveryCommand = input == null && cliArgsAreReplaySafe(args) ? terminalCommand(
           repository, args, process.platform, { executable, cli }
         ) : null;
         terminate(new CliTimeoutError(

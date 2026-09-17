@@ -1144,5 +1144,10 @@
     "checkpointSha256": "sha256:18ae89d45127f8e3917ba3dca4c77260b3140d212276b7326a7fc3b26b852374",
     "reportSha256": "sha256:a708a14914c371e1b014d44d92da2483c88bbf2d87bf00cc8198dc5207797d29",
     "projectionSha256": "sha256:c38fa14df1fdcf907e95ea6b56338b3a1805e2b6b8f189c73c7f34e61a88622c"
-  }]
+  }],
+  "revision-feedback-attachment-import-plan": [{ "schemaVersion": 1 }],
+  "revision-feedback-attachment-set": [{ "schemaVersion": 1 }],
+  "revision-feedback-attachment-revocation-plan": [{ "schemaVersion": 1 }],
+  "revision-feedback-attachment-revocation": [{ "schemaVersion": 1 }],
+  "revision-feedback-attachment-store-entry": [{ "schemaVersion": 1 }]
 }

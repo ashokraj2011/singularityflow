@@ -323,6 +323,9 @@ function redactRemoteOperand(value, allowKeyedPrefix = true) {
  */
 export function redactCommandArgv(argv) {
   const source = Array.isArray(argv) ? argv : [];
+  // Global flags may precede the command and malformed invocations still reach the activity log.
+  // Over-redact if these two route words are present rather than relying on positional parsing.
+  const revisionAttachment = source.includes('revision') && source.includes('attachments');
   const projected = [];
   const pending = [];
   const receiptIndex = positionalReceiptIndex(source);
@@ -340,6 +343,16 @@ export function redactCommandArgv(argv) {
   let secretIntervened = false;
   for (const [index, raw] of source.entries()) {
     const token = String(raw);
+    // Feedback prose and local attachment paths are private evidence, never activity-log inputs.
+    // This projection runs even when parsing or registration later refuses the invocation.
+    if (revisionAttachment && ['--file', '--feedback'].includes(String(source[index - 1]))) {
+      projected.push(REDACTED);
+      continue;
+    }
+    if (revisionAttachment && /^(--file|--feedback)=/.test(token)) {
+      projected.push(token.slice(0, token.indexOf('=') + 1) + REDACTED);
+      continue;
+    }
     if (token.length > MAX_VALUE_CHARS) {
       if (pending.length > 0) {
         projected.push(pending.pop() === 'remote' ? '[redacted-remote]' : REDACTED);

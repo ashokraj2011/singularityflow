@@ -76,6 +76,16 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
       /Only after confirmation/
     ]
   },
+  'sflow-revision-attachments': {
+    required: [
+      /REV_CHAT_ATTACHMENT_UNAVAILABLE/,
+      /singularity-flow revision attachments capabilities --json/,
+      /singularity-flow revision attachments preview --file <LOCAL-FILE> --feedback/,
+      /singularity-flow revision attachments register --file <LOCAL-FILE> --feedback[^`]*--confirm sha256:<PLAN> --json/,
+      /not an open REV loop/,
+      /does not start a revision/
+    ]
+  },
   'sflow-epic-publish': {
     required: [/epic jira apply --epic <EPIC-KEY> --plan <SHA-256> --confirm <EPIC-KEY>/]
   },

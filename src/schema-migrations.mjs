@@ -3442,6 +3442,24 @@ const families = [
   family({ id: 'local-authorization-envelope', currentVersion: 1, immutable: true }),
   family({ id: 'local-delivery-receipt', currentVersion: 1, immutable: true }),
   family({ id: 'local-bundle-manifest', currentVersion: 1, immutable: true }),
+  // REV intake is private, Story/phase-scoped evidence staging. No earlier durable shape exists.
+  family({
+    id: 'revision-feedback-attachment-import-plan', currentVersion: 1, immutable: true,
+    paths: [/^\$git\/singularity-flow\/revision-feedback-attachments\/[^/]+\/[^/]+\/\d{4}\/plans\/[a-f0-9]{64}\.json$/]
+  }),
+  family({ id: 'revision-feedback-attachment-set', currentVersion: 1, immutable: true }),
+  family({
+    id: 'revision-feedback-attachment-revocation-plan', currentVersion: 1, immutable: true,
+    paths: [/^\$git\/singularity-flow\/revision-feedback-attachments\/[^/]+\/[^/]+\/\d{4}\/revocation-plans\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'revision-feedback-attachment-revocation', currentVersion: 1, immutable: true,
+    paths: [/^\$git\/singularity-flow\/revision-feedback-attachments\/[^/]+\/[^/]+\/\d{4}\/revocations\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'revision-feedback-attachment-store-entry', currentVersion: 1, immutable: true,
+    paths: [/^\$git\/singularity-flow\/revision-feedback-attachments\/[^/]+\/[^/]+\/\d{4}\/requests\/[a-f0-9]{64}\.json$/]
+  }),
   family({
     id: 'installation-current', currentVersion: 2, minimumReadableVersion: 2,
     paths: [

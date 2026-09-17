@@ -1406,6 +1406,8 @@ All governed prompt consumers use the same active-evidence renderer. Text is has
 
 Detaching requires a reason and exact confirmation. It never deletes bytes. Singularity Flow records an append-only decision, marks affected prompt compositions stale, reopens the earliest dependent phase, invalidates its downstream approval cone, commits, and pushes through the lifecycle publication transaction. Unrelated phases remain valid. Use `/sf-documents` or `/sf-upload` for the same attach/list/view/detach flow in Copilot, or **Lifecycle → Manage evidence & designs** in VS Code.
 
+Revision feedback files use a separate staging command, not `documents upload`. In an active Story phase, `/sf-revision-attachments` previews a verifiable local text file, shows its original digest and extraction status, and registers it only after exact-plan confirmation. In VS Code, `@sflow /attachments` can preview one local file reference from the exact active Story worktree, but never registers it automatically. The host cannot supply original bytes for opaque chat uploads, so a chat-visible upload alone returns `REV_CHAT_ATTACHMENT_UNAVAILABLE`; save the same file locally and supply its path. Preview stages a short-lived private plan in Git's repository-local storage but changes no Story lifecycle state or Git ref. Registration does not run a REV loop, call a model, change approved intent, approve, or publish. PDF/image registration is disabled until approved malware scanning and validated parsing exist. Run `sflow explain revision-feedback-attachments` for the precise boundary.
+
 ### Fetch documents from a storage provider (OneDrive/SharePoint)
 
 When `singularity/workflow.yml` declares `storage.providers`, documents can be fetched directly from a configured provider and materialized into the work item. OneDrive for Business is a SharePoint document library under Microsoft Graph, so it uses the `sharepoint` provider type.
@@ -2597,6 +2599,7 @@ Preferred direct skills use the collision-safe `sf-` prefix. The equivalent
 | `/sf-impact` | Classify enrolled Stories, inspect exposure/evidence, finalize and verify receipts, and compare privacy-safe cohorts |
 | `/sf-upload` | Upload files, folders, notes, images, Figma exports, or HTTPS references to the active Epic or Story |
 | `/sf-documents` | List, view, and upload supporting documents |
+| `/sf-revision-attachments` | Preview and register separate Story/phase-bound REV feedback evidence; no revision execution |
 | `/sf-review` | Review current artifacts and evidence |
 | `/sf-release` | Prepare final release/conformance activities |
 | `/sf-jira-story` | Inspect or import one Jira story |
@@ -3306,6 +3309,10 @@ singularity-flow documents list [WORK-ID] [--active|--all] [--json]
 singularity-flow documents view <DOCUMENT-ID|PATH> [--work-id ID] [--all]
 singularity-flow documents upload <FILE-OR-DIRECTORY...> [--url URL]
 singularity-flow documents detach <DOCUMENT-ID> [--scope file|package] --reason TEXT [--yes]
+singularity-flow revision attachments capabilities [--json]
+singularity-flow revision attachments preview --file LOCAL-FILE [--file LOCAL-FILE...] [--select NUMBER...] [--line-range NUMBER:START-END...] (--feedback-stdin | --feedback TEXT) [--json]
+singularity-flow revision attachments register --file LOCAL-FILE [--file LOCAL-FILE...] [--select NUMBER...] [--line-range NUMBER:START-END...] (--feedback-stdin | --feedback TEXT) --confirm SHA256 [--idempotency-key KEY] [--json]
+singularity-flow revision attachments list [--json]
 singularity-flow epic sources list --epic <EPIC-ID> [--active|--all]
 singularity-flow epic sources detach <SOURCE-ID> --epic <EPIC-ID> --reason TEXT [--yes]
 singularity-flow documents browse --provider <ID> [--path FOLDER] [--json]

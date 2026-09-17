@@ -19,7 +19,7 @@ related:
   - installation-and-upgrades
   - recovery
   - secrets
-version: 5
+version: 6
 ---
 Reset commands have deliberately different scopes. Preview the exact scope and use the confirmation printed by that same mode.
 
@@ -74,7 +74,7 @@ removal. If that step is refused, the uninstaller stops before removing the CLI,
 or current installation receipt; close VS Code and retry the same command. The global CLI is
 removed last so diagnostics remain available during earlier steps.
 
-There is no `/sf-uninstall` Copilot equivalent. This is intentional: a participant must not remove
+There is no Copilot uninstall skill. This is intentional: a participant must not remove
 its own runtime or turn a conversational response into a machine-wide product mutation. Use the
 displayed shell command on the target machine.
 

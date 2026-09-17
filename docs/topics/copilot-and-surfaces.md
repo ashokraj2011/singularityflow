@@ -14,7 +14,8 @@ related:
   - developer-home
   - help-and-docs
   - governed-execution
-version: 5
+  - revision-feedback-attachments
+version: 8
 ---
 CLI, Copilot, and VS Code read the same durable repository and workspace records through shared projections. They do not share an in-memory global store, conversation history, or signed handles. Copilot accepts ordinary developer language for seven closed intents: orient, continue, start, inspect, act, recover, and help. Help retrieves cited packaged documentation; it does not convert an answer into an action.
 
@@ -26,6 +27,7 @@ Use this topic when the current goal matches **copilot and surfaces**. Start in 
 
 - **Shell:** `sflow about`, `sflow help`, `sflow plugin`. Use `sflow home --request "What is blocking this Story?" --json` to inspect the conversational plan. Run `singularity-flow about --help` for the exact forms supported by this build.
 - **Copilot:** ask “What am I working on?”, “Continue my Story”, “Start a new bug fix”, “What is blocking this?”, “Generate the active phase”, “The publication push is stuck”, or “What is project binding?” `/sf-home`, `/sf-help`, `/sf-start`, and the other `/sf-*` skills remain explicit escape hatches.
+- **Revision feedback files:** `/sflow-revision-attachments` previews and registers verifiable local files against the selected Story/phase after explicit confirmation. In VS Code, `@sflow /attachments` accepts 1–5 genuine local file references, selects each whole file, and offers a separate confirmed registration button. `@sflow /attachments status` shows active/revoked set digests; `@sflow /attachments remove sha256:<SET>` reviews exclusion. An opaque Copilot chat upload without original bytes or a verified local reference returns `REV_CHAT_ATTACHMENT_UNAVAILABLE`; save it locally and provide its path. Registration only stages feedback evidence. It does not start the still-unavailable REV execution loop, change approved intent, or call a model. PDF/DOCX/images remain disabled until approved scanning and extraction exist.
 - **VS Code:** open the Singularity Flow Navigator. My Work, Start intake, and Inbox are suggested as first-use Favorites; use **Favorites → Choose favorites** to change them or pin Approvals, Workspaces, Configuration, impact, logs, audit, or Help. Favorites and Lifecycle start expanded while supporting sections stay collapsed, and the extension preserves later choices. It renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow
@@ -52,4 +54,4 @@ These commands can mutate governed or machine-local state: `plugin`. They remain
 
 ## Related topics
 
-Continue with `sflow explain developer-home`, `sflow explain help-and-docs`, `sflow explain governed-execution`.
+Continue with `sflow explain developer-home`, `sflow explain help-and-docs`, `sflow explain governed-execution`, or `sflow explain revision-feedback-attachments`.

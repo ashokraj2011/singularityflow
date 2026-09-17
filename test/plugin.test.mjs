@@ -87,7 +87,7 @@ test('plugin provides one upload-first skill for Epic and Story evidence', async
   assert.match(content, /complete package/i);
   assert.match(content, /reason/i);
   assert.match(content, /stable source\/document ID/);
-  assert.match(content, /commit, and push result/);
+  assert.match(content, /commit, (?:and )?push result/);
 });
 
 test('capability mapping reviews and activates the exact proposal instead of stopping at publication', async () => {

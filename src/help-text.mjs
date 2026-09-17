@@ -522,6 +522,13 @@ Usage:
   singularity-flow documents preview <DOCUMENT-ID|PATH> [--work-id ID] [--json]
   singularity-flow documents upload <FILE-OR-DIRECTORY...> [--url URL] [--label TEXT] [--kind KIND]
   singularity-flow documents detach <DOCUMENT-ID> [--scope file|package] --reason TEXT [--yes]
+  singularity-flow revision attachments capabilities [--json]
+  singularity-flow revision attachments preview --file LOCAL-FILE [--file LOCAL-FILE...] [--select NUMBER...] [--line-range NUMBER:START-END...] (--feedback-stdin | --feedback TEXT) [--json]
+  singularity-flow revision attachments register --file LOCAL-FILE [--file LOCAL-FILE...] [--select NUMBER...] [--line-range NUMBER:START-END...] (--feedback-stdin | --feedback TEXT) --confirm SHA256 [--idempotency-key KEY] [--json]
+  singularity-flow revision attachments list [--json]
+  singularity-flow revision attachments status [--json]
+  singularity-flow revision attachments remove-preview --attachment-set SHA256 [--json]
+  singularity-flow revision attachments remove --confirm SHA256 [--idempotency-key KEY] [--json]
   singularity-flow prepare [PHASE]
   singularity-flow clarification status [PHASE] [--json]
   singularity-flow clarification record [PHASE] (--question TEXT --answer TEXT | --marker TEXT --answer TEXT | --response-file FILE)

@@ -1395,6 +1395,40 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['wm', 'capability', 'phase']
   },
+  revision: {
+    summary: 'Stage verified file evidence for feedback against the active Story phase; no revision runs.',
+    description: [
+      'Only the attachments subcommand is installed in this slice. Capabilities reports the native',
+      'Copilot byte bridge as unavailable for opaque uploads; a genuine local VS Code file URI',
+      'can be verified and registered only after a separate confirmation. A chat-visible file',
+      'name or model summary is not original-byte evidence. Explicit local paths remain available.',
+      'Preview validates original bytes and shows the exact plan digest without registering evidence.',
+      'Register requires that digest and revalidates the file, feedback, Story, and phase. Registration',
+      'does not call a model, start a REV loop, change approved intent, approve, or publish.',
+      'PDF, DOCX, and image registration is disabled until approved malware scanning and validated parsing are available.'
+    ],
+    options: [
+      ['--file LOCAL-FILE', 'Select the file to preview or register; this is not a chat filename or summary.'],
+      ['--select NUMBER', 'Select a one-based file number from repeated --file operands; repeat for multiple files. Defaults to all files.'],
+      ['--line-range NUMBER:START-END', 'Select one-based inclusive lines of an explicitly selected text file; repeat for disjoint ranges.'],
+      ['--feedback-stdin', 'Read bounded feedback from standard input so it is absent from process arguments.'],
+      ['--feedback TEXT', 'Compatibility form; text may be exposed in shell history or process listings.'],
+      ['--confirm SHA256', 'Register only the exact current preview plan digest.'],
+      ['--attachment-set SHA256', 'Choose one registered attachment set for a reviewed revocation preview.'],
+      ['--idempotency-key KEY', 'Optional retry key; reuse only for the identical import.'],
+      ['--json', 'Emit the capability, preview, receipt, or list as structured JSON.']
+    ],
+    examples: [
+      ['singularity-flow revision attachments capabilities --json', 'Inspect supported formats and the current Copilot byte-bridge boundary.'],
+      ['singularity-flow revision attachments preview --file review.md --feedback-stdin --json', 'Preview one Story/phase-bound local-file import with exact feedback on standard input.'],
+      ['singularity-flow revision attachments register --file review.md --feedback-stdin --confirm sha256:<PLAN> --json', 'Register only the exact confirmed evidence using the same feedback bytes.'],
+      ['singularity-flow revision attachments list --json', 'List receipts for the selected Story phase.'],
+      ['singularity-flow revision attachments status --json', 'Show active/revoked status without local file paths or content.'],
+      ['singularity-flow revision attachments remove-preview --attachment-set sha256:<SET> --json', 'Preview exclusion of one exact registered set; no evidence is deleted.'],
+      ['singularity-flow revision attachments remove --confirm sha256:<PLAN> --json', 'After review, exclude the set from future routing with an append-only revocation.']
+    ],
+    seeAlso: ['documents', 'session', 'phase']
+  },
   epic: {
     summary: 'Run an Epic: sources, planning, Story creation, merge order, and completion.',
     description: [

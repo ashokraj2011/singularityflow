@@ -27,7 +27,7 @@ to understand which document is authoritative for a specific topic.
 | Start with one implicit capability and add detail only when needed | [Progressive capability disclosure](PROGRESSIVE-CAPABILITIES.md) |
 | Run a complete Story locally | [Local runbook](../LOCAL-RUNBOOK.md) |
 | Learn the normal day-to-day flow | [How-to guide](../HOW-TO.md) |
-| Compare operating modes and follow detailed end-to-end examples | [Singularity Flow Ways of Working — PDF](SingularityFlow-Ways-of-Working.pdf) · [editable Word](SingularityFlow-Ways-of-Working.docx) |
+| Compare operating modes and follow detailed end-to-end examples | [Singularity Flow Ways of Working — PDF](SingularityFlow-Ways-of-Working.pdf) |
 | Use SGOS for normal Stories, explicit Programs, recovery, and cross-laptop Pack authority | [How to use SGOS](SGOS-USAGE-GUIDE.md) |
 | Collect and merge the physical SGOS release proof | [SGOS end-to-end release proof](SGOS-END-TO-END-RELEASE-PROOF.md) |
 | Track deliberately deferred work and the next eligible increment | [Pending-work roadmap](PENDING-WORK-ROADMAP.md) |

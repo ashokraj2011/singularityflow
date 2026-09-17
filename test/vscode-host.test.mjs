@@ -187,6 +187,18 @@ function stubVscode() {
     constructor(label, collapsibleState) { this.label = label; this.collapsibleState = collapsibleState; }
   }
 
+  class Uri {
+    constructor(fsPath, scheme = 'file') {
+      this.fsPath = fsPath;
+      this.scheme = scheme;
+      this.authority = '';
+      this.query = '';
+      this.fragment = '';
+    }
+    static file(value) { return new Uri(value); }
+    static parse(value) { return new Uri(value, String(value).split(':')[0]); }
+  }
+
   const api = {
     EventEmitter,
     TreeItem,
@@ -196,10 +208,7 @@ function stubVscode() {
     StatusBarAlignment: { Left: 1, Right: 2 },
     ConfigurationTarget: { Global: 1, Workspace: 2 },
     ProgressLocation: { Notification: 15 },
-    Uri: {
-      file: (value) => ({ fsPath: value, scheme: 'file' }),
-      parse: (value) => ({ value, scheme: String(value).split(':')[0] })
-    },
+    Uri,
     RelativePattern: class { constructor(base, pattern) { this.base = base; this.pattern = pattern; } },
     ExtensionContext: null,
     workspace: {
@@ -1293,6 +1302,125 @@ test('@sflow and Help Center share model-free cited resolution and only prefill 
   await until(() => registered.executedCommands.filter((entry) => entry.id === 'workbench.action.chat.open').length >= 2);
   const latest = registered.executedCommands.filter((entry) => entry.id === 'workbench.action.chat.open').at(-1);
   assert.deepEqual(latest.args, [{ query: '/sf-worldmodel ', isPartialQuery: true }]);
+});
+
+test('@sflow previews only a verified local file in the exact selected Story checkout', async (t) => {
+  if (!requireBundle(t)) return;
+  const root = await demoRepository();
+  const machine = await mkdtemp(path.join(os.tmpdir(), 'sflow-chat-attachment-host-'));
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = path.join(machine, 'registry.json');
+  process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = path.join(machine, 'active.json');
+  t.after(() => {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+    if (previousSelection == null) delete process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+    else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection;
+  });
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.git = { ...(workflow.git ?? {}), publish: 'off' };
+  await writeFile(workflowFile, YAML.stringify(workflow));
+  run('git', ['add', workflowFile], { cwd: root });
+  run('git', ['commit', '-m', 'Use local Story feedback test'], { cwd: root });
+  const started = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'start', 'STORY-CHAT', '--title', 'Chat feedback',
+    '--description', 'Test bounded chat feedback evidence.',
+    '--acceptance-criteria', 'The imported file is checked by digest',
+    '--work-type', 'feature', '--agent', 'product-owner', '--base', 'INIT-CHECKOUT'], {
+    cwd: root, encoding: 'utf8', env: process.env
+  });
+  assert.equal(started.status, 0, started.stderr);
+  const attached = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'session', 'attach', 'STORY-CHAT', '--json'], { cwd: root, encoding: 'utf8', env: process.env });
+  assert.equal(attached.status, 0, attached.stderr);
+  const file = path.join(machine, 'feedback.md');
+  await writeFile(file, '# Feedback\n\nPlease keep the boundary check.\n');
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  const lifecycle = section(registered, 'lifecycle');
+  await until(() => lifecycle.getChildren().some((node) => String(node.label).includes('STORY-CHAT')) ? true : null);
+
+  const participant = registered.chatParticipants.find((entry) => entry.id === 'singularity-flow.sflow');
+  assert.ok(participant);
+  const prompt = 'Please address #file before accepting this revision.';
+  const marker = prompt.indexOf('#file');
+  const request = {
+    command: 'attachments', prompt,
+    references: [{ value: api.Uri.file(file), range: [marker, marker + 5] }],
+    get model() { throw new Error('Attachment preview must never invoke the chat model'); }
+  };
+  const response = () => {
+    const messages = [];
+    const buttons = [];
+    return {
+      messages, buttons,
+      stream: {
+        markdown: (value) => messages.push(String(value)),
+        button: (value) => buttons.push(value),
+        progress() {}, reference() {}
+      }
+    };
+  };
+  const beforeHead = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+  const opaque = response();
+  await participant.handler({
+    command: 'attachments', prompt,
+    references: [{ value: { name: 'feedback.md', summary: 'Copilot-only text' } }],
+    get model() { throw new Error('Opaque attachment fallback must never invoke the chat model'); }
+  },
+    {}, opaque.stream, { isCancellationRequested: false });
+  assert.match(opaque.messages.join(''), /REV_CHAT_ATTACHMENT_UNAVAILABLE/);
+  assert.match(opaque.messages.join(''), /explicit local path/);
+  assert.equal(opaque.buttons.length, 0);
+  const shown = response();
+  await participant.handler(request, {}, shown.stream, { isCancellationRequested: false });
+  const previewText = shown.messages.join('');
+  assert.match(previewText, /Staged feedback attachment preview/);
+  assert.match(previewText, /feedback\\\.md/);
+  assert.match(previewText, /44 original bytes · `sha256:[a-f0-9]{64}`/);
+  assert.match(previewText, /not a registered document or an open Revision Loop/);
+  assert.ok(shown.buttons.some((button) => button.title === 'Prepare registration review'));
+  const registerButton = shown.buttons.find((button) => button.title === 'Review and register all selected feedback documents');
+  assert.ok(registerButton);
+  assert.equal(registerButton.arguments.length, 1);
+  assert.match(registerButton.arguments[0], /^[A-Za-z0-9_-]{32}$/,
+    'chat button must carry an opaque handle, not the feedback or file path');
+  api.window.showWarningMessage = async (message, details, action) => {
+    registered.warnings.push(message);
+    assert.equal(details.modal, true);
+    assert.equal(action, 'Register evidence');
+    return action;
+  };
+  await registered.commands.get(registerButton.command)(...registerButton.arguments);
+  assert.ok(registered.infos.some((message) => /feedback files were registered as private evidence/.test(message)));
+  const attachmentStatus = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'revision', 'attachments', 'status', '--json'], { cwd: root, encoding: 'utf8', env: process.env });
+  assert.equal(attachmentStatus.status, 0, attachmentStatus.stderr);
+  assert.deepEqual(JSON.parse(attachmentStatus.stdout).data.sets.map((item) => item.status), ['active']);
+  assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim(), beforeHead);
+  assert.equal(run('git', ['status', '--porcelain'], { cwd: root }).stdout.trim(), '');
+
+  // After the editor has selected the Story checkout, a machine-wide workspace selection can
+  // change independently. `session current` then points at another clone; the participant must
+  // not treat that clone as the editor's active Story or stage another plan for it.
+  const create = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'workspace', 'create', '--local', '--json', '--id', 'other-chat-checkout',
+    '--base', path.join(machine, 'workspaces'), '--lead', 'lead',
+    '--repository', `lead=${root}`, '--default-branch', 'lead=INIT-CHECKOUT',
+    '--confirm', 'other-chat-checkout'], { encoding: 'utf8', env: process.env });
+  assert.equal(create.status, 0, create.stderr);
+  const use = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'workspace', 'use', 'other-chat-checkout', '--json'], { encoding: 'utf8', env: process.env });
+  assert.equal(use.status, 0, use.stderr);
+  const refused = response();
+  await participant.handler(request, {}, refused.stream, { isCancellationRequested: false });
+  assert.match(refused.messages.join(''), /does not match the ready Story session\/worktree/);
+  assert.doesNotMatch(refused.messages.join(''), /Staged feedback attachment preview/);
+  assert.equal(refused.buttons.length, 0);
 });
 
 test('clicking an offline topic renders the engine-served bytes inside Help Center', async (t) => {

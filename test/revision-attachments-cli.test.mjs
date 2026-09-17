@@ -85,6 +85,12 @@ test('revision attachment intake is separate from Story documents and never star
   const headBefore = git(root, ['rev-parse', 'HEAD']);
   const statusBefore = git(root, ['status', '--porcelain']);
 
+  const revisionCapabilities = JSON.parse(flow(root, ['revision', 'capabilities', '--json']).stdout);
+  assert.equal(revisionCapabilities.resultType, 'command-result');
+  assert.equal(revisionCapabilities.data.activationProfile, 'disabled');
+  assert.equal(revisionCapabilities.data.codeRevisionExecutionAvailable, false);
+  assert.equal(revisionCapabilities.effects.filesChanged, false);
+
   const capabilitiesResult = JSON.parse(flow(root, [
     'revision', 'attachments', 'capabilities', '--json'
   ]).stdout);

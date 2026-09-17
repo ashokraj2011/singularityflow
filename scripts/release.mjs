@@ -154,6 +154,11 @@ async function main() {
   step('Checking governance and the version across every manifest');
   must('npm', ['run', 'check']);
 
+  // This remains mandatory when --skip-tests reuses a signed exact-commit test receipt.
+  // The checked-in REV trace must agree with executable runtime capabilities before promotion.
+  step('Checking REV activation profile and criterion-witness trace');
+  must(process.execPath, ['scripts/revision-trace-check.mjs']);
+
   // Latency is a release property, not an optional developer observation. It stays in the local
   // release path because the benchmark needs the accepted baseline runtime/topology. It validates
   // absolute budgets everywhere and adds the relative 20-percent gate when it runs on

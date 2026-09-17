@@ -3460,6 +3460,40 @@ const families = [
     id: 'revision-feedback-attachment-store-entry', currentVersion: 1, immutable: true,
     paths: [/^\$git\/singularity-flow\/revision-feedback-attachments\/[^/]+\/[^/]+\/\d{4}\/requests\/[a-f0-9]{64}\.json$/]
   }),
+  // New REV journal/proof identities have no predecessor. Their v1 shape is frozen: a later
+  // semantic shape requires a new family, never an implicit reinterpretation of old proof.
+  family({
+    id: 'revision-loop-journal-entry', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity',
+    paths: [/^\$git\/singularity-flow\/revisions\/[a-f0-9]{64}\/journal\/\d{10}\.json$/]
+  }),
+  family({ id: 'revision-interval', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity' }),
+  family({ id: 'revision-head-transition', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity' }),
+  family({ id: 'revision-hunk-claim-set', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity' }),
+  family({ id: 'revision-precheck', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity' }),
+  family({ id: 'revision-code-check-receipt', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity' }),
+  family({ id: 'revision-publication-selection', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity' }),
+  family({
+    id: 'revision-publication-prepared', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity',
+    paths: [/^\$git\/singularity-flow\/revision-publication-attestations\/[a-f0-9]{64}\.prepared\.json$/]
+  }),
+  family({
+    id: 'revision-publication-commit-retained', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity',
+    paths: [/^\$git\/singularity-flow\/revision-publication-attestations\/[a-f0-9]{64}\.committed\.json$/]
+  }),
+  family({
+    id: 'revision-trace-manifest', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity',
+    paths: [/^revision-trace-manifest\.json$/]
+  }),
   family({
     id: 'installation-current', currentVersion: 2, minimumReadableVersion: 2,
     paths: [

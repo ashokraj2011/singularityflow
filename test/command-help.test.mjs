@@ -96,8 +96,13 @@ test('workspace help exposes an exact remote doctor without requiring a bootstra
 
 test('capability proposal text output exposes its structured transport diagnostic', async () => {
   const cli = await readFile(path.join(packageRoot, 'src', 'cli.mjs'), 'utf8');
-  assert.match(cli, /proposal\.failure\?\.diagnosticAction\?\.command/);
-  assert.match(cli, /diagnose: \$\{proposal\.failure\.diagnosticAction\.command\}/);
+  const proposalRoutes = cli.slice(
+    cli.indexOf("if (subcommandForWrite === 'proposals')"),
+    cli.indexOf("if (subcommandForWrite === 'proposal')")
+  );
+  assert.match(proposalRoutes, /proposal\.failure\?\.diagnosticAction\?\.command/);
+  assert.match(proposalRoutes,
+    /printCommandRoutes\(proposal\.failure\.diagnosticAction\.command, \{[\s\S]*?label: 'Diagnose'/);
 });
 
 test('process help describes the installed parallel adapters and operational inspection surface', () => {

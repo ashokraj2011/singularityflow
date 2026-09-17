@@ -186,6 +186,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Cleared ${slot(s.removed, '0')} local help-metrics record(s).`,
     preserves: false
   },
+  'revision.capabilities-reported': {
+    headline: (s) => `REV activation profile: ${slot(s.activationProfile)}.`,
+    preserves: true
+  },
   'revision.attachments-capabilities-reported': {
     headline: () => 'Opaque Copilot uploads have no verifiable bytes; genuine local file references can use the guarded registration bridge.',
     preserves: true

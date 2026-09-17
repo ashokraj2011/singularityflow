@@ -1770,6 +1770,9 @@ test('phase pacing accepts only one governed transition and external approval re
   assert.equal(waiting.position, 'submitted',
     `${waiting.status}/${waiting.stopReason}: ${waiting.lastError?.message ?? waiting.nextAction}`);
   assert.equal(waiting.story.phase, 'verify');
+  assert.match(run('git', ['log', '-1', '--format=%s'], waiting.worktree).stdout,
+    /\[auto:checkpoint\] human-boundary/,
+    'Auto must durably record its exact human boundary after the submitted review commit');
 
   const workflowFile = path.join(
     waiting.worktree, 'singularity/work-items/AUT-PHASE-ROLLOVER/workflow.json'
@@ -1787,10 +1790,14 @@ test('phase pacing accepts only one governed transition and external approval re
   );
   await writeFile(workflowFile, committedBytes);
 
-  run(process.execPath, [
+  const approvalAttempt = run(process.execPath, [
     cli, 'approve', 'verify', '--work-id', workId, '--yes',
     '--acknowledge-self-approval'
-  ], waiting.worktree);
+  ], waiting.worktree, { allowFailure: true });
+  assert.equal(approvalAttempt.status, 0,
+    `${approvalAttempt.stdout}\n${approvalAttempt.stderr}\n` + run('git', [
+      'log', '--format=%H %s', '-5'
+    ], waiting.worktree).stdout);
   const advanced = await resumeAutoFlight(root, waiting.flightId, waiting.checkpointSha256);
   assert.equal(advanced.status, 'completed',
     `${advanced.status}/${advanced.stopReason}: ${advanced.lastError?.message ?? advanced.nextAction}`);

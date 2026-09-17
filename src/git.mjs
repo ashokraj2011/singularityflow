@@ -1280,6 +1280,9 @@ export async function commitIsolated(root, message, paths, {
         + `\nSingularity-Flow-Event-SHA256: ${boundTransaction.eventSha256 ?? 'none'}`
         + `\nSingularity-Flow-State-SHA256: ${boundTransaction.stateSha256 ?? 'none'}`
         + `\nSingularity-Flow-Publication-Mode: ${boundTransaction.publicationMode ?? 'required'}`
+        + (boundTransaction.revisionSelectionSha256
+          ? `\nSingularity-Flow-REV-Selection-SHA256: ${boundTransaction.revisionSelectionSha256}`
+          : '')
         + (boundTransaction.candidate
           ? `\nSingularity-Flow-Candidate-ID: ${boundTransaction.candidate.candidateId}`
             + `\nSingularity-Flow-Candidate-SHA256: ${boundTransaction.candidate.candidateSha256}`
@@ -1619,6 +1622,7 @@ export function governedCommitIdentity(root, sha) {
     eventSha256: trailer('Singularity-Flow-Event-SHA256'),
     stateSha256: trailer('Singularity-Flow-State-SHA256'),
     publicationMode: trailer('Singularity-Flow-Publication-Mode'),
+    revisionSelectionSha256: trailer('Singularity-Flow-REV-Selection-SHA256'),
     candidate: candidateValues.length === 0 ? null
       : candidateValues.length === Object.keys(candidateFields).length ? candidateFields
         : { invalid: true, ...candidateFields }

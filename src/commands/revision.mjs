@@ -209,8 +209,17 @@ const CAPABILITIES = Object.freeze({
 });
 
 export async function run(_argv, { positionals, options } = {}) {
+  if (positionals?.[1] === 'capabilities') {
+    return emit(
+      { id: 'revision.capabilities', classification: 'read' }, null,
+      succeeded('revision.capabilities-reported', {
+        activationProfile: revisionRuntimeCapabilities.activationProfile
+      }), noEffects(), revisionRuntimeCapabilities, options,
+      { restState: null }
+    );
+  }
   if (positionals?.[1] !== 'attachments') {
-    refuse('UNKNOWN_SUBCOMMAND', 'Use: singularity-flow revision attachments capabilities|preview|register|list|status|remove-preview|remove.');
+    refuse('UNKNOWN_SUBCOMMAND', 'Use: singularity-flow revision capabilities, or revision attachments capabilities|preview|register|list|status|remove-preview|remove.');
   }
   const action = positionals[2];
   if (action === 'capabilities') {

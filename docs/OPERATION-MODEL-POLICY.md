@@ -451,6 +451,7 @@ Every public operation is classified before its implementation module is importe
 | revision.attachments.remove | mutation | never | — | — |
 | revision.attachments.remove-preview | mutation | never | — | — |
 | revision.attachments.status | read | never | — | — |
+| revision.capabilities | read | never | — | — |
 | run | mutation | never | — | — |
 | secrets.protect | mutation | never | — | — |
 | secrets.scan | read | never | — | — |

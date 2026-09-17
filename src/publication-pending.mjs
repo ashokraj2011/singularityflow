@@ -209,6 +209,9 @@ function recoveryRecord(journal, updates = {}) {
     stateSha256: journal.stateSha256 ?? null,
     publicationMode: journal.publicationMode ?? null,
     candidate: journal.candidate ?? null,
+    ...(journal.revisionSelectionSha256
+      ? { revisionSelectionSha256: journal.revisionSelectionSha256 }
+      : {}),
     pushOutcome: journal.pushOutcome ?? 'not-attempted',
     ...(journal.expectedRemoteSha !== undefined
       ? { expectedRemoteSha: journal.expectedRemoteSha }
@@ -249,6 +252,9 @@ function verifiedJournalCommit(root, journal) {
     eventSha256: journal.eventSha256,
     publicationMode: journal.publicationMode,
     ...(journal.candidate ? { candidate: journal.candidate } : {}),
+    ...(journal.revisionSelectionSha256
+      ? { revisionSelectionSha256: journal.revisionSelectionSha256 }
+      : {}),
     ...(journal.remoteFingerprint ? { remoteFingerprint: journal.remoteFingerprint } : {}),
     ...(journal.expectedRemoteSha !== undefined
       ? { expectedRemoteSha: journal.expectedRemoteSha }
@@ -262,6 +268,8 @@ function verifiedJournalCommit(root, journal) {
     [identity.stateSha256 === journal.stateSha256, 'state digest'],
     [journal.stateSha256 === expectedStateSha256, 'recomputed state digest'],
     [identity.publicationMode === journal.publicationMode, 'publication mode'],
+    [identity.revisionSelectionSha256 === (journal.revisionSelectionSha256 ?? null),
+      'REV selection digest'],
     [candidateIdentityMatches(identity.candidate, journal.candidate), 'Candidate binding'],
     [journal.candidate == null || journal.tree === journal.candidate.candidateTree,
       'Candidate tree']
@@ -350,6 +358,10 @@ export function verifyPendingPublicationCommit(root, record, {
   if (!String(record.transactionId ?? '').trim()) failures.push('transaction ID is missing');
   if (!sha256Digest(record.eventSha256)) failures.push('event digest is invalid');
   if (!sha256Digest(record.stateSha256)) failures.push('state digest is invalid');
+  if (record.revisionSelectionSha256 !== undefined
+    && !sha256Digest(record.revisionSelectionSha256)) {
+    failures.push('REV selection digest is invalid');
+  }
   if (!publicationModes.includes(record.publicationMode)) failures.push('publication mode is invalid');
   const pushOutcomes = ['not-attempted', 'rejected', 'transport-indeterminate'];
   if (record.pushOutcome !== undefined && !pushOutcomes.includes(record.pushOutcome)) {
@@ -429,6 +441,9 @@ export function verifyPendingPublicationCommit(root, record, {
     if (identity.eventSha256 !== record.eventSha256) failures.push('commit event trailer does not match the marker');
     if (identity.stateSha256 !== record.stateSha256) failures.push('commit state trailer does not match the marker');
     if (identity.publicationMode !== record.publicationMode) failures.push('commit publication-mode trailer does not match the marker');
+    if (identity.revisionSelectionSha256 !== (record.revisionSelectionSha256 ?? null)) {
+      failures.push('commit REV selection trailer does not match the marker');
+    }
     if (!candidateIdentityMatches(identity.candidate, record.candidate)) {
       failures.push('commit Candidate trailers do not match the marker');
     }
@@ -448,6 +463,9 @@ export function verifyPendingPublicationCommit(root, record, {
         eventSha256: record.eventSha256,
         publicationMode: record.publicationMode,
         ...(record.candidate ? { candidate: record.candidate } : {}),
+        ...(record.revisionSelectionSha256
+          ? { revisionSelectionSha256: record.revisionSelectionSha256 }
+          : {}),
         ...(record.remoteFingerprint ? { remoteFingerprint: record.remoteFingerprint } : {}),
         ...(record.expectedRemoteSha !== undefined
           ? { expectedRemoteSha: record.expectedRemoteSha }
@@ -686,7 +704,9 @@ export async function readPendingPublication(root, { kind, id, legacyPath = null
       });
       return { path: journal.path, record, migrated: false, journal: true, journalRecord: recorded };
     }
-    if (recorded.publicationMode === 'off') {
+    const localRevisionCommit = recorded.publicationMode === 'off'
+      && Boolean(recorded.revisionSelectionSha256);
+    if (recorded.publicationMode === 'off' && !localRevisionCommit) {
       if (migrate) await clearPublicationJournal(root, subject, { transactionId: recorded.transactionId });
       return null;
     }
@@ -694,14 +714,15 @@ export async function readPendingPublication(root, { kind, id, legacyPath = null
     // created the same ref (or a descendant) while this process was down. Always materialize its
     // receipt so sync can distinguish an in-flight transport from a known rejection and compare the
     // exact remote tip rather than accepting ancestry.
-    if (recorded.expectedRemoteSha !== null
+    if (!recorded.revisionSelectionSha256 && recorded.expectedRemoteSha !== null
       && remoteContains(root, recorded.commit, recorded.remote, recorded.branch)) {
       if (migrate) await clearPublicationJournal(root, subject, { transactionId: recorded.transactionId });
       return null;
     }
     const record = recoveryRecord(recorded, {
       recoveryStage: 'branch-ref-advanced-before-publication',
-      error: 'The process stopped after creating the exact governed commit and before publication completed.'
+      error: 'The process stopped after creating the exact governed commit and before publication completed.',
+      ...(localRevisionCommit ? { localCommitted: true } : {})
     });
     if (migrate) {
       await prepareSharedPublicationStorage(
@@ -799,6 +820,32 @@ export async function clearPendingPublication(root, { kind, id, legacyPath = nul
  * recovery tail. Story and Initiative keep their richer wrappers (capability/ledger handling);
  * ad-hoc landing uses this kernel path so it cannot become permanently stuck after a push refusal.
  */
+export async function ensurePendingRevisionAttestation(root, { subject, record, pending } = {}) {
+  if (!record?.revisionSelectionSha256) return null;
+  if (pending?.integrityVerified !== true) {
+    throw new SingularityFlowError(
+      `Pending publication for ${subject.kind} '${subject.id}' has no verified REV recovery seal.`,
+      { code: 'REV_ATTESTATION_RECOVERY_UNPROVEN', details: { subject } }
+    );
+  }
+  // Imported only for an actual REV marker: the attestation reader itself uses
+  // pending-publication verification, so a static import would create a module cycle.
+  const { recoverRevisionPublicationAttestation } = await import('./revision/publication-attestation.mjs');
+  const attestation = await recoverRevisionPublicationAttestation(root, {
+    subject, transactionId: record.transactionId, pending
+  });
+  if (attestation.commit !== record.commit
+      || attestation.selectionSha256 !== record.revisionSelectionSha256
+      || attestation.eventSha256 !== record.eventSha256
+      || attestation.stateSha256 !== record.stateSha256) {
+    throw new SingularityFlowError(
+      `Pending publication for ${subject.kind} '${subject.id}' does not match its REV attestation.`,
+      { code: 'REV_ATTESTATION_RECOVERY_MISMATCH', details: { subject } }
+    );
+  }
+  return attestation;
+}
+
 export async function syncPendingLifecyclePublication(root, options = {}) {
   const subject = subjectRef(options);
   return withSubjectLock(root, subject, async () => {
@@ -851,6 +898,8 @@ export async function syncPendingLifecyclePublication(root, options = {}) {
         }
       );
     }
+    // Complete the local REV binding before either push or marker cleanup.
+    await ensurePendingRevisionAttestation(root, { subject, record, pending });
     if (localOnly) {
       if (typeof options.finalize === 'function') {
         await options.finalize(Object.freeze({

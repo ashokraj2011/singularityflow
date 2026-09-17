@@ -8,7 +8,7 @@ import {
   repoRelative, run, secureRepositoryPath, snapshot, stateFingerprint, truncate, writeJson, writeText
 } from './util.mjs';
 import {
-  branch, changedFiles, commitIsAncestor, exactRemoteBranchObservationAsync, gitCommonDir, head, identity,
+  branch, changedFiles, commitIsAncestor, exactRemoteBranchObservationAsync, gitCommonDir, governedCommitIdentity, head, identity,
   publicationPushOutcome, pushCommitToBranchAsync, remoteContains, untrackedFiles
 } from './git.mjs';
 import {
@@ -80,6 +80,7 @@ import { verifyGateRecoveryReopenPlan } from './gate-recovery.mjs';
 import {
   clearPendingPublication,
   completePendingStoryBranchPromotion,
+  ensurePendingRevisionAttestation,
   hasPendingPublication,
   isPendingStoryBranchPromotion,
   livePreparedPublicationOwner,
@@ -102,6 +103,9 @@ import { lifecycleEvent, recordPublicationProjection } from './lifecycle-event.m
 import { publishLifecycleChange } from './publication-unit-of-work.mjs';
 import { captureAggregateRecovery, restoreAggregateRecovery } from './aggregate-recovery.mjs';
 import { validateDocumentPublicationTree } from './document-publication.mjs';
+import {
+  prepareRevisionPublicationSelection, verifyPreparedRevisionPublicationSelection
+} from './revision/publication-selection.mjs';
 import { deliverLifecycleNotifications, warnNotificationFailures } from './notifications.mjs';
 import { readConfigurationSource } from './configuration-branch.mjs';
 import { buildDesignSourceSet, classifyDesignSourceCandidates, approvedDesignSourceBinding } from './design-sources.mjs';
@@ -138,7 +142,7 @@ import {
   evaluateChangeFlightPlanBoundary, persistChangeFlightPlanBoundary
 } from './change-flight-plan.mjs';
 import { normalizeTokenEconomy } from './token-economy.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson, recordSha256 } from './records.mjs';
 import { buildWelEnrollment, validateWelEnrollment } from './wel-policy.mjs';
 import {
   captureWorkflowSnapshot, finalizeDraftWorkflowSnapshot, verifyWorkflowSnapshot
@@ -4058,9 +4062,10 @@ export async function approvePhase(root, config, workflow, {
     );
   }
   // A receipt intentionally binds HEAD when review begins, so receipt freshness alone cannot tell
-  // whether an unrelated commit was inserted *before* that point. Permit only prior partial
-  // approval commits in the immutable review packet's first-parent tail. Each such commit writes
-  // the canonical phase approval summary; any other commit requires a fresh submission.
+  // whether an unrelated commit was inserted *before* that point. Permit prior partial approvals
+  // and the exact Auto human-boundary checkpoint for this submitted phase. Auto records that
+  // checkpoint immediately after submission so a human can resume the flight after approval;
+  // it is observational evidence, not a new generation. All other commits require resubmission.
   const reviewRange = `${submittedReview.evidenceCommit}..${head(root)}`;
   const interveningCommits = run('git', [
     'rev-list', '--first-parent', reviewRange
@@ -4071,10 +4076,35 @@ export async function approvePhase(root, config, workflow, {
   const priorApprovalCommits = run('git', [
     'log', '--first-parent', '--format=%H', reviewRange, '--', approvalSummary
   ], { cwd: root, allowFailure: true }).stdout.trim().split(/\r?\n/u).filter(Boolean);
-  if (canonicalJson(interveningCommits) !== canonicalJson(priorApprovalCommits)) {
+  const allowedReviewCommits = new Set(priorApprovalCommits);
+  if (workflow.auto && interveningCommits.some((commit) => !allowedReviewCommits.has(commit))) {
+    const { readGovernedAutoCheckpoint } = await import('./auto/auto-checkpoint.mjs');
+    for (const projection of workflow.publicationProjections ?? []) {
+      const event = projection.event;
+      if (event?.type !== 'evidence-recorded'
+          || event.payload?.kind !== 'auto-boundary-checkpoint'
+          || event.payload?.checkpointClass !== 'human-boundary'
+          || event.phaseId !== phase.id) continue;
+      const checkpoint = await readGovernedAutoCheckpoint(root, workflow, projection);
+      const commit = checkpoint.commit;
+      if (!interveningCommits.includes(commit)
+          || checkpoint.record.story.workId !== workflow.workItem.id
+          || checkpoint.record.story.phase !== phase.id
+          || checkpoint.record.story.generation !== phase.generation
+          || checkpoint.record.position !== 'submitted') continue;
+      const identity = governedCommitIdentity(root, commit);
+      if (identity?.parents.length !== 1
+          || identity.parents[0] !== submittedReview.evidenceCommit
+          || identity.parents[0] !== checkpoint.record.story.sourceRevision
+          || (event.sourceCommit && event.sourceCommit !== identity.parents[0])
+          || identity.eventSha256 !== `sha256:${recordSha256(event)}`) continue;
+      allowedReviewCommits.add(commit);
+    }
+  }
+  if (interveningCommits.some((commit) => !allowedReviewCommits.has(commit))) {
     throw new SingularityFlowError(
       `Phase '${phase.id}' repository history changed after its immutable review evidence was recorded. `
-      + 'Only prior governed approvals from the same review may precede another approval; submit fresh evidence for every other commit.',
+      + 'Only prior governed approvals or an exact Auto human-boundary checkpoint for this submitted phase may precede another approval; submit fresh evidence for every other commit.',
       {
         code: 'STORY_REVIEW_INTERVENING_COMMIT',
         details: {
@@ -4084,7 +4114,8 @@ export async function approvePhase(root, config, workflow, {
           evidenceCommit: submittedReview.evidenceCommit,
           currentHead: head(root),
           interveningCommits,
-          priorApprovalCommits
+          priorApprovalCommits,
+          allowedReviewCommits: [...allowedReviewCommits]
         }
       }
     );
@@ -5878,8 +5909,15 @@ export async function commitAndPublish(root, config, workflow, event, message, e
   expectedLocalHead = undefined,
   publicationAuthority = null,
   publicationTail = null,
+  revisionPublication = null,
   fault = null
 } = {}) {
+  if (revisionPublication !== null && (typeof revisionPublication !== 'object'
+      || Array.isArray(revisionPublication))) {
+    throw new SingularityFlowError('REV publication selection must be an internal exact binding.', {
+      code: 'REV_PUBLICATION_BINDING_INVALID'
+    });
+  }
   // Capture before the first asynchronous read. Even aggregates loaded through a legacy path that
   // lacks a STATE_REVISION receipt must not silently move onto a different local parent while this
   // transaction is checking pending publication and ledger state.
@@ -6008,6 +6046,26 @@ export async function commitAndPublish(root, config, workflow, event, message, e
     // This provenance is covered by the machine-local recovery MAC. Keep it after caller metadata
     // so an authenticated tail cannot relabel an explicit lease as an inferred compatibility lease.
     ...(publicationMode !== 'off' ? { expectedRemoteShaSource } : {})
+  };
+  let revisionSelection = null;
+  const revisionAttestation = revisionPublication === null ? null : {
+    beforeStateWrite: async ({ expectedHead }) => {
+      const preflight = await prepareRevisionPublicationSelection({
+        ...revisionPublication, root, workflow
+      });
+      if (revisionPublication.candidateReference?.repository?.baselineCommit !== expectedHead) {
+        throw new SingularityFlowError('REV selected Candidate does not extend the Story publication parent.', {
+          code: 'REV_PUBLICATION_BASELINE_CHANGED'
+        });
+      }
+      return preflight;
+    },
+    select: async ({ preflight, prospectiveTree }) => {
+      revisionSelection = await verifyPreparedRevisionPublicationSelection({
+        token: preflight, root, prospectiveTree, config, workflow
+      });
+      return revisionSelection;
+    }
   };
   const result = await publishLifecycleChange(root, {
     subject: envelope.subject,
@@ -6177,10 +6235,12 @@ export async function commitAndPublish(root, config, workflow, event, message, e
     pendingMetadata,
     pendingRecord: () => pendingMetadata,
     retainPendingOnSuccess: Boolean(publicationTail),
+    revisionAttestation,
     ledger: { config: ledgerConfig, intent: ledgerIntent, intentDirectory: workDirRelative(config, workflow.workItem.id) },
     afterOwnedWrites,
-    validateProspectiveTree: ({ event: finalizedEvent, prospectiveTree }) =>
-      validateDocumentPublicationTree(root, config, workflow, finalizedEvent, { prospectiveTree }),
+    validateProspectiveTree: async ({ event: finalizedEvent, prospectiveTree }) => {
+      await validateDocumentPublicationTree(root, config, workflow, finalizedEvent, { prospectiveTree });
+    },
     recoveryPreimage,
     stabilityGuard: worktreeGuard,
     transactionId,
@@ -6217,7 +6277,10 @@ export async function commitAndPublish(root, config, workflow, event, message, e
     event: result.event
   });
   warnNotificationFailures(notifications);
-  return { ...result, notifications, pendingCleanup };
+  return {
+    ...result, notifications, pendingCleanup,
+    ...(revisionSelection ? { revisionSelection } : {})
+  };
 }
 
 export async function syncPublication(root, config, workflow, { fault = null } = {}) {
@@ -6304,10 +6367,12 @@ export async function syncPublication(root, config, workflow, { fault = null } =
       });
     }
     const expectedBranch = workflowPublicationBranch(root, workflow);
+    const localOnly = record.publicationMode === 'off' && record.localCommitted === true;
     const verification = verifyPendingPublicationCommit(root, record, {
       subject,
       branch: expectedBranch,
-      remote: config.git?.remote ?? 'origin'
+      remote: config.git?.remote ?? 'origin',
+      allowPublicationOff: localOnly
     });
     if (!verification.valid) {
       throw new SingularityFlowError(
@@ -6330,6 +6395,25 @@ export async function syncPublication(root, config, workflow, { fault = null } =
           details: { subject, markerPath: current.path, failures: candidateAuthority.failures }
         }
       );
+    }
+    // A prepared REV receipt must be completed from this exact pending marker
+    // before Story sync may push the commit or discard the only recovery proof.
+    await ensurePendingRevisionAttestation(root, { subject, record, pending: current });
+    if (localOnly) {
+      if (current.integrityVerified !== true) {
+        throw new SingularityFlowError(
+          `Story '${workflow.workItem.id}' local REV recovery marker failed integrity verification.`,
+          { code: 'PENDING_PUBLICATION_PROGRESS_INTEGRITY_INVALID', details: { subject, markerPath: current.path } }
+        );
+      }
+      const ledger = await reconcileLedger(root, workflow.resolution?.ledger ?? config.ledger ?? {}, {
+        workId: workflow.workItem.id
+      });
+      await clearPendingPublication(root, pendingOptions);
+      return {
+        pending: false, pushed: null, remote: null, branch: record.branch,
+        localOnly: true, capabilityPublished: [], ledger
+      };
     }
     let rootRemoteAuthority = null;
     try { rootRemoteAuthority = configuredRemoteAuthority(root, record.remote); }

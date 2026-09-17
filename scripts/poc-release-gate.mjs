@@ -47,6 +47,12 @@ export function pocReleaseStages({
   ];
   return Object.freeze([
     Object.freeze({
+      label: 'REV activation profile and criterion-witness trace',
+      command: process.execPath,
+      args: ['scripts/revision-trace-check.mjs'],
+      timeoutMs: 60_000
+    }),
+    Object.freeze({
       label: 'Developer-experience latency budgets',
       command: npm,
       args: ['run', 'benchmark:dx:enforce'],
@@ -85,7 +91,8 @@ export function pocReleaseStages({
         'test/wel-javascript.test.mjs',
         // These files inspect the reporter and this stage manifest. Importing the gate is inert,
         // so including them proves the release authorities without recursively invoking this gate.
-        'test/release-test-reporter.test.mjs', 'test/poc-release-gate.test.mjs'
+        'test/release-test-reporter.test.mjs', 'test/poc-release-gate.test.mjs',
+        'test/revision-trace-manifest.test.mjs'
       ]),
       timeoutMs: 30 * 60_000
     }),

@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "kind": "revision-trace-manifest",
+  "specificationVersion": "0.6.0",
+  "activationProfile": "disabled",
+  "decisionOwner": null,
+  "validatedBy": null,
+  "advertisedCapabilities": [],
+  "enabledCriteria": {},
+  "deferredCriteria": [
+    {
+      "ids": "REV:AC-001..190",
+      "unavailableCapability": "revision-loop",
+      "reason": "REV code execution and publication are not installed in this release."
+    },
+    {
+      "ids": "REV:CODE-AC-001..008",
+      "unavailableCapability": "revision-loop",
+      "reason": "Candidate-bound Code checks and results are not installed."
+    },
+    {
+      "ids": "REV:UPLOAD-AC-001..010",
+      "unavailableCapability": "copilot-upload",
+      "reason": "Direct Copilot upload bytes and a verified host adapter are not available."
+    }
+  ]
+}

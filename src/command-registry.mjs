@@ -1130,7 +1130,8 @@ function resolveSgosOperation(definition, positionals, options) {
 
 function resolveRevisionOperation(definition, positionals) {
   const subcommand = positionals[1];
-  if (subcommand !== 'attachments') return unknownSubcommand('revision', subcommand, ['attachments']);
+  if (subcommand === 'capabilities') return never('revision.capabilities', definition, 'read');
+  if (subcommand !== 'attachments') return unknownSubcommand('revision', subcommand, ['capabilities', 'attachments']);
   const action = positionals[2];
   if (!REVISION_ATTACHMENT_ACTIONS.includes(action)) {
     return unknownSubcommand('revision attachments', action, REVISION_ATTACHMENT_ACTIONS, 'action');
@@ -1341,6 +1342,7 @@ export function operationCatalog() {
   sgos.push(never('learn.progress-import.plan', commandDefinition('learn'), 'read'));
   sgos.push(never('learn.reset.plan', commandDefinition('learn'), 'read'));
   const modelFreeMixed = [
+    never('revision.capabilities', revisionDefinition, 'read'),
     ...REVISION_ATTACHMENT_ACTIONS.map((action) => never(
       'revision.attachments.' + action, revisionDefinition,
       ['preview', 'register', 'remove-preview', 'remove'].includes(action) ? 'mutation' : 'read'

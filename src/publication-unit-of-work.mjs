@@ -28,6 +28,9 @@ import {
   freezeAndVerifySgosLifecycleCandidate, sgosLifecycleCandidateBinding,
   sgosLifecycleCandidateIdentity
 } from './sgos/candidate-lifecycle.mjs';
+import {
+  bindRevisionPublicationCommit, prepareRevisionPublicationAttestation
+} from './revision/publication-attestation.mjs';
 
 const PUBLICATION_DIAGNOSTIC_MAX_BYTES = 4096;
 
@@ -81,6 +84,7 @@ export class GitPublicationUnitOfWork {
   beforeCommit = null,
   afterOwnedWrites = null,
   validateProspectiveTree = null,
+  revisionAttestation = null,
   stabilityGuard = null,
   fault = null,
   transactionId = null,
@@ -197,6 +201,31 @@ export class GitPublicationUnitOfWork {
         }
       );
     }
+    let revisionPreflight = null;
+    if (revisionAttestation !== null) {
+      if (subject.kind !== 'story'
+          || typeof revisionAttestation?.beforeStateWrite !== 'function'
+          || typeof revisionAttestation?.select !== 'function') {
+        throw new SingularityFlowError(
+          'REV publication attestation requires Story preflight and exact selection callbacks.',
+          { code: 'REV_ATTESTATION_SELECTION_REQUIRED' }
+        );
+      }
+      // This must precede transaction-owned aggregate writes. Those writes legitimately change
+      // workflow metadata while the developer-selected loop context remains pinned to the
+      // pre-transaction revision. The later admitted-tree selection compares this frozen proof,
+      // rather than trying to interpret our own metadata writes as editor drift.
+      revisionPreflight = await revisionAttestation.beforeStateWrite({
+        event: envelope, expectedHead: publicationHead,
+        branch: publication.branch, subject
+      });
+      if (!revisionPreflight || typeof revisionPreflight !== 'object') {
+        throw new SingularityFlowError(
+          'REV publication preflight did not prove one selected Story head.',
+          { code: 'REV_ATTESTATION_PREFLIGHT_MISSING' }
+        );
+      }
+    }
     // Persist the exact pre-transaction bytes before the journal authorizes the first state write.
     // An ordinary exception can use the same preimage immediately; a hard process death leaves it
     // in the journal for the next `sync` to restore after reclaiming the dead owner's lock.
@@ -228,6 +257,8 @@ export class GitPublicationUnitOfWork {
     let transactionStateSha256 = null;
     let transactionEventSha256 = journal.eventSha256;
     let candidateBinding = null;
+    let revisionSelection = null;
+    let revisionPrepared = null;
     const unwind = async (error) => {
       if (ledgerIntentPath) await rm(path.join(root, ledgerIntentPath), { force: true });
       let restoreFailure = null;
@@ -356,6 +387,17 @@ export class GitPublicationUnitOfWork {
           expectedHead: publicationHead
         });
       }
+      if (revisionAttestation !== null) {
+        // The callback is an internal, opt-in bridge. It must return the exact selection proven
+        // against this admitted tree and live loop state while the Story subject lease is held.
+        revisionSelection = await revisionAttestation.select({
+          preflight: revisionPreflight,
+          event: envelope,
+          prospectiveTree: staged.prospectiveTree,
+          paths: staged,
+          expectedHead: publicationHead
+        });
+      }
       if (universalCandidate) {
         const boundary = await freezeAndVerifySgosLifecycleCandidate(root, {
           event: envelope,
@@ -380,6 +422,16 @@ export class GitPublicationUnitOfWork {
           envelope, candidate: candidateBinding
         });
       }
+      if (revisionAttestation !== null) {
+        revisionPrepared = await prepareRevisionPublicationAttestation(root, {
+          subject, selection: revisionSelection, transactionId: journal.transactionId,
+          expectedHead: publicationHead, branch: publication.branch,
+          publicationMode: journal.publicationMode
+        });
+        await updatePublicationJournal(root, subject, {
+          revisionSelectionSha256: revisionPrepared.selection.selectionSha256
+        }, { transactionId: journal.transactionId });
+      }
     } catch (error) { await unwind(error); }
     // The commit is bounded by the same set that was staged. `allowedPaths` named a containment the
     // bare commit never delivered: it staged these and then committed the whole index, so anything
@@ -400,6 +452,9 @@ export class GitPublicationUnitOfWork {
           eventSha256: transactionEventSha256,
           publicationMode: journal.publicationMode,
           candidate: candidateBinding,
+          ...(revisionPrepared
+            ? { revisionSelectionSha256: revisionPrepared.selection.selectionSha256 }
+            : {}),
           stateSha256ForTree: (tree) => `sha256:${recordSha256({
             transactionId: journal.transactionId,
             expectedHead: publicationHead,
@@ -408,6 +463,9 @@ export class GitPublicationUnitOfWork {
             eventSha256: transactionEventSha256,
             publicationMode: journal.publicationMode,
             ...(candidateBinding ? { candidate: candidateBinding } : {}),
+            ...(revisionPrepared
+              ? { revisionSelectionSha256: revisionPrepared.selection.selectionSha256 }
+              : {}),
             ...(publicationRemoteFingerprint ? { remoteFingerprint: publicationRemoteFingerprint } : {}),
             ...(publication.expectedRemoteSha !== undefined
               ? { expectedRemoteSha: publication.expectedRemoteSha }
@@ -431,6 +489,19 @@ export class GitPublicationUnitOfWork {
             refAdvanced: true,
             recoveryPreimage: null
           }, { transactionId: journal.transactionId });
+          if (revisionPrepared) {
+            try {
+              await bindRevisionPublicationCommit(root, {
+                subject, transactionId: journal.transactionId,
+                commit: advancedCommit, eventSha256: transactionEventSha256,
+                stateSha256: transactionStateSha256,
+                candidateBinding
+              });
+            } catch (error) {
+              error.revisionAttestationBindFailed = true;
+              throw error;
+            }
+          }
         }
       });
     } catch (error) {
@@ -444,7 +515,10 @@ export class GitPublicationUnitOfWork {
         );
       }
       envelope = bindLifecycleEvent(envelope, sourceCommit);
-      if (publication.mode !== 'off') {
+      // Even local-only REV publication needs a durable exact-commit marker if the
+      // post-ref attestation write fails. Otherwise the journal is cleared while
+      // the prepared receipt has no recoverable commit identity.
+      if (publication.mode !== 'off' || revisionPrepared) {
         const retainedError = publicationDiagnostic(error?.message ?? String(error));
         await writePendingPublication(root, {
           kind: subject.kind,
@@ -469,7 +543,11 @@ export class GitPublicationUnitOfWork {
             eventSha256: transactionEventSha256,
             stateSha256: transactionStateSha256,
             publicationMode: journal.publicationMode,
+            ...(publication.mode === 'off' ? { localCommitted: true } : {}),
             candidate: candidateBinding,
+            ...(revisionPrepared
+              ? { revisionSelectionSha256: revisionPrepared.selection.selectionSha256 }
+              : {}),
             error: retainedError,
             ...(publication.expectedRemoteSha !== undefined
               ? { expectedRemoteSha: publication.expectedRemoteSha }
@@ -478,6 +556,19 @@ export class GitPublicationUnitOfWork {
         });
       }
       await clearPublicationJournal(root, subject, { transactionId: journal.transactionId });
+      if (revisionPrepared && error.revisionAttestationBindFailed === true) {
+        throw new SingularityFlowError(
+          `Story '${subject.id}' retained exact governed commit ${sourceCommit.slice(0, 12)}, `
+          + 'but its REV publication attestation could not be completed. The exact pending '
+          + 'publication marker was retained; run Story sync/recovery to complete the '
+          + 'REV attestation before another mutation.',
+          {
+            code: 'REV_ATTESTATION_COMMIT_PENDING_RECOVERY',
+            cause: error,
+            details: { subject, commit: sourceCommit, transactionId: journal.transactionId }
+          }
+        );
+      }
       throw error;
     }
     // The branch ref is now the durable recovery boundary. Drop the potentially large preimage as
@@ -510,6 +601,9 @@ export class GitPublicationUnitOfWork {
           stateSha256: transactionStateSha256,
           publicationMode: journal.publicationMode,
           candidate: candidateBinding,
+          ...(revisionPrepared
+            ? { revisionSelectionSha256: revisionPrepared.selection.selectionSha256 }
+            : {}),
           event: envelope,
           createdAt: nowIso(),
           localCommitted: true,
@@ -596,6 +690,9 @@ export class GitPublicationUnitOfWork {
             stateSha256: transactionStateSha256,
             publicationMode: journal.publicationMode,
             candidate: candidateBinding,
+            ...(revisionPrepared
+              ? { revisionSelectionSha256: revisionPrepared.selection.selectionSha256 }
+              : {}),
             event: envelope,
             createdAt: nowIso(),
             error,
@@ -607,7 +704,11 @@ export class GitPublicationUnitOfWork {
         });
         await clearPublicationJournal(root, subject, { transactionId: journal.transactionId });
         const message = `${subject.kind} commit ${sourceCommit.slice(0, 8)} was retained locally but push failed.${error ? ` Git reported: ${error}` : ''}`;
-        if (publication.mode === 'warn') return { sha: sourceCommit, pushed: false, pending: true, warning: message, replayed, event: envelope, ledger: null, candidate: candidateBinding };
+        if (publication.mode === 'warn') return {
+          sha: sourceCommit, pushed: false, pending: true, warning: message, replayed,
+          event: envelope, ledger: null, candidate: candidateBinding,
+          ...(revisionSelection ? { revisionSelection } : {})
+        };
         throw new SingularityFlowError(`${message} Run the appropriate sync command after fixing remote access.`);
       }
       pushed = true;
@@ -645,6 +746,9 @@ export class GitPublicationUnitOfWork {
             stateSha256: transactionStateSha256,
             publicationMode: journal.publicationMode,
             candidate: candidateBinding,
+            ...(revisionPrepared
+              ? { revisionSelectionSha256: revisionPrepared.selection.selectionSha256 }
+              : {}),
             event: envelope,
             createdAt: nowIso(),
             rootPublished: true,
@@ -700,7 +804,8 @@ export class GitPublicationUnitOfWork {
     if (fault) await fault('after-ledger', { envelope, sourceCommit, publishedCommit, ledgerResult });
     return {
       sha: publishedCommit, pushed, replayed, event: envelope, ledger: ledgerResult,
-      candidate: candidateBinding
+      candidate: candidateBinding,
+      ...(revisionSelection ? { revisionSelection } : {})
     };
   });
   }

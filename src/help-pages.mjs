@@ -1396,10 +1396,11 @@ const PAGES = Object.freeze({
     seeAlso: ['wm', 'capability', 'phase']
   },
   revision: {
-    summary: 'Stage verified file evidence for feedback against the active Story phase; no revision runs.',
+    summary: 'Inspect REV availability or stage verified feedback files; no revision runs.',
     description: [
-      'Only the attachments subcommand is installed in this slice. Capabilities reports the native',
-      'Copilot byte bridge as unavailable for opaque uploads; a genuine local VS Code file URI',
+      'Revision capabilities reports the active execution profile. REV code execution is disabled.',
+      'The attachments subcommand reports the native Copilot byte bridge as unavailable for opaque',
+      'uploads; a genuine local VS Code file URI',
       'can be verified and registered only after a separate confirmation. A chat-visible file',
       'name or model summary is not original-byte evidence. Explicit local paths remain available.',
       'Preview validates original bytes and shows the exact plan digest without registering evidence.',
@@ -1419,6 +1420,7 @@ const PAGES = Object.freeze({
       ['--json', 'Emit the capability, preview, receipt, or list as structured JSON.']
     ],
     examples: [
+      ['singularity-flow revision capabilities --json', 'Inspect the REV execution profile and unavailable boundaries without starting a loop.'],
       ['singularity-flow revision attachments capabilities --json', 'Inspect supported formats and the current Copilot byte-bridge boundary.'],
       ['singularity-flow revision attachments preview --file review.md --feedback-stdin --json', 'Preview one Story/phase-bound local-file import with exact feedback on standard input.'],
       ['singularity-flow revision attachments register --file review.md --feedback-stdin --confirm sha256:<PLAN> --json', 'Register only the exact confirmed evidence using the same feedback bytes.'],

@@ -4,6 +4,8 @@ The source specification is `SPEC-REV-Revision-Loop-Strong-v0.6.md`. Its decisio
 
 Check the installed execution boundary with `singularity-flow revision capabilities --json`; run `singularity-flow revision activation --json` from a repository to see its exact pilot prerequisites. Both commands are read-only. A result of `activationProfile: "disabled"` means there is no safe command or configuration toggle to start a code revision loop in that build.
 
+Classic Delivery can use the existing, explicit reject-to-Code cycle and optional private feedback attachments while REV execution remains disabled. See [Classic Delivery review and rework](CLASSIC-DELIVERY-REVIEW-AND-REWORK.md); this is not an activated REV pilot.
+
 ## Available now
 
 - `revision attachments capabilities|preview|register|list|status|remove-preview|remove` binds private feedback evidence to an exact Story, phase generation, HEAD, source tree, configuration, workflow, feedback digest, and repository identity. Registration and exclusion require separate exact confirmations. Exclusion is append-only; it does not erase historical proof.

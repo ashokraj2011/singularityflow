@@ -31,6 +31,10 @@ test('Classic delivery pins four named checkpoints and an approved test-path con
   const resolved = resolveWorkType(definition, 'classic-delivery');
   assert.deepEqual(resolved.phases.map((phase) => phase.id), PHASES);
   assert.deepEqual(resolved.phases.map((phase) => phase.label), ['Intake', 'Code', 'Testing', 'Code checking']);
+  assert.match(definition.workTypes['classic-delivery'].description,
+    /feedback\/rework to Code; REV feedback attachments are evidence only/u);
+  assert.equal(definition.workTypes['classic-delivery'].revision, undefined,
+    'Classic Delivery must not advertise an executable REV pilot');
   assert.deepEqual(resolved.plannedClaims, {
     mode: 'required', clausePhases: ['intake'], owners: { implementation: 'intake' }, reason: null
   });
@@ -42,6 +46,8 @@ test('Classic delivery pins four named checkpoints and an approved test-path con
   assert.ok(resolved.phases.slice(2).every((phase) => phase.writeScope === 'artifact-only'));
   for (const phase of resolved.phases.slice(2)) {
     assert.ok(phase.inputs.some((input) => input.phase === 'implementation'));
+    assert.ok(phase.approval.rejectTo.includes('implementation'),
+      'reviewers need a governed route back to Code for repairs');
   }
 });
 
@@ -71,6 +77,11 @@ test('Classic delivery is installed with its templates, agents, and UI phase lab
   for (const file of ['intake.md', 'testing.md', 'code-checking.md']) {
     assert.match(await readFile(path.join(root, 'singularity/templates/classic-delivery', file), 'utf8'),
       /{{work.id}}/);
+  }
+  for (const file of ['testing.md', 'code-checking.md']) {
+    const source = await readFile(path.join(root, 'singularity/templates/classic-delivery', file), 'utf8');
+    assert.match(source, /## Feedback and rework decision/u);
+    assert.match(source, /(?:does not revise code|do not\s+open a revision interval)/u);
   }
 
   const old = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));

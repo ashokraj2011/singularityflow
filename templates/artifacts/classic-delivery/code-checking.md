@@ -20,6 +20,14 @@ be approved.
 
 TODO: List unclaimed paths, approved deviations, failures, and residual risk, or explicitly state none.
 
+## Feedback and rework decision
+
+TODO: State either "No changes requested" or list the exact clause, Code generation, and
+receipt needing correction. Optional REV feedback attachments are evidence only; they do not
+open a revision interval or replace the committed Code test receipt. Reject to Code
+(`implementation`) for source/test changes, then review the new governed generation and its
+test receipt before approving Code checking.
+
 ## Final conclusion
 
 TODO: State whether the changed code meets Intake and whether the passing test receipts support

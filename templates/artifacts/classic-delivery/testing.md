@@ -30,3 +30,12 @@ or unavailable checks honestly and return to Code when source or tests require r
 ## Residual risk
 
 TODO: State remaining gaps and the recommendation for Code checking.
+
+## Feedback and rework decision
+
+TODO: State either "No changes requested" or identify the exact failed criterion, Code
+generation, test receipt, and requested correction. A reviewer may register a local feedback
+file through `singularity-flow revision attachments` (Copilot: `/sf-revision-attachments`),
+but registration only stages private evidence; it does not revise code or approve this phase.
+If code or tests must change, reject this review to Code (`implementation`) and require a new
+governed Code generation and passing test receipt. Do not edit source in Testing.

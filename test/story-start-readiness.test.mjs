@@ -51,6 +51,10 @@ function facts(definition, overrides = {}) {
       destinationRef: 'refs/heads/STORY-READY',
       publishRequired: true
     }],
+    repositoryReadiness: {
+      status: 'pass', sourceHead: BASE_COMMIT,
+      receiptSha256: `sha256:${'9'.repeat(64)}`
+    },
     publicationRequired: true,
     surface: 'test',
     ...overrides
@@ -120,6 +124,63 @@ test('incomplete exact Git evidence blocks Story start', async () => {
 
   assert.equal(result.ready, false);
   assert.ok(result.blockers.some((entry) => entry.code === 'STORY_GIT_PREFLIGHT_INCOMPLETE'));
+});
+
+test('an enforced pre-Story repository receipt must match the exact selected base', async () => {
+  const definition = await shippedDefinition();
+  definition.initialization = {
+    proof: { preStory: { requiredBeforeStory: true } }
+  };
+  const missing = inspectStoryStartReadiness(facts(definition, { repositoryReadiness: null }));
+  assert.equal(missing.ready, false);
+  assert.ok(missing.blockers.some((entry) =>
+    entry.code === 'STORY_REPOSITORY_READINESS_REQUIRED'));
+
+  const stale = inspectStoryStartReadiness(facts(definition, {
+    repositoryReadiness: {
+      status: 'pass', sourceHead: 'c'.repeat(40),
+      receiptSha256: `sha256:${'3'.repeat(64)}`
+    }
+  }));
+  assert.equal(stale.ready, false);
+
+  const ready = inspectStoryStartReadiness(facts(definition, {
+    repositoryReadiness: {
+      status: 'pass', sourceHead: BASE_COMMIT,
+      receiptSha256: `sha256:${'4'.repeat(64)}`
+    }
+  }));
+  assert.equal(ready.ready, true);
+  assert.ok(ready.checks.some((entry) =>
+    entry.code === 'STORY_REPOSITORY_READINESS_VALID'));
+  assert.notEqual(ready.receipt.readinessSha256, missing.receipt.readinessSha256);
+});
+
+test('capability Story readiness requires an exact receipt for every repository', async () => {
+  const definition = await shippedDefinition();
+  definition.initialization = {
+    proof: { preStory: { requiredBeforeStory: true } }
+  };
+  const repositories = [
+    { id: 'frontend', baseBranch: 'main', baseCommit: 'd'.repeat(40), destinationRef: 'refs/heads/STORY-READY' },
+    { id: 'backend', baseBranch: 'main', baseCommit: 'e'.repeat(40), destinationRef: 'refs/heads/STORY-READY' }
+  ];
+  const partial = inspectStoryStartReadiness(facts(definition, {
+    repositories,
+    repositoryReadiness: { repositories: {
+      frontend: { status: 'pass', sourceHead: 'd'.repeat(40), receiptSha256: `sha256:${'5'.repeat(64)}` }
+    } }
+  }));
+  assert.equal(partial.ready, false);
+
+  const complete = inspectStoryStartReadiness(facts(definition, {
+    repositories,
+    repositoryReadiness: { repositories: {
+      frontend: { status: 'pass', sourceHead: 'd'.repeat(40), receiptSha256: `sha256:${'5'.repeat(64)}` },
+      backend: { status: 'pass', sourceHead: 'e'.repeat(40), receiptSha256: `sha256:${'6'.repeat(64)}` }
+    } }
+  }));
+  assert.equal(complete.ready, true);
 });
 
 test('readiness is a synchronous projection and never mutates frozen caller evidence', async () => {

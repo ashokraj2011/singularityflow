@@ -107,6 +107,10 @@ export const SEQUENCE_GATE_IDS = [
 ];
 const SEQUENCE_GATE_MODES = new Set(['hard', 'soft']);
 const REFERENCE_REPOSITORY_MODES = new Set(['off', 'optional', 'required']);
+const REPOSITORY_READINESS_MODES = new Set(['off', 'when-detected', 'required']);
+const STRUCTURED_TEST_READINESS_MODES = new Set([
+  'off', 'when-detected', 'required-for-code', 'required'
+]);
 const ARCHITECTURE_PROJECTION_IDS = new Set(['arch.calm']);
 
 function assertKnownKeys(value, allowed, label) {
@@ -813,6 +817,46 @@ export function normalizeSessionPolicy(value = {}) {
   };
 }
 
+export function normalizeRepositoryReadinessPolicy(value = {}) {
+  assertKnownKeys(value, new Set([
+    'requiredBeforeStory', 'dependencyHydration', 'build', 'structuredTests',
+    'applicationStart', 'receiptScope'
+  ]), 'repositoryReadiness');
+
+  if (Object.hasOwn(value, 'requiredBeforeStory')
+      && typeof value.requiredBeforeStory !== 'boolean') {
+    throw new SingularityFlowError('repositoryReadiness.requiredBeforeStory must be boolean.');
+  }
+  for (const field of ['dependencyHydration', 'build', 'applicationStart']) {
+    if (Object.hasOwn(value, field) && !REPOSITORY_READINESS_MODES.has(value[field])) {
+      throw new SingularityFlowError(
+        `repositoryReadiness.${field} must be off, when-detected, or required.`
+      );
+    }
+  }
+  if (Object.hasOwn(value, 'structuredTests')
+      && !STRUCTURED_TEST_READINESS_MODES.has(value.structuredTests)) {
+    throw new SingularityFlowError(
+      'repositoryReadiness.structuredTests must be off, when-detected, required-for-code, or required.'
+    );
+  }
+  if (Object.hasOwn(value, 'receiptScope')
+      && value.receiptScope !== 'git-private-exact-base') {
+    throw new SingularityFlowError(
+      'repositoryReadiness.receiptScope must be git-private-exact-base.'
+    );
+  }
+
+  return {
+    requiredBeforeStory: value.requiredBeforeStory ?? false,
+    dependencyHydration: value.dependencyHydration ?? 'when-detected',
+    build: value.build ?? 'when-detected',
+    structuredTests: value.structuredTests ?? 'required-for-code',
+    applicationStart: value.applicationStart ?? 'when-detected',
+    receiptScope: value.receiptScope ?? 'git-private-exact-base'
+  };
+}
+
 export function normalizePlanning(value = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError('planning must be an object.');
   for (const key of Object.keys(value)) if (!['enabled', 'promptSource', 'maxContextBytes'].includes(key)) throw new SingularityFlowError(`planning contains unknown field '${key}'.`);
@@ -882,6 +926,9 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
   configuredInputsMode(definition);
   normalizeSequenceGates(definition.sequenceGates ?? {});
   normalizeSessionPolicy(definition.session ?? {});
+  definition.repositoryReadiness = normalizeRepositoryReadinessPolicy(
+    definition.repositoryReadiness
+  );
   normalizeContextPolicy(definition.contextPolicy ?? {}, { phaseIds: Object.keys(definition.phases) });
   definition.tokenEconomy = normalizeTokenEconomy(definition.tokenEconomy ?? {});
   if (definition.tokenEconomy.mode !== 'off'

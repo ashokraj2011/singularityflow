@@ -6,6 +6,7 @@
   "smart-init-activation-journal": [{ "schemaVersion": 1 }],
   "configuration-origin-map": [{ "schemaVersion": 1 }],
   "smart-init-precheck-receipt": [{ "schemaVersion": 1 }],
+  "repository-readiness-receipt": [{ "schemaVersion": 1 }],
   "effective-capability-resolution": [{ "schemaVersion": 1 }],
   "capability-authority-link": [{ "schemaVersion": 1 }],
   "capability-authority-cache-entry": [{ "schemaVersion": 1 }],

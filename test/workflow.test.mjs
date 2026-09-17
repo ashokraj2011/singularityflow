@@ -381,6 +381,29 @@ test('artifact-only phases reject source changes', async () => {
   assert.notEqual(result.status, 0); assert.match(result.stderr, /artifact-only/);
 });
 
+test('artifact-only submission rejects source committed after publication', async () => {
+  const root = await repository(); const workId = 'SCOPE-SUBMIT-1';
+  flow(root, ['start', workId, '--from-branch', 'main'], { selection: selection('feature', 'product-owner') });
+  const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json');
+  let workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  await completeArtifact(root, workflow, 'intake');
+  flow(root, ['phase', 'publish', 'intake'], { selection: selection('feature', 'product-owner') });
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src', 'premature.mjs'), 'export const premature = true;\n');
+  execute('git', ['add', 'src/premature.mjs'], root);
+  execute('git', ['commit', '-m', 'premature source after intake publication'], root);
+
+  const result = flow(root, ['submit'], {
+    allowFailure: true, selection: selection('feature', 'product-owner')
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /artifact-only, but application source or tests changed after generation 1 was published/i);
+  workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  assert.equal(workflow.currentPhase, 'intake');
+  assert.equal(workflow.phases.intake.status, 'in_progress');
+  assert.equal((workflow.lineage.submissions ?? []).length, 0);
+});
+
 test('publication commits sanitized Copilot telemetry under the work item and reports provider cost', async () => {
   const root = await repository(); const workId = 'TELEMETRY-1';
   flow(root, ['start', workId, '--from-branch', 'main'], { selection: selection('feature', 'product-owner') });

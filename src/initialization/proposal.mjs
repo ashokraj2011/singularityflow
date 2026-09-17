@@ -62,6 +62,17 @@ function initializationPolicy(detection, selections) {
     proof: {
       profile: selections.proofProfile,
       readiness,
+      // Repository command detection is not execution evidence. New Stories must consume a
+      // machine-local receipt bound to their exact base revision before an isolated worktree is
+      // created; older smart-init policies without this block remain compatible and advisory.
+      preStory: {
+        requiredBeforeStory: true,
+        dependencyHydration: 'when-detected',
+        build: 'when-detected',
+        structuredTests: 'required-for-code',
+        applicationStart: 'when-detected',
+        receiptScope: 'git-private-exact-base'
+      },
       gaps: readiness === 'ready' ? [] : [{
         id: 'INI-GAP-VERIFY-UNAVAILABLE',
         statement: 'No structured verification command was established at initialization.',

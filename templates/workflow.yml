@@ -142,6 +142,20 @@ noModel:
   # warning in model-disabled mode; set this to block for stricter repositories.
   unknownExternalCommands: warn
 
+# Before a new Story worktree exists, prove that this exact base revision can restore its locked
+# dependencies, build, execute structured tests, and survive any detected application-start smoke
+# window. The receipt is machine-local and reproducible; caches, dependencies, reports, and secrets
+# never enter Git. It is advisory in the general packaged template so an old repository is not
+# bricked by an upgrade; deterministic smart initialization opts new repositories into enforcement
+# after disclosing the exact commands. Repositories may enable it through configuration authority.
+repositoryReadiness:
+  requiredBeforeStory: false
+  dependencyHydration: when-detected
+  build: when-detected
+  structuredTests: required-for-code
+  applicationStart: when-detected
+  receiptScope: git-private-exact-base
+
 # One canonical boundary and evidence contract for every phase whose generation task is code.
 codeDelivery:
   schemaVersion: 2

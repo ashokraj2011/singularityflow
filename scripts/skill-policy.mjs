@@ -97,6 +97,31 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
       /Never loop quality commands/i
     ]
   },
+  'sflow-approve': {
+    required: [
+      /sflow-turn-boundary: approval-only/i,
+      /typed phase ID is only a selection answer; it is not approval by itself/i,
+      /approval CLI is the sole permitted mutation/i,
+      /never edit, create, delete, or patch repository files/i,
+      /never run tests, checks, builds, raw `git`/i,
+      /never delegate work/i,
+      /never run submit, `next`, `nextsteps`, `\/sf-next`, phase begin/i,
+      /failed approval ends this turn/i,
+      /immediately end this turn before the next phase/i
+    ]
+  },
+  'sflow-converge': {
+    required: [
+      /route-only result is not the final response when the checkpoint is `deterministic-generation`/i,
+      /execute that exact returned preparation command once in this same turn/i,
+      /Do not stop after merely displaying the route/i,
+      /do not run `singularity-flow converge --json` again/i,
+      /for adjudication, rework, intent amendment, or inspection[^.]*stop for the human decision/i,
+      /If and only if it returns deterministic convergence publication as the first `NOW` action/i,
+      /using the exact returned publication command/i,
+      /Stop immediately after publication; never advance, submit, approve/i
+    ]
+  },
   'sflow-next': {
     required: [
       /First run `singularity-flow session current --json`[^.]*returned `repositoryPath` as cwd for every subsequent command/i,

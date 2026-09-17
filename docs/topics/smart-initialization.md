@@ -13,7 +13,7 @@ related:
   - workspaces-and-sessions
   - capability-management
   - recovery
-version: 2
+version: 3
 ---
 Smart initialization turns a fresh local Git repository into an explicitly accepted Singularity
 Flow repository without asking people to hand-author commands or capability maps. It is a bounded,
@@ -83,6 +83,35 @@ Quick precheck verifies receipt and configuration hashes, origin records, the im
 wrapper or PATH metadata, and proof readiness. Configuration explanation reports what an installed
 field means, why it exists, which source and accepted proposal established it, how it affects later
 work, and the safe change path.
+
+### Prove repository execution before a Story
+
+Quick precheck never runs application code. Before the first Story, use the separate readiness
+journey:
+
+```text
+singularity-flow precheck --run --json
+singularity-flow precheck --run --confirm-plan sha256:<PLAN> --json
+```
+
+Copilot users run `/sf-ready`. The first command is effect-free and shows exact shell-free argv for
+locked dependency restore, build, structured tests, and any unambiguous application-start smoke
+probe. The second runs only that freshly recomputed plan with deadlines and process-tree cleanup.
+It refuses ambiguous startup commands, missing structured test evidence for code repositories,
+tracked or unexpected untracked changes, and a stale plan digest.
+
+A passing run stores a hash-only receipt under the Git common directory. It contains no stdout,
+stderr, prompt, secret, or dependency cache. The receipt is bound to the exact commit, source
+manifest, platform, architecture, test adapter, and plan. When repository policy requires
+readiness, Story start checks that receipt for every selected capability repository before creating
+governed state. The managed Story worktree may replay only the receipt-authorized locked dependency
+restore so later phases receive their local dependencies without changing source bytes.
+
+If setup is wrong, `/sf-ready` may propose a separate `sflow/readiness/<digest>` branch for reviewed
+manifest, lockfile, wrapper-bit, test-runner, or startup-probe configuration. It never repairs
+product behavior, weakens tests, upgrades dependencies, commits caches/results, pushes, or merges
+without separate authority. After a setup commit, generate and confirm a new plan because the base
+identity changed.
 
 ## State and safety
 

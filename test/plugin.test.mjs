@@ -58,6 +58,22 @@ test('plugin can audit and safely repair branch initialization before a work ses
   assert.match(doctor, /Recommend `\/sf-init`/);
 });
 
+test('repository readiness proves execution and confines setup repair before Story creation', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-ready', 'SKILL.md'), 'utf8');
+  assert.match(content, /no Story required/i);
+  assert.match(content, /precheck --run --json[\s\S]*plan only/i);
+  assert.match(content, /--confirm-plan <PLAN-ID>/);
+  assert.match(content, /locked dependencies|frozen restore/i);
+  assert.match(content, /structured test\s+adapter/i);
+  assert.match(content, /sflow\/readiness\/<PLAN-DIGEST-PREFIX>/);
+  assert.match(content, /explicit diff approval/i);
+  assert.match(content, /commit only the reviewed\s+paths/i);
+  assert.match(content, /commit changes the base[\s\S]*new `planId`/i);
+  assert.match(content, /Never change product behavior, weaken tests/i);
+  assert.match(content, /Never commit local[\s\S]*dependency directories[\s\S]*test reports/i);
+  assert.match(content, /Do not push or merge unless separately requested/i);
+});
+
 test('plugin provides one upload-first skill for Epic and Story evidence', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-upload', 'SKILL.md'), 'utf8');
   assert.match(content, /name: sflow-upload/);
@@ -363,6 +379,11 @@ test('convergence skill cannot replace deterministic kernel generation with agen
   assert.match(content, /never invoke a model, author or edit the artifact, or substitute human\/governed-agent authorship/i);
   assert.match(content, /--authored deterministic --channel kernel-generator/);
   assert.match(content, /clarification mode.*`off`/is);
+  assert.match(content, /execute that exact returned preparation command once in this same turn/i);
+  assert.match(content, /Do not stop after merely displaying the route/i);
+  assert.match(content, /for adjudication, rework, intent amendment, or inspection[^.]*stop for the human decision/i);
+  assert.match(content, /using the exact returned publication command/i);
+  assert.match(content, /Stop immediately after publication; never advance, submit, approve/i);
   assert.doesNotMatch(content, /you may author with the resolved convergence agent/i);
 });
 
@@ -593,6 +614,16 @@ test('approval skill is explicitly user-invoked', async () => {
   assert.ok(content.indexOf('choices begin approve <WORK-ID>') < content.indexOf('phase show <phase> --json'));
   assert.ok(content.indexOf('phase show <phase> --json') < content.indexOf('Only now: Ask the reviewer'));
   assert.match(content, /review-integrity failure/);
+  assert.match(content, /sflow-turn-boundary: approval-only/);
+  assert.match(content, /typed phase ID is only a selection answer; it is not approval by itself/i);
+  assert.match(content, /approval CLI is the sole permitted mutation/i);
+  assert.match(content, /never edit, create, delete, or patch repository files/i);
+  assert.match(content, /never run tests, checks, builds, raw `git`/i);
+  assert.match(content, /never delegate work/i);
+  assert.match(content, /never run submit, `next`, `nextsteps`, `\/sf-next`, phase begin/i);
+  assert.match(content, /failed approval ends this turn/i);
+  assert.match(content, /display-only handoff text/i);
+  assert.match(content, /immediately end this turn before the next phase/i);
 });
 
 test('submit skill presents generated documents before approval', async () => {

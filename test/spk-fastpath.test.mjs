@@ -18,6 +18,7 @@ import {
   CHECKPOINT_KINDS, FAST_PATH_VERBS, fastPathProfile, milestoneReached, nextVerb, planFastPath,
   verbForPhase
 } from '../src/fast-path.mjs';
+import { fastPathCommandAction } from '../src/commands/fast-path.mjs';
 import { workflowGuide } from '../src/guide.mjs';
 import { COMMAND_REGISTRY } from '../src/command-registry.mjs';
 
@@ -103,6 +104,24 @@ test('deterministic-only convergence is never presented as model or agent genera
     assert.deepEqual(plan.underlyingOperations, ['prepare.convergence']);
     assert.equal(plan.next[0].command, 'singularity-flow prepare convergence');
   }
+});
+
+test('the command result preserves policy-selected generation skills', () => {
+  const convergence = planFastPath(deterministicStory(), DEFINITION, 'converge');
+  const narratedConvergence = fastPathCommandAction(convergence.next[0]);
+  assert.equal(narratedConvergence.command, 'singularity-flow prepare convergence');
+  assert.equal(narratedConvergence.skill, '/sf-converge');
+  assert.equal(narratedConvergence.copilotCommand, '/sf-converge');
+
+  const implementationStory = story('implementation');
+  implementationStory.phases.implementation.generationPolicy = {
+    requirement: 'required', task: 'code'
+  };
+  const implementation = planFastPath(implementationStory, DEFINITION, 'implement');
+  const narratedImplementation = fastPathCommandAction(implementation.next[0]);
+  assert.equal(narratedImplementation.command, 'singularity-flow prepare implementation');
+  assert.equal(narratedImplementation.skill, '/sf-code');
+  assert.equal(narratedImplementation.copilotCommand, '/sf-code');
 });
 
 test('a published generation awaiting submit is a review checkpoint, never model generation', () => {

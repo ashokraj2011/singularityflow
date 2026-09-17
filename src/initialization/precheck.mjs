@@ -73,6 +73,7 @@ export async function smartInitPrecheck(root) {
   const workflowFile = path.join(root, 'singularity', 'workflow.yml');
   const receiptSource = await readLatestSmartInitActivation(root);
   const checks = [];
+  let currentSnapshot = null;
   if (!receiptSource) checks.push({ id: 'activation-receipt', status: 'unavailable', subject: 'smart-init', reason: 'receipt-missing' });
   else checks.push({
     id: 'activation-receipt',
@@ -114,15 +115,29 @@ export async function smartInitPrecheck(root) {
       });
     } catch { checks.push({ id: 'preset-binding', status: 'fail', subject: path.relative(root, presetPath).replaceAll(path.sep, '/') }); }
   } else checks.push({ id: 'preset-binding', status: 'unavailable', subject: 'smart-init-preset' });
-  if (receiptSource?.record?.subject?.repositoryFingerprint) {
+  if (receiptSource?.record?.sourceManifestSha256
+      || receiptSource?.record?.subject?.repositoryFingerprint) {
     try {
-      const snapshot = await captureSmartInitSnapshot(root);
+      currentSnapshot = await captureSmartInitSnapshot(root);
+      if (receiptSource.record.sourceManifestSha256) checks.push({
+        id: 'detector-inputs',
+        status: currentSnapshot.sourceManifestSha256 === receiptSource.record.sourceManifestSha256
+          ? 'pass' : 'fail',
+        subject: 'tracked manifests and lockfiles',
+        ...(currentSnapshot.sourceManifestSha256 === receiptSource.record.sourceManifestSha256
+          ? {} : { reason: 'detector-inputs-changed' })
+      });
       checks.push({
         id: 'repository-identity',
-        status: snapshot.subject.repositoryFingerprint === receiptSource.record.subject.repositoryFingerprint ? 'pass' : 'fail',
+        status: currentSnapshot.subject.repositoryFingerprint === receiptSource.record.subject.repositoryFingerprint ? 'pass' : 'fail',
         subject: 'credential-free-remote'
       });
-    } catch { checks.push({ id: 'repository-identity', status: 'unavailable', subject: 'credential-free-remote' }); }
+    } catch {
+      if (receiptSource.record.sourceManifestSha256) checks.push({
+        id: 'detector-inputs', status: 'unavailable', subject: 'tracked manifests and lockfiles'
+      });
+      checks.push({ id: 'repository-identity', status: 'unavailable', subject: 'credential-free-remote' });
+    }
   } else checks.push({ id: 'repository-identity', status: 'unavailable', subject: 'credential-free-remote' });
   if (receiptSource) {
     const journal = path.join(gitCommonDir(root), 'singularity-flow', 'journals', 'init', `${receiptSource.record.proposalSha256.slice(7, 19)}.json`);
@@ -138,7 +153,7 @@ export async function smartInitPrecheck(root) {
       && typeof command.id === 'string' && typeof command.launcher === 'string'
       && Array.isArray(command.args) && command.args.every((argument) => typeof argument === 'string' && !argument.includes('\0'))
       && typeof command.workingDirectory === 'string'
-      && ['verify', 'quality', 'build'].includes(command.purpose)
+      && ['dependency', 'verify', 'quality', 'build', 'start'].includes(command.purpose)
       && command.modelPolicy === 'never'
       && (command.adapter === null || command.adapter === 'exit-code');
     if (!shapeValid) {

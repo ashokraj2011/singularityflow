@@ -2215,6 +2215,11 @@ const families = [
     paths: [/^singularity\/configuration-origin\.json$/] }),
   family({ id: 'smart-init-precheck-receipt', currentVersion: 1, immutable: true,
     paths: [/^\.sflow\/precheck\/[^/]+\.json$/] }),
+  // A reviewed repository-readiness run is local Git-private evidence tied to one exact
+  // source commit, platform, architecture, and immutable command plan. New source or a different
+  // host creates a distinct receipt instead of mutating prior evidence.
+  family({ id: 'repository-readiness-receipt', currentVersion: 1, immutable: true,
+    paths: [/^\$git\/singularity-flow\/repository-readiness\/[a-f0-9]{40,64}-[a-z0-9-]+-[a-z0-9-]+\.json$/] }),
   family({
     id: 'session-registry', currentVersion: 2,
     steps: [migration(1, 2, identity(2))],

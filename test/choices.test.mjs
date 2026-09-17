@@ -76,6 +76,25 @@ async function repository() {
   return root;
 }
 
+async function submitIntakeForApproval(root, workId) {
+  const start = JSON.parse(flow(root, ['choices', 'begin', 'start', workId, '--json']).stdout);
+  flow(root, ['choices', 'answer', start.token, 'base-branch', 'main']);
+  flow(root, ['choices', 'answer', start.token, 'intake-source', 'manual']);
+  flow(root, ['choices', 'answer', start.token, 'workflow-template', 'feature']);
+  flow(root, ['start', workId, '--title', 'Review source binding', '--selection-receipt', start.token]);
+  const workflowFile = path.join(root, 'singularity', 'work-items', workId, 'workflow.json');
+  const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  const artifactFile = path.join(
+    root, 'singularity', 'work-items', workId, workflow.phases.intake.requiredArtifact.path
+  );
+  const artifact = (await readFile(artifactFile, 'utf8'))
+    .replace(/TODO:[^\n]*/g, 'Reviewed scope and measurable acceptance evidence for AC-001.');
+  await writeFile(artifactFile, artifact);
+  flow(root, ['phase', 'publish', 'intake']);
+  flow(root, ['submit']);
+  return workflowFile;
+}
+
 test('one-time selection receipt lets Copilot start work without a persistent TTY bridge', async () => {
   const root = await repository();
   const begun = JSON.parse(flow(root, ['choices', 'begin', 'start', 'CHOICE-101', '--json']).stdout);
@@ -176,6 +195,55 @@ test('approval receipt keeps exact phase confirmation inside Copilot and uses th
     begun.approvalContext.artifacts
   );
   assert.equal(flow(root, ['choices', 'status', begun.token, '--json'], { allowFailure: true }).status, 1);
+});
+
+test('approval cannot absorb application source committed after submission', async () => {
+  const root = await repository();
+  const workId = 'CHOICE-APPROVE-SOURCE-DRIFT';
+  const workflowFile = await submitIntakeForApproval(root, workId);
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src', 'premature-implementation.mjs'), 'export const premature = true;\n');
+  run('git', ['add', 'src/premature-implementation.mjs'], root);
+  run('git', ['commit', '-m', 'premature implementation during intake review'], root);
+
+  const begun = JSON.parse(flow(root, [
+    'choices', 'begin', 'approve', workId, '--fetch', '--json'
+  ]).stdout);
+  flow(root, ['choices', 'answer', begun.token, 'phase-confirmation', 'intake', '--json']);
+  const refused = flow(root, [
+    'approve', 'intake', '--work-id', workId, '--fetch', '--selection-receipt', begun.token
+  ], { allowFailure: true });
+
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /application source or tests changed after generation 1 was submitted/i);
+  assert.match(refused.stderr, /Approval cannot absorb implementation created during review/i);
+  const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  assert.equal(workflow.currentPhase, 'intake');
+  assert.equal(workflow.phases.intake.status, 'awaiting_approval');
+  assert.deepEqual(workflow.phases.intake.approvals, []);
+  assert.equal(JSON.parse(flow(root, ['choices', 'status', begun.token, '--json']).stdout).ready, true);
+});
+
+test('approval refuses an unrelated commit even when application bytes are unchanged', async () => {
+  const root = await repository();
+  const workId = 'CHOICE-APPROVE-HISTORY-DRIFT';
+  const workflowFile = await submitIntakeForApproval(root, workId);
+  run('git', ['commit', '--allow-empty', '-m', 'unrelated review-time commit'], root);
+
+  const begun = JSON.parse(flow(root, [
+    'choices', 'begin', 'approve', workId, '--fetch', '--json'
+  ]).stdout);
+  flow(root, ['choices', 'answer', begun.token, 'phase-confirmation', 'intake', '--json']);
+  const refused = flow(root, [
+    'approve', 'intake', '--work-id', workId, '--fetch', '--selection-receipt', begun.token
+  ], { allowFailure: true });
+
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /repository history changed after its immutable review evidence/i);
+  const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  assert.equal(workflow.currentPhase, 'intake');
+  assert.equal(workflow.phases.intake.status, 'awaiting_approval');
+  assert.deepEqual(workflow.phases.intake.approvals, []);
 });
 
 test('concurrent selection answers preserve every choice and leave no mutation lock behind', async () => {

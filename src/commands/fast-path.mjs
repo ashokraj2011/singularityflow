@@ -33,6 +33,25 @@ function restStateFor(result) {
   return null;
 }
 
+/**
+ * Preserve the planner-selected Copilot journey when projecting a fast-path continuation.
+ *
+ * `prepare` and `phase` are shared CLI families. Re-inferring their skill from the shell command
+ * loses the phase policy's narrower route (for example deterministic convergence must remain
+ * `/sf-converge`, not the generic `/sf-phase`). The narration action still validates the pair
+ * against the closed command/skill allowlist.
+ */
+export function fastPathCommandAction(entry) {
+  return action({
+    id: entry.id,
+    label: entry.label,
+    command: entry.command,
+    skill: entry.skill ?? null,
+    rank: entry.rank ?? 'NOW',
+    kind: entry.command?.includes('approve') ? 'review' : 'workflow'
+  });
+}
+
 export async function runVerb(verb, argv, { positionals, options }) {
   const root = repoRoot();
   const definition = await loadDefinition(root);
@@ -61,13 +80,7 @@ export async function runVerb(verb, argv, { positionals, options }) {
     // they are named rather than run, so this result can never over-claim.
     effects: noEffects(),
     why: plan.why.map((entry) => because(entry.code, entry.source, { ref: plan.checkpoint.reason })),
-    next: plan.next.map((entry) => action({
-      id: entry.id,
-      label: entry.label,
-      command: entry.command,
-      rank: entry.rank ?? 'NOW',
-      kind: entry.command?.includes('approve') ? 'review' : 'workflow'
-    })),
+    next: plan.next.map(fastPathCommandAction),
     restState: restStateFor(plan),
     // The fast-path payload travels whole, so every surface projects the same milestone and
     // checkpoint from the same result `[SPK:REQ-150]`.

@@ -67,6 +67,7 @@ export function inspectStoryStartReadiness({
   capabilityId = null,
   baseBranch = null,
   repositories = [],
+  repositoryReadiness = null,
   publicationRequired = true,
   surface = 'shell'
 } = {}) {
@@ -138,6 +139,46 @@ export function inspectStoryStartReadiness({
     ));
   }
 
+  const repositoryReadinessPolicy = {
+    ...(definition?.repositoryReadiness ?? {}),
+    ...(definition?.initialization?.proof?.preStory ?? {})
+  };
+  const repositoryReadinessRequired = repositoryReadinessPolicy.requiredBeforeStory === true;
+  if (repositoryReadinessRequired) {
+    const receipts = repositoryReadiness?.repositories
+      ?? (normalizedRepositories.length === 1 && repositoryReadiness
+        ? { [normalizedRepositories[0].id]: repositoryReadiness } : {});
+    const invalid = normalizedRepositories.find((entry) => {
+      const receipt = receipts[entry.id];
+      if (receipt?.status !== 'pass'
+          || (receipt?.sourceCommit ?? receipt?.sourceHead) !== entry.baseCommit) return true;
+      const passedPurposes = new Set((receipt.commandResults ?? [])
+        .filter((result) => result.status === 'pass').map((result) => result.purpose));
+      if (repositoryReadinessPolicy.dependencyHydration === 'required'
+          && !passedPurposes.has('dependency')) return true;
+      if (repositoryReadinessPolicy.build === 'required' && !passedPurposes.has('build')) return true;
+      if (repositoryReadinessPolicy.applicationStart === 'required'
+          && !passedPurposes.has('start')) return true;
+      const structuredTests = repositoryReadinessPolicy.structuredTests;
+      const codeDetected = (receipt.detectedStacks?.length ?? 0) > 0
+        || [...passedPurposes].some((purpose) => ['dependency', 'build', 'test'].includes(purpose));
+      if (structuredTests === 'required'
+          && receipt.structuredTestContract?.status !== 'available') return true;
+      return structuredTests === 'required-for-code' && codeDetected
+        && receipt.structuredTestContract?.status !== 'available';
+    });
+    const complete = normalizedRepositories.length > 0 && !invalid;
+    checks.push(complete
+      ? check(
+          'repository-execution', 'pass', 'STORY_REPOSITORY_READINESS_VALID',
+          'Dependencies, build, structured tests, and detected startup were proven for the exact Story base.'
+        )
+      : check(
+          'repository-execution', 'block', 'STORY_REPOSITORY_READINESS_REQUIRED',
+          'The selected base lacks a current policy-complete repository-readiness receipt. Run the pre-Story readiness plan before creating a Story worktree.'
+        ));
+  }
+
   checks.push(check(
     'optional-intelligence', 'pass', 'STORY_OPTIONAL_INTELLIGENCE_NON_BLOCKING',
     'World Model, AST, model-provider, telemetry, and Copilot availability do not block Story creation.'
@@ -150,6 +191,10 @@ export function inspectStoryStartReadiness({
   const receiptFacts = {
     workId: String(workId ?? ''), workType, capabilityId, baseBranch,
     configurationCommit: authority.commit,
+    repositoryReadinessSha256: repositoryReadiness?.repositories
+      ? Object.fromEntries(Object.entries(repositoryReadiness.repositories)
+        .map(([id, receipt]) => [id, receipt?.receiptSha256 ?? null]))
+      : repositoryReadiness?.receiptSha256 ?? null,
     baseCommits: Object.fromEntries(normalizedRepositories.map((entry) => [entry.id, entry.baseCommit])),
     destinationRefs: Object.fromEntries(normalizedRepositories.map((entry) => [entry.id, entry.destinationRef]))
   };
@@ -192,6 +237,7 @@ export function assertStoryStartReady(readiness) {
   const first = readiness?.blockers?.[0];
   const configurationRepair = ['configuration-authority', 'workflow', 'governed-agents']
     .includes(first?.id);
+  const repositoryRepair = first?.id === 'repository-execution';
   throw new SingularityFlowError(first?.message ?? 'Story-start readiness failed.', {
     code: first?.code ?? 'STORY_START_NOT_READY',
     details: {
@@ -200,6 +246,10 @@ export function assertStoryStartReady(readiness) {
         nextAction: readiness.upgrade?.shell ?? null,
         nextSkill: readiness.upgrade?.copilot ?? null,
         recoveryCommands: [readiness.upgrade?.shell].filter(Boolean)
+      } : repositoryRepair ? {
+        nextAction: 'singularity-flow precheck --run --json',
+        nextSkill: '/sf-ready',
+        recoveryCommands: ['singularity-flow precheck --run --json']
       } : {})
     }
   });

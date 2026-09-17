@@ -61,6 +61,7 @@ import { documentSetLifecycleBinding } from './document-publication.mjs';
 import { validateConfigurationSnapshotCapabilities } from './capability-context.mjs';
 import { resolveEffectiveCapabilityPolicy } from './capabilities.mjs';
 import { fosStoryConfigurationAuthority } from './onboard.mjs';
+import { collectRepositoryReadinessEvidence } from './repository-readiness-evidence.mjs';
 
 function lines(value) {
   if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
@@ -499,6 +500,11 @@ export async function startStory(root, {
       destinationRef: `refs/heads/${id}`,
       publishRequired
     }];
+    const repositoryReadiness = await collectRepositoryReadinessEvidence(
+      capabilityPreflight?.map((entry) => ({
+        id: entry.repository, root: entry.root, baseCommit: entry.baseCommit
+      })) ?? [{ id: 'lifecycle', root, baseCommit }]
+    );
     startReadiness = inspectStoryStartReadiness({
       workId: id,
       definition: initialDefinition,
@@ -507,6 +513,7 @@ export async function startStory(root, {
       capabilityId: selectedCapabilityId,
       baseBranch: storyBase.localBase,
       repositories: readinessRepositories,
+      repositoryReadiness,
       publicationRequired: publishRequired,
       surface: 'programmatic'
     });
@@ -569,6 +576,7 @@ export async function startStory(root, {
           capabilityId: selectedCapabilityId,
           baseBranch: storyBase.localBase,
           repositories: readinessRepositories,
+          repositoryReadiness,
           publicationRequired: publishRequired,
           surface: 'programmatic'
         });

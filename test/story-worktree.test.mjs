@@ -10,6 +10,9 @@ import { rollbackStoryWorktree } from '../src/story-worktree.mjs';
 import { createWorkflow, loadConfig } from '../src/state.mjs';
 import { preflightFetchedStoryCapability } from '../src/commands/story.mjs';
 import { onboardRepository } from '../src/onboard.mjs';
+import {
+  buildRepositoryReadinessPlan, executeRepositoryReadinessPlan
+} from '../src/initialization/runtime-readiness.mjs';
 
 const cli = path.resolve('bin/singularity-flow.mjs');
 
@@ -102,6 +105,75 @@ test('a dirty prior checkout cannot block a new Story and is never mutated', asy
     worktree, 'singularity/work-items/ISO-STORY-1/workflow.json'
   ), 'utf8')).workItem.id, 'ISO-STORY-1');
   assert.equal(result.data.worktree.isolated, true);
+});
+
+test('required repository readiness refuses before an isolated Story worktree is created', async (t) => {
+  const { root } = await repository(t);
+  const definitionFile = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionFile, 'utf8'));
+  definition.repositoryReadiness.requiredBeforeStory = true;
+  await writeFile(definitionFile, YAML.stringify(definition));
+  run('git', ['add', 'singularity/workflow.yml'], root);
+  run('git', ['commit', '-qm', 'require repository readiness'], root);
+  run('git', ['push', '-q', 'origin', 'main'], root);
+  const before = git(root, ['worktree', 'list', '--porcelain']);
+
+  const failed = run(process.execPath, [cli,
+    'start', 'ISO-NOT-READY-1', '--isolated-worktree', '--json', '--from-branch', 'main',
+    '--work-type', 'feature', '--title', 'Must not create a worktree',
+    '--description', 'Readiness is required before Story worktree creation.'
+  ], root, { allowFailure: true });
+
+  assert.notEqual(failed.status, 0);
+  assert.match(failed.stderr, /Repository readiness must pass.*before a Story worktree is created/su);
+  assert.match(failed.stderr, /singularity-flow precheck --run --json/u);
+  assert.match(failed.stderr, /\/sf-ready/u);
+  assert.equal(git(root, ['worktree', 'list', '--porcelain']), before);
+  assert.equal(run('git', [
+    'show-ref', '--verify', '--quiet', 'refs/heads/ISO-NOT-READY-1'
+  ], root, { allowFailure: true }).status, 1);
+});
+
+test('a receipt-authorized Story worktree hydrates its locked local dependencies before lifecycle start', async (t) => {
+  const { root } = await repository(t);
+  const definitionFile = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionFile, 'utf8'));
+  definition.repositoryReadiness.requiredBeforeStory = true;
+  await writeFile(definitionFile, YAML.stringify(definition));
+  const manifest = {
+    name: 'story-hydration', version: '1.0.0', private: true,
+    packageManager: 'npm@10.8.0',
+    scripts: {
+      postinstall: 'node -e "require(\'fs\').mkdirSync(\'node_modules\',{recursive:true});require(\'fs\').writeFileSync(\'node_modules/readiness-hydrated\',\'ok\')"',
+      build: 'node -e ""',
+      test: 'node --test'
+    }
+  };
+  await writeFile(path.join(root, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+  await writeFile(path.join(root, 'package-lock.json'), `${JSON.stringify({
+    name: manifest.name, version: manifest.version, lockfileVersion: 3,
+    packages: { '': { name: manifest.name, version: manifest.version, scripts: manifest.scripts } }
+  }, null, 2)}\n`);
+  await writeFile(path.join(root, '.gitignore'), 'node_modules/\n');
+  await writeFile(path.join(root, 'readiness.test.mjs'),
+    'import test from "node:test"; test("ready", () => {});\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-qm', 'configure exact-base readiness'], root);
+  run('git', ['push', '-q', 'origin', 'main'], root);
+
+  const plan = await buildRepositoryReadinessPlan(root);
+  await executeRepositoryReadinessPlan(root, { confirmation: plan.planId });
+  const started = run(process.execPath, [cli,
+    'start', 'ISO-HYDRATED-1', '--isolated-worktree', '--json', '--from-branch', 'main',
+    '--work-type', 'quick-fix', '--title', 'Hydrate the managed checkout',
+    '--description', 'Replay only the exact locked dependency restore before lifecycle start.'
+  ], root);
+  const result = JSON.parse(started.stdout);
+
+  assert.equal(await readFile(path.join(
+    result.data.repositoryPath, 'node_modules', 'readiness-hydrated'
+  ), 'utf8'), 'ok');
+  assert.equal(git(result.data.repositoryPath, ['status', '--porcelain']), '');
 });
 
 test('isolated Story start reuses the FOS authority attached in its launch checkout', async (t) => {

@@ -214,6 +214,8 @@ import {
 import {
   assertStoryStartReady, inspectStoryStartReadiness
 } from './story-start-readiness.mjs';
+import { collectRepositoryReadinessEvidence } from './repository-readiness-evidence.mjs';
+import { hydrateRepositoryDependencies } from './initialization/runtime-readiness.mjs';
 import {
   loadLegacyMaterializedStoryDefinition, loadLegacyStoryBaseContext,
 } from './story-start-base-configuration.mjs';
@@ -1500,6 +1502,30 @@ async function bindIsolatedStoryConfiguration(handoff, prepared) {
   return Object.freeze({ ...handoff, targetRepository });
 }
 
+async function assertLaunchCheckoutRepositoryReady(sourceRoot, definition, sourceCommit = head(sourceRoot)) {
+  const required = definition?.repositoryReadiness?.requiredBeforeStory === true
+    || definition?.initialization?.proof?.preStory?.requiredBeforeStory === true;
+  if (!required) return null;
+  const evidence = await collectRepositoryReadinessEvidence([{
+    id: 'lifecycle', root: sourceRoot, baseCommit: sourceCommit
+  }]);
+  const receipt = evidence.repositories.lifecycle;
+  if (receipt?.status === 'pass' && receipt.sourceCommit === sourceCommit) return evidence;
+  throw new SingularityFlowError(
+    'Repository readiness must pass for the launch checkout before a Story worktree is created.',
+    {
+      code: 'STORY_REPOSITORY_READINESS_REQUIRED',
+      details: {
+        sourceCommit,
+        reasons: receipt?.reasons ?? ['receipt-missing'],
+        nextAction: 'singularity-flow precheck --run --json',
+        nextSkill: '/sf-ready',
+        recoveryCommands: ['singularity-flow precheck --run --json']
+      }
+    }
+  );
+}
+
 async function isolatedStoryConfiguration(options, root, workId, managedStoryWorktree) {
   const handoff = options[ISOLATED_STORY_CONFIGURATION_HANDOFF] ?? null;
   if (!handoff) return null;
@@ -1549,9 +1575,34 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
   const sealedConfiguration = durableLocalStory
     ? null
     : await sealIsolatedStoryConfiguration(sourceRoot, id);
-  const prepared = await prepareStoryWorktree(sourceRoot, id);
+  const launchDefinition = sealedConfiguration?.snapshot?.definition
+    ?? await loadConfig(sourceRoot).catch(() => null);
+  const requestedBase = optionString(options, 'from-branch');
+  const requestedRemote = optionString(options, 'remote', 'origin');
+  const requestedBaseRef = requestedBase
+    ? [`refs/remotes/${requestedRemote}/${requestedBase}`, `refs/heads/${requestedBase}`]
+      .find((candidate) => refExists(sourceRoot, candidate))
+    : null;
+  const launchBaseCommit = requestedBaseRef ? refHead(sourceRoot, requestedBaseRef) : head(sourceRoot);
+  if (!durableLocalStory) {
+    await assertLaunchCheckoutRepositoryReady(sourceRoot, launchDefinition, launchBaseCommit);
+  }
+  const prepared = await prepareStoryWorktree(sourceRoot, id, {
+    base: durableLocalStory ? 'HEAD' : launchBaseCommit
+  });
   const previousDirectory = process.cwd();
   try {
+    const readinessPolicy = {
+      ...(launchDefinition?.repositoryReadiness ?? {}),
+      ...(launchDefinition?.initialization?.proof?.preStory ?? {})
+    };
+    if (!durableLocalStory && readinessPolicy.requiredBeforeStory === true
+        && readinessPolicy.dependencyHydration !== 'off') {
+      await hydrateRepositoryDependencies(prepared.repositoryPath, {
+        commit: launchBaseCommit,
+        required: readinessPolicy.dependencyHydration === 'required'
+      });
+    }
     const configurationHandoff = await bindIsolatedStoryConfiguration(sealedConfiguration, prepared);
     const childOptions = {
       ...options,
@@ -2304,6 +2355,11 @@ export async function startCommand(positionals, options) {
     id: 'lifecycle', baseBranch: baseAtStart, baseCommit: baseCommitAtStart,
     destinationRef: advertisedStoryRef, publishRequired
   }];
+  const repositoryReadiness = await collectRepositoryReadinessEvidence(
+    capabilityPreflight?.map((entry) => ({
+      id: entry.repository, root: entry.root, baseCommit: entry.baseCommit
+    })) ?? [{ id: 'lifecycle', root, baseCommit: baseCommitAtStart }]
+  );
   startReadiness = inspectStoryStartReadiness({
     workId: id,
     definition: approvedConfigurationSnapshot?.definition ?? config,
@@ -2312,6 +2368,7 @@ export async function startCommand(positionals, options) {
     capabilityId: workflowCapabilityId,
     baseBranch: baseAtStart,
     repositories: readinessRepositories,
+    repositoryReadiness,
     publicationRequired: publishRequired,
     surface: optionBoolean(options, 'json') ? 'machine' : 'shell'
   });
@@ -2468,6 +2525,7 @@ export async function startCommand(positionals, options) {
         capabilityId: workflowCapabilityId,
         baseBranch: baseAtStart,
         repositories: readinessRepositories,
+        repositoryReadiness,
         publicationRequired: publishRequired,
         surface: optionBoolean(options, 'json') ? 'machine' : 'shell'
       });
@@ -2598,6 +2656,7 @@ export async function startCommand(positionals, options) {
     capabilityId: workflowCapabilityId,
     baseBranch: baseAtStart,
     repositories: readinessRepositories,
+    repositoryReadiness,
     publicationRequired: publishRequired,
     surface: optionBoolean(options, 'json') ? 'machine' : 'shell'
   });
@@ -12680,6 +12739,11 @@ async function workspaceCommand(positionals, options) {
             allowExistingStoryBranch: false
           });
         }
+        const repositoryReadiness = await collectRepositoryReadinessEvidence(
+          repositories.map((entry) => ({
+            id: entry.repository, root: entry.root, baseCommit: entry.baseCommit
+          }))
+        );
         const readiness = inspectStoryStartReadiness({
           workId: storyId,
           definition,
@@ -12694,6 +12758,7 @@ async function workspaceCommand(positionals, options) {
             destinationRef: entry.destinationRef,
             publishRequired: entry.publishRequired
           })),
+          repositoryReadiness,
           publicationRequired: publishRequired,
           surface: 'vscode-preflight'
         });

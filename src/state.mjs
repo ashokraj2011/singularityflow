@@ -3454,6 +3454,44 @@ async function submitPhaseTransition(root, config, workflow, {
     requestedPhase: phase.id,
     reason: `Generation commit is missing for generation ${phase.generation}.`
   });
+  // Artifact-only phases review documents; they never authorize application changes. A plain Git
+  // commit made after publication used to disappear from `changedFiles()` and could therefore be
+  // swept into the later submission/approval history. Compare the complete repository state with
+  // the exact generation commit so committed, staged, unstaged, renamed, deleted, and untracked
+  // application paths all fail before the first submission mutation.
+  if (!codeDeliveryRequired && exactGenerationCommit) {
+    const postPublication = await buildRepositoryChangeSet(root, {
+      baseCommit: exactGenerationCommit,
+      subject: {
+        workId: workflow.workItem.id,
+        phase: phase.id,
+        generation: phase.generation,
+        kind: 'artifact-only-submission'
+      }
+    });
+    const applicationChanges = applicationChangeSetProjection(
+      postPublication, applicationPathContext(config, workflow)
+    ).entries;
+    if (applicationChanges.length) {
+      const changedPaths = [...new Set(applicationChanges.flatMap((entry) => [
+        entry.oldPath, entry.newPath
+      ]).filter(Boolean))].sort();
+      throw new SingularityFlowError(
+        `Phase '${phase.id}' is artifact-only, but application source or tests changed after generation ${phase.generation} was published. `
+        + `Move these changes to the appropriate code-delivery phase, then submit the unchanged ${phase.id} generation again: ${changedPaths.join(', ')}`,
+        {
+          code: 'PHASE_SOURCE_CHANGED_AFTER_PUBLICATION',
+          details: {
+            workId: workflow.workItem.id,
+            phase: phase.id,
+            generation: phase.generation,
+            generationCommit: exactGenerationCommit,
+            changedPaths
+          }
+        }
+      );
+    }
+  }
   const publicationBranch = workflowPublicationBranch(root, workflow);
   const publicationMode = workflowPublicationMode(config, workflow);
   const exactPublicationCommit = exactGenerationCommit
@@ -3898,6 +3936,75 @@ export async function approvePhase(root, config, workflow, {
       code: 'STORY_REVIEW_EVIDENCE_INVALID'
     });
   }
+  // Every approval, including an artifact-only planning/specification approval, is bound to the
+  // exact application tree that was submitted for review. Previously this comparison lived only
+  // in the code-delivery branch below. That let a generic editor commit implementation during a
+  // planning review and made the later planning approval silently absorb those source bytes.
+  const currentSourceTreeSha256 = await sourceTreeHash(root, config, workflow);
+  if (!/^sha256:[a-f0-9]{64}$/u.test(String(submittedReview.sourceTreeSha256 ?? ''))) {
+    throw new SingularityFlowError(
+      `Phase '${phase.id}' immutable review packet has no valid application-source binding. Submit a fresh immutable review packet before approval.`,
+      {
+        code: 'STORY_REVIEW_SOURCE_BINDING_REQUIRED',
+        details: {
+          workId: workflow.workItem.id,
+          phase: phase.id,
+          generation: phase.generation,
+          reviewPacketSha256: submittedReview.packetSha256
+        }
+      }
+    );
+  }
+  if (submittedReview.sourceTreeSha256 !== currentSourceTreeSha256) {
+    throw new SingularityFlowError(
+      `Phase '${phase.id}' application source or tests changed after generation ${phase.generation} was submitted. `
+      + 'Approval cannot absorb implementation created during review. Move those changes to the appropriate code-delivery phase and submit fresh evidence.',
+      {
+        code: 'STORY_REVIEW_SOURCE_CHANGED',
+        details: {
+          workId: workflow.workItem.id,
+          phase: phase.id,
+          generation: phase.generation,
+          reviewPacketSha256: submittedReview.packetSha256,
+          evidenceCommit: submittedReview.evidenceCommit,
+          submittedSourceTreeSha256: submittedReview.sourceTreeSha256,
+          currentSourceTreeSha256
+        }
+      }
+    );
+  }
+  // A receipt intentionally binds HEAD when review begins, so receipt freshness alone cannot tell
+  // whether an unrelated commit was inserted *before* that point. Permit only prior partial
+  // approval commits in the immutable review packet's first-parent tail. Each such commit writes
+  // the canonical phase approval summary; any other commit requires a fresh submission.
+  const reviewRange = `${submittedReview.evidenceCommit}..${head(root)}`;
+  const interveningCommits = run('git', [
+    'rev-list', '--first-parent', reviewRange
+  ], { cwd: root, allowFailure: true }).stdout.trim().split(/\r?\n/u).filter(Boolean);
+  const approvalSummary = posix(path.relative(
+    root, approvalPath(root, config, workflow.workItem.id, phase.id)
+  ));
+  const priorApprovalCommits = run('git', [
+    'log', '--first-parent', '--format=%H', reviewRange, '--', approvalSummary
+  ], { cwd: root, allowFailure: true }).stdout.trim().split(/\r?\n/u).filter(Boolean);
+  if (canonicalJson(interveningCommits) !== canonicalJson(priorApprovalCommits)) {
+    throw new SingularityFlowError(
+      `Phase '${phase.id}' repository history changed after its immutable review evidence was recorded. `
+      + 'Only prior governed approvals from the same review may precede another approval; submit fresh evidence for every other commit.',
+      {
+        code: 'STORY_REVIEW_INTERVENING_COMMIT',
+        details: {
+          workId: workflow.workItem.id,
+          phase: phase.id,
+          generation: phase.generation,
+          evidenceCommit: submittedReview.evidenceCommit,
+          currentHead: head(root),
+          interveningCommits,
+          priorApprovalCommits
+        }
+      }
+    );
+  }
   const architectureIntentBinding = publishedArchitectureIntentBinding(phase, phase.generation);
   const currentArchitectureIntentBinding = architectureIntentBinding
     ? await resolveArchitectureIntentPublicationBinding(
@@ -3990,7 +4097,7 @@ export async function approvePhase(root, config, workflow, {
   }
   if (phaseRequiresCodeDelivery(phase)) {
     const validation = phase.deliveryEvidence?.validation;
-    const currentTree = await sourceTreeHash(root, config, workflow);
+    const currentTree = currentSourceTreeSha256;
     if (!validation || validation.status !== 'passed') {
       throw new SingularityFlowError(
         `Phase '${phase.id}' cannot be approved without a passing code-delivery validation receipt.`,

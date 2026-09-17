@@ -371,8 +371,9 @@ Every public operation is classified before its implementation module is importe
 | pr.describe | mutation | never | — | — |
 | pr.describe.polish | mutation | optional | pr.describe | copilot-cli |
 | pr.plan | mutation | never | — | — |
-| precheck | read | never | — | — |
 | precheck.quick | read | never | — | — |
+| precheck.run.execute | mutation | never | — | — |
+| precheck.run.plan | read | never | — | — |
 | prepare | mutation | never | — | — |
 | process.archive | mutation | never | — | — |
 | process.fork | mutation | never | — | — |

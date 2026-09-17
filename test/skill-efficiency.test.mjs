@@ -117,6 +117,12 @@ test('approval remains explicit-only and displays the full governed artifact', a
     'every artifact must be visibly rendered before confirmation is requested');
   assert.match(content, /paths, and SHA-256 values to match `approvalContext`/);
   assert.match(content, /If response bounds require several messages, continue until every document is visible/);
+  assert.match(content, /sflow-turn-boundary: approval-only/);
+  assert.match(content, /approval CLI is the sole permitted mutation/i);
+  assert.match(content, /never edit, create, delete, or patch repository files/i);
+  assert.match(content, /never run tests, checks, builds, raw `git`/i);
+  assert.match(content, /never delegate work/i);
+  assert.match(content, /immediately end this turn before the next phase/i);
 });
 
 test('plugin startup does not inject a model prompt', async () => {

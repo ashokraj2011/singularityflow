@@ -42,12 +42,17 @@ function fact(snapshot, detectorId, source, locator, claim, {
 
 function command(id, purpose, launcher, args, workingDirectory, evidence, {
   confidence = 'conventional', adapter = purpose === 'verify' ? 'exit-code' : null,
-  required = purpose === 'verify', precedence = 1
+  required = purpose === 'verify', precedence = 1, timeoutMs = null,
+  observationMs = null, shutdownGraceMs = null
 } = {}) {
-  return {
+  const candidate = {
     id, purpose, launcher, args, workingDirectory: workingDirectory || '.', adapter,
     modelPolicy: 'never', confidence, evidence: [...new Set(evidence)].sort(), required, precedence
   };
+  if (Number.isSafeInteger(timeoutMs) && timeoutMs > 0) candidate.timeoutMs = timeoutMs;
+  if (Number.isSafeInteger(observationMs) && observationMs > 0) candidate.observationMs = observationMs;
+  if (Number.isSafeInteger(shutdownGraceMs) && shutdownGraceMs > 0) candidate.shutdownGraceMs = shutdownGraceMs;
+  return candidate;
 }
 
 function moduleDirectory(file) {
@@ -73,6 +78,36 @@ function placeholderNodeTest(value) {
   return /(?:no test specified|echo\s+["']?error|exit\s+1)/i.test(String(value ?? ''));
 }
 
+const NODE_LOCKFILES = Object.freeze({
+  npm: Object.freeze(['package-lock.json', 'npm-shrinkwrap.json']),
+  pnpm: Object.freeze(['pnpm-lock.yaml']),
+  yarn: Object.freeze(['yarn.lock']),
+  bun: Object.freeze(['bun.lock', 'bun.lockb'])
+});
+
+const NODE_DEPENDENCY_ARGS = Object.freeze({
+  npm: Object.freeze(['ci']),
+  pnpm: Object.freeze(['install', '--frozen-lockfile']),
+  yarn: Object.freeze(['install', '--frozen-lockfile']),
+  bun: Object.freeze(['install', '--frozen-lockfile'])
+});
+
+const NODE_START_ALIASES = Object.freeze(['dev', 'serve', 'preview']);
+
+function nodeLock(files, directory, manager) {
+  return NODE_LOCKFILES[manager]
+    ?.map((name) => atDirectory(files, directory, name))
+    .find(Boolean) ?? null;
+}
+
+function nodeRunArgs(manager, name) {
+  return manager === 'npm' && name === 'test'
+    ? ['test']
+    : manager === 'npm' && name === 'start'
+      ? ['start']
+      : ['run', name];
+}
+
 function detectNode(snapshot, files) {
   const facts = []; const commands = []; const ambiguities = [];
   const packages = [...files.values()].filter((entry) => path.posix.basename(entry.path) === 'package.json');
@@ -82,10 +117,8 @@ function detectNode(snapshot, files) {
     const stack = fact(snapshot, 'node', source, '#', { kind: 'stack', value: 'node', module: directory });
     facts.push(stack);
     const managerField = String(manifest.packageManager ?? '').split('@')[0].toLowerCase();
-    const lockManagers = [
-      ['npm', ['package-lock.json', 'npm-shrinkwrap.json']],
-      ['pnpm', ['pnpm-lock.yaml']], ['yarn', ['yarn.lock']], ['bun', ['bun.lock', 'bun.lockb']]
-    ].filter(([, names]) => names.some((name) => atDirectory(files, directory, name)));
+    const lockManagers = Object.entries(NODE_LOCKFILES)
+      .filter(([, names]) => names.some((name) => atDirectory(files, directory, name)));
     let manager = ['npm', 'pnpm', 'yarn', 'bun'].includes(managerField) ? managerField : null;
     let managerEvidence = [stack.id];
     if (manager) {
@@ -108,6 +141,23 @@ function detectNode(snapshot, files) {
       });
     } else manager = 'npm';
 
+    // A dependency restore is proposed only when the chosen package manager has its own lockfile.
+    // The command is expressed as launcher + argv; lockfile or script contents never enter it.
+    const lock = manager ? nodeLock(files, directory, manager) : null;
+    if (lock) {
+      const lockFact = fact(snapshot, 'node', lock, '#', {
+        kind: 'dependency-lock', value: manager, module: directory
+      });
+      facts.push(lockFact);
+      commands.push(command(
+        `dependency-node-${safeId(directory)}-${manager}`,
+        'dependency', manager, [...NODE_DEPENDENCY_ARGS[manager]], directory,
+        [...managerEvidence, lockFact.id], {
+          confidence: 'declared', required: true, precedence: 40, timeoutMs: 600_000
+        }
+      ));
+    }
+
     const scripts = manifest.scripts && typeof manifest.scripts === 'object' ? manifest.scripts : {};
     const declared = (name, purpose) => {
       if (typeof scripts[name] !== 'string' || !scripts[name].trim()) return;
@@ -117,13 +167,39 @@ function detectNode(snapshot, files) {
       facts.push(scriptFact);
       if (purpose === 'verify' && placeholderNodeTest(scripts[name])) return;
       if (!manager) return;
-      const args = manager === 'npm' && name === 'test' ? ['test'] : ['run', name];
+      const args = nodeRunArgs(manager, name);
       commands.push(command(`${purpose}-node-${safeId(directory)}-${name}`, purpose, manager, args,
         directory, [...managerEvidence, scriptFact.id], { confidence: 'declared', precedence: 30 }));
     };
     for (const name of ['test', 'test:ci', 'ci:test']) declared(name, 'verify');
     for (const name of ['lint', 'typecheck', 'check:types', 'format:check']) declared(name, 'quality');
     declared('build', 'build');
+
+    const startNames = ['start', ...NODE_START_ALIASES]
+      .filter((name) => typeof scripts[name] === 'string' && scripts[name].trim());
+    const selectedStart = startNames.includes('start')
+      ? 'start'
+      : startNames.length === 1 ? startNames[0] : null;
+    if (!selectedStart && startNames.length > 1) {
+      ambiguities.push({
+        id: `node-start-script:${directory}`, purpose: 'start', scope: directory,
+        candidates: startNames.sort(),
+        reason: 'Multiple application-start aliases are declared and no canonical start script exists.'
+      });
+    } else if (selectedStart) {
+      const startFact = fact(snapshot, 'node', source, `#/scripts/${selectedStart}`, {
+        kind: 'script', value: selectedStart, purpose: 'start', module: directory
+      });
+      facts.push(startFact);
+      if (manager) commands.push(command(
+        `start-node-${safeId(directory)}-${selectedStart}`,
+        'start', manager, nodeRunArgs(manager, selectedStart), directory,
+        [...managerEvidence, startFact.id], {
+          confidence: 'declared', required: false, precedence: 30,
+          timeoutMs: 15_000, observationMs: 5_000, shutdownGraceMs: 2_000
+        }
+      ));
+    }
   }
   return { facts, commands, ambiguities };
 }
@@ -322,9 +398,11 @@ export function runSmartInitDetectors(snapshot, { maxModules = 200, maxCommands 
   return {
     facts,
     commands: {
+      dependency: chosen.selected.filter((entry) => entry.purpose === 'dependency'),
       verification: chosen.selected.filter((entry) => entry.purpose === 'verify'),
       quality: chosen.selected.filter((entry) => entry.purpose === 'quality'),
-      build: chosen.selected.filter((entry) => entry.purpose === 'build')
+      build: chosen.selected.filter((entry) => entry.purpose === 'build'),
+      start: chosen.selected.filter((entry) => entry.purpose === 'start')
     },
     discardedCommands: chosen.discarded,
     ambiguities,

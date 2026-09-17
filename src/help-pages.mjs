@@ -1711,18 +1711,25 @@ const PAGES = Object.freeze({
     seeAlso: ['precheck', 'bootstrap', 'doctor', 'start']
   },
   precheck: {
-    summary: 'Inspect whether smart-initialized repository law and its configured tools are ready without running project code.',
+    summary: 'Inspect repository law, or review and run bounded pre-Story dependency, build, test, and startup checks.',
     description: [
       'Quick precheck validates the activation receipt, workflow binding, configuration origins,',
       'implicit repository capability, wrapper or PATH metadata, and declared proof readiness.',
-      'It never executes a verifier, build, package-manager script, or model. `--run` is reserved',
-      'for a future separately classified evidence-producing operation and is refused today.'
+      'It never executes a verifier, build, package-manager script, or model.',
+      '`--run` first returns an effect-free exact-argv plan. Only the current plan digest executes',
+      'bounded commands and writes a hash-only, Git-private receipt for the exact base.'
     ],
     options: [
-      ['--quick', 'Run metadata-only readiness inspection. Required.'],
+      ['--quick', 'Run metadata-only readiness inspection. Incompatible with --run.'],
+      ['--run', 'Preview repository commands, or execute them with the exact --confirm-plan digest.'],
+      ['--confirm-plan SHA256', 'Execute only the freshly recomputed readiness plan with this exact digest.'],
       ['--json', 'Return a structured CommandResult containing the precheck receipt.']
     ],
-    examples: [['singularity-flow precheck --quick --json', 'Inspect activated initialization law without executing repository commands.']],
+    examples: [
+      ['singularity-flow precheck --quick --json', 'Inspect activated initialization law without executing repository commands.'],
+      ['singularity-flow precheck --run --json', 'Preview exact dependency, build, structured-test, and startup argv.'],
+      ['singularity-flow precheck --run --confirm-plan sha256:<PLAN> --json', 'Run one exact reviewed plan and record its Git-private receipt.']
+    ],
     seeAlso: ['init', 'doctor', 'configuration']
   },
   resume: {

@@ -5,7 +5,7 @@ const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge'
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['init', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'architecture']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'architecture']);
 
 const LAZY_MODULES = Object.freeze({
   // The five verbs share one dispatcher; each is a registered command in its own right so the
@@ -1139,7 +1139,12 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
       ? never('configuration.explain', definition, 'read')
       : never('configuration.edit', definition, 'mutation');
   }
-  if (definition.name === 'precheck') return never('precheck.quick', definition, 'read');
+  if (definition.name === 'precheck') {
+    if (!optionBoolean(options, 'run')) return never('precheck.quick', definition, 'read');
+    return optionString(options, 'confirm-plan')
+      ? never('precheck.run.execute', definition, 'mutation')
+      : never('precheck.run.plan', definition, 'read');
+  }
   if (definition.name === 'wm') return resolveWorldModelOperation(definition, positionals, options, context);
   if (definition.name === 'next') return resolveNextOperation(definition);
   if (definition.name === 'workspace') return resolveWorkspaceOperation(definition, positionals, options);
@@ -1324,6 +1329,8 @@ export function operationCatalog() {
     never('init.smart-detect.activate', initDefinition, 'mutation'),
     never('init.smart-detect.recover', initDefinition, 'mutation'),
     never('precheck.quick', precheckDefinition, 'read'),
+    never('precheck.run.plan', precheckDefinition, 'read'),
+    never('precheck.run.execute', precheckDefinition, 'mutation'),
     never('configuration.explain', configurationDefinition, 'read'),
     never('configuration.edit', configurationDefinition, 'mutation'),
     never('copilot.preview', commandDefinition('copilot'), 'read'),

@@ -95,7 +95,7 @@ export async function storyWorktreePath(root, workId) {
  * Create (or resume) the disposable launch checkout. The temporary branch exists only so Git can
  * register the worktree; the normal Story transaction switches it to the canonical Story branch.
  */
-export async function prepareStoryWorktree(root, workId) {
+export async function prepareStoryWorktree(root, workId, { base = 'HEAD' } = {}) {
   const id = portableId(workId);
   const target = path.resolve(await storyWorktreePath(root, id));
   const stagingBranch = `sflow-start-${digest(`${gitCommonDir(root)}\0${id}`).slice(0, 16)}`;
@@ -122,7 +122,7 @@ export async function prepareStoryWorktree(root, workId) {
     );
   }
   await safeNewPath(root, target);
-  const added = run('git', ['worktree', 'add', '-b', stagingBranch, '--', target, 'HEAD'], {
+  const added = run('git', ['worktree', 'add', '-b', stagingBranch, '--', target, base], {
     cwd: root, allowFailure: true
   });
   if (added.status !== 0) {

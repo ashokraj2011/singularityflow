@@ -101,6 +101,14 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Singularity Flow quick precheck is ${slot(s.status)} across ${slot(s.checks, '0')} check(s).`,
     preserves: true
   },
+  'precheck.run-planned': {
+    headline: (s) => `Repository readiness has ${slot(s.commands, '0')} command(s) ready for exact review.`,
+    preserves: true
+  },
+  'precheck.run-completed': {
+    headline: (s) => `Repository readiness passed ${slot(s.commands, '0')} command(s) for ${slot(s.commit)}.`,
+    preserves: false
+  },
   'sgos.reported': {
     headline: (s) => slot(s.summary, 'Singularity Flow governed execution result is ready.'),
     preserves: true

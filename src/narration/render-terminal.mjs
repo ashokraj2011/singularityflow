@@ -372,6 +372,44 @@ const REST_STATE_LINES = Object.freeze({
 });
 
 export function renderCommandResult(result) {
+  if (result.operation.id === 'precheck.run.plan' && result.data?.plan) {
+    const plan = result.data.plan;
+    const rows = plan.commands.map((command) => ({
+      purpose: command.purpose,
+      cwd: command.workingDirectory,
+      command: command.argv.map((argument) => JSON.stringify(argument)).join(' '),
+      timeout: `${command.timeoutMs} ms`
+    }));
+    return [
+      style.heading(headline(result)),
+      `Plan: ${plan.planId}`,
+      `Source: ${plan.sourceCommit} · ${plan.platform}/${plan.arch}`,
+      `Structured tests: ${plan.structuredTestContract.status}`,
+      ...(plan.blockers?.length
+        ? ['', style.heading('Resolve before execution:'),
+          ...plan.blockers.map((blocker) => `  - ${blocker.code}: ${blocker.subject}`)] : []),
+      ...(rows.length ? ['', table(rows, [
+        { key: 'purpose', label: 'PURPOSE' },
+        { key: 'cwd', label: 'WORKING DIRECTORY' },
+        { key: 'command', label: 'EXACT ARGV' },
+        { key: 'timeout', label: 'TIMEOUT' }
+      ])] : ['', style.pending('No repository command was detected.')]),
+      '', 'Nothing ran. Review the exact argv above before confirming.',
+      ...(result.next.length ? ['', style.heading('Next:'), ...nextLines(result)] : []),
+      style.detail(preservationLine(result))
+    ].filter(Boolean).join('\n');
+  }
+  if (result.operation.id === 'precheck.run.execute' && result.data?.receipt) {
+    const receipt = result.data.receipt;
+    return [
+      style.heading(headline(result)),
+      ...receipt.commandResults.map((entry) => `${entry.status === 'pass' ? style.pass('✓') : style.failure('✖')} ${entry.purpose}: ${entry.id} (${entry.durationMs} ms)`),
+      `Receipt: ${receipt.receiptSha256}`,
+      `Exact base: ${receipt.sourceCommit} · ${receipt.platform}/${receipt.arch}`,
+      `Stored Git-private: ${result.data.file}`,
+      'The receipt contains hashes and outcomes, not command output or secrets.'
+    ].filter(Boolean).join('\n');
+  }
   if (result.operation.id === 'precheck.quick' && result.data?.precheck) {
     const precheck = result.data.precheck;
     return [

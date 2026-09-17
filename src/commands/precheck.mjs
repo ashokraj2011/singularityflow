@@ -1,16 +1,58 @@
 import { repoRoot } from '../git.mjs';
 import { smartInitPrecheck } from '../initialization/precheck.mjs';
-import { commandResult, noEffects, succeeded } from '../narration/command-result.mjs';
+import {
+  buildRepositoryReadinessPlan, executeRepositoryReadinessPlan
+} from '../initialization/runtime-readiness.mjs';
+import {
+  action, commandResult, effects, noEffects, succeeded
+} from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
-import { optionBoolean, SingularityFlowError } from '../util.mjs';
+import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 
 export async function run(argv, { options } = {}) {
-  if (optionBoolean(options, 'run')) throw new SingularityFlowError(
-    'precheck --run is reserved for explicit configured-command execution and is not part of quick readiness inspection.',
+  const quick = optionBoolean(options, 'quick');
+  const execute = optionBoolean(options, 'run');
+  if (quick && execute) throw new SingularityFlowError(
+    'Choose either metadata-only precheck --quick or reviewed repository execution with precheck --run.',
     { code: 'INI_CONFIGURATION_INVALID' }
   );
-  if (!optionBoolean(options, 'quick')) throw new SingularityFlowError('Use precheck --quick.', { code: 'INI_CONFIGURATION_INVALID' });
-  const precheck = await smartInitPrecheck(repoRoot());
+  if (!quick && !execute) throw new SingularityFlowError(
+    'Choose precheck --quick or precheck --run.', { code: 'INI_CONFIGURATION_INVALID' }
+  );
+  const root = repoRoot();
+  if (execute) {
+    const confirmation = optionString(options, 'confirm-plan');
+    if (!confirmation) {
+      const plan = await buildRepositoryReadinessPlan(root);
+      const command = `singularity-flow precheck --run --confirm-plan ${plan.planId} --json`;
+      return emitCommandResult(commandResult({
+        operation: { id: 'precheck.run.plan', classification: 'read' },
+        outcome: succeeded('precheck.run-planned', { commands: plan.commands.length }),
+        effects: noEffects(),
+        next: plan.blockers.length ? [] : [action({
+          id: 'precheck-run-confirm',
+          label: 'Run the exact reviewed dependency, build, test, and application-start plan.',
+          command,
+          skill: '/sf-ready',
+          kind: 'review'
+        })],
+        restState: 'informational',
+        data: { plan }
+      }), { json: optionBoolean(options, 'json'), restStateWhenIdle: null });
+    }
+    const result = await executeRepositoryReadinessPlan(root, { confirmation });
+    return emitCommandResult(commandResult({
+      operation: { id: 'precheck.run.execute', classification: 'mutation' },
+      outcome: succeeded('precheck.run-completed', {
+        commands: result.receipt.commandResults.length,
+        commit: result.receipt.sourceCommit.slice(0, 12)
+      }),
+      effects: effects({ stateChanged: true }),
+      restState: 'complete',
+      data: result
+    }), { json: optionBoolean(options, 'json'), restStateWhenIdle: null });
+  }
+  const precheck = await smartInitPrecheck(root);
   return emitCommandResult(commandResult({
     operation: { id: 'precheck.quick', classification: 'read' },
     outcome: succeeded('precheck.reported', { status: precheck.status, checks: precheck.checks.length }),

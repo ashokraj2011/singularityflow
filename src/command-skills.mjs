@@ -24,7 +24,7 @@ const entries = {
   show: ['sf-show'],
   harness: ['sf-harness'],
   init: ['sf-init'],
-  precheck: ['sf-init'],
+  precheck: ['sf-ready', 'sf-init'],
   onboard: ['sf-init'],
   authority: ['sf-init'],
   cache: ['sf-doctor'],

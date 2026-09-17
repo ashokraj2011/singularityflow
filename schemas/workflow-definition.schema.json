@@ -335,7 +335,8 @@
               "type": "object",
               "properties": {
                 "inputs": { "$ref": "#/$defs/phaseInputs" },
-                "clarification": { "$ref": "#/$defs/clarificationPolicy" }
+                "clarification": { "$ref": "#/$defs/clarificationPolicy" },
+                "testEvidenceFrom": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" }
               }
             }
           },
@@ -356,6 +357,7 @@
           "sourceBoundary": { "enum": ["unrestricted", "test-automation"] },
           "artifact": { "$ref": "#/$defs/artifactContract" },
           "inputs": { "$ref": "#/$defs/phaseInputs" },
+          "testEvidenceFrom": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
           "clarification": { "$ref": "#/$defs/clarificationPolicy" },
           "generation": { "$ref": "#/$defs/generationPolicy" },
           "mcp": { "$ref": "#/$defs/phaseMcpPolicy" },

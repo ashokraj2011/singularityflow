@@ -27,6 +27,9 @@ const SHIPPED_STORY_CONTRACTS = Object.freeze({
     mode: 'required', clausePhases: ['mobile-spec'], owners: { implementation: 'mobile-spec' }
   },
   'quick-fix': { mode: 'opt-out' },
+  'classic-delivery': {
+    mode: 'required', clausePhases: ['intake'], owners: { implementation: 'intake' }
+  },
   'poc-lite': { mode: 'opt-out' },
   'benchmarking-a': {
     mode: 'required', clausePhases: ['intake'], owners: { implementation: 'design' }

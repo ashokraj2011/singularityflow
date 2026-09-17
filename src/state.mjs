@@ -2364,6 +2364,86 @@ function assertRequiredAssignment(workflow, phase) {
   }
 }
 
+/**
+ * A review phase may require the *committed* passing test receipts from an earlier code phase.
+ * The declarative source lives in the pinned resolution, never in mutable phase state or prose.
+ * Replaying the immutable review packet also protects a later Testing/Code checking approval from
+ * a stale or fabricated "tests passed" paragraph.
+ */
+async function assertPassedCodeDeliveryInput(root, config, workflow, phase) {
+  const sourceId = workflow.resolution?.phases?.find((entry) => entry.id === phase.id)?.testEvidenceFrom;
+  if (!sourceId) return null;
+  const source = workflow.phases?.[sourceId];
+  const refuse = (reason) => new SingularityFlowError(
+    `Phase '${phase.id}' needs verified, committed passing tests from '${sourceId}': ${reason}`,
+    { code: 'PRIOR_CODE_TEST_EVIDENCE_REQUIRED', details: { phase: phase.id, sourcePhase: sourceId } }
+  );
+  if (!source || source.status !== 'approved' || source.deliveryEvidence?.status !== 'ready'
+      || source.deliveryEvidence?.validation?.status !== 'passed') {
+    throw refuse('finish and approve the Code phase with passing structured tests first.');
+  }
+  const entry = [...(workflow.lineage?.submissions ?? [])].reverse().find((item) =>
+    item.phase === sourceId && Number(item.generation) === Number(source.generation));
+  if (!entry) throw refuse('the approved generation has no immutable submission packet.');
+  const { readStoryReviewPacket } = await import('./story-lineage.mjs');
+  const packet = await readStoryReviewPacket(root, config, workflow, entry.packetSha256);
+  const binding = packet.submissionEvidence?.codeDelivery;
+  const approved = (source.approvals ?? []).some((decision) =>
+    decision.decision === 'approved' && !decision.invalidatedAt
+      && Number(decision.generation) === Number(source.generation)
+      && decision.evidenceCommit === packet.evidenceCommit);
+  if (!approved || packet.workId !== workflow.workItem.id || packet.phase !== sourceId
+      || Number(packet.generation) !== Number(source.generation)
+      || !binding?.path || !binding.sha256 || !packet.evidenceCommit) {
+    throw refuse('the approval does not bind a current code-delivery receipt.');
+  }
+  const historical = run('git', ['show', `${packet.evidenceCommit}:${binding.path}`], {
+    cwd: root, allowFailure: true
+  });
+  if (historical.status !== 0) throw refuse('the test receipt is absent from the approval commit.');
+  let receipt;
+  try {
+    const raw = JSON.parse(historical.stdout);
+    const digest = createHash('sha256').update(canonicalJson(raw)).digest('hex');
+    if (digest !== String(binding.sha256).replace(/^sha256:/u, '')
+        || digest !== String(source.deliveryEvidence.receiptSha256).replace(/^sha256:/u, '')) {
+      throw new Error('its committed digest differs from the approval and Story state');
+    }
+    receipt = readRecord('code-delivery', raw).record;
+  } catch (error) {
+    throw refuse(`the committed test receipt is invalid: ${error.message}.`);
+  }
+  if (receipt.status !== 'ready' || receipt.workId !== workflow.workItem.id || receipt.phase !== sourceId
+      || Number(receipt.generation) !== Number(source.generation)
+      || receipt.tree?.generationCommit !== source.generationCommit
+      || !Array.isArray(receipt.testExecutions) || !receipt.testExecutions.length
+      || receipt.testExecutions.some((execution) => execution.status !== 'passed')) {
+    throw refuse('the receipt does not describe the approved generation and passing executions.');
+  }
+  if (receipt.tree.workingStateDigest !== await sourceTreeHash(root, config, workflow)) {
+    throw refuse('application source or tests changed after the approved execution. Return to Code.');
+  }
+  const replay = await verifyCodeDeliveryReceipt(root, receipt, {
+    protectedPaths: [...new Set([
+      ...(config.governance?.protectedPaths ?? []),
+      ...(workflow.resolution?.capability?.policy?.protectedPaths ?? [])
+    ])],
+    configurationSource: workflow.resolution?.configurationSource,
+    sourceBoundary: source.sourceBoundary,
+    symlinkPolicy: workflow.resolution?.codeDelivery?.changeSet?.symlinks ?? 'reject',
+    minimumDiscovered: workflow.resolution?.codeDelivery?.tests?.minimumDiscovered ?? 1,
+    minimumPassed: workflow.resolution?.codeDelivery?.tests?.minimumPassed ?? 1,
+    requireAffectedModuleCoverage: workflow.resolution?.codeDelivery?.tests?.requireAffectedModuleCoverage !== false,
+    minimumModelAssurance: workflow.resolution?.codeDelivery?.model?.minimumAssurance ?? 'unavailable',
+    evidenceCommit: packet.evidenceCommit,
+    pathContext: applicationPathContext(config, workflow)
+  });
+  if (!replay.valid || !replay.executions.length) {
+    throw refuse(`the committed executions do not replay: ${replay.errors.join('; ') || 'none were found'}.`);
+  }
+  return { sourcePhase: sourceId, evidenceCommit: packet.evidenceCommit, receiptPath: binding.path, receiptSha256: binding.sha256 };
+}
+
 export async function publishGeneration(root, config, workflow, {
   phaseId, usage: rawUsage, authorship = null, persist = true, publicationTransaction = null,
   architectureCandidateSnapshot = null
@@ -2386,6 +2466,7 @@ export async function publishGeneration(root, config, workflow, {
   }
   const generationIntent = await verifyOpenGenerationIntent(root, workflow, phase);
   assertRequiredAssignment(workflow, phase);
+  await assertPassedCodeDeliveryInput(root, config, workflow, phase);
   await assertMcpPhaseReadiness(root, workflow, phase);
   // Resolve and validate authorship before any content, test, brief, input, telemetry, or lifecycle
   // write. A wrong producer is a preflight refusal and must not leave partial recovery state.
@@ -3331,6 +3412,7 @@ async function submitPhaseTransition(root, config, workflow, {
     await assertConvergencePublicationReady(root, config, workflow, requestedPhase);
   }
   const phase = await assertPhaseSequence(root, workflow, 'submit for approval', { requestedPhase: phaseId });
+  await assertPassedCodeDeliveryInput(root, config, workflow, phase);
   const session = actor
     ? { actor, agent: agent ?? null }
     : await loadSession(root);
@@ -3900,6 +3982,7 @@ export async function approvePhase(root, config, workflow, {
 } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'approve');
   const phase = await assertPhaseSequence(root, workflow, 'approve', { requestedPhase: phaseId, allowedStatuses: ['awaiting_approval'] });
+  await assertPassedCodeDeliveryInput(root, config, workflow, phase);
   if (phase.id === 'convergence') {
     await assertConvergencePublicationReady(root, config, workflow, phase);
   } else {

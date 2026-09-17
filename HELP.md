@@ -1454,6 +1454,7 @@ Starter work types are:
 | Feature | intake → requirements → design → implementation-spec → implementation → verification → conformance |
 | Bugfix | intake → reproduction → fix-design → fix-spec → implementation → verification → conformance |
 | Chore | intake → implementation → verification → conformance |
+| Classic delivery | intake → Code → Testing → Code checking |
 | Figma export to mobile app | design-intake → design-inventory → component-mapping → mobile-spec → implementation → visual-verification → conformance |
 | Benchmark A — governed intelligence | intake → design → implementation → testing → conformance |
 | Benchmark B — generic context | intake → design → implementation → testing → conformance |
@@ -1461,6 +1462,8 @@ Starter work types are:
 | POC workflow — enterprise Playwright | POC intent → impact analysis → UI exploration → Playwright generation → bounded validation/repair → publication review |
 
 Feature work produces stable `AC-n` acceptance criteria and `SPEC-nnn` implementation items. Bugfix work uses a smaller fix specification but retains the same traceability model. Verification links tests and source evidence. Conformance compares approved requirements and specifications with exact code/test evidence.
+
+`classic-delivery` starts with reviewed acceptance criteria and a planned source/test claim, then changes code in the Code phase. Code publication runs the configured structured repository tests; its normalized passing receipt is committed with the governed generation on the Story branch. Testing reviews that exact receipt, and Code checking verifies the approved code and test evidence again before its final approval. The latter two phases cannot substitute a handwritten test claim for missing or failed Git-bound evidence. Choose it with `--work-type classic-delivery` when starting a Story, or inspect it with `singularity-flow workflow simulate classic-delivery`. The repository must have a working structured test command; its setup belongs in approved configuration before Code publication, not in a protected workflow file edited by the Story.
 
 `benchmarking-a` and `benchmarking-b` are deliberately paired. Both run the same templates, agents,
 artifacts, approvals, and rejection routes. A pins `worldModel: required`, `ast: optional-context`,

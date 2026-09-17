@@ -1282,6 +1282,20 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
   for (const [workTypeId, workType] of Object.entries(definition.workTypes)) {
     const resolved = resolveWorkType(definition, workTypeId);
     for (const consumer of resolved.phases) {
+      if (consumer.testEvidenceFrom !== undefined) {
+        const producer = resolved.phases.find((phase) => phase.id === consumer.testEvidenceFrom);
+        if (!producer || producer.order >= consumer.order || !phaseRequiresCodeDelivery(producer)) {
+          throw new SingularityFlowError(
+            `Work type '${workTypeId}' phase '${consumer.id}' testEvidenceFrom must name an earlier code-delivery phase.`
+          );
+        }
+        if (consumer.writeScope !== 'artifact-only' || phaseRequiresCodeDelivery(consumer)
+            || !consumer.inputs.some((input) => input.phase === producer.id)) {
+          throw new SingularityFlowError(
+            `Work type '${workTypeId}' phase '${consumer.id}' must be artifact-only, non-code, and consume '${producer.id}' to review its passing test evidence.`
+          );
+        }
+      }
       for (const input of consumer.inputs) {
         const producer = resolved.phases.find((phase) => phase.id === input.phase);
         if (!producer) throw new SingularityFlowError(`Work type '${workTypeId}' phase '${consumer.id}' input references inactive phase '${input.phase}'.`);

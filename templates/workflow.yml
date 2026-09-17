@@ -617,6 +617,38 @@ workTypes:
     phaseOverrides:
       verify: { inputs: [implement] }
 
+  classic-delivery:
+    label: Classic delivery
+    description: Intake, code, testing, and code checking with passing repository-native test receipts committed to the Story branch.
+    phases: [intake, implementation, testing, conformance]
+    plannedClaims:
+      mode: required
+      clausePhases: [intake]
+      owners: { implementation: intake }
+    templateOverrides:
+      intake: classic-delivery/intake.md
+      testing: classic-delivery/testing.md
+      conformance: classic-delivery/code-checking.md
+    phaseOverrides:
+      intake:
+        artifact: { kind: requirements }
+        clarification: { mode: required, maxQuestions: 5, topics: [problem, outcome, scope, acceptance criteria, tests] }
+      implementation:
+        label: Code
+        inputs: [intake]
+        approval: { authorities: [engineering-reviewers], minimum: 1, rejectTo: [intake, implementation] }
+      testing:
+        label: Testing
+        inputs: [intake, implementation]
+        writeScope: artifact-only
+        testEvidenceFrom: implementation
+        approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [implementation, testing] }
+      conformance:
+        label: Code checking
+        inputs: [intake, implementation, testing]
+        testEvidenceFrom: implementation
+        approval: { authorities: [quality-reviewers, engineering-reviewers], minimum: 1, rejectTo: [intake, implementation, testing, conformance] }
+
   poc-lite:
     label: POC Lite — local governed change
     description: A model-free four-checkpoint demonstration with repository-native validation and one explicit human finish decision; it imposes no MCP, tracker, or hosted-service dependency.

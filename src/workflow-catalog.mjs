@@ -80,7 +80,7 @@ export async function simulateWorkflow(root, workType = null) {
     const phases = profile.phases.map((phaseId, index) => {
       const base = definition.phases[phaseId]; const override = profile.phaseOverrides?.[phaseId] ?? {};
       const approval = override.approval ?? base.approval ?? {};
-      return { order: index + 1, id: phaseId, label: base.label, template: profile.templateOverrides?.[phaseId] ?? base.defaultTemplate, inputs: (override.inputs ?? base.inputs ?? []).map((input) => typeof input === 'string' ? input : input.phase), authorities: approval.authorities ?? [], minimumApprovals: approval.minimum ?? 1, qualityCommands: override.qualityCommands ?? base.qualityCommands ?? [], worldModelViews: override.worldModel?.views ?? base.worldModel?.views ?? [] };
+      return { order: index + 1, id: phaseId, label: override.label ?? base.label, template: profile.templateOverrides?.[phaseId] ?? base.defaultTemplate, inputs: (override.inputs ?? base.inputs ?? []).map((input) => typeof input === 'string' ? input : input.phase), authorities: approval.authorities ?? [], minimumApprovals: approval.minimum ?? 1, qualityCommands: override.qualityCommands ?? base.qualityCommands ?? [], worldModelViews: override.worldModel?.views ?? base.worldModel?.views ?? [] };
     });
     return { id, label: profile.label, inputsMode: definition.inputsMode ?? 'off', documents: profile.documents ?? definition.documents ?? {}, sequenceGates: { ...(definition.sequenceGates ?? {}), ...(profile.sequenceGates ?? {}) }, phases };
   });

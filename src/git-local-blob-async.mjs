@@ -5,6 +5,7 @@ import { incrementCommandCounter } from './dx-timing-context.mjs';
 import { signalProcessTree } from './util.mjs';
 
 const MAXIMUM_BATCH_OBJECTS = 512;
+const MAXIMUM_METADATA_OBJECTS = 4_096;
 const OBJECT_ID = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u;
 
 class LocalBlobReadError extends Error {
@@ -149,6 +150,68 @@ function lines(bytes, count) {
     refuse('GIT_BLOB_BATCH_INVALID');
   }
   return rows;
+}
+
+/**
+ * Inspect exact local blob OIDs without reading their bodies. This is deliberately separate from
+ * readLocalGitBlobsAsync: an `info` result proves the response framing, requested OID, type and
+ * declared size, but it does not prove the hash of bytes that were never read.
+ */
+export async function checkLocalGitBlobsAsync(root, objectIds, {
+  executable, env, signal = null, deadlineMs = 30_000,
+  maximumEntries = MAXIMUM_METADATA_OBJECTS,
+  runCommand = runLocalGitBytes
+} = {}) {
+  if (!Array.isArray(objectIds) || !Number.isSafeInteger(maximumEntries)
+      || maximumEntries < 1 || maximumEntries > MAXIMUM_METADATA_OBJECTS
+      || objectIds.length > maximumEntries
+      || objectIds.some((oid) => typeof oid !== 'string' || !OBJECT_ID.test(oid))
+      || !Number.isSafeInteger(deadlineMs) || deadlineMs <= 0) {
+    refuse('GIT_BLOB_BATCH_INVALID');
+  }
+  const unique = [...new Set(objectIds)];
+  incrementCommandCounter('git.requests');
+  incrementCommandCounter('git.batch-requests');
+  incrementCommandCounter('git.objects-requested', objectIds.length);
+  incrementCommandCounter('git.objects-unique', unique.length);
+  if (signal?.aborted) refuse('GAL_CANCELLED');
+  if (!unique.length) return new Map();
+  const deadlineAt = Date.now() + deadlineMs;
+  const localEnv = { ...env, GIT_NO_LAZY_FETCH: '1', GIT_NO_REPLACE_OBJECTS: '1' };
+  const execute = async (args, input, maxBuffer) => {
+    if (signal?.aborted) refuse('GAL_CANCELLED');
+    const result = await runCommand(executable, args, {
+      cwd: root, env: localEnv, input, maxBuffer, signal, deadlineAt
+    });
+    if (signal?.aborted) refuse('GAL_CANCELLED', result);
+    commandFailure(result);
+    if (result.stderr) refuse('GIT_BLOB_BATCH_INVALID', result);
+    return result;
+  };
+  const format = await execute(['rev-parse', '--show-object-format'], null, 1024);
+  const formatLine = format.stdout.toString('utf8');
+  if (!['sha1\n', 'sha256\n'].includes(formatLine)) refuse('GIT_BLOB_BATCH_INVALID', format);
+  const hashName = formatLine.slice(0, -1);
+  const oidLength = hashName === 'sha1' ? 40 : 64;
+  if (unique.some((oid) => oid.length !== oidLength)) refuse('GIT_BLOB_BATCH_INVALID');
+  const check = await execute(
+    ['cat-file', '--batch-check=%(objectname) %(objecttype) %(objectsize)'],
+    Buffer.from(`${unique.join('\n')}\n`), Math.max(1024, unique.length * 160)
+  );
+  const metadata = new Map();
+  for (const [index, row] of lines(check.stdout, unique.length).entries()) {
+    const oid = unique[index];
+    if (row === `${oid} missing`) refuse('GAL_OBJECT_MISSING', check);
+    const match = /^([a-f0-9]{40}|[a-f0-9]{64}) (blob|tree|commit|tag) ([0-9]+)$/u.exec(row);
+    if (!match || match[1] !== oid || match[1].length !== oidLength) {
+      refuse('GIT_BLOB_BATCH_INVALID', check);
+    }
+    if (match[2] !== 'blob') refuse('GAL_WRONG_OBJECT_TYPE', check);
+    const size = Number(match[3]);
+    if (!Number.isSafeInteger(size) || size < 0) refuse('GIT_BLOB_BATCH_INVALID', check);
+    metadata.set(oid, { oid, objectType: 'blob', size });
+  }
+  return metadata;
 }
 
 /**

@@ -14,7 +14,8 @@ The last command is a single-host qualification *cell*, not release qualificatio
 fixed bounded GAL test list and the ten-trial benchmark, records OS/Node/Git/source provenance,
 and reports only content hashes for captured test output. `local-pass` requires a clean checkout,
 no skipped cases, and exact-byte benchmark parity. A dirty source is explicitly
-`unqualified-dirty`; Windows fixtures that currently skip cannot be counted as passed. The report
+`unqualified-dirty`; known POSIX-only fixtures produce `local-incomplete` on Windows with named
+scenario exclusions, while any unexpected skip is a failure. Neither counts as passed. The report
 always sets `releaseQualified: false`, because no single laptop can prove the required matrix or
 independent signature/office-network evidence.
 

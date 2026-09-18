@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
-import { runtimeClass } from '../scripts/gal-matrix-cell.mjs';
+import { classifySkippedScenarios, runtimeClass } from '../scripts/gal-matrix-cell.mjs';
 
 function run(...args) {
   return spawnSync(process.execPath, ['scripts/gal-matrix-cell.mjs', ...args], {
@@ -16,6 +16,17 @@ test('GAL matrix classifies primary, legacy, and development-only Node versions'
   assert.equal(runtimeClass('24.8.0'), 'primary');
   assert.equal(runtimeClass('20.19.0'), 'legacy-compatibility');
   assert.equal(runtimeClass('25.5.0'), 'development-only');
+});
+
+test('GAL matrix names Windows-only exclusions and rejects an unexpected skip', () => {
+  const tap = 'ok 1 - GAL disposal cancels an in-flight blob read # SKIP POSIX fixture\n'
+    + 'ok 2 - unrelated mandatory case # SKIP unsupported\n';
+  assert.deepEqual(classifySkippedScenarios(tap, 'win32'), {
+    skippedScenarios: ['GAL disposal cancels an in-flight blob read', 'unrelated mandatory case'],
+    unexpectedSkips: ['unrelated mandatory case']
+  });
+  assert.deepEqual(classifySkippedScenarios(tap, 'darwin').unexpectedSkips,
+    ['GAL disposal cancels an in-flight blob read', 'unrelated mandatory case']);
 });
 
 test('GAL matrix preflight reports a source-bound local cell without claiming release qualification', () => {

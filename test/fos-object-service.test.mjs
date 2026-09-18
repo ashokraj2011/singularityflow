@@ -274,3 +274,47 @@ test('FOS profile acquisition obeys caller cancellation and the operation deadli
   assert.ok(Date.now() - began < 1_000, 'profile wait must not outlive its bounded deadline');
   await timed.close();
 });
+
+test('FOS pool refuses replacement when the old worker never proves cleanup', async () => {
+  const root = await repository();
+  const oid = git(['rev-parse', 'HEAD:source.bin'], root);
+  const bytes = Buffer.from([0, 10, 255, 13, 10]);
+  const transport = scriptedChild([
+    Buffer.from(`${oid} blob ${bytes.length}\n`), bytes, Buffer.from('\n')
+  ]);
+  const stubbornTransport = () => {
+    const child = transport();
+    child.stdin.end = () => {};
+    child.kill = () => true;
+    queueMicrotask(() => child.emit('spawn'));
+    return child;
+  };
+  const pooled = await fosGitObjectService(root, {
+    spawnCommand: stubbornTransport, idleMs: 60_000
+  });
+  assert.deepEqual((await pooled.read(oid)).bytes, bytes);
+  git(['config', '--local', 'sflow.objectProfileProbe', 'changed'], root);
+  await assert.rejects(() => fosGitObjectService(root, {
+    spawnCommand: stubbornTransport, idleMs: 60_000
+  }), { code: 'GAL_CLEANUP_INCOMPLETE' });
+  assert.equal(pooled.closed, true);
+  const outcome = await closeFosGitObjectServices();
+  assert.deepEqual(outcome, { closed: true, terminated: false });
+});
+
+test('FOS does not count a failed child start as a physical Git spawn', async () => {
+  const root = await repository();
+  const oid = git(['rev-parse', 'HEAD:source.bin'], root);
+  const worker = new FosGitObjectService(root, {
+    spawnCommand: () => {
+      const child = scriptedChild([])();
+      queueMicrotask(() => child.emit('error', Object.assign(new Error('not found'), {
+        code: 'ENOENT'
+      })));
+      return child;
+    }
+  });
+  await assert.rejects(worker.read(oid), { code: 'OBJECT_SERVICE_UNAVAILABLE' });
+  assert.equal(worker.processSpawns, 0);
+  await worker.close();
+});

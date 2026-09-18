@@ -12,12 +12,16 @@ import { constants as fsConstants } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { readLocalGitBlobsAsync } from './git-local-blob-async.mjs';
+import { checkLocalGitBlobsAsync, readLocalGitBlobsAsync } from './git-local-blob-async.mjs';
 import { createGitStatusReadFacade } from './git-access-status.mjs';
 import { withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
-import { runRemoteGitAsync } from './git-execution.mjs';
-import { failureEvidence } from './git-remote-diagnostics.mjs';
+import { gitRemoteProbeTimeout, runRemoteGitAsync } from './git-execution.mjs';
+import {
+  assertCredentialFreeRemote, failureEvidence, frozenRemoteTransport,
+  isPortableAbsoluteGitPath
+} from './git-remote-diagnostics.mjs';
 import { isFullyQualifiedWindowsPath } from './platform-process.mjs';
+import { networkDisabled } from './util.mjs';
 
 const LOCAL_DEADLINE_MS = 30_000;
 const MAX_OBJECT_BYTES = 32 * 1024 * 1024;
@@ -28,6 +32,7 @@ const MAX_BATCH_ENTRIES = 4_096;
 const MAX_LIST_ENTRIES = 4_096;
 const MAX_LIST_BYTES = 16 * 1024 * 1024;
 const MAX_CONFIG_BYTES = 1024 * 1024;
+const MAX_REMOTE_REF_BYTES = 1024 * 1024;
 const OID = Object.freeze({ sha1: /^[0-9a-f]{40}$/u, sha256: /^[0-9a-f]{64}$/u });
 const APPROVED_CONFIG_KEYS = new Set([
   'remote.origin.url', 'core.bare', 'core.filemode', 'core.ignorecase',
@@ -56,11 +61,27 @@ function failure(code, operationId, subject = null, result = null) {
 }
 
 function executionFailure(operationId, subject, result) {
-  const code = result?.aborted ? 'GAL_CANCELLED'
+  const code = result?.blocked ? 'GAL_NETWORK_DISABLED'
+    : result?.aborted ? 'GAL_CANCELLED'
     : result?.timedOut ? 'GAL_TIMEOUT'
       : result?.outputOverflow ? 'GAL_OUTPUT_LIMIT'
         : result?.error ? 'GAL_EXECUTABLE_UNAVAILABLE' : 'GAL_GIT_FAILED';
   return failure(code, operationId, subject, result);
+}
+
+function remoteObservationFailure(operationId, subject, result) {
+  if (result?.blocked || result?.aborted || result?.timedOut || result?.outputOverflow
+      || result?.error) return executionFailure(operationId, subject, result);
+  const classification = result?.failure?.classification ?? 'unknown';
+  const denied = new Set([
+    'credential-helper-unavailable', 'authentication-required',
+    'sso-authorization-required', 'authorization-denied', 'policy-rejected'
+  ]);
+  const code = denied.has(classification) ? 'GAL_REMOTE_DENIED'
+    : classification === 'unknown' ? 'GAL_REMOTE_UNKNOWN' : 'GAL_REMOTE_UNAVAILABLE';
+  const resultFailure = failure(code, operationId, subject, result);
+  resultFailure.diagnostic.remoteClassification = classification;
+  return resultFailure;
 }
 
 function singleLine(output) {
@@ -98,6 +119,35 @@ function validRefBytes(bytes) {
   return splitBytes(bytes, 0x2f).every((part) => part.length
     && part[0] !== 0x2e && part.at(-1) !== 0x2e
     && !part.subarray(Math.max(0, part.length - 5)).equals(Buffer.from('.lock')));
+}
+
+function explicitRemoteEndpoint(value) {
+  if (typeof value !== 'string' || !value || value !== value.trim()) return null;
+  let remote;
+  try { remote = assertCredentialFreeRemote(value); } catch { return null; }
+  // A remote name or relative path can be reinterpreted by mutable local configuration.
+  // The observed repository-local origin must itself be an explicit transport endpoint.
+  if (isPortableAbsoluteGitPath(remote)
+      || /^(?:https?|ssh|git|file):\/\//iu.test(remote)
+      || /^(?:[^@/:\s]+@)?[^@/:\s]+:[^\s]+$/u.test(remote)) return remote;
+  return null;
+}
+
+function claimedOriginPin(value) {
+  if (!validSelection(value, ['kind', 'ownerRevision', 'originUrlSha256'])
+      || value.kind !== 'owner-pinned-origin'
+      || typeof value.originUrlSha256 !== 'string'
+      || !/^sha256:[0-9a-f]{64}$/u.test(value.originUrlSha256)) return null;
+  const ownerRevisionObjectFormat = OID.sha1.test(value.ownerRevision) ? 'sha1'
+    : OID.sha256.test(value.ownerRevision) ? 'sha256' : null;
+  if (!ownerRevisionObjectFormat) return null;
+  // This is a caller claim, not an approval proof. The issuing owner must validate the revision
+  // before invoking GAL; GAL checks only exact local-origin continuity against its supplied hash.
+  return Object.freeze({
+    kind: value.kind, ownerRevision: value.ownerRevision,
+    ownerRevisionObjectFormat,
+    originUrlSha256: value.originUrlSha256
+  });
 }
 
 function controlledEnvironment(source, executable) {
@@ -435,6 +485,133 @@ class GitInvocation {
     });
   }
 
+  /** Observe an exact origin ref under a caller-claimed pin; this does not verify approval. */
+  async remoteRef(request = {}) {
+    const operationId = 'gal.remote-ref.v1';
+    if (!validSelection(request, ['pin', 'ref', 'freshness', 'captureKey'])) {
+      return failure('GAL_INPUT_INVALID', operationId);
+    }
+    const pin = claimedOriginPin(request.pin);
+    const ref = request.ref;
+    if (!pin || !validRef(ref)) return failure('GAL_INPUT_INVALID', operationId);
+    const subject = { pin, ref };
+    const runtime = this.#repository.runtime;
+    const observeOrigin = async () => {
+        const result = await executeBytes(runtime, this.identity.nativePath, [
+          'config', '--local', '--no-includes', '--null', '--get-all', 'remote.origin.url'
+        ], { signal: this.#controller.signal, maxBuffer: MAX_CONFIG_BYTES });
+        if (result.status === 1 && !result.error && !result.timedOut && !result.aborted
+            && !result.outputOverflow && !result.stderr && !result.stdout.length) {
+          return failure('GAL_ORIGIN_UNCONFIGURED', operationId, subject, result);
+        }
+        if (result.status !== 0 || result.error || result.timedOut || result.aborted
+            || result.outputOverflow) return executionFailure(operationId, subject, result);
+        const values = nulRecords(result.stdout, 2);
+        if (values === 'limit' || (Array.isArray(values) && values.length > 1)) {
+          return failure('GAL_ORIGIN_AMBIGUOUS', operationId, subject, result);
+        }
+        if (!values || values.length !== 1) {
+          return failure('GAL_PROTOCOL_INVALID', operationId, subject, result);
+        }
+        const raw = values[0];
+        const remote = exactUtf8(raw);
+        if (!remote || !explicitRemoteEndpoint(remote)) {
+          return failure('GAL_ORIGIN_UNSAFE', operationId, subject, result);
+        }
+        const fingerprint = `sha256:${createHash('sha256').update(raw).digest('hex')}`;
+        if (fingerprint !== pin.originUrlSha256) {
+          return failure('GAL_ENDPOINT_CHANGED', operationId, subject, result);
+        }
+        return { ok: true, remote, fingerprint };
+    };
+    // This read is outside the named-capture cache. Even a captured remote observation cannot
+    // survive a changed repository-local origin under the same caller-claimed pin.
+    const origin = await observeOrigin();
+    if (!origin.ok) return origin;
+    const observed = await this.#observe(operationId, subject, request, async () => {
+      // The local-read environment deliberately omits the offline flag. Restore the caller's
+      // network boundary for this sole remote operation before entering the shared executor.
+      const transport = frozenRemoteTransport(origin.remote, {
+        env: {
+          ...RUNTIME_ENVIRONMENTS.get(runtime),
+          ...(runtime.remoteDisabled ? { SINGULARITY_FLOW_NO_NETWORK: '1' } : {})
+        }
+      });
+      const result = await runRemoteGitAsync([
+        'ls-remote', '--refs', '--exit-code', transport.remote, ref
+      ], {
+        cwd: this.identity.nativePath, env: transport.env, operation: 'remote-probe',
+        // Local/file authorities use the configuration window; network authorities use the
+        // shorter interactive probe window. The runtime's local-read deadline is separate.
+        timeoutMs: gitRemoteProbeTimeout(origin.remote, transport.env),
+        maxBuffer: MAX_REMOTE_REF_BYTES,
+        allowFailure: true, signal: this.#controller.signal, encoding: 'buffer',
+        spawnCommand: pinnedSpawn(runtime.identity.path)
+      });
+      if (result.error || result.timedOut || result.aborted || result.outputOverflow
+          || result.blocked || ![0, 2].includes(result.status)) {
+        return remoteObservationFailure(operationId, subject, result);
+      }
+      if (!Buffer.isBuffer(result.stdout) || (result.stdout.length
+          && result.stdout.at(-1) !== 0x0a)) {
+        return failure('GAL_PROTOCOL_INVALID', operationId, subject, result);
+      }
+      if (result.status === 2) {
+        return !result.stdout.length && !result.stderr
+          ? failure('GAL_REF_ABSENT', operationId, subject, result)
+          : failure('GAL_PROTOCOL_INVALID', operationId, subject, result);
+      }
+      const lines = result.stdout.length
+        ? splitBytes(result.stdout.subarray(0, -1), 0x0a) : [];
+      if (!lines.length || lines.length > MAX_LIST_ENTRIES) {
+        return failure(lines.length > MAX_LIST_ENTRIES ? 'GAL_LIMIT_EXCEEDED'
+          : 'GAL_PROTOCOL_INVALID', operationId, subject, result);
+      }
+      let oid = null;
+      let remoteObjectFormat = null;
+      const expected = Buffer.from(ref, 'utf8');
+      for (const line of lines) {
+        const separator = line.indexOf(0x09);
+        if (separator < 1 || line.indexOf(0x09, separator + 1) !== -1) {
+          return failure('GAL_PROTOCOL_INVALID', operationId, subject, result);
+        }
+        const oidBytes = line.subarray(0, separator);
+        const refBytes = line.subarray(separator + 1);
+        const candidate = oidBytes.toString('ascii');
+        const candidateFormat = OID.sha1.test(candidate) ? 'sha1'
+          : OID.sha256.test(candidate) ? 'sha256' : null;
+        if (!oidBytes.every((byte) => byte <= 0x7f)
+            || !candidateFormat || !validRefBytes(refBytes)) {
+          return failure('GAL_PROTOCOL_INVALID', operationId, subject, result);
+        }
+        if (remoteObjectFormat && remoteObjectFormat !== candidateFormat) {
+          return failure('GAL_REMOTE_FORMAT_UNSUPPORTED', operationId, subject, result);
+        }
+        remoteObjectFormat = candidateFormat;
+        if (refBytes.equals(expected)) {
+          if (oid !== null) return failure('GAL_PROTOCOL_INVALID', operationId, subject, result);
+          oid = candidate;
+        }
+      }
+      if (!oid) return failure('GAL_REF_ABSENT', operationId, subject, result);
+      const stableOrigin = await observeOrigin();
+      if (!stableOrigin.ok) return stableOrigin;
+      return success(subject, {
+        remote: 'origin', endpointSha256: origin.fingerprint,
+        ownerPin: pin, ref, oid, objectFormat: remoteObjectFormat,
+        repositoryObjectFormat: this.identity.objectFormat
+      }, {
+        observedAt: new Date().toISOString(), classification: 'remote-observational'
+      });
+    });
+    if (!observed.ok && observed.code !== 'GAL_REF_ABSENT') return observed;
+    // A frozen URL prevents redirection, but the observation no longer satisfies the requested
+    // owner pin if local origin changed during the probe (or while a capture was being reused).
+    const currentOrigin = await observeOrigin();
+    if (!currentOrigin.ok) return currentOrigin;
+    return observed;
+  }
+
   async refs(request = {}) {
     const operationId = 'gal.refs.v1';
     if (!validSelection(request, ['prefix', 'includePeeled', 'freshness', 'captureKey'])
@@ -629,6 +806,47 @@ class GitInvocation {
 
   index(request = {}) { return this.indexDetail(request); }
 
+  async blobCheck(oids = []) {
+    const operationId = 'gal.blob-check.v1';
+    if (this.#closed || this.#repository.closed) return failure('GAL_DISPOSED', operationId);
+    if (!Array.isArray(oids) || oids.length > MAX_BATCH_ENTRIES
+        || oids.some((oid) => !validOid(oid, this.identity.objectFormat))) {
+      return failure('GAL_INPUT_INVALID', operationId);
+    }
+    const requested = [...oids];
+    if (this.#controller.signal.aborted) return failure('GAL_CANCELLED', operationId);
+    if (!(await this.#repository.identityCurrent())) {
+      return failure('GAL_REPOSITORY_CHANGED', operationId);
+    }
+    if (!requested.length) return success({ oids: [] }, { entries: [] }, {
+      objectFormat: this.identity.objectFormat, classification: 'metadata-only'
+    });
+    try {
+      const metadata = await checkLocalGitBlobsAsync(this.identity.nativePath, requested, {
+        executable: this.#repository.runtime.identity.path,
+        env: RUNTIME_ENVIRONMENTS.get(this.#repository.runtime),
+        signal: this.#controller.signal,
+        deadlineMs: this.#repository.runtime.deadlineMs,
+        maximumEntries: MAX_BATCH_ENTRIES
+      });
+      if (this.#controller.signal.aborted) return failure('GAL_CANCELLED', operationId);
+      if (!(await this.#repository.identityCurrent())) {
+        return failure('GAL_REPOSITORY_CHANGED', operationId);
+      }
+      if (this.#controller.signal.aborted) return failure('GAL_CANCELLED', operationId);
+      return success({ oids: requested }, {
+        // Duplicate positions are preserved, and no body hash verification is implied.
+        entries: requested.map((oid) => ({ ...metadata.get(oid) }))
+      }, { objectFormat: this.identity.objectFormat, classification: 'metadata-only' });
+    } catch (error) {
+      const code = error?.code === 'GIT_BLOB_BATCH_INVALID' ? 'GAL_PROTOCOL_INVALID'
+        : ['GAL_CANCELLED', 'GAL_TIMEOUT', 'GAL_OUTPUT_LIMIT', 'GAL_OBJECT_MISSING',
+          'GAL_WRONG_OBJECT_TYPE', 'GAL_LIMIT_EXCEEDED', 'GAL_EXECUTABLE_UNAVAILABLE']
+            .includes(error?.code) ? error.code : 'GAL_GIT_FAILED';
+      return failure(code, operationId, { oids: requested }, error?.result);
+    }
+  }
+
   async blobs(request = {}) {
     const operationId = 'gal.blobs.v1';
     const oids = request?.oids;
@@ -718,10 +936,11 @@ class GitRepository {
 class GitRuntime {
   #closed = false;
   #repositories = new Set();
-  constructor(identity, environment, deadlineMs, signal = null) {
+  constructor(identity, environment, deadlineMs, signal = null, remoteDisabled = false) {
     this.identity = Object.freeze(identity);
     this.deadlineMs = deadlineMs;
     this.signal = signal;
+    this.remoteDisabled = remoteDisabled;
     RUNTIME_ENVIRONMENTS.set(this, environment);
     Object.freeze(this);
   }
@@ -815,6 +1034,6 @@ export async function createGitRuntime(options = {}) {
     return failure('GAL_PROTOCOL_INVALID', operationId, null, version);
   }
   const runtime = new GitRuntime({ path: executable, version: versionText, platform },
-    environment, deadlineMs, options.signal ?? null);
+    environment, deadlineMs, options.signal ?? null, networkDisabled(sourceEnvironment));
   return success({ executable: 'git' }, runtime, { classification: 'runtime' });
 }

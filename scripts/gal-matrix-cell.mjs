@@ -17,6 +17,8 @@ import { signalProcessTree } from '../src/util.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const TESTS = Object.freeze([
   'test/git-access.test.mjs',
+  'test/git-access-blob-check.test.mjs',
+  'test/git-access-remote-ref.test.mjs',
   'test/git-access-typed-reads.test.mjs',
   'test/git-access-status.test.mjs',
   'test/git-local-blob-async.test.mjs',
@@ -31,6 +33,19 @@ const TESTS = Object.freeze([
   'test/gal-read-benchmark.test.mjs'
 ]);
 const OUTPUT_LIMIT = 8 * 1024 * 1024;
+// These fixtures currently require POSIX shell wrappers or filename behavior. They are explicit
+// Windows coverage gaps, not passing acceptance evidence. A new skip is a test failure.
+const WINDOWS_EXCLUSIONS = new Set([
+  'GAL status/index reads preserve unsafe names and bind exact subjects to the verified repository',
+  'GAL typed reads refuse malformed framing without treating it as empty',
+  'GAL blob subprocess I/O does not block the event loop',
+  'GAL disposal cancels an in-flight blob read',
+  'GAL blob deadline stops a slow content stage',
+  'GAL rejects a well-framed blob with bytes that do not hash to its OID',
+  'GAL refuses a torn HEAD observation when checkout changes between its reads',
+  'GAL does not release an in-flight captured result after repository replacement',
+  'GAL:AC-020 promised blob stays local-only until a separate acquisition'
+]);
 
 export function runtimeClass(version) {
   const major = Number(String(version).split('.')[0]);
@@ -50,6 +65,20 @@ function summarizeTap(stdout) {
   }
   return ['tests', 'pass', 'fail', 'cancelled', 'skipped'].every((key) =>
     Number.isSafeInteger(values[key])) ? values : null;
+}
+
+function skippedTapTests(stdout) {
+  return [...stdout.matchAll(/^ok \d+ - (.+?) # SKIP(?: .*)?$/gmu)]
+    .map((match) => match[1]);
+}
+
+export function classifySkippedScenarios(stdout, platform = process.platform) {
+  const skippedScenarios = skippedTapTests(stdout);
+  const allowedExclusions = platform === 'win32' ? WINDOWS_EXCLUSIONS : new Set();
+  return {
+    skippedScenarios,
+    unexpectedSkips: skippedScenarios.filter((name) => !allowedExclusions.has(name))
+  };
 }
 
 async function runBounded(executable, args, {
@@ -168,15 +197,17 @@ async function cell() {
     '--test', '--test-concurrency=2', '--test-reporter=tap', ...TESTS
   ], { timeoutMs: 10 * 60_000 });
   const summary = summarizeTap(tests.stdout);
+  const { skippedScenarios, unexpectedSkips } = classifySkippedScenarios(tests.stdout);
   const testResult = {
     status: tests.status, signal: tests.signal, timedOut: tests.timedOut,
     outputOverflow: tests.outputOverflow, cleanupSignalAccepted: tests.cleanupSignalAccepted,
     processClosed: tests.processClosed,
     spawnErrorCode: tests.spawnErrorCode, durationMs: tests.durationMs,
-    outputSha256: tests.outputSha256, summary
+    outputSha256: tests.outputSha256, summary, skippedScenarios, unexpectedSkips
   };
   if (tests.status !== 0 || !summary || summary.fail !== 0 || summary.cancelled !== 0
-      || summary.skipped !== 0 || summary.pass !== summary.tests) {
+      || summary.skipped !== skippedScenarios.length || unexpectedSkips.length
+      || summary.pass + summary.skipped !== summary.tests) {
     return { ...report, status: 'failed', tests: testResult, benchmark: null };
   }
   const benchmark = await runBounded(process.execPath, [
@@ -193,8 +224,9 @@ async function cell() {
     && measurement?.parity?.persistentExactBytes === true
     && measurement?.declaredFixtureComplete === true;
   return {
-    ...report, status: validMeasurement && !sourceDirty ? 'local-pass'
-      : validMeasurement ? 'unqualified-dirty' : 'failed', tests: testResult,
+    ...report, status: !validMeasurement ? 'failed'
+      : sourceDirty ? 'unqualified-dirty'
+        : skippedScenarios.length ? 'local-incomplete' : 'local-pass', tests: testResult,
     benchmark: {
       status: benchmark.status, signal: benchmark.signal, timedOut: benchmark.timedOut,
       outputOverflow: benchmark.outputOverflow,

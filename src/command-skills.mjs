@@ -182,6 +182,7 @@ function route(defaultSkill, subcommands = {}) {
  * packaged.
  */
 export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
+  precheck: route('sf-ready'),
   choices: route('sf-start', {
     'begin start': 'sf-start',
     'begin approve': 'sf-approve'

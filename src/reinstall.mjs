@@ -176,10 +176,9 @@ function executeOrThrow(execute, command, args, options = {}) {
   return result;
 }
 
-async function packageCliBuild({
-  packageRoot, expectedVersion, execute, environment, label
-}) {
-  const executable = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
+async function packageCliBuild(buildRequest) {
+  const { expectedVersion, execute, environment, label } = buildRequest;
+  const executable = path.join(buildRequest.packageRoot, 'bin', 'singularity-flow.mjs');
   await regularFile(executable, `${label} bin/singularity-flow.mjs`);
   const result = executeOrThrow(execute, process.execPath, [executable, '--build'], {
     env: environment,
@@ -604,9 +603,9 @@ async function stageDistributionPackage({
     env: { ...environment, NPM_CONFIG_REGISTRY: registry },
     timeoutMs: Number(environment.SINGULARITY_FLOW_PRODUCT_MUTATION_TIMEOUT_MS || 300_000)
   });
-  const packageRoot = path.join(prefix, 'node_modules', REINSTALL_SURFACES.npmPackage);
-  const manifestFile = path.join(packageRoot, 'package.json');
-  const pluginFile = path.join(packageRoot, 'plugin', 'plugin.json');
+  const stagedPackageRoot = path.join(prefix, 'node_modules', REINSTALL_SURFACES.npmPackage);
+  const manifestFile = path.join(stagedPackageRoot, 'package.json');
+  const pluginFile = path.join(stagedPackageRoot, 'plugin', 'plugin.json');
   await Promise.all([
     regularFile(manifestFile, 'staged distribution package.json'),
     regularFile(pluginFile, 'staged distribution plugin/plugin.json')
@@ -619,7 +618,7 @@ async function stageDistributionPackage({
       || manifest.version !== plugin.version) {
     throw new SingularityFlowError('The privately staged distribution package or Copilot plugin identity is invalid.');
   }
-  return packageRoot;
+  return stagedPackageRoot;
 }
 
 async function persistPlan(plan, tempRoot) {

@@ -1966,11 +1966,15 @@ test('Story approval collects every specification-quality decision in one guarde
   await mkdir(path.dirname(specPath), { recursive: true });
   await writeFile(specPath, [
     '# Specification — Calculate finance amount', '',
+    '## Agent brief', '',
+    'Specify a deterministic finance calculation for an approved-account analyst. The amount must be reproducible and negative principal must be rejected.', '',
     '## Actors', '', 'A finance analyst with access to an approved account.', '',
     '## User scenarios', '',
     '- **Given** a principal and annual rate',
     '  **When** the analyst requests the finance calculation',
     '  **Then** the result contains the deterministic calculated amount.', '',
+    '## Boundary conditions', '',
+    'A negative principal is rejected before calculation; equal valid inputs produce the same rounded amount.', '',
     '## Requirements', '',
     '- The system calculates the amount from principal and annual rate. [CFA:REQ-001]',
     '- The system rejects a negative principal with a validation result. [CFA:REQ-002]', '',
@@ -2550,7 +2554,7 @@ test('the packaged POC release candidate journey survives publication, review, C
   await intake.post({ type: 'field', field: 'description', value: 'Generate governed browser regression coverage for checkout.' });
   await intake.post({ type: 'field', field: 'acceptanceCriteria', value: 'Checkout succeeds and deterministic evidence is retained.' });
   await intake.post({ type: 'field', field: 'targetUrl', value: 'https://staging.example.test/application' });
-  await until(() => /Confirmed: create <code>POC-RC-1<\/code>/.test(intake.webview.html) ? true : null,
+  await until(() => /Story-start readiness confirmed for[\s\S]*?create <code>POC-RC-1<\/code>/.test(intake.webview.html) ? true : null,
     { what: 'the explicit base-branch publication preflight to pass' });
   await intake.post({ type: 'start' });
 

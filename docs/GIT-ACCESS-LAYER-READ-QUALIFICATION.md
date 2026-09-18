@@ -35,6 +35,13 @@ The same exact expected bytes are checked after all read profiles. A failure abo
 
 ## Provisional local observation
 
+On **2026-09-19**, the clean `0f39a43c7eb57a2d0c62321106408fe2d2265311`
+checkout passed the bounded macOS arm64 **Node 22.14.0**/Git 2.54 GAL cell
+(171/171 tests, no skips). Its 10-trial cold discovery profile used four Git
+spawns per trial, with 18.252 ms median and 20.558 ms p95. This is one local
+supported-Node cell; it does not cover Node 24, Windows/Linux, office credentials,
+or the independent release review.
+
 On **2026-09-19**, the clean `be7a65f502de034e88323c8104bbc3f0e74b1e14`
 checkout passed the bounded macOS arm64 GAL cell (171/171 tests, no skips) with Node
 `25.5.0` and Git `2.54.0`. Its 10-trial cold runtime/repository-discovery profile

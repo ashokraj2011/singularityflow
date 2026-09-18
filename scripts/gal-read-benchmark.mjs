@@ -16,6 +16,7 @@ import { withCommandTiming } from '../src/dx-timing-context.mjs';
 import { fosGitObjectService, closeFosGitObjectServices } from '../src/fos-object-service.mjs';
 import { createGitRuntime } from '../src/git-access.mjs';
 import { readLocalGitBlobs } from '../src/git-blob-batch.mjs';
+import { readLocalGitBlobsAsync } from '../src/git-local-blob-async.mjs';
 import { run } from '../src/util.mjs';
 
 const SOURCE_ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -168,6 +169,26 @@ function referenceSample(executable, source) {
   return { milliseconds, gitSpawns: physicalSpawns };
 }
 
+async function asyncReferenceSample(executable, source) {
+  const timing = counter();
+  const start = performance.now();
+  const values = await withCommandTiming(timing, () => readLocalGitBlobsAsync(
+    source.root, source.oids, {
+      executable, env: source.env,
+      maximumBytes: source.oids.length * OBJECT_BYTES,
+      maximumObjectBytes: OBJECT_BYTES,
+      maximumBatchBytes: 16 * 1024 * 1024
+    }
+  ));
+  const milliseconds = performance.now() - start;
+  assertParity(values, source.expectedByOid);
+  return {
+    milliseconds,
+    gitSpawns: timing.get('git.spawns'),
+    logicalRequests: timing.get('git.requests')
+  };
+}
+
 async function persistentSample(service, source) {
   const before = service.processSpawns;
   const timing = counter();
@@ -202,10 +223,11 @@ async function main() {
     // Worker startup, repository profile and discovery are outside the warm-worker boundary.
     const warmBody = await service.read(source.oids[0]);
     assert.ok(warmBody?.bytes.equals(source.expectedByOid.get(source.oids[0])));
-    const cold = [], reference = [], persistent = [];
+    const cold = [], reference = [], asyncReference = [], persistent = [];
     for (let trial = 0; trial < selected.samples; trial += 1) {
       cold.push(await coldRuntimeSample(source.root, source.env));
       reference.push(referenceSample(executable, source));
+      asyncReference.push(await asyncReferenceSample(executable, source));
       persistent.push(await persistentSample(service, source));
     }
     const sourceRevision = String(git(executable, ['rev-parse', 'HEAD'], {
@@ -232,9 +254,11 @@ async function main() {
       profiles: {
         coldRuntimeAndRepositoryDiscovery: summarize(cold, selected.samples),
         referenceMetadataFirstSynchronousBatch: summarize(reference, selected.samples),
+        referenceMetadataFirstAsyncBatch: summarize(asyncReference, selected.samples),
         warmLegacyBatchWorker: summarize(persistent, selected.samples)
       },
-      parity: { referenceExactBytes: true, persistentExactBytes: true,
+      parity: { referenceExactBytes: true, asyncReferenceExactBytes: true,
+        persistentExactBytes: true,
         requiredComplete: true },
       declaredFixtureComplete: selected.objects === 500,
       releaseQualified: false,
@@ -259,9 +283,10 @@ function summarize(samples, count) {
     trials: count,
     latencyMilliseconds: distribution(samples.map((sample) => sample.milliseconds)),
     physicalGitSpawns: samples.map((sample) => sample.gitSpawns),
+    ...(samples.some((sample) => 'logicalRequests' in sample)
+      ? { logicalRequests: samples.map((sample) => sample.logicalRequests ?? 0) } : {}),
     ...(samples.some((sample) => 'workerSpawns' in sample)
-      ? { workerSpawns: samples.map((sample) => sample.workerSpawns),
-          logicalRequests: samples.map((sample) => sample.logicalRequests) } : {})
+      ? { workerSpawns: samples.map((sample) => sample.workerSpawns) } : {})
   };
 }
 

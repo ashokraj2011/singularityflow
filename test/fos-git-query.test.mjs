@@ -113,6 +113,125 @@ test('FOS:AC-021 mutation barriers prevent stale in-flight results from entering
   assert.equal(calls, 2);
 });
 
+test('GAL:AC-005 failed, cancelled, and timed-out mutations retire pending mutable and configuration reads', async () => {
+  for (const failure of ['failed', 'cancelled', 'timed-out']) {
+    for (const [id, scope] of [
+      ['repository.head', 'shared'],
+      ['repository.remote-url', 'configuration']
+    ]) {
+      let current = 'old';
+      let calls = 0;
+      let releaseRead;
+      let startedRead;
+      const gate = new Promise((resolve) => { releaseRead = resolve; });
+      const started = new Promise((resolve) => { startedRead = resolve; });
+      const context = new RepoContext('/tmp/example', {
+        execute: async () => {
+          calls += 1;
+          const result = current;
+          if (calls === 1) {
+            startedRead();
+            await gate;
+          }
+          return result;
+        }
+      });
+      const stale = context.observe(id);
+      await started;
+      let finishMutation;
+      const attempt = context.mutate(async () => {
+        current = 'new';
+        releaseRead();
+        await new Promise((resolve) => { finishMutation = resolve; });
+        throw Object.assign(new Error(failure), { code: failure.toUpperCase() });
+      }, { scope });
+      await assert.rejects(context.observe(id), (error) => error.code === 'REPO_CONTEXT_MUTATION_IN_PROGRESS');
+      assert.equal(await stale, 'old');
+      finishMutation();
+      await assert.rejects(attempt, (error) => error.message === failure);
+      assert.equal(await context.observe(id), 'new');
+      assert.equal(await context.observeFresh(id), 'new');
+      assert.equal(calls, 3, `${failure}: old pending read was not reused`);
+    }
+  }
+});
+
+test('GAL:AC-005 scoped epochs preserve unrelated captures and reject invalid scopes without a stuck barrier', async () => {
+  const calls = new Map();
+  const context = new RepoContext('/tmp/example', {
+    execute: (_root, id) => {
+      calls.set(id, (calls.get(id) ?? 0) + 1);
+      return `${id}:${calls.get(id)}`;
+    }
+  });
+  for (const id of ['repository.object-format', 'repository.remote-url',
+    'repository.head', 'repository.index-detail', 'repository.local-branch-exists']) {
+    await context.observe(id);
+  }
+  await context.mutate(async () => {}, { scope: 'worktree' });
+  assert.equal(await context.observe('repository.object-format'), 'repository.object-format:1');
+  assert.equal(await context.observe('repository.remote-url'), 'repository.remote-url:1');
+  assert.equal(await context.observe('repository.local-branch-exists'), 'repository.local-branch-exists:1');
+  assert.equal(await context.observe('repository.head'), 'repository.head:2');
+  assert.equal(await context.observe('repository.index-detail'), 'repository.index-detail:2');
+  await context.mutate(async () => {}, { scope: 'shared' });
+  assert.equal(await context.observe('repository.head'), 'repository.head:3');
+  assert.equal(await context.observe('repository.local-branch-exists'), 'repository.local-branch-exists:2');
+  assert.equal(await context.observe('repository.index-detail'), 'repository.index-detail:2');
+  await assert.rejects(context.mutate(async () => {}, { scope: 'unknown' }),
+    (error) => error.code === 'REPO_CONTEXT_INVALIDATION_SCOPE_INVALID');
+  assert.equal(await context.observe('repository.head'), 'repository.head:3');
+});
+
+test('GAL:AC-014 external worktree and configuration changes refresh affected captures but fresh reads bypass silent changes', async () => {
+  const root = await repository();
+  git(['remote', 'add', 'origin', 'https://example.test/old.git'], root);
+  const context = new RepoContext(root);
+  assert.deepEqual(await context.observe('repository.status'), []);
+  assert.equal(await context.observe('repository.remote-url', { remote: 'origin' }),
+    'https://example.test/old.git');
+  await writeFile(path.join(root, 'alpha.txt'), 'changed outside context\n');
+  git(['remote', 'set-url', 'origin', 'https://example.test/new.git'], root);
+  assert.deepEqual(await context.observe('repository.status'), [], 'captured status remains captured');
+  assert.equal(await context.observeFresh('repository.remote-url', { remote: 'origin' }),
+    'https://example.test/new.git');
+  context.notifyExternalChange('watcher', { scope: 'worktree' });
+  assert.ok((await context.observe('repository.status')).some((entry) => entry.includes('alpha.txt')));
+  assert.equal(await context.observe('repository.remote-url', { remote: 'origin' }),
+    'https://example.test/old.git', 'worktree-only notification preserves unrelated configuration capture');
+  context.notifyExternalChange('external', { scope: 'configuration' });
+  assert.equal(await context.observe('repository.remote-url', { remote: 'origin' }),
+    'https://example.test/new.git');
+});
+
+test('GAL:AC-015 shared-ref and configuration barriers reach registered linked worktree contexts', async () => {
+  const root = await repository();
+  const linked = `${root}-linked`;
+  git(['worktree', 'add', '-q', '-b', 'linked', linked], root);
+  const primary = new RepoContext(root);
+  const sibling = new RepoContext(linked);
+  await Promise.all([primary.identity(), sibling.identity()]);
+  assert.equal(await sibling.observe('repository.local-branch-exists', { branch: 'created' }), false);
+  let finish;
+  const mutation = primary.mutate(async () => {
+    git(['branch', 'created'], root);
+    await new Promise((resolve) => { finish = resolve; });
+  }, { scope: 'shared' });
+  await assert.rejects(sibling.observe('repository.local-branch-exists', { branch: 'created' }),
+    (error) => error.code === 'REPO_CONTEXT_MUTATION_IN_PROGRESS');
+  finish();
+  await mutation;
+  assert.equal(await sibling.observe('repository.local-branch-exists', { branch: 'created' }), true);
+  git(['remote', 'add', 'origin', 'https://example.test/old.git'], root);
+  primary.notifyExternalChange('external', { scope: 'configuration' });
+  assert.equal(await sibling.observe('repository.remote-url', { remote: 'origin' }),
+    'https://example.test/old.git');
+  git(['remote', 'set-url', 'origin', 'https://example.test/new.git'], root);
+  primary.notifyExternalChange('external', { scope: 'configuration' });
+  assert.equal(await sibling.observe('repository.remote-url', { remote: 'origin' }),
+    'https://example.test/new.git');
+});
+
 test('FOS:AC-022 external edits, watcher overflow and resume advance observational status epochs', async () => {
   const root = await repository();
   const context = new RepoContext(root);

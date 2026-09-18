@@ -9,8 +9,11 @@
 The Git Access Layer is an active staged migration, not a completed performance claim. Its
 2026-09-18 code-local safety slice and the remaining G0–G5 release gates are tracked in
 [Git Access Layer implementation status](GIT-ACCESS-LAYER-STATUS.md). In particular, the new
-facade is not yet the sole production Git path, and physical Windows/office qualification remains
-open.
+facade is not yet the sole production Git path. Typed local reads, scoped context epochs, a
+reference/persistent conformance corpus, and a bounded single-host matrix cell are available,
+but closed mutation migration, physical Windows/office qualification, supported Node 20/22/24
+cells, and signed source/artifact review remain open. The matrix cell rejects dirty-source
+qualification and never claims release approval.
 
 This is the one-page control plane for deliberately deferred product work. It does not replace the
 detailed domain roadmaps and it does not authorize implementation. It names the current boundary,

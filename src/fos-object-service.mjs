@@ -3,12 +3,11 @@ import { createHash } from 'node:crypto';
 import { stat } from 'node:fs/promises';
 import path from 'node:path';
 
-import { createRepoContext } from './repo-context.mjs';
 import { incrementCommandCounter } from './dx-timing-context.mjs';
+import { createGitRuntime } from './git-access.mjs';
 import { nonInteractiveGitEnvironment } from './git-execution.mjs';
-import { executeGitQuery } from './git-query.mjs';
 import { resolvePlatformProcess } from './platform-process.mjs';
-import { run, signalProcessTree, SingularityFlowError } from './util.mjs';
+import { signalProcessTree, SingularityFlowError } from './util.mjs';
 
 const OID = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 const TYPE = /^(blob|tree|commit|tag)$/;
@@ -64,16 +63,55 @@ function gitExecutable(env, root) {
   }
 }
 
-async function repositoryProfile(root, executable, env) {
-  const context = createRepoContext(root, {
-    execute: (cwd, id, params) => executeGitQuery(cwd, id, params, {
-      env, runner: (_command, args, options) => run(executable, args, options)
-    })
+async function repositoryProfile(root, executable, env, { signal = null, timeoutMs = 30_000 } = {}) {
+  const controller = new AbortController();
+  const onAbort = () => controller.abort('cancelled');
+  signal?.addEventListener('abort', onAbort, { once: true });
+  if (signal?.aborted) controller.abort('cancelled');
+  const timer = setTimeout(() => controller.abort('timeout'), timeoutMs);
+  try {
+    const runtimeResult = await createGitRuntime({
+      trustedGitPath: executable, trustedEnvironment: env, signal: controller.signal,
+      deadlineMs: timeoutMs
+    });
+    if (!runtimeResult.ok) throw error('Git object service could not inspect the repository.',
+      controller.signal.reason === 'timeout' ? 'OBJECT_REQUEST_TIMEOUT'
+        : controller.signal.aborted ? 'OBJECT_REQUEST_CANCELLED' : runtimeResult.code);
+    const runtime = runtimeResult.value;
+    try {
+      const opened = await runtime.openRepository(root);
+      if (!opened.ok) throw error('Git object service could not inspect the repository.',
+        controller.signal.reason === 'timeout' ? 'OBJECT_REQUEST_TIMEOUT'
+          : controller.signal.aborted ? 'OBJECT_REQUEST_CANCELLED' : opened.code);
+      const { gitDir, commonDir, objectFormat } = opened.value.identity;
+      return Object.freeze({ gitDir, commonDir, objectFormat });
+    } finally { await runtime.dispose(); }
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', onAbort);
+  }
+}
+
+function awaitProfile(promise, timeoutMs, signal) {
+  if (signal?.aborted) return Promise.reject(error('Git object request was cancelled.',
+    'OBJECT_REQUEST_CANCELLED'));
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (action, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      action(value);
+    };
+    const onAbort = () => finish(reject, error('Git object request was cancelled.',
+      'OBJECT_REQUEST_CANCELLED'));
+    const timer = setTimeout(() => finish(reject, error('Git object profile deadline exceeded.',
+      'OBJECT_REQUEST_TIMEOUT')), timeoutMs);
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) onAbort();
+    promise.then((value) => finish(resolve, value), (cause) => finish(reject, cause));
   });
-  const [paths, objectFormat] = await Promise.all([
-    context.observe('repository.paths'), context.observe('repository.object-format')
-  ]);
-  return Object.freeze({ ...paths, objectFormat });
 }
 
 async function poolFingerprint(identity, executable, env) {
@@ -141,6 +179,8 @@ export class FosGitObjectService {
   #retiring = null;
   #closing = null;
   #closureOutcome = null;
+  #cleanupVerified = true;
+  #profileController = new AbortController();
 
   constructor(root, {
     spawnCommand = spawn, maxQueued = 128, maxObjectBytes = 32 * 1024 * 1024,
@@ -167,8 +207,11 @@ export class FosGitObjectService {
     if (!OID.test(oid ?? '')) throw error('Object service requires one full SHA-1 or SHA-256 object ID.', 'OBJECT_ID_INVALID');
     if (this.#closed) throw error('Git object service is closed.', 'OBJECT_SERVICE_CLOSED');
     if (signal?.aborted) throw error('Git object request was cancelled.', 'OBJECT_REQUEST_CANCELLED');
-    this.#profile ??= repositoryProfile(this.#root, this.#executable, this.#env);
-    const profile = await this.#profile;
+    const began = Date.now();
+    this.#profile ??= repositoryProfile(this.#root, this.#executable, this.#env, {
+      signal: this.#profileController.signal, timeoutMs: this.#timeoutMs
+    });
+    const profile = await awaitProfile(this.#profile, this.#timeoutMs, signal);
     if (!['sha1', 'sha256'].includes(profile.objectFormat)) {
       throw error('Git object service could not establish the repository storage format.', 'OBJECT_FORMAT_UNSUPPORTED');
     }
@@ -185,6 +228,9 @@ export class FosGitObjectService {
     this.#fingerprint = fingerprint;
     if (this.#closed) throw error('Git object service is closed.', 'OBJECT_SERVICE_CLOSED');
     if (signal?.aborted) throw error('Git object request was cancelled.', 'OBJECT_REQUEST_CANCELLED');
+    if (Date.now() - began >= this.#timeoutMs) {
+      throw error('Git object request exceeded its operation deadline.', 'OBJECT_REQUEST_TIMEOUT');
+    }
     if (this.queued >= this.#maxQueued) throw error('Git object service queue is full.', 'GAL_BUSY');
     incrementCommandCounter('git.requests');
     incrementCommandCounter('git.batch-requests');
@@ -208,7 +254,7 @@ export class FosGitObjectService {
           if (index >= 0) this.#queue.splice(index, 1);
           this.#finishRequest(request, 'reject', error('Git object request exceeded its operation deadline.', 'OBJECT_REQUEST_TIMEOUT'));
         }
-      }, this.#timeoutMs);
+      }, Math.max(1, this.#timeoutMs - (Date.now() - began)));
       this.#queue.push(request);
       this.#pump();
     });
@@ -228,12 +274,13 @@ export class FosGitObjectService {
       env: this.#env
     });
     this.#child = child;
-    this.#spawns += 1;
-    incrementCommandCounter('git.spawns');
-    // Unlike one-shot Git processes, this child serves many logical object requests. Keep the
-    // distinct counter meaningful so timing evidence can prove whether pooling is actually reusing
-    // a process instead of permanently reporting a structural zero.
-    incrementCommandCounter('git.child-spawns');
+    child.once('spawn', () => {
+      // Count a physical child only after the OS confirms creation. An async ENOENT/EACCES
+      // failure must not appear as a successfully spawned worker in qualification evidence.
+      this.#spawns += 1;
+      incrementCommandCounter('git.spawns');
+      incrementCommandCounter('git.child-spawns');
+    });
     child.stdout.on('data', (chunk) => {
       if (this.#child !== child) return;
       if (!chunk.length) return;
@@ -264,7 +311,7 @@ export class FosGitObjectService {
   }
 
   #pump() {
-    if (this.#active || !this.#queue.length || this.#closed) {
+    if (this.#active || !this.#queue.length || this.#closed || this.#retiring) {
       if (!this.#active && !this.#queue.length) this.#armIdle();
       return;
     }
@@ -390,24 +437,40 @@ export class FosGitObjectService {
   }
 
   async #failService(reason) {
-    const requests = [this.#active, ...this.#queue].filter(Boolean);
-    this.#active = null; this.#queue = []; this.#chunks = [];
+    // Only the operation whose frame was in flight belongs to the failed worker. Queued
+    // requests have not written to that worker and may use a fresh generation, including
+    // when an unrelated active subscriber cancels mid-frame.
+    const request = this.#active;
+    this.#active = null; this.#chunks = [];
     this.#buffered = 0; this.#headOffset = 0;
     const child = this.#child; this.#child = null;
-    for (const request of requests) this.#finishRequest(request, 'reject', reason);
+    if (request) this.#finishRequest(request, 'reject', reason);
     if (child) {
       const retiring = stopChild(child, true);
       this.#retiring = retiring;
       const closed = await retiring;
       if (this.#retiring === retiring) this.#retiring = null;
+      if (!closed) {
+        this.#cleanupVerified = false;
+        this.#closed = true;
+        const pending = this.#queue;
+        this.#queue = [];
+        for (const queued of pending) this.#finishRequest(queued, 'reject', error(
+          'Git object service could not verify worker cleanup.', 'GAL_CLEANUP_INCOMPLETE'
+        ));
+        return false;
+      }
+      this.#pump();
       return closed;
     }
+    this.#pump();
     return true;
   }
 
   async close() {
     if (this.#closing) return this.#closing;
     this.#closed = true;
+    this.#profileController.abort();
     clearTimeout(this.#idleTimer);
     const requests = [this.#active, ...this.#queue].filter(Boolean);
     this.#active = null; this.#queue = []; this.#chunks = [];
@@ -417,7 +480,7 @@ export class FosGitObjectService {
     const retiring = this.#retiring;
     this.#closing = (async () => {
       const retired = retiring ? await retiring : true;
-      const terminated = (await stopChild(child, false)) && retired;
+      const terminated = (await stopChild(child, false)) && retired && this.#cleanupVerified;
       this.#closureOutcome = Object.freeze({ closed: true, terminated });
       return this.#closureOutcome;
     })();
@@ -445,14 +508,22 @@ export async function fosGitObjectService(root, options = {}) {
     if (current && current.fingerprint === fingerprint && current.transport === transport
         && current.limits === limits && !current.service.closed) return current.service;
     if (current) {
+      const outcome = await current.service.close();
+      if (!outcome.terminated) throw error(
+        'Git object service replacement is blocked until worker cleanup is verified.',
+        'GAL_CLEANUP_INCOMPLETE'
+      );
       pools.delete(key);
-      await current.service.close();
     }
     if (pools.size >= MAX_WORKERS) {
       const idle = [...pools.entries()].find(([, entry]) => entry.service.queued === 0);
       if (!idle) throw error('Git object worker pool is full.', 'GAL_BUSY');
+      const outcome = await idle[1].service.close();
+      if (!outcome.terminated) throw error(
+        'Git object worker pool is blocked until idle worker cleanup is verified.',
+        'GAL_CLEANUP_INCOMPLETE'
+      );
       pools.delete(idle[0]);
-      await idle[1].service.close();
     }
     const service = new FosGitObjectService(root, { ...options, env, executable, profile: identity, fingerprint });
     pools.set(key, { service, fingerprint, transport, limits });
@@ -462,8 +533,11 @@ export async function fosGitObjectService(root, options = {}) {
 
 export async function closeFosGitObjectServices() {
   return withPoolLock(async () => {
-    const services = [...pools.values()].map((entry) => entry.service);
-    pools.clear();
-    await Promise.all(services.map((service) => service.close()));
+    const entries = [...pools.entries()];
+    const outcomes = await Promise.all(entries.map(([, entry]) => entry.service.close()));
+    for (let index = 0; index < entries.length; index += 1) {
+      if (outcomes[index].terminated) pools.delete(entries[index][0]);
+    }
+    return { closed: true, terminated: outcomes.every((outcome) => outcome.terminated) };
   });
 }

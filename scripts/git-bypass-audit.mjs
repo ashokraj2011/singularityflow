@@ -27,7 +27,9 @@ export const REGISTERED_OWNERS = Object.freeze([
   'src/git-blob-batch.mjs',
   'src/fos-object-service.mjs',
   'src/git.mjs',
-  'src/util.mjs'
+  'src/util.mjs',
+  // Fixed-command, local-only qualification harness; never imported by product commands.
+  'scripts/gal-matrix-cell.mjs'
 ]);
 
 // The benchmark's sole child-process site creates its isolated temporary Git fixture. It is not

@@ -67,6 +67,38 @@ capabilities:
   assert.equal(observations[0].valuesRecorded, false);
 });
 
+test('GAL capability provenance shadow agrees for detached HEAD and absent remote', async () => {
+  const root = await repository();
+  await writeFile(path.join(root, 'singularity/capabilities.yml'), `version: 2
+management:
+  mode: sflow-cli
+capabilities:
+  repository-root:
+    name: This repository
+    kind: delivery
+    repository: payments-service
+    sourceRoots: []
+`, 'utf8');
+  run('git', ['add', 'singularity/capabilities.yml'], { cwd: root });
+  run('git', ['commit', '-qm', 'capability baseline'], { cwd: root });
+  run('git', ['checkout', '--detach', '-q'], { cwd: root });
+  run('git', ['remote', 'remove', 'origin'], { cwd: root });
+  const observations = [];
+  const reference = await resolveLifecycleCapability(root, { required: true });
+  const shadow = await resolveLifecycleCapability(root, {
+    required: true,
+    gitReadMode: 'shadow',
+    onGitShadowComparison(value) { observations.push(value); }
+  });
+  assert.deepEqual(shadow, reference);
+  assert.equal(reference.map.repository, null);
+  assert.equal(reference.map.branch, null);
+  assert.equal(reference.map.commit, run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim());
+  assert.equal(observations.length, 1);
+  assert.equal(observations[0].outcome, 'equivalent');
+  assert.equal(observations[0].valuesRecorded, false);
+});
+
 test('implicit materialization retains repository-root and produces a managed v2 map', () => {
   const implicit = resolveImplicitCapability({
     repositoryId: 'payments-service',

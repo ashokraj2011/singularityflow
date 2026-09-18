@@ -8,7 +8,8 @@
     "src/git-blob-batch.mjs",
     "src/fos-object-service.mjs",
     "src/git.mjs",
-    "src/util.mjs"
+    "src/util.mjs",
+    "scripts/gal-matrix-cell.mjs"
   ],
   "sites": {
     "apps/vscode/src/actions.ts": {
@@ -1299,9 +1300,9 @@
     },
     "package.json": {
       "counts": {
-        "package-script": 57
+        "package-script": 58
       },
-      "digest": "99b16a3a0ee8bbf5060dac65a8a28938378eb9f4a1a440c67efd60f071ecdb7d"
+      "digest": "06216320a519d375a483d76fd22644d6db4fb66b1f6fcb65eba98045f9637a03"
     },
     "apps/vscode/package.json": {
       "counts": {

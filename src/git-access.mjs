@@ -25,8 +25,15 @@ const MAX_BATCH_BYTES = 64 * 1024 * 1024;
 // One admitted object must fit within a chunk; the aggregate request has a separate upper bound.
 const MAX_CHUNK_BYTES = MAX_OBJECT_BYTES;
 const MAX_BATCH_ENTRIES = 4_096;
+const MAX_LIST_ENTRIES = 4_096;
+const MAX_LIST_BYTES = 16 * 1024 * 1024;
+const MAX_CONFIG_BYTES = 1024 * 1024;
 const OID = Object.freeze({ sha1: /^[0-9a-f]{40}$/u, sha256: /^[0-9a-f]{64}$/u });
-const REF = /^refs\/[A-Za-z0-9][A-Za-z0-9._/-]*$/u;
+const APPROVED_CONFIG_KEYS = new Set([
+  'remote.origin.url', 'core.bare', 'core.filemode', 'core.ignorecase',
+  'core.symlinks', 'core.protectntfs', 'core.protecthfs', 'extensions.objectformat'
+]);
+const UTF8 = new TextDecoder('utf-8', { fatal: true });
 const RUNTIME_ENVIRONMENTS = new WeakMap();
 
 function success(subject, value, extra = {}) {
@@ -66,10 +73,31 @@ function validOid(value, format) {
 }
 
 function validRef(value) {
-  return typeof value === 'string' && REF.test(value)
-    && !value.includes('..') && !value.includes('//') && !value.includes('@{')
-    && !value.endsWith('.') && !value.endsWith('/')
-    && !value.split('/').some((part) => part.startsWith('.') || part.endsWith('.lock'));
+  if (typeof value !== 'string' || Buffer.from(value, 'utf8').toString('utf8') !== value) return false;
+  return validRefBytes(Buffer.from(value, 'utf8'));
+}
+
+function splitBytes(bytes, delimiter) {
+  const values = [];
+  let start = 0;
+  for (let offset = 0; offset < bytes.length; offset += 1) {
+    if (bytes[offset] !== delimiter) continue;
+    values.push(bytes.subarray(start, offset));
+    start = offset + 1;
+  }
+  values.push(bytes.subarray(start));
+  return values;
+}
+
+function validRefBytes(bytes) {
+  if (!Buffer.isBuffer(bytes) || bytes.length < 6 || bytes.length > 4_096
+      || !bytes.subarray(0, 5).equals(Buffer.from('refs/'))
+      || bytes.includes(Buffer.from('..')) || bytes.includes(Buffer.from('@{'))
+      || bytes.some((byte) => byte <= 0x20 || byte === 0x7f
+        || [0x7e, 0x5e, 0x3a, 0x3f, 0x2a, 0x5b, 0x5c].includes(byte))) return false;
+  return splitBytes(bytes, 0x2f).every((part) => part.length
+    && part[0] !== 0x2e && part.at(-1) !== 0x2e
+    && !part.subarray(Math.max(0, part.length - 5)).equals(Buffer.from('.lock')));
 }
 
 function controlledEnvironment(source, executable) {
@@ -145,9 +173,76 @@ async function executeText(runtime, cwd, args, { signal, maxBuffer = 2 * 1024 * 
   });
 }
 
+async function executeBytes(runtime, cwd, args, { signal, maxBuffer = MAX_LIST_BYTES } = {}) {
+  return runRemoteGitAsync(args, {
+    cwd, env: RUNTIME_ENVIRONMENTS.get(runtime), operation: 'local-read',
+    timeoutMs: runtime.deadlineMs, maxBuffer, allowFailure: true, signal,
+    encoding: 'buffer', spawnCommand: pinnedSpawn(runtime.identity.path)
+  });
+}
+
+function exactUtf8(bytes) {
+  try { return UTF8.decode(bytes); } catch { return null; }
+}
+
+function byteValue(bytes) {
+  const text = exactUtf8(bytes);
+  return text === null
+    ? { bytes: Buffer.from(bytes), text: null, base64: bytes.toString('base64') }
+    : { bytes: Buffer.from(bytes), text, base64: null };
+}
+
+// structuredClone turns Node Buffers into Uint8Arrays. Keep the byte-bearing typed result
+// identical for fresh and captured reads while isolating callers from the retained capture.
+function cloneReadResult(value) {
+  if (Buffer.isBuffer(value)) return Buffer.from(value);
+  if (Array.isArray(value)) return value.map(cloneReadResult);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, cloneReadResult(item)]));
+  }
+  return value;
+}
+
+function nulRecords(bytes, maximum = MAX_LIST_ENTRIES) {
+  if (!Buffer.isBuffer(bytes) || (bytes.length && bytes.at(-1) !== 0)) return null;
+  if (!bytes.length) return [];
+  const records = [];
+  let start = 0;
+  for (let offset = 0; offset < bytes.length; offset += 1) {
+    if (bytes[offset] !== 0) continue;
+    if (records.length >= maximum) return 'limit';
+    records.push(bytes.subarray(start, offset));
+    start = offset + 1;
+  }
+  return records;
+}
+
+function validSelection(request, keys) {
+  return request && typeof request === 'object' && !Array.isArray(request)
+    && Object.keys(request).every((key) => keys.includes(key));
+}
+
+function validScope(scope) {
+  if (scope == null) return Buffer.alloc(0);
+  if (typeof scope === 'string' && Buffer.from(scope, 'utf8').toString('utf8') !== scope) return null;
+  const bytes = Buffer.isBuffer(scope) ? Buffer.from(scope)
+    : typeof scope === 'string' ? Buffer.from(scope, 'utf8') : null;
+  if (!bytes || !bytes.length || bytes.length > 4_096 || bytes.includes(0)
+      || bytes[0] === 0x2f || bytes.at(-1) === 0x2f) return null;
+  let start = 0;
+  for (let offset = 0; offset <= bytes.length; offset += 1) {
+    if (offset !== bytes.length && bytes[offset] !== 0x2f) continue;
+    const part = bytes.subarray(start, offset);
+    if (!part.length || (part.length === 1 && part[0] === 0x2e)
+        || (part.length === 2 && part[0] === 0x2e && part[1] === 0x2e)) return null;
+    start = offset + 1;
+  }
+  return bytes;
+}
+
 function checkedCaptureKey(options) {
   const freshness = options?.freshness ?? 'fresh';
-  if (freshness === 'fresh') return { freshness, key: null };
+  if (freshness === 'fresh') return options?.captureKey == null ? { freshness, key: null } : null;
   if (freshness !== 'captured' || typeof options?.captureKey !== 'string'
       || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(options.captureKey)) return null;
   return { freshness, key: options.captureKey };
@@ -230,7 +325,7 @@ class GitInvocation {
       if (!(await this.#repository.identityCurrent())) {
         return failure('GAL_REPOSITORY_CHANGED', operationId, request);
       }
-      return structuredClone(result);
+      return cloneReadResult(result);
     }
     const pending = Promise.resolve().then(read);
     const held = { fingerprint, promise: pending };
@@ -242,7 +337,7 @@ class GitInvocation {
       return failure('GAL_REPOSITORY_CHANGED', operationId, request);
     }
     if (!result.ok && this.#captures.get(key) === held) this.#captures.delete(key);
-    return structuredClone(result);
+    return cloneReadResult(result);
   }
 
   async head(options = {}) {
@@ -340,6 +435,183 @@ class GitInvocation {
     });
   }
 
+  async refs(request = {}) {
+    const operationId = 'gal.refs.v1';
+    if (!validSelection(request, ['prefix', 'includePeeled', 'freshness', 'captureKey'])
+        || (request.prefix != null && !validRef(request.prefix))
+        || (request.includePeeled != null && typeof request.includePeeled !== 'boolean')) {
+      return failure('GAL_INPUT_INVALID', operationId);
+    }
+    const prefix = request.prefix ?? 'refs';
+    const includePeeled = request.includePeeled ?? false;
+    return this.#observe(operationId, { prefix, includePeeled }, request, async () => {
+      const subject = { prefix };
+      const output = await executeBytes(this.#repository.runtime, this.identity.nativePath, [
+        'for-each-ref', `--count=${MAX_LIST_ENTRIES + 1}`,
+        '--format=%(refname)%00%(objectname)%00%(objecttype)%00%(symref)%00%(*objectname)%00%(*objecttype)',
+        prefix
+      ], { signal: this.#controller.signal });
+      if (output.status !== 0 || output.error || output.timedOut || output.aborted
+          || output.outputOverflow) return executionFailure(operationId, subject, output);
+      if (!Buffer.isBuffer(output.stdout)) return failure('GAL_PROTOCOL_INVALID', operationId, subject, output);
+      const bytes = output.stdout;
+      if (bytes.length && bytes.at(-1) !== 0x0a) {
+        return failure('GAL_PROTOCOL_INVALID', operationId, subject, output);
+      }
+      let lineCount = 0;
+      for (const byte of bytes) if (byte === 0x0a) lineCount += 1;
+      if (lineCount > MAX_LIST_ENTRIES) {
+        return failure('GAL_LIMIT_EXCEEDED', operationId, subject, output);
+      }
+      const lines = bytes.length ? splitBytes(bytes.subarray(0, -1), 0x0a) : [];
+      if (lines.length > MAX_LIST_ENTRIES) return failure('GAL_LIMIT_EXCEEDED', operationId, subject, output);
+      const entries = [];
+      for (const line of lines) {
+        const fields = splitBytes(line, 0);
+        if (fields.length !== 6) return failure('GAL_PROTOCOL_INVALID', operationId, subject, output);
+        const [refBytes, oidBytes, typeBytes, symbolicRefBytes, peeledOidBytes,
+          peeledTypeBytes] = fields;
+        const oid = oidBytes.toString('ascii');
+        const type = typeBytes.toString('ascii');
+        const peeledOid = peeledOidBytes.toString('ascii');
+        const peeledType = peeledTypeBytes.toString('ascii');
+        const prefixBytes = Buffer.from(prefix, 'utf8');
+        if (!validRefBytes(refBytes)
+            || !(refBytes.equals(prefixBytes)
+              || (refBytes.length > prefixBytes.length
+                && refBytes.subarray(0, prefixBytes.length).equals(prefixBytes)
+                && refBytes[prefixBytes.length] === 0x2f))
+            || ![oidBytes, typeBytes, peeledOidBytes, peeledTypeBytes]
+              .every((value) => value.every((byte) => byte <= 0x7f))
+            || !validOid(oid, this.identity.objectFormat)
+            || !['blob', 'tree', 'commit', 'tag'].includes(type)
+            || (symbolicRefBytes.length && !validRefBytes(symbolicRefBytes))
+            || (peeledOid && !validOid(peeledOid, this.identity.objectFormat))
+            || (peeledType && !['blob', 'tree', 'commit', 'tag'].includes(peeledType))
+            || Boolean(peeledOid) !== Boolean(peeledType)
+            || Boolean(peeledOid) !== (type === 'tag')) {
+          return failure('GAL_PROTOCOL_INVALID', operationId, subject, output);
+        }
+        if (includePeeled && peeledType === 'tag') {
+          // A remaining tag is not a complete peel. Do not report it as the final object.
+          return failure('GAL_OPERATION_UNSUPPORTED', operationId, subject, output);
+        }
+        const name = byteValue(refBytes);
+        const symbolic = symbolicRefBytes.length ? byteValue(symbolicRefBytes) : null;
+        entries.push({ ref: name.text, refBytes: name.bytes, refBase64: name.base64,
+          oid, objectType: type, symbolicRef: symbolic?.text ?? null,
+          symbolicRefBytes: symbolic?.bytes ?? null,
+          symbolicRefBase64: symbolic?.base64 ?? null,
+          ...(includePeeled ? { peeledOid: peeledOid || null } : {}) });
+      }
+      return success(subject, { entries }, {
+        observedAt: new Date().toISOString(), classification: 'observational'
+      });
+    });
+  }
+
+  async config(request = {}) {
+    const operationId = 'gal.config.v1';
+    if (!validSelection(request, ['keys', 'freshness', 'captureKey'])
+        || !Array.isArray(request.keys) || !request.keys.length || request.keys.length > 16
+        || request.keys.some((key) => !APPROVED_CONFIG_KEYS.has(key))
+        || new Set(request.keys).size !== request.keys.length) {
+      return failure('GAL_INPUT_INVALID', operationId);
+    }
+    const keys = [...request.keys];
+    return this.#observe(operationId, { keys }, request, async () => {
+      const entries = [];
+      for (const key of keys) {
+        const result = await executeBytes(this.#repository.runtime, this.identity.nativePath,
+          ['config', '--null', '--get-all', key], {
+            signal: this.#controller.signal, maxBuffer: MAX_CONFIG_BYTES
+          });
+        if (result.status === 1 && !result.error && !result.timedOut && !result.aborted
+            && !result.outputOverflow && !result.stderr && Buffer.isBuffer(result.stdout)
+            && result.stdout.length === 0) {
+          entries.push({ key, values: [] });
+          continue;
+        }
+        if (result.status !== 0 || result.error || result.timedOut || result.aborted
+            || result.outputOverflow) return executionFailure(operationId, { key }, result);
+        const values = nulRecords(result.stdout, 128);
+        if (values === 'limit') return failure('GAL_LIMIT_EXCEEDED', operationId, { key }, result);
+        if (!values) return failure('GAL_PROTOCOL_INVALID', operationId, { key }, result);
+        entries.push({ key, values: values.map(byteValue) });
+      }
+      return success({ keys }, { entries }, {
+        observedAt: new Date().toISOString(), classification: 'observational'
+      });
+    });
+  }
+
+  async tree(request = {}) {
+    const operationId = 'gal.tree.v1';
+    if (!validSelection(request, ['oid', 'recursive', 'scope'])
+        || !validOid(request.oid, this.identity.objectFormat)
+        || (request.recursive != null && typeof request.recursive !== 'boolean')) {
+      return failure('GAL_INPUT_INVALID', operationId);
+    }
+    const scope = validScope(request.scope);
+    if (!scope || (scope.length && request.recursive !== true)) {
+      return failure('GAL_INPUT_INVALID', operationId);
+    }
+    const oid = request.oid;
+    const recursive = request.recursive ?? false;
+    const subject = { oid, recursive, scope: scope.length ? byteValue(scope) : null };
+    return this.#observe(operationId, subject, {}, async () => {
+      const type = await executeText(this.#repository.runtime, this.identity.nativePath,
+        ['cat-file', '-t', oid], { signal: this.#controller.signal, maxBuffer: 128 });
+      if (type.status !== 0 || type.error || type.timedOut || type.aborted || type.outputOverflow) {
+        return type.status === 128 && !type.error && !type.timedOut && !type.aborted
+          && !type.outputOverflow ? failure('GAL_OBJECT_UNAVAILABLE', operationId, subject, type)
+          : executionFailure(operationId, subject, type);
+      }
+      const objectType = singleLine(type.stdout);
+      if (objectType !== 'tree') return objectType && ['blob', 'commit', 'tag'].includes(objectType)
+        ? failure('GAL_WRONG_OBJECT_TYPE', operationId, subject, type)
+        : failure('GAL_PROTOCOL_INVALID', operationId, subject, type);
+      const listed = await executeBytes(this.#repository.runtime, this.identity.nativePath,
+        ['ls-tree', ...(recursive ? ['-r'] : []), '-z', '-l', '--full-tree', oid], {
+          signal: this.#controller.signal
+        });
+      if (listed.status !== 0 || listed.error || listed.timedOut || listed.aborted
+          || listed.outputOverflow) return executionFailure(operationId, subject, listed);
+      const records = nulRecords(listed.stdout, MAX_LIST_ENTRIES + 1);
+      if (records === 'limit') return failure('GAL_LIMIT_EXCEEDED', operationId, subject, listed);
+      if (!records) return failure('GAL_PROTOCOL_INVALID', operationId, subject, listed);
+      if (records.length > MAX_LIST_ENTRIES) return failure('GAL_LIMIT_EXCEEDED', operationId, subject, listed);
+      const entries = [];
+      for (const record of records) {
+        const tab = record.indexOf(0x09);
+        if (tab < 0) return failure('GAL_PROTOCOL_INVALID', operationId, subject, listed);
+        const metadata = record.toString('ascii', 0, tab);
+        const match = /^(040000|100644|100755|120000|160000) (tree|blob|commit) ([0-9a-f]+) +(-|[0-9]+)$/u.exec(metadata);
+        const pathBytes = record.subarray(tab + 1);
+        if (!record.subarray(0, tab).every((byte) => byte <= 0x7f)
+            || !match || !validOid(match[3], this.identity.objectFormat) || !validScope(pathBytes)
+            || (match[1] === '040000') !== (match[2] === 'tree')
+            || (match[1] === '160000') !== (match[2] === 'commit')
+            || (match[2] === 'blob' && !['100644', '100755', '120000'].includes(match[1]))) {
+          return failure('GAL_PROTOCOL_INVALID', operationId, subject, listed);
+        }
+        const size = match[4] === '-' ? null : Number(match[4]);
+        if ((size !== null && (!Number.isSafeInteger(size) || size < 0))
+            || (match[2] !== 'blob' && size !== null)) {
+          return failure('GAL_PROTOCOL_INVALID', operationId, subject, listed);
+        }
+        if (scope.length && !pathBytes.equals(scope)
+            && !(pathBytes.length > scope.length && pathBytes.subarray(0, scope.length).equals(scope)
+              && pathBytes[scope.length] === 0x2f)) continue;
+        entries.push({ path: byteValue(pathBytes), mode: match[1], objectType: match[2],
+          oid: match[3], size });
+      }
+      return success(subject, { treeOid: oid, recursive, entries }, {
+        objectFormat: this.identity.objectFormat, classification: 'verified-immutable'
+      });
+    });
+  }
+
   async blob(oid) {
     const operationId = 'gal.blob.v1';
     const result = await this.blobs({ oids: [oid] });
@@ -400,8 +672,8 @@ class GitInvocation {
     }
   }
 
-  // Tree/config/remote parsers and mutation authorization remain intentionally absent. A generic
-  // fallback would bypass their owners.
+  // Remote transport and mutation authorization remain intentionally absent. A generic fallback
+  // would bypass their owners.
   async dispose() {
     if (this.#closed) return success({ kind: 'invocation' }, { closed: true, alreadyClosed: true });
     this.#closed = true;
@@ -446,9 +718,10 @@ class GitRepository {
 class GitRuntime {
   #closed = false;
   #repositories = new Set();
-  constructor(identity, environment, deadlineMs) {
+  constructor(identity, environment, deadlineMs, signal = null) {
     this.identity = Object.freeze(identity);
     this.deadlineMs = deadlineMs;
+    this.signal = signal;
     RUNTIME_ENVIRONMENTS.set(this, environment);
     Object.freeze(this);
   }
@@ -457,12 +730,15 @@ class GitRuntime {
   async openRepository(nativePath) {
     const operationId = 'gal.open-repository.v1';
     if (this.#closed) return failure('GAL_DISPOSED', operationId);
+    if (this.signal?.aborted) return failure('GAL_CANCELLED', operationId);
     if (typeof nativePath !== 'string' || !path.isAbsolute(nativePath) || nativePath.includes('\0')) {
       return failure('GAL_INPUT_INVALID', operationId);
     }
     let location;
     try { location = await realpath(nativePath); } catch { return failure('GAL_REPOSITORY_UNAVAILABLE', operationId); }
-    const observation = async (args) => executeText(this, location, ['rev-parse', ...args], { maxBuffer: 4096 });
+    const observation = async (args) => executeText(this, location, ['rev-parse', ...args], {
+      signal: this.signal, maxBuffer: 4096
+    });
     const gitDirResult = await observation(['--path-format=absolute', '--absolute-git-dir']);
     if (gitDirResult.status !== 0) return executionFailure(operationId, { nativePath: location }, gitDirResult);
     const commonResult = await observation(['--path-format=absolute', '--git-common-dir']);
@@ -516,6 +792,7 @@ class GitRuntime {
 /** Resolve Git before repository discovery. Explicit invalid selection never falls back to PATH. */
 export async function createGitRuntime(options = {}) {
   const operationId = 'gal.create-runtime.v1';
+  if (options.signal?.aborted) return failure('GAL_CANCELLED', operationId);
   const platform = options.platform ?? process.platform;
   const sourceEnvironment = options.trustedEnvironment ?? process.env;
   const executable = await resolveExecutable({
@@ -529,13 +806,15 @@ export async function createGitRuntime(options = {}) {
     ? options.deadlineMs : LOCAL_DEADLINE_MS;
   const provisional = { identity: { path: executable }, deadlineMs };
   RUNTIME_ENVIRONMENTS.set(provisional, environment);
-  const version = await executeText(provisional, os.tmpdir(), ['--version'], { maxBuffer: 1024 });
+  const version = await executeText(provisional, os.tmpdir(), ['--version'], {
+    signal: options.signal, maxBuffer: 1024
+  });
   if (version.status !== 0) return executionFailure(operationId, null, version);
   const versionText = singleLine(version.stdout);
   if (!versionText || !/^git version [^\r\n]+$/u.test(versionText)) {
     return failure('GAL_PROTOCOL_INVALID', operationId, null, version);
   }
   const runtime = new GitRuntime({ path: executable, version: versionText, platform },
-    environment, deadlineMs);
+    environment, deadlineMs, options.signal ?? null);
   return success({ executable: 'git' }, runtime, { classification: 'runtime' });
 }

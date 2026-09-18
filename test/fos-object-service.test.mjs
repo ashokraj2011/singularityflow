@@ -256,3 +256,21 @@ test('FOS:AC-028 pool and direct readers retire after repository configuration c
     await closeFosGitObjectServices();
   }
 });
+
+test('FOS profile acquisition obeys caller cancellation and the operation deadline', async () => {
+  const root = await repository();
+  const oid = git(['rev-parse', 'HEAD:source.bin'], root);
+  const never = new Promise(() => {});
+  const cancelled = new FosGitObjectService(root, { profile: never, timeoutMs: 500 });
+  const controller = new AbortController();
+  const pending = cancelled.read(oid, { signal: controller.signal });
+  controller.abort();
+  await assert.rejects(pending, { code: 'OBJECT_REQUEST_CANCELLED' });
+  await cancelled.close();
+
+  const timed = new FosGitObjectService(root, { profile: never, timeoutMs: 40 });
+  const began = Date.now();
+  await assert.rejects(timed.read(oid), { code: 'OBJECT_REQUEST_TIMEOUT' });
+  assert.ok(Date.now() - began < 1_000, 'profile wait must not outlive its bounded deadline');
+  await timed.close();
+});

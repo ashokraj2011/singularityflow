@@ -7,7 +7,16 @@ Run from the repository root:
 ```sh
 node scripts/gal-read-benchmark.mjs --samples=10 --objects=500
 node --test test/gal-read-benchmark.test.mjs
+npm run test:platform:gal
 ```
+
+The last command is a single-host qualification *cell*, not release qualification. It runs a
+fixed bounded GAL test list and the ten-trial benchmark, records OS/Node/Git/source provenance,
+and reports only content hashes for captured test output. `local-pass` requires a clean checkout,
+no skipped cases, and exact-byte benchmark parity. A dirty source is explicitly
+`unqualified-dirty`; Windows fixtures that currently skip cannot be counted as passed. The report
+always sets `releaseQualified: false`, because no single laptop can prove the required matrix or
+independent signature/office-network evidence.
 
 The harness creates an isolated temporary, unborn Git repository with 500 distinct staged blobs of exactly 1,024 bytes each. It records the fixture OID-list digest, Git/Node/OS/filesystem versions, source revision and dirty state, exact byte parity, timed distributions, and physical Git process counts. It removes only its own temporary fixture. It does not invoke a model or remote operation and does not print object bytes, repository paths, environment values, or Git stderr.
 
@@ -17,9 +26,10 @@ Profiles are intentionally separate:
 | --- | --- | --- | --- |
 | Cold runtime and repository discovery | A new `createGitRuntime` plus `openRepository` and disposal, inside an already-running Node process | Instrumented physical Git child launches | Does not include fresh Node startup, module load, or source fixture setup |
 | Reference metadata-first synchronous batch | `readLocalGitBlobs` over all OIDs | Explicit wrapper around each Git subprocess | Current helper still probes object format, so its actual count is three, not the proposed two-spawn warm-format target |
+| Reference metadata-first asynchronous batch | `readLocalGitBlobsAsync` over all OIDs | Physical child `spawn` events counted by the shared timing owner | This is the new nonblocking reference path; it still probes object format and uses three processes for the one-chunk fixture |
 | Warm legacy persistent worker | 500 sequential `FosGitObjectService.read` calls after an untimed worker warmup | Instrumented Git spawns and independent worker-spawn delta | Legacy `cat-file --batch`, not capability-verified `--batch-command`; startup and profile discovery are excluded |
 
-The same exact expected bytes are checked after both read profiles. A failure aborts rather than accepting a partial result. Physical spawns are not inferred from a command name: the reference wrapper counts actual calls, and the persistent profile checks both the timing counter and the service's process-spawn count. Timing includes hashing, framing, and object verification but excludes fixture creation, warmup, and JSON presentation. The fixed order is reference then persistent in each trial; OS page-cache effects may favor the latter. Compare distributions rather than one run, and do not compare trial sets with different Git/Node/OS/filesystem versions or fixture digests as if they were controlled equivalents.
+The same exact expected bytes are checked after all read profiles. A failure aborts rather than accepting a partial result. Physical spawns are not inferred from a command name: the legacy reference wrapper counts actual calls, the asynchronous reference counts successful child-spawn events, and the persistent profile checks both the timing counter and the service's process-spawn count. Timing includes hashing, framing, and object verification but excludes fixture creation, warmup, and JSON presentation. The fixed order is synchronous reference, asynchronous reference, then persistent in each trial; OS page-cache effects may favor later profiles. Compare distributions rather than one run, and do not compare trial sets with different Git/Node/OS/filesystem versions or fixture digests as if they were controlled equivalents.
 
 ## Provisional local observation
 

@@ -554,20 +554,50 @@ export async function resolveLifecycleCapability(root, {
     });
     let projection;
     if (gitReadMode === 'shadow') {
-      const [{ runFosGitShadowRead }, { executeGitQuery }] = await Promise.all([
-        import('./fos-git-shadow.mjs'), import('./git-query.mjs')
+      const [{ runFosGitShadowRead }, { createGitRuntime }] = await Promise.all([
+        import('./fos-git-shadow.mjs'), import('./git-access.mjs')
       ]);
       ({ value: projection } = await runFosGitShadowRead({
         operation: 'capability.authority-provenance',
         mode: 'shadow',
         reference,
         candidate: async () => {
-          const [repository, branchName, commit] = await Promise.all([
-            executeGitQuery(mapRoot, 'repository.remote-url', { remote: 'origin' }),
-            executeGitQuery(mapRoot, 'repository.branch'),
-            executeGitQuery(mapRoot, 'repository.head')
-          ]);
-          return { repository, branch: branchName, commit };
+          const runtimeResult = await createGitRuntime();
+          if (!runtimeResult.ok) throw Object.assign(new Error('GAL runtime unavailable'), {
+            code: runtimeResult.code
+          });
+          const runtime = runtimeResult.value;
+          try {
+            const opened = await runtime.openRepository(mapRoot);
+            if (!opened.ok) throw Object.assign(new Error('GAL repository unavailable'), {
+              code: opened.code
+            });
+            const invocation = opened.value.beginInvocation();
+            try {
+              const [configuration, head] = await Promise.all([
+                invocation.config({ keys: ['remote.origin.url'] }), invocation.head()
+              ]);
+              if (!configuration.ok || !head.ok) {
+                const failed = !configuration.ok ? configuration : head;
+                throw Object.assign(new Error('GAL provenance observation unavailable'), {
+                  code: failed.code
+                });
+              }
+              const values = configuration.value.entries[0].values;
+              const remoteValue = values.at(-1)?.text;
+              if (values.length && remoteValue === null) {
+                throw Object.assign(new Error('GAL remote URL is not UTF-8'), {
+                  code: 'GAL_PATH_UNREPRESENTABLE'
+                });
+              }
+              return {
+                repository: remoteValue?.trim() || null,
+                branch: head.value.symbolicRef?.startsWith('refs/heads/')
+                  ? head.value.symbolicRef.slice('refs/heads/'.length) : null,
+                commit: head.value.oid || null
+              };
+            } finally { await invocation.dispose(); }
+          } finally { await runtime.dispose(); }
         },
         record: onGitShadowComparison
       }));

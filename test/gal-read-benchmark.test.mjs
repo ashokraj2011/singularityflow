@@ -25,7 +25,8 @@ test('GAL read benchmark separates cold discovery and warm object reads with exa
   assert.match(report.gitVersion, /^git version /u);
   assert.match(report.sourceRevision, /^[0-9a-f]{40,64}$/u);
   assert.deepEqual(report.parity, {
-    referenceExactBytes: true, persistentExactBytes: true, requiredComplete: true
+    referenceExactBytes: true, asyncReferenceExactBytes: true,
+    persistentExactBytes: true, requiredComplete: true
   });
   for (const profile of Object.values(report.profiles)) {
     assert.equal(profile.trials, 2);
@@ -37,6 +38,10 @@ test('GAL read benchmark separates cold discovery and warm object reads with exa
     .every((count) => count > 0));
   assert.deepEqual(report.profiles.referenceMetadataFirstSynchronousBatch.physicalGitSpawns,
     [3, 3]);
+  assert.deepEqual(report.profiles.referenceMetadataFirstAsyncBatch.physicalGitSpawns,
+    [3, 3]);
+  assert.deepEqual(report.profiles.referenceMetadataFirstAsyncBatch.logicalRequests,
+    [1, 1]);
   assert.deepEqual(report.profiles.warmLegacyBatchWorker.workerSpawns, [0, 0]);
   assert.deepEqual(report.profiles.warmLegacyBatchWorker.logicalRequests, [16, 16]);
   const text = result.stdout;

@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 
+import { incrementCommandCounter } from './dx-timing-context.mjs';
 import { signalProcessTree } from './util.mjs';
 
 const MAXIMUM_BATCH_OBJECTS = 512;
@@ -119,6 +120,9 @@ async function runLocalGitBytes(executable, args, {
     child.stdout?.on('data', onStdout);
     child.stderr?.on('data', onStderr);
     child.on('error', onError);
+    // Count a physical child only after Node confirms it spawned. A synchronous spawn refusal
+    // and an ENOENT/error event are attempts, not successfully launched Git processes.
+    child.once('spawn', () => incrementCommandCounter('git.spawns'));
     child.on('close', onClose);
     deadlineTimer = setTimeout(() => terminate('timeout'), remaining);
     if (signal?.aborted) onAbort();
@@ -159,6 +163,10 @@ export async function readLocalGitBlobsAsync(root, objectIds, {
   runCommand = runLocalGitBytes
 } = {}) {
   const unique = [...new Set(objectIds)];
+  incrementCommandCounter('git.requests');
+  incrementCommandCounter('git.batch-requests');
+  incrementCommandCounter('git.objects-requested', objectIds.length);
+  incrementCommandCounter('git.objects-unique', unique.length);
   if (!unique.length) return new Map();
   if (unique.some((oid) => typeof oid !== 'string' || !OBJECT_ID.test(oid))) {
     refuse('GIT_BLOB_BATCH_INVALID');

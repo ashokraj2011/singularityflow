@@ -39,6 +39,20 @@ test('an Auto policy refusal gives a capability-aware bounded plan without execu
   assert.match(rendered, /Copilot: \/sf-docs/);
 });
 
+test('an unreadable enterprise Git snapshot never advises a blind credential reset', () => {
+  const error = Object.assign(new Error('Git configuration snapshot unavailable.'), {
+    code: 'GIT_ENTERPRISE_CONFIG_UNAVAILABLE',
+    details: { scope: 'global', reason: 'timeout' }
+  });
+  const plan = refusalRemediationPlan(error, ['capability', 'map']);
+  assert.equal(plan.status, 'blocked');
+  assert.equal(plan.steps[0].command,
+    'singularity-flow workspace doctor --network --json');
+  assert.match(plan.steps[0].label, /did not probe the remote/);
+  assert.match(plan.steps[1].label, /do not put credentials/);
+  assert.equal(plan.retry.automatic, false);
+});
+
 test('producer recovery guidance is accepted only as a bounded credential-free SFlow command', () => {
   const accepted = refusalRemediationPlan(Object.assign(new Error('blocked'), {
     details: { diagnosticAction: { command: 'singularity-flow workspace doctor --network --json' } }

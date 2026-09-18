@@ -8,7 +8,7 @@
  */
 import os from 'node:os';
 
-import { run } from './util.mjs';
+import { run, SingularityFlowError } from './util.mjs';
 import { gitEmptyConfigPath } from './git-isolation-paths.mjs';
 
 const ENTERPRISE_GIT_CONFIG_PATTERN = [
@@ -22,6 +22,15 @@ const MAX_ENTRIES = 256;
 const MAX_BYTES = 256 * 1024;
 const ENTERPRISE_ENVIRONMENTS = new WeakSet();
 const ENTERPRISE_GIT_CONFIG_KEY = new RegExp(`^(${ENTERPRISE_GIT_CONFIG_PATTERN})$`, 'u');
+
+function unavailableConfiguration(scope, reason) {
+  throw new SingularityFlowError(
+    `Cannot verify the ${scope} Git transport and credential-helper configuration (${reason}). `
+      + 'Singularity Flow did not continue with an incomplete Git configuration. '
+      + 'Check the approved Git installation and configuration, then retry.',
+    { code: 'GIT_ENTERPRISE_CONFIG_UNAVAILABLE', details: { scope, reason } }
+  );
+}
 
 /** Remove process/repository authority while retaining ordinary proxy and CA environment values. */
 export function withoutGitProcessOverrides(source = process.env) {
@@ -90,11 +99,13 @@ function allowedEnterpriseGitConfiguration(sourceEnv, runCommand) {
   // This is a local trust snapshot, but it still executes the configured Git binary. Bound it by
   // the same operation deadline as the remote command it prepares and force-terminate a wrapper
   // that ignores SIGTERM. A broken office wrapper must not consume an unbounded synchronous pause
-  // before the asynchronously supervised network operation even starts.
+  // before the asynchronously supervised network operation even starts. Roaming Windows Git
+  // configuration and antivirus can exceed the former two-second deadline; a bounded longer read
+  // is safer than losing the helper and reporting the next remote refusal as a sign-in failure.
   const requestedTimeout = Number(sourceEnv?.SINGULARITY_FLOW_GIT_PREFLIGHT_TIMEOUT_MS);
   const timeoutMs = Number.isFinite(requestedTimeout) && requestedTimeout > 0
-    ? Math.max(25, Math.min(2_000, Math.trunc(requestedTimeout)))
-    : 2_000;
+    ? Math.max(25, Math.min(10_000, Math.trunc(requestedTimeout)))
+    : 10_000;
   const observedScopes = new Map();
   for (const scope of ['system', 'global']) {
     let observed;
@@ -108,40 +119,52 @@ function allowedEnterpriseGitConfiguration(sourceEnv, runCommand) {
       });
     } catch {
       // A custom Git launcher can throw before `allowFailure` has a chance to normalize the result.
-      // Record an indeterminate scope, but still inspect the other scope for a complete diagnostic
-      // pass. No partial snapshot is admitted below.
-      observedScopes.set(scope, null);
+      // Inspect the other scope too, but never replay its partial prefix when this scope could
+      // contain a reset or a more-specific credential helper.
+      observedScopes.set(scope, { entries: null, reason: 'launcher-failed' });
       continue;
     }
     if (observed?.status === 1 && !observed.error && observed.timedOut !== true
       && observed.outputOverflow !== true && observed.blocked !== true
       && observed.aborted !== true && observed.signal == null
       && String(observed.stdout ?? '') === '' && String(observed.stderr ?? '') === '') {
-      observedScopes.set(scope, []);
+      observedScopes.set(scope, { entries: [], reason: null });
       continue;
     }
     if (observed?.status !== 0 || observed.error || observed.timedOut === true
       || observed.outputOverflow === true || observed.blocked === true
       || observed.aborted === true || observed.signal != null) {
-      observedScopes.set(scope, null);
+      const reason = observed?.timedOut === true ? 'timeout'
+        : observed?.outputOverflow === true ? 'output-limit'
+          : observed?.aborted === true || observed?.signal != null ? 'interrupted'
+            : observed?.error?.code === 'ENOENT' ? 'git-unavailable' : 'read-failed';
+      observedScopes.set(scope, { entries: null, reason });
       continue;
     }
     const scopeEntries = parseEnterpriseGitConfiguration(observed.stdout);
-    observedScopes.set(scope, scopeEntries);
+    observedScopes.set(scope, {
+      entries: scopeEntries,
+      reason: scopeEntries === null ? 'invalid-response' : null
+    });
   }
 
   const systemEntries = observedScopes.get('system');
   const globalEntries = observedScopes.get('global');
   // Git configuration precedence depends on both file scope and URL specificity. A global empty
   // credential.helper can reset system helpers, while a URL-specific system HTTP value can outrank a
-  // generic global value. Therefore neither scope is meaningful in isolation: if either observation
-  // is indeterminate, fail the complete snapshot closed.
-  if (systemEntries === null || systemEntries === undefined
-    || globalEntries === null || globalEntries === undefined) return [];
-  const entries = [...systemEntries, ...globalEntries];
+  // generic global value. Neither scope is meaningful in isolation. The previous silent empty
+  // snapshot removed office credential helpers and made the next Git failure look like bad login.
+  if (!systemEntries || systemEntries.entries === null) {
+    unavailableConfiguration('system', systemEntries?.reason ?? 'unavailable');
+  }
+  if (!globalEntries || globalEntries.entries === null) {
+    unavailableConfiguration('global', globalEntries?.reason ?? 'unavailable');
+  }
+  const entries = [...systemEntries.entries, ...globalEntries.entries];
   // Never retain a lower-precedence prefix when the exact ordered snapshot exceeds its process-wide
   // bound; doing so would change Git's override/reset semantics.
-  return entries.length <= MAX_ENTRIES ? entries : [];
+  if (entries.length > MAX_ENTRIES) unavailableConfiguration('combined', 'entry-limit');
+  return entries;
 }
 
 /**

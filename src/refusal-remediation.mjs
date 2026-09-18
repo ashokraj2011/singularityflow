@@ -204,6 +204,14 @@ const KNOWN = Object.freeze({
     step('diagnose-network', 'Check Git access, proxy, certificates, and unfinished workspace setup.',
       'singularity-flow workspace doctor --network --json')
   ],
+  GIT_ENTERPRISE_CONFIG_UNAVAILABLE: () => [
+    step('diagnose-git-configuration',
+      'Inspect the local Git configuration snapshot. Singularity Flow did not probe the remote or discard the configured credential helper.',
+      'singularity-flow workspace doctor --network --json'),
+    step('repair-approved-git',
+      'Repair the approved system or global Git configuration or its helper outside Singularity Flow; do not put credentials in a repository URL or disable TLS.',
+      null, 'remediation')
+  ],
   AUTHORITY_ROUTE_REQUIRED: () => [
     step('review-onboarding', 'Choose a configured authority remote, or explicitly select an existing reviewed local authority.',
       'singularity-flow onboard --help', 'help')

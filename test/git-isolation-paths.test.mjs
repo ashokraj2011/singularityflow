@@ -78,3 +78,31 @@ test('the isolated Git environment reads the real empty file and excludes ambien
     rmSync(scratch, { recursive: true, force: true });
   }
 });
+
+test('Git reads reviewed credential helpers through the isolated config path', () => {
+  const scratch = mkdtempSync(path.join(os.tmpdir(), 'sflow-git-helper-test-'));
+  const system = path.join(scratch, 'system.gitconfig');
+  const global = path.join(scratch, 'global.gitconfig');
+  try {
+    // These are inert helper names: the test reads configuration but never asks Git for a credential.
+    writeFileSync(system, '[credential]\n\thelper = sflow-test-system-helper\n');
+    writeFileSync(global, '[credential]\n\thelper =\n\thelper = sflow-test-global-helper\n');
+    const isolated = enterpriseGitEnvironment({
+      ...process.env,
+      GIT_CONFIG_SYSTEM: system,
+      GIT_CONFIG_GLOBAL: global
+    });
+    assert.equal(isolated.GIT_CONFIG_SYSTEM, gitEmptyConfigPath());
+    assert.equal(isolated.GIT_CONFIG_GLOBAL, gitEmptyConfigPath());
+    assert.equal(isolated.GIT_CONFIG_COUNT, '3');
+    const helpers = spawnSync('git', ['config', '--null', '--get-all', 'credential.helper'], {
+      cwd: scratch, env: isolated, encoding: 'utf8', timeout: 10_000
+    });
+    assert.equal(helpers.status, 0, helpers.stderr || String(helpers.error ?? 'Git helper read failed'));
+    assert.deepEqual(helpers.stdout.split('\0'), [
+      'sflow-test-system-helper', '', 'sflow-test-global-helper', ''
+    ]);
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});

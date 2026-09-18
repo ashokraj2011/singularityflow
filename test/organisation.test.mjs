@@ -5332,14 +5332,17 @@ test('a seeded Story supplies its own intake, work type and lens', async () => {
     await readFile(new URL('../src/help-text.mjs', import.meta.url), 'utf8')
   ].join('\n');
 
-  // The seed is read, and it decides the intake source rather than a prompt.
-  assert.match(cli, /const seeded = existsSync\(path\.join\(root, 'singularity', 'seeds', `\$\{id\}\.yml`\)\)/);
-  assert.match(cli, /\?\? \(seeded \? 'manual' : null\)/);
+  // Both an already-materialized Story seed and a seed on the approved base are admitted before
+  // choosing an intake source; either one answers the question instead of prompting again.
+  assert.match(cli, /const baseSeedText = materializedSeed \? null : fileAtRef\(root, remoteBaseRef, storySeedRelative\)/);
+  assert.match(cli, /const frozenSeed = materializedSeed \?\? baseSeed/);
+  assert.match(cli, /\?\? \(frozenSeed \? 'manual' : null\)/);
   // Its content answers the manual questions.
-  assert.match(cli, /title: seed\.title \?\? id/);
-  assert.match(cli, /acceptanceCriteria: \(seed\.acceptanceCriteria \?\? \[\]\)\.join/);
+  assert.match(cli, /title: frozenManualSeed\.title \?\? id/);
+  assert.match(cli, /acceptanceCriteria: \(frozenManualSeed\.acceptanceCriteria \?\? \[\]\)\.join/);
   // And its suggested work type answers the template question.
-  assert.match(cli, /seed\?\.suggestedWorkType \?\? null/);
+  assert.match(cli, /materializedSeed\?\.suggestedWorkType \?\? null/);
+  assert.match(cli, /seedChoiceAllowed \? baseSeed\?\.suggestedWorkType : null/);
 
   // Every remaining interactive selection on this path names a flag that avoids it.
   for (const hint of [
@@ -5669,12 +5672,16 @@ test('an unreachable capability authority reaches its deadline without blocking 
   await mkdir(bin, { recursive: true });
   const fakeGit = path.join(bin, 'git');
   await writeFile(fakeGit, [
-    '#!/usr/bin/env node',
-    "process.on('SIGTERM', () => {});",
-    'setInterval(() => {}, 1000);',
+    '#!/bin/sh',
+    'if [ "$1" = config ]; then exit 1; fi',
+    "trap '' TERM",
+    'while :; do :; done',
     ''
   ].join('\n'));
   await chmod(fakeGit, 0o755);
+  // Newly written executables can incur a one-time macOS security scan. Warm the fixture outside
+  // the measured operation so this test measures the remote deadline, not executable inspection.
+  assert.equal(spawnSync(fakeGit, ['config'], { timeout: 2_000 }).status, 1);
 
   const keys = [
     'PATH',

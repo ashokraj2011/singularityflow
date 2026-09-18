@@ -192,7 +192,7 @@ function commandScopedGitConfiguration(env) {
 function snapshotWithRejectedEnterpriseScope(rejectedScope, reject) {
   const acceptedScope = rejectedScope === 'system' ? 'global' : 'system';
   const calls = [];
-  const isolated = isolatedCacheGitEnvironment({
+  assert.throws(() => isolatedCacheGitEnvironment({
     PATH: process.env.PATH,
     GIT_CONFIG_COUNT: '1',
     GIT_CONFIG_KEY_0: 'core.hooksPath',
@@ -210,11 +210,15 @@ function snapshotWithRejectedEnterpriseScope(rejectedScope, reject) {
         stderr: '', timedOut: false
       };
     }
+  }), (error) => {
+    assert.equal(error?.code, 'GIT_ENTERPRISE_CONFIG_UNAVAILABLE');
+    assert.equal(error?.details?.scope, rejectedScope);
+    assert.equal(typeof error?.details?.reason, 'string');
+    assert.doesNotMatch(JSON.stringify(error), /corporate-manager|must-not-survive|launcher failed/);
+    return true;
   });
   assert.deepEqual(calls, ['system', 'global'],
     `${rejectedScope} rejection must not prevent inspecting ${acceptedScope}`);
-  assert.deepEqual(commandScopedGitConfiguration(isolated), [],
-    `${rejectedScope} rejection must fail the ordered snapshot closed`);
 }
 
 test('enterprise Git configuration fails an indeterminate system or global scope closed', () => {
@@ -274,7 +278,7 @@ test('enterprise Git configuration preserves the process-wide entry bound across
   const entries = (prefix, count) => Array.from({ length: count }, (_, index) => [
     'credential.helper', `${prefix}-${index}`
   ]);
-  const isolated = isolatedCacheGitEnvironment({ PATH: process.env.PATH }, {
+  assert.throws(() => isolatedCacheGitEnvironment({ PATH: process.env.PATH }, {
     runCommand(_command, args) {
       return {
         status: 0,
@@ -283,13 +287,14 @@ test('enterprise Git configuration preserves the process-wide entry bound across
         stderr: '', timedOut: false
       };
     }
-  });
-  assert.equal(Number(isolated.GIT_CONFIG_COUNT), 0,
-    'an over-budget ordered snapshot fails closed instead of retaining a lower-precedence prefix');
+  }), (error) => error?.code === 'GIT_ENTERPRISE_CONFIG_UNAVAILABLE'
+    && error?.details?.scope === 'combined'
+    && error?.details?.reason === 'entry-limit',
+  'an over-budget ordered snapshot must refuse instead of silently losing credential helpers');
 });
 
 test('an indeterminate global scope cannot reactivate a system credential helper that it may reset', () => {
-  const isolated = isolatedCacheGitEnvironment({ PATH: process.env.PATH }, {
+  assert.throws(() => isolatedCacheGitEnvironment({ PATH: process.env.PATH }, {
     runCommand(_command, args) {
       if (args.includes('--system')) {
         return {
@@ -300,12 +305,12 @@ test('an indeterminate global scope cannot reactivate a system credential helper
       }
       return { status: 128, stdout: '', stderr: 'global configuration unreadable', timedOut: false };
     }
-  });
-  assert.deepEqual(commandScopedGitConfiguration(isolated), []);
+  }), (error) => error?.code === 'GIT_ENTERPRISE_CONFIG_UNAVAILABLE'
+    && error?.details?.scope === 'global');
 });
 
 test('an indeterminate system scope cannot change URL-specific precedence', () => {
-  const isolated = isolatedCacheGitEnvironment({ PATH: process.env.PATH }, {
+  assert.throws(() => isolatedCacheGitEnvironment({ PATH: process.env.PATH }, {
     runCommand(_command, args) {
       if (args.includes('--system')) {
         return { status: 128, stdout: '', stderr: 'system configuration unreadable', timedOut: false };
@@ -316,9 +321,9 @@ test('an indeterminate system scope cannot change URL-specific precedence', () =
         stderr: '', timedOut: false
       };
     }
-  });
-  assert.deepEqual(commandScopedGitConfiguration(isolated), [],
-    'a generic global proxy cannot replace an unknown URL-specific system decision');
+  }), (error) => error?.code === 'GIT_ENTERPRISE_CONFIG_UNAVAILABLE'
+    && error?.details?.scope === 'system',
+  'a generic global proxy cannot replace an unknown URL-specific system decision');
 });
 
 test('a known-empty global scope preserves verified system configuration', () => {
@@ -339,9 +344,24 @@ test('a known-empty global scope preserves verified system configuration', () =>
   ]);
 });
 
+test('enterprise Git preflight keeps a configured five-second deadline for slow office config reads', () => {
+  const deadlines = [];
+  const isolated = isolatedCacheGitEnvironment({
+    PATH: process.env.PATH,
+    SINGULARITY_FLOW_GIT_PREFLIGHT_TIMEOUT_MS: '5000'
+  }, {
+    runCommand(_command, _args, options) {
+      deadlines.push(options.timeoutMs);
+      return { status: 1, stdout: '', stderr: '', timedOut: false };
+    }
+  });
+  assert.deepEqual(deadlines, [5_000, 5_000]);
+  assert.deepEqual(commandScopedGitConfiguration(isolated), []);
+});
+
 test('a signal-terminated empty scope is indeterminate and fails the whole snapshot closed', () => {
   for (const interruptedScope of ['system', 'global']) {
-    const isolated = isolatedCacheGitEnvironment({ PATH: process.env.PATH }, {
+    assert.throws(() => isolatedCacheGitEnvironment({ PATH: process.env.PATH }, {
       runCommand(_command, args) {
         const scope = args.includes('--system') ? 'system' : 'global';
         if (scope === interruptedScope) {
@@ -355,8 +375,8 @@ test('a signal-terminated empty scope is indeterminate and fails the whole snaps
           stderr: '', signal: null, timedOut: false
         };
       }
-    });
-    assert.deepEqual(commandScopedGitConfiguration(isolated), [], interruptedScope);
+    }), (error) => error?.code === 'GIT_ENTERPRISE_CONFIG_UNAVAILABLE'
+      && error?.details?.scope === interruptedScope);
   }
 });
 
@@ -366,7 +386,7 @@ test('a successful-looking interrupted enterprise scope is still indeterminate',
     { aborted: true }
   ]) {
     for (const interruptedScope of ['system', 'global']) {
-      const isolated = isolatedCacheGitEnvironment({ PATH: process.env.PATH }, {
+      assert.throws(() => isolatedCacheGitEnvironment({ PATH: process.env.PATH }, {
         runCommand(_command, args) {
           const scope = args.includes('--system') ? 'system' : 'global';
           return {
@@ -379,9 +399,9 @@ test('a successful-looking interrupted enterprise scope is still indeterminate',
             ...(scope === interruptedScope ? interruption : {})
           };
         }
-      });
-      assert.deepEqual(commandScopedGitConfiguration(isolated), [],
-        `${interruptedScope} ${Object.keys(interruption)[0]} must fail the snapshot closed`);
+      }), (error) => error?.code === 'GIT_ENTERPRISE_CONFIG_UNAVAILABLE'
+        && error?.details?.scope === interruptedScope,
+      `${interruptedScope} ${Object.keys(interruption)[0]} must fail the snapshot closed`);
     }
   }
 });
@@ -728,11 +748,15 @@ test('explicit workflow replacement also replaces its shared phase contract', as
   await initializeFixture(root);
   const workflowFile = path.join(root, 'singularity/workflow.yml');
   const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
-  workflow.phases.implementation.generation.task = 'analyze';
+  // Keep the shared phase a code-delivery phase: other installed work types now bind their test
+  // evidence to it, so changing its task to analyze would make the entire fixture invalid before
+  // installWorkflow can perform the replacement this test exercises.
+  workflow.phases.implementation.worldModel.depth = 'deep';
   await writeFile(workflowFile, YAML.stringify(workflow));
 
   await installWorkflow(root, 'feature', { replace: true });
   const replaced = YAML.parse(await readFile(workflowFile, 'utf8'));
+  assert.equal(replaced.phases.implementation.worldModel.depth, 'standard');
   assert.equal(replaced.phases.implementation.generation.task, 'code');
 });
 

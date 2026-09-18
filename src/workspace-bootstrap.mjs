@@ -587,10 +587,17 @@ function enterpriseGitConfigSources(runCommand, env) {
     // `--name-only` is deliberate: proxy credentials, CA paths, helper commands, usernames and
     // provider URLs must never enter the diagnostics result or an error. One bounded query per
     // scope covers both unscoped and URL-scoped forms without an N-key subprocess loop.
-    const result = runCommand('git', [
-      'config', `--${scope}`, '--includes', '--name-only', '--get-regexp',
-      ENTERPRISE_GIT_CONFIG_PATTERN
-    ], { env, allowFailure: true, timeoutMs: 10_000, maxBuffer: 256 * 1024 });
+    let result;
+    try {
+      result = runCommand('git', [
+        'config', `--${scope}`, '--includes', '--name-only', '--get-regexp',
+        ENTERPRISE_GIT_CONFIG_PATTERN
+      ], { env, allowFailure: true, timeoutMs: 10_000, maxBuffer: 256 * 1024 });
+    } catch {
+      // Source labels are advisory. A failing Git launcher must not hide the authoritative
+      // configurationSnapshot refusal (or prevent unrelated doctor findings from returning).
+      continue;
+    }
     if (result.status !== 0) continue;
     const keys = String(result.stdout ?? '').split(/\r?\n/)
       .map((entry) => entry.trim().toLowerCase()).filter(Boolean);
@@ -646,6 +653,23 @@ export function enterpriseGitDiagnostics({ env = process.env, runCommand = run }
     },
     credentialOwnership: 'git-or-operating-system',
     guidance: 'Use organisation-approved Git, proxy, and certificate configuration. Singularity Flow never disables TLS or stores credentials.'
+  };
+}
+
+function safeEnterpriseGitSnapshotFailure(error) {
+  // Only the engine's fixed diagnostic vocabulary may enter doctor output. In particular, Git's
+  // stderr, config values, and an injected launcher's error message must never be reflected here.
+  const scope = ['system', 'global', 'combined'].includes(error?.details?.scope)
+    ? error.details.scope : 'unknown';
+  const reason = [
+    'launcher-failed', 'timeout', 'output-limit', 'interrupted', 'git-unavailable',
+    'read-failed', 'invalid-response', 'entry-limit', 'unavailable'
+  ].includes(error?.details?.reason) ? error.details.reason : 'unavailable';
+  return {
+    status: 'unavailable', code: 'GIT_ENTERPRISE_CONFIG_UNAVAILABLE', scope, reason,
+    advice: `The ${scope} Git configuration snapshot could not be verified (${reason}). `
+      + 'Check the approved Git installation and configuration, then retry. '
+      + 'Remote access and credential status were not tested.'
   };
 }
 
@@ -1510,6 +1534,7 @@ export async function workspaceBootstrapDoctor({
   };
   const machine = await machinePreflight(synthetic, { env, home, runCommand });
   const remotes = [];
+  let gitConfigurationFailure = null;
   if (network) {
     const unique = new Map();
     const addTarget = ({ repository = null, actual, branch = null, explicit = false }) => {
@@ -1547,10 +1572,30 @@ export async function workspaceBootstrapDoctor({
     // and credential-helper configuration, while stripping repository selectors, executable Git
     // overrides, URL rewrites, trace sinks, and other ambient process authority. Build it once for
     // the whole doctor run so every target sees the same configuration snapshot.
-    const gitEnv = unique.size
-      ? enterpriseGitEnvironment(env, { runCommand })
-      : env;
+    let gitEnv = env;
+    if (unique.size) {
+      try {
+        gitEnv = enterpriseGitEnvironment(env, { runCommand });
+      } catch (error) {
+        if (error?.code !== 'GIT_ENTERPRISE_CONFIG_UNAVAILABLE') throw error;
+        gitConfigurationFailure = safeEnterpriseGitSnapshotFailure(error);
+      }
+    }
     for (const entry of unique.values()) {
+      if (gitConfigurationFailure) {
+        remotes.push({
+          repository: entry.repository,
+          repositories: entry.repositories,
+          explicit: entry.explicit,
+          remote: sanitizeRemote(entry.actual),
+          remoteFingerprint: remoteFingerprint(entry.actual),
+          branch: entry.branch,
+          ok: false,
+          classification: 'git-enterprise-config-unavailable',
+          advice: gitConfigurationFailure.advice
+        });
+        continue;
+      }
       const probe = probeGitRemote(entry.actual, {
         branch: entry.branch, env: gitEnv, runCommand
       });
@@ -1582,7 +1627,12 @@ export async function workspaceBootstrapDoctor({
       corrupt: corruptRecords
     },
     machine,
-    enterpriseGit: enterpriseGitDiagnostics({ env, runCommand }),
+    enterpriseGit: {
+      ...enterpriseGitDiagnostics({ env, runCommand }),
+      configurationSnapshot: gitConfigurationFailure ?? {
+        status: network && remotes.length > 0 ? 'verified' : 'not-checked'
+      }
+    },
     networkChecked: network,
     remotes,
     sessions: active.map(summary)

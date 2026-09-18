@@ -736,6 +736,61 @@ test('workspace doctor probes repeatable explicit URLs without a bootstrap sessi
   assert.doesNotMatch(JSON.stringify(report), /doctor-secret|redirect\.invalid/);
 });
 
+test('workspace doctor reports an unavailable Git config snapshot without misdiagnosing remote sign-in', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-doctor-config-'));
+  const repositoryUrl = 'https://git.example.invalid/acme/application.git';
+  const secret = 'private-helper-or-provider-secret';
+  const env = environment(root);
+  let remoteCalls = 0;
+  const result = (status, stdout = '', stderr = '') => ({
+    status, stdout, stderr, error: null, signal: null, timedOut: false, blocked: false
+  });
+  const report = await workspaceBootstrapDoctor({
+    network: true,
+    repositoryUrls: [repositoryUrl],
+    env,
+    home: root,
+    runCommand: (_command, args) => {
+      if (args[0] === '--version') return result(0, 'git version 2.48.0\n');
+      if (args[0] === 'config' && args.includes('--get')) {
+        return result(0, args.at(-1) === 'user.name' ? 'Doctor Tester\n' : 'doctor@example.invalid\n');
+      }
+      if (args[0] === 'config' && args.includes('--null')) {
+        return args.includes('--system')
+          ? { ...result(128, '', `fatal: helper ${secret} failed`), timedOut: true }
+          : result(1);
+      }
+      if (args[0] === 'config' && args.includes('--name-only')) {
+        return result(0, 'credential.helper\n');
+      }
+      if (args[0] === 'ls-remote') {
+        remoteCalls += 1;
+        throw new Error('remote must not be tested with incomplete Git configuration');
+      }
+      throw new Error(`Unexpected Git command: ${args.join(' ')}`);
+    }
+  });
+
+  assert.equal(remoteCalls, 0);
+  assert.equal(report.healthy, false);
+  assert.ok(report.machine, 'independent machine diagnostics remain available');
+  assert.equal(report.remotes.length, 1);
+  assert.equal(report.remotes[0].remote, repositoryUrl);
+  assert.equal(report.remotes[0].ok, false);
+  assert.equal(report.remotes[0].classification, 'git-enterprise-config-unavailable');
+  assert.match(report.remotes[0].advice, /system Git configuration snapshot.*timeout/);
+  assert.match(report.remotes[0].advice, /credential status were not tested/);
+  assert.deepEqual(report.enterpriseGit.configurationSnapshot, {
+    status: 'unavailable',
+    code: 'GIT_ENTERPRISE_CONFIG_UNAVAILABLE',
+    scope: 'system',
+    reason: 'timeout',
+    advice: report.remotes[0].advice
+  });
+  assert.doesNotMatch(JSON.stringify(report), /private-helper-or-provider-secret|fatal: helper/);
+  assert.doesNotMatch(JSON.stringify(report), /authentication-required|credential-helper-unavailable/);
+});
+
 test('workspace doctor deduplicates the same URL and branch but preserves distinct branch checks', async () => {
   const fixture = await remoteFixture('trunk');
   run('git', ['branch', 'release'], { cwd: fixture.source });

@@ -21,6 +21,7 @@ import { run } from '../src/util.mjs';
 
 const SOURCE_ROOT = fileURLToPath(new URL('..', import.meta.url));
 const OBJECT_BYTES = 1_024;
+const PERSISTENT_BATCH_OBJECTS = 128;
 
 function options(argv) {
   const selected = { samples: 3, objects: 500 };
@@ -207,6 +208,38 @@ async function persistentSample(service, source) {
   };
 }
 
+async function persistentBatchSample(service, source) {
+  const before = service.processSpawns;
+  const timing = counter();
+  const values = new Map();
+  const start = performance.now();
+  await withCommandTiming(timing, async () => {
+    for (let offset = 0; offset < source.oids.length; offset += PERSISTENT_BATCH_OBJECTS) {
+      const oids = source.oids.slice(offset, offset + PERSISTENT_BATCH_OBJECTS);
+      const entries = await service.readBatch(oids);
+      assert.equal(entries.length, oids.length, 'complete persistent batch');
+      for (let index = 0; index < entries.length; index += 1) {
+        assert.equal(entries[index]?.oid, oids[index], 'ordered persistent batch object');
+        assert.equal(entries[index]?.type, 'blob', 'persistent batch object type');
+        values.set(oids[index], entries[index].bytes);
+      }
+    }
+  });
+  const milliseconds = performance.now() - start;
+  assertParity(values, source.expectedByOid);
+  const expectedWrites = Math.ceil(source.oids.length / PERSISTENT_BATCH_OBJECTS);
+  assert.equal(timing.get('git.requests'), expectedWrites, 'one logical call per chunk');
+  assert.equal(timing.get('git.batch-requests'), expectedWrites, 'one worker write per chunk');
+  assert.equal(timing.get('git.child-spawns'), service.processSpawns - before);
+  return {
+    milliseconds, gitSpawns: timing.get('git.spawns'),
+    workerSpawns: service.processSpawns - before,
+    logicalRequests: timing.get('git.requests'),
+    logicalObjectReads: source.oids.length,
+    workerWrites: timing.get('git.batch-requests')
+  };
+}
+
 async function main() {
   const selected = options(process.argv.slice(2));
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-gal-benchmark-'));
@@ -223,12 +256,13 @@ async function main() {
     // Worker startup, repository profile and discovery are outside the warm-worker boundary.
     const warmBody = await service.read(source.oids[0]);
     assert.ok(warmBody?.bytes.equals(source.expectedByOid.get(source.oids[0])));
-    const cold = [], reference = [], asyncReference = [], persistent = [];
+    const cold = [], reference = [], asyncReference = [], persistent = [], persistentBatch = [];
     for (let trial = 0; trial < selected.samples; trial += 1) {
       cold.push(await coldRuntimeSample(source.root, source.env));
       reference.push(referenceSample(executable, source));
       asyncReference.push(await asyncReferenceSample(executable, source));
       persistent.push(await persistentSample(service, source));
+      persistentBatch.push(await persistentBatchSample(service, source));
     }
     const sourceRevision = String(git(executable, ['rev-parse', 'HEAD'], {
       cwd: SOURCE_ROOT, env: source.env
@@ -255,10 +289,11 @@ async function main() {
         coldRuntimeAndRepositoryDiscovery: summarize(cold, selected.samples),
         referenceMetadataFirstSynchronousBatch: summarize(reference, selected.samples),
         referenceMetadataFirstAsyncBatch: summarize(asyncReference, selected.samples),
-        warmLegacyBatchWorker: summarize(persistent, selected.samples)
+        warmLegacyBatchWorker: summarize(persistent, selected.samples),
+        warmExplicitMultiFrameBatchWorker: summarize(persistentBatch, selected.samples)
       },
       parity: { referenceExactBytes: true, asyncReferenceExactBytes: true,
-        persistentExactBytes: true,
+        persistentExactBytes: true, persistentBatchExactBytes: true,
         requiredComplete: true },
       declaredFixtureComplete: selected.objects === 500,
       releaseQualified: false,
@@ -266,7 +301,8 @@ async function main() {
         'fixture setup and worker warmup excluded from timed read profiles',
         'cold profile starts new facade instances within an already-running Node process',
         'reference helper performs its own object-format discovery',
-        'warm worker uses legacy cat-file --batch, not batch-command',
+        'warm worker profiles use legacy cat-file --batch, not batch-command',
+        'explicit multi-frame batches use at most 128 OIDs per stdin write',
         'no Windows or Linux claim from this host',
         'not an end-to-end lifecycle or remote-authority benchmark'
       ]
@@ -286,7 +322,11 @@ function summarize(samples, count) {
     ...(samples.some((sample) => 'logicalRequests' in sample)
       ? { logicalRequests: samples.map((sample) => sample.logicalRequests ?? 0) } : {}),
     ...(samples.some((sample) => 'workerSpawns' in sample)
-      ? { workerSpawns: samples.map((sample) => sample.workerSpawns) } : {})
+      ? { workerSpawns: samples.map((sample) => sample.workerSpawns) } : {}),
+    ...(samples.some((sample) => 'workerWrites' in sample)
+      ? { workerWrites: samples.map((sample) => sample.workerWrites) } : {}),
+    ...(samples.some((sample) => 'logicalObjectReads' in sample)
+      ? { logicalObjectReads: samples.map((sample) => sample.logicalObjectReads) } : {})
   };
 }
 

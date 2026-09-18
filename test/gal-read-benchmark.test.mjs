@@ -26,7 +26,7 @@ test('GAL read benchmark separates cold discovery and warm object reads with exa
   assert.match(report.sourceRevision, /^[0-9a-f]{40,64}$/u);
   assert.deepEqual(report.parity, {
     referenceExactBytes: true, asyncReferenceExactBytes: true,
-    persistentExactBytes: true, requiredComplete: true
+    persistentExactBytes: true, persistentBatchExactBytes: true, requiredComplete: true
   });
   for (const profile of Object.values(report.profiles)) {
     assert.equal(profile.trials, 2);
@@ -44,9 +44,27 @@ test('GAL read benchmark separates cold discovery and warm object reads with exa
     [1, 1]);
   assert.deepEqual(report.profiles.warmLegacyBatchWorker.workerSpawns, [0, 0]);
   assert.deepEqual(report.profiles.warmLegacyBatchWorker.logicalRequests, [16, 16]);
+  assert.deepEqual(report.profiles.warmExplicitMultiFrameBatchWorker.physicalGitSpawns, [0, 0]);
+  assert.deepEqual(report.profiles.warmExplicitMultiFrameBatchWorker.workerSpawns, [0, 0]);
+  assert.deepEqual(report.profiles.warmExplicitMultiFrameBatchWorker.logicalRequests, [1, 1]);
+  assert.deepEqual(report.profiles.warmExplicitMultiFrameBatchWorker.logicalObjectReads, [16, 16]);
+  assert.deepEqual(report.profiles.warmExplicitMultiFrameBatchWorker.workerWrites, [1, 1]);
   const text = result.stdout;
   assert.equal(text.includes('sflow-gal-benchmark-'), false, 'temporary path must not leak');
   assert.equal(text.includes('GAL-FIXTURE-'), false, 'fixture contents must not leak');
+});
+
+test('GAL read benchmark chunks explicit multi-frame batches at 128 OIDs', () => {
+  const result = run('--samples=1', '--objects=129');
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const report = JSON.parse(result.stdout);
+  assert.equal(report.parity.persistentBatchExactBytes, true);
+  assert.deepEqual(report.profiles.warmExplicitMultiFrameBatchWorker.logicalRequests, [2]);
+  assert.deepEqual(report.profiles.warmExplicitMultiFrameBatchWorker.logicalObjectReads, [129]);
+  assert.deepEqual(report.profiles.warmExplicitMultiFrameBatchWorker.workerWrites, [2]);
+  assert.deepEqual(report.profiles.warmExplicitMultiFrameBatchWorker.workerSpawns, [0]);
+  assert.deepEqual(report.profiles.warmLegacyBatchWorker.logicalRequests, [129],
+    'the existing sequential profile must remain separately measured');
 });
 
 test('GAL read benchmark refuses unbounded and unknown arguments', () => {

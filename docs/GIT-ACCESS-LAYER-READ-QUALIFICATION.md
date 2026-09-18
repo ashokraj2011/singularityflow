@@ -29,8 +29,9 @@ Profiles are intentionally separate:
 | Reference metadata-first synchronous batch | `readLocalGitBlobs` over all OIDs | Explicit wrapper around each Git subprocess | Current helper still probes object format, so its actual count is three, not the proposed two-spawn warm-format target |
 | Reference metadata-first asynchronous batch | `readLocalGitBlobsAsync` over all OIDs | Physical child `spawn` events counted by the shared timing owner | This is the new nonblocking reference path; it still probes object format and uses three processes for the one-chunk fixture |
 | Warm legacy persistent worker | 500 sequential `FosGitObjectService.read` calls after an untimed worker warmup | Instrumented Git spawns and independent worker-spawn delta | Legacy `cat-file --batch`, not capability-verified `--batch-command`; startup and profile discovery are excluded |
+| Warm explicit multi-frame persistent batch | `FosGitObjectService.readBatch` over ordered chunks of at most 128 OIDs after the same untimed warmup | Instrumented Git spawns, independent worker-spawn delta, and `git.batch-requests` stdin-write count | Still the optional legacy `cat-file --batch` worker; not a default transport or a `--batch-command` capability claim |
 
-The same exact expected bytes are checked after all read profiles. A failure aborts rather than accepting a partial result. Physical spawns are not inferred from a command name: the legacy reference wrapper counts actual calls, the asynchronous reference counts successful child-spawn events, and the persistent profile checks both the timing counter and the service's process-spawn count. Timing includes hashing, framing, and object verification but excludes fixture creation, warmup, and JSON presentation. The fixed order is synchronous reference, asynchronous reference, then persistent in each trial; OS page-cache effects may favor later profiles. Compare distributions rather than one run, and do not compare trial sets with different Git/Node/OS/filesystem versions or fixture digests as if they were controlled equivalents.
+The same exact expected bytes are checked after all read profiles. A failure aborts rather than accepting a partial result. Physical spawns are not inferred from a command name: the legacy reference wrapper counts actual calls, the asynchronous reference counts successful child-spawn events, and both persistent profiles check the timing counter against the service's process-spawn delta. The explicit batch profile also checks its worker-write count and ordered OID results. Its `logicalRequests` count means `readBatch` calls, while `logicalObjectReads` counts OIDs; for 500 objects these are four calls and 500 objects. Timing includes hashing, framing, and object verification but excludes fixture creation, warmup, and JSON presentation. The fixed order is synchronous reference, asynchronous reference, sequential persistent, then explicit batch in each trial; OS page-cache effects may favor later profiles. Compare distributions rather than one run, and do not compare trial sets with different Git/Node/OS/filesystem versions or fixture digests as if they were controlled equivalents.
 
 ## Provisional local observation
 
@@ -43,6 +44,19 @@ On **2026-09-18**, an uncommitted macOS arm64 checkout (`main` at `d379da64191d3
 | Warm legacy persistent worker | 0 additional | 70.696 ms |
 
 Both object profiles returned all 512,000 expected bytes exactly. The persistent worker served 500 logical requests per trial and had zero additional worker spawns. Its latency was *higher* than the three-spawn reference in this sample, which is why reduced spawn count alone is not a performance claim. The benchmark is useful for regression investigation and cost accounting, not as a release-time speed threshold.
+
+### Explicit batch development sample
+
+On **2026-09-19**, the same 500-object fixture was measured for **10 trials** on macOS arm64 with Node `25.5.0`, Git `2.54.0`, and an uncommitted checkout at `02edad9826869947eded69ed9eb7e77b3226da1f`. All profiles returned the exact 512,000 expected bytes per trial. This dirty-source, development-Node observation is not a supported-platform qualification.
+
+| Profile | Git spawns per trial | Logical calls / object reads / worker writes | Median / p95 wall time |
+| --- | ---: | ---: | ---: |
+| Reference synchronous batch | 3 | — | 39.928 / 45.437 ms |
+| Reference asynchronous batch | 3 | 1 / 500 / — | 39.229 / 40.464 ms |
+| Warm sequential persistent worker | 0 additional | 500 / 500 / — | 57.625 / 64.659 ms |
+| Warm explicit multi-frame persistent batch | 0 additional | 4 / 500 / 4 | 17.993 / 19.057 ms |
+
+The four explicit batch calls contained 128, 128, 128, and 116 OIDs. This run shows lower latency for this fixture and order, not a general speed guarantee: the worker was already warm, the explicit batch ran last, and the reference paths perform format discovery. The full benchmark JSON records provenance, parity, and all trial counts.
 
 ## Remaining qualification
 

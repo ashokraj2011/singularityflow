@@ -28,7 +28,7 @@ const GOVERNANCE = new Set(['story', 'initiative']);
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 function text(value: unknown): string { return typeof value === 'string' ? value.trim() : ''; }
-function governs(value: unknown, fallback: 'story' | 'initiative' = 'initiative'): 'story' | 'initiative' {
+function governs(value: unknown, fallback: 'story' | 'initiative' = 'story'): 'story' | 'initiative' {
   return typeof value === 'string' && GOVERNANCE.has(value) ? value as 'story' | 'initiative' : fallback;
 }
 function csv(value: string): string[] { return value.split(',').map((entry) => entry.trim()).filter(Boolean); }
@@ -154,11 +154,28 @@ export class DesignerPanel {
   /** Every phase available to either kind of workflow, including phases no workflow uses yet. */
   private phaseChoices(snapshot: RepositorySnapshot | null): PhaseChoice[] {
     if (!snapshot) return [];
-    const definition = snapshot.definition as { phases?: Record<string, { label?: string }> } | undefined;
-    const portfolio = snapshot.portfolio as { initiativePhases?: Record<string, { label?: string }> } | undefined;
+    const definition = snapshot.definition as { phases?: Record<string, {
+      label?: string; artifact?: { kind?: string }; defaultTemplate?: string;
+      inputs?: Array<string | { phase?: string }>;
+      approval?: { authorities?: string[]; minimum?: number };
+      worldModel?: { views?: string[] }; generation?: { task?: string };
+    }> } | undefined;
+    const portfolio = snapshot.portfolio as { initiativePhases?: Record<string, {
+      label?: string; worldModelViews?: string[]; bundleApproval?: { authorities?: string[]; minimum?: number };
+    }> } | undefined;
     return [
-      ...Object.entries(definition?.phases ?? {}).map(([id, phase]) => ({ id, label: phase.label ?? id, governs: 'story' as const })),
-      ...Object.entries(portfolio?.initiativePhases ?? {}).map(([id, phase]) => ({ id, label: phase.label ?? id, governs: 'initiative' as const }))
+      ...Object.entries(definition?.phases ?? {}).map(([id, phase]) => ({
+        id, label: phase.label ?? id, governs: 'story' as const,
+        artifactKind: phase.artifact?.kind, template: phase.defaultTemplate,
+        inputs: (phase.inputs ?? []).map((input) => typeof input === 'string' ? input : input.phase ?? '').filter(Boolean),
+        authorities: phase.approval?.authorities ?? [], minimumApprovals: phase.approval?.minimum ?? 1,
+        views: phase.worldModel?.views ?? [], task: phase.generation?.task ?? 'none'
+      })),
+      ...Object.entries(portfolio?.initiativePhases ?? {}).map(([id, phase]) => ({
+        id, label: phase.label ?? id, governs: 'initiative' as const,
+        authorities: phase.bundleApproval?.authorities ?? [], minimumApprovals: phase.bundleApproval?.minimum ?? 1,
+        views: phase.worldModelViews ?? []
+      }))
     ];
   }
 
@@ -170,10 +187,15 @@ export class DesignerPanel {
     const profile = this.currentProfile(this.store.current.snapshot);
     this.phaseDraft = null;
     this.workflowDraft = isNew || !profile ? {
-      isNew: true, id: '', label: '', description: '', governs: profile?.governs ?? 'initiative', phases: []
+      isNew: true, id: '', label: '', description: '', governs: profile?.governs ?? 'story', phases: [],
+      plannedClaimsMode: 'required', clausePhases: '', claimOwners: '', optOutReason: ''
     } : {
       isNew: false, id: profile.id, label: profile.label, description: profile.description,
-      governs: profile.governs, phases: profile.phases.map((phase) => ({ id: phase.id, label: phase.label }))
+      governs: profile.governs, phases: profile.phases.map((phase) => ({ id: phase.id, label: phase.label })),
+      plannedClaimsMode: profile.plannedClaims?.mode === 'opt-out' ? 'opt-out' : 'required',
+      clausePhases: (profile.plannedClaims?.clausePhases ?? []).join(', '),
+      claimOwners: Object.entries(profile.plannedClaims?.owners ?? {}).map(([code, clause]) => `${code}=${clause}`).join(', '),
+      optOutReason: profile.plannedClaims?.reason ?? ''
     };
   }
 
@@ -182,15 +204,18 @@ export class DesignerPanel {
     const preferred = this.currentProfile(snapshot)?.governs;
     const definition = snapshot?.definition as { phases?: Record<string, {
       label?: string; agents?: string[]; worldModel?: { views?: string[] };
+      generation?: { task?: 'code' | 'analyze' | 'none' };
+      approval?: { authorities?: string[]; minimum?: number };
     }> } | undefined;
     const portfolio = snapshot?.portfolio as { initiativePhases?: Record<string, {
       label?: string; agents?: string[]; worldModelViews?: string[]; lanes?: string[];
+      bundleApproval?: { authorities?: string[]; minimum?: number };
     }> } | undefined;
     const story = definition?.phases?.[id];
     const initiative = portfolio?.initiativePhases?.[id];
-    if (preferred === 'story' && story) return { isNew: false, id, label: story.label ?? id, governs: 'story', views: (story.worldModel?.views ?? []).join(', '), agents: (story.agents ?? []).join(', '), lanes: '' };
-    if (initiative) return { isNew: false, id, label: initiative.label ?? id, governs: 'initiative', views: (initiative.worldModelViews ?? []).join(', '), agents: (initiative.agents ?? []).join(', '), lanes: (initiative.lanes ?? []).join(', ') };
-    if (story) return { isNew: false, id, label: story.label ?? id, governs: 'story', views: (story.worldModel?.views ?? []).join(', '), agents: (story.agents ?? []).join(', '), lanes: '' };
+    if (preferred === 'story' && story) return { isNew: false, id, label: story.label ?? id, governs: 'story', views: (story.worldModel?.views ?? []).join(', '), agents: (story.agents ?? []).join(', '), lanes: '', task: story.generation?.task, approvalAuthorities: (story.approval?.authorities ?? []).join(', '), approvalMinimum: story.approval?.minimum ?? 1 };
+    if (initiative) return { isNew: false, id, label: initiative.label ?? id, governs: 'initiative', views: (initiative.worldModelViews ?? []).join(', '), agents: (initiative.agents ?? []).join(', '), lanes: (initiative.lanes ?? []).join(', '), approvalAuthorities: (initiative.bundleApproval?.authorities ?? []).join(', '), approvalMinimum: initiative.bundleApproval?.minimum ?? 1 };
+    if (story) return { isNew: false, id, label: story.label ?? id, governs: 'story', views: (story.worldModel?.views ?? []).join(', '), agents: (story.agents ?? []).join(', '), lanes: '', task: story.generation?.task, approvalAuthorities: (story.approval?.authorities ?? []).join(', '), approvalMinimum: story.approval?.minimum ?? 1 };
     return null;
   }
 
@@ -223,6 +248,10 @@ export class DesignerPanel {
     this.workflowDraft.label = text(raw.label);
     this.workflowDraft.description = text(raw.description);
     this.workflowDraft.governs = governs(raw.governs, this.workflowDraft.governs);
+    if (raw.plannedClaimsMode === 'required' || raw.plannedClaimsMode === 'opt-out') this.workflowDraft.plannedClaimsMode = raw.plannedClaimsMode;
+    this.workflowDraft.clausePhases = text(raw.clausePhases);
+    this.workflowDraft.claimOwners = text(raw.claimOwners);
+    this.workflowDraft.optOutReason = text(raw.optOutReason);
   }
 
   private async receive(raw: unknown): Promise<void> {
@@ -268,6 +297,10 @@ export class DesignerPanel {
       this.workflowDraft.phases = [];
       return this.render();
     }
+    if (message.type === 'workflow-claims' && this.workflowDraft) {
+      this.updateWorkflow(message);
+      return this.render();
+    }
     if (message.type === 'workflow-phase-action' && this.workflowDraft) {
       this.updateWorkflow(message);
       const index = Number(message.index);
@@ -285,18 +318,48 @@ export class DesignerPanel {
     }
     if (message.type === 'save-workflow' && this.workflowDraft) {
       this.updateWorkflow(message);
+      const draft = this.workflowDraft;
+      const chosen = this.phaseChoices(snapshot).filter((phase) =>
+        phase.governs === draft.governs && draft.phases.some((entry) => entry.id === phase.id));
+      const eligible = new Set(chosen.filter((phase) =>
+        ['requirements', 'implementation-spec'].includes(phase.artifactKind ?? '')).map((phase) => phase.id));
+      const clausePhases = csv(draft.clausePhases ?? '');
+      const ownerEntries = csv(draft.claimOwners ?? '');
+      const invalidClause = clausePhases.find((id) => !eligible.has(id));
+      const invalidOwner = ownerEntries.find((entry) => {
+        const match = entry.match(/^([a-z0-9]+(?:-[a-z0-9]+)*)=([a-z0-9]+(?:-[a-z0-9]+)*)$/);
+        return !match || !chosen.some((phase) => phase.id === match[1] && phase.task === 'code') || !eligible.has(match[2] ?? '');
+      });
       if (!ID.test(this.workflowDraft.id)) this.error = 'Workflow ID must be lower-case kebab-case.';
       else if (!this.workflowDraft.label) this.error = 'Give the workflow a display name.';
       else if (!this.workflowDraft.phases.length) this.error = 'A workflow needs at least one phase.';
+      else if (draft.governs === 'story' && draft.plannedClaimsMode !== 'opt-out' && !eligible.size) {
+        this.error = 'This Story has no clause-capable phase. Add a phase with a requirements or implementation-spec artifact, or choose a reviewed opt-out.';
+      }
+      else if (draft.governs === 'story' && draft.plannedClaimsMode === 'opt-out' && !draft.optOutReason) {
+        this.error = 'An explicit planned-claims opt-out needs a reviewed reason.';
+      } else if (draft.governs === 'story' && draft.plannedClaimsMode !== 'opt-out' && invalidClause) {
+        this.error = `Phase '${invalidClause}' cannot carry clauses. Eligible phases in this workflow: ${[...eligible].join(', ') || 'none'}.`;
+      } else if (draft.governs === 'story' && draft.plannedClaimsMode !== 'opt-out' && invalidOwner) {
+        this.error = `Claim owner '${invalidOwner}' must be a selected code phase=eligible clause phase pair.`;
+      }
       else {
         const command = ['workflow', this.workflowDraft.isNew ? 'create' : 'edit', this.workflowDraft.id,
           '--label', this.workflowDraft.label, '--description', this.workflowDraft.description,
           '--phases', this.workflowDraft.phases.map((phase) => phase.id).join(',')];
         if (this.workflowDraft.isNew) command.push('--governs', this.workflowDraft.governs);
+        if (draft.governs === 'story') {
+          command.push('--planned-claims', draft.plannedClaimsMode === 'opt-out' ? 'opt-out' : 'required');
+          if (draft.plannedClaimsMode === 'opt-out') command.push('--opt-out-reason', draft.optOutReason ?? '');
+          else {
+            if (clausePhases.length) command.push('--clause-phases', clausePhases.join(','));
+            if (ownerEntries.length) command.push('--claim-owners', ownerEntries.join(','));
+          }
+        }
         this.error = await this.onMessage({ type: 'run', command, title: `${this.workflowDraft.isNew ? 'Creating' : 'Saving'} ${this.workflowDraft.label}` });
-        // A successful save is a review proposal, not approved configuration yet. Keep showing the
-        // currently approved workflow until that proposal is merged and refreshed; selecting the
-        // proposed ID here made it look as though the newly created workflow had disappeared.
+        // A lead-governed save is a review proposal, while local authority writes uncommitted
+        // configuration. Reload either way; selecting a proposal ID before it is approved made
+        // the workflow look as though it had disappeared.
         if (!this.error) {
           this.workflowDraft = null;
           await this.refreshProposals();
@@ -308,7 +371,7 @@ export class DesignerPanel {
 
     if (message.type === 'new-phase') {
       this.workflowDraft = null;
-      this.phaseDraft = { isNew: true, id: '', label: '', governs: this.currentProfile(snapshot)?.governs ?? 'initiative', views: '', agents: '', lanes: '' };
+      this.phaseDraft = { isNew: true, id: '', label: '', governs: this.currentProfile(snapshot)?.governs ?? 'story', views: '', agents: '', lanes: '', task: 'none', approvalAuthorities: '', approvalMinimum: 1 };
       return this.render();
     }
     if (message.type === 'edit-phase' && typeof message.phase === 'string') {
@@ -320,12 +383,29 @@ export class DesignerPanel {
       this.phaseDraft.label = text(message.label);
       this.phaseDraft.governs = governs(message.governs, this.phaseDraft.governs);
       this.phaseDraft.views = text(message.views); this.phaseDraft.agents = text(message.agents); this.phaseDraft.lanes = text(message.lanes);
+      this.phaseDraft.task = message.task === 'code' || message.task === 'analyze' || message.task === 'none'
+        ? message.task : undefined;
+      this.phaseDraft.approvalAuthorities = text(message.authorities);
+      this.phaseDraft.approvalMinimum = Number(message.minimum);
+      const knownAuthorities = new Set([
+        ...Object.keys((snapshot?.definition as { approvalAuthorities?: Record<string, unknown> } | undefined)?.approvalAuthorities ?? {}),
+        ...Object.keys((snapshot?.portfolio as { approvalAuthorities?: Record<string, unknown> } | undefined)?.approvalAuthorities ?? {})
+      ]);
+      const invalidAuthority = csv(this.phaseDraft.approvalAuthorities).find((id) => !knownAuthorities.has(id));
       if (!ID.test(this.phaseDraft.id)) this.error = 'Phase ID must be lower-case kebab-case.';
       else if (!this.phaseDraft.label) this.error = 'Give the phase a display name.';
+      else if (!csv(this.phaseDraft.approvalAuthorities).length) this.error = 'Choose at least one configured approval authority for this phase.';
+      else if (!Number.isInteger(this.phaseDraft.approvalMinimum) || this.phaseDraft.approvalMinimum < 1) this.error = 'Minimum approvals must be a positive whole number.';
+      else if (invalidAuthority) this.error = `Approval group '${invalidAuthority}' is not configured in this repository.`;
+      else if (this.phaseDraft.isNew && this.phaseDraft.governs === 'story' && !csv(this.phaseDraft.agents).length) {
+        this.error = 'Choose a governed agent for this new Story phase. Its Agent Markdown must exist before the phase is saved.';
+      }
       else {
         const command = ['workflow', 'phase', this.phaseDraft.isNew ? 'add' : 'edit', this.phaseDraft.id,
           '--label', this.phaseDraft.label, '--views', csv(this.phaseDraft.views).join(','),
-          '--agents', csv(this.phaseDraft.agents).join(','), '--governs', this.phaseDraft.governs];
+          '--agents', csv(this.phaseDraft.agents).join(','), '--governs', this.phaseDraft.governs,
+          '--authorities', csv(this.phaseDraft.approvalAuthorities).join(','), '--minimum', String(this.phaseDraft.approvalMinimum)];
+        if (this.phaseDraft.governs === 'story' && this.phaseDraft.task) command.push('--task', this.phaseDraft.task);
         if (this.phaseDraft.governs === 'initiative') command.push('--lanes', csv(this.phaseDraft.lanes).join(','));
         this.error = await this.onMessage({ type: 'run', command, title: `${this.phaseDraft.isNew ? 'Creating' : 'Saving'} ${this.phaseDraft.label}` });
         if (!this.error) this.phaseDraft = null;
@@ -443,7 +523,11 @@ export class DesignerPanel {
        */
       [...new Set((snapshot?.worldModel?.views ?? []).map((view) => view.id))].sort(),
       [...new Set((snapshot?.agents ?? []).map((agent) => agent.id))].sort(),
-      this.workflowProposals, this.proposalsLoaded, this.proposalsError
+      this.workflowProposals, this.proposalsLoaded, this.proposalsError,
+      [...new Set([
+        ...Object.keys((snapshot?.definition as { approvalAuthorities?: Record<string, unknown> } | undefined)?.approvalAuthorities ?? {}),
+        ...Object.keys((snapshot?.portfolio as { approvalAuthorities?: Record<string, unknown> } | undefined)?.approvalAuthorities ?? {})
+      ])].sort()
     ), contentSecurityPolicy(this.panel.webview, token), token, DESIGNER_SCRIPT);
   }
 

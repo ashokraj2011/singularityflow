@@ -167,7 +167,15 @@ export async function installWorkflow(root, id, { replace = false, dryRun = fals
 
 export async function workflowDiff(root, id) {
   const installed = await loadDefinition(root); const starter = await starterDefinition();
-  if (!starter.workTypes[id]) throw new Error(`Workflow '${id}' is not in the bundled catalog.`);
+  if (!starter.workTypes[id]) {
+    if (installed.workTypes[id]) {
+      throw new SingularityFlowError(
+        `workflow diff compares a packaged workflow with your copy; '${id}' is custom. `
+        + `Use singularity-flow workflow simulate ${id} to inspect it.`
+      );
+    }
+    throw new SingularityFlowError(`Unknown workflow '${id}'. Use singularity-flow workflow list to see available workflows.`);
+  }
   return { id, installed: installed.workTypes[id] ?? null, bundled: starter.workTypes[id], equal: stable(installed.workTypes[id]) === stable(starter.workTypes[id]) };
 }
 

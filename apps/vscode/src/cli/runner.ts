@@ -85,7 +85,7 @@ export const DISPLAY_BOOLEAN_OPTIONS = new Set([
   'include-existing', 'independent', 'isolated-worktree',
   'git-shadow', 'git-speed', 'keep', 'local', 'local-only', 'make-lead', 'markdown', 'migrate-legacy', 'network', 'offline', 'once', 'open', 'performance', 'plan-only', 'planned',
   'opt-out', 'optional', 'parallel', 'polish', 'portable-discovery', 'preview', 'probe', 'propose', 'publish', 'push',
-  'query-stdin', 'quick', 'raw', 'readiness', 'rebuild', 'recap', 'record', 'record-audit', 'recover', 'refresh', 'release', 'render-only', 'repair', 'repair-on-fault', 'restore-remote', 'run',
+  'query-stdin', 'quick', 'raw', 'readiness', 'rebuild', 'recap', 'record', 'record-audit', 'recover', 'refresh', 'release', 'render-only', 'repair', 'repair-on-fault', 'restore-remote', 'run', 'feedback-stdin',
   'remove-stale', 'repair-projections', 'replace', 'replace-server', 'resume', 'set', 'sign', 'solo',
   'search-known', 'semantic', 'shadow', 'skip-checks', 'smart-detect', 'staged', 'stale', 'strict', 'submission-readiness', 'terminal', 'timings', 'today', 'update', 'write',
   'yes', 'verbose', 'show-artifact', 'brief'

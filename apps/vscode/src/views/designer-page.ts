@@ -16,6 +16,10 @@ export interface WorkflowDraftView {
   description: string;
   governs: 'story' | 'initiative';
   phases: Array<{ id: string; label: string }>;
+  plannedClaimsMode?: 'required' | 'opt-out';
+  clausePhases?: string;
+  claimOwners?: string;
+  optOutReason?: string;
 }
 
 export interface PhaseDraftView {
@@ -26,12 +30,22 @@ export interface PhaseDraftView {
   views: string;
   agents: string;
   lanes: string;
+  task?: 'code' | 'analyze' | 'none';
+  approvalAuthorities?: string;
+  approvalMinimum?: number;
 }
 
 export interface PhaseChoice {
   id: string;
   label: string;
   governs: 'story' | 'initiative';
+  artifactKind?: string;
+  template?: string;
+  inputs?: string[];
+  authorities?: string[];
+  minimumApprovals?: number;
+  views?: string[];
+  task?: string;
 }
 
 export interface WorkflowProposalSummary {
@@ -95,12 +109,16 @@ function phaseHtml(phase: Phase, profileId: string): string {
 
 function workflowEditor(draft: WorkflowDraftView, choices: PhaseChoice[]): string {
   const available = choices.filter((phase) => phase.governs === draft.governs && !draft.phases.some((entry) => entry.id === phase.id));
+  const selected = draft.phases.map((phase) => choices.find((entry) => entry.id === phase.id && entry.governs === draft.governs));
+  const eligibleClauses = selected.filter((phase) => phase && ['requirements', 'implementation-spec'].includes(phase.artifactKind ?? ''))
+    .map((phase) => phase!.id);
+  const codePhases = selected.filter((phase) => phase?.task === 'code').map((phase) => phase!.id);
   return `
   <section class="editor-card workflow-editor">
     <div class="editor-title">
       <p class="eyebrow">${draft.isNew ? 'New workflow' : 'Workflow settings'}</p>
       <h3>${draft.isNew ? 'Create an ordered delivery path' : `Edit ${escape(draft.label)}`}</h3>
-      <p class="muted">The engine validates every phase reference, then publishes a review proposal against the shared configuration authority. Active Story worktrees are never changed.</p>
+      <p class="muted">This is a draft preview. The engine validates the complete contract when you save; active Story worktrees are never changed. Lead-governed configuration creates a review proposal. Self-governed configuration writes an uncommitted local edit that you must commit.</p>
     </div>
     <div class="form-grid">
       <label class="field"><span>Workflow ID</span><input data-workflow-id type="text" value="${escape(draft.id)}" ${draft.isNew ? '' : 'disabled'} placeholder="customer-onboarding"><small>Permanent lower-case identifier.</small></label>
@@ -119,10 +137,23 @@ function workflowEditor(draft: WorkflowDraftView, choices: PhaseChoice[]): strin
         </div>`).join('') : '<p class="empty-state">Add at least one phase to make this workflow runnable.</p>'}
     </div>
     <div class="add-row">
-      <select data-workflow-add-phase><option value="">Choose a phase…</option>${available.map((phase) => `<option value="${escape(phase.id)}">${escape(phase.label)} — ${escape(phase.id)}</option>`).join('')}</select>
+      <select data-workflow-add-phase><option value="">Choose a phase…</option>${available.map((phase) => `<option value="${escape(phase.id)}">${escape(phase.label)} — ${escape(phase.id)}${['requirements', 'implementation-spec'].includes(phase.artifactKind ?? '') ? ' · clause source' : ''}${phase.task === 'code' ? ' · code' : ''}</option>`).join('')}</select>
       <button class="secondary" data-add-workflow-phase="1"${available.length ? '' : ' disabled'}>Add phase</button>
     </div>
-    <div class="form-actions"><button data-save-workflow="1">${draft.isNew ? 'Create workflow proposal' : 'Save workflow proposal'}</button><button class="secondary" data-cancel-workflow="1">Cancel</button></div>
+    ${draft.governs === 'story' ? `<div class="form-grid planned-claims-editor">
+      <label class="field"><span>Planned claims</span><select data-workflow-planned-claims><option value="required"${draft.plannedClaimsMode !== 'opt-out' ? ' selected' : ''}>Required (recommended)</option><option value="opt-out"${draft.plannedClaimsMode === 'opt-out' ? ' selected' : ''}>Explicit opt-out</option></select><small>Required binds implementation claims to earlier clauses and planned tests. The engine infers these from eligible phases when left blank.</small></label>
+      <label class="field"><span>Clause phases</span><input data-workflow-clause-phases value="${escape(draft.clausePhases ?? '')}" placeholder="${escape(eligibleClauses.join(',') || 'specification')}"><small>Eligible in this sequence: ${escape(eligibleClauses.join(', ') || 'none')}. Clause phases must produce requirements or implementation-spec artifacts.</small></label>
+      <label class="field"><span>Claim owners</span><input data-workflow-claim-owners value="${escape(draft.claimOwners ?? '')}" placeholder="${escape(codePhases[0] && eligibleClauses[0] ? `${codePhases[0]}=${eligibleClauses[0]}` : 'implementation=specification')}"><small>Optional comma-separated code-phase=clause-phase pairs. Inferred when blank.</small></label>
+      <label class="field"><span>Opt-out reason</span><input data-workflow-opt-out-reason value="${escape(draft.optOutReason ?? '')}" placeholder="Why are planned claims inappropriate?"><small>Required only when opting out; the reason is reviewed with the workflow.</small></label>
+    </div>` : ''}
+    <details class="workflow-simulation" open><summary>Draft simulation · phase contracts</summary>
+      <p class="muted">Preview from the currently approved phase catalog; saving runs full engine validation. This does not publish or execute a Story.</p>
+      ${draft.phases.length ? `<table><thead><tr><th>Phase</th><th>Template</th><th>Inputs</th><th>Approvals</th><th>World model</th><th>Task</th></tr></thead><tbody>${draft.phases.map((phase, index) => {
+        const detail = selected[index];
+        return `<tr><td>${index + 1}. ${escape(phase.label)}<br><code>${escape(phase.id)}</code></td><td>${escape(detail?.template ?? 'none')}</td><td>${escape(detail?.inputs?.join(', ') || 'none')}</td><td>${escape(`${detail?.minimumApprovals ?? 1} (${detail?.authorities?.join(', ') || 'none'})`)}</td><td>${escape(detail?.views?.join(', ') || 'none')}</td><td>${escape(detail?.task ?? 'none')}</td></tr>`;
+      }).join('')}</tbody></table>` : '<p class="empty-state">Add phases to preview the workflow.</p>'}
+    </details>
+    <div class="form-actions"><button data-save-workflow="1">${draft.isNew ? 'Create workflow' : 'Save workflow'}</button><button class="secondary" data-cancel-workflow="1">Cancel</button></div>
   </section>`;
 }
 
@@ -165,7 +196,7 @@ function phaseArtifacts(draft: PhaseDraftView, templates: TemplateUsage[]): stri
   <div class="form-actions"><button class="secondary" data-attach-artifact="1"${templates.length ? '' : ' disabled'}>Attach artifact to phase</button></div>`;
 }
 
-function phaseEditor(draft: PhaseDraftView, templates: TemplateUsage[], views: string[], agents: string[]): string {
+function phaseEditor(draft: PhaseDraftView, templates: TemplateUsage[], views: string[], agents: string[], authorities: string[]): string {
   return `
   <section class="editor-card">
     <div class="editor-title"><p class="eyebrow">${draft.isNew ? 'New phase' : 'Phase contract'}</p><h3>${draft.isNew ? 'Define a reusable stage' : `Edit ${escape(draft.label)}`}</h3><p class="muted">${draft.isNew ? 'Creating a phase does not add it to a workflow. You choose its position afterwards.' : 'Changes reach every workflow that uses this phase.'}</p></div>
@@ -175,9 +206,12 @@ function phaseEditor(draft: PhaseDraftView, templates: TemplateUsage[], views: s
       <label class="field"><span>Governs</span><select data-phase-governs ${draft.isNew ? '' : 'disabled'}><option value="initiative"${draft.governs === 'initiative' ? ' selected' : ''}>Epic / Initiative</option><option value="story"${draft.governs === 'story' ? ' selected' : ''}>Developer Story</option></select></label>
       <label class="field"><span>World-model views</span><input data-phase-views list="phase-views-list" value="${escape(draft.views)}" placeholder="architecture,security"><datalist id="phase-views-list">${views.map((view) => `<option value="${escape(view)}"></option>`).join('')}</datalist><small>${views.length ? `Comma-separated. This repository has: ${escape(views.join(', '))}.` : 'Comma-separated repository views. This repository has none yet.'}</small></label>
       <label class="field"><span>Expected agents</span><input data-phase-agents list="phase-agents-list" value="${escape(draft.agents)}" placeholder="architect,security-reviewer"><datalist id="phase-agents-list">${agents.map((agent) => `<option value="${escape(agent)}"></option>`).join('')}</datalist><small>${agents.length ? `Comma-separated. Governed agents: ${escape(agents.join(', '))}.` : 'No governed agents are configured in this repository yet.'}</small></label>
+      ${draft.governs === 'story' ? `<label class="field"><span>Generation task</span><select data-phase-task>${draft.isNew || draft.task ? '' : '<option value="" selected>Keep existing task policy</option>'}<option value="none"${draft.task === 'none' ? ' selected' : ''}>None · no code authoring</option><option value="analyze"${draft.task === 'analyze' ? ' selected' : ''}>Analyze · non-code artifact</option><option value="code"${draft.task === 'code' ? ' selected' : ''}>Code · implement and test</option></select><small>Only Code instructs the phase agent to implement application changes. Existing policy is preserved unless changed here.</small></label>` : ''}
+      <label class="field"><span>Approval authorities</span><input data-phase-authorities list="phase-authorities-list" value="${escape(draft.approvalAuthorities ?? '')}" placeholder="product-approvers"><datalist id="phase-authorities-list">${authorities.map((authority) => `<option value="${escape(authority)}"></option>`).join('')}</datalist><small>${authorities.length ? `Configured groups: ${escape(authorities.join(', '))}.` : 'No approval authority groups are configured yet.'} Use comma-separated group IDs.</small></label>
+      <label class="field"><span>Minimum approvals</span><input data-phase-minimum type="number" min="1" step="1" value="${escape(String(draft.approvalMinimum ?? 1))}"><small>Distinct required approvals for this phase.</small></label>
       <label class="field"><span>Business lanes</span><input data-phase-lanes value="${escape(draft.lanes)}" placeholder="design-architecture,engineering"><small>Initiative visualization only.</small></label>
     </div>
-    <div class="form-actions"><button data-save-phase="1">${draft.isNew ? 'Create phase proposal' : 'Save phase proposal'}</button><button class="secondary" data-cancel-phase="1">Cancel</button></div>
+    <div class="form-actions"><button data-save-phase="1">${draft.isNew ? 'Create phase' : 'Save phase'}</button><button class="secondary" data-cancel-phase="1">Cancel</button></div>
     ${phaseArtifacts(draft, templates)}
   </section>`;
 }
@@ -185,7 +219,7 @@ function phaseEditor(draft: PhaseDraftView, templates: TemplateUsage[], views: s
 function phasesHtml(
   profiles: Profile[], selected: string | null, standing: Standing[], portfolioPath: string,
   draft: WorkflowDraftView | null, phaseDraft: PhaseDraftView | null, choices: PhaseChoice[],
-  graphSvg = '', templates: TemplateUsage[] = [], views: string[] = [], agents: string[] = [],
+  graphSvg = '', templates: TemplateUsage[] = [], views: string[] = [], agents: string[] = [], authorities: string[] = [],
   proposals: WorkflowProposalSummary[] = [], proposalsLoaded = true, proposalsError: string | null = null
 ): string {
   const profile = profiles.find((entry) => entry.id === selected) ?? profiles[0];
@@ -221,7 +255,7 @@ function phasesHtml(
     <button class="secondary" data-new-phase="1">New phase</button>
   </section>
   ${draft ? workflowEditor(draft, choices) : ''}
-  ${phaseDraft ? phaseEditor(phaseDraft, templates, views, agents) : ''}
+  ${phaseDraft ? phaseEditor(phaseDraft, templates, views, agents, authorities) : ''}
   ${profile && !draft && !phaseDraft ? `
     <section class="workflow-summary">
       <div><p class="eyebrow">${escape(profile.governs)} workflow</p><h3>${escape(profile.label)}</h3><p class="muted">${escape(profile.description || 'No description yet.')}</p></div>
@@ -297,14 +331,14 @@ export function designerHtml(
   /** The repository's own vocabularies, so the phase editor offers them instead of asking blind. */
   worldModelViews: string[] = [], governedAgents: string[] = [],
   workflowProposals: WorkflowProposalSummary[] = [], proposalsLoaded = true,
-  proposalsError: string | null = null
+  proposalsError: string | null = null, approvalAuthorities: string[] = []
 ): string {
   return `
-  <header><p class="eyebrow">Workflow designer · configuration studio</p><h1>${icon('workflow', { size: 20 })}Workflows & artifacts</h1><p class="meta">Create the delivery path and design the documents each phase must produce. Every save is validated and pushed as a configuration review proposal; the selected Story is never edited.</p></header>
+  <header><p class="eyebrow">Workflow designer · configuration studio</p><h1>${icon('workflow', { size: 20 })}Workflows & artifacts</h1><p class="meta">Create the delivery path and design the documents each phase must produce. Every save is validated. Lead-governed edits become review proposals; self-governed edits remain uncommitted until you commit them. The selected Story is never edited.</p></header>
   ${error ? `<section class="plain"><div class="blockers">${escape(error)}</div></section>` : ''}
   <nav class="designer-tabs" aria-label="Configuration designers"><button class="tab${tab === 'phases' ? ' active' : ''}" aria-current="${tab === 'phases' ? 'page' : 'false'}" data-tab="phases">${icon('workflow')}Workflow builder</button><button class="tab${tab === 'templates' ? ' active' : ''}" aria-current="${tab === 'templates' ? 'page' : 'false'}" data-tab="templates">${icon('artifact')}Artifact designer</button></nav>
   ${tab === 'phases'
-    ? phasesHtml(profiles, selectedProfile, standing, portfolioPath, workflowDraft, phaseDraft, phaseChoices, graphSvg, templates, worldModelViews, governedAgents, workflowProposals, proposalsLoaded, proposalsError)
+    ? phasesHtml(profiles, selectedProfile, standing, portfolioPath, workflowDraft, phaseDraft, phaseChoices, graphSvg, templates, worldModelViews, governedAgents, approvalAuthorities, workflowProposals, proposalsLoaded, proposalsError)
     : `${artifactBuilder(artifactDraft, artifactErrors)}${templateInventory(templates, filter)}`}`;
 }
 
@@ -320,7 +354,11 @@ export const DESIGNER_SCRIPT = `
     id: value('[data-workflow-id]'),
     label: value('[data-workflow-label]'),
     description: value('[data-workflow-description]'),
-    governs: document.querySelector('[data-workflow-governs]')?.value
+    governs: document.querySelector('[data-workflow-governs]')?.value,
+    plannedClaimsMode: document.querySelector('[data-workflow-planned-claims]')?.value,
+    clausePhases: value('[data-workflow-clause-phases]'),
+    claimOwners: value('[data-workflow-claim-owners]'),
+    optOutReason: value('[data-workflow-opt-out-reason]')
   });
   const artifactFields = () => ({
     governs: document.querySelector('[data-artifact-governs]')?.value,
@@ -350,7 +388,7 @@ export const DESIGNER_SCRIPT = `
     else if (data.workflowPhaseAction) vscode.postMessage({ type: 'workflow-phase-action', action: data.workflowPhaseAction, index: Number(data.index), ...workflowFields() });
     else if (data.addWorkflowPhase !== undefined) vscode.postMessage({ type: 'add-workflow-phase', phase: value('[data-workflow-add-phase]'), ...workflowFields() });
     else if (data.saveWorkflow !== undefined) vscode.postMessage({ type: 'save-workflow', ...workflowFields() });
-    else if (data.savePhase !== undefined) vscode.postMessage({ type: 'save-phase', id: value('[data-phase-id]'), label: value('[data-phase-label]'), governs: document.querySelector('[data-phase-governs]')?.value, views: value('[data-phase-views]'), agents: value('[data-phase-agents]'), lanes: value('[data-phase-lanes]') });
+    else if (data.savePhase !== undefined) vscode.postMessage({ type: 'save-phase', id: value('[data-phase-id]'), label: value('[data-phase-label]'), governs: document.querySelector('[data-phase-governs]')?.value, views: value('[data-phase-views]'), agents: value('[data-phase-agents]'), lanes: value('[data-phase-lanes]'), task: document.querySelector('[data-phase-task]')?.value, authorities: value('[data-phase-authorities]'), minimum: value('[data-phase-minimum]') });
     else if (data.cancelPhase !== undefined) vscode.postMessage({ type: 'cancel-phase' });
     else if (data.addSection !== undefined) vscode.postMessage({ type: 'artifact-sections', action: 'add', kind: document.querySelector('[data-section-kind]')?.value, ...artifactFields() });
     else if (data.sectionAction) vscode.postMessage({ type: 'artifact-sections', action: data.sectionAction, index: Number(data.index), ...artifactFields() });
@@ -370,6 +408,7 @@ export const DESIGNER_SCRIPT = `
     if (pick?.profilePick !== undefined) vscode.postMessage({ type: 'profile', id: event.target.value });
     else if (pick?.templateFilter !== undefined) vscode.postMessage({ type: 'filter', value: event.target.value });
     else if (pick?.workflowGoverns !== undefined) vscode.postMessage({ type: 'workflow-governs', value: event.target.value, ...workflowFields() });
+    else if (pick?.workflowPlannedClaims !== undefined) vscode.postMessage({ type: 'workflow-claims', ...workflowFields() });
     else if (pick?.artifactGoverns !== undefined) vscode.postMessage({ type: 'artifact-governs', ...artifactFields() });
   });
   let dragged = null;

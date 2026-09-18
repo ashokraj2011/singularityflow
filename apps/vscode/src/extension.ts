@@ -6132,7 +6132,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             cancellable: false
           }, () => client.run<{
             branch?: string; commit?: string; files?: string[]; reviewRequired?: boolean;
-            baseBranch?: string; nextAction?: string;
+            baseBranch?: string; nextAction?: string; authorityMode?: string;
           }>(command));
           await refreshAfterKnownMutation();
           if (proposal.reviewRequired && proposal.branch) {
@@ -6146,6 +6146,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             );
             if (selected === review) {
               return reviewAndActivateWorkflowProposal(proposal.branch);
+            }
+          } else if (proposal.authorityMode === 'local') {
+            const openSourceControl = 'Open Source Control';
+            const selected = await vscode.window.showInformationMessage(
+              'Workflow configuration was saved as an uncommitted local draft. Review and commit '
+              + 'it through the local configuration authority; no proposal was pushed and it is '
+              + 'not yet available to new Stories.',
+              openSourceControl, 'Later'
+            );
+            if (selected === openSourceControl) {
+              await vscode.commands.executeCommand('workbench.view.scm');
             }
           } else {
             void vscode.window.showInformationMessage('The approved configuration already contains this workflow change.');
@@ -6167,6 +6178,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         );
         const proposal = JSON.parse(text) as {
           branch?: string; files?: string[]; reviewRequired?: boolean; baseBranch?: string;
+          authorityMode?: string;
         };
         await refreshAfterKnownMutation();
         if (proposal.reviewRequired && proposal.branch) {
@@ -6175,6 +6187,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             + `${proposal.baseBranch ?? 'sflow/config'}, then refresh workspace configuration. `
             + 'The active Story was not changed.'
           );
+        } else if (proposal.authorityMode === 'local') {
+          const openSourceControl = 'Open Source Control';
+          const selected = await vscode.window.showInformationMessage(
+            'Artifact template was saved as an uncommitted local configuration draft. Review and '
+            + 'commit it through the local authority; no proposal was pushed.',
+            openSourceControl, 'Later'
+          );
+          if (selected === openSourceControl) {
+            await vscode.commands.executeCommand('workbench.view.scm');
+          }
         }
         return null;
       } catch (error) {

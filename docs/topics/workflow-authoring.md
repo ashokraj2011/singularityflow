@@ -12,7 +12,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 10
+version: 11
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -24,7 +24,9 @@ Use this topic when the current goal matches **workflow authoring**. Start in a 
 
 - **Shell:** `sflow workflow`, `sflow configuration`. Add `--propose` when authoring from an application or active Story checkout. Run `singularity-flow workflow --help` for the exact forms supported by this build.
 - **Copilot:** `/sf-help` followed by the documented CLI fallback. The skill must preserve the CLI result and ask before any governed mutation.
-- **VS Code:** open Singularity Flow **Configuration Center → Workflows & artifacts**. Workflow, phase, and artifact-template saves publish a review proposal against `sflow/config`; the extension does not edit the selected Story snapshot.
+- **VS Code:** open Singularity Flow **Configuration Center → Workflows & artifacts**. The Designer previews phase contracts and exposes planned claims, code task, and approval groups. Lead-governed saves create review proposals; self-governed saves leave an uncommitted edit on local `sflow/config`. The selected Story snapshot is never edited.
+
+After `singularity-flow onboard --bootstrap`, run `singularity-flow init` before authoring. Bootstrap pins the repository authority; init materializes `singularity/workflow.yml` and `singularity/portfolio.yml`. When initialization is needed, the bootstrap receipt now gives that exact next command.
 
 ## Shared configuration proposals
 
@@ -33,7 +35,7 @@ bytes live on `sflow/config`; a Story contains an immutable copy selected when t
 Writing a new workflow into the active Story would neither update future Stories nor update the
 approved catalog, and it would make the Story fail its protected-path gate.
 
-The Workflow Designer therefore performs this bounded transaction:
+For a lead-governed repository, the Workflow Designer performs this bounded transaction:
 
 1. read the exact approved `sflow/config` revision into a disposable checkout;
 2. apply and validate the workflow edit there;
@@ -47,6 +49,8 @@ workspace state branch and makes the workflow available to new Stories. Existing
 pinned by design. A failed push retains an exact transport intent and reports its `push status`
 recovery command.
 
+For a self-governed FOS-local repository, `--propose` does not invent a remote review branch. Switch to the local `sflow/config` authority branch first, then save through the Designer or CLI. The edit remains uncommitted for review; commit it through the repository's normal local configuration review path. Authoring from another branch is refused before any file is changed.
+
 CLI example:
 
 ```bash
@@ -56,6 +60,10 @@ singularity-flow workflow create customer-onboarding \
   --governs story \
   --propose
 ```
+
+New Story workflows infer a required planned-claims contract when a qualifying clause phase and code-phase owner exist. The CLI prints the resolved phase simulation after a successful non-JSON create or edit; inspect it again with `singularity-flow workflow simulate customer-onboarding`. Validation and simulation read the same custom definition. A custom workflow has no packaged baseline for `workflow diff`; use simulate instead.
+
+`workflow phase add` defaults to a Story phase. An unknown phase named by `workflow create` is not silently created: a new Story phase also needs a reviewed template, approval authority, and exactly one default governed Agent Markdown mapping. Add that contract through a configuration change before using the phase. The CLI names eligible clause phases when a selection cannot carry planned claims.
 
 ## Validate code-phase planning contracts
 

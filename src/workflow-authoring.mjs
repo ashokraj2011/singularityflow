@@ -43,7 +43,7 @@ export const STORES = Object.freeze({
     // A Story phase produces one artifact at a known path; an Initiative phase produces a set of
     // named outputs. Same idea, genuinely different record, so each store scaffolds its own rather
     // than one shape being bent to fit both.
-    scaffold: ({ id, label, worldModelViews, agents, approvalAuthorities, approvalMinimum }) => ({
+    scaffold: ({ id, label, worldModelViews, agents, approvalAuthorities, approvalMinimum, task }) => ({
       label,
       ...(agents.length ? { agents } : {}),
       artifact: { path: `artifacts/${id}/${id}.md`, kind: id, minimumBytes: 200 },
@@ -51,6 +51,7 @@ export const STORES = Object.freeze({
       // Creating a phase that cannot be run and reporting success is not creating a phase.
       defaultTemplate: `common/${id}.md`,
       writeScope: 'artifact-only',
+      ...(task ? { generation: task === 'none' ? { requirement: 'none' } : { task } } : {}),
       ...(worldModelViews.length ? { worldModel: { views: worldModelViews, depth: 'quick' } } : {}),
       ...(approvalAuthorities.length
         ? { approval: { authorities: approvalAuthorities, minimum: approvalMinimum } }
@@ -142,12 +143,21 @@ async function saveIn(file, document, store) {
  * a forward migration boundary. A resolvable inferred topology is pinned into YAML; an unresolved
  * one is refused with the same actionable error used by Story start.
  */
-function pinAuthoredStoryPlannedClaims(document, store, workflowId) {
+function pinAuthoredStoryPlannedClaims(document, store, workflowId, { newlyCreated = false } = {}) {
   if (store.governs !== 'story') return null;
-  const definition = validateDefinition(document.toJS());
-  const resolved = assertPlannedClaimsReady(resolveWorkType(definition, workflowId));
+  let definition = validateDefinition(document.toJS());
+  let resolved = resolveWorkType(definition, workflowId);
+  // A just-created workflow is not legacy configuration. If inference cannot resolve its
+  // topology, make the intended required contract explicit so the author sees the actual
+  // missing clause/owner diagnostic, not a migration instruction for a new file.
+  if (newlyCreated && resolved.plannedClaims.mode === 'migration-required') {
+    document.setIn([store.workflows, workflowId, 'plannedClaims'], document.createNode({ mode: 'required' }));
+    definition = validateDefinition(document.toJS());
+    resolved = resolveWorkType(definition, workflowId);
+  }
+  assertPlannedClaimsReady(resolved);
   const declared = document.getIn([store.workflows, workflowId, 'plannedClaims']);
-  if (declared == null && resolved.plannedClaims.mode === 'required') {
+  if ((declared == null || newlyCreated) && resolved.plannedClaims.mode === 'required') {
     document.setIn([store.workflows, workflowId, 'plannedClaims'], document.createNode({
       mode: 'required',
       clausePhases: resolved.plannedClaims.clausePhases,
@@ -244,7 +254,23 @@ export async function defineWorkflow(root, workflowId, {
   const id = requireId(workflowId, 'A workflow identifier');
   if (!phases.length) throw new SingularityFlowError('A workflow needs at least one phase.');
   // Inferred from where the phases live, so nobody has to know which file holds which.
-  const store = governs ? storeFor(governs) : (await locate(root, { phases })) ?? STORES.initiative;
+  // Prefer the kind of the phases already named. A partially authored Story path (one
+  // existing Story phase plus one misspelling/new phase) must not silently turn into an
+  // Initiative workflow merely because the whole list did not match either store.
+  let store = governs ? storeFor(governs) : await locate(root, { phases });
+  if (!store) {
+    const known = [];
+    for (const candidate of Object.values(STORES)) {
+      const content = (await loadIn(root, candidate).catch(() => null))?.document.toJS() ?? {};
+      if (phases.some((phase) => Object.hasOwn(content[candidate.phases] ?? {}, phase))) known.push(candidate);
+    }
+    if (known.length > 1) {
+      throw new SingularityFlowError(
+        `Workflow '${id}' mixes Story and Initiative phases. Supply --governs story|initiative and choose phases from that level.`
+      );
+    }
+    store = known[0] ?? STORES.story;
+  }
   if (plannedClaims !== undefined && store.governs !== 'story') {
     throw new SingularityFlowError('plannedClaims applies only to Story workflows.');
   }
@@ -259,7 +285,8 @@ export async function defineWorkflow(root, workflowId, {
   if (unknown.length) {
     throw new SingularityFlowError(
       `Workflow '${id}' names ${unknown.length === 1 ? 'a phase that is' : 'phases that are'} not defined for ${store.governs} work: ${unknown.join(', ')}. `
-      + `Add ${unknown.length === 1 ? 'it' : 'them'} with workflow phase add, or choose from: ${defined.join(', ')}.`);
+      + `Add ${unknown.length === 1 ? 'it' : 'them'} with workflow phase add <ID> --governs ${store.governs}, `
+      + `then retry; or choose from: ${defined.join(', ')}.`);
   }
   const duplicated = phases.filter((phase, index) => phases.indexOf(phase) !== index);
   if (duplicated.length) {
@@ -273,7 +300,7 @@ export async function defineWorkflow(root, workflowId, {
     phases,
     ...(plannedClaims !== undefined && plannedClaims !== null ? { plannedClaims } : {})
   }));
-  const plannedClaimsPolicy = pinAuthoredStoryPlannedClaims(document, store, id);
+  const plannedClaimsPolicy = pinAuthoredStoryPlannedClaims(document, store, id, { newlyCreated: true });
   await saveIn(file, document, store);
   return { workflowId: id, governs: store.governs, phases, path: store.file, plannedClaims: plannedClaimsPolicy };
 }
@@ -345,6 +372,7 @@ export async function addPhase(root, phaseId, {
   agents = [],
   approvalAuthorities = [],
   approvalMinimum = 1,
+  task = null,
   governs = 'initiative'
 } = {}) {
   const id = requireId(phaseId, 'A phase identifier');
@@ -362,13 +390,36 @@ export async function addPhase(root, phaseId, {
       + `Configured: ${authorities.join(', ') || 'none'}.`);
   }
   await assertAgentsExist(root, agents, id);
+  if (task != null && store.governs !== 'story') {
+    throw new SingularityFlowError('--task applies only to Story phases.');
+  }
+  if (task != null && !['code', 'analyze', 'none'].includes(task)) {
+    throw new SingularityFlowError('--task must be code, analyze, or none.');
+  }
 
   if (!content[store.phases]) document.setIn([store.phases], document.createNode({}));
   // `agents` is on both shapes: the agents a stage expects are part of its contract whatever the
   // stage governs.
   document.setIn([store.phases, id], document.createNode(store.scaffold({
-    id, label: label ?? id, worldModelViews, lanes, agents, approvalAuthorities, approvalMinimum
+    id, label: label ?? id, worldModelViews, lanes, agents, approvalAuthorities, approvalMinimum, task
   })));
+  if (store.governs === 'story') {
+    const { discoverAgents, validateAgentCatalog } = await import('./agents.mjs');
+    const definition = validateDefinition(document.toJS());
+    try {
+      validateAgentCatalog(await discoverAgents(root), definition);
+    } catch (error) {
+      if (/requires exactly one default governed agent; found 0/.test(error?.message ?? '')) {
+        throw new SingularityFlowError(
+          `Phase '${id}' has no default governed agent. Add exactly one reviewed Agent Markdown `
+          + `sflow-default-for entry for '${id}' together with the phase in a configuration change; `
+          + 'nothing was written. Existing agent mappings cannot be inferred safely.',
+          { code: 'WORKFLOW_PHASE_DEFAULT_AGENT_REQUIRED', cause: error }
+        );
+      }
+      throw error;
+    }
+  }
   // Written before the phase is saved, because saving validates and the validation requires it.
   const template = store.governs === 'story'
     ? await writeStarterTemplate(root, id, label ?? id)
@@ -386,6 +437,41 @@ export async function editPhase(root, phaseId, changes = {}, { governs = null } 
   if (!content[store.phases]?.[id]) throw new SingularityFlowError(`Unknown phase '${id}'.`);
 
   if (changes.agents !== undefined) await assertAgentsExist(root, changes.agents, id);
+  if (changes.task !== undefined) {
+    if (store.governs !== 'story') throw new SingularityFlowError('--task applies only to Story phases.');
+    if (!['code', 'analyze', 'none'].includes(changes.task)) {
+      throw new SingularityFlowError('--task must be code, analyze, or none.');
+    }
+    const generation = { ...(content[store.phases][id].generation ?? {}) };
+    if (changes.task === 'none') {
+      delete generation.task;
+      generation.requirement = 'none';
+    } else {
+      generation.task = changes.task;
+      generation.requirement = 'required';
+    }
+    document.setIn([store.phases, id, 'generation'], document.createNode(generation));
+  }
+  if (changes.approvalAuthorities !== undefined || changes.approvalMinimum !== undefined) {
+    const source = store.governs === 'story' ? 'approval' : 'bundleApproval';
+    const current = content[store.phases][id][source] ?? {};
+    const authorities = changes.approvalAuthorities ?? current.authorities;
+    if (changes.approvalAuthorities !== undefined) {
+      if (!authorities.length) throw new SingularityFlowError('A phase approval needs at least one authority group.');
+      const configured = Object.keys(content.approvalAuthorities ?? {});
+      const unknown = authorities.filter((authority) => !configured.includes(authority));
+      if (unknown.length) throw new SingularityFlowError(
+        `Phase '${id}' names unknown approval authorities: ${unknown.join(', ')}. Configured: ${configured.join(', ') || 'none'}.`
+      );
+    }
+    const minimum = changes.approvalMinimum ?? current.minimum ?? 1;
+    if (!Number.isInteger(minimum) || minimum < 1) {
+      throw new SingularityFlowError('--minimum must be a positive integer.');
+    }
+    document.setIn([store.phases, id, source], document.createNode({
+      ...current, ...(authorities ? { authorities } : {}), minimum
+    }));
+  }
   if (changes.label !== undefined) document.setIn([store.phases, id, 'label'], changes.label);
   if (changes.worldModelViews !== undefined) {
     const modelPath = store.governs === 'story'

@@ -10,6 +10,7 @@ import YAML from 'yaml';
 import { initializeDefinition, loadDefinition, resolveWorkType } from '../src/config.mjs';
 import { phaseRequiresCodeDelivery } from '../src/code-delivery-policy.mjs';
 import { isSpecificationDefinitionPhase } from '../src/specifications.mjs';
+import { onboardRepository } from '../src/onboard.mjs';
 import { optionalWorkflowCatalog, validateWorkflowCatalog } from '../src/workflow-catalog.mjs';
 
 const bin = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
@@ -202,4 +203,123 @@ test('validation reports an old custom workflow without making the catalog unrea
   });
   assert.equal(cli.status, 1, cli.stderr);
   assert.equal(JSON.parse(cli.stdout).valid, false);
+});
+
+test('new Story workflow has one coherent list, validate, simulate, and diff explanation', async () => {
+  const { root } = await installedStarter();
+  const run = (...args) => spawnSync(process.execPath, [bin, 'workflow', ...args], {
+    cwd: root, encoding: 'utf8', env: {
+      ...process.env, NODE_ENV: 'test',
+      SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(root, '.test-workspaces.json'),
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(root, '.test-active-workspace.json'),
+      SINGULARITY_FLOW_LEAD_REGISTRY: path.join(root, '.test-leads.json')
+    }
+  });
+  const created = run('create', 'hotfix', '--phases', 'requirements,implementation-spec,implementation', '--json');
+  assert.equal(created.status, 0, created.stderr);
+  const creation = JSON.parse(created.stdout);
+  assert.equal(creation.plannedClaims.mode, 'required');
+  const authored = YAML.parse(await readFile(path.join(root, 'singularity', 'workflow.yml'), 'utf8'));
+  assert.deepEqual(authored.workTypes.hotfix.plannedClaims.clausePhases,
+    creation.plannedClaims.clausePhases, 'inferred clause authority must be pinned in the authored workflow');
+  assert.deepEqual(authored.workTypes.hotfix.plannedClaims.owners,
+    creation.plannedClaims.owners, 'inferred owners must be pinned in the authored workflow');
+
+  const listed = run('list', '--json');
+  const validated = run('validate', 'hotfix', '--json');
+  const simulated = run('simulate', 'hotfix', '--json');
+  for (const result of [listed, validated, simulated]) assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(listed.stdout).find((item) => item.id === 'hotfix').status, 'local');
+  assert.equal(JSON.parse(validated.stdout).workflows[0].status, 'protected');
+  assert.equal(JSON.parse(simulated.stdout)[0].id, 'hotfix');
+
+  const diff = run('diff', 'hotfix');
+  assert.notEqual(diff.status, 0);
+  assert.match(diff.stderr, /compares a packaged workflow with your copy; 'hotfix' is custom/);
+  assert.match(diff.stderr, /workflow simulate hotfix/);
+
+  const readable = run('create', 'hotfix-readable', '--phases', 'requirements,implementation-spec,implementation');
+  assert.equal(readable.status, 0, readable.stderr);
+  assert.match(readable.stdout, /Hotfix-readable \(hotfix-readable\)/i);
+  assert.match(readable.stdout, /template=.*inputs=.*approvals=.*world-model=/);
+});
+
+test('phase add defaults to Story and incorrect clause phase lists eligible phases', async () => {
+  const { root } = await installedStarter();
+  const run = (...args) => spawnSync(process.execPath, [bin, 'workflow', ...args], {
+    cwd: root, encoding: 'utf8', env: {
+      ...process.env, NODE_ENV: 'test',
+      SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(root, '.test-workspaces.json'),
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(root, '.test-active-workspace.json'),
+      SINGULARITY_FLOW_LEAD_REGISTRY: path.join(root, '.test-leads.json')
+    }
+  });
+  const before = await readFile(path.join(root, 'singularity', 'workflow.yml'), 'utf8');
+  const added = run('phase', 'add', 'writing', '--json');
+  assert.notEqual(added.status, 0);
+  assert.match(added.stderr, /Phase 'writing' has no default governed agent/);
+  assert.equal(await readFile(path.join(root, 'singularity', 'workflow.yml'), 'utf8'), before,
+    'a missing default Story agent must be caught before writing a broken workflow');
+
+  const badClause = run('create', 'bad-clause', '--phases', 'intake,specification,implementation',
+    '--governs', 'story', '--planned-claims', 'required', '--clause-phases', 'intake');
+  assert.notEqual(badClause.status, 0);
+  assert.match(badClause.stderr, /Eligible phases in this workflow: specification/);
+
+  const unknown = run('create', 'misspelled', '--phases', 'intake,writting');
+  assert.notEqual(unknown.status, 0);
+  assert.match(unknown.stderr, /not defined for story work: writting/);
+  assert.match(unknown.stderr, /workflow phase add <ID> --governs story/);
+});
+
+test('explicit local FOS authority authors --propose as an uncommitted local change', async () => {
+  const { root } = await installedStarter();
+  assert.equal(spawnSync('git', ['branch', 'sflow/config'], { cwd: root }).status, 0);
+  await onboardRepository(root, { authorityLocal: true });
+  const onApplicationBranch = spawnSync(process.execPath, [bin, 'workflow', 'create', 'wrong-branch',
+    '--phases', 'requirements,implementation-spec,implementation', '--propose', '--json'], {
+    cwd: root, encoding: 'utf8', env: {
+      ...process.env, NODE_ENV: 'test',
+      SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(root, '.test-workspaces.json'),
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(root, '.test-active-workspace.json'),
+      SINGULARITY_FLOW_LEAD_REGISTRY: path.join(root, '.test-leads.json')
+    }
+  });
+  assert.notEqual(onApplicationBranch.status, 0);
+  assert.equal(JSON.parse(onApplicationBranch.stderr).error.code, 'WORKFLOW_LOCAL_AUTHORITY_BRANCH_REQUIRED');
+  assert.equal((await loadDefinition(root)).workTypes['wrong-branch'], undefined);
+  assert.equal(spawnSync('git', ['switch', '-q', 'sflow/config'], { cwd: root }).status, 0);
+  const before = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim();
+  const result = spawnSync(process.execPath, [bin, 'workflow', 'create', 'local-story',
+    '--phases', 'requirements,implementation-spec,implementation', '--propose', '--json'], {
+    cwd: root, encoding: 'utf8', env: {
+      ...process.env, NODE_ENV: 'test',
+      SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(root, '.test-workspaces.json'),
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(root, '.test-active-workspace.json'),
+      SINGULARITY_FLOW_LEAD_REGISTRY: path.join(root, '.test-leads.json')
+    }
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const authored = JSON.parse(result.stdout);
+  assert.equal(authored.authorityMode, 'local');
+  assert.equal(authored.reviewRequired, false);
+  assert.match(authored.nextAction, /Review the configuration diff and commit it on 'sflow\/config'/);
+  assert.equal(spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim(), before);
+  assert.ok((await loadDefinition(root)).workTypes['local-story']);
+
+  const templatePath = path.join(root, 'singularity', 'templates', 'common', 'verification.md');
+  const template = await readFile(templatePath, 'utf8');
+  const saved = spawnSync(process.execPath, [bin, 'configuration', 'save',
+    'singularity/templates/common/verification.md', '--propose', '--json'], {
+    cwd: root, encoding: 'utf8', input: `${template}\n<!-- Local review note -->\n`, env: {
+      ...process.env, NODE_ENV: 'test',
+      SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(root, '.test-workspaces.json'),
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(root, '.test-active-workspace.json'),
+      SINGULARITY_FLOW_LEAD_REGISTRY: path.join(root, '.test-leads.json')
+    }
+  });
+  assert.equal(saved.status, 0, saved.stderr);
+  assert.equal(JSON.parse(saved.stdout).authorityMode, 'local');
+  assert.match(await readFile(templatePath, 'utf8'), /Local review note/);
+  assert.equal(spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim(), before);
 });

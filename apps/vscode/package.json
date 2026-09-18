@@ -551,7 +551,7 @@
       },
       {
         "command": "singularityFlow.createSgosWorkflow",
-        "title": "Singularity Flow: Create SGOS Workflow...",
+        "title": "Singularity Flow: Create execution workflow (advanced)...",
         "icon": "$(add)"
       },
       {

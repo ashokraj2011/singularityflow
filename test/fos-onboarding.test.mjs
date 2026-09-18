@@ -13,6 +13,7 @@ import {
 import {
   loadStoryConfigurationSnapshot, resolveRemoteStoryConfigurationAuthority
 } from '../src/configuration-branch.mjs';
+import { proposeConfigurationChange } from '../src/configuration-proposal.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import { createRepoContext } from '../src/repo-context.mjs';
 
@@ -190,10 +191,20 @@ test('FOS:AC-007 approved bootstrap creates expected absence once while refusals
     env: { ...process.env, SINGULARITY_FLOW_TEST_IDENTITY: 'FOS Bootstrap' }
   });
   assert.equal(localRun.status, 0, localRun.stderr);
-  const localResult = JSON.parse(localRun.stdout).data.result;
+  const bootstrapOutput = JSON.parse(localRun.stdout);
+  assert.deepEqual(bootstrapOutput.next.map((item) => [item.command, item.copilotCommand]), [
+    ['singularity-flow init', '/sf-init']
+  ]);
+  const localResult = bootstrapOutput.data.result;
   assert.equal(localResult.status, 'bootstrapped');
   assert.equal(localResult.bootstrap.scope, 'unmanaged-local');
   assert.equal(localResult.bootstrap.organizationalAuthority, false);
+  await assert.rejects(() => proposeConfigurationChange(local, {
+    operation: 'create-workflow', subject: 'local-review', message: 'test local proposal',
+    mutate: () => assert.fail('local authority must refuse before any edit')
+  }), (error) => error.code === 'CONFIGURATION_PROPOSAL_LOCAL_AUTHORITY'
+    && /local 'sflow\/config' authority/u.test(error.message)
+    && !/Refresh the workspace configuration/u.test(error.message));
   assert.equal(git(['rev-parse', 'HEAD'], local), localHead);
   assert.equal(git(['status', '--porcelain'], local), '');
   assert.match(git(['rev-parse', 'refs/heads/sflow/config'], local), /^[a-f0-9]{40,64}$/);

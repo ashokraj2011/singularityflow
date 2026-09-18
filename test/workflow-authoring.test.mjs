@@ -143,7 +143,7 @@ test('future Story workflow authoring validates planned claims before writing co
     () => defineWorkflow(root, 'unsafe-delivery', {
       phases: ['intake', 'implementation'], governs: 'story'
     }),
-    /Workflow 'unsafe-delivery' predates the planned-claim contract and cannot start a new Story/
+    /Work type 'unsafe-delivery' plannedClaims is not operational:.*no authoritative requirements or implementation-spec phase is active/s
   );
   const afterRefusal = await loadDefinition(root);
   assert.equal(afterRefusal.workTypes['unsafe-delivery'], undefined, 'invalid workflow was written before validation');
@@ -174,6 +174,35 @@ test('future Story workflow authoring validates planned claims before writing co
     }
   });
   assert.equal(resolveWorkType(await loadDefinition(root), 'reviewed-short-delivery').plannedClaims.mode, 'opt-out');
+});
+
+test('Story phase edits expose generation task and approval without losing other policy', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-phase-authoring-'));
+  await initializeDefinition(root);
+  await editPhase(root, 'verification', {
+    task: 'analyze', approvalAuthorities: ['quality-reviewers'], approvalMinimum: 1
+  }, { governs: 'story' });
+  const definition = await loadDefinition(root);
+  assert.equal(definition.phases.verification.generation.task, 'analyze');
+  assert.deepEqual(definition.phases.verification.approval.authorities, ['quality-reviewers']);
+  assert.equal(definition.phases.verification.approval.minimum, 1);
+  assert.ok(definition.phases.verification.defaultTemplate);
+
+  await editPhase(root, 'verification', { task: 'none' }, { governs: 'story' });
+  const withoutGeneration = await loadDefinition(root);
+  assert.equal(withoutGeneration.phases.verification.generation.requirement, 'none');
+  assert.equal(withoutGeneration.phases.verification.generation.task, undefined);
+
+  const before = await readFile(path.join(root, 'singularity', 'workflow.yml'), 'utf8');
+  await assert.rejects(
+    () => editPhase(root, 'verification', { approvalAuthorities: ['unknown-reviewers'] }, { governs: 'story' }),
+    /unknown approval authorities: unknown-reviewers/
+  );
+  await assert.rejects(
+    () => editPhase(root, 'verification', { approvalAuthorities: [] }, { governs: 'story' }),
+    /needs at least one authority group/
+  );
+  assert.equal(await readFile(path.join(root, 'singularity', 'workflow.yml'), 'utf8'), before);
 });
 
 /**

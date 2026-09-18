@@ -506,6 +506,22 @@ export async function proposeConfigurationChange(root, {
   const subjectId = safeSlug(subject);
   const remoteUrl = await resolveConfigurationRemote(root);
   if (!remoteUrl) {
+    // A local FOS bootstrap is intentionally not a remote proposal authority. Do not suggest a
+    // workspace refresh that cannot create one, and do not reinterpret local mode as permission
+    // to edit a pinned Story snapshot or push an unreviewed configuration branch.
+    const { readFosAttachment } = await import('./onboard.mjs');
+    const attachment = await readFosAttachment(root).catch(() => null);
+    if (attachment?.descriptor?.route?.kind === 'local') {
+      throw new SingularityFlowError(
+        `This repository uses a local '${CONFIGURATION_BRANCH}' authority. --propose requires `
+        + 'a remote lead repository and is unavailable here. Author in a dedicated local '
+        + 'configuration checkout on sflow/config without --propose, validate the change, '
+        + 'then commit it through the normal local configuration-publication path. '
+        + 'Do not edit a pinned Story worktree.', {
+          code: 'CONFIGURATION_PROPOSAL_LOCAL_AUTHORITY'
+        }
+      );
+    }
     throw new SingularityFlowError(
       `No approved '${CONFIGURATION_BRANCH}' authority is available. Refresh the workspace configuration, then retry.`, {
         code: 'CONFIGURATION_PROPOSAL_AUTHORITY_MISSING'

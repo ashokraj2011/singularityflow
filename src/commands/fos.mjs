@@ -1,18 +1,29 @@
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 import { repoRoot } from '../git.mjs';
 import { incrementCommandCounter, markCommandFeedback } from '../dx-timing-context.mjs';
 import { clearFosDerivedCache } from '../fos-derived-cache.mjs';
 import {
   bootstrapFosAuthority, onboardRepository, refreshFosAuthority
 } from '../onboard.mjs';
-import { commandResult, effects, succeeded } from '../narration/command-result.mjs';
+import { action as nextAction, commandResult, effects, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 import {
   optionBoolean, optionString, requirePositional, SingularityFlowError
 } from '../util.mjs';
 
-function output(value, json, kind) {
+function output(value, json, kind, { bootstrappedRoot = null } = {}) {
   const isCache = kind === 'cache';
   const isRefresh = kind === 'authority';
+  const needsInit = bootstrappedRoot !== null
+    && (!existsSync(path.join(bootstrappedRoot, 'singularity', 'portfolio.yml'))
+      || !existsSync(path.join(bootstrappedRoot, 'singularity', 'workflow.yml')));
+  const next = needsInit ? [nextAction({
+    id: 'fos.bootstrap.initialize',
+    label: 'Materialize the repository configuration from this repository root before creating workflows.',
+    command: 'singularity-flow init',
+    skill: 'sf-init'
+  })] : [];
   const messageId = isCache ? 'fos.cache-cleared'
     : isRefresh
       ? value.status === 'refreshed' ? 'fos.authority-refreshed' : 'fos.authority-current'
@@ -37,7 +48,8 @@ function output(value, json, kind) {
     effects: effects({
       stateChanged: isCache ? Number(value.removedEntries ?? 0) > 0 : value.changed !== false
     }),
-    restState: 'complete',
+    next,
+    restState: next.length ? null : 'complete',
     data: { result: value }
   }), { json, restStateWhenIdle: 'complete' });
 }
@@ -73,7 +85,7 @@ export async function run(_argv, { positionals, options }) {
         authorityLocal: optionBoolean(options, 'authority-local'),
         publish,
         policyId: optionString(options, 'policy')
-      }), json, 'onboard');
+      }), json, 'onboard', { bootstrappedRoot: root });
     }
     // This is meaningful feedback rather than an empty spinner: it says exactly which bounded
     // operation has begun without reflecting a path, URL, identity, or secret into diagnostics.

@@ -398,7 +398,8 @@ export function normalizePlannedClaimsPolicy(value, {
     if (!phase) throw new SingularityFlowError(`${label}.clausePhases references inactive phase '${phaseId}'.`);
     if (!currentSpecificationDefinitionPhase(phase)) {
       throw new SingularityFlowError(
-        `${label}.clausePhases '${phaseId}' is not authoritative: artifact.kind must be requirements or implementation-spec.`
+        `${label}.clausePhases '${phaseId}' is not authoritative: artifact.kind must be requirements or implementation-spec. `
+        + `Eligible phases in this workflow: ${authoritative.map((candidate) => candidate.id).join(', ') || 'none'}.`
       );
     }
   }

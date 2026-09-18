@@ -208,7 +208,7 @@ import {
   resolveStoryConfigurationAuthority,
   withStoryConfigurationSnapshotRead
 } from './configuration-branch.mjs';
-import { fosStoryConfigurationAuthority } from './onboard.mjs';
+import { fosStoryConfigurationAuthority, readFosAttachment } from './onboard.mjs';
 import {
   beginStoryStartJournal, clearStoryStartJournal, recoverStoryStart,
   serializeConfigurationRestorePoint, updateStoryStartJournal
@@ -8031,6 +8031,28 @@ async function receiptCommand(positionals, options) {
   console.log(renderEvidenceReceipt(receipt));
 }
 
+async function authorProposedOrLocalConfiguration(root, proposal) {
+  const attachment = await readFosAttachment(root);
+  if (attachment?.descriptor?.route?.kind !== 'local') {
+    return proposeConfigurationChange(root, proposal);
+  }
+  await fosStoryConfigurationAuthority(root); // Prove repository/worktree and locator, not just stored pin bytes.
+  assertLocalConfigurationAuthoringAllowed(root);
+  const current = branch(root);
+  if (current !== CONFIGURATION_BRANCH) {
+    throw new SingularityFlowError(
+      `This repository has a local '${CONFIGURATION_BRANCH}' authority, but the current branch is '${current || 'detached HEAD'}'. `
+      + `No configuration was changed. Review and commit existing work, switch to '${CONFIGURATION_BRANCH}', `
+      + 'then repeat the authoring command and review its diff before committing.',
+      { code: 'WORKFLOW_LOCAL_AUTHORITY_BRANCH_REQUIRED', details: { current, required: CONFIGURATION_BRANCH } }
+    );
+  }
+  return {
+    ...await proposal.mutate(root), reviewRequired: false, authorityMode: 'local',
+    nextAction: `Review the configuration diff and commit it on '${CONFIGURATION_BRANCH}' through the local repository review path.`
+  };
+}
+
 async function workflowCommand(positionals, options) {
   const subcommand = requirePositional(positionals, 1, 'workflow subcommand'); const root = repoRoot();
   if (subcommand === 'list') {
@@ -8124,7 +8146,7 @@ async function workflowCommand(positionals, options) {
 
   const proposing = optionBoolean(options, 'propose');
   const author = async ({ operation, subject, message, mutate }) => {
-    if (proposing) return proposeConfigurationChange(root, { operation, subject, message, mutate });
+    if (proposing) return authorProposedOrLocalConfiguration(root, { operation, subject, message, mutate });
     assertLocalConfigurationAuthoringAllowed(root);
     return mutate(root);
   };
@@ -8205,7 +8227,9 @@ async function workflowCommand(positionals, options) {
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(created, null, 2));
       if (printProposal(created)) return;
       console.log(`Created ${created.governs} workflow ${created.workflowId}: ${created.phases.join(' \u2192 ')}`);
-      return console.log(`  ${created.path} — commit it to put the workflow under governance.`);
+      console.log(`  ${created.path} — commit it to put the workflow under governance.`);
+      if (created.governs === 'story') process.stdout.write(simulationText(await simulateWorkflow(root, id)));
+      return;
     }
     const changes = {};
     for (const field of ['label', 'description']) {
@@ -8221,7 +8245,9 @@ async function workflowCommand(positionals, options) {
     });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(edited, null, 2));
     if (printProposal(edited)) return;
-    return console.log(`Updated ${edited.governs} workflow ${edited.workflowId} in ${edited.path}.`);
+    console.log(`Updated ${edited.governs} workflow ${edited.workflowId} in ${edited.path}.`);
+    if (edited.governs === 'story') process.stdout.write(simulationText(await simulateWorkflow(root, id)));
+    return;
   }
 
   if (subcommand === 'phase') {
@@ -8262,7 +8288,8 @@ async function workflowCommand(positionals, options) {
         agents: list('agents'),
         approvalAuthorities: list('authorities'),
         approvalMinimum: optionNumber(options, 'minimum') ?? 1,
-        governs: optionString(options, 'governs', 'initiative')
+        task: optionString(options, 'task'),
+        governs: optionString(options, 'governs', 'story')
       };
       const created = await author({
         operation: 'add-phase', subject: id,
@@ -8283,6 +8310,9 @@ async function workflowCommand(positionals, options) {
       if (optionString(options, 'views') != null) changes.worldModelViews = list('views');
       if (optionString(options, 'lanes') != null) changes.lanes = list('lanes');
       if (optionString(options, 'agents') != null) changes.agents = list('agents');
+      if (optionString(options, 'task') != null) changes.task = optionString(options, 'task');
+      if (optionString(options, 'authorities') != null) changes.approvalAuthorities = list('authorities');
+      if (optionString(options, 'minimum') != null) changes.approvalMinimum = optionNumber(options, 'minimum');
       const phaseOptions = { governs: optionString(options, 'governs') };
       const edited = await author({
         operation: 'edit-phase', subject: id,
@@ -8324,7 +8354,7 @@ async function workflowCommand(positionals, options) {
       ]));
       console.log(`Validated ${result.workflows.length} Story workflow(s).`);
       if (!result.valid) process.exitCode = 1;
-    }, { preferAuthority: true });
+    }, { preferAuthority: optionBoolean(options, 'for-start') });
   }
   if (subcommand === 'diff') {
     return withApprovedConfigurationRead(root, async () => {
@@ -11686,7 +11716,7 @@ async function editorCommand(positionals, options, namespace = 'configuration') 
     const content = await stdinText();
     const saveOptions = { expectedSha256: optionString(options, 'expected-sha256') };
     if (optionBoolean(options, 'propose')) {
-      result = await proposeConfigurationChange(root, {
+      result = await authorProposedOrLocalConfiguration(root, {
         operation: 'save-file',
         subject: path.posix.basename(requestedPath),
         message: `[configuration] update ${requestedPath}`,

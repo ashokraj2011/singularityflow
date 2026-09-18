@@ -279,9 +279,11 @@ Usage:
   singularity-flow workflow activate <BRANCH> --confirm <COMMIT> [--acknowledge-unprotected]
   singularity-flow workflow edit <ID> [--phases a,b,c] [--label TEXT] [--description TEXT] [--propose]
   singularity-flow workflow phase add <ID> [--label TEXT] [--views a,b] [--lanes a,b]
-    [--agents a,b] [--authorities group-a,group-b] [--minimum N] [--governs story|initiative] [--propose]
+    [--agents a,b] [--task code|analyze|none] [--authorities group-a,group-b] [--minimum N]
+    [--governs story|initiative] [--propose]    defaults to Story; a new Story phase needs a default governed agent
     (a phase runs nowhere until a workflow lists it)
-  singularity-flow workflow phase edit <ID> [--label TEXT] [--views a,b] [--agents a,b] [--propose]
+  singularity-flow workflow phase edit <ID> [--label TEXT] [--views a,b] [--agents a,b]
+    [--task code|analyze|none] [--authorities group-a,group-b] [--minimum N] [--propose]
     (--governs is inferred from where the phases already live, and rarely needed)
   singularity-flow workflow phase output add <PHASE> <OUTPUT> --label TEXT --kind markdown --path FILE --template FILE
     [--optional] [--consumes phase/output,...]
@@ -289,7 +291,8 @@ Usage:
     [--template FILE] [--optional] [--consumes phase/output,...]
   singularity-flow workflow install <ID> [--dry-run] [--replace]   a packaged workflow
     (add and upgrade are the former names and still work)
-  singularity-flow workflow validate [TYPE] [--json]       verify every code phase has a clause source and plan owner
+  singularity-flow workflow validate [TYPE] [--json] [--for-start]
+                                                        verify every code phase has a clause source and plan owner
   singularity-flow workflow simulate [TYPE] | diff <TYPE>
 
   # SGOS — deterministic intent compilation and governed execution

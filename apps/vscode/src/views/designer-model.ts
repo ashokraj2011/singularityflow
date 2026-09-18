@@ -49,6 +49,7 @@ export interface Profile {
   description: string;
   governs: 'story' | 'initiative';
   phases: Phase[];
+  plannedClaims?: { mode?: string; clausePhases?: string[]; owners?: Record<string, string>; reason?: string };
 }
 
 /** An Epic that pinned something an edit would change. */
@@ -86,6 +87,7 @@ export function buildProfiles(snapshot: RepositorySnapshot): Profile[] {
   const definition = snapshot.definition as {
     workTypes?: Record<string, {
       label?: string; description?: string; phases?: string[]; templateOverrides?: Record<string, string>;
+      plannedClaims?: Profile['plannedClaims'];
     }>;
     phases?: Record<string, {
       label?: string;
@@ -110,6 +112,7 @@ export function buildProfiles(snapshot: RepositorySnapshot): Profile[] {
     label: profile.label ?? id,
     description: profile.description ?? '',
     governs: 'story' as const,
+    plannedClaims: profile.plannedClaims,
     phases: (profile.phases ?? []).map((phaseId, order) => {
       const phase = definition?.phases?.[phaseId];
       const template = profile.templateOverrides?.[phaseId] ?? phase?.defaultTemplate ?? null;

@@ -76,6 +76,7 @@ import {
   rememberLeadRepository
 } from './lead-repositories.mjs';
 import { normalizeCapabilityAutoPolicy } from './auto/auto-policy.mjs';
+import { executeGitQuery } from './git-query.mjs';
 import {
   isRetiredPackagedAsset, RETIRED_PACKAGED_ASSET_SHA256
 } from './packaged-asset-history.mjs';
@@ -1093,6 +1094,47 @@ function proposalAssetPolicyInEnvironment(root, refs, env, blobs = null) {
   }));
 }
 
+/** Observe only the exact private recovery ref; Git's ordinary rev-parse follows symbolic refs. */
+function exactProposalRecoveryRef(root, ref, { env = process.env } = {}) {
+  const observed = run('git', [
+    'for-each-ref', '--format=%(refname)%00%(objectname)%00%(symref)', ref
+  ], { cwd: root, env, allowFailure: true });
+  if (observed.status !== 0 || observed.error || observed.timedOut || observed.signal) {
+    return { status: 'unknown' };
+  }
+  if (!observed.stdout) return { status: 'absent' };
+  const rows = observed.stdout.replace(/\n$/u, '').split('\n');
+  if (rows.length !== 1) return { status: 'unknown' };
+  const [name, oid, symbolic, ...extra] = rows[0].split('\0');
+  if (name !== ref || extra.length || !fullCommit(oid)) return { status: 'unknown' };
+  if (symbolic) return { status: 'symbolic' };
+  return { status: 'direct', commit: oid.toLowerCase() };
+}
+
+/** Install a disposable proposal recovery ref once, never redirecting or replacing another ref. */
+function installProposalRecoveryRef(root, ref, commit, { env = process.env } = {}) {
+  const expectedAbsent = '0'.repeat(commit.length);
+  run('git', [
+    'update-ref', '--no-deref', ref, commit, expectedAbsent
+  ], { cwd: root, env, allowFailure: true });
+  // A failed or indeterminate update may nevertheless have landed. Reconcile only from an exact,
+  // direct observation; accepting rev-parse here would follow an attacker-controlled symbolic ref.
+  const observed = exactProposalRecoveryRef(root, ref, { env });
+  if (observed.status === 'direct' && observed.commit === commit) return;
+  throw new SingularityFlowError(
+    'The exact local capability proposal recovery ref could not be established. No capability authority was changed; retry the review after inspecting local Git access.', {
+      code: 'CAPABILITY_PROPOSAL_RECOVERY_REF_CONFLICT',
+      details: capabilityRecovery({
+        stage: 'review', state: 'local-recovery-ref-conflict', recoverable: true,
+        preserved: ['approved-configuration', 'proposal-branches', 'application-branches'],
+        nextAction: {
+          command: 'singularity-flow capability proposals --all --json',
+          skill: '/sf-capability-map'
+        }
+      })
+    });
+}
+
 /** Recover a deleted review branch from its exact reviewed commit, when the remote still retains it. */
 async function recoverMergedProposalRef(root, expectedCommit, proposalBranch, {
   env = process.env
@@ -1110,9 +1152,10 @@ async function recoverMergedProposalRef(root, expectedCommit, proposalBranch, {
     // GitHub and many office providers retain a just-merged review commit after deleting its source
     // branch. Ask only for the caller-confirmed full object ID; if the server no longer exposes it,
     // recovery stays fail-closed rather than guessing from the target tree.
+    // Fetch the exact object into FETCH_HEAD, not straight into a ref. The ref is installed only
+    // after provenance and configuration-asset checks pass, under an absent-ref compare-and-swap.
     const recovered = await runRemoteGitAsync([
-      'fetch', '--quiet', '--no-tags', 'origin',
-      `${commit}:${ref}`
+      'fetch', '--quiet', '--no-tags', '--refmap=', 'origin', commit
     ], { cwd: root, operation: 'remote-configuration', env });
     if (recovered.status !== 0 || !available()) return null;
   }
@@ -1129,7 +1172,7 @@ async function recoverMergedProposalRef(root, expectedCommit, proposalBranch, {
   if (!contained()
       && !proposalContentIsPresent(root, base, commit, 'HEAD', { env })
       && !proposalContentAppearsInAuthorityHistory(root, base, commit, 'HEAD', { env })) return null;
-  run('git', ['update-ref', ref, commit], { cwd: root, env });
+  installProposalRecoveryRef(root, ref, commit, { env });
   return ref;
 }
 
@@ -4379,9 +4422,7 @@ export async function capabilityFsck(url, {
             `Pinned configuration names a different authority: ${sanitizeRemote(pinned.repository)}.`
           );
         }
-        const storyBranch = run('git', ['branch', '--show-current'], {
-          cwd: canonicalRoot, allowFailure: true
-        }).stdout.trim();
+        const storyBranch = executeGitQuery(canonicalRoot, 'repository.branch') ?? '';
         if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(storyBranch)) {
           throw new SingularityFlowError('Pinned configuration is not checked out on a governed Story branch.');
         }
@@ -4451,7 +4492,7 @@ export async function capabilityFsck(url, {
           details: {
             workspaceId: workspace.id,
             repositoryId: workspace.leadRepository,
-            branch: run('git', ['branch', '--show-current'], { cwd: canonicalRoot, allowFailure: true }).stdout.trim() || null,
+            branch: executeGitQuery(canonicalRoot, 'repository.branch'),
             localCapabilities: [...capabilityIds(localTree)].sort(),
             approvedCapabilities: [...knownCapabilities].sort(),
             note: 'The upgraded runtime ignores this unproven local map for new Story creation; review it before any cleanup.'

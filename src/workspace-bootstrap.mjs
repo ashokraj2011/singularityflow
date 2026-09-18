@@ -829,10 +829,10 @@ function rebuiltPlan(plan, branchUpdates) {
 }
 
 async function asynchronousRemoteProbe(remote, {
-  branch = null, env = process.env, session = new GitRemoteSession({ env })
+  branch = null, env = process.env, session = new GitRemoteSession({ env }), signal = null
 } = {}) {
   const url = assertCredentialFreeRemote(remote);
-  const observed = await session.observeAsync(url, { includeHead: true, includeAllHeads: true });
+  const observed = await session.observeAsync(url, { includeHead: true, includeAllHeads: true, signal });
   const branches = observed.branches;
   const defaultBranch = observed.defaultBranch;
   const base = {
@@ -1509,7 +1509,8 @@ export async function abandonWorkspaceBootstrap(bootstrapId, {
 }
 
 export async function workspaceBootstrapDoctor({
-  network = false, repositoryUrls = [], env = process.env, home = os.homedir(), runCommand = run
+  network = false, repositoryUrls = [], env = process.env, home = os.homedir(),
+  runCommand = run, runAsyncCommand = runRemoteGitAsync, signal = null
 } = {}) {
   const explicitRepositories = (Array.isArray(repositoryUrls) ? repositoryUrls : [repositoryUrls])
     .filter((value) => value != null)
@@ -1581,9 +1582,10 @@ export async function workspaceBootstrapDoctor({
         gitConfigurationFailure = safeEnterpriseGitSnapshotFailure(error);
       }
     }
-    for (const entry of unique.values()) {
+    const targets = [...unique.values()];
+    const inspectRemote = async (entry) => {
       if (gitConfigurationFailure) {
-        remotes.push({
+        return {
           repository: entry.repository,
           repositories: entry.repositories,
           explicit: entry.explicit,
@@ -1593,13 +1595,19 @@ export async function workspaceBootstrapDoctor({
           ok: false,
           classification: 'git-enterprise-config-unavailable',
           advice: gitConfigurationFailure.advice
-        });
-        continue;
+        };
       }
-      const probe = probeGitRemote(entry.actual, {
-        branch: entry.branch, env: gitEnv, runCommand
-      });
-      remotes.push({
+      // Preserve the injected synchronous runner's exact deterministic seam. Real remote checks
+      // use the bounded async supervisor so one slow proxy does not serialize every workspace.
+      // Each URL/branch target gets a fresh session: two required branches must remain distinct
+      // observations rather than being collapsed by the session's broad-ref cache.
+      const probe = runCommand === run
+        ? await asynchronousRemoteProbe(entry.actual, {
+            branch: entry.branch, env: gitEnv, signal,
+            session: new GitRemoteSession({ env: gitEnv, runAsyncCommand })
+          })
+        : probeGitRemote(entry.actual, { branch: entry.branch, env: gitEnv, runCommand });
+      return {
         repository: entry.repository,
         repositories: entry.repositories,
         explicit: entry.explicit,
@@ -1608,9 +1616,14 @@ export async function workspaceBootstrapDoctor({
         branch: entry.branch,
         ok: probe.ok,
         classification: probe.failure?.classification ?? null,
-        advice: probe.failure?.advice ?? null
-      });
-    }
+        // The older synchronous doctor used the shared remote classifier's branch guidance;
+        // preflight's contextual wording must not silently change this public doctor diagnosis.
+        advice: probe.failure?.classification === 'branch-not-found'
+          ? 'Choose a branch that exists on the remote or publish the expected branch, then retry.'
+          : probe.failure?.advice ?? null
+      };
+    };
+    remotes.push(...await mapLimit(targets, gitWorkerCount(targets.length, { env }), inspectRemote));
   }
   const active = sessions.filter((entry) => ACTIVE.has(entry.status));
   return {

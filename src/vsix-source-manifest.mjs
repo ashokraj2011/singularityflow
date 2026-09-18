@@ -20,6 +20,7 @@ export const VSIX_CLI_PAYLOAD = Object.freeze([
  * boundary, with the missing path, instead of producing a VSIX that crashes on first command use.
  */
 export const VSIX_REQUIRED_CLI_RUNTIME = Object.freeze([
+  'src/gal-async-read.mjs',
   'src/safe-command-guidance.mjs',
   'src/phase-preparation-guidance.mjs',
   'plugin/skills/sflow-sgos/SKILL.md'

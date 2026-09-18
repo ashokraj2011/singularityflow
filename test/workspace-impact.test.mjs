@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -220,6 +220,42 @@ test('workspace impact reuses a custom-output governed-state model from the ledg
   assert.equal(report.repositories[0].worldModel.source, 'state-branch');
   assert.equal(report.repositories[0].worldModel.outputDir, 'governed/repository-model');
   assert.equal(report.warnings.length, 0);
+});
+
+test('workspace impact pins a detached HEAD and detects untracked work through registered local Git reads', async () => {
+  const { workspace } = await fixture();
+  const apiPath = path.join(workspace.path, workspace.repositories.api.path);
+  const commit = run('git', ['rev-parse', 'HEAD'], { cwd: apiPath }).stdout.trim();
+  run('git', ['switch', '--detach', commit], { cwd: apiPath });
+  await writeFile(path.join(apiPath, 'untracked-note.txt'), 'not part of committed impact evidence\n');
+
+  const preview = await previewWorkspaceImpact(workspace.path, {
+    id: 'impact-detached', description: 'Assess detached, locally modified API checkout.',
+    repositories: ['api']
+  });
+  assert.equal(preview.repositories.length, 1);
+  assert.equal(preview.repositories[0].commit, commit);
+  assert.equal(preview.repositories[0].branch, null);
+  assert.equal(preview.repositories[0].dirty, true);
+  assert.match(preview.warnings[0], /uncommitted changes; this analysis uses committed HEAD/);
+});
+
+test('workspace impact refuses a configured directory whose Git checkout is unavailable', async () => {
+  const { workspace } = await fixture();
+  const apiPath = path.join(workspace.path, workspace.repositories.api.path);
+  const gitDir = path.join(apiPath, '.git');
+  const pausedGitDir = path.join(apiPath, '.git-paused');
+  await rename(gitDir, pausedGitDir);
+  try {
+    await assert.rejects(
+      () => previewWorkspaceImpact(workspace.path, {
+        id: 'impact-missing-git', description: 'Assess an unavailable API checkout.', repositories: ['api']
+      }),
+      /is not a ready Git checkout/
+    );
+  } finally {
+    await rename(pausedGitDir, gitDir);
+  }
 });
 
 test('workspace impact preview is write-free and promotion refuses stale evidence', async () => {

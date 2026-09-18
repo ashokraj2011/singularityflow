@@ -53,6 +53,56 @@ export const STATE_CONFIGURATION_HISTORY_PREFIX = 'sflow/config-history';
 const STORY_CONFIGURATION_SNAPSHOT = Symbol('story-configuration-snapshot');
 const STORY_CONFIGURATION_AUTHORITY_SNAPSHOT = Symbol('story-configuration-authority-snapshot');
 
+/**
+ * The publisher's transport ref retains one exact reviewed commit for outbox recovery. It is not
+ * a movable branch: a symbolic ref must never be followed, even when it resolves to that commit.
+ * Keep this observation private to the configuration owner rather than granting a generic Git
+ * mutation adapter authority over the repository's ref namespace.
+ */
+function observedPublisherConfigurationRetention(root, ref, env) {
+  const options = { cwd: root, env, allowFailure: true };
+  // One Git listing reports the object and symbolic target together. A separate symbolic-ref
+  // probe followed by for-each-ref leaves a gap in which an alias can replace the direct ref.
+  const listed = run('git', [
+    'for-each-ref', '--format=%(refname)%00%(objectname)%00%(symref)', ref
+  ], options);
+  if (listed.status !== 0 || listed.error || listed.timedOut || listed.outputOverflow) {
+    return { kind: 'unknown' };
+  }
+  if (listed.stdout === '') return { kind: 'absent' };
+  const match = /^([^\0\r\n]+)\0([^\0\r\n]*)\0([^\0\r\n]*)\r?\n$/u.exec(listed.stdout);
+  if (!match || match[1] !== ref) return { kind: 'unknown' };
+  if (match[3]) return { kind: 'symbolic' };
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(match[2])) return { kind: 'unknown' };
+  return { kind: 'direct', commit: match[2] };
+}
+
+function retainPublisherConfigurationCommit(root, commit, env) {
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(commit)) {
+    throw new SingularityFlowError('The reviewed configuration commit is not an exact Git object ID.', {
+      code: 'CONFIGURATION_RETENTION_REF_UNAVAILABLE'
+    });
+  }
+  const ref = `refs/singularity/transport/configuration/${commit}`;
+  const created = run('git', [
+    'update-ref', '--no-deref', ref, commit, '0'.repeat(commit.length)
+  ], { cwd: root, env, allowFailure: true });
+  if (created.status === 0 && !created.error && !created.timedOut) return ref;
+
+  // A failed/unknown acknowledgement may be an identical concurrent winner. Only the exact
+  // direct ref can prove that outcome; rev-parse follows symbolic refs and is unsafe here.
+  const observed = observedPublisherConfigurationRetention(root, ref, env);
+  if (observed.kind === 'direct' && observed.commit === commit) return ref;
+  if (observed.kind === 'direct' || observed.kind === 'symbolic') {
+    throw new SingularityFlowError('The immutable configuration retention ref is already occupied.', {
+      code: 'CONFIGURATION_RETENTION_REF_COLLISION'
+    });
+  }
+  throw new SingularityFlowError('The reviewed configuration commit could not be retained for recoverable publication.', {
+    code: 'CONFIGURATION_RETENTION_REF_UNAVAILABLE'
+  });
+}
+
 export function stateConfigurationHistoryBranch(sourceCommit) {
   const commit = String(sourceCommit ?? '').trim();
   if (!/^[0-9a-f]{40,64}$/.test(commit)) {
@@ -724,8 +774,7 @@ export async function ensureConfigurationBranch(remote, {
       if (imported.status !== 0) {
         throw new SingularityFlowError('The reviewed configuration commit could not be retained in the publisher repository.');
       }
-      const retentionRef = `refs/singularity/transport/configuration/${commit}`;
-      run('git', ['update-ref', retentionRef, commit], { cwd: canonicalPublisher, env: gitEnv });
+      retainPublisherConfigurationCommit(canonicalPublisher, commit, gitEnv);
       const published = await createAndPushTransportIntent({
         repositoryRoot: canonicalPublisher,
         remote: 'origin',

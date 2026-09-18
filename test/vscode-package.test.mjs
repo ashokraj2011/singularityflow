@@ -165,6 +165,7 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     writeFile(path.join(repository, 'src', 'build-info.mjs'), buildInfoSource),
     writeFile(path.join(repository, 'src', 'safe-command-guidance.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'phase-preparation-guidance.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'gal-async-read.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'plugin', 'skills', 'sflow-sgos', 'SKILL.md'), '# fixture\n'),
     writeFile(path.join(repository, 'package.json'), '{"name":"fixture","version":"1.0.0"}\n'),
     writeFile(path.join(repository, 'toolchains', 'npm-pack', 'package.json'), `${JSON.stringify({
@@ -192,6 +193,7 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
   ]);
   runGit(['add', '.gitignore', 'bin/tool.mjs', 'src/build-info.mjs',
     'src/safe-command-guidance.mjs', 'src/phase-preparation-guidance.mjs',
+    'src/gal-async-read.mjs',
     'plugin/skills/sflow-sgos/SKILL.md', 'package.json',
     'package-lock.json', 'toolchains/npm-pack/package.json']);
   runGit(['commit', '-q', '-m', 'Fixture']);

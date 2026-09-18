@@ -12,7 +12,9 @@ import { workspaceRegistryFile } from './workspace-context.mjs';
 import { run, SingularityFlowError, writeAtomic } from './util.mjs';
 import { healerReceipt } from './workspace-healers.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
-import { gitTimeouts, nonInteractiveGitEnvironment } from './git-execution.mjs';
+import {
+  gitTimeouts, nonInteractiveGitEnvironment, runRemoteGit, runRemoteGitAsync
+} from './git-execution.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
 
 export const TRANSPORT_INTENT_SCHEMA_VERSION = currentSchemaVersion('transport-intent');
@@ -23,6 +25,7 @@ export const TRANSPORT_INTENT_STATUSES = Object.freeze([
 const AUTO_RETRYABLE = new Set(['network-transient', 'rate-limited']);
 const TERMINAL = new Set(['succeeded', 'remote-diverged', 'needs-user', 'attempt-budget-exhausted']);
 const TRANSPORT_DIAGNOSTIC_MAX_BYTES = 4096;
+const TRANSPORT_PUSH_MAX_BYTES = 1024 * 1024;
 
 function canonical(value) {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
@@ -232,19 +235,51 @@ export async function createTransportIntent({
   });
 }
 
-export function observeRemoteTarget(intent, { runCommand = run, env = process.env } = {}) {
-  // The configured name is mutable repository state. The intent already pins and integrity-binds
-  // the exact credential-free URL, so every probe and push must use those immutable bytes after
-  // the one name-to-authority validation at retry start.
-  const transport = frozenRemoteTransport(intent.remoteUrl, { env });
-  const result = runCommand('git', ['ls-remote', '--refs', transport.remote, intent.targetRef], {
-    cwd: intent.repositoryRoot, allowFailure: true,
-    timeoutMs: gitTimeouts(env).probe,
-    env: nonInteractiveGitEnvironment(transport.env)
-  });
+function remoteTargetObservation(intent, result) {
   if (result.status !== 0) return { readable: false, commit: null, result };
-  const line = String(result.stdout ?? '').split('\n').find((entry) => entry.trim().endsWith(`\t${intent.targetRef}`));
-  return { readable: true, commit: line?.trim().split(/\s+/)[0] ?? null, result };
+  const lines = String(result.stdout ?? '').split(/\r?\n/u).filter(Boolean);
+  if (lines.length === 0) return { readable: true, commit: null, result };
+  // ls-remote is an authority observation, not a hint. A duplicate, malformed, or different ref
+  // must not be interpreted as an exact target commit during an uncertain push reconciliation.
+  if (lines.length !== 1) return { readable: false, commit: null, result };
+  const match = /^([a-f0-9]{40}|[a-f0-9]{64})\t([^\t\r\n]+)$/u.exec(lines[0]);
+  return match && match[2] === intent.targetRef
+    ? { readable: true, commit: match[1], result }
+    : { readable: false, commit: null, result };
+}
+
+function remoteTargetProbe(intent, env) {
+  // The configured name is mutable repository state. The intent already pins and integrity-binds
+  // the exact credential-free URL, so every probe and push uses those immutable bytes after the
+  // one name-to-authority validation at retry start.
+  const transport = frozenRemoteTransport(intent.remoteUrl, { env });
+  return {
+    args: ['ls-remote', '--refs', transport.remote, intent.targetRef],
+    options: {
+      cwd: intent.repositoryRoot, allowFailure: true,
+      timeoutMs: gitTimeouts(env).probe,
+      env: nonInteractiveGitEnvironment(transport.env)
+    }
+  };
+}
+
+export function observeRemoteTarget(intent, { runCommand = run, env = process.env } = {}) {
+  const { args, options } = remoteTargetProbe(intent, env);
+  return remoteTargetObservation(intent, runCommand('git', args, options));
+}
+
+async function observeRemoteTargetForRetry(intent, {
+  runCommand, runAsyncProbeCommand, env
+}) {
+  if (runCommand !== run && !runAsyncProbeCommand) {
+    // Existing injected faults remain on the same test seam. Production never enters this branch.
+    return observeRemoteTarget(intent, { runCommand, env });
+  }
+  const { args, options } = remoteTargetProbe(intent, env);
+  const result = await (runAsyncProbeCommand ?? runRemoteGitAsync)(args, {
+    ...options, operation: 'remote-probe', maxBuffer: TRANSPORT_PUSH_MAX_BYTES
+  });
+  return remoteTargetObservation(intent, result);
 }
 
 async function withIntentLease(intentId, { env, home }, operation) {
@@ -319,13 +354,58 @@ function pushAcquiredExpectedTransition(result, intent) {
   return intent.expectedRemote === null ? flag === '*' : flag === ' ' || flag === '+';
 }
 
+/**
+ * The outbox owns this exact commit-to-ref mutation, including the durable pre-push receipt and
+ * subsequent remote reconciliation. Keep its two permitted Git forms private to that owner. The
+ * production path is asynchronous and bounded; the legacy synchronous command seam remains only
+ * for deterministic fault-injection tests which must not issue a second real push.
+ */
+async function executeIntentPush(intent, { dryRun, lease, env, runCommand, runAsyncCommand }) {
+  const transport = frozenRemoteTransport(intent.remoteUrl, { push: true, env });
+  const args = [
+    'push', ...(dryRun ? ['--dry-run'] : []), '--porcelain', lease,
+    transport.remote, `${intent.sourceCommit}:${intent.targetRef}`
+  ];
+  const options = {
+    cwd: intent.repositoryRoot,
+    env: nonInteractiveGitEnvironment(transport.env),
+    operation: 'remote-push',
+    timeoutMs: gitTimeouts(env).push,
+    maxBuffer: TRANSPORT_PUSH_MAX_BYTES,
+    allowFailure: true
+  };
+  if (runAsyncCommand) return runAsyncCommand(args, options);
+  if (runCommand !== run) return runRemoteGit(args, { ...options, runCommand });
+  return runRemoteGitAsync(args, options);
+}
+
 function recordPublishedRemoteTrackingRef(intent, { runCommand = run, env = process.env } = {}) {
   const branch = intent.targetRef.slice('refs/heads/'.length);
   const trackingRef = `refs/remotes/${intent.remote}/${branch}`;
+  const options = {
+    cwd: intent.repositoryRoot, allowFailure: true, env: nonInteractiveGitEnvironment(env)
+  };
   try {
-    return runCommand('git', ['update-ref', trackingRef, intent.sourceCommit], {
-      cwd: intent.repositoryRoot, allowFailure: true, env: nonInteractiveGitEnvironment(env)
-    }).status === 0;
+    // A tracking ref is only a convenience cache. Never follow a symbolic alias, replace a
+    // different direct ref, or let a racing local update rewrite remote publication evidence.
+    const listed = runCommand('git', [
+      'for-each-ref', '--format=%(refname)%00%(objectname)%00%(symref)', trackingRef
+    ], options);
+    if (listed.status !== 0) return false;
+    const line = String(listed.stdout ?? '').trim();
+    let expected = '0'.repeat(intent.sourceCommit.length);
+    if (line) {
+      const match = /^([^\x00\r\n]+)\x00([0-9a-f]{40}|[0-9a-f]{64})\x00([^\x00\r\n]*)$/u.exec(line);
+      if (!match || match[1] !== trackingRef || match[3]) return false;
+      if (match[2] === intent.sourceCommit) return true;
+      // Advancing the exact pre-push ref is part of normal publication. Every other local value
+      // belongs to fetch/operator reconciliation rather than this best-effort cache update.
+      if (match[2] !== intent.expectedRemote) return false;
+      expected = match[2];
+    }
+    return runCommand('git', [
+      'update-ref', '--no-deref', trackingRef, intent.sourceCommit, expected
+    ], options).status === 0;
   } catch {
     // Publication authority is the remote ref and the sealed receipt, not this convenience cache.
     // A read-only or concurrently changing local ref namespace must not rewrite a proven success.
@@ -334,7 +414,8 @@ function recordPublishedRemoteTrackingRef(intent, { runCommand = run, env = proc
 }
 
 export async function retryTransportIntent(intentId, {
-  env = process.env, home = os.homedir(), runCommand = run, allowNeedsUser = false
+  env = process.env, home = os.homedir(), runCommand = run,
+  runAsyncCommand = null, runAsyncProbeCommand = null, allowNeedsUser = false
 } = {}) {
   const outbox = transportOutboxRoot(env, home);
   return withIntentLease(intentId, { env, home }, async () => {
@@ -391,7 +472,9 @@ export async function retryTransportIntent(intentId, {
       }
     }
 
-    const observed = observeRemoteTarget(intent, { runCommand, env });
+    const observed = await observeRemoteTargetForRetry(intent, {
+      runCommand, runAsyncProbeCommand, env
+    });
     if (!observed.readable) {
       return writeIntent(outbox, {
         ...intent, status: 'outcome-unknown',
@@ -457,15 +540,9 @@ export async function retryTransportIntent(intentId, {
       attemptBudget: { ...intent.attemptBudget, used: attempt.number },
       attempts: [...intent.attempts, attempt]
     });
-    const refspec = `${intent.sourceCommit}:${intent.targetRef}`;
     const lease = `--force-with-lease=${intent.targetRef}:${intent.expectedRemote ?? ''}`;
-    const dryRunTransport = frozenRemoteTransport(intent.remoteUrl, { push: true, env });
-    const dryRun = runCommand('git', [
-      'push', '--dry-run', '--porcelain', lease, dryRunTransport.remote, refspec
-    ], {
-      cwd: intent.repositoryRoot, allowFailure: true,
-      timeoutMs: gitTimeouts(env).push,
-      env: nonInteractiveGitEnvironment(dryRunTransport.env)
+    const dryRun = await executeIntentPush(intent, {
+      dryRun: true, lease, env, runCommand, runAsyncCommand
     });
     if (dryRun.status !== 0) {
       const failure = classified(dryRun);
@@ -488,18 +565,16 @@ export async function retryTransportIntent(intentId, {
       attempts: intent.attempts.map((entry) => entry.number === attempt.number
         ? { ...entry, stage: 'push', result: 'in-flight' } : entry)
     });
-    const pushTransport = frozenRemoteTransport(intent.remoteUrl, { push: true, env });
-    const pushed = runCommand('git', [
-      'push', '--porcelain', lease, pushTransport.remote, refspec
-    ], {
-      cwd: intent.repositoryRoot, allowFailure: true,
-      timeoutMs: gitTimeouts(env).push,
-      env: nonInteractiveGitEnvironment(pushTransport.env)
+    const pushed = await executeIntentPush(intent, {
+      dryRun: false, lease, env, runCommand, runAsyncCommand
     });
-    const after = observeRemoteTarget(intent, { runCommand, env });
+    const after = await observeRemoteTargetForRetry(intent, {
+      runCommand, runAsyncProbeCommand, env
+    });
     const pushedFailure = pushed.status === 0 ? null : classified(pushed);
     const indeterminatePush = pushed.status !== 0
-      && (pushed.timedOut === true || Boolean(pushed.signal)
+      && (pushed.timedOut === true || pushed.aborted === true
+        || pushed.outputOverflow === true || Boolean(pushed.signal)
         || pushedFailure.classification === 'network-transient');
     if (after.readable && after.commit === intent.sourceCommit
       && (pushAcquiredExpectedTransition(pushed, intent) || indeterminatePush)) {

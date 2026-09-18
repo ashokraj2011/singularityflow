@@ -5,7 +5,8 @@ import { loadDefinition } from './config.mjs';
 import { ledgerStatus } from './ledger.mjs';
 import { renderCapabilityWorldModelPack, resolveLifecycleCapability } from './capability-context.mjs';
 import { readRecord } from './schema-migrations.mjs';
-import { run, secureRepositoryPath, snapshot } from './util.mjs';
+import { secureRepositoryPath, snapshot } from './util.mjs';
+import { executeGitQuery } from './git-query.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { initiativeRelative } from './state-stores.mjs';
 
@@ -89,7 +90,7 @@ export async function capabilityDoctor(root, { capabilityId = null, offline = fa
   }
 
   let lifecycle = null;
-  const current = run('git', ['branch', '--show-current'], { cwd: root, allowFailure: true }).stdout.trim();
+  const current = executeGitQuery(root, 'repository.branch') ?? '';
   const story = definition ? path.join(root, definition.workItemRoot ?? 'singularity/work-items', current, 'workflow.json') : null;
   const portfolio = await loadPortfolio(root, { required: false }).catch(() => null);
   const initiative = path.join(

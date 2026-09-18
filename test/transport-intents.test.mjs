@@ -5,8 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { run } from '../src/util.mjs';
+import { runRemoteGitAsync } from '../src/git-execution.mjs';
 import {
-  createTransportIntent, readTransportIntent, retryTransportIntent
+  createTransportIntent, observeRemoteTarget, readTransportIntent, retryTransportIntent
 } from '../src/transport-intents.mjs';
 import { subjectLockPath } from '../src/subject-lock.mjs';
 
@@ -27,6 +28,29 @@ async function fixture() {
   return { base, bare, work, commit, env, options: { env, home: base } };
 }
 
+test('remote target observation requires one exact ref and object ID', () => {
+  const targetRef = 'refs/heads/review';
+  const commit = 'a'.repeat(40);
+  const intent = {
+    remoteUrl: '/unused/remote.git', repositoryRoot: '/unused/repository', targetRef
+  };
+  const observe = (stdout) => observeRemoteTarget(intent, {
+    runCommand: () => ({ status: 0, stdout, stderr: '' })
+  });
+  assert.deepEqual({ readable: observe('').readable, commit: observe('').commit }, {
+    readable: true, commit: null
+  });
+  assert.equal(observe(`${commit}\t${targetRef}\n`).commit, commit);
+  for (const output of [
+    `not-an-object\t${targetRef}\n`,
+    `${commit}\trefs/heads/other\n`,
+    `${commit}\t${targetRef}\n${commit}\t${targetRef}\n`,
+    `prefix ${commit}\t${targetRef}\n`
+  ]) {
+    assert.equal(observe(output).readable, false);
+  }
+});
+
 test('an exact transport intent pushes only its pinned commit to its pinned ref', async () => {
   const item = await fixture();
   const created = await createTransportIntent({
@@ -44,6 +68,203 @@ test('an exact transport intent pushes only its pinned commit to its pinned ref'
   assert.equal(run('git', ['--git-dir', item.bare, 'show-ref', '--verify', '--quiet', 'refs/heads/main'], {
     allowFailure: true
   }).status, 1, 'the application branch was not an implicit push destination');
+});
+
+test('proven remote publication never follows a symbolic local tracking ref', async () => {
+  const item = await fixture();
+  const targetRef = 'refs/heads/symbolic-tracking';
+  const trackingRef = 'refs/remotes/origin/symbolic-tracking';
+  run('git', ['symbolic-ref', trackingRef, 'refs/heads/main'], { cwd: item.work });
+  const created = await createTransportIntent({
+    repositoryRoot: item.work, sourceCommit: item.commit,
+    targetRef, expectedRemote: null
+  }, item.options);
+  const result = await retryTransportIntent(created.intentId, item.options);
+  assert.equal(result.status, 'succeeded');
+  assert.equal(run('git', ['symbolic-ref', trackingRef], { cwd: item.work }).stdout.trim(), 'refs/heads/main');
+  assert.equal(run('git', ['rev-parse', 'refs/heads/main'], { cwd: item.work }).stdout.trim(), item.commit);
+  assert.equal(run('git', ['--git-dir', item.bare, 'rev-parse', targetRef]).stdout.trim(), item.commit);
+});
+
+test('proven remote publication leaves a divergent local tracking ref to fetch reconciliation', async () => {
+  const item = await fixture();
+  await writeFile(path.join(item.work, 'README.md'), 'second\n');
+  run('git', ['add', 'README.md'], { cwd: item.work });
+  run('git', ['commit', '-qm', 'second'], { cwd: item.work });
+  const sourceCommit = run('git', ['rev-parse', 'HEAD'], { cwd: item.work }).stdout.trim();
+  const targetRef = 'refs/heads/divergent-tracking';
+  const trackingRef = 'refs/remotes/origin/divergent-tracking';
+  run('git', ['update-ref', trackingRef, item.commit], { cwd: item.work });
+  const created = await createTransportIntent({
+    repositoryRoot: item.work, sourceCommit, targetRef, expectedRemote: null
+  }, item.options);
+  const result = await retryTransportIntent(created.intentId, item.options);
+  assert.equal(result.status, 'succeeded');
+  assert.equal(run('git', ['rev-parse', trackingRef], { cwd: item.work }).stdout.trim(), item.commit);
+  assert.equal(run('git', ['--git-dir', item.bare, 'rev-parse', targetRef]).stdout.trim(), sourceCommit);
+});
+
+test('proven leased publication advances only the exact expected local tracking ref', async () => {
+  const item = await fixture();
+  const targetRef = 'refs/heads/leased-tracking';
+  const trackingRef = 'refs/remotes/origin/leased-tracking';
+  run('git', ['push', 'origin', `${item.commit}:${targetRef}`], { cwd: item.work });
+  run('git', ['update-ref', trackingRef, item.commit], { cwd: item.work });
+  await writeFile(path.join(item.work, 'README.md'), 'second\n');
+  run('git', ['add', 'README.md'], { cwd: item.work });
+  run('git', ['commit', '-qm', 'second'], { cwd: item.work });
+  const sourceCommit = run('git', ['rev-parse', 'HEAD'], { cwd: item.work }).stdout.trim();
+  const created = await createTransportIntent({
+    repositoryRoot: item.work, sourceCommit, targetRef, expectedRemote: item.commit
+  }, item.options);
+  const result = await retryTransportIntent(created.intentId, item.options);
+  assert.equal(result.status, 'succeeded');
+  assert.equal(run('git', ['rev-parse', trackingRef], { cwd: item.work }).stdout.trim(), sourceCommit);
+  assert.equal(run('git', ['--git-dir', item.bare, 'rev-parse', targetRef]).stdout.trim(), sourceCommit);
+});
+
+test('async transport uses only the pinned, leased dry-run and real push descriptors', async () => {
+  const item = await fixture();
+  const targetRef = 'refs/heads/async-review';
+  const created = await createTransportIntent({
+    repositoryRoot: item.work, sourceCommit: item.commit,
+    targetRef, expectedRemote: null
+  }, item.options);
+  const calls = [];
+  const probes = [];
+  const result = await retryTransportIntent(created.intentId, {
+    ...item.options,
+    runAsyncProbeCommand: async (args, options) => {
+      probes.push({ args: [...args], options });
+      return runRemoteGitAsync(args, options);
+    },
+    runAsyncCommand: async (args, options) => {
+      calls.push({ args: [...args], options });
+      return runRemoteGitAsync(args, options);
+    }
+  });
+  assert.equal(result.status, 'succeeded');
+  assert.equal(calls.length, 2);
+  assert.equal(probes.length, 2, 'both authority observations use the async transport');
+  for (const { args, options } of probes) {
+    assert.deepEqual(args.slice(0, 2), ['ls-remote', '--refs']);
+    assert.match(args[2], /^sflow-frozen-[a-f0-9-]+:$/);
+    assert.equal(args[3], targetRef);
+    const frozenIndex = Object.entries(options.env)
+      .find(([key, value]) => /^GIT_CONFIG_KEY_\d+$/.test(key)
+        && value === `url.${item.bare}.insteadOf`)?.[0].slice('GIT_CONFIG_KEY_'.length);
+    assert.equal(options.env[`GIT_CONFIG_VALUE_${frozenIndex}`], args[2],
+      'the private alias is pinned to the intent URL');
+    assert.equal(options.cwd, created.repositoryRoot);
+    assert.equal(options.operation, 'remote-probe');
+    assert.ok(options.timeoutMs > 0);
+    assert.equal(options.maxBuffer, 1024 * 1024);
+    assert.equal(options.env.GIT_TERMINAL_PROMPT, '0');
+  }
+  assert.deepEqual(calls.map(({ args }) => args.includes('--dry-run')), [true, false]);
+  for (const { args, options } of calls) {
+    assert.equal(args[0], 'push');
+    assert.ok(args.includes('--porcelain'));
+    assert.ok(args.includes(`--force-with-lease=${targetRef}:`));
+    assert.equal(args.at(-1), `${item.commit}:${targetRef}`);
+    assert.match(args.at(-2), /^sflow-frozen-[a-f0-9-]+:$/,
+      'the configured name is never the retry destination');
+    const frozenIndex = Object.entries(options.env)
+      .find(([key, value]) => /^GIT_CONFIG_KEY_\d+$/.test(key)
+        && value === `url.${item.bare}.insteadOf`)?.[0].slice('GIT_CONFIG_KEY_'.length);
+    assert.equal(options.env[`GIT_CONFIG_VALUE_${frozenIndex}`], args.at(-2));
+    assert.equal(options.cwd, created.repositoryRoot);
+    assert.equal(options.operation, 'remote-push');
+    assert.ok(options.timeoutMs > 0);
+    assert.equal(options.maxBuffer, 1024 * 1024);
+    assert.equal(options.env.GIT_TERMINAL_PROMPT, '0');
+    assert.equal(options.env.GCM_INTERACTIVE, 'Never');
+  }
+  assert.equal(run('git', ['--git-dir', item.bare, 'rev-parse', targetRef]).stdout.trim(), item.commit);
+});
+
+test('async post-push observation outage preserves exact porcelain proof without another push', async () => {
+  const item = await fixture();
+  const targetRef = 'refs/heads/async-proof';
+  const created = await createTransportIntent({
+    repositoryRoot: item.work, sourceCommit: item.commit,
+    targetRef, expectedRemote: null
+  }, item.options);
+  let probes = 0;
+  const result = await retryTransportIntent(created.intentId, {
+    ...item.options,
+    runAsyncProbeCommand: async (args, options) => {
+      probes += 1;
+      if (probes === 2) return { status: 1, stdout: '', stderr: '', timedOut: true };
+      return runRemoteGitAsync(args, options);
+    }
+  });
+  assert.equal(probes, 2);
+  assert.equal(result.status, 'succeeded');
+  assert.equal(result.attempts.at(-1).stage, 'push-proof');
+  assert.equal(result.attemptBudget.used, 1);
+  assert.equal(run('git', ['--git-dir', item.bare, 'rev-parse', targetRef]).stdout.trim(), item.commit);
+  assert.equal((await retryTransportIntent(created.intentId, item.options)).attemptBudget.used, 1);
+});
+
+test('an async dry-run deadline never authorizes or starts the real push', async () => {
+  const item = await fixture();
+  const targetRef = 'refs/heads/async-dry-run-timeout';
+  const created = await createTransportIntent({
+    repositoryRoot: item.work, sourceCommit: item.commit,
+    targetRef, expectedRemote: null
+  }, item.options);
+  const calls = [];
+  const timedOut = await retryTransportIntent(created.intentId, {
+    ...item.options,
+    runAsyncCommand: async (args) => {
+      calls.push([...args]);
+      return {
+        status: 1, stdout: '', stderr: '', timedOut: true,
+        failure: { classification: 'network-transient', retryable: true }
+      };
+    }
+  });
+  assert.equal(timedOut.status, 'pending');
+  assert.equal(timedOut.attempts.at(-1).stage, 'dry-run');
+  assert.equal(calls.length, 1);
+  assert.ok(calls[0].includes('--dry-run'));
+  assert.notEqual(run('git', [
+    '--git-dir', item.bare, 'show-ref', '--verify', '--quiet', targetRef
+  ], { allowFailure: true }).status, 0);
+  assert.equal((await retryTransportIntent(created.intentId, item.options)).status, 'succeeded');
+});
+
+test('an async real push with a lost bounded-output acknowledgement reconciles exact remote state', async () => {
+  const item = await fixture();
+  const targetRef = 'refs/heads/async-overflow-reconcile';
+  const created = await createTransportIntent({
+    repositoryRoot: item.work, sourceCommit: item.commit,
+    targetRef, expectedRemote: null
+  }, item.options);
+  let realPushes = 0;
+  const result = await retryTransportIntent(created.intentId, {
+    ...item.options,
+    runAsyncCommand: async (args, options) => {
+      const observed = await runRemoteGitAsync(args, options);
+      if (!args.includes('--dry-run')) {
+        realPushes += 1;
+        assert.equal(observed.status, 0);
+        return {
+          status: 1, stdout: '', stderr: '', outputOverflow: true,
+          failure: { classification: 'unknown', retryable: false }
+        };
+      }
+      return observed;
+    }
+  });
+  assert.equal(result.status, 'succeeded');
+  assert.equal(realPushes, 1);
+  assert.equal(result.attemptBudget.used, 1);
+  assert.equal(result.observedRemote, item.commit);
+  assert.equal(run('git', ['--git-dir', item.bare, 'rev-parse', targetRef]).stdout.trim(), item.commit);
+  assert.equal((await retryTransportIntent(created.intentId, item.options)).attemptBudget.used, 1,
+    'a terminal exact receipt never replays the push');
 });
 
 test('transport retry does not steal a fresh acquisition and reclaims an abandoned ownerless lock', async () => {

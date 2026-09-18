@@ -874,7 +874,9 @@ export async function workspaceRepositoryDefaults(repository) {
   if (!origin) throw new SingularityFlowError(`Repository '${root}' has no origin remote and cannot be cloned into a workspace.`);
   const operationalOrigin = storableRemote(origin, { redactCredentials: true });
 
-  const currentBranch = run('git', ['branch', '--show-current'], { cwd: root, allowFailure: true }).stdout.trim();
+  // This is a mutable checkout observation, not authority inferred from an earlier workspace
+  // selection. Keep it fresh and use the registered branch read for this adoption boundary.
+  const currentBranch = executeGitQuery(root, 'repository.branch') ?? '';
   if (!currentBranch) throw new SingularityFlowError(`Repository '${root}' has a detached HEAD and cannot be adopted as a workspace checkout.`);
 
   const remoteHead = run('git', ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], {
@@ -1187,9 +1189,9 @@ export async function workspaceRemoteCapabilities(url, {
         capabilitiesPath, branch, commit: authorityCommit
       }
     );
-    const objectFormat = run('git', ['rev-parse', '--show-object-format'], {
-      cwd: scratch, env: transport.env
-    }).stdout.trim();
+    const objectFormat = executeGitQuery(scratch, 'repository.object-format', {}, {
+      env: transport.env
+    });
     const capabilitiesObject = run('git', ['rev-parse', `HEAD:${capabilitiesPath}`], {
       cwd: scratch, env: transport.env
     }).stdout.trim();

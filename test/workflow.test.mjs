@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import YAML from 'yaml';
 import { encodePngRgba8 } from '../src/png-rgba8.mjs';
 
@@ -1057,6 +1058,26 @@ test('returned phase rework can be discarded and rolled forward from an exact ch
   await writeFile(path.join(root, 'src/preexisting-unchanged.mjs'), 'export const retained = true;\n');
   await writeFile(path.join(root, 'src/preexisting-edited.mjs'), 'export const baseline = 1;\n');
   const forwardCommit = execute('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+  const authorityKey = createHash('sha256').update(`story\0${workId}`).digest('hex');
+  const checkpointKey = createHash('sha256').update(`${workId}\0CR-001`).digest('hex');
+  const baselineRef = `refs/singularity-flow/rework-baselines/${authorityKey}/${checkpointKey}`;
+  const mainBefore = execute('git', ['rev-parse', 'refs/heads/main'], root).stdout.trim();
+  execute('git', ['symbolic-ref', baselineRef, 'refs/heads/main'], root);
+  const symbolicRefusal = flow(root, ['reject', '--to', 'intake', '--reason', 'Try a different reproduction'], {
+    selection: selection('bugfix', 'qa'), allowFailure: true
+  });
+  assert.notEqual(symbolicRefusal.status, 0);
+  assert.match(symbolicRefusal.stderr, /baseline ref is symbolic or belongs to another object/);
+  assert.equal(execute('git', ['rev-parse', 'refs/heads/main'], root).stdout.trim(), mainBefore);
+  execute('git', ['symbolic-ref', '--delete', baselineRef], root);
+  execute('git', ['update-ref', baselineRef, forwardCommit], root);
+  const directRefusal = flow(root, ['reject', '--to', 'intake', '--reason', 'Try a different reproduction'], {
+    selection: selection('bugfix', 'qa'), allowFailure: true
+  });
+  assert.notEqual(directRefusal.status, 0);
+  assert.match(directRefusal.stderr, /baseline ref is symbolic or belongs to another object/);
+  assert.equal(execute('git', ['rev-parse', baselineRef], root).stdout.trim(), forwardCommit);
+  execute('git', ['update-ref', '-d', baselineRef], root);
   flow(root, ['reject', '--to', 'intake', '--reason', 'Try a different reproduction'], { selection: selection('bugfix', 'qa') });
   workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   assert.equal(workflow.changeRequests[0].forwardCheckpoint.sourceCommit, forwardCommit);
@@ -1064,9 +1085,23 @@ test('returned phase rework can be discarded and rolled forward from an exact ch
   assert.equal(workflow.changeRequests[0].forwardCheckpoint.schemaVersion, 2);
   assert.match(workflow.changeRequests[0].forwardCheckpoint.worktreeBaseline.tree, /^[0-9a-f]{40,64}$/);
   assert.match(workflow.changeRequests[0].forwardCheckpoint.worktreeBaseline.ref, /^refs\/singularity-flow\/rework-baselines\//);
+  assert.equal(workflow.changeRequests[0].forwardCheckpoint.worktreeBaseline.ref, baselineRef);
   assert.deepEqual(workflow.changeRequests[0].forwardCheckpoint.worktreeBaseline.dirtyPaths, [
     'src/existing.mjs', 'src/preexisting-edited.mjs', 'src/preexisting-unchanged.mjs'
   ]);
+  const baselineTree = workflow.changeRequests[0].forwardCheckpoint.worktreeBaseline.tree;
+  execute('git', ['update-ref', '-d', baselineRef], root);
+  execute('git', ['update-ref', 'refs/singularity-flow/test-baseline-tree', baselineTree], root);
+  execute('git', ['symbolic-ref', baselineRef, 'refs/singularity-flow/test-baseline-tree'], root);
+  const forgedAlias = flow(root, ['story', 'rework', 'roll-forward', '--work-id', workId, '--json'], {
+    selection: selection('bugfix', 'qa'), allowFailure: true
+  });
+  assert.notEqual(forgedAlias.status, 0);
+  assert.match(forgedAlias.stderr, /retained local baseline ref.*missing or changed/);
+  assert.equal(execute('git', ['rev-parse', baselineRef], root).stdout.trim(), baselineTree,
+    'a symbolic alias to the correct tree still cannot prove the direct checkpoint ref');
+  execute('git', ['symbolic-ref', '--delete', baselineRef], root);
+  execute('git', ['update-ref', baselineRef, baselineTree], root);
   const abandonedUsage = {
     status: 'exact', source: 'test', provider: 'test', model: 'test-model',
     inputTokens: 500, outputTokens: 277, totalTokens: 777,

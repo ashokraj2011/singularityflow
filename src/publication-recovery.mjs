@@ -242,23 +242,25 @@ function captureReworkBaselineRefs(root, requestedPrefixes = [REWORK_BASELINE_RE
   const prefixes = [...new Set(requestedPrefixes.map(normalizedReworkBaselinePrefix))]
     .sort((left, right) => left.localeCompare(right));
   const result = run('git', [
-    'for-each-ref', '--format=%(refname)%00%(objectname)', ...prefixes
+    'for-each-ref', '--format=%(refname)%00%(objectname)%00%(symref)', ...prefixes
   ], { cwd: root });
   const refs = String(result.stdout ?? '').split('\n').filter(Boolean).map((line) => {
-    const separator = line.indexOf('\0');
-    if (separator <= 0 || line.indexOf('\0', separator + 1) !== -1) {
+    const fields = line.split('\0');
+    if (fields.length !== 3 || !fields[0] || !fields[1]) {
       throw new SingularityFlowError('Git returned malformed rework-baseline ref metadata.', {
         code: 'PUBLICATION_PREIMAGE_REF_INVALID'
       });
     }
-    const name = normalizedReworkBaselineRef(line.slice(0, separator));
+    const name = normalizedReworkBaselineRef(fields[0]);
     if (!prefixes.some((prefix) => name.startsWith(prefix))) {
       throw new SingularityFlowError(`Git returned rework-baseline ref '${name}' outside the requested recovery namespace.`, {
         code: 'PUBLICATION_PREIMAGE_REF_INVALID'
       });
     }
-    const target = line.slice(separator + 1);
-    if (!GIT_OBJECT_ID_PATTERN.test(target)) {
+    // Snapshot authority is limited to exact direct refs. A symbolic alias may resolve to the
+    // expected object while redirecting a later update to a branch outside this Story's scope.
+    const target = fields[1];
+    if (fields[2] || !GIT_OBJECT_ID_PATTERN.test(target)) {
       throw new SingularityFlowError(`Publication recovery ref '${name}' has an invalid object ID.`, {
         code: 'PUBLICATION_PREIMAGE_REF_INVALID'
       });
@@ -637,7 +639,7 @@ function restoreReworkBaselineRefs(root, desiredRefs, refPrefixes = [REWORK_BASE
   // One ref transaction gives every update/delete an old-object lease and commits the complete
   // namespace restoration atomically. A concurrent writer therefore causes a safe refusal instead
   // of losing its ref or leaving a partially restored set.
-  run('git', ['update-ref', '--stdin'], {
+  run('git', ['update-ref', '--no-deref', '--stdin'], {
     cwd: root,
     input: ['start', ...changes, 'prepare', 'commit', ''].join('\n')
   });

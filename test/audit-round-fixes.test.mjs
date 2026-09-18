@@ -373,6 +373,31 @@ test('configured governance roots do not perturb the application source tree has
     'without the configured boundary the same tracked bytes would be mistaken for application source');
 });
 
+test('application source hashing preserves a staged UTF-8 index path and its working bytes', async (t) => {
+  const root = await repository('main');
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const relative = 'src/café.mjs';
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, relative), 'export const value = 1;\n');
+  run('git', ['add', '--', relative], { cwd: root });
+  const staged = await sourceTreeHash(root);
+  await writeFile(path.join(root, relative), 'export const value = 2;\n');
+  assert.notEqual(await sourceTreeHash(root), staged);
+});
+
+test('application source hashing refuses an index path that cannot be represented exactly', async (t) => {
+  if (process.platform !== 'linux') return t.skip('This filesystem cannot materialize raw non-UTF-8 filenames');
+  const root = await repository('main');
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  const bytesPath = Buffer.concat([
+    Buffer.from(path.join(root, 'src') + path.sep), Buffer.from([0xff]), Buffer.from('.mjs')
+  ]);
+  await writeFile(bytesPath, 'export const value = 1;\n');
+  run('git', ['add', '-A', '--', 'src'], { cwd: root });
+  await assert.rejects(() => sourceTreeHash(root), { code: 'SOURCE_TREE_PATH_UNREPRESENTABLE' });
+});
+
 test('source hashing refuses bytes hidden by assume-unchanged or skip-worktree', async (t) => {
   const root = await repository('main');
   t.after(() => rm(root, { recursive: true, force: true }));

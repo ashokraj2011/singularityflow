@@ -736,6 +736,79 @@ test('workspace doctor probes repeatable explicit URLs without a bootstrap sessi
   assert.doesNotMatch(JSON.stringify(report), /doctor-secret|redirect\.invalid/);
 });
 
+test('workspace doctor bounds independent async remote probes and preserves classified failures', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-doctor-async-'));
+  const urls = Array.from({ length: 5 }, (_, index) =>
+    `https://git.example.invalid/acme/repository-${index}.git`);
+  const env = {
+    ...environment(root),
+    SINGULARITY_FLOW_GIT_WORKERS: '3',
+    SINGULARITY_FLOW_GIT_PREFLIGHT_TIMEOUT_MS: '111',
+    GIT_DIR: path.join(root, 'unrelated-repository')
+  };
+  let active = 0;
+  let maximumActive = 0;
+  const calls = [];
+  const report = await workspaceBootstrapDoctor({
+    network: true, repositoryUrls: urls, env, home: root,
+    runAsyncCommand: async (args, options) => {
+      active += 1;
+      maximumActive = Math.max(maximumActive, active);
+      calls.push({ args, options });
+      const index = calls.length - 1;
+      await new Promise((resolve) => setTimeout(resolve, 15));
+      active -= 1;
+      if (index === 0 || index === 1) {
+        const classification = index === 0 ? 'authentication-required' : 'network-transient';
+        return {
+          status: 128, stdout: '', stderr: 'provider-secret-must-not-leak',
+          timedOut: index === 1,
+          failure: {
+            classification,
+            code: `REMOTE_${classification.replaceAll('-', '_').toUpperCase()}`,
+            advice: index === 0 ? 'Sign in to Git and retry.' : 'Check the network and retry.'
+          }
+        };
+      }
+      return {
+        status: 0, stdout: `ref: refs/heads/main\tHEAD\n${'a'.repeat(40)}\trefs/heads/main\n`,
+        failure: null
+      };
+    }
+  });
+
+  assert.equal(calls.length, urls.length);
+  assert.equal(maximumActive, 3, 'Git fan-out obeys the configured worker bound');
+  assert.deepEqual(report.remotes.map((entry) => entry.remote), urls,
+    'concurrent completion does not reorder the report');
+  assert.deepEqual(report.remotes.map((entry) => entry.classification), [
+    'authentication-required', 'network-transient', null, null, null
+  ]);
+  assert.equal(report.healthy, false);
+  assert.ok(calls.every(({ args, options }) =>
+    args[0] === 'ls-remote' && args.includes('--symref')
+    && options.timeoutMs === 111 && options.operation === 'remote-probe'
+    && options.env.GIT_DIR === undefined));
+  assert.doesNotMatch(JSON.stringify(report), /provider-secret-must-not-leak/);
+});
+
+test('workspace doctor cancellation is classified without exposing the abort reason', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-doctor-cancel-'));
+  const controller = new AbortController();
+  controller.abort('private-abort-reason');
+  const report = await workspaceBootstrapDoctor({
+    network: true,
+    repositoryUrls: ['https://git.example.invalid/acme/application.git'],
+    env: environment(root), home: root, signal: controller.signal
+  });
+
+  assert.equal(report.remotes.length, 1);
+  assert.equal(report.remotes[0].ok, false);
+  assert.equal(report.remotes[0].classification, 'cancelled');
+  assert.match(report.remotes[0].advice, /cancelled before it completed/);
+  assert.doesNotMatch(JSON.stringify(report), /private-abort-reason/);
+});
+
 test('workspace doctor reports an unavailable Git config snapshot without misdiagnosing remote sign-in', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-doctor-config-'));
   const repositoryUrl = 'https://git.example.invalid/acme/application.git';

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { readFile, realpath, rm } from 'node:fs/promises';
 import YAML from 'yaml';
-import { run, SingularityFlowError, writeAtomic } from './util.mjs';
+import { SingularityFlowError, writeAtomic } from './util.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { branch, gitCommonDir, gitDir, head, repoRoot } from './git.mjs';
@@ -99,9 +99,12 @@ function withWorkspaceSnapshot(context, workspace) {
 
 async function verifiedWorkspaceMemberRepository(root, member, { strict }) {
   const expected = String(member.repository?.url ?? '').trim();
-  const top = run('git', ['rev-parse', '--show-toplevel'], { cwd: root, allowFailure: true });
-  const actualTop = top.status === 0 && top.stdout.trim()
-    ? await canonical(top.stdout.trim())
+  // Only load the typed Git query graph when a selected repository actually needs identity
+  // validation. Empty workspace/current/prompt reads keep their small startup dependency graph.
+  const { executeGitQuery } = await import('./git-query.mjs');
+  const top = executeGitQuery(root, 'repository.root');
+  const actualTop = top
+    ? await canonical(top)
     : null;
   let actualOrigin = '';
   try {

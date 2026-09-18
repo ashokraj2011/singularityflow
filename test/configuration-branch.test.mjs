@@ -224,6 +224,72 @@ test('configuration authority is bootstrapped without changing application histo
   }
 });
 
+test('publisher configuration retention is immutable, retryable, and never follows a symbolic ref', async () => {
+  const fixture = await repositoryFixture();
+  const env = {
+    ...process.env,
+    SINGULARITY_FLOW_TRANSPORT_OUTBOX: path.join(fixture.root, 'transport-outbox'),
+    GIT_AUTHOR_DATE: '2001-01-01T00:00:00 +0000',
+    GIT_COMMITTER_DATE: '2001-01-01T00:00:00 +0000'
+  };
+  try {
+    run('git', ['remote', 'add', 'origin', fixture.remote], { cwd: fixture.source });
+    const options = { publisherRoot: fixture.source, env };
+    const first = await ensureConfigurationBranch(fixture.remote, options);
+    const retentionRef = `refs/singularity/transport/configuration/${first.commit}`;
+    const applicationHead = run('git', ['rev-parse', 'refs/heads/main'], {
+      cwd: fixture.source
+    }).stdout.trim();
+    assert.equal(run('git', ['show-ref', '--verify', '--hash', retentionRef], {
+      cwd: fixture.source
+    }).stdout.trim(), first.commit);
+    assert.equal(run('git', ['symbolic-ref', '--quiet', '--no-recurse', retentionRef], {
+      cwd: fixture.source, allowFailure: true
+    }).status, 1);
+
+    // Rebuilding the same reviewed source with a fixed author date creates the identical commit.
+    // The outbox may need this retained ref after a lost remote publication; a direct exact ref is
+    // therefore an idempotent success, not a reason to create or overwrite another authority.
+    run('git', ['push', 'origin', ':refs/heads/sflow/config'], { cwd: fixture.source });
+    const repeated = await ensureConfigurationBranch(fixture.remote, options);
+    assert.equal(repeated.commit, first.commit);
+    run('git', ['push', 'origin', ':refs/heads/sflow/config'], { cwd: fixture.source });
+
+    // A symbolic alias can resolve to the same object or to application main. Neither form is a
+    // retained direct ref; a plain update-ref would follow it and could move the application ref.
+    run('git', ['symbolic-ref', retentionRef, 'refs/heads/main'], { cwd: fixture.source });
+    await assert.rejects(() => ensureConfigurationBranch(fixture.remote, options), (error) => {
+      assert.equal(error.code, 'CONFIGURATION_RETENTION_REF_COLLISION');
+      return true;
+    });
+    assert.equal(run('git', ['rev-parse', 'refs/heads/main'], {
+      cwd: fixture.source
+    }).stdout.trim(), applicationHead);
+    assert.equal(run('git', ['symbolic-ref', '--quiet', '--no-recurse', retentionRef], {
+      cwd: fixture.source
+    }).stdout.trim(), 'refs/heads/main');
+    assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/heads/sflow/config'], {
+      cwd: fixture.remote, allowFailure: true
+    }).status, 1, 'collision must not publish the configuration branch');
+
+    run('git', ['update-ref', '--no-deref', retentionRef, applicationHead], {
+      cwd: fixture.source
+    });
+    await assert.rejects(() => ensureConfigurationBranch(fixture.remote, options), (error) => {
+      assert.equal(error.code, 'CONFIGURATION_RETENTION_REF_COLLISION');
+      return true;
+    });
+    assert.equal(run('git', ['rev-parse', retentionRef], {
+      cwd: fixture.source
+    }).stdout.trim(), applicationHead, 'a different direct ref must remain untouched');
+    assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/heads/sflow/config'], {
+      cwd: fixture.remote, allowFailure: true
+    }).status, 1, 'a different direct ref must not publish the configuration branch');
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test('configuration bootstrap preserves an imported multi-capability map and refuses an absent requested capability', async () => {
   const importedMap = {
     version: 1,

@@ -1,6 +1,7 @@
 import path from 'node:path';
 
 import { incrementCommandCounter } from './dx-timing-context.mjs';
+import { GAL_ASYNC_READ_DESCRIPTORS } from './gal-async-read.mjs';
 import { parseGitIndexStages, parsePorcelainV2Status } from './git-status-detail.mjs';
 import { parsePorcelainV2Revision } from './git-status-projection.mjs';
 import { run, SingularityFlowError } from './util.mjs';
@@ -88,7 +89,8 @@ const descriptors = [
     }
   }),
   descriptor('repository.root', {
-    argv: () => ['rev-parse', '--show-toplevel'], dependency: 'repository-instance',
+    argv: () => [...GAL_ASYNC_READ_DESCRIPTORS['repository.root'].argv],
+    dependency: 'repository-instance',
     allowFailure: true, parser(result) {
       if (result.status !== 0) return null;
       const observedRoot = text(result);

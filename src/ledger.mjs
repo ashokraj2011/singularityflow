@@ -97,11 +97,54 @@ function refExistsInEnvironment(root, ref, env = process.env) {
   return git(root, ['show-ref', '--verify', '--quiet', ref], { allowFailure: true, env }).status === 0;
 }
 
+// The ledger may update only the named ref, never a symbolic ref's target. `rev-parse` and
+// `show-ref` dereference symbolic refs, so neither proves that the lease belongs to this ref.
+// Keep this observation exact and bounded; an unavailable answer is not an absent ref.
+function directRefObservation(root, ref, env = process.env) {
+  const observed = git(root, [
+    'for-each-ref', '--count=1', '--format=%(refname)%00%(objectname)%00%(symref)', ref
+  ], {
+    allowFailure: true, env, encoding: 'buffer', maxBuffer: 1024, timeoutMs: 5_000
+  });
+  if (observed.status !== 0 || observed.error || observed.timedOut
+      || !Buffer.isBuffer(observed.stdout)) return { status: 'unavailable', commit: null };
+  if (observed.stdout.length === 0) {
+    // Git omits dangling symbolic refs from for-each-ref. Probe only this ambiguous case so an
+    // absent-ref lease cannot be confused with a symbolic pin or state ref whose target is gone.
+    const symbolic = git(root, ['symbolic-ref', '-q', ref], {
+      allowFailure: true, env, encoding: 'buffer', maxBuffer: 1024, timeoutMs: 5_000
+    });
+    if (symbolic.status === 0) return { status: 'symbolic', commit: null };
+    return symbolic.status === 1 && !symbolic.error && !symbolic.timedOut
+      ? { status: 'absent', commit: null }
+      : { status: 'unavailable', commit: null };
+  }
+  const match = /^([^\x00\n]+)\x00([0-9a-f]{40}|[0-9a-f]{64})\x00([^\x00\n]*)\n$/u
+    .exec(observed.stdout.toString('utf8'));
+  if (!match || match[1] !== ref) return { status: 'unavailable', commit: null };
+  if (match[3]) return { status: 'symbolic', commit: null };
+  return { status: 'direct', commit: match[2] };
+}
+
+function requireDirectLocalStateRef(root, config, env = process.env) {
+  const observed = directRefObservation(root, localRef(config), env);
+  if (observed.status === 'symbolic' || observed.status === 'unavailable') {
+    throw new SingularityFlowError(
+      `The local ${config.branch} ref cannot be verified as a direct Git ref. State publication did not advance it.`,
+      {
+        code: observed.status === 'symbolic' ? 'state_branch.ref_symbolic' : 'state_branch.ref_unavailable',
+        details: { branch: config.branch }
+      }
+    );
+  }
+  return observed.commit;
+}
+
 function synchronizeRemoteTrackingRefAfterPush(root, config, commit, expectedRemoteSha, env = process.env) {
   const ref = remoteRef(config);
-  const current = refExistsInEnvironment(root, ref, env)
-    ? git(root, ['rev-parse', '--verify', `${ref}^{commit}`], { env }).stdout.trim()
-    : null;
+  const observed = directRefObservation(root, ref, env);
+  if (observed.status === 'symbolic' || observed.status === 'unavailable') return;
+  const current = observed.commit;
   if (current === commit) return;
 
   // A fetch may have observed a publication made after ours while `git push` was returning. Never
@@ -122,15 +165,15 @@ function synchronizeRemoteTrackingRefAfterPush(root, config, commit, expectedRem
   ));
   if (!replaceable) return;
   git(root, [
-    'update-ref', ref, commit, current ?? '0'.repeat(commit.length)
+    'update-ref', '--no-deref', ref, commit, current ?? '0'.repeat(commit.length)
   ], { allowFailure: true, env });
 }
 
 function synchronizeLocalStateRefAfterRemotePush(root, config, commit, env = process.env) {
   const ref = localRef(config);
-  const current = refExistsInEnvironment(root, ref, env)
-    ? git(root, ['rev-parse', '--verify', `${ref}^{commit}`], { env }).stdout.trim()
-    : null;
+  const observed = directRefObservation(root, ref, env);
+  if (observed.status === 'symbolic' || observed.status === 'unavailable') return;
+  const current = observed.commit;
   if (current === commit) return;
   if (current && git(root, ['merge-base', '--is-ancestor', commit, current], {
     allowFailure: true, env
@@ -140,7 +183,7 @@ function synchronizeLocalStateRefAfterRemotePush(root, config, commit, env = pro
   ], { allowFailure: true, env }).status === 0;
   if (!replaceable) return;
   git(root, [
-    'update-ref', ref, commit, current ?? '0'.repeat(commit.length)
+    'update-ref', '--no-deref', ref, commit, current ?? '0'.repeat(commit.length)
   ], { allowFailure: true, env });
 }
 
@@ -1143,13 +1186,16 @@ async function publishPinAsync(root, config, intent, publishedCommit, {
   const ref = pinRef(config, intent);
   if (!ref) return null;
   if (!hasRemoteInEnvironment(root, config.remote, env)) {
-    const current = git(root, ['rev-parse', '--verify', ref], {
-      allowFailure: true, env
-    }).stdout.trim();
-    if (current && current !== publishedCommit) {
+    const local = localPinObservation(root, ref, publishedCommit, env);
+    if (local.status === 'mismatch') {
       throw new SingularityFlowError(`Ledger pin ${ref} already points to a different commit.`);
     }
-    if (!current) git(root, ['update-ref', ref, publishedCommit], { env });
+    const installed = installExpectedPinRef(root, ref, publishedCommit, local, env);
+    if (!['installed', 'expected'].includes(installed.status)) {
+      throw new SingularityFlowError(`Ledger pin ${ref} cannot be verified as a direct ref (${installed.status}).`, {
+        code: 'LEDGER_PIN_LOCAL_UNAVAILABLE', details: { pinRef: ref, status: installed.status }
+      });
+    }
     return ref;
   }
   const frozen = transportRemote === undefined
@@ -1205,12 +1251,41 @@ function validPinBinding(pinRef, expectedCommit) {
     && /^[0-9a-f]{40}([0-9a-f]{24})?$/i.test(String(expectedCommit ?? ''));
 }
 
-function localPinObservation(root, pinRef, expectedCommit) {
+function localPinObservation(root, pinRef, expectedCommit, env = process.env) {
   if (!validPinBinding(pinRef, expectedCommit)) return { status: 'invalid', commit: null };
-  const current = git(root, ['rev-parse', '--verify', `${pinRef}^{commit}`], { allowFailure: true });
-  if (current.status !== 0) return { status: 'missing', commit: null };
-  const commit = current.stdout.trim();
-  return { status: commit === expectedCommit ? 'expected' : 'mismatch', commit };
+  const observed = directRefObservation(root, pinRef, env);
+  if (observed.status === 'absent') return { status: 'missing', commit: null };
+  if (observed.status !== 'direct') return { status: observed.status, commit: null };
+  if (observed.commit !== expectedCommit && git(root, [
+    'cat-file', '-e', `${observed.commit}^{commit}`
+  ], { allowFailure: true, env, timeoutMs: 5_000 }).status !== 0) {
+    return { status: 'invalid-object', commit: observed.commit };
+  }
+  return {
+    status: observed.commit === expectedCommit ? 'expected' : 'mismatch',
+    commit: observed.commit
+  };
+}
+
+// A ledger entry authorizes repair of exactly its recorded pin, not a symbolic target. The old
+// value lease prevents a concurrent replacement, and the post-write observation reconciles an
+// uncertain Git result without treating an unavailable observation as success.
+function installExpectedPinRef(root, pinRef, expectedCommit, local, env = process.env) {
+  if (local.status === 'expected') return { status: 'expected', pinRef, commit: expectedCommit };
+  if (!['missing', 'mismatch'].includes(local.status)) return { status: local.status, pinRef };
+  const oldCommit = local.commit ?? '0'.repeat(expectedCommit.length);
+  const updated = git(root, [
+    'update-ref', '--no-deref', pinRef, expectedCommit, oldCommit
+  ], { allowFailure: true, env });
+  const after = localPinObservation(root, pinRef, expectedCommit, env);
+  if (after.status === 'expected') {
+    return {
+      status: updated.status === 0 ? 'installed' : 'expected',
+      pinRef,
+      commit: expectedCommit
+    };
+  }
+  return { status: ['symbolic', 'unavailable'].includes(after.status) ? after.status : 'concurrent-change', pinRef };
 }
 
 async function remotePinObservation(root, remote, pinRef, expectedCommit) {
@@ -1301,7 +1376,9 @@ async function fetchExpectedPin(root, remote, pinRef, expectedCommit, observed =
     return { ...advertised, pinRef };
   }
   const fetched = await runRemoteGitAsync([
-    'fetch', '--no-tags', remote, pinRef
+    // Ignore the repository's pin refspec here: this fetch must populate FETCH_HEAD only.
+    // Otherwise Git can update the local pin before the exact old-value lease below runs.
+    'fetch', '--no-tags', '--refmap=', remote, pinRef
   ], { cwd: root, operation: 'remote-configuration' });
   if (fetched.status !== 0) {
     return {
@@ -1318,13 +1395,10 @@ async function fetchExpectedPin(root, remote, pinRef, expectedCommit, observed =
   const validation = validatePinnedSource(root, { transport: { publishedCommit: expectedCommit } });
   if (!validation.valid) return { status: 'invalid-source', remote, pinRef, reason: validation.reason };
   const local = localPinObservation(root, pinRef, expectedCommit);
-  const args = local.commit
-    ? ['update-ref', pinRef, expectedCommit, local.commit]
-    : ['update-ref', pinRef, expectedCommit, '0'.repeat(expectedCommit.length)];
-  const updated = git(root, args, { allowFailure: true });
-  return updated.status === 0
-    ? { status: local.status === 'expected' ? 'expected' : 'fetched', remote, pinRef, commit: expectedCommit }
-    : { status: 'concurrent-change', remote, pinRef };
+  const installed = installExpectedPinRef(root, pinRef, expectedCommit, local);
+  return ['installed', 'expected'].includes(installed.status)
+    ? { status: installed.status === 'installed' ? 'fetched' : 'expected', remote, pinRef, commit: expectedCommit }
+    : { ...installed, remote };
 }
 
 async function appendOnce(root, config, intent, publishedCommit, {
@@ -1671,9 +1745,7 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
           }
         );
       } else {
-        const observedLocalSha = refExistsInEnvironment(root, localRef(config), env)
-          ? git(root, ['rev-parse', '--verify', `${localRef(config)}^{commit}`], { env }).stdout.trim()
-          : null;
+        const observedLocalSha = requireDirectLocalStateRef(root, config, env);
         if (observedLocalSha !== publicationBaseCommit) {
           throw localStateConcurrencyError(config, publicationBaseCommit, observedLocalSha);
         }
@@ -1745,13 +1817,17 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
       // if the branch is checked out somewhere, the remote ref still answers.
       synchronizeLocalStateRefAfterRemotePush(root, config, commit, env);
     } else {
-      const advanced = git(root, [
-        'update-ref', localRef(config), commit, publicationBaseCommit
+      const observedBeforeAdvance = requireDirectLocalStateRef(root, config, env);
+      if (observedBeforeAdvance !== publicationBaseCommit) {
+        throw localStateConcurrencyError(config, publicationBaseCommit, observedBeforeAdvance);
+      }
+      git(root, [
+        'update-ref', '--no-deref', localRef(config), commit, publicationBaseCommit
       ], { allowFailure: true, env });
-      if (advanced.status !== 0) {
-        const observedLocalSha = refExistsInEnvironment(root, localRef(config), env)
-          ? git(root, ['rev-parse', '--verify', `${localRef(config)}^{commit}`], { env }).stdout.trim()
-          : null;
+      // A failed process may have advanced the ref before its result was lost. Observe the exact
+      // direct ref and accept only the intended commit; a symbolic or unavailable ref fails closed.
+      const observedLocalSha = requireDirectLocalStateRef(root, config, env);
+      if (observedLocalSha !== commit) {
         throw localStateConcurrencyError(config, publicationBaseCommit, observedLocalSha);
       }
     }
@@ -2091,12 +2167,8 @@ export async function verifyLedger(root, rawConfig, { offline = false } = {}) {
               && expectedCommitAvailable(root, expectedCommit)
             ? { ...remoteObserved, pinRef }
             : await fetchExpectedPin(root, config.remote, pinRef, expectedCommit, remoteObserved);
-        const pinned = bindingValid
-          ? git(root, ['rev-parse', `${entry.transport.pinRef}^{commit}`], { allowFailure: true })
-          : { status: 1, stdout: '' };
-        const localStatus = pinned.status !== 0
-          ? 'missing'
-          : pinned.stdout.trim() === expectedCommit ? 'expected' : 'mismatch';
+        const localAfter = bindingValid ? localPinObservation(root, pinRef, expectedCommit) : { status: 'invalid' };
+        const localStatus = localAfter.status;
         pinDiagnostics.push({
           entryHash: hash,
           pinRef,
@@ -2107,10 +2179,16 @@ export async function verifyLedger(root, rawConfig, { offline = false } = {}) {
         });
         if (!bindingValid) {
           errors.push(`Entry ${hash} contains an invalid source-pin ref or commit binding.`);
-        } else if (pinned.status !== 0 && (retentionExpired.has(hash) || retentionExpired.has(entry.transport.pinRef))) {
+        } else if (localStatus === 'missing' && (retentionExpired.has(hash) || retentionExpired.has(entry.transport.pinRef))) {
           warnings.push(`Entry ${hash} source pin is retention-expired.`);
-        } else if (pinned.status !== 0) {
-          const reason = fetched.status === 'missing'
+        } else if (localStatus !== 'expected' && localStatus !== 'mismatch') {
+          const reason = localStatus === 'symbolic'
+            ? 'the local pin is a symbolic ref, not the recorded direct ref'
+            : localStatus === 'unavailable'
+              ? 'the exact local pin cannot be inspected'
+              : localStatus === 'invalid-object'
+                ? 'the local pin does not reference a commit'
+              : fetched.status === 'missing'
             ? `${config.remote} does not advertise the recorded ref`
             : fetched.status === 'network-disabled'
               ? 'network access is disabled'
@@ -2125,7 +2203,7 @@ export async function verifyLedger(root, rawConfig, { offline = false } = {}) {
         } else if (fetched.status === 'mismatch') {
           errors.push(`Entry ${hash} remote pin ${entry.transport.pinRef} does not match source commit ${expectedCommit}. Refusing to overwrite it.`);
         }
-        else if (pinned.stdout.trim() !== entry.transport.publishedCommit) {
+        else if (localStatus === 'mismatch') {
           errors.push(`Entry ${hash} pin does not match source commit ${entry.transport.publishedCommit}.`);
         } else if (!offline && fetched.status === 'missing'
           && (retentionExpired.has(hash) || retentionExpired.has(entry.transport.pinRef))) {
@@ -2189,14 +2267,7 @@ function installLocalPin(root, entry) {
   const validation = validatePinnedSource(root, entry);
   if (!validation.valid) return { status: 'invalid-source', pinRef, reason: validation.reason };
   const local = localPinObservation(root, pinRef, expectedCommit);
-  if (local.status === 'expected') return { status: 'expected', pinRef, commit: expectedCommit };
-  const args = local.commit
-    ? ['update-ref', pinRef, expectedCommit, local.commit]
-    : ['update-ref', pinRef, expectedCommit, '0'.repeat(expectedCommit.length)];
-  const updated = git(root, args, { allowFailure: true });
-  return updated.status === 0
-    ? { status: 'installed', pinRef, commit: expectedCommit }
-    : { status: 'concurrent-change', pinRef };
+  return installExpectedPinRef(root, pinRef, expectedCommit, local);
 }
 
 function pinRepairPlanHash({ remote, sourceRemote, restorations }) {

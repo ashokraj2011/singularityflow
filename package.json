@@ -20,6 +20,7 @@
   "exports": {
     "./src/api.mjs": "./src/api.mjs",
     "./fos": "./src/fos-api.mjs",
+    "./gal/async-read": "./src/gal-async-read.mjs",
     "./sgos": "./src/sgos/index.mjs",
     "./local-mode": "./src/local-mode/index.mjs",
     "./fwm": "./src/world-model/fwm/index.mjs",

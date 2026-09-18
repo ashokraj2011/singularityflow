@@ -147,6 +147,42 @@ function outputText(result) {
   return outputBytes(result).toString('utf8').trim();
 }
 
+// Candidate refs are immutable authority, not revision expressions. In particular, rev-parse
+// follows a symbolic ref and can make a forged alias look like the sealed direct ref.
+function exactLocalRef(root, ref) {
+  const result = git(root, [
+    'for-each-ref', '--format=%(refname)%00%(symref)%00%(objectname)', ref
+  ], { allowFailure: true });
+  if (result.status !== 0) {
+    fail('Auto Candidate could not inspect its exact local ref.', 'AUTO_CANDIDATE_GIT_FAILED');
+  }
+  const bytes = outputBytes(result);
+  if (bytes.length === 0) return { kind: 'absent', oid: null };
+  const match = bytes.toString('ascii').match(/^([^\0\r\n]+)\0([^\0\r\n]*)\0([a-f0-9]{40}|[a-f0-9]{64})\n$/u);
+  if (!match || match[1] !== ref || !bytes.equals(Buffer.from(match[0], 'ascii'))) {
+    fail('Auto Candidate local ref observation was ambiguous.', 'AUTO_CANDIDATE_GIT_FAILED');
+  }
+  return match[2] ? { kind: 'symbolic', oid: null } : { kind: 'direct', oid: match[3] };
+}
+
+function retainImmutableLocalRef(root, ref, commit, {
+  expectedOld = null, conflictCode = 'AUTO_CANDIDATE_CONFLICT',
+  conflictMessage = 'Auto Candidate local ref conflicts with immutable authority.'
+} = {}) {
+  const current = exactLocalRef(root, ref);
+  if (current.kind === 'symbolic') fail(conflictMessage, conflictCode);
+  if (current.kind === 'direct' && current.oid === commit) return;
+  if (current.kind === 'direct' && current.oid !== expectedOld) fail(conflictMessage, conflictCode);
+  const old = current.kind === 'direct' ? expectedOld : '0'.repeat(commit.length);
+  const update = git(root, ['update-ref', '--no-deref', ref, commit, old], { allowFailure: true });
+  // A lost acknowledgement can still be reconciled by the exact non-symbolic ref. Never
+  // infer success from a dereferenced revision or retry with a weaker precondition.
+  const observed = exactLocalRef(root, ref);
+  if (observed.kind === 'direct' && observed.oid === commit) return;
+  if (update.status !== 0 && observed.kind === 'absent') fail(conflictMessage, conflictCode);
+  fail(conflictMessage, conflictCode);
+}
+
 function temporaryIndexEnvironment(index) {
   return {
     ...process.env,
@@ -400,14 +436,9 @@ export async function freezeAutoCandidate(root, {
     env, input: message
   }));
   const retainedRef = `refs/singularity-flow/auto-candidates/${flightId}/${candidateId}`;
-  const zero = '0'.repeat(candidateCommit.length);
-  const created = git(root, ['update-ref', retainedRef, candidateCommit, zero], { allowFailure: true });
-  if (created.status !== 0) {
-    const observed = outputText(git(root, ['rev-parse', '--verify', retainedRef], { allowFailure: true }));
-    if (observed !== candidateCommit) {
-      fail('Auto Candidate retention ref already has different immutable bytes.', 'AUTO_CANDIDATE_CONFLICT');
-    }
-  }
+  retainImmutableLocalRef(root, retainedRef, candidateCommit, {
+    conflictMessage: 'Auto Candidate retention ref already has different immutable bytes.'
+  });
   const core = {
     schemaVersion: currentSchemaVersion('auto-candidate-binding'),
     kind: 'auto-candidate-binding',
@@ -489,9 +520,8 @@ function parseCandidateBindingBytes(raw, { flightId = null, candidateId = null }
 }
 
 function assertLocalCandidateRetention(root, binding) {
-  const observedCommit = outputText(git(root, ['rev-parse', '--verify', binding.repository.retainedRef], {
-    allowFailure: true
-  }));
+  const ref = exactLocalRef(root, binding.repository.retainedRef);
+  const observedCommit = ref.kind === 'direct' ? ref.oid : null;
   const observedTree = observedCommit && outputText(git(root, ['rev-parse', `${observedCommit}^{tree}`], {
     allowFailure: true
   }));
@@ -513,7 +543,13 @@ async function remoteObjectAtRef(root, remote, ref) {
   if (lines.length > 1) {
     fail('Auto Candidate remote returned an ambiguous exact ref.', 'AUTO_CANDIDATE_REMOTE_CONFLICT');
   }
-  return lines[0] ? lines[0].split(/\s+/u)[0] : null;
+  if (!lines[0]) return null;
+  const match = lines[0].match(/^([a-f0-9]{40}|[a-f0-9]{64})\t([^\t\r\n]+)$/u);
+  if (!match || match[2] !== ref) {
+    fail('Auto Candidate remote did not return the requested exact ref.',
+      'AUTO_CANDIDATE_REMOTE_CONFLICT');
+  }
+  return match[1];
 }
 
 function buildRecoveryCommit(root, binding, context) {
@@ -555,15 +591,10 @@ export async function publishAutoCandidateRecoveryAuthority(root, binding, {
   });
   const ref = recoveryRef(context);
   const { commit } = buildRecoveryCommit(root, retained, context);
-  const zero = '0'.repeat(commit.length);
-  const created = git(root, ['update-ref', ref, commit, zero], { allowFailure: true });
-  if (created.status !== 0) {
-    const local = outputText(git(root, ['rev-parse', '--verify', ref], { allowFailure: true }));
-    if (local !== commit) {
-      fail('Auto Candidate local recovery ref already names different immutable authority.',
-        'AUTO_CANDIDATE_RECOVERY_CONFLICT');
-    }
-  }
+  retainImmutableLocalRef(root, ref, commit, {
+    conflictCode: 'AUTO_CANDIDATE_RECOVERY_CONFLICT',
+    conflictMessage: 'Auto Candidate local recovery ref already names different immutable authority.'
+  });
   const observed = await remoteObjectAtRef(root, remote, ref);
   if (observed && observed !== commit) {
     fail('Auto Candidate remote recovery ref already names different immutable authority.',
@@ -617,19 +648,10 @@ function readFetchedRecoveryAuthority(root, advertisedCommit, parsed) {
     fail('Auto Candidate recovery commit message does not bind its ref context.',
       'AUTO_CANDIDATE_RECOVERY_CORRUPT');
   }
-  const zero = '0'.repeat(binding.repository.candidateCommit.length);
-  const retained = git(root, [
-    'update-ref', binding.repository.retainedRef, binding.repository.candidateCommit, zero
-  ], { allowFailure: true });
-  if (retained.status !== 0) {
-    const local = outputText(git(root, [
-      'rev-parse', '--verify', binding.repository.retainedRef
-    ], { allowFailure: true }));
-    if (local !== binding.repository.candidateCommit) {
-      fail('Recovered Candidate conflicts with an existing local retention ref.',
-        'AUTO_CANDIDATE_RECOVERY_CONFLICT');
-    }
-  }
+  retainImmutableLocalRef(root, binding.repository.retainedRef, binding.repository.candidateCommit, {
+    conflictCode: 'AUTO_CANDIDATE_RECOVERY_CONFLICT',
+    conflictMessage: 'Recovered Candidate conflicts with an existing local retention ref.'
+  });
   assertLocalCandidateRetention(root, binding);
   return binding;
 }
@@ -726,9 +748,8 @@ export async function publishAutoCandidateAuthority(root, binding, { remote = 'o
     fail('Auto Candidate authority requires a configured remote.',
       'AUTO_CANDIDATE_REMOTE_UNAVAILABLE');
   }
-  const local = outputText(git(root, ['rev-parse', '--verify', retained.repository.retainedRef], {
-    allowFailure: true
-  }));
+  const localRef = exactLocalRef(root, retained.repository.retainedRef);
+  const local = localRef.kind === 'direct' ? localRef.oid : null;
   if (local !== retained.repository.candidateCommit) {
     fail('Auto Candidate local retention no longer names the sealed commit.',
       'AUTO_CANDIDATE_RETENTION_LOST');
@@ -774,9 +795,12 @@ export async function restoreAutoCandidateAuthority(root, binding, verification 
     fail('The governed Auto Candidate is no longer reachable from its remote authority.',
       'AUTO_CANDIDATE_REMOTE_LOST');
   }
-  let local = outputText(git(root, ['rev-parse', '--verify', retained.repository.retainedRef], {
-    allowFailure: true
-  }));
+  const localRef = exactLocalRef(root, retained.repository.retainedRef);
+  if (localRef.kind === 'symbolic') {
+    fail('The local Candidate ref conflicts with governed remote authority.',
+      'AUTO_CANDIDATE_REMOTE_CONFLICT');
+  }
+  let local = localRef.oid;
   if (local && local !== retained.repository.candidateCommit) {
     fail('The local Candidate ref conflicts with governed remote authority.',
       'AUTO_CANDIDATE_REMOTE_CONFLICT');
@@ -793,14 +817,12 @@ export async function restoreAutoCandidateAuthority(root, binding, verification 
       fail('The governed Auto Candidate commit could not be fetched exactly.',
         'AUTO_CANDIDATE_REMOTE_LOST');
     }
-    const updated = git(root, [
-      'update-ref', retained.repository.retainedRef, retained.repository.candidateCommit,
-      local || '0'.repeat(retained.repository.candidateCommit.length)
-    ], { allowFailure: true });
-    if (updated.status !== 0) {
-      fail('The governed Auto Candidate ref could not be restored locally.',
-        'AUTO_CANDIDATE_REMOTE_CONFLICT');
-    }
+    retainImmutableLocalRef(root, retained.repository.retainedRef,
+      retained.repository.candidateCommit, {
+        expectedOld: local,
+        conflictCode: 'AUTO_CANDIDATE_REMOTE_CONFLICT',
+        conflictMessage: 'The governed Auto Candidate ref could not be restored locally.'
+      });
     local = retained.repository.candidateCommit;
   }
   const tree = outputText(git(root, [

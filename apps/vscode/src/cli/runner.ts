@@ -1,5 +1,6 @@
 /**
- * Every read and every write goes through the CLI. The extension never imports `src/*.mjs`.
+ * Governed state reads and writes go through the CLI. The early Git root probe uses the published,
+ * host-neutral GAL read descriptor while this runner retains async process supervision.
  *
  * That is a deliberate constraint rather than an accident of packaging. The engine's guarantee is
  * that state re-derives from Git; a second in-process caller with its own copy of the rules is
@@ -7,14 +8,15 @@
  * the shape works — this is a port of apps/desktop/electron/cli-runner.mjs, with the parts that were
  * Electron-specific corrected rather than carried over.
  *
- * Deliberately kept dependency-free and free of any `vscode` import, so it can be unit-tested in a
- * plain Node process against a fake spawn.
+ * Deliberately free of any `vscode` or heavyweight engine import, so it can be unit-tested in a
+ * plain Node process against a fake spawn. The shared read descriptor has no process imports.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
+import { executeGalAsyncRead } from '../../../../src/gal-async-read.mjs';
 import { recordHostCliProcessCompleted, recordHostCliProcessStarted } from '../host-performance.ts';
 import { commandGuidance } from '../copilot-command.ts';
 
@@ -1308,14 +1310,14 @@ export async function validateFactoryResetRepositoryDirectory(
   if (git?.isSymbolicLink()) throw new Error(`The selected repository has unsafe symbolic-link Git metadata: ${canonical}`);
 
   const runLocal = options.localRunner ?? localGit;
-  const probe = await runLocal(['rev-parse', '--show-toplevel'], {
-    cwd: canonical, timeout: LOCAL_GIT_TIMEOUT_MS, signal: options.signal
+  const probe = await executeGalAsyncRead('repository.root', canonical, {
+    runner: runLocal, signal: options.signal
   });
-  const topLevelText = probe.stdout.toString('utf8').trim();
-  if (probe.status !== 0 || !topLevelText) {
+  if (!probe.ok) {
     if (!git) throw new Error(`The selected folder is not a Git repository: ${resolved}`);
     throw new Error(`The selected folder is not a valid Git working tree: ${canonical}`);
   }
+  const topLevelText = probe.value;
   // Do not compare Git's spelling with Node's spelling. On Windows Git commonly emits forward
   // slashes and may spell a drive or network root differently. Resolving both paths through the
   // filesystem keeps those aliases working without weakening the boundary to lexical case-folding.

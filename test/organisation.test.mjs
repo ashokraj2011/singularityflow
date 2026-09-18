@@ -2983,6 +2983,91 @@ test('activation recovers an exact merged proposal after the provider deletes it
   assert.equal(activated.projection.published, true);
 });
 
+test('deleted proposal recovery refuses a symbolic local recovery ref even when it resolves to the reviewed commit', {
+  skip: process.platform === 'win32'
+}, async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const proposed = await mapCapability(org.platform, {
+    capabilityId: 'calculator', name: 'Calculator', kind: 'collection'
+  });
+  await mergeProposal(org.platform, proposed);
+  run('git', ['update-ref', '-d', `refs/heads/${proposed.branch}`], { cwd: org.platform });
+
+  const bin = await mkdtemp(path.join(os.tmpdir(), 'sflow-proposal-ref-race-'));
+  const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
+  const fakeGit = path.join(bin, 'git');
+  await writeFile(fakeGit, [
+    '#!/bin/sh',
+    'if [ "$1" = "update-ref" ] && [ "$2" = "--no-deref" ]; then',
+    '  case "$3" in refs/singularity/capability-proposal-recovery/*) ',
+    // Inject a concurrent symbolic ref to the same reviewed commit. rev-parse would see the
+    // desired OID, but this is not an exact private recovery ref and must not be accepted.
+    `    ${JSON.stringify(realGit)} symbolic-ref "$3" refs/heads/sflow/config ;;`,
+    '  esac',
+    'fi',
+    `exec ${JSON.stringify(realGit)} "$@"`,
+    ''
+  ].join('\n'));
+  await chmod(fakeGit, 0o755);
+  const previousPath = process.env.PATH;
+  try {
+    process.env.PATH = `${bin}${path.delimiter}${previousPath ?? ''}`;
+    await assert.rejects(
+      activateCapabilityProposal(org.platform, proposed.branch, { confirm: proposed.commit }),
+      (error) => error?.code === 'CAPABILITY_PROPOSAL_RECOVERY_REF_CONFLICT'
+    );
+    assert.equal(run('git', ['rev-parse', 'sflow/config'], {
+      cwd: org.platform
+    }).stdout.trim(), proposed.commit, 'approved configuration must not move');
+  } finally {
+    if (previousPath == null) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    await rm(bin, { recursive: true, force: true });
+  }
+});
+
+test('deleted proposal recovery reconciles an unacknowledged but exact local ref update', {
+  skip: process.platform === 'win32'
+}, async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const proposed = await mapCapability(org.platform, {
+    capabilityId: 'calculator', name: 'Calculator', kind: 'collection'
+  });
+  await mergeProposal(org.platform, proposed);
+  run('git', ['update-ref', '-d', `refs/heads/${proposed.branch}`], { cwd: org.platform });
+
+  const bin = await mkdtemp(path.join(os.tmpdir(), 'sflow-proposal-ref-ack-'));
+  const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
+  const fakeGit = path.join(bin, 'git');
+  await writeFile(fakeGit, [
+    '#!/bin/sh',
+    'if [ "$1" = "update-ref" ] && [ "$2" = "--no-deref" ]; then',
+    '  case "$3" in refs/singularity/capability-proposal-recovery/*) ',
+    `    ${JSON.stringify(realGit)} "$@" || exit $?`,
+    '    exit 1 ;;',
+    '  esac',
+    'fi',
+    `exec ${JSON.stringify(realGit)} "$@"`,
+    ''
+  ].join('\n'));
+  await chmod(fakeGit, 0o755);
+  const previousPath = process.env.PATH;
+  try {
+    process.env.PATH = `${bin}${path.delimiter}${previousPath ?? ''}`;
+    const activated = await activateCapabilityProposal(org.platform, proposed.branch, {
+      confirm: proposed.commit
+    });
+    assert.equal(activated.activated, true);
+    assert.equal(activated.audit.recorded, true);
+  } finally {
+    if (previousPath == null) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    await rm(bin, { recursive: true, force: true });
+  }
+});
+
 test('a squash-merged proposal is recognized without moving approved configuration again', async () => {
   const org = await remotes('platform');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
@@ -4495,28 +4580,29 @@ test('capability fsck detects an unpinned canonical map that diverges from appro
     }
   }));
 
-  const fsck = await capabilityFsck(org.platform, {
-    workspaces: [{
-      id: 'office-work',
-      name: 'Office work',
-      path: workspacePath,
-      leadRepository: 'platform',
-      capabilityAuthority: { url: org.platform },
-      capabilities: ['piassistnat'],
-      repositories: {
-        platform: {
-          id: 'platform', url: org.platform, path: 'repos/platform',
-          capabilities: ['piassistnat']
-        }
+  const workspace = {
+    id: 'office-work',
+    name: 'Office work',
+    path: workspacePath,
+    leadRepository: 'platform',
+    capabilityAuthority: { url: org.platform },
+    capabilities: ['piassistnat'],
+    repositories: {
+      platform: {
+        id: 'platform', url: org.platform, path: 'repos/platform',
+        capabilities: ['piassistnat']
       }
-    }]
-  });
+    }
+  };
+  const fsck = await capabilityFsck(org.platform, { workspaces: [workspace] });
 
   assert.equal(fsck.valid, false);
   const divergence = fsck.checks.find((entry) =>
     entry.id === 'workspace:office-work:canonical-capability-map');
   assert.equal(divergence.status, 'fail');
   assert.match(divergence.summary, /diverges from approved 'sflow\/config'/);
+  assert.equal(divergence.details.branch, 'main',
+    'capability fsck reports the exact checked-out branch through the registered read');
   assert.deepEqual(divergence.details.localCapabilities, ['enterprise', 'product']);
   assert.ok(divergence.details.approvedCapabilities.includes('piassistnat'));
   assert.match(divergence.details.note, /runtime ignores this unproven local map/i);
@@ -4524,6 +4610,14 @@ test('capability fsck detects an unpinned canonical map that diverges from appro
   assert.match(divergence.remediation, /No automatic deletion is performed/);
   assert.doesNotMatch(divergence.remediation, /refresh-configuration/,
     'configuration refresh cannot remove an application-branch shadow map');
+
+  run('git', ['switch', '--detach', '--quiet', 'HEAD'], { cwd: checkout });
+  const detached = await capabilityFsck(org.platform, { workspaces: [workspace] });
+  const detachedDivergence = detached.checks.find((entry) =>
+    entry.id === 'workspace:office-work:canonical-capability-map');
+  assert.equal(detachedDivergence.status, 'fail');
+  assert.equal(detachedDivergence.details.branch, null,
+    'detached checkout never invents a Story branch');
 });
 
 test('capability fsck accepts an older pinned Story map only when its workflow binds the same authority', async () => {

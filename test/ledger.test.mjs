@@ -426,6 +426,81 @@ test('joining an existing workspace ledger installs its refspec and runs safe lo
   assert.equal(git(fresh, ['rev-parse', pinRef]).stdout.trim(), expectedCommit);
 });
 
+test('ledger verification and repair refuse a symbolic local pin even when its target has the expected commit', async () => {
+  const { parent, remote, root } = await repository();
+  await initializeLedger(root, enabled);
+  const expectedCommit = git(root, ['rev-parse', 'HEAD']).stdout.trim();
+  const intent = createLedgerIntent({
+    eventType: 'phase-approved',
+    capabilityId: 'story-WORK-SYMBOLIC-PIN',
+    subject: { workId: 'WORK-SYMBOLIC-PIN', phase: 'specification', generation: 1 },
+    actor: { email: 'reviewer@example.com' }
+  });
+  await appendLedgerIntent(root, enabled, intent, expectedCommit);
+  const pinRef = (await ledgerShow(root, enabled, intent.eventId)).entry.transport.pinRef;
+
+  const fresh = path.join(parent, 'symbolic-pin');
+  run('git', ['clone', remote, fresh]);
+  git(fresh, ['config', 'user.name', 'Symbolic Pin Tester']);
+  git(fresh, ['config', 'user.email', 'symbolic@example.com']);
+  git(fresh, ['fetch', 'origin', 'state:refs/remotes/origin/state']);
+  assert.equal(git(fresh, ['rev-parse', 'refs/remotes/origin/main']).stdout.trim(), expectedCommit);
+  git(fresh, ['symbolic-ref', pinRef, 'refs/remotes/origin/main']);
+
+  const verified = await verifyLedger(fresh, enabled);
+  assert.equal(verified.valid, false);
+  assert.equal(verified.pinDiagnostics[0].localStatus, 'symbolic');
+  assert.match(verified.errors.join('\n'), /symbolic ref/u);
+
+  const repaired = await repairLedgerPins(fresh, enabled);
+  assert.equal(repaired.valid, false);
+  assert.equal(repaired.localActions[0].status, 'symbolic');
+  assert.equal(git(fresh, ['symbolic-ref', pinRef]).stdout.trim(), 'refs/remotes/origin/main');
+  assert.equal(git(fresh, ['rev-parse', 'refs/remotes/origin/main']).stdout.trim(), expectedCommit);
+
+  // A broken symbolic ref is still a symbolic ref; it is not an absent ref that repair may create.
+  git(fresh, ['symbolic-ref', pinRef, 'refs/heads/missing-pin-target']);
+  const dangling = await repairLedgerPins(fresh, enabled);
+  assert.equal(dangling.valid, false);
+  assert.equal(dangling.localActions[0].status, 'symbolic');
+  assert.equal(git(fresh, ['symbolic-ref', pinRef]).stdout.trim(), 'refs/heads/missing-pin-target');
+});
+
+test('ledger pin repair replaces a mismatched direct local pin with an exact old-value lease', async () => {
+  const { parent, remote, root } = await repository();
+  await initializeLedger(root, enabled);
+  const expectedCommit = git(root, ['rev-parse', 'HEAD']).stdout.trim();
+  const intent = createLedgerIntent({
+    eventType: 'phase-approved',
+    capabilityId: 'story-WORK-DIRECT-PIN',
+    subject: { workId: 'WORK-DIRECT-PIN', phase: 'specification', generation: 1 },
+    actor: { email: 'reviewer@example.com' }
+  });
+  await appendLedgerIntent(root, enabled, intent, expectedCommit);
+  const pinRef = (await ledgerShow(root, enabled, intent.eventId)).entry.transport.pinRef;
+
+  const fresh = path.join(parent, 'direct-pin');
+  run('git', ['clone', remote, fresh]);
+  git(fresh, ['config', 'user.name', 'Direct Pin Tester']);
+  git(fresh, ['config', 'user.email', 'direct@example.com']);
+  git(fresh, ['fetch', 'origin', 'state:refs/remotes/origin/state']);
+  const blob = git(fresh, ['rev-parse', 'refs/remotes/origin/main:README.md']).stdout.trim();
+  git(fresh, ['update-ref', pinRef, blob]);
+  const invalid = await repairLedgerPins(fresh, enabled);
+  assert.equal(invalid.valid, false);
+  assert.equal(invalid.localActions[0].status, 'invalid-object');
+  assert.equal(git(fresh, ['rev-parse', pinRef]).stdout.trim(), blob);
+
+  const wrongCommit = git(fresh, ['rev-parse', 'refs/remotes/origin/state']).stdout.trim();
+  assert.notEqual(wrongCommit, expectedCommit);
+  git(fresh, ['update-ref', pinRef, wrongCommit]);
+
+  const repaired = await repairLedgerPins(fresh, enabled);
+  assert.equal(repaired.localActions[0].status, 'fetched');
+  assert.equal(git(fresh, ['rev-parse', pinRef]).stdout.trim(), expectedCommit);
+  assert.equal((await verifyLedger(fresh, enabled)).valid, true);
+});
+
 test('a missing remote pin needs a hash-bound preview and restores only the recorded ref', async () => {
   const { parent, remote, root } = await repository();
   await initializeLedger(root, enabled);
@@ -845,6 +920,21 @@ test('remote publication preserves a divergent unpublished local state branch', 
   assert.equal(run('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/state']).stdout.trim(), published.commit);
 });
 
+test('remote state publication never advances a symbolic local state ref or its target', async () => {
+  const { root } = await repository();
+  await initializeLedger(root, enabled);
+  const applicationCommit = git(root, ['rev-parse', 'refs/heads/main']).stdout.trim();
+  git(root, ['symbolic-ref', 'refs/heads/state', 'refs/heads/main']);
+
+  const published = await publishToStateBranch(root, enabled, {
+    'singularity/world-model/manifest.json': '{"format":"registered-v4"}\n'
+  }, 'Publish state without following local symbolic ref');
+  assert.equal(published.changed, true);
+  assert.equal(git(root, ['symbolic-ref', 'refs/heads/state']).stdout.trim(), 'refs/heads/main');
+  assert.equal(git(root, ['rev-parse', 'refs/heads/main']).stdout.trim(), applicationCommit);
+  assert.equal(git(root, ['rev-parse', 'refs/remotes/origin/state']).stdout.trim(), published.commit);
+});
+
 test('local-only state publication refuses changed and no-op candidates built from an obsolete base', async () => {
   const { root } = await repository();
   git(root, ['remote', 'remove', 'origin']);
@@ -875,6 +965,31 @@ test('local-only state publication refuses changed and no-op candidates built fr
         && error?.details?.observedLocalSha === concurrent
     );
     assert.equal(git(root, ['rev-parse', 'refs/heads/state']).stdout.trim(), concurrent);
+  }
+});
+
+test('local-only state publication refuses a symbolic state ref, even for unchanged bytes', async () => {
+  const { root } = await repository();
+  git(root, ['remote', 'remove', 'origin']);
+  await initializeLedger(root, enabled);
+  const original = await publishToStateBranch(root, enabled, {
+    'singularity/world-model/manifest.json': '{"format":"registered-v4"}\n'
+  }, 'Publish initial local World Model');
+  const applicationCommit = git(root, ['rev-parse', 'refs/heads/main']).stdout.trim();
+  git(root, ['symbolic-ref', 'refs/heads/state', 'refs/heads/main']);
+
+  for (const contents of [
+    '{"format":"registered-v4"}\n',
+    '{"format":"registered-v4","revision":2}\n'
+  ]) {
+    await assert.rejects(
+      () => publishToStateBranch(root, enabled, {
+        'singularity/world-model/manifest.json': contents
+      }, 'Refuse symbolic local state authority', { baseRef: original.commit, refreshRemote: false }),
+      (error) => error?.code === 'state_branch.ref_symbolic'
+    );
+    assert.equal(git(root, ['symbolic-ref', 'refs/heads/state']).stdout.trim(), 'refs/heads/main');
+    assert.equal(git(root, ['rev-parse', 'refs/heads/main']).stdout.trim(), applicationCommit);
   }
 });
 

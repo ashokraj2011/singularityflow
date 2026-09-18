@@ -384,12 +384,12 @@
     },
     "src/auto/auto-candidate.mjs": {
       "counts": {
-        "command-git": 37,
+        "command-git": 29,
         "command-run": 1,
         "process-import": 1,
         "process-launch": 1
       },
-      "digest": "b308932aad8450a035017bebbefc5703e18e7d050aa83ea6b16e9069e0a689d6"
+      "digest": "23ea79043c58aba1d158f674cfedf9d399aa3d5b5641fcd41d34587c7297bcc4"
     },
     "src/auto/auto-checkpoint.mjs": {
       "counts": {
@@ -458,12 +458,6 @@
         "command-run": 6
       },
       "digest": "b780fe0fff4edd280569c10c47a8397ea7c45bd92c81439af14f669af6be7059"
-    },
-    "src/capability-doctor.mjs": {
-      "counts": {
-        "command-run": 1
-      },
-      "digest": "bd4a7bafdf9b7a8ebe5e5ee3cdeba70dc165eed8ad4497d9508a72ecbcffe937"
     },
     "src/capability-start.mjs": {
       "counts": {
@@ -535,9 +529,9 @@
     },
     "src/configuration-branch.mjs": {
       "counts": {
-        "command-run": 26
+        "command-run": 27
       },
-      "digest": "65a75426c4f6035b9b6135e7592f722869805bedd9d7579125323e9d669d4985"
+      "digest": "eafccadb04940903262558af19e8fd039f32bd3aa93601fafcd0262ded2654f0"
     },
     "src/configuration-people.mjs": {
       "counts": {
@@ -836,10 +830,10 @@
     },
     "src/ledger.mjs": {
       "counts": {
-        "command-git": 85,
+        "command-git": 79,
         "command-run": 2
       },
-      "digest": "66d6efd92aa0dca5f01ba50544134b9912fe51e84c4445d8da196bd89e307e27"
+      "digest": "c8eb18adca0bafb3523973aa85c273bad8052ca639a49d946249adaa14bf3a6e"
     },
     "src/local-identity.mjs": {
       "counts": {
@@ -892,9 +886,9 @@
     },
     "src/organisation.mjs": {
       "counts": {
-        "command-run": 90
+        "command-run": 89
       },
-      "digest": "c837b79bf873689c5fab7966a520a40d6516dec06d9ebf9c5ceccde09fbffc75"
+      "digest": "9ce3f3487f7e2b0ee227588f6226ce28b724f9d878d6c8cbb4ad31b8e4147ec3"
     },
     "src/performance-doctor.mjs": {
       "counts": {
@@ -925,7 +919,7 @@
       "counts": {
         "command-run": 2
       },
-      "digest": "916cccd657e930542652a3a84f4a5004944bf5dd46025e524d212eea33ff24cb"
+      "digest": "02eb04d2780a5978a2e20883afeab1844a0b513778cf0cea4d3305c7ff164961"
     },
     "src/pull-request.mjs": {
       "counts": {
@@ -1115,9 +1109,9 @@
     },
     "src/state.mjs": {
       "counts": {
-        "command-run": 32
+        "command-run": 29
       },
-      "digest": "66373f4a062fa2ecd243819c74a271236f396c09286f10a202c9ccbf2b6c939e"
+      "digest": "43345ce36af0369707171887e11e693ed5185eac60954ed979fce2aae7bdf36a"
     },
     "src/story-lineage.mjs": {
       "counts": {
@@ -1151,9 +1145,9 @@
     },
     "src/transport-intents.mjs": {
       "counts": {
-        "command-runCommand": 8
+        "command-runCommand": 7
       },
-      "digest": "644b495ae252a6815535e661ba0a260adbf14cb2423a89194917ce0e130bb8ca"
+      "digest": "1660e36614b1353e191bdb0f8f9f13d3426e27c08608b758f4c686651d005259"
     },
     "src/util.mjs": {
       "counts": {
@@ -1209,25 +1203,19 @@
       },
       "digest": "69473003e5257b3386da169cd0e31241ddc166ab3d9be1c986c0fb2569748a97"
     },
-    "src/workspace-context.mjs": {
-      "counts": {
-        "command-run": 1
-      },
-      "digest": "043dc9d90da147406b47e41fe3a03b7e7bb01424c1d1a407885769cb5afe32d5"
-    },
     "src/workspace-impact.mjs": {
       "counts": {
-        "command-run": 11
+        "command-run": 4
       },
-      "digest": "533cda99728e79b328a8a36844647ee2b4898dcc2f7e6fb9cea730d277ce2a30"
+      "digest": "729dc55bdbf49cc685be5b8c87f5db5681581f3b88f9d875d80241d48e6724e7"
     },
     "src/workspace.mjs": {
       "counts": {
         "command-git-literal": 1,
-        "command-run": 40,
+        "command-run": 38,
         "process-import": 1
       },
-      "digest": "0c9baef3f1a1120ae818ca182c15b5bd78a7a65587be61160d19721d64651d5f"
+      "digest": "f8995650a8a7452b6e245d671d0eb7cea1f1256e30e2bf676378531f977a6652"
     },
     "src/worktree-fingerprint.mjs": {
       "counts": {

@@ -10,6 +10,7 @@ import {
   assertAutoCandidateMatches, autoAttemptId, autoCandidateEnvironment,
   autoCandidateFromEnvironment, autoCandidatePublicationFromEnvironment,
   freezeAutoCandidate, observeAutoCandidateWorktree, publishAutoCandidateAuthority,
+  publishAutoCandidateRecoveryAuthority,
   readAutoCandidateBinding, readAutoCandidateVerification, restoreAutoCandidateAuthority,
   restoreAutoCandidateWorktree, validateAutoCandidateBinding,
   validateAutoCandidateVerification, verifyAutoCandidate
@@ -93,6 +94,66 @@ test('Auto Candidate freezes an exact Git authority for add/delete/rename/mode/s
     (error) => error.code === 'AUTO_CANDIDATE_CHANGED'
   );
   assert.notEqual(await sourceTreeHash(root), candidate.candidateSha256);
+});
+
+test('Auto Candidate refuses a symbolic retention ref even when its target names the sealed commit', async (t) => {
+  const root = await repository();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const baselineCommit = git(root, 'rev-parse', 'HEAD');
+  await writeFile(path.join(root, 'src', 'app.mjs'), 'export const value = 2;\n');
+  const flightId = `AFL-${'D'.repeat(26)}`;
+  const options = {
+    flightId,
+    attemptId: autoAttemptId({ flightId, phase: 'implementation', attemptNumber: 1 }),
+    baselineCommit,
+    executionUnitId: 'copilot-cli'
+  };
+  const candidate = await freezeAutoCandidate(root, options);
+  assert.equal((await freezeAutoCandidate(root, options)).bindingSha256, candidate.bindingSha256);
+  const alias = 'refs/heads/candidate-alias';
+  git(root, 'update-ref', alias, candidate.repository.candidateCommit);
+  git(root, 'update-ref', '-d', candidate.repository.retainedRef);
+  git(root, 'symbolic-ref', candidate.repository.retainedRef, alias);
+  assert.equal(git(root, 'rev-parse', candidate.repository.retainedRef),
+    candidate.repository.candidateCommit);
+
+  await assert.rejects(freezeAutoCandidate(root, options),
+    (error) => error.code === 'AUTO_CANDIDATE_CONFLICT');
+  await assert.rejects(readAutoCandidateBinding(root, {
+    flightId, candidateId: candidate.candidateId
+  }), (error) => error.code === 'AUTO_CANDIDATE_RETENTION_LOST');
+  assert.equal(git(root, 'symbolic-ref', candidate.repository.retainedRef), alias);
+});
+
+test('Auto Candidate recovery refuses a symbolic journal ref with an identical target commit', async (t) => {
+  const root = await repository();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const remote = `${root}.git`;
+  t.after(() => rm(remote, { recursive: true, force: true }));
+  git(root, 'init', '--bare', '-q', remote);
+  git(root, 'remote', 'add', 'origin', remote);
+  const baselineCommit = git(root, 'rev-parse', 'HEAD');
+  await writeFile(path.join(root, 'src', 'app.mjs'), 'export const value = 3;\n');
+  const flightId = `AFL-${'E'.repeat(26)}`;
+  const candidate = await freezeAutoCandidate(root, {
+    flightId,
+    attemptId: autoAttemptId({ flightId, phase: 'implementation', attemptNumber: 1 }),
+    baselineCommit,
+    executionUnitId: 'copilot-cli'
+  });
+  const context = {
+    phase: 'implementation', baseCheckpointSha256: `sha256:${'a'.repeat(64)}`,
+    disposition: 'authored', attemptNumber: 1, modelInvocations: 1
+  };
+  const first = await publishAutoCandidateRecoveryAuthority(root, candidate, context);
+  const alias = 'refs/heads/recovery-alias';
+  git(root, 'update-ref', alias, first.commit);
+  git(root, 'update-ref', '-d', first.ref);
+  git(root, 'symbolic-ref', first.ref, alias);
+
+  await assert.rejects(publishAutoCandidateRecoveryAuthority(root, candidate, context),
+    (error) => error.code === 'AUTO_CANDIDATE_RECOVERY_CONFLICT');
+  assert.equal(git(root, 'symbolic-ref', first.ref), alias);
 });
 
 test('Auto Candidate rejects an oversized resource manifest before hashing or iterating it', async (t) => {

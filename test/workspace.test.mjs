@@ -2548,6 +2548,22 @@ test('workspace adoption preserves literal query characters in a local Git autho
   assert.equal(adopted.status.repositories[0].state, 'ready');
 });
 
+test('workspace adoption reads the current branch afresh and refuses a detached checkout', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-adopt-branch-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const remote = await remoteRepository(root, 'branch-authority');
+  const clone = path.join(root, 'existing-clone');
+  run('git', ['clone', remote, clone], { cwd: root });
+
+  const attached = await workspaceRepositoryDefaults(clone);
+  assert.equal(attached.adoption.currentBranch, 'main');
+  const commit = run('git', ['rev-parse', 'HEAD'], { cwd: clone }).stdout.trim();
+  run('git', ['switch', '--detach', 'HEAD'], { cwd: clone });
+  await assert.rejects(() => workspaceRepositoryDefaults(clone), /detached HEAD/);
+  assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: clone }).stdout.trim(), commit,
+    'a refused adoption must not mutate the checkout');
+});
+
 test('dirty-clone adoption requires a content-bound confirmation and never cleans the clone', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-adopt-dirty-'));
   const remote = await remoteRepository(root, 'platform');

@@ -2386,6 +2386,33 @@ test('publication recovery removes a rework-baseline ref created after the durab
   assert.equal(probe.status, 1, 'the interrupted transaction ref must be deleted');
 });
 
+test('publication recovery refuses a symbolic rework ref before changing files or another branch', async () => {
+  const root = await repository('sflow-preimage-symbolic-rework-ref-');
+  const subject = { kind: 'story', id: 'SYMBOLIC-REWORK-REF' };
+  const refPrefix = publicationReworkRefNamespace(subject);
+  const alias = `${refPrefix}${'a'.repeat(64)}`;
+  const target = path.join(root, 'governed.json');
+  await writeFile(target, '{"status":"before"}\n');
+  const snapshot = await capturePublicationPreimage(root, ['governed.json'], {
+    refPrefixes: [refPrefix]
+  });
+  await writeFile(target, '{"status":"interrupted"}\n');
+  git(['symbolic-ref', alias, 'refs/heads/main'], root);
+  const branchBefore = git(['rev-parse', 'refs/heads/main'], root);
+
+  await assert.rejects(
+    () => capturePublicationPreimage(root, ['governed.json'], { refPrefixes: [refPrefix] }),
+    (error) => error.code === 'PUBLICATION_PREIMAGE_REF_INVALID'
+  );
+  await assert.rejects(
+    () => restorePublicationPreimage(root, snapshot, { subject }),
+    (error) => error.code === 'PUBLICATION_PREIMAGE_REF_INVALID'
+  );
+  assert.equal(await readFile(target, 'utf8'), '{"status":"interrupted"}\n');
+  assert.equal(git(['rev-parse', 'refs/heads/main'], root), branchBefore);
+  assert.equal(git(['symbolic-ref', alias], root), 'refs/heads/main');
+});
+
 test('publication recovery restores a pre-existing rework-baseline ref to its exact object', async () => {
   const root = await repository('sflow-preimage-existing-rework-ref-');
   const subject = { kind: 'story', id: 'EXISTING-REWORK-REF' };

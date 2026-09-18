@@ -99,6 +99,7 @@ import {
   verifyCapabilityPublicationRecoveryPlan
 } from './capability-publication-recovery.mjs';
 import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
+import { executeGitQuery } from './git-query.mjs';
 import { lifecycleEvent, recordPublicationProjection } from './lifecycle-event.mjs';
 import { publishLifecycleChange } from './publication-unit-of-work.mjs';
 import { captureAggregateRecovery, restoreAggregateRecovery } from './aggregate-recovery.mjs';
@@ -2183,11 +2184,21 @@ function rebuildUsageAggregates(workflow) {
 export async function sourceTreeHash(root, ...governanceSources) {
   assertNoHiddenWorktreeChanges(root, 'Application source hashing');
   const pathContext = applicationPathContext(...governanceSources);
-  const indexed = run('git', ['ls-files', '--stage', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean)
-    .map((line) => {
-      const tab = line.indexOf('\t');
-      const [mode, object, stage] = line.slice(0, tab).split(' ');
-      return { path: posix(line.slice(tab + 1)), mode, object, stage: Number(stage) };
+  // The index is a byte-framed Git record, not a UTF-8 line. Decode through the registered
+  // parser so a malformed record or an unrepresentable filename cannot silently change the
+  // sealed application-source digest. The object format must be observed before parsing OIDs.
+  const objectFormat = executeGitQuery(root, 'repository.object-format');
+  const indexed = executeGitQuery(root, 'repository.index-detail', { objectFormat }).entries
+    .map((entry) => {
+      if (entry.path.kind !== 'utf8') {
+        throw new SingularityFlowError(
+          'Application source hashing cannot represent a non-UTF-8 Git index path.',
+          { code: 'SOURCE_TREE_PATH_UNREPRESENTABLE' }
+        );
+      }
+      // Git's path is already repository-relative with '/' separators. Running it through the
+      // host-native path normalizer would rewrite a literal POSIX backslash filename.
+      return { path: entry.path.value, mode: entry.mode, object: entry.oid, stage: entry.stage };
     })
     .filter((entry) => entry.stage === 0 && isApplicationChangePath(entry.path, pathContext));
   const unstaged = new Set(run('git', [
@@ -2201,7 +2212,6 @@ export async function sourceTreeHash(root, ...governanceSources) {
     unstaged.add(relative);
   }
   const manifest = [];
-  const objectFormat = run('git', ['rev-parse', '--show-object-format'], { cwd: root }).stdout.trim() || 'sha1';
   const blobObject = (bytes) => createHash(objectFormat)
     .update(Buffer.from(`blob ${bytes.length}\0`))
     .update(bytes)
@@ -2230,13 +2240,11 @@ export async function sourceTreeHash(root, ...governanceSources) {
       // working-state manifest stable when Git commits the exact deletion a moment later.
       continue;
     } else if (entry.mode === '160000' && info.isDirectory()) {
-      const nestedHead = run('git', ['rev-parse', '--verify', 'HEAD'], {
-        cwd: absolute, allowFailure: true
-      });
+      const nestedHead = executeGitQuery(absolute, 'repository.head');
       const nestedStatus = run('git', [
         'status', '--porcelain=v1', '--untracked-files=all', '--ignore-submodules=none'
       ], { cwd: absolute, allowFailure: true });
-      if (nestedHead.status !== 0 || !/^[a-f0-9]{40,64}$/u.test(nestedHead.stdout.trim())) {
+      if (!nestedHead || !/^[a-f0-9]{40,64}$/u.test(nestedHead)) {
         throw new SingularityFlowError(
           `Application source hashing cannot resolve submodule '${entry.path}' to an exact commit.`,
           { code: 'SOURCE_TREE_SUBMODULE_UNAVAILABLE', details: { path: entry.path } }
@@ -2249,7 +2257,7 @@ export async function sourceTreeHash(root, ...governanceSources) {
         );
       }
       manifest.push({
-        path: entry.path, mode: '160000', kind: 'gitlink', object: nestedHead.stdout.trim()
+        path: entry.path, mode: '160000', kind: 'gitlink', object: nestedHead
       });
     } else if (info.isSymbolicLink()) {
       const target = Buffer.from(await readlink(absolute));
@@ -4652,6 +4660,59 @@ function reworkBaselineRef(workflow, changeRequestId) {
   return `${publicationReworkRefNamespace({ kind: 'story', id: workflow.workItem.id })}${key}`;
 }
 
+const REWORK_BASELINE_REF_PATTERN = /^refs\/singularity-flow\/rework-baselines\/[a-f0-9]{64}\/[a-f0-9]{64}$/u;
+
+// A checkpoint ref is an owned, immutable direct ref. rev-parse dereferences symbolic aliases,
+// which could make a foreign branch appear to retain the correct tree or receive an update.
+function exactReworkBaselineRef(root, ref) {
+  if (!REWORK_BASELINE_REF_PATTERN.test(ref)) {
+    throw new SingularityFlowError('Rework checkpoint has an invalid local baseline ref.', {
+      code: 'REWORK_FORWARD_BASELINE_REF_INVALID'
+    });
+  }
+  const observed = run('git', [
+    'for-each-ref', '--format=%(refname)%00%(symref)%00%(objectname)', ref
+  ], { cwd: root, allowFailure: true });
+  if (observed.status !== 0) {
+    throw new SingularityFlowError('Rework checkpoint local baseline ref could not be inspected.', {
+      code: 'REWORK_FORWARD_BASELINE_UNAVAILABLE'
+    });
+  }
+  const lines = String(observed.stdout ?? '').split('\n').filter(Boolean);
+  if (lines.length === 0) return { kind: 'absent', object: null };
+  if (lines.length !== 1) {
+    throw new SingularityFlowError('Rework checkpoint local baseline ref observation is ambiguous.', {
+      code: 'REWORK_FORWARD_BASELINE_UNAVAILABLE'
+    });
+  }
+  const match = lines[0].match(/^([^\0\r\n]+)\0([^\0\r\n]*)\0([a-f0-9]{40}|[a-f0-9]{64})$/u);
+  if (!match || match[1] !== ref) {
+    throw new SingularityFlowError('Rework checkpoint local baseline ref observation is invalid.', {
+      code: 'REWORK_FORWARD_BASELINE_UNAVAILABLE'
+    });
+  }
+  return match[2] ? { kind: 'symbolic', object: null } : { kind: 'direct', object: match[3] };
+}
+
+function retainReworkBaselineRef(root, ref, tree) {
+  const conflict = () => new SingularityFlowError(
+    'Rework checkpoint baseline ref is symbolic or belongs to another object. No unrelated ref was changed.',
+    { code: 'REWORK_FORWARD_BASELINE_REF_CONFLICT' }
+  );
+  const current = exactReworkBaselineRef(root, ref);
+  if (current.kind === 'direct' && current.object === tree) return;
+  if (current.kind !== 'absent') throw conflict();
+  const write = run('git', ['update-ref', '--no-deref', ref, tree, '0'.repeat(tree.length)], {
+    cwd: root, allowFailure: true
+  });
+  const retained = exactReworkBaselineRef(root, ref);
+  // Reconcile a lost Git acknowledgement only against the same direct object; the zero-value
+  // lease and --no-deref protect both concurrent creation and a symbolic-ref substitution.
+  if (retained.kind === 'direct' && retained.object === tree) return;
+  if (write.status !== 0 || retained.kind !== 'direct') throw conflict();
+  throw conflict();
+}
+
 async function createReworkForwardCheckpoint(root, config, workflow, {
   changeRequestId,
   sourcePhase,
@@ -4663,7 +4724,7 @@ async function createReworkForwardCheckpoint(root, config, workflow, {
   const sourceCommit = head(root);
   const baseline = await scopedWorktreeTree(root, config, workflow, sourceCommit);
   const baselineRef = baseline.paths.length ? reworkBaselineRef(workflow, changeRequestId) : null;
-  if (baselineRef) run('git', ['update-ref', baselineRef, baseline.tree], { cwd: root });
+  if (baselineRef) retainReworkBaselineRef(root, baselineRef, baseline.tree);
   const checkpoint = {
     schemaVersion: currentSchemaVersion('rework-forward-checkpoint'),
     id: `RFW-${changeRequestId}`,
@@ -5750,11 +5811,8 @@ function verifiedReworkBaselineTree(root, checkpoint) {
     );
   }
   if (baseline.ref) {
-    const retained = run('git', ['rev-parse', '--verify', `${baseline.ref}^{tree}`], {
-      cwd: root,
-      allowFailure: true
-    });
-    if (retained.status !== 0 || retained.stdout.trim() !== baseline.tree) {
+    const retained = exactReworkBaselineRef(root, baseline.ref);
+    if (retained.kind !== 'direct' || retained.object !== baseline.tree) {
       throw new SingularityFlowError(
         `The retained local baseline ref for checkpoint '${checkpoint.id}' is missing or changed. No files were changed.`,
         { code: 'REWORK_FORWARD_BASELINE_UNAVAILABLE' }

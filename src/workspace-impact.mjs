@@ -9,6 +9,7 @@ import {
   workspaceRepositoryPath
 } from './workspace.mjs';
 import { nowIso, run, SingularityFlowError } from './util.mjs';
+import { executeGitQuery } from './git-query.mjs';
 import { invokeModel } from './model-runner.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { loadDefinition } from './config.mjs';
@@ -129,17 +130,17 @@ async function repositorySnapshot(workspace, id) {
   const repository = workspace.repositories[id];
   if (!repository) throw new SingularityFlowError(`Workspace repository '${id}' is not configured.`);
   const root = workspaceRepositoryPath(workspace, repository);
-  const git = run('git', ['rev-parse', '--show-toplevel'], { cwd: root, allowFailure: true });
-  if (git.status !== 0 || path.resolve(git.stdout.trim()) !== path.resolve(root)) {
+  const repositoryRoot = executeGitQuery(root, 'repository.root');
+  if (repositoryRoot !== path.resolve(root)) {
     throw new SingularityFlowError(`Workspace repository '${id}' is not a ready Git checkout: ${root}`);
   }
-  const commit = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
-  if (!/^[0-9a-f]{40}$/i.test(commit)) throw new SingularityFlowError(`Repository '${id}' has no full HEAD commit.`);
-  const branch = run('git', ['branch', '--show-current'], { cwd: root, allowFailure: true }).stdout.trim() || null;
-  const dirty = run('git', ['status', '--porcelain'], { cwd: root, allowFailure: true }).stdout.trim().length > 0;
+  const commit = executeGitQuery(root, 'repository.head');
+  if (!/^[0-9a-f]{40}$/i.test(commit ?? '')) throw new SingularityFlowError(`Repository '${id}' has no full HEAD commit.`);
+  const branch = executeGitQuery(root, 'repository.branch');
+  const dirty = executeGitQuery(root, 'repository.status').length > 0;
   const resolvedWorldModel = await resolvedRepositoryWorldModel(root, commit, dirty);
-  const finalCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
-  const finalDirty = run('git', ['status', '--porcelain'], { cwd: root, allowFailure: true }).stdout.trim().length > 0;
+  const finalCommit = executeGitQuery(root, 'repository.head');
+  const finalDirty = executeGitQuery(root, 'repository.status').length > 0;
   if (finalCommit !== commit || finalDirty !== dirty) {
     throw new SingularityFlowError(`Repository '${id}' changed while its impact snapshot was being prepared; retry against a stable checkout.`);
   }
@@ -380,7 +381,7 @@ export async function workspaceImpactStatus(workspacePath, id) {
       continue;
     }
     const root = workspaceRepositoryPath(workspace, configured);
-    const current = run('git', ['rev-parse', 'HEAD'], { cwd: root, allowFailure: true }).stdout.trim();
+    const current = executeGitQuery(root, 'repository.head');
     if (current !== recorded.commit) {
       changes.push({ repository: recorded.id, reason: 'HEAD changed', recorded: recorded.commit, current: current || null });
     }

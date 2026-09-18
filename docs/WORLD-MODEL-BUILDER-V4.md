@@ -383,6 +383,13 @@ short-lived writable gateway only for the confirmed run. Cancelling the modal cr
 performs no mutation. The activation-long gateway and ordinary Copilot/IDE reads remain read-only;
 no surface adds an approval bypass or broadens the five-tool catalog.
 
+That v4 picker applies only when the effective approved or Story-pinned configuration is
+`registered-v4`. For `legacy-v3`, the same button instead reviews a deterministic, model-free
+`wm light --format legacy-v3 --views all --state-only` refresh. It publishes the reusable model to
+the configured state branch without committing or pushing the application or active Story branch.
+Saving the v4 format in the settings form alone does not change the approved authority or an
+existing Story pin; publish configuration through its review flow before expecting the v4 picker.
+
 On Windows the Copilot provider is launched through the shared platform-safe command resolver and
 ACP stdio session boundary. Arguments are passed as an argv vector rather than shell text, prompts
 do not enter process arguments or environment variables, and cancellation/timeout terminates the

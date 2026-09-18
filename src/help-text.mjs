@@ -567,7 +567,7 @@ Usage:
   singularity-flow validate [--strict]
   singularity-flow gate [--terminal] [--json]
   singularity-flow wm init
-  singularity-flow wm light [--branch BRANCH] [--remote REMOTE] [--phase PHASE] [--views LIST] [--task TEXT] [--local]
+  singularity-flow wm light [--branch BRANCH] [--remote REMOTE] [--phase PHASE] [--views LIST] [--task TEXT] [--local | --state-only [--expected-source-tree-sha256 SHA256]]
   singularity-flow wm build [--branch BRANCH] [--remote REMOTE] [--phase PHASE] [--task TEXT] [--focus TEXT] [--depth light|quick|standard|deep] [--parallel|--no-parallel] [--workers N] [--model MODEL]
   singularity-flow wm status [--phase PHASE] [--task TEXT] [--json]
   singularity-flow wm ensure [--phase PHASE] [--task TEXT] [--branch BRANCH] [--remote REMOTE] [--model MODEL]

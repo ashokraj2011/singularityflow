@@ -2,19 +2,21 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { chmod, lstat, mkdtemp, mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdtemp, mkdir, readFile, readdir, rm, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import YAML from 'yaml';
-import { initializeDefinition, loadDefinition } from '../src/config.mjs';
+import { initializeDefinition, loadDefinition, resolveWorkType } from '../src/config.mjs';
 import { validateWorldModelDirectory, verifyGroundingRecord, worldModelRebuildReason, worldModelSourceSnapshot } from '../src/grounding.mjs';
 import { registerReference, resolveReference } from '../src/harness-imports.mjs';
 import { publishToStateBranch } from '../src/ledger.mjs';
+import { setAgentSession } from '../src/session.mjs';
+import { createWorkflow, loadConfig } from '../src/state.mjs';
 import { snapshot } from '../src/util.mjs';
 import {
-  phasePromptExecutionContract, specializeBuiltinWorldModelPrompt
+  loadWorldModelConfig, phasePromptExecutionContract, specializeBuiltinWorldModelPrompt
 } from '../src/worldmodel.mjs';
 import { withSubjectLock } from '../src/subject-lock.mjs';
 
@@ -751,6 +753,154 @@ test('wm light creates a compact validated repository inventory with zero model 
     JSON.parse(await readFile(path.join(modelRoot, 'manifest.json'), 'utf8')).analysis_depth,
     'light'
   );
+});
+
+async function stateOnlyStoryFixture(t, {
+  remote = true, publication = 'governed', gitPublishing = 'required'
+} = {}) {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-state-only-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const root = path.join(base, 'story');
+  const remotePath = path.join(base, 'remote.git');
+  await mkdir(root);
+  run('git', ['init', '-q', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'State Only Tester'], root);
+  run('git', ['config', 'user.email', 'state-only@example.invalid'], root);
+  await initializeDefinition(root);
+  const workflowPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(workflowPath, 'utf8'));
+  definition.worldModel.materialization.publish = publication;
+  definition.git.publish = gitPublishing;
+  await writeFile(workflowPath, YAML.stringify(definition));
+  await writeFile(path.join(root, '.gitignore'), '.isolated-machine-state/\n');
+  await writeFile(path.join(root, 'README.md'), '# State-only source A\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-qm', 'initialize Story source'], root);
+  if (remote) {
+    run('git', ['init', '--bare', '-q', remotePath], base);
+    run('git', ['remote', 'add', 'origin', remotePath], root);
+    run('git', ['push', '-q', '-u', 'origin', 'main'], root);
+  }
+  run('git', ['switch', '-q', '-c', 'WM-STATE-ONLY'], root);
+  const config = await loadConfig(root);
+  await setAgentSession(root, config, {
+    name: 'State Only Tester', email: 'state-only@example.invalid', login: null
+  }, 'product-owner', 'WM-STATE-ONLY', { phaseId: 'intake', source: 'test' });
+  await createWorkflow(root, config, {
+    id: 'WM-STATE-ONLY', title: 'Refresh the shared model without Story mutation',
+    source: {
+      type: 'manual', key: 'WM-STATE-ONLY', title: 'Refresh the shared model',
+      description: 'Use the governed state-branch projection without committing it to the Story.',
+      acceptanceCriteria: ['The Story HEAD and worktree remain unchanged.']
+    },
+    baseBranch: 'main', workType: 'feature', agent: 'product-owner',
+    resolved: resolveWorkType(config, 'feature')
+  });
+  run('git', ['add', '--', 'singularity/work-items/WM-STATE-ONLY'], root);
+  run('git', ['commit', '-qm', 'accept Story execution closure'], root);
+  if (remote) run('git', ['push', '-q', '-u', 'origin', 'WM-STATE-ONLY'], root);
+  return { root, remotePath, workflowPath };
+}
+
+test('wm light --state-only refreshes a governed state model without changing an active Story', async (t) => {
+  const { root, remotePath } = await stateOnlyStoryFixture(t);
+  const pinned = await loadWorldModelConfig(root);
+  assert.equal(pinned.workflow?.workItem?.id, 'WM-STATE-ONLY');
+  const sourceHash = (await worldModelSourceSnapshot(root, pinned.definition)).sha256;
+  const storyHead = run('git', ['rev-parse', 'HEAD'], root).trim();
+  const storyStatus = run('git', ['status', '--porcelain=v1'], root);
+  const args = [
+    'wm', 'light', '--format', 'legacy-v3', '--views', 'all', '--state-only',
+    '--expected-source-tree-sha256', sourceHash
+  ];
+  const built = flow(args, root);
+  assert.match(built.stdout, /published only to state@/);
+  assert.equal(run('git', ['rev-parse', 'HEAD'], root).trim(), storyHead);
+  assert.equal(run('git', ['status', '--porcelain=v1'], root), storyStatus);
+  assert.equal(existsSync(path.join(root, 'singularity/world-model/manifest.json')), false);
+  const stateHead = run('git', ['rev-parse', 'refs/remotes/origin/state'], root).trim();
+  assert.equal(run('git', ['ls-remote', '--heads', 'origin', 'refs/heads/state'], root).split(/\s+/)[0], stateHead);
+  assert.match(run('git', ['ls-tree', '-r', '--name-only', stateHead], root),
+    /singularity\/world-model\/manifest\.json/);
+  assert.match(flow(['wm', 'check'], root).stdout, /^fresh: sha256:/m);
+
+  const local = flow([...args, '--local'], root, { allowFailure: true });
+  assert.notEqual(local.status, 0);
+  assert.match(local.stderr, /--state-only cannot be combined with --local/);
+  const invalidSource = flow([...args.slice(0, -1), 'sha256:bad'], root, { allowFailure: true });
+  assert.notEqual(invalidSource.status, 0);
+  assert.match(invalidSource.stderr, /expected-source-tree-sha256 must be/);
+  const otherCommand = flow(['wm', 'build', '--state-only'], root, { allowFailure: true });
+  assert.notEqual(otherCommand.status, 0);
+  assert.match(otherCommand.stderr, /supported only by wm light/);
+
+  await writeFile(path.join(root, 'README.md'), '# Uncommitted Story source\n');
+  const dirtySource = (await worldModelSourceSnapshot(root, pinned.definition)).sha256;
+  const dirty = flow([...args.slice(0, -1), dirtySource], root, { allowFailure: true });
+  assert.notEqual(dirty.status, 0);
+  assert.match(dirty.stderr, /uncommitted application source/);
+  assert.equal(run('git', ['rev-parse', 'refs/remotes/origin/state'], root).trim(), stateHead);
+
+  await writeFile(path.join(root, 'README.md'), '# State-only source B\n');
+  run('git', ['add', 'README.md'], root);
+  run('git', ['commit', '-qm', 'advance Story source'], root);
+  const secondHead = run('git', ['rev-parse', 'HEAD'], root).trim();
+  const secondSource = (await worldModelSourceSnapshot(root, pinned.definition)).sha256;
+  const hook = path.join(remotePath, 'hooks', 'pre-receive');
+  await writeFile(hook, '#!/bin/sh\nexit 1\n');
+  await chmod(hook, 0o755);
+  const rejected = flow([...args.slice(0, -1), secondSource], root, { allowFailure: true });
+  assert.notEqual(rejected.status, 0);
+  assert.match(rejected.stderr, /recovery publish/);
+  assert.equal(run('git', ['rev-parse', 'HEAD'], root).trim(), secondHead);
+  const recoveries = JSON.parse(flow(['wm', 'recovery', 'list', '--json'], root).stdout);
+  const retained = recoveries.recoveries.find((entry) => entry.publicationTarget === 'state-only');
+  assert.ok(retained);
+  assert.equal(retained.status, 'pending');
+  const recordPath = path.join(root, '.git', 'singularity-flow', 'world-model-recovery', `${retained.id}.json`);
+  const recordBytes = await readFile(recordPath, 'utf8');
+  const record = JSON.parse(recordBytes);
+  assert.equal(record.publicationTarget, 'state-only');
+  assert.match(record.policySha256, /^sha256:[a-f0-9]{64}$/);
+  await writeFile(recordPath, JSON.stringify({ ...record, publicationTarget: 'state-and-application' }));
+  const mismatchedIntent = flow([
+    'wm', 'recovery', 'publish', retained.id, '--confirm', retained.id, '--json'
+  ], root, { allowFailure: true });
+  assert.notEqual(mismatchedIntent.status, 0);
+  assert.match(mismatchedIntent.stderr, /inconsistent state-only publication intent/);
+  assert.equal(run('git', ['rev-parse', 'HEAD'], root).trim(), secondHead);
+  assert.equal(run('git', ['rev-parse', 'refs/remotes/origin/state'], root).trim(), stateHead);
+  await writeFile(recordPath, recordBytes);
+  await unlink(hook);
+  const recovered = JSON.parse(flow([
+    'wm', 'recovery', 'publish', retained.id, '--confirm', retained.id, '--json'
+  ], root).stdout);
+  assert.equal(recovered.publicationTarget, 'state-only');
+  assert.equal(recovered.application.changed, false);
+  assert.equal(recovered.application.commit, null);
+  assert.notEqual(recovered.state.commit, stateHead);
+  assert.equal(run('git', ['rev-parse', 'HEAD'], root).trim(), secondHead);
+  assert.equal(existsSync(path.join(root, 'singularity/world-model/manifest.json')), false);
+});
+
+test('wm light --state-only refuses local policy, missing remote, and disabled Git publishing', async (t) => {
+  const { root } = await stateOnlyStoryFixture(t, { remote: false, publication: 'local' });
+  const localPolicy = flow(['wm', 'light', '--state-only'], root, { allowFailure: true });
+  assert.notEqual(localPolicy.status, 0);
+  assert.match(localPolicy.stderr, /materialization\.publish: governed/);
+
+  const { root: noRemoteRoot } = await stateOnlyStoryFixture(t, { remote: false });
+  const missingRemote = flow(['wm', 'light', '--state-only'], noRemoteRoot, { allowFailure: true });
+  assert.notEqual(missingRemote.status, 0);
+  assert.match(missingRemote.stderr, /requires the configured Git remote/);
+
+  const { root: gitOffRoot } = await stateOnlyStoryFixture(t, { remote: false, gitPublishing: 'off' });
+  const publishingOff = flow(['wm', 'light', '--state-only'], gitOffRoot, { allowFailure: true });
+  assert.notEqual(publishingOff.status, 0);
+  assert.match(publishingOff.stderr, /git\.publish: off cannot publish/);
+  for (const target of [root, noRemoteRoot, gitOffRoot]) {
+    assert.equal(result('git', ['show-ref', '--verify', '--quiet', 'refs/heads/state'], target).status, 1);
+  }
 });
 
 test('semantic build refuses a source race before invoking discovery or synthesis', async () => {

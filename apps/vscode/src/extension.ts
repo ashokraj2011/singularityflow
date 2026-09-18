@@ -6280,7 +6280,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           .get<string>('modelMode', 'auto');
         const outcome = await showGovernedWorldModelBuild(active, {
           modelRouting: modelMode === 'disabled' ? 'disabled' : 'enabled',
-          capabilityId: request?.capabilityId ?? null
+          capabilityId: request?.capabilityId ?? null,
+          executeLegacyLight: async (argv, signal) => {
+            if (activeRepositoryContext()?.root !== active.root || client.repository !== active.root) {
+              throw Object.assign(new Error('The selected repository changed during World Model review. Reopen Build / refresh and review the current target.'), {
+                code: 'WMB_REPOSITORY_CHANGED'
+              });
+            }
+            output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(argv)}`);
+            const result = await client.runText([...argv], { signal });
+            output.appendLine(result);
+          }
         });
         if (outcome.status === 'cancelled') return;
         if (outcome.status === 'refused') {
@@ -6305,6 +6315,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
               outcome.capabilityId ? { capabilityId: outcome.capabilityId } : undefined
             );
           }
+          return;
+        }
+        if (outcome.format === 'legacy-v3') {
+          await refreshAfterSurfaceMutation();
+          void vscode.window.showInformationMessage(
+            'Deterministic legacy-v3 World Model built with zero model calls. Review the refreshed model and publication details in the Singularity Flow output.'
+          );
           return;
         }
         const manifest = outcome.result?.data?.manifestSha256;

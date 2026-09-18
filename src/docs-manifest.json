@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "5f4613dab23bd83daa73ecae58244a733a4d85fe",
+  "sourceCommit": "3268d94635caef25b284a391a01f91d760372eb9",
   "topicCount": 65,
-  "contentSha256": "5ea7fbed10b90880f4b64da4b0c27a9ab61597544784c62c27ee7bb7a336c729",
+  "contentSha256": "16726fc15720982e9125ac7f1d3121b8a51903a21bd967b2cbb66d5f61b9d847",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -520,8 +520,8 @@
     {
       "id": "world-model",
       "title": "World model grounding and views",
-      "version": 22,
-      "sha256": "689e71e83a206544b9d5d05c5f294bce87d96fe65988409b389d8838fc98f13b",
+      "version": 23,
+      "sha256": "48d1beb89796309f1f878244d2ac7d376a836e36c1b5878f2fae53d2f33ba358",
       "routingSha256": "e8bc81fa19c1360eb38defcc0c51657bfdbe20101662beb54d403fa0bccefa68",
       "file": "world-model.md"
     }

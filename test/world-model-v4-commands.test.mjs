@@ -454,6 +454,91 @@ async function registeredRepository(t, { staleness = 'warn' } = {}) {
   return root;
 }
 
+test('explicit registered-v4 build remains readable after authority refresh under legacy defaults', async (t) => {
+  const root = await registeredRepository(t);
+  const workflowPath = path.join(root, 'singularity', 'workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
+  workflow.worldModel.format = 'legacy-v3';
+  workflow.worldModel.views = ['business', 'architecture'];
+  for (const phase of Object.values(workflow.phases)) {
+    if (phase.worldModel?.views?.length) phase.worldModel.views = ['business'];
+  }
+  await writeFile(workflowPath, YAML.stringify(workflow));
+  const agentsRoot = path.join(root, '.github', 'agents');
+  for (const name of await readdir(agentsRoot)) {
+    if (!name.endsWith('.agent.md')) continue;
+    const agentPath = path.join(agentsRoot, name);
+    await writeFile(agentPath, (await readFile(agentPath, 'utf8')).replace(
+      /sflow-world-model-views: "[^"]*"/, 'sflow-world-model-views: "business"'
+    ));
+  }
+  git(root, ['add', 'singularity/workflow.yml', '.github/agents']);
+  git(root, ['commit', '-q', '-m', 'use legacy world-model defaults']);
+  const transport = await mkdtemp(path.join(os.tmpdir(), 'sflow-wmb-override-'));
+  t.after(() => rm(transport, { recursive: true, force: true }));
+  const remote = path.join(transport, 'remote.git');
+  run('git', ['init', '--bare', '-q', remote]);
+  git(root, ['remote', 'add', 'origin', remote]);
+  git(root, ['push', '-q', '-u', 'origin', 'main']);
+  const options = { format: 'registered-v4', views: 'dev.impact', json: true };
+  const built = await quiet(() => worldModelCommand(root, ['wm', 'build'], options));
+  assert.equal(built.status, 'completed');
+  const status = await quiet(() => worldModelCommand(root, ['wm', 'status'], options));
+  assert.equal(status.fresh, true);
+  assert.ok(status.views.some((entry) => entry.viewId === 'dev.impact'));
+  const manifest = await quiet(() => worldModelCommand(root, ['wm', 'manifest'], options));
+  assert.equal(manifest.manifestSha256, status.manifestSha256);
+  const shown = await quiet(() => worldModelCommand(root, ['wm', 'show', 'dev.impact'], options));
+  assert.equal(shown.viewId, 'dev.impact');
+  const doctor = await quiet(() => worldModelCommand(root, ['wm', 'doctor'], options));
+  assert.equal(doctor.state, 'valid');
+
+  const clone = path.join(transport, 'clone');
+  run('git', ['clone', '-q', '--branch', 'main', remote, clone]);
+  git(clone, ['config', 'user.name', 'WMB Reader']);
+  git(clone, ['config', 'user.email', 'reader@example.invalid']);
+  const refreshed = await quiet(() => worldModelCommand(clone, ['wm', 'refresh-authority'], options));
+  assert.ok(['refreshed', 'current'].includes(refreshed.status));
+  const remoteStatus = await quiet(() => worldModelCommand(clone, ['wm', 'status'], options));
+  assert.equal(remoteStatus.manifestSha256, manifest.manifestSha256);
+});
+
+test('registered-v4 phase build and status use the same phase view identity', async (t) => {
+  const root = await registeredRepository(t);
+  const workflowPath = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
+  workflow.worldModel.views = ['dev.impact', 'biz.rules'];
+  workflow.worldModel.v4.totalMaximumOutputTokens = 2800;
+  workflow.phases.intake.worldModel.views = ['biz.rules'];
+  await writeFile(workflowPath, YAML.stringify(workflow));
+  git(root, ['add', 'singularity/workflow.yml']);
+  git(root, ['commit', '-q', '-m', 'set phase-specific registered view']);
+  const options = { format: 'registered-v4', phase: 'intake', json: true };
+  await quiet(() => worldModelCommand(root, ['wm', 'build'], options));
+  const status = await quiet(() => worldModelCommand(root, ['wm', 'status'], options));
+  assert.equal(status.fresh, true);
+  assert.deepEqual(status.views.map((entry) => entry.viewId), ['biz.rules']);
+  const manifest = await quiet(() => worldModelCommand(root, ['wm', 'manifest'], options));
+  assert.equal(manifest.manifestSha256, status.manifestSha256);
+  const context = await quiet(() => worldModelCommand(root, ['wm', 'context', 'intake'], {
+    format: 'registered-v4', json: true
+  }));
+  assert.deepEqual(context.views.map((entry) => entry.viewId), ['biz.rules']);
+});
+
+test('legacy state-only light cannot publish into approved registered-v4 authority', async (t) => {
+  const root = await registeredRepository(t);
+  await assert.rejects(
+    () => quiet(() => worldModelCommand(root, ['wm', 'light'], {
+      format: 'legacy-v3', 'state-only': true
+    })),
+    (error) => error.code === 'WORLD_MODEL_STATE_ONLY_FORMAT_CONFLICT'
+  );
+  assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/heads/state'], {
+    cwd: root, allowFailure: true
+  }).status, 1);
+});
+
 test('status and availability report dirty source as unavailable without changing it', async (t) => {
   const root = await registeredRepository(t);
   await quiet(() => worldModelCommand(root, ['wm', 'build'], {

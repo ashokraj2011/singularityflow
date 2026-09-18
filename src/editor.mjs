@@ -1403,18 +1403,59 @@ async function worldModelSlice(root, requestedWorkId = null) {
   const definition = config.definition;
   const outputDir = posix(config.outputDir ?? definition.worldModel?.outputDir ?? 'singularity/world-model');
   if (definition.worldModel?.format !== 'registered-v4') {
+    // Legacy models still have a verified, state-backed authority. The old v4-only placeholder
+    // made a successful deterministic refresh appear "not built" until a full snapshot happened
+    // to be reloaded. Reuse the existing offline validator, but return metadata only: no legacy
+    // prose or evidence ledger enters the retained IDE slice.
+    const inspected = await editorWorldModelStatus(root, definition, outputDir);
+    const manifest = inspected.manifest;
+    const viewEntries = Object.entries(manifest?.views ?? {}).slice(0, 128);
+    const views = viewEntries.map(([id, record]) => {
+      const full = record?.tiers?.full;
+      const brief = record?.tiers?.brief;
+      const selected = full?.status === 'ready' ? full : brief;
+      return {
+        id,
+        references: [],
+        status: full?.status === 'ready' || brief?.status === 'ready' ? 'available' : 'unavailable',
+        required: false,
+        path: selected?.path ? posix(path.join(outputDir, selected.path)) : null
+      };
+    });
+    const readiness = inspected.readiness;
+    const located = inspected.located;
+    const manifestSha256 = manifest && located?.directory
+      ? createHash('sha256').update(await readFile(path.join(located.directory, 'manifest.json'))).digest('hex')
+      : null;
     return {
       schemaVersion: 1,
       kind: 'world-model-ide-slice',
       format: definition.worldModel?.format ?? 'legacy-v3',
-      status: 'unavailable',
-      reason: 'WMB_V4_NOT_CONFIGURED',
+      status: readiness.ready ? 'ready' : 'unavailable',
+      reason: readiness.ready ? null : readiness.status,
       root: outputDir,
-      generatedAt: null,
-      rebuildReason: null,
-      readiness: { status: 'not-configured', ready: false, source: null, command: null },
-      summary: { views: 0, facts: 0, evidence: 0, derivations: 0, unavailable: 0, contradictions: 0, cacheHits: 0 },
-      views: [],
+      generatedAt: manifest?.generated_at ?? null,
+      rebuildReason: inspected.reason,
+      readiness,
+      ...(manifestSha256 ? { authority: {
+        ref: located.ref ?? null,
+        commit: located.commit ?? null,
+        manifestSha256
+      } } : {}),
+      source: {
+        status: readiness.ready ? 'fresh' : manifest ? 'stale' : 'unavailable',
+        fresh: readiness.ready,
+        currentSourceManifestSha256: null,
+        reason: inspected.reason
+      },
+      summary: {
+        views: Object.keys(manifest?.views ?? {}).length,
+        // Legacy manifests have no WMB v4 Fact/Evidence/Derivation catalogs. Do not imply
+        // semantic coverage by inferring counts from their narrative files.
+        facts: 0, evidence: 0, derivations: 0, unavailable: 0, contradictions: 0, cacheHits: 0
+      },
+      views,
+      projections: [],
       expansion: []
     };
   }

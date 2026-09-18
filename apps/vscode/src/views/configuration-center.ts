@@ -310,7 +310,7 @@ export class ConfigurationCenterPanel {
         const text = this.renderedTexts.definitionText;
         const error = await this.save(snapshot.definitionPath ?? 'singularity/workflow.yml', updateWorldModelYaml(text, draft), text);
         if (error) return this.showErrors([error]);
-        this.dirty = false; this.notice = 'World-model settings saved.';
+        this.dirty = false; this.notice = 'World-model settings saved to this checkout only. Publish configuration before repository-level builds use them; an accepted Story retains its pin.';
       } catch (error) { return this.showErrors([(error as Error).message]); }
       return this.render();
     }

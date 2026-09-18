@@ -269,6 +269,13 @@ declare module '*/worldmodel.mjs' {
   export function loadWorldModelConfig(root: string, options?: {
     agent?: string | null; workId?: string | null; capabilityId?: string | null;
   }): Promise<Record<string, any>>;
+  export function resolveWorldModelViewIds(config: Record<string, any>, values: readonly string[]): string[];
+}
+
+declare module '*/grounding.mjs' {
+  export function worldModelSourceSnapshot(root: string, definition: Record<string, any>): Promise<{
+    readonly sha256: string;
+  }>;
 }
 
 declare module '*/world-model/registry/views.mjs' {

@@ -9,6 +9,8 @@
     "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$" },
     "createdAt": { "type": "string" },
     "phase": { "type": "string" },
+    "publicationTarget": { "enum": ["state-only", "state-and-application"] },
+    "policySha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
     "sourceHash": { "type": "string", "pattern": "^(?:sha256:)?[a-f0-9]{64}$" },
     "snapshot": {
       "type": "object",

@@ -1440,15 +1440,65 @@ async function installWorldModel(staging, target) {
   await installation.finalize();
 }
 
-async function secureWorldModelTarget(root, outputDir) {
+async function secureWorldModelTarget(root, outputDir, { createParent = true } = {}) {
   const target = await secureRepositoryPath(root, outputDir, { label: 'World-model output root' });
   if (target.exists && !target.entry?.isDirectory()) {
     throw new SingularityFlowError(`World-model output root must be a directory: ${target.relative}`);
   }
-  await ensureSecureRepositoryDirectory(root, repoRelative(root, path.dirname(target.absolute)), {
-    label: 'World-model output parent'
-  });
+  if (createParent) {
+    await ensureSecureRepositoryDirectory(root, repoRelative(root, path.dirname(target.absolute)), {
+      label: 'World-model output parent'
+    });
+  }
   return target.absolute;
+}
+
+/** State-only builds must never silently fall back to local or application publication. */
+function assertStateOnlyWorldModelPublication(root, config, { local = false } = {}) {
+  if (local) {
+    throw new SingularityFlowError('--state-only cannot be combined with --local.', {
+      code: 'WORLD_MODEL_STATE_ONLY_LOCAL_CONFLICT'
+    });
+  }
+  if (isWorldModelV4(config)) {
+    throw new SingularityFlowError(
+      '--state-only is a legacy-v3 refresh and cannot publish into a registered-v4 state authority.',
+      { code: 'WORLD_MODEL_STATE_ONLY_FORMAT_CONFLICT' }
+    );
+  }
+  const policy = config.materialization ?? materializationPolicy(config.definition ?? config);
+  if (policy.publish !== 'governed') {
+    throw new SingularityFlowError('--state-only requires worldModel.materialization.publish: governed.', {
+      code: 'WORLD_MODEL_STATE_ONLY_POLICY_REQUIRED'
+    });
+  }
+  if ((config.definition?.git?.publish ?? 'required') === 'off') {
+    throw new SingularityFlowError(
+      '--state-only requires Git publishing to be enabled; git.publish: off cannot publish a reusable state-branch model.',
+      { code: 'WORLD_MODEL_STATE_ONLY_GIT_PUBLISH_REQUIRED' }
+    );
+  }
+  const authority = worldModelStateAuthority(config.definition ?? {}, {
+    branch: config.stateBranch, remote: config.remote
+  });
+  if (!hasRemote(root, authority.remote)) {
+    throw new SingularityFlowError(
+      `--state-only requires the configured Git remote '${authority.remote}' so the model can be shared; no local-only state ref was written.`,
+      { code: 'WORLD_MODEL_STATE_ONLY_REMOTE_REQUIRED' }
+    );
+  }
+  return authority;
+}
+
+function stateOnlyWorldModelPolicySha256(config) {
+  return `sha256:${sha256(JSON.stringify({
+    format: config.definition?.worldModel?.format ?? 'legacy-v3',
+    worldModel: config.definition?.worldModel ?? null,
+    materialization: config.materialization ?? null,
+    stateBranch: config.stateBranch ?? null,
+    remote: config.remote ?? null,
+    capability: config.repositoryCapability?.id ?? config.workflow?.resolution?.capability?.id ?? null
+  }))}`;
 }
 
 async function compatibleWorldModelDirectory(root, config, sourceTreeSha256) {
@@ -1611,7 +1661,9 @@ async function publishWorldModel(root, config, workflow, sourceHash, phase = 're
   return { commit, pushed: true, changed };
 }
 
-async function publicationRecoveryError(root, validatedDirectory, error, { phase, sourceHash }) {
+async function publicationRecoveryError(root, validatedDirectory, error, {
+  phase, sourceHash, publicationTarget = 'state-and-application', policySha256 = null
+}) {
   if (error?.code === 'world_model.publication_recovery_required') return error;
   let recoveryPath = null;
   let preservationError = null;
@@ -1620,7 +1672,8 @@ async function publicationRecoveryError(root, validatedDirectory, error, { phase
     await mkdir(recoveryRoot, { recursive: true });
     const label = String(phase ?? 'repository').replace(/[^a-zA-Z0-9._-]+/g, '-').slice(0, 48);
     const source = String(sourceHash ?? '').replace(/^sha256:/, '').slice(0, 12) || 'unknown';
-    recoveryPath = path.join(recoveryRoot, `${Date.now()}-${source}-${label}`);
+    recoveryPath = path.join(recoveryRoot,
+      `${publicationTarget === 'state-only' ? 'state-only-' : ''}${Date.now()}-${source}-${label}`);
     await cp(validatedDirectory, recoveryPath, { recursive: true, errorOnExist: true });
   } catch (preserveError) {
     recoveryPath = null;
@@ -1637,6 +1690,8 @@ async function publicationRecoveryError(root, validatedDirectory, error, { phase
         createdAt: new Date().toISOString(),
         phase: String(phase ?? 'repository'),
         sourceHash: String(sourceHash),
+        publicationTarget,
+        ...(policySha256 ? { policySha256 } : {}),
         snapshot: { directoryName: id, manifestSha256 },
         failure: { code: String(error?.code ?? 'WORLD_MODEL_PUBLICATION_FAILED') },
         status: 'pending'
@@ -1830,8 +1885,20 @@ async function worldModelTestBarrier(stage) {
 }
 
 /** Overlay the captured dirty/untracked source onto a detached checkout and prove its identity. */
-async function prepareWorldModelAnalysisSnapshot(root, analysisRoot, config, sourceCommit, sourceState) {
+async function prepareWorldModelAnalysisSnapshot(root, analysisRoot, config, sourceCommit, sourceState, {
+  requireCommittedSource = false
+} = {}) {
   run('git', ['worktree', 'add', '--detach', analysisRoot, sourceCommit], { cwd: root, stdio: 'inherit' });
+  if (requireCommittedSource) {
+    const committedSource = await worldModelSourceSnapshot(analysisRoot, config.definition ?? config);
+    if (committedSource.sha256 !== sourceState.sha256) {
+      throw new SingularityFlowError(
+        '--state-only cannot publish uncommitted application source as a shared World Model. '
+          + 'Commit or stash in-scope source changes, then review and retry the build.',
+        { code: 'WORLD_MODEL_STATE_ONLY_SOURCE_UNCOMMITTED' }
+      );
+    }
+  }
   for (const entry of sourceState.files.filter((item) => item.mode === '120000' && item.status !== 'deleted')) {
     const link = await secureRepositoryPath(analysisRoot, entry.path, {
       label: 'World-model analysis symbolic link',
@@ -1908,6 +1975,19 @@ async function inspectWorldModelRecovery(root, id) {
   const manifestSha256 = createHash('sha256').update(manifestBytes).digest('hex');
   const manifest = JSON.parse(manifestBytes);
   const metadata = await recoveryMetadata(root, safeId);
+  // An incomplete state-only index must never be mistaken for historical dual publication.
+  if (!metadata && safeId.startsWith('state-only-')) {
+    throw new SingularityFlowError(
+      `World-model recovery '${safeId}' lost its state-only publication intent; no branch was changed.`,
+      { code: 'WORLD_MODEL_RECOVERY_INTENT_MISSING' }
+    );
+  }
+  if (safeId.startsWith('state-only-') && metadata?.publicationTarget !== 'state-only') {
+    throw new SingularityFlowError(
+      `World-model recovery '${safeId}' has inconsistent state-only publication intent; no branch was changed.`,
+      { code: 'WORLD_MODEL_RECOVERY_INTENT_INVALID' }
+    );
+  }
   if (metadata && (metadata.id !== safeId || metadata.snapshot.directoryName !== safeId
     || metadata.snapshot.manifestSha256 !== manifestSha256)) {
     throw new SingularityFlowError(`World-model recovery '${safeId}' metadata does not match its validated snapshot.`, {
@@ -1927,6 +2007,7 @@ async function inspectWorldModelRecovery(root, id) {
     createdAt: metadata?.createdAt ?? null,
     phase: metadata?.phase ?? manifest.generated_for_phase ?? 'repository',
     sourceHash,
+    publicationTarget: metadata?.publicationTarget ?? 'state-and-application',
     manifestSha256,
     model: {
       repositoryCommit: manifest.repository_commit ?? null,
@@ -1990,6 +2071,18 @@ async function publishWorldModelRecovery(root, id, options) {
   }
   const inspected = await inspectWorldModelRecovery(root, safeId);
   const config = await load(root);
+  const stateOnly = inspected.publicationTarget === 'state-only';
+  if (stateOnly) {
+    assertStateOnlyWorldModelPublication(root, config);
+    const retained = await recoveryMetadata(root, safeId);
+    if (isWorldModelV4(config) || !retained?.policySha256
+      || retained.policySha256 !== stateOnlyWorldModelPolicySha256(config)) {
+      throw new SingularityFlowError(
+        `World-model recovery '${safeId}' no longer matches the reviewed legacy-v3 state-only policy. Review the current configuration and rebuild explicitly; no branch was changed.`,
+        { code: 'WORLD_MODEL_RECOVERY_POLICY_CHANGED' }
+      );
+    }
+  }
   const {
     sourceState: currentSource,
     repositoryIdentity
@@ -2001,7 +2094,7 @@ async function publishWorldModelRecovery(root, id, options) {
     );
   }
   const publishing = (config.definition?.git?.publish ?? 'required') !== 'off';
-  if (publishing) assertNotDefaultBranch(root, config, 'World-model recovery publication');
+  if (!stateOnly && publishing) assertNotDefaultBranch(root, config, 'World-model recovery publication');
   const directory = await recoveryDirectory(root, safeId);
   const attemptedAt = new Date().toISOString();
   let metadata = await recoveryMetadata(root, safeId);
@@ -2024,7 +2117,7 @@ async function publishWorldModelRecovery(root, id, options) {
     await assertWorldModelPublicationSource(
       root, config, inspected.sourceHash, repositoryIdentity
     );
-    const publication = await publishWorldModel(
+    const publication = stateOnly ? null : await publishWorldModel(
       root, config, config.workflow, inspected.sourceHash, inspected.phase,
       {
         local: false,
@@ -2038,6 +2131,7 @@ async function publishWorldModelRecovery(root, id, options) {
     const result = {
       schemaVersion: 1, // schema-transient: recovery publication result
       recovery: safeId,
+      publicationTarget: inspected.publicationTarget,
       providerInvoked: false,
       state: {
         branch: governed?.branch ?? null,
@@ -2045,9 +2139,9 @@ async function publishWorldModelRecovery(root, id, options) {
         published: governed?.published === true
       },
       application: {
-        commit: publication.commit ?? null,
-        pushed: publication.pushed === true,
-        changed: publication.changed === true
+        commit: publication?.commit ?? null,
+        pushed: publication?.pushed === true,
+        changed: publication?.changed === true
       }
     };
     await writeJson(worldModelRecoveryRecordPath(root, safeId), {
@@ -3010,8 +3104,10 @@ async function buildLight(root, config, options) {
     throw new SingularityFlowError('Light world-model mode does not start discovery workers. Remove --parallel and --workers.');
   }
   const local = optionBoolean(options, 'local');
+  const stateOnly = optionBoolean(options, 'state-only');
+  if (stateOnly) assertStateOnlyWorldModelPublication(root, config, { local });
   const replaceRequested = options.replaceRequestedSelections !== false;
-  if (!local && (config.definition?.git?.publish ?? 'required') !== 'off') {
+  if (!stateOnly && !local && (config.definition?.git?.publish ?? 'required') !== 'off') {
     assertNotDefaultBranch(root, config, 'World-model publication');
   }
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'singularity-flow-world-model-light-'));
@@ -3022,7 +3118,9 @@ async function buildLight(root, config, options) {
   try {
     const generatedAt = new Date().toISOString();
     const { sourceCommit, sourceState, repositoryIdentity } = await captureWorldModelBuildSource(
-      root, config, options.expectedSourceTreeSha256 ?? null
+      root, config,
+      options.expectedSourceTreeSha256
+        ?? (stateOnly ? optionString(options, 'expected-source-tree-sha256') : null)
     );
     const existingWorldModelDirectory = options.existingWorldModelDirectory
       ?? await compatibleWorldModelDirectory(root, config, sourceState.sha256);
@@ -3031,7 +3129,9 @@ async function buildLight(root, config, options) {
       : groundingPlan(config, options);
     const views = plan.views.map((item) => item.view);
     await writeWorktreeOwner(temporary, root, 'light-analysis');
-    await prepareWorldModelAnalysisSnapshot(root, analysisRoot, config, sourceCommit, sourceState);
+    await prepareWorldModelAnalysisSnapshot(root, analysisRoot, config, sourceCommit, sourceState, {
+      requireCommittedSource: stateOnly
+    });
     analysisWorktreeCreated = true;
     await worldModelTestBarrier('light-analysis-ready');
     const metadata = {
@@ -3072,7 +3172,9 @@ async function buildLight(root, config, options) {
       requiredSelections: plan.selections,
       requireEvidence: true
     });
-    const target = await secureWorldModelTarget(root, config.outputDir);
+    const target = await secureWorldModelTarget(root, config.outputDir, {
+      createParent: !stateOnly
+    });
     const merged = path.join(temporary, 'merged');
     await mergeWorldModelSnapshot({
       existingDirectory: existingWorldModelDirectory ?? target,
@@ -3106,7 +3208,7 @@ async function buildLight(root, config, options) {
       await assertWorldModelPublicationSource(
         root, config, sourceState.sha256, repositoryIdentity
       );
-      publication = await publishWorldModel(
+      publication = stateOnly ? null : await publishWorldModel(
         root, config, config.workflow, sourceState.sha256, phase ?? 'repository-light', {
           local,
           installFrom: governed?.directory ?? merged,
@@ -3117,14 +3219,24 @@ async function buildLight(root, config, options) {
       );
     } catch (error) {
       throw await publicationRecoveryError(root, merged, error, {
-        phase: phase ?? 'repository-light', sourceHash: sourceState.sha256
+        phase: phase ?? 'repository-light', sourceHash: sourceState.sha256,
+        publicationTarget: stateOnly ? 'state-only' : 'state-and-application',
+        policySha256: stateOnly ? stateOnlyWorldModelPolicySha256(config) : null
       });
     }
-    console.log(
-      `Light world model built with 0 model tokens from source ${sourceState.sha256.slice(7, 19)} `
-      + `and recorded in ${publication.commit?.slice(0, 10) ?? 'the working tree'}`
-      + `${publication.pushed ? ' (pushed)' : local ? ' (local, not pushed)' : ''}.`
-    );
+    if (stateOnly) {
+      console.log(
+        `Light world model built with 0 model tokens from source ${sourceState.sha256.slice(7, 19)} `
+        + `and published only to ${governed.branch}@${governed.commit.slice(0, 10)}. `
+        + 'The application and Story branch were not changed.'
+      );
+    } else {
+      console.log(
+        `Light world model built with 0 model tokens from source ${sourceState.sha256.slice(7, 19)} `
+        + `and recorded in ${publication.commit?.slice(0, 10) ?? 'the working tree'}`
+        + `${publication.pushed ? ' (pushed)' : local ? ' (local, not pushed)' : ''}.`
+      );
+    }
     console.log(`  views: ${views.join(', ')} · files indexed: ${sourceState.files.length} · semantic analysis: not performed`);
     if (!local) {
       console.log(governed.published
@@ -3133,6 +3245,12 @@ async function buildLight(root, config, options) {
           ? `  the ${governed.branch} branch already has this model.`
           : `  not published to the state branch: ${governed.reason}.`);
     }
+    if (stateOnly) return {
+      status: 'completed', format: 'legacy-v3', publicationTarget: 'state-only',
+      sourceTreeSha256: sourceState.sha256,
+      state: { branch: governed.branch, commit: governed.commit, published: governed.published },
+      application: { changed: false, commit: null, pushed: false }
+    };
   } finally {
     if (analysisWorktreeCreated || existsSync(analysisRoot)) {
       run('git', ['worktree', 'remove', '--force', analysisRoot], { cwd: root, allowFailure: true });
@@ -5234,6 +5352,23 @@ async function showPrompt(root, options) {
 
 export async function worldModelCommand(root, positionals, options) {
   const command = positionals[1];
+  const stateOnly = optionBoolean(options, 'state-only');
+  if (stateOnly && command !== 'light') {
+    throw new SingularityFlowError('--state-only is supported only by wm light --format legacy-v3.', {
+      code: 'WORLD_MODEL_STATE_ONLY_COMMAND_INVALID'
+    });
+  }
+  if (optionString(options, 'expected-source-tree-sha256') && !stateOnly) {
+    throw new SingularityFlowError('--expected-source-tree-sha256 requires wm light --state-only.', {
+      code: 'WORLD_MODEL_STATE_ONLY_SOURCE_OPTION_INVALID'
+    });
+  }
+  const expectedSourceTree = optionString(options, 'expected-source-tree-sha256');
+  if (expectedSourceTree && !/^sha256:[a-f0-9]{64}$/.test(expectedSourceTree)) {
+    throw new SingularityFlowError('--expected-source-tree-sha256 must be a sha256:<64 lowercase hex> digest.', {
+      code: 'WORLD_MODEL_STATE_ONLY_SOURCE_DIGEST_INVALID'
+    });
+  }
   const v4OnlyCommands = new Set([
     'plan', 'snapshot', 'refresh-authority', 'manifest', 'show', 'evidence', 'derivation', 'validate', 'validate-view',
     'verify-cache', 'regenerate', 'views', 'view-contract', 'extractors', 'doctor', 'migrate',

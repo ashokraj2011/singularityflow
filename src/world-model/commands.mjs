@@ -384,7 +384,7 @@ export function worldModelV4StoreOptions(root, config, { views = null, options =
   const expectedReusableIdentity = resolveWorldModelV4ReusableIdentity(
     {
       ...commonBuildOptions(root, config, options, {
-        views: views ?? configuredWorldModelV4ViewIds(config)
+        views: views ?? configuredWorldModelV4ViewIds(config, options, optionString(options, 'phase'))
       }),
       projections,
       ...(projections.length
@@ -528,8 +528,8 @@ async function captureCandidateSnapshotCommand(root, config, options) {
   return result;
 }
 
-function currentStore(root, config) {
-  return resolvePublishedWorldModelV4(root, worldModelV4StoreOptions(root, config));
+function currentStore(root, config, options = {}) {
+  return resolvePublishedWorldModelV4(root, worldModelV4StoreOptions(root, config, { options }));
 }
 
 function selectedStoreView(store, viewId) {
@@ -728,7 +728,7 @@ export function resolveWorldModelV4Grounding(root, config, {
 }
 
 export function statusWorldModelV4Command(root, config, options) {
-  const store = currentStore(root, config);
+  const store = currentStore(root, config, options);
   const result = worldModelV4StoreSummary(store);
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
   else {
@@ -744,14 +744,14 @@ export function statusWorldModelV4Command(root, config, options) {
 }
 
 function manifestCommand(root, config, options) {
-  const store = currentStore(root, config);
+  const store = currentStore(root, config, options);
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(store.manifest, null, 2));
   else process.stdout.write(canonicalJson(store.manifest));
   return store.manifest;
 }
 
 function showCommand(root, config, options, viewId) {
-  const store = currentStore(root, config);
+  const store = currentStore(root, config, options);
   const view = selectedStoreView(store, viewId);
   if (view.status !== 'available') throw Object.assign(new Error(`WMB v4 view '${viewId}' is unavailable.`), { code: 'WMB_VIEW_UNAVAILABLE' });
   if (optionBoolean(options, 'json')) console.log(JSON.stringify({
@@ -764,7 +764,7 @@ function showCommand(root, config, options, viewId) {
 }
 
 function factsCommand(root, config, options, viewId = null) {
-  const store = currentStore(root, config);
+  const store = currentStore(root, config, options);
   let ledger = store.factLedger;
   if (viewId) {
     ledger = store.records.viewFactLedgers.find((entry) => entry.viewId === viewId);
@@ -776,7 +776,7 @@ function factsCommand(root, config, options, viewId = null) {
 }
 
 function evidenceCommand(root, config, options, evidenceId) {
-  const store = currentStore(root, config);
+  const store = currentStore(root, config, options);
   const evidence = store.evidenceCatalog.items.find((entry) => entry.id === evidenceId);
   if (!evidence) throw Object.assign(new Error(`Unknown WMB v4 evidence '${evidenceId}'.`), { code: 'WMB_EVIDENCE_REFERENCE_UNKNOWN' });
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(evidence, null, 2));
@@ -785,7 +785,7 @@ function evidenceCommand(root, config, options, evidenceId) {
 }
 
 function derivationCommand(root, config, options, derivationId) {
-  const store = currentStore(root, config);
+  const store = currentStore(root, config, options);
   const derivation = store.derivationCatalog.derivations.find((entry) => entry.id === derivationId);
   if (!derivation) throw Object.assign(new Error(`Unknown WMB v4 derivation '${derivationId}'.`), { code: 'WMB_DERIVATION_INVALID' });
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(derivation, null, 2));
@@ -1253,7 +1253,7 @@ function extractorsCommand(options) {
 }
 
 async function verifyCacheCommand(root, config, options) {
-  const store = currentStore(root, config);
+  const store = currentStore(root, config, options);
   const profile = store.records.consumerProfile;
   const budget = store.records.outputBudget;
   const inspected = await inspectWorldModelViewCache(root);
@@ -1310,7 +1310,7 @@ async function verifyCacheCommand(root, config, options) {
 }
 
 function contextCommand(root, config, options, phase = null) {
-  const store = currentStore(root, config);
+  const store = currentStore(root, config, phase ? { ...options, phase } : options);
   let resolved;
   if (!optionString(options, 'views') && !optionString(options, 'view') && phase == null) {
     const viewIds = store.manifest.views
@@ -1497,7 +1497,7 @@ export async function handleWorldModelV4Command(root, config, command, positiona
     const viewId = requiredValue(
       positionals[2], 'singularity-flow wm validate-view <view-id> [--json]'
     );
-    const view = selectedStoreView(currentStore(root, config), viewId);
+    const view = selectedStoreView(currentStore(root, config, options), viewId);
     if (view.status !== 'available') {
       throw new SingularityFlowError(`WMB v4 view '${viewId}' is unavailable.`, {
         code: 'WMB_VIEW_UNAVAILABLE'
@@ -1511,14 +1511,14 @@ export async function handleWorldModelV4Command(root, config, command, positiona
   if (command === 'regenerate') {
     let ids;
     if (optionBoolean(options, 'stale')) {
-      const store = currentStore(root, config);
+      const store = currentStore(root, config, options);
       if (store.freshness.fresh) {
         const result = { status: 'current', regenerated: [] };
         if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
         else console.log('WMB v4 is fresh; no stale view requires regeneration.');
         return result;
       }
-      ids = configuredWorldModelV4ViewIds(config);
+      ids = configuredWorldModelV4ViewIds(config, options, optionString(options, 'phase'));
     } else ids = [requiredValue(
       positionals[2], 'singularity-flow wm regenerate <view-id> [--json]'
     )];
@@ -1533,7 +1533,7 @@ export async function handleWorldModelV4Command(root, config, command, positiona
     let store = null;
     let state = 'not-built';
     let detail = null;
-    try { store = resolvePublishedWorldModelV4(root, { ...worldModelV4StoreOptions(root, config), required: false }); state = store ? 'valid' : state; }
+    try { store = resolvePublishedWorldModelV4(root, { ...worldModelV4StoreOptions(root, config, { options }), required: false }); state = store ? 'valid' : state; }
     catch (error) { state = 'invalid'; detail = { code: error.code ?? null, message: error.message }; }
     const result = {
       status: state === 'invalid' ? 'fail' : 'pass',

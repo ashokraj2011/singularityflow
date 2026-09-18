@@ -419,7 +419,7 @@
   "story-start-journal": [{ "schemaVersion": 1 }],
   "workspace-impact-report": [{ "schemaVersion": 1 }],
   "worldmodel-checkpoint": [{ "schemaVersion": 1 }],
-  "worldmodel-recovery": [{ "schemaVersion": 1 }],
+  "worldmodel-recovery": [{ "schemaVersion": 1 }, { "schemaVersion": 1, "publicationTarget": "state-only", "policySha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000" }],
   "ledger-intent": [{ "schemaVersion": 1 }],
   "ledger-entry": [{ "schemaVersion": 1 }],
   "ledger-archive-manifest": [{ "schemaVersion": 1 }],

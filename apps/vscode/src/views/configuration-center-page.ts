@@ -348,7 +348,7 @@ function worldModelExplorer(view: ConfigurationCenterView): string {
   </section>` : '<p class="empty">No workflow-to-view assignments are declared.</p>';
 
   return `<div class="wm-explorer">
-    <div class="section-heading"><div><p class="eyebrow">World Model Explorer</p><h2>${icon('worldModel')}Repository grounding map</h2><p class="muted">See what knowledge is available and exactly where each workflow consumes it.</p></div><button class="secondary" data-action="build-world-model">Build / refresh</button></div>
+    <div class="section-heading"><div><p class="eyebrow">World Model Explorer</p><h2>${icon('worldModel')}Repository grounding map</h2><p class="muted">See what knowledge is available and exactly where each workflow consumes it.</p></div><button class="secondary" data-action="build-world-model">Build / refresh effective model</button></div>
     <div class="summary-grid wm-summary"><div class="summary-card ${status.rebuildReason || !status.built ? 'governance-warning' : ''}"><strong>${escape(readiness)}</strong><span>grounding state</span></div><div class="summary-card"><strong>${availableViews}/${status.views.length}</strong><span>views available</span></div><div class="summary-card"><strong>${facts}</strong><span>registered facts</span></div><div class="summary-card"><strong>${evidence} / ${derivations}</strong><span>evidence / derivations</span></div><div class="summary-card ${unavailable || contradictions ? 'governance-warning' : ''}"><strong>${unavailable} / ${contradictions}</strong><span>unavailable / contradicted</span></div><div class="summary-card ${stale ? 'governance-warning' : ''}"><strong>${stale}</strong><span>stale facts</span></div><div class="summary-card"><strong>${cacheHits}/${status.views.length}</strong><span>view cache reuse</span></div></div>
     <dl class="wm-provenance"><div><dt>Format</dt><dd>${escape(status.format ?? 'legacy')}</dd></div><div><dt>Source</dt><dd>${escape(source)}</dd></div><div><dt>Generated</dt><dd>${escape(generated)}</dd></div><div><dt>Storage</dt><dd><code>${escape(status.root)}</code></dd></div><div><dt>Workflow use</dt><dd>${workflowsUsingGrounding.length} workflows · ${phaseUses} assignments</dd></div></dl>
     <div class="wm-filter-bar" role="group" aria-label="World model exact records">
@@ -372,6 +372,9 @@ function worldModel(view: ConfigurationCenterView): string {
   const model = view.worldModel;
   return `<section class="plain world-model-settings">
     ${worldModelExplorer(view)}
+    <p class="notice">Build / refresh uses the approved repository configuration, or the accepted Story's pinned execution configuration when a Story is active. The editor below changes checkout files only; save and publish configuration before expecting a repository-level build to use those edits. An existing Story retains its pin.
+      <span class="muted"> Editor format: <code>${escape(model.format)}</code> · Current model format: <code>${escape(view.worldModelStatus.format ?? 'not built')}</code>.</span>
+      ${view.publish.changes.length ? `<strong>${view.publish.changes.length} local configuration change${view.publish.changes.length === 1 ? '' : 's'} awaiting publication.</strong>` : ''}</p>
     ${architectureProjectionExplorer(view)}
     ${view.worldModelStatus.rebuildReason
     ? `<p class="notice warning">${escape(view.worldModelStatus.rebuildReason)}<span class="grow"></span><button class="secondary" data-action="build-world-model">Review explicit refresh</button></p>`

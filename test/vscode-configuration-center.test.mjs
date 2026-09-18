@@ -214,8 +214,24 @@ test('configuration center exposes guided world-model policy, generation, and in
   assert.match(html, /Deterministic — zero model calls/);
   assert.match(html, /v4 total output-token budget/);
   assert.match(html, /Save world-model settings/);
+  assert.match(html, /Build \/ refresh effective model/);
+  assert.match(html, /approved repository configuration, or the accepted Story's pinned execution configuration/);
+  assert.match(html, /Editor format: <code>legacy-v3<\/code> · Current model format: <code>not built<\/code>/);
   assert.match(CONFIGURATION_CENTER_SCRIPT, /format: data\.get\('format'\)/);
   assert.match(CONFIGURATION_CENTER_SCRIPT, /totalMaximumOutputTokens: Number\(data\.get\('v4TotalMaximumOutputTokens'\)\)/);
+});
+
+test('configuration center distinguishes staged checkout edits from the effective model', () => {
+  const staged = {
+    ...snapshot,
+    repository: { configurationChanges: ['singularity/workflow.yml'] },
+    worldModel: { root: 'singularity/world-model', format: 'registered-v4', views: [] }
+  };
+  const view = configurationCenterView(staged, { name: 'Ashok', role: 'architect' });
+  const html = configurationCenterHtml(view, 'world-model', null, null, null, []);
+  assert.match(html, /Editor format: <code>legacy-v3<\/code> · Current model format: <code>registered-v4<\/code>/);
+  assert.match(html, /local configuration change.*awaiting publication/);
+  assert.match(html, /existing Story retains its pin/);
 });
 
 test('configuration center refuses a format-only transition that carries legacy views into registered-v4', () => {

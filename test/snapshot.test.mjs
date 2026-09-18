@@ -219,6 +219,27 @@ test('configuration snapshot reports an exact state-branch world model without a
   assert.ok(scoped.configuration.worldModel.generatedAt);
   assert.ok(scoped.configuration.worldModel.files.some((file) =>
     file.path === 'singularity/world-model/views/business.brief.md'));
+
+  const leased = await repositorySnapshot(consumer, null, null, { included: ['worldModel'] });
+  assert.deepEqual(Object.keys(leased), ['worldModel']);
+  assert.equal(leased.worldModel.kind, 'world-model-ide-slice');
+  assert.equal(leased.worldModel.format, 'legacy-v3');
+  assert.equal(leased.worldModel.status, 'ready');
+  assert.equal(leased.worldModel.readiness.source, 'state-branch');
+  assert.equal(leased.worldModel.summary.views, 1);
+  assert.ok(leased.worldModel.views.some((view) =>
+    view.id === 'business' && view.status === 'available'
+    && view.path === 'singularity/world-model/views/business.brief.md'));
+  assert.equal(leased.worldModel.authority.ref, 'refs/remotes/origin/state');
+  assert.equal(leased.worldModel.generatedAt, scoped.configuration.worldModel.generatedAt);
+  assert.ok(JSON.stringify(leased).length < 16_384,
+    'the IDE slice must not retain full legacy prose or evidence');
+
+  await writeFile(path.join(consumer, 'README.md'), '# Changed after the shared model\n');
+  const stale = await repositorySnapshot(consumer, null, null, { included: ['worldModel'] });
+  assert.equal(stale.worldModel.readiness.ready, false,
+    'a source change cannot leave the state-backed legacy slice marked Ready');
+  assert.notEqual(stale.worldModel.status, 'ready');
 });
 
 test('SGOS Command Center is a lazy isolated snapshot slice', async () => {

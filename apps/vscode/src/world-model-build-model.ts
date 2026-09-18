@@ -33,6 +33,7 @@ export type ExactWorldModelBuildOutcome = {
   readonly planned: GatewayResult | null;
   readonly result: GatewayResult | null;
   readonly capabilityId?: string | null;
+  readonly format?: 'legacy-v3' | 'registered-v4';
 };
 
 export type ScopedWorldModelBuildConfig<T> = {
@@ -42,6 +43,58 @@ export type ScopedWorldModelBuildConfig<T> = {
 
 const CAPABILITY_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const MAX_CAPABILITY_CHOICES = 256;
+const SOURCE_SHA256 = /^sha256:[a-f0-9]{64}$/;
+
+/** The legacy path is deliberately deterministic and state-only, including on a Story branch. */
+export function legacyWorldModelLightArguments(
+  capabilityId: string | null = null,
+  expectedSourceTreeSha256: string
+): readonly string[] {
+  if (!SOURCE_SHA256.test(expectedSourceTreeSha256)) {
+    throw Object.assign(new Error('The World Model source snapshot is not a verified SHA-256 digest.'), {
+      code: 'WMB_SOURCE_SNAPSHOT_INVALID'
+    });
+  }
+  const args = [
+    'wm', 'light', '--format', 'legacy-v3', '--views', 'all', '--state-only',
+    '--expected-source-tree-sha256', expectedSourceTreeSha256
+  ];
+  if (capabilityId != null) {
+    if (!CAPABILITY_ID.test(capabilityId)) {
+      throw Object.assign(new Error('The World Model capability scope is invalid.'), {
+        code: 'WMB_CAPABILITY_SELECTION_INVALID'
+      });
+    }
+    args.push('--capability', capabilityId);
+  }
+  return Object.freeze(args);
+}
+
+/** Exact review copy, including the fact that this does not touch the application branch. */
+export function legacyWorldModelLightDetail({
+  repository, branch, sourceCommit, sourceTreeSha256, views, remote, stateBranch, outputDir,
+  capabilityId = null
+}: {
+  repository: string; branch: string; sourceCommit: string; sourceTreeSha256: string;
+  views: readonly string[]; remote: string; stateBranch: string; outputDir: string;
+  capabilityId?: string | null;
+}): string {
+  const argv = legacyWorldModelLightArguments(capabilityId, sourceTreeSha256);
+  return [
+    `Repository: ${repository}`,
+    `Current branch: ${branch} · no model installation, commit, or push`,
+    `Effective format: legacy-v3${capabilityId ? ` · capability ${capabilityId}` : ''}`,
+    `Source commit: ${sourceCommit}`,
+    `Source tree: ${sourceTreeSha256}`,
+    `Concrete views: ${views.join(', ')}`,
+    `Only publication target: ${remote}/${stateBranch} · ${outputDir}`,
+    'Deterministic light inventory; zero model calls. This does not migrate the format to registered-v4.',
+    'The remote state authority must be reachable, and in-scope application source must be committed.',
+    '',
+    `Shell: singularity-flow ${argv.join(' ')}`,
+    'Copilot: /sf-worldmodel (review the same effective legacy-v3 repository and state target)'
+  ].join('\n');
+}
 
 function field(value: unknown, key: string): unknown {
   return value && typeof value === 'object' ? (value as Record<string, unknown>)[key] : undefined;

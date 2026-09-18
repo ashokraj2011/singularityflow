@@ -1676,15 +1676,53 @@ test('Configuration Center prepares world-model generation for review and never 
   'cancelling exact review creates or advances no local/tracking state authority');
 });
 
-test('World Model build refuses legacy-v3 instead of silently running registered-v4 defaults', async (t) => {
+test('World Model build offers a reviewed deterministic legacy-v3 path without silently running it', async (t) => {
   if (!requireBundle(t)) return;
-  const { registered } = await activated();
+  const { root, registered } = await activated();
+  const beforeHead = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
   await registered.commands.get('singularityFlow.buildWorldModel')();
   assert.equal(registered.quickPicks.length, 0, 'legacy configuration never enters the v4 picker');
-  const refusal = registered.panels.find((entry) => entry.id === 'singularityFlow.result');
-  assert.ok(refusal, 'the format transition is shown as a governed refusal');
-  assert.match(refusal.webview.html, /legacy-v3 World Model/);
-  assert.match(refusal.webview.html, /Configuration Center/);
+  const reviewIndex = registered.warnings.findIndex((entry) =>
+    /current legacy-v3 World Model/.test(entry));
+  assert.notEqual(reviewIndex, -1, 'the effective legacy build has an explicit review');
+  assert.deepEqual(registered.warningActions[reviewIndex], ['Build deterministic legacy model']);
+  const detail = registered.warningDetails[reviewIndex];
+  assert.match(detail, /wm light --format legacy-v3 --views all --state-only --expected-source-tree-sha256 sha256:[a-f0-9]{64}/);
+  assert.match(detail, /zero model calls/);
+  assert.match(detail, /Only publication target: origin\/state/);
+  assert.match(detail, /Current branch: INIT-CHECKOUT.*no model installation, commit, or push/);
+  assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim(), beforeHead,
+    'dismissing review does not create a model commit');
+  assert.equal(registered.infos.some((entry) => /legacy-v3 World Model built/.test(entry)), false);
+});
+
+test('reviewed legacy light build creates a reusable model without opening a model picker', async (t) => {
+  if (!requireBundle(t)) return;
+  const { root, registered } = await activated();
+  const beforeHead = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+  const beforeStatus = run('git', ['status', '--porcelain=v1'], { cwd: root }).stdout;
+  registered.warningAnswers.push('Build deterministic legacy model');
+  await registered.commands.get('singularityFlow.configureWorldModel')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.configurationCenter');
+  assert.ok(panel);
+  await panel.post({ type: 'action', action: 'build-world-model' });
+  assert.equal(registered.quickPicks.length, 0);
+  assert.equal(registered.panels.some((entry) => entry.id === 'singularityFlow.result'), false,
+    registered.output.join('\n'));
+  assert.ok(registered.output.some((entry) => /0 model tokens/.test(entry)),
+    registered.output.join('\n'));
+  assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim(), beforeHead,
+    'state-only publication does not advance the application branch');
+  assert.equal(run('git', ['status', '--porcelain=v1'], { cwd: root }).stdout, beforeStatus,
+    'state-only publication does not install model files in the application worktree');
+  const published = run('git', ['show', 'refs/remotes/origin/state:singularity/world-model/manifest.json'], {
+    cwd: root, allowFailure: true
+  });
+  assert.equal(published.status, 0, published.stderr);
+  assert.equal(JSON.parse(published.stdout).analysis_depth, 'light');
+  assert.ok(registered.infos.some((entry) => /legacy-v3 World Model built with zero model calls/.test(entry)));
+  assert.match(panel.webview.html, /grounding state/);
+  assert.match(panel.webview.html, /Ready/);
 });
 
 test('AST Intelligence edits every policy layer through one guarded VS Code surface', async (t) => {

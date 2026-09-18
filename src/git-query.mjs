@@ -1,6 +1,7 @@
 import path from 'node:path';
 
 import { incrementCommandCounter } from './dx-timing-context.mjs';
+import { parseGitIndexStages, parsePorcelainV2Status } from './git-status-detail.mjs';
 import { parsePorcelainV2Revision } from './git-status-projection.mjs';
 import { run, SingularityFlowError } from './util.mjs';
 
@@ -26,12 +27,39 @@ function nul(result) {
 
 function descriptor(id, {
   argv, parser = text, dependency = 'mutable', allowFailure = false,
-  network = false, effects = 'none', environment = []
+  network = false, effects = 'none', environment = [], encoding = 'utf8', validate = null
 }) {
   return freezeDeep({
     id, executable: 'git', argv, parser, dependency, allowFailure,
-    network, effects, environment: [...environment], timeoutClass: network ? 'remote-read' : 'local-read'
+    network, effects, environment: [...environment], encoding, validate,
+    timeoutClass: network ? 'remote-read' : 'local-read'
   });
+}
+
+function validatedObjectFormat(params) {
+  const objectFormat = params?.objectFormat;
+  if (objectFormat !== 'sha1' && objectFormat !== 'sha256') {
+    throw new SingularityFlowError('A known repository object format is required for a byte-exact Git listing.', {
+      code: 'GIT_QUERY_INPUT_INVALID'
+    });
+  }
+  return objectFormat;
+}
+
+function validateStatusDetail(params) {
+  const objectFormat = validatedObjectFormat(params);
+  const untracked = params?.untracked ?? 'all';
+  const includeIgnored = params?.includeIgnored ?? false;
+  if (!['all', 'normal', 'no'].includes(untracked) || typeof includeIgnored !== 'boolean') {
+    throw new SingularityFlowError('Invalid byte-exact Git status selection.', {
+      code: 'GIT_QUERY_INPUT_INVALID'
+    });
+  }
+  return Object.freeze({ objectFormat, untracked, includeIgnored });
+}
+
+function validateIndexDetail(params) {
+  return Object.freeze({ objectFormat: validatedObjectFormat(params) });
 }
 
 function localBranchName(params) {
@@ -94,6 +122,28 @@ const descriptors = [
     },
     parser: nul
   }),
+  descriptor('repository.status-detail', {
+    validate: validateStatusDetail,
+    encoding: 'buffer',
+    argv(params) {
+      return [
+        'status', '--porcelain=v2', '-z', '--branch',
+        `--untracked-files=${params.untracked}`, '--ignore-submodules=none',
+        ...(params.includeIgnored ? ['--ignored'] : [])
+      ];
+    },
+    parser(result, params) {
+      return parsePorcelainV2Status(result.stdout, { ...params, expectBranch: true });
+    }
+  }),
+  descriptor('repository.index-detail', {
+    validate: validateIndexDetail,
+    encoding: 'buffer',
+    argv: () => ['ls-files', '--stage', '-z'],
+    parser(result, params) {
+      return parseGitIndexStages(result.stdout, params);
+    }
+  }),
   descriptor('repository.revision', {
     argv: () => ['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all'],
     parser: (result) => parsePorcelainV2Revision(result.stdout)
@@ -151,7 +201,8 @@ export function gitQueryDescriptor(id) {
 
 export function executeGitQuery(root, id, params = {}, { env = process.env, runner = run } = {}) {
   const entry = gitQueryDescriptor(id);
-  const argv = entry.argv(params);
+  const validatedParams = entry.validate ? entry.validate(params) : params;
+  const argv = entry.argv(validatedParams);
   if (!Array.isArray(argv) || argv.some((token) => typeof token !== 'string' || token.includes('\0'))) {
     throw new SingularityFlowError(`Git query '${id}' produced invalid arguments.`, {
       code: 'GIT_QUERY_INPUT_INVALID'
@@ -165,7 +216,8 @@ export function executeGitQuery(root, id, params = {}, { env = process.env, runn
     result = runner(entry.executable, argv, {
       cwd: path.resolve(root), env, allowFailure: entry.allowFailure,
       operation: entry.id, network: entry.network, timeoutClass: entry.timeoutClass,
-      recordGitTiming: false
+      recordGitTiming: false,
+      ...(entry.encoding === 'buffer' ? { encoding: 'buffer' } : {})
     });
   } finally {
     incrementCommandCounter('git.service-ms', Math.max(0, Math.round(performance.now() - started)));
@@ -173,5 +225,5 @@ export function executeGitQuery(root, id, params = {}, { env = process.env, runn
   if (!entry.allowFailure && result.status !== 0) throw new SingularityFlowError(
     `Git query '${id}' failed.`, { code: 'GIT_QUERY_FAILED', details: { queryId: id } }
   );
-  return freezeDeep(entry.parser(result));
+  return freezeDeep(entry.parser(result, validatedParams));
 }

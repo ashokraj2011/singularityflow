@@ -1,24 +1,134 @@
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { stat } from 'node:fs/promises';
 import path from 'node:path';
 
 import { createRepoContext } from './repo-context.mjs';
 import { incrementCommandCounter } from './dx-timing-context.mjs';
 import { nonInteractiveGitEnvironment } from './git-execution.mjs';
-import { signalProcessTree, SingularityFlowError } from './util.mjs';
+import { executeGitQuery } from './git-query.mjs';
+import { resolvePlatformProcess } from './platform-process.mjs';
+import { run, signalProcessTree, SingularityFlowError } from './util.mjs';
 
 const OID = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 const TYPE = /^(blob|tree|commit|tag)$/;
+const HEADER_LIMIT = 1024;
+const MAX_WORKERS = 8;
+const MAX_OBJECT_BYTES = 32 * 1024 * 1024;
 const pools = new Map();
+let poolMutation = Promise.resolve();
 
 function error(message, code, details = {}) {
   return new SingularityFlowError(message, { code, details });
 }
 
+function bounded(value, maximum, name) {
+  if (!Number.isSafeInteger(value) || value <= 0 || value > maximum) {
+    throw error(`Git object service ${name} must be a positive bounded integer.`, 'LIMIT_EXCEEDED');
+  }
+  return value;
+}
+
+async function withPoolLock(action) {
+  const previous = poolMutation;
+  let release;
+  poolMutation = new Promise((resolve) => { release = resolve; });
+  await previous;
+  try { return await action(); } finally { release(); }
+}
+
+// Keep ordinary OS, proxy, CA, HOME, and credential-manager connectivity. Git's inherited
+// repository/command overrides are not authority to reinterpret a raw local object request.
+function objectEnvironment(source) {
+  const env = nonInteractiveGitEnvironment(source);
+  for (const key of Object.keys(env)) {
+    // These two host-selected protected config scopes may carry office trust settings. Raw local
+    // reads still discard every command-scoped/repository Git override and disable lazy fetch.
+    if (/^GIT_/i.test(key) && !/^GIT_CONFIG_(?:SYSTEM|GLOBAL)$/i.test(key)) delete env[key];
+  }
+  return {
+    ...env,
+    GIT_TERMINAL_PROMPT: '0',
+    GIT_OPTIONAL_LOCKS: '0',
+    GIT_NO_REPLACE_OBJECTS: '1',
+    GIT_NO_LAZY_FETCH: '1',
+    LC_ALL: 'C'
+  };
+}
+
+function gitExecutable(env, root) {
+  try {
+    return resolvePlatformProcess('git', [], { environment: env, cwd: path.resolve(root) }).executable;
+  } catch {
+    throw error('Git object service could not resolve a trusted Git executable.', 'OBJECT_SERVICE_UNAVAILABLE');
+  }
+}
+
+async function repositoryProfile(root, executable, env) {
+  const context = createRepoContext(root, {
+    execute: (cwd, id, params) => executeGitQuery(cwd, id, params, {
+      env, runner: (_command, args, options) => run(executable, args, options)
+    })
+  });
+  const [paths, objectFormat] = await Promise.all([
+    context.observe('repository.paths'), context.observe('repository.object-format')
+  ]);
+  return Object.freeze({ ...paths, objectFormat });
+}
+
+async function poolFingerprint(identity, executable, env) {
+  const common = await stat(identity.commonDir);
+  const objects = await stat(path.join(identity.commonDir, 'objects'));
+  const config = await stat(path.join(identity.commonDir, 'config')).catch(() => null);
+  const alternates = await stat(path.join(identity.commonDir, 'objects', 'info', 'alternates')).catch(() => null);
+  const binary = await stat(executable);
+  const instance = (item) => [item.dev, item.ino];
+  const generation = (item) => item
+    ? [item.dev, item.ino, item.size, item.mtimeMs, item.ctimeMs] : null;
+  const fields = [identity.commonDir, identity.objectFormat, executable,
+    instance(common), instance(objects), generation(config), generation(alternates), generation(binary),
+    Object.entries(env).sort(([a], [b]) => a.localeCompare(b))];
+  return createHash('sha256').update(JSON.stringify(fields)).digest('hex');
+}
+
+async function stopChild(child, force) {
+  if (!child) return true;
+  return new Promise((resolve) => {
+    let settled = false;
+    let escalation = null;
+    let deadline = null;
+    const finish = (closed) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(escalation);
+      clearTimeout(deadline);
+      child.removeListener?.('close', onClose);
+      resolve(closed);
+    };
+    const onClose = () => finish(true);
+    child.once?.('close', onClose);
+    try { child.stdin?.end?.(); } catch { /* The child may already have exited. */ }
+    if (force) void signalProcessTree(child, 'SIGKILL').catch(() => {});
+    else escalation = setTimeout(() => { void signalProcessTree(child, 'SIGTERM').catch(() => {}); }, 1_000);
+    deadline = setTimeout(() => {
+      void signalProcessTree(child, 'SIGKILL').catch(() => {});
+      finish(false);
+    }, 2_000);
+  });
+}
+
 export class FosGitObjectService {
   #root;
   #spawn;
+  #env;
+  #executable;
+  #profile;
+  #profileValue = null;
+  #fingerprint = null;
   #child = null;
-  #buffer = Buffer.alloc(0);
+  #chunks = [];
+  #buffered = 0;
+  #headOffset = 0;
   #queue = [];
   #active = null;
   #closed = false;
@@ -28,17 +138,25 @@ export class FosGitObjectService {
   #timeoutMs;
   #idleMs;
   #spawns = 0;
+  #retiring = null;
+  #closing = null;
+  #closureOutcome = null;
 
   constructor(root, {
     spawnCommand = spawn, maxQueued = 128, maxObjectBytes = 32 * 1024 * 1024,
-    timeoutMs = 30_000, idleMs = 30_000
+    timeoutMs = 30_000, idleMs = 30_000, env = process.env,
+    profile = null, executable = null, fingerprint = null
   } = {}) {
     this.#root = path.resolve(root);
     this.#spawn = spawnCommand;
-    this.#maxQueued = maxQueued;
-    this.#maxObjectBytes = maxObjectBytes;
-    this.#timeoutMs = timeoutMs;
-    this.#idleMs = idleMs;
+    this.#env = objectEnvironment(env);
+    this.#executable = executable ?? gitExecutable(this.#env, this.#root);
+    this.#profile = profile ? Promise.resolve(profile) : null;
+    this.#fingerprint = fingerprint;
+    this.#maxQueued = bounded(maxQueued, 128, 'queue limit');
+    this.#maxObjectBytes = bounded(maxObjectBytes, MAX_OBJECT_BYTES, 'object byte limit');
+    this.#timeoutMs = bounded(timeoutMs, 30_000, 'operation deadline');
+    this.#idleMs = bounded(idleMs, 120_000, 'idle deadline');
   }
 
   get processSpawns() { return this.#spawns; }
@@ -48,11 +166,28 @@ export class FosGitObjectService {
   async read(oid, { signal } = {}) {
     if (!OID.test(oid ?? '')) throw error('Object service requires one full SHA-1 or SHA-256 object ID.', 'OBJECT_ID_INVALID');
     if (this.#closed) throw error('Git object service is closed.', 'OBJECT_SERVICE_CLOSED');
-    if (this.queued >= this.#maxQueued) throw error('Git object service queue is full.', 'LIMIT_EXCEEDED');
     if (signal?.aborted) throw error('Git object request was cancelled.', 'OBJECT_REQUEST_CANCELLED');
+    this.#profile ??= repositoryProfile(this.#root, this.#executable, this.#env);
+    const profile = await this.#profile;
+    if (!['sha1', 'sha256'].includes(profile.objectFormat)) {
+      throw error('Git object service could not establish the repository storage format.', 'OBJECT_FORMAT_UNSUPPORTED');
+    }
+    if (oid.length !== (profile.objectFormat === 'sha1' ? 40 : 64)) {
+      throw error('Object ID does not match the repository storage format.', 'OBJECT_ID_INVALID');
+    }
+    this.#profileValue = profile;
+    if (this.#retiring) await this.#retiring;
+    const fingerprint = await poolFingerprint(profile, this.#executable, this.#env);
+    if (this.#fingerprint && fingerprint !== this.#fingerprint) {
+      await this.close();
+      throw error('Git object service repository or execution profile changed.', 'OBJECT_SERVICE_STALE');
+    }
+    this.#fingerprint = fingerprint;
+    if (this.#closed) throw error('Git object service is closed.', 'OBJECT_SERVICE_CLOSED');
+    if (signal?.aborted) throw error('Git object request was cancelled.', 'OBJECT_REQUEST_CANCELLED');
+    if (this.queued >= this.#maxQueued) throw error('Git object service queue is full.', 'GAL_BUSY');
     incrementCommandCounter('git.requests');
     incrementCommandCounter('git.batch-requests');
-    this.#ensureChild();
     return new Promise((resolve, reject) => {
       const request = { oid, resolve, reject, signal, abort: null, timer: null, size: null, objectOid: null, type: null };
       request.abort = () => {
@@ -65,6 +200,15 @@ export class FosGitObjectService {
         }
       };
       signal?.addEventListener('abort', request.abort, { once: true });
+      request.timer = setTimeout(() => {
+        if (this.#active === request) {
+          this.#failService(error('Git object request exceeded its operation deadline.', 'OBJECT_REQUEST_TIMEOUT'));
+        } else {
+          const index = this.#queue.indexOf(request);
+          if (index >= 0) this.#queue.splice(index, 1);
+          this.#finishRequest(request, 'reject', error('Git object request exceeded its operation deadline.', 'OBJECT_REQUEST_TIMEOUT'));
+        }
+      }, this.#timeoutMs);
       this.#queue.push(request);
       this.#pump();
     });
@@ -72,13 +216,16 @@ export class FosGitObjectService {
 
   #ensureChild() {
     if (this.#child) return;
-    const child = this.#spawn('git', ['cat-file', '--batch'], {
-      cwd: this.#root,
+    const profile = this.#profileValue;
+    const child = this.#spawn(this.#executable, [
+      `--git-dir=${profile.commonDir}`, 'cat-file', '--batch'
+    ], {
+      cwd: profile.commonDir,
       shell: false,
       windowsHide: true,
       detached: process.platform !== 'win32',
       stdio: ['pipe', 'pipe', 'ignore'],
-      env: { ...nonInteractiveGitEnvironment(process.env), GIT_NO_LAZY_FETCH: '1' }
+      env: this.#env
     });
     this.#child = child;
     this.#spawns += 1;
@@ -88,14 +235,25 @@ export class FosGitObjectService {
     // a process instead of permanently reporting a structural zero.
     incrementCommandCounter('git.child-spawns');
     child.stdout.on('data', (chunk) => {
-      this.#buffer = Buffer.concat([this.#buffer, chunk]);
-      if (this.#buffer.length > this.#maxObjectBytes + 8192) {
+      if (this.#child !== child) return;
+      if (!chunk.length) return;
+      this.#chunks.push(chunk);
+      this.#buffered += chunk.length;
+      if (this.#buffered > this.#maxObjectBytes + HEADER_LIMIT + 1) {
         this.#failService(error('Git object service output exceeded its bounded buffer.', 'LIMIT_EXCEEDED'));
         return;
       }
       this.#parse();
     });
-    child.once('error', () => this.#failService(error('Git object service could not start.', 'OBJECT_SERVICE_UNAVAILABLE')));
+    child.stdout.on('error', () => {
+      if (this.#child === child) this.#failService(error('Git object service output stream failed.', 'OBJECT_SERVICE_UNAVAILABLE'));
+    });
+    child.stdin.on('error', () => {
+      if (this.#child === child) this.#failService(error('Git object service input stream failed.', 'OBJECT_SERVICE_UNAVAILABLE'));
+    });
+    child.once('error', () => {
+      if (this.#child === child) this.#failService(error('Git object service could not start.', 'OBJECT_SERVICE_UNAVAILABLE'));
+    });
     child.once('close', (code) => {
       if (this.#child !== child) return;
       this.#child = null;
@@ -114,25 +272,67 @@ export class FosGitObjectService {
     this.#idleTimer = null;
     const request = this.#queue.shift();
     this.#active = request;
-    request.timer = setTimeout(() => {
-      this.#failService(error('Git object request exceeded its operation deadline.', 'OBJECT_REQUEST_TIMEOUT'));
-    }, this.#timeoutMs);
     try {
+      this.#ensureChild();
       this.#child.stdin.write(`${request.oid}\n`, 'ascii');
     } catch {
       this.#failService(error('Git object service input stream is unavailable.', 'OBJECT_SERVICE_UNAVAILABLE'));
     }
   }
 
+  #take(length) {
+    const output = Buffer.allocUnsafe(length);
+    let written = 0;
+    while (written < length) {
+      const head = this.#chunks[0];
+      const count = Math.min(head.length - this.#headOffset, length - written);
+      head.copy(output, written, this.#headOffset, this.#headOffset + count);
+      written += count;
+      this.#headOffset += count;
+      this.#buffered -= count;
+      if (this.#headOffset === head.length) {
+        this.#chunks.shift();
+        this.#headOffset = 0;
+      }
+    }
+    return output;
+  }
+
+  #headerLength() {
+    let scanned = 0;
+    for (let index = 0; index < this.#chunks.length; index += 1) {
+      const chunk = this.#chunks[index];
+      const start = index === 0 ? this.#headOffset : 0;
+      const newline = chunk.indexOf(0x0a, start);
+      if (newline >= 0) return scanned + newline - start;
+      scanned += chunk.length - start;
+      if (scanned > HEADER_LIMIT) break;
+    }
+    return null;
+  }
+
   #parse() {
     const request = this.#active;
-    if (!request) return;
+    if (!request) {
+      if (this.#buffered) this.#failService(error('Git object service returned unrequested bytes.', 'OBJECT_PROTOCOL_INVALID'));
+      return;
+    }
     if (request.size == null) {
-      const newline = this.#buffer.indexOf(0x0a);
-      if (newline < 0) return;
-      const header = this.#buffer.subarray(0, newline).toString('ascii');
-      this.#buffer = this.#buffer.subarray(newline + 1);
+      const length = this.#headerLength();
+      if (length == null) {
+        if (this.#buffered > HEADER_LIMIT) this.#failService(error('Git object service header exceeded its limit.', 'OBJECT_PROTOCOL_INVALID'));
+        return;
+      }
+      if (length > HEADER_LIMIT) {
+        this.#failService(error('Git object service header exceeded its limit.', 'OBJECT_PROTOCOL_INVALID'));
+        return;
+      }
+      const header = this.#take(length + 1).subarray(0, length).toString('latin1');
       if (header === `${request.oid} missing`) {
+        if (this.#buffered) {
+          this.#failService(error('Git object service returned unrequested bytes.', 'OBJECT_PROTOCOL_INVALID'));
+          return;
+        }
         this.#active = null;
         this.#finishRequest(request, 'resolve', null);
         this.#pump();
@@ -140,7 +340,7 @@ export class FosGitObjectService {
       }
       const match = /^([a-f0-9]{40}|[a-f0-9]{64}) ([a-z]+) (\d+)$/.exec(header);
       const size = Number(match?.[3]);
-      if (!match || !OID.test(match[1]) || !TYPE.test(match[2]) || !Number.isSafeInteger(size) || size < 0) {
+      if (!match || !TYPE.test(match[2]) || !Number.isSafeInteger(size) || size < 0) {
         this.#failService(error('Git object service returned a malformed protocol header.', 'OBJECT_PROTOCOL_INVALID'));
         return;
       }
@@ -157,19 +357,24 @@ export class FosGitObjectService {
       }
       request.objectOid = match[1]; request.type = match[2]; request.size = size;
     }
-    if (this.#buffer.length < request.size + 1) return;
-    if (this.#buffer[request.size] !== 0x0a) {
+    if (this.#buffered < request.size + 1) return;
+    const frame = this.#take(request.size + 1);
+    if (frame[request.size] !== 0x0a || this.#buffered) {
       this.#failService(error('Git object service returned malformed object framing.', 'OBJECT_PROTOCOL_INVALID'));
       return;
     }
-    const bytes = Buffer.from(this.#buffer.subarray(0, request.size));
-    this.#buffer = this.#buffer.subarray(request.size + 1);
+    const bytes = frame.subarray(0, request.size);
+    const observedOid = createHash(this.#profileValue.objectFormat)
+      .update(`${request.type} ${request.size}\0`, 'utf8')
+      .update(bytes)
+      .digest('hex');
+    if (observedOid !== request.oid) {
+      this.#failService(error('Git object service returned bytes that do not match the requested object ID.', 'OBJECT_INTEGRITY_INVALID'));
+      return;
+    }
     this.#active = null;
     this.#finishRequest(request, 'resolve', Object.freeze({ oid: request.objectOid, type: request.type, bytes }));
     this.#pump();
-    if (this.#buffer.length && !this.#active) {
-      this.#failService(error('Git object service returned unrequested bytes.', 'OBJECT_PROTOCOL_INVALID'));
-    }
   }
 
   #finishRequest(request, method, value) {
@@ -186,32 +391,79 @@ export class FosGitObjectService {
 
   async #failService(reason) {
     const requests = [this.#active, ...this.#queue].filter(Boolean);
-    this.#active = null; this.#queue = []; this.#buffer = Buffer.alloc(0);
+    this.#active = null; this.#queue = []; this.#chunks = [];
+    this.#buffered = 0; this.#headOffset = 0;
     const child = this.#child; this.#child = null;
-    if (child) await signalProcessTree(child, 'SIGKILL').catch(() => {});
     for (const request of requests) this.#finishRequest(request, 'reject', reason);
+    if (child) {
+      const retiring = stopChild(child, true);
+      this.#retiring = retiring;
+      const closed = await retiring;
+      if (this.#retiring === retiring) this.#retiring = null;
+      return closed;
+    }
+    return true;
   }
 
   async close() {
-    if (this.#closed) return;
+    if (this.#closing) return this.#closing;
     this.#closed = true;
     clearTimeout(this.#idleTimer);
-    await this.#failService(error('Git object service was closed.', 'OBJECT_SERVICE_CLOSED'));
+    const requests = [this.#active, ...this.#queue].filter(Boolean);
+    this.#active = null; this.#queue = []; this.#chunks = [];
+    this.#buffered = 0; this.#headOffset = 0;
+    const child = this.#child; this.#child = null;
+    for (const request of requests) this.#finishRequest(request, 'reject', error('Git object service was closed.', 'OBJECT_SERVICE_CLOSED'));
+    const retiring = this.#retiring;
+    this.#closing = (async () => {
+      const retired = retiring ? await retiring : true;
+      const terminated = (await stopChild(child, false)) && retired;
+      this.#closureOutcome = Object.freeze({ closed: true, terminated });
+      return this.#closureOutcome;
+    })();
+    return this.#closing;
   }
+
+  async dispose() { return this.close(); }
 }
 
 export async function fosGitObjectService(root, options = {}) {
-  const identity = await createRepoContext(root).identity();
+  const env = objectEnvironment(options.env ?? process.env);
+  const executable = gitExecutable(env, root);
+  const identity = await repositoryProfile(root, executable, env);
   const key = identity.commonDir;
-  const current = pools.get(key);
-  if (current && !current.closed) return current;
-  const service = new FosGitObjectService(root, options);
-  pools.set(key, service);
-  return service;
+  const fingerprint = await poolFingerprint(identity, executable, env);
+  const transport = options.spawnCommand ?? spawn;
+  const limits = JSON.stringify([
+    options.maxQueued ?? 128,
+    options.maxObjectBytes ?? MAX_OBJECT_BYTES,
+    options.timeoutMs ?? 30_000,
+    options.idleMs ?? 30_000
+  ]);
+  return withPoolLock(async () => {
+    const current = pools.get(key);
+    if (current && current.fingerprint === fingerprint && current.transport === transport
+        && current.limits === limits && !current.service.closed) return current.service;
+    if (current) {
+      pools.delete(key);
+      await current.service.close();
+    }
+    if (pools.size >= MAX_WORKERS) {
+      const idle = [...pools.entries()].find(([, entry]) => entry.service.queued === 0);
+      if (!idle) throw error('Git object worker pool is full.', 'GAL_BUSY');
+      pools.delete(idle[0]);
+      await idle[1].service.close();
+    }
+    const service = new FosGitObjectService(root, { ...options, env, executable, profile: identity, fingerprint });
+    pools.set(key, { service, fingerprint, transport, limits });
+    return service;
+  });
 }
 
 export async function closeFosGitObjectServices() {
-  const services = [...pools.values()];
-  pools.clear();
-  await Promise.all(services.map((service) => service.close()));
+  return withPoolLock(async () => {
+    const services = [...pools.values()].map((entry) => entry.service);
+    pools.clear();
+    await Promise.all(services.map((service) => service.close()));
+  });
 }

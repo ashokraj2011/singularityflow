@@ -29,7 +29,8 @@ const {
   FACTORY_RESET_TRANSACTION_TIMEOUT_MS,
   validateFactoryResetRepositoryDirectory, validateRepositoryDirectory,
   validatedRepositoryGitCommonDirectory, localGit, remoteGit,
-  nonInteractiveGitEnvironment, resolveWindowsGitExecutable, UninitializedRepositoryError,
+  nonInteractiveGitEnvironment, resolveWindowsGitExecutable, resolvePosixGitExecutable,
+  UninitializedRepositoryError,
   RepositoryAuthorityUnavailableError, formatCliArgsForDisplay, DISPLAY_BOOLEAN_OPTIONS
 } =
   await import(source('cli/runner.ts'));
@@ -116,6 +117,33 @@ test('VS Code Windows Git resolution rejects a linked executable or a link back 
   assert.equal(await resolveWindowsGitExecutable('C:\\repo', {
     PATH: '"C:\\trusted"'
   }, filesystem), 'C:\\trusted\\git.exe');
+});
+
+test('VS Code POSIX Git resolution ignores relative PATH and checkout-local shims', async () => {
+  const examined = [];
+  const filesystem = {
+    async stat(candidate) {
+      examined.push(candidate);
+      return { isFile: () => true, mode: 0o755 };
+    },
+    async canonicalize(candidate) { return candidate; }
+  };
+  assert.equal(await resolvePosixGitExecutable('/work/repo', {
+    PATH: '.:/work/repo:/trusted/bin'
+  }, filesystem), '/trusted/bin/git');
+  assert.deepEqual(examined, ['/trusted/bin/git']);
+  assert.equal(await resolvePosixGitExecutable('/work/repo', {
+    PATH: '.:/work/repo'
+  }, filesystem), null);
+  const nonExecutable = {
+    ...filesystem,
+    async stat(candidate) {
+      return { isFile: () => true, mode: candidate.startsWith('/blocked/') ? 0o644 : 0o755 };
+    }
+  };
+  assert.equal(await resolvePosixGitExecutable('/work/repo', {
+    PATH: '/blocked:/trusted/bin'
+  }, nonExecutable), '/trusted/bin/git');
 });
 
 test('rework roll-forward preview renders every path without truncation', () => {

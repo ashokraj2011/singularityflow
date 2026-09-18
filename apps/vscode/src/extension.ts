@@ -101,6 +101,7 @@ import {
 } from './host-performance.ts';
 import { GatewayStatusWorker } from './gateway-status-worker-client.ts';
 import { commandGuidanceText, safeCommandPair } from './views/command-guidance.ts';
+import { configuredGitRemoteUrls, configuredGitRemotes, gitVersion } from './cli/git-observations.ts';
 
 let extensionLifetime = new AbortController();
 
@@ -249,7 +250,7 @@ async function firstRunChecks(extensionPath: string, location: { executable: str
     }
   };
   const [git, cli] = await Promise.all([
-    probe('git', ['--version'], { timeout: 5_000 }),
+    gitVersion(repository ?? os.tmpdir()).catch(() => null),
     probe(location.executable, [location.cli, 'about'], { cwd: repository ?? os.tmpdir(), timeout: 10_000 })
   ]);
   const bundle = await lstat(path.join(extensionPath, 'dist', 'extension.cjs')).catch(() => null);
@@ -265,7 +266,7 @@ async function firstRunChecks(extensionPath: string, location: { executable: str
   return [
     { id: 'extension', status: bundle?.isFile() ? 'healthy' : 'blocked', detail: 'packaged extension bundle' },
     { id: 'runtime', status: nodeMajor >= 20 ? 'healthy' : 'blocked', detail: `Node ${process.versions.node} (minimum 20)` },
-    { id: 'git', status: git.ok ? 'healthy' : 'blocked', detail: git.ok ? git.stdout.trim() : 'Git is unavailable' },
+    { id: 'git', status: git ? 'healthy' : 'blocked', detail: git ?? 'Git is unavailable' },
     { id: 'cli', status: cli.ok ? 'healthy' : 'blocked', detail: cli.ok ? 'bundled CLI executes' : 'bundled CLI did not execute' },
     { id: 'machine-state', status: writable ? 'healthy' : 'blocked', detail: 'machine-local SFlow state location is writable' },
     { id: 'repository', status: 'healthy', detail: repositoryKind }
@@ -1437,10 +1438,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const repository = await resolveFosRepository(requestedRepository, 'Choose the existing repository to attach');
       if (!repository) return;
       try {
-        const { stdout } = await promisify(execFile)('git', ['remote'], {
-          cwd: repository, timeout: 10_000, encoding: 'utf8', windowsHide: true
-        });
-        const remotes = String(stdout).split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
+        const remotes = await configuredGitRemotes(repository);
         let routeArgs: string[] = [];
         let routeLabel = 'the repository’s only configured remote';
         if (remotes.length > 1) {
@@ -2739,18 +2737,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                   if (cancellation.signal.aborted) return null;
                   let urls: string[] = [];
                   try {
-                    const { stdout } = await promisify(execFile)(
-                      'git', ['config', '--local', '--get-regexp', '^remote\\..*\\.url$'], {
-                        cwd: canonical, timeout: 5_000, encoding: 'utf8', windowsHide: true,
-                        signal: cancellation.signal,
-                        env: { ...process.env, ...cliEnvironment, GIT_TERMINAL_PROMPT: '0' }
-                      }
-                    );
-                    urls = [...new Set(String(stdout).split(/\r?\n/u).flatMap((line) => {
-                      const separator = line.search(/\s/u);
-                      const url = separator >= 0 ? line.slice(separator).trim() : '';
-                      return url && !gitRemoteProblem(url, 'Configured repository') ? [url] : [];
-                    }))].slice(0, 16);
+                    const configured = await configuredGitRemoteUrls(canonical, { signal: cancellation.signal });
+                    urls = [...new Set(configured.filter((url) =>
+                      url && !gitRemoteProblem(url, 'Configured repository')))].slice(0, 16);
                   } catch {
                     // A local repository with damaged remote configuration remains eligible when an
                     // internal caller supplied its exact registered path. Reinitialization repairs SFlow

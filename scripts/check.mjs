@@ -176,6 +176,7 @@ const allFiles = repositoryFiles();
 /** Independent read-only repository audits run together and are reported in stable declaration order. */
 const externalAudits = [
   ['scripts/generate-codeowners.mjs', 'Generated CODEOWNERS', []],
+  ['scripts/git-bypass-audit.mjs', 'GAL Git bypass regression gate'],
   ['scripts/audit-model-boundary.mjs', 'Model-boundary audit'],
   ['scripts/schema-migration-lint.mjs', 'Schema migration boundary'],
   ['scripts/vocabulary-lint.mjs', 'Closed vocabulary producer boundary'],

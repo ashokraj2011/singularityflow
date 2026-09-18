@@ -1,0 +1,1313 @@
+{
+  "version": 1,
+  "registeredOwners": [
+    "src/platform-process.mjs",
+    "src/git-execution.mjs",
+    "src/git-access.mjs",
+    "src/git-local-blob-async.mjs",
+    "src/git-blob-batch.mjs",
+    "src/fos-object-service.mjs",
+    "src/git.mjs",
+    "src/util.mjs"
+  ],
+  "sites": {
+    "apps/vscode/src/actions.ts": {
+      "counts": {
+        "command-run": 6
+      },
+      "digest": "fef58903381c49813270fb6b1db21e89bed9f2a079828878d9b0fa619e3612e9"
+    },
+    "apps/vscode/src/cli/runner.ts": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "d802920cfcfb0351529184203830a8894e9d78159cc3ccc684b812ea6fe9de98"
+    },
+    "apps/vscode/src/extension.ts": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "f9271417dd26f447cda905df562fbe9af3c598ac6c97effcd6f21744d7211173"
+    },
+    "apps/vscode/src/gateway-status-worker-client.ts": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "792cd9b5cae60ad2a2f9f813e3e8b55866fc903fcf2ad6ec2417a92e89d5784c"
+    },
+    "apps/vscode/src/views/capability-page.ts": {
+      "counts": {
+        "command-git-literal": 1
+      },
+      "digest": "05c1e093aca2e161f60eb8a3bae6fb94773bb23860756b1aeddcdeccf03b8ad3"
+    },
+    "apps/vscode/src/views/capability-proposals.ts": {
+      "counts": {
+        "command-git-literal": 1
+      },
+      "digest": "c69385bf8b01ac3774219b448bec7fdd738a35bf5c4fccf65dffe6a2d4bbda41"
+    },
+    "apps/vscode/src/views/map-capability-form.ts": {
+      "counts": {
+        "command-git-literal": 2
+      },
+      "digest": "bc87a2596c1e5671ca063b0a8edc7dde7537a5fcdf94a6d71d5532a174194d7d"
+    },
+    "apps/vscode/src/views/sgos-command-center.ts": {
+      "counts": {
+        "process-launch": 1
+      },
+      "digest": "72d3565db0c7171c2fbf35b060e63253305a4de5698c8c5a3e46f96387368757"
+    },
+    "apps/vscode/src/views/workspace-form.ts": {
+      "counts": {
+        "command-git-literal": 1
+      },
+      "digest": "da1d64c6bd30dc418ad7223e9a0beaf87a3ee002dc3b073f45fb530ea13471a6"
+    },
+    "apps/vscode/src/views/workspaces-page.ts": {
+      "counts": {
+        "command-git-literal": 2
+      },
+      "digest": "69bc22a433d05c664c1d95325fd5a8ee9e5b89c228317b21941b6f2e670611ca"
+    },
+    "bin/sflow-wm-minimal.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 2
+      },
+      "digest": "65fa0ee611cb901b5855ba231ea5168ecbf077f22aa30b32f8b97bdada034946"
+    },
+    "distribution/bootstrap.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 3
+      },
+      "digest": "eb931a69e679d580607b6525c387d2fc0751d2b5d0180875915b83f63fc280f1"
+    },
+    "distribution/install.sh": {
+      "counts": {
+        "shell-process": 2
+      },
+      "digest": "582d5fd8810d0742abeb2e30e33211618752381d45092d4d5acf7034001b74bb"
+    },
+    "distribution/uninstall.sh": {
+      "counts": {
+        "shell-process": 2
+      },
+      "digest": "c0b71e9faaf4ae07d09072654c3db17900cec0805d55f712b04859936ecd0bd2"
+    },
+    "install-windows-git-bash.sh": {
+      "counts": {
+        "shell-process": 15
+      },
+      "digest": "ce68a8bbbd892a629e0c1ce9828ea10bc727118baf3e917a7903a2bf5d8119ed"
+    },
+    "install.sh": {
+      "counts": {
+        "shell-process": 41
+      },
+      "digest": "57a6dded8f68eb7640a0699daf74f93042ecfd170c665860a8855f0d16ab661d"
+    },
+    "plugin/extensions/documents/extension.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "006b82532030ad1b70593accd87c866d37047128d18a4c1f490dd98cb57bdcf2"
+    },
+    "scripts/build-docs-manifest.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "0fd6156675ab3bc7df1fff91b775c99dca2f445b38dbab341ecfb1c251dd36d5"
+    },
+    "scripts/build-release-artifacts.mjs": {
+      "counts": {
+        "command-git": 9,
+        "process-import": 1,
+        "process-launch": 3
+      },
+      "digest": "6fcb03f1550765d088793b1ef904d8dc14b1c967f1761b6e7bf16ed6eea4412c"
+    },
+    "scripts/cmp-benchmark.mjs": {
+      "counts": {
+        "command-git": 6,
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "05a14d1fe0bcb68f5b95d808c09b0d406a6523be056a828bcbbd23c40d980f4a"
+    },
+    "scripts/cmp-corpus-measurement.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "dba2b2c390bc8a80446a6cd019c4c64b4b95517c5dc50c6c00e5ff175add12be"
+    },
+    "scripts/dx-benchmark.mjs": {
+      "counts": {
+        "command-git": 43,
+        "process-import": 1,
+        "process-launch": 7
+      },
+      "digest": "9b938e8a110a2d79506e2d4da1a611e043a15d93dceebc54b4b4b53da0c39c61"
+    },
+    "scripts/fos-benchmark.mjs": {
+      "counts": {
+        "command-git": 12,
+        "process-import": 1,
+        "process-launch": 3
+      },
+      "digest": "1e0c7c966b4067e08ec7abc080e838e14a81acbd7ff836a33143fc7dfefb952f"
+    },
+    "scripts/golden-journey-smoke.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "74bfd1d280b654235b1ee0b99dc6397bd5a02f18d3360e2051b2950383a6db68"
+    },
+    "scripts/packaged-cli-smoke.mjs": {
+      "counts": {
+        "command-run": 12,
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "ac3d387339f3984534bbbbb151d6fb5f9c87ccdc2f70e7a1447291dc69c728d0"
+    },
+    "scripts/packaged-vsix-engine-smoke.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 2
+      },
+      "digest": "f7d5fcf162c6d1bfb206cbb5c23b015beacc515055ac715faeedcad1d7ba5d10"
+    },
+    "scripts/poc-release-gate.mjs": {
+      "counts": {
+        "process-import": 1
+      },
+      "digest": "102d2822d47e9ad20dea58f279093bb30ddfaa8d2988db694db9774ef020fa06"
+    },
+    "scripts/release.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "c44e27f080159398dc1fb4a666f5730a86d695f0f4d22d8f404f6899b2bd8132"
+    },
+    "scripts/reproducible-build.mjs": {
+      "counts": {
+        "command-git": 11,
+        "process-import": 1,
+        "process-launch": 3
+      },
+      "digest": "da294f0c0869d06355f356835d6acd1810b208772d0a6a4aa504f01db2ad0df2"
+    },
+    "scripts/revision-trace-check.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 2
+      },
+      "digest": "243479a3a1284133657263954e21bb19bc799c567f4484622836572b6df35cb0"
+    },
+    "scripts/run-cmp-wel-platform.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 2
+      },
+      "digest": "2300aa2c066cd668dfe7a9539aff567e853169d874d71d1eafed1e89e01a7880"
+    },
+    "scripts/run-test-aggregate.mjs": {
+      "counts": {
+        "command-git": 4,
+        "process-import": 1,
+        "process-launch": 2
+      },
+      "digest": "ac6e8f22f158b4ed5bcf72f22c1fa69db5d71bf79438e339489619d302b38acc"
+    },
+    "scripts/run-test-suite.mjs": {
+      "counts": {
+        "command-git": 3,
+        "process-import": 1,
+        "process-launch": 2
+      },
+      "digest": "c6ccd60296d66dc0f31a3f9fd07d184c0402f665ed4d9110ec661d1a26fb066f"
+    },
+    "scripts/run-typescript-module.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "6d97d470c956b33a191862544d7677016ef2712b089f609cb401f7c55c464a6e"
+    },
+    "scripts/schema-migration-lint.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "9a33537154d9a6797adf9d8bb9d4b0e52cc07bd419f4cd8dc63d223b1462726b"
+    },
+    "scripts/stamp-agent-models.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "45500ae2997ea79db2b3c3de17477978ee891d9213cec49116628d47e5817ec8"
+    },
+    "scripts/stamp-build-info.mjs": {
+      "counts": {
+        "command-git": 2,
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "3877242de9af64a90e0c14f29986cf5867ad062cafc58d773e2884ac74452804"
+    },
+    "scripts/verification-receipt.mjs": {
+      "counts": {
+        "command-run": 4,
+        "process-import": 1,
+        "process-launch": 3
+      },
+      "digest": "8369909ae9cde6417048f01a9bd02930e76447fd3d95b1b3d4587d7c14dae03b"
+    },
+    "scripts/vocabulary-lint.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "67f52bb7ffc08992e07c954646d2379f3b9942680376658ebf9b039fe8fabad1"
+    },
+    "scripts/vscode-bundle-budget.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "e169e210ca9ef81f265cc4d3c106e9a6292fb2eb676228b625e687bdc0308d08"
+    },
+    "scripts/vscode-dev.mjs": {
+      "counts": {
+        "command-git": 13,
+        "process-import": 1,
+        "process-launch": 18
+      },
+      "digest": "7f7154892a084f5b31e3012b689b4d26367ad5fd5e2331b8f284356cc41a0d0f"
+    },
+    "scripts/vscode-host-benchmark.mjs": {
+      "counts": {
+        "command-git": 11,
+        "process-import": 1,
+        "process-launch": 6
+      },
+      "digest": "16da9835b2240344a5eff92cdcdb4ec94a08a05b71c0f00e2ddbbc297876f2a1"
+    },
+    "scripts/wel-benchmark.mjs": {
+      "counts": {
+        "command-git": 19,
+        "process-import": 1,
+        "process-launch": 14
+      },
+      "digest": "85db553c32097178ec74e3f2e84cc26e026fda9bf56a369582eac6e9411510f7"
+    },
+    "scripts/wel-corpus-measurement.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "dba2b2c390bc8a80446a6cd019c4c64b4b95517c5dc50c6c00e5ff175add12be"
+    },
+    "scripts/worldmodel-minimal.sh": {
+      "counts": {
+        "shell-process": 10
+      },
+      "digest": "2c620b3fb8c5b588583f10af5da83eef4df85e66cf22995dd06a77c12acb5253"
+    },
+    "src/accepted-story-execution.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "6360d6ed59156fc8e9e2aeb3b51eb163ad3283537555f6d7724e876d89a01f67"
+    },
+    "src/adhoc/landing.mjs": {
+      "counts": {
+        "command-run": 3
+      },
+      "digest": "c6105d863fe8a5649f32c38ffb5a96594cccc7c0cb0531af557308544f077ef3"
+    },
+    "src/adhoc/session.mjs": {
+      "counts": {
+        "command-run": 3
+      },
+      "digest": "d7e1567276220f99b820a3e57fecedaca1fe9800c1d126d1ba338a91f01e90f4"
+    },
+    "src/approved-configuration-reader.mjs": {
+      "counts": {
+        "command-run": 11
+      },
+      "digest": "b0836bada9ddef95c59020bf045195c97e9cff20d52072c7431931a782566048"
+    },
+    "src/architecture-intent-service.mjs": {
+      "counts": {
+        "command-run": 7
+      },
+      "digest": "91805d09888b42c0bf2a150cb030f48c3e46097df772720428f1a4c847b1aa56"
+    },
+    "src/ast-intelligence.mjs": {
+      "counts": {
+        "command-run": 9
+      },
+      "digest": "0b23fe456cebce2687c3a204849938070650dc72bf78247768de789c36f5b532"
+    },
+    "src/ast-lifecycle.mjs": {
+      "counts": {
+        "command-run": 2
+      },
+      "digest": "4426aede19f2e45b109ce8b0cf1895577c728434de050b1e6479a56fa8f2a15e"
+    },
+    "src/ast-project-binding.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "93bb98b61fd1e22158de2bd0412aa73ddb93de1320141d9a297e1e82081cbcd2"
+    },
+    "src/ast-replay.mjs": {
+      "counts": {
+        "command-run": 5
+      },
+      "digest": "551b42b2e0a205aaabd4fcc4b89207184d288a5930b9398f642f974945b573f1"
+    },
+    "src/ast-story-start-warm.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "9277954a5baf6742504b8f1561e80da319de1887cdcb16315b2e7c348ab13103"
+    },
+    "src/auto/auto-candidate.mjs": {
+      "counts": {
+        "command-git": 37,
+        "command-run": 1,
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "b308932aad8450a035017bebbefc5703e18e7d050aa83ea6b16e9069e0a689d6"
+    },
+    "src/auto/auto-checkpoint.mjs": {
+      "counts": {
+        "command-run": 4
+      },
+      "digest": "6dca36acd496c998f4f134e71fb538ec6fb33b970ad1661227e9ec80aad0649b"
+    },
+    "src/auto/auto-continuation.mjs": {
+      "counts": {
+        "command-run": 6
+      },
+      "digest": "d60c7eb4d447967ee703987b9d02acf9f014d63423264c50a95e8952e0ed9c1e"
+    },
+    "src/auto/auto-executor.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "406ce691a09b13189ebb092de755febe98023b400488cf6f5a3116934ab23f7a"
+    },
+    "src/auto/auto-flight-store.mjs": {
+      "counts": {
+        "command-run": 5
+      },
+      "digest": "db066e7294622f6c551e07b0fc8b707c1b3ec032e2fd6a6adb1de2a652c6e9d1"
+    },
+    "src/auto/auto-plan.mjs": {
+      "counts": {
+        "command-run": 5
+      },
+      "digest": "4e862511886bfe65209ffb4c6b57778a9cf65313fe252e2fbcff9cc55254e21e"
+    },
+    "src/auto/execution-unit-driver.mjs": {
+      "counts": {
+        "command-run": 2
+      },
+      "digest": "fc2d26e3f9ed3b0a1116f55099aaf8229310f1577de40e3e2e2cb15c89745c02"
+    },
+    "src/bootstrap.mjs": {
+      "counts": {
+        "command-run": 2
+      },
+      "digest": "c59b9dce2b55675406f37adc4baf122ac2f29d1cd47c30d0a0873acf7052c136"
+    },
+    "src/branch-refresh.mjs": {
+      "counts": {
+        "command-git": 5,
+        "command-run": 1
+      },
+      "digest": "50e80483a9c6a0620526678c93cd5f25f450fa6e98ee891065fcebc60330e0d0"
+    },
+    "src/cancelled-worktree.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "b2e349cc5a9afa85f30b049709b9caf4ca892728ec944b4a997c52682134814d"
+    },
+    "src/capability-authority-link.mjs": {
+      "counts": {
+        "command-run": 6
+      },
+      "digest": "d9897e8a776c472e7b41e9a338b1f495d23ae9dc9c2e47c23136b2fa85076d6b"
+    },
+    "src/capability-context.mjs": {
+      "counts": {
+        "command-run": 6
+      },
+      "digest": "b780fe0fff4edd280569c10c47a8397ea7c45bd92c81439af14f669af6be7059"
+    },
+    "src/capability-doctor.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "bd4a7bafdf9b7a8ebe5e5ee3cdeba70dc165eed8ad4497d9508a72ecbcffe937"
+    },
+    "src/capability-start.mjs": {
+      "counts": {
+        "command-run": 2
+      },
+      "digest": "983aceccecabf007b9b874f43cf8efb48d82ec2d967f004cb9cf3e214add93bf"
+    },
+    "src/change-flight-plan.mjs": {
+      "counts": {
+        "command-run": 32
+      },
+      "digest": "3d367681ff6de18d22bdfbc732031374748826e21b33ec904961ccccb8f69d62"
+    },
+    "src/cli-entry.mjs": {
+      "counts": {
+        "command-run": 6
+      },
+      "digest": "bd48c4d5ca08f4d6eb3f633c145f4ce18d7ec9ac2f129f82483b084d954a1cd4"
+    },
+    "src/cli.mjs": {
+      "counts": {
+        "command-run": 31,
+        "command-runCommand": 1
+      },
+      "digest": "756badee937e509417e092bb4744f32500d987a11c3a804cfc21211c2153c453"
+    },
+    "src/clipboard.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "bc6507107cfba5c39bbdfe8a9460783cd9111e3d340e1cb434e83ac55a587a27"
+    },
+    "src/commands/auto.mjs": {
+      "counts": {
+        "command-git-literal": 3
+      },
+      "digest": "a72fe79193312699c478ca76454dfb6b0d9e10955ba02a477ce82ffefcb6d568"
+    },
+    "src/commands/init.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "d2496c3e771e6d00bdbb08b51add5f941e1f86ebd5f832a18bbfbf8997c88bed"
+    },
+    "src/commands/story.mjs": {
+      "counts": {
+        "command-run": 2
+      },
+      "digest": "c3dbbcd37587f291888f9d297baa3368c1d6124188071819270d5517dd42c5c8"
+    },
+    "src/comprehension/diff-preview.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "18b6173d044bb83f9f1d6266abfa1cd8521e72823f0e359545a2de13fe9a9bd7"
+    },
+    "src/comprehension/source-expansion.mjs": {
+      "counts": {
+        "command-run": 3
+      },
+      "digest": "0e81925fa1e98d7e5983430985f9e8d8ebbc0a87cb8f2829686b798a1a841d08"
+    },
+    "src/config.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "379bc2d953a9261622a9bf6228fe6e278f0e9e3183306ee34efbc9a759efc9e2"
+    },
+    "src/configuration-branch.mjs": {
+      "counts": {
+        "command-run": 26
+      },
+      "digest": "65a75426c4f6035b9b6135e7592f722869805bedd9d7579125323e9d669d4985"
+    },
+    "src/configuration-people.mjs": {
+      "counts": {
+        "command-run": 10
+      },
+      "digest": "6f126662baf738e45662933e87f3fe6c2144b4127846bfeeb7a62a77dc6faa5b"
+    },
+    "src/configuration-proposal.mjs": {
+      "counts": {
+        "command-run": 29
+      },
+      "digest": "cf9a76ffdd2dae6280daa427f76be454961b42c86ca5f08cd72113c31731be03"
+    },
+    "src/context-history.mjs": {
+      "counts": {
+        "command-run": 2
+      },
+      "digest": "dc2c2a396de0bfd3265300009551559c996717ff4a9d06318339764ff7046e38"
+    },
+    "src/convergence-context.mjs": {
+      "counts": {
+        "command-run": 2
+      },
+      "digest": "a35b404ec42d65566783bd8b7547c74e3f9c03e77b227c722c1579eb8e127795"
+    },
+    "src/delivery-evidence.mjs": {
+      "counts": {
+        "command-run": 8
+      },
+      "digest": "53b5cfd86ce511a7dba4b499c7a86feca56514d76db7cbad564fb4dc7bf95c62"
+    },
+    "src/delivery-modes/local-signed-runner.mjs": {
+      "counts": {
+        "command-run": 2
+      },
+      "digest": "088256df7b58c13c53812ef00a154c19349bf1241d4db7cfc2b5c49a68070a8d"
+    },
+    "src/doctor.mjs": {
+      "counts": {
+        "command-git-literal": 1,
+        "command-run": 3
+      },
+      "digest": "c85c3db01843189079e85dcc993506d65d63010bef4d5b69ab78eab9c3ca9b48"
+    },
+    "src/document-publication.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "3b28035117c91f61fe049bca2ce9c628a55063c07f36c9e666786ec71ad9d3a8"
+    },
+    "src/documents.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "70aaccf952433770e90a326fdcb461455f68113246b955c3ce3a685a5297c900"
+    },
+    "src/editor.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "5545b832e0601c4efabe6949f170ffe728fc72a8f3a65e69643eb886601ee05b"
+    },
+    "src/epic-review.mjs": {
+      "counts": {
+        "command-git": 8,
+        "command-run": 1
+      },
+      "digest": "5ae695870a8734d1eca24227244b711c1b6b6f8763dd8aa5d811baef69c4c485"
+    },
+    "src/evidence-packet.mjs": {
+      "counts": {
+        "command-run": 2
+      },
+      "digest": "5ee997cad88edcdec2438f5a99fc192b33e64acfae3ed066c0ecd714c51aaddf"
+    },
+    "src/evidence-receipt.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "c58a2f928e7d3f032baf57bb8df8647f6d8128406bcd3008e6e7a442ab37b79a"
+    },
+    "src/factory-reset.mjs": {
+      "counts": {
+        "command-run": 7
+      },
+      "digest": "d1844060c44d2669c0e3131c505b3c766b879d6c3a4930b576d34f04c063d863"
+    },
+    "src/fault-repair.mjs": {
+      "counts": {
+        "command-run": 24
+      },
+      "digest": "0c9920e8fa5e68d55369bc4e10fdbeebae96b26889239f30ddc6f5ad07f1118d"
+    },
+    "src/first-run-guide.mjs": {
+      "counts": {
+        "command-run": 10
+      },
+      "digest": "200516388bec310545ce1e57c794978461cded9f26568cdf0943b55ecb4ca9ec"
+    },
+    "src/fos-benchmark-evidence.mjs": {
+      "counts": {
+        "command-run": 3
+      },
+      "digest": "1b8d7dae1471cb542f75c2a4db5286968408aab9b14b7807ec91d8a14caf22ca"
+    },
+    "src/fos-git-speed.mjs": {
+      "counts": {
+        "command-run": 5
+      },
+      "digest": "c90dfa49ec6eee101f917f6284490caac3ddb43bde91b60d98e194ddb7a931a7"
+    },
+    "src/fos-object-service.mjs": {
+      "counts": {
+        "command-git-literal": 1,
+        "command-run": 1,
+        "process-import": 1
+      },
+      "digest": "5ed56dd253a9301f94d3045474c560b8a984680711a86729a34afe4c94c586f5"
+    },
+    "src/fos-publication.mjs": {
+      "counts": {
+        "command-run": 2
+      },
+      "digest": "4361f8937244ed2d5faba88897bf928e7d92672cba772499684dec06ec643c21"
+    },
+    "src/fos-release-evidence.mjs": {
+      "counts": {
+        "command-git": 2,
+        "command-runCommand": 1,
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "8c0b4c4eb7892bd70e0739df55d29b796f53f66b6249ffe74fb0979ccb11ae12"
+    },
+    "src/fos-sealed-input.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "acef1445fa34011995f3c8f2e316f7f4d5f7e300ed54ab2a39cc520b8bfabe8a"
+    },
+    "src/fresh-install-reset.mjs": {
+      "counts": {
+        "command-run": 7
+      },
+      "digest": "47e38b07c147c53ac648a526aab399040283e180ac23b5f97c3a6723b3f03e89"
+    },
+    "src/gate-recovery.mjs": {
+      "counts": {
+        "command-run": 2
+      },
+      "digest": "7fe8e4c26b6a51d8ffa6675e35a5b7983b70e8aa183f6b4bc65e18a681ade519"
+    },
+    "src/gateway/planners/problem-investigate.mjs": {
+      "counts": {
+        "command-run": 3
+      },
+      "digest": "b0d4702311f650c523e77c3862bef88157adb2ad1bbdbe1dd39da06a1c49ae75"
+    },
+    "src/generation-publication-store.mjs": {
+      "counts": {
+        "command-run": 11
+      },
+      "digest": "7e1de94d4b207a35775f8acddf7fadd54342460e8fc50c17a09e981678a007c0"
+    },
+    "src/git-access.mjs": {
+      "counts": {
+        "command-run": 1,
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "9bf65d181c7ddb320bd82a634bc0c6bcca8c031a0b77d820577da26a0a60f5ff"
+    },
+    "src/git-blob-batch.mjs": {
+      "counts": {
+        "command-runCommand": 3
+      },
+      "digest": "9da92ee0655cee1bf633f1b588ced38a2131e83fd4ac305baa2028b98ad41437"
+    },
+    "src/git-enterprise-environment.mjs": {
+      "counts": {
+        "command-runCommand": 1
+      },
+      "digest": "497ff9ec37783babe865d5ffe5feaa0980029e92685e5bb361c9aa678f04019c"
+    },
+    "src/git-execution.mjs": {
+      "counts": {
+        "command-git-literal": 2,
+        "command-runCommand": 1,
+        "process-import": 1
+      },
+      "digest": "836d0c8121ec87c0ed8cf27dfc120349eee82461fbb9d33c506ed90faa42b5c3"
+    },
+    "src/git-ref-tree.mjs": {
+      "counts": {
+        "command-runCommand": 3
+      },
+      "digest": "f19b6ee4357d181c176439543494408110ba679dbaa5631d1fda0c303a355e59"
+    },
+    "src/git-remote-diagnostics.mjs": {
+      "counts": {
+        "command-run": 2,
+        "command-runCommand": 1
+      },
+      "digest": "09e43f28929916c56be9f3966804e8a701cdbbf5f4662e50803af30edd8c6cfd"
+    },
+    "src/git.mjs": {
+      "counts": {
+        "command-git": 74,
+        "command-run": 3
+      },
+      "digest": "428fe3c708205e60ce00c41e38a89f5824d40f5757a97fb70f34dceb5aed0dc0"
+    },
+    "src/github-evidence.mjs": {
+      "counts": {
+        "command-runCommand": 3
+      },
+      "digest": "98a225b717cb5d8113376dd87566d6f14080ad5db6f9a41f0ec014fe20cf8b56"
+    },
+    "src/governance.mjs": {
+      "counts": {
+        "command-run": 12
+      },
+      "digest": "8b79b78fd308bb355ae2a1383ef50847ae544529b8c474e48c0baa567991e100"
+    },
+    "src/governed-goals.mjs": {
+      "counts": {
+        "command-git": 18,
+        "command-run": 3
+      },
+      "digest": "376be779b695c85db70ebe48c7dec7e479b16cb5d2582d4a4f365dc789baf11c"
+    },
+    "src/grounding.mjs": {
+      "counts": {
+        "command-run": 24
+      },
+      "digest": "0e4bc45c5e74011600af83654b81425e60b08e630357baef7f3de48bbe87b4cc"
+    },
+    "src/harness-imports.mjs": {
+      "counts": {
+        "command-run": 2
+      },
+      "digest": "265a9a7c5e1c6e020b9e9a2601fc162c100999f668043b861c535069f5d228a9"
+    },
+    "src/host-session-launcher.mjs": {
+      "counts": {
+        "process-import": 1
+      },
+      "digest": "996b4aefbb4d5d92445809ef537aa71d76147b8d634f4cfde27d1f09c79f7ecc"
+    },
+    "src/initialization/recovery.mjs": {
+      "counts": {
+        "command-run": 5
+      },
+      "digest": "4710a839f05d6ae4ee22d0e3352d2b91a0379d5e5fb0d44be99436b831da6262"
+    },
+    "src/initialization/runtime-readiness.mjs": {
+      "counts": {
+        "command-run": 1,
+        "command-runCommand": 2,
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "04e72f34a218b9a8e0ae90b35cf5847e74be049cf3a44eccaaf1d658ebdf3044"
+    },
+    "src/initialization/source-snapshot.mjs": {
+      "counts": {
+        "command-git": 3,
+        "command-run": 4
+      },
+      "digest": "c27d8f21fe35447d6ef41c748053d797c62eccb07b8db1ff84f1f224899980e6"
+    },
+    "src/initiative-context.mjs": {
+      "counts": {
+        "command-run": 3
+      },
+      "digest": "46cdddf0f29ecd8ef93b5c0e0a0e62a4c02c19a11adac8f2622dfebab8380364"
+    },
+    "src/initiative-repositories.mjs": {
+      "counts": {
+        "command-run": 21
+      },
+      "digest": "1a8ca193f1a85ff7995017e752a2133ab5152e4fdbf0bcd2ae14a5e5225a894b"
+    },
+    "src/jira-initiative.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "b15b6764dc05ef2c05b8e3976364e3dd73722d3fcf159b41fb98575bd03808a6"
+    },
+    "src/ledger-deployment.mjs": {
+      "counts": {
+        "command-git": 3,
+        "command-run": 1
+      },
+      "digest": "a1a0bc0085d4d07ed62726fa9321d4d166f156c2c0675bf46f2691df16596710"
+    },
+    "src/ledger.mjs": {
+      "counts": {
+        "command-git": 85,
+        "command-run": 2
+      },
+      "digest": "66d6efd92aa0dca5f01ba50544134b9912fe51e84c4445d8da196bd89e307e27"
+    },
+    "src/local-identity.mjs": {
+      "counts": {
+        "command-run": 7
+      },
+      "digest": "7b93913bd1a53addd8987516f503102dd12ab18acdc0b9a008a80b70119cef21"
+    },
+    "src/local-mode/store.mjs": {
+      "counts": {
+        "command-git": 9,
+        "command-run": 2
+      },
+      "digest": "8911b22b8a07e9ecac1f12356f7aac8b108297fbccf9f9f84b20763593a9103f"
+    },
+    "src/local-work-journal.mjs": {
+      "counts": {
+        "command-run": 6
+      },
+      "digest": "3d84ba950ec28ec4374670f8e34a3e5a64ac73950de7ac682c713718849f48eb"
+    },
+    "src/mcp-auth-profile.mjs": {
+      "counts": {
+        "process-import": 1
+      },
+      "digest": "a893b8c1063e33498618b67612ad628cbe0eb59615c6c4b6fbe30a52f667b0c6"
+    },
+    "src/mcp-readiness.mjs": {
+      "counts": {
+        "process-import": 1
+      },
+      "digest": "640e6cf3b8ac2b67fff6945a257440cd8e3069ea50edd2aedeeba9fdab74ed39"
+    },
+    "src/model-provider-capability.mjs": {
+      "counts": {
+        "process-import": 1
+      },
+      "digest": "996b4aefbb4d5d92445809ef537aa71d76147b8d634f4cfde27d1f09c79f7ecc"
+    },
+    "src/model-provider-launch.mjs": {
+      "counts": {
+        "process-import": 1
+      },
+      "digest": "996b4aefbb4d5d92445809ef537aa71d76147b8d634f4cfde27d1f09c79f7ecc"
+    },
+    "src/model-providers/copilot-cli.mjs": {
+      "counts": {
+        "process-import": 1
+      },
+      "digest": "af587d9925b29fa16c978525fe0e76edd1b91d21df48f4fddc5961de46ec7e9f"
+    },
+    "src/organisation.mjs": {
+      "counts": {
+        "command-run": 90
+      },
+      "digest": "c837b79bf873689c5fab7966a520a40d6516dec06d9ebf9c5ceccde09fbffc75"
+    },
+    "src/performance-doctor.mjs": {
+      "counts": {
+        "command-run": 5
+      },
+      "digest": "c4a7d0866ecad551126dc28ab9d870993c614e0ed301ab0e068f972efcb49096"
+    },
+    "src/planning.mjs": {
+      "counts": {
+        "command-run": 2
+      },
+      "digest": "b26b9e1d5711dbce673870052deb4495af7f1beeb2c534e1910e3e27df949291"
+    },
+    "src/platform-process.mjs": {
+      "counts": {
+        "command-git-literal": 1,
+        "process-import": 1
+      },
+      "digest": "4e6541deaa4615de1d4d8ef10ddc57bd0f4988910d617d750eb0471fa6b4c2fb"
+    },
+    "src/plugin.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "124c4f9f66e826ae81bfdcc29fe4cd036b2dd45a3b2c7bdcc0efaee49bc08f1e"
+    },
+    "src/publication-recovery.mjs": {
+      "counts": {
+        "command-run": 2
+      },
+      "digest": "916cccd657e930542652a3a84f4a5004944bf5dd46025e524d212eea33ff24cb"
+    },
+    "src/pull-request.mjs": {
+      "counts": {
+        "command-runCommand": 5
+      },
+      "digest": "08dee890b0c42bdc805ae7a08ad64a3ff848afb93fb4927160cb8f1ac3632441"
+    },
+    "src/quality-command-runner.mjs": {
+      "counts": {
+        "process-import": 1
+      },
+      "digest": "af587d9925b29fa16c978525fe0e76edd1b91d21df48f4fddc5961de46ec7e9f"
+    },
+    "src/quick-fix-policy.mjs": {
+      "counts": {
+        "command-run": 2
+      },
+      "digest": "dd5c05002cb94ab552b29ae9c2357f7ec19f8e93658ef266b41fde32647efa63"
+    },
+    "src/reference-repositories.mjs": {
+      "counts": {
+        "command-run": 14
+      },
+      "digest": "6c393cf7d4147f36b5b97bbf155fb481419435a9f50217ce3d0ecaa1e3b087b5"
+    },
+    "src/regression-analysis.mjs": {
+      "counts": {
+        "command-git": 8,
+        "command-run": 1
+      },
+      "digest": "6d768dace4a90c1c81abc8ef2e0a22651bc540ef216254e40486bc70d90f2824"
+    },
+    "src/repositories/github-provider.mjs": {
+      "counts": {
+        "process-import": 1
+      },
+      "digest": "102d2822d47e9ad20dea58f279093bb30ddfaa8d2988db694db9774ef020fa06"
+    },
+    "src/repository-change-set.mjs": {
+      "counts": {
+        "command-git": 9,
+        "command-run": 1
+      },
+      "digest": "94c01534d5ef32db981dd1cb8d741579d9eb4851529a0ad2c9107c97a86e67cc"
+    },
+    "src/repository-facts.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "49eb6624378f2199a7ac85846d03cbbcb86857c83bfaae861c91405b1e0550ab"
+    },
+    "src/repository-subject-index.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "e40b85762a4d0846a8eed02937ac5c6f34fbc3459977219c85b6f623d42895d1"
+    },
+    "src/return-locator.mjs": {
+      "counts": {
+        "command-run": 2
+      },
+      "digest": "8e30c4c042372e540ad229f3ad2f162a64f78ba881821a6ee516409b0061b135"
+    },
+    "src/review.mjs": {
+      "counts": {
+        "command-run": 2
+      },
+      "digest": "1622675556543fda7bb01c0a6c0a4d1b37f1b736e3473a41ff7d0038a9e6796e"
+    },
+    "src/revision/current-context.mjs": {
+      "counts": {
+        "command-git": 7,
+        "command-run": 1
+      },
+      "digest": "1b69c43bf009f0cdaece6cf9f0e4870bbc92c7843fa6dccdd0c3bffac6d43e35"
+    },
+    "src/revision/execution-bridge.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "b483e69439b3f91b2d050549e18dad4f69db96d2a5faa912ac8d02f1ff5312e7"
+    },
+    "src/revision/isolated-attempt.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 2
+      },
+      "digest": "af3ac73a4e480551ef58e2f6106f612e559fadbc99f84abbdc73c0a9d2008677"
+    },
+    "src/revision/manual-capture.mjs": {
+      "counts": {
+        "command-git": 4,
+        "process-import": 1,
+        "process-launch": 2
+      },
+      "digest": "9905d7a49104827a934e65e44b60d95e55feb632a78e46ecf87cc4d67e3fe1eb"
+    },
+    "src/revision/publication-projection.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "92739067e623863c8a57bed9c80f41751f28415d3e5af01ad72aa1a45563564d"
+    },
+    "src/revision/runtime.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "4a7f4ccf4e21719dc244608c31f894a2ac5e8cdd9eb552403cb25d1501370df4"
+    },
+    "src/session.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "ca317f04901cd6152b1af7b7367976dd7b567b9843bf5019a5e06c0c4e1b7032"
+    },
+    "src/sgos/authority-git-transport.mjs": {
+      "counts": {
+        "command-run": 5
+      },
+      "digest": "d0df0f097d4126a1f4e29d3e760cf578ec7705acc7703a301e688f69e9d1fa20"
+    },
+    "src/sgos/authority-transport.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "6db45e38877a32e40e7df234df289193048ea39490a3047cd69ccc7f78d509dd"
+    },
+    "src/sgos/authority-trust.mjs": {
+      "counts": {
+        "command-run": 2
+      },
+      "digest": "e04c31ca74d02c4285119a26b445f7f8f5c79cea4f353eda9a78452ad085a417"
+    },
+    "src/sgos/candidate-lifecycle.mjs": {
+      "counts": {
+        "command-run": 2,
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "d2bf15bdfbe5152a2c2841999f135cd601147f39ade590eeafddaf2c9fb599ba"
+    },
+    "src/sgos/capability-pack-authority.mjs": {
+      "counts": {
+        "command-run": 6
+      },
+      "digest": "af73a4a16312108efd4d7049b29facd683db352919b480359eb3e25ca9058167"
+    },
+    "src/sgos/execution-units.mjs": {
+      "counts": {
+        "command-run": 1,
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "80db96c2efd886921af25f6f0395c823d81564b4e535af25487d457c2ab4e081"
+    },
+    "src/sgos/human-authority.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "7a96089f45d315536a3d4a9a2f9d058b88a937c0d20e15e9978742c053a9addf"
+    },
+    "src/sgos/pinned-policy.mjs": {
+      "counts": {
+        "command-run": 3
+      },
+      "digest": "bc968e67fb0bdd0fffaa4ecf574f95fb7cde52e1c9fe7d647a18930a70b5658d"
+    },
+    "src/sgos/platform/authority.mjs": {
+      "counts": {
+        "command-run": 6
+      },
+      "digest": "f575bc3bc9fc420d26c1a931766ec58b8319650e03f04c2dd8e5880d446779e7"
+    },
+    "src/sgos/story-authority.mjs": {
+      "counts": {
+        "command-run": 2
+      },
+      "digest": "0d2e9c485ec1af420095cbf194ca840725d3e2ddf19482f2755f75fb7dbf1e94"
+    },
+    "src/snapshot-coordinator.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "06448aec86928ea8859f4454d4829f6f4c8d90e41da12311f6a6529400538c39"
+    },
+    "src/specifications.mjs": {
+      "counts": {
+        "command-run": 8
+      },
+      "digest": "e79c7a6d44b861a8976be47173497738fb6efd9a2babefbf3beede7f696039c1"
+    },
+    "src/state.mjs": {
+      "counts": {
+        "command-run": 32
+      },
+      "digest": "66373f4a062fa2ecd243819c74a271236f396c09286f10a202c9ccbf2b6c939e"
+    },
+    "src/story-lineage.mjs": {
+      "counts": {
+        "command-run": 10
+      },
+      "digest": "e3e42e5152b23248dec9342cd0d81e911cc0c4aab3aca3561cf848bec44f0e73"
+    },
+    "src/story-stack.mjs": {
+      "counts": {
+        "command-run": 2
+      },
+      "digest": "6c770715b68cbc570a52795c4696bea931c7f49faace7ed6f348f78a289109d0"
+    },
+    "src/story-start-journal.mjs": {
+      "counts": {
+        "command-run": 8
+      },
+      "digest": "cf41e707b5046f4a2db4bce073fc7e2e1261efb882c9473aa8f6796b0ec11603"
+    },
+    "src/story-start.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "3b7a15a03e9a9e62c559f37413c60e5bc87d6ad37987e2cc78d8afc4574423a6"
+    },
+    "src/story-worktree.mjs": {
+      "counts": {
+        "command-run": 9
+      },
+      "digest": "c3e623eaaf27735f1713df1f4c3620a0874bbc15957360231cbf31503f52c072"
+    },
+    "src/transport-intents.mjs": {
+      "counts": {
+        "command-runCommand": 8
+      },
+      "digest": "644b495ae252a6815535e661ba0a260adbf14cb2423a89194917ce0e130bb8ca"
+    },
+    "src/util.mjs": {
+      "counts": {
+        "process-import": 1
+      },
+      "digest": "af587d9925b29fa16c978525fe0e76edd1b91d21df48f4fddc5961de46ec7e9f"
+    },
+    "src/verification-receipt.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "bda87b07bdd085ba1816eb1b2ca1cc51cabb5a4a377968f8b9bc169cf9ba90f1"
+    },
+    "src/wel-javascript.mjs": {
+      "counts": {
+        "command-run": 3
+      },
+      "digest": "5000a83adb8669bc47adafcdf2d560a5f0740e94db5a5e9a1240c75aacb6fa90"
+    },
+    "src/wel-junit5.mjs": {
+      "counts": {
+        "command-run": 3
+      },
+      "digest": "66dae014092c7a1f1cdcd289936ed01e13fa49dd6f0b7e8f894f9d1cbe31c9d0"
+    },
+    "src/work-intervals.mjs": {
+      "counts": {
+        "command-run": 2
+      },
+      "digest": "bba27afd6cecf4049a4a839ef3c9249adba2c71f55d005907c45db2a210a28b0"
+    },
+    "src/work-source.mjs": {
+      "counts": {
+        "command-runCommand": 1
+      },
+      "digest": "6751bbf0813297c0cf80227105f42cd14a47d65a66f22ff23bb935474d1e0752"
+    },
+    "src/workflow-snapshots.mjs": {
+      "counts": {
+        "command-run": 3
+      },
+      "digest": "a08516317f01ac8df479862da9e2226d601dcda1a73c77e61c6414312694ae4b"
+    },
+    "src/workspace-bootstrap.mjs": {
+      "counts": {
+        "command-runCommand": 4
+      },
+      "digest": "1ef0aab4441ac31c9b6d08c2bcc170d8be8f34feda2f2bbb67dca4621bf0b872"
+    },
+    "src/workspace-configuration-refresh.mjs": {
+      "counts": {
+        "command-run": 31
+      },
+      "digest": "69473003e5257b3386da169cd0e31241ddc166ab3d9be1c986c0fb2569748a97"
+    },
+    "src/workspace-context.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "043dc9d90da147406b47e41fe3a03b7e7bb01424c1d1a407885769cb5afe32d5"
+    },
+    "src/workspace-impact.mjs": {
+      "counts": {
+        "command-run": 11
+      },
+      "digest": "533cda99728e79b328a8a36844647ee2b4898dcc2f7e6fb9cea730d277ce2a30"
+    },
+    "src/workspace.mjs": {
+      "counts": {
+        "command-git-literal": 1,
+        "command-run": 41,
+        "process-import": 1
+      },
+      "digest": "7343e9df794249faf0b4b5626c564dbd7aedfc99028565bb9c792cc199f2c97c"
+    },
+    "src/worktree-fingerprint.mjs": {
+      "counts": {
+        "command-run": 14
+      },
+      "digest": "2ed8be49365d2f3c805e80828f9e12498d08e65490ca8f79c273a561bfa9a555"
+    },
+    "src/world-model/authority-refresh.mjs": {
+      "counts": {
+        "command-run": 2
+      },
+      "digest": "38bdddfea4dbcea9726532c66891980c5f6fb72f48991e9e1a5f3d6cc51c35a1"
+    },
+    "src/world-model/extract/adapters/change-region.mjs": {
+      "counts": {
+        "command-git": 2,
+        "command-run": 1
+      },
+      "digest": "4532716eae62f0352eb859070a845d2afba7b9176bb8388a8723d8531f720221"
+    },
+    "src/world-model/history/git-read.mjs": {
+      "counts": {
+        "command-runCommand": 1
+      },
+      "digest": "ed43375f5048bc045427feb2348eec3eca79aa54ce9c086090131130d7f813f6"
+    },
+    "src/world-model/projections/calm/validator.mjs": {
+      "counts": {
+        "command-runCommand": 1
+      },
+      "digest": "0289cba7418811c9fc0f4026e1fb7f78069911ec31bb3c8835a11fea44567d27"
+    },
+    "src/world-model/recovery.mjs": {
+      "counts": {
+        "command-git": 18,
+        "command-run": 1
+      },
+      "digest": "1006d668d44dfcb720921298a4cc387d3ee7674bcd042a201b9dc32455da2098"
+    },
+    "src/world-model/source/snapshot.mjs": {
+      "counts": {
+        "command-git": 20,
+        "command-run": 1
+      },
+      "digest": "5a278ee8e9322ee9e2bc3d1976036a4ca5d7a69db0a35efb6d1715435134769c"
+    },
+    "src/world-model/store.mjs": {
+      "counts": {
+        "command-run": 6
+      },
+      "digest": "8fb75ec1e35736896cb4a5b8d0f9611687773308b04398c7c012b65fb872dd29"
+    },
+    "src/worldmodel.mjs": {
+      "counts": {
+        "command-run": 27
+      },
+      "digest": "ff3191bb70a4951fb68aabc458485a0fc98271a5f643a98398fb2a5d4a56a4ab"
+    },
+    "package.json": {
+      "counts": {
+        "package-script": 57
+      },
+      "digest": "99b16a3a0ee8bbf5060dac65a8a28938378eb9f4a1a440c67efd60f071ecdb7d"
+    },
+    "apps/vscode/package.json": {
+      "counts": {
+        "package-script": 3
+      },
+      "digest": "fe2e35302cb3259f1e0ba8b3bf1fb434694a5a4c1a9b527e5de89ebeb82d5cd0"
+    }
+  }
+}

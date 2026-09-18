@@ -458,6 +458,30 @@ test('asynchronous remote execution keeps the same bounded result contract', asy
   assert.equal(result.timeoutMs, 5_000);
 });
 
+test('async Git executor preserves raw stdout only when Buffer mode is selected', async () => {
+  const bytes = Buffer.from([0x61, 0x00, 0x80, 0x0a]);
+  const execute = (encoding) => runRemoteGitAsync(['--version'], {
+    operation: 'local-read', timeoutMs: 5_000, encoding,
+    spawnCommand() {
+      const child = new EventEmitter();
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      queueMicrotask(() => {
+        child.stdout.write(bytes.subarray(0, 2));
+        child.stdout.write(bytes.subarray(2));
+        child.emit('close', 0, null);
+      });
+      return child;
+    }
+  });
+  const raw = await execute('buffer');
+  assert.equal(raw.status, 0);
+  assert.deepEqual(raw.stdout, bytes);
+  const text = await execute('utf8');
+  assert.equal(typeof text.stdout, 'string');
+  assert.equal(text.stdout, bytes.toString('utf8'));
+});
+
 test('asynchronous remote execution resolves an absolute Git executable on Windows', async () => {
   const calls = [];
   const environment = {

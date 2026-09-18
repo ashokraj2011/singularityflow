@@ -41,6 +41,40 @@ test('platform process resolution preserves logical argv on ordinary direct laun
   assert.deepEqual(args, ['--test', 'value with spaces'], 'the caller-owned argv must not be rewritten');
 });
 
+test('POSIX Git ignores relative PATH entries and checkout-local executable shadows', () => {
+  const seen = [];
+  const launch = resolvePlatformProcess('git', ['status', '--porcelain=v2'], {
+    platform: 'linux', cwd: '/work/repository',
+    environment: { PATH: '.:/work/repository:/trusted/git/bin' },
+    realpathSyncCommand(candidate) {
+      seen.push(candidate);
+      return candidate;
+    },
+    lstatSyncCommand() { return { isFile: () => true }; }
+  });
+  assert.deepEqual(seen, ['/work/repository', '/work/repository/git', '/trusted/git/bin/git']);
+  assert.equal(launch.executable, '/trusted/git/bin/git');
+  assert.deepEqual(launch.arguments, ['status', '--porcelain=v2']);
+  assert.deepEqual(launch.spawnOptions, { shell: false });
+  assert.throws(() => resolvePlatformProcess('git', [], {
+    platform: 'linux', cwd: '/work/repository', environment: { PATH: '.:/work/repository' },
+    realpathSyncCommand: (candidate) => candidate,
+    lstatSyncCommand: () => ({ isFile: () => true })
+  }), /absolute PATH entries/);
+});
+
+test('POSIX Git skips a non-executable candidate before selecting a usable binary', () => {
+  const launch = resolvePlatformProcess('git', ['--version'], {
+    platform: 'linux', cwd: '/work/repository',
+    environment: { PATH: '/blocked:/trusted' },
+    realpathSyncCommand: (candidate) => candidate,
+    lstatSyncCommand: (candidate) => ({
+      isFile: () => true, mode: candidate.startsWith('/blocked/') ? 0o644 : 0o755
+    })
+  });
+  assert.equal(launch.executable, '/trusted/git');
+});
+
 test('Windows Git resolves only a native git.exe from PATH, never a batch shim', () => {
   const seen = [];
   const lookup = (command, args, options) => {

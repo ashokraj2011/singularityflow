@@ -112,3 +112,31 @@ test('a well-framed but hash-mismatched blob is rejected', () => {
   assert.equal(calls.every(({ options }) => options.env.GIT_NO_REPLACE_OBJECTS === '1'), true);
   assert.equal(calls.every(({ options }) => options.env.GIT_NO_LAZY_FETCH === '1'), true);
 });
+
+test('content requests split at the bounded object-count ceiling', () => {
+  const bodies = Array.from({ length: 513 }, (_, index) => Buffer.from(`blob-${index}`));
+  const entries = bodies.map((body) => ({ oid: objectId('sha1', body), body }));
+  const byOid = new Map(entries.map((entry) => [entry.oid, entry.body]));
+  let contentCalls = 0;
+  const runCommand = (_command, args, options) => {
+    if (args[0] === 'rev-parse') return { status: 0, stdout: 'sha1\n' };
+    const requested = String(options.input).trim().split('\n');
+    if (args[1].startsWith('--batch-check')) return {
+      status: 0,
+      stdout: requested.map((oid) => `${oid} blob ${byOid.get(oid).length}`).join('\n') + '\n'
+    };
+    contentCalls += 1;
+    assert.ok(requested.length <= 512);
+    return {
+      status: 0,
+      stdout: Buffer.concat(requested.flatMap((oid) => [
+        Buffer.from(`${oid} blob ${byOid.get(oid).length}\n`), byOid.get(oid), Buffer.from('\n')
+      ]))
+    };
+  };
+  const result = readLocalGitBlobs('/repository', entries.map(({ oid }) => oid), {
+    runCommand, maximumBatchBytes: 1024 * 1024
+  });
+  assert.equal(result.size, 513);
+  assert.equal(contentCalls, 2);
+});

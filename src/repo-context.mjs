@@ -51,7 +51,7 @@ export class RepoContext {
 
   #key(id, params, dependency) {
     const suffix = JSON.stringify(stable(params));
-    return `${dependency === 'mutable' ? this.#epoch : 'stable'}:${id}:${suffix}`;
+    return `${this.#epoch}:${dependency}:${id}:${suffix}`;
   }
 
   async observe(id, params = {}) {
@@ -77,8 +77,7 @@ export class RepoContext {
     if (this.#cacheEnabled) this.#pending.set(key, pending);
     try {
       const value = cloneFrozen(await pending);
-      if (this.#cacheEnabled
-          && (descriptor.dependency !== 'mutable' || observedEpoch === this.#epoch)) {
+      if (this.#cacheEnabled && observedEpoch === this.#epoch) {
         this.#cache.set(key, value);
       }
       return cloneFrozen(value);
@@ -87,14 +86,39 @@ export class RepoContext {
     }
   }
 
+  /**
+   * A current-use observation never reuses an earlier invocation capture. It remains an
+   * observation, not a lock against external Git processes; publication still needs exact
+   * preconditions. A local mutation overlapping the read invalidates the result.
+   */
+  async observeFresh(id, params = {}) {
+    gitQueryDescriptor(id);
+    if (this.#mutation) throw new SingularityFlowError(
+      'Repository observations are paused while a registered mutation is in progress.', {
+        code: 'REPO_CONTEXT_MUTATION_IN_PROGRESS', details: { queryId: id }
+      }
+    );
+    const observedEpoch = this.#epoch;
+    incrementCommandCounter('cache.misses');
+    const value = await this.#execute(this.#root, id, structuredClone(params));
+    if (observedEpoch !== this.#epoch) throw new SingularityFlowError(
+      'Repository state changed while a fresh observation was being collected.', {
+        code: 'REPO_CONTEXT_EPOCH_CHANGED',
+        details: { queryId: id, observedEpoch, currentEpoch: this.#epoch }
+      }
+    );
+    return cloneFrozen(value);
+  }
+
   invalidate({ configuration = true } = {}) {
     incrementCommandCounter('cache.invalidations');
     this.#epoch += 1;
-    for (const key of this.#cache.keys()) {
-      if (key.startsWith('stable:')) {
-        if (configuration && key.includes(':repository.remote')) this.#cache.delete(key);
-      } else this.#cache.delete(key);
-    }
+    // A repository may be reinitialized, relocated, or have its object interpretation changed
+    // between observations. Until dependency-specific generations are modeled, conservatively
+    // retire every cached identity/configuration projection on any explicit invalidation.
+    void configuration;
+    this.#cache.clear();
+    this.#pending.clear();
   }
 
   /**

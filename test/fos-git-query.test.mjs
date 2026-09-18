@@ -57,6 +57,43 @@ test('FOS:AC-020 lazy observations coalesce and are defensively immutable', asyn
   assert.equal(calls, 1);
 });
 
+test('fresh observations bypass captured values and invalidate across a local mutation', async () => {
+  let value = 'first';
+  let calls = 0;
+  const context = new RepoContext('/tmp/example', {
+    execute: async () => { calls += 1; return value; }
+  });
+  assert.equal(await context.observe('repository.head'), 'first');
+  value = 'second';
+  assert.equal(await context.observe('repository.head'), 'first', 'legacy capture remains explicit');
+  assert.equal(await context.observeFresh('repository.head'), 'second');
+  assert.equal(await context.observeFresh('repository.head'), 'second');
+  assert.equal(calls, 3, 'each fresh read executes again');
+  await context.mutate(async () => { value = 'third'; });
+  assert.equal(await context.observe('repository.head'), 'third');
+  assert.equal(calls, 4);
+});
+
+test('invalidation retires repository identity captures and rejects overlapping fresh reads', async () => {
+  let release;
+  let value = 'old';
+  const gate = new Promise((resolve) => { release = resolve; });
+  const context = new RepoContext('/tmp/example', {
+    execute: async (_root, id) => {
+      if (id === 'repository.head') await gate;
+      return value;
+    }
+  });
+  const pending = context.observeFresh('repository.head');
+  context.invalidate();
+  release();
+  await assert.rejects(pending, (error) => error.code === 'REPO_CONTEXT_EPOCH_CHANGED');
+  assert.equal(await context.observe('repository.object-format'), 'old');
+  value = 'new';
+  context.invalidate();
+  assert.equal(await context.observe('repository.object-format'), 'new');
+});
+
 test('FOS:AC-021 mutation barriers prevent stale in-flight results from entering a new epoch', async () => {
   let calls = 0;
   let release;

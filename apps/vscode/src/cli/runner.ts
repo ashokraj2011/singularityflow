@@ -512,13 +512,44 @@ export async function resolveWindowsGitExecutable(
   return null;
 }
 
+/** Pin POSIX Git outside the checkout; inherited PATH may contain `.` or the repository itself. */
+export async function resolvePosixGitExecutable(
+  cwd: string,
+  environment: NodeJS.ProcessEnv = process.env,
+  filesystem: { stat: typeof lstat; canonicalize: typeof realpath } = {
+    stat: lstat, canonicalize: realpath
+  }
+): Promise<string | null> {
+  const pathValue = environmentValue(environment, 'PATH');
+  if (!pathValue) return null;
+  let canonicalCwd: string;
+  try { canonicalCwd = await filesystem.canonicalize(cwd); }
+  catch { return null; }
+  for (const directory of pathValue.split(path.delimiter).slice(0, 128)) {
+    if (!path.isAbsolute(directory)) continue;
+    const candidate = path.join(directory, 'git');
+    try {
+      const canonical = await filesystem.canonicalize(candidate);
+      const relative = path.relative(canonicalCwd, canonical);
+      if (!path.isAbsolute(canonical) || relative === ''
+        || (relative !== '..' && !relative.startsWith(`..${path.sep}`)
+          && !path.isAbsolute(relative))) continue;
+      const info = await filesystem.stat(canonical);
+      if (info.isFile() && (info.mode & 0o111) !== 0) return canonical;
+    } catch { /* Missing or unreadable PATH entry. */ }
+  }
+  return null;
+}
+
 function selectedGitExecutable(
   cwd: string, environment: NodeJS.ProcessEnv, injectedSpawn?: typeof spawn
 ): string | Promise<string | null> {
   // The injected spawn is a test seam; preserving its immediate invocation keeps cancellation
   // tests able to inspect the child they supplied. Production Windows launches always resolve.
-  return process.platform === 'win32' && !injectedSpawn
-    ? resolveWindowsGitExecutable(cwd, environment) : 'git';
+  if (injectedSpawn) return 'git';
+  return process.platform === 'win32'
+    ? resolveWindowsGitExecutable(cwd, environment)
+    : resolvePosixGitExecutable(cwd, environment);
 }
 
 /**

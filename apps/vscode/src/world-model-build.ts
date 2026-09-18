@@ -7,7 +7,6 @@
  * CLI action after an exact modal review; neither route runs a model during configuration reads.
  */
 import { randomUUID } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
 import * as vscode from 'vscode';
 
 import { createHostGateway } from '../../../src/gateway/host.mjs';
@@ -19,6 +18,7 @@ import { worldModelSourceSnapshot } from '../../../src/grounding.mjs';
 import { worldModelGatewayCapabilities } from '../../../src/gateway/planners/world-model-run.mjs';
 import { DEFAULT_GATEWAY_POLICY } from '../../../src/gateway/policy.mjs';
 import { editorPlanners, type ActiveRepositoryContext } from './gateway-session.ts';
+import { currentGitSource, hasConfiguredGitRemote } from './cli/git-observations.ts';
 import {
   exactWorldModelPlanDetail, legacyWorldModelLightArguments, legacyWorldModelLightDetail,
   loadScopedWorldModelBuildConfig, runExactWorldModelBuild,
@@ -123,18 +123,12 @@ export async function showGovernedWorldModelBuild(
     }
     const remote = String(config.remote ?? 'origin');
     const stateBranch = String(config.stateBranch ?? 'state');
-    try {
-      execFileSync('git', ['remote', 'get-url', remote], { cwd: active.root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-    } catch {
+    if (!await hasConfiguredGitRemote(active.root, remote)) {
       throw Object.assign(new Error(`The configured World Model remote '${remote}' is not available. Restore the governed remote before Build / refresh.`), {
         code: 'WMB_STATE_REMOTE_REQUIRED'
       });
     }
-    const git = (...argv: string[]) => execFileSync('git', argv, {
-      cwd: active.root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore']
-    }).trim();
-    const branch = git('rev-parse', '--abbrev-ref', 'HEAD');
-    const sourceCommit = git('rev-parse', 'HEAD');
+    const { branch, sourceCommit } = await currentGitSource(active.root);
     const source = await worldModelSourceSnapshot(active.root, config.definition);
     const views = resolveWorldModelViewIds(config, ['all']);
     const reviewIdentity = JSON.stringify({
@@ -160,9 +154,10 @@ export async function showGovernedWorldModelBuild(
     const latest = await loadWorldModelConfig(active.root,
       capabilityId ? { capabilityId } : undefined);
     const latestSource = await worldModelSourceSnapshot(active.root, latest.definition);
+    const latestGit = await currentGitSource(active.root);
     const latestIdentity = JSON.stringify({
       repository: active.root, workspace: active.workspaceId,
-      branch: git('rev-parse', '--abbrev-ref', 'HEAD'), sourceCommit: git('rev-parse', 'HEAD'),
+      branch: latestGit.branch, sourceCommit: latestGit.sourceCommit,
       sourceTreeSha256: latestSource.sha256, definition: latest.definition,
       workflow: latest.workflow, repositoryCapability: latest.repositoryCapability,
       remote: String(latest.remote ?? 'origin'), stateBranch: String(latest.stateBranch ?? 'state')

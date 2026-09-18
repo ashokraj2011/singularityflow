@@ -4,6 +4,7 @@ import { SingularityFlowError, run } from './util.mjs';
 
 const OBJECT_ID = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 const DEFAULT_BATCH_BYTES = 24 * 1024 * 1024;
+const MAXIMUM_BATCH_OBJECTS = 512;
 
 function refusal(message, code, details) {
   throw new SingularityFlowError(message, { code, details });
@@ -91,7 +92,8 @@ export function readLocalGitBlobs(root, objectIds, {
   let group = [];
   let groupBytes = 0;
   for (const entry of sized) {
-    if (group.length && groupBytes + entry.size > maximumBatchBytes) {
+    if (group.length && (group.length >= MAXIMUM_BATCH_OBJECTS
+        || groupBytes + entry.size > maximumBatchBytes)) {
       groups.push(group);
       group = [];
       groupBytes = 0;

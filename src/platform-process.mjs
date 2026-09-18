@@ -324,11 +324,37 @@ export function resolvePlatformProcess(command, args = [], {
   const logicalCommand = safeCommand(command);
   const logicalArguments = args.map(String);
   if (platform !== 'win32') {
+    // PATH may contain `.` or a checkout directory. Resolve Git through absolute PATH entries and
+    // pin the real executable before changing cwd to a repository-controlled worktree.
+    let executable = logicalCommand;
+    if (logicalCommand === 'git') {
+      const parent = typeof cwd === 'string' && path.isAbsolute(cwd)
+        ? (() => { try { return realpathSyncCommand(cwd); } catch { return path.resolve(cwd); } })()
+        : null;
+      executable = null;
+      const entries = String(environmentValue(environment, ['PATH']) ?? '').split(path.delimiter);
+      for (const directory of entries.slice(0, 128)) {
+        if (!path.isAbsolute(directory)) continue;
+        try {
+          const resolved = realpathSyncCommand(path.join(directory, 'git'));
+          const relative = parent == null ? null : path.relative(parent, resolved);
+          if (relative === '' || (relative != null && relative !== '..'
+              && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))) continue;
+          const info = lstatSyncCommand(resolved);
+          if (path.isAbsolute(resolved) && info.isFile?.()
+              && (typeof info.mode !== 'number' || (info.mode & 0o111) !== 0)) {
+            executable = resolved;
+            break;
+          }
+        } catch { /* Missing or unreadable PATH entry. */ }
+      }
+      if (!executable) throw new TypeError('POSIX could not resolve a native Git executable from absolute PATH entries.');
+    }
     return Object.freeze({
       logicalCommand,
       logicalArguments: Object.freeze(logicalArguments),
-      physicalExecutable: logicalCommand,
-      executable: logicalCommand,
+      physicalExecutable: executable,
+      executable,
       arguments: Object.freeze([...logicalArguments]),
       spawnOptions: Object.freeze({ shell: false })
     });

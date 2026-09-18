@@ -193,6 +193,7 @@ export async function runRemoteGitAsync(args, {
   cwd = process.cwd(), env = process.env, operation = 'remote-probe',
   timeoutMs = timeoutFor(operation, env), allowFailure = true,
   maxBuffer = 16 * 1024 * 1024, spawnCommand = spawn, signal = null,
+  encoding = 'utf8',
   platform = process.platform, platformLookupCommand = spawnSync,
   platformLstatCommand = undefined, platformRealpathCommand = undefined,
   terminationGraceMs = terminationGraceFor(env),
@@ -236,7 +237,10 @@ export async function runRemoteGitAsync(args, {
       resolve({ status: 1, stdout: '', stderr: '', error, timedOut: false });
       return;
     }
-    let stdout = '';
+    // Local byte-exact Git descriptors can opt into raw stdout. Keep remote callers' text
+    // contract unchanged, and never decode a pathname before its strict parser sees it.
+    let stdout = encoding === 'buffer' ? Buffer.alloc(0) : '';
+    const stdoutChunks = encoding === 'buffer' ? [] : null;
     let stderr = '';
     let bytes = 0;
     let timedOut = false;
@@ -280,7 +284,7 @@ export async function runRemoteGitAsync(args, {
       const failedByBoundary = terminationReason != null || outputOverflow;
       resolve({
         status: failedByBoundary ? 1 : (code ?? 1),
-        stdout,
+        stdout: stdoutChunks ? Buffer.concat(stdoutChunks) : stdout,
         stderr,
         error: spawnError,
         signal: terminationSignal,
@@ -361,7 +365,10 @@ export async function runRemoteGitAsync(args, {
         terminate('output-overflow');
         return;
       }
-      if (channel === 'stdout') stdout += value.toString('utf8');
+      if (channel === 'stdout') {
+        if (stdoutChunks) stdoutChunks.push(value);
+        else stdout += value.toString('utf8');
+      }
       else stderr += value.toString('utf8');
     };
     const onStdout = (chunk) => append('stdout', chunk);

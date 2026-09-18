@@ -6,6 +6,12 @@
 
 **Last reviewed:** 2026-09-14
 
+The Git Access Layer is an active staged migration, not a completed performance claim. Its
+2026-09-18 code-local safety slice and the remaining G0–G5 release gates are tracked in
+[Git Access Layer implementation status](GIT-ACCESS-LAYER-STATUS.md). In particular, the new
+facade is not yet the sole production Git path, and physical Windows/office qualification remains
+open.
+
 This is the one-page control plane for deliberately deferred product work. It does not replace the
 detailed domain roadmaps and it does not authorize implementation. It names the current boundary,
 the next eligible increment, and the source document that owns each acceptance contract.

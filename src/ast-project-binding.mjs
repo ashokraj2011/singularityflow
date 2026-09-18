@@ -2,9 +2,10 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import { executeGitQuery } from './git-query.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
-import { posix, run, SingularityFlowError } from './util.mjs';
+import { posix, SingularityFlowError } from './util.mjs';
 
 export const AST_PROJECT_BINDING_SCHEMA_VERSION = currentSchemaVersion('ast-project-binding');
 const DIGEST = /^[a-f0-9]{64}$/;
@@ -116,8 +117,7 @@ function dependencyDigest(files) {
  * script is invoked.
  */
 export async function discoverProjectBindings(root, { paths = null, maxFiles = MAX_PROJECT_FILES, includeWarm = true } = {}) {
-  const repositoryPaths = run('git', ['ls-files', '-z'], { cwd: root, maxBuffer: 32 * 1024 * 1024 }).stdout
-    .split('\0').filter(Boolean).map(posix);
+  const repositoryPaths = executeGitQuery(root, 'repository.tracked-paths').map(posix);
   const listed = repositoryPaths.filter((relative) => BUILD_FILE.test(relative));
   const relevant = paths?.length
     ? listed.filter((relative) => {

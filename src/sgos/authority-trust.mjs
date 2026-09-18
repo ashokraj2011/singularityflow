@@ -1,10 +1,11 @@
 /** SGOS-only trust policy for approved configuration references. */
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
+import { executeGitQuery } from '../git-query.mjs';
 import { configuredRemoteIdentity } from '../git-remote-diagnostics.mjs';
 import {
   activeWorkspaceFile, workspaceMemberContextForRepository, workspaceRegistryFile
 } from '../workspace-context.mjs';
-import { SingularityFlowError, run } from '../util.mjs';
+import { SingularityFlowError } from '../util.mjs';
 
 const CONFIGURATION_SUFFIX = '/sflow/config';
 const STATE_SUFFIX = '/state';
@@ -20,13 +21,13 @@ function fail(message, details = null) {
 }
 
 function configuredRemotes(root) {
-  const result = run('git', ['remote'], { cwd: root, allowFailure: true });
-  if (result.status !== 0) {
+  const result = executeGitQuery(root, 'sgos.configured-remotes');
+  if (!result.ok) {
     fail('SGOS could not verify the repository remote boundary before loading execution authority.', {
-      stderr: result.stderr.trim()
+      stderr: result.stderr
     });
   }
-  return result.stdout.split(/\r?\n/u).map((entry) => entry.trim()).filter(Boolean).sort();
+  return result.remotes;
 }
 
 function canonicalConfigurationRemote(remotes) {
@@ -39,12 +40,7 @@ function canonicalConfigurationRemote(remotes) {
 }
 
 function localAuthorityHeads(root) {
-  const result = run('git', [
-    'for-each-ref', '--format=%(refname)',
-    'refs/heads/sflow/config', 'refs/heads/state'
-  ], { cwd: root, allowFailure: true });
-  if (result.status !== 0) return [];
-  return result.stdout.split(/\r?\n/u).map((entry) => entry.trim()).filter(Boolean).sort();
+  return executeGitQuery(root, 'sgos.local-authority-heads');
 }
 
 function expectedSuffix(authority) {

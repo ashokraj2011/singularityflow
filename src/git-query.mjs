@@ -27,12 +27,13 @@ function nul(result) {
 
 function descriptor(id, {
   argv, parser = text, dependency = 'mutable', allowFailure = false,
-  network = false, effects = 'none', environment = [], encoding = 'utf8', validate = null
+  network = false, effects = 'none', environment = [], encoding = 'utf8', validate = null,
+  maxBuffer = null, timeoutClass = network ? 'remote-read' : 'local-read'
 }) {
   return freezeDeep({
     id, executable: 'git', argv, parser, dependency, allowFailure,
     network, effects, environment: [...environment], encoding, validate,
-    timeoutClass: network ? 'remote-read' : 'local-read'
+    timeoutClass, ...(maxBuffer == null ? {} : { maxBuffer })
   });
 }
 
@@ -88,7 +89,11 @@ const descriptors = [
   }),
   descriptor('repository.root', {
     argv: () => ['rev-parse', '--show-toplevel'], dependency: 'repository-instance',
-    allowFailure: true, parser: (result) => result.status === 0 ? path.resolve(text(result)) : null
+    allowFailure: true, parser(result) {
+      if (result.status !== 0) return null;
+      const observedRoot = text(result);
+      return observedRoot && path.isAbsolute(observedRoot) ? path.resolve(observedRoot) : null;
+    }
   }),
   descriptor('repository.object-format', {
     argv: () => ['rev-parse', '--show-object-format'], dependency: 'repository-instance'
@@ -149,10 +154,27 @@ const descriptors = [
     parser: (result) => parsePorcelainV2Revision(result.stdout)
   }),
   descriptor('repository.tracked-paths', {
-    argv: () => ['ls-files', '-z'], parser: nul
+    argv: () => ['ls-files', '-z'], parser: nul,
+    // Preserve project discovery's original output and deadline boundaries during cutover.
+    maxBuffer: 32 * 1024 * 1024, timeoutClass: null
   }),
   descriptor('repository.remotes', {
     argv: () => ['remote'], dependency: 'configuration', parser: lines
+  }),
+  descriptor('sgos.configured-remotes', {
+    argv: () => ['remote'], dependency: 'configuration', allowFailure: true,
+    parser(result) {
+      if (result.status !== 0) return { ok: false, stderr: result.stderr.trim() };
+      return { ok: true, remotes: [...lines(result)].sort() };
+    }
+  }),
+  descriptor('sgos.local-authority-heads', {
+    argv: () => [
+      'for-each-ref', '--format=%(refname)',
+      'refs/heads/sflow/config', 'refs/heads/state'
+    ],
+    allowFailure: true,
+    parser: (result) => result.status === 0 ? [...lines(result)].sort() : []
   }),
   descriptor('repository.remote-url', {
     argv(params) {
@@ -217,6 +239,7 @@ export function executeGitQuery(root, id, params = {}, { env = process.env, runn
       cwd: path.resolve(root), env, allowFailure: entry.allowFailure,
       operation: entry.id, network: entry.network, timeoutClass: entry.timeoutClass,
       recordGitTiming: false,
+      ...(entry.maxBuffer == null ? {} : { maxBuffer: entry.maxBuffer }),
       ...(entry.encoding === 'buffer' ? { encoding: 'buffer' } : {})
     });
   } finally {

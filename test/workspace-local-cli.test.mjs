@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { executeGitQuery } from '../src/git-query.mjs';
 import { run } from '../src/util.mjs';
 
 const packageRoot = fileURLToPath(new URL('..', import.meta.url));
@@ -235,6 +236,31 @@ test('a repository describes itself, so a workspace never has to be told its URL
   assert.equal(inspected.defaultBranch, 'main');
   assert.equal(inspected.id, 'payments-api', 'the identifier is derived from the folder, safely');
   assert.equal(inspected.localPath, await realpath(checkout));
+});
+
+test('workspace root query uses one registered read and never resolves empty Git output to cwd', async () => {
+  const { base, source } = await environment();
+  const checkout = path.join(base, 'existing-checkout');
+  run('git', ['clone', '-q', source, checkout], { cwd: base });
+  const nested = path.join(checkout, 'nested');
+  await mkdir(nested);
+  assert.equal(await realpath(executeGitQuery(checkout, 'repository.root')), await realpath(checkout));
+  assert.equal(await realpath(executeGitQuery(nested, 'repository.root')), await realpath(checkout),
+    'Git reports the actual repository root when called from a nested folder');
+
+  const calls = [];
+  const runner = (command, args, options) => {
+    calls.push({ command, args, options });
+    return { status: 0, stdout: '', stderr: '' };
+  };
+  assert.equal(executeGitQuery(checkout, 'repository.root', {}, { runner }), null);
+  assert.deepEqual(calls.map(({ command, args }) => [command, args]), [
+    ['git', ['rev-parse', '--show-toplevel']]
+  ]);
+  assert.equal(calls[0].options.cwd, path.resolve(checkout));
+  assert.equal(executeGitQuery(checkout, 'repository.root', {}, {
+    runner: () => ({ status: 0, stdout: 'relative/repository\n', stderr: '' })
+  }), null);
 });
 
 test('a folder that cannot join a workspace says so while you are choosing', async () => {

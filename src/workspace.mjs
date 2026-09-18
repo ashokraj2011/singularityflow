@@ -23,6 +23,7 @@ import {
   isPortableAbsoluteGitPath, remoteFingerprint, safeGitDiagnosticReference, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
 import { enterpriseGitEnvironment } from './git-enterprise-environment.mjs';
+import { executeGitQuery } from './git-query.mjs';
 import {
   GitRemoteSession, requireRemoteObservation, runRemoteGitAsync
 } from './git-execution.mjs';
@@ -863,8 +864,8 @@ export async function workspaceRepositoryDefaults(repository) {
     throw new SingularityFlowError(`The selected folder is not a safe Git repository: ${root}`);
   }
 
-  const topLevel = run('git', ['rev-parse', '--show-toplevel'], { cwd: root, allowFailure: true });
-  const canonicalTopLevel = topLevel.status === 0 ? await realpath(topLevel.stdout.trim()).catch(() => null) : null;
+  const topLevel = executeGitQuery(root, 'repository.root');
+  const canonicalTopLevel = topLevel ? await realpath(topLevel).catch(() => null) : null;
   if (!canonicalTopLevel || canonicalTopLevel !== root) {
     throw new SingularityFlowError(`Select the Git repository root instead of a nested folder: ${root}`);
   }

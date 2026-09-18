@@ -369,12 +369,6 @@
       },
       "digest": "4426aede19f2e45b109ce8b0cf1895577c728434de050b1e6479a56fa8f2a15e"
     },
-    "src/ast-project-binding.mjs": {
-      "counts": {
-        "command-run": 1
-      },
-      "digest": "93bb98b61fd1e22158de2bd0412aa73ddb93de1320141d9a297e1e82081cbcd2"
-    },
     "src/ast-replay.mjs": {
       "counts": {
         "command-run": 5
@@ -1061,12 +1055,6 @@
       },
       "digest": "6db45e38877a32e40e7df234df289193048ea39490a3047cd69ccc7f78d509dd"
     },
-    "src/sgos/authority-trust.mjs": {
-      "counts": {
-        "command-run": 2
-      },
-      "digest": "e04c31ca74d02c4285119a26b445f7f8f5c79cea4f353eda9a78452ad085a417"
-    },
     "src/sgos/candidate-lifecycle.mjs": {
       "counts": {
         "command-run": 2,
@@ -1236,10 +1224,10 @@
     "src/workspace.mjs": {
       "counts": {
         "command-git-literal": 1,
-        "command-run": 41,
+        "command-run": 40,
         "process-import": 1
       },
-      "digest": "7343e9df794249faf0b4b5626c564dbd7aedfc99028565bb9c792cc199f2c97c"
+      "digest": "0c9baef3f1a1120ae818ca182c15b5bd78a7a65587be61160d19721d64651d5f"
     },
     "src/worktree-fingerprint.mjs": {
       "counts": {

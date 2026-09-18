@@ -1,31 +1,30 @@
 import { createHash } from 'node:crypto';
 import { TimingCollector } from './dx-timings.mjs';
+import { executeGitQuery } from './git-query.mjs';
 import { parsePorcelainV2Revision } from './git-status-projection.mjs';
 import { SingularityFlowError, run } from './util.mjs';
 import { worktreeFingerprint } from './worktree-fingerprint.mjs';
 
 async function worktreeRevision(root, { gitReadMode = 'reference', onGitShadowComparison = null } = {}) {
-  // Porcelain v2 carries the branch, HEAD, and changed-path catalog in one process. The shared Git
-  // tree fingerprint supplies the exact bytes and modes; every surface now means the same thing
-  // when it calls a value `worktreeHash`.
+  // The closed revision descriptor retains this exact one-process porcelain-v2 query and parser.
+  // Each boundary executes freshly: a captured read would hide changes made during the load.
+  const typed = () => executeGitQuery(root, 'repository.revision');
   const reference = () => {
     const status = run('git', ['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all'], { cwd: root });
     return parsePorcelainV2Revision(status.stdout);
   };
   let parsed;
   if (gitReadMode === 'shadow') {
-    const [{ runFosGitShadowRead }, { executeGitQuery }] = await Promise.all([
-      import('./fos-git-shadow.mjs'), import('./git-query.mjs')
-    ]);
+    const { runFosGitShadowRead } = await import('./fos-git-shadow.mjs');
     ({ value: parsed } = await runFosGitShadowRead({
       operation: 'snapshot.repository-revision',
       mode: 'shadow',
-      reference,
-      candidate: () => executeGitQuery(root, 'repository.revision'),
+      reference: typed,
+      candidate: reference,
       record: onGitShadowComparison
     }));
   } else {
-    parsed = reference();
+    parsed = typed();
   }
   const fingerprint = worktreeFingerprint(root, {
     fresh: true,

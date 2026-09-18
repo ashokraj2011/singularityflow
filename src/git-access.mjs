@@ -89,6 +89,25 @@ function singleLine(output) {
   return output.slice(0, -1);
 }
 
+// `rev-parse` has no NUL-framed output mode for these options. Put the two fixed scalar fields
+// after the Git directory and parse from the end: the directory may itself contain newlines.
+// Never split the whole response into lines or infer a missing field from a partial result.
+function repositoryCore(output) {
+  if (typeof output !== 'string' || !output.endsWith('\n') || output.includes('\0')) return null;
+  const body = output.slice(0, -1);
+  const bareSeparator = body.lastIndexOf('\n');
+  if (bareSeparator < 0) return null;
+  const bareText = body.slice(bareSeparator + 1);
+  const beforeBare = body.slice(0, bareSeparator);
+  const formatSeparator = beforeBare.lastIndexOf('\n');
+  if (formatSeparator < 0) return null;
+  const objectFormat = beforeBare.slice(formatSeparator + 1);
+  const gitDir = beforeBare.slice(0, formatSeparator);
+  if (!gitDir || !path.isAbsolute(gitDir) || !OID[objectFormat]
+      || !['true', 'false'].includes(bareText)) return null;
+  return { gitDir, objectFormat, bare: bareText === 'true' };
+}
+
 function validOid(value, format) {
   return typeof value === 'string' && OID[format]?.test(value) === true;
 }
@@ -955,27 +974,31 @@ class GitRuntime {
     }
     let location;
     try { location = await realpath(nativePath); } catch { return failure('GAL_REPOSITORY_UNAVAILABLE', operationId); }
-    const observation = async (args) => executeText(this, location, ['rev-parse', ...args], {
-      signal: this.signal, maxBuffer: 4096
+    const observation = async (args, maxBuffer = 4096) => executeText(this, location, ['rev-parse', ...args], {
+      signal: this.signal, maxBuffer
     });
-    const gitDirResult = await observation(['--path-format=absolute', '--absolute-git-dir']);
-    if (gitDirResult.status !== 0) return executionFailure(operationId, { nativePath: location }, gitDirResult);
+    const coreResult = await observation([
+      '--path-format=absolute', '--absolute-git-dir', '--show-object-format', '--is-bare-repository'
+    ], 4096 + 32);
+    if (coreResult.status !== 0) return executionFailure(operationId, { nativePath: location }, coreResult);
+    const core = repositoryCore(coreResult.stdout);
+    if (!core) return failure('GAL_PROTOCOL_INVALID', operationId, { nativePath: location }, coreResult);
+    // The original single-field probe admitted up to 4096 bytes. The combined probe needs
+    // room for its two fixed scalar lines, but must not expand the Git-directory field limit.
+    if (Buffer.byteLength(`${core.gitDir}\n`, 'utf8') > 4096) {
+      return failure('GAL_OUTPUT_LIMIT', operationId, { nativePath: location }, {
+        ...coreResult, outputOverflow: true
+      });
+    }
     const commonResult = await observation(['--path-format=absolute', '--git-common-dir']);
     if (commonResult.status !== 0) return executionFailure(operationId, { nativePath: location }, commonResult);
-    const formatResult = await observation(['--show-object-format']);
-    if (formatResult.status !== 0) return executionFailure(operationId, { nativePath: location }, formatResult);
-    const bareResult = await observation(['--is-bare-repository']);
-    if (bareResult.status !== 0) return executionFailure(operationId, { nativePath: location }, bareResult);
-    const gitDir = singleLine(gitDirResult.stdout);
+    const { gitDir, objectFormat, bare } = core;
     const commonDir = singleLine(commonResult.stdout);
-    const objectFormat = singleLine(formatResult.stdout);
-    const bareText = singleLine(bareResult.stdout);
-    if (!gitDir || !commonDir || !path.isAbsolute(gitDir) || !path.isAbsolute(commonDir)
-        || !OID[objectFormat] || !['true', 'false'].includes(bareText)) {
+    if (!commonDir || !path.isAbsolute(commonDir)) {
       return failure('GAL_PROTOCOL_INVALID', operationId, { nativePath: location });
     }
     let root = null;
-    if (bareText === 'false') {
+    if (!bare) {
       const rootResult = await observation(['--show-toplevel']);
       if (rootResult.status !== 0) return executionFailure(operationId, { nativePath: location }, rootResult);
       root = singleLine(rootResult.stdout);
@@ -990,8 +1013,8 @@ class GitRuntime {
     ])).digest('hex');
     const identity = {
       nativePath: location, root, gitDir, commonDir,
-      bare: bareText === 'true', objectFormat,
-      indexPath: bareText === 'true' ? null : path.join(gitDir, 'index'),
+      bare, objectFormat,
+      indexPath: bare ? null : path.join(gitDir, 'index'),
       repositoryInstanceId: instance
     };
     const repository = new GitRepository(this, identity, stamp);

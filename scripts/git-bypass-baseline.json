@@ -1249,9 +1249,10 @@
     },
     "src/world-model/authority-refresh.mjs": {
       "counts": {
-        "command-run": 2
+        "command-git-literal": 3,
+        "command-run": 1
       },
-      "digest": "38bdddfea4dbcea9726532c66891980c5f6fb72f48991e9e1a5f3d6cc51c35a1"
+      "digest": "54763bc8b5271d901862399899cbaa26e32fb6851e56352f991ff368a202185b"
     },
     "src/world-model/extract/adapters/change-region.mjs": {
       "counts": {

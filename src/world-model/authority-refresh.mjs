@@ -45,6 +45,84 @@ function refreshFailure(root, config, observed, { cached }) {
   );
 }
 
+const FULL_OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+
+function trackingRefFailure(stateBranch, remote, classification, retryable = true) {
+  const message = classification === 'tracking-ref-raced'
+    ? 'The remote state branch is absent, but its stale tracking ref changed while it was being cleared.'
+    : 'The remote state branch is absent, but its stale tracking ref could not be cleared safely.';
+  return new SingularityFlowError(message, {
+    code: 'WMB_STATE_AUTHORITY_REFRESH_FAILED',
+    details: { classification, retryable, stateBranch, remote }
+  });
+}
+
+function observeExactTrackingRef(root, ref, runLocalGit) {
+  try {
+    const options = { cwd: root, allowFailure: true };
+    const symbolic = runLocalGit('git', ['symbolic-ref', '-q', ref], options);
+    if (symbolic.status === 0 && !symbolic.error && !symbolic.timedOut && !symbolic.signal) {
+      return { kind: 'symbolic' };
+    }
+    if (symbolic.status !== 1 || symbolic.error || symbolic.timedOut || symbolic.signal) {
+      return { kind: 'unknown' };
+    }
+    // `show-ref --verify` returns 128 for an absent ref on supported Git versions, the same
+    // status used for malformed/unavailable reads. A framed listing distinguishes absence.
+    const listed = runLocalGit('git', [
+      'for-each-ref', '--format=%(refname)%00%(objectname)', ref
+    ], options);
+    if (listed.status !== 0 || listed.error || listed.timedOut || listed.signal
+        || typeof listed.stdout !== 'string') return { kind: 'unknown' };
+    if (listed.stdout === '') return { kind: 'absent' };
+    const match = /^([^\0\r\n]+)\0([0-9a-f]{40}|[0-9a-f]{64})\n$/u.exec(listed.stdout);
+    if (!match || match[1] !== ref || !FULL_OID.test(match[2])) return { kind: 'unknown' };
+    return { kind: 'oid', oid: match[2] };
+  } catch {
+    return { kind: 'unknown' };
+  }
+}
+
+/** Only the explicit World-Model authority refresh issues this closed local-ref deletion. */
+function clearAbsentAuthorityTrackingRef(root, { stateBranch, remote, remoteRef }, runLocalGit) {
+  const before = observeExactTrackingRef(root, remoteRef, runLocalGit);
+  if (before.kind === 'symbolic') throw trackingRefFailure(stateBranch, remote, 'tracking-ref-symbolic', false);
+  if (before.kind === 'unknown') throw trackingRefFailure(stateBranch, remote, 'tracking-ref-unverified');
+  if (before.kind === 'absent') return false;
+
+  const request = Object.freeze({
+    kind: 'world-model-absent-authority-tracking-ref-delete',
+    ref: remoteRef,
+    expectedOldOid: before.oid
+  });
+  if (!Object.isFrozen(request)
+      || Object.keys(request).sort().join('\0') !== ['expectedOldOid', 'kind', 'ref'].join('\0')
+      || request.kind !== 'world-model-absent-authority-tracking-ref-delete'
+      || request.ref !== `refs/remotes/${remote}/${stateBranch}`
+      || !FULL_OID.test(request.expectedOldOid)) {
+    throw trackingRefFailure(stateBranch, remote, 'tracking-ref-unverified', false);
+  }
+  let removed;
+  try {
+    removed = runLocalGit('git', [
+      'update-ref', '--no-deref', '-d', request.ref, request.expectedOldOid
+    ], { cwd: root, allowFailure: true });
+  } catch {
+    // An exception or lost child acknowledgement cannot prove whether Git installed the deletion.
+    throw trackingRefFailure(stateBranch, remote, 'tracking-ref-outcome-unknown');
+  }
+  const after = observeExactTrackingRef(root, request.ref, runLocalGit);
+  const acknowledged = removed?.status === 0 && !removed.error && !removed.timedOut && !removed.signal;
+  if (acknowledged && after.kind === 'absent') return true;
+  if (after.kind === 'symbolic') throw trackingRefFailure(stateBranch, remote, 'tracking-ref-symbolic', false);
+  if (after.kind === 'oid' && (acknowledged || after.oid !== request.expectedOldOid)) {
+    throw trackingRefFailure(stateBranch, remote, 'tracking-ref-raced');
+  }
+  // The ref can be absent even if Git failed to acknowledge the deletion. Never promote that
+  // observation to an authoritative remote-absent success without an acknowledged exact CAS.
+  throw trackingRefFailure(stateBranch, remote, 'tracking-ref-outcome-unknown');
+}
+
 /**
  * Compare the configured remote authority with the materialized tracking ref without changing it.
  *
@@ -104,7 +182,9 @@ export async function inspectWorldModelV4Authority(root, config) {
 }
 
 /** Explicitly materialize the one configured state authority tracking ref. */
-export async function refreshWorldModelV4Authority(root, config, { refreshRemote = true } = {}) {
+export async function refreshWorldModelV4Authority(root, config, {
+  refreshRemote = true, runLocalGit = run
+} = {}) {
   const { stateBranch, remote, remoteRef } = configuredAuthority(config);
   if (!stateBranch || !hasRemote(root, remote)) return { status: 'no-remote', configured: false };
   if (!refreshRemote) {
@@ -134,24 +214,12 @@ export async function refreshWorldModelV4Authority(root, config, { refreshRemote
     // A reachable remote that advertises no state branch is authoritative. Remove only the exact
     // configured tracking ref so a later read cannot mistake an old cached projection for current
     // state. The optional old value makes concurrent ref movement fail closed.
-    const cachedCommit = refHead(root, remoteRef);
-    if (cachedCommit) {
-      const removed = run('git', ['update-ref', '-d', remoteRef, cachedCommit], {
-        cwd: root, allowFailure: true
-      });
-      if (removed.status !== 0) {
-        throw new SingularityFlowError(
-          'The remote state branch is absent, but its stale tracking ref changed while it was being cleared.',
-          {
-            code: 'WMB_STATE_AUTHORITY_REFRESH_FAILED',
-            details: { classification: 'tracking-ref-raced', retryable: true, stateBranch, remote }
-          }
-        );
-      }
-    }
+    const removedCachedRef = clearAbsentAuthorityTrackingRef(
+      root, { stateBranch, remote, remoteRef }, runLocalGit
+    );
     return Object.freeze({
       status: 'remote-absent', configured: true, stateBranch, remote,
-      commit: null, removedCachedRef: Boolean(cachedCommit)
+      commit: null, removedCachedRef
     });
   }
   return refreshFailure(root, config, fetched, {

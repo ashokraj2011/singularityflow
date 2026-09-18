@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { access, chmod, mkdtemp, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -49,6 +49,111 @@ test('GAL runtime resolves before repository discovery and refuses an invalid ex
   assert.equal(repository.identity.objectFormat, 'sha1');
   assert.equal(repository.identity.bare, false);
   assert.ok(path.isAbsolute(repository.identity.gitDir));
+});
+
+test('GAL discovery batches fixed metadata without combining unframed path fields', {
+  skip: process.platform === 'win32'
+}, async (t) => {
+  const root = await fixture(t);
+  const bareRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-gal-batch-bare-'));
+  const linkedRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-gal-batch-linked-'));
+  const wrapperRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-gal-batch-wrapper-'));
+  for (const directory of [bareRoot, linkedRoot, wrapperRoot]) {
+    t.after(() => rm(directory, { recursive: true, force: true }));
+  }
+  git(bareRoot, ['init', '--bare', '-q']);
+  git(root, ['worktree', 'add', '-q', '-b', 'batch-linked', linkedRoot]);
+  const baseline = await createGitRuntime();
+  assert.equal(baseline.ok, true, JSON.stringify(baseline));
+  t.after(() => baseline.value.dispose());
+
+  const log = path.join(wrapperRoot, 'commands');
+  const wrapper = path.join(wrapperRoot, 'git-wrapper');
+  await writeFile(wrapper, '#!/bin/sh\n'
+    + 'if [ "$1" = "rev-parse" ]; then printf "%s\\n" "$*" >> "$GAL_TEST_COMMAND_LOG"; fi\n'
+    + 'exec "$GAL_TEST_REAL_GIT" "$@"\n');
+  await chmod(wrapper, 0o755);
+  const created = await createGitRuntime({
+    trustedGitPath: wrapper,
+    trustedEnvironment: { ...process.env, GAL_TEST_REAL_GIT: baseline.value.identity.path,
+      GAL_TEST_COMMAND_LOG: log }
+  });
+  assert.equal(created.ok, true, JSON.stringify(created));
+  t.after(() => created.value.dispose());
+
+  for (const [selected, expectedBare] of [[root, false], [bareRoot, true], [linkedRoot, false]]) {
+    const opened = await created.value.openRepository(selected);
+    assert.equal(opened.ok, true, JSON.stringify(opened));
+    assert.equal(opened.value.identity.bare, expectedBare);
+    assert.equal(opened.value.identity.root, expectedBare ? null : await realpath(selected));
+  }
+  const calls = (await readFile(log, 'utf8')).trimEnd().split('\n');
+  const core = 'rev-parse --path-format=absolute --absolute-git-dir --show-object-format --is-bare-repository';
+  const common = 'rev-parse --path-format=absolute --git-common-dir';
+  const rootCall = 'rev-parse --show-toplevel';
+  assert.deepEqual(calls, [core, common, rootCall, core, common, core, common, rootCall]);
+});
+
+test('GAL discovery preserves newlines in repository and linked-worktree paths', {
+  skip: process.platform === 'win32'
+}, async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-gal-\nsha1\nfalse-'));
+  const linked = await mkdtemp(path.join(os.tmpdir(), 'sflow-gal-linked-\nsha1\nfalse-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(linked, { recursive: true, force: true }));
+  git(root, ['init', '-q', '-b', 'main']);
+  git(root, ['config', 'user.name', 'GAL Test']);
+  git(root, ['config', 'user.email', 'gal@example.com']);
+  await writeFile(path.join(root, 'source.txt'), 'initial\n');
+  git(root, ['add', 'source.txt']);
+  git(root, ['commit', '-qm', 'initial']);
+  const main = await open(t, root);
+  assert.equal(main.repository.identity.root, await realpath(root));
+  assert.equal(main.repository.identity.gitDir, await realpath(path.join(root, '.git')));
+  assert.equal(main.repository.identity.commonDir, main.repository.identity.gitDir);
+
+  git(root, ['worktree', 'add', '-q', '-b', 'newline-linked', linked]);
+  const worktree = await open(t, linked);
+  assert.equal(worktree.repository.identity.root, await realpath(linked));
+  assert.equal(worktree.repository.identity.commonDir, main.repository.identity.commonDir);
+  assert.notEqual(worktree.repository.identity.gitDir, worktree.repository.identity.commonDir);
+});
+
+test('GAL discovery refuses malformed batched metadata without a partial repository handle', {
+  skip: process.platform === 'win32'
+}, async (t) => {
+  const root = await fixture(t);
+  const wrapperRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-gal-bad-batch-'));
+  t.after(() => rm(wrapperRoot, { recursive: true, force: true }));
+  const baseline = await createGitRuntime();
+  assert.equal(baseline.ok, true, JSON.stringify(baseline));
+  t.after(() => baseline.value.dispose());
+  const wrapper = path.join(wrapperRoot, 'git-wrapper');
+  await writeFile(wrapper, '#!/bin/sh\n'
+    + 'if [ "$1" = "rev-parse" ] && [ "$3" = "--absolute-git-dir" ]; then\n'
+    + '  printf "%s" "$GAL_TEST_BAD_BATCH"\n'
+    + '  exit 0\n'
+    + 'fi\n'
+    + 'exec "$GAL_TEST_REAL_GIT" "$@"\n');
+  await chmod(wrapper, 0o755);
+  for (const [output, code] of [
+    [`${path.join(root, '.git')}\nsha1\nfalse`, 'GAL_PROTOCOL_INVALID'],
+    [`${path.join(root, '.git')}\nsha1\nunknown\n`, 'GAL_PROTOCOL_INVALID'],
+    [`${path.join(root, '.git')}\nsha1\nfalse\nextra\n`, 'GAL_PROTOCOL_INVALID'],
+    [`${'x'.repeat(4096)}\nsha1\nfalse\n`, 'GAL_PROTOCOL_INVALID'],
+    [`${path.join(root, 'x'.repeat(4096 - Buffer.byteLength(root, 'utf8')))}\nsha1\nfalse\n`, 'GAL_OUTPUT_LIMIT']
+  ]) {
+    const created = await createGitRuntime({
+      trustedGitPath: wrapper,
+      trustedEnvironment: { ...process.env, GAL_TEST_REAL_GIT: baseline.value.identity.path,
+        GAL_TEST_BAD_BATCH: output }
+    });
+    assert.equal(created.ok, true, JSON.stringify(created));
+    const opened = await created.value.openRepository(root);
+    assert.equal(opened.ok, false);
+    assert.equal(opened.code, code);
+    await created.value.dispose();
+  }
 });
 
 test('GAL HEAD models attached, detached and unborn without converting errors to state', async (t) => {

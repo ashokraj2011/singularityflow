@@ -444,7 +444,7 @@ mcpServers:
     label: Playwright browser automation
     hostReference: playwright
     agents: [qa, product-designer, poc-automation, poc-explorer, poc-validator]
-    phases: [design-intake, design-inventory, verification, visual-verification, conformance, poc-ui-exploration, poc-validation]
+    phases: [design-intake, design-inventory, verification, testing, visual-verification, conformance, poc-ui-exploration, poc-validation]
     tools: [browser_navigate, browser_snapshot, browser_click, browser_fill_form, browser_hover, browser_press_key, browser_resize, browser_take_screenshot, browser_console_messages, browser_network_requests]
     required: false
     approval: confirm
@@ -646,6 +646,50 @@ workTypes:
         inputs: [intake, implementation, testing]
         testEvidenceFrom: implementation
         approval: { authorities: [quality-reviewers, engineering-reviewers], minimum: 1, rejectTo: [intake, implementation, testing, conformance] }
+
+  spec-code-test-loop:
+    label: Spec → code → Playwright review
+    description: A specification-first Story with Code publication, governed Playwright browser observations, and bounded human-directed rework; MCP observations never replace structured test receipts or approval.
+    phases: [specification, implementation, testing, conformance]
+    spec: { mode: enforce }
+    plannedClaims:
+      mode: required
+      clausePhases: [specification]
+      owners: { implementation: specification }
+    documents:
+      allowedPhases: [specification]
+    templateOverrides:
+      specification: spec-code-test-loop/specification.md
+      testing: spec-code-test-loop/testing.md
+      conformance: spec-code-test-loop/conformance.md
+    phaseOverrides:
+      implementation:
+        label: Code
+        inputs: [specification]
+        repairBudget: { maxAttempts: 3, resetOnPhase: specification }
+        approval: { authorities: [engineering-reviewers], minimum: 1, rejectTo: [specification, implementation] }
+      testing:
+        label: Playwright testing review
+        inputs: [specification, implementation]
+        artifact:
+          validation: { requiredHeadings: [Exact inputs and committed test receipt, Authorized target and environment, Playwright observations, Clause results and gaps, Correction decision, Residual risk] }
+        writeScope: artifact-only
+        testEvidenceFrom: implementation
+        mcp:
+          requiredServers: [playwright]
+          requireSmoke: true
+          evidence:
+            - { server: playwright, tool: browser_navigate, minimum: 1, outputRequired: false }
+            - { server: playwright, tool: browser_snapshot, minimum: 1, outputRequired: true }
+            - { server: playwright, tool: browser_take_screenshot, minimum: 1, outputRequired: true }
+        approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [specification, implementation, testing] }
+      conformance:
+        label: Spec, code and test checking
+        inputs: [specification, implementation, testing]
+        artifact:
+          validation: { requiredHeadings: [Exact generation bindings, Clause-by-clause comparison, Unplanned changes and evidence gaps, Correction and final decision] }
+        testEvidenceFrom: implementation
+        approval: { authorities: [quality-reviewers, architecture-reviewers], minimum: 1, rejectTo: [specification, implementation, testing, conformance] }
 
   poc-lite:
     label: POC Lite — local governed change

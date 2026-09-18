@@ -62,7 +62,7 @@ import {
 import {
   StoryStateStore, acknowledgeIntentAmendment, actorKey, commitAndPublish, createWorkflow,
   currentPhase, decideIntentAmendment, loadConfig, loadStoryAggregate, preparePhase,
-  previewReworkRollForward, rejectPhase, rollForwardRework, saveStoryDraft,
+  previewReworkRollForward, rejectPhase, rollForwardRework, saveStoryDraft, sourceTreeHash,
   workflowPublicationBranch, workDir
 } from '../state-stores.mjs';
 import { attachStoryBranch, createStoryBranch, promoteStoryBranch, storyBranchStatus } from '../story-lineage.mjs';
@@ -1288,10 +1288,59 @@ function proposalDigest(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
 
+/** Bind Code/Testing feedback to the exact current phase and its artifact, even before prepare. */
+export async function loopIntentAmendmentSource(root, config, workflow, sourcePhaseId) {
+  const specification = workflow.phases.specification;
+  const phase = workflow.phases[sourcePhaseId];
+  if (workflow.workItem.workType !== 'spec-code-test-loop'
+      || !['implementation', 'testing'].includes(sourcePhaseId)
+      || workflow.currentPhase !== sourcePhaseId || !phase
+      || !['in_progress', 'awaiting_approval'].includes(phase.status)
+      || specification?.status !== 'approved' || specification.generation < 1
+      || typeof phase.requiredArtifact?.path !== 'string') {
+    throw new SingularityFlowError(
+      'A loop intent amendment must name the current Code or Testing phase after Specification approval.',
+      { code: 'INTENT_AMENDMENT_SOURCE_INVALID' }
+    );
+  }
+  const artifactPath = posix(path.join(
+    path.relative(root, workDir(root, config, workflow.workItem.id)),
+    phase.requiredArtifact.path
+  ));
+  const artifact = await secureRepositoryPath(root, artifactPath, {
+    label: 'Intent-amendment source artifact', mustExist: false
+  });
+  if (artifact.entry && !artifact.entry.isFile()) {
+    throw new SingularityFlowError('Code or Testing source artifact is not a regular file.', {
+      code: 'INTENT_AMENDMENT_SOURCE_INVALID'
+    });
+  }
+  return {
+    kind: 'phase-feedback', phaseId: sourcePhaseId, generation: phase.generation,
+    status: phase.status, artifactPath,
+    artifactPresent: Boolean(artifact.entry),
+    artifactSha256: artifact.entry ? (await snapshot(artifact.absolute)).sha256 : null,
+    sourceTreeSha256: await sourceTreeHash(root, config, workflow)
+  };
+}
+
+/** Every changed governed clause must be disclosed by the caller; omitted additions are not safe. */
+export function loopIntentAmendmentClauses(diff, supplied) {
+  const required = [...new Set(supplied.map((id) => String(id).toUpperCase()))].sort();
+  if (!required.length || required.join('\0') !== [...diff.changed].sort().join('\0')) {
+    throw new SingularityFlowError(
+      `A loop amendment must cite every and only its changed clause ID with --clause: ${diff.changed.join(', ')}.`,
+      { code: 'INTENT_AMENDMENT_CLAUSES_REQUIRED' }
+    );
+  }
+  return required;
+}
+
 async function proposeIntentAmendment(root, config, workflow, verifiedConvergence, options) {
-  const projection = verifiedConvergence.projection;
-  const findings = (projection.findings ?? []).filter((finding) => finding.disposition === 'update-intent');
-  if (!findings.length) {
+  const phaseFeedback = workflow.workItem.workType === 'spec-code-test-loop';
+  const projection = verifiedConvergence?.projection ?? null;
+  const findings = (projection?.findings ?? []).filter((finding) => finding.disposition === 'update-intent');
+  if (!phaseFeedback && !findings.length) {
     throw new SingularityFlowError(
       'No convergence finding is dispositioned as update-intent, so there is no intent amendment to propose.',
       { code: 'INTENT_AMENDMENT_NOT_AUTHORIZED' }
@@ -1342,7 +1391,12 @@ async function proposeIntentAmendment(root, config, workflow, verifiedConvergenc
       code: 'INTENT_AMENDMENT_EMPTY'
     });
   }
-  const requiredClauses = [...new Set(findings.flatMap((finding) => finding.clauseIds ?? []))].sort();
+  const source = phaseFeedback
+    ? await loopIntentAmendmentSource(root, config, workflow, optionString(options, 'source-phase'))
+    : null;
+  const requiredClauses = phaseFeedback
+    ? loopIntentAmendmentClauses(diff, optionStrings(options, 'clause'))
+    : [...new Set(findings.flatMap((finding) => finding.clauseIds ?? []))].sort();
   const missed = requiredClauses.filter((clauseId) => !diff.changed.includes(clauseId));
   if (missed.length) {
     throw new SingularityFlowError(
@@ -1350,7 +1404,9 @@ async function proposeIntentAmendment(root, config, workflow, verifiedConvergenc
       { code: 'INTENT_AMENDMENT_INCOMPLETE' }
     );
   }
-  const records = verifiedConvergence.current.records;
+  const records = phaseFeedback
+    ? await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow)
+    : verifiedConvergence.current.records;
   const radius = intentAmendmentBlastRadius(diff, records);
   // An intent amendment is proposed by a person after convergence adjudication. The convergence
   // phase is deterministic and therefore has no governed-agent session; Git identity is the
@@ -1374,12 +1430,12 @@ async function proposeIntentAmendment(root, config, workflow, verifiedConvergenc
     proposedAt,
     proposedBy: structuredClone(actor),
     reason: reason.trim(),
-    convergence: {
+    ...(source ? { source } : { convergence: {
       iteration: projection.iteration,
       sha256: projection.convergenceSha256,
       findingIds: findings.map((finding) => finding.id),
       itemIds: findings.map((finding) => finding.itemId)
-    },
+    } }),
     specification: {
       artifact: specificationPath,
       generation: specification.generation,
@@ -1403,20 +1459,44 @@ async function proposeIntentAmendment(root, config, workflow, verifiedConvergenc
     proposalSha256: proposal.proposalSha256,
     recordPath,
     changedClauses: diff.changed,
-    findingIds: proposal.convergence.findingIds,
+    findingIds: proposal.convergence?.findingIds ?? [],
     affectedClaims: radius.totals.affected,
     acknowledgementRequired: false
   };
   const beforeWorkflow = structuredClone(workflow);
-  const expectedInputSnapshot = `${verifiedConvergence.snapshotSha256}:${beforeSha256}`;
+  const expectedInputSnapshot = `${verifiedConvergence?.snapshotSha256 ?? `${source.artifactPresent}:${source.artifactSha256}`}:${beforeSha256}`;
   const exactInputGuard = async () => {
-    const current = await loadVerifiedConvergenceProjection(root, config, beforeWorkflow);
+    let currentSourceSha256;
+    if (phaseFeedback) {
+      const latest = await loadStoryAggregate(root, config, workflow.workItem.id);
+      const latestPhase = latest.phases[source.phaseId];
+      if (latest.currentPhase !== source.phaseId
+          || latestPhase?.generation !== source.generation
+          || latestPhase?.status !== source.status
+          || await sourceTreeHash(root, config, latest) !== source.sourceTreeSha256) {
+        throw new SingularityFlowError(
+          'Code or Testing phase changed while its intent amendment was being prepared.',
+          { code: 'INTENT_AMENDMENT_SOURCE_STALE' }
+        );
+      }
+      const artifact = await secureRepositoryPath(root, source.artifactPath, {
+        label: 'Intent-amendment source artifact', mustExist: false
+      });
+      if (artifact.entry && !artifact.entry.isFile()) {
+        throw new SingularityFlowError('Code or Testing source artifact is no longer a regular file.', {
+          code: 'INTENT_AMENDMENT_SOURCE_STALE'
+        });
+      }
+      currentSourceSha256 = `${Boolean(artifact.entry)}:${artifact.entry ? (await snapshot(artifact.absolute)).sha256 : null}`;
+    } else {
+      currentSourceSha256 = (await loadVerifiedConvergenceProjection(root, config, beforeWorkflow)).snapshotSha256;
+    }
     const currentSpecification = await readFile(path.join(root, specificationPath), 'utf8');
-    const observed = `${current.snapshotSha256}:${createHash('sha256').update(currentSpecification).digest('hex')}`;
+    const observed = `${currentSourceSha256}:${createHash('sha256').update(currentSpecification).digest('hex')}`;
     if (observed !== expectedInputSnapshot) {
       throw new SingularityFlowError(
-        'Convergence or specification inputs changed while the intent amendment was being prepared. Nothing was committed; review the current projection and retry.',
-        { code: 'CONVERGENCE_AMENDMENT_INPUT_CHANGED' }
+        `${phaseFeedback ? 'Code/Testing' : 'Convergence'} or specification inputs changed while the intent amendment was being prepared. Nothing was committed; review the current evidence and retry.`,
+        { code: phaseFeedback ? 'INTENT_AMENDMENT_SOURCE_STALE' : 'CONVERGENCE_AMENDMENT_INPUT_CHANGED' }
       );
     }
     return expectedInputSnapshot;
@@ -1438,8 +1518,10 @@ async function proposeIntentAmendment(root, config, workflow, verifiedConvergenc
       beforeStateWrite: async () => {
         await exactInputGuard();
         await mkdir(path.join(root, directory), { recursive: true });
-        await writeText(path.join(root, beforePath), currentText);
-        await writeText(path.join(root, proposedPath), proposedText);
+        // A proposal hashes the exact reviewed bytes. writeText adds a trailing newline, which
+        // would otherwise make a valid no-final-newline candidate stale immediately after commit.
+        await writeBytes(path.join(root, beforePath), Buffer.from(currentText, 'utf8'));
+        await writeBytes(path.join(root, proposedPath), Buffer.from(proposedText, 'utf8'));
         await writeJson(path.join(root, recordPath), proposal);
         workflow.intentAmendments ??= [];
         workflow.intentAmendments.push(summary);
@@ -1448,7 +1530,7 @@ async function proposeIntentAmendment(root, config, workflow, verifiedConvergenc
           actor: actorKey(actor),
           agent: null,
           event: 'intent_amendment_proposed',
-          phase: 'convergence',
+          phase: source?.phaseId ?? 'convergence',
           detail: `${id} proposes ${diff.changed.length} clause change(s): ${diff.changed.join(', ')}`
         });
       },
@@ -1612,7 +1694,8 @@ export async function storyIntentAmendmentCommand(positionals, options) {
     return;
   }
   if (action === 'propose') {
-    const verified = await loadVerifiedConvergenceProjection(root, config, workflow);
+    const verified = workflow.workItem.workType === 'spec-code-test-loop'
+      ? null : await loadVerifiedConvergenceProjection(root, config, workflow);
     const result = await proposeIntentAmendment(root, config, workflow, verified, options);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`Proposed ${result.proposal.id} for ${result.proposal.diff.changed.join(', ')}; commit ${result.publication.sha.slice(0, 8)}.`);

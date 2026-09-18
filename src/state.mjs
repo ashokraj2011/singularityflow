@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   SingularityFlowError, ensureSecureRepositoryDirectory, exists, invariant, nowIso, posix, readJson,
-  repoRelative, run, secureRepositoryPath, snapshot, stateFingerprint, truncate, writeJson, writeText
+  repoRelative, run, secureRepositoryPath, snapshot, stateFingerprint, truncate, writeBytes, writeJson, writeText
 } from './util.mjs';
 import {
   branch, changedFiles, commitIsAncestor, exactRemoteBranchObservationAsync, gitCommonDir, governedCommitIdentity, head, identity,
@@ -4957,6 +4957,37 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
       code: 'INTENT_AMENDMENT_UNSUPPORTED'
     });
   }
+  if (proposal.source != null) {
+    const source = proposal.source;
+    const phase = workflow.phases[source.phaseId];
+    if (workflow.workItem.workType !== 'spec-code-test-loop'
+        || source.kind !== 'phase-feedback'
+        || !['implementation', 'testing'].includes(source.phaseId)
+        || workflow.currentPhase !== source.phaseId
+        || !phase
+        || phase.generation !== source.generation
+        || phase.status !== source.status
+        || typeof source.artifactPresent !== 'boolean'
+        || (source.artifactPresent && typeof source.artifactSha256 !== 'string')
+        || (!source.artifactPresent && source.artifactSha256 !== null)
+        || typeof source.sourceTreeSha256 !== 'string'
+        || requiredRepoPath(config, workflow, phase) !== source.artifactPath) {
+      throw new SingularityFlowError(
+        `Intent amendment '${proposal.id}' no longer matches its Code or Testing phase.`,
+        { code: 'INTENT_AMENDMENT_SOURCE_STALE' }
+      );
+    }
+    const artifact = await repositoryArtifactSnapshot(root, source.artifactPath);
+    if (artifact.exists !== source.artifactPresent
+        || artifact.symbolicLink
+        || artifact.sha256 !== source.artifactSha256
+        || await sourceTreeHash(root, config, workflow) !== source.sourceTreeSha256) {
+      throw new SingularityFlowError(
+        `Code or Testing evidence changed after intent amendment '${proposal.id}' was proposed. Create a new proposal.`,
+        { code: 'INTENT_AMENDMENT_SOURCE_STALE' }
+      );
+    }
+  }
   const authority = requireApprovalAuthority(
     workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
     specification.approvalPolicy,
@@ -5057,7 +5088,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     });
   }
 
-  await writeText(specificationFile, proposedText);
+  await writeBytes(specificationFile, Buffer.from(proposedText, 'utf8'));
   const priorGeneration = Number(specification.generation ?? 0);
   const amendmentGeneration = priorGeneration + 1;
   const amendmentArchitectureIntent = await resolveArchitectureIntentPublicationBinding(

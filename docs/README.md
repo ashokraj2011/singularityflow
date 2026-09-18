@@ -92,6 +92,7 @@ to understand which document is authoritative for a specific topic.
 | Bounded reference previews and runtime conformance | [Harness Imports](HARNESS-IMPORTS.md) |
 | Connect governed agents to MCP tools such as Playwright | [Governed MCP tools](MCP-INTEGRATION.md) |
 | Prepare and rehearse the Playwright POC on a real machine | [Playwright POC runbook](PLAYWRIGHT-POC-RUNBOOK.md) |
+| Run a specification-first Code and Playwright review with governed rework | [Spec → Code → Playwright testing review](SPEC-CODE-TEST-LOOP.md) |
 | Pin Figma MCP metadata into approved downstream design context | [Mobile model intake](MOBILE-MODEL-INTAKE.md) |
 | Measure aggregate Story delivery outcomes with privacy and quality gates | [Flow Impact Framework](FLOW-IMPACT-FRAMEWORK.md) |
 | Preserve creative freedom while reconciling source changes at governed boundaries | [Governed work intervals](GOVERNED-WORK-INTERVALS.md) |

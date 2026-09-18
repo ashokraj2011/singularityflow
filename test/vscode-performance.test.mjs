@@ -57,8 +57,11 @@ test('gateway-only helpers initialize only when their surfaces are invoked', asy
     /^import(?!\s+type\b)[^\n]*['\"]\.\.\/\.\.\/\.\.\/src\/gateway\/result\.mjs['\"]/m,
     'result.mjs still initializes with the extension entry point');
   const worker = await readFile(path.join(root, 'apps/vscode/src/gateway-status-worker.ts'), 'utf8');
-  assert.match(worker, /from ['\"]\.\.\/\.\.\/\.\.\/src\/gateway\/result\.mjs['\"]/,
-    'result selection is absent from the off-host status runtime');
+  const gateway = await readFile(path.join(root, 'apps/vscode/src/gateway-runtime.ts'), 'utf8');
+  assert.match(gateway, /export \{ primaryAction \} from ['\"]\.\.\/\.\.\/\.\.\/src\/gateway\/result\.mjs['\"]/,
+    'the shared gateway runtime must export status result selection');
+  assert.match(worker, /require\(['\"]\.\/gateway-runtime\.cjs['\"]\)/,
+    'the off-host status worker must load the packaged sibling runtime');
 });
 
 test('VS Code CLI diagnostics use the versioned privacy-safe timing envelope', async () => {

@@ -9,11 +9,16 @@
  * This worker keeps the authoritative gateway implementation and moves only its computation. It
  * returns three inert presentation facts; no handle or executable action crosses the boundary.
  */
-import {
-  gatewaySession, provideHomeLens, type GatewayRepositoryContext
-} from './gateway-session.ts';
+import type { GatewayRepositoryContext } from './gateway-session.ts';
 import { gateSummary } from './views/result-card-model.ts';
-import { primaryAction } from '../../../src/gateway/result.mjs';
+
+// This worker and the interactive gateway share one packaged kernel bundle. The sibling require
+// is deliberately external to this bundle; it is resolved from dist in both development and VSIX.
+const { gatewaySession, provideHomeLens, primaryAction } = require('./gateway-runtime.cjs') as {
+  gatewaySession: typeof import('./gateway-session.ts').gatewaySession;
+  provideHomeLens: typeof import('./gateway-session.ts').provideHomeLens;
+  primaryAction: typeof import('../../../src/gateway/result.mjs').primaryAction;
+};
 
 type Request = {
   readonly id: number;

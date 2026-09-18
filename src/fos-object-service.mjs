@@ -14,6 +14,8 @@ const TYPE = /^(blob|tree|commit|tag)$/;
 const HEADER_LIMIT = 1024;
 const MAX_WORKERS = 8;
 const MAX_OBJECT_BYTES = 32 * 1024 * 1024;
+const MAX_BATCH_BYTES = 32 * 1024 * 1024;
+const MAX_BATCH_OBJECTS = 128;
 const MAX_COALESCED_SUBSCRIBERS = 8;
 const pools = new Map();
 let poolMutation = Promise.resolve();
@@ -174,6 +176,7 @@ export class FosGitObjectService {
   #idleTimer = null;
   #maxQueued;
   #maxObjectBytes;
+  #maxBatchBytes;
   #timeoutMs;
   #idleMs;
   #spawns = 0;
@@ -185,6 +188,7 @@ export class FosGitObjectService {
 
   constructor(root, {
     spawnCommand = spawn, maxQueued = 128, maxObjectBytes = 32 * 1024 * 1024,
+    maxBatchBytes = MAX_BATCH_BYTES,
     timeoutMs = 30_000, idleMs = 30_000, env = process.env,
     profile = null, executable = null, fingerprint = null
   } = {}) {
@@ -196,53 +200,32 @@ export class FosGitObjectService {
     this.#fingerprint = fingerprint;
     this.#maxQueued = bounded(maxQueued, 128, 'queue limit');
     this.#maxObjectBytes = bounded(maxObjectBytes, MAX_OBJECT_BYTES, 'object byte limit');
+    this.#maxBatchBytes = bounded(maxBatchBytes, MAX_BATCH_BYTES, 'batch byte limit');
     this.#timeoutMs = bounded(timeoutMs, 30_000, 'operation deadline');
     this.#idleMs = bounded(idleMs, 120_000, 'idle deadline');
   }
 
   get processSpawns() { return this.#spawns; }
   get queued() {
-    return this.#queue.reduce((count, group) => count + group.subscribers.size, 0)
-      + (this.#active?.subscribers.size ?? 0);
+    const weight = (operation) => operation?.kind === 'batch'
+      ? operation.oids.length : (operation?.subscribers.size ?? 0);
+    return this.#queue.reduce((count, operation) => count + weight(operation), 0)
+      + weight(this.#active);
   }
   get closed() { return this.#closed; }
 
   async read(oid, { signal } = {}) {
     if (!OID.test(oid ?? '')) throw error('Object service requires one full SHA-1 or SHA-256 object ID.', 'OBJECT_ID_INVALID');
-    if (this.#closed) throw error('Git object service is closed.', 'OBJECT_SERVICE_CLOSED');
-    if (signal?.aborted) throw error('Git object request was cancelled.', 'OBJECT_REQUEST_CANCELLED');
     const began = Date.now();
-    this.#profile ??= repositoryProfile(this.#root, this.#executable, this.#env, {
-      signal: this.#profileController.signal, timeoutMs: this.#timeoutMs
-    });
-    const profile = await awaitProfile(this.#profile, this.#timeoutMs, signal);
-    if (!['sha1', 'sha256'].includes(profile.objectFormat)) {
-      throw error('Git object service could not establish the repository storage format.', 'OBJECT_FORMAT_UNSUPPORTED');
-    }
-    if (oid.length !== (profile.objectFormat === 'sha1' ? 40 : 64)) {
-      throw error('Object ID does not match the repository storage format.', 'OBJECT_ID_INVALID');
-    }
-    this.#profileValue = profile;
-    if (this.#retiring) await this.#retiring;
-    const fingerprint = await poolFingerprint(profile, this.#executable, this.#env);
-    if (this.#fingerprint && fingerprint !== this.#fingerprint) {
-      await this.close();
-      throw error('Git object service repository or execution profile changed.', 'OBJECT_SERVICE_STALE');
-    }
-    this.#fingerprint = fingerprint;
-    if (this.#closed) throw error('Git object service is closed.', 'OBJECT_SERVICE_CLOSED');
-    if (signal?.aborted) throw error('Git object request was cancelled.', 'OBJECT_REQUEST_CANCELLED');
-    if (Date.now() - began >= this.#timeoutMs) {
-      throw error('Git object request exceeded its operation deadline.', 'OBJECT_REQUEST_TIMEOUT');
-    }
+    await this.#prepare([oid], signal, began);
     if (this.queued >= this.#maxQueued) throw error('Git object service queue is full.', 'GAL_BUSY');
     incrementCommandCounter('git.requests');
     return new Promise((resolve, reject) => {
       // Coalesce only live requests for the same immutable OID in this exact service profile.
       // Each caller retains its own cancellation and deadline; a queued group is never cached.
-      const group = this.#active?.oid === oid
+      const group = this.#active?.kind !== 'batch' && this.#active?.oid === oid
         && this.#active.subscribers.size < MAX_COALESCED_SUBSCRIBERS ? this.#active
-        : this.#queue.find((pending) => pending.oid === oid
+        : this.#queue.find((pending) => pending.kind !== 'batch' && pending.oid === oid
           && pending.subscribers.size < MAX_COALESCED_SUBSCRIBERS);
       const request = group ?? {
         oid, subscribers: new Set(), size: null, objectOid: null, type: null
@@ -262,6 +245,67 @@ export class FosGitObjectService {
       }
       if (signal?.aborted) subscriber.abort();
     });
+  }
+
+  async readBatch(oids, { signal } = {}) {
+    if (!Array.isArray(oids) || oids.some((oid) => !OID.test(oid ?? ''))) {
+      throw error('Object batch requires bounded full SHA-1 or SHA-256 object IDs.', 'OBJECT_ID_INVALID');
+    }
+    if (oids.length > MAX_BATCH_OBJECTS) {
+      throw error('Git object batch exceeds its object-count limit.', 'LIMIT_EXCEEDED');
+    }
+    if (this.#closed) throw error('Git object service is closed.', 'OBJECT_SERVICE_CLOSED');
+    if (signal?.aborted) throw error('Git object request was cancelled.', 'OBJECT_REQUEST_CANCELLED');
+    if (!oids.length) return [];
+    const began = Date.now();
+    await this.#prepare(oids, signal, began);
+    if (this.queued + oids.length > this.#maxQueued) {
+      throw error('Git object service queue is full.', 'GAL_BUSY');
+    }
+    incrementCommandCounter('git.requests');
+    return new Promise((resolve, reject) => {
+      const operation = {
+        kind: 'batch', oids: [...oids], index: 0, current: null, results: [], bytes: 0,
+        resolve, reject, signal, abort: null, timer: null
+      };
+      operation.abort = () => this.#dropBatch(operation,
+        error('Git object request was cancelled.', 'OBJECT_REQUEST_CANCELLED'));
+      signal?.addEventListener('abort', operation.abort, { once: true });
+      operation.timer = setTimeout(() => this.#dropBatch(operation,
+        error('Git object request exceeded its operation deadline.', 'OBJECT_REQUEST_TIMEOUT')),
+      Math.max(1, this.#timeoutMs - (Date.now() - began)));
+      this.#queue.push(operation);
+      this.#pump();
+      if (signal?.aborted) operation.abort();
+    });
+  }
+
+  async #prepare(oids, signal, began) {
+    if (this.#closed) throw error('Git object service is closed.', 'OBJECT_SERVICE_CLOSED');
+    if (signal?.aborted) throw error('Git object request was cancelled.', 'OBJECT_REQUEST_CANCELLED');
+    this.#profile ??= repositoryProfile(this.#root, this.#executable, this.#env, {
+      signal: this.#profileController.signal, timeoutMs: this.#timeoutMs
+    });
+    const profile = await awaitProfile(this.#profile, this.#timeoutMs, signal);
+    if (!['sha1', 'sha256'].includes(profile.objectFormat)) {
+      throw error('Git object service could not establish the repository storage format.', 'OBJECT_FORMAT_UNSUPPORTED');
+    }
+    if (oids.some((oid) => oid.length !== (profile.objectFormat === 'sha1' ? 40 : 64))) {
+      throw error('Object ID does not match the repository storage format.', 'OBJECT_ID_INVALID');
+    }
+    this.#profileValue = profile;
+    if (this.#retiring) await this.#retiring;
+    const fingerprint = await poolFingerprint(profile, this.#executable, this.#env);
+    if (this.#fingerprint && fingerprint !== this.#fingerprint) {
+      await this.close();
+      throw error('Git object service repository or execution profile changed.', 'OBJECT_SERVICE_STALE');
+    }
+    this.#fingerprint = fingerprint;
+    if (this.#closed) throw error('Git object service is closed.', 'OBJECT_SERVICE_CLOSED');
+    if (signal?.aborted) throw error('Git object request was cancelled.', 'OBJECT_REQUEST_CANCELLED');
+    if (Date.now() - began >= this.#timeoutMs) {
+      throw error('Git object request exceeded its operation deadline.', 'OBJECT_REQUEST_TIMEOUT');
+    }
   }
 
   #ensureChild() {
@@ -290,7 +334,11 @@ export class FosGitObjectService {
       if (!chunk.length) return;
       this.#chunks.push(chunk);
       this.#buffered += chunk.length;
-      if (this.#buffered > this.#maxObjectBytes + HEADER_LIMIT + 1) {
+      const batch = this.#active?.kind === 'batch' ? this.#active : null;
+      const maximumBuffered = batch
+        ? this.#maxBatchBytes + batch.oids.length * (HEADER_LIMIT + 1)
+        : this.#maxObjectBytes + HEADER_LIMIT + 1;
+      if (this.#buffered > maximumBuffered) {
         this.#failService(error('Git object service output exceeded its bounded buffer.', 'LIMIT_EXCEEDED'));
         return;
       }
@@ -325,7 +373,8 @@ export class FosGitObjectService {
     this.#active = request;
     try {
       this.#ensureChild();
-      this.#child.stdin.write(`${request.oid}\n`, 'ascii');
+      this.#child.stdin.write(request.kind === 'batch'
+        ? `${request.oids.join('\n')}\n` : `${request.oid}\n`, 'ascii');
       incrementCommandCounter('git.batch-requests');
     } catch {
       this.#failService(error('Git object service input stream is unavailable.', 'OBJECT_SERVICE_UNAVAILABLE'));
@@ -364,69 +413,97 @@ export class FosGitObjectService {
   }
 
   #parse() {
-    const request = this.#active;
-    if (!request) {
-      if (this.#buffered) this.#failService(error('Git object service returned unrequested bytes.', 'OBJECT_PROTOCOL_INVALID'));
-      return;
-    }
-    if (request.size == null) {
-      const length = this.#headerLength();
-      if (length == null) {
-        if (this.#buffered > HEADER_LIMIT) this.#failService(error('Git object service header exceeded its limit.', 'OBJECT_PROTOCOL_INVALID'));
-        return;
-      }
-      if (length > HEADER_LIMIT) {
-        this.#failService(error('Git object service header exceeded its limit.', 'OBJECT_PROTOCOL_INVALID'));
-        return;
-      }
-      const header = this.#take(length + 1).subarray(0, length).toString('latin1');
-      if (header === `${request.oid} missing`) {
-        if (this.#buffered) {
-          this.#failService(error('Git object service returned unrequested bytes.', 'OBJECT_PROTOCOL_INVALID'));
-          return;
-        }
-        this.#active = null;
-        this.#finishGroup(request, 'resolve', null);
-        this.#pump();
-        return;
-      }
-      const match = /^([a-f0-9]{40}|[a-f0-9]{64}) ([a-z]+) (\d+)$/.exec(header);
-      const size = Number(match?.[3]);
-      if (!match || !TYPE.test(match[2]) || !Number.isSafeInteger(size) || size < 0) {
-        this.#failService(error('Git object service returned a malformed protocol header.', 'OBJECT_PROTOCOL_INVALID'));
-        return;
-      }
-      if (match[1] !== request.oid) {
-        this.#failService(error(
-          'Git object service returned a different object than the exact object requested.',
-          'OBJECT_PROTOCOL_INVALID', { expectedOid: request.oid, actualOid: match[1] }
+    while (true) {
+      const operation = this.#active;
+      if (!operation) {
+        if (this.#buffered) void this.#failService(error(
+          'Git object service returned unrequested bytes.', 'OBJECT_PROTOCOL_INVALID'
         ));
         return;
       }
-      if (size > this.#maxObjectBytes) {
-        this.#failService(error('Git object exceeds the configured object-service limit.', 'LIMIT_EXCEEDED', { size }));
+      const batch = operation.kind === 'batch' ? operation : null;
+      const request = batch
+        ? (batch.current ??= { oid: batch.oids[batch.index], size: null, objectOid: null, type: null })
+        : operation;
+      if (request.size == null) {
+        const length = this.#headerLength();
+        if (length == null) {
+          if (this.#buffered > HEADER_LIMIT) void this.#failService(error(
+            'Git object service header exceeded its limit.', 'OBJECT_PROTOCOL_INVALID'
+          ));
+          return;
+        }
+        if (length > HEADER_LIMIT) {
+          void this.#failService(error('Git object service header exceeded its limit.', 'OBJECT_PROTOCOL_INVALID'));
+          return;
+        }
+        const header = this.#take(length + 1).subarray(0, length).toString('latin1');
+        if (header === `${request.oid} missing`) {
+          if (!this.#completeFrame(operation, null)) return;
+          continue;
+        }
+        const match = /^([a-f0-9]{40}|[a-f0-9]{64}) ([a-z]+) (\d+)$/.exec(header);
+        const size = Number(match?.[3]);
+        if (!match || !TYPE.test(match[2]) || !Number.isSafeInteger(size) || size < 0) {
+          void this.#failService(error('Git object service returned a malformed protocol header.', 'OBJECT_PROTOCOL_INVALID'));
+          return;
+        }
+        if (match[1] !== request.oid) {
+          void this.#failService(error(
+            'Git object service returned a different object than the exact object requested.',
+            'OBJECT_PROTOCOL_INVALID', { expectedOid: request.oid, actualOid: match[1] }
+          ));
+          return;
+        }
+        if (size > this.#maxObjectBytes || (batch && batch.bytes + size > this.#maxBatchBytes)) {
+          void this.#failService(error('Git object exceeds the configured object-service limit.',
+            'LIMIT_EXCEEDED', { size }));
+          return;
+        }
+        request.objectOid = match[1]; request.type = match[2]; request.size = size;
+      }
+      if (this.#buffered < request.size + 1) return;
+      const frame = this.#take(request.size + 1);
+      if (frame[request.size] !== 0x0a) {
+        void this.#failService(error('Git object service returned malformed object framing.', 'OBJECT_PROTOCOL_INVALID'));
         return;
       }
-      request.objectOid = match[1]; request.type = match[2]; request.size = size;
+      const bytes = frame.subarray(0, request.size);
+      const observedOid = createHash(this.#profileValue.objectFormat)
+        .update(`${request.type} ${request.size}\0`, 'utf8')
+        .update(bytes)
+        .digest('hex');
+      if (observedOid !== request.oid) {
+        void this.#failService(error(
+          'Git object service returned bytes that do not match the requested object ID.',
+          'OBJECT_INTEGRITY_INVALID'
+        ));
+        return;
+      }
+      if (batch) batch.bytes += bytes.length;
+      if (!this.#completeFrame(operation, Object.freeze({
+        oid: request.objectOid, type: request.type, bytes
+      }))) return;
     }
-    if (this.#buffered < request.size + 1) return;
-    const frame = this.#take(request.size + 1);
-    if (frame[request.size] !== 0x0a || this.#buffered) {
-      this.#failService(error('Git object service returned malformed object framing.', 'OBJECT_PROTOCOL_INVALID'));
-      return;
+  }
+
+  #completeFrame(operation, value) {
+    const batch = operation.kind === 'batch' ? operation : null;
+    if (batch) {
+      batch.results.push(value);
+      batch.index += 1;
+      batch.current = null;
+      if (batch.index < batch.oids.length) return true;
     }
-    const bytes = frame.subarray(0, request.size);
-    const observedOid = createHash(this.#profileValue.objectFormat)
-      .update(`${request.type} ${request.size}\0`, 'utf8')
-      .update(bytes)
-      .digest('hex');
-    if (observedOid !== request.oid) {
-      this.#failService(error('Git object service returned bytes that do not match the requested object ID.', 'OBJECT_INTEGRITY_INVALID'));
-      return;
+    if (this.#buffered) {
+      void this.#failService(error('Git object service returned unrequested bytes.', 'OBJECT_PROTOCOL_INVALID'));
+      return false;
     }
     this.#active = null;
-    this.#finishGroup(request, 'resolve', Object.freeze({ oid: request.objectOid, type: request.type, bytes }));
+    if (batch) this.#finishBatch(batch, 'resolve', batch.results);
+    else this.#finishGroup(operation, 'resolve', value);
     this.#pump();
+    return false;
   }
 
   #finishSubscriber(subscriber, method, value) {
@@ -441,6 +518,32 @@ export class FosGitObjectService {
     const subscribers = [...group.subscribers];
     group.subscribers.clear();
     for (const subscriber of subscribers) this.#finishSubscriber(subscriber, method, value);
+  }
+
+  #finishBatch(batch, method, value) {
+    clearTimeout(batch.timer);
+    batch.signal?.removeEventListener('abort', batch.abort);
+    batch[method](method === 'resolve'
+      ? Object.freeze(value.map((entry) => entry && Object.freeze({
+        oid: entry.oid, type: entry.type, bytes: Buffer.from(entry.bytes)
+      }))) : value);
+  }
+
+  #finishOperation(operation, method, value) {
+    if (operation.kind === 'batch') this.#finishBatch(operation, method, value);
+    else this.#finishGroup(operation, method, value);
+  }
+
+  #dropBatch(batch, reason) {
+    if (this.#active === batch) {
+      // No part of an abandoned batch may satisfy a later operation.
+      void this.#failService(reason);
+      return;
+    }
+    const index = this.#queue.indexOf(batch);
+    if (index < 0) return;
+    this.#queue.splice(index, 1);
+    this.#finishBatch(batch, 'reject', reason);
   }
 
   #dropSubscriber(group, subscriber, reason) {
@@ -471,7 +574,7 @@ export class FosGitObjectService {
     this.#active = null; this.#chunks = [];
     this.#buffered = 0; this.#headOffset = 0;
     const child = this.#child; this.#child = null;
-    if (request) this.#finishGroup(request, 'reject', reason);
+    if (request) this.#finishOperation(request, 'reject', reason);
     if (child) {
       const retiring = stopChild(child, true);
       this.#retiring = retiring;
@@ -482,7 +585,7 @@ export class FosGitObjectService {
         this.#closed = true;
         const pending = this.#queue;
         this.#queue = [];
-        for (const queued of pending) this.#finishGroup(queued, 'reject', error(
+        for (const queued of pending) this.#finishOperation(queued, 'reject', error(
           'Git object service could not verify worker cleanup.', 'GAL_CLEANUP_INCOMPLETE'
         ));
         return false;
@@ -503,7 +606,7 @@ export class FosGitObjectService {
     this.#active = null; this.#queue = []; this.#chunks = [];
     this.#buffered = 0; this.#headOffset = 0;
     const child = this.#child; this.#child = null;
-    for (const request of requests) this.#finishGroup(request, 'reject', error('Git object service was closed.', 'OBJECT_SERVICE_CLOSED'));
+    for (const request of requests) this.#finishOperation(request, 'reject', error('Git object service was closed.', 'OBJECT_SERVICE_CLOSED'));
     const retiring = this.#retiring;
     this.#closing = (async () => {
       const retired = retiring ? await retiring : true;
@@ -527,6 +630,7 @@ export async function fosGitObjectService(root, options = {}) {
   const limits = JSON.stringify([
     options.maxQueued ?? 128,
     options.maxObjectBytes ?? MAX_OBJECT_BYTES,
+    options.maxBatchBytes ?? MAX_BATCH_BYTES,
     options.timeoutMs ?? 30_000,
     options.idleMs ?? 30_000
   ]);

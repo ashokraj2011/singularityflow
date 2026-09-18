@@ -32,9 +32,9 @@ function scriptedChild(parts, onWrite = () => {}) {
     const child = new EventEmitter();
     child.stdout = new EventEmitter();
     child.stdin = new Writable({
-      write(_chunk, _encoding, callback) {
+      write(chunk, _encoding, callback) {
         setImmediate(() => {
-          onWrite();
+          onWrite(chunk);
           for (const part of parts) child.stdout.emit('data', part);
           callback();
         });
@@ -78,6 +78,215 @@ test('FOS:AC-031 persistent object service preserves binary bytes and missing re
   const [closed, disposed] = await Promise.all([service.close(), service.dispose()]);
   assert.deepEqual(closed, { closed: true, terminated: true });
   assert.deepEqual(disposed, closed);
+});
+
+test('GAL:AC-021 explicit multi-frame batch preserves order, missing values, types, and byte isolation', async () => {
+  const root = await repository();
+  const oid = git(['rev-parse', 'HEAD:source.bin'], root);
+  const emptyOid = git(['hash-object', '-w', '--stdin'], root, { input: Buffer.alloc(0) });
+  const treeOid = git(['rev-parse', 'HEAD^{tree}'], root);
+  const absent = '0'.repeat(40);
+  const service = new FosGitObjectService(root);
+  try {
+    assert.deepEqual(await service.readBatch([]), []);
+    assert.equal(service.processSpawns, 0, 'an empty batch must not start a child');
+    const values = await service.readBatch([oid, emptyOid, absent, oid, treeOid]);
+    assert.equal(values.length, 5);
+    assert.deepEqual(values.map((value) => value?.oid ?? null),
+      [oid, emptyOid, null, oid, treeOid]);
+    assert.deepEqual(values.map((value) => value?.type ?? null),
+      ['blob', 'blob', null, 'blob', 'tree']);
+    assert.deepEqual(values[0].bytes, Buffer.from([0, 10, 255, 13, 10]));
+    assert.deepEqual(values[1].bytes, Buffer.alloc(0));
+    assert.deepEqual(values[3].bytes, values[0].bytes);
+    values[0].bytes[0] ^= 1;
+    assert.deepEqual(values[3].bytes, Buffer.from([0, 10, 255, 13, 10]),
+      'duplicate object results must not share mutable buffers');
+    assert.deepEqual((await service.read(oid)).bytes, values[3].bytes,
+      'a following single read must parse independently of the batch');
+    assert.equal(service.processSpawns, 1);
+  } finally { await service.close(); }
+});
+
+test('GAL:AC-022 fragmented multi-frame output is one batch write and never accepts trailing frames', async () => {
+  const root = await repository();
+  const firstOid = git(['rev-parse', 'HEAD:source.bin'], root);
+  const firstBytes = Buffer.from([0, 10, 255, 13, 10]);
+  const secondBytes = Buffer.from('second batch frame\n');
+  const secondOid = git(['hash-object', '-w', '--stdin'], root, { input: secondBytes });
+  const frame = (oid, bytes) => Buffer.concat([
+    Buffer.from(`${oid} blob ${bytes.length}\n`), bytes, Buffer.from('\n')
+  ]);
+  const packet = Buffer.concat([
+    frame(firstOid, firstBytes), frame(secondOid, secondBytes), frame(firstOid, firstBytes)
+  ]);
+  const writes = [];
+  let child;
+  const service = new FosGitObjectService(root, {
+    spawnCommand: () => {
+      child = scriptedChild([], (chunk) => {
+        writes.push(chunk.toString('ascii'));
+        for (const part of [packet.subarray(0, 3), packet.subarray(3, 49),
+          packet.subarray(49, packet.length - 1), packet.subarray(packet.length - 1)]) {
+          child.stdout.emit('data', part);
+        }
+      })();
+      return child;
+    }
+  });
+  try {
+    const values = await service.readBatch([firstOid, secondOid, firstOid]);
+    assert.deepEqual(values.map((entry) => entry.bytes), [firstBytes, secondBytes, firstBytes]);
+    assert.deepEqual(writes, [`${firstOid}\n${secondOid}\n${firstOid}\n`],
+      'a batch must send its full ordered OID list in one stdin write');
+    // A separate service proves that a valid prefix plus an unsolicited frame is rejected atomically.
+    const invalid = new FosGitObjectService(root, {
+      spawnCommand: () => scriptedChild([Buffer.concat([
+        frame(firstOid, firstBytes), frame(secondOid, secondBytes), frame(firstOid, firstBytes)
+      ])])()
+    });
+    try {
+      await assert.rejects(invalid.readBatch([firstOid, secondOid]),
+        { code: 'OBJECT_PROTOCOL_INVALID' });
+    } finally { await invalid.close(); }
+  } finally { await service.close(); }
+});
+
+test('GAL:AC-023 a later oversized or corrupt batch frame fails the whole batch', async () => {
+  const root = await repository();
+  const oid = git(['rev-parse', 'HEAD:source.bin'], root);
+  const bytes = Buffer.from([0, 10, 255, 13, 10]);
+  const frame = (body) => Buffer.concat([
+    Buffer.from(`${oid} blob ${body.length}\n`), body, Buffer.from('\n')
+  ]);
+  const limited = new FosGitObjectService(root, { maxBatchBytes: bytes.length });
+  try {
+    await assert.rejects(limited.readBatch([oid, oid]), { code: 'LIMIT_EXCEEDED' },
+      'aggregate size must be enforced before returning any partial batch result');
+    assert.deepEqual((await limited.read(oid)).bytes, bytes,
+      'a failed batch must not poison a fresh worker');
+  } finally { await limited.close(); }
+
+  let generations = 0;
+  const corrupt = new FosGitObjectService(root, {
+    spawnCommand: () => {
+      generations += 1;
+      const emitted = generations === 1
+        ? Buffer.concat([frame(bytes), frame(Buffer.from([1, 10, 255, 13, 10]))])
+        : frame(bytes);
+      return scriptedChild([emitted])();
+    }
+  });
+  try {
+    await assert.rejects(corrupt.readBatch([oid, oid]), { code: 'OBJECT_INTEGRITY_INVALID' });
+    assert.deepEqual((await corrupt.read(oid)).bytes, bytes);
+    assert.equal(generations, 2, 'integrity failure must retire the batch worker');
+  } finally { await corrupt.close(); }
+});
+
+test('GAL:AC-025 a queued batch can cancel without writing or disturbing the active frame', async () => {
+  const root = await repository();
+  const activeOid = git(['rev-parse', 'HEAD:source.bin'], root);
+  const activeBytes = Buffer.from([0, 10, 255, 13, 10]);
+  const otherBytes = Buffer.from('queued batch only\n');
+  const otherOid = git(['hash-object', '-w', '--stdin'], root, { input: otherBytes });
+  let child;
+  let writes = 0;
+  let wroteFirst;
+  const firstWrite = new Promise((resolve) => { wroteFirst = resolve; });
+  const service = new FosGitObjectService(root, {
+    maxQueued: 3,
+    spawnCommand: () => {
+      child = scriptedChild([], () => { writes += 1; wroteFirst(); })();
+      return child;
+    }
+  });
+  try {
+    const active = service.read(activeOid);
+    await within(firstWrite, 'the active object-worker write');
+    const cancelled = new AbortController();
+    const batch = service.readBatch([otherOid, activeOid], { signal: cancelled.signal });
+    const failure = assert.rejects(batch, { code: 'OBJECT_REQUEST_CANCELLED' });
+    await waitForQueued(service, 3);
+    await assert.rejects(service.read(otherOid), { code: 'GAL_BUSY' });
+    cancelled.abort();
+    await failure;
+    assert.equal(service.queued, 1);
+    child.stdout.emit('data', Buffer.concat([
+      Buffer.from(`${activeOid} blob ${activeBytes.length}\n`),
+      activeBytes, Buffer.from('\n')
+    ]));
+    assert.deepEqual((await active).bytes, activeBytes);
+    assert.equal(writes, 1, 'cancelled queued batch must never reach stdin');
+  } finally { await service.close(); }
+});
+
+test('GAL:AC-025 cancelling a partially received batch retires its worker before queued work', async () => {
+  const root = await repository();
+  const firstOid = git(['rev-parse', 'HEAD:source.bin'], root);
+  const firstBytes = Buffer.from([0, 10, 255, 13, 10]);
+  const secondBytes = Buffer.from('queued after batch cancellation\n');
+  const secondOid = git(['hash-object', '-w', '--stdin'], root, { input: secondBytes });
+  const frame = (oid, bytes) => Buffer.concat([
+    Buffer.from(`${oid} blob ${bytes.length}\n`), bytes, Buffer.from('\n')
+  ]);
+  let wroteFirst;
+  const firstWrite = new Promise((resolve) => { wroteFirst = resolve; });
+  let generations = 0;
+  const service = new FosGitObjectService(root, {
+    spawnCommand: () => {
+      generations += 1;
+      const generation = generations;
+      let child;
+      child = scriptedChild([], () => {
+        if (generation === 1) {
+          child.stdout.emit('data', frame(firstOid, firstBytes));
+          wroteFirst();
+        } else child.stdout.emit('data', frame(secondOid, secondBytes));
+      })();
+      return child;
+    }
+  });
+  try {
+    const controller = new AbortController();
+    const batch = service.readBatch([firstOid, secondOid], { signal: controller.signal });
+    const failure = assert.rejects(batch, { code: 'OBJECT_REQUEST_CANCELLED' });
+    await within(firstWrite, 'the first batch frame');
+    const queued = service.read(secondOid);
+    await waitForQueued(service, 3);
+    controller.abort();
+    await failure;
+    assert.deepEqual((await queued).bytes, secondBytes);
+    assert.equal(generations, 2, 'queued work must use a verified fresh worker');
+  } finally { await service.close(); }
+});
+
+test('GAL:AC-025 a partial batch obeys its operation deadline and retires the worker', async () => {
+  const root = await repository();
+  const oid = git(['rev-parse', 'HEAD:source.bin'], root);
+  const bytes = Buffer.from([0, 10, 255, 13, 10]);
+  const packet = Buffer.concat([
+    Buffer.from(`${oid} blob ${bytes.length}\n`), bytes, Buffer.from('\n')
+  ]);
+  let writes = 0;
+  let child;
+  const service = new FosGitObjectService(root, {
+    timeoutMs: 500,
+    spawnCommand: () => {
+      child = scriptedChild([], () => {
+        writes += 1;
+        child.stdout.emit('data', packet);
+        // The second write is a two-OID batch; intentionally omit its second frame.
+      })();
+      return child;
+    }
+  });
+  try {
+    assert.deepEqual((await service.read(oid)).bytes, bytes, 'warm the worker before the timed batch');
+    await assert.rejects(service.readBatch([oid, oid]), { code: 'OBJECT_REQUEST_TIMEOUT' });
+    assert.equal(writes, 2);
+    assert.equal((await service.close()).terminated, true);
+  } finally { await service.close(); }
 });
 
 test('GAL:AC-025 identical in-flight readers share one write but retain independent bytes', async () => {

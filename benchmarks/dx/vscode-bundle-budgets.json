@@ -1,15 +1,15 @@
 {
   "schemaVersion": 1,
   "kind": "sflow-vscode-bundle-budgets",
-  "totalJavaScriptBytes": { "maximum": 33200000 },
+  "totalJavaScriptBytes": { "maximum": 27000000 },
   "entries": {
-    "extension.cjs": { "maximumBytes": 1250000, "maximumModules": 160 },
+    "extension.cjs": { "maximumBytes": 1285000, "maximumModules": 160 },
     "gateway-context-runtime.cjs": { "maximumBytes": 8192, "maximumModules": 4 },
-    "gateway-runtime.cjs": { "maximumBytes": 7750000, "maximumModules": 570 },
-    "gateway-status-worker.cjs": { "maximumBytes": 7810000, "maximumModules": 570 },
-    "help-runtime.cjs": { "maximumBytes": 3590000, "maximumModules": 400 },
-    "lazy-panels-runtime.cjs": { "maximumBytes": 1700000, "maximumModules": 180 },
-    "support-runtime.cjs": { "maximumBytes": 3420000, "maximumModules": 385 },
-    "world-model-build.cjs": { "maximumBytes": 7770000, "maximumModules": 570 }
+    "gateway-runtime.cjs": { "maximumBytes": 8200000, "maximumModules": 590 },
+    "gateway-status-worker.cjs": { "maximumBytes": 200000, "maximumModules": 30 },
+    "help-runtime.cjs": { "maximumBytes": 3700000, "maximumModules": 420 },
+    "lazy-panels-runtime.cjs": { "maximumBytes": 1800000, "maximumModules": 180 },
+    "support-runtime.cjs": { "maximumBytes": 3520000, "maximumModules": 400 },
+    "world-model-build.cjs": { "maximumBytes": 8250000, "maximumModules": 600 }
   }
 }

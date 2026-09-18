@@ -295,6 +295,18 @@ the existing Help, Support, and module ceilings remain unchanged. A dirty `+loca
 31,296,512 bytes because that identity is embedded in the bundles and remains inside the same
 reviewed 31,300,000-byte ceiling; the clean release closure remains lower.
 
+At `main@5fca9fc2`, later feature growth had lifted the eight-entry closure to 34,427,816
+bytes and the 2026-09-15 per-entry ceilings no longer described the shipped source. The status
+worker was carrying a second copy of the gateway kernel (8,133,529 bytes, 583 modules). It now
+loads the separately packaged sibling `gateway-runtime.cjs`; an IPC smoke test and VSIX packaging
+test verify that relationship. The measured worker is 109,009 bytes and 15 modules, and the entire
+closure is 26,403,405 bytes, a reduction of 8,024,411 bytes. The reviewed aggregate ceiling is
+therefore **lowered** from 33,200,000 to 27,000,000 bytes, and the status-worker ceiling from
+7,810,000/570 to 200,000/30. The other entry ceilings are rebaselined narrowly to the measured
+post-dedup module/byte closures with approximately 1–3% headroom; these entries contain later
+product code rather than an additional copy of the status kernel. This is a new packaging
+layout baseline, not a claim that extension-host latency or memory improved by the same ratio.
+
 ## Bounded aggregate verification
 
 `npm test` no longer starts one unbounded all-files process. It creates eight deterministic,

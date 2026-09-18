@@ -124,10 +124,9 @@ test('GAL:AC-021 empty and duplicate batches preserve order, isolation, and zero
   const oids = [value.binaryOid, value.emptyOid, value.binaryOid];
   const expected = await invocation.blobs({ oids });
   assert.equal(expected.ok, true, JSON.stringify(expected));
-  const observed = await Promise.all(oids.map(async (oid) => {
-    const result = await worker.read(oid);
+  const observed = (await worker.readBatch(oids)).map((result) => {
     return { oid: result.oid, bytes: result.bytes };
-  }));
+  });
   assert.deepEqual(observed, expected.value.entries);
   expected.value.entries[0].bytes[0] ^= 1;
   observed[0].bytes[0] ^= 1;

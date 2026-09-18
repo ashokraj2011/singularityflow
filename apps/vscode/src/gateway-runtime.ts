@@ -12,3 +12,6 @@ export {
 // Rootless Home is an interactive gateway concern too. Keeping bootstrap discovery here avoids
 // parsing the workspace/configuration/model graph merely because the Navigator view activated.
 export { latestWorkspaceBootstrap } from '../../../src/workspace-bootstrap.mjs';
+// The status-bar child process loads this already-packaged runtime through a sibling CJS require.
+// Export the selector it needs here instead of bundling the whole gateway graph a second time.
+export { primaryAction } from '../../../src/gateway/result.mjs';

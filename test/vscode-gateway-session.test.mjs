@@ -8,8 +8,8 @@
  */
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { fork, spawnSync } from 'node:child_process';
+import { mkdir, mkdtemp, readFile, rm, symlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,7 +18,13 @@ import { codeOnly } from './source-text.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const extension = path.join(root, 'apps', 'vscode');
-const isolatedBundle = await mkdtemp(path.join(os.tmpdir(), 'sflow-vscode-gateway-bundle-'));
+const isolatedRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-vscode-gateway-bundle-'));
+const isolatedExtension = path.join(isolatedRoot, 'apps', 'vscode');
+const isolatedBundle = path.join(isolatedExtension, 'dist');
+await mkdir(isolatedBundle, { recursive: true });
+// A packaged extension has its staged CLI beside dist. Preserve that layout in the isolated
+// bundle fixture so loading the runtime can verify its package root without relying on source cwd.
+await symlink(root, path.join(isolatedExtension, 'cli'), process.platform === 'win32' ? 'junction' : 'dir');
 const build = spawnSync(process.execPath, ['esbuild.mjs'], {
   cwd: extension,
   encoding: 'utf8',
@@ -29,7 +35,7 @@ const build = spawnSync(process.execPath, ['esbuild.mjs'], {
   }
 });
 assert.equal(build.status, 0, `isolated VS Code gateway build failed:\n${build.stdout}${build.stderr}`);
-after(async () => { await rm(isolatedBundle, { recursive: true, force: true }); });
+after(async () => { await rm(isolatedRoot, { recursive: true, force: true }); });
 
 test('the packaged lazy gateway runtime contains the in-process handle authority', async () => {
   /**
@@ -42,6 +48,27 @@ test('the packaged lazy gateway runtime contains the in-process handle authority
   assert.ok(bundle.includes('A handle requires the operation it resolved to'),
     'the handle authority is bundled');
   assert.ok(bundle.includes('gateway.planner-unavailable'), 'the kernel is bundled');
+});
+
+test('the packaged status worker loads its sibling gateway runtime and replies over IPC', async (t) => {
+  const workerFile = path.join(isolatedBundle, 'gateway-status-worker.cjs');
+  const workerBundle = await readFile(workerFile, 'utf8');
+  assert.match(workerBundle, /require\(["']\.\/gateway-runtime\.cjs["']\)/);
+  const child = fork(workerFile, [], {
+    execArgv: [], stdio: ['ignore', 'ignore', 'pipe', 'ipc']
+  });
+  t.after(() => child.kill());
+  let childError = '';
+  child.stderr?.on('data', (chunk) => { childError = (childError + String(chunk)).slice(0, 4096); });
+  const response = await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Status worker did not answer over IPC.')), 5_000);
+    const finish = (callback) => (value) => { clearTimeout(timer); callback(value); };
+    child.once('error', finish(reject));
+    child.once('exit', finish((code) => reject(new Error(`Status worker exited before replying: ${code}; ${childError}`))));
+    child.once('message', finish(resolve));
+    child.send({ id: 17, route: null, workId: null, lens: 'today' });
+  });
+  assert.deepEqual(response, { id: 17, value: null });
 });
 
 test('the editor bundles the shared docs planner with a verified package root', async () => {

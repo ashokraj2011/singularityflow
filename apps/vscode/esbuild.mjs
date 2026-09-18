@@ -54,6 +54,15 @@ const packageRootPlugin = {
   }
 };
 
+const siblingGatewayRuntimePlugin = {
+  name: 'singularity-flow-status-worker-shared-gateway',
+  setup(buildContext) {
+    buildContext.onResolve({ filter: /^\.\/gateway-runtime\.cjs$/ }, () => ({
+      path: './gateway-runtime.cjs', external: true
+    }));
+  }
+};
+
 const options = {
   entryPoints: {
     extension: 'src/extension.ts',
@@ -73,7 +82,7 @@ const options = {
   format: 'cjs',
   external: ['vscode'],
   define: { __SFLOW_BUILD__: JSON.stringify(BUILD) },
-  plugins: [packageRootPlugin],
+  plugins: [packageRootPlugin, siblingGatewayRuntimePlugin],
   sourcemap: true,
   logLevel: 'info'
 };

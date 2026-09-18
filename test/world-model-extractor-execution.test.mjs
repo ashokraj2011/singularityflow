@@ -810,19 +810,21 @@ test('pre-scope discovery owns every selected and excluded completeness path', a
 });
 
 test('pre-scope discovery fails with a typed result when a local Git read exceeds its deadline', async (t) => {
+  if (process.platform === 'win32') {
+    t.skip('Windows Git must resolve to native git.exe; a batch timeout shim cannot exercise that boundary.');
+    return;
+  }
   const root = await repository(t);
   const sourceSnapshot = createExactSourceSnapshot(root, {
     subjectId: 'extractor-execution', scopeManifest: scope()
   });
-  const executableDirectory = path.join(root, 'timeout-bin');
-  const executable = path.join(
-    executableDirectory, process.platform === 'win32' ? 'git.cmd' : 'git'
-  );
-  await mkdir(executableDirectory);
-  await writeFile(executable, process.platform === 'win32'
-    ? '@echo off\r\n:loop\r\ngoto loop\r\n'
-    : '#!/bin/sh\nwhile :; do :; done\n');
-  if (process.platform !== 'win32') await chmod(executable, 0o755);
+  // The resolver must not execute a Git shim from the repository it is inspecting. Place this
+  // deliberately hanging test executable in a separate absolute PATH directory instead.
+  const executableDirectory = await mkdtemp(path.join(os.tmpdir(), 'sflow-git-timeout-'));
+  t.after(() => rm(executableDirectory, { recursive: true, force: true }));
+  const executable = path.join(executableDirectory, 'git');
+  await writeFile(executable, '#!/bin/sh\nwhile :; do :; done\n');
+  await chmod(executable, 0o755);
   const started = Date.now();
   assert.throws(
     () => createDiscoveredCandidateRoster(root, {

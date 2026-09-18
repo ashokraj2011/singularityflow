@@ -752,10 +752,10 @@ test('guided run and world-model skills preserve consent and crash-recovery boun
   assert.match(worldModel, /--force/);
   assert.match(worldModel, /wm recovery publish <ID> --confirm <ID>/);
   assert.match(worldModel, /--max-facts 50 --max-output-bytes 32768/);
-  assert.match(worldModel, /Required symbol gates apply only when syntax is explicitly required by policy/);
+  assert.match(worldModel, /Symbol gates require explicit syntax policy/);
   assert.match(worldModel, /Bare `\/sf-worldmodel` is read-only/);
   assert.match(worldModel, /wm status --json/);
-  assert.match(worldModel, /Never infer build, initialization, warming, pack, cache, or local-publication consent/);
+  assert.match(worldModel, /Never infer mutation consent/);
   assert.match(worldModel, /No active Story is valid/);
   assert.match(worldModel, /private rehearsal and is not reusable from the shared state branch/);
 });

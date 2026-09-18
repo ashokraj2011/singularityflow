@@ -209,6 +209,13 @@ test('source changes do not create an AST receipt prerequisite at submission', a
     });
     assert.equal(historical.applies, false);
     assert.deepEqual(historical.errors, []);
+    await assert.rejects(
+      submitPhase(root, config, workflow, { phaseId: phase.id, runChecks: false }),
+      (error) => error.code === 'PHASE_SOURCE_CHANGED_AFTER_PUBLICATION'
+        && error.details?.changedPaths?.includes('README.md'),
+      'the artifact-only phase must refuse post-publication source edits without inventing an AST gate'
+    );
+    await writeFile(path.join(root, 'README.md'), '# AST lifecycle fixture\n');
     await submitPhase(root, config, workflow, { phaseId: phase.id, runChecks: false });
     assert.equal(workflow.status, 'complete');
   });

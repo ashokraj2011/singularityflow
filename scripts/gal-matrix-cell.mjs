@@ -44,6 +44,9 @@ const WINDOWS_EXCLUSIONS = new Set([
   'GAL rejects a well-framed blob with bytes that do not hash to its OID',
   'GAL refuses a torn HEAD observation when checkout changes between its reads',
   'GAL does not release an in-flight captured result after repository replacement',
+  'GAL remoteRef classifies auth denial without returning provider stderr',
+  'GAL remoteRef discards an answer when local origin changes during the frozen probe',
+  'GAL remoteRef rejects malformed Git framing without accepting a partial observation',
   'GAL:AC-020 promised blob stays local-only until a separate acquisition'
 ]);
 

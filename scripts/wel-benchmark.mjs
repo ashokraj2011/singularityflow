@@ -118,6 +118,16 @@ function git(root, ...arguments_) {
     .trim();
 }
 
+function benchmarkCliEnvironment(storyRoot) {
+  // The benchmark owns its temporary repository. A developer's selected workspace must never
+  // redirect its CLI recovery commands to an unrelated checkout on the same laptop.
+  return {
+    ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'WEL Benchmark',
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(storyRoot, '.benchmark-active-workspace.json'),
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(storyRoot, '.benchmark-workspaces.json')
+  };
+}
+
 async function storyBenchmarkRepository({ publish = 'off' } = {}) {
   const storyRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-wel-story-benchmark-'));
   const storyRemote = `${storyRoot}.git`;
@@ -127,12 +137,16 @@ async function storyBenchmarkRepository({ publish = 'off' } = {}) {
   await writeFile(path.join(storyRoot, 'README.md'), '# Local benchmark fixture\n');
   execFileSync(process.execPath, [cli, 'init'], {
     cwd: storyRoot, stdio: 'ignore',
-    env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'WEL Benchmark' }
+    env: benchmarkCliEnvironment(storyRoot)
   });
   const workflowPath = path.join(storyRoot, 'singularity', 'workflow.yml');
   const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
   workflow.git.publish = publish;
   workflow.worldModel.grounding = 'off';
+  // Approval enrollment is a separate configuration publication, not part of the measured Story
+  // branch path. Keep this hermetic fixture from depending on the host's current identity.
+  workflow.approvalSecurity ??= {};
+  workflow.approvalSecurity.autoEnrollNewIdentities = false;
   await writeFile(workflowPath, YAML.stringify(workflow));
   git(storyRoot, 'add', '.');
   git(storyRoot, 'commit', '-qm', 'benchmark fixture');
@@ -215,12 +229,9 @@ async function measureStoryPushRecovery() {
     hookInstalled = false;
     const recoveryStartedAt = performance.now();
     try {
-      execFileSync(process.execPath, [cli, 'sync', '--json'], {
+      execFileSync(process.execPath, [cli, 'sync', workId, '--json'], {
         cwd: storyRoot, stdio: ['ignore', 'pipe', 'pipe'],
-        env: {
-          ...process.env, NODE_ENV: 'test',
-          SINGULARITY_FLOW_TEST_IDENTITY: 'WEL Benchmark'
-        }
+        env: benchmarkCliEnvironment(storyRoot)
       });
     } catch (error) {
       const diagnostic = String(error?.stderr ?? '').trim().split(/\r?\n/).at(-1);
@@ -285,10 +296,7 @@ async function measureStoryOfflineRecovery() {
     const recoveryStartedAt = performance.now();
     execFileSync(process.execPath, [cli, 'sync', workId, '--json'], {
       cwd: storyRoot, stdio: ['ignore', 'pipe', 'pipe'],
-      env: {
-        ...process.env, NODE_ENV: 'test',
-        SINGULARITY_FLOW_TEST_IDENTITY: 'WEL Benchmark'
-      }
+      env: benchmarkCliEnvironment(storyRoot)
     });
     const recoveryMilliseconds = performance.now() - recoveryStartedAt;
     const remoteCommit = git(storyRoot, 'ls-remote', 'origin', `refs/heads/${workId}`)
@@ -367,10 +375,7 @@ async function measureInterruptedWriteRecovery() {
     const recoveryStartedAt = performance.now();
     execFileSync(process.execPath, [cli, 'sync', workId], {
       cwd: storyRoot, stdio: ['ignore', 'pipe', 'pipe'],
-      env: {
-        ...process.env, NODE_ENV: 'test',
-        SINGULARITY_FLOW_TEST_IDENTITY: 'WEL Benchmark'
-      }
+      env: benchmarkCliEnvironment(storyRoot)
     });
     const recoveryMilliseconds = performance.now() - recoveryStartedAt;
     if (git(storyRoot, 'rev-parse', 'HEAD') !== originalCommit

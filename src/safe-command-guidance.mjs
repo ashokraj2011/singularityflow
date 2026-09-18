@@ -81,7 +81,7 @@ function hasForbiddenShellSyntax(value) {
   return false;
 }
 
-function tokenizeCommand(command) {
+function tokenizeCommand(command, shell = 'posix') {
   const tokens = [];
   let current = '';
   let quote = null;
@@ -89,7 +89,7 @@ function tokenizeCommand(command) {
   for (let index = 0; index < command.length; index += 1) {
     const character = command[index];
     if (escaped) { current += character; escaped = false; continue; }
-    if (character === '\\' && quote !== "'") {
+    if (shell === 'posix' && character === '\\' && quote !== "'") {
       const next = command[index + 1] ?? '';
       // Preserve ordinary Windows separators. In portable guidance a backslash is an escape only
       // where both the POSIX and Windows readings are unambiguous: before whitespace, a quote, or
@@ -103,7 +103,14 @@ function tokenizeCommand(command) {
       continue;
     }
     if (quote) {
-      if (character === quote) quote = null;
+      if (character === quote) {
+        // PowerShell represents an apostrophe inside a single-quoted argument as ''.
+        // POSIX closes and reopens the quote instead; keep the two grammars distinct.
+        if (shell === 'powershell' && quote === "'" && command[index + 1] === "'") {
+          current += "'";
+          index += 1;
+        } else quote = null;
+      }
       else current += character;
       continue;
     }
@@ -141,7 +148,12 @@ function normalizedCommandArgv(input) {
   if (!['singularity-flow', 'sflow'].includes(executable)) return null;
   if (input.argv.some((value) => typeof value !== 'string' || !value
       || /[\u0000-\u001f\u007f]/u.test(value))) return null;
-  const argv = input.argv.map(String);
+  const fullVector = ['singularity-flow', 'sflow'].includes(input.argv[0]);
+  if (fullVector && input.executable != null && input.argv[0] !== executable) return null;
+  // Most producers use { executable, argv: [subcommand, ...] }; a few durable recovery
+  // plans preserve the full process argv. Accept both forms while applying the identical
+  // registered-command, secret, and shell-syntax checks below.
+  const argv = (fullVector ? input.argv.slice(1) : input.argv).map(String);
   const command = commandFromArgv(executable, argv);
   const safe = validateSafeSflowCommand(command);
   return safe ? { ...safe, executable: 'singularity-flow' } : null;
@@ -193,14 +205,15 @@ function normalizedSkill(value) {
 }
 
 /** Validate command syntax and the registered top-level CLI family. */
-export function validateSafeSflowCommand(value) {
+export function validateSafeSflowCommand(value, { shell = 'posix' } = {}) {
+  if (!['posix', 'powershell'].includes(shell)) return null;
   const original = typeof value === 'string' ? value.trim() : '';
   const displayGrammar = scrubDisplayGrammar(original);
   if (!original || original.length > 2_000 || /[\r\n\u0000-\u001f\u007f]/u.test(original)
       || !SAFE_EXECUTABLE.test(original) || SECRET_SHAPE.test(original)
       || hasForbiddenShellSyntax(displayGrammar.scrubbed)
       || /[<>\[\]]/u.test(displayGrammar.scrubbed)) return null;
-  const tokens = tokenizeCommand(original);
+  const tokens = tokenizeCommand(original, shell);
   if (!tokens?.length || !['singularity-flow', 'sflow'].includes(tokens[0])) return null;
   const executable = tokens[0] === 'sflow' ? ['singularity-flow', ...tokens.slice(1)] : tokens;
   const top = executable[1];
@@ -233,7 +246,8 @@ export function validateSafeSflowCommand(value) {
 export function safeCommandGuidance(value) {
   const input = typeof value === 'string' ? { command: value } : (value ?? {});
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
-  const fromCommand = input.command == null ? null : validateSafeSflowCommand(input.command);
+  const fromCommand = input.command == null ? null
+    : validateSafeSflowCommand(input.command, { shell: input.shell ?? 'posix' });
   const fromArgv = input.argv == null ? null : normalizedCommandArgv(input);
   if (input.command != null && !fromCommand) return null;
   if (input.argv != null && !fromArgv) return null;

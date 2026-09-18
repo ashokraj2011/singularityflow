@@ -255,6 +255,37 @@ test('structured command argv is authoritative and disagreement fails closed', (
   }), null);
 });
 
+test('full process argv recovery actions preserve exact POSIX and PowerShell arguments', () => {
+  const argv = ['singularity-flow', 'workspace', 'reinitialize', "team's demo", '--dry-run', '--json'];
+  const posix = safeCommandGuidance({
+    argv,
+    command: `singularity-flow workspace reinitialize 'team'"'"'s demo' --dry-run --json`,
+    shell: 'posix',
+    skill: '/sf-admin'
+  });
+  assert.ok(posix);
+  assert.deepEqual(posix.argv, argv.slice(1));
+  assert.equal(posix.copilotCommand, '/sf-admin');
+
+  const powershell = safeCommandGuidance({
+    argv,
+    command: "singularity-flow workspace reinitialize 'team''s demo' --dry-run --json",
+    shell: 'powershell',
+    skill: '/sf-admin'
+  });
+  assert.ok(powershell);
+  assert.deepEqual(powershell.argv, argv.slice(1));
+  assert.equal(powershell.copilotCommand, '/sf-admin');
+  assert.equal(safeCommandGuidance({
+    ...powershell, shell: 'powershell',
+    command: "singularity-flow workspace reinitialize 'different''s demo' --dry-run --json"
+  }), null);
+  assert.equal(safeCommandGuidance({
+    argv, executable: 'sflow', shell: 'powershell',
+    command: "singularity-flow workspace reinitialize 'team''s demo' --dry-run --json"
+  }), null);
+});
+
 test('router and resolved phase actions cannot be presented as one equivalent pair', () => {
   const router = safeCommandGuidance('singularity-flow next');
   assert.ok(router);

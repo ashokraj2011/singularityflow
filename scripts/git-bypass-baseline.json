@@ -312,7 +312,7 @@
         "process-import": 1,
         "process-launch": 14
       },
-      "digest": "85db553c32097178ec74e3f2e84cc26e026fda9bf56a369582eac6e9411510f7"
+      "digest": "cbf19a1c789615303b3f9a24ad65ffa996618112fbbeb8db114f1d4241fbb0b8"
     },
     "scripts/wel-corpus-measurement.mjs": {
       "counts": {
@@ -1284,7 +1284,7 @@
         "command-git": 20,
         "command-run": 1
       },
-      "digest": "5a278ee8e9322ee9e2bc3d1976036a4ca5d7a69db0a35efb6d1715435134769c"
+      "digest": "3aba748b9ceb0b37a714190263111f4706f13ac1e6785675cf85514fbbfae19a"
     },
     "src/world-model/store.mjs": {
       "counts": {

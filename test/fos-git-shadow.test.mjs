@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -12,6 +12,8 @@ import {
 import { rememberWorkspace, workspaceStatus } from '../src/workspace.mjs';
 import { activateWorkspaceContext } from '../src/workspace-context.mjs';
 import { SnapshotCoordinator } from '../src/snapshot-coordinator.mjs';
+import { galStatusBranchCandidate } from '../src/commands/status.mjs';
+import { branch } from '../src/git.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
@@ -69,6 +71,34 @@ test('FOS Git shadow candidate and recorder failures cannot block the reference 
   assert.equal(result.observation.outcome, 'candidate-error');
   assert.equal(result.observation.errorCode, 'GIT_QUERY_FAILED');
   assert.equal(JSON.stringify(result.observation).includes('/private/repository/path'), false);
+});
+
+test('status GAL branch candidate agrees on unborn HEAD and cannot replace detached-HEAD refusal', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-fos-gal-status-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(['init', '-q', '-b', 'main'], root);
+  assert.equal(await galStatusBranchCandidate(root), 'main');
+  const unborn = await runFosGitShadowRead({
+    operation: 'status.repository-branch', mode: 'shadow',
+    reference: () => branch(root), candidate: () => galStatusBranchCandidate(root)
+  });
+  assert.equal(unborn.value, 'main');
+  assert.equal(unborn.observation.outcome, 'equivalent');
+
+  git(['config', 'user.name', 'FOS Shadow'], root);
+  git(['config', 'user.email', 'shadow@example.com'], root);
+  await writeFile(path.join(root, 'tracked.txt'), 'tracked\n');
+  git(['add', 'tracked.txt'], root);
+  git(['commit', '-qm', 'initial'], root);
+  git(['switch', '--detach', '-q', 'HEAD'], root);
+  assert.equal(await galStatusBranchCandidate(root), null);
+  let candidateCalls = 0;
+  await assert.rejects(() => runFosGitShadowRead({
+    operation: 'status.repository-branch', mode: 'shadow',
+    reference: () => branch(root),
+    candidate: async () => { candidateCalls += 1; return galStatusBranchCandidate(root); }
+  }), /Detached HEAD is not supported/);
+  assert.equal(candidateCalls, 0, 'a refused reference must not invoke the GAL candidate');
 });
 
 test('workspace Git shadow comparison matches the legacy projection for a real repository', async () => {

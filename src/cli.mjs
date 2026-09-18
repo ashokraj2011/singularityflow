@@ -8601,14 +8601,17 @@ async function fixCommand(positionals, options) {
     data: result, changed: !preview, json: optionBoolean(options, 'json'),
     commands: preview
       ? [{
-          label: 'Create this governed repair',
+          label: 'Review and request this governed repair',
+          // The exact allow-paths and verifier argv remain in `data.plan`. They can contain
+          // spaces, JSON punctuation, or shell metacharacters, so never project them into a
+          // command-result guidance string. Present a non-copyable route requiring the human to
+          // review and supply those values instead of weakening the Shell/Copilot boundary.
           command: [
             'singularity-flow', 'fix', faultId,
             ...(result.plan.requestedMode === 'bounded-auto' ? ['--auto'] : []),
             '--max-attempts', String(result.plan.budgets.maxAttempts),
-            ...result.plan.allowedPaths.flatMap((entry) => ['--allow-path', entry]),
-            ...result.plan.verification.flatMap((entry) => ['--verify-argv', JSON.stringify(entry.argv)])
-          ].map((entry) => JSON.stringify(entry)).join(' ')
+            '--allow-path', '<PATH>', '--verify-argv', '<JSON-ARGV>'
+          ].join(' ')
         }]
       : repairNextActions(result.repair).map((command) => ({ label: 'Continue the governed repair', command }))
   });

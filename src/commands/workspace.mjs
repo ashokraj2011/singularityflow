@@ -5,7 +5,6 @@ import {
   activateWorkspaceContext, activeWorkspaceFile, discardUnsupportedWorkflowWorkspaces,
   readActiveWorkspaceContext, workspacePromptLabel, workspaceRegistryFile
 } from '../workspace-context.mjs';
-import { readWorkspaceRegistry } from '../workspace.mjs';
 import { optionBoolean, optionString, table } from '../util.mjs';
 
 const HOT_ACTIONS = new Set(['list', 'current', 'prompt', 'use', 'switch']);
@@ -54,6 +53,7 @@ export async function run(argv, context = {}) {
   }
 
   if (action === 'list') {
+    const { readWorkspaceRegistry } = await import('../workspace.mjs');
     const workspaces = await readWorkspaceRegistry(registry);
     const active = await readActiveWorkspaceContext(selectionFile, registry, { refresh: false }).catch(() => null);
     const result = workspaces.map((workspace) => {

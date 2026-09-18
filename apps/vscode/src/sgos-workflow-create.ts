@@ -16,6 +16,7 @@ import {
   type SgosWorkflowPageState
 } from './views/sgos-workflow-create-page.ts';
 import { contentSecurityPolicy, nonce, page } from './views/webview.ts';
+import { registerMessageRouter } from './views/messages.ts';
 
 type InputField = 'intentPath' | 'policyPath' | 'registryPath';
 type FormField = Exclude<keyof SgosWorkflowCreateSelection, InputField>;
@@ -93,8 +94,14 @@ class SgosWorkflowCreatePanel {
       repository, intentPath: '', policyPath: '', registryPath: '',
       selection: { maximumAttempts: 1, outputRef: 'artifact:result' }
     };
+    const router = registerMessageRouter('singularityFlow.sgosWorkflowCreate', {
+      change: (message) => this.receive(message),
+      browse: (message) => this.receive(message),
+      guide: (message) => this.receive(message),
+      create: (message) => this.receive(message)
+    });
     this.disposables.push(panel.webview.onDidReceiveMessage((message: unknown) => {
-      void this.receive(message).catch((error) => {
+      void Promise.resolve(router.route(message)).catch((error) => {
         this.state = { ...this.state, busy: false, guideLoading: false, error: (error as Error).message };
         this.render();
       });

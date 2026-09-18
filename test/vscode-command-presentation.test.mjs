@@ -35,7 +35,7 @@ test('legacy bare placeholder routes remain visible but cannot be copied', () =>
   const guidance = safeCommandPair('singularity-flow impact start plan-1 --work-id WORK-ID --work-type TYPE --confirm plan-1');
   assert.ok(guidance);
   assert.equal(guidance.copyable, false);
-  assert.equal(guidance.platformCommands, undefined);
+  assert.equal(guidance.platformCommands, null);
   const html = commandGuidanceHtml(guidance);
   assert.match(html, /Shell:/);
   assert.match(html, /Copilot:/);

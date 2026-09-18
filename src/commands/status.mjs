@@ -22,6 +22,32 @@ function summary(workflow) {
   if (workflow.sequenceOverrides?.length) console.warn(`Warning: ${workflow.sequenceOverrides.length} confirmed soft sequence override(s) are recorded for this work item.`);
 }
 
+/** The optional shadow candidate is never the authoritative Story selector. */
+export async function galStatusBranchCandidate(root) {
+  const { createGitRuntime } = await import('../git-access.mjs');
+  const created = await createGitRuntime();
+  if (!created.ok) throw Object.assign(new Error('GAL runtime unavailable'), {
+    code: created.code
+  });
+  const runtime = created.value;
+  try {
+    const opened = await runtime.openRepository(root);
+    if (!opened.ok) throw Object.assign(new Error('GAL repository unavailable'), {
+      code: opened.code
+    });
+    const invocation = opened.value.beginInvocation();
+    try {
+      const observed = await invocation.head();
+      if (!observed.ok) throw Object.assign(new Error('GAL branch unavailable'), {
+        code: observed.code
+      });
+      const symbolic = observed.value.symbolicRef;
+      return symbolic?.startsWith('refs/heads/')
+        ? symbolic.slice('refs/heads/'.length) : null;
+    } finally { await invocation.dispose(); }
+  } finally { await runtime.dispose(); }
+}
+
 export async function run(_argv, { positionals, options }) {
   const root = repoRoot();
   if (optionBoolean(options, 'submission-readiness')) {
@@ -48,14 +74,12 @@ export async function run(_argv, { positionals, options }) {
   let currentBranch = null;
   if (!positionals[1]) {
     if (gitShadow) {
-      const [{ runFosGitShadowRead }, { executeGitQuery }] = await Promise.all([
-        import('../fos-git-shadow.mjs'), import('../git-query.mjs')
-      ]);
+      const { runFosGitShadowRead } = await import('../fos-git-shadow.mjs');
       ({ value: currentBranch } = await runFosGitShadowRead({
         operation: 'status.repository-branch',
         mode: 'shadow',
         reference: () => branch(root),
-        candidate: () => executeGitQuery(root, 'repository.branch'),
+        candidate: () => galStatusBranchCandidate(root),
         record(value) { gitShadowObservations.push(value); }
       }));
     } else currentBranch = branch(root);

@@ -25,7 +25,16 @@ async function fixture() {
 }
 
 function invoke(root, args) {
-  return spawnSync(process.execPath, [cli, ...args], { cwd: root, encoding: 'utf8' });
+  return spawnSync(process.execPath, [cli, ...args], {
+    cwd: root, encoding: 'utf8',
+    // A developer's selected workspace must not redirect this isolated CLI fixture to another
+    // checkout. The selection file is intentionally absent; no machine state is modified.
+    env: {
+      ...process.env,
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(root, '.test-active-workspace.json'),
+      SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(root, '.test-workspaces.json')
+    }
+  });
 }
 
 test('fault report/list/show and fix preview are reachable through the public CLI', async () => {
@@ -59,6 +68,8 @@ test('fault report/list/show and fix preview are reachable through the public CL
   assert.equal(plan.persisted, false);
   // The failure was observed in CI, but local review uses the fail-closed local execution ceiling.
   assert.equal(plan.repair.executionMode, 'diagnose');
+  assert.match(previewEnvelope.next[0].command, /--verify-argv <JSON-ARGV>$/u);
+  assert.doesNotMatch(previewEnvelope.next[0].command, /\["node"/u);
   assert.equal(git(root, 'status', '--short'), '');
 
   const structured = invoke(root, [

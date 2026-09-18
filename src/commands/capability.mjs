@@ -1,7 +1,6 @@
 import path from 'node:path';
 
 import { listLeadRepositories, rememberLeadRepository } from '../lead-repositories.mjs';
-import { safeCommandGuidance } from '../safe-command-guidance.mjs';
 import {
   optionBoolean, optionString, optionStrings, SingularityFlowError
 } from '../util.mjs';
@@ -11,7 +10,8 @@ let organisation = null;
 let explanationSupport = null;
 const DIRECT = new Set(['add', 'protect', 'depend', 'auto', 'show', 'leads', 'adopt-managed']);
 
-function printCommandRoutes(command, { skill = null, label = null } = {}) {
+async function printCommandRoutes(command, { skill = null, label = null } = {}) {
+  const { safeCommandGuidance } = await import('../safe-command-guidance.mjs');
   if (label) console.log(`${label}:`);
   const guidance = safeCommandGuidance({ command, skill });
   if (!guidance) {
@@ -252,8 +252,8 @@ async function runMutation(subcommand, context) {
   console.log(`  commit: ${result.commit}`);
   console.log(`  receipt: ${result.receiptPath}`);
   console.log('Nothing has been applied yet.');
-  printCommandRoutes(`singularity-flow capability proposal ${result.branch} --lead ${lead}`, { label: 'Review' });
-  printCommandRoutes(
+  await printCommandRoutes(`singularity-flow capability proposal ${result.branch} --lead ${lead}`, { label: 'Review' });
+  await printCommandRoutes(
     `singularity-flow capability activate ${result.branch} --lead ${lead} --confirm ${result.commit}`,
     { label: 'Activate after review' }
   );
@@ -346,7 +346,7 @@ export async function run(argv, context = {}) {
       console.log(`  current map: ${result.plan.beforeSha256}`);
       console.log(`  plan: ${result.plan.planSha256}`);
       console.log('No file, proposal, Story, or authority was changed.');
-      printCommandRoutes(
+      await printCommandRoutes(
         `singularity-flow capability adopt-managed --lead ${lead} --confirm ${result.plan.planSha256}`,
         { label: 'Confirm' }
       );

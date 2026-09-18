@@ -11,10 +11,9 @@
  * beside it. Those are the ones that cannot be re-run if the answer is wrong.
  *
  * The mechanism that actually protects them turns out to be a single property, and it is not
- * declared anywhere: **every SPK policy is attached to a phase id that only `spec-driven-standard`
- * uses.** Artifact sets, marker enforcement and specification quality all hang off `specification`,
- * `planning` and `release`. `implementation` and `verification` are shared with `feature`, `bugfix`
- * and `chore`, and they carry none of it.
+ * declared anywhere: **every SPK policy is attached to a phase id that only specification-governed
+ * work types use.** Artifact sets, marker enforcement and specification quality hang off exclusive
+ * phases. Shared phases such as `implementation` and `verification` carry none of it.
  *
  * That is a coherent design — in this product a phase id *is* the unit of policy — but it holds by
  * where three keys happen to sit, not by construction. `resolvedArtifactSet` reads
@@ -72,7 +71,7 @@ test('no spec-driven policy hangs off a phase a legacy work type also runs', asy
   // If this is ever empty the test has stopped testing anything — the work types would have to have
   // been renamed apart, and the invariant below would pass vacuously.
   assert.ok(shared.size > 0, 'no phase is shared, so this guard proves nothing');
-  assert.deepEqual([...shared].sort(), ['implementation', 'verification']);
+  assert.deepEqual([...shared].sort(), ['conformance', 'implementation', 'testing', 'verification']);
 
   for (const phase of shared) {
     const config = definition.phases?.[phase] ?? {};

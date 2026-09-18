@@ -385,11 +385,24 @@ test('FOS:AC-016 onboarding and Story intake avoid discovery, composition, AST a
   assert.equal(gitShadowObservations.length, 1);
   assert.equal(gitShadowObservations[0].operation, 'story-start.repository-preflight');
   assert.equal(gitShadowObservations[0].outcome, 'equivalent');
+  const plainStatus = JSON.parse(run(process.execPath, [
+    path.resolve('bin/singularity-flow.mjs'), 'status', '--json'
+  ], root).stdout);
+  const statusHead = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+  const statusBranch = run('git', ['branch', '--show-current'], root).stdout.trim();
+  const statusWorktree = run('git', ['status', '--porcelain=v1', '--untracked-files=all'], root).stdout;
   const status = JSON.parse(run(process.execPath, [
     path.resolve('bin/singularity-flow.mjs'), 'status', '--git-shadow', '--json'
   ], root).stdout);
+  const { gitShadow: statusShadow, ...authoritativeStatus } = status;
+  assert.deepEqual(authoritativeStatus, plainStatus,
+    'the GAL candidate must never replace the authoritative status projection');
+  assert.equal(run('git', ['rev-parse', 'HEAD'], root).stdout.trim(), statusHead);
+  assert.equal(run('git', ['branch', '--show-current'], root).stdout.trim(), statusBranch);
+  assert.equal(run('git', ['status', '--porcelain=v1', '--untracked-files=all'], root).stdout,
+    statusWorktree);
   assert.equal(status.workItem.id, 'WORK-901');
-  assert.deepEqual(status.gitShadow, {
+  assert.deepEqual(statusShadow, {
     mode: 'shadow', authoritativePath: 'reference', comparisons: 1,
     equivalent: 1, semanticMismatch: 0, candidateError: 0, valuesRecorded: false
   });

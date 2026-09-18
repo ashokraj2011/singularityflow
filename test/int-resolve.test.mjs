@@ -118,6 +118,7 @@ test('an unknown goal is refused, and an unmatched utterance is a question', () 
   assert.ok(asked.next.length);
   assert.equal(asked.next.every((entry) => entry.executable === false), true);
   assert.equal(asked.next[0].fallback.command, 'sflow explain');
+  assert.equal(asked.next[0].fallback.copilotCommand, '/sf-docs');
 });
 
 test('a missing argument is a question; a wrong one is a refusal', () => {

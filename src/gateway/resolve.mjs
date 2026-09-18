@@ -59,7 +59,7 @@ const MATCH_GOAL = 'goal';
 const HELP_FALLBACK = Object.freeze({
   label: 'Ask what SFlow can do',
   command: 'sflow explain',
-  skill: '/sflow-about'
+  skill: '/sf-docs'
 });
 
 /**

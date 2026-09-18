@@ -8,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { gitCommonDir } from '../../git.mjs';
+import { withoutGitProcessOverrides } from '../../git-enterprise-environment.mjs';
 import { run } from '../../util.mjs';
 import { readPrivateSidecar, writeImmutablePrivateSidecar } from '../../private-sidecar.mjs';
 import { currentSchemaVersion } from '../../schema-migrations.mjs';
@@ -44,6 +45,7 @@ export function worldModelSourceGitTimeoutClass(args) {
 
 function git(root, args, {
   binary = false, maxBuffer = 512 * 1024 * 1024, input = undefined, env = undefined,
+  indexFile = null,
   allowFailure = false, timeoutClass = worldModelSourceGitTimeoutClass(args)
 } = {}) {
   const result = run('git', args, {
@@ -52,7 +54,7 @@ function git(root, args, {
     timeoutClass,
     // Source proof is a local object-store operation. Partial/promisor clones must fail with a
     // typed unavailable-object error instead of turning a cache lookup into an implicit fetch.
-    env: offlineGitEnvironment(env ?? process.env)
+    env: offlineGitEnvironment(env ?? process.env, { indexFile })
   });
   if (result.timedOut) {
     contractFailure(
@@ -78,9 +80,13 @@ function gitBlobObjectId(bytes, gitObjectFormat) {
     .digest('hex');
 }
 
-function offlineGitEnvironment(env = process.env) {
+function offlineGitEnvironment(env = process.env, { indexFile = null } = {}) {
+  // Callers may supply only author metadata. Preserve the host's executable/trust PATH while
+  // removing ambient Git repository selectors; only the private Candidate index is admitted.
+  const clean = withoutGitProcessOverrides({ ...process.env, ...env });
   return {
-    ...env,
+    ...clean,
+    ...(indexFile ? { GIT_INDEX_FILE: indexFile } : {}),
     GIT_NO_LAZY_FETCH: '1',
     GIT_TERMINAL_PROMPT: '0',
     GCM_INTERACTIVE: 'Never'
@@ -328,15 +334,14 @@ function captureCandidatePass(root, scopeManifest, { writeObjects }) {
 function candidateTree(root, files) {
   const temporary = mkdtempSync(path.join(os.tmpdir(), 'sflow-wmb-candidate-index-'));
   const indexPath = path.join(temporary, 'index');
-  const env = { GIT_INDEX_FILE: indexPath };
   try {
-    git(root, ['read-tree', '--empty'], { env, timeoutClass: null });
+    git(root, ['read-tree', '--empty'], { indexFile: indexPath, timeoutClass: null });
     for (const file of files) {
       git(root, ['update-index', '--add', '--cacheinfo', `${file.mode},${file.objectId},${file.path}`], {
-        env, timeoutClass: null
+        indexFile: indexPath, timeoutClass: null
       });
     }
-    const tree = String(git(root, ['write-tree'], { env, timeoutClass: null })).trim();
+    const tree = String(git(root, ['write-tree'], { indexFile: indexPath, timeoutClass: null })).trim();
     if (!COMMIT_PATTERN.test(tree)) contractFailure('Git did not create a valid Candidate Snapshot tree.', 'WMB_SOURCE_SNAPSHOT_REQUIRED');
     return tree;
   } finally {

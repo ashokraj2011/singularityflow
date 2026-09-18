@@ -53,7 +53,8 @@ test('the explicit SFlow participant is sticky, focused, and pinned to the decla
   assert.equal(participant.isSticky, true);
   assert.equal(Object.hasOwn(participant, 'disambiguation'), false,
     'automatic participant detection is intentionally excluded from the first release');
-  assert.deepEqual(participant.commands.map((entry) => entry.name), ['help', 'why', 'how', 'recover', 'topics']);
+  assert.deepEqual(participant.commands.map((entry) => entry.name),
+    ['help', 'why', 'how', 'recover', 'attachments', 'topics']);
 });
 
 test('the activity view opens as one compact enterprise navigation surface', () => {

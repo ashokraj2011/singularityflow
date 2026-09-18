@@ -170,7 +170,7 @@ test('review, submit, and approve use the same positional phase grammar', async 
   assert.equal(execute('git', ['branch', '--show-current'], root).stdout.trim(), initialBranch);
 });
 
-test('soft gates require confirmation and audit a confirmed override with the selected agent', async () => {
+test('soft gates require confirmation but cannot override immutable review history', async () => {
   const root = await repository();
   const workflowFile = path.join(root, 'singularity/work-items/SEQ-1/workflow.json');
 
@@ -194,20 +194,18 @@ test('soft gates require confirmation and audit a confirmed override with the se
   const blocked = flow(root, ['approve', '--yes'], { allowFailure: true, agent: 'product-owner' });
   assertSequenceFailure(blocked, /Gate mode: soft/, /interactive terminal/);
 
-  const approved = flow(root, ['approve', '--yes'], { agent: 'product-owner', confirm: 'phaseStatus' });
+  const submittedHead = execute('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+  const approved = flow(root, ['approve', '--yes'], {
+    allowFailure: true, agent: 'product-owner', confirm: 'phaseStatus'
+  });
+  assert.notEqual(approved.status, 0);
   assert.match(approved.stderr, /Continuing after confirmed soft gate 'phaseStatus'/);
+  assert.match(approved.stderr, /repository history changed after its immutable review evidence/i);
   const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
-  assert.equal(workflow.currentPhase, 'requirements');
-  assert.equal(workflow.phases.intake.status, 'approved');
-  assert.equal(workflow.sequenceOverrides.length, 1);
-  assert.equal(workflow.sequenceOverrides[0].gate, 'phaseStatus');
-  assert.equal(workflow.sequenceOverrides[0].agent, 'product-owner');
-  assert.equal(workflow.sequenceOverrides[0].actor.name, 'Sequence Tester');
-  assert.ok(workflow.history.some((event) => event.event === 'sequence_gate_overridden' && event.agent === 'product-owner'));
-
-  const report = flow(root, ['report']);
-  assert.match(report.stdout, /Soft sequence overrides/);
-  assert.match(report.stdout, /phaseStatus/);
+  assert.equal(workflow.currentPhase, 'intake');
+  assert.equal(workflow.phases.intake.status, 'in_progress');
+  assert.deepEqual(workflow.phases.intake.approvals, []);
+  assert.equal(execute('git', ['rev-parse', 'HEAD'], root).stdout.trim(), submittedHead);
 });
 
 test('soft-gate session audit resolves the real Git directory in a linked worktree', async () => {
@@ -292,9 +290,9 @@ test('submitted work blocks generation mutations and rejection requires regenera
   await writeFile(artifact, (await readFile(artifact, 'utf8')).replace(/TODO:[^\n]*/g, 'Complete and measurable intake evidence for strict lifecycle sequencing.'));
   flow(root, ['phase', 'publish', 'intake']);
   const exactGenerationCommit = execute('git', ['rev-parse', 'HEAD'], root).stdout.trim();
-  await writeFile(path.join(root, 'unrelated.txt'), 'A later commit cannot impersonate the generation by reusing its subject.\n');
-  execute('git', ['add', 'unrelated.txt'], root);
-  execute('git', ['commit', '-m', '[SEQ-1][phase:intake][generated:1] decoy subject'], root);
+  // Preserve source and test bytes: the test is about a decoy commit subject, not the separate
+  // artifact-only source-change prohibition enforced before submission.
+  execute('git', ['commit', '--allow-empty', '-m', '[SEQ-1][phase:intake][generated:1] decoy subject'], root);
 
   assertSequenceFailure(flow(root, ['approve', '--yes'], { allowFailure: true, agent: 'architect' }), /submit intake/);
   flow(root, ['submit']);

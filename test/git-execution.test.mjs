@@ -493,7 +493,7 @@ test('asynchronous remote execution resolves an absolute Git executable on Windo
   assert.equal(result.status, 0);
   assert.equal(calls[0].kind, 'lookup');
   assert.equal(calls[0].command, 'C:\\Windows\\System32\\where.exe');
-  assert.deepEqual(calls[0].args, ['$PATH:git.*']);
+  assert.deepEqual(calls[0].args, ['$PATH:git.exe']);
   assert.equal(calls[0].options.cwd, 'C:\\Windows\\System32');
   assert.equal(calls[1].kind, 'spawn');
   assert.equal(calls[1].command, 'C:\\Program Files\\Git\\cmd\\git.exe');

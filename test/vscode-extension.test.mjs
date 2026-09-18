@@ -28,7 +28,8 @@ const {
   invokeCli, CliError, CliTimeoutError, terminalCommand,
   FACTORY_RESET_TRANSACTION_TIMEOUT_MS,
   validateFactoryResetRepositoryDirectory, validateRepositoryDirectory,
-  validatedRepositoryGitCommonDirectory, localGit, remoteGit, UninitializedRepositoryError,
+  validatedRepositoryGitCommonDirectory, localGit, remoteGit,
+  nonInteractiveGitEnvironment, resolveWindowsGitExecutable, UninitializedRepositoryError,
   RepositoryAuthorityUnavailableError, formatCliArgsForDisplay, DISPLAY_BOOLEAN_OPTIONS
 } =
   await import(source('cli/runner.ts'));
@@ -42,6 +43,79 @@ const snapshot = JSON.parse(await readFile(
 
 test('VS Code receipt parsing stays aligned with engine boolean options', () => {
   assert.deepEqual([...DISPLAY_BOOLEAN_OPTIONS].sort(), [...BOOLEAN_OPTIONS].sort());
+});
+
+test('VS Code Git environment rejects inherited execution overrides without losing connectivity', () => {
+  const env = nonInteractiveGitEnvironment({
+    Path: 'C:\\Program Files\\Git\\cmd', HTTPS_PROXY: 'http://office-proxy.invalid:8080',
+    NODE_EXTRA_CA_CERTS: 'C:\\office-ca.pem', SSH_AUTH_SOCK: '\\\\.\\pipe\\openssh-ssh-agent',
+    GIT_DIR: 'C:\\other-repo', git_work_tree: 'C:\\other-worktree',
+    GIT_INDEX_FILE: 'C:\\other-index', GIT_OBJECT_DIRECTORY: 'C:\\other-objects',
+    GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'url.evil.insteadOf',
+    GIT_CONFIG_VALUE_0: 'https://evil.invalid/', git_config_global: 'C:\\office-global.gitconfig',
+    GIT_CONFIG_SYSTEM: 'C:\\office-system.gitconfig',
+    Git_Ssh_Command: 'C:\\shim.cmd', GIT_ASKPASS: 'C:\\prompt.cmd',
+    GIT_TRACE2_EVENT: 'C:\\secrets.log', git_no_replace_objects: '0',
+    git_terminal_prompt: '1', gcm_interactive: 'Always'
+  });
+  assert.equal(env.Path, 'C:\\Program Files\\Git\\cmd');
+  assert.equal(env.HTTPS_PROXY, 'http://office-proxy.invalid:8080');
+  assert.equal(env.NODE_EXTRA_CA_CERTS, 'C:\\office-ca.pem');
+  assert.equal(env.SSH_AUTH_SOCK, '\\\\.\\pipe\\openssh-ssh-agent');
+  for (const key of Object.keys(env)) {
+    assert.doesNotMatch(key, /^(?:GIT_DIR|GIT_WORK_TREE|GIT_INDEX_FILE|GIT_OBJECT_DIRECTORY|GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)|GIT_SSH_COMMAND|GIT_ASKPASS|GIT_TRACE2_EVENT)$/i);
+  }
+  assert.equal(env.git_config_global, 'C:\\office-global.gitconfig');
+  assert.equal(env.GIT_CONFIG_SYSTEM, 'C:\\office-system.gitconfig');
+  assert.equal(env.GIT_NO_REPLACE_OBJECTS, '1');
+  assert.equal(env.GIT_ATTR_NOSYSTEM, '1');
+  assert.equal(env.GIT_TERMINAL_PROMPT, '0');
+  assert.equal(env.GCM_INTERACTIVE, 'Never');
+  assert.equal(Object.keys(env).filter((key) => key.toUpperCase() === 'GIT_TERMINAL_PROMPT').length, 1);
+  const windowsEnv = nonInteractiveGitEnvironment({ Path: 'C:\\trusted', PATH: '.;C:\\repo' }, 'win32');
+  assert.deepEqual(Object.keys(windowsEnv).filter((key) => key.toUpperCase() === 'PATH'), ['Path']);
+  assert.equal(windowsEnv.Path, 'C:\\trusted');
+});
+
+test('VS Code Windows Git resolution skips cwd, relative PATH entries, and batch shims', async () => {
+  const examined = [];
+  const files = new Set([
+    'C:\\repo\\git.exe', 'C:\\trusted\\git.exe', 'C:\\batch-only\\git.cmd'
+  ]);
+  const filesystem = {
+    async stat(candidate) {
+      examined.push(candidate);
+      if (!files.has(candidate)) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+      return { isFile: () => true, isSymbolicLink: () => false };
+    },
+    async canonicalize(candidate) { return candidate; }
+  };
+  const result = await resolveWindowsGitExecutable('C:\\repo', {
+    Path: '.;C:\\repo;C:\\batch-only;C:\\trusted'
+  }, filesystem);
+  assert.equal(result, 'C:\\trusted\\git.exe');
+  assert.deepEqual(examined, ['C:\\batch-only\\git.exe', 'C:\\trusted\\git.exe']);
+  assert.equal(await resolveWindowsGitExecutable('C:\\repo', {
+    PATH: '.;C:\\repo;C:\\batch-only'
+  }, filesystem), null);
+});
+
+test('VS Code Windows Git resolution rejects a linked executable or a link back into the checkout', async () => {
+  const filesystem = {
+    async stat(candidate) {
+      return { isFile: () => true, isSymbolicLink: () => candidate.includes('linked-file') };
+    },
+    async canonicalize(candidate) {
+      if (candidate === 'C:\\linked-dir\\git.exe') return '\\\\?\\C:\\repo\\git.exe';
+      return candidate;
+    }
+  };
+  assert.equal(await resolveWindowsGitExecutable('C:\\repo', {
+    PATH: 'C:\\linked-file;C:\\linked-dir'
+  }, filesystem), null);
+  assert.equal(await resolveWindowsGitExecutable('C:\\repo', {
+    PATH: '"C:\\trusted"'
+  }, filesystem), 'C:\\trusted\\git.exe');
 });
 
 test('rework roll-forward preview renders every path without truncation', () => {

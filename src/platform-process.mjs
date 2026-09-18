@@ -340,6 +340,33 @@ export function resolvePlatformProcess(command, args = [], {
   if (/^[a-z]:(?:$|[^\\/])/i.test(logicalCommand)) {
     throw new TypeError('Drive-relative Windows executable paths are not allowed.');
   }
+  // Git is the authority transport for governed repository operations. Unlike package-manager
+  // adapters, it must never resolve to a batch shim or a checkout-relative executable: those can
+  // execute arbitrary shell text before Git receives our structured argv and isolated environment.
+  const gitBasename = path.win32.basename(logicalCommand).toLowerCase();
+  const gitInvocation = /^(?:git|git\.(?:exe|cmd|bat|com))$/.test(gitBasename);
+  if (gitInvocation) {
+    if (!['git', 'git.exe'].includes(gitBasename)
+        || (logicalCommand !== path.win32.basename(logicalCommand)
+          && !isFullyQualifiedWindowsPath(logicalCommand))
+        || (isFullyQualifiedWindowsPath(logicalCommand) && gitBasename !== 'git.exe')) {
+      throw new TypeError('Windows Git must be a trusted absolute git.exe or a PATH-resolved git.exe.');
+    }
+    const physicalExecutable = isFullyQualifiedWindowsPath(logicalCommand)
+      ? logicalCommand
+      : resolveWindowsPathExecutable('git.exe', { environment, spawnSyncCommand });
+    if (!physicalExecutable) {
+      throw new TypeError('Windows could not resolve a native git.exe from PATH.');
+    }
+    return Object.freeze({
+      logicalCommand,
+      logicalArguments: Object.freeze(logicalArguments),
+      physicalExecutable,
+      executable: physicalExecutable,
+      arguments: Object.freeze([...logicalArguments]),
+      spawnOptions: Object.freeze({ shell: false })
+    });
+  }
   const explicitlyRelative = !isFullyQualifiedWindowsPath(logicalCommand)
     && logicalCommand !== path.win32.basename(logicalCommand);
   let physicalExecutable = explicitlyRelative

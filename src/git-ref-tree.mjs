@@ -6,6 +6,7 @@
  * essential because this reader supplies lifecycle projections, Goals, the approval Inbox, and the
  * append-only ledger.
  */
+import { createHash } from 'node:crypto';
 import { run, SingularityFlowError } from './util.mjs';
 
 const DEFAULT_BATCH_BYTES = 16 * 1024 * 1024;
@@ -22,6 +23,8 @@ function gitEnvironment(env) {
     // A local state read must not turn into an unclassified promisor fetch. Callers that choose to
     // materialize missing objects do so through the governed remote-Git boundary first.
     GIT_NO_LAZY_FETCH: '1',
+    GIT_NO_REPLACE_OBJECTS: '1',
+    GIT_LITERAL_PATHSPECS: '1',
     GIT_TERMINAL_PROMPT: '0',
     GCM_INTERACTIVE: 'Never'
   };
@@ -83,6 +86,15 @@ function parseBatch(buffer, entries) {
       }));
       break;
     }
+    const body = buffer.subarray(start, end);
+    const actualOid = createHash(entry.oid.length === 64 ? 'sha256' : 'sha1')
+      .update(`blob ${size}\0`).update(body).digest('hex');
+    if (actualOid !== entry.oid) {
+      errors.push(diagnostic('REF_TREE_OBJECT_HASH_MISMATCH', `Git returned bytes that do not match ${entry.file}.`, {
+        path: entry.file, object: entry.oid, actualObject: actualOid
+      }));
+      break;
+    }
     contents.set(entry.file, buffer.toString('utf8', start, end));
     cursor = end + 1;
   }
@@ -113,18 +125,31 @@ export function readRefTreeResult(root, ref, pathspecs = [], {
     cwd: root, allowFailure: true, env: localEnv
   });
   if (verified.status !== 0) {
-    const unavailable = verified.timedOut || verified.error;
+    // `--verify --quiet` reports an absent ref with status 1 and no diagnostic. A non-empty
+    // diagnostic is an execution/trust/repository failure, not proof that the ref is absent.
+    const unavailable = verified.timedOut || verified.error || String(verified.stderr ?? '').trim() !== ''
+      || verified.status !== 1;
     return result(unavailable ? 'unavailable' : 'missing', new Map(), [diagnostic(
       verified.timedOut ? 'REF_TREE_REF_TIMEOUT'
         : verified.error?.code === 'ENOBUFS' ? 'REF_TREE_REF_OVERFLOW'
-          : verified.error ? 'REF_TREE_GIT_UNAVAILABLE' : 'REF_TREE_REF_MISSING',
+          : verified.error ? 'REF_TREE_GIT_UNAVAILABLE'
+            : unavailable ? 'REF_TREE_REF_FAILED' : 'REF_TREE_REF_MISSING',
       unavailable ? `Git could not inspect ref '${ref}'.` : `Git ref '${ref}' does not exist.`, { ref }
+    )], 0, 0);
+  }
+
+  // A successful rev-parse must resolve to exactly one complete tree OID. Never pass unexpected
+  // stdout back into Git (or silently fall back to the movable ref) as a tree-ish.
+  const treeOid = String(verified.stdout ?? '').match(/^([0-9a-f]{40}|[0-9a-f]{64})\r?\n?$/)?.[1];
+  if (!treeOid) {
+    return result('unavailable', new Map(), [diagnostic(
+      'REF_TREE_REF_INVALID', `Git returned an invalid tree object ID for '${ref}'.`, { ref }
     )], 0, 0);
   }
 
   const listed = runCommand('git', [
     'ls-tree', '-r', '-z', '--format=%(objectname)%x09%(objectsize)%x09%(path)',
-    ref, '--', ...pathspecs
+    treeOid, '--', ...pathspecs
   ], { cwd: root, allowFailure: true, env: localEnv });
   if (listed.status !== 0) {
     return result('unavailable', new Map(), [diagnostic(
@@ -140,7 +165,8 @@ export function readRefTreeResult(root, ref, pathspecs = [], {
     const [oid, rawSize, ...pathParts] = row.split('\t');
     const file = pathParts.join('\t');
     const size = Number(rawSize);
-    if (!/^[0-9a-f]{40,64}$/i.test(oid ?? '') || !file || !Number.isSafeInteger(size) || size < 0) {
+    if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(oid ?? '') || oid.length !== treeOid.length
+        || !file || !Number.isSafeInteger(size) || size < 0) {
       errors.push(diagnostic('REF_TREE_LIST_INVALID', `Git returned an invalid tree entry at '${ref}'.`, { ref }));
       continue;
     }

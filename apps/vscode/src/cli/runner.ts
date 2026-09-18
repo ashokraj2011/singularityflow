@@ -79,7 +79,7 @@ function displayBoundedRedactionInput(source: string): string {
 export const DISPLAY_BOOLEAN_OPTIONS = new Set([
   'archive-readiness', 'allow-empty-output', 'allow-unavailable-verification', 'authority-local',
   'accept-bundled-conflicts', 'accept-partial', 'acknowledge-self-approval', 'acknowledge-unprotected', 'active', 'adopt-current-interval', 'adopt-existing', 'all', 'allow-dirty', 'allow-model', 'apply', 'assigned-to-me', 'ast',
-  'assisted', 'auto', 'automatic', 'blocking', 'bootstrap', 'check', 'churn', 'cli-only', 'clipboard', 'clone', 'concat',
+  'assisted', 'auto', 'automatic', 'blocking', 'bootstrap', 'check', 'churn', 'clear-loops', 'cli-only', 'clipboard', 'clone', 'concat',
   'confirm-pin-retention', 'confirm-protected', 'confirm-push-policy', 'create', 'derived', 'dry-run', 'evidence',
   'diagnose-only', 'disclose-provider-results', 'drop-local', 'experimental', 'fetch', 'first-run', 'force', 'forget-only', 'for-start', 'from-records', 'gate-recovery', 'here', 'include-prompt', 'include-proposals', 'initialize', 'intake', 'json',
   'include-existing', 'independent', 'isolated-worktree',
@@ -403,9 +403,122 @@ function cliArgsAreReplaySafe(argv: readonly string[]): boolean {
     && projected.every((value, index) => value === String(argv[index]));
 }
 
-/** Remote Git launched by the extension must never wait for an invisible credential prompt. */
-function nonInteractiveGitEnvironment(): NodeJS.ProcessEnv {
-  return { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'Never' };
+// The extension cannot import engine modules: its CLI is separately packaged, and these early
+// repository probes run before the CLI has selected an authority. Keep the process-environment
+// restriction a conservative subset of the engine's Git boundary until a published GAL adapter
+// replaces this compatibility path. Ordinary proxy/CA settings, PATH, and SSH_AUTH_SOCK survive.
+const GIT_EXECUTION_OVERRIDES = new Set([
+  'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY',
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR', 'GIT_NAMESPACE',
+  'GIT_CEILING_DIRECTORIES', 'GIT_DISCOVERY_ACROSS_FILESYSTEM', 'GIT_SHALLOW_FILE',
+  'GIT_REPLACE_REF_BASE', 'GIT_EXEC_PATH', 'GIT_TEMPLATE_DIR', 'GIT_SSL_NO_VERIFY',
+  'GIT_SSH', 'GIT_SSH_COMMAND', 'GIT_SSH_VARIANT', 'GIT_ASKPASS', 'GIT_ASKPASS_REQUIRE',
+  'SSH_ASKPASS', 'SSH_ASKPASS_REQUIRE', 'GIT_PROXY_COMMAND', 'GIT_EDITOR',
+  'GIT_SEQUENCE_EDITOR', 'GIT_PAGER', 'GIT_EXTERNAL_DIFF', 'GIT_CONFIG_NOSYSTEM',
+  'GIT_ATTR_NOSYSTEM', 'GIT_OPTIONAL_LOCKS',
+  'GIT_CURL_VERBOSE', 'GIT_REDIRECT_STDERR', 'GIT_NO_REPLACE_OBJECTS',
+  'GIT_TERMINAL_PROMPT', 'GCM_INTERACTIVE'
+]);
+
+/** Remote Git must not wait for an invisible prompt or inherit repository/executable authority. */
+export function nonInteractiveGitEnvironment(
+  source: NodeJS.ProcessEnv = process.env, platform = process.platform
+): NodeJS.ProcessEnv {
+  const env = { ...source };
+  const seenWindowsKeys = new Set<string>();
+  for (const key of Object.keys(env)) {
+    const normalized = key.toUpperCase();
+    // The host's system/global config selectors can carry the office proxy, CA and credential
+    // helper. Until this early probe uses the engine's reviewed config snapshot, dropping them
+    // would recreate the false sign-in failure that the CLI preflight now prevents.
+    const trustedConfigScope = normalized === 'GIT_CONFIG_SYSTEM'
+      || normalized === 'GIT_CONFIG_GLOBAL';
+    if (GIT_EXECUTION_OVERRIDES.has(normalized) || normalized === 'GIT_CONFIG'
+      || (normalized.startsWith('GIT_CONFIG_') && !trustedConfigScope)
+      || /^GIT_TRACE(?:2(?:_.*)?|_.*)?$/.test(normalized)
+      || (platform === 'win32' && seenWindowsKeys.has(normalized))) {
+      delete env[key];
+      continue;
+    }
+    if (platform === 'win32') seenWindowsKeys.add(normalized);
+  }
+  return {
+    ...env, GIT_NO_REPLACE_OBJECTS: '1', GIT_ATTR_NOSYSTEM: '1',
+    GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'Never'
+  };
+}
+
+function environmentValue(environment: NodeJS.ProcessEnv, name: string): string | undefined {
+  const key = Object.keys(environment).find((entry) => entry.toUpperCase() === name);
+  return key === undefined ? undefined : environment[key];
+}
+
+function fullyQualifiedWindowsPath(value: string): boolean {
+  return /^[a-z]:[\\/]/i.test(value)
+    || /^\\\\[^\\/]+[\\/][^\\/]+[\\/]/.test(value);
+}
+
+function normalizedWindowsFilePath(value: string): string {
+  const normalized = path.win32.normalize(value);
+  if (normalized.startsWith('\\\\?\\UNC\\')) return `\\\\${normalized.slice(8)}`;
+  if (normalized.startsWith('\\\\?\\') && /^[a-z]:\\/i.test(normalized.slice(4))) {
+    return normalized.slice(4);
+  }
+  return normalized;
+}
+
+function insideWindowsDirectory(directory: string, candidate: string): boolean {
+  const relative = path.win32.relative(directory, candidate);
+  return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.win32.sep}`)
+    && !path.win32.isAbsolute(relative));
+}
+
+/**
+ * Resolve only a native Git executable from absolute PATH directories, never from the repository
+ * cwd or a .cmd/.bat shim. The injected filesystem operations make Windows selection testable on
+ * other CI hosts. A missing/unsafe result is an unavailable Git installation, not a fallback to
+ * Node's cwd-sensitive Windows executable search.
+ */
+export async function resolveWindowsGitExecutable(
+  cwd: string,
+  environment: NodeJS.ProcessEnv = process.env,
+  filesystem: { stat: typeof lstat; canonicalize: typeof realpath } = {
+    stat: lstat, canonicalize: realpath
+  }
+): Promise<string | null> {
+  const pathValue = environmentValue(environment, 'PATH');
+  if (!pathValue) return null;
+  let canonicalCwd: string;
+  try { canonicalCwd = normalizedWindowsFilePath(await filesystem.canonicalize(cwd)); }
+  catch { return null; }
+  if (!fullyQualifiedWindowsPath(canonicalCwd)) return null;
+  for (const rawDirectory of pathValue.split(';')) {
+    const trimmed = rawDirectory.trim();
+    const directory = trimmed.startsWith('"') && trimmed.endsWith('"')
+      ? trimmed.slice(1, -1) : trimmed;
+    if (!fullyQualifiedWindowsPath(directory)) continue;
+    const candidate = path.win32.join(directory, 'git.exe');
+    if (insideWindowsDirectory(canonicalCwd, candidate)) continue;
+    try {
+      const info = await filesystem.stat(candidate);
+      if (!info.isFile() || info.isSymbolicLink()) continue;
+      const canonical = normalizedWindowsFilePath(await filesystem.canonicalize(candidate));
+      if (!fullyQualifiedWindowsPath(canonical)
+        || path.win32.basename(canonical).toLowerCase() !== 'git.exe'
+        || insideWindowsDirectory(canonicalCwd, canonical)) continue;
+      return canonical;
+    } catch { /* A missing PATH entry is not an executable selection. */ }
+  }
+  return null;
+}
+
+function selectedGitExecutable(
+  cwd: string, environment: NodeJS.ProcessEnv, injectedSpawn?: typeof spawn
+): string | Promise<string | null> {
+  // The injected spawn is a test seam; preserving its immediate invocation keeps cancellation
+  // tests able to inspect the child they supplied. Production Windows launches always resolve.
+  return process.platform === 'win32' && !injectedSpawn
+    ? resolveWindowsGitExecutable(cwd, environment) : 'git';
 }
 
 /**
@@ -563,49 +676,58 @@ export const remoteGit: RemoteGitRunner = async (args, options) => new Promise((
   };
   const cancel = () => stop('cancelled');
   const timer = setTimeout(() => stop('timeout'), options.timeout);
-  try {
-    child = (options.spawnImpl ?? spawn)('git', args, {
-      cwd: options.cwd,
-      windowsHide: true,
-      detached: process.platform !== 'win32',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: nonInteractiveGitEnvironment()
-    });
-  } catch {
-    clearTimeout(timer);
-    return resolve({ status: null, stdout: '', failure: 'git-unavailable' });
-  }
   if (options.signal?.aborted) return cancel();
   options.signal?.addEventListener('abort', cancel, { once: true });
-  child.stdout?.on('data', (chunk: Buffer) => {
-    if (stoppingFailure) return;
-    outputBytes += chunk.length;
-    if (outputBytes > outputLimit) return stop('output-overflow');
-    stdout += chunk.toString('utf8');
-  });
-  child.stderr?.on('data', (chunk: Buffer) => {
-    if (stoppingFailure) return;
-    outputBytes += chunk.length;
-    if (outputBytes > outputLimit) stop('output-overflow');
-    else stderr += chunk.toString('utf8');
-  });
-  child.once('error', () => {
-    if (!stoppingFailure) finish({ status: null, stdout: '', failure: 'git-unavailable' });
-  });
-  child.once('close', (code) => {
-    if (stoppingFailure) return;
-    let failure: RemoteGitFailure | null = null;
-    if (code !== 0) {
-      failure = /authentication failed|could not read username|terminal prompts disabled|credential/i.test(stderr)
-        ? 'authentication-required'
-        : /could not resolve host|connection (?:timed out|refused)|network is unreachable|unable to access/i.test(stderr)
-          ? 'network-unavailable'
-          : /couldn't find remote ref|remote ref does not exist/i.test(stderr)
-            ? 'ref-absent'
-            : 'fetch-failed';
+  const env = nonInteractiveGitEnvironment();
+  const launch = (executable: string | null) => {
+    try {
+      if (settled || stoppingFailure) return;
+      if (!executable) return finish({ status: null, stdout: '', failure: 'git-unavailable' });
+      const launched = (options.spawnImpl ?? spawn)(executable, args, {
+        cwd: options.cwd,
+        windowsHide: true,
+        shell: false,
+        detached: process.platform !== 'win32',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env
+      });
+      child = launched;
+      launched.stdout?.on('data', (chunk: Buffer) => {
+        if (stoppingFailure) return;
+        outputBytes += chunk.length;
+        if (outputBytes > outputLimit) return stop('output-overflow');
+        stdout += chunk.toString('utf8');
+      });
+      launched.stderr?.on('data', (chunk: Buffer) => {
+        if (stoppingFailure) return;
+        outputBytes += chunk.length;
+        if (outputBytes > outputLimit) stop('output-overflow');
+        else stderr += chunk.toString('utf8');
+      });
+      launched.once('error', () => {
+        if (!stoppingFailure) finish({ status: null, stdout: '', failure: 'git-unavailable' });
+      });
+      launched.once('close', (code) => {
+        if (stoppingFailure) return;
+        let failure: RemoteGitFailure | null = null;
+        if (code !== 0) {
+          failure = /authentication failed|could not read username|terminal prompts disabled|credential/i.test(stderr)
+            ? 'authentication-required'
+            : /could not resolve host|connection (?:timed out|refused)|network is unreachable|unable to access/i.test(stderr)
+              ? 'network-unavailable'
+              : /couldn't find remote ref|remote ref does not exist/i.test(stderr)
+                ? 'ref-absent'
+                : 'fetch-failed';
+        }
+        finish({ status: code, stdout: code === 0 ? stdout : '', failure });
+      });
+    } catch {
+      if (!settled && !stoppingFailure) finish({ status: null, stdout: '', failure: 'git-unavailable' });
     }
-    finish({ status: code, stdout: code === 0 ? stdout : '', failure });
-  });
+  };
+  const selected = selectedGitExecutable(options.cwd, env, options.spawnImpl);
+  if (typeof selected === 'string') launch(selected);
+  else void selected.then(launch, () => launch(null));
 });
 
 export type LocalGitFailure = 'timeout' | 'cancelled' | 'git-unavailable' | 'output-overflow';
@@ -654,42 +776,56 @@ export const localGit: LocalGitRunner = async (args, options) => new Promise((re
   };
   const cancel = () => stop('cancelled');
   if (options.signal?.aborted) return cancel();
-  try {
-    child = (options.spawnImpl ?? spawn)('git', args, {
-      cwd: options.cwd,
-      windowsHide: true,
-      detached: process.platform !== 'win32',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: nonInteractiveGitEnvironment()
-    });
-  } catch {
-    return finish({ status: null, stdout: Buffer.alloc(0), stderr: '', failure: 'git-unavailable' });
-  }
   timer = setTimeout(() => stop('timeout'), options.timeout);
   options.signal?.addEventListener('abort', cancel, { once: true });
-  const collect = (target: Buffer[], chunk: Buffer) => {
-    if (stoppingFailure) return;
-    outputBytes += chunk.length;
-    if (outputBytes > outputLimit) return stop('output-overflow');
-    target.push(chunk);
+  const env = nonInteractiveGitEnvironment();
+  const launch = (executable: string | null) => {
+    try {
+      if (settled || stoppingFailure) return;
+      if (!executable) return finish({
+        status: null, stdout: Buffer.alloc(0), stderr: '', failure: 'git-unavailable'
+      });
+      const launched = (options.spawnImpl ?? spawn)(executable, args, {
+        cwd: options.cwd,
+        windowsHide: true,
+        shell: false,
+        detached: process.platform !== 'win32',
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env
+      });
+      child = launched;
+      const collect = (target: Buffer[], chunk: Buffer) => {
+        if (stoppingFailure) return;
+        outputBytes += chunk.length;
+        if (outputBytes > outputLimit) return stop('output-overflow');
+        target.push(chunk);
+      };
+      launched.stdout?.on('data', (chunk: Buffer) => collect(stdoutChunks, chunk));
+      launched.stderr?.on('data', (chunk: Buffer) => collect(stderrChunks, chunk));
+      launched.once('error', () => {
+        if (!stoppingFailure) finish({
+          status: null, stdout: Buffer.alloc(0), stderr: '', failure: 'git-unavailable'
+        });
+      });
+      launched.once('close', (code) => {
+        if (!stoppingFailure) finish({
+          status: code,
+          stdout: code === 0 ? Buffer.concat(stdoutChunks) : Buffer.alloc(0),
+          stderr: Buffer.concat(stderrChunks).toString('utf8'),
+          failure: null
+        });
+      });
+      if (options.input == null) launched.stdin?.end();
+      else launched.stdin?.end(options.input);
+    } catch {
+      if (!settled && !stoppingFailure) finish({
+        status: null, stdout: Buffer.alloc(0), stderr: '', failure: 'git-unavailable'
+      });
+    }
   };
-  child.stdout?.on('data', (chunk: Buffer) => collect(stdoutChunks, chunk));
-  child.stderr?.on('data', (chunk: Buffer) => collect(stderrChunks, chunk));
-  child.once('error', () => {
-    if (!stoppingFailure) finish({
-      status: null, stdout: Buffer.alloc(0), stderr: '', failure: 'git-unavailable'
-    });
-  });
-  child.once('close', (code) => {
-    if (!stoppingFailure) finish({
-      status: code,
-      stdout: code === 0 ? Buffer.concat(stdoutChunks) : Buffer.alloc(0),
-      stderr: Buffer.concat(stderrChunks).toString('utf8'),
-      failure: null
-    });
-  });
-  if (options.input == null) child.stdin?.end();
-  else child.stdin?.end(options.input);
+  const selected = selectedGitExecutable(options.cwd, env, options.spawnImpl);
+  if (typeof selected === 'string') launch(selected);
+  else void selected.then(launch, () => launch(null));
 });
 
 /*

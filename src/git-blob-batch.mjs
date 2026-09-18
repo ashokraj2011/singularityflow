@@ -1,6 +1,8 @@
+import { createHash } from 'node:crypto';
+
 import { SingularityFlowError, run } from './util.mjs';
 
-const OBJECT_ID = /^[a-f0-9]{40,64}$/;
+const OBJECT_ID = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 const DEFAULT_BATCH_BYTES = 24 * 1024 * 1024;
 
 function refusal(message, code, details) {
@@ -12,11 +14,12 @@ function refusal(message, code, details) {
  *
  * The check pass supplies authoritative byte sizes before materialization, allowing callers to
  * enforce their aggregate ceiling and allowing this helper to split output below Node's buffer
- * ceiling. GIT_NO_LAZY_FETCH is deliberate: a local admission/read must never become a hidden
- * network operation merely because the repository is partial.
+ * ceiling. Raw reads disable object replacement and lazy fetch: an exact local object admission
+ * must neither substitute another object's bytes nor become a hidden network operation.
  */
 export function readLocalGitBlobs(root, objectIds, {
   env = process.env,
+  runCommand = run,
   maximumBytes = Number.POSITIVE_INFINITY,
   maximumObjectBytes = maximumBytes,
   maximumBatchBytes = DEFAULT_BATCH_BYTES,
@@ -26,12 +29,27 @@ export function readLocalGitBlobs(root, objectIds, {
 } = {}) {
   const unique = [...new Set(objectIds)];
   if (!unique.length) return new Map();
-  if (unique.some((oid) => !OBJECT_ID.test(String(oid)))) {
+  if (unique.some((oid) => typeof oid !== 'string' || !OBJECT_ID.test(oid))) {
     refusal(`${label} contains an invalid object identity.`, code);
   }
-  const localEnv = { ...env, GIT_NO_LAZY_FETCH: '1' };
+  const localEnv = { ...env, GIT_NO_LAZY_FETCH: '1', GIT_NO_REPLACE_OBJECTS: '1' };
+  const formatResult = runCommand('git', ['rev-parse', '--show-object-format'], {
+    cwd: root,
+    env: localEnv,
+    allowFailure: true,
+    timeoutClass: 'local-read',
+    maxBuffer: 1024
+  });
+  const objectFormat = String(formatResult.stdout ?? '').trim();
+  if (formatResult.status !== 0 || !['sha1', 'sha256'].includes(objectFormat)) {
+    refusal(`${label} could not establish the repository object format.`, code);
+  }
+  const objectIdLength = objectFormat === 'sha1' ? 40 : 64;
+  if (unique.some((oid) => oid.length !== objectIdLength)) {
+    refusal(`${label} contains an object identity for a different repository format.`, code);
+  }
   const input = `${unique.join('\n')}\n`;
-  const checked = run('git', [
+  const checked = runCommand('git', [
     'cat-file', '--batch-check=%(objectname) %(objecttype) %(objectsize)'
   ], {
     cwd: root,
@@ -86,7 +104,7 @@ export function readLocalGitBlobs(root, objectIds, {
   const output = new Map();
   for (const entries of groups) {
     const expectedBytes = entries.reduce((sum, entry) => sum + entry.size, 0);
-    const batch = run('git', ['cat-file', '--batch'], {
+    const batch = runCommand('git', ['cat-file', '--batch'], {
       cwd: root,
       env: localEnv,
       input: `${entries.map((entry) => entry.oid).join('\n')}\n`,
@@ -109,7 +127,17 @@ export function readLocalGitBlobs(root, objectIds, {
           || end >= bytes.length || bytes[end] !== 0x0a) {
         refusal(`${label} returned a malformed or truncated object stream.`, code);
       }
-      output.set(entry.oid, Buffer.from(bytes.subarray(start, end)));
+      const body = bytes.subarray(start, end);
+      const observedOid = createHash(objectFormat)
+        .update(`blob ${size}\0`, 'utf8')
+        .update(body)
+        .digest('hex');
+      if (observedOid !== entry.oid) {
+        refusal(`${label} returned blob bytes that do not match the requested object identity.`, code, {
+          object: entry.oid
+        });
+      }
+      output.set(entry.oid, Buffer.from(body));
       cursor = end + 1;
     }
     if (cursor !== bytes.length) refusal(`${label} returned unexpected trailing bytes.`, code);

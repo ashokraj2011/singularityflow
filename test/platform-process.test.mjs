@@ -41,6 +41,37 @@ test('platform process resolution preserves logical argv on ordinary direct laun
   assert.deepEqual(args, ['--test', 'value with spaces'], 'the caller-owned argv must not be rewritten');
 });
 
+test('Windows Git resolves only a native git.exe from PATH, never a batch shim', () => {
+  const seen = [];
+  const lookup = (command, args, options) => {
+    seen.push(args[0]);
+    assert.equal(command, 'C:\\Windows\\System32\\where.exe');
+    assert.equal(options.shell, false);
+    return {
+      status: 0,
+      stdout: 'C:\\checkout\\git.cmd\r\nC:\\Program Files\\Git\\cmd\\git.exe\r\n'
+    };
+  };
+  const launch = resolvePlatformProcess('git', ['ls-remote', 'origin'], {
+    platform: 'win32', environment: windowsEnvironment, spawnSyncCommand: lookup
+  });
+  assert.deepEqual(seen, ['$PATH:git.exe']);
+  assert.equal(launch.executable, 'C:\\Program Files\\Git\\cmd\\git.exe');
+  assert.deepEqual(launch.arguments, ['ls-remote', 'origin']);
+  assert.deepEqual(launch.spawnOptions, { shell: false });
+  for (const command of ['git.cmd', 'C:\\Tools\\git.bat', '.\\git.exe', 'C:\\Tools\\git.com']) {
+    assert.throws(() => resolvePlatformProcess(command, [], {
+      platform: 'win32', environment: windowsEnvironment, cwd: 'C:\\checkout',
+      spawnSyncCommand: () => { throw new Error('must not search PATH'); }
+    }), /native git\.exe|trusted absolute git\.exe/);
+  }
+  const explicit = resolvePlatformProcess('C:\\Tools\\git.exe', ['status'], {
+    platform: 'win32', environment: windowsEnvironment,
+    spawnSyncCommand: () => { throw new Error('must not search PATH'); }
+  });
+  assert.equal(explicit.executable, 'C:\\Tools\\git.exe');
+});
+
 test('Windows npm and npx use narrow cmd-shim launches without changing logical identity', () => {
   const environment = windowsEnvironment;
   for (const command of ['npm', 'npx']) {

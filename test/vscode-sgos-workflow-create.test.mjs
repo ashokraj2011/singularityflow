@@ -8,7 +8,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const {
   sgosRatificationPreviewArguments, sgosTerminalCommand, sgosWorkflowCreateArguments,
   sgosWorkflowCreateReview, sgosWorkflowOutputPaths, sgosWorkspaceBindingIssue,
-  validSgosDraftPath
+  sgosEligibleVerifiers, sgosWorkflowSelectionIssue, validSgosDraftPath, validSgosInputPath
 } = await import(path.join(root, 'apps', 'vscode', 'src', 'sgos-workflow-create-model.ts'));
 
 const sha = `sha256:${'a'.repeat(64)}`;
@@ -54,6 +54,31 @@ test('native SGOS creator refuses malformed IDs and storage authority before CLI
   assert.equal(validSgosDraftPath('singularity/sgos-drafts/example/workflow-ir.json'), true);
   assert.equal(validSgosDraftPath('singularity/sgos-drafts/nested/.git/workflow-ir.json'), false);
   assert.equal(validSgosDraftPath('singularity/templates/workflow-ir.json'), false);
+  assert.equal(validSgosInputPath('reviewed/intent-ir.json'), true);
+  assert.equal(validSgosInputPath('../intent-ir.json'), false);
+  assert.throws(() => sgosWorkflowCreateArguments({ ...selection(), intentPath: '../intent-ir.json' }),
+    /repository-relative JSON paths/);
+});
+
+test('SGOS creator offers only explicitly paired eligible verifiers and fails closed on empty allowlists', () => {
+  const guide = {
+    eligibleOperations: [{ id: 'sflow.story.inspect', verificationOperationIds: ['sflow.story.inspect.verify'] }],
+    eligibleVerificationOperations: [
+      { id: 'sflow.story.inspect.verify' }, { id: 'unrelated.verify' }
+    ],
+    installedLimits: { maximumAttemptsPerTask: 2 }
+  };
+  assert.deepEqual(sgosEligibleVerifiers(guide, 'sflow.story.inspect').map((entry) => entry.id),
+    ['sflow.story.inspect.verify']);
+  assert.equal(sgosWorkflowSelectionIssue(selection(), guide), null);
+  assert.match(sgosWorkflowSelectionIssue({ ...selection(), verificationOperation: 'unrelated.verify' }, guide),
+    /explicitly paired/);
+  assert.deepEqual(sgosEligibleVerifiers({
+    ...guide, eligibleOperations: [{ id: 'sflow.story.inspect', verificationOperationIds: [] }]
+  }, 'sflow.story.inspect'), []);
+  assert.match(sgosWorkflowSelectionIssue(selection(), {
+    ...guide, eligibleOperations: [{ id: 'sflow.story.inspect', verificationOperationIds: [] }]
+  }), /explicitly paired/);
 });
 
 test('native SGOS review explicitly stops before ratification or execution', () => {

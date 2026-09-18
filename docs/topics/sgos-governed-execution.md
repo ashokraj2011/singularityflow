@@ -26,7 +26,7 @@ related:
   - governed-execution
   - workflow-authoring
   - evidence-and-ledger
-version: 25
+version: 26
 ---
 SGOS compiles confirmed intent and a ratified workflow into a finite, content-addressed Governed VM
 Program. Its operational Process state never replaces Story, Initiative, configuration, ledger, or
@@ -90,8 +90,11 @@ SFlow never invents Candidate verification for them.
   confirmation immediately before the same `intent workflow-create` command; it does not infer an
   operation or run the returned ratification command. Ask `@sflow /how` for the reviewed SGOS topic;
   help does not execute it for you.
-- **VS Code:** run **Singularity Flow: Create SGOS Workflow...** for the native version of the same
-  guided creator. Use **Singularity Flow: Open Command Center** later for the projection-only Process
+- **VS Code:** run **Singularity Flow: Create execution workflow (advanced)...** for a single
+  review form: select the repository-local Intent, policy, and registry JSON; inspect eligible
+  operations and paired verifiers; set the bounded output; then explicitly create two unratified
+  draft files. The form rechecks workspace binding and guide freshness before writing and never
+  invokes a model, ratifies, commits, or runs the result. Use **Singularity Flow: Open Command Center** later for the projection-only Process
   board, graph, evidence links, unavailable-Process diagnostics, and Human Request forms. Run
   **Singularity Flow: Review Meta-tool Authority...** to preview and explicitly confirm signed-Pack
   activation, observation, revocation, or rollback through the same CLI/API authority path.

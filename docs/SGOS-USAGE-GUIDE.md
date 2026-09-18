@@ -183,9 +183,12 @@ dedicated `singularity/sgos-drafts/` runtime root; the creator refuses nested `.
 configuration, and every other output root, and never
 overwrites an existing different file.
 
-The Copilot command `/sf-sgos-create` and VS Code command **Singularity Flow: Create SGOS
-Workflow...** guide the same explicit selections and show a final confirmation before invoking that
-creator. Neither surface grants authority or runs the returned next command.
+The Copilot command `/sf-sgos-create` and VS Code command **Singularity Flow: Create execution
+workflow (advanced)...** use the same deterministic guide. The VS Code form lets you browse the
+three repository-local JSON inputs, inspect Intent clauses, choose an eligible operation and only
+its explicitly paired independent verifiers, then review the two draft paths and exact command in
+one place. It rechecks the selected workspace and guide before a final confirmation. Neither
+surface grants authority or runs the returned ratification command.
 
 For a multi-task graph, non-core operation, signed Capability Pack, or other advanced shape, prepare
 the strict repository files `policy.json`, `workflow-declaration.json`, and `registry.json` yourself.

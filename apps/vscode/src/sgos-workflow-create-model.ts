@@ -22,9 +22,83 @@ export type SgosWorkflowCreateSelection = {
   readonly workflowOut: string;
 };
 
+export type SgosGuideOperation = {
+  readonly id: string;
+  readonly version?: string | number;
+  readonly opcode?: string | null;
+  readonly manifestSha256?: string;
+  readonly guidedEligible?: boolean;
+  readonly guidedRole?: 'operation' | 'verifier' | null;
+  readonly verificationOperationIds?: readonly string[];
+};
+
+export type SgosWorkflowGuide = {
+  readonly intent?: { readonly intentId?: string; readonly objective?: string; readonly clauseCount?: number };
+  readonly eligibleOperations?: readonly SgosGuideOperation[];
+  readonly eligibleVerificationOperations?: readonly SgosGuideOperation[];
+  readonly blockers?: readonly { readonly code?: string; readonly message?: string }[];
+  readonly unresolvedRequiredClauses?: readonly { readonly clauseId?: string; readonly field?: string }[];
+  readonly installedLimits?: { readonly maximumAttemptsPerTask?: number };
+  readonly defaults?: { readonly maximumAttempts?: number; readonly outputRef?: string };
+  readonly guideSha256?: string;
+};
+
 export const SGOS_SHA256 = /^sha256:[a-f0-9]{64}$/;
 export const SGOS_LOWER_KEBAB = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 export const SGOS_DRAFT_ROOT = 'singularity/sgos-drafts';
+
+/** Only verifiers expressly paired with this eligible operation may appear in the creator. */
+export function sgosEligibleVerifiers(
+  guide: SgosWorkflowGuide, operationId: string
+): readonly SgosGuideOperation[] {
+  const operation = (guide.eligibleOperations ?? []).find((entry) => entry.id === operationId);
+  if (!operation || operation.guidedEligible === false || operation.guidedRole === 'verifier') return [];
+  const allowed = new Set(operation.verificationOperationIds ?? []);
+  return (guide.eligibleVerificationOperations ?? []).filter((entry) =>
+    allowed.has(entry.id) && entry.id !== operationId && entry.guidedEligible !== false
+    && entry.guidedRole !== 'operation');
+}
+
+export function validSgosInputPath(value: string): boolean {
+  if (!value || value !== value.trim() || value.includes('\\') || value.includes('\0')
+      || value.startsWith('/') || /^[A-Za-z]:\//.test(value) || !value.endsWith('.json')) return false;
+  return value.split('/').every((segment) => segment && segment !== '.' && segment !== '..'
+    && segment.toLowerCase() !== '.git');
+}
+
+/** Presentation preflight only. The CLI remains the final authority and rechecks every input. */
+export function sgosWorkflowSelectionIssue(
+  selection: SgosWorkflowCreateSelection, guide: SgosWorkflowGuide | null
+): string | null {
+  if (!validSgosInputPath(selection.intentPath) || !validSgosInputPath(selection.policyPath)
+      || !validSgosInputPath(selection.registryPath)) {
+    return 'Choose three repository-relative JSON inputs inside the selected repository.';
+  }
+  if (!guide) return 'Load the deterministic Intent and registry guide before creating a Workflow.';
+  if (guide.blockers?.length || guide.unresolvedRequiredClauses?.length) {
+    return 'The confirmed Intent has unresolved clauses or guide blockers.';
+  }
+  if (!(guide.eligibleOperations ?? []).some((entry) => entry.id === selection.operation
+      && entry.guidedEligible !== false && entry.guidedRole !== 'verifier')) {
+    return 'Choose an operation eligible for this Intent and registry.';
+  }
+  if (!sgosEligibleVerifiers(guide, selection.operation).some((entry) =>
+    entry.id === selection.verificationOperation)) {
+    return 'Choose an independent verifier explicitly paired with the selected operation.';
+  }
+  if (!selection.outputRef.trim()) return 'Name the governed output resource.';
+  const maximum = guide.installedLimits?.maximumAttemptsPerTask;
+  if (maximum != null && selection.maximumAttempts > maximum) {
+    return `This build permits at most ${maximum} attempts per task.`;
+  }
+  const outputRoot = SGOS_LOWER_KEBAB.test(selection.id) ? `${SGOS_DRAFT_ROOT}/${selection.id}/` : null;
+  if (outputRoot && (!selection.declarationOut.startsWith(outputRoot)
+      || !selection.workflowOut.startsWith(outputRoot))) {
+    return `Both Workflow outputs must be new JSON paths under ${SGOS_DRAFT_ROOT}/${selection.id}/.`;
+  }
+  try { sgosWorkflowCreateArguments(selection); } catch (error) { return (error as Error).message; }
+  return null;
+}
 
 export type SgosWorkspaceBinding = {
   readonly active?: boolean;
@@ -94,6 +168,12 @@ export function sgosCommand(args: readonly string[]): string {
 export function sgosWorkflowCreateArguments(
   selection: SgosWorkflowCreateSelection
 ): string[] {
+  if (!validSgosInputPath(selection.intentPath) || !validSgosInputPath(selection.policyPath)
+      || !validSgosInputPath(selection.registryPath)) {
+    throw Object.assign(new Error('Intent, policy, and registry must be repository-relative JSON paths.'), {
+      code: 'SGOS_WORKFLOW_INPUT_INVALID'
+    });
+  }
   if (!SGOS_LOWER_KEBAB.test(selection.id)) {
     throw Object.assign(new Error('Workflow ID must use lower-case kebab case.'), {
       code: 'SGOS_WORKFLOW_ID_INVALID'

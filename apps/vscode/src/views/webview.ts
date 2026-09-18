@@ -822,6 +822,20 @@ export const STYLE = `
   .help-table-wrap { overflow-x: auto; }
   .help-link { color: var(--sf-link); cursor: pointer; text-decoration: underline; text-decoration-style: dotted; }
 
+  /* SGOS creator is a focused, storyless review form rather than a sequence of modal prompts. */
+  .sgos-workflow-create { max-width: 74rem; margin: 0 auto; padding-bottom: 2rem; }
+  .sgos-workflow-create > header { padding-bottom: .85rem; border-bottom: 2px solid var(--sf-accent); }
+  .sgos-workflow-create > header h1 { margin: .2rem 0 .55rem; }
+  .sgos-workflow-create > header code { overflow-wrap: anywhere; }
+  .sgos-workflow-create .editor-card h2 { margin: .1rem 0 .5rem; font-size: 1.12rem; }
+  .sgos-workflow-create .inline-form { margin: 0; align-items: center; }
+  .sgos-workflow-create .inline-form input { flex: 1 1 16rem; width: auto; min-width: 0; }
+  .sgos-workflow-create .inline-form button { flex: 0 0 auto; white-space: nowrap; }
+  .sgos-workflow-create .form-actions { display: flex; justify-content: flex-end; }
+  .sgos-workflow-create details { overflow-x: auto; }
+  .sgos-workflow-create details table { width: 100%; min-width: 32rem; }
+  .sgos-workflow-create code { overflow-wrap: anywhere; }
+
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
   }

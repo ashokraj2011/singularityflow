@@ -55,6 +55,15 @@ The Testing reviewer records a clause-specific finding and chooses its target:
   request, invalidates dependent approvals, and opens a new Code generation. Re-run the structured
   Code tests and Playwright review on the new code; old receipts remain in history but are stale
   for the new generation.
+- **Source or test edit discovered while Testing is still in progress:** keep the edited bytes in
+  the worktree; do not publish them as Testing output. Preview
+  `singularity-flow reject testing --to implementation --repair --reason "<reason>"` (Copilot:
+  `/sf-reject`). Review the exact changed paths and digest, then add the returned `--confirm` value
+  to authorize the return. The edit becomes a candidate for a *new Code generation*, which must
+  rerun structured tests and receive Code approval before new Playwright observations are valid.
+  A test-only repair may reuse the prior approved product source only when its bytes are unchanged;
+  no fake product-code edit is needed. Protected workflow or configuration changes still use
+  their separate configuration authority.
 - **Wrong or incomplete approved requirement:** prepare the proposed complete Specification in a
   separate Markdown file, then run
   `singularity-flow story intent-amendment propose --file <AMENDED-SPEC.md> --reason <TEXT> --source-phase <CURRENT-PHASE> --clause <CHANGED-CLAUSE-ID>`

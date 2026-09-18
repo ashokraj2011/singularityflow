@@ -3332,6 +3332,7 @@ singularity-flow artifact scan [--phase PHASE]
 singularity-flow submit [PHASE] [--work-id WORK-ID] [--phase PHASE]
 singularity-flow approve [PHASE] [--work-id WORK-ID] [--fetch]
 singularity-flow reject [PHASE] [--work-id WORK-ID] [--fetch] --reason TEXT [--to PHASE]
+singularity-flow reject testing --to implementation --repair --reason TEXT [--confirm SHA256]
 singularity-flow reopen [WORK-ID] [--fetch] --reason TEXT --to PHASE
 singularity-flow cancel [WORK-ID] [--fetch] --reason TEXT --confirm WORK-ID
 singularity-flow cancel WORK-ID --release [--apply --confirm WORK-ID] [--json]

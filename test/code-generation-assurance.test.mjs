@@ -95,6 +95,92 @@ test('a pure product-source deletion remains first-class code delivery evidence'
   assert.equal(evidence.paths.find((entry) => entry.path === 'src/payment.js').fileKind, 'missing');
 });
 
+test('a confirmed Testing return permits exact prior product source with a new unit test, but not an unbound test-only edit', async (t) => {
+  const root = await repository('testing-test-repair');
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(path.join(root, 'tests'), { recursive: true });
+  await mkdir(path.join(root, 'singularity'), { recursive: true });
+  const priorTest = '// @ac:CGA-REPAIR:AC-001\ntest("payment", () => {});\n';
+  const source = await readFile(path.join(root, 'src/payment.js'));
+  await writeFile(path.join(root, 'tests/payment.test.js'), priorTest);
+  await writeFile(path.join(root, 'singularity/workflow.yml'), 'schemaVersion: 1\n');
+  git(root, ['add', '.']);
+  git(root, ['commit', '-m', 'approved Code baseline']);
+  git(root, ['switch', '-c', 'CGA-REPAIR']);
+  const codeCommit = git(root, ['rev-parse', 'HEAD']);
+  const digest = (value) => createHash('sha256').update(value).digest('hex');
+  const priorReceiptSha256 = 'a'.repeat(64);
+  const priorPaths = [
+    { path: 'src/payment.js', fileKind: 'regular-file', sha256: digest(source) },
+    { path: 'tests/payment.test.js', fileKind: 'regular-file', sha256: digest(priorTest) }
+  ];
+  const phase = {
+    id: 'implementation', generation: 1, status: 'in_progress',
+    writeScope: 'source-and-artifact', sourceBoundary: 'unrestricted',
+    generationPolicy: { task: 'code' }, requiredArtifact: { kind: 'implementation-summary' },
+    generationCommit: codeCommit,
+    deliveryEvidence: {
+      receiptSha256: priorReceiptSha256, sourcePaths: ['src/payment.js'],
+      testPaths: ['tests/payment.test.js'], paths: priorPaths
+    }
+  };
+  const workflow = {
+    workItem: { id: 'CGA-REPAIR', workType: 'classic-delivery', branch: 'CGA-REPAIR' },
+    currentPhase: 'implementation', phaseOrder: ['implementation', 'testing'],
+    phases: { implementation: phase, testing: {
+      status: 'not_started', generation: 1,
+      approvals: [{ decision: 'rejected', target: 'implementation', changeRequestId: 'CR-001' }]
+    } },
+    changeRequests: [{
+      id: 'CR-001', status: 'open', sourcePhase: 'testing', targetPhase: 'implementation',
+      testingRepair: {
+        codeGeneration: 1, codeGenerationCommit: codeCommit,
+        codeReceiptSha256: priorReceiptSha256,
+        confirmation: `sha256:${'b'.repeat(64)}`,
+        changeSetDigest: `sha256:${'c'.repeat(64)}`,
+        changedPaths: ['tests/payment.test.js']
+      }
+    }],
+    resolution: {
+      configSha256: 'c'.repeat(64), sourceSha256: 's'.repeat(64), templates: {},
+      capability: { policy: { protectedPaths: [] } },
+      codeDelivery: normalizeCodeDeliveryPolicy()
+    },
+    lineage: { canonicalBranch: 'CGA-REPAIR', requiredChecks: [] }, history: []
+  };
+  const config = {
+    workItemRoot: 'singularity/work-items',
+    governance: { requireAcceptanceCriteriaTags: false, protectedPaths: ['singularity/workflow.yml'] },
+    workTypes: { 'classic-delivery': {} }
+  };
+  const itemDirectory = path.join(root, 'singularity/work-items/CGA-REPAIR');
+  await mkdir(itemDirectory, { recursive: true });
+  await ensureWorkIntervalBaseline(root, config, workflow, {
+    phaseId: phase.id, itemDirectory, itemRelative: 'singularity/work-items/CGA-REPAIR'
+  });
+  await writeFile(path.join(root, 'tests/payment.test.js'), `${priorTest}// corrected assertion\n`);
+  const repaired = await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
+  assert.deepEqual(repaired.sourcePaths, ['src/payment.js']);
+  assert.deepEqual(repaired.testPaths, ['tests/payment.test.js']);
+  assert.equal(repaired.testingRepair?.changeRequestId, 'CR-001');
+  assert.deepEqual(repaired.testingRepair?.reusedSourcePaths, ['src/payment.js']);
+
+  workflow.changeRequests[0].status = 'resolved';
+  await assert.rejects(() => evaluateCodeDeliveryPreflight(root, config, workflow, phase), {
+    code: 'CODE_DELIVERY_EVIDENCE_REQUIRED'
+  });
+  workflow.changeRequests[0].status = 'open';
+  await writeFile(path.join(root, 'src/payment.js'), 'export const payment = false;\n');
+  const productCorrection = await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
+  assert.equal(productCorrection.testingRepair, null);
+  assert.ok(productCorrection.sourcePaths.includes('src/payment.js'));
+  await writeFile(path.join(root, 'src/payment.js'), source);
+  await writeFile(path.join(root, 'singularity/workflow.yml'), 'schemaVersion: 2\n');
+  await assert.rejects(() => evaluateCodeDeliveryPreflight(root, config, workflow, phase), {
+    code: 'CHANGE_SET_POLICY_VIOLATION'
+  });
+});
+
 test('code delivery accepts only exact protected configuration projected at Story start', async (t) => {
   const root = await repository('configuration-projection');
   t.after(() => rm(root, { recursive: true, force: true }));

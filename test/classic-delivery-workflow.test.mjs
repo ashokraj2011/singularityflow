@@ -203,6 +203,13 @@ test('Classic delivery commits passing test results before Testing and Code chec
         '--authored', 'human', '--channel', 'manual-in-place', '--json'], root, { allowFailure: true });
       assert.notEqual(refused.status, 0);
       assert.match(refused.stdout + refused.stderr, /PRIOR_CODE_TEST_EVIDENCE_REQUIRED|application source or tests changed after the approved execution/u);
+      const repairPreview = run(process.execPath, [CLI, '--no-model', 'reject', 'testing',
+        '--to', 'implementation', '--repair', '--reason', 'Return the changed source to Code', '--json'], root,
+      { allowFailure: true });
+      assert.notEqual(repairPreview.status, 0, 'an unconfirmed early return must be read-only');
+      assert.match(repairPreview.stdout + repairPreview.stderr, /TESTING_REPAIR_CONFIRMATION_REQUIRED/u);
+      assert.match(repairPreview.stdout + repairPreview.stderr, /src\/value\.mjs/u);
+      assert.equal((await workflow()).currentPhase, 'testing');
       await writeFile(path.join(root, 'src/value.mjs'), 'export const value = 2;\n');
     }
     cli('phase', 'publish', phase, '--authored', 'human', '--channel', 'manual-in-place');

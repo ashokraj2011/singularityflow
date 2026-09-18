@@ -82,6 +82,21 @@ their pinned workflow; installing an updated template does not rewrite a running
    and repeat the normal submission, approval, Testing, and Code-checking gates. Do not treat
    the earlier Code receipt as proof for the changed generation.
 
+If source or test files were already edited while Testing is **in progress**, ordinary Testing
+publication must still refuse: its earlier Code receipt no longer describes those bytes. Keep the
+edits and preview a governed early return instead:
+
+```bash
+singularity-flow reject testing --to implementation --repair --reason "Describe the test or environment repair"
+```
+
+Review the returned paths and exact confirmation digest, then rerun with `--confirm <sha256>`
+(Copilot: `/sf-reject`). The reviewer-authorized change request preserves the dirty files but
+reopens Code, where a new generation must pass structured tests and approval. A test-only repair
+can reuse unchanged approved product source; it must not add a fake product edit. A transient
+browser or environment failure with **no** source/test change should be re-observed in Testing,
+not sent back to Code. Protected workflow configuration still uses its separate authority.
+
 Classic Delivery currently **reviews** Code's committed tests in Testing; it does not claim an
 independent Testing rerun receipt. Full REV pilot activation would additionally require the
 specification's candidate/head transaction, isolated execution and cleanup proof, Code-check

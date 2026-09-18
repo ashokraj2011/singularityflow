@@ -386,7 +386,32 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     ...changedPaths.filter((candidate) => !isAllowedTestAutomationPath(candidate)),
     ...deletedSourcePaths
   ])].sort();
-  const reusableSourceCandidates = intentRevalidation
+  // A reviewer-returned Testing defect can change only executable tests or their supporting
+  // resources. Do not require a fake product-source edit in the new Code generation: reuse the
+  // exact prior approved source bytes, but only when the latest open change request was created
+  // by the guarded Testing repair route and still binds this Code generation and its old receipt.
+  const repairRequest = [...(workflow.changeRequests ?? [])].reverse().find((request) =>
+    request.status === 'open' && request.targetPhase === phase.id
+      && request.sourcePhase === 'testing' && request.testingRepair);
+  const repair = repairRequest?.testingRepair;
+  const repairDecision = (workflow.phases?.testing?.approvals ?? []).find((decision) =>
+    decision.decision === 'rejected' && !decision.invalidatedAt
+      && decision.target === phase.id && decision.changeRequestId === repairRequest?.id);
+  const testOnlyRepair = !changedSourcePaths.length && Boolean(repair)
+    && Boolean(repairDecision)
+    && ['classic-delivery', 'spec-code-test-loop'].includes(workflow.workItem?.workType)
+    && Number(phase.generation ?? 0) > 0
+    && Number(repair.codeGeneration) === Number(phase.generation)
+    && repair.codeGenerationCommit === phase.generationCommit
+    && String(repair.codeReceiptSha256).replace(/^sha256:/u, '')
+      === String(phase.deliveryEvidence?.receiptSha256 ?? '').replace(/^sha256:/u, '')
+    && /^sha256:[a-f0-9]{64}$/u.test(repair.confirmation ?? '')
+    && /^sha256:[a-f0-9]{64}$/u.test(repair.changeSetDigest ?? '')
+    && Array.isArray(repair.changedPaths) && repair.changedPaths.length > 0
+    && applicationEntries.length > 0
+    && applicationEntries.every((entry) => [entry.oldPath, entry.newPath]
+      .filter(Boolean).every(isAllowedTestAutomationPath));
+  const reusableSourceCandidates = intentRevalidation || testOnlyRepair
     ? (phase.deliveryEvidence?.sourcePaths ?? []).filter((candidate) => !changedEndpointPaths.has(candidate))
     : [];
   const reusableSourcePaths = await validatedReusablePaths(
@@ -446,6 +471,12 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     testPaths,
     supportingTestPaths,
     intentRevalidation: intentRevalidation ? phase.intentAmendmentRevalidation.id : null,
+    testingRepair: testOnlyRepair ? {
+      changeRequestId: repairRequest.id,
+      priorGeneration: repair.codeGeneration,
+      priorReceiptSha256: repair.codeReceiptSha256,
+      reusedSourcePaths: reusableSourcePaths
+    } : null,
     acceptanceCriteria: {
       required: requiredAcIds, tagged: taggedAcIds, missing: [], ambiguous: [],
       inferred: tags.inferred, bindings: tags.bindings

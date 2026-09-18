@@ -162,7 +162,8 @@ import {
 import { observeExactTestcaseIdentities } from './wel-adapters.mjs';
 import { evaluateWitnessMappingReview } from './wel-review.mjs';
 import {
-  buildRepositoryChangeSet, buildRepositoryTreeChangeSet, repositoryCaseInsensitivePaths
+  buildRepositoryChangeSet, buildRepositoryTreeChangeSet, evaluateProtectedPaths,
+  repositoryCaseInsensitivePaths
 } from './repository-change-set.mjs';
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import {
@@ -2426,7 +2427,12 @@ async function assertPassedCodeDeliveryInput(root, config, workflow, phase) {
     throw refuse('the receipt does not describe the approved generation and passing executions.');
   }
   if (receipt.tree.workingStateDigest !== await sourceTreeHash(root, config, workflow)) {
-    throw refuse('application source or tests changed after the approved execution. Return to Code.');
+    const testingRepairRoute = phase.id === 'testing' && phase.status === 'in_progress'
+      && workflow.currentPhase === 'testing'
+      && ['classic-delivery', 'spec-code-test-loop'].includes(workflow.workItem?.workType)
+      ? ' Review the exact repair preview with Shell: singularity-flow reject testing --to implementation --repair --reason <REASON>. Copilot: /sf-reject. The confirmed return preserves changed bytes and requires new Code tests.'
+      : ' Return to Code.';
+    throw refuse(`application source or tests changed after the approved execution.${testingRepairRoute}`);
   }
   const replay = await verifyCodeDeliveryReceipt(root, receipt, {
     protectedPaths: [...new Set([
@@ -2787,6 +2793,9 @@ export async function publishGeneration(root, config, workflow, {
         ...deliveryPreflight.changeClassification,
         declaredOrigins: [...(effectiveAuthorship.changeOrigins ?? [])]
       },
+      ...(deliveryPreflight.testingRepair ? {
+        testingRepair: structuredClone(deliveryPreflight.testingRepair)
+      } : {}),
       traceability: {
         required: deliveryPreflight.acceptanceCriteria.required,
         bound: deliveryPreflight.acceptanceCriteria.tagged,
@@ -4684,11 +4693,139 @@ async function createReworkForwardCheckpoint(root, config, workflow, {
   return { ...checkpoint, integrity: { sha256: reworkCheckpointIntegrity(checkpoint) } };
 }
 
+/**
+ * A Testing source/test edit is not a Testing publication. Preview the exact bytes that must be
+ * returned to Code, without treating the old passing receipt as proof of the edited tree.
+ */
+export async function previewTestingRepair(root, config, workflow) {
+  await assertNoPendingPublication(root, config, workflow, 'return Testing changes to Code');
+  if (!['classic-delivery', 'spec-code-test-loop'].includes(workflow.workItem?.workType)
+      || workflow.currentPhase !== 'testing' || workflow.phases?.testing?.status !== 'in_progress'
+      || workflow.phaseOrder?.indexOf('implementation') >= workflow.phaseOrder?.indexOf('testing')) {
+    throw new SingularityFlowError(
+      'A pre-submission Testing repair is available only in the active Testing phase of Classic Delivery or Spec → Code → Test.',
+      { code: 'TESTING_REPAIR_NOT_APPLICABLE' }
+    );
+  }
+  const code = workflow.phases.implementation;
+  const evidence = code?.deliveryEvidence;
+  const approval = [...(code?.approvals ?? [])].reverse().find((decision) =>
+    decision.decision === 'approved' && !decision.invalidatedAt
+      && Number(decision.generation) === Number(code.generation));
+  const submission = [...(workflow.lineage?.submissions ?? [])].reverse().find((entry) =>
+    entry.phase === 'implementation' && Number(entry.generation) === Number(code?.generation));
+  if (code?.status !== 'approved' || !approval || !submission || !evidence
+      || evidence.status !== 'ready' || evidence.validation?.status !== 'passed'
+      || !code.generationCommit || !evidence.receiptPath || !evidence.receiptSha256) {
+    throw new SingularityFlowError(
+      'Testing repair needs an approved Code generation with its committed passing test receipt.',
+      { code: 'TESTING_REPAIR_CODE_EVIDENCE_REQUIRED' }
+    );
+  }
+  const { readStoryReviewPacket } = await import('./story-lineage.mjs');
+  const packet = await readStoryReviewPacket(root, config, workflow, submission.packetSha256);
+  const receiptBinding = packet.submissionEvidence?.codeDelivery;
+  if (approval.reviewPacketSha256 !== packet.packetSha256
+      || approval.evidenceCommit !== packet.evidenceCommit
+      || receiptBinding?.path !== evidence.receiptPath
+      || String(receiptBinding?.sha256 ?? '').replace(/^sha256:/u, '')
+        !== String(evidence.receiptSha256).replace(/^sha256:/u, '')) {
+    throw new SingularityFlowError(
+      'The approved Code packet does not bind its recorded passing test receipt.',
+      { code: 'TESTING_REPAIR_CODE_EVIDENCE_REQUIRED' }
+    );
+  }
+  const historical = run('git', ['show', `${packet.evidenceCommit}:${evidence.receiptPath}`], {
+    cwd: root, allowFailure: true
+  });
+  let receipt;
+  try {
+    if (historical.status !== 0) throw new Error('receipt not committed');
+    const stored = JSON.parse(historical.stdout);
+    if (createHash('sha256').update(canonicalJson(stored)).digest('hex')
+        !== String(evidence.receiptSha256).replace(/^sha256:/u, '')) {
+      throw new Error('receipt digest differs');
+    }
+    receipt = readRecord('code-delivery', stored).record;
+    if (receipt.status !== 'ready' || receipt.workId !== workflow.workItem.id
+        || receipt.phase !== 'implementation'
+        || Number(receipt.generation) !== Number(code.generation)
+        || receipt.tree?.generationCommit !== code.generationCommit
+        || !Array.isArray(receipt.testExecutions) || !receipt.testExecutions.length
+        || receipt.testExecutions.some((execution) => execution.status !== 'passed')) {
+      throw new Error('receipt does not describe the approved, passing Code generation');
+    }
+  } catch (error) {
+    throw new SingularityFlowError(
+      `The approved Code test receipt cannot be verified: ${error.message}.`,
+      { code: 'TESTING_REPAIR_CODE_EVIDENCE_REQUIRED' }
+    );
+  }
+  const changeSet = await buildRepositoryChangeSet(root, {
+    baseCommit: code.generationCommit,
+    subject: { kind: 'testing-repair', id: workflow.workItem.id,
+      testingGeneration: workflow.phases.testing.generation }
+  });
+  const protectedPaths = [...new Set([
+    ...(config.governance?.protectedPaths ?? []),
+    ...(workflow.resolution?.capability?.policy?.protectedPaths ?? [])
+  ])];
+  const protectedResult = evaluateProtectedPaths(changeSet, protectedPaths);
+  if (!protectedResult.valid) {
+    throw new SingularityFlowError(
+      `Testing repair cannot carry protected process paths: ${[...new Set(protectedResult.violations.map((entry) => entry.path))].join(', ')}. Repair these through approved configuration authority.`,
+      { code: 'TESTING_REPAIR_PROTECTED_PATH' }
+    );
+  }
+  const application = applicationChangeSetProjection(changeSet, applicationPathContext(config, workflow));
+  const changedPaths = [...new Set(application.entries.flatMap((entry) =>
+    [entry.oldPath, entry.newPath].filter(Boolean)))].sort();
+  if (!changedPaths.length) {
+    throw new SingularityFlowError(
+      'Testing has no application source or test changes to return to Code. Correct environment-only observations in a new Testing review generation.',
+      { code: 'TESTING_REPAIR_NO_APPLICATION_CHANGES' }
+    );
+  }
+  const plan = {
+    schemaVersion: 1,
+    workId: workflow.workItem.id,
+    workType: workflow.workItem.workType,
+    branch: branch(root),
+    head: head(root),
+    phase: 'testing',
+    phaseStatus: workflow.phases.testing.status,
+    testingGeneration: workflow.phases.testing.generation,
+    targetPhase: 'implementation',
+    codeGeneration: code.generation,
+    codeGenerationCommit: code.generationCommit,
+    codeEvidenceCommit: packet.evidenceCommit,
+    codeReceiptSha256: evidence.receiptSha256,
+    sourceTreeSha256: await sourceTreeHash(root, config, workflow),
+    changeSetDigest: application.digest,
+    changedPaths
+  };
+  return {
+    ...plan,
+    confirmation: `sha256:${createHash('sha256').update(canonicalJson(plan)).digest('hex')}`
+  };
+}
+
 export async function rejectPhase(root, config, workflow, {
   phaseId, target, reason, clauseIds = [], members = [], convergenceRework = null,
-  channel = 'terminal', actionContext = null, actor = null, agent = undefined
+  testingRepairConfirm = null, channel = 'terminal', actionContext = null,
+  actor = null, agent = undefined
 } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'reject');
+  const testingRepair = testingRepairConfirm
+    ? await previewTestingRepair(root, config, workflow)
+    : null;
+  if (testingRepair && (phaseId !== 'testing' || target !== 'implementation'
+      || testingRepair.confirmation !== testingRepairConfirm || convergenceRework)) {
+    throw new SingularityFlowError(
+      `Testing repair requires the current change-set confirmation: --confirm ${testingRepair.confirmation}.`,
+      { code: 'TESTING_REPAIR_CONFIRMATION_REQUIRED', details: { preview: testingRepair } }
+    );
+  }
   /**
    * Governed rework out of convergence `[SPK:REQ-182]`.
    *
@@ -4730,9 +4867,11 @@ export async function rejectPhase(root, config, workflow, {
   }
   const phase = await assertPhaseSequence(root, workflow, 'reject', {
     requestedPhase: phaseId,
-    allowedStatuses: reworkBlockers.length ? ['awaiting_approval', 'in_progress'] : ['awaiting_approval']
+    allowedStatuses: reworkBlockers.length || testingRepair
+      ? ['awaiting_approval', 'in_progress'] : ['awaiting_approval']
   });
-  if (phase.approvalPolicy.changeRequests?.commentRequired !== false && !reason?.trim()) {
+  if ((testingRepair || phase.approvalPolicy.changeRequests?.commentRequired !== false)
+      && !reason?.trim()) {
     throw new SingularityFlowError('A change-request comment is required.');
   }
   const session = actor
@@ -4794,6 +4933,16 @@ export async function rejectPhase(root, config, workflow, {
       }
     } : {}),
     ...(requestedMembers.length ? { members: requestedMembers } : {}),
+    ...(testingRepair ? { testingRepair: {
+      confirmation: testingRepair.confirmation,
+      changeSetDigest: testingRepair.changeSetDigest,
+      changedPaths: testingRepair.changedPaths,
+      codeGeneration: testingRepair.codeGeneration,
+      codeGenerationCommit: testingRepair.codeGenerationCommit,
+      codeReceiptSha256: testingRepair.codeReceiptSha256,
+      codeEvidenceCommit: testingRepair.codeEvidenceCommit,
+      sourceTreeSha256: testingRepair.sourceTreeSha256
+    } } : {}),
     comment: reason?.trim() || 'Changes requested.',
     requestedAt: timestamp,
     requestedBy: session.actor,

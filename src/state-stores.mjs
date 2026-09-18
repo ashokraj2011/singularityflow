@@ -229,7 +229,7 @@ export {
   actorKey, approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow,
   CONFIG_PATH, createWorkflow, currentPhase,
   generationResultDigest, generationResultMatches, loadConfig, preparePhase, preparePhaseInputs, publishGeneration,
-  inspectRequiredArtifactRegistration, previewReworkRollForward, promoteDesignSource, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow,
+  inspectRequiredArtifactRegistration, previewReworkRollForward, previewTestingRepair, promoteDesignSource, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow,
   rollForwardRework, scanArtifacts,
   sourceTreeHash, storyPublicationPending, storyWelEnrollmentStatus, submitConfirmedConvergencePhase,
   submitPhase, validateId, workflowBranchAllowed,

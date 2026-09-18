@@ -1,8 +1,8 @@
 ---
 name: sflow-reject
-description: Request changes to a submitted or completed Story, or safely abandon that rework and return to its exact forward checkpoint. Records the human authority, invalidation or restoration, commit, and push without rewriting Git history.
+description: Request changes to a submitted or completed Story, return an in-progress Testing phase with source/test edits to Code after exact review, or safely abandon rework. Records authority and invalidation without rewriting Git history.
 disable-model-invocation: true
-argument-hint: "[WORK-ID] [--fetch] --to PHASE --reason 'explanation' | roll-forward [CR-ID]"
+argument-hint: "[WORK-ID] [--fetch] --to PHASE --reason 'explanation' [--repair] | roll-forward [CR-ID]"
 
 ---
 # Request governed changes
@@ -17,6 +17,11 @@ Sequence gates may be hard or soft. On `Out of sequence`, stop immediately and r
 1. Read status first. Show the current phase, artifact hashes, allowed `rejectTo` targets, reviewer Git identity, authority group, and governed agent.
 2. Require a specific rejection reason and target phase; do not invent either. Present only the allowed targets, then preserve the human's exact comment.
 3. For a phase awaiting approval, run `singularity-flow reject <phase> --work-id <WORK-ID> --fetch --to <earlier-phase> --reason "..."`.
+   If Testing is in progress with source/test edits in Classic Delivery or Spec → Code → Test,
+   preserve them. Preview `singularity-flow reject testing --to implementation --repair --reason "..."`
+   in the bound worktree. Show paths and digest; request human confirmation. Only then
+   rerun with `--confirm <sha256>`. Do not `--fetch` a dirty bound worktree. The return opens a new
+   Code generation; retest and approve it before repeating Testing.
 4. For a completed Story, run `singularity-flow reopen <WORK-ID> --fetch --to <phase> --reason "..."`.
 5. Stop on an unauthorized identity, disallowed target, disabled post-completion reopening, stale branch, or pending publication. Changing agents never grants decision authority.
 6. Show which approvals and later phases will be invalidated before recording the decision.

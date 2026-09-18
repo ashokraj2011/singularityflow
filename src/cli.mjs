@@ -21,7 +21,7 @@ import { SingularityFlowError, commandExists, exists, nowIso, optionBoolean, opt
 import { add, assertClean, branch, changedFiles, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitCommonDir, gitDir, hasUpstream, head, identity, localBranches, preflightPushBranch, prepareRemoteBranchTracking, pullFastForward, refExists, refHead, remoteBranches, repoRoot } from './git.mjs';
 import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
-import { approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow, commitAndPublish, CONFIG_PATH, createWorkflow, currentPhase, generationResultDigest, generationResultMatches, loadConfig, preparePhase, preparePhaseInputs, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, storyWelEnrollmentStatus, submitConfirmedConvergencePhase, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir, workDirRelative } from './state-stores.mjs';
+import { approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow, commitAndPublish, CONFIG_PATH, createWorkflow, currentPhase, generationResultDigest, generationResultMatches, loadConfig, preparePhase, preparePhaseInputs, previewTestingRepair, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, storyWelEnrollmentStatus, submitConfirmedConvergencePhase, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir, workDirRelative } from './state-stores.mjs';
 import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
 import { phasePreparationCommandLines } from './phase-preparation-guidance.mjs';
@@ -6884,10 +6884,28 @@ async function decisionWorkflow(positionals, options, action) {
   const workId = workflow.workItem.id;
   const overridesBefore = workflow.sequenceOverrides?.length ?? 0;
   await assertNoPendingPublication(root, config, workflow, action);
+  const testingRepair = action === 'reject' && optionBoolean(options, 'repair');
+  if (testingRepair && (requestedPhase !== 'testing'
+      || optionString(options, 'to') !== 'implementation'
+      || optionString(options, 'selection-receipt'))) {
+    throw new SingularityFlowError(
+      'Early Testing repair requires reject testing --to implementation --repair, without a selection receipt.',
+      { code: 'TESTING_REPAIR_ROUTE_INVALID' }
+    );
+  }
   const phase = await assertPhaseSequence(root, workflow, action, {
     requestedPhase,
-    allowedStatuses: ['awaiting_approval']
+    allowedStatuses: testingRepair ? ['in_progress'] : ['awaiting_approval']
   });
+  const testingRepairPlan = testingRepair ? await previewTestingRepair(root, config, workflow) : null;
+  if (testingRepairPlan && optionString(options, 'confirm') !== testingRepairPlan.confirmation) {
+    throw new SingularityFlowError(
+      `Testing contains source or test edits. Review ${testingRepairPlan.changedPaths.join(', ')} and return them to Code only after confirmation. `
+      + `Shell: singularity-flow reject testing --to implementation --repair --reason <REASON> --confirm ${testingRepairPlan.confirmation}. `
+      + 'Copilot: /sf-reject.',
+      { code: 'TESTING_REPAIR_CONFIRMATION_REQUIRED', details: { plan: testingRepairPlan } }
+    );
+  }
   const receipt = receiptToken
     ? await resolveSelectionReceipt(root, config, receiptToken, { action, workId: workflow.workItem.id, workflow })
     : null;
@@ -6908,7 +6926,7 @@ async function decisionWorkflow(positionals, options, action) {
       history.agent = session.agent;
     }
   }
-  return { root, config, workflow, phase, session, receipt, receiptToken };
+  return { root, config, workflow, phase, session, receipt, receiptToken, testingRepairPlan };
 }
 
 /**
@@ -7119,7 +7137,7 @@ async function approveCommand(positionals, options) {
 }
 
 async function rejectCommand(positionals, options) {
-  const { root, config, workflow, phase: current, session } = await decisionWorkflow(positionals, options, 'reject');
+  const { root, config, workflow, phase: current, session, testingRepairPlan } = await decisionWorkflow(positionals, options, 'reject');
   const target = optionString(options, 'to') ?? current.id;
   console.log(`Requesting changes to ${current.id}, returning work to ${target} as ${session.actor.name ?? session.actor.email ?? session.actor.login}; governed agent ${session.agent} is audit context only. Approvals from ${target} onward will be invalidated.`);
   // Inside the transaction: rejecting used to write workflow.json and the change-request decision
@@ -7142,7 +7160,8 @@ async function rejectCommand(positionals, options) {
       channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : 'terminal',
       actionContext: activeActionContext(),
       actor: session.actor,
-      agent: session.agent
+      agent: session.agent,
+      testingRepairConfirm: testingRepairPlan?.confirmation ?? null
     }),
     {
       eventFromResult: (transition) => ({

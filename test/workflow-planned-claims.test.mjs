@@ -31,6 +31,9 @@ const SHIPPED_STORY_CONTRACTS = Object.freeze({
   'classic-delivery': {
     mode: 'required', clausePhases: ['intake'], owners: { implementation: 'intake' }
   },
+  'spec-code-test-loop': {
+    mode: 'required', clausePhases: ['specification'], owners: { implementation: 'specification' }
+  },
   'poc-lite': { mode: 'opt-out' },
   'benchmarking-a': {
     mode: 'required', clausePhases: ['intake'], owners: { implementation: 'design' }
@@ -242,6 +245,36 @@ test('new Story workflow has one coherent list, validate, simulate, and diff exp
   assert.equal(readable.status, 0, readable.stderr);
   assert.match(readable.stdout, /Hotfix-readable \(hotfix-readable\)/i);
   assert.match(readable.stdout, /template=.*inputs=.*approvals=.*world-model=/);
+});
+
+test('workflow CLI authors and simulates bounded Story loops, then clears them explicitly', async () => {
+  const { root } = await installedStarter();
+  const run = (...args) => spawnSync(process.execPath, [bin, 'workflow', ...args], {
+    cwd: root, encoding: 'utf8', env: {
+      ...process.env, NODE_ENV: 'test',
+      SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(root, '.test-workspaces.json'),
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(root, '.test-active-workspace.json'),
+      SINGULARITY_FLOW_LEAD_REGISTRY: path.join(root, '.test-leads.json')
+    }
+  });
+  const created = run('create', 'review-cycle', '--phases',
+    'requirements,implementation-spec,implementation,verification',
+    '--loop', 'verification:implementation:2:requirements', '--json');
+  assert.equal(created.status, 0, created.stderr);
+  const expected = [{ from: 'verification', to: 'implementation', maxAttempts: 2,
+    resetOnPhase: 'requirements' }];
+  assert.deepEqual(JSON.parse(created.stdout).reworkLoops, expected);
+  const simulated = run('simulate', 'review-cycle', '--json');
+  assert.equal(simulated.status, 0, simulated.stderr);
+  assert.deepEqual(JSON.parse(simulated.stdout)[0].reworkLoops, expected);
+  const cleared = run('edit', 'review-cycle', '--clear-loops', '--json');
+  assert.equal(cleared.status, 0, cleared.stderr);
+  assert.deepEqual(JSON.parse(cleared.stdout).reworkLoops, []);
+  const after = YAML.parse(await readFile(path.join(root, 'singularity', 'workflow.yml'), 'utf8'));
+  assert.equal(after.workTypes['review-cycle'].reworkLoops, undefined);
+  const malformed = run('edit', 'review-cycle', '--loop', 'verification:implementation:0');
+  assert.notEqual(malformed.status, 0);
+  assert.match(malformed.stderr, /maxAttempts must be an integer from 1 through 100/);
 });
 
 test('phase add defaults to Story and incorrect clause phase lists eligible phases', async () => {

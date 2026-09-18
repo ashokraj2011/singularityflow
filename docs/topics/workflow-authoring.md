@@ -12,7 +12,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 11
+version: 12
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -62,6 +62,8 @@ singularity-flow workflow create customer-onboarding \
 ```
 
 New Story workflows infer a required planned-claims contract when a qualifying clause phase and code-phase owner exist. The CLI prints the resolved phase simulation after a successful non-JSON create or edit; inspect it again with `singularity-flow workflow simulate customer-onboarding`. Validation and simulation read the same custom definition. A custom workflow has no packaged baseline for `workflow diff`; use simulate instead.
+
+To make review-led correction part of a Story workflow, add a bounded backward **rework loop** in the Workflows & artifacts Designer or with `workflow edit <ID> --loop <REVIEW-PHASE>:<EARLIER-PHASE>:<MAX-ATTEMPTS>[:<RESET-PHASE>] --propose`. The optional reset phase must be strictly earlier than the return target. The loop becomes a reviewer rejection route and a repair-attempt budget; it does not execute phases, approve artifacts, or amend a specification automatically. Existing Stories retain their pinned workflow. See [Bounded rework loops](../WORKFLOW-REWORK-LOOPS.md) for the full sequence and safety boundaries.
 
 `workflow phase add` defaults to a Story phase. An unknown phase named by `workflow create` is not silently created: a new Story phase also needs a reviewed template, approval authority, and exactly one default governed Agent Markdown mapping. Add that contract through a configuration change before using the phase. The CLI names eligible clause phases when a selection cannot carry planned claims.
 

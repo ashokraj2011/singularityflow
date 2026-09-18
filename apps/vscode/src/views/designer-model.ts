@@ -12,6 +12,7 @@
  * files are editable already, and what they cannot tell you is who is standing on them.
  */
 import type { RepositorySnapshot } from '../cli/snapshot.ts';
+import type { WorkflowLoopDraft } from './workflow-loop-draft.ts';
 
 export interface ApprovalPolicy {
   mode?: string;
@@ -50,6 +51,7 @@ export interface Profile {
   governs: 'story' | 'initiative';
   phases: Phase[];
   plannedClaims?: { mode?: string; clausePhases?: string[]; owners?: Record<string, string>; reason?: string };
+  reworkLoops?: WorkflowLoopDraft[];
 }
 
 /** An Epic that pinned something an edit would change. */
@@ -88,6 +90,7 @@ export function buildProfiles(snapshot: RepositorySnapshot): Profile[] {
     workTypes?: Record<string, {
       label?: string; description?: string; phases?: string[]; templateOverrides?: Record<string, string>;
       plannedClaims?: Profile['plannedClaims'];
+      reworkLoops?: WorkflowLoopDraft[];
     }>;
     phases?: Record<string, {
       label?: string;
@@ -113,6 +116,7 @@ export function buildProfiles(snapshot: RepositorySnapshot): Profile[] {
     description: profile.description ?? '',
     governs: 'story' as const,
     plannedClaims: profile.plannedClaims,
+    reworkLoops: profile.reworkLoops,
     phases: (profile.phases ?? []).map((phaseId, order) => {
       const phase = definition?.phases?.[phaseId];
       const template = profile.templateOverrides?.[phaseId] ?? phase?.defaultTemplate ?? null;

@@ -651,6 +651,8 @@ workTypes:
     label: Spec → code → Playwright review
     description: A specification-first Story with Code publication, governed Playwright browser observations, and bounded human-directed rework; MCP observations never replace structured test receipts or approval.
     phases: [specification, implementation, testing, conformance]
+    reworkLoops:
+      - { from: testing, to: implementation, maxAttempts: 3, resetOnPhase: specification }
     spec: { mode: enforce }
     plannedClaims:
       mode: required
@@ -666,7 +668,6 @@ workTypes:
       implementation:
         label: Code
         inputs: [specification]
-        repairBudget: { maxAttempts: 3, resetOnPhase: specification }
         approval: { authorities: [engineering-reviewers], minimum: 1, rejectTo: [specification, implementation] }
       testing:
         label: Playwright testing review
@@ -682,7 +683,7 @@ workTypes:
             - { server: playwright, tool: browser_navigate, minimum: 1, outputRequired: false }
             - { server: playwright, tool: browser_snapshot, minimum: 1, outputRequired: true }
             - { server: playwright, tool: browser_take_screenshot, minimum: 1, outputRequired: true }
-        approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [specification, implementation, testing] }
+        approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [specification, testing] }
       conformance:
         label: Spec, code and test checking
         inputs: [specification, implementation, testing]

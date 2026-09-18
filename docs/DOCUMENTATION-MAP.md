@@ -59,6 +59,7 @@ Use these for Story creation, phase generation, approvals, rollback, and landing
 | [Governed work intervals](GOVERNED-WORK-INTERVALS.md) | Handling developer edits during governed work |
 | [Classic Delivery review and rework](CLASSIC-DELIVERY-REVIEW-AND-REWORK.md) | Using Code test receipts, optional feedback attachments, and explicit reject-to-Code rework without claiming REV execution |
 | [Spec → Code → Playwright testing review](SPEC-CODE-TEST-LOOP.md) | Running a specification-first, reviewer-directed Code/Test cycle with versioned intent amendments and browser evidence |
+| [Bounded Story workflow rework loops](WORKFLOW-REWORK-LOOPS.md) | Authoring reviewer-directed backward phase edges, attempt budgets, and safe replay of downstream evidence |
 | [Governed execution](GOVERNED-EXECUTION.md) | Action plans, execution receipts, and recoverable mutations |
 | [Ad hoc work and governed landing](../README-AD-HOC-WORK.md) | Landing work that began outside a Story |
 | [Release artifact handoff](RELEASE-ARTIFACT-HANDOFF.md) | Handoff and delivery artifact practices |

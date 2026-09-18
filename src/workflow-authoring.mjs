@@ -225,7 +225,8 @@ export async function listWorkflows(root, governs = 'initiative') {
     label: workflow?.label ?? id,
     description: workflow?.description ?? '',
     governs: store.governs,
-    phases: workflow?.phases ?? []
+    phases: workflow?.phases ?? [],
+    ...(store.governs === 'story' ? { reworkLoops: workflow?.reworkLoops ?? [] } : {})
   }));
 }
 
@@ -249,7 +250,8 @@ export async function defineWorkflow(root, workflowId, {
   description = '',
   phases = [],
   governs = null,
-  plannedClaims = undefined
+  plannedClaims = undefined,
+  reworkLoops = undefined
 } = {}) {
   const id = requireId(workflowId, 'A workflow identifier');
   if (!phases.length) throw new SingularityFlowError('A workflow needs at least one phase.');
@@ -273,6 +275,9 @@ export async function defineWorkflow(root, workflowId, {
   }
   if (plannedClaims !== undefined && store.governs !== 'story') {
     throw new SingularityFlowError('plannedClaims applies only to Story workflows.');
+  }
+  if (reworkLoops !== undefined && store.governs !== 'story') {
+    throw new SingularityFlowError('reworkLoops applies only to Story workflows.');
   }
   const { file, document } = await loadIn(root, store);
   const content = document.toJS() ?? {};
@@ -298,11 +303,13 @@ export async function defineWorkflow(root, workflowId, {
     label: label ?? id,
     ...(description ? { description } : {}),
     phases,
-    ...(plannedClaims !== undefined && plannedClaims !== null ? { plannedClaims } : {})
+    ...(plannedClaims !== undefined && plannedClaims !== null ? { plannedClaims } : {}),
+    ...(reworkLoops?.length ? { reworkLoops } : {})
   }));
   const plannedClaimsPolicy = pinAuthoredStoryPlannedClaims(document, store, id, { newlyCreated: true });
   await saveIn(file, document, store);
-  return { workflowId: id, governs: store.governs, phases, path: store.file, plannedClaims: plannedClaimsPolicy };
+  return { workflowId: id, governs: store.governs, phases, path: store.file,
+    plannedClaims: plannedClaimsPolicy, ...(store.governs === 'story' ? { reworkLoops: reworkLoops ?? [] } : {}) };
 }
 
 /**
@@ -329,6 +336,9 @@ export async function editWorkflow(root, workflowId, changes = {}) {
   if (Object.hasOwn(changes, 'plannedClaims') && store.governs !== 'story') {
     throw new SingularityFlowError('plannedClaims applies only to Story workflows.');
   }
+  if (Object.hasOwn(changes, 'reworkLoops') && store.governs !== 'story') {
+    throw new SingularityFlowError('reworkLoops applies only to Story workflows.');
+  }
 
   if (changes.phases) {
     if (!changes.phases.length) throw new SingularityFlowError('A workflow needs at least one phase.');
@@ -349,9 +359,16 @@ export async function editWorkflow(root, workflowId, changes = {}) {
     if (changes.plannedClaims == null) document.deleteIn([store.workflows, id, 'plannedClaims']);
     else document.setIn([store.workflows, id, 'plannedClaims'], document.createNode(changes.plannedClaims));
   }
+  if (Object.hasOwn(changes, 'reworkLoops')) {
+    if (changes.reworkLoops?.length) {
+      document.setIn([store.workflows, id, 'reworkLoops'], document.createNode(changes.reworkLoops));
+    } else document.deleteIn([store.workflows, id, 'reworkLoops']);
+  }
   const plannedClaimsPolicy = pinAuthoredStoryPlannedClaims(document, store, id);
   await saveIn(file, document, store);
-  return { workflowId: id, governs: store.governs, path: store.file, plannedClaims: plannedClaimsPolicy };
+  return { workflowId: id, governs: store.governs, path: store.file,
+    plannedClaims: plannedClaimsPolicy,
+    ...(store.governs === 'story' ? { reworkLoops: document.getIn([store.workflows, id, 'reworkLoops'])?.toJSON?.() ?? [] } : {}) };
 }
 
 /**

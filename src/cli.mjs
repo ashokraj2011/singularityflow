@@ -8230,13 +8230,30 @@ async function workflowCommand(positionals, options) {
       };
     };
     const plannedClaims = plannedClaimsInput();
+    const loopEntries = optionStrings(options, 'loop');
+    const clearLoops = optionBoolean(options, 'clear-loops');
+    if (loopEntries.length && clearLoops) {
+      throw new SingularityFlowError('Choose --loop entries or --clear-loops, not both.');
+    }
+    if (clearLoops && subcommand !== 'edit') {
+      throw new SingularityFlowError('--clear-loops applies only to workflow edit.');
+    }
+    const reworkLoops = loopEntries.map((entry) => {
+      const match = entry.match(/^([a-z0-9]+(?:-[a-z0-9]+)*):([a-z0-9]+(?:-[a-z0-9]+)*):(\d+)(?::([a-z0-9]+(?:-[a-z0-9]+)*))?$/);
+      if (!match) {
+        throw new SingularityFlowError(`Loop '${entry}' must use from:to:maxAttempts[:resetOnPhase] lower-case kebab-case syntax.`);
+      }
+      return { from: match[1], to: match[2], maxAttempts: Number(match[3]),
+        ...(match[4] ? { resetOnPhase: match[4] } : {}) };
+    });
     if (subcommand === 'create') {
       const input = {
         label: optionString(options, 'label'),
         description: optionString(options, 'description', ''),
         phases: list('phases'),
         governs: optionString(options, 'governs'),
-        plannedClaims
+        plannedClaims,
+        ...(reworkLoops.length ? { reworkLoops } : {})
       };
       const created = await author({
         operation: 'create-workflow', subject: id,
@@ -8257,6 +8274,7 @@ async function workflowCommand(positionals, options) {
     }
     if (optionString(options, 'phases') != null) changes.phases = list('phases');
     if (plannedClaims !== undefined) changes.plannedClaims = plannedClaims;
+    if (reworkLoops.length || clearLoops) changes.reworkLoops = reworkLoops;
     const edited = await author({
       operation: 'edit-workflow', subject: id,
       message: `[configuration] edit workflow ${id}`,

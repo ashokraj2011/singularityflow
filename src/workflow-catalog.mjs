@@ -77,12 +77,13 @@ export async function simulateWorkflow(root, workType = null) {
   return ids.map((id) => {
     const profile = definition.workTypes[id];
     if (!profile) throw new Error(`Unknown workflow '${id}'.`);
+    const resolved = resolveWorkType(definition, id);
     const phases = profile.phases.map((phaseId, index) => {
       const base = definition.phases[phaseId]; const override = profile.phaseOverrides?.[phaseId] ?? {};
       const approval = override.approval ?? base.approval ?? {};
-      return { order: index + 1, id: phaseId, label: override.label ?? base.label, template: profile.templateOverrides?.[phaseId] ?? base.defaultTemplate, inputs: (override.inputs ?? base.inputs ?? []).map((input) => typeof input === 'string' ? input : input.phase), authorities: approval.authorities ?? [], minimumApprovals: approval.minimum ?? 1, qualityCommands: override.qualityCommands ?? base.qualityCommands ?? [], worldModelViews: override.worldModel?.views ?? base.worldModel?.views ?? [] };
+      return { order: index + 1, id: phaseId, label: override.label ?? base.label, template: profile.templateOverrides?.[phaseId] ?? base.defaultTemplate, inputs: (override.inputs ?? base.inputs ?? []).map((input) => typeof input === 'string' ? input : input.phase), authorities: approval.authorities ?? [], minimumApprovals: approval.minimum ?? 1, qualityCommands: override.qualityCommands ?? base.qualityCommands ?? [], worldModelViews: override.worldModel?.views ?? base.worldModel?.views ?? [], rejectTo: resolved.phases[index].approval.rejectTo, repairBudget: resolved.phases[index].repairBudget };
     });
-    return { id, label: profile.label, inputsMode: definition.inputsMode ?? 'off', documents: profile.documents ?? definition.documents ?? {}, sequenceGates: { ...(definition.sequenceGates ?? {}), ...(profile.sequenceGates ?? {}) }, phases };
+    return { id, label: profile.label, inputsMode: definition.inputsMode ?? 'off', documents: profile.documents ?? definition.documents ?? {}, sequenceGates: { ...(definition.sequenceGates ?? {}), ...(profile.sequenceGates ?? {}) }, reworkLoops: resolved.reworkLoops ?? [], phases };
   });
 }
 
@@ -90,6 +91,10 @@ export function simulationText(simulations) {
   const lines = [];
   for (const simulation of simulations) {
     lines.push(`${simulation.label} (${simulation.id})`, `Inputs: ${simulation.inputsMode}`, '');
+    if (simulation.reworkLoops?.length) {
+      lines.push(`Rework loops: ${simulation.reworkLoops.map((loop) =>
+        `${loop.from} → ${loop.to} (maximum ${loop.maxAttempts}${loop.resetOnPhase ? `; reset on new ${loop.resetOnPhase} generation` : ''})`).join('; ')}`, '');
+    }
     for (const phase of simulation.phases) lines.push(`${String(phase.order).padStart(2)}. ${phase.label} [${phase.id}]`, `    template=${phase.template} · inputs=${phase.inputs.join(', ') || 'none'} · approvals=${phase.minimumApprovals} (${phase.authorities.join(', ') || 'none'}) · world-model=${phase.worldModelViews.join(', ') || 'none'}`);
     lines.push('');
   }

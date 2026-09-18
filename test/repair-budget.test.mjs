@@ -1,7 +1,49 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { consumeRepairAttempt, repairBudgetPhaseForRejection } from '../src/repair-budget.mjs';
+import { consumeRepairAttempt, normalizeReworkLoops, repairBudgetPhaseForRejection } from '../src/repair-budget.mjs';
+
+test('declared rework loops are unique bounded backward edges with compatible target budgets', () => {
+  const phases = ['specification', 'implementation', 'testing', 'conformance'];
+  const options = { workTypeId: 'delivery', phases };
+  assert.deepEqual(normalizeReworkLoops([
+    { from: 'testing', to: 'implementation', maxAttempts: 3, resetOnPhase: 'specification' }
+  ], options)[0], {
+    from: 'testing', to: 'implementation', maxAttempts: 3, resetOnPhase: 'specification'
+  });
+  for (const invalid of [
+    [{ from: 'implementation', to: 'testing', maxAttempts: 2 }],
+    [{ from: 'testing', to: 'unknown', maxAttempts: 2 }],
+    [{ from: 'testing', to: 'implementation', maxAttempts: 0 }],
+    [{ from: 'testing', to: 'implementation', maxAttempts: 2, resetOnPhase: 'implementation' }],
+    [{ from: 'testing', to: 'implementation', maxAttempts: 2, resetOnPhase: 'testing' }],
+    [{ from: 'testing', to: 'implementation', maxAttempts: 2 },
+      { from: 'testing', to: 'implementation', maxAttempts: 2 }],
+    [{ from: 'testing', to: 'implementation', maxAttempts: 2 },
+      { from: 'conformance', to: 'implementation', maxAttempts: 3 }]
+  ]) assert.throws(() => normalizeReworkLoops(invalid, options));
+});
+
+test('an exact declared edge charges its target, not an unrelated later budget in the span', () => {
+  const phases = {
+    specification: { id: 'specification', repairBudget: { maxAttempts: 2, resetOnPhase: null } },
+    implementation: { id: 'implementation', repairBudget: { maxAttempts: 3, resetOnPhase: 'specification' } },
+    testing: { id: 'testing' }, conformance: { id: 'conformance' }
+  };
+  const workflow = {
+    phaseOrder: Object.keys(phases), phases,
+    resolution: { reworkLoops: [
+      { from: 'testing', to: 'implementation', maxAttempts: 3, resetOnPhase: 'specification' },
+      { from: 'conformance', to: 'specification', maxAttempts: 2 }
+    ] }
+  };
+  assert.equal(repairBudgetPhaseForRejection(workflow, phases.testing, 'implementation'), phases.implementation);
+  assert.equal(repairBudgetPhaseForRejection(workflow, phases.conformance, 'specification'), phases.specification);
+  phases.specification.repairBudget.maxAttempts = 1;
+  assert.throws(() => repairBudgetPhaseForRejection(workflow, phases.conformance, 'specification'), {
+    code: 'REWORK_LOOP_POLICY_MISMATCH'
+  });
+});
 
 test('repair budgets stop a third repair and reset only on a new intent generation', () => {
   const workflow = {

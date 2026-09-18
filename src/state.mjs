@@ -4954,6 +4954,18 @@ export async function rejectPhase(root, config, workflow, {
     reviewPacketSha256: null,
     resolution: null
   };
+  const budgetPhase = repairBudgetPhaseForRejection(workflow, phase, targetId);
+  const budgetPreview = budgetPhase
+    ? { ...workflow, repairBudgets: structuredClone(workflow.repairBudgets ?? {}) }
+    : null;
+  const repairBudget = budgetPhase ? consumeRepairAttempt(budgetPreview, budgetPhase, {
+    targetPhase: targetId,
+    actor: structuredClone(session.actor),
+    at: timestamp,
+    changeRequestId: changeRequest.id
+  }) : null;
+  // Exhaustion is a read-only refusal. A forward checkpoint may create a retained Git ref, so
+  // validate a separate in-memory budget preview first; commit it only after the checkpoint works.
   changeRequest.forwardCheckpoint = await createReworkForwardCheckpoint(root, config, workflow, {
     changeRequestId: changeRequest.id,
     sourcePhase: phase.id,
@@ -4961,13 +4973,7 @@ export async function rejectPhase(root, config, workflow, {
     targetIndex,
     createdAt: timestamp
   });
-  const budgetPhase = repairBudgetPhaseForRejection(workflow, phase, targetId);
-  const repairBudget = budgetPhase ? consumeRepairAttempt(workflow, budgetPhase, {
-    targetPhase: targetId,
-    actor: structuredClone(session.actor),
-    at: timestamp,
-    changeRequestId: changeRequest.id
-  }) : null;
+  if (budgetPreview) workflow.repairBudgets = budgetPreview.repairBudgets;
   for (let index = targetIndex; index < workflow.phaseOrder.length; index += 1) {
     const affected = workflow.phases[workflow.phaseOrder[index]];
     affected.approvals.forEach((approval) => { if (!approval.invalidatedAt) approval.invalidatedAt = timestamp; });

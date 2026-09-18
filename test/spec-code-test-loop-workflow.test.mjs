@@ -72,8 +72,10 @@ test('spec-code-test-loop pins a distinct spec, Code, Playwright review, and con
 
 test('Testing to Code consumes the bounded repair budget, while Testing-only review does not', async () => {
   const definition = validateDefinition(await packaged());
-  const phases = resolveWorkType(definition, WORK_TYPE).phases;
+  const resolution = resolveWorkType(definition, WORK_TYPE);
+  const phases = resolution.phases;
   const workflow = {
+    resolution,
     phaseOrder: phases.map((phase) => phase.id),
     phases: Object.fromEntries(phases.map((phase) => [phase.id, {
       ...phase, generation: 1, validationVerdict: 'passed'
@@ -120,7 +122,10 @@ test('new and refreshed repositories receive the versioned workflow and honest r
   }
   assert.match(specificationTemplate, /\| Clause \| Expected paths \| Planned tests \|/);
   assert.equal((await workflowCatalog(root)).find((entry) => entry.id === WORK_TYPE).status, 'current');
-  assert.deepEqual((await simulateWorkflow(root, WORK_TYPE))[0].phases.map((phase) => phase.label), [
+  const simulation = (await simulateWorkflow(root, WORK_TYPE))[0];
+  assert.deepEqual(simulation.reworkLoops, [{ from: 'testing', to: 'implementation',
+    maxAttempts: 3, resetOnPhase: 'specification' }]);
+  assert.deepEqual(simulation.phases.map((phase) => phase.label), [
     'Specification', 'Code', 'Playwright testing review', 'Spec, code and test checking'
   ]);
   for (const phase of phases.slice(2)) {
@@ -169,6 +174,8 @@ test('a new Story pins the specification-first workflow and routes its next step
   assert.equal(workflow.currentPhase, 'specification');
   assert.equal(workflow.phases.specification.status, 'in_progress');
   assert.equal(workflow.resolution.plannedClaims.owners.implementation, 'specification');
+  assert.deepEqual(workflow.resolution.reworkLoops, [{ from: 'testing', to: 'implementation',
+    maxAttempts: 3, resetOnPhase: 'specification' }]);
   assert.deepEqual(workflow.resolution.phases.find((phase) => phase.id === 'testing').mcp.requiredServers,
     ['playwright']);
   const next = run(process.execPath, [CLI, '--no-model', 'nextsteps', '--json'], root);

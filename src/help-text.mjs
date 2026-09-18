@@ -271,9 +271,12 @@ Usage:
   singularity-flow review [PHASE] [--phase PHASE] [--format md|html|json] [--out FILE]
   singularity-flow workflow list [--json] [--for-start]    every workflow, Story and Initiative
   singularity-flow workflow create <ID> --phases a,b,c [--label TEXT] [--governs story|initiative] [--propose]
+    [--loop from:to:maxAttempts[:resetOnPhase]]...  bounded reviewer-directed Story rework
     [--planned-claims required --clause-phases a,b --claim-owners code=plan]
     [--planned-claims opt-out --opt-out-reason TEXT]
   singularity-flow workflow edit <ID> [--phases a,b,c] [--planned-claims auto|required|opt-out]
+    [--loop from:to:maxAttempts[:resetOnPhase]]... | [--clear-loops]
+    (--loop replaces the Story workflow's loop set; --clear-loops removes it)
   singularity-flow workflow proposals [--all] [--json]     pending configuration review branches
   singularity-flow workflow proposal <BRANCH> [--json]     exact commits, files and diff to review
   singularity-flow workflow activate <BRANCH> --confirm <COMMIT> [--acknowledge-unprotected]

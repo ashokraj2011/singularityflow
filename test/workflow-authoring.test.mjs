@@ -12,7 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import YAML from 'yaml';
-import { initializeDefinition, loadDefinition, resolveWorkType } from '../src/config.mjs';
+import { initializeDefinition, loadDefinition, resolveWorkType, validateDefinition } from '../src/config.mjs';
 import {
   addPhase, defineWorkflow, editPhase, editWorkflow, listWorkflows, upsertPhaseOutput
 } from '../src/workflow-authoring.mjs';
@@ -174,6 +174,54 @@ test('future Story workflow authoring validates planned claims before writing co
     }
   });
   assert.equal(resolveWorkType(await loadDefinition(root), 'reviewed-short-delivery').plannedClaims.mode, 'opt-out');
+});
+
+test('a Story workflow can declare, resolve, replace, and clear a bounded review loop', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-loop-authoring-'));
+  await initializeDefinition(root);
+  const loop = { from: 'verification', to: 'implementation', maxAttempts: 2,
+    resetOnPhase: 'requirements' };
+  await defineWorkflow(root, 'loop-delivery', {
+    phases: ['requirements', 'implementation-spec', 'implementation', 'verification'],
+    governs: 'story', reworkLoops: [loop]
+  });
+  let resolved = resolveWorkType(await loadDefinition(root), 'loop-delivery');
+  assert.deepEqual(resolved.reworkLoops, [loop]);
+  assert.ok(resolved.phases.find((phase) => phase.id === 'verification').approval.rejectTo.includes('implementation'));
+  assert.deepEqual(resolved.phases.find((phase) => phase.id === 'implementation').repairBudget,
+    { maxAttempts: 2, resetOnPhase: 'requirements' });
+  assert.deepEqual((await listWorkflows(root, 'story')).find((entry) => entry.id === 'loop-delivery').reworkLoops, [loop]);
+
+  const replacement = { from: 'verification', to: 'implementation-spec', maxAttempts: 1 };
+  await editWorkflow(root, 'loop-delivery', { reworkLoops: [replacement] });
+  resolved = resolveWorkType(await loadDefinition(root), 'loop-delivery');
+  assert.deepEqual(resolved.reworkLoops, [replacement]);
+  assert.equal(resolved.phases.find((phase) => phase.id === 'implementation').repairBudget, null);
+  await editWorkflow(root, 'loop-delivery', { reworkLoops: [] });
+  resolved = resolveWorkType(await loadDefinition(root), 'loop-delivery');
+  assert.equal(resolved.reworkLoops, undefined);
+  assert.equal(resolved.phases.find((phase) => phase.id === 'implementation-spec').repairBudget, null);
+});
+
+test('invalid Story loop policy is refused before workflow configuration is written', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-loop-refusal-'));
+  await initializeDefinition(root);
+  const file = path.join(root, 'singularity', 'workflow.yml');
+  const before = await readFile(file, 'utf8');
+  await assert.rejects(() => defineWorkflow(root, 'invalid-loop', {
+    phases: ['requirements', 'implementation-spec', 'implementation', 'verification'],
+    governs: 'story', reworkLoops: [{ from: 'implementation', to: 'verification', maxAttempts: 3 }]
+  }), /later phase to an earlier phase/);
+  assert.equal(await readFile(file, 'utf8'), before);
+
+  const definition = await loadDefinition(root);
+  const invalid = structuredClone(definition);
+  invalid.workTypes['spec-code-test-loop'].phaseOverrides.testing.approval = 'none';
+  assert.throws(() => validateDefinition(invalid), /requires human approval/);
+  await assert.rejects(() => defineWorkflow(root, 'initiative-loop', {
+    phases: ['intake'], governs: 'initiative',
+    reworkLoops: [{ from: 'testing', to: 'implementation', maxAttempts: 2 }]
+  }), /Story workflows/);
 });
 
 test('Story phase edits expose generation task and approval without losing other policy', async () => {

@@ -6,6 +6,7 @@ import {
   SECTION_CATALOG, newArtifactDraft, renderArtifactTemplate, type ArtifactDraft
 } from './artifact-designer-model.ts';
 import { escape, icon } from './webview.ts';
+import { workflowLoopIssues, type WorkflowLoopDraft } from './workflow-loop-draft.ts';
 
 export type DesignerTab = 'phases' | 'templates';
 
@@ -16,6 +17,7 @@ export interface WorkflowDraftView {
   description: string;
   governs: 'story' | 'initiative';
   phases: Array<{ id: string; label: string }>;
+  reworkLoops: WorkflowLoopDraft[];
   plannedClaimsMode?: 'required' | 'opt-out';
   clausePhases?: string;
   claimOwners?: string;
@@ -113,6 +115,14 @@ function workflowEditor(draft: WorkflowDraftView, choices: PhaseChoice[]): strin
   const eligibleClauses = selected.filter((phase) => phase && ['requirements', 'implementation-spec'].includes(phase.artifactKind ?? ''))
     .map((phase) => phase!.id);
   const codePhases = selected.filter((phase) => phase?.task === 'code').map((phase) => phase!.id);
+  const loops = draft.reworkLoops ?? [];
+  const loopIssues = workflowLoopIssues(draft.phases.map((phase) => phase.id), loops);
+  const phaseOptions = (value: string, prompt: string) => {
+    const missing = value && !draft.phases.some((phase) => phase.id === value)
+      ? `<option value="${escape(value)}" selected>${escape(value)} (not in this workflow)</option>` : '';
+    return `<option value=""${!value ? ' selected' : ''}>${prompt}</option>${missing}${draft.phases.map((phase) =>
+      `<option value="${escape(phase.id)}"${value === phase.id ? ' selected' : ''}>${escape(phase.label)} — ${escape(phase.id)}</option>`).join('')}`;
+  };
   return `
   <section class="editor-card workflow-editor">
     <div class="editor-title">
@@ -140,6 +150,22 @@ function workflowEditor(draft: WorkflowDraftView, choices: PhaseChoice[]): strin
       <select data-workflow-add-phase><option value="">Choose a phase…</option>${available.map((phase) => `<option value="${escape(phase.id)}">${escape(phase.label)} — ${escape(phase.id)}${['requirements', 'implementation-spec'].includes(phase.artifactKind ?? '') ? ' · clause source' : ''}${phase.task === 'code' ? ' · code' : ''}</option>`).join('')}</select>
       <button class="secondary" data-add-workflow-phase="1"${available.length ? '' : ' disabled'}>Add phase</button>
     </div>
+    ${draft.governs === 'story' ? `<section class="workflow-loop-editor" aria-label="Review-gated rework loops">
+      <h2>${icon('gate')}Rework loops</h2>
+      <p class="muted">A reviewer can return a later phase to an earlier one when corrections are needed. Each return is recorded and bounded; this does not run phases, change the specification, or approve work automatically.</p>
+      ${loops.map((loop, index) => `<div class="form-grid workflow-loop-row" data-workflow-loop-row="${index}">
+        <label class="field"><span>From review phase</span><select data-loop-from>${phaseOptions(loop.from, 'Choose a source phase…')}</select></label>
+        <label class="field"><span>Return to earlier phase</span><select data-loop-to>${phaseOptions(loop.to, 'Choose a return phase…')}</select></label>
+        <label class="field"><span>Maximum repair attempts</span><input data-loop-max type="number" min="1" max="100" step="1" value="${escape(String(loop.maxAttempts))}"></label>
+        <label class="field"><span>Reset after new generation of</span><select data-loop-reset>${phaseOptions(loop.resetOnPhase ?? '', 'No automatic reset')}</select><small>Optional. Must be strictly earlier than the return phase, so returning cannot bypass the repair limit.</small></label>
+        <div class="form-actions full"><button class="secondary" type="button" data-remove-workflow-loop="${index}">Remove this loop</button></div>
+      </div>`).join('')}
+      <div class="form-actions"><button class="secondary" type="button" data-add-workflow-loop="1"${draft.phases.length < 2 ? ' disabled' : ''}>Add rework loop</button></div>
+      ${loopIssues.length ? `<div class="notice error" role="alert"><strong>Resolve loop configuration before saving</strong><ul>${loopIssues.map((issue) => `<li>${escape(issue)}</li>`).join('')}</ul></div>` : ''}
+      <div class="workflow-loop-preview"><strong>Draft backward paths</strong>
+        ${loops.length ? `<ul>${loops.map((loop) => `<li><code>${escape(loop.from || 'source?')}</code> ↶ <code>${escape(loop.to || 'return?')}</code> · at most ${escape(String(loop.maxAttempts))} reviewer-directed repair attempts${loop.resetOnPhase ? ` · reset after a new ${escape(loop.resetOnPhase)} generation` : ''}</li>`).join('')}</ul>` : '<p class="muted">No return paths configured. Phases advance in their listed order.</p>'}
+      </div>
+    </section>` : ''}
     ${draft.governs === 'story' ? `<div class="form-grid planned-claims-editor">
       <label class="field"><span>Planned claims</span><select data-workflow-planned-claims><option value="required"${draft.plannedClaimsMode !== 'opt-out' ? ' selected' : ''}>Required (recommended)</option><option value="opt-out"${draft.plannedClaimsMode === 'opt-out' ? ' selected' : ''}>Explicit opt-out</option></select><small>Required binds implementation claims to earlier clauses and planned tests. The engine infers these from eligible phases when left blank.</small></label>
       <label class="field"><span>Clause phases</span><input data-workflow-clause-phases value="${escape(draft.clausePhases ?? '')}" placeholder="${escape(eligibleClauses.join(',') || 'specification')}"><small>Eligible in this sequence: ${escape(eligibleClauses.join(', ') || 'none')}. Clause phases must produce requirements or implementation-spec artifacts.</small></label>
@@ -153,7 +179,7 @@ function workflowEditor(draft: WorkflowDraftView, choices: PhaseChoice[]): strin
         return `<tr><td>${index + 1}. ${escape(phase.label)}<br><code>${escape(phase.id)}</code></td><td>${escape(detail?.template ?? 'none')}</td><td>${escape(detail?.inputs?.join(', ') || 'none')}</td><td>${escape(`${detail?.minimumApprovals ?? 1} (${detail?.authorities?.join(', ') || 'none'})`)}</td><td>${escape(detail?.views?.join(', ') || 'none')}</td><td>${escape(detail?.task ?? 'none')}</td></tr>`;
       }).join('')}</tbody></table>` : '<p class="empty-state">Add phases to preview the workflow.</p>'}
     </details>
-    <div class="form-actions"><button data-save-workflow="1">${draft.isNew ? 'Create workflow' : 'Save workflow'}</button><button class="secondary" data-cancel-workflow="1">Cancel</button></div>
+    <div class="form-actions"><button data-save-workflow="1"${loopIssues.length ? ' disabled' : ''}>${draft.isNew ? 'Create workflow' : 'Save workflow'}</button><button class="secondary" data-cancel-workflow="1">Cancel</button></div>
   </section>`;
 }
 
@@ -358,7 +384,13 @@ export const DESIGNER_SCRIPT = `
     plannedClaimsMode: document.querySelector('[data-workflow-planned-claims]')?.value,
     clausePhases: value('[data-workflow-clause-phases]'),
     claimOwners: value('[data-workflow-claim-owners]'),
-    optOutReason: value('[data-workflow-opt-out-reason]')
+    optOutReason: value('[data-workflow-opt-out-reason]'),
+    reworkLoops: [...document.querySelectorAll('[data-workflow-loop-row]')].map((row) => ({
+      from: row.querySelector('[data-loop-from]')?.value ?? '',
+      to: row.querySelector('[data-loop-to]')?.value ?? '',
+      maxAttempts: Number(row.querySelector('[data-loop-max]')?.value),
+      resetOnPhase: row.querySelector('[data-loop-reset]')?.value ?? ''
+    }))
   });
   const artifactFields = () => ({
     governs: document.querySelector('[data-artifact-governs]')?.value,
@@ -371,7 +403,7 @@ export const DESIGNER_SCRIPT = `
     sections: sections()
   });
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('button[data-tab],button[data-open-file],button[data-open-template],button[data-edit-phase],button[data-edit-workflow],button[data-new-workflow],button[data-new-phase],button[data-cancel-workflow],button[data-save-workflow],button[data-workflow-phase-action],button[data-add-workflow-phase],button[data-save-phase],button[data-cancel-phase],button[data-add-section],button[data-section-action],button[data-save-artifact],button[data-reset-artifact],button[data-attach-artifact],button[data-review-proposal],button[data-refresh-proposals]');
+    const target = event.target.closest('button[data-tab],button[data-open-file],button[data-open-template],button[data-edit-phase],button[data-edit-workflow],button[data-new-workflow],button[data-new-phase],button[data-cancel-workflow],button[data-save-workflow],button[data-workflow-phase-action],button[data-add-workflow-phase],button[data-add-workflow-loop],button[data-remove-workflow-loop],button[data-save-phase],button[data-cancel-phase],button[data-add-section],button[data-section-action],button[data-save-artifact],button[data-reset-artifact],button[data-attach-artifact],button[data-review-proposal],button[data-refresh-proposals]');
     if (!target) return;
     event.preventDefault();
     const data = target.dataset;
@@ -387,6 +419,8 @@ export const DESIGNER_SCRIPT = `
     else if (data.cancelWorkflow !== undefined) vscode.postMessage({ type: 'cancel-workflow' });
     else if (data.workflowPhaseAction) vscode.postMessage({ type: 'workflow-phase-action', action: data.workflowPhaseAction, index: Number(data.index), ...workflowFields() });
     else if (data.addWorkflowPhase !== undefined) vscode.postMessage({ type: 'add-workflow-phase', phase: value('[data-workflow-add-phase]'), ...workflowFields() });
+    else if (data.addWorkflowLoop !== undefined) vscode.postMessage({ type: 'add-workflow-loop', ...workflowFields() });
+    else if (data.removeWorkflowLoop !== undefined) vscode.postMessage({ type: 'remove-workflow-loop', index: Number(data.removeWorkflowLoop), ...workflowFields() });
     else if (data.saveWorkflow !== undefined) vscode.postMessage({ type: 'save-workflow', ...workflowFields() });
     else if (data.savePhase !== undefined) vscode.postMessage({ type: 'save-phase', id: value('[data-phase-id]'), label: value('[data-phase-label]'), governs: document.querySelector('[data-phase-governs]')?.value, views: value('[data-phase-views]'), agents: value('[data-phase-agents]'), lanes: value('[data-phase-lanes]'), task: document.querySelector('[data-phase-task]')?.value, authorities: value('[data-phase-authorities]'), minimum: value('[data-phase-minimum]') });
     else if (data.cancelPhase !== undefined) vscode.postMessage({ type: 'cancel-phase' });
@@ -409,6 +443,7 @@ export const DESIGNER_SCRIPT = `
     else if (pick?.templateFilter !== undefined) vscode.postMessage({ type: 'filter', value: event.target.value });
     else if (pick?.workflowGoverns !== undefined) vscode.postMessage({ type: 'workflow-governs', value: event.target.value, ...workflowFields() });
     else if (pick?.workflowPlannedClaims !== undefined) vscode.postMessage({ type: 'workflow-claims', ...workflowFields() });
+    else if (event.target.closest?.('[data-workflow-loop-row]')) vscode.postMessage({ type: 'workflow-loops', ...workflowFields() });
     else if (pick?.artifactGoverns !== undefined) vscode.postMessage({ type: 'artifact-governs', ...artifactFields() });
   });
   let dragged = null;

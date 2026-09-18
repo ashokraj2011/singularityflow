@@ -8,6 +8,7 @@ import {
   type PhaseDraftView, type WorkflowDraftView, type WorkflowProposalSummary
 } from './designer-page.ts';
 import { buildProfiles, buildTemplateUsage, standingOn, type Profile } from './designer-model.ts';
+import { workflowLoopIssues } from './workflow-loop-draft.ts';
 import {
   newArtifactDraft, renderArtifactTemplate, sectionFor, validateArtifactDraft,
   SECTION_CATALOG, type ArtifactDraft, type ArtifactSection, type ArtifactSectionKind
@@ -188,10 +189,12 @@ export class DesignerPanel {
     this.phaseDraft = null;
     this.workflowDraft = isNew || !profile ? {
       isNew: true, id: '', label: '', description: '', governs: profile?.governs ?? 'story', phases: [],
+      reworkLoops: [],
       plannedClaimsMode: 'required', clausePhases: '', claimOwners: '', optOutReason: ''
     } : {
       isNew: false, id: profile.id, label: profile.label, description: profile.description,
       governs: profile.governs, phases: profile.phases.map((phase) => ({ id: phase.id, label: phase.label })),
+      reworkLoops: (profile.reworkLoops ?? []).map((loop) => ({ ...loop })),
       plannedClaimsMode: profile.plannedClaims?.mode === 'opt-out' ? 'opt-out' : 'required',
       clausePhases: (profile.plannedClaims?.clausePhases ?? []).join(', '),
       claimOwners: Object.entries(profile.plannedClaims?.owners ?? {}).map(([code, clause]) => `${code}=${clause}`).join(', '),
@@ -252,6 +255,15 @@ export class DesignerPanel {
     this.workflowDraft.clausePhases = text(raw.clausePhases);
     this.workflowDraft.claimOwners = text(raw.claimOwners);
     this.workflowDraft.optOutReason = text(raw.optOutReason);
+    if (Array.isArray(raw.reworkLoops)) {
+      this.workflowDraft.reworkLoops = raw.reworkLoops.map((value) => {
+        const loop = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+        return {
+          from: text(loop.from), to: text(loop.to), maxAttempts: Number(loop.maxAttempts),
+          ...(text(loop.resetOnPhase) ? { resetOnPhase: text(loop.resetOnPhase) } : {})
+        };
+      });
+    }
   }
 
   private async receive(raw: unknown): Promise<void> {
@@ -295,9 +307,14 @@ export class DesignerPanel {
       this.workflowDraft.governs = governs(message.value, this.workflowDraft.governs);
       if (previous === this.workflowDraft.governs) return;
       this.workflowDraft.phases = [];
+      this.workflowDraft.reworkLoops = [];
       return this.render();
     }
     if (message.type === 'workflow-claims' && this.workflowDraft) {
+      this.updateWorkflow(message);
+      return this.render();
+    }
+    if (message.type === 'workflow-loops' && this.workflowDraft?.governs === 'story') {
       this.updateWorkflow(message);
       return this.render();
     }
@@ -316,6 +333,18 @@ export class DesignerPanel {
       if (phase && !this.workflowDraft.phases.some((entry) => entry.id === phase.id)) this.workflowDraft.phases.push({ id: phase.id, label: phase.label });
       return this.render();
     }
+    if (message.type === 'add-workflow-loop' && this.workflowDraft?.governs === 'story') {
+      this.updateWorkflow(message);
+      this.workflowDraft.reworkLoops.push({ from: '', to: '', maxAttempts: 3 });
+      return this.render();
+    }
+    if (message.type === 'remove-workflow-loop' && this.workflowDraft?.governs === 'story') {
+      this.updateWorkflow(message);
+      const index = Number(message.index);
+      if (!Number.isInteger(index) || index < 0 || index >= this.workflowDraft.reworkLoops.length) return;
+      this.workflowDraft.reworkLoops.splice(index, 1);
+      return this.render();
+    }
     if (message.type === 'save-workflow' && this.workflowDraft) {
       this.updateWorkflow(message);
       const draft = this.workflowDraft;
@@ -325,6 +354,8 @@ export class DesignerPanel {
         ['requirements', 'implementation-spec'].includes(phase.artifactKind ?? '')).map((phase) => phase.id));
       const clausePhases = csv(draft.clausePhases ?? '');
       const ownerEntries = csv(draft.claimOwners ?? '');
+      const loopIssues = draft.governs === 'story'
+        ? workflowLoopIssues(draft.phases.map((phase) => phase.id), draft.reworkLoops) : [];
       const invalidClause = clausePhases.find((id) => !eligible.has(id));
       const invalidOwner = ownerEntries.find((entry) => {
         const match = entry.match(/^([a-z0-9]+(?:-[a-z0-9]+)*)=([a-z0-9]+(?:-[a-z0-9]+)*)$/);
@@ -333,6 +364,7 @@ export class DesignerPanel {
       if (!ID.test(this.workflowDraft.id)) this.error = 'Workflow ID must be lower-case kebab-case.';
       else if (!this.workflowDraft.label) this.error = 'Give the workflow a display name.';
       else if (!this.workflowDraft.phases.length) this.error = 'A workflow needs at least one phase.';
+      else if (loopIssues.length) this.error = loopIssues[0] ?? 'Correct the rework loop before saving.';
       else if (draft.governs === 'story' && draft.plannedClaimsMode !== 'opt-out' && !eligible.size) {
         this.error = 'This Story has no clause-capable phase. Add a phase with a requirements or implementation-spec artifact, or choose a reviewed opt-out.';
       }
@@ -349,6 +381,9 @@ export class DesignerPanel {
           '--phases', this.workflowDraft.phases.map((phase) => phase.id).join(',')];
         if (this.workflowDraft.isNew) command.push('--governs', this.workflowDraft.governs);
         if (draft.governs === 'story') {
+          if (!draft.isNew && draft.reworkLoops.length === 0) command.push('--clear-loops');
+          for (const loop of draft.reworkLoops) command.push('--loop',
+            `${loop.from}:${loop.to}:${loop.maxAttempts}${loop.resetOnPhase ? `:${loop.resetOnPhase}` : ''}`);
           command.push('--planned-claims', draft.plannedClaimsMode === 'opt-out' ? 'opt-out' : 'required');
           if (draft.plannedClaimsMode === 'opt-out') command.push('--opt-out-reason', draft.optOutReason ?? '');
           else {

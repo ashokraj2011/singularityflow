@@ -853,6 +853,7 @@ export interface RepositorySnapshot {
     workTypes?: Record<string, {
       label?: string;
       phases?: string[];
+      reworkLoops?: Array<{ from: string; to: string; maxAttempts: number; resetOnPhase?: string }>;
       auto?: {
         eligibility?: 'disabled' | 'plan-only' | 'bounded';
         [key: string]: unknown;

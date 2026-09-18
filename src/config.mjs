@@ -53,7 +53,7 @@ import { normalizeHarnessImports } from './harness-imports.mjs';
 import { loadImpactDefinition } from './impact-config.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { materializationPolicy } from './world-model-materialization.mjs';
-import { normalizeRepairBudget } from './repair-budget.mjs';
+import { normalizeRepairBudget, normalizeReworkLoops } from './repair-budget.mjs';
 import { normalizeSourceBoundary } from './source-boundary.mjs';
 import { normalizeWorkItemRoot } from './work-item-location.mjs';
 import { normalizeFaultRepairPolicy } from './fault-repair.mjs';
@@ -1175,6 +1175,7 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
   for (const [id, workType] of Object.entries(definition.workTypes)) {
     assertId(id, 'Work type');
     if (!workType.label || !Array.isArray(workType.phases) || !workType.phases.length) throw new SingularityFlowError(`Work type '${id}' requires label and phases.`);
+    normalizeReworkLoops(workType.reworkLoops, { workTypeId: id, phases: workType.phases });
     for (const phaseId of workType.phases) if (!definition.phases[phaseId]) throw new SingularityFlowError(`Work type '${id}' references unknown phase '${phaseId}'.`);
     for (const phaseId of Object.keys(workType.templateOverrides ?? {})) if (!workType.phases.includes(phaseId)) throw new SingularityFlowError(`Work type '${id}' has a template override for inactive phase '${phaseId}'.`);
     for (const phaseId of Object.keys(workType.phaseOverrides ?? {})) if (!workType.phases.includes(phaseId)) throw new SingularityFlowError(`Work type '${id}' has an override for inactive phase '${phaseId}'.`);
@@ -1873,6 +1874,9 @@ export async function initializationStatus(root) {
 export function resolveWorkType(definition, workTypeId) {
   const workType = definition.workTypes[workTypeId];
   if (!workType) throw new SingularityFlowError(`Unknown work type '${workTypeId}'.`);
+  const reworkLoops = normalizeReworkLoops(workType.reworkLoops, {
+    workTypeId, phases: workType.phases
+  });
   let phases = workType.phases.map((id, order) => {
     const phase = structuredClone(definition.phases[id]);
     const override = structuredClone(workType.phaseOverrides?.[id] ?? {});
@@ -1900,6 +1904,17 @@ export function resolveWorkType(definition, workTypeId) {
     const template = resolvedTemplate?.source === 'catalog' ? resolvedTemplate.path : declaredTemplate;
     const inputs = normalizePhaseInputs(merged.inputs, `Work type '${workTypeId}' phase '${id}' inputs`);
     const approval = normalizeApprovalPolicy(merged.approval ?? {}, definition.approvalAuthorities, id, definition.approvalSecurity);
+    const loopTargets = reworkLoops.filter((loop) => loop.from === id).map((loop) => loop.to);
+    if (loopTargets.length && approval.mode === 'none') {
+      throw new SingularityFlowError(`Work type '${workTypeId}' loop source '${id}' requires human approval.`);
+    }
+    if (loopTargets.length) {
+      const rejectTo = new Set([...approval.rejectTo, ...loopTargets]);
+      approval.rejectTo = [
+        ...workType.phases.filter((candidate) => rejectTo.has(candidate)),
+        ...approval.rejectTo.filter((candidate) => !workType.phases.includes(candidate))
+      ];
+    }
     if (id === 'convergence') {
       assertConvergenceHumanApproval(
         approval, `Work type '${workTypeId}' phase 'convergence'`
@@ -1918,7 +1933,17 @@ export function resolveWorkType(definition, workTypeId) {
     }
     generation = pinCodeDeliveryTask({ ...merged, generation }, 'generation');
     const mcp = normalizePhaseMcpPolicy(merged.mcp, { servers: definition.mcpServers, phaseId: id });
-    const repairBudget = normalizeRepairBudget(merged.repairBudget, { phaseId: id, phases: workType.phases });
+    let repairBudget = normalizeRepairBudget(merged.repairBudget, { phaseId: id, phases: workType.phases });
+    const incomingLoop = reworkLoops.find((loop) => loop.to === id);
+    if (incomingLoop) {
+      const declaredBudget = { maxAttempts: incomingLoop.maxAttempts,
+        resetOnPhase: incomingLoop.resetOnPhase ?? null };
+      if (repairBudget && (repairBudget.maxAttempts !== declaredBudget.maxAttempts
+          || repairBudget.resetOnPhase !== declaredBudget.resetOnPhase)) {
+        throw new SingularityFlowError(`Work type '${workTypeId}' loop target '${id}' conflicts with its existing repairBudget.`);
+      }
+      repairBudget = declaredBudget;
+    }
     const clarification = normalizeClarificationPolicy(merged.clarification);
     const specificationQuality = specificationQualityPolicy(merged.specificationQuality ?? {});
     const resolvedPhase = { id, order, ...merged, approval, generation, mcp, repairBudget, clarification, specificationQuality, sourceBoundary, inputs, template };
@@ -1950,6 +1975,7 @@ export function resolveWorkType(definition, workTypeId) {
   return {
     id: workTypeId,
     label: workType.label,
+    ...(reworkLoops.length ? { reworkLoops } : {}),
     auto: normalizeAutoWorkTypePolicy(workType.auto, `Work type '${workTypeId}' auto`, workType.phases),
     inputsMode: configuredInputsMode(definition),
     approvalSecurity: structuredClone(definition.approvalSecurity),
@@ -2055,6 +2081,7 @@ export async function snapshotResolution(root, definition, resolved) {
     ledger: structuredClone(resolved.ledger ?? normalizeLedgerConfig(definition.ledger ?? {})),
     spec: structuredClone(resolved.spec ?? normalizeSpecPolicy(definition.spec ?? {})),
     plannedClaims: structuredClone(resolved.plannedClaims ?? null),
+    ...(resolved.reworkLoops?.length ? { reworkLoops: structuredClone(resolved.reworkLoops) } : {}),
     codeDelivery: structuredClone(resolved.codeDelivery ?? normalizeCodeDeliveryPolicy(definition.codeDelivery ?? {})),
     // Fault-repair is resolved per workflow just like code delivery. It must be pinned into the
     // Story snapshot; otherwise every later recovery gate silently falls back to product defaults.

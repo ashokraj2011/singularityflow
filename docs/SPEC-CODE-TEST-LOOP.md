@@ -81,3 +81,8 @@ is approved. Reaching the bound stops for a human decision; it does not silently
 or repeat forever. A fully self-executing loop would need a separately approved isolated runner,
 candidate-bound test receipts, process/network-effect attestation, and policy for who may approve
 intent changes. This workflow does not claim those capabilities.
+
+To declare a similarly bounded return edge in a custom Story workflow, use the Workflows &
+artifacts Designer or the `workflow create`/`workflow edit --loop` option documented in
+[Bounded rework loops](WORKFLOW-REWORK-LOOPS.md). Custom loops use submitted-phase reviewer
+rejection; they do not inherit this packaged workflow's special in-progress Testing repair route.

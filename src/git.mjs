@@ -1147,6 +1147,49 @@ export function admitGovernedPublication(root, paths, { expectedHead = head(root
 }
 
 /**
+ * The publication unit of work is the sole production issuer of this closed local-ref request.
+ * Keep it private to commitIsolated: accepting an arbitrary ref/argv object from a command would
+ * turn a Git transport detail into a second authorization surface. The owner has already sealed
+ * its transaction journal and verified the exact prospective tree before this point.
+ */
+function publicationLocalRefCas(root, request) {
+  const keys = ['kind', 'ref', 'expectedOldOid', 'newCommitOid', 'treeOid', 'transactionId'];
+  const oid = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u;
+  if (!Object.isFrozen(request) || Object.keys(request).sort().join('\0') !== keys.sort().join('\0')
+      || request.kind !== 'publication-local-ref-cas'
+      || typeof request.ref !== 'string' || !request.ref.startsWith('refs/heads/')
+      || !request.transactionId || typeof request.transactionId !== 'string'
+      || !oid.test(request.expectedOldOid) || !oid.test(request.newCommitOid)
+      || !oid.test(request.treeOid)
+      || request.expectedOldOid.length !== request.newCommitOid.length
+      || request.treeOid.length !== request.newCommitOid.length) {
+    throw new SingularityFlowError('The governed publication ref transaction is not an exact, owner-bound request.', {
+      code: 'PUBLICATION_REF_REQUEST_INVALID'
+    });
+  }
+  validBranch(root, request.ref.slice('refs/heads/'.length));
+  // `update-ref` normally dereferences symbolic refs. A raced symbolic branch must never move a
+  // different target, even if its resolved OID happens to match the expected old commit.
+  const symbolic = git(['symbolic-ref', '-q', request.ref], { cwd: root, allowFailure: true });
+  if (symbolic.status === 0) {
+    throw new SingularityFlowError('The governed publication branch became a symbolic ref before its compare-and-swap.', {
+      code: 'PUBLICATION_SYMBOLIC_REF_UNSUPPORTED'
+    });
+  }
+  if (symbolic.status !== 1) {
+    throw new SingularityFlowError('The governed publication branch type could not be verified before its compare-and-swap.', {
+      code: 'PUBLICATION_REF_REQUEST_UNVERIFIED'
+    });
+  }
+  const result = git([
+    'update-ref', '--no-deref', request.ref, request.newCommitOid, request.expectedOldOid
+  ], { cwd: root, allowFailure: true });
+  // A failed or interrupted Git process can have written the ref before returning. The durable
+  // journal, not the process exit code, owns reconciliation of that exact commit afterward.
+  return result.status === 0 ? 'applied' : 'outcome-unknown';
+}
+
+/**
  * Create a governed commit without borrowing the contributor's Git index.
  *
  * The lifecycle engine writes governed files into the worktree, but a contributor may already
@@ -1312,12 +1355,41 @@ export async function commitIsolated(root, message, paths, {
     if (!ref) {
       throw new SingularityFlowError('Detached HEAD is not supported for governed publication.');
     }
-    const update = git(['update-ref', ref, sourceCommit, expectedHead], { cwd: root, allowFailure: true });
-    if (update.status !== 0) {
-      throw new SingularityFlowError(
-        `Governed publication lost its branch-head race: ${(update.stderr || update.stdout).trim() || 'compare-and-swap failed'}. `
-        + 'Reload the lifecycle state and retry.'
-      );
+    if (boundTransaction?.id) {
+      const outcome = publicationLocalRefCas(root, Object.freeze({
+        kind: 'publication-local-ref-cas', ref, expectedOldOid: expectedHead,
+        newCommitOid: sourceCommit, treeOid: tree, transactionId: boundTransaction.id
+      }));
+      if (outcome !== 'applied') {
+        const error = new SingularityFlowError(
+          'Governed publication could not prove whether its exact branch compare-and-swap applied. '
+          + 'The commit and transaction journal were retained for exact recovery; do not retry publication before reconciliation.',
+          { code: 'PUBLICATION_REF_OUTCOME_UNKNOWN' }
+        );
+        error.publicationRefOutcomeUnknown = true;
+        throw error;
+      }
+      // Fault injection models a process dying after Git installed the ref but before the owner
+      // received its acknowledgement. Keep the commit-created journal, then let recovery inspect
+      // the exact ref rather than treating the failed callback as proof the CAS did not apply.
+      if (fault) {
+        try {
+          await fault('after-ref-cas-before-ack', { expectedHead, sourceCommit, ref, tree });
+        } catch (error) {
+          error.publicationRefOutcomeUnknown = true;
+          throw error;
+        }
+      }
+    } else {
+      // Non-lifecycle owners have their own recovery contracts. Migrate them separately rather
+      // than silently changing how they classify a failed ref update in this first GAL increment.
+      const update = git(['update-ref', ref, sourceCommit, expectedHead], { cwd: root, allowFailure: true });
+      if (update.status !== 0) {
+        throw new SingularityFlowError(
+          `Governed publication lost its branch-head race: ${(update.stderr || update.stdout).trim() || 'compare-and-swap failed'}. `
+          + 'Reload the lifecycle state and retry.'
+        );
+      }
     }
     refAdvanced = true;
     if (onRefAdvanced) await onRefAdvanced({ expectedHead, sourceCommit, tree, transaction: boundTransaction });

@@ -2068,6 +2068,83 @@ test('a failure after branch ref advancement records the exact commit for public
   }
 });
 
+test('an owner-bound local ref CAS retains its journal when the expected old OID loses a race', async () => {
+  const root = await repository('sflow-publication-ref-cas-race-');
+  const subject = { kind: 'story', id: 'REF-CAS-RACE', branch: 'main' };
+  const target = 'story-state.json';
+  await writeFile(path.join(root, target), '{"status":"before"}\n');
+  git(['add', target], root);
+  git(['commit', '-m', 'canonical state'], root);
+  const original = git(['rev-parse', 'HEAD'], root);
+  let competingCommit = null;
+
+  await assert.rejects(() => new GitPublicationUnitOfWork(root).execute({
+    subject,
+    event: lifecycleEvent({ type: 'artifact-generated', subject, phaseId: 'intake', generation: 1 }),
+    commit: { message: '[REF-CAS-RACE] exact local publication' },
+    publication: { mode: 'off', branch: 'main', remote: 'origin' },
+    allowedPaths: [target],
+    state: { write: () => writeFile(path.join(root, target), '{"status":"candidate"}\n') },
+    fault: (stage) => {
+      if (stage !== 'after-commit-object') return;
+      const originalTree = git(['rev-parse', `${original}^{tree}`], root);
+      competingCommit = git(['commit-tree', originalTree, '-p', original, '-m', 'competing ref owner'], root);
+      git(['update-ref', 'refs/heads/main', competingCommit, original], root);
+    }
+  }), (error) => error.code === 'PUBLICATION_REF_OUTCOME_UNKNOWN'
+      && error.publicationRefOutcomeUnknown === true
+      && error.publicationRefAdvanced === false);
+
+  assert.equal(git(['rev-parse', 'refs/heads/main'], root), competingCommit,
+    'the publication CAS must not overwrite the competing branch update');
+  const journal = await readPublicationJournal(root, subject);
+  assert.equal(journal.record.stage, 'commit-created');
+  assert.equal(journal.record.expectedHead, original);
+  assert.match(journal.record.commit, /^[0-9a-f]{40,64}$/u);
+  assert.notEqual(journal.record.commit, competingCommit);
+  assert.equal(await readFile(path.join(root, target), 'utf8'), '{"status":"candidate"}\n',
+    'an indeterminate ref outcome must not roll back authored bytes');
+  const pending = await readPendingPublication(root, subject);
+  assert.equal(pending.record.code, 'PUBLICATION_RECOVERY_DIVERGED',
+    'recovery must report the competing ref rather than claim that the candidate was published');
+});
+
+test('an owner-bound local ref CAS recovers when acknowledgement is lost after the ref advanced', async () => {
+  const root = await repository('sflow-publication-ref-cas-ack-loss-');
+  const subject = { kind: 'story', id: 'REF-CAS-ACK-LOSS', branch: 'main' };
+  const target = 'story-state.json';
+  await writeFile(path.join(root, target), '{"status":"before"}\n');
+  git(['add', target], root);
+  git(['commit', '-m', 'canonical state'], root);
+  const original = git(['rev-parse', 'HEAD'], root);
+  const remote = await ensurePublicationOrigin(root);
+
+  await assert.rejects(() => new GitPublicationUnitOfWork(root).execute({
+    subject,
+    event: lifecycleEvent({ type: 'artifact-generated', subject, phaseId: 'intake', generation: 1 }),
+    commit: { message: '[REF-CAS-ACK-LOSS] exact local publication' },
+    publication: { mode: 'required', branch: 'main', remote: 'origin' },
+    allowedPaths: [target],
+    state: { write: () => writeFile(path.join(root, target), '{"status":"candidate"}\n') },
+    fault: (stage) => {
+      if (stage === 'after-ref-cas-before-ack') throw new Error('simulated local CAS acknowledgement loss');
+    }
+  }), (error) => error.publicationRefOutcomeUnknown === true
+      && error.publicationRefAdvanced === false
+      && /acknowledgement loss/u.test(error.message));
+
+  const committed = git(['rev-parse', 'refs/heads/main'], root);
+  assert.notEqual(committed, original);
+  const journal = await readPublicationJournal(root, subject);
+  assert.equal(journal.record.stage, 'commit-created');
+  assert.equal(journal.record.commit, committed);
+  assert.equal(git(['--git-dir', remote, 'rev-parse', 'refs/heads/main'], root), original,
+    'lost local acknowledgement must not start a remote push');
+  const pending = await readPendingPublication(root, subject);
+  assert.equal(pending.record.recoveryStage, 'branch-ref-advanced-before-publication');
+  assert.equal(pending.record.commit, committed);
+});
+
 test('an unrelated HEAD advancement cannot erase a draft recovery journal', async () => {
   const root = await repository('sflow-draft-unrelated-head-');
   const subject = { kind: 'story', id: 'DRAFT-UNRELATED-HEAD', branch: 'main' };

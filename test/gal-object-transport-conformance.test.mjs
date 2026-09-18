@@ -292,7 +292,7 @@ test('GAL:AC-025 cancelling an active frame retires only that frame; queued work
       const generation = ++spawns;
       return scriptedWorker((child) => {
         if (generation === 1) firstWritten();
-        else child.stdout.emit('data', frame(value.binaryOid, value.binary));
+        else child.stdout.emit('data', frame(value.emptyOid, Buffer.alloc(0)));
       });
     }
   });
@@ -301,14 +301,14 @@ test('GAL:AC-025 cancelling an active frame retires only that frame; queued work
   const active = worker.read(value.binaryOid, { signal: controller.signal });
   const activeFailure = assert.rejects(active, { code: 'OBJECT_REQUEST_CANCELLED' });
   await wroteFirst;
-  const queued = worker.read(value.binaryOid);
+  const queued = worker.read(value.emptyOid);
   for (let i = 0; worker.queued !== 2 && i < 50; i += 1) {
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   assert.equal(worker.queued, 2);
   controller.abort();
   await activeFailure;
-  assert.deepEqual((await queued).bytes, value.binary);
+  assert.deepEqual((await queued).bytes, Buffer.alloc(0));
   assert.equal(worker.processSpawns, 2);
 });
 
@@ -348,7 +348,7 @@ test('GAL:AC-026 unverifiable worker cleanup blocks queued work and is reported 
   const active = worker.read(value.binaryOid, { signal: controller.signal });
   const activeFailure = assert.rejects(active, { code: 'OBJECT_REQUEST_CANCELLED' });
   await wroteFirst;
-  const queued = worker.read(value.binaryOid);
+  const queued = worker.read(value.emptyOid);
   const queuedFailure = assert.rejects(queued, { code: 'GAL_CLEANUP_INCOMPLETE' });
   for (let i = 0; worker.queued !== 2 && i < 50; i += 1) {
     await new Promise((resolve) => setTimeout(resolve, 5));

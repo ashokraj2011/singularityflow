@@ -505,6 +505,13 @@ export class GitPublicationUnitOfWork {
         }
       });
     } catch (error) {
+      if (error.publicationRefOutcomeUnknown === true) {
+        // The Git child may have advanced the exact ref before failing or timing out. The
+        // commit-created journal already contains the exact transaction commit/tree; leave it
+        // intact so recovery can compare current authority with that receipt. Neither rollback
+        // nor a pending-publication marker that assumes the ref advanced is safe here.
+        throw error;
+      }
       if (!error.publicationRefAdvanced) await unwind(error);
       sourceCommit = error.publicationCommit;
       if (!sourceCommit) {

@@ -46,6 +46,26 @@ function scriptedChild(parts, onWrite = () => {}) {
   };
 }
 
+async function within(promise, label) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`Timed out waiting for ${label}.`)), 2_000);
+      })
+    ]);
+  } finally { clearTimeout(timer); }
+}
+
+async function waitForQueued(service, count) {
+  const deadline = Date.now() + 2_000;
+  while (service.queued !== count && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(service.queued, count, `expected ${count} live logical subscribers`);
+}
+
 test('FOS:AC-031 persistent object service preserves binary bytes and missing results', async () => {
   const root = await repository();
   const oid = git(['rev-parse', 'HEAD:source.bin'], root);
@@ -58,6 +78,124 @@ test('FOS:AC-031 persistent object service preserves binary bytes and missing re
   const [closed, disposed] = await Promise.all([service.close(), service.dispose()]);
   assert.deepEqual(closed, { closed: true, terminated: true });
   assert.deepEqual(disposed, closed);
+});
+
+test('GAL:AC-025 identical in-flight readers share one write but retain independent bytes', async () => {
+  const root = await repository();
+  const oid = git(['rev-parse', 'HEAD:source.bin'], root);
+  const bytes = Buffer.from([0, 10, 255, 13, 10]);
+  const frame = Buffer.concat([Buffer.from(`${oid} blob ${bytes.length}\n`), bytes, Buffer.from('\n')]);
+  let child;
+  let writes = 0;
+  let wroteFirst;
+  const firstWrite = new Promise((resolve) => { wroteFirst = resolve; });
+  const service = new FosGitObjectService(root, {
+    spawnCommand: () => {
+      child = scriptedChild([], () => {
+        writes += 1;
+        if (writes === 1) wroteFirst();
+        else child.stdout.emit('data', frame);
+      })();
+      return child;
+    }
+  });
+  try {
+    const first = service.read(oid);
+    await within(firstWrite, 'the first object-worker write');
+    const second = service.read(oid);
+    await waitForQueued(service, 2);
+    child.stdout.emit('data', frame);
+    const [one, two] = await Promise.all([first, second]);
+    assert.equal(writes, 1, 'two logical subscribers must require one physical worker write');
+    assert.deepEqual(one.bytes, bytes);
+    assert.deepEqual(two.bytes, bytes);
+    one.bytes[0] ^= 1;
+    assert.deepEqual(two.bytes, bytes, 'one caller cannot mutate another caller’s bytes');
+    assert.deepEqual((await service.read(oid)).bytes, bytes,
+      'a completed group must not become a sticky cross-invocation answer');
+    assert.equal(writes, 2);
+  } finally { await service.close(); }
+});
+
+test('GAL:AC-025 cancelling one coalesced subscriber preserves its live peer and worker', async () => {
+  const root = await repository();
+  const oid = git(['rev-parse', 'HEAD:source.bin'], root);
+  const bytes = Buffer.from([0, 10, 255, 13, 10]);
+  let child;
+  let writes = 0;
+  let wroteFirst;
+  const firstWrite = new Promise((resolve) => { wroteFirst = resolve; });
+  const service = new FosGitObjectService(root, {
+    spawnCommand: () => {
+      child = scriptedChild([], () => { writes += 1; wroteFirst(); })();
+      return child;
+    }
+  });
+  try {
+    const cancelled = new AbortController();
+    const first = service.read(oid, { signal: cancelled.signal });
+    const firstFailure = assert.rejects(first, { code: 'OBJECT_REQUEST_CANCELLED' });
+    await within(firstWrite, 'the first object-worker write');
+    const second = service.read(oid);
+    await waitForQueued(service, 2);
+    cancelled.abort();
+    await firstFailure;
+    assert.equal(service.queued, 1);
+    child.stdout.emit('data', Buffer.concat([
+      Buffer.from(`${oid} blob ${bytes.length}\n`), bytes, Buffer.from('\n')
+    ]));
+    assert.deepEqual((await second).bytes, bytes);
+    assert.equal(writes, 1);
+  } finally { await service.close(); }
+});
+
+test('GAL:AC-025 queued coalesced peers cancel independently and count against queue capacity', async () => {
+  const root = await repository();
+  const activeOid = git(['rev-parse', 'HEAD:source.bin'], root);
+  const activeBytes = Buffer.from([0, 10, 255, 13, 10]);
+  const queuedBytes = Buffer.from('queued coalesced object\n');
+  const queuedOid = git(['hash-object', '-w', '--stdin'], root, { input: queuedBytes });
+  const frame = (oid, bytes) => Buffer.concat([
+    Buffer.from(`${oid} blob ${bytes.length}\n`), bytes, Buffer.from('\n')
+  ]);
+  let child;
+  let writes = 0;
+  let wroteFirst;
+  const firstWrite = new Promise((resolve) => { wroteFirst = resolve; });
+  const service = new FosGitObjectService(root, {
+    maxQueued: 3,
+    spawnCommand: () => {
+      child = scriptedChild([], () => {
+        writes += 1;
+        if (writes === 1) wroteFirst();
+        else child.stdout.emit('data', frame(queuedOid, queuedBytes));
+      })();
+      return child;
+    }
+  });
+  try {
+    const active = service.read(activeOid);
+    await within(firstWrite, 'the first object-worker write');
+    const cancelled = new AbortController();
+    const queuedCancelled = service.read(queuedOid, { signal: cancelled.signal });
+    const cancelledFailure = assert.rejects(queuedCancelled, { code: 'OBJECT_REQUEST_CANCELLED' });
+    const queuedLive = service.read(queuedOid);
+    await waitForQueued(service, 3);
+    await assert.rejects(service.read(queuedOid), { code: 'GAL_BUSY' },
+      'coalesced subscribers must still consume logical queue capacity');
+    cancelled.abort();
+    await cancelledFailure;
+    assert.equal(service.queued, 2);
+    const replacement = service.read(queuedOid);
+    await waitForQueued(service, 3);
+    assert.equal(writes, 1, 'queued peers cannot write before the active frame completes');
+    child.stdout.emit('data', frame(activeOid, activeBytes));
+    assert.deepEqual((await active).bytes, activeBytes);
+    const [live, newPeer] = await Promise.all([queuedLive, replacement]);
+    assert.deepEqual(live.bytes, queuedBytes);
+    assert.deepEqual(newPeer.bytes, queuedBytes);
+    assert.equal(writes, 2, 'the two remaining queued peers share one worker write');
+  } finally { await service.close(); }
 });
 
 test('FOS:AC-028 a missing object result is not sticky after the exact object becomes available', async () => {
@@ -200,6 +338,7 @@ test('FOS:AC-011 SHA-256 stores require SHA-256 IDs and verify their bodies', as
 test('FOS:AC-025 cancellation before enqueue does no worker work; queued cancellation preserves active ownership', async () => {
   const root = await repository();
   const oid = git(['rev-parse', 'HEAD:source.bin'], root);
+  const queuedOid = git(['rev-parse', 'HEAD'], root);
   let written;
   const firstWrite = new Promise((resolve) => { written = resolve; });
   const service = new FosGitObjectService(root, {
@@ -215,7 +354,7 @@ test('FOS:AC-025 cancellation before enqueue does no worker work; queued cancell
     const activeRejected = assert.rejects(active, { code: 'OBJECT_SERVICE_CLOSED' });
     await firstWrite;
     const queuedController = new AbortController();
-    const queued = service.read(oid, { signal: queuedController.signal });
+    const queued = service.read(queuedOid, { signal: queuedController.signal });
     for (let attempt = 0; service.queued !== 2 && attempt < 30; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 10));
     }

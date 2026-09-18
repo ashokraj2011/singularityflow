@@ -14,6 +14,7 @@ const TYPE = /^(blob|tree|commit|tag)$/;
 const HEADER_LIMIT = 1024;
 const MAX_WORKERS = 8;
 const MAX_OBJECT_BYTES = 32 * 1024 * 1024;
+const MAX_COALESCED_SUBSCRIBERS = 8;
 const pools = new Map();
 let poolMutation = Promise.resolve();
 
@@ -200,7 +201,10 @@ export class FosGitObjectService {
   }
 
   get processSpawns() { return this.#spawns; }
-  get queued() { return this.#queue.length + (this.#active ? 1 : 0); }
+  get queued() {
+    return this.#queue.reduce((count, group) => count + group.subscribers.size, 0)
+      + (this.#active?.subscribers.size ?? 0);
+  }
   get closed() { return this.#closed; }
 
   async read(oid, { signal } = {}) {
@@ -233,30 +237,30 @@ export class FosGitObjectService {
     }
     if (this.queued >= this.#maxQueued) throw error('Git object service queue is full.', 'GAL_BUSY');
     incrementCommandCounter('git.requests');
-    incrementCommandCounter('git.batch-requests');
     return new Promise((resolve, reject) => {
-      const request = { oid, resolve, reject, signal, abort: null, timer: null, size: null, objectOid: null, type: null };
-      request.abort = () => {
-        if (this.#active === request) {
-          this.#failService(error('Git object request was cancelled.', 'OBJECT_REQUEST_CANCELLED'));
-        } else {
-          const index = this.#queue.indexOf(request);
-          if (index >= 0) this.#queue.splice(index, 1);
-          this.#finishRequest(request, 'reject', error('Git object request was cancelled.', 'OBJECT_REQUEST_CANCELLED'));
-        }
+      // Coalesce only live requests for the same immutable OID in this exact service profile.
+      // Each caller retains its own cancellation and deadline; a queued group is never cached.
+      const group = this.#active?.oid === oid
+        && this.#active.subscribers.size < MAX_COALESCED_SUBSCRIBERS ? this.#active
+        : this.#queue.find((pending) => pending.oid === oid
+          && pending.subscribers.size < MAX_COALESCED_SUBSCRIBERS);
+      const request = group ?? {
+        oid, subscribers: new Set(), size: null, objectOid: null, type: null
       };
-      signal?.addEventListener('abort', request.abort, { once: true });
-      request.timer = setTimeout(() => {
-        if (this.#active === request) {
-          this.#failService(error('Git object request exceeded its operation deadline.', 'OBJECT_REQUEST_TIMEOUT'));
-        } else {
-          const index = this.#queue.indexOf(request);
-          if (index >= 0) this.#queue.splice(index, 1);
-          this.#finishRequest(request, 'reject', error('Git object request exceeded its operation deadline.', 'OBJECT_REQUEST_TIMEOUT'));
-        }
-      }, Math.max(1, this.#timeoutMs - (Date.now() - began)));
-      this.#queue.push(request);
-      this.#pump();
+      const subscriber = { resolve, reject, signal, abort: null, timer: null };
+      request.subscribers.add(subscriber);
+      subscriber.abort = () => this.#dropSubscriber(request, subscriber,
+        error('Git object request was cancelled.', 'OBJECT_REQUEST_CANCELLED'));
+      signal?.addEventListener('abort', subscriber.abort, { once: true });
+      subscriber.timer = setTimeout(() => this.#dropSubscriber(request, subscriber,
+        error('Git object request exceeded its operation deadline.', 'OBJECT_REQUEST_TIMEOUT')),
+      Math.max(1, this.#timeoutMs - (Date.now() - began)));
+      if (group) incrementCommandCounter('git.coalesced-requests');
+      else {
+        this.#queue.push(request);
+        this.#pump();
+      }
+      if (signal?.aborted) subscriber.abort();
     });
   }
 
@@ -322,6 +326,7 @@ export class FosGitObjectService {
     try {
       this.#ensureChild();
       this.#child.stdin.write(`${request.oid}\n`, 'ascii');
+      incrementCommandCounter('git.batch-requests');
     } catch {
       this.#failService(error('Git object service input stream is unavailable.', 'OBJECT_SERVICE_UNAVAILABLE'));
     }
@@ -381,7 +386,7 @@ export class FosGitObjectService {
           return;
         }
         this.#active = null;
-        this.#finishRequest(request, 'resolve', null);
+        this.#finishGroup(request, 'resolve', null);
         this.#pump();
         return;
       }
@@ -420,14 +425,36 @@ export class FosGitObjectService {
       return;
     }
     this.#active = null;
-    this.#finishRequest(request, 'resolve', Object.freeze({ oid: request.objectOid, type: request.type, bytes }));
+    this.#finishGroup(request, 'resolve', Object.freeze({ oid: request.objectOid, type: request.type, bytes }));
     this.#pump();
   }
 
-  #finishRequest(request, method, value) {
-    clearTimeout(request.timer);
-    request.signal?.removeEventListener('abort', request.abort);
-    request[method](value);
+  #finishSubscriber(subscriber, method, value) {
+    clearTimeout(subscriber.timer);
+    subscriber.signal?.removeEventListener('abort', subscriber.abort);
+    subscriber[method](method === 'resolve' && value?.bytes
+      ? Object.freeze({ oid: value.oid, type: value.type, bytes: Buffer.from(value.bytes) })
+      : value);
+  }
+
+  #finishGroup(group, method, value) {
+    const subscribers = [...group.subscribers];
+    group.subscribers.clear();
+    for (const subscriber of subscribers) this.#finishSubscriber(subscriber, method, value);
+  }
+
+  #dropSubscriber(group, subscriber, reason) {
+    if (!group.subscribers.delete(subscriber)) return;
+    this.#finishSubscriber(subscriber, 'reject', reason);
+    if (group.subscribers.size) return;
+    if (this.#active === group) {
+      // The last interested caller no longer owns the response. Retire this worker before
+      // queued work proceeds, so late frame bytes cannot satisfy another request.
+      void this.#failService(reason);
+    } else {
+      const index = this.#queue.indexOf(group);
+      if (index >= 0) this.#queue.splice(index, 1);
+    }
   }
 
   #armIdle() {
@@ -444,7 +471,7 @@ export class FosGitObjectService {
     this.#active = null; this.#chunks = [];
     this.#buffered = 0; this.#headOffset = 0;
     const child = this.#child; this.#child = null;
-    if (request) this.#finishRequest(request, 'reject', reason);
+    if (request) this.#finishGroup(request, 'reject', reason);
     if (child) {
       const retiring = stopChild(child, true);
       this.#retiring = retiring;
@@ -455,7 +482,7 @@ export class FosGitObjectService {
         this.#closed = true;
         const pending = this.#queue;
         this.#queue = [];
-        for (const queued of pending) this.#finishRequest(queued, 'reject', error(
+        for (const queued of pending) this.#finishGroup(queued, 'reject', error(
           'Git object service could not verify worker cleanup.', 'GAL_CLEANUP_INCOMPLETE'
         ));
         return false;
@@ -476,7 +503,7 @@ export class FosGitObjectService {
     this.#active = null; this.#queue = []; this.#chunks = [];
     this.#buffered = 0; this.#headOffset = 0;
     const child = this.#child; this.#child = null;
-    for (const request of requests) this.#finishRequest(request, 'reject', error('Git object service was closed.', 'OBJECT_SERVICE_CLOSED'));
+    for (const request of requests) this.#finishGroup(request, 'reject', error('Git object service was closed.', 'OBJECT_SERVICE_CLOSED'));
     const retiring = this.#retiring;
     this.#closing = (async () => {
       const retired = retiring ? await retiring : true;

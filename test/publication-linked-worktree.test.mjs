@@ -6,6 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+import { lifecycleEvent } from '../src/lifecycle-event.mjs';
+import { GitPublicationUnitOfWork } from '../src/publication-unit-of-work.mjs';
 import { gitCommonDir, gitDir } from '../src/git.mjs';
 import {
   beginPublicationJournal, clearPublicationJournal, publicationJournalPath, readPublicationJournal
@@ -54,6 +56,28 @@ function pendingRecord(id, suffix = 'one') {
     createdAt: new Date(0).toISOString()
   };
 }
+
+test('owner-bound local ref CAS updates only the linked Story branch', async (t) => {
+  const { root, linked } = await fixture(t);
+  const subject = { kind: 'story', id: 'LINKED-REF-CAS', branch: 'STORY-LINKED' };
+  const mainBefore = run('git', ['rev-parse', 'refs/heads/main'], { cwd: root }).stdout.trim();
+  const linkedBefore = run('git', ['rev-parse', 'refs/heads/STORY-LINKED'], { cwd: linked }).stdout.trim();
+  const result = await new GitPublicationUnitOfWork(linked).execute({
+    subject,
+    event: lifecycleEvent({ type: 'artifact-generated', subject, phaseId: 'intake', generation: 1 }),
+    commit: { message: '[LINKED-REF-CAS] linked Story publication' },
+    publication: { mode: 'off', branch: 'STORY-LINKED', remote: 'origin' },
+    allowedPaths: ['story-state.json'],
+    state: { write: () => writeFile(path.join(linked, 'story-state.json'), '{"status":"published"}\n') }
+  });
+
+  const linkedAfter = run('git', ['rev-parse', 'refs/heads/STORY-LINKED'], { cwd: root }).stdout.trim();
+  assert.notEqual(linkedAfter, linkedBefore);
+  assert.equal(linkedAfter, result.sha);
+  assert.equal(run('git', ['rev-parse', 'refs/heads/main'], { cwd: root }).stdout.trim(), mainBefore);
+  assert.equal(run('git', ['status', '--porcelain'], { cwd: root }).stdout.trim(), '',
+    'the sibling worktree must remain untouched');
+});
 
 test('journals, pending markers, and rescues are repository-shared across linked worktrees', async (t) => {
   const { root, linked } = await fixture(t);

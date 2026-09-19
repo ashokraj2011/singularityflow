@@ -1,18 +1,21 @@
 # SGOS pending work
 
 This document is the durable backlog for SGOS capabilities that remain deliberately staged. It is
-not a list of known regressions in the shipped bounded runtime. The baseline at creation is
-`main@adbb2079` on 2026-08-30; that baseline passed all 335 SGOS tests and the repository's 1,029
-static checks.
+not a list of known regressions in the shipped bounded runtime. The historical baseline at creation
+was `main@adbb2079` on 2026-08-30; that baseline passed all 335 SGOS tests and the repository's
+1,029 static checks.
 
 The universal Candidate implementation checkpoint is `main@cb278ca6` on 2026-09-01. Its local
 full suite passed 3,974 tests and repository conformance passed 1,215 checks. Those results are not
 a substitute for the signed supported-platform release aggregate required below.
 
-This backlog was reconciled against `main@7935d2db` on 2026-09-05. That baseline adds a
-DPAPI-CurrentUser-protected Windows Ed25519 authority-transport signer and the separate GDP
-developer-local signed runner. Neither addition supplies independent enterprise authority or a
-signed supported-platform release aggregate.
+The live-store cutover baseline was reconciled against `main@99f8d886` on 2026-09-19. At that
+boundary the mutable Process head uses the installed `filesystem-live-v1` Operational Store through
+an exact old-format cutover, append-only journal, verified compatibility mirror, and fail-closed
+fsck/recovery boundary. This closeout increment then runs the same Operational Store conformance
+journey against memory replay, filesystem replay, and the installed live profile, and makes live
+selection require module-private installed implementation identity rather than a copyable profile
+name. No remaining item below hides an eligible code-local live-store migration task.
 
 The measured-read-model portion of `SGOS-P2-003` was added at `main@c18b8154` on 2026-09-07.
 It supplies a local, content-free release-gated benchmark; it does not supply consent for external
@@ -35,8 +38,29 @@ rollback-preserving. Commit `32f1afd0` adds the matching durable `filesystem-rep
 runs the unchanged conformance journey against both implementations. The durable profile rebuilds
 its head from fsynced immutable events, rejects competing stale CAS writers and corrupt lineage,
 recovers an abandoned writer lock, ignores unfinished staging files, and preserves append-only
-rollback and exact fast-forward restore. The live filesystem Process store has not migrated through
-that SPI, so live-format migration and runtime cutover remain open.
+rollback and exact fast-forward restore. `main@99f8d886` completes the live Process-head cutover;
+the current conformance closeout also proves the unchanged Store journey against that installed
+profile and rejects a structurally forged adapter that merely copies its public descriptor.
+
+## External-only completion boundary
+
+After the 2026-09-19 code-local audit, every remaining completion condition falls into one of these
+explicit classes. None may be satisfied by inventing local evidence or weakening a refusal:
+
+| Item | Exact remaining boundary |
+|---|---|
+| `SGOS-P0-001`, `P0-003`, `P0-004`, `P1-003`, `P1-004`, `P2-002` | Independently reviewed, signed supported-platform and packaged npm/VSIX evidence for the exact release commit/artifacts |
+| `SGOS-P0-002` | A separately approved real Secret Broker plus external Agent/Device adapter, followed by cancellation, leakage, restart, and supported-platform evidence |
+| `SGOS-P1-001` | New reviewed external/tool-bearing adapter authority and its counterfeit/escalation conformance program |
+| `SGOS-P1-002` | New independently reviewed reducers or Device-specific postcondition protocols, plus shared signed platform evidence |
+| `SGOS-P1-005` | Independently reviewed multi-domain Capability Packs and their authority/conflict evidence |
+| `SGOS-P2-001` | Independent certification design/review and accessibility validation |
+| `SGOS-P2-003` | Explicit telemetry consent/destination/retention/disable authority and signed supported-machine benchmark baselines |
+
+The installed runtime, live-store cutover, recovery, fsck, guided-learning environment, meta-tool
+CLI, and local measured read model therefore have no known deferred code-local repair in this
+backlog. New adapters, protocols, proof packs, certification, or telemetry transport are new
+authority-bearing product increments, not closeout fixes.
 
 The first `SGOS-P1-002` advanced-orchestration slice is implemented in the current increment. A
 bounded `quorum` join can require an exact finite number of successful predecessors, becomes ready
@@ -142,6 +166,8 @@ typed Secret Broker to the exact authorized adapter.
 - **Owner:** Codex working-set integration
 - **Branch:** `main`
 - **Started:** 2026-09-05
+- **Code-local implementation:** `8343f48a`
+- **Target:** separately approved real-adapter integration and signed platform proof
 
 The code-local Agent path now composes a deterministic working set from the exact current Program,
 Process revision, checkpoint, and task before an execution attempt opens. The complete working set
@@ -167,6 +193,12 @@ Depends on: shipped typed memory, working-set composition, and Secret Broker API
 
 Move approved Authority Store and signed Capability Pack state between machines without trusting
 ambient local paths or rebuilding authority by hand.
+
+- **Owner:** repository maintainers
+- **Branch:** `main`
+- **Started:** 2026-09-05
+- **Implementation commits:** `3eaa620e`, `31ae1a25`, `7935d2db`
+- **Target:** next signed supported-platform release
 
 The implementation on `main` now provides key-free approved trust v3 with deterministic
 state-branch publish/sync on Windows, macOS, and Linux, plus approved trust v2 and a local
@@ -207,6 +239,12 @@ developer-local GDP runner are not substitutes for those receipts.
 Prove complete software-conversion and hypothesis-analysis journeys and issue an exact signed release
 receipt for the supported platform matrix.
 
+- **Owner:** release maintainers and independent platform reviewers
+- **Branch:** `main`
+- **Started:** 2026-09-07
+- **Code-local implementation:** `7304c65c`
+- **Target:** next signed supported-platform release
+
 Acceptance gates:
 
 - both journeys run from confirmed intent through verified publication and recovery exercises;
@@ -246,6 +284,7 @@ Acceptance gates:
 - **Owner:** Codex orchestration continuation
 - **Branch:** `main`
 - **Started:** 2026-09-07
+- **Implementation commits:** `7ee0fee2`, `f0dad7df`, `f2d04950`, `9eb52de5`, `2f639cdb`, `d795adb5`, `b6817076`, `076f1edf`, `464ff016`
 - **Target:** staged SGOS execution-breadth release after the P0 release gates
 
 Add dynamic or nested bounded fan-out, quorum/reducer/manual-reconcile joins, general idempotent
@@ -329,6 +368,12 @@ Acceptance gates:
 
 Define a stable Authority Store SPI and add at least one alternate Operational Store.
 
+- **Owner:** repository maintainers
+- **Branch:** `main`
+- **Started:** 2026-09-07
+- **Implementation commits:** `28819374`, `cf06f10d`, `32f1afd0`, `99f8d886`
+- **Target:** next signed supported-platform release
+
 Implemented code-locally in `main@28819374`:
 
 - Authority Store adapters declare one exact SPI version, canonical profile, Store identity,
@@ -366,7 +411,8 @@ The second Operational Store implementation landed in `main@32f1afd0`:
 The code-local live Process-head cutover is now implemented:
 
 - `filesystem-live-v1` is a separately installed runtime-only profile behind the same Operational
-  Store SPI; replay profiles still cannot be selected for live execution;
+  Store SPI; replay profiles still cannot be selected for live execution, and a conforming object
+  cannot impersonate the installed profile by copying its profile name and descriptor;
 - only the exact mutable Process-head reference moves behind the SPI. Program, policy, lifecycle, immutable
   evidence, record-index, and control-successor authority remain on their existing strict paths;
 - an old `state.json` head reference is imported into the append-only Store before a self-hashed cutover
@@ -375,8 +421,10 @@ The code-local live Process-head cutover is now implemented:
 - after cutover, `state.json` remains a verified compatibility/diagnostic mirror. The Store journal
   survives a crash before mirror refresh, while immutable control lineage remains the authority for
   legitimate rollback and transition recovery;
-- focused tests cover old-format import, interruption before receipt publication, CAS publication,
-  quarantine, v2 control-lineage upgrade, retained rollback, and runtime transition recovery;
+- the unchanged bounded Store conformance journey now covers `memory-replay-v1`,
+  `filesystem-replay-v1`, and `filesystem-live-v1`; focused runtime tests additionally cover
+  old-format import, interruption before receipt publication, CAS publication, quarantine, v2
+  control-lineage upgrade, retained rollback, and transition recovery;
 - filesystem initialization validates each caller-owned directory before creating its child, so a
   supplied root or Store symlink cannot cause an escaped directory to be created before refusal;
 - Process fsck independently validates the cutover digest, exact import-event correlation, complete
@@ -386,9 +434,9 @@ The code-local live Process-head cutover is now implemented:
   records and reservations, control event, control successor, and latest Store event reconstruct
   exactly. Missing or tampered candidate infrastructure and every other divergence fail closed.
 
-This item remains `[~]` until the unchanged full conformance suite and signed supported-platform
-release matrix have independently reviewed receipts. That evidence is release qualification, not a
-missing code-local migration path.
+This item remains `[~]` only until the unchanged suite and signed supported-platform release matrix
+have independently reviewed receipts. The local conformance implementation and migration path are
+complete; unsigned local execution is not release qualification.
 
 Acceptance gates:
 
@@ -496,6 +544,12 @@ certification and accessibility validation remain open; therefore this item is n
 
 Expose reviewed activation, observation, revocation, and rollback APIs through a public CLI only
 through canonical approved Pack and Device target resolvers.
+
+- **Owner:** repository maintainers
+- **Branch:** `main`
+- **Started:** 2026-09-06
+- **Implementation commits:** `5cc31bee`, `8ab16f79`, `f24e2db4`
+- **Target:** next signed npm/VSIX and supported-platform release
 
 Acceptance gates:
 

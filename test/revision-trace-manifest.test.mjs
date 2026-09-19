@@ -174,6 +174,32 @@ test('REV pilot activation requires a real repository-local opt-in and refuses f
   assert.equal(dormant.eligible, false);
   assert.equal(dormant.missingPilotCoreCriterionCount, 134);
   assert.equal(dormant.blockers[0].code, 'REV_PILOT_ATTESTATION_UNAVAILABLE');
+  assert.equal(dormant.blockers[0].remediationClass, 'external-release-evidence');
+  assert.ok(dormant.blockers.every((blocker) => blocker.blocksActivation === true));
+  assert.deepEqual(dormant.evidenceBoundary, {
+    candidate: 'retained-reference-foundation-only',
+    program: 'approved-program-binding-unavailable',
+    attempt: 'declarative-probe-only-unverified',
+    receipt: 'projection-only-no-authenticated-durable-receipt',
+    recovery: 'private-local-foundation-only',
+    compareRestore: 'kernel-only-no-public-ux'
+  });
+  assert.deepEqual(dormant.foundations.map(({ id, status }) => ({ id, status })), [
+    { id: 'candidate-head-cas', status: 'internal-only' },
+    { id: 'candidate-precheck-publication', status: 'internal-only' },
+    { id: 'code-check-projection', status: 'projection-only' },
+    { id: 'compare-discard-restore', status: 'kernel-only' }
+  ]);
+  assert.deepEqual(dormant.safeNextActions.map(({
+    classification, shell, copilot, requiresActiveStory
+  }) => ({
+    classification, shell, copilot, requiresActiveStory
+  })), [
+    { classification: 'read', shell: 'singularity-flow revision capabilities --json',
+      copilot: '/sf-revision capabilities', requiresActiveStory: false },
+    { classification: 'read', shell: 'singularity-flow revision attachments capabilities --json',
+      copilot: '/sf-revision attachments', requiresActiveStory: false }
+  ]);
   assert.equal(dormant.blockers.at(-1).code, 'REV_PILOT_OPT_IN_REQUIRED');
   await mkdir(path.join(repositoryRoot, '.sflow'));
   assert.equal(REV_PILOT_OPT_IN_PATH, '.sflow/revision-pilot.json');

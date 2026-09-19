@@ -2813,6 +2813,11 @@ const families = [
     paths: [/^singularity\/work-items\/[^/]+\/context\/grounding\/wmp\/[a-f0-9]{64}\.json$/]
   }),
   family({
+    id: 'world-model-grounding-packet', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity',
+    paths: [/^singularity\/work-items\/[^/]+\/context\/grounding\/wmp\/[a-f0-9]{64}\.packet\.json$/]
+  }),
+  family({
     id: 'world-model-handoff', currentVersion: 1, immutable: true,
     migrationPolicy: 'frozen-identity',
     paths: [/^singularity\/world-model-history\/handoffs\/[a-f0-9]{64}\.json$/]

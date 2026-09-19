@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/world-model-grounding-packet.schema.json",
+  "title": "WMP exact replayable Story grounding packet",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "subject", "model", "views", "composition", "renderedBlock", "budget", "authority", "groundingSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "world-model-grounding-packet" },
+    "subject": { "$ref": "#/$defs/subject" },
+    "model": { "$ref": "#/$defs/model" },
+    "views": { "type": "array", "minItems": 1, "maxItems": 256, "items": { "$ref": "#/$defs/view" } },
+    "composition": { "$ref": "#/$defs/composition" },
+    "renderedBlock": { "$ref": "#/$defs/objectRef" },
+    "budget": { "$ref": "#/$defs/budget" },
+    "authority": { "$ref": "#/$defs/authority" },
+    "groundingSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "git": { "type": "string", "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$" },
+    "typeId": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$", "maxLength": 128 },
+    "subjectId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$" },
+    "objectRef": {
+      "type": "object",
+      "required": ["role", "family", "mediaType", "sha256", "bytes"],
+      "properties": {
+        "role": { "$ref": "#/$defs/typeId" },
+        "family": { "type": ["string", "null"], "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$", "maxLength": 128 },
+        "mediaType": { "enum": ["application/json", "text/markdown"] },
+        "sha256": { "$ref": "#/$defs/hash" },
+        "bytes": { "type": "integer", "minimum": 1, "maximum": 33554432 }
+      },
+      "additionalProperties": false
+    },
+    "subject": {
+      "type": "object",
+      "required": ["repositoryDomainSha256", "workId", "workflowInstanceId", "phase", "generation"],
+      "properties": {
+        "repositoryDomainSha256": { "$ref": "#/$defs/hash" },
+        "workId": { "$ref": "#/$defs/subjectId" },
+        "workflowInstanceId": { "$ref": "#/$defs/subjectId" },
+        "phase": { "$ref": "#/$defs/typeId" },
+        "generation": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "model": {
+      "type": "object",
+      "required": ["modelKey", "bindingRef", "modelPayloadSha256"],
+      "properties": {
+        "modelKey": { "$ref": "#/$defs/hash" },
+        "bindingRef": { "$ref": "#/$defs/objectRef" },
+        "modelPayloadSha256": { "$ref": "#/$defs/hash" }
+      },
+      "additionalProperties": false
+    },
+    "view": {
+      "type": "object",
+      "required": ["order", "viewKey", "bindingRef", "variant", "format", "renderedRef", "expansionHandle"],
+      "properties": {
+        "order": { "type": "integer", "minimum": 0, "maximum": 255 },
+        "viewKey": { "$ref": "#/$defs/hash" },
+        "bindingRef": { "$ref": "#/$defs/objectRef" },
+        "variant": { "enum": ["brief", "full"] },
+        "format": { "const": "md" },
+        "renderedRef": { "$ref": "#/$defs/objectRef" },
+        "expansionHandle": { "type": "string", "pattern": "^wmp-view:sha256:[a-f0-9]{64}$" }
+      },
+      "additionalProperties": false
+    },
+    "composition": {
+      "type": "object",
+      "required": ["id", "version", "implementationSha256", "ordering", "separatorSha256", "framingSha256", "mediaType", "measurement", "contractSha256"],
+      "properties": {
+        "id": { "const": "persisted-grounding-markdown" },
+        "version": { "const": 1 },
+        "implementationSha256": { "$ref": "#/$defs/hash" },
+        "ordering": { "const": "explicit-order-v1" },
+        "separatorSha256": { "$ref": "#/$defs/hash" },
+        "framingSha256": { "$ref": "#/$defs/hash" },
+        "mediaType": { "const": "text/markdown" },
+        "measurement": { "const": "exact-bytes-v1" },
+        "contractSha256": { "$ref": "#/$defs/hash" }
+      },
+      "additionalProperties": false
+    },
+    "budget": {
+      "type": "object",
+      "required": ["mode", "maximum", "measured", "tokenizerSha256"],
+      "properties": {
+        "mode": { "const": "bytes" },
+        "maximum": { "type": "integer", "minimum": 1, "maximum": 33554432 },
+        "measured": { "type": "integer", "minimum": 1, "maximum": 33554432 },
+        "tokenizerSha256": { "type": "null" }
+      },
+      "additionalProperties": false
+    },
+    "authority": {
+      "type": "object",
+      "required": ["repositoryDomainSha256", "stateRef", "authorityCommit", "repositoryIdentitySha256"],
+      "properties": {
+        "repositoryDomainSha256": { "$ref": "#/$defs/hash" },
+        "stateRef": { "type": "string", "pattern": "^refs/[A-Za-z0-9._/-]+$", "maxLength": 512 },
+        "authorityCommit": { "$ref": "#/$defs/git" },
+        "repositoryIdentitySha256": { "oneOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

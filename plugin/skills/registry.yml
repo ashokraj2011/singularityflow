@@ -139,6 +139,7 @@ skills:
   sflow-local-reset: { class: mutation, executionBoundary: machine }
   sflow-local: { class: interactive, executionBoundary: machine }
   sflow-reinstall: { class: mutation, executionBoundary: machine }
+  sflow-revision: { class: echo, executionBoundary: machine }
   sflow-revision-attachments: { class: mutation }
   sflow-ready: { class: interactive, executionBoundary: repository }
   sflow-finalize: { class: mutation }

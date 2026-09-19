@@ -19,12 +19,14 @@ import {
 
 const hash = (value) => `sha256:${createHash('sha256').update(value).digest('hex')}`;
 
-async function exerciseOperationalStore(factory) {
+async function exerciseOperationalStore(factory, {
+  expectedPurposes = ['simulation', 'test']
+} = {}) {
   const source = factory('conformance-store');
   assert.equal(assertSgosOperationalStoreAdapter(source), source);
   assert.equal(source.spiVersion, SGOS_OPERATIONAL_STORE_SPI_VERSION);
   assert.deepEqual(source.capabilities, SGOS_OPERATIONAL_STORE_CAPABILITIES);
-  assert.deepEqual(source.descriptor().purposes, ['simulation', 'test']);
+  assert.deepEqual(source.descriptor().purposes, expectedPurposes);
   assert.equal(source.descriptor().authorityEligible, false);
 
   const initial = await source.read();
@@ -98,6 +100,16 @@ test('the durable filesystem Operational Store passes the unchanged bounded conf
     }));
   });
 
+test('the installed live filesystem Operational Store passes the unchanged bounded conformance journey',
+  async (t) => {
+    const parent = await mkdtemp(join(tmpdir(), 'sflow-live-operational-conformance-'));
+    t.after(() => rm(parent, { recursive: true, force: true }));
+    let sequence = 0;
+    await exerciseOperationalStore((storeId) => createLiveFilesystemSgosOperationalStore({
+      storeId, root: join(parent, `store-${sequence += 1}`)
+    }), { expectedPurposes: ['runtime'] });
+  });
+
 test('the installed live filesystem profile is explicit and cannot be confused with replay',
   async (t) => {
     const root = await mkdtemp(join(tmpdir(), 'sflow-live-operational-store-'));
@@ -115,6 +127,24 @@ test('the installed live filesystem profile is explicit and cannot be confused w
       })),
       (error) => error.code === 'SGOS_OPERATIONAL_STORE_SELECTION_REFUSED'
     );
+    const replay = createFilesystemSgosOperationalStore({
+      storeId: 'process-head', root: join(root, 'counterfeit-replay')
+    });
+    const counterfeit = Object.freeze({
+      ...replay,
+      profile: SGOS_LIVE_OPERATIONAL_STORE_PROFILE,
+      descriptor() {
+        return Object.freeze({
+          ...replay.descriptor(),
+          profile: SGOS_LIVE_OPERATIONAL_STORE_PROFILE,
+          purposes: Object.freeze(['runtime'])
+        });
+      }
+    });
+    assert.throws(() => assertSgosLiveOperationalStoreSelection(counterfeit), (error) => {
+      assert.equal(error.code, 'SGOS_OPERATIONAL_STORE_SELECTION_REFUSED');
+      return true;
+    }, 'a copied live profile name and descriptor cannot confer installed runtime identity');
     const initial = await live.read();
     const changed = await live.transact({
       expectedRevision: initial.revision,

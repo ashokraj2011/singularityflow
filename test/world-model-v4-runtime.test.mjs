@@ -1726,13 +1726,21 @@ test('normal service publishes current projection and exact model history in one
   ).stdout.trim();
 
   const first = await withApprovedConfigurationRead(root, () => (
-    buildAndPublishWorldModelV4(root, { ...options, persistedHistory: true })
+    buildAndPublishWorldModelV4(root, {
+      ...options,
+      persistedHistory: {
+        savedViews: { views: ['development', 'testing'], variants: ['brief'], format: 'md' }
+      }
+    })
   ), {
     preferAuthority: true, refreshAuthority: true, requireAuthorityRefresh: true
   });
   assert.equal(first.status, 'completed');
   assert.equal(first.persistedModel.status, 'built');
   assert.equal(first.runtime.registrationSource, 'persisted-history');
+  assert.equal(first.persistedModel.savedViews.status, 'materialized');
+  assert.equal(first.persistedModel.savedViews.measurementPolicy, 'exact-bytes-v1');
+  assert.equal(first.persistedModel.savedViews.views.length, 2);
   assert.deepEqual(first.persistedModel.execution, {
     extraction: true,
     registrationCalls: 1,
@@ -1755,11 +1763,18 @@ test('normal service publishes current projection and exact model history in one
     git(root, 'show', `${stateCommit}:singularity/world-model-history/models/${first.persistedModel.modelKey.slice('sha256:'.length)}.json`).status,
     0
   );
+  for (const view of first.persistedModel.savedViews.views) {
+    assert.equal(git(root, 'show', `${stateCommit}:singularity/world-model-history/views/${
+      view.viewKey.slice('sha256:'.length)
+    }.json`).status, 0);
+  }
 
   const second = await withApprovedConfigurationRead(root, () => (
     buildAndPublishWorldModelV4(root, {
       ...options,
-      persistedHistory: true,
+      persistedHistory: {
+        savedViews: { views: ['development', 'testing'], variants: ['brief'], format: 'md' }
+      },
       generatedAt: '2026-09-01T00:01:00.000Z'
     })
   ), {
@@ -1776,6 +1791,43 @@ test('normal service publishes current projection and exact model history in one
     registrationCalls: 0
   });
   assert.equal(second.persistedModel.modelKey, first.persistedModel.modelKey);
+  assert.deepEqual(
+    second.persistedModel.savedViews.views.map((entry) => entry.viewKey),
+    first.persistedModel.savedViews.views.map((entry) => entry.viewKey)
+  );
+});
+
+test('saved-view publication is explicit, requires one-CAS publication, and protects authority fields', async (t) => {
+  const { root } = await repository(t);
+  for (const field of ['model', 'outputDir', 'historyDir']) {
+    await assert.rejects(
+      buildAndPublishWorldModelV4(root, {
+        ...buildOptions({ publish: false }),
+        persistedHistory: {
+          savedViews: { views: ['development'], [field]: { forged: true } }
+        }
+      }),
+      (error) => error.code === 'WMP_PERSISTED_FACTS_CALLER_FORBIDDEN'
+        && error.details?.reserved?.includes(field),
+      field
+    );
+  }
+  await assert.rejects(
+    buildAndPublishWorldModelV4(root, {
+      ...buildOptions({ publish: false }),
+      persistedHistory: { savedViews: { views: ['development'] } }
+    }),
+    (error) => error.code === 'WMP_SAVED_VIEW_PUBLICATION_REQUIRED'
+  );
+  await assert.rejects(
+    buildAndPublishWorldModelV4(root, {
+      ...buildOptions({ publish: false }),
+      persistedHistory: {
+        savedViews: { views: ['development'], tokenizer: { id: 'approximate' } }
+      }
+    }),
+    (error) => error.code === 'WMP_SAVED_VIEW_PUBLICATION_REQUIRED'
+  );
 });
 
 test('opt-in exact history publishes and reuses native SHA-256 Git identities', async (t) => {

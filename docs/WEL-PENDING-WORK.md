@@ -639,10 +639,13 @@ is present.
 When this roadmap is resumed:
 
 1. finish CAB/SGOS ratification and platform/privacy review for `WEL-P0-001`;
-2. finish the Candidate/Program/attempt join and reviewed corpus for `WEL-P0-002`;
+2. execute and independently review the existing JUnit/Surefire and Jest/Vitest corpus runners;
 3. collect the remaining `WEL-P0-003` Flow Impact and signed release evidence;
-4. wait for CAB-R2 and SGOS-P0-001/CAB-R6 before starting the P1 enforcement path;
-5. finish independent review and platform/corpus evidence for the bounded Jest/Vitest increment;
+4. do not start the Candidate/Program/attempt join until CAB-R2 and SGOS-P0-001/CAB-R6 supply the
+   authenticated execution and universal lifecycle authorities it must consume;
+5. after those authorities exist, implement the join through the existing Candidate, Program,
+   attempt, approval, and publication owners; only then consider the P1 enforcement path;
+6. finish independent review and platform/corpus evidence for the bounded Jest/Vitest increment;
    add any further P2 adapter only after the first ecosystem has stable production evidence.
 
 There is no additional code-local WEL increment that can honestly close a current `[~]` item on a

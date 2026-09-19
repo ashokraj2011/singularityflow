@@ -277,7 +277,13 @@ export function validateStagedWorldModelHistory({
         });
     }
     const record = parseExactRetainedObject(ref, retained.bytes);
-    resolved.set(ref.sha256, Object.freeze({ ref: structuredClone(ref), record }));
+    // Graph owners for rendered payloads must replay the exact staged bytes before the state
+    // authority can advance. Keeping only the parsed record made family-less rendered objects
+    // invisible to that admission check and prevented the owned saved-view writer from proving
+    // its output. Preserve an immutable copy of every retained byte sequence here.
+    resolved.set(ref.sha256, Object.freeze({
+      ref: structuredClone(ref), bytes: Buffer.from(retained.bytes), record
+    }));
     activeAt.set(ref.sha256, active.length);
     active.push(ref.sha256);
     stack.push({ exit: true });

@@ -124,14 +124,13 @@ Operational Store followed at `main@cf06f10d`, with serialized CAS, append-only 
 backup/fast-forward restore, append-only rollback, tamper/bounds checks, and a hard
 non-authoritative simulation/test selection boundary. A durable `filesystem-replay-v1`
 Operational Store followed at `main@32f1afd0`; the unchanged
-CAS/replay/backup/restore/rollback journey now passes against both
-generic implementations, with competing-writer, abandoned-lock, unfinished-stage, and corrupt-
-lineage proofs. The current code-local continuation installs a separate `filesystem-live-v1`
+CAS/replay/backup/restore/rollback journey now passes against both generic implementations and the
+installed live implementation, with competing-writer, abandoned-lock, unfinished-stage, corrupt-
+lineage, and forged-live-profile proofs. The current code-local continuation installs a separate `filesystem-live-v1`
 runtime profile, migrates only the mutable legacy Process head through a self-hashed atomic cutover
 receipt, and retains `state.json` as a verified compatibility mirror without moving Program,
 policy, lifecycle, immutable-evidence, record-index, or control-successor authority. `SGOS-P1-003`
-remains partial only until the unchanged full conformance suite and signed supported-platform
-receipts are independently reviewed.
+remains partial only until signed supported-platform receipts are independently reviewed.
 
 The 2026-09-06 performance continuation moved branch refresh, ledger status/state publication,
 workflow configuration proposals, approval identity enrollment, approved-configuration fallback
@@ -440,10 +439,10 @@ matrix cell.
 | Release baseline | `REL-P0-001` is bounded and resumable; the current strict Node 20/macOS liveness replay is green (`658a7530de082ce517cf5042`, 4,708/4,708), as are the earlier Node 20/22 cells, all with no skips | Collect signed Node 20/22 macOS/Linux/Windows and npm/VSIX receipts; unsigned local cells are not the release matrix | This document and [Verification](../VERIFICATION.md) |
 | Developer-experience performance | Hot paths and the office-Git code-local slice are implemented; both 30-pair editor-profile cells pass on macOS, warm cache survives disposable host processes, the reproduced event-loop tail is below its unchanged ceiling, and `bb162a7c` refuses a missing Story base before remote/configuration discovery; pinned relative baseline and cross-platform host evidence are not established | Accept pinned Linux/Windows/office-network evidence, keep the isolated compatibility transport under audit, then close each `[~]` platform gate | This document and [DX performance](DX-PERFORMANCE.md) |
 | Git Access Layer | The requested caller migration, approved read cutovers, exact-ref/remote hardening, persistent-object hardening, and acceptance traceability are code-local complete at `fbdc7aea`. The clean macOS cell, 5,359-test aggregate, 943-test VS Code suite, 524-test Git-owner suite, and package checks are implementation evidence only | External release evidence: physical office Windows credentials/proxy/CA, cancellation and descendant cleanup, linked worktrees/filesystem behavior, provider rejection/lost-acknowledgement/partial-clone cases, installed npm/VSIX, supported Node/platform cells, and independent signed review. Optional G0/G2 inventory/barrier expansion remains future engineering | [Git Access Layer status](GIT-ACCESS-LAYER-STATUS.md) |
-| SGOS | Universal Candidate publication, portable authority transport, meta-tool review, replay-store SPIs, and advanced-orchestration slices are code-complete. The live mutable Process head now uses the installed `filesystem-live-v1` Operational Store profile; exact old-format import, an atomic self-hashed cutover receipt, interruption recovery, and the verified compatibility mirror are implemented without moving Program or policy authority | `SGOS-P1-003` now needs the unchanged full conformance suite and signed supported-platform review evidence. Separate open release work remains for real Secret Broker integration, consented telemetry, independent certification, and the other SGOS platform matrices | [SGOS pending work](SGOS-PENDING-WORK.md) |
+| SGOS | Universal Candidate publication, portable authority transport, meta-tool review, replay/live-store SPIs, and advanced-orchestration slices are code-complete. The live mutable Process head uses the implementation-pinned `filesystem-live-v1` profile; exact old-format import, atomic self-hashed cutover, interruption recovery, verified mirror, forged-profile refusal, and the unchanged bounded Store conformance journey are implemented without moving Program or policy authority | Code-local live-store closeout is complete. Remaining release work is independently reviewed signed supported-platform/package evidence, real Secret Broker integration, consented telemetry, independent certification, and separately authorized adapters/protocols/packs | [SGOS pending work](SGOS-PENDING-WORK.md) |
 | World Model Builder v4 | Release receipt generation and enforcement exist; no reviewed six-cell supported-platform aggregate is recorded | `WMB-REL-001` | [WMB v4](WORLD-MODEL-BUILDER-V4.md) |
-| Persisted World-Model exact history | Governed identity, exact-key lookup, build-to-binding staging, deterministic views, frozen renderer/validator owners, exact persisted-view graph admission, history inspection, and the opt-in current-plus-history single-CAS transaction exist. Existing WMB v3/v4 and Story operation remain live | Add the saved-view materialization/publication service, an exact tokenizer owner for token-measured variants, a successor grounding contract with exact-byte replay, and only then Story/grounding activation | [Persisted World-Model views](PERSISTED-WORLD-MODEL-VIEWS.md) |
-| REV code/test loop | Private feedback attachment intake and internal journal/precheck/publication/check-planning foundations exist, but no user-facing mutating Revision Loop is activated. Classic Delivery continues to use its explicit reject-to-Code cycle | Install trusted editor observation and isolated execution, bind durable Code-check receipts, wire the guarded pilot plus compare/discard/restore UX, and pass its closed cross-platform witness/release gate before enabling it | [REV delivery status](REV-DELIVERY-STATUS.md) |
+| Persisted World-Model exact history | Governed identity, exact-key lookup, build-to-binding staging, owned saved-view materialization/publication, byte-only measurement, successor packet composition/replay, history inspection, and the opt-in current-plus-history single-CAS transaction exist. Existing WMB v3/v4 and Story operation remain live | Add lifecycle-owned exact history re-resolution, prove closure-to-authority-cut correlation, and immutably pin that cut before any Story/grounding activation. Add a tokenizer owner only if a future variant claims token measurement | [Persisted World-Model views](PERSISTED-WORLD-MODEL-VIEWS.md) |
+| REV code/test loop | Private feedback attachment intake and internal journal/precheck/publication/check-planning foundations exist, including exact retained-Candidate compare and restore/discard head selection, but no user-facing mutating Revision Loop is activated. The read-only activation report distinguishes those foundations from unavailable Program, attempt, receipt, recovery, and public-UX authority. Classic Delivery continues to use its explicit reject-to-Code cycle | Install trusted editor observation and isolated execution, bind durable Code-check receipts, expose the guarded pilot and compare/discard/restore UX, and pass its closed cross-platform witness/release gate before enabling it | [REV delivery status](REV-DELIVERY-STATUS.md) |
 | Witnessed Engineering Loop | Exact-static local JUnit and bounded literal Jest/Vitest observations, immutable proposal binding, existing-approval review, migration, release-gated baseline/delta/Context-X-Ray/Story-start/recovery benchmark, cancellable Java parser boundary, isolated npm/VSIX proof, strict signed benchmark-report binding, a bounded platform-matrix command, and a privacy-safe real-repository JUnit/Surefire plus Jest/Vitest corpus runner are active; portable Linux matrices and package gates are green, process-private parser reuse is present, and `main@03825387` closes the remaining reproduced exact-publication/aggregate-interruption liveness defects; authenticated testcase claims and enforcement remain unavailable | Execute and independently review both corpus families through the new runner, sign the physical-host/office-network P0 gates, then satisfy Candidate/Program/attempt and authenticated-runner dependencies | [WEL pending work](WEL-PENDING-WORK.md) |
 | Code Assurance Bridge | CAB-R0 architecture and CAB-R1 observe pilot are active; enforcement remains unavailable | Independent CAB-R0 review plus authenticated CAB-R2 runner authority | [CAB roadmap](CAB-ROADMAP.md) |
 | Governed comprehension | Read-only, non-authoritative P0 contract, closed registries, authority ADR, mutation tripwires, isolated npm/VSIX proof, deterministic corpus/matrix command, content-free P1 benchmark, bounded privacy-safe real-repository measurement, experimental source-free record preview/in-memory migration, bounded ephemeral P3 graph/exact explanation reads, normalized Story replay, an existing-five-tool resource-level gateway trace, and code-local incremental brownfield diagnostics with a leased native view exist | Execute and sign the unchanged `CMP-P0-001` matrix on Windows and Linux, independently review collected corpus results, complete the P1 storage/privacy and rollout decision, add P2-backed durable graph/causal authority plus SGOS joins, then integrate governed historical review before enforcement | [CMP roadmap](CMP-ROADMAP.md) |
@@ -458,13 +457,16 @@ new responsiveness defect belongs in the DXP track below, not in that closed rem
 ### Current work classification
 
 - **Evidence-only release work:** GAL physical Windows/office and provider exercises, SGOS live-
-  store conformance/platform review, plus the shared signed platform/runtime and installed npm/VSIX
+  store physical-platform/package review, plus the shared signed platform/runtime and installed npm/VSIX
   receipts. This does not require reopening either completed code-local design.
-- **Next code-local product work:** WMP P0 saved-view materialization/publication, tokenizer
-  ownership for token-measured variants, and successor grounding/replay owners.
+- **Next code-local product work:** WMP P0 lifecycle history re-resolution, closure-to-authority-cut
+  proof, and immutable Story selection/pinning. Saved-view materialization/publication and successor
+  byte composition/replay are implemented; v1 is deliberately byte-only, so tokenizer ownership is
+  required only if a future variant claims token measurement.
 - **Guarded activation work:** REV remains disabled until its trusted-editor, isolated-execution,
   durable-receipt, UX, and cross-platform witness gates pass. Its available attachment intake is
-  not an executable revision loop.
+  not an executable revision loop. WEL Candidate/Program/attempt correlation likewise waits for
+  CAB-R2 and SGOS-P0-001/CAB-R6; local observations keep those authority fields null.
 - **Deferred tracks:** CMP enforcement and durable cause authority, CAB/WEL authenticated runners,
   GDP provider pilots/enforcement, Auto-SGOS, extra provider adapters, advanced orchestration, and
   other new UI surfaces remain behind their own authority and release contracts.
@@ -478,9 +480,10 @@ The remaining portfolio work should be completed in this order:
 3. keep the completed GAL caller-migration boundary stable and collect its physical Windows/office,
    provider, supported-runtime, installed-package, and independent-review evidence without
    reopening authority design;
-4. complete WMP P0 saved-view materialization/publication, applicable tokenizer ownership, and
-   successor grounding/replay before any automatic Story activation;
-5. independently run and sign the unchanged SGOS live-store conformance/platform evidence without
+4. complete WMP P0 lifecycle history re-resolution, closure-to-authority-cut proof, and immutable
+   Story selection/pinning before any automatic activation; introduce tokenizer authority only if a
+   future saved-view or grounding variant claims token measurement;
+5. independently run and sign the unchanged SGOS live-store physical-platform/package evidence without
    reopening the implemented Process-head cutover;
 6. complete the REV trusted-editor, isolated-executor, receipt, UX, and witness gates before
    enabling a mutating code/test loop;
@@ -875,9 +878,12 @@ graph admission are implemented. The normal WMB service now has a
 strictly opt-in bridge that performs lookup-before-extraction, builds only on the typed exact miss,
 derives the view-only coverage overlay without re-reading source, and stages the compatible current
 projection plus immutable model history through one state-branch CAS and recovery envelope.
-Production Story/grounding activation and saved-view materialization remain inactive until an owned
-publication service, applicable tokenizer owner, and successor grounding/replay owners are
-complete. This pending optimization does not disable Story creation, phase progression, legacy-v3 builds, registered-v4
+Owned saved-view materialization/publication, explicit byte-only measurement, and successor packet
+composition/replay are implemented behind the opt-in service. Production Story/grounding activation
+remains inactive until a lifecycle owner re-resolves the exact history cut, proves the supplied
+closure belongs to that cut, and pins it immutably. A tokenizer owner is not applicable to byte-only
+v1 and is required only if a future variant claims token measurement. This pending activation work
+does not disable Story creation, phase progression, legacy-v3 builds, registered-v4
 builds/current projections, or their existing reuse mechanisms. The shipped `grounding: warn`
 policy records unavailable intelligence with zero World-Model bytes and lets ordinary repository
 work continue. `grounding: enforce` changes consumed-context integrity handling, not availability;
@@ -959,22 +965,27 @@ authoritative amended boundary is
   current-plus-history single-CAS publication behind an opt-in service boundary;
 - [x] retain frozen renderer/validator implementation owners and enforce exact persisted-view graph
   admission before staged authority can advance;
-- wire the verified opt-in history result into Story start and grounding preparation without
-  allowing a typed miss to trigger a hidden build; retain production activation as off until the
-  remaining view and grounding owners below are complete;
-- add an owned saved-view materialization/publication service that preserves the implemented exact
+- [~] wire the verified opt-in history result into public Story start and grounding preparation
+  without allowing a typed miss to trigger a hidden build. The default-off code-local Story
+  composition primitive now emits/replays only a fully supplied accepted closure, but explicitly
+  reports `authorityProven: false`; lifecycle history re-resolution, state-cut selection, closure-
+  to-cut proof, and immutable workflow pinning remain before public activation;
+- [x] add an owned saved-view materialization/publication service that preserves the implemented exact
   model/base/projection/selected-ledger, scope, candidate-digest, renderer/validator, receipt, and
-  byte-budget admission across existing-plus-staged authority; add an exact tokenizer owner before
-  any token-measured variant is accepted;
-- emit the immutable Story grounding reference and replay its exact original bytes after current
+  byte-budget admission across existing-plus-staged authority. V1 declares byte-only measurement
+  and rejects every token-measured request until an exact tokenizer owner exists;
+- [x] compose the immutable successor grounding packet and replay its exact original bytes after current
   source, policy, renderer, or reports change, using a compatible successor to the structural v1
-  preview that binds expansion handles, ordering/separators, and packet-composer identity.
+  preview that binds expansion handles, ordering/separators, and packet-composer identity. This
+  proves packet bytes, not that a caller-supplied authority assertion owns the supplied closure;
+  exact lifecycle history re-resolution remains in the preceding open item.
 
-Automatic WMP exact-history view emission and reuse must stay inactive until these P0 items are
-complete. The opt-in service can already write the accepted base Model Binding with the current
-projection through one transaction, and exact persisted-view graph admission is implemented; this
-does not authorize saved-view materialization/publication or automatic Story/grounding activation
-until the remaining tokenizer, publication, and successor-grounding/replay owners are installed.
+Automatic WMP exact-history view emission and reuse stays inactive while the Story lifecycle pin is
+open. The explicit service can write the accepted base Model Binding and owned saved views with the
+current projection through one transaction, and the default-off composition primitive can
+create/replay a successor packet only from that accepted closure. It deliberately reports the
+authority cut as unproven until a lifecycle owner re-resolves the closure from exact history. This
+does not authorize automatic Story/grounding activation or token measurement.
 Direct caller-supplied persisted facts are refused at the publication-service boundary. This restriction
 does not turn off the existing WMB v3/v4 services.
 Deferred grounding/handoff/adoption also require publication-receipt, admission-proof,

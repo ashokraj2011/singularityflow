@@ -39,6 +39,9 @@ import {
 } from './projections/calm/projection.mjs';
 import { compareText, isPlainRecord } from './canonicalize.mjs';
 import { validateWorldModelHistoryRoots } from './history/paths.mjs';
+import {
+  materializePersistedWorldModelViews
+} from './history/saved-view-publication.mjs';
 
 function manifestView(runtime, entry) {
   if (!entry.markdown) {
@@ -279,7 +282,7 @@ function persistedHistoryConfiguration(value) {
   }
   const allowed = new Set([
     'authorityCommit', 'authorityRef', 'historyDir',
-    'pinnedCapabilityResolution'
+    'pinnedCapabilityResolution', 'savedViews'
   ]);
   const descriptors = Object.getOwnPropertyDescriptors(value);
   const keys = Reflect.ownKeys(value);
@@ -695,6 +698,32 @@ export async function buildAndPublishWorldModelV4(root, {
     outputDir,
     ...(historyOptions.historyDir === undefined ? {} : { historyDir: historyOptions.historyDir })
   }) : null;
+  if (historyOptions?.savedViews !== undefined) {
+    if (!isPlainRecord(historyOptions.savedViews)) {
+      throw new SingularityFlowError(
+        'Persisted saved-view options must be a bounded plain object.',
+        { code: 'WMP_PERSISTED_HISTORY_OPTIONS_INVALID' }
+      );
+    }
+    const reserved = ['model', 'outputDir', 'historyDir'].filter(
+      (field) => Object.hasOwn(historyOptions.savedViews, field)
+    );
+    if (reserved.length) {
+      throw new SingularityFlowError(
+        `Persisted saved-view options cannot replace verified authority field(s): ${reserved.join(', ')}.`,
+        {
+          code: 'WMP_PERSISTED_FACTS_CALLER_FORBIDDEN',
+          details: { reserved }
+        }
+      );
+    }
+  }
+  if (historyOptions?.savedViews !== undefined && !publish) {
+    throw new SingularityFlowError(
+      'Persisted saved views require the reviewed one-CAS state publication path.',
+      { code: 'WMP_SAVED_VIEW_PUBLICATION_REQUIRED' }
+    );
+  }
   if (publish && buildOptions.candidateSnapshot?.authority?.kind === 'candidate-snapshot') {
     throw new SingularityFlowError(
       'Candidate Snapshot builds are checkout-local and cannot be published as reusable state authority. Validate with --local, then commit the reviewed source and publish a clean-source build.',
@@ -781,6 +810,7 @@ export async function buildAndPublishWorldModelV4(root, {
     ? runtimeViews.map(viewId).filter((id) => !explicitlyRequestedIds.includes(id))
     : [];
   let persistedModel = null;
+  let persistedAcceptedModel = null;
   let persistedRegistrationCalls = 0;
   let runtime = null;
   if (historyOptions && publish && !buildOptions.candidateSnapshot
@@ -814,6 +844,12 @@ export async function buildAndPublishWorldModelV4(root, {
     });
     assertHistoryPublicationAuthority(lookup.authority, confirmedPublication);
     if (lookup.status === 'reused') {
+      persistedAcceptedModel = Object.freeze({
+        binding: lookup.resolved.binding,
+        objects: Object.freeze(lookup.resolved.closure.map((entry) => Object.freeze({
+          ref: entry.ref, bytes: entry.canonicalBytes, record: entry.record
+        })))
+      });
       persistedModel = Object.freeze({
         status: 'reused', modelKey: lookup.modelKey,
         authority: lookup.authority, stagedHistory: null,
@@ -847,6 +883,10 @@ export async function buildAndPublishWorldModelV4(root, {
         }
       });
       assertHistoryPublicationAuthority(built.authority ?? lookup.authority, confirmedPublication);
+      persistedAcceptedModel = Object.freeze({
+        binding: built.binding,
+        objects: built.objects
+      });
       runtime = await buildWorldModelV4(root, {
         ...buildOptions,
         views: runtimeViews,
@@ -868,6 +908,25 @@ export async function buildAndPublishWorldModelV4(root, {
         execution: Object.freeze({
           ...built.execution, registrationCalls: persistedRegistrationCalls
         })
+      });
+    }
+    if (historyOptions.savedViews !== undefined) {
+      if (!persistedAcceptedModel) {
+        throw new SingularityFlowError(
+          'Persisted saved-view materialization has no accepted Model Binding closure.',
+          { code: 'WMP_GROUNDING_NOT_READY' }
+        );
+      }
+      const savedViews = materializePersistedWorldModelViews({
+        ...historyOptions.savedViews,
+        model: persistedAcceptedModel,
+        outputDir: historyRoots.outputDir,
+        historyDir: historyRoots.historyDir
+      });
+      persistedModel = Object.freeze({
+        ...persistedModel,
+        stagedHistory: savedViews.stagedHistory,
+        savedViews
       });
     }
   }
@@ -1058,7 +1117,20 @@ export async function buildAndPublishWorldModelV4(root, {
       authority: persistedModel.authority,
       bindingPath: persistedModel.bindingPath,
       bindingSha256: persistedModel.bindingSha256,
-      execution: persistedModel.execution
+      execution: persistedModel.execution,
+      savedViews: persistedModel.savedViews ? Object.freeze({
+        status: persistedModel.savedViews.status,
+        measurementPolicy: persistedModel.savedViews.measurementPolicy,
+        views: persistedModel.savedViews.views.map((entry) => Object.freeze({
+          reference: entry.reference,
+          variant: entry.variant,
+          format: entry.format,
+          viewKey: entry.viewKey,
+          bindingSha256: entry.bindingSha256,
+          expansionHandle: entry.expansionHandle,
+          bytes: entry.bytes
+        }))
+      }) : null
     }) : null,
     publicationRecovery: publicationRecovery
       ? Object.freeze({ id: publicationRecovery.id, retained: publicationRecoveryRetained }) : null

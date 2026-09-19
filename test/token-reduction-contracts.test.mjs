@@ -151,7 +151,7 @@ test('TKR M0 families are frozen immutable identities and do not change WMP fami
   }
   assert.deepEqual(WMP_RECORD_FAMILIES, [
     'world-model-model-binding', 'world-model-view-inputs', 'world-model-view-binding',
-    'world-model-grounding-reference', 'world-model-handoff',
+    'world-model-grounding-reference', 'world-model-grounding-packet', 'world-model-handoff',
     'world-model-source-adoption'
   ]);
   assert.deepEqual(TKR_ERROR_CODES, [

@@ -481,6 +481,12 @@ the same exact legacy head. After cutover, `state.json` is retained as a compati
 diagnostic mirror; the append-only Store survives a crash before mirror refresh, while immutable
 control lineage still governs legitimate recovery and rollback.
 
+Runtime selection is implementation-pinned as well as name-pinned. Only an adapter created by the
+build's installed live factory can pass live admission; a replay or caller-created adapter that
+copies `filesystem-live-v1`, its capabilities, and its descriptor is refused. The unchanged bounded
+CAS/replay/backup/restore/rollback conformance journey runs against all three Operational Store
+profiles, while only the implementation-pinned live profile is admitted for Process heads.
+
 The code-local `SGOS-P1-003` runtime cutover is implemented and covered by focused migration,
 partial-failure, v2-upgrade, quarantine, rollback, and transition-recovery tests. The roadmap item
 remains partially qualified until signed supported-platform conformance evidence is available.
@@ -568,8 +574,9 @@ full operator recipe is in the
 
 ## What remains staged
 
-The following larger SGOS capabilities remain behind explicit refusal boundaries until their
-conformance suites exist. Their durable backlog, priorities, dependencies, and acceptance gates are
+The following larger SGOS capabilities or release qualifications remain behind explicit refusal
+boundaries until their authority, independent review, and signed evidence gates are satisfied.
+Their durable backlog, priorities, dependencies, and acceptance gates are
 tracked in [SGOS-PENDING-WORK.md](SGOS-PENDING-WORK.md):
 
 - model-backed or tool-bearing `AGENT` execution beyond the reviewed Copilot proposal-only GEU,
@@ -585,12 +592,12 @@ tracked in [SGOS-PENDING-WORK.md](SGOS-PENDING-WORK.md):
 - Secret Broker integration with real external adapters, the corresponding cancellation/leakage/
   restart proof, and garbage-collection plans; bounded automatic working-set injection into the
   proposal-only Copilot Agent path is implemented;
-- migration of the live filesystem Process store through the Operational Store SPI and an exact
-  old-format/runtime-cutover matrix; bounded memory and durable filesystem replay profiles both
-  exist only for simulation/test, while the separate platform filesystem profile remains the only
-  installed and explicitly experimental Authority Store implementation;
-- executable tutorial environments, independent learning certification, a
-  public meta-tool activation/rollback CLI, and multi-domain proof packs;
+- signed physical-platform and package qualification of the implemented live Process-head
+  Operational Store cutover; bounded memory and durable filesystem replay profiles remain limited
+  to simulation/test, and the Authority Store remains a separate explicitly experimental boundary;
+- independent learning certification and accessibility validation; the bounded executable tutorial
+  environment, portable/offline progress, and public meta-tool activation/rollback CLI are
+  implemented, while multi-domain proof packs remain a new authority-bearing increment;
 - external telemetry transport beyond the content-free read-only OpenTelemetry projection and
   signed supported-machine baselines for the implemented semantic read-model budgets;
   fresh-authority trace-to-evidence reconstruction is available through

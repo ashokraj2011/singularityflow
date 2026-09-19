@@ -286,6 +286,7 @@
   "world-model-view-inputs": [{ "schemaVersion": 1 }],
   "world-model-view-binding": [{ "schemaVersion": 1 }],
   "world-model-grounding-reference": [{ "schemaVersion": 1 }],
+  "world-model-grounding-packet": [{ "schemaVersion": 1 }],
   "world-model-handoff": [{ "schemaVersion": 1 }],
   "world-model-source-adoption": [{ "schemaVersion": 1 }],
   "world-model-scope-manifest": [{ "schemaVersion": 1 }],

@@ -141,7 +141,7 @@ function modelBindingFixture(overrides = {}) {
 }
 
 test('WMP durable families are frozen identities registered at schema v1', () => {
-  assert.equal(WMP_RECORD_FAMILIES.length, 6);
+  assert.equal(WMP_RECORD_FAMILIES.length, 7);
   for (const familyId of WMP_RECORD_FAMILIES) {
     const family = schemaFamily(familyId);
     assert.equal(family.currentVersion, 1, familyId);

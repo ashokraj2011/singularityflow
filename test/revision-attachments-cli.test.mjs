@@ -90,12 +90,22 @@ test('revision attachment intake is separate from Story documents and never star
   assert.equal(activation.data.activationProfile, 'disabled');
   assert.equal(activation.data.eligible, false);
   assert.ok(activation.data.blockers.some((blocker) => blocker.code === 'REV_EXECUTION_UNAVAILABLE'));
+  assert.equal(activation.data.evidenceBoundary.program, 'approved-program-binding-unavailable');
+  assert.equal(activation.data.evidenceBoundary.receipt,
+    'projection-only-no-authenticated-durable-receipt');
+  assert.ok(activation.data.foundations.some((foundation) =>
+    foundation.id === 'compare-discard-restore' && foundation.status === 'kernel-only'));
+  assert.ok(activation.data.safeNextActions.every((action) =>
+    action.classification === 'read' && action.shell && action.copilot &&
+    action.requiresActiveStory === false));
   assert.equal(activation.effects.filesChanged, false);
 
   const revisionCapabilities = JSON.parse(flow(root, ['revision', 'capabilities', '--json']).stdout);
   assert.equal(revisionCapabilities.resultType, 'command-result');
   assert.equal(revisionCapabilities.data.activationProfile, 'disabled');
   assert.equal(revisionCapabilities.data.codeRevisionExecutionAvailable, false);
+  assert.equal(revisionCapabilities.data.evidenceBoundary.attempt,
+    'declarative-probe-only-unverified');
   assert.equal(revisionCapabilities.effects.filesChanged, false);
 
   const capabilitiesResult = JSON.parse(flow(root, [

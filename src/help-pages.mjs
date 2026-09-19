@@ -1399,6 +1399,7 @@ const PAGES = Object.freeze({
     summary: 'Inspect REV activation or stage verified feedback files; no revision runs.',
     description: [
       'Revision activation reports repository-specific pilot prerequisites without changing state.',
+      'It separates installed internal Candidate/precheck/compare foundations from unavailable Program, authenticated-attempt, durable-receipt, recovery, public-UX, and release-evidence authority.',
       'Revision capabilities reports the installed execution profile. Code execution requires every pilot gate.',
       'The attachments subcommand reports the native Copilot byte bridge as unavailable for opaque',
       'uploads; a genuine local VS Code file URI',

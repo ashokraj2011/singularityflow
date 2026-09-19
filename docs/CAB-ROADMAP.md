@@ -203,7 +203,10 @@ decoys, wildcard imports, non-literal tags, parameterized/dynamic/repeated/neste
 report identities, and class mismatches with zero false exact matches. The outcome remains
 `inconclusive` and non-blocking. Candidate/Program/attempt authentication, broader real-repository
 corpus evidence, durable attempt-lineage retry semantics, and supported-platform receipts remain
-open. Explicit focus and framework-level reruns already refuse exact-static mapping.
+open. Candidate/Program/attempt authentication and authoritative retry lineage are not a missing
+local hash or nullable field: they require the CAB-R2 authenticated runner and CAB-R6 lifecycle
+bridge. Existing local observations must keep those bindings null rather than manufacture a join.
+Explicit focus and framework-level reruns already refuse exact-static mapping.
 
 Exit gates:
 

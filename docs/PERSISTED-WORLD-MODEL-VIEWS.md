@@ -6,9 +6,10 @@ pre-scope candidate roster, frozen empty extractor-configuration ownership, a pu
 bridge, an opt-in normal-service/single-CAS model-history path, and a bounded W2 deterministic-view
 slice are implemented. Frozen renderer/validator ownership, source-derived implementation identity,
 exact persisted-view graph admission, and deterministic byte-for-byte replay are also implemented.
-Production Story/grounding activation and saved-view materialization remain
-inactive pending their publication and successor-grounding owners. Existing Story lifecycles and the operational
-legacy-v3 and registered-v4 World-Model paths are not disabled.
+The owned saved-view writer, byte-only measurement policy, successor grounding-packet owner, and
+exact packet replay are implemented behind explicit code-local opt-in boundaries. Automatic
+production Story/grounding activation remains disabled until lifecycle selection and pinning land.
+Existing Story lifecycles and the operational legacy-v3 and registered-v4 World-Model paths are not disabled.
 
 This document is the repository implementation companion to the externally supplied
 `SPEC-persisted-worldmodel-views.md` draft. It records the amendments required by the current WMB
@@ -116,7 +117,8 @@ additional normative meaning. Public commands use `singularity-flow`/`sflow` equ
 The current increment is deliberately usable as an exact, read-only persistence foundation rather
 than being wired into every Story path prematurely:
 
-- all six draft WMP envelope families are registered as frozen v1 identities, have strict closed
+- all six original draft WMP envelope families plus the successor grounding-packet family are
+  registered as frozen v1 identities, have strict closed
   structural/self-hash validators and schemas, and use migration-registry schema versions;
 - frozen v1 semantic owners are installed for repository-domain, extraction-policy,
   extractor-registry, completeness-record, consumer-profile, output-budget, and
@@ -204,6 +206,22 @@ than being wired into every Story path prematurely:
   measurement. The immutable v1 renderer consumes the exact retained View Contract rather than the
   mutable active registry. V1 remains registered when a future active writer is added; a behavior
   change requires a new version, source manifest, implementation identity, and contract hash;
+- the owned saved-view service accepts only a verified complete Model Binding closure, constructs
+  every projection/input/render/receipt/binding itself, and submits the combined model-plus-view
+  closure to the existing absent-or-identical publication admission boundary. The normal v4 service
+  exposes it only through explicit `persistedHistory.savedViews`; current projection, model history,
+  and view history still land in the existing single-CAS state transaction. Persisted overview v1
+  is explicitly exact-byte measured: non-null tokenizer input fails closed rather than estimating;
+- `world-model-grounding-packet` is a new frozen successor identity; the structural grounding
+  reference v1 is unchanged. Its exact composer has a pinned source manifest and binds ordered View
+  Keys, expansion handles, separator/framing/implementation identity, rendered packet bytes, byte
+  budget, repository domain, and a caller-pinned authority assertion.
+  `preparePersistedStoryGrounding` is a packet-composition primitive, not lifecycle authority
+  proof: it returns before inspecting history when disabled, refuses missing views rather than
+  building them, and reports `authorityProven: false`. Replay uses only the retained exact closure
+  and reproduces the original bytes after mutable source changes. Automatic Story activation still
+  requires a lifecycle owner to re-resolve the exact history cut and prove that the closure came
+  from it;
 - `wm history list --authority-commit <full-commit>` pages exact key paths with a continuation
   cursor bound to the authority cut, kind selection, history root, and page size, while `show`
   verifies the selected binding and complete semantically owned closure. Both prove that the cut is
@@ -211,12 +229,13 @@ than being wired into every Story path prematurely:
   write a cache, or change Git. A configured remote never falls back to an unpublished local state
   branch.
 
-The increment does **not** enable immutable WMP history for ordinary CLI, Story, or grounding
-builds yet; the existing builder and current-projection reuse behavior continue. A code-local
+The increment does **not** automatically enable immutable WMP history for ordinary CLI, Story, or
+grounding builds; the existing builder and current-projection reuse behavior continue. A code-local
 normal-service option now proves the complete lookup/miss/build/single-CAS integration without
 changing production defaults. It builds the base only on the typed exact miss and reuses an exact
 accepted base on later invocations; direct caller-supplied persisted facts are refused by the
-publication service. Activation waits for the saved-view and grounding proof owners.
+publication service. Saved-view and grounding owners are now present, but automatic activation
+still waits for an exact lifecycle selection/pin rather than inferring a current model or view.
 Exact-manifest terminal extraction outcomes and pure completeness construction cover every selected
 path, including successful zero-fact extraction. Excluded paths are admitted only from the owned
 roster that reconstructs the complete committed Git tree before scope.
@@ -226,24 +245,23 @@ resolver compares it with current approved or lifecycle-pinned repository author
 before lookup and construction; its ephemeral proof is not added to `ModelInputs` and cannot turn
 an old configuration cut into current permission.
 
-WMP exact-history saved-view emission and reuse remain inactive even though the retained
-renderer/validator owners and exact cross-record view-graph admission are now implemented. An owned
-materialization/publication service is still required, as is an exact tokenizer owner whenever token
-measurement is asserted. This does not disable the existing WMB v4 current projection or its
-validated cache. Deferred WMP grounding, handoff, and adoption still require their
+WMP exact-history saved-view emission is available only through the explicit service option; no
+configuration refresh or Story starts it automatically. Token measurement remains unavailable and
+fails closed; the installed v1 contract is byte-only. This does not disable the existing WMB v4
+current projection or its validated cache. Deferred handoff and adoption still require their
 publication-receipt, admission-proof, source-authority, origin-authority, target-authority, and
 adoption-authorization owners as applicable. Reusing an unrelated record under a convenient role
 would create a syntactically valid but false proof. The next rollout step is therefore completing
-saved-view and successor-grounding owners before wiring the opt-in model-history path into Story
-consumers; it is not premature activation of incomplete view history.
+an explicit lifecycle pin before wiring exact history into public Story consumers; it is not an
+invitation to guess the newest state entry.
 
 ## Delivery boundary
 
 | Increment | Current status | Included behavior |
 |---|---|---|
-| W0 | Persistence and semantic-owner foundation implemented | Strict identities, object references, six registered envelope contracts, portable paths, canonical-byte tests, and frozen v1 owners for repository domain, extraction policy, registry, completeness, consumer profile, output budget, and validation receipt. Automatic WMP exact-history construction is not enabled. |
-| W1 | Persistence and model-integrity foundation implemented; activation off | Direct exact-key state-history reads; owned pre-scope candidate roster and frozen empty configuration; create-if-absent publication expectations; history-bound recovery; exact model-graph validation; governed repository identity; explicit miss build; projection-only coverage derivation; and an opt-in service path proving compatible current projection plus immutable model history in one CAS and exact-key reuse. Production Story/grounding wiring and saved-view history remain fail-closed pending their proof owners. Existing WMB v3/v4 operation is unaffected. |
-| W2 | Partial | Five model-free overview contracts, stable full/brief renderers, pinned exact-closure renderer/validator identities, append-only historical implementation dispatch, exact view-graph admission, deterministic rendered-byte/selection/measurement replay, and exact history inspection are implemented. Saved-view materialization/publication is not enabled. The structural grounding preview exists, but its frozen v1 shape cannot represent the full composition identity; a compatible successor contract, lifecycle emission, and exact packet replay are not yet enabled. |
+| W0 | Persistence and semantic-owner foundation implemented | Strict identities, object references, seven registered envelope contracts (six original plus the grounding-packet successor), portable paths, canonical-byte tests, and frozen v1 owners for repository domain, extraction policy, registry, completeness, consumer profile, output budget, and validation receipt. Automatic WMP exact-history construction is not enabled. |
+| W1 | Persistence and model-integrity foundation implemented; activation off | Direct exact-key state-history reads; owned pre-scope candidate roster and frozen empty configuration; create-if-absent publication expectations; history-bound recovery; exact model-graph validation; governed repository identity; explicit miss build; projection-only coverage derivation; and an opt-in service path proving compatible current projection plus immutable model history in one CAS and exact-key reuse. Owned saved-view history lands in W2; production Story/grounding wiring remains fail-closed pending lifecycle history re-resolution and cut pinning. Existing WMB v3/v4 operation is unaffected. |
+| W2 | Code-local owners implemented; automatic activation off | Five model-free overview contracts, stable full/brief renderers, owned saved-view materialization in the one-CAS service, exact-byte measurement, pinned renderer/validator/composer identities, exact view-graph admission, successor grounding packet composition, and byte-for-byte replay are implemented. Composition deliberately does not prove its caller-supplied authority assertion. Public Story-start history re-resolution/pinning and IDE/FWM consumers remain deferred. |
 | W3 | Deferred | Incremental parse/derivation reuse and verified private-candidate handoff/adoption. |
 | W4 | Deferred | Legacy inventory/cutover, supported-platform evidence, capacity benchmarks, UI explorer, and release qualification. |
 
@@ -269,6 +287,8 @@ singularity/world-model-history/models/<64>.json immutable model bindings
 singularity/world-model-history/views/<64>.json  immutable view bindings
 singularity/world-model-history/objects/sha256/<2>/<64>
 singularity/world-model-history/handoffs/<64>.json
+singularity/work-items/<id>/context/grounding/wmp/<64>.packet.json
+singularity/work-items/<id>/context/grounding/wmp/<64>.md
 ```
 
 Every history path uses the complete lowercase SHA-256 hex value. Existing identical bytes are a
@@ -284,17 +304,13 @@ proposed 256 MiB closure ceiling until a streaming/reference recovery format is 
 
 - Preserve the implemented candidate-roster and frozen empty-configuration owners when defining a
   successor contract for genuinely configured extractors; configured profiles remain fail-closed.
-- Wire the verified opt-in model-history path into Story start and grounding preparation only after
-  the view/grounding owners below are complete; a typed miss must remain an explicit build decision.
-- Preserve the implemented exact view-graph admission when adding the saved-view
-  materialization/publication service. Publication must apply the model/base/projection/selected-ledger,
-  scope, candidate-digest, renderer/validator, receipt, and byte-budget checks to the combined
-  existing-plus-staged authority graph, not validate records only in isolation. Token-measured
-  variants additionally require an exact tokenizer owner; the implemented byte-only mode does not
-  claim token measurement.
-- Define a compatible grounding contract that binds expansion handles, ordering/separators, and
-  packet-composer identity; then add Story grounding-record emission, packet replay, and the
-  persisted-view IDE/FWM adapters. The frozen structural v1 preview is not sufficient for this.
+- Wire the verified code-local Story grounding boundary into public Story start/phase preparation
+  only after an exact state-cut/model/view selection is pinned in the lifecycle snapshot. A typed
+  miss must remain an explicit preparation action and cannot trigger a hidden build.
+- Add an exact tokenizer owner only if a future saved-view or grounding variant claims tokens. V1
+  is intentionally byte-only and rejects tokenizer input.
+- Add the persisted-view IDE/FWM adapters over the same read-only replay service; do not duplicate
+  packet composition in the UI.
 - Handoff/source-adoption services, approval path, and cross-machine continuation.
   Candidate continuation must also prove the candidate snapshot revision and authority scope are
   the exact revision and scope named by its Source Binding. The adoption service must derive its
@@ -305,6 +321,7 @@ proposed 256 MiB closure ceiling until a streaming/reference recovery format is 
 - Cross-platform fault-matrix qualification of lost-response and restart recovery for transactions
   containing history additions.
 - Fresh-clone, empty-cache saved reads with network/model/AST/write tripwires.
-- Exact Story grounding replay after current source, policy, renderer, and reports change.
+- Cross-platform/fresh-clone evidence for exact Story grounding replay after current source,
+  policy, renderer, and reports change (the code-local source-change fixture is implemented).
 - Foreign Candidate source adoption and incomplete handoff refusal.
 - Real Windows long-path/case behavior, macOS, Linux, archive capacity, and performance evidence.

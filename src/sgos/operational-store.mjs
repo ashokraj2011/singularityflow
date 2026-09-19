@@ -35,6 +35,11 @@ export const SGOS_OPERATIONAL_STORE_CAPABILITIES = Object.freeze({
 const MEMORY_PROFILE = 'memory-replay-v1';
 const FILESYSTEM_PROFILE = 'filesystem-replay-v1';
 export const SGOS_LIVE_OPERATIONAL_STORE_PROFILE = 'filesystem-live-v1';
+// Runtime admission is an implementation boundary, not a profile-name convention. Keep the
+// installed live adapters in a module-private identity set so a structurally compatible replay or
+// caller-created object cannot promote itself into live Process-head service by copying the public
+// descriptor fields.
+const INSTALLED_LIVE_OPERATIONAL_STORES = new WeakSet();
 const FORMAT_VERSION = 1;
 const MAXIMUM_ENTRIES = 2_000;
 const MAXIMUM_EVENTS = 20_000;
@@ -956,18 +961,21 @@ export function createFilesystemSgosOperationalStore(options) {
  * live execution merely by naming it.
  */
 export function createLiveFilesystemSgosOperationalStore(options) {
-  return createFilesystemOperationalStore({
+  const adapter = createFilesystemOperationalStore({
     ...options,
     profile: SGOS_LIVE_OPERATIONAL_STORE_PROFILE,
     purposes: ['runtime']
   });
+  INSTALLED_LIVE_OPERATIONAL_STORES.add(adapter);
+  return adapter;
 }
 
 /** Admit only the one installed runtime profile; this does not grant Program or policy authority. */
 export function assertSgosLiveOperationalStoreSelection(adapter) {
   const store = assertSgosOperationalStoreAdapter(adapter);
   const descriptor = store.descriptor();
-  if (store.profile !== SGOS_LIVE_OPERATIONAL_STORE_PROFILE
+  if (!INSTALLED_LIVE_OPERATIONAL_STORES.has(store)
+      || store.profile !== SGOS_LIVE_OPERATIONAL_STORE_PROFILE
       || descriptor.profile !== SGOS_LIVE_OPERATIONAL_STORE_PROFILE
       || canonicalJson(descriptor.purposes) !== canonicalJson(['runtime'])
       || descriptor.authorityEligible !== false) {

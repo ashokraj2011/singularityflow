@@ -141,6 +141,24 @@ export function worldModelGroundingReferencePath(workId, groundingSha256, {
   );
 }
 
+export function worldModelGroundingPacketPath(workId, groundingSha256, {
+  workItemRoot = 'singularity/work-items'
+} = {}) {
+  const reference = worldModelGroundingReferencePath(workId, groundingSha256, {
+    workItemRoot
+  });
+  return reference.replace(/\.json$/u, '.packet.json');
+}
+
+export function worldModelGroundingPacketPayloadPath(workId, groundingSha256, {
+  workItemRoot = 'singularity/work-items'
+} = {}) {
+  const reference = worldModelGroundingReferencePath(workId, groundingSha256, {
+    workItemRoot
+  });
+  return reference.replace(/\.json$/u, '.md');
+}
+
 export function worldModelSourceAdoptionPath(adoptionSha256) {
   return path.posix.join(
     '$git/world-model-source-adoptions/v1',

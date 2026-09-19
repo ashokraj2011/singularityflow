@@ -85,10 +85,10 @@ test('testing overview preserves the frozen coverage extractor and keeps test-im
   // changed because implementationSha256 intentionally binds the complete packaged WMB kernel.
   assert.equal(
     REQUIRED_FACT_COVERAGE_IMPLEMENTATION_SHA256,
-    'sha256:567738ea0a910a1ab7df1ad1e6a0e0d7414ef24d305efb3f78a15992e77e6a7b'
+    'sha256:8e06e97befe226218bfd2e98916721cb8e2ef7b42dd55c6992e7979d81d04e0c'
   );
-  assert.equal(coverage.manifestSha256, 'sha256:d42a49dd120f9fc63600925677e68ebac6d50dba1fb5d4118bbf435807f93ca9');
-  assert.equal(BUILTIN_EXTRACTOR_REGISTRY.registrySha256, 'sha256:45432b2ad2b036f386a135396230e49f946bb8a600ca5cd40e0a81a42c035fd9');
+  assert.equal(coverage.manifestSha256, 'sha256:328699f7d8f34b0226225d335292f941cadf3773d761c8a856dd4281a8e0741c');
+  assert.equal(BUILTIN_EXTRACTOR_REGISTRY.registrySha256, 'sha256:b666190ca6e5edba596438fb54440a4f111dd49524eb76219f35a3880ef29f53');
   assert.equal(coverage.factTypes.includes('test-impact'), false);
 
   const testing = resolveWmpOverviewViewContract('testing');

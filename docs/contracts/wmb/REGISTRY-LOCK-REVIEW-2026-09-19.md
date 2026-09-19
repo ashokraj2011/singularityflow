@@ -78,6 +78,64 @@ The owning registry test, actual v1-under-v2 replay test, exact source-closure a
 replay test, and broad World-Model suite establish this transition. This addendum does not activate
 Story or grounding use of persisted views.
 
+## Saved-view publication and successor-grounding addendum
+
+**Review boundary:** working tree based on `main@99f8d886ceeb1f238adfe17ca6349d5f0d1eada3`
+
+The next bounded WMP increment adds owned saved-view materialization to the existing single-CAS
+history transaction and adds an explicitly default-off, byte-only successor grounding packet. It
+does not activate persisted grounding at Story start. Packet composition reports
+`authorityProven: false`; lifecycle-owned exact-history re-resolution, closure-to-cut proof, and
+immutable Story cut pinning remain required before public activation.
+
+Reviewed tracked kernel changes:
+
+| Path | Reviewed effect | Extractor-contract effect |
+| --- | --- | --- |
+| `history/contracts.mjs` | Strict frozen grounding-packet record validation and 32 MiB runtime/schema parity | None |
+| `history/paths.mjs` | Portable packet and exact Markdown payload paths | None |
+| `history/publication.mjs` | Retains exact staged bytes for rendered-object graph admission | None |
+| `service.mjs` | Explicit saved-view option in the existing current-plus-history one-CAS publication | None |
+
+Reviewed new kernel files:
+
+- `history/saved-view-publication.mjs`: owner-derived projection, rendering, validation receipt,
+  binding, exact-byte measurement, and combined graph staging;
+- `history/grounding-packet.mjs`: closed saved-view metadata checks, exact Model Binding capture,
+  repository-domain correlation, canonical expansion-handle derivation, and byte-for-byte replay;
+- `history/persisted-grounding-composer-v1.mjs`: frozen ordering/framing with incremental aggregate
+  admission before allocation;
+- `history/persisted-grounding-owner.mjs`,
+  `history/persisted-grounding-source-manifest.mjs`, and
+  `history/persisted-grounding-implementation-registry.mjs`: pinned source/contract identity and
+  append-only retained-version dispatch.
+
+The exact authority-source Git blobs remain unchanged:
+
+| Authority | Git blob at `99f8d886` and this review |
+| --- | --- |
+| `required-fact-coverage.mjs` | `063af8c31e245f2e6280680edd7693ac135e3b86` |
+| `registry/extractors.mjs` | `95d2cfdecb6a4d399d6d36c42c900a9fb99287ba` |
+| `registry/views.mjs` | `4933d60d5d66cabb84c69dc65915625fe8fac697` |
+
+No required-fact-coverage algorithm, declared fact type, parser declaration, permission, Fact
+vocabulary, or View Contract changes in this increment. The identity movement is therefore the
+intended mechanical consequence of binding extractors to the complete packaged WMB kernel:
+
+| Identity | Prior accepted | Accepted by this review |
+| --- | --- | --- |
+| Packaged WMB kernel | `sha256:b2f21878f0ca48d970576a620d29233906043dd4ae6167d1358fc51f84fee9f1` | `sha256:eee353719a12ed6f4aeab43c4d77dcfb6cf21c660f3f1f6c8cfbf36ba565917d` |
+| Coverage implementation | `sha256:567738ea0a910a1ab7df1ad1e6a0e0d7414ef24d305efb3f78a15992e77e6a7b` | `sha256:8e06e97befe226218bfd2e98916721cb8e2ef7b42dd55c6992e7979d81d04e0c` |
+| Coverage conformance receipt | `sha256:281dc12d6958c06848ec1622e8d70fd36b4ae28684c7e5538c4ea28ef43e99c3` | `sha256:eea393a76dcaba37ab41f4576b0bb1bd3e5fe51cea4f049227671bc1738a8d14` |
+| Coverage manifest | `sha256:d42a49dd120f9fc63600925677e68ebac6d50dba1fb5d4118bbf435807f93ca9` | `sha256:328699f7d8f34b0226225d335292f941cadf3773d761c8a856dd4281a8e0741c` |
+| Built-in Extractor Registry | `sha256:45432b2ad2b036f386a135396230e49f946bb8a600ca5cd40e0a81a42c035fd9` | `sha256:b666190ca6e5edba596438fb54440a4f111dd49524eb76219f35a3880ef29f53` |
+
+Pre-lock validation covered 28 focused persisted-view/grounding contract tests and 66 focused WMP
+service/runtime tests. Before reconciliation, the broad World-Model sweep reached 450/451 and its
+sole failure was this deliberately frozen registry identity assertion. After the reviewed lock was
+updated, the complete World-Model sweep passed 453/453 tests. This review therefore accepts the
+reconciled identities above.
+
 ## Sanctioned reconciliation rule
 
 1. Never copy a new digest from a failing assertion.

@@ -104,8 +104,31 @@ export const revisionRuntimeCapabilities = Object.freeze({
   codeResultAvailable: false,
   publicationBridgeAvailable: false,
   releaseWitnessExecutionAvailable: false,
+  evidenceBoundary: Object.freeze({
+    candidate: 'retained-reference-foundation-only',
+    program: 'approved-program-binding-unavailable',
+    attempt: 'declarative-probe-only-unverified',
+    receipt: 'projection-only-no-authenticated-durable-receipt',
+    recovery: 'private-local-foundation-only',
+    compareRestore: 'kernel-only-no-public-ux'
+  }),
   reasonCode: 'REV_EXECUTION_UNAVAILABLE'
 });
+
+const ACTIVATION_FOUNDATIONS = Object.freeze([
+  Object.freeze({ id: 'candidate-head-cas', status: 'internal-only',
+    detail: 'The machine-local append-only head journal, exact retained Candidate references, and compare-and-swap selection kernel are installed.' }),
+  Object.freeze({ id: 'candidate-precheck-publication', status: 'internal-only',
+    detail: 'Candidate-bound precheck and exact selected-tree publication primitives are installed but have no public loop route.' }),
+  Object.freeze({ id: 'code-check-projection', status: 'projection-only',
+    detail: 'Code-check planning and result projection exist; no authenticated durable Code-check receipt can be produced.' }),
+  Object.freeze({ id: 'compare-discard-restore', status: 'kernel-only',
+    detail: 'Exact Candidate comparison and head restoration are tested kernel primitives; user-facing loop UX is not activated.' })
+]);
+
+function activationBlocker(code, message, remediationClass, extra = {}) {
+  return Object.freeze({ code, remediationClass, blocksActivation: true, message, ...extra });
+}
 
 /**
  * This is the authoritative public resolver. A caller cannot inject capability flags, a release
@@ -123,20 +146,25 @@ export async function resolveRevisionRuntimeCapabilities({ repositoryRoot } = {}
 export async function inspectRevisionPilotActivation({ repositoryRoot } = {}) {
   const optIn = await readRevisionPilotOptIn(repositoryRoot);
   const blockers = [];
-  blockers.push({ code: 'REV_PILOT_ATTESTATION_UNAVAILABLE',
-    message: 'No gate-owned release attestation binds current source, platform, and passing pilot witnesses.' });
+  blockers.push(activationBlocker('REV_PILOT_ATTESTATION_UNAVAILABLE',
+    'No gate-owned release attestation binds current source, platform, and passing pilot witnesses.',
+    'external-release-evidence'));
   if (revisionRuntimeCapabilities.activationProfile !== 'REV_POC_SINGLE_REPO') {
-    blockers.push({ code: 'REV_PILOT_RUNTIME_DISABLED',
-      message: 'The installed runtime does not claim the REV_POC_SINGLE_REPO profile.' });
+    blockers.push(activationBlocker('REV_PILOT_RUNTIME_DISABLED',
+      'The installed runtime does not claim the REV_POC_SINGLE_REPO profile.',
+      'guarded-product-activation'));
   }
   if (revisionRuntimeCapabilities.codeRevisionExecutionAvailable !== true) {
-    blockers.push({ code: 'REV_EXECUTION_UNAVAILABLE',
-      message: 'Transactional code revision execution is not installed.' });
+    blockers.push(activationBlocker('REV_EXECUTION_UNAVAILABLE',
+      'Transactional code revision execution is not installed.',
+      'external-execution-boundary'));
   }
   for (const flag of PILOT_BRIDGES) {
     if (revisionRuntimeCapabilities[flag] !== true) {
-      blockers.push({ code: 'REV_PILOT_BRIDGE_UNAVAILABLE', bridge: flag,
-        message: `Required pilot bridge '${flag}' is unavailable.` });
+      blockers.push(activationBlocker('REV_PILOT_BRIDGE_UNAVAILABLE',
+        `Required pilot bridge '${flag}' is unavailable.`,
+        flag === 'releaseWitnessExecutionAvailable'
+          ? 'external-release-evidence' : 'guarded-product-activation', { bridge: flag }));
     }
   }
   let manifest;
@@ -144,26 +172,40 @@ export async function inspectRevisionPilotActivation({ repositoryRoot } = {}) {
     manifest = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(
       await readFile(path.join(DEFAULT_RELEASE_ROOT, 'revision-trace-manifest.json'))));
   } catch {
-    blockers.push({ code: 'REV_TRACE_INCOMPLETE', message: 'The release trace manifest is unreadable.' });
+    blockers.push(activationBlocker('REV_TRACE_INCOMPLETE',
+      'The release trace manifest is unreadable.', 'release-integrity'));
   }
   let missingPilotCoreCriteria = [];
   if (manifest) {
     if (manifest.activationProfile !== 'REV_POC_SINGLE_REPO') {
-      blockers.push({ code: 'REV_TRACE_PROFILE_MISMATCH',
-        message: `The release trace profile is '${manifest.activationProfile ?? '<missing>'}', not 'REV_POC_SINGLE_REPO'.` });
+      blockers.push(activationBlocker('REV_TRACE_PROFILE_MISMATCH',
+        `The release trace profile is '${manifest.activationProfile ?? '<missing>'}', not 'REV_POC_SINGLE_REPO'.`,
+        'release-integrity'));
     }
     const { REV_PILOT_CORE_CRITERIA } = await import('./trace-manifest.mjs');
     missingPilotCoreCriteria = REV_PILOT_CORE_CRITERIA.filter((id) => !manifest.enabledCriteria?.[id]);
     if (missingPilotCoreCriteria.length) {
-      blockers.push({ code: 'REV_TRACE_INCOMPLETE',
-        message: `${missingPilotCoreCriteria.length} pilot-core criteria lack enabled exact witnesses.` });
+      blockers.push(activationBlocker('REV_TRACE_INCOMPLETE',
+        `${missingPilotCoreCriteria.length} pilot-core criteria lack enabled exact witnesses.`,
+        'external-release-evidence'));
     }
   }
-  if (!optIn) blockers.push({ code: 'REV_PILOT_OPT_IN_REQUIRED',
-    message: `Future prerequisite after pilot runtime and witnesses are released: opt in at ${REV_PILOT_OPT_IN_PATH}. An opt-in cannot enable REV in this build.` });
+  if (!optIn) blockers.push(activationBlocker('REV_PILOT_OPT_IN_REQUIRED',
+    `Future prerequisite after pilot runtime and witnesses are released: opt in at ${REV_PILOT_OPT_IN_PATH}. An opt-in cannot enable REV in this build.`,
+    'future-repository-choice'));
   return Object.freeze({ schemaVersion: 1, kind: 'revision-pilot-activation-status',
     requested: Boolean(optIn), activationProfile: 'disabled', eligible: false,
     blockers: Object.freeze(blockers.map((blocker) => Object.freeze(blocker))),
+    foundations: ACTIVATION_FOUNDATIONS,
+    evidenceBoundary: revisionRuntimeCapabilities.evidenceBoundary,
+    safeNextActions: Object.freeze([
+      Object.freeze({ id: 'inspect-capabilities', classification: 'read',
+        shell: 'singularity-flow revision capabilities --json',
+        copilot: '/sf-revision capabilities', requiresActiveStory: false }),
+      Object.freeze({ id: 'inspect-attachments', classification: 'read',
+        shell: 'singularity-flow revision attachments capabilities --json',
+        copilot: '/sf-revision attachments', requiresActiveStory: false })
+    ]),
     missingPilotCoreCriterionCount: missingPilotCoreCriteria.length,
     missingPilotCoreCriterionSample: Object.freeze(missingPilotCoreCriteria.slice(0, 10)) });
 }

@@ -12,12 +12,16 @@ import {
   validateWmpSourceBinding, validateWmpViewInputsKey
 } from './identity.mjs';
 import { validateWmpExtractionProfileOwnerDigests } from './extraction-profile-owners.mjs';
+import {
+  assertPersistedGroundingComposerContract
+} from './persisted-grounding-owner.mjs';
 
 export const WMP_RECORD_FAMILIES = Object.freeze([
   'world-model-model-binding',
   'world-model-view-inputs',
   'world-model-view-binding',
   'world-model-grounding-reference',
+  'world-model-grounding-packet',
   'world-model-handoff',
   'world-model-source-adoption'
 ]);
@@ -827,6 +831,149 @@ export function createWmpGroundingReference(value) {
   }, 'groundingSha256')));
 }
 
+function validateGroundingPacketViews(values) {
+  if (!Array.isArray(values) || !values.length || values.length > 256) {
+    fail('WMP Grounding Packet views must contain 1 through 256 entries.',
+      'WMP_CONTRACT_LIMIT');
+  }
+  for (const [index, entry] of values.entries()) {
+    exact(entry, [
+      'order', 'viewKey', 'bindingRef', 'variant', 'format', 'renderedRef',
+      'expansionHandle'
+    ], `WMP Grounding Packet view ${index}`);
+    assertInteger(entry.order, `WMP Grounding Packet view ${index} order`, {
+      minimum: 0, maximum: 255
+    });
+    if (entry.order !== index) {
+      fail('WMP Grounding Packet views are not in explicit contiguous order.',
+        'WMP_GROUNDING_ORDER_INVALID', { index, order: entry.order });
+    }
+    assertSha256(entry.viewKey, `WMP Grounding Packet view ${index} viewKey`);
+    validateRef(entry.bindingRef, `WMP Grounding Packet view ${index} bindingRef`, {
+      expectedRole: 'view-binding', expectedFamily: 'world-model-view-binding'
+    });
+    if (!['brief', 'full'].includes(entry.variant)) {
+      fail(`WMP Grounding Packet view ${index} variant is invalid.`);
+    }
+    if (entry.format !== 'md') {
+      fail('WMP Grounding Packet v1 accepts only exact Markdown saved views.');
+    }
+    validateRef(entry.renderedRef, `WMP Grounding Packet view ${index} renderedRef`, {
+      expectedRole: 'rendered-view', expectedFamily: null, rendered: true
+    });
+    boundedText(entry.expansionHandle,
+      `WMP Grounding Packet view ${index} expansionHandle`, {
+        pattern: /^wmp-view:sha256:[a-f0-9]{64}$/u, maximumBytes: 96
+      });
+  }
+  if (new Set(values.map((entry) => entry.viewKey)).size !== values.length) {
+    fail('WMP Grounding Packet repeats a view key.');
+  }
+}
+
+function validateGroundingPacketSubject(value) {
+  exact(value, [
+    'repositoryDomainSha256', 'workId', 'workflowInstanceId', 'phase', 'generation'
+  ], 'WMP Grounding Packet subject');
+  assertSha256(value.repositoryDomainSha256,
+    'WMP Grounding Packet repositoryDomainSha256');
+  for (const field of ['workId', 'workflowInstanceId']) {
+    boundedText(value[field], `WMP Grounding Packet ${field}`, {
+      pattern: SUBJECT_ID, maximumBytes: 256
+    });
+  }
+  boundedText(value.phase, 'WMP Grounding Packet phase', {
+    pattern: TYPE_ID, maximumBytes: 128
+  });
+  assertInteger(value.generation, 'WMP Grounding Packet generation', { minimum: 1 });
+}
+
+function validateGroundingPacketAuthority(value) {
+  exact(value, [
+    'repositoryDomainSha256', 'stateRef', 'authorityCommit', 'repositoryIdentitySha256'
+  ],
+    'WMP Grounding Packet authority');
+  assertSha256(value.repositoryDomainSha256,
+    'WMP Grounding Packet authority repositoryDomainSha256');
+  boundedText(value.stateRef, 'WMP Grounding Packet authority stateRef', {
+    pattern: SAFE_REF, maximumBytes: 512
+  });
+  assertString(value.authorityCommit, 'WMP Grounding Packet authority commit', {
+    pattern: COMMIT_PATTERN
+  });
+  nullableDigest(value.repositoryIdentitySha256,
+    'WMP Grounding Packet authority repositoryIdentitySha256');
+  if (value.stateRef.startsWith('refs/remotes/')
+      !== (value.repositoryIdentitySha256 !== null)) {
+    fail('Remote WMP Grounding Packet authority requires exactly one repository identity; approved local authority forbids it.');
+  }
+}
+
+/**
+ * Successor to the frozen structural Grounding Reference v1.
+ *
+ * The packet binds every byte-affecting composition input. It intentionally does not migrate or
+ * reinterpret world-model-grounding-reference; both immutable identities remain readable.
+ */
+export function validateWmpGroundingPacket(value) {
+  const result = record(value, 'world-model-grounding-packet');
+  exact(result, [
+    'schemaVersion', 'kind', 'subject', 'model', 'views', 'composition',
+    'renderedBlock', 'budget', 'authority', 'groundingSha256'
+  ], 'WMP Grounding Packet');
+  validateGroundingPacketSubject(result.subject);
+  exact(result.model, ['modelKey', 'bindingRef', 'modelPayloadSha256'],
+    'WMP Grounding Packet model');
+  assertSha256(result.model.modelKey, 'WMP Grounding Packet modelKey');
+  validateRef(result.model.bindingRef, 'WMP Grounding Packet model bindingRef', {
+    expectedRole: 'model-binding', expectedFamily: 'world-model-model-binding'
+  });
+  assertSha256(result.model.modelPayloadSha256,
+    'WMP Grounding Packet modelPayloadSha256');
+  validateGroundingPacketViews(result.views);
+  try { assertPersistedGroundingComposerContract(result.composition); }
+  catch (error) {
+    fail(error.message, error.code ?? 'WMP_GROUNDING_COMPOSER_UNSUPPORTED');
+  }
+  validateRef(result.renderedBlock, 'WMP Grounding Packet renderedBlock', {
+    expectedRole: 'rendered-grounding', expectedFamily: null, rendered: true
+  });
+  validateGroundingBudget(result.budget);
+  if (result.budget.maximum > WMP_MAXIMUM_OBJECT_BYTES
+      || result.budget.measured > WMP_MAXIMUM_OBJECT_BYTES) {
+    fail(`WMP Grounding Packet budget exceeds its ${WMP_MAXIMUM_OBJECT_BYTES}-byte limit.`,
+      'WMP_CONTRACT_LIMIT', {
+        maximum: result.budget.maximum,
+        measured: result.budget.measured,
+        maximumBytes: WMP_MAXIMUM_OBJECT_BYTES
+      });
+  }
+  if (result.budget.mode !== 'bytes' || result.budget.tokenizerSha256 !== null
+      || result.budget.measured !== result.renderedBlock.bytes) {
+    fail('WMP Grounding Packet v1 requires exact byte-only measurement.',
+      'WMP_GROUNDING_MEASUREMENT_INVALID');
+  }
+  validateGroundingPacketAuthority(result.authority);
+  if (result.subject.repositoryDomainSha256 !== result.authority.repositoryDomainSha256) {
+    fail('WMP Grounding Packet subject and authority repository domains differ.');
+  }
+  assertSha256(result.groundingSha256, 'WMP Grounding Packet groundingSha256');
+  const core = structuredClone(result);
+  delete core.groundingSha256;
+  if (result.groundingSha256 !== sha256(core)) {
+    fail('WMP Grounding Packet self-hash does not verify.', 'WMP_INTEGRITY_FAILED');
+  }
+  return result;
+}
+
+export function createWmpGroundingPacket(value) {
+  return deepFreeze(validateWmpGroundingPacket(sealRecord({
+    schemaVersion: currentSchemaVersion('world-model-grounding-packet'),
+    kind: 'world-model-grounding-packet',
+    ...structuredClone(value)
+  }, 'groundingSha256')));
+}
+
 function validateGitObjects(values, label) {
   if (!Array.isArray(values) || values.length > 100_000) {
     fail(`${label} exceeds its 100000-object limit.`, 'WMP_CONTRACT_LIMIT');
@@ -1008,6 +1155,7 @@ const VALIDATORS = Object.freeze({
   'world-model-view-inputs': validateWmpViewInputs,
   'world-model-view-binding': validateWmpViewBinding,
   'world-model-grounding-reference': validateWmpGroundingReference,
+  'world-model-grounding-packet': validateWmpGroundingPacket,
   'world-model-handoff': validateWmpHandoff,
   'world-model-source-adoption': validateWmpSourceAdoption
 });
@@ -1066,6 +1214,8 @@ export const validateWorldModelViewBinding = validateWmpViewBinding;
 export const createWorldModelViewBinding = createWmpViewBinding;
 export const validateWorldModelGroundingReference = validateWmpGroundingReference;
 export const createWorldModelGroundingReference = createWmpGroundingReference;
+export const validateWorldModelGroundingPacket = validateWmpGroundingPacket;
+export const createWorldModelGroundingPacket = createWmpGroundingPacket;
 export const validateWorldModelHandoff = validateWmpHandoff;
 export const createWorldModelHandoff = createWmpHandoff;
 export const validateWorldModelSourceAdoption = validateWmpSourceAdoption;

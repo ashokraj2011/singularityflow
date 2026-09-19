@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
-import { classifySkippedScenarios, runtimeClass } from '../scripts/gal-matrix-cell.mjs';
+import {
+  classifySkippedScenarios, runtimeClass, validBenchmarkMeasurement
+} from '../scripts/gal-matrix-cell.mjs';
 
 function run(...args) {
   return spawnSync(process.execPath, ['scripts/gal-matrix-cell.mjs', ...args], {
@@ -52,7 +54,44 @@ test('GAL matrix preflight reports a source-bound local cell without claiming re
   assert.match(report.gitVersion, /^git version /u);
   assert.ok(report.testFiles.includes('test/git-access.test.mjs'));
   assert.ok(report.testFiles.includes('test/gal-object-transport-conformance.test.mjs'));
+  assert.ok(report.testFiles.includes('test/gal-acceptance-matrix.test.mjs'));
+  assert.equal(report.acceptance.claim, 'traceability-only');
+  assert.equal(report.acceptance.cases, 44);
+  assert.match(report.acceptance.catalogSha256, /^sha256:[a-f0-9]{64}$/u);
+  assert.match(report.acceptance.specificationSha256, /^sha256:[a-f0-9]{64}$/u);
+  assert.ok(report.acceptance.externalEvidenceCaseIds.includes('GAL:AC-008'));
   assert.equal(result.stdout.includes('sflow-gal-benchmark-'), false);
+});
+
+test('GAL matrix requires complete batch parity and selected-protocol evidence', () => {
+  const revision = 'a'.repeat(40);
+  const measurement = {
+    schema: 'sflow-gal-read-benchmark/v1',
+    sourceRevision: revision,
+    declaredFixtureComplete: true,
+    objectServiceCapabilities: { selectedProtocol: 'batch-command-buffered' },
+    parity: {
+      referenceExactBytes: true,
+      asyncReferenceExactBytes: true,
+      persistentExactBytes: true,
+      persistentBatchExactBytes: true,
+      requiredComplete: true
+    },
+    profiles: {
+      warmLegacyBatchWorker: { persistentProtocol: 'batch-command-buffered' },
+      warmExplicitMultiFrameBatchWorker: { persistentProtocol: 'batch-command-buffered' }
+    }
+  };
+  assert.equal(validBenchmarkMeasurement(measurement, revision), true);
+  for (const candidate of [
+    { ...measurement, parity: { ...measurement.parity, persistentBatchExactBytes: false } },
+    { ...measurement, parity: { ...measurement.parity, requiredComplete: false } },
+    { ...measurement, objectServiceCapabilities: { selectedProtocol: 'unknown' } },
+    { ...measurement, profiles: {
+      ...measurement.profiles,
+      warmExplicitMultiFrameBatchWorker: { persistentProtocol: 'legacy-batch' }
+    } }
+  ]) assert.equal(validBenchmarkMeasurement(candidate, revision), false);
 });
 
 test('GAL matrix refuses unknown options without printing subprocess output', () => {

@@ -69,6 +69,31 @@ test('remote sessions refuse non-HEAD symbolic authority instead of accepting it
   assert.equal(observed.failure.retryable, false);
 });
 
+test('remote sessions refuse duplicate and malformed successful reference advertisements', () => {
+  for (const stdout of [
+    `${'1'.repeat(40)}\trefs/heads/sflow/config\n${'2'.repeat(40)}\trefs/heads/sflow/config\n`,
+    `${'1'.repeat(40)}\trefs/heads/sflow/config\nunframed-provider-output\n`,
+    `${'1'.repeat(40)}\trefs/heads/../configuration\n`,
+    `${'1'.repeat(40)}\trefs/heads/.configuration\n`,
+    `${'1'.repeat(40)}\trefs/heads/configuration.lock\n`,
+    `${'1'.repeat(40)}\trefs/heads/configuration@{1}\n`,
+    `ref: refs/tags/v1\tHEAD\n${'1'.repeat(40)}\tHEAD\n`,
+    `ref: refs/heads/../main\tHEAD\n${'1'.repeat(40)}\tHEAD\n`
+  ]) {
+    const session = new GitRemoteSession({
+      runCommand() {
+        return { status: 0, stdout, stderr: '', timedOut: false, failure: null };
+      }
+    });
+    const observed = session.observe('https://example.com/acme/repository.git', {
+      refs: ['refs/heads/sflow/config'], includeHead: false
+    });
+    assert.equal(observed.ok, false);
+    assert.equal(observed.failure.code, 'REMOTE_PROTOCOL_INVALID');
+    assert.equal(observed.failure.retryable, false);
+  }
+});
+
 test('local Git authorities retain a bounded configuration window instead of a network probe window', async () => {
   const env = {
     ...process.env,
@@ -781,7 +806,7 @@ test('process-tree signalling uses POSIX groups and observes Windows descendant-
 });
 
 test('Windows process-tree signalling falls back safely when taskkill fails or hangs', async (t) => {
-  const exercise = async ({ outcome, timeoutMs = 15 }) => {
+  const exercise = async ({ outcome, timeoutMs = 15, requireTree = false }) => {
     const directSignals = [];
     const killerSignals = [];
     const child = {
@@ -794,10 +819,12 @@ test('Windows process-tree signalling falls back safely when taskkill fails or h
       platform: 'win32',
       environment: { SystemRoot: 'C:\\Windows' },
       timeoutMs,
+      requireTree,
       spawnCommand(command, args, options) {
         assert.equal(command, 'C:\\Windows\\System32\\taskkill.exe');
         assert.deepEqual(args, ['/PID', '654', '/T', '/F']);
         assert.equal(options.stdio, 'ignore');
+        if (outcome === 'throw') throw new Error('taskkill is blocked');
         return killer;
       }
     });
@@ -823,6 +850,21 @@ test('Windows process-tree signalling falls back safely when taskkill fails or h
     assert.deepEqual(result.directSignals, ['SIGKILL']);
     assert.deepEqual(result.killerSignals, []);
     assert.doesNotMatch(JSON.stringify(result), /must-not-escape/);
+  });
+
+  await t.test('strict tree verification rejects a direct-child-only fallback', async () => {
+    const result = await exercise({ outcome: 'nonzero', requireTree: true });
+    assert.equal(result.accepted, false);
+    assert.deepEqual(result.directSignals, ['SIGKILL'],
+      'strict verification still makes the bounded direct-child best-effort attempt');
+    assert.deepEqual(result.killerSignals, []);
+  });
+
+  await t.test('strict tree verification rejects a synchronous taskkill launch failure', async () => {
+    const result = await exercise({ outcome: 'throw', requireTree: true });
+    assert.equal(result.accepted, false);
+    assert.deepEqual(result.directSignals, ['SIGKILL']);
+    assert.deepEqual(result.killerSignals, []);
   });
 
   await t.test('hung taskkill', async () => {

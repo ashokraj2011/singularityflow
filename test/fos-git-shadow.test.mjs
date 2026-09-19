@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -12,7 +12,9 @@ import {
 import { rememberWorkspace, workspaceStatus } from '../src/workspace.mjs';
 import { activateWorkspaceContext } from '../src/workspace-context.mjs';
 import { SnapshotCoordinator } from '../src/snapshot-coordinator.mjs';
-import { galStatusBranchCandidate } from '../src/commands/status.mjs';
+import {
+  galStatusBranch, galStatusBranchCandidate, galStatusSelection
+} from '../src/commands/status.mjs';
 import { branch } from '../src/git.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
@@ -99,6 +101,45 @@ test('status GAL branch candidate agrees on unborn HEAD and cannot replace detac
     candidate: async () => { candidateCalls += 1; return galStatusBranchCandidate(root); }
   }), /Detached HEAD is not supported/);
   assert.equal(candidateCalls, 0, 'a refused reference must not invoke the GAL candidate');
+});
+
+test('Story status uses only the registered branch descriptor for authoritative selection', async () => {
+  const calls = [];
+  const selected = await galStatusBranch('/tmp/status-selection', {
+    runner(command, args, options) {
+      calls.push({ command, args, options });
+      return { status: 0, stdout: 'refs/heads/WRK-123\n', stderr: '' };
+    }
+  });
+  assert.equal(selected, 'WRK-123');
+  assert.equal(calls.length, 1, 'Story selection must not pay general repository discovery probes');
+  assert.deepEqual(calls[0].args, ['symbolic-ref', '--quiet', 'HEAD']);
+  assert.equal(calls[0].options.timeoutClass, 'local-read');
+  await assert.rejects(() => galStatusBranch('/tmp/status-selection', {
+    runner: () => ({ status: 1, stdout: '', stderr: '' })
+  }), /Detached HEAD is not supported/);
+});
+
+test('Story status repository and branch selection ignore ambient Git repository selectors', async (t) => {
+  const parent = await mkdtemp(path.join(os.tmpdir(), 'sflow-status-selection-'));
+  const intended = path.join(parent, 'intended');
+  const diverted = path.join(parent, 'diverted');
+  await mkdir(intended);
+  await mkdir(diverted);
+  t.after(() => rm(parent, { recursive: true, force: true }));
+  git(['init', '-q', '-b', 'intended-story'], intended);
+  git(['init', '-q', '-b', 'diverted-story'], diverted);
+
+  const selected = await galStatusSelection(intended, {
+    env: {
+      ...process.env,
+      GIT_DIR: path.join(diverted, '.git'),
+      GIT_WORK_TREE: diverted
+    }
+  });
+
+  assert.equal(await realpath(selected.root), await realpath(intended));
+  assert.equal(selected.branch, 'intended-story');
 });
 
 test('workspace Git shadow comparison matches the legacy projection for a real repository', async () => {

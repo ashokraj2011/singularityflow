@@ -50,6 +50,7 @@ import {
 } from './util.mjs';
 import { isWorldModelAvailabilityError } from './world-model-availability.mjs';
 import { configuredRemoteIdentity } from './git-remote-diagnostics.mjs';
+import { executeGitQuery } from './git-query.mjs';
 
 const CAPABILITY_CONTEXT_SCHEMA = 1;
 const CAPABILITY_WORLD_MODEL_UNAVAILABLE = 'world_model.capability_unavailable';
@@ -88,6 +89,59 @@ export function setCapabilityMapReadObserverForTests(observer = null) {
     throw new TypeError('Capability map read observer must be a function or null.');
   }
   capabilityMapReadObserverForTests = observer;
+}
+
+/** Registered, bounded replacement for the three legacy working-tree provenance reads. */
+export function registeredCapabilityAuthorityProvenance(root, {
+  query = executeGitQuery,
+  isRepositoryRoot = (candidate) => existsSync(path.join(candidate, '.git'))
+} = {}) {
+  // Approved configuration can be mounted as a verified, Git-less projection. The old reader
+  // returned three nulls there; do not turn that valid boundary into a repository error or search
+  // upward into an unrelated checkout. A real checkout (including a linked worktree) has a `.git`
+  // directory or indirection file at its exact root.
+  if (!isRepositoryRoot(root)) return Object.freeze({
+    repository: null, branch: null, commit: null
+  });
+  return Object.freeze({
+    repository: query(root, 'repository.remote-url', { remote: 'origin' }),
+    branch: query(root, 'repository.branch'),
+    commit: query(root, 'repository.head')
+  });
+}
+
+function verifiedRepositoryContext(root, context) {
+  if (context == null) return Object.freeze({
+    root: path.resolve(root), remote: 'origin', repositoryId: null, explicit: false
+  });
+  if (!context || typeof context !== 'object' || Array.isArray(context)) {
+    throw new SingularityFlowError('Capability repository context must be a verified checkout.', {
+      code: 'CAPABILITY_REPOSITORY_CONTEXT_INVALID'
+    });
+  }
+  const repositoryRoot = typeof context.root === 'string' && context.root.trim()
+    ? path.resolve(context.root)
+    : null;
+  const remote = typeof context.remote === 'string' && context.remote.trim()
+    ? context.remote.trim()
+    : 'origin';
+  const repositoryId = typeof context.repositoryId === 'string' && context.repositoryId.trim()
+    ? context.repositoryId.trim()
+    : null;
+  // This override exists only to separate an approved Git-less configuration projection from the
+  // application checkout whose identity the capability resolution binds. Require the exact Git
+  // root marker here: never let Git walk upward from a projection, temporary directory, or stale
+  // nested path and accidentally bind the resolution to an unrelated repository.
+  if (!repositoryRoot || !existsSync(path.join(repositoryRoot, '.git'))
+      || /[\u0000-\u001f\u007f]/u.test(remote)
+      || (repositoryId != null && /[\u0000-\u001f\u007f]/u.test(repositoryId))) {
+    throw new SingularityFlowError('Capability repository context is not an exact verified Git checkout.', {
+      code: 'CAPABILITY_REPOSITORY_CONTEXT_INVALID'
+    });
+  }
+  return Object.freeze({
+    root: repositoryRoot, remote, repositoryId, explicit: true
+  });
 }
 
 function unique(values) { return [...new Set(values.filter(Boolean))]; }
@@ -143,7 +197,10 @@ async function sourceForRepository(root) {
     if (existsSync(portfolioPath)) {
       try {
         const portfolio = YAML.parse(await readFile(portfolioPath, 'utf8'));
-        const remote = normalizedRemote(run('git', ['config', '--get', 'remote.origin.url'], { cwd: root, allowFailure: true }).stdout);
+        // Repository identity must come from the same selector-safe boundary as the final
+        // capability resolution. Inherited GIT_DIR/GIT_WORK_TREE values must never make this
+        // portfolio lookup select a different repository while later provenance names `root`.
+        const remote = normalizedRemote(configuredRemoteIdentity(root, 'origin').url);
         const matches = Object.entries(portfolio?.repositories ?? {})
           .filter(([, repository]) => normalizedRemote(repository?.url) === remote)
           .map(([id]) => id);
@@ -374,14 +431,16 @@ export async function resolveLifecycleCapability(root, {
   offline = false,
   expectedMapSha256 = null,
   refuseAmbiguous = false,
-  gitReadMode = 'reference',
-  onGitShadowComparison = null
+  gitReadMode = 'gal',
+  onGitShadowComparison = null,
+  repositoryContext = null
 } = {}) {
-  if (!['reference', 'shadow'].includes(gitReadMode)) {
+  if (!['gal', 'reference', 'shadow'].includes(gitReadMode)) {
     throw new SingularityFlowError(`Unsupported capability Git read mode '${gitReadMode}'.`, {
       code: 'FOS_GIT_SHADOW_MODE_INVALID'
     });
   }
+  const identityContext = verifiedRepositoryContext(root, repositoryContext);
   const source = await sourceForRepository(root);
   const applicationRoot = path.resolve(root);
   const scopedConfigurationRoot = configurationReadRoot(root);
@@ -552,68 +611,52 @@ export async function resolveLifecycleCapability(root, {
         cwd: mapRoot, allowFailure: true
       }).stdout.trim() || null
     });
+    const registered = () => registeredCapabilityAuthorityProvenance(mapRoot);
     let projection;
     if (gitReadMode === 'shadow') {
-      const [{ runFosGitShadowRead }, { createGitRuntime }] = await Promise.all([
-        import('./fos-git-shadow.mjs'), import('./git-access.mjs')
-      ]);
+      const { runFosGitShadowRead } = await import('./fos-git-shadow.mjs');
       ({ value: projection } = await runFosGitShadowRead({
         operation: 'capability.authority-provenance',
         mode: 'shadow',
-        reference,
-        candidate: async () => {
-          const runtimeResult = await createGitRuntime();
-          if (!runtimeResult.ok) throw Object.assign(new Error('GAL runtime unavailable'), {
-            code: runtimeResult.code
-          });
-          const runtime = runtimeResult.value;
-          try {
-            const opened = await runtime.openRepository(mapRoot);
-            if (!opened.ok) throw Object.assign(new Error('GAL repository unavailable'), {
-              code: opened.code
-            });
-            const invocation = opened.value.beginInvocation();
-            try {
-              const [configuration, head] = await Promise.all([
-                invocation.config({ keys: ['remote.origin.url'] }), invocation.head()
-              ]);
-              if (!configuration.ok || !head.ok) {
-                const failed = !configuration.ok ? configuration : head;
-                throw Object.assign(new Error('GAL provenance observation unavailable'), {
-                  code: failed.code
-                });
-              }
-              const values = configuration.value.entries[0].values;
-              const remoteValue = values.at(-1)?.text;
-              if (values.length && remoteValue === null) {
-                throw Object.assign(new Error('GAL remote URL is not UTF-8'), {
-                  code: 'GAL_PATH_UNREPRESENTABLE'
-                });
-              }
-              return {
-                repository: remoteValue?.trim() || null,
-                branch: head.value.symbolicRef?.startsWith('refs/heads/')
-                  ? head.value.symbolicRef.slice('refs/heads/'.length) : null,
-                commit: head.value.oid || null
-              };
-            } finally { await invocation.dispose(); }
-          } finally { await runtime.dispose(); }
-        },
+        // Shadow mode must retain the promoted registered reader as authority. The compatibility
+        // reader is diagnostic-only and can never turn a fail-closed registered refusal into a
+        // successful capability selection.
+        reference: registered,
+        candidate: reference,
         record: onGitShadowComparison
       }));
-    } else projection = reference();
+    } else projection = gitReadMode === 'gal' ? registered() : reference();
     authorityProvenance = { ...projection, authority: 'working-tree' };
   }
   const mode = definition.version === 2 && definition.management?.mode === 'sflow-cli'
     ? 'explicit-managed' : 'explicit-legacy';
   const sourceScope = resolveCapabilitySourceScope(definition, selected);
-  const repositoryIdentity = configuredRemoteIdentity(root, 'origin');
+  const repositoryIdentity = configuredRemoteIdentity(
+    identityContext.root, identityContext.remote
+  );
+  if (identityContext.explicit
+      && (!repositoryIdentity.configured || repositoryIdentity.ambiguous
+        || !repositoryIdentity.url || !repositoryIdentity.fingerprint)) {
+    throw new SingularityFlowError(
+      'The verified capability repository context has no single configured Git authority.', {
+        code: 'CAPABILITY_REPOSITORY_CONTEXT_INVALID',
+        details: {
+          repositoryId: identityContext.repositoryId,
+          remote: identityContext.remote,
+          configured: repositoryIdentity.configured,
+          ambiguous: repositoryIdentity.ambiguous
+        }
+      }
+    );
+  }
+  const resolvedRepositoryId = identityContext.repositoryId
+    ?? source.repositoryId ?? authorityProvenance.repository ?? path.basename(root);
   const effectiveResolution = resolveExplicitCapability({
     mode,
-    repositoryId: source.repositoryId ?? authorityProvenance.repository ?? path.basename(root),
+    repositoryId: resolvedRepositoryId,
     repositoryIdentitySha256: repositoryIdentity.fingerprint
       ? `sha256:${repositoryIdentity.fingerprint}`
-      : `sha256:${createHash('sha256').update(String(source.repositoryId ?? authorityProvenance.repository ?? path.basename(root))).digest('hex')}`,
+      : `sha256:${createHash('sha256').update(String(resolvedRepositoryId)).digest('hex')}`,
     approvedConfigurationSha256: `sha256:${mapSnapshot.sha256}`,
     capabilityStateSha256: `sha256:${mapSnapshot.sha256}`,
     capabilityId: selected,
@@ -632,7 +675,7 @@ export async function resolveLifecycleCapability(root, {
     name: node.name ?? selected,
     kind: node.kind,
     path: capabilityPath(definition, selected),
-    repositoryId: source.repositoryId,
+    repositoryId: resolvedRepositoryId,
     deliveries: capabilityDeliveries(definition, selected),
     map: {
       path: CAPABILITIES_PATH,

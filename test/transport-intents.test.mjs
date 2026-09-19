@@ -183,6 +183,75 @@ test('async transport uses only the pinned, leased dry-run and real push descrip
   assert.equal(run('git', ['--git-dir', item.bare, 'rev-parse', targetRef]).stdout.trim(), item.commit);
 });
 
+test('local intent authority and retention checks strip hostile Git selectors from the supplied environment', async () => {
+  const item = await fixture();
+  const targetRef = 'refs/heads/sanitized-local-checks';
+  run('git', ['update-ref', targetRef, item.commit], { cwd: item.work });
+  const decoy = path.join(item.base, 'decoy.git');
+  run('git', ['init', '-q', '--bare', decoy]);
+  const hostileEnv = {
+    ...item.env,
+    SFLOW_TEST_ENV_MARKER: 'preserved',
+    GIT_DIR: decoy,
+    git_work_tree: item.base,
+    GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_KEY_0: `url.${decoy}.insteadOf`,
+    GIT_CONFIG_VALUE_0: item.bare,
+    gIt_TrAcE: path.join(item.base, 'trace.log')
+  };
+  const localCalls = [];
+  const localRunner = (command, args, options = {}) => {
+    if (['rev-parse', 'config', 'for-each-ref', 'update-ref'].includes(args[0])) {
+      localCalls.push({ args: [...args], env: { ...options.env } });
+      assert.equal(options.env?.SFLOW_TEST_ENV_MARKER, 'preserved');
+      const keys = Object.keys(options.env ?? {}).map((key) => key.toUpperCase());
+      assert.ok(!keys.includes('GIT_DIR'));
+      assert.ok(!keys.includes('GIT_WORK_TREE'));
+      assert.ok(!keys.includes('GIT_CONFIG_COUNT'));
+      assert.ok(!keys.some((key) => /^GIT_CONFIG_(?:KEY|VALUE)_\d+$/u.test(key)));
+      assert.ok(!keys.some((key) => /^GIT_TRACE/u.test(key)));
+    }
+    return run(command, args, options);
+  };
+
+  const created = await createTransportIntent({
+    repositoryRoot: item.work,
+    sourceCommit: item.commit,
+    targetRef,
+    expectedRemote: null,
+    scope: { requiredLocalRef: targetRef }
+  }, { env: hostileEnv, home: item.base, runCommand: localRunner });
+  assert.equal(created.remoteUrl, item.bare,
+    'command-scoped url.* rewrites cannot replace the raw configured authority');
+
+  let probes = 0;
+  const result = await retryTransportIntent(created.intentId, {
+    env: hostileEnv,
+    home: item.base,
+    runCommand: localRunner,
+    runAsyncProbeCommand: async () => {
+      probes += 1;
+      return probes === 1
+        ? { status: 0, stdout: '', stderr: '' }
+        : { status: 0, stdout: `${item.commit}\t${targetRef}\n`, stderr: '' };
+    },
+    runAsyncCommand: async (args) => ({
+      status: 0,
+      stdout: args.includes('--dry-run')
+        ? ''
+        : `*\t${item.commit}:${targetRef}\t[new branch]\n`,
+      stderr: ''
+    })
+  });
+
+  assert.equal(result.status, 'succeeded');
+  assert.ok(localCalls.some(({ args }) => args[0] === 'config' && args.includes('remote.origin.url')));
+  assert.ok(localCalls.some(({ args }) => args[0] === 'rev-parse'
+    && args.includes(`${targetRef}^{commit}`)));
+  assert.ok(localCalls.some(({ args }) => args[0] === 'for-each-ref'));
+  assert.ok(localCalls.some(({ args }) => args[0] === 'update-ref'));
+});
+
 test('async post-push observation outage preserves exact porcelain proof without another push', async () => {
   const item = await fixture();
   const targetRef = 'refs/heads/async-proof';

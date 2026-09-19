@@ -1541,8 +1541,8 @@ test('all-workspace refresh leaves a dirty clone untouched and mirrors approved 
   assert.equal(result.results.length, 1);
   assert.equal(result.results[0].configurationChanged, true);
   assert.equal(result.results[0].stateChanged, true);
-  assert.equal(applyCounters['git.remote.command.ls-remote'], 2,
-    'apply re-observes the source authority after the exact state publication CAS');
+  assert.equal(applyCounters['git.remote.command.ls-remote'], 4,
+    'apply re-observes the source authority and brackets immutable history publication');
   assert.equal(applyCounters['git.remote.command.clone'] ?? 0, 0,
     'apply reuses the SHA-bound preview clone instead of cloning the authority again');
   assert.equal(applyCounters['git.remote.command.fetch'] ?? 0, 0,

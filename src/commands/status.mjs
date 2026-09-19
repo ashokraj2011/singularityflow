@@ -1,7 +1,8 @@
-import { branch, repoRoot } from '../git.mjs';
+import { branch } from '../git.mjs';
+import { executeGitQuery } from '../git-query.mjs';
 import { ledgerStatus } from '../ledger.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from '../repository-subject-index.mjs';
-import { optionBoolean, table } from '../util.mjs';
+import { optionBoolean, SingularityFlowError, table } from '../util.mjs';
 
 function activePhase(workflow) {
   return workflow.currentPhase ? workflow.phases?.[workflow.currentPhase] ?? null : null;
@@ -22,34 +23,39 @@ function summary(workflow) {
   if (workflow.sequenceOverrides?.length) console.warn(`Warning: ${workflow.sequenceOverrides.length} confirmed soft sequence override(s) are recorded for this work item.`);
 }
 
-/** The optional shadow candidate is never the authoritative Story selector. */
-export async function galStatusBranchCandidate(root) {
-  const { createGitRuntime } = await import('../git-access.mjs');
-  const created = await createGitRuntime();
-  if (!created.ok) throw Object.assign(new Error('GAL runtime unavailable'), {
-    code: created.code
-  });
-  const runtime = created.value;
-  try {
-    const opened = await runtime.openRepository(root);
-    if (!opened.ok) throw Object.assign(new Error('GAL repository unavailable'), {
-      code: opened.code
-    });
-    const invocation = opened.value.beginInvocation();
-    try {
-      const observed = await invocation.head();
-      if (!observed.ok) throw Object.assign(new Error('GAL branch unavailable'), {
-        code: observed.code
-      });
-      const symbolic = observed.value.symbolicRef;
-      return symbolic?.startsWith('refs/heads/')
-        ? symbolic.slice('refs/heads/'.length) : null;
-    } finally { await invocation.dispose(); }
-  } finally { await runtime.dispose(); }
+/**
+ * One-spawn, registered branch observation for Story selection.
+ *
+ * Do not replace this with the general repository facade: status needs only one worktree-local
+ * symbolic ref, and paying discovery plus HEAD stability probes was a measured 10x regression.
+ */
+export async function galStatusBranchCandidate(root, options = {}) {
+  return executeGitQuery(root, 'repository.branch', {}, options);
+}
+
+export async function galStatusBranch(root, options = {}) {
+  const current = await galStatusBranchCandidate(root, options);
+  if (!current) throw new SingularityFlowError('Detached HEAD is not supported.');
+  return current;
+}
+
+/** Resolve the status repository through the same selector-safe registered boundary. */
+export function galStatusRepositoryRoot(cwd = process.cwd(), options = {}) {
+  const root = executeGitQuery(cwd, 'repository.root', {}, options);
+  if (!root) {
+    throw new SingularityFlowError('Run Singularity Flow from inside a Git repository.');
+  }
+  return root;
+}
+
+/** Complete repository/branch selection used by the status command. */
+export async function galStatusSelection(cwd = process.cwd(), options = {}) {
+  const root = galStatusRepositoryRoot(cwd, options);
+  return Object.freeze({ root, branch: await galStatusBranch(root, options) });
 }
 
 export async function run(_argv, { positionals, options }) {
-  const root = repoRoot();
+  const root = galStatusRepositoryRoot();
   if (optionBoolean(options, 'submission-readiness')) {
     const [
       { loadAcceptedStoryExecution },
@@ -78,11 +84,13 @@ export async function run(_argv, { positionals, options }) {
       ({ value: currentBranch } = await runFosGitShadowRead({
         operation: 'status.repository-branch',
         mode: 'shadow',
-        reference: () => branch(root),
-        candidate: () => galStatusBranchCandidate(root),
+        // The registered one-spawn read is authoritative. `--git-shadow` now compares the retired
+        // direct helper without allowing it to select another Story.
+        reference: () => galStatusBranch(root),
+        candidate: () => branch(root),
         record(value) { gitShadowObservations.push(value); }
       }));
-    } else currentBranch = branch(root);
+    } else currentBranch = await galStatusBranch(root);
   }
   const reference = positionals[1] ?? currentBranch;
   const selected = resolveContext(await buildRepositorySubjectIndex(root), {

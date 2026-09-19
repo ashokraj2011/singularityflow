@@ -1,5 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 
+import {
+  inheritEnterpriseGitEnvironment, withoutGitProcessOverrides
+} from './git-enterprise-environment.mjs';
 import { networkDisabled, run, SingularityFlowError } from './util.mjs';
 
 export const REMOTE_FAILURE_CLASSES = Object.freeze([
@@ -399,17 +402,58 @@ export function configuredRemoteAuthority(root, remote = 'origin', {
  * Multiple distinct URLs are reported as ambiguous rather than silently selecting one; a governed
  * operation cannot prove which repository all of those endpoints identify.
  */
-export function configuredRemoteIdentity(root, remote = 'origin', { direction = 'fetch' } = {}) {
+export function configuredRemoteIdentity(root, remote = 'origin', {
+  direction = 'fetch', env = process.env, runCommand = run
+} = {}) {
   if (!['fetch', 'push'].includes(direction)) {
     throw new SingularityFlowError(`Unsupported Git remote direction '${direction}'.`);
   }
   const readValues = (key) => {
-    const result = run('git', ['config', '--local', '--get-all', key], {
-      cwd: root, allowFailure: true
+    const result = runCommand('git', ['config', '--local', '--get-all', key], {
+      cwd: root, allowFailure: true, env: withoutGitProcessOverrides(env),
+      timeoutClass: 'local-read', operation: 'git.remote-config'
     });
-    if (result.status !== 0) return [];
-    return String(result.stdout ?? '').split('\n').map((value) => value.trim()).filter(Boolean)
-      .map(assertCredentialFreeRemote);
+    const stdout = typeof result?.stdout === 'string' ? result.stdout : null;
+    const stderr = typeof result?.stderr === 'string' ? result.stderr : null;
+    const executionFailed = result == null
+      || result.error != null
+      || result.signal != null
+      || result.timedOut === true
+      || result.blocked === true
+      || result.outputOverflow === true
+      || result.aborted === true;
+    // `git config --get-all` uses status 1 with no output for an absent key. That exact result is
+    // the only safe reason for a push URL to inherit the fetch URL. A timeout, spawn error, signal,
+    // output overflow, or diagnostic-bearing status 1 means the local authority is unknown, not
+    // absent, and must never silently redirect a governed push to the fetch endpoint.
+    if (result?.status === 1 && stdout === '' && stderr === '' && !executionFailed) return [];
+    if (result?.status !== 0 || executionFailed || stdout == null || stderr == null
+        || stderr.trim() !== '') {
+      throw new SingularityFlowError(
+        'Cannot read the configured Git remote authority safely.', {
+          code: 'GIT_REMOTE_CONFIG_UNAVAILABLE',
+          details: {
+            setting: key.endsWith('.pushurl') ? 'pushurl' : 'url',
+            status: Number.isInteger(result?.status) ? result.status : null,
+            timedOut: result?.timedOut === true,
+            blocked: result?.blocked === true,
+            outputOverflow: result?.outputOverflow === true,
+            aborted: result?.aborted === true
+          }
+        }
+      );
+    }
+    const values = stdout.split(/\r?\n/u);
+    if (values.at(-1) === '') values.pop();
+    if (values.length === 0 || values.some((value) => value.trim() === '')) {
+      throw new SingularityFlowError(
+        'Git returned malformed configured remote authority data.', {
+          code: 'GIT_REMOTE_CONFIG_INVALID',
+          details: { setting: key.endsWith('.pushurl') ? 'pushurl' : 'url' }
+        }
+      );
+    }
+    return values.map((value) => assertCredentialFreeRemote(value.trim()));
   };
   const fetchUrls = readValues(`remote.${remote}.url`);
   const configuredPushUrls = direction === 'push'
@@ -437,6 +481,63 @@ export function configuredRemoteFingerprint(root, remote = 'origin', options = {
   return configuredRemoteAuthority(root, remote, options).fingerprint;
 }
 
+function environmentValue(env, name) {
+  const matches = Object.entries(env ?? {})
+    .filter(([key]) => key.toUpperCase() === name)
+    .map(([, value]) => String(value));
+  const values = [...new Set(matches)];
+  return values.length === 1 ? values[0] : null;
+}
+
+function resolveSflowFrozenRemote(remote, env, push) {
+  let current = assertCredentialFreeRemote(remote);
+  const visited = new Set();
+  for (let depth = 0; /^sflow-frozen-[a-f0-9-]+:$/u.test(current); depth += 1) {
+    if (depth >= 8 || visited.has(current)) {
+      throw new SingularityFlowError(
+        'The invocation-local Git authority alias is cyclic or exceeds its nesting limit.', {
+          code: 'BOOTSTRAP_REMOTE_FROZEN_ALIAS_INVALID'
+        }
+      );
+    }
+    visited.add(current);
+    const countText = environmentValue(env, 'GIT_CONFIG_COUNT');
+    const count = Number(countText);
+    if (!Number.isSafeInteger(count) || count < 1 || count > 256) {
+      throw new SingularityFlowError(
+        'The invocation-local Git authority alias has no bounded transport mapping.', {
+          code: 'BOOTSTRAP_REMOTE_FROZEN_ALIAS_INVALID'
+        }
+      );
+    }
+    const insteadOf = [];
+    const pushInsteadOf = [];
+    for (let index = 0; index < count; index += 1) {
+      const key = environmentValue(env, `GIT_CONFIG_KEY_${index}`);
+      const value = environmentValue(env, `GIT_CONFIG_VALUE_${index}`);
+      if (!key || value !== current) continue;
+      const lower = key.toLowerCase();
+      const suffix = lower.endsWith('.pushinsteadof') ? '.pushinsteadof'
+        : lower.endsWith('.insteadof') ? '.insteadof' : null;
+      if (!suffix || !lower.startsWith('url.')) continue;
+      const authority = key.slice(4, -suffix.length);
+      (suffix === '.pushinsteadof' ? pushInsteadOf : insteadOf)
+        .push(assertCredentialFreeRemote(authority));
+    }
+    const candidates = push && pushInsteadOf.length ? pushInsteadOf : insteadOf;
+    const authorities = [...new Set(candidates)];
+    if (authorities.length !== 1) {
+      throw new SingularityFlowError(
+        'The invocation-local Git authority alias is missing or ambiguous.', {
+          code: 'BOOTSTRAP_REMOTE_FROZEN_ALIAS_INVALID'
+        }
+      );
+    }
+    current = authorities[0];
+  }
+  return current;
+}
+
 /**
  * Address one exact URL without allowing Git to apply a later mutable url.* rewrite to it.
  *
@@ -447,7 +548,12 @@ export function configuredRemoteFingerprint(root, remote = 'origin', options = {
  * input. The unguessable full-length alias also wins longest-prefix selection over ambient rules.
  */
 export function frozenRemoteTransport(remote, { push = false, env = process.env } = {}) {
-  const url = assertCredentialFreeRemote(remote);
+  // Several governed flows clone through an invocation-local alias and then perform a second
+  // exact observation or push from that isolated checkout. Git applies URL rewrites only once, so
+  // wrapping the alias again would yield another unresolved alias. Resolve only SFlow's exact
+  // random alias from the same bounded command environment, then freeze the underlying authority
+  // afresh. Missing, ambiguous, cyclic, or caller-forged aliases fail closed.
+  const url = resolveSflowFrozenRemote(remote, env, push);
   const alias = `sflow-frozen-${randomUUID()}:`;
   const inheritedCount = Number(env.GIT_CONFIG_COUNT ?? 0);
   const start = Number.isInteger(inheritedCount) && inheritedCount >= 0 ? inheritedCount : 0;
@@ -460,6 +566,7 @@ export function frozenRemoteTransport(remote, { push = false, env = process.env 
     transportEnv[`GIT_CONFIG_KEY_${start + index}`] = entries[index][0];
     transportEnv[`GIT_CONFIG_VALUE_${start + index}`] = entries[index][1];
   }
+  inheritEnterpriseGitEnvironment(env, transportEnv);
   return Object.freeze({
     url,
     remote: alias,

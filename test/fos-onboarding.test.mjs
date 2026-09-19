@@ -547,6 +547,30 @@ test('FOS:AC-017 a new remote tip never changes an observed pin until explicit r
   assert.equal(refreshed.descriptor.authority.commit, newPin);
   assert.equal(refreshed.freshness.current, true);
   assert.equal(refreshed.freshness.latest, true);
+  assert.equal(refreshed.freshness.readPath, 'gal.remote-ref.v1',
+    'only a previously sealed origin pin may enter the production remoteRef cutover');
+  await rm(parent, { recursive: true, force: true });
+  await rm(authority, { recursive: true, force: true });
+});
+
+test('pinned origin refresh refuses a symbolic authority through the production remoteRef path', async () => {
+  const authority = await governedRepository();
+  const parent = await mkdtemp(path.join(os.tmpdir(), 'sflow-fos-symbolic-refresh-'));
+  const remote = path.join(parent, 'authority.git');
+  const checkout = path.join(parent, 'checkout');
+  git(['clone', '-q', '--bare', authority, remote], parent);
+  git(['clone', '-q', remote, checkout], parent);
+  git(['config', 'user.name', 'FOS Observer'], checkout);
+  git(['config', 'user.email', 'observer@example.com'], checkout);
+  const attached = await onboardRepository(checkout, { remote: 'origin' });
+
+  git(['symbolic-ref', 'refs/heads/sflow/config', 'refs/heads/main'], remote);
+  await assert.rejects(() => refreshFosAuthority(checkout),
+    (error) => error.code === 'AUTHORITY_UNAVAILABLE'
+      && error.details?.gitAccessCode === 'GAL_PROTOCOL_INVALID');
+  assert.equal((await readFosAttachment(checkout)).descriptor.authority.commit,
+    attached.descriptor.authority.commit, 'a refused alias must not rewrite the sealed pin');
+
   await rm(parent, { recursive: true, force: true });
   await rm(authority, { recursive: true, force: true });
 });

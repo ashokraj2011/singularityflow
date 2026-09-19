@@ -1923,7 +1923,7 @@ test('an exact capability proposal can be reviewed, activated, and projected wit
   const activationCounters = activationTimer.finish().counters;
   assert.equal(activationCounters['git.remote.command.clone'], 1,
     'activation projects from its validated checkout instead of cloning configuration twice');
-  assert.equal(activationCounters['git.remote.command.fetch'], 4,
+  assert.equal(activationCounters['git.remote.command.fetch'], 2,
     'activation checks prior audit identity once and projection reuses its exact state fetch');
   assert.equal(activated.alreadyMerged, false);
   assert.equal(activated.targetBranch, 'sflow/config');
@@ -5852,7 +5852,7 @@ test('an unreachable capability authority reaches its deadline without blocking 
   await chmod(fakeGit, 0o755);
   // Newly written executables can incur a one-time macOS security scan. Warm the fixture outside
   // the measured operation so this test measures the remote deadline, not executable inspection.
-  assert.equal(spawnSync(fakeGit, ['config'], { timeout: 2_000 }).status, 1);
+  assert.equal(spawnSync(fakeGit, ['config'], { timeout: 10_000 }).status, 1);
 
   const keys = [
     'PATH',

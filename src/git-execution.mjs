@@ -436,22 +436,54 @@ function symrefBranch(stdout) {
   return String(stdout ?? '').match(/^ref:\s+refs\/heads\/(.+?)\s+HEAD$/m)?.[1] ?? null;
 }
 
-function advertisedSymbolicRefs(stdout) {
-  const refs = new Map();
-  for (const line of String(stdout ?? '').split(/\r?\n/u)) {
-    const match = /^ref:\s+([^\s]+)\s+([^\s]+)$/u.exec(line.trim());
-    if (match) refs.set(match[2], match[1]);
+/**
+ * Validate the ref grammar advertised by Git without spawning a second `check-ref-format` process.
+ *
+ * This mirrors Git's full-ref safety rules that matter at the provider boundary: refs are rooted,
+ * have no empty/dot/lock components, traversal, reflog syntax, control/option metacharacters, or
+ * trailing dot. `HEAD` is the only accepted pseudo-ref and is handled explicitly by the caller.
+ */
+function validAdvertisedRef(ref) {
+  if (typeof ref !== 'string' || !ref.startsWith('refs/')
+      || ref.startsWith('/') || ref.endsWith('/') || ref.endsWith('.')
+      || ref.includes('//') || ref.includes('..') || ref.includes('@{')
+      || /[\u0000-\u0020\u007f-\u009f~^:?*\\]/u.test(ref) || ref.includes('[')) {
+    return false;
   }
-  return refs;
+  const components = ref.split('/');
+  return components.length >= 2
+    && components.every((component) => component !== ''
+      && !component.startsWith('.')
+      && !component.endsWith('.lock'));
 }
 
-function advertisedRefs(stdout) {
+function parseRemoteAdvertisement(stdout) {
   const refs = new Map();
+  const symbolicRefs = new Map();
+  let invalid = false;
   for (const line of String(stdout ?? '').split(/\r?\n/)) {
-    const match = line.trim().match(/^([0-9a-f]{40,64})\s+(refs\/[^\s]+)$/i);
-    if (match) refs.set(match[2], match[1]);
+    const value = line.trim();
+    if (!value) continue;
+    const symbolic = /^ref:\s+([^\s]+)\s+([^\s]+)$/u.exec(value);
+    if (symbolic) {
+      const validTarget = symbolic[1].startsWith('refs/heads/')
+        && validAdvertisedRef(symbolic[1]);
+      const validName = symbolic[2] === 'HEAD' || validAdvertisedRef(symbolic[2]);
+      if (!validTarget || !validName || symbolicRefs.has(symbolic[2])) invalid = true;
+      else symbolicRefs.set(symbolic[2], symbolic[1]);
+      continue;
+    }
+    const direct = /^([0-9a-f]{40}|[0-9a-f]{64})\s+(refs\/[^\s]+|HEAD)$/iu.exec(value);
+    if (direct) {
+      if ((direct[2] !== 'HEAD' && !validAdvertisedRef(direct[2])) || refs.has(direct[2])) {
+        invalid = true;
+      }
+      else refs.set(direct[2], direct[1]);
+      continue;
+    }
+    invalid = true;
   }
-  return refs;
+  return { refs, symbolicRefs, invalid };
 }
 
 function observationPatterns({ refs = [], includeHead = true, includeAllHeads = false } = {}) {
@@ -469,8 +501,9 @@ function observationPatternsCover(available, requested) {
 }
 
 function remoteObservation(url, patterns, result) {
-  const refsByName = advertisedRefs(result.stdout);
-  const symbolicRefs = advertisedSymbolicRefs(result.stdout);
+  const advertisement = parseRemoteAdvertisement(result.stdout);
+  const refsByName = advertisement.refs;
+  const symbolicRefs = advertisement.symbolicRefs;
   const unsupportedSymbolicAuthority = [...symbolicRefs.keys()]
     .find((ref) => ref !== 'HEAD') ?? null;
   const symbolicFailure = unsupportedSymbolicAuthority ? Object.freeze({
@@ -480,16 +513,24 @@ function remoteObservation(url, patterns, result) {
     advice: 'The requested Git authority is a symbolic ref. Replace it with a direct branch ref before retrying.',
     evidence: result.failure?.evidence ?? failureEvidence(result)
   }) : null;
+  const protocolFailure = result.status === 0 && advertisement.invalid ? Object.freeze({
+    code: 'REMOTE_PROTOCOL_INVALID',
+    classification: 'authority-invalid',
+    retryable: false,
+    advice: 'Git returned a duplicate or malformed remote-reference advertisement. Inspect the approved Git executable and provider before retrying.',
+    evidence: result.failure?.evidence ?? failureEvidence(result)
+  }) : null;
   return Object.freeze({
-    ok: result.status === 0 && !symbolicFailure,
+    ok: result.status === 0 && !symbolicFailure && !protocolFailure,
     remote: sanitizeRemote(url),
-    defaultBranch: result.status === 0 && !symbolicFailure ? symrefBranch(result.stdout) : null,
+    defaultBranch: result.status === 0 && !symbolicFailure && !protocolFailure
+      ? symrefBranch(result.stdout) : null,
     refs: refsByName,
     branches: [...refsByName.keys()].filter((ref) => ref.startsWith('refs/heads/'))
       .map((ref) => ref.slice('refs/heads/'.length)).sort(),
     includedHead: patterns.includes('HEAD'),
     patterns: Object.freeze([...patterns]),
-    failure: symbolicFailure ?? result.failure,
+    failure: symbolicFailure ?? protocolFailure ?? result.failure,
     timedOut: result.timedOut === true,
     result
   });

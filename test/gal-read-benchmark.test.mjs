@@ -24,6 +24,14 @@ test('GAL read benchmark separates cold discovery and warm object reads with exa
   assert.match(report.fixture.oidListSha256, /^[0-9a-f]{64}$/u);
   assert.match(report.gitVersion, /^git version /u);
   assert.match(report.sourceRevision, /^[0-9a-f]{40,64}$/u);
+  assert.equal(report.objectServiceCapabilities.mode, 'persistent-opt-in');
+  assert.equal(report.objectServiceCapabilities.selection, 'capability-probe');
+  assert.match(report.objectServiceCapabilities.selectedProtocol,
+    /^(?:batch-command-buffered|legacy-batch)$/u);
+  assert.equal(report.objectServiceCapabilities.batchCommand.protocol,
+    'batch-command-buffered');
+  assert.equal(report.profileDisplayNames.warmLegacyBatchWorker,
+    'Warm capability-selected persistent worker');
   assert.deepEqual(report.parity, {
     referenceExactBytes: true, asyncReferenceExactBytes: true,
     persistentExactBytes: true, persistentBatchExactBytes: true, requiredComplete: true
@@ -44,11 +52,15 @@ test('GAL read benchmark separates cold discovery and warm object reads with exa
     [1, 1]);
   assert.deepEqual(report.profiles.warmLegacyBatchWorker.workerSpawns, [0, 0]);
   assert.deepEqual(report.profiles.warmLegacyBatchWorker.logicalRequests, [16, 16]);
+  assert.equal(report.profiles.warmLegacyBatchWorker.persistentProtocol,
+    report.objectServiceCapabilities.selectedProtocol);
   assert.deepEqual(report.profiles.warmExplicitMultiFrameBatchWorker.physicalGitSpawns, [0, 0]);
   assert.deepEqual(report.profiles.warmExplicitMultiFrameBatchWorker.workerSpawns, [0, 0]);
   assert.deepEqual(report.profiles.warmExplicitMultiFrameBatchWorker.logicalRequests, [1, 1]);
   assert.deepEqual(report.profiles.warmExplicitMultiFrameBatchWorker.logicalObjectReads, [16, 16]);
   assert.deepEqual(report.profiles.warmExplicitMultiFrameBatchWorker.workerWrites, [1, 1]);
+  assert.equal(report.profiles.warmExplicitMultiFrameBatchWorker.persistentProtocol,
+    report.objectServiceCapabilities.selectedProtocol);
   const text = result.stdout;
   assert.equal(text.includes('sflow-gal-benchmark-'), false, 'temporary path must not leak');
   assert.equal(text.includes('GAL-FIXTURE-'), false, 'fixture contents must not leak');

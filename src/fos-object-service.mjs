@@ -17,6 +17,9 @@ const MAX_OBJECT_BYTES = 32 * 1024 * 1024;
 const MAX_BATCH_BYTES = 32 * 1024 * 1024;
 const MAX_BATCH_OBJECTS = 128;
 const MAX_COALESCED_SUBSCRIBERS = 8;
+const CAPABILITY_OUTPUT_BYTES = 4 * 1024;
+const OBJECT_PROTOCOL_BATCH_COMMAND = 'batch-command-buffered';
+const OBJECT_PROTOCOL_LEGACY_BATCH = 'legacy-batch';
 const pools = new Map();
 let poolMutation = Promise.resolve();
 
@@ -117,6 +120,24 @@ function awaitProfile(promise, timeoutMs, signal) {
   });
 }
 
+async function awaitCapabilityCleanup(promise) {
+  if (!promise) return true;
+  let timer;
+  try {
+    return await Promise.race([
+      Promise.resolve(promise).then(
+        () => true,
+        (cause) => cause?.code !== 'GAL_CLEANUP_INCOMPLETE'
+      ),
+      new Promise((resolve) => {
+        // The built-in probe's process-tree cleanup is bounded at two seconds. A custom probe that
+        // ignores cancellation cannot be declared terminated merely because service.close ran.
+        timer = setTimeout(() => resolve(false), 2_100);
+      })
+    ]);
+  } finally { clearTimeout(timer); }
+}
+
 async function poolFingerprint(identity, executable, env) {
   const common = await stat(identity.commonDir);
   const objects = await stat(path.join(identity.commonDir, 'objects'));
@@ -132,29 +153,261 @@ async function poolFingerprint(identity, executable, env) {
   return createHash('sha256').update(JSON.stringify(fields)).digest('hex');
 }
 
-async function stopChild(child, force) {
+async function stopChild(child, force, {
+  terminateTree = signalProcessTree,
+  timeoutMs = 2_000
+} = {}) {
   if (!child) return true;
-  return new Promise((resolve) => {
+  const boundedTimeoutMs = bounded(timeoutMs, 5_000, 'object-service cleanup deadline');
+  let finishClose;
+  const closed = new Promise((resolve) => {
     let settled = false;
-    let escalation = null;
     let deadline = null;
-    const finish = (closed) => {
+    const finish = (value) => {
       if (settled) return;
       settled = true;
-      clearTimeout(escalation);
       clearTimeout(deadline);
       child.removeListener?.('close', onClose);
-      resolve(closed);
+      resolve(value);
     };
+    finishClose = finish;
     const onClose = () => finish(true);
-    child.once?.('close', onClose);
-    try { child.stdin?.end?.(); } catch { /* The child may already have exited. */ }
-    if (force) void signalProcessTree(child, 'SIGKILL').catch(() => {});
-    else escalation = setTimeout(() => { void signalProcessTree(child, 'SIGTERM').catch(() => {}); }, 1_000);
-    deadline = setTimeout(() => {
-      void signalProcessTree(child, 'SIGKILL').catch(() => {});
-      finish(false);
-    }, 2_000);
+    if (child.exitCode != null || child.signalCode != null) finish(true);
+    else {
+      child.once?.('close', onClose);
+      deadline = setTimeout(() => finish(false), boundedTimeoutMs);
+    }
+  });
+  try { child.stdin?.end?.(); } catch { /* The child may already have exited. */ }
+
+  const signalTree = async (treeSignal, remainingMs) => {
+    try {
+      return await terminateTree(child, treeSignal, {
+        timeoutMs: Math.max(1, Math.min(1_000, remainingMs)),
+        // Real spawned workers always have a PID. On Windows, direct-child termination is only
+        // best effort; FOS must not start a fallback while credential/SSH/helper descendants may
+        // still be alive. PID-less unit doubles retain the compatibility path used by fixtures.
+        requireTree: Number.isSafeInteger(Number(child.pid)) && Number(child.pid) > 0
+      }) === true;
+    } catch { return false; }
+  };
+  if (force) {
+    // `close` can fire as soon as the direct Git child exits while taskkill /T is still retiring
+    // its helpers. Do not certify cleanup until both independently bounded observations settle.
+    const [treeTerminated, childClosed] = await Promise.all([
+      signalTree('SIGKILL', boundedTimeoutMs), closed
+    ]);
+    return treeTerminated && childClosed;
+  }
+
+  const natural = await Promise.race([
+    closed,
+    new Promise((resolve) => setTimeout(() => resolve(false),
+      Math.min(1_000, Math.max(1, boundedTimeoutMs - 1))))
+  ]);
+  if (natural) return true;
+  const graceful = signalTree('SIGTERM', Math.max(1, boundedTimeoutMs - 1_000));
+  const [treeTerminated, childClosed] = await Promise.all([graceful, closed]);
+  if (treeTerminated && childClosed) return true;
+  // A failed or late graceful cleanup is never called verified. Make one bounded force attempt so
+  // disposal is still best-effort, then retain the false result for the caller's recovery gate.
+  await signalTree('SIGKILL', Math.max(1, Math.min(1_000, boundedTimeoutMs)));
+  finishClose?.(false);
+  return false;
+}
+
+function probeEvidence(protocol, status, result = {}) {
+  return Object.freeze({
+    protocol,
+    status,
+    supported: status === 'supported',
+    exitCode: Number.isInteger(result.exitCode) ? result.exitCode : null,
+    timedOut: result.timedOut === true,
+    outputOverflow: result.outputOverflow === true,
+    cleanupVerified: result.cleanupVerified !== false
+  });
+}
+
+async function probeObjectProtocol(executable, profile, env, args, input, {
+  spawnCommand = spawn, timeoutMs = 5_000, signal = null,
+  platform = process.platform, terminateTree = signalProcessTree
+} = {}) {
+  if (signal?.aborted) throw error('Git object-service capability probe was cancelled.',
+    'OBJECT_REQUEST_CANCELLED');
+  return new Promise((resolve, reject) => {
+    let child;
+    let settled = false;
+    let retiring = false;
+    let timedOut = false;
+    let outputOverflow = false;
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
+    const complete = (action, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      action(value);
+    };
+    const protocol = args.includes('--batch-command')
+      ? OBJECT_PROTOCOL_BATCH_COMMAND : OBJECT_PROTOCOL_LEGACY_BATCH;
+    const finish = (status, result = {}) => {
+      complete(resolve, probeEvidence(protocol, status, {
+        ...result, timedOut, outputOverflow, cleanupVerified: true
+      }));
+    };
+    const cleanupFailure = (status) => {
+      complete(reject, error(
+        'Git object-service capability probe cleanup could not be verified.',
+        'GAL_CLEANUP_INCOMPLETE', {
+          probe: probeEvidence(protocol, status, {
+            timedOut, outputOverflow, cleanupVerified: false
+          })
+        }
+      ));
+    };
+    const retire = (status) => {
+      if (retiring || settled) return;
+      retiring = true;
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      void stopChild(child, true, { terminateTree }).then((closed) => {
+        if (closed) finish(status);
+        else cleanupFailure(status);
+      });
+    };
+    const onAbort = () => {
+      if (retiring || settled) return;
+      retiring = true;
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      void stopChild(child, true, { terminateTree }).then((closed) => {
+        if (!closed) {
+          cleanupFailure('unavailable');
+          return;
+        }
+        complete(reject, error(
+          'Git object-service capability probe was cancelled.', 'OBJECT_REQUEST_CANCELLED'
+        ));
+      });
+    };
+    const timer = setTimeout(() => {
+      timedOut = true;
+      retire('timeout');
+    }, bounded(timeoutMs, 30_000, 'capability-probe deadline'));
+    signal?.addEventListener('abort', onAbort, { once: true });
+    try {
+      child = spawnCommand(executable, [`--git-dir=${profile.commonDir}`, ...args], {
+        cwd: profile.commonDir,
+        shell: false,
+        windowsHide: true,
+        detached: platform !== 'win32',
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env
+      });
+    } catch {
+      finish('unavailable');
+      return;
+    }
+    const count = (channel, chunk) => {
+      if (settled || retiring) return;
+      if (channel === 'stdout') stdoutBytes += chunk.length;
+      else stderrBytes += chunk.length;
+      if (stdoutBytes > CAPABILITY_OUTPUT_BYTES || stderrBytes > CAPABILITY_OUTPUT_BYTES) {
+        outputOverflow = true;
+        retire('malformed');
+      }
+    };
+    child.stdout?.on('data', (chunk) => count('stdout', chunk));
+    child.stderr?.on('data', (chunk) => count('stderr', chunk));
+    child.stdin?.once?.('error', () => retire('unavailable'));
+    child.stdout?.once?.('error', () => retire('unavailable'));
+    child.stderr?.once?.('error', () => retire('unavailable'));
+    child.once?.('error', () => retire('unavailable'));
+    child.once?.('spawn', () => {
+      if (retiring || settled) return;
+      try { child.stdin?.end?.(input, 'ascii'); } catch { retire('unavailable'); }
+    });
+    child.once?.('close', (code) => {
+      if (retiring || timedOut || outputOverflow) return;
+      finish(code === 0 && stdoutBytes === 0 ? 'supported'
+        : code === 0 ? 'malformed' : 'unsupported', { exitCode: code });
+    });
+  });
+}
+
+function normalizeObjectServiceCapabilities(value) {
+  const evidenceIsValid = (evidence, protocol) => evidence != null
+    && evidence.protocol === protocol
+    && ['supported', 'unsupported', 'malformed', 'timeout', 'unavailable']
+      .includes(evidence.status)
+    && evidence.supported === (evidence.status === 'supported')
+    && (evidence.exitCode == null || Number.isInteger(evidence.exitCode))
+    && typeof evidence.timedOut === 'boolean'
+    && typeof evidence.outputOverflow === 'boolean'
+    && evidence.cleanupVerified === true;
+  if (!value || value.capabilityEvidenceVersion !== 1
+      || ![OBJECT_PROTOCOL_BATCH_COMMAND, OBJECT_PROTOCOL_LEGACY_BATCH]
+        .includes(value.selectedProtocol)
+      || !evidenceIsValid(value.batchCommand, OBJECT_PROTOCOL_BATCH_COMMAND)
+      || (value.selectedProtocol === OBJECT_PROTOCOL_BATCH_COMMAND
+        ? !value.batchCommand.supported || value.legacyBatch != null
+        : value.batchCommand.supported
+          || !evidenceIsValid(value.legacyBatch, OBJECT_PROTOCOL_LEGACY_BATCH)
+          || !value.legacyBatch.supported)) {
+    throw error('Git object-service capability evidence is invalid.',
+      'OBJECT_SERVICE_CAPABILITY_INVALID');
+  }
+  return Object.freeze({
+    capabilityEvidenceVersion: 1,
+    mode: 'persistent-opt-in',
+    selection: 'capability-probe',
+    selectedProtocol: value.selectedProtocol,
+    batchCommand: Object.freeze({ ...(value.batchCommand ?? {}) }),
+    legacyBatch: value.legacyBatch == null
+      ? null : Object.freeze({ ...value.legacyBatch }),
+    replacementSuppression: 'GIT_NO_REPLACE_OBJECTS=1',
+    lazyFetchSuppression: 'GIT_NO_LAZY_FETCH=1'
+  });
+}
+
+/** Probe exact persistent Git protocols by executing their no-object grammar, never by version. */
+export async function probeFosGitObjectServiceCapabilities(root, {
+  env = process.env, executable = null, profile = null,
+  spawnCommand = spawn, timeoutMs = 5_000, signal = null,
+  platform = process.platform, terminateTree = signalProcessTree
+} = {}) {
+  const repositoryRoot = path.resolve(root);
+  const trustedEnvironment = objectEnvironment(env);
+  const trustedExecutable = executable ?? gitExecutable(trustedEnvironment, repositoryRoot);
+  const identity = profile ?? await repositoryProfile(
+    repositoryRoot, trustedExecutable, trustedEnvironment, { signal, timeoutMs }
+  );
+  const batchCommand = await probeObjectProtocol(
+    trustedExecutable, identity, trustedEnvironment,
+    ['cat-file', '--batch-command', '--buffer'], 'flush\n',
+    { spawnCommand, timeoutMs, signal, platform, terminateTree }
+  );
+  if (batchCommand.supported) return normalizeObjectServiceCapabilities({
+    capabilityEvidenceVersion: 1,
+    selectedProtocol: OBJECT_PROTOCOL_BATCH_COMMAND,
+    batchCommand,
+    legacyBatch: null
+  });
+  const legacyBatch = await probeObjectProtocol(
+    trustedExecutable, identity, trustedEnvironment,
+    ['cat-file', '--batch'], '',
+    { spawnCommand, timeoutMs, signal, platform, terminateTree }
+  );
+  if (!legacyBatch.supported) {
+    throw error('Git does not provide a verified persistent raw-object protocol.',
+      'OBJECT_SERVICE_UNAVAILABLE', { batchCommand, legacyBatch });
+  }
+  return normalizeObjectServiceCapabilities({
+    capabilityEvidenceVersion: 1,
+    selectedProtocol: OBJECT_PROTOCOL_LEGACY_BATCH,
+    batchCommand,
+    legacyBatch
   });
 }
 
@@ -165,6 +418,11 @@ export class FosGitObjectService {
   #executable;
   #profile;
   #profileValue = null;
+  #capabilityProbe;
+  #capabilityPromise = null;
+  #capabilities = null;
+  #probeSpawn;
+  #platform;
   #fingerprint = null;
   #child = null;
   #chunks = [];
@@ -190,13 +448,22 @@ export class FosGitObjectService {
     spawnCommand = spawn, maxQueued = 128, maxObjectBytes = 32 * 1024 * 1024,
     maxBatchBytes = MAX_BATCH_BYTES,
     timeoutMs = 30_000, idleMs = 30_000, env = process.env,
-    profile = null, executable = null, fingerprint = null
+    profile = null, executable = null, fingerprint = null,
+    capabilities = null,
+    capabilityProbe = probeFosGitObjectServiceCapabilities,
+    probeSpawnCommand = spawn,
+    platform = process.platform
   } = {}) {
     this.#root = path.resolve(root);
     this.#spawn = spawnCommand;
     this.#env = objectEnvironment(env);
     this.#executable = executable ?? gitExecutable(this.#env, this.#root);
     this.#profile = profile ? Promise.resolve(profile) : null;
+    this.#capabilities = capabilities == null
+      ? null : normalizeObjectServiceCapabilities(capabilities);
+    this.#capabilityProbe = capabilityProbe;
+    this.#probeSpawn = probeSpawnCommand;
+    this.#platform = platform;
     this.#fingerprint = fingerprint;
     this.#maxQueued = bounded(maxQueued, 128, 'queue limit');
     this.#maxObjectBytes = bounded(maxObjectBytes, MAX_OBJECT_BYTES, 'object byte limit');
@@ -206,6 +473,7 @@ export class FosGitObjectService {
   }
 
   get processSpawns() { return this.#spawns; }
+  get capabilities() { return this.#capabilities; }
   get queued() {
     const weight = (operation) => operation?.kind === 'batch'
       ? operation.oids.length : (operation?.subscribers.size ?? 0);
@@ -294,6 +562,43 @@ export class FosGitObjectService {
       throw error('Object ID does not match the repository storage format.', 'OBJECT_ID_INVALID');
     }
     this.#profileValue = profile;
+    if (!this.#capabilities) {
+      let capability = this.#capabilityPromise;
+      if (!capability) {
+        capability = Promise.resolve().then(() => this.#capabilityProbe(this.#root, {
+          env: this.#env,
+          executable: this.#executable,
+          profile,
+          spawnCommand: this.#probeSpawn,
+          timeoutMs: this.#timeoutMs,
+          signal: this.#profileController.signal,
+          platform: this.#platform
+        })).then(normalizeObjectServiceCapabilities);
+        this.#capabilityPromise = capability;
+        // Capability discovery belongs to the service, not to any one request waiting for it.
+        // A caller may cancel or exhaust its own deadline while this shared probe is still
+        // retiring. Keep the exact promise attached so close() and a later caller must observe
+        // that same cleanup boundary. Only the probe's own terminal result may clear it for a
+        // verified retry.
+        void capability.catch((cause) => {
+          if (this.#capabilityPromise !== capability) return;
+          if (cause?.code === 'GAL_CLEANUP_INCOMPLETE') {
+            this.#cleanupVerified = false;
+            this.#closed = true;
+          } else if (!this.#closed) {
+            this.#capabilityPromise = null;
+          }
+        });
+      }
+      try {
+        this.#capabilities = await awaitProfile(capability, this.#timeoutMs, signal);
+      } catch (cause) {
+        // awaitProfile also enforces the individual caller's cancellation and deadline. Those
+        // outcomes must not detach the still-running service-wide capability probe. The terminal
+        // handler above owns retry and cleanup state.
+        throw cause;
+      }
+    }
     if (this.#retiring) await this.#retiring;
     const fingerprint = await poolFingerprint(profile, this.#executable, this.#env);
     if (this.#fingerprint && fingerprint !== this.#fingerprint) {
@@ -311,13 +616,16 @@ export class FosGitObjectService {
   #ensureChild() {
     if (this.#child) return;
     const profile = this.#profileValue;
+    const protocolArguments = this.#capabilities.selectedProtocol === OBJECT_PROTOCOL_BATCH_COMMAND
+      ? ['cat-file', '--batch-command', '--buffer']
+      : ['cat-file', '--batch'];
     const child = this.#spawn(this.#executable, [
-      `--git-dir=${profile.commonDir}`, 'cat-file', '--batch'
+      `--git-dir=${profile.commonDir}`, ...protocolArguments
     ], {
       cwd: profile.commonDir,
       shell: false,
       windowsHide: true,
-      detached: process.platform !== 'win32',
+      detached: this.#platform !== 'win32',
       stdio: ['pipe', 'pipe', 'ignore'],
       env: this.#env
     });
@@ -373,8 +681,11 @@ export class FosGitObjectService {
     this.#active = request;
     try {
       this.#ensureChild();
-      this.#child.stdin.write(request.kind === 'batch'
-        ? `${request.oids.join('\n')}\n` : `${request.oid}\n`, 'ascii');
+      const oids = request.kind === 'batch' ? request.oids : [request.oid];
+      const payload = this.#capabilities.selectedProtocol === OBJECT_PROTOCOL_BATCH_COMMAND
+        ? `${oids.map((oid) => `contents ${oid}`).join('\n')}\nflush\n`
+        : `${oids.join('\n')}\n`;
+      this.#child.stdin.write(payload, 'ascii');
       incrementCommandCounter('git.batch-requests');
     } catch {
       this.#failService(error('Git object service input stream is unavailable.', 'OBJECT_SERVICE_UNAVAILABLE'));
@@ -606,11 +917,17 @@ export class FosGitObjectService {
     this.#active = null; this.#queue = []; this.#chunks = [];
     this.#buffered = 0; this.#headOffset = 0;
     const child = this.#child; this.#child = null;
+    const capability = this.#capabilityPromise;
     for (const request of requests) this.#finishOperation(request, 'reject', error('Git object service was closed.', 'OBJECT_SERVICE_CLOSED'));
     const retiring = this.#retiring;
     this.#closing = (async () => {
-      const retired = retiring ? await retiring : true;
-      const terminated = (await stopChild(child, false)) && retired && this.#cleanupVerified;
+      const [retired, workerTerminated, capabilityTerminated] = await Promise.all([
+        retiring ?? true,
+        stopChild(child, false),
+        awaitCapabilityCleanup(capability)
+      ]);
+      const terminated = workerTerminated && retired && capabilityTerminated
+        && this.#cleanupVerified;
       this.#closureOutcome = Object.freeze({ closed: true, terminated });
       return this.#closureOutcome;
     })();
@@ -627,16 +944,22 @@ export async function fosGitObjectService(root, options = {}) {
   const key = identity.commonDir;
   const fingerprint = await poolFingerprint(identity, executable, env);
   const transport = options.spawnCommand ?? spawn;
+  const probeTransport = options.probeSpawnCommand ?? spawn;
+  const capabilityProbe = options.capabilityProbe ?? probeFosGitObjectServiceCapabilities;
   const limits = JSON.stringify([
     options.maxQueued ?? 128,
     options.maxObjectBytes ?? MAX_OBJECT_BYTES,
     options.maxBatchBytes ?? MAX_BATCH_BYTES,
     options.timeoutMs ?? 30_000,
-    options.idleMs ?? 30_000
+    options.idleMs ?? 30_000,
+    options.capabilities ?? null,
+    options.platform ?? process.platform
   ]);
   return withPoolLock(async () => {
     const current = pools.get(key);
     if (current && current.fingerprint === fingerprint && current.transport === transport
+        && current.probeTransport === probeTransport
+        && current.capabilityProbe === capabilityProbe
         && current.limits === limits && !current.service.closed) return current.service;
     if (current) {
       const outcome = await current.service.close();
@@ -657,7 +980,9 @@ export async function fosGitObjectService(root, options = {}) {
       pools.delete(idle[0]);
     }
     const service = new FosGitObjectService(root, { ...options, env, executable, profile: identity, fingerprint });
-    pools.set(key, { service, fingerprint, transport, limits });
+    pools.set(key, {
+      service, fingerprint, transport, probeTransport, capabilityProbe, limits
+    });
     return service;
   });
 }

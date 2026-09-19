@@ -30,6 +30,7 @@ import { removeTemporaryTree, SingularityFlowError, run } from './util.mjs';
 import {
   assertCredentialFreeRemote, configuredRemoteIdentity, frozenRemoteTransport, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
+import { executeGitQuery } from './git-query.mjs';
 import { enterpriseGitEnvironment } from './git-enterprise-environment.mjs';
 import {
   createAndPushTransportIntent, listTransportIntents, retryTransportIntent
@@ -52,6 +53,14 @@ export const STATE_CONFIGURATION_HISTORY_PREFIX = 'sflow/config-history';
 
 const STORY_CONFIGURATION_SNAPSHOT = Symbol('story-configuration-snapshot');
 const STORY_CONFIGURATION_AUTHORITY_SNAPSHOT = Symbol('story-configuration-authority-snapshot');
+
+function configurationRepositoryHead(root, env = process.env) {
+  const commit = executeGitQuery(root, 'repository.head', {}, { env });
+  if (commit) return commit;
+  throw new SingularityFlowError('The configuration repository has no readable HEAD commit.', {
+    code: 'CONFIGURATION_REPOSITORY_HEAD_UNAVAILABLE'
+  });
+}
 
 /**
  * The publisher's transport ref retains one exact reviewed commit for outbox recovery. It is not
@@ -124,10 +133,15 @@ export function stateConfigurationHistoryBranch(sourceCommit) {
 export async function retainStateConfigurationHistory(root, remote, sourceCommit, {
   env = process.env
 } = {}) {
+  // One environment owns the complete proof: source-object availability, checkout-local authority
+  // selection, remote observations, the leased push, and its postcondition read. In particular,
+  // never let caller/process GIT_DIR, GIT_WORK_TREE, command-scoped url.* rewrites, alternates, or
+  // trace sinks select a different repository for only one step of this sequence.
+  const gitEnv = enterpriseGitEnvironment(env);
   const branch = stateConfigurationHistoryBranch(sourceCommit);
   const ref = `refs/heads/${branch}`;
   const available = run('git', ['rev-parse', '--verify', `${sourceCommit}^{commit}`], {
-    cwd: root, env, allowFailure: true
+    cwd: root, env: gitEnv, allowFailure: true
   }).stdout.trim();
   if (available !== sourceCommit) {
     throw new SingularityFlowError(
@@ -138,58 +152,93 @@ export async function retainStateConfigurationHistory(root, remote, sourceCommit
       }
     );
   }
-  const observe = async () => {
-    const result = await runRemoteGitAsync([
-      'ls-remote', '--heads', '--', remote, ref
-    ], { cwd: root, operation: 'remote-configuration', env });
-    if (result.status !== 0) {
+  // A configured remote name is mutable repository state, not an authority identity. Freeze the
+  // one checkout-local push endpoint selected for this operation so observation and publication
+  // cannot be redirected independently by a later pushurl or ambient insteadOf rule.
+  const configured = configuredRemoteIdentity(root, remote, {
+    direction: 'push', env: gitEnv
+  });
+  if (configured.ambiguous) {
+    throw new SingularityFlowError(
+      'The state configuration history remote has more than one push authority.', {
+        code: 'STATE_CONFIGURATION_HISTORY_INVALID',
+        details: { sourceCommit, branch }
+      }
+    );
+  }
+  const endpoint = configured.configured && configured.url
+    ? configured.url
+    : assertCredentialFreeRemote(remote);
+  const session = new GitRemoteSession({
+    env: gitEnv,
+    runAsyncCommand(args, options) {
+      return runRemoteGitAsync(args, { ...options, cwd: root });
+    }
+  });
+  const observe = async ({ refresh = false } = {}) => {
+    const observed = await session.observeAsync(endpoint, {
+      refs: [ref], includeHead: false, refresh
+    });
+    if (!observed.ok) {
+      if (observed.failure?.code === 'REMOTE_SYMBOLIC_REF_UNSUPPORTED') {
+        throw new SingularityFlowError(
+          'The remote configuration history authority is a symbolic ref.', {
+            code: 'STATE_CONFIGURATION_HISTORY_INVALID',
+            details: { sourceCommit, branch, symbolic: true }
+          }
+        );
+      }
       throw new SingularityFlowError(
         'The remote configuration history ref could not be inspected before state publication.',
         {
           code: 'STATE_CONFIGURATION_HISTORY_UNAVAILABLE',
-          details: { sourceCommit, branch, classification: result.failure?.classification ?? 'unknown' }
-        }
-      );
-    }
-    const rows = result.stdout.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
-    const commits = rows.map((line) => line.split(/\s+/u))
-      .filter(([, name]) => name === ref)
-      .map(([commit]) => commit);
-    if (commits.length > 1 || commits.some((commit) => !/^[0-9a-f]{40,64}$/.test(commit))) {
-      throw new SingularityFlowError('The remote configuration history ref is ambiguous.', {
-        code: 'STATE_CONFIGURATION_HISTORY_INVALID', details: { sourceCommit, branch }
-      });
-    }
-    return commits[0] ?? null;
-  };
-
-  // The immutable namespace lets the ordinary path be one push instead of probe-then-push. The
-  // empty lease makes an existing ref (whether exact or hostile) non-mutating; after rejection one
-  // observation distinguishes an identical concurrent winner from a permanent collision.
-  const pushed = await runRemoteGitAsync([
-    'push', `--force-with-lease=${ref}:`, '--', remote, `${sourceCommit}:${ref}`
-  ], { cwd: root, operation: 'remote-push', env });
-  if (pushed.status !== 0) {
-    const concurrent = await observe();
-    if (concurrent !== sourceCommit) {
-      throw new SingularityFlowError(
-        concurrent == null
-          ? 'The approved configuration history ref could not be retained before state publication.'
-          : 'An immutable configuration history ref points at a different commit.',
-        {
-          code: concurrent == null
-            ? 'STATE_CONFIGURATION_HISTORY_UNAVAILABLE'
-            : 'STATE_CONFIGURATION_HISTORY_COLLISION',
           details: {
             sourceCommit, branch,
-            classification: pushed.failure?.classification ?? 'unknown',
-            actualCommit: concurrent
+            classification: observed.failure?.classification ?? 'unknown'
           }
         }
       );
     }
+    return observed.refs?.get(ref) ?? null;
+  };
+
+  // Git can report an update to a symbolic remote ref as "Everything up-to-date" when its target
+  // already has the requested object. That successful exit is not proof that the immutable name is
+  // direct, so observation must bracket the push. The empty lease protects the absent case; the
+  // refreshed observation distinguishes a verified write/concurrent winner from a collision even
+  // when the push acknowledgement was lost or a symbolic ref raced with the lease.
+  const before = await observe();
+  if (before === sourceCommit) return Object.freeze({ branch, commit: sourceCommit });
+  if (before != null) {
+    throw new SingularityFlowError(
+      'An immutable configuration history ref points at a different commit.', {
+        code: 'STATE_CONFIGURATION_HISTORY_COLLISION',
+        details: { sourceCommit, branch, actualCommit: before }
+      }
+    );
   }
-  return Object.freeze({ branch, commit: sourceCommit });
+  const transport = frozenRemoteTransport(endpoint, { push: true, env: gitEnv });
+  const pushed = await runRemoteGitAsync([
+    'push', `--force-with-lease=${ref}:`, '--', transport.remote, `${sourceCommit}:${ref}`
+  ], { cwd: root, operation: 'remote-push', env: transport.env });
+  const after = await observe({ refresh: true });
+  if (after === sourceCommit) return Object.freeze({ branch, commit: sourceCommit });
+  throw new SingularityFlowError(
+    after == null
+      ? 'The approved configuration history ref could not be retained before state publication.'
+      : 'An immutable configuration history ref points at a different commit.',
+    {
+      code: after == null
+        ? 'STATE_CONFIGURATION_HISTORY_UNAVAILABLE'
+        : 'STATE_CONFIGURATION_HISTORY_COLLISION',
+      details: {
+        sourceCommit, branch,
+        classification: pushed.failure?.classification
+          ?? (pushed.status === 0 ? 'postcondition-failed' : 'unknown'),
+        actualCommit: after
+      }
+    }
+  );
 }
 
 function slash(value) { return value.split(path.sep).join('/'); }
@@ -610,10 +659,11 @@ export async function ensureConfigurationBranch(remote, {
   let canonicalPublisher = null;
   if (publisherRoot) {
     canonicalPublisher = await realpath(path.resolve(publisherRoot));
-    const configuredRemote = run('git', ['remote', 'get-url', 'origin'], {
-      cwd: canonicalPublisher, env: gitEnv, allowFailure: true
-    }).stdout.trim();
-    if (assertCredentialFreeRemote(configuredRemote) !== assertCredentialFreeRemote(url)) {
+    const publisherRemote = configuredRemoteIdentity(canonicalPublisher, 'origin', {
+      direction: 'fetch', env: gitEnv
+    });
+    if (!publisherRemote.configured || publisherRemote.ambiguous || !publisherRemote.url
+        || publisherRemote.url !== assertCredentialFreeRemote(url)) {
       throw new SingularityFlowError('The configuration publisher origin does not match the reviewed configuration remote.', {
         code: 'CONFIGURATION_PUBLISHER_REMOTE_MISMATCH'
       });
@@ -666,9 +716,7 @@ export async function ensureConfigurationBranch(remote, {
         `Cannot read '${sanitizeRemote(url)}'. ${clone.failure?.advice ?? 'Git remote access failed.'}`,
         { code: clone.failure?.code ?? 'REMOTE_UNKNOWN' });
     }
-    const importedCommit = run('git', ['rev-parse', 'HEAD'], {
-      cwd: scratch, env: frozen.env
-    }).stdout.trim();
+    const importedCommit = configurationRepositoryHead(scratch, frozen.env);
     if (sourceCommit && importedCommit !== sourceCommit) {
       throw new SingularityFlowError(
         `The '${importBranch}' source branch changed after configuration preview. Preview the refresh again before creating '${CONFIGURATION_BRANCH}'.`,
@@ -763,7 +811,7 @@ export async function ensureConfigurationBranch(remote, {
       '-c', `user.email=${actor.email || 'unknown@invalid'}`,
       'commit', '-m', '[configuration] establish Singularity configuration authority'
     ], { cwd: scratch, env: frozen.env });
-    const commit = run('git', ['rev-parse', 'HEAD'], { cwd: scratch, env: frozen.env }).stdout.trim();
+    const commit = configurationRepositoryHead(scratch, frozen.env);
     let push;
     let transportIntent = null;
     let transportStatus = null;
@@ -848,7 +896,7 @@ async function cloneConfiguration(remote, target, { env = process.env } = {}) {
       + (clone.failure?.advice ?? 'Git remote access failed.'),
       { code: clone.failure?.code ?? 'REMOTE_UNKNOWN' });
   }
-  return run('git', ['rev-parse', 'HEAD'], { cwd: target, env: frozen.env }).stdout.trim();
+  return configurationRepositoryHead(target, frozen.env);
 }
 
 async function copyVerifiedStateConfiguration(remote, destination, branch = STATE_CONFIGURATION_BRANCH, {
@@ -871,7 +919,7 @@ async function copyVerifiedStateConfiguration(remote, destination, branch = STAT
         { code: clone.failure?.code ?? 'REMOTE_UNKNOWN' }
       );
     }
-    const mirrorCommit = run('git', ['rev-parse', 'HEAD'], { cwd: source, env: frozen.env }).stdout.trim();
+    const mirrorCommit = configurationRepositoryHead(source, frozen.env);
     if (expectedCommit && mirrorCommit !== expectedCommit) {
       throw new SingularityFlowError(
         `Approved state configuration authority moved from ${expectedCommit.slice(0, 12)} to ${mirrorCommit.slice(0, 12)} while its snapshot was being prepared. Refresh and retry; nothing was changed.`,
@@ -1078,14 +1126,15 @@ async function activeWorkspaceForRepository(root) {
 }
 
 function configuredStoryRemote(root, remoteName) {
-  const listed = run('git', ['remote'], { cwd: root, allowFailure: true });
-  if (listed.status !== 0) {
+  let remotes;
+  try {
+    remotes = executeGitQuery(root, 'repository.remotes');
+  } catch {
     throw new SingularityFlowError(
       'Cannot enumerate configured Git remotes while resolving Story configuration authority.',
       { code: 'STORY_CONFIGURATION_AUTHORITY_UNAVAILABLE' }
     );
   }
-  const remotes = listed.stdout.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
   if (!remotes.includes(remoteName)) return { configured: false, url: null };
   // Resolve authority from the raw checkout-local setting. `git remote get-url` applies ambient
   // url.*.insteadOf rules and must never be used as the identity or input to the frozen authority
@@ -1452,9 +1501,9 @@ export async function resolveConfigurationRemote(root, remoteName = 'origin', {
     return await resolveCandidate(configuredAuthority, 'workspace capability authority');
   }
 
-  const own = run('git', ['remote', 'get-url', remoteName], { cwd: root, allowFailure: true }).stdout.trim();
-  if (own) {
-    const selected = await resolveCandidate(own, `repository remote '${remoteName}'`);
+  const own = configuredStoryRemote(root, remoteName);
+  if (own.url) {
+    const selected = await resolveCandidate(own.url, `repository remote '${remoteName}'`);
     if (selected) return selected;
   }
 
@@ -1495,7 +1544,7 @@ export async function materializeConfigurationSnapshot(root, {
   const commit = verifiedSnapshot.sourceCommit;
   const mirror = verifiedSnapshot.mirror;
   {
-    const baseCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+    const baseCommit = configurationRepositoryHead(root);
     const before = configurationTreeEntries(root, baseCommit);
     const removed = await clearConfigurationAssets(root);
     const files = await copyStoryConfigurationSnapshot(verifiedSnapshot, root);
@@ -1547,19 +1596,34 @@ export async function materializeConfigurationSnapshot(root, {
  * checkout. Application branches are allowed to contain only application code, so Story preflight
  * cannot assume the current worktree carries the governed capability catalog.
  */
-export async function resolveApprovedConfigurationCapability(remote, capabilityId) {
+export async function resolveApprovedConfigurationCapability(
+  remote, capabilityId, repositoryContext = null
+) {
   const authority = typeof remote === 'string'
     ? await resolveRemoteStoryConfigurationAuthority(remote)
     : remote;
   if (!authority) throw new SingularityFlowError('No Story-readable configuration authority is available.');
   const snapshot = await loadStoryConfigurationSnapshot(authority);
-  return resolveStoryConfigurationSnapshotCapability(snapshot, capabilityId);
+  return resolveStoryConfigurationSnapshotCapability(snapshot, capabilityId, repositoryContext);
 }
 
 /** Resolve a capability from an already-verified operation snapshot without another clone. */
-export async function resolveStoryConfigurationSnapshotCapability(snapshot, capabilityId) {
+export async function resolveStoryConfigurationSnapshotCapability(
+  snapshot, capabilityId, repositoryContext = null
+) {
   if (!snapshot?.[STORY_CONFIGURATION_SNAPSHOT]) {
     throw new SingularityFlowError('Capability resolution requires a verified Story configuration snapshot.');
+  }
+  // The approved bytes intentionally live in a Git-less projection. Capability resolution is still
+  // repository-specific, so its application identity must arrive separately from the exact checkout
+  // which selected this snapshot. Never let `git config --local` search above the disposable
+  // projection or substitute the configuration authority for the delivery repository.
+  if (!repositoryContext) {
+    throw new SingularityFlowError(
+      'Capability resolution from an approved configuration snapshot requires a verified application repository context.', {
+        code: 'CAPABILITY_REPOSITORY_CONTEXT_REQUIRED'
+      }
+    );
   }
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-capability-snapshot-'));
   try {
@@ -1568,7 +1632,8 @@ export async function resolveStoryConfigurationSnapshotCapability(snapshot, capa
     const capability = await resolveLifecycleCapability(scratch, {
       capabilityId,
       required: true,
-      offline: true
+      offline: true,
+      repositoryContext
     });
     return {
       branch: snapshot.authority.branch,

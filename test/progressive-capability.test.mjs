@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -9,9 +9,12 @@ import {
   normalizeCapabilityOwnership, resolveCapabilityOwner, resolveImplicitCapability,
   validateCapabilities
 } from '../src/capabilities.mjs';
-import { resolveLifecycleCapability } from '../src/capability-context.mjs';
+import {
+  registeredCapabilityAuthorityProvenance, resolveLifecycleCapability
+} from '../src/capability-context.mjs';
 import { initializeDefinition } from '../src/config.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
+import { remoteFingerprint } from '../src/git-remote-diagnostics.mjs';
 import { run } from '../src/util.mjs';
 
 const REMOTE = 'https://example.test/acme/payments-service.git';
@@ -39,6 +42,41 @@ test('ordinary initialization keeps capability authority implicit and clone-stab
   assert.equal(first.name, 'This repository');
   assert.equal(first.resolutionSha256, second.resolutionSha256);
   assert.deepEqual(first.sourceScope, { sourceRoots: [], sharedRoots: [] });
+});
+
+test('ordinary capability resolution ignores ambient repository selectors during portfolio matching', async (t) => {
+  const root = await repository();
+  const decoy = await mkdtemp(path.join(os.tmpdir(), 'sflow-pcd-decoy-'));
+  t.after(() => Promise.all([
+    rm(root, { recursive: true, force: true }),
+    rm(decoy, { recursive: true, force: true })
+  ]));
+  run('git', ['init', '-q', '-b', 'main'], { cwd: decoy });
+  run('git', ['remote', 'add', 'origin', 'https://example.test/acme/decoy.git'], { cwd: decoy });
+  await writeFile(path.join(root, 'singularity/portfolio.yml'), `version: 1
+repositories:
+  payments-service:
+    url: ${REMOTE}
+  decoy-service:
+    url: https://example.test/acme/decoy.git
+`, 'utf8');
+
+  const previousGitDir = process.env.GIT_DIR;
+  const previousWorkTree = process.env.GIT_WORK_TREE;
+  process.env.GIT_DIR = path.join(decoy, '.git');
+  process.env.GIT_WORK_TREE = decoy;
+  try {
+    const resolved = await resolveLifecycleCapability(root, { required: true });
+    assert.equal(resolved.repositoryId, 'payments-service');
+    assert.equal(resolved.map.repository, REMOTE);
+    assert.equal(resolved.effectiveResolution.repository.identitySha256,
+      `sha256:${remoteFingerprint(REMOTE)}`);
+  } finally {
+    if (previousGitDir == null) delete process.env.GIT_DIR;
+    else process.env.GIT_DIR = previousGitDir;
+    if (previousWorkTree == null) delete process.env.GIT_WORK_TREE;
+    else process.env.GIT_WORK_TREE = previousWorkTree;
+  }
 });
 
 test('capability inspection can shadow typed Git provenance without changing resolved authority', async () => {
@@ -97,6 +135,107 @@ capabilities:
   assert.equal(observations.length, 1);
   assert.equal(observations[0].outcome, 'equivalent');
   assert.equal(observations[0].valuesRecorded, false);
+});
+
+test('capability provenance uses the registered fail-closed read by default', async () => {
+  const root = await repository();
+  await writeFile(path.join(root, 'singularity/capabilities.yml'), `version: 2
+management:
+  mode: sflow-cli
+capabilities:
+  repository-root:
+    name: This repository
+    kind: delivery
+    repository: payments-service
+    sourceRoots: []
+`, 'utf8');
+  run('git', ['config', '--local', '--add', 'remote.origin.url',
+    'https://example.test/acme/other.git'], { cwd: root });
+
+  await assert.rejects(
+    resolveLifecycleCapability(root, { required: true }),
+    (error) => error.code === 'GIT_QUERY_RESULT_AMBIGUOUS'
+  );
+  await assert.rejects(
+    resolveLifecycleCapability(root, { required: true, gitReadMode: 'shadow' }),
+    (error) => error.code === 'GIT_QUERY_RESULT_AMBIGUOUS'
+  );
+  const legacy = await resolveLifecycleCapability(root, {
+    required: true, gitReadMode: 'reference'
+  });
+  assert.ok([REMOTE, 'https://example.test/acme/other.git'].includes(legacy.map.repository),
+    'the explicit compatibility reader remains available for qualification only');
+});
+
+test('registered capability provenance keeps the legacy three-process budget', () => {
+  const calls = [];
+  const result = registeredCapabilityAuthorityProvenance('/repository', {
+    isRepositoryRoot: () => true,
+    query(root, id, params = {}) {
+      calls.push({ root, id, params });
+      return id === 'repository.remote-url' ? REMOTE
+        : id === 'repository.branch' ? 'main' : 'a'.repeat(40);
+    }
+  });
+  assert.deepEqual(result, {
+    repository: REMOTE, branch: 'main', commit: 'a'.repeat(40)
+  });
+  assert.deepEqual(calls.map(({ id }) => id), [
+    'repository.remote-url', 'repository.branch', 'repository.head'
+  ]);
+  assert.equal(calls[0].params.remote, 'origin');
+});
+
+test('registered capability provenance does not search above a Git-less approved projection', () => {
+  let calls = 0;
+  assert.deepEqual(registeredCapabilityAuthorityProvenance('/verified/projection', {
+    isRepositoryRoot: () => false,
+    query() { calls += 1; throw new Error('must not run'); }
+  }), { repository: null, branch: null, commit: null });
+  assert.equal(calls, 0);
+});
+
+test('Git-less capability projections bind resolution to an explicit verified checkout', async () => {
+  const application = await repository();
+  const projection = await mkdtemp(path.join(os.tmpdir(), 'sflow-pcd-projection-'));
+  await initializeDefinition(projection);
+  await writeFile(path.join(projection, 'singularity/capabilities.yml'), `version: 2
+management:
+  mode: sflow-cli
+capabilities:
+  payments:
+    name: Payments
+    kind: delivery
+    repository: payments-service
+    sourceRoots: []
+`, 'utf8');
+
+  const resolved = await resolveLifecycleCapability(projection, {
+    capabilityId: 'payments',
+    required: true,
+    repositoryContext: {
+      root: application,
+      remote: 'origin',
+      repositoryId: 'payments-service'
+    }
+  });
+  assert.equal(resolved.repositoryId, 'payments-service');
+  assert.deepEqual(resolved.effectiveResolution.repository, {
+    id: 'payments-service',
+    identitySha256: `sha256:${remoteFingerprint(REMOTE)}`
+  });
+  await assert.rejects(
+    resolveLifecycleCapability(projection, {
+      capabilityId: 'payments',
+      required: true,
+      repositoryContext: {
+        root: projection,
+        remote: 'origin',
+        repositoryId: 'payments-service'
+      }
+    }),
+    { code: 'CAPABILITY_REPOSITORY_CONTEXT_INVALID' }
+  );
 });
 
 test('implicit materialization retains repository-root and produces a managed v2 map', () => {

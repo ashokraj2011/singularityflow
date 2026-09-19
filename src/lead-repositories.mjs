@@ -1,15 +1,15 @@
 import os from 'node:os';
 import path from 'node:path';
 
-import { assertCredentialFreeRemote } from './git-remote-diagnostics.mjs';
-
 let support = null;
 
 async function loadSupport() {
   support ??= Promise.all([
     import('./schema-migrations.mjs'),
-    import('./util.mjs')
-  ]).then(([migrations, util]) => ({
+    import('./util.mjs'),
+    import('./git-remote-diagnostics.mjs')
+  ]).then(([migrations, util, remotes]) => ({
+    assertCredentialFreeRemote: remotes.assertCredentialFreeRemote,
     currentSchemaVersion: migrations.currentSchemaVersion,
     readRecord: migrations.readRecord,
     readJson: util.readJson,
@@ -44,6 +44,7 @@ export async function listLeadRepositoryRegistryRecords(file = leadRegistryFile(
 
 /** Operational callers receive only entries that pass the current remote trust boundary. */
 export async function listLeadRepositories(file = leadRegistryFile()) {
+  const { assertCredentialFreeRemote } = await loadSupport();
   const accepted = [];
   for (const lead of await listLeadRepositoryRegistryRecords(file)) {
     try {
@@ -64,6 +65,7 @@ async function writeLeads(file, leads) {
 export async function rememberLeadRepository(url, file = leadRegistryFile()) {
   const remote = String(url ?? '').trim();
   if (!remote) return listLeadRepositories(file);
+  const { assertCredentialFreeRemote } = await loadSupport();
   assertCredentialFreeRemote(remote);
   const { withRegistryFileLease } = await import('./workspace.mjs');
   return await withRegistryFileLease(file, async () => {

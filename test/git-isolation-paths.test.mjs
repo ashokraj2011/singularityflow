@@ -6,7 +6,29 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { gitDisabledHooksPath, gitEmptyConfigPath } from '../src/git-isolation-paths.mjs';
-import { enterpriseGitEnvironment } from '../src/git-enterprise-environment.mjs';
+import {
+  enterpriseGitEnvironment, withoutGitProcessOverrides
+} from '../src/git-enterprise-environment.mjs';
+
+test('Git process overrides are removed case-insensitively for Windows-compatible environments', () => {
+  const cleaned = withoutGitProcessOverrides({
+    Path: '/approved/bin',
+    https_proxy: 'http://proxy.example.test',
+    git_dir: 'redirected.git',
+    Git_Work_Tree: 'redirected-worktree',
+    git_index_file: 'redirected-index',
+    git_object_directory: 'redirected-objects',
+    Git_Config_Count: '1',
+    git_config_key_0: 'url.evil.invalid/.insteadOf',
+    Git_Config_Value_0: 'https://approved.example/',
+    git_trace2_event: '/tmp/leak.json',
+    Git_Ssl_No_Verify: 'true'
+  });
+  assert.deepEqual(cleaned, {
+    Path: '/approved/bin',
+    https_proxy: 'http://proxy.example.test'
+  });
+});
 
 test('Git isolation uses an empty regular config and hook directory on Windows', () => {
   // Injecting the platform keeps this contract testable on macOS/Linux too. The Windows lane below

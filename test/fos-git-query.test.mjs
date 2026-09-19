@@ -282,6 +282,71 @@ test('typed revision and local-branch queries preserve branch, HEAD, dirty paths
   }), (error) => error.code === 'GIT_QUERY_INPUT_INVALID');
 });
 
+test('registered branch observation is one bounded spawn and rejects deadline/protocol failures', () => {
+  const calls = [];
+  const branch = executeGitQuery('/tmp', 'repository.branch', {}, {
+    env: { SINGULARITY_FLOW_GIT_LOCAL_TIMEOUT_MS: '4321' },
+    runner(command, args, options) {
+      calls.push({ command, args, options });
+      return { status: 0, stdout: 'refs/heads/topic\n', stderr: '' };
+    }
+  });
+  assert.equal(branch, 'topic');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].command, 'git');
+  assert.deepEqual(calls[0].args, ['symbolic-ref', '--quiet', 'HEAD']);
+  assert.equal(calls[0].options.timeoutClass, 'local-read');
+  assert.equal(calls[0].options.operation, 'repository.branch');
+
+  assert.throws(() => executeGitQuery('/tmp', 'repository.branch', {}, {
+    runner: () => ({ status: null, stdout: '', stderr: '', timedOut: true })
+  }), (error) => error.code === 'GIT_QUERY_FAILED');
+  for (const queryId of ['repository.branch', 'repository.head', 'repository.remote-url']) {
+    assert.throws(() => executeGitQuery('/tmp', queryId,
+      queryId === 'repository.remote-url' ? { remote: 'origin' } : {}, {
+        runner: () => ({
+          status: 1, stdout: '', stderr: '', error: Object.assign(new Error('timeout'), {
+            code: 'ETIMEDOUT'
+          }), signal: null, timedOut: true, blocked: false
+        })
+      }), (error) => error.code === 'GIT_QUERY_FAILED', queryId);
+  }
+  assert.throws(() => executeGitQuery('/tmp', 'repository.branch', {}, {
+    runner: () => ({ status: 0, stdout: 'refs/tags/not-a-branch\n', stderr: '' })
+  }), (error) => error.code === 'GIT_QUERY_PARSE_FAILED');
+});
+
+test('registered branch observation selects each linked worktree and preserves detached absence', async () => {
+  const root = await repository();
+  const linked = `${root}-branch-read-linked`;
+  git(['worktree', 'add', '-q', '-b', 'linked-status', linked], root);
+  assert.equal(executeGitQuery(root, 'repository.branch'), 'main');
+  assert.equal(executeGitQuery(linked, 'repository.branch'), 'linked-status');
+  git(['switch', '--detach', '-q', 'HEAD'], linked);
+  assert.equal(executeGitQuery(linked, 'repository.branch'), null);
+});
+
+test('registered repository identity cannot be redirected by ambient Git process selectors', async () => {
+  const root = await repository();
+  const other = await repository();
+  git(['remote', 'add', 'origin', 'https://example.invalid/root.git'], root);
+  git(['remote', 'add', 'origin', 'https://example.invalid/other.git'], other);
+  git(['branch', '-m', 'other-branch'], other);
+  const hostile = {
+    ...process.env,
+    GIT_DIR: path.join(other, '.git'),
+    GIT_WORK_TREE: other,
+    GIT_INDEX_FILE: path.join(other, '.git', 'index')
+  };
+
+  assert.equal(executeGitQuery(root, 'repository.remote-url', { remote: 'origin' }, {
+    env: hostile
+  }), 'https://example.invalid/root.git');
+  assert.equal(executeGitQuery(root, 'repository.branch', {}, { env: hostile }), 'main');
+  assert.equal(executeGitQuery(root, 'repository.head', {}, { env: hostile }),
+    git(['rev-parse', 'HEAD'], root));
+});
+
 test('FOS:AC-024 porcelain revision parsing preserves hostile literal paths and rename destinations', async () => {
   const root = await repository();
   const tabbed = 'tab\tname.txt';

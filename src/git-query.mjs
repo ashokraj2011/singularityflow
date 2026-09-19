@@ -2,6 +2,7 @@ import path from 'node:path';
 
 import { incrementCommandCounter } from './dx-timing-context.mjs';
 import { GAL_ASYNC_READ_DESCRIPTORS } from './gal-async-read.mjs';
+import { withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
 import { parseGitIndexStages, parsePorcelainV2Status } from './git-status-detail.mjs';
 import { parsePorcelainV2Revision } from './git-status-projection.mjs';
 import { run, SingularityFlowError } from './util.mjs';
@@ -16,6 +17,18 @@ function freezeDeep(value) {
 
 function text(result) {
   return result.stdout.trim();
+}
+
+/**
+ * Git uses exit 1 with no output for several intentional "not present" queries.  The process
+ * runner also normalizes resolver, timeout, signal, and blocked failures to a non-zero status with
+ * empty streams, so status and output alone cannot prove absence.
+ */
+function cleanNegativeResult(result) {
+  return result.status === 1 && !result.stdout && !result.stderr
+    && result.error == null && result.signal == null
+    && result.timedOut !== true && result.blocked !== true
+    && result.outputOverflow !== true;
 }
 
 function lines(result) {
@@ -76,6 +89,17 @@ function localBranchName(params) {
   return branch;
 }
 
+function checkedLocalBranchRef(value) {
+  const prefix = 'refs/heads/';
+  if (typeof value !== 'string' || !value.startsWith(prefix) || value.length === prefix.length
+      || value.includes('..') || value.includes('@{') || value.includes('//')
+      || /[\u0000-\u0020\u007f~^:?*\[\\]/u.test(value)) return null;
+  const parts = value.split('/');
+  if (parts.some((part) => !part || part.startsWith('.') || part.endsWith('.')
+      || part.endsWith('.lock'))) return null;
+  return value.slice(prefix.length);
+}
+
 const descriptors = [
   descriptor('repository.paths', {
     argv: () => ['rev-parse', '--path-format=absolute', '--absolute-git-dir', '--git-common-dir'],
@@ -105,12 +129,45 @@ const descriptors = [
     parser: (result) => text(result) === 'true'
   }),
   descriptor('repository.head', {
-    argv: () => ['rev-parse', '--verify', 'HEAD'], allowFailure: true,
-    parser: (result) => result.status === 0 ? text(result) : null
+    argv: () => ['rev-parse', '--verify', '--quiet', 'HEAD'], allowFailure: true,
+    parser(result) {
+      if (cleanNegativeResult(result)) return null;
+      if (result.status !== 0) throw new SingularityFlowError(
+        'The repository HEAD could not be observed safely.', {
+          code: 'GIT_QUERY_FAILED', details: { queryId: 'repository.head' }
+        }
+      );
+      const oid = text(result);
+      if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(oid)) {
+        throw new SingularityFlowError('Git returned an invalid repository HEAD.', {
+          code: 'GIT_QUERY_PARSE_FAILED', details: { queryId: 'repository.head' }
+        });
+      }
+      return oid;
+    }
   }),
   descriptor('repository.branch', {
-    argv: () => ['symbolic-ref', '--quiet', '--short', 'HEAD'], allowFailure: true,
-    parser: (result) => result.status === 0 ? text(result) : null
+    // Keep this as one branch-only process. Opening the general GAL repository facade first costs
+    // several discovery probes and made the status cutover materially slower than the legacy read.
+    // The full ref makes the protocol self-describing; accepting arbitrary `--short` output would
+    // let a malformed wrapper return a tag, remote-tracking ref, or multi-line value as a branch.
+    argv: () => ['symbolic-ref', '--quiet', 'HEAD'], allowFailure: true,
+    parser(result) {
+      if (cleanNegativeResult(result)) return null;
+      if (result.status !== 0) throw new SingularityFlowError(
+        'The checked-out branch could not be observed safely.', {
+          code: 'GIT_QUERY_FAILED', details: { queryId: 'repository.branch' }
+        }
+      );
+      const ref = text(result);
+      const branch = checkedLocalBranchRef(ref);
+      if (!branch) {
+        throw new SingularityFlowError('Git returned an invalid checked-out branch.', {
+          code: 'GIT_QUERY_PARSE_FAILED', details: { queryId: 'repository.branch' }
+        });
+      }
+      return branch;
+    }
   }),
   descriptor('repository.local-branch-exists', {
     argv: (params) => ['show-ref', '--verify', '--quiet', `refs/heads/${localBranchName(params)}`],
@@ -190,7 +247,12 @@ const descriptors = [
     },
     dependency: 'configuration', allowFailure: true,
     parser(result) {
-      if (result.status !== 0) return null;
+      if (cleanNegativeResult(result)) return null;
+      if (result.status !== 0) throw new SingularityFlowError(
+        'The configured remote could not be observed safely.', {
+          code: 'GIT_QUERY_FAILED', details: { queryId: 'repository.remote-url' }
+        }
+      );
       const values = lines(result);
       if (values.length !== 1) throw new SingularityFlowError(
         'Configured remote must have exactly one repository-local URL.', {
@@ -237,8 +299,13 @@ export function executeGitQuery(root, id, params = {}, { env = process.env, runn
   const started = performance.now();
   let result;
   try {
+    // The explicit root is the repository authority for every registered query. Ambient process
+    // selectors such as GIT_DIR, GIT_WORK_TREE, and GIT_INDEX_FILE must not redirect the query to
+    // another checkout while its cwd and diagnostics still name this root. Ordinary office proxy,
+    // CA, credential-manager, HOME, and system/global configuration remain available.
+    const queryEnvironment = withoutGitProcessOverrides(env);
     result = runner(entry.executable, argv, {
-      cwd: path.resolve(root), env, allowFailure: entry.allowFailure,
+      cwd: path.resolve(root), env: queryEnvironment, allowFailure: entry.allowFailure,
       operation: entry.id, network: entry.network, timeoutClass: entry.timeoutClass,
       recordGitTiming: false,
       ...(entry.maxBuffer == null ? {} : { maxBuffer: entry.maxBuffer }),

@@ -8,7 +8,8 @@ import { PassThrough } from 'node:stream';
 
 import {
   REMOTE_FAILURE_CLASSES, assertCredentialFreeRemote, classifyGitRemoteFailure, failureEvidence,
-  probeGitRemote, redactDiagnosticText, sanitizeRemote
+  configuredRemoteIdentity, frozenRemoteTransport, probeGitRemote, redactDiagnosticText,
+  sanitizeRemote
 } from '../src/git-remote-diagnostics.mjs';
 import { runRemoteGit, runRemoteGitAsync } from '../src/git-execution.mjs';
 
@@ -19,6 +20,100 @@ const failed = (stderr, extra = {}) => ({
   timedOut: false,
   blocked: false,
   ...extra
+});
+
+test('nested SFlow transport freezing resolves its private alias exactly once', () => {
+  const authority = 'https://git.example.test/team/repository.git';
+  const first = frozenRemoteTransport(authority, { push: true, env: {} });
+  const second = frozenRemoteTransport(first.remote, { push: true, env: first.env });
+  assert.equal(second.url, authority);
+  assert.notEqual(second.remote, first.remote);
+  assert.throws(
+    () => frozenRemoteTransport('sflow-frozen-00000000-0000-0000-0000-000000000000:', {
+      env: {}
+    }),
+    (error) => error.code === 'BOOTSTRAP_REMOTE_FROZEN_ALIAS_INVALID'
+  );
+});
+
+test('a failed pushurl read never inherits an otherwise valid fetch authority', () => {
+  const authority = 'https://git.example.test/team/repository.git';
+  const calls = [];
+  const runCommand = (_command, args) => {
+    calls.push([...args]);
+    if (args.at(-1) === 'remote.origin.url') {
+      return { status: 0, stdout: `${authority}\n`, stderr: '', timedOut: false };
+    }
+    if (args.at(-1) === 'remote.origin.pushurl') {
+      return {
+        status: 1,
+        stdout: '',
+        stderr: '',
+        error: Object.assign(new Error('bounded local read timed out'), { code: 'ETIMEDOUT' }),
+        signal: null,
+        timedOut: true,
+        blocked: false
+      };
+    }
+    throw new Error(`Unexpected Git invocation: ${args.join(' ')}`);
+  };
+
+  assert.throws(
+    () => configuredRemoteIdentity('/repository', 'origin', {
+      direction: 'push', env: {}, runCommand
+    }),
+    (error) => error.code === 'GIT_REMOTE_CONFIG_UNAVAILABLE'
+      && error.details?.setting === 'pushurl'
+      && error.details?.timedOut === true
+  );
+  assert.deepEqual(calls.map((args) => args.slice(0, 3)), [
+    ['config', '--local', '--get-all'],
+    ['config', '--local', '--get-all']
+  ]);
+  assert.ok(calls.every((args) => args[0] === 'config'),
+    'authority classification must not probe a network or attempt a push');
+});
+
+test('only a clean missing pushurl inherits the configured fetch authority', () => {
+  const authority = 'https://git.example.test/team/repository.git';
+  const calls = [];
+  const identity = configuredRemoteIdentity('/repository', 'origin', {
+    direction: 'push',
+    env: { GIT_DIR: '/decoy/.git', git_work_tree: '/decoy' },
+    runCommand(_command, args, options) {
+      calls.push({ args: [...args], options });
+      return args.at(-1) === 'remote.origin.url'
+        ? { status: 0, stdout: `${authority}\n`, stderr: '', timedOut: false }
+        : { status: 1, stdout: '', stderr: '', error: undefined, signal: null, timedOut: false };
+    }
+  });
+
+  assert.equal(identity.url, authority);
+  assert.equal(identity.inherited, true);
+  assert.ok(calls.every(({ args }) => args[0] === 'config'));
+  assert.ok(calls.every(({ options }) => options.timeoutClass === 'local-read'
+    && options.operation === 'git.remote-config'));
+  assert.ok(calls.every(({ options }) => options.env.GIT_DIR == null
+    && options.env.git_work_tree == null),
+  'mixed-case ambient repository selectors must not reach Git for Windows');
+});
+
+test('successful but empty or malformed remote config output fails closed', () => {
+  for (const stdout of ['', '\n', 'https://git.example.test/team/repository.git\n\n']) {
+    let calls = 0;
+    assert.throws(
+      () => configuredRemoteIdentity('/repository', 'origin', {
+        env: {},
+        runCommand(_command, args) {
+          calls += 1;
+          assert.equal(args[0], 'config');
+          return { status: 0, stdout, stderr: '', timedOut: false };
+        }
+      }),
+      (error) => error.code === 'GIT_REMOTE_CONFIG_INVALID'
+    );
+    assert.equal(calls, 1);
+  }
 });
 
 const classificationCases = [

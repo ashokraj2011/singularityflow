@@ -9,7 +9,8 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { initializeDefinition } from '../src/config.mjs';
 import {
-  activateWorkflowConfigurationProposal, assertLocalConfigurationAuthoringAllowed
+  activateWorkflowConfigurationProposal, assertLocalConfigurationAuthoringAllowed,
+  listWorkflowConfigurationProposals, proposeConfigurationChange
 } from '../src/configuration-proposal.mjs';
 import { run } from '../src/util.mjs';
 
@@ -19,8 +20,13 @@ test('workflow proposal remote operations stay on the bounded asynchronous Git b
   const source = await readFile(new URL('../src/configuration-proposal.mjs', import.meta.url), 'utf8');
   assert.doesNotMatch(source, /\brunRemoteGit\(/u);
   assert.doesNotMatch(source, /\.observe\(/u);
+  assert.doesNotMatch(source, /runRemoteGitAsync\(\[\s*['"]ls-remote['"]/u,
+    'remote advertisements must use the shared duplicate/malformed-safe session parser');
   assert.match(source, /\brunRemoteGitAsync\(/u);
   assert.match(source, /\.observeAsync\(/u);
+  assert.match(source, /frozenRemoteTransport\(/u);
+  assert.match(source, /createGitRuntime\(/u,
+    'local retention observation must use the GAL ref reader');
 });
 
 async function fixture({ remoteName = 'application.git' } = {}) {
@@ -57,6 +63,44 @@ async function fixture({ remoteName = 'application.git' } = {}) {
   run('git', ['config', 'user.email', 'workflow@example.test'], { cwd: story });
   return { base, remote, story, outbox, approved };
 }
+
+test('configuration proposal clone failures never expose credential-shaped provider output', async () => {
+  const item = await fixture();
+  try {
+    const realGit = run('which', ['git']).stdout.trim();
+    const wrappers = path.join(item.base, 'clone-failure-bin');
+    const wrapper = path.join(wrappers, 'git');
+    await mkdir(wrappers, { recursive: true });
+    await writeFile(wrapper, `#!/usr/bin/env node
+const { spawnSync } = require('node:child_process');
+const args = process.argv.slice(2);
+if (args[0] === 'clone') {
+  process.stderr.write("fatal: could not read Username for 'https://alice:supersecret@git.example.test/private.git': terminal prompts disabled\\n");
+  process.exit(128);
+}
+const result = spawnSync(${JSON.stringify(realGit)}, args, {
+  cwd: process.cwd(), env: process.env, stdio: 'inherit'
+});
+process.exit(result.status == null ? 1 : result.status);
+`);
+    await chmod(wrapper, 0o755);
+    await assert.rejects(
+      () => proposeConfigurationChange(item.story, {
+        operation: 'edit-workflow', subject: 'redaction-check', message: 'redaction check',
+        async mutate() { throw new Error('clone refusal must happen before mutation'); }
+      }, { env: { ...process.env, PATH: `${wrappers}${path.delimiter}${process.env.PATH}` } }),
+      (error) => {
+        assert.equal(error.code, 'CONFIGURATION_PROPOSAL_AUTHORITY_UNAVAILABLE');
+        const serialized = JSON.stringify({ message: error.message, details: error.details });
+        assert.doesNotMatch(serialized, /alice|supersecret|private\.git/iu);
+        assert.match(error.message, /Sign in to Git|credential helper/iu);
+        return true;
+      }
+    );
+  } finally {
+    await rm(item.base, { recursive: true, force: true });
+  }
+});
 
 test('workflow proposals publish from approved configuration without changing the selected Story', async () => {
   const item = await fixture();
@@ -376,6 +420,99 @@ test('workflow proposal publication distinguishes local authorities whose displa
     assert.equal(run('git', [
       '--git-dir', collision, 'show-ref', '--verify', '--quiet', `refs/heads/${proposal.branch}`
     ], { allowFailure: true }).status, 1, 'the display-colliding authority receives nothing');
+  } finally {
+    await rm(item.base, { recursive: true, force: true });
+  }
+});
+
+test('workflow proposal authority ignores ambient URL rewrites and Git repository selectors', async () => {
+  const item = await fixture();
+  const decoy = path.join(item.base, 'decoy.git');
+  const selector = path.join(item.base, 'selector.git');
+  const globalConfig = path.join(item.base, 'ambient-gitconfig');
+  try {
+    run('git', ['clone', '-q', '--bare', item.remote, decoy], { cwd: item.base });
+    run('git', ['init', '-q', '--bare', selector], { cwd: item.base });
+    run('git', ['config', '--file', globalConfig, `url.${decoy}.insteadOf`, item.remote]);
+    const operationEnv = {
+      ...process.env,
+      NODE_ENV: 'test',
+      NO_COLOR: '1',
+      GIT_DIR: selector,
+      GIT_WORK_TREE: item.base,
+      GIT_CONFIG_GLOBAL: globalConfig,
+      SINGULARITY_FLOW_TEST_IDENTITY: 'Workflow Author',
+      SINGULARITY_FLOW_TRANSPORT_OUTBOX: item.outbox,
+      SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(item.base, 'workspaces.json'),
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(item.base, 'active-workspace.json')
+    };
+    const proposal = await proposeConfigurationChange(item.story, {
+      operation: 'create-workflow', subject: 'isolated-authority',
+      message: 'Create isolated authority workflow',
+      async mutate(scratch) {
+        const workflowPath = path.join(scratch, 'singularity', 'workflow.yml');
+        const definition = YAML.parse(await readFile(workflowPath, 'utf8'));
+        definition.workTypes['isolated-authority'] = {
+          ...structuredClone(definition.workTypes['quick-fix']),
+          label: 'Isolated authority'
+        };
+        await writeFile(workflowPath, YAML.stringify(definition));
+        return { id: 'isolated-authority' };
+      }
+    }, { transport: { env: operationEnv } });
+    const proposalRef = `refs/heads/${proposal.branch}`;
+    const retainedRef = `refs/singularity/transport/configuration-proposals/${proposal.commit}`;
+    assert.equal(run('git', [
+      '--git-dir', item.remote, 'show-ref', '--verify', '--quiet', proposalRef
+    ], { allowFailure: true }).status, 0, 'the reviewed authority receives the proposal');
+    assert.equal(run('git', [
+      '--git-dir', decoy, 'show-ref', '--verify', '--quiet', proposalRef
+    ], { allowFailure: true }).status, 1, 'an ambient insteadOf destination receives nothing');
+    assert.equal(run('git', [
+      '--git-dir', path.join(item.story, '.git'), 'show-ref', '--verify', '--quiet', retainedRef
+    ], { allowFailure: true }).status, 0, 'the selected repository retains the exact proposal');
+    assert.equal(run('git', [
+      '--git-dir', selector, 'show-ref', '--verify', '--quiet', retainedRef
+    ], { allowFailure: true }).status, 1, 'ambient GIT_DIR receives no retention ref');
+  } finally {
+    await rm(item.base, { recursive: true, force: true });
+  }
+});
+
+test('workflow proposal listing refuses a duplicate remote advertisement', async () => {
+  const item = await fixture();
+  const realGit = run('which', ['git']).stdout.trim();
+  const wrappers = path.join(item.base, 'duplicate-advert-wrapper');
+  const calls = path.join(item.base, 'ls-remote-count');
+  const wrapper = path.join(wrappers, 'git');
+  try {
+    await mkdir(wrappers, { recursive: true });
+    await writeFile(wrapper, `#!/usr/bin/env node
+const fs = require('node:fs');
+const { spawnSync } = require('node:child_process');
+const args = process.argv.slice(2);
+if (args[0] === 'ls-remote') {
+  let count = 0;
+  try { count = Number(fs.readFileSync(${JSON.stringify(calls)}, 'utf8')); } catch {}
+  count += 1;
+  fs.writeFileSync(${JSON.stringify(calls)}, String(count));
+  if (count === 2) {
+    const ref = 'refs/heads/sflow/config-change/workflow/duplicate-advert';
+    const oid = ${JSON.stringify(item.approved)};
+    process.stdout.write(oid + '\\t' + ref + '\\n' + oid + '\\t' + ref + '\\n');
+    process.exit(0);
+  }
+}
+const result = spawnSync(${JSON.stringify(realGit)}, args, {
+  cwd: process.cwd(), env: process.env, stdio: 'inherit'
+});
+process.exit(result.status == null ? 1 : result.status);
+`);
+    await chmod(wrapper, 0o755);
+    await assert.rejects(() => listWorkflowConfigurationProposals(item.story, {
+      env: { ...process.env, PATH: `${wrappers}${path.delimiter}${process.env.PATH}` }
+    }), (error) => error.code === 'REMOTE_PROTOCOL_INVALID'
+      && /duplicate or malformed remote-reference advertisement/i.test(error.message));
   } finally {
     await rm(item.base, { recursive: true, force: true });
   }

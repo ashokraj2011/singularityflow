@@ -10,7 +10,8 @@ import { Writable } from 'node:stream';
 import test from 'node:test';
 
 import {
-  closeFosGitObjectServices, fosGitObjectService, FosGitObjectService
+  closeFosGitObjectServices, fosGitObjectService, FosGitObjectService,
+  probeFosGitObjectServiceCapabilities
 } from '../src/fos-object-service.mjs';
 
 function git(args, cwd, options = {}) { return execFileSync('git', args, { cwd, encoding: options.binary ? null : 'utf8', input: options.input }).toString().trim(); }
@@ -46,6 +47,50 @@ function scriptedChild(parts, onWrite = () => {}) {
   };
 }
 
+function probeChild({ code = 0, stdout = [], stderr = [], hang = false,
+  onInput = () => {} } = {}) {
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  let closed = false;
+  const close = (exitCode) => {
+    if (closed) return;
+    closed = true;
+    setImmediate(() => child.emit('close', exitCode));
+  };
+  child.stdin = new Writable({
+    write(chunk, _encoding, callback) {
+      onInput(chunk.toString('ascii'));
+      callback();
+    }
+  });
+  child.stdin.once('finish', () => {
+    if (hang) return;
+    for (const part of stdout) child.stdout.emit('data', Buffer.from(part));
+    for (const part of stderr) child.stderr.emit('data', Buffer.from(part));
+    close(code);
+  });
+  child.kill = () => { close(137); return true; };
+  queueMicrotask(() => child.emit('spawn'));
+  return child;
+}
+
+function verifiedBatchCommandCapabilities() {
+  return {
+    capabilityEvidenceVersion: 1,
+    mode: 'persistent-opt-in',
+    selection: 'capability-probe',
+    selectedProtocol: 'batch-command-buffered',
+    batchCommand: {
+      protocol: 'batch-command-buffered', status: 'supported', supported: true,
+      exitCode: 0, timedOut: false, outputOverflow: false, cleanupVerified: true
+    },
+    legacyBatch: null,
+    replacementSuppression: 'GIT_NO_REPLACE_OBJECTS=1',
+    lazyFetchSuppression: 'GIT_NO_LAZY_FETCH=1'
+  };
+}
+
 async function within(promise, label) {
   let timer;
   try {
@@ -66,6 +111,342 @@ async function waitForQueued(service, count) {
   assert.equal(service.queued, count, `expected ${count} live logical subscribers`);
 }
 
+test('GAL:AC-009 capability probe selects buffered batch-command with portable Windows process options', async () => {
+  const root = await repository();
+  const commonDir = realpathSync(path.join(root, '.git'));
+  const executable = path.join(root, 'Git', 'cmd', 'git.exe');
+  const calls = [];
+  const inputs = [];
+  const capabilities = await probeFosGitObjectServiceCapabilities(root, {
+    executable,
+    profile: { commonDir, gitDir: commonDir, objectFormat: 'sha1' },
+    platform: 'win32',
+    spawnCommand(command, args, options) {
+      calls.push({ command, args, options });
+      return probeChild({ onInput: (input) => inputs.push(input) });
+    }
+  });
+  assert.deepEqual(capabilities, verifiedBatchCommandCapabilities());
+  assert.equal(Object.isFrozen(capabilities), true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].command, executable);
+  assert.deepEqual(calls[0].args,
+    [`--git-dir=${commonDir}`, 'cat-file', '--batch-command', '--buffer']);
+  assert.equal(calls[0].options.cwd, commonDir);
+  assert.equal(calls[0].options.shell, false);
+  assert.equal(calls[0].options.windowsHide, true);
+  assert.equal(calls[0].options.detached, false);
+  assert.equal(calls[0].options.env.GIT_NO_REPLACE_OBJECTS, '1');
+  assert.equal(calls[0].options.env.GIT_NO_LAZY_FETCH, '1');
+  assert.deepEqual(inputs, ['flush\n']);
+});
+
+for (const scenario of [
+  { name: 'unsupported', child: () => probeChild({ code: 129 }) },
+  { name: 'malformed', child: () => probeChild({ stdout: ['unexpected\n'] }) },
+  { name: 'timeout', child: () => probeChild({ hang: true }), timeoutMs: 20 },
+  { name: 'unavailable', spawnFailure: true }
+]) {
+  test(`GAL:AC-009 capability probe deterministically falls back after ${scenario.name} batch-command`, async () => {
+    const root = await repository();
+    const commonDir = realpathSync(path.join(root, '.git'));
+    const calls = [];
+    const capabilities = await probeFosGitObjectServiceCapabilities(root, {
+      executable: path.join(root, 'git'),
+      profile: { commonDir, gitDir: commonDir, objectFormat: 'sha1' },
+      timeoutMs: scenario.timeoutMs ?? 1_000,
+      spawnCommand(_command, args, options) {
+        calls.push({ args, options });
+        if (calls.length === 1 && scenario.spawnFailure) throw new Error('spawn failed');
+        return calls.length === 1 ? scenario.child() : probeChild();
+      }
+    });
+    assert.equal(capabilities.selectedProtocol, 'legacy-batch');
+    assert.equal(capabilities.batchCommand.status, scenario.name);
+    assert.equal(capabilities.batchCommand.supported, false);
+    assert.equal(capabilities.batchCommand.cleanupVerified, true);
+    assert.equal(capabilities.legacyBatch.status, 'supported');
+    assert.equal(capabilities.legacyBatch.supported, true);
+    assert.equal(capabilities.legacyBatch.cleanupVerified, true);
+    assert.deepEqual(calls.map(({ args }) => args.slice(1)), [
+      ['cat-file', '--batch-command', '--buffer'],
+      ['cat-file', '--batch']
+    ]);
+  });
+}
+
+test('GAL:AC-009 legacy fallback evidence drives the legacy worker grammar exactly', async () => {
+  const root = await repository();
+  const oid = git(['rev-parse', 'HEAD:source.bin'], root);
+  const bytes = Buffer.from([0, 10, 255, 13, 10]);
+  const probeCalls = [];
+  const workerCalls = [];
+  const writes = [];
+  const service = new FosGitObjectService(root, {
+    probeSpawnCommand(_command, args) {
+      probeCalls.push(args);
+      return probeCalls.length === 1 ? probeChild({ code: 129 }) : probeChild();
+    },
+    spawnCommand(command, args, options) {
+      workerCalls.push({ command, args, options });
+      return scriptedChild([
+        Buffer.from(`${oid} blob ${bytes.length}\n`), bytes, Buffer.from('\n')
+      ], (chunk) => writes.push(chunk.toString('ascii')))();
+    }
+  });
+  try {
+    assert.deepEqual((await service.read(oid)).bytes, bytes);
+    assert.equal(service.capabilities.selectedProtocol, 'legacy-batch');
+    assert.equal(service.capabilities.batchCommand.status, 'unsupported');
+    assert.equal(workerCalls.length, 1);
+    assert.deepEqual(workerCalls[0].args.slice(1), ['cat-file', '--batch']);
+    assert.deepEqual(writes, [`${oid}\n`]);
+  } finally {
+    await service.close();
+  }
+});
+
+test('GAL:AC-009 unavailable persistent protocols fail closed with structured evidence', async () => {
+  const root = await repository();
+  const commonDir = realpathSync(path.join(root, '.git'));
+  let calls = 0;
+  await assert.rejects(probeFosGitObjectServiceCapabilities(root, {
+    executable: path.join(root, 'git'),
+    profile: { commonDir, gitDir: commonDir, objectFormat: 'sha1' },
+    spawnCommand() { calls += 1; throw new Error('not installed'); }
+  }), (failure) => {
+    assert.equal(failure.code, 'OBJECT_SERVICE_UNAVAILABLE');
+    assert.equal(failure.details.batchCommand.status, 'unavailable');
+    assert.equal(failure.details.legacyBatch.status, 'unavailable');
+    return true;
+  });
+  assert.equal(calls, 2);
+});
+
+test('GAL:AC-025 cancellation retires a capability probe without starting its fallback', async () => {
+  const root = await repository();
+  const commonDir = realpathSync(path.join(root, '.git'));
+  const controller = new AbortController();
+  let received;
+  const inputReceived = new Promise((resolve) => { received = resolve; });
+  let calls = 0;
+  const pending = probeFosGitObjectServiceCapabilities(root, {
+    executable: path.join(root, 'git'),
+    profile: { commonDir, gitDir: commonDir, objectFormat: 'sha1' },
+    signal: controller.signal,
+    spawnCommand() {
+      calls += 1;
+      return probeChild({ hang: true, onInput: received });
+    }
+  });
+  await inputReceived;
+  controller.abort();
+  await assert.rejects(pending, { code: 'OBJECT_REQUEST_CANCELLED' });
+  assert.equal(calls, 1);
+});
+
+test('GAL:AC-025 immediate capability-probe cancellation never writes after closing stdin', async () => {
+  const root = await repository();
+  const commonDir = realpathSync(path.join(root, '.git'));
+  const controller = new AbortController();
+  let inputs = 0;
+  const pending = probeFosGitObjectServiceCapabilities(root, {
+    executable: path.join(root, 'git'),
+    profile: { commonDir, gitDir: commonDir, objectFormat: 'sha1' },
+    signal: controller.signal,
+    spawnCommand() {
+      return probeChild({ hang: true, onInput: () => { inputs += 1; } });
+    }
+  });
+  controller.abort();
+  await assert.rejects(pending, { code: 'OBJECT_REQUEST_CANCELLED' });
+  assert.equal(inputs, 0);
+});
+
+test('GAL:AC-026 capability fallback is blocked when probe cleanup cannot be verified', async () => {
+  const root = await repository();
+  const commonDir = realpathSync(path.join(root, '.git'));
+  let calls = 0;
+  const began = Date.now();
+  await assert.rejects(probeFosGitObjectServiceCapabilities(root, {
+    executable: path.join(root, 'git'),
+    profile: { commonDir, gitDir: commonDir, objectFormat: 'sha1' },
+    timeoutMs: 20,
+    spawnCommand() {
+      calls += 1;
+      const child = probeChild({ hang: true });
+      child.kill = () => true;
+      return child;
+    }
+  }), (failure) => {
+    assert.equal(failure.code, 'GAL_CLEANUP_INCOMPLETE');
+    assert.equal(failure.details.probe.cleanupVerified, false);
+    assert.equal(failure.details.probe.timedOut, true);
+    return true;
+  });
+  assert.equal(calls, 1, 'an unretired preferred probe forbids legacy fallback overlap');
+  assert.ok(Date.now() - began < 3_500, 'failed cleanup remains bounded');
+});
+
+test('GAL:AC-026 capability fallback waits for delayed process-tree cleanup after child close', async () => {
+  const root = await repository();
+  const commonDir = realpathSync(path.join(root, '.git'));
+  let calls = 0;
+  let releaseCleanup;
+  const cleanupStarted = new Promise((resolve) => {
+    releaseCleanup = (complete) => resolve(complete);
+  });
+  let resolveTree;
+  const pending = probeFosGitObjectServiceCapabilities(root, {
+    executable: path.join(root, 'git'),
+    profile: { commonDir, gitDir: commonDir, objectFormat: 'sha1' },
+    timeoutMs: 20,
+    spawnCommand() {
+      calls += 1;
+      const child = calls === 1 ? probeChild({ hang: true }) : probeChild();
+      child.pid = 4_321 + calls;
+      return child;
+    },
+    terminateTree(child, _signal, options) {
+      assert.equal(options.requireTree, true);
+      child.kill();
+      releaseCleanup(true);
+      return new Promise((resolve) => { resolveTree = resolve; });
+    }
+  });
+  await cleanupStarted;
+  assert.equal(calls, 1,
+    'the legacy worker must not start merely because the direct child emitted close');
+  resolveTree(true);
+  const capabilities = await pending;
+  assert.equal(calls, 2);
+  assert.equal(capabilities.selectedProtocol, 'legacy-batch');
+  assert.equal(capabilities.batchCommand.cleanupVerified, true);
+});
+
+test('GAL:AC-026 a failed tree cleanup stays unverified after the direct child closes', async () => {
+  const root = await repository();
+  const commonDir = realpathSync(path.join(root, '.git'));
+  let calls = 0;
+  let strictTreeRequested = false;
+  await assert.rejects(probeFosGitObjectServiceCapabilities(root, {
+    executable: path.join(root, 'git'),
+    profile: { commonDir, gitDir: commonDir, objectFormat: 'sha1' },
+    timeoutMs: 20,
+    spawnCommand() {
+      calls += 1;
+      const child = probeChild({ hang: true });
+      child.pid = 4_444;
+      return child;
+    },
+    async terminateTree(child, _signal, options) {
+      strictTreeRequested = options.requireTree === true;
+      child.kill();
+      return false;
+    }
+  }), (failure) => failure.code === 'GAL_CLEANUP_INCOMPLETE'
+    && failure.details?.probe?.cleanupVerified === false);
+  assert.equal(calls, 1, 'an unverified tree cleanup forbids fallback overlap');
+  assert.equal(strictTreeRequested, true,
+    'a real spawned worker requires descendant-tree proof, not only direct-child close');
+});
+
+test('GAL:AC-026 asynchronous probe pipe failure is handled without crashing the process', async () => {
+  const root = await repository();
+  const commonDir = realpathSync(path.join(root, '.git'));
+  let calls = 0;
+  const capabilities = await probeFosGitObjectServiceCapabilities(root, {
+    executable: path.join(root, 'git'),
+    profile: { commonDir, gitDir: commonDir, objectFormat: 'sha1' },
+    spawnCommand() {
+      calls += 1;
+      if (calls !== 1) return probeChild();
+      const child = probeChild({ hang: true });
+      child.stdin = new Writable({
+        write(_chunk, _encoding, callback) {
+          setImmediate(() => callback(Object.assign(new Error('broken pipe'), {
+            code: 'EPIPE'
+          })));
+        }
+      });
+      return child;
+    }
+  });
+  assert.equal(capabilities.batchCommand.status, 'unavailable');
+  assert.equal(capabilities.legacyBatch.supported, true);
+  assert.equal(calls, 2);
+});
+
+test('GAL:AC-026 asynchronous probe spawn failure is unavailable, not protocol incompatibility', async () => {
+  const root = await repository();
+  const commonDir = realpathSync(path.join(root, '.git'));
+  let calls = 0;
+  const capabilities = await probeFosGitObjectServiceCapabilities(root, {
+    executable: path.join(root, 'missing-git'),
+    profile: { commonDir, gitDir: commonDir, objectFormat: 'sha1' },
+    spawnCommand() {
+      calls += 1;
+      if (calls !== 1) return probeChild();
+      const child = probeChild({ hang: true });
+      queueMicrotask(() => {
+        child.emit('error', Object.assign(new Error('not found'), { code: 'ENOENT' }));
+      });
+      return child;
+    }
+  });
+  assert.equal(capabilities.batchCommand.status, 'unavailable');
+  assert.equal(capabilities.legacyBatch.supported, true);
+  assert.equal(calls, 2);
+});
+
+test('GAL:AC-026 service close waits for in-flight probe cleanup and reports an unverifiable child', async () => {
+  const root = await repository();
+  const oid = git(['rev-parse', 'HEAD:source.bin'], root);
+  let received;
+  const inputReceived = new Promise((resolve) => { received = resolve; });
+  const service = new FosGitObjectService(root, {
+    probeSpawnCommand() {
+      const child = probeChild({ hang: true, onInput: received });
+      child.kill = () => true;
+      return child;
+    }
+  });
+  const pending = service.read(oid);
+  const failed = assert.rejects(pending, { code: 'GAL_CLEANUP_INCOMPLETE' });
+  await within(inputReceived, 'the capability-probe request');
+  const outcome = await service.close();
+  assert.deepEqual(outcome, { closed: true, terminated: false });
+  await failed;
+});
+
+test('GAL:AC-025 caller cancellation cannot detach a shared capability probe from close', async () => {
+  const root = await repository();
+  const oid = git(['rev-parse', 'HEAD:source.bin'], root);
+  const controller = new AbortController();
+  let received;
+  const inputReceived = new Promise((resolve) => { received = resolve; });
+  let probes = 0;
+  const service = new FosGitObjectService(root, {
+    probeSpawnCommand() {
+      probes += 1;
+      const child = probeChild({ hang: true, onInput: received });
+      child.kill = () => true;
+      return child;
+    }
+  });
+  const pending = service.read(oid, { signal: controller.signal });
+  await within(inputReceived, 'the shared capability-probe request');
+  controller.abort();
+  await assert.rejects(pending, { code: 'OBJECT_REQUEST_CANCELLED' });
+
+  const began = Date.now();
+  const outcome = await service.close();
+  assert.deepEqual(outcome, { closed: true, terminated: false });
+  assert.equal(probes, 1, 'cancellation and close must retain one shared probe generation');
+  assert.ok(Date.now() - began >= 1_500,
+    'close must wait for the probe cleanup boundary instead of reporting early success');
+});
+
 test('FOS:AC-031 persistent object service preserves binary bytes and missing results', async () => {
   const root = await repository();
   const oid = git(['rev-parse', 'HEAD:source.bin'], root);
@@ -78,6 +459,27 @@ test('FOS:AC-031 persistent object service preserves binary bytes and missing re
   const [closed, disposed] = await Promise.all([service.close(), service.dispose()]);
   assert.deepEqual(closed, { closed: true, terminated: true });
   assert.deepEqual(disposed, closed);
+});
+
+test('GAL:AC-009 a transient verified probe failure is retryable and does not poison pool reuse', async () => {
+  const root = await repository();
+  const oid = git(['rev-parse', 'HEAD:source.bin'], root);
+  let probes = 0;
+  const capabilityProbe = async () => {
+    probes += 1;
+    if (probes === 1) throw Object.assign(new Error('temporarily unavailable'), {
+      code: 'OBJECT_SERVICE_UNAVAILABLE'
+    });
+    return verifiedBatchCommandCapabilities();
+  };
+  try {
+    const first = await fosGitObjectService(root, { capabilityProbe });
+    await assert.rejects(first.read(oid), { code: 'OBJECT_SERVICE_UNAVAILABLE' });
+    const reused = await fosGitObjectService(root, { capabilityProbe });
+    assert.equal(reused, first);
+    assert.deepEqual((await reused.read(oid)).bytes, Buffer.from([0, 10, 255, 13, 10]));
+    assert.equal(probes, 2);
+  } finally { await closeFosGitObjectServices(); }
 });
 
 test('GAL:AC-021 explicit multi-frame batch preserves order, missing values, types, and byte isolation', async () => {
@@ -137,7 +539,10 @@ test('GAL:AC-022 fragmented multi-frame output is one batch write and never acce
   try {
     const values = await service.readBatch([firstOid, secondOid, firstOid]);
     assert.deepEqual(values.map((entry) => entry.bytes), [firstBytes, secondBytes, firstBytes]);
-    assert.deepEqual(writes, [`${firstOid}\n${secondOid}\n${firstOid}\n`],
+    const expectedWrite = service.capabilities.selectedProtocol === 'batch-command-buffered'
+      ? `contents ${firstOid}\ncontents ${secondOid}\ncontents ${firstOid}\nflush\n`
+      : `${firstOid}\n${secondOid}\n${firstOid}\n`;
+    assert.deepEqual(writes, [expectedWrite],
       'a batch must send its full ordered OID list in one stdin write');
     // A separate service proves that a valid prefix plus an unsolicited frame is rejected atomically.
     const invalid = new FosGitObjectService(root, {
@@ -466,6 +871,7 @@ test('FOS:AC-022 raw object worker ignores replacements and untrusted Git enviro
   git(['replace', oid, replacementOid], root);
   const calls = [];
   const service = new FosGitObjectService(root, {
+    platform: 'win32',
     env: {
       ...process.env,
       GIT_DIR: path.join(root, 'not-the-repository'),
@@ -490,7 +896,12 @@ test('FOS:AC-022 raw object worker ignores replacements and untrusted Git enviro
     assert.equal(path.isAbsolute(calls[0].command), true);
     const commonDir = realpathSync(path.join(root, '.git'));
     assert.equal(calls[0].options.cwd, commonDir);
-    assert.deepEqual(calls[0].args, [`--git-dir=${commonDir}`, 'cat-file', '--batch']);
+    assert.equal(calls[0].options.shell, false);
+    assert.equal(calls[0].options.windowsHide, true);
+    assert.equal(calls[0].options.detached, false);
+    assert.deepEqual(calls[0].args, service.capabilities.selectedProtocol === 'batch-command-buffered'
+      ? [`--git-dir=${commonDir}`, 'cat-file', '--batch-command', '--buffer']
+      : [`--git-dir=${commonDir}`, 'cat-file', '--batch']);
     assert.equal(calls[0].options.env.GIT_NO_REPLACE_OBJECTS, '1');
     assert.equal(calls[0].options.env.GIT_NO_LAZY_FETCH, '1');
     assert.equal(calls[0].options.env.GIT_DIR, undefined);

@@ -455,9 +455,9 @@
     },
     "src/capability-context.mjs": {
       "counts": {
-        "command-run": 6
+        "command-run": 5
       },
-      "digest": "b780fe0fff4edd280569c10c47a8397ea7c45bd92c81439af14f669af6be7059"
+      "digest": "8075844575f3ff76c9a540582045226f6d63e5d85849f675afd699e2e33b4f86"
     },
     "src/capability-start.mjs": {
       "counts": {
@@ -529,9 +529,9 @@
     },
     "src/configuration-branch.mjs": {
       "counts": {
-        "command-run": 27
+        "command-run": 19
       },
-      "digest": "eafccadb04940903262558af19e8fd039f32bd3aa93601fafcd0262ded2654f0"
+      "digest": "17dc15bb28cffeaec3a0eb6e4a4255e4dd1c77ecbd15fa8d722bbda0f97acc54"
     },
     "src/configuration-people.mjs": {
       "counts": {
@@ -541,9 +541,9 @@
     },
     "src/configuration-proposal.mjs": {
       "counts": {
-        "command-run": 29
+        "command-run": 21
       },
-      "digest": "cf9a76ffdd2dae6280daa427f76be454961b42c86ca5f08cd72113c31731be03"
+      "digest": "ef8f037b4555cb59d010c4ca6ba92785706bdbdfdbe6bcb37926415fbbe0ba59"
     },
     "src/context-history.mjs": {
       "counts": {
@@ -732,10 +732,10 @@
     },
     "src/git-remote-diagnostics.mjs": {
       "counts": {
-        "command-run": 2,
-        "command-runCommand": 1
+        "command-run": 1,
+        "command-runCommand": 2
       },
-      "digest": "09e43f28929916c56be9f3966804e8a701cdbbf5f4662e50803af30edd8c6cfd"
+      "digest": "678c941a3df82cd18662e5ed8661e46d50b6a3cc9e052d59fd31843170ed6228"
     },
     "src/git.mjs": {
       "counts": {
@@ -1145,9 +1145,9 @@
     },
     "src/transport-intents.mjs": {
       "counts": {
-        "command-runCommand": 7
+        "command-runCommand": 5
       },
-      "digest": "1660e36614b1353e191bdb0f8f9f13d3426e27c08608b758f4c686651d005259"
+      "digest": "56b96a6fe2d1402708860fd879e811df38e6f41c6fccc89149457db10a8c6e34"
     },
     "src/util.mjs": {
       "counts": {
@@ -1277,9 +1277,9 @@
     },
     "package.json": {
       "counts": {
-        "package-script": 58
+        "package-script": 59
       },
-      "digest": "1bdbb6b8d379f22d17be0049f1a045ff60334a22d2f40734b27fa41ca16f9f7b"
+      "digest": "b74e43786450f775bde5fb4289b963a193dcbb53eceda60d1686b6f133cb8afa"
     },
     "apps/vscode/package.json": {
       "counts": {

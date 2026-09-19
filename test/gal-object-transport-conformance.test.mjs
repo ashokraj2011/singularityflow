@@ -134,6 +134,37 @@ test('GAL:AC-021 empty and duplicate batches preserve order, isolation, and zero
   assert.deepEqual(observed[2].bytes, value.binary);
 });
 
+test('GAL:AC-002/021 multiple bounded chunks reuse one worker and preserve mixed outcomes', async (t) => {
+  const value = await fixture(t, 'sha1');
+  if (!value) return;
+  const worker = new FosGitObjectService(value.root);
+  t.after(() => worker.close());
+  const absent = '0'.repeat(40);
+  const pattern = [value.binaryOid, value.emptyOid, absent, value.treeOid];
+  const requested = Array.from({ length: 260 }, (_, index) => pattern[index % pattern.length]);
+  const observed = [];
+  for (let offset = 0; offset < requested.length; offset += 128) {
+    observed.push(...await worker.readBatch(requested.slice(offset, offset + 128)));
+  }
+  assert.equal(observed.length, requested.length);
+  for (let index = 0; index < observed.length; index += 1) {
+    const oid = requested[index];
+    if (oid === absent) {
+      assert.equal(observed[index], null, `missing object at ${index}`);
+    } else if (oid === value.treeOid) {
+      assert.equal(observed[index].type, 'tree', `wrong-type sentinel at ${index}`);
+      assert.equal(observed[index].oid, oid);
+    } else {
+      assert.equal(observed[index].type, 'blob');
+      assert.equal(observed[index].oid, oid);
+      assert.deepEqual(observed[index].bytes,
+        oid === value.emptyOid ? Buffer.alloc(0) : value.binary);
+    }
+  }
+  assert.equal(worker.processSpawns, 1,
+    'three bounded chunks must reuse one capability-selected persistent worker');
+});
+
 test('GAL:AC-020 promised blob stays local-only until a separate acquisition', async (t) => {
   if (process.platform === 'win32') {
     t.skip('The file-URL partial-clone fixture needs a separate Git for Windows qualification.');

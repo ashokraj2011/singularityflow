@@ -22,6 +22,18 @@ const MAX_ENTRIES = 256;
 const MAX_BYTES = 256 * 1024;
 const ENTERPRISE_ENVIRONMENTS = new WeakSet();
 const ENTERPRISE_GIT_CONFIG_KEY = new RegExp(`^(${ENTERPRISE_GIT_CONFIG_PATTERN})$`, 'u');
+const GIT_PROCESS_OVERRIDE_KEYS = new Set([
+  'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY',
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR', 'GIT_NAMESPACE',
+  'GIT_CEILING_DIRECTORIES', 'GIT_DISCOVERY_ACROSS_FILESYSTEM', 'GIT_SHALLOW_FILE',
+  'GIT_REPLACE_REF_BASE', 'GIT_EXEC_PATH', 'GIT_TEMPLATE_DIR',
+  'GIT_SSL_NO_VERIFY',
+  'GIT_SSH', 'GIT_SSH_COMMAND', 'GIT_SSH_VARIANT',
+  'GIT_ASKPASS', 'GIT_ASKPASS_REQUIRE', 'SSH_ASKPASS', 'SSH_ASKPASS_REQUIRE',
+  'GIT_PROXY_COMMAND',
+  'GIT_EDITOR', 'GIT_SEQUENCE_EDITOR', 'GIT_PAGER', 'GIT_EXTERNAL_DIFF',
+  'GIT_CONFIG_NOSYSTEM'
+]);
 
 function unavailableConfiguration(scope, reason) {
   throw new SingularityFlowError(
@@ -35,33 +47,16 @@ function unavailableConfiguration(scope, reason) {
 /** Remove process/repository authority while retaining ordinary proxy and CA environment values. */
 export function withoutGitProcessOverrides(source = process.env) {
   const env = { ...source };
-  for (const key of [
-    'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY',
-    'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR', 'GIT_NAMESPACE',
-    'GIT_CEILING_DIRECTORIES', 'GIT_DISCOVERY_ACROSS_FILESYSTEM', 'GIT_SHALLOW_FILE',
-    'GIT_REPLACE_REF_BASE', 'GIT_EXEC_PATH', 'GIT_TEMPLATE_DIR',
-    'GIT_SSL_NO_VERIFY',
-    // These variables are executable transport authority, not authentication state. Corporate SSH
-    // remains available through the platform ssh binary, normal ssh configuration, and
-    // SSH_AUTH_SOCK; an inherited wrapper must not replace Git's transport, proxy, or prompt
-    // executable inside the isolated preview/apply/clone boundary.
-    'GIT_SSH', 'GIT_SSH_COMMAND', 'GIT_SSH_VARIANT',
-    'GIT_ASKPASS', 'GIT_ASKPASS_REQUIRE', 'SSH_ASKPASS', 'SSH_ASKPASS_REQUIRE',
-    'GIT_PROXY_COMMAND',
-    // Remote operations do not need an editor, pager, external diff, or sequence driver. Removing
-    // them keeps later maintenance from accidentally turning this environment into a command
-    // execution channel when a Git subcommand changes.
-    'GIT_EDITOR', 'GIT_SEQUENCE_EDITOR', 'GIT_PAGER', 'GIT_EXTERNAL_DIFF',
-    // This is command-scoped suppression, not an enterprise trust source. Let the reviewed system
-    // scope participate in the allowlist snapshot even when the caller inherited a wrapper which
-    // disabled it; the resulting child environment is isolated below either way.
-    'GIT_CONFIG_NOSYSTEM'
-  ]) delete env[key];
-  for (const key of Object.keys(env)) {
-    if (key === 'GIT_CONFIG' || key === 'GIT_CONFIG_COUNT' || key === 'GIT_CONFIG_PARAMETERS'
+  // Windows environment names are case-insensitive. Normalize only for the denylist comparison,
+  // then delete the caller's original spelling so mixed/lower-case aliases cannot survive and be
+  // interpreted by Git for Windows as their canonical upper-case variables.
+  for (const sourceKey of Object.keys(env)) {
+    const key = sourceKey.toUpperCase();
+    if (GIT_PROCESS_OVERRIDE_KEYS.has(key)
+      || key === 'GIT_CONFIG' || key === 'GIT_CONFIG_COUNT' || key === 'GIT_CONFIG_PARAMETERS'
       || /^GIT_CONFIG_(?:KEY|VALUE)_\d+$/.test(key)
       || /^GIT_TRACE(?:2(?:_.*)?|_.*)?$/.test(key)
-      || key === 'GIT_CURL_VERBOSE' || key === 'GIT_REDIRECT_STDERR') delete env[key];
+      || key === 'GIT_CURL_VERBOSE' || key === 'GIT_REDIRECT_STDERR') delete env[sourceKey];
   }
   return env;
 }
@@ -198,4 +193,19 @@ export function enterpriseGitEnvironment(sourceEnv = process.env, { runCommand =
   });
   ENTERPRISE_ENVIRONMENTS.add(isolated);
   return isolated;
+}
+
+/**
+ * Preserve the in-memory enterprise attestation when a caller only extends an already-isolated
+ * environment with bounded invocation-local Git configuration.
+ *
+ * This is deliberately not an attestation API for arbitrary environments: an unmarked source
+ * leaves its derivative unmarked, so the next enterprise boundary must inspect and isolate it.
+ */
+export function inheritEnterpriseGitEnvironment(sourceEnv, derivedEnv) {
+  if (sourceEnv && typeof sourceEnv === 'object' && ENTERPRISE_ENVIRONMENTS.has(sourceEnv)
+      && derivedEnv && typeof derivedEnv === 'object') {
+    ENTERPRISE_ENVIRONMENTS.add(derivedEnv);
+  }
+  return derivedEnv;
 }

@@ -8,6 +8,7 @@ import {
   resolveRemoteStoryConfigurationAuthority
 } from './configuration-branch.mjs';
 import { gitCommitIdentity } from './git.mjs';
+import { createGitRuntime } from './git-access.mjs';
 import { GitRemoteSession } from './git-execution.mjs';
 import { assertCredentialFreeRemote, sanitizeRemote } from './git-remote-diagnostics.mjs';
 import { recordSha256 } from './records.mjs';
@@ -503,6 +504,68 @@ function receiptFor(descriptor, actor, { changed }) {
   return { ...receipt, receiptSha256: `sha256:${recordSha256(receipt)}` };
 }
 
+/**
+ * Refresh one already-attached origin authority through GAL's exact remote-ref observer.
+ *
+ * The durable attachment receipt is the owner-issued pin: it binds the prior approved revision,
+ * exact origin digest and selected full ref. New onboarding has no such authority and deliberately
+ * stays on the multi-ref discovery owner instead of manufacturing a pin from live configuration.
+ */
+async function refreshPinnedOriginAuthority(root, state, route, location, { env = process.env } = {}) {
+  if (!state || route.kind !== 'remote' || route.remoteName !== 'origin') return null;
+  const descriptor = state.descriptor;
+  const endpointSha256 = sha256(location);
+  if (descriptor.locator?.ref !== `refs/heads/${descriptor.authority?.branch}`
+      || descriptor.trust?.effectiveDestinationSha256 !== endpointSha256
+      || descriptor.trustBinding?.effectiveDestinationSha256 !== endpointSha256) {
+    throw new SingularityFlowError(
+      'The retained FOS authority pin does not bind the current exact origin endpoint and ref.', {
+        code: 'AUTHORITY_PIN_INVALID'
+      }
+    );
+  }
+  const created = await createGitRuntime({ trustedEnvironment: env });
+  if (!created.ok) throw new SingularityFlowError(
+    'The pinned FOS authority could not start the registered Git observer.', {
+      code: 'AUTHORITY_UNAVAILABLE', details: { gitAccessCode: created.code }
+    }
+  );
+  const runtime = created.value;
+  try {
+    const opened = await runtime.openRepository(root);
+    if (!opened.ok) throw new SingularityFlowError(
+      'The pinned FOS authority checkout could not be opened by the registered Git observer.', {
+        code: 'AUTHORITY_UNAVAILABLE', details: { gitAccessCode: opened.code }
+      }
+    );
+    const invocation = opened.value.beginInvocation();
+    try {
+      const observed = await invocation.remoteRef({
+        pin: {
+          kind: 'owner-pinned-origin',
+          ownerRevision: descriptor.authority.commit,
+          originUrlSha256: endpointSha256
+        },
+        ref: descriptor.locator.ref
+      });
+      if (!observed.ok) throw new SingularityFlowError(
+        'The exact pinned FOS authority ref could not be observed safely.', {
+          code: 'AUTHORITY_UNAVAILABLE', details: { gitAccessCode: observed.code }
+        }
+      );
+      return Object.freeze({
+        authority: {
+          remote: location,
+          branch: descriptor.authority.branch,
+          commit: observed.value.oid,
+          source: descriptor.authority.source
+        },
+        readPath: 'gal.remote-ref.v1'
+      });
+    } finally { await invocation.dispose(); }
+  } finally { await runtime.dispose(); }
+}
+
 export async function readFosAttachment(root) {
   const context = createRepoContext(root);
   const identity = await context.identity();
@@ -898,7 +961,11 @@ export async function onboardRepository(root, {
     });
     await writeJournal(identity, journal);
     try {
-      const authority = await resolveRemoteStoryConfigurationAuthority(location);
+      const pinnedAuthority = refresh && currentBinding
+        ? await refreshPinnedOriginAuthority(root, currentBinding, route, location)
+        : null;
+      const authority = pinnedAuthority?.authority
+        ?? await resolveRemoteStoryConfigurationAuthority(location);
       if (!authority) throw new SingularityFlowError(
         `The selected ${route.kind === 'local' ? 'local repository' : `remote '${route.remoteName}'`} does not advertise a reviewed sflow/config or verifiable state authority. Nothing was attached.`,
         { code: 'AUTHORITY_NOT_CONFIGURED' }
@@ -953,7 +1020,10 @@ export async function onboardRepository(root, {
         operationId,
         descriptor,
         receipt,
-        freshness: { mode: 'observed-online', observedAt, current: true, latest: true }
+        freshness: {
+          mode: 'observed-online', observedAt, current: true, latest: true,
+          readPath: pinnedAuthority?.readPath ?? 'configuration-authority-observation'
+        }
       });
     } catch (error) {
       await writeJournal(identity, operationRecord({

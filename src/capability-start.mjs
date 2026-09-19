@@ -315,7 +315,11 @@ async function storyRepositoryPlan(root, {
     // then the caller must bind this plan to the exact chosen-base map before any mutation.
     const approvedCapability = configurationSnapshot
       ? (await resolveStoryConfigurationSnapshotCapability(
-          configurationSnapshot, capability
+          configurationSnapshot, capability, {
+            root,
+            remote,
+            repositoryId: context.repositoryId
+          }
         )).capability
       : deferCapabilityAuthority ? null : await resolveLifecycleCapability(root, {
           capabilityId: capability,
@@ -511,6 +515,7 @@ export async function storyBaseForRepository(root, {
   return {
     ...catalog,
     plan: {
+      repositoryId: catalog.repositoryId,
       repositories: catalog.repositories,
       choices: catalog.choices,
       resolution,
@@ -586,6 +591,11 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
   // has been materialized onto a new Story branch.
   let approvedCapability = null;
   if (lifecycleRoot && capabilityId) {
+    const repositoryContext = {
+      root: lifecycleRoot,
+      remote,
+      repositoryId: plan.repositoryId ?? null
+    };
     const configurationAuthority = configurationSnapshot
       ? configurationSnapshot.authority
       : capabilityEvidence ? null : await resolveStoryConfigurationAuthority(lifecycleRoot, remote);
@@ -601,11 +611,11 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
       }
     } else if (configurationSnapshot) {
       approvedCapability = (await resolveStoryConfigurationSnapshotCapability(
-        configurationSnapshot, capabilityId
+        configurationSnapshot, capabilityId, repositoryContext
       )).capability;
     } else if (configurationAuthority) {
       approvedCapability = (await resolveApprovedConfigurationCapability(
-        configurationAuthority, capabilityId
+        configurationAuthority, capabilityId, repositoryContext
       )).capability;
     } else {
       approvedCapability = await resolveLifecycleCapability(lifecycleRoot, {

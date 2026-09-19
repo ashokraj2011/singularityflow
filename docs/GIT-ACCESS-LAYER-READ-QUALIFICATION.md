@@ -28,10 +28,10 @@ Profiles are intentionally separate:
 | Cold runtime and repository discovery | A new `createGitRuntime` plus `openRepository` and disposal, inside an already-running Node process | Instrumented physical Git child launches | Does not include fresh Node startup, module load, or source fixture setup |
 | Reference metadata-first synchronous batch | `readLocalGitBlobs` over all OIDs | Explicit wrapper around each Git subprocess | Current helper still probes object format, so its actual count is three, not the proposed two-spawn warm-format target |
 | Reference metadata-first asynchronous batch | `readLocalGitBlobsAsync` over all OIDs | Physical child `spawn` events counted by the shared timing owner | This is the new nonblocking reference path; it still probes object format and uses three processes for the one-chunk fixture |
-| Warm legacy persistent worker | 500 sequential `FosGitObjectService.read` calls after an untimed worker warmup | Instrumented Git spawns and independent worker-spawn delta | Legacy `cat-file --batch`, not capability-verified `--batch-command`; startup and profile discovery are excluded |
-| Warm explicit multi-frame persistent batch | `FosGitObjectService.readBatch` over ordered chunks of at most 128 OIDs after the same untimed warmup | Instrumented Git spawns, independent worker-spawn delta, and `git.batch-requests` stdin-write count | Still the optional legacy `cat-file --batch` worker; not a default transport or a `--batch-command` capability claim |
+| Warm capability-selected persistent worker | 500 sequential `FosGitObjectService.read` calls after an untimed capability probe and worker warmup | Instrumented Git spawns and independent worker-spawn delta | The report records the immutable probe evidence and selected protocol; probe, startup, and profile discovery are excluded from the timed warm boundary |
+| Warm capability-selected persistent multi-frame batch | `FosGitObjectService.readBatch` over ordered chunks of at most 128 OIDs after the same untimed probe and warmup | Instrumented Git spawns, independent worker-spawn delta, and `git.batch-requests` stdin-write count | Prefers buffered `--batch-command` and deterministically falls back to verified legacy `--batch`; persistent mode remains explicit and non-default |
 
-The same exact expected bytes are checked after all read profiles. A failure aborts rather than accepting a partial result. Physical spawns are not inferred from a command name: the legacy reference wrapper counts actual calls, the asynchronous reference counts successful child-spawn events, and both persistent profiles check the timing counter against the service's process-spawn delta. The explicit batch profile also checks its worker-write count and ordered OID results. Its `logicalRequests` count means `readBatch` calls, while `logicalObjectReads` counts OIDs; for 500 objects these are four calls and 500 objects. Timing includes hashing, framing, and object verification but excludes fixture creation, warmup, and JSON presentation. The fixed order is synchronous reference, asynchronous reference, sequential persistent, then explicit batch in each trial; OS page-cache effects may favor later profiles. Compare distributions rather than one run, and do not compare trial sets with different Git/Node/OS/filesystem versions or fixture digests as if they were controlled equivalents.
+The same exact expected bytes are checked after all read profiles. A failure aborts rather than accepting a partial result. Physical spawns are not inferred from a command name: the synchronous reference wrapper counts actual calls, the asynchronous reference counts successful child-spawn events, and both persistent profiles check the timing counter against the service's process-spawn delta. The explicit batch profile also checks its worker-write count and ordered OID results. Its `logicalRequests` count means `readBatch` calls, while `logicalObjectReads` counts OIDs; for 500 objects these are four calls and 500 objects. Timing includes hashing, framing, and object verification but excludes fixture creation, capability probing, warmup, and JSON presentation. The JSON v1 report retains the historical `warmLegacyBatchWorker` and `warmExplicitMultiFrameBatchWorker` keys for reader compatibility, but `profileDisplayNames`, each profile's `persistentProtocol`, and `objectServiceCapabilities` carry the authoritative terminology and evidence. The fixed order is synchronous reference, asynchronous reference, sequential persistent, then explicit batch in each trial; OS page-cache effects may favor later profiles. Compare distributions rather than one run, and do not compare trial sets with different Git/Node/OS/filesystem versions or fixture digests as if they were controlled equivalents.
 
 ## Provisional local observation
 
@@ -73,6 +73,30 @@ On **2026-09-19**, the same 500-object fixture was measured for **10 trials** on
 
 The four explicit batch calls contained 128, 128, 128, and 116 OIDs. This run shows lower latency for this fixture and order, not a general speed guarantee: the worker was already warm, the explicit batch ran last, and the reference paths perform format discovery. The full benchmark JSON records provenance, parity, and all trial counts.
 
+### Story status root-and-branch cutover
+
+Complete Story selection first resolves the invoking checkout with registered `repository.root`,
+then reads its worktree-local branch with registered `repository.branch`. That is two bounded local
+Git processes. Resolving the root is a necessary authority check: an ambient `GIT_DIR` or
+`GIT_WORK_TREE` must not redirect status into another checkout. Once the root is known, the branch
+projection itself still needs only one process and does not read object format, common directory,
+HEAD OID, or dirty status. It requires a full `refs/heads/` symbolic result and returns an explicit
+absence for detached HEAD. Tests cover hostile repository selectors, linked worktrees, detached
+HEAD, malformed output, deadline routing, and physical request count.
+
+On **2026-09-19**, a dirty-source macOS arm64 Node 22 development sample over 30 warm reads in the
+same checkout measured:
+
+| Reader | Git processes | Median | Total |
+| --- | ---: | ---: | ---: |
+| Retired direct `git branch --show-current` helper | 30 | 4.62 ms | 136.63 ms |
+| Registered `symbolic-ref --quiet HEAD` descriptor | 30 | 3.93 ms | 117.66 ms |
+
+This table measures only the branch projection after the root is already known. It guards against
+repeating the earlier general-facade regression; it is not an end-to-end status benchmark or a
+Windows/Linux claim. Capability provenance likewise retains its prior three-process budget while
+gaining registered parsing and fail-closed ambiguity handling.
+
 ## Remaining qualification
 
-Run the same 500-object command on the supported Node and OS matrix, with the actual installed package/VSIX and production Git trust settings. Record complete per-leg JSON, failed trials, cleanup outcome, and the exact source revision. Add separate fixtures for multi-chunk reads, missing/wrong-type/oversized objects, SHA-256 stores, cancellation, and worker failure. Benchmark actual warm `sflow status` and end-to-end onboarding/publication with authority parity and remote state where applicable. Do not mark GAL G5 complete until these legs and the production migration gates pass.
+The code-local suite now covers multiple bounded chunks, missing and wrong-type objects, oversized objects, SHA-1 and SHA-256 stores, capability-probe fallback, cancellation, worker failure, and portable Windows-equivalent spawn options. Run those same cases and the 500-object command on physical supported Node and OS combinations, with the actual installed package/VSIX and production Git trust settings. Record complete per-leg JSON, failed trials, cleanup outcome, and the exact source revision. Benchmark actual warm `sflow status` and end-to-end onboarding/publication with authority parity and remote state where applicable. Do not mark GAL G5 complete until these physical legs and the production migration gates pass.

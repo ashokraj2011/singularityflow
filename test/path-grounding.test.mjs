@@ -135,7 +135,9 @@ test('every generated skill boundary forbids home search and uses only its decla
 });
 
 test('blank-machine entry skills execute before workspace, repository, or Story selection', {
-  timeout: 45_000
+  // The test launches several complete CLI processes, including quickstart's isolated sandbox.
+  // Keep the guard bounded while allowing aggregate shards to share a constrained CI/office host.
+  timeout: 90_000
 }, async (t) => {
   const machine = await mkdtemp(path.join(os.tmpdir(), 'sflow-skill-machine-'));
   const machineHome = path.join(machine, 'home');
@@ -157,7 +159,7 @@ test('blank-machine entry skills execute before workspace, repository, or Story 
     'SINGULARITY_FLOW_WORKSPACE_ROOT'
   ]) delete env[key];
   const invoke = (...args) => spawnSync(process.execPath, [cli, ...args], {
-    cwd, env, encoding: 'utf8', timeout: 30_000
+    cwd, env, encoding: 'utf8', timeout: 60_000
   });
   const succeeds = (label, args) => {
     const result = invoke(...args);

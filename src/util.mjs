@@ -453,14 +453,18 @@ export async function signalProcessTree(child, terminationSignal = 'SIGTERM', {
   environment = process.env,
   spawnCommand = spawn,
   killProcess = process.kill,
-  timeoutMs = 1_000
+  timeoutMs = 1_000,
+  requireTree = false
 } = {}) {
   if (!child) return false;
   const signalDirectChild = () => {
     try { return child.kill?.(terminationSignal) === true; } catch { return false; }
   };
   const pid = Number(child.pid);
-  if (!Number.isSafeInteger(pid) || pid <= 0) return signalDirectChild();
+  if (!Number.isSafeInteger(pid) || pid <= 0) {
+    const directAccepted = signalDirectChild();
+    return requireTree ? false : directAccepted;
+  }
 
   if (platform === 'win32') {
     const force = terminationSignal === 'SIGKILL' ? ['/F'] : [];
@@ -474,7 +478,8 @@ export async function signalProcessTree(child, terminationSignal = 'SIGTERM', {
         windowsHide: true
       });
     } catch {
-      return signalDirectChild();
+      const directAccepted = signalDirectChild();
+      return requireTree ? false : directAccepted;
     }
 
     const parsedTimeout = Number(timeoutMs);
@@ -494,7 +499,8 @@ export async function signalProcessTree(child, terminationSignal = 'SIGTERM', {
         if (settled) return;
         settled = true;
         cleanup();
-        resolve(treeAccepted || signalDirectChild());
+        const directAccepted = treeAccepted ? false : signalDirectChild();
+        resolve(treeAccepted || (!requireTree && directAccepted));
       };
       const onError = () => finish(false);
       const onClose = (code) => finish(code === 0);
@@ -514,7 +520,8 @@ export async function signalProcessTree(child, terminationSignal = 'SIGTERM', {
     killProcess(-pid, terminationSignal);
     return true;
   } catch {
-    return signalDirectChild();
+    const directAccepted = signalDirectChild();
+    return requireTree ? false : directAccepted;
   }
 }
 

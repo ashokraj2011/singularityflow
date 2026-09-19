@@ -15,7 +15,10 @@ import { withoutGitProcessOverrides } from '../src/git-enterprise-environment.mj
 import { signalProcessTree } from '../src/util.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const ACCEPTANCE_MATRIX = path.join(ROOT, 'docs/contracts/gal/acceptance-matrix.json');
 const TESTS = Object.freeze([
+  'test/gal-acceptance-matrix.test.mjs',
+  'test/gal-matrix-cell.test.mjs',
   'test/git-access.test.mjs',
   'test/git-access-blob-check.test.mjs',
   'test/git-access-remote-ref.test.mjs',
@@ -55,6 +58,22 @@ export function runtimeClass(version) {
   if ([22, 24].includes(major)) return 'primary';
   if (major === 20) return 'legacy-compatibility';
   return 'development-only';
+}
+
+export function validBenchmarkMeasurement(measurement, sourceRevision) {
+  const selectedProtocol = measurement?.objectServiceCapabilities?.selectedProtocol;
+  return measurement?.schema === 'sflow-gal-read-benchmark/v1'
+    && measurement?.sourceRevision === sourceRevision
+    && measurement?.parity?.referenceExactBytes === true
+    && measurement?.parity?.asyncReferenceExactBytes === true
+    && measurement?.parity?.persistentExactBytes === true
+    && measurement?.parity?.persistentBatchExactBytes === true
+    && measurement?.parity?.requiredComplete === true
+    && measurement?.declaredFixtureComplete === true
+    && /^(?:batch-command-buffered|legacy-batch)$/u.test(String(selectedProtocol ?? ''))
+    && measurement?.profiles?.warmLegacyBatchWorker?.persistentProtocol === selectedProtocol
+    && measurement?.profiles?.warmExplicitMultiFrameBatchWorker?.persistentProtocol
+      === selectedProtocol;
 }
 
 function digest(bytes) {
@@ -157,6 +176,17 @@ async function cell() {
     throw Object.assign(new Error('Unsupported GAL matrix option.'), { code: 'GAL_MATRIX_OPTION_INVALID' });
   }
   const packageJson = JSON.parse(await readFile(path.join(ROOT, 'package.json'), 'utf8'));
+  const acceptanceBytes = await readFile(ACCEPTANCE_MATRIX);
+  const acceptance = JSON.parse(acceptanceBytes);
+  const expectedAcceptanceIds = Array.from({ length: 44 }, (_, index) =>
+    `GAL:AC-${String(index + 1).padStart(3, '0')}`);
+  if (acceptance?.schemaVersion !== 1 || acceptance?.claim !== 'traceability-only'
+      || JSON.stringify(acceptance?.cases?.map(({ id }) => id))
+        !== JSON.stringify(expectedAcceptanceIds)) {
+    throw Object.assign(new Error('GAL acceptance catalog is invalid.'), {
+      code: 'GAL_MATRIX_ACCEPTANCE_CATALOG_INVALID'
+    });
+  }
   const runtime = await createGitRuntime();
   if (!runtime.ok) {
     throw Object.assign(new Error('Git preflight failed.'), { code: 'GAL_MATRIX_GIT_UNAVAILABLE' });
@@ -187,6 +217,14 @@ async function cell() {
     nodeVersion: process.versions.node, runtimeClass: runtimeClass(process.versions.node),
     gitVersion: gitText,
     testFiles: [...TESTS],
+    acceptance: {
+      claim: acceptance.claim,
+      catalogSha256: digest(acceptanceBytes),
+      specificationSha256: `sha256:${acceptance.specification.sha256}`,
+      cases: acceptance.cases.length,
+      externalEvidenceCaseIds: acceptance.cases
+        .filter(({ external }) => external.length > 0).map(({ id }) => id)
+    },
     localEvidenceOnly: true, releaseQualified: false,
     requiredExternalEvidence: [
       'independent Windows, macOS, and Linux cells on approved Node 22 and 24 patches',
@@ -220,12 +258,7 @@ async function cell() {
   if (benchmark.status === 0 && !benchmark.outputOverflow && !benchmark.timedOut) {
     try { measurement = JSON.parse(benchmark.stdout); } catch { /* protocol failure */ }
   }
-  const validMeasurement = measurement?.schema === 'sflow-gal-read-benchmark/v1'
-    && measurement?.sourceRevision === sourceRevision
-    && measurement?.parity?.referenceExactBytes === true
-    && measurement?.parity?.asyncReferenceExactBytes === true
-    && measurement?.parity?.persistentExactBytes === true
-    && measurement?.declaredFixtureComplete === true;
+  const validMeasurement = validBenchmarkMeasurement(measurement, sourceRevision);
   return {
     ...report, status: !validMeasurement ? 'failed'
       : sourceDirty ? 'unqualified-dirty'

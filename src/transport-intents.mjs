@@ -6,8 +6,9 @@ import path from 'node:path';
 
 import {
   assertCredentialFreeRemote, classifyGitRemoteFailure, redactDiagnosticText,
-  frozenRemoteTransport, remoteFingerprint, sanitizeRemote
+  configuredRemoteIdentity, frozenRemoteTransport, remoteFingerprint, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
+import { withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
 import { workspaceRegistryFile } from './workspace-context.mjs';
 import { run, SingularityFlowError, writeAtomic } from './util.mjs';
 import { healerReceipt } from './workspace-healers.mjs';
@@ -159,22 +160,30 @@ export async function createTransportIntent({
   expectedRemote = null, scope = {}
 }, { env = process.env, home = os.homedir(), runCommand = run } = {}) {
   const root = await realpath(path.resolve(repositoryRoot));
+  const localGitEnv = withoutGitProcessOverrides(env);
   if (!/^[A-Za-z0-9._-]+$/.test(remote) || remote.startsWith('-')) {
     throw new SingularityFlowError(`Transport remote '${remote}' is not a configured remote name.`, {
       code: 'TRANSPORT_REMOTE_INVALID'
     });
   }
   const commit = runCommand('git', ['rev-parse', '--verify', `${sourceCommit}^{commit}`], {
-    cwd: root, allowFailure: true
+    cwd: root, allowFailure: true, env: localGitEnv
   });
   if (commit.status !== 0) throw new SingularityFlowError(`Commit '${sourceCommit}' is not available locally.`, {
     code: 'TRANSPORT_SOURCE_COMMIT_MISSING'
   });
-  const configuredRemoteUrl = runCommand('git', ['remote', 'get-url', '--push', remote], { cwd: root, allowFailure: true });
-  if (configuredRemoteUrl.status !== 0 || !configuredRemoteUrl.stdout.trim()) {
+  const configuredRemote = configuredRemoteIdentity(root, remote, {
+    direction: 'push', env: localGitEnv, runCommand
+  });
+  if (!configuredRemote.configured) {
     throw new SingularityFlowError(`Remote '${remote}' is not configured.`, { code: 'TRANSPORT_REMOTE_MISSING' });
   }
-  const safeRemoteUrl = assertCredentialFreeRemote(configuredRemoteUrl.stdout.trim());
+  if (configuredRemote.ambiguous || !configuredRemote.url) {
+    throw new SingularityFlowError(`Remote '${remote}' has more than one configured push authority.`, {
+      code: 'TRANSPORT_REMOTE_AMBIGUOUS', details: { remote }
+    });
+  }
+  const safeRemoteUrl = configuredRemote.url;
   const pinnedRemoteUrl = expectedRemoteUrl == null
     ? null : assertCredentialFreeRemote(expectedRemoteUrl);
   if (pinnedRemoteUrl != null && pinnedRemoteUrl !== safeRemoteUrl) {
@@ -383,7 +392,8 @@ function recordPublishedRemoteTrackingRef(intent, { runCommand = run, env = proc
   const branch = intent.targetRef.slice('refs/heads/'.length);
   const trackingRef = `refs/remotes/${intent.remote}/${branch}`;
   const options = {
-    cwd: intent.repositoryRoot, allowFailure: true, env: nonInteractiveGitEnvironment(env)
+    cwd: intent.repositoryRoot, allowFailure: true,
+    env: nonInteractiveGitEnvironment(withoutGitProcessOverrides(env))
   };
   try {
     // A tracking ref is only a convenience cache. Never follow a symbolic alias, replace a
@@ -419,6 +429,7 @@ export async function retryTransportIntent(intentId, {
 } = {}) {
   const outbox = transportOutboxRoot(env, home);
   return withIntentLease(intentId, { env, home }, async () => {
+    const localGitEnv = withoutGitProcessOverrides(env);
     let intent = await readTransportIntent(intentId, { env, home });
     if (intent.status === 'succeeded') return intent;
     if (intent.status === 'remote-diverged' || (intent.status === 'needs-user' && !allowNeedsUser)) {
@@ -431,13 +442,13 @@ export async function retryTransportIntent(intentId, {
         code: 'TRANSPORT_REPOSITORY_DRIFTED'
       });
     }
-    const configured = runCommand('git', ['remote', 'get-url', '--push', intent.remote], {
-      cwd: intent.repositoryRoot, allowFailure: true
+    const configured = configuredRemoteIdentity(intent.repositoryRoot, intent.remote, {
+      direction: 'push', env: localGitEnv, runCommand
     });
     let configuredUrl = null;
     try {
-      configuredUrl = configured.status === 0
-        ? assertCredentialFreeRemote(configured.stdout.trim()) : null;
+      configuredUrl = configured.configured && !configured.ambiguous
+        ? configured.url : null;
     } catch { /* A credential-bearing replacement is authority drift, never a retry destination. */ }
     if (!configuredUrl
       || `sha256:${remoteFingerprint(configuredUrl)}` !== intent.remoteFingerprint
@@ -458,7 +469,7 @@ export async function retryTransportIntent(intentId, {
       const requiredLocalRef = assertTargetRef(intent.scope.requiredLocalRef);
       const retained = runCommand('git', [
         'rev-parse', '--verify', `${requiredLocalRef}^{commit}`
-      ], { cwd: intent.repositoryRoot, allowFailure: true });
+      ], { cwd: intent.repositoryRoot, allowFailure: true, env: localGitEnv });
       if (retained.status !== 0 || retained.stdout.trim() !== intent.sourceCommit) {
         throw new SingularityFlowError(
           `Transport intent '${intentId}' is reserved, but its exact commit is not installed on ${requiredLocalRef}. Nothing was pushed.`, {

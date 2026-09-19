@@ -1,17 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chmod, mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import YAML from 'yaml';
 
 import {
   capabilityPublicationPlan, preflightStoryRepositories, publishCapabilityRepositories,
-  preflightWorldModelAuthorityRefreshes, publishedBranchesAsync, prepareCapabilityRepositories
+  preflightWorldModelAuthorityRefreshes, publishedBranchesAsync, prepareCapabilityRepositories,
+  storyBaseForRepository
 } from '../src/capability-start.mjs';
 import { parseBaseSelection, resolveCapabilityBase } from '../src/capability-branches.mjs';
 import { run } from '../src/util.mjs';
 import { branch as currentBranch } from '../src/git.mjs';
-import { ensureConfigurationBranch } from '../src/configuration-branch.mjs';
+import { initializeDefinition } from '../src/config.mjs';
+import {
+  ensureConfigurationBranch, loadStoryConfigurationSnapshot,
+  resolveStoryConfigurationAuthority, resolveStoryConfigurationSnapshotCapability
+} from '../src/configuration-branch.mjs';
 
 const git = (cwd, ...args) => run('git', args, { cwd, allowFailure: false });
 
@@ -678,4 +684,136 @@ test('Story preflight resolves a valid capability from code-only application bra
   assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/heads/WORK-VALID'], {
     cwd: lifecycleRoot, allowFailure: true
   }).status, 1);
+});
+
+test('approved multi-repository Story plans retain exact repository identity across snapshot projections', async (t) => {
+  const base = await mkdtemp(path.join(tmpdir(), 'sflow-capability-repository-context-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const originalLead = await repository(base, 'lead', ['main']);
+  const originalSibling = await repository(base, 'sibling', ['main']);
+  const workspaceRoot = path.join(base, 'workspace');
+  await mkdir(workspaceRoot);
+  await rename(path.join(base, 'work'), path.join(workspaceRoot, 'repos'));
+  const repositories = [originalLead, originalSibling].map((entry) => ({
+    ...entry,
+    path: `repos/${entry.id}`,
+    required: true,
+    clone: { mode: 'full', sparseCone: [], fallback: 'refuse' }
+  }));
+  const [lead, sibling] = repositories;
+  const lifecycleRoot = path.join(workspaceRoot, lead.path);
+
+  await initializeDefinition(lifecycleRoot);
+  await writeFile(path.join(lifecycleRoot, 'singularity/capabilities.yml'), YAML.stringify({
+    version: 1,
+    capabilities: {
+      payments: {
+        name: 'Payments', kind: 'delivery', parent: null,
+        repositories: ['lead', 'sibling'], leadRepository: 'lead', policy: {}
+      }
+    }
+  }));
+  const portfolioPath = path.join(lifecycleRoot, 'singularity/portfolio.yml');
+  const portfolio = YAML.parse(await readFile(portfolioPath, 'utf8'));
+  portfolio.repositories = {
+    lead: { url: lead.url, defaultBranch: 'main', required: true },
+    sibling: { url: sibling.url, defaultBranch: 'main', required: true }
+  };
+  await writeFile(portfolioPath, YAML.stringify(portfolio));
+  git(lifecycleRoot, 'add', '-A');
+  git(lifecycleRoot, 'commit', '--quiet', '-m', 'approve multi-repository capability');
+  git(lifecycleRoot, 'push', '--quiet', 'origin', 'main');
+  await ensureConfigurationBranch(lead.url, {
+    authorIdentity: { name: 'Test', email: 'test@example.com' }
+  });
+
+  const now = new Date().toISOString();
+  const workspace = {
+    version: 1,
+    id: 'local--repository-context',
+    name: 'Repository context',
+    anchor: {
+      provider: 'workspace', siteId: 'local', key: 'repository-context',
+      title: 'Repository context'
+    },
+    leadRepository: 'lead',
+    capabilityAuthority: { url: lead.url },
+    repositories: Object.fromEntries(repositories.map((entry) => [entry.id, entry])),
+    capabilities: ['payments'],
+    directories: {
+      repositories: 'repos', documents: 'documents', logs: 'logs', jiraCache: 'cache/jira'
+    },
+    createdAt: now,
+    updatedAt: now
+  };
+  await writeFile(path.join(workspaceRoot, 'workspace.json'), `${JSON.stringify(workspace, null, 2)}\n`);
+  const selection = path.join(base, 'active-workspace.json');
+  const registry = path.join(base, 'workspaces.json');
+  await writeFile(selection, `${JSON.stringify({
+    schemaVersion: 1,
+    workspaceId: workspace.id,
+    workspaceName: workspace.name,
+    workspacePath: workspaceRoot,
+    anchorKey: workspace.anchor.key,
+    repositoryId: 'lead',
+    repositoryPath: lifecycleRoot,
+    canonicalRepositoryPath: lifecycleRoot,
+    checkoutPath: lifecycleRoot,
+    repositoryState: 'ready',
+    branch: 'main',
+    capabilities: ['payments'],
+    repositoryCapabilities: ['payments'],
+    storyId: null,
+    selectedAt: now
+  }, null, 2)}\n`);
+  await writeFile(registry, '{"schemaVersion":1,"workspaces":[]}\n');
+
+  const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = selection;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registry;
+  try {
+    const authority = await resolveStoryConfigurationAuthority(lifecycleRoot, 'origin');
+    const snapshot = await loadStoryConfigurationSnapshot(authority);
+    const options = {
+      values: ['main'], interactive: false, capabilityId: 'payments',
+      configurationSnapshot: snapshot
+    };
+    const first = await storyBaseForRepository(lifecycleRoot, options);
+    const second = await storyBaseForRepository(lifecycleRoot, options);
+    for (const storyBase of [first, second]) {
+      assert.equal(storyBase.repositoryId, 'lead');
+      assert.equal(storyBase.plan.repositoryId, 'lead',
+        'the exact selected workspace member must survive into mutation preflight');
+      assert.deepEqual(storyBase.plan.repositories.map((entry) => entry.id), ['lead', 'sibling']);
+    }
+
+    const resolveFromPlan = async (plan) => (await resolveStoryConfigurationSnapshotCapability(
+      snapshot, 'payments', {
+        root: lifecycleRoot, remote: 'origin', repositoryId: plan.repositoryId
+      }
+    )).capability;
+    const firstCapability = await resolveFromPlan(first.plan);
+    const secondCapability = await resolveFromPlan(second.plan);
+    assert.equal(firstCapability.repositoryId, 'lead');
+    assert.equal(firstCapability.effectiveResolution.repository.id, 'lead');
+    assert.equal(secondCapability.repositoryId, 'lead');
+    assert.equal(secondCapability.resolutionSha256, firstCapability.resolutionSha256,
+      'separate Git-less projection directories must not enter repository identity or its digest');
+
+    const checked = await preflightStoryRepositories(
+      workspaceRoot, first.plan, 'STABLE-REPOSITORY-CONTEXT', {
+        lifecycleRoot,
+        capabilityId: 'payments',
+        configurationSnapshot: snapshot,
+        publishRequired: false
+      }
+    );
+    assert.deepEqual(checked.map((entry) => entry.repository), ['lead', 'sibling']);
+  } finally {
+    if (previousSelection == null) delete process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+    else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection;
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+  }
 });

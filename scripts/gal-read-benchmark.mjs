@@ -285,12 +285,25 @@ async function main() {
         generated: true, repositoryState: 'unborn-with-staged-objects'
       },
       command: `node scripts/gal-read-benchmark.mjs --samples=${selected.samples} --objects=${selected.objects}`,
+      objectServiceCapabilities: service.capabilities,
+      // These two keys remain for v1 report-reader compatibility. The display names and embedded
+      // protocol evidence are authoritative; a capability-selected worker is not necessarily the
+      // legacy protocol named by the historical key.
+      profileDisplayNames: {
+        warmLegacyBatchWorker: 'Warm capability-selected persistent worker',
+        warmExplicitMultiFrameBatchWorker:
+          'Warm capability-selected persistent multi-frame batch'
+      },
       profiles: {
         coldRuntimeAndRepositoryDiscovery: summarize(cold, selected.samples),
         referenceMetadataFirstSynchronousBatch: summarize(reference, selected.samples),
         referenceMetadataFirstAsyncBatch: summarize(asyncReference, selected.samples),
-        warmLegacyBatchWorker: summarize(persistent, selected.samples),
-        warmExplicitMultiFrameBatchWorker: summarize(persistentBatch, selected.samples)
+        warmLegacyBatchWorker: summarize(persistent, selected.samples, {
+          persistentProtocol: service.capabilities.selectedProtocol
+        }),
+        warmExplicitMultiFrameBatchWorker: summarize(persistentBatch, selected.samples, {
+          persistentProtocol: service.capabilities.selectedProtocol
+        })
       },
       parity: { referenceExactBytes: true, asyncReferenceExactBytes: true,
         persistentExactBytes: true, persistentBatchExactBytes: true,
@@ -298,10 +311,10 @@ async function main() {
       declaredFixtureComplete: selected.objects === 500,
       releaseQualified: false,
       exclusions: [
-        'fixture setup and worker warmup excluded from timed read profiles',
+        'fixture setup, capability probe, and worker warmup excluded from timed read profiles',
         'cold profile starts new facade instances within an already-running Node process',
         'reference helper performs its own object-format discovery',
-        'warm worker profiles use legacy cat-file --batch, not batch-command',
+        `warm worker protocol selected by capability probe: ${service.capabilities.selectedProtocol}`,
         'explicit multi-frame batches use at most 128 OIDs per stdin write',
         'no Windows or Linux claim from this host',
         'not an end-to-end lifecycle or remote-authority benchmark'
@@ -314,9 +327,10 @@ async function main() {
   }
 }
 
-function summarize(samples, count) {
+function summarize(samples, count, metadata = {}) {
   return {
     trials: count,
+    ...metadata,
     latencyMilliseconds: distribution(samples.map((sample) => sample.milliseconds)),
     physicalGitSpawns: samples.map((sample) => sample.gitSpawns),
     ...(samples.some((sample) => 'logicalRequests' in sample)

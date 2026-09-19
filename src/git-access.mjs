@@ -557,7 +557,9 @@ class GitInvocation {
         }
       });
       const result = await runRemoteGitAsync([
-        'ls-remote', '--refs', '--exit-code', transport.remote, ref
+        // Include symref advertisements so an alias cannot be accepted as the requested direct
+        // authority merely because Git also prints its dereferenced object ID.
+        'ls-remote', '--symref', '--refs', '--exit-code', transport.remote, ref
       ], {
         cwd: this.identity.nativePath, env: transport.env, operation: 'remote-probe',
         // Local/file authorities use the configuration window; network authorities use the

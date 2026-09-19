@@ -13,6 +13,7 @@ import {
   appendLedgerIntent,
   archiveLedger,
   canonicalJson,
+  captureStateBranchPublicationAuthority,
   createLedgerIntent,
   initializeLedger,
   isStateBranchConcurrencyFailure,
@@ -84,7 +85,7 @@ test('canonical ledger JSON is stable across object key order', () => {
   assert.equal(sha256(left), sha256(right));
 });
 
-test('ledger status performs one asynchronous remote refresh and keeps nested reads cache-only', async () => {
+test('ledger status performs one direct-ref preflight and isolated fetch while nested reads stay cache-only', async () => {
   const { root } = await repository();
   await initializeLedger(root, enabled);
   const timer = commandTimer('ledger-status', { commandClass: 'read' });
@@ -93,7 +94,8 @@ test('ledger status performs one asynchronous remote refresh and keeps nested re
   assert.equal(status.remoteView, 'refreshed');
   const counters = timer.finish().counters;
   assert.equal(counters['git.remote.command.fetch'], 1);
-  assert.equal(counters['git.remote.total'], 1);
+  assert.equal(counters['git.remote.command.ls-remote'], 1);
+  assert.equal(counters['git.remote.total'], 2);
 });
 
 test('ledger verification and repair batch multiple pin observations by authority', async () => {
@@ -118,8 +120,8 @@ test('ledger verification and repair batch multiple pin observations by authorit
     assert.equal(result.valid, true);
     const counters = timer.finish().counters;
     assert.equal(counters['git.remote.command.fetch'], 1);
-    assert.equal(counters['git.remote.command.ls-remote'], 1);
-    assert.equal(counters['git.remote.total'], 2);
+    assert.equal(counters['git.remote.command.ls-remote'], 2);
+    assert.equal(counters['git.remote.total'], 3);
   }
 });
 
@@ -211,7 +213,7 @@ const bump = (file) => {
 };
 const statePush = args[0] === 'push' && args.includes('HEAD:refs/heads/state');
 const stateFetch = args[0] === 'fetch'
-  && args.some((arg) => arg.includes('refs/heads/state:refs/remotes/origin/state'));
+  && args.includes('refs/heads/state');
 if (stateFetch && fs.existsSync(pushLanded)) {
   bump(failedFetchCount);
   process.stderr.write('fatal: Could not resolve host: unavailable.example\\n');
@@ -361,18 +363,127 @@ test('ledger bootstrap stays compatible with the supported pre-worktree-orphan G
   assert.match(source, /worktree', 'add', '--detach', '--no-checkout'/u);
   assert.match(source, /'symbolic-ref', 'HEAD'/u);
   assert.match(source, /'read-tree', '--empty'/u);
+  assert.match(source, /'worktree', 'list', '--porcelain', '-z'/u);
+  assert.match(source, /state_branch\.worktree_cleanup_failed/u);
+  assert.ok(
+    source.indexOf("'worktree', 'list', '--porcelain', '-z'")
+      < source.indexOf("'update-ref', '--no-deref', '-d', bootstrapRef"),
+    'bootstrap ref cleanup must happen only after worktree removal is verified'
+  );
 });
 
-test('ledger bootstrap refuses and preserves a pre-existing reserved branch', async () => {
+test('ledger bootstrap uses a private temporary ref and preserves an old reserved branch', async () => {
   const { root } = await repository();
   git(root, ['branch', '__sflow_ledger_bootstrap__', 'HEAD']);
   const before = git(root, ['rev-parse', '__sflow_ledger_bootstrap__']).stdout.trim();
+  const initialized = await initializeLedger(root, enabled);
+  assert.equal(initialized.created, true);
+  assert.equal(git(root, ['rev-parse', '__sflow_ledger_bootstrap__']).stdout.trim(), before);
+  assert.equal(git(root, [
+    'for-each-ref', '--format=%(refname)', 'refs/singularity-flow/ledger-bootstrap/'
+  ]).stdout.trim(), '');
+});
+
+test('ledger initialization refuses a symbolic local state authority without moving its target', async () => {
+  const { root } = await repository();
+  git(root, ['remote', 'remove', 'origin']);
+  const applicationCommit = git(root, ['rev-parse', 'refs/heads/main']).stdout.trim();
+  git(root, ['symbolic-ref', 'refs/heads/state', 'refs/heads/main']);
+
   await assert.rejects(
     initializeLedger(root, enabled),
-    (error) => error?.code === 'state_branch.worktree_unavailable'
-      && /previous ledger bootstrap branch still exists/.test(error.message)
+    (error) => error?.code === 'state_branch.ref_symbolic'
+      && error?.details?.ref === 'refs/heads/state'
   );
-  assert.equal(git(root, ['rev-parse', '__sflow_ledger_bootstrap__']).stdout.trim(), before);
+  assert.equal(git(root, ['symbolic-ref', 'refs/heads/state']).stdout.trim(), 'refs/heads/main');
+  assert.equal(git(root, ['rev-parse', 'refs/heads/main']).stdout.trim(), applicationCommit);
+});
+
+test('local-only ledger append refuses a symbolic state authority without moving its target', async () => {
+  const { root } = await repository();
+  git(root, ['remote', 'remove', 'origin']);
+  await initializeLedger(root, enabled);
+  const applicationCommit = git(root, ['rev-parse', 'refs/heads/main']).stdout.trim();
+  git(root, ['symbolic-ref', 'refs/heads/state', 'refs/heads/main']);
+  const intent = createLedgerIntent({
+    eventType: 'phase-approved',
+    capabilityId: 'story-WORK-SYMBOLIC-STATE',
+    subject: { workId: 'WORK-SYMBOLIC-STATE', phase: 'specification', generation: 1 },
+    actor: { email: 'reviewer@example.com' }
+  });
+
+  await assert.rejects(
+    appendLedgerIntent(root, enabled, intent, applicationCommit),
+    (error) => error?.code === 'state_branch.ref_symbolic'
+      && error?.details?.ref === 'refs/heads/state'
+  );
+  assert.equal(git(root, ['symbolic-ref', 'refs/heads/state']).stdout.trim(), 'refs/heads/main');
+  assert.equal(git(root, ['rev-parse', 'refs/heads/main']).stdout.trim(), applicationCommit);
+});
+
+test('ledger authority discovery refuses a symbolic remote-tracking state ref', async () => {
+  const { root } = await repository();
+  await initializeLedger(root, enabled);
+  const applicationCommit = git(root, ['rev-parse', 'refs/heads/main']).stdout.trim();
+  git(root, ['update-ref', '-d', 'refs/remotes/origin/state']);
+  git(root, ['symbolic-ref', 'refs/remotes/origin/state', 'refs/heads/main']);
+
+  await assert.rejects(
+    initializeLedger(root, enabled),
+    (error) => error?.code === 'state_branch.ref_symbolic'
+      && error?.details?.ref === 'refs/remotes/origin/state'
+  );
+  assert.equal(
+    git(root, ['symbolic-ref', 'refs/remotes/origin/state']).stdout.trim(),
+    'refs/heads/main'
+  );
+  assert.equal(git(root, ['rev-parse', 'refs/heads/main']).stdout.trim(), applicationCommit);
+});
+
+test('ledger refresh refuses a symbolic remote state source without creating a tracking ref', async () => {
+  const { root, remote } = await repository();
+  const remoteMain = run('git', [
+    '--git-dir', remote, 'rev-parse', 'refs/heads/main'
+  ]).stdout.trim();
+  run('git', [
+    '--git-dir', remote, 'symbolic-ref', 'refs/heads/state', 'refs/heads/main'
+  ]);
+
+  await assert.rejects(
+    initializeLedger(root, enabled),
+    (error) => error?.code === 'state_branch.remote_ref_symbolic'
+      && error?.details?.ref === 'refs/heads/state'
+  );
+  assert.equal(run('git', [
+    '--git-dir', remote, 'symbolic-ref', 'refs/heads/state'
+  ]).stdout.trim(), 'refs/heads/main');
+  assert.equal(run('git', [
+    '--git-dir', remote, 'rev-parse', 'refs/heads/main'
+  ]).stdout.trim(), remoteMain, 'the symbolic source target must remain unchanged');
+  assert.equal(run('git', [
+    'show-ref', '--verify', '--quiet', 'refs/remotes/origin/state'
+  ], { cwd: root, allowFailure: true }).status, 1,
+  'a symbolic remote authority must not be installed as a local tracking ref');
+});
+
+test('state publication preflight and materialization refuse a symbolic local-only authority', async () => {
+  const { root } = await repository();
+  git(root, ['remote', 'remove', 'origin']);
+  const applicationCommit = git(root, ['rev-parse', 'refs/heads/main']).stdout.trim();
+  git(root, ['symbolic-ref', 'refs/heads/state', 'refs/heads/main']);
+
+  await assert.rejects(
+    captureStateBranchPublicationAuthority(root, enabled, { refreshRemote: false }),
+    (error) => error?.code === 'state_branch.ref_symbolic'
+      && error?.details?.ref === 'refs/heads/state'
+  );
+  await assert.rejects(
+    materializeStateBranchPublicationAuthority(root, enabled),
+    (error) => error?.code === 'state_branch.ref_symbolic'
+      && error?.details?.ref === 'refs/heads/state'
+  );
+  assert.equal(git(root, ['symbolic-ref', 'refs/heads/state']).stdout.trim(), 'refs/heads/main');
+  assert.equal(git(root, ['rev-parse', 'refs/heads/main']).stdout.trim(), applicationCommit);
 });
 
 test('a fresh clone self-heals its local custom pin cache from the exact recorded remote ref', async () => {

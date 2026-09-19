@@ -309,12 +309,13 @@ layout baseline, not a claim that extension-host latency or memory improved by t
 
 ## Bounded aggregate verification
 
-`npm test` no longer starts one unbounded all-files process. It creates eight deterministic,
-largest-first shards, runs at most two shards concurrently with one Node test file per shard, and
-gives each shard a 30-minute wall-clock deadline. The process-tree supervisor terminates the Node
-runner and its CLI, Git, extension-host, and model-provider descendants after a deadline or bounded
-output overflow. The unusually expensive Auto fixture is assigned a dedicated scheduling weight so
-its measured 17-minute local runtime is not hidden behind another hundred test files.
+`npm test` and `npm run test:cli` no longer start one unbounded all-files process. They create eight
+deterministic, largest-first shards for the selected suite, run at most two shards concurrently with
+one Node test file per shard, and give each shard a 30-minute wall-clock deadline. The process-tree
+supervisor terminates the Node runner and its CLI, Git, extension-host, and model-provider
+descendants after a deadline or bounded output overflow. The unusually expensive Auto fixture is
+assigned a dedicated scheduling weight so its measured 17-minute local runtime is not hidden behind
+another hundred test files.
 
 Every shard writes a machine-local receipt under `.git/singularity-flow/test-runs/`. A receipt binds
 the exact commit, tree, selected-test content digest, platform, architecture, Node version, shard
@@ -325,6 +326,9 @@ uncommitted implementation bytes are not represented by the Git tree.
 ```bash
 # Normal resumable aggregate.
 npm test
+
+# CLI-only resumable aggregate; this uses the same coverage and per-shard bounds.
+npm run test:cli
 
 # Strict clean-checkout aggregate used before release evidence is signed.
 npm run test:release:aggregate

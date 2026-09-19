@@ -436,6 +436,15 @@ function symrefBranch(stdout) {
   return String(stdout ?? '').match(/^ref:\s+refs\/heads\/(.+?)\s+HEAD$/m)?.[1] ?? null;
 }
 
+function advertisedSymbolicRefs(stdout) {
+  const refs = new Map();
+  for (const line of String(stdout ?? '').split(/\r?\n/u)) {
+    const match = /^ref:\s+([^\s]+)\s+([^\s]+)$/u.exec(line.trim());
+    if (match) refs.set(match[2], match[1]);
+  }
+  return refs;
+}
+
 function advertisedRefs(stdout) {
   const refs = new Map();
   for (const line of String(stdout ?? '').split(/\r?\n/)) {
@@ -461,16 +470,26 @@ function observationPatternsCover(available, requested) {
 
 function remoteObservation(url, patterns, result) {
   const refsByName = advertisedRefs(result.stdout);
+  const symbolicRefs = advertisedSymbolicRefs(result.stdout);
+  const unsupportedSymbolicAuthority = [...symbolicRefs.keys()]
+    .find((ref) => ref !== 'HEAD') ?? null;
+  const symbolicFailure = unsupportedSymbolicAuthority ? Object.freeze({
+    code: 'REMOTE_SYMBOLIC_REF_UNSUPPORTED',
+    classification: 'authority-invalid',
+    retryable: false,
+    advice: 'The requested Git authority is a symbolic ref. Replace it with a direct branch ref before retrying.',
+    evidence: result.failure?.evidence ?? failureEvidence(result)
+  }) : null;
   return Object.freeze({
-    ok: result.status === 0,
+    ok: result.status === 0 && !symbolicFailure,
     remote: sanitizeRemote(url),
-    defaultBranch: result.status === 0 ? symrefBranch(result.stdout) : null,
+    defaultBranch: result.status === 0 && !symbolicFailure ? symrefBranch(result.stdout) : null,
     refs: refsByName,
     branches: [...refsByName.keys()].filter((ref) => ref.startsWith('refs/heads/'))
       .map((ref) => ref.slice('refs/heads/'.length)).sort(),
     includedHead: patterns.includes('HEAD'),
     patterns: Object.freeze([...patterns]),
-    failure: result.failure,
+    failure: symbolicFailure ?? result.failure,
     timedOut: result.timedOut === true,
     result
   });

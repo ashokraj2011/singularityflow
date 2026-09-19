@@ -260,7 +260,13 @@ function captureReworkBaselineRefs(root, requestedPrefixes = [REWORK_BASELINE_RE
     // Snapshot authority is limited to exact direct refs. A symbolic alias may resolve to the
     // expected object while redirecting a later update to a branch outside this Story's scope.
     const target = fields[1];
-    if (fields[2] || !GIT_OBJECT_ID_PATTERN.test(target)) {
+    if (fields[2]) {
+      throw new SingularityFlowError(
+        `Publication recovery baseline ref is symbolic or belongs to another object: '${name}'. No unrelated ref was changed.`,
+        { code: 'PUBLICATION_PREIMAGE_REF_INVALID' }
+      );
+    }
+    if (!GIT_OBJECT_ID_PATTERN.test(target)) {
       throw new SingularityFlowError(`Publication recovery ref '${name}' has an invalid object ID.`, {
         code: 'PUBLICATION_PREIMAGE_REF_INVALID'
       });

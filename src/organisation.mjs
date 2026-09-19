@@ -4597,7 +4597,8 @@ export async function capabilityFsck(url, {
 
 /** Delete one provably stale proposal branch with an exact remote-SHA lease. */
 export async function discardStaleCapabilityProposal(url, branch, {
-  confirm = null, reason = null
+  confirm = null, reason = null,
+  remoteSession = null, deleteRemoteCommand = runRemoteGitAsync
 } = {}) {
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A lead repository URL is required.', {
@@ -4615,8 +4616,8 @@ export async function discardStaleCapabilityProposal(url, branch, {
       code: 'CAPABILITY_PROPOSAL_DISCARD_REASON_INVALID'
     });
   }
-  const gitEnv = enterpriseGitEnvironment();
-  const session = new GitRemoteSession({ env: gitEnv });
+  const gitEnv = remoteSession?.env ?? enterpriseGitEnvironment();
+  const session = remoteSession ?? new GitRemoteSession({ env: gitEnv });
   const transport = frozenRemoteTransport(remote, { push: true, env: gitEnv });
   const proposals = await listCapabilityProposals(remote, {
     includeMerged: true, includeDiff: false, env: gitEnv, remoteSession: session
@@ -4662,31 +4663,87 @@ export async function discardStaleCapabilityProposal(url, branch, {
   }
 
   const targetRef = `refs/heads/${proposalBranch}`;
-  const deleted = await runRemoteGitAsync([
-    'push', '--porcelain', `--force-with-lease=${targetRef}:${expected}`,
-    transport.remote, `:${targetRef}`
-  ], { operation: 'remote-push', env: transport.env });
-  if (deleted.status !== 0) {
+  // Refresh the one destination immediately before mutation. GitRemoteSession requests `--symref`
+  // and rejects every non-HEAD symbolic advertisement, so a dereferenced object ID can never
+  // authorize deleting an alias.
+  session.invalidate(remote);
+  const beforeDelete = await session.observeAsync(remote, {
+    includeHead: false, refs: [targetRef], refresh: true
+  });
+  if (!beforeDelete.ok) {
     throw new SingularityFlowError(
-      `Stale proposal '${proposalBranch}' was not discarded. The remote may have moved or refused the exact deletion. ${deleted.failure?.advice ?? 'Refresh fsck and retry.'}`, {
-        code: 'CAPABILITY_PROPOSAL_DISCARD_FAILED',
+      `Stale proposal '${proposalBranch}' was not discarded because its exact remote ref could not be refreshed.`, {
+        code: beforeDelete.failure?.code
+          ?? 'CAPABILITY_PROPOSAL_DISCARD_PRECONDITION_UNAVAILABLE',
         details: {
           lead: sanitizeRemote(remote), proposalBranch, proposalCommit: expected,
+          remoteFailure: publicRemoteFailure(beforeDelete.failure),
           nextAction: { command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-doctor' },
           preserved: ['proposal-branch', 'approved-configuration', 'application-branches']
         }
       }
     );
   }
+  const refreshedCommit = beforeDelete.refs.get(targetRef) ?? null;
+  if (refreshedCommit !== expected) {
+    throw new SingularityFlowError(
+      `Confirmation no longer equals the exact direct proposal ref '${refreshedCommit ?? '(absent)'}'. Nothing was changed.`, {
+        code: 'CAPABILITY_PROPOSAL_DISCARD_CONFIRMATION_MISMATCH',
+        details: {
+          lead: sanitizeRemote(remote), proposalBranch, proposalCommit: expected,
+          currentProposalCommit: refreshedCommit,
+          nextAction: { command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-doctor' },
+          preserved: ['approved-configuration', 'application-branches']
+        }
+      }
+    );
+  }
+  const deleted = await deleteRemoteCommand([
+    'push', '--porcelain', `--force-with-lease=${targetRef}:${expected}`,
+    transport.remote, `:${targetRef}`
+  ], { operation: 'remote-push', env: transport.env });
+  // A timeout or lost receive-pack response does not prove that the exact leased deletion failed.
+  // Re-read only the destination ref before reporting an outcome. Absence reconciles a lost ACK;
+  // the same SHA proves the proposal was preserved; a different SHA proves a concurrent move.
   session.invalidate(remote);
   const observed = await session.observeAsync(remote, {
     includeHead: false, refs: [targetRef], refresh: true
   });
-  if (!observed.ok || observed.refs.has(targetRef)) {
+  if (!observed.ok) {
     throw new SingularityFlowError(
-      `The remote did not verify removal of stale proposal '${proposalBranch}'. Run capability fsck before taking another action.`, {
-        code: 'CAPABILITY_PROPOSAL_DISCARD_UNVERIFIED',
-        details: { lead: sanitizeRemote(remote), proposalBranch, proposalCommit: expected }
+      `The stale proposal deletion outcome is unknown because '${sanitizeRemote(remote)}' could not be re-read. Inspect the exact proposal ref before retrying.`, {
+        code: 'CAPABILITY_PROPOSAL_DISCARD_OUTCOME_UNKNOWN',
+        details: {
+          lead: sanitizeRemote(remote), proposalBranch, proposalCommit: expected,
+          exactInspection: {
+            program: 'git',
+            args: ['ls-remote', '--symref', '--refs', assertCredentialFreeRemote(remote), targetRef],
+            expectedCommit: expected
+          },
+          nextAction: { command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-doctor' },
+          preserved: ['approved-configuration', 'state-projection', 'application-branches', 'other-proposal-branches']
+        }
+      }
+    );
+  }
+  const currentCommit = observed.refs.get(targetRef) ?? null;
+  if (currentCommit != null) {
+    const moved = currentCommit !== expected;
+    throw new SingularityFlowError(
+      moved
+        ? `Stale proposal '${proposalBranch}' advanced while its exact deletion was attempted. The new revision was preserved; refresh capability fsck before taking another action.`
+        : `Stale proposal '${proposalBranch}' was not discarded. The exact proposal revision is still present. ${deleted.failure?.advice ?? 'Refresh capability fsck before retrying.'}`, {
+        code: moved
+          ? 'CAPABILITY_PROPOSAL_DISCARD_REVISION_MOVED'
+          : deleted.status === 0
+            ? 'CAPABILITY_PROPOSAL_DISCARD_UNVERIFIED'
+            : 'CAPABILITY_PROPOSAL_DISCARD_FAILED',
+        details: {
+          lead: sanitizeRemote(remote), proposalBranch, proposalCommit: expected,
+          currentProposalCommit: currentCommit,
+          nextAction: { command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-doctor' },
+          preserved: ['proposal-branch', 'approved-configuration', 'state-projection', 'application-branches']
+        }
       }
     );
   }
@@ -4697,6 +4754,7 @@ export async function discardStaleCapabilityProposal(url, branch, {
     lead: sanitizeRemote(remote),
     branch: proposalBranch,
     proposalCommit: expected,
+    discardReconciled: deleted.status !== 0,
     reason: explanation,
     discardedAt: new Date().toISOString(),
     preserved: ['approved-configuration', 'state-projection', 'application-branches', 'other-proposal-branches'],

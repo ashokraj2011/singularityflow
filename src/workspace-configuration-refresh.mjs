@@ -22,8 +22,8 @@ import { enterpriseGitEnvironment } from './git-enterprise-environment.mjs';
 import { publishToStateBranch } from './ledger.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import {
-  assertCredentialFreeRemote, frozenRemoteTransport, redactDiagnosticText, remoteFingerprint,
-  sanitizeRemote
+  assertCredentialFreeRemote, configuredRemoteAuthority, frozenRemoteTransport,
+  redactDiagnosticText, remoteFingerprint, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
 import {
   gitWorkerCount, isGitRefName, mapLimit, removeTemporaryTree, SingularityFlowError, run, writeAtomic
@@ -98,6 +98,135 @@ function remoteFailureMessage(result, fallback = 'Git remote access failed. Insp
   // diagnostics. Configuration refresh records are durable and UI-visible, so expose only the
   // closed-vocabulary classifier/advice produced by the shared Git boundary.
   return result?.failure?.advice ?? fallback;
+}
+
+const EXACT_GIT_OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+
+/**
+ * Observe one exact local ref without dereferencing symbolic aliases.
+ *
+ * Configuration refresh owns a few private cache/tracking refs. They are not general revision
+ * expressions: following a symbolic ref here could overwrite an unrelated branch while appearing
+ * to update the requested cache name. A dangling symbolic ref is omitted by `for-each-ref`, so the
+ * empty case receives one bounded `symbolic-ref` probe before it can be treated as absent.
+ */
+function observeExactRefreshRef(root, ref, { env = process.env } = {}) {
+  const observed = run('git', [
+    'for-each-ref', '--count=1', '--format=%(refname)%00%(objectname)%00%(symref)', ref
+  ], {
+    cwd: root, env, allowFailure: true, encoding: 'buffer', maxBuffer: 1024, timeoutMs: 5_000
+  });
+  if (observed.status !== 0 || observed.error || observed.timedOut
+      || observed.outputOverflow || !Buffer.isBuffer(observed.stdout)) {
+    return { status: 'unavailable', commit: null };
+  }
+  if (observed.stdout.length === 0) {
+    const symbolic = run('git', ['symbolic-ref', '--quiet', ref], {
+      cwd: root, env, allowFailure: true, encoding: 'buffer', maxBuffer: 1024,
+      timeoutMs: 5_000
+    });
+    if (symbolic.status === 0) return { status: 'symbolic', commit: null };
+    return symbolic.status === 1 && !symbolic.error && !symbolic.timedOut
+      && !symbolic.outputOverflow
+      ? { status: 'absent', commit: null }
+      : { status: 'unavailable', commit: null };
+  }
+  const match = /^([^\x00\n]+)\x00([0-9a-f]{40}|[0-9a-f]{64})\x00([^\x00\n]*)\n$/u
+    .exec(observed.stdout.toString('utf8'));
+  if (!match || match[1] !== ref) return { status: 'unavailable', commit: null };
+  return match[3]
+    ? { status: 'symbolic', commit: null }
+    : { status: 'direct', commit: match[2] };
+}
+
+function refreshRefError(ref, status, action) {
+  return new SingularityFlowError(
+    `Configuration refresh cannot ${action} '${ref}' because its exact direct-ref state is ${status}.`,
+    {
+      code: status === 'symbolic'
+        ? 'CONFIGURATION_REFRESH_REF_SYMBOLIC'
+        : 'CONFIGURATION_REFRESH_REF_UNAVAILABLE',
+      details: { ref, status }
+    }
+  );
+}
+
+/** Install one exact private ref with an absent-or-expected compare-and-swap. */
+function installExactRefreshRef(root, ref, commit, {
+  env = process.env, expectedCommit = null
+} = {}) {
+  if (!EXACT_GIT_OID.test(String(commit ?? ''))
+      || (expectedCommit != null && !EXACT_GIT_OID.test(String(expectedCommit)))) {
+    throw new SingularityFlowError('Configuration refresh received an invalid exact Git object ID.', {
+      code: 'CONFIGURATION_REFRESH_REF_INVALID', details: { ref }
+    });
+  }
+  const before = observeExactRefreshRef(root, ref, { env });
+  if (before.status === 'symbolic' || before.status === 'unavailable') {
+    throw refreshRefError(ref, before.status, 'install');
+  }
+  if (before.commit === commit) return { commit, created: false };
+  if (before.commit !== expectedCommit) {
+    throw new SingularityFlowError(
+      `Configuration refresh did not overwrite '${ref}' because it changed concurrently.`, {
+        code: 'CONFIGURATION_REFRESH_REF_CHANGED',
+        details: { ref, expectedCommit, observedCommit: before.commit }
+      }
+    );
+  }
+  const expected = expectedCommit ?? '0'.repeat(commit.length);
+  const updated = run('git', ['update-ref', '--no-deref', ref, commit, expected], {
+    cwd: root, env, allowFailure: true, maxBuffer: 4096, timeoutMs: 5_000
+  });
+  const after = observeExactRefreshRef(root, ref, { env });
+  if (after.status === 'direct' && after.commit === commit) {
+    // A failed update can race with another owner installing the same object. Reconcile that as an
+    // idempotent join, but do not claim ownership: callers must not later delete the other owner's
+    // ref during cleanup.
+    const created = updated.status === 0 && !updated.error
+      && !updated.timedOut && !updated.outputOverflow;
+    return { commit, created, reconciled: !created };
+  }
+  if (after.status === 'symbolic' || after.status === 'unavailable') {
+    throw refreshRefError(ref, after.status, 'reconcile');
+  }
+  throw new SingularityFlowError(
+    `Configuration refresh could not install '${ref}' with its expected-object lease.`, {
+      code: 'CONFIGURATION_REFRESH_REF_CHANGED',
+      details: { ref, expectedCommit, observedCommit: after.commit, exitCode: updated.status }
+    }
+  );
+}
+
+/** Remove only the exact private ref installed by this operation. */
+function removeExactRefreshRef(root, ref, expectedCommit, { env = process.env } = {}) {
+  const before = observeExactRefreshRef(root, ref, { env });
+  if (before.status === 'absent') return;
+  if (before.status === 'symbolic' || before.status === 'unavailable') {
+    throw refreshRefError(ref, before.status, 'remove');
+  }
+  if (before.commit !== expectedCommit) {
+    throw new SingularityFlowError(
+      `Configuration refresh did not remove '${ref}' because it changed concurrently.`, {
+        code: 'CONFIGURATION_REFRESH_REF_CHANGED',
+        details: { ref, expectedCommit, observedCommit: before.commit }
+      }
+    );
+  }
+  run('git', ['update-ref', '--no-deref', '-d', ref, expectedCommit], {
+    cwd: root, env, allowFailure: true, maxBuffer: 4096, timeoutMs: 5_000
+  });
+  const after = observeExactRefreshRef(root, ref, { env });
+  if (after.status === 'absent') return;
+  if (after.status === 'symbolic' || after.status === 'unavailable') {
+    throw refreshRefError(ref, after.status, 'reconcile removal of');
+  }
+  throw new SingularityFlowError(
+    `Configuration refresh could not remove '${ref}' with its expected-object lease.`, {
+      code: 'CONFIGURATION_REFRESH_REF_CHANGED',
+      details: { ref, expectedCommit, observedCommit: after.commit }
+    }
+  );
 }
 
 function plainObject(value) {
@@ -535,13 +664,15 @@ export async function refreshPackagedConfiguration(root, {
   };
 }
 
-async function remoteHeads(remote, branches, { env = process.env } = {}) {
+async function remoteHeads(remote, branches, { env = process.env, cwd = undefined } = {}) {
   const requested = [...new Set(branches.filter(Boolean))];
   const transport = frozenRemoteTransport(remote, { env });
   const observed = await runRemoteGitAsync([
-    'ls-remote', '--heads', '--', transport.remote,
+    // `--symref` makes a symbolic branch visible instead of silently accepting its dereferenced
+    // object as direct authority. Configuration/state authority branches must be direct refs.
+    'ls-remote', '--symref', '--heads', '--', transport.remote,
     ...requested.map((branch) => `refs/heads/${branch}`)
-  ], { operation: 'remote-probe', env: transport.env });
+  ], { cwd, operation: 'remote-probe', env: transport.env });
   if (observed.status !== 0) {
     throw new SingularityFlowError(
       `Cannot read '${sanitizeRemote(remote)}'. ${observed.failure?.advice ?? 'Git remote access failed.'}`,
@@ -549,12 +680,27 @@ async function remoteHeads(remote, branches, { env = process.env } = {}) {
     );
   }
   const heads = new Map(requested.map((branch) => [branch, null]));
-  for (const line of observed.stdout.split(/\r?\n/).filter((entry) => entry.trim())) {
-    const [commit, ref] = line.trim().split(/\s+/);
+  const lines = observed.stdout.split(/\r?\n/u).filter(Boolean);
+  const seen = new Set();
+  let objectLength = null;
+  for (const line of lines) {
+    const match = /^([^\t\r\n]+)\t([^\t\r\n]+)$/u.exec(line);
     const prefix = 'refs/heads/';
-    if (ref?.startsWith(prefix) && heads.has(ref.slice(prefix.length))) {
-      heads.set(ref.slice(prefix.length), commit);
+    const value = match?.[1] ?? '';
+    const ref = match?.[2] ?? '';
+    const branch = ref.startsWith(prefix) ? ref.slice(prefix.length) : null;
+    if (!match || !branch || !heads.has(branch) || seen.has(ref)
+        || value.startsWith('ref: ') || !EXACT_GIT_OID.test(value)
+        || (objectLength != null && value.length !== objectLength)) {
+      throw new SingularityFlowError(
+        `Cannot interpret the exact branch authority returned by '${sanitizeRemote(remote)}'.`, {
+          code: 'REMOTE_REF_PROTOCOL_INVALID'
+        }
+      );
     }
+    objectLength ??= value.length;
+    seen.add(ref);
+    heads.set(branch, value);
   }
   return heads;
 }
@@ -976,27 +1122,26 @@ async function retainRefreshPlanCache(registryFile, planId, candidates) {
         const destination = path.join(staging, 'repositories', key);
         // Clone from the local object database so preview's uncommitted candidate bytes are not
         // retained as authority. This is local I/O: no second remote clone or credential exchange.
-        if (candidate.stateBefore.stateCommit) {
-          run('git', [
-            'update-ref', 'refs/heads/sflow-cache-state', candidate.stateBefore.stateCommit
-          ], { cwd: candidate.root, env });
-        }
+        const cacheStateRef = 'refs/heads/sflow-cache-state';
+        const retainedState = candidate.stateBefore.stateCommit
+          ? installExactRefreshRef(candidate.root, cacheStateRef,
+            candidate.stateBefore.stateCommit, { env })
+          : null;
         try {
           run('git', [
             'clone', '--quiet', '--no-hardlinks', '--branch', CONFIGURATION_BRANCH,
             candidate.root, destination
           ], { env });
         } finally {
-          if (candidate.stateBefore.stateCommit) {
-            run('git', ['update-ref', '-d', 'refs/heads/sflow-cache-state'], {
-              cwd: candidate.root, env, allowFailure: true
-            });
+          // Do not delete a same-object ref that predated this optional retention operation.
+          if (retainedState?.created) {
+            removeExactRefreshRef(candidate.root, cacheStateRef,
+              candidate.stateBefore.stateCommit, { env });
           }
         }
         if (candidate.stateBefore.stateCommit) {
-          run('git', [
-            'update-ref', 'refs/heads/sflow-cache-state', candidate.stateBefore.stateCommit
-          ], { cwd: destination, env });
+          installExactRefreshRef(destination, cacheStateRef,
+            candidate.stateBefore.stateCommit, { env });
         }
         // The operational URL is credential-free but otherwise byte-for-byte exact. A display-safe
         // URL is not transport authority: local and SCP-like paths may legitimately contain `?` or
@@ -1215,12 +1360,45 @@ function stateTree(root, ref, policy, { env = process.env } = {}) {
 
 async function fetchStateRefAsync(root, config, { env = process.env } = {}) {
   const remoteRef = `refs/remotes/${config.remote}/${config.branch}`;
+  const before = observeExactRefreshRef(root, remoteRef, { env });
+  if (before.status === 'symbolic' || before.status === 'unavailable') {
+    throw refreshRefError(remoteRef, before.status, 'refresh');
+  }
+  // Prove the remote source is itself one exact direct branch. `git fetch` dereferences symbolic
+  // source refs, so validating only FETCH_HEAD would make an alias indistinguishable from direct
+  // authority when a preview cache is unavailable and apply has to reconstruct its checkout.
+  const authority = configuredRemoteAuthority(root, config.remote, { direction: 'fetch', env });
+  if (!authority.url) throw refreshRefError(remoteRef, 'unavailable', 'resolve remote authority for');
+  const sourceHeads = await remoteHeads(authority.url, [config.branch], { env, cwd: root });
+  const expectedSourceCommit = sourceHeads.get(config.branch) ?? null;
+  if (expectedSourceCommit == null) return null;
+
+  // Fetch into FETCH_HEAD only. A configured refspec must not mutate the tracking ref before the
+  // refresh owner applies its independently observed expected-object lease.
+  const transport = frozenRemoteTransport(authority.url, { env });
   const fetched = await runRemoteGitAsync([
-    'fetch', '--no-tags', config.remote,
-    `+refs/heads/${config.branch}:${remoteRef}`
-  ], { cwd: root, operation: 'remote-configuration', env });
+    'fetch', '--no-tags', '--refmap=', transport.remote, `refs/heads/${config.branch}`
+  ], { cwd: root, operation: 'remote-configuration', env: transport.env });
   if (fetched.status !== 0) return null;
-  return run('git', ['rev-parse', remoteRef], { cwd: root, env }).stdout.trim();
+  const fetchedCommit = run('git', ['rev-parse', '--verify', 'FETCH_HEAD^{commit}'], {
+    cwd: root, env, allowFailure: true, maxBuffer: 1024, timeoutMs: 5_000
+  }).stdout.trim();
+  if (!EXACT_GIT_OID.test(fetchedCommit) || fetchedCommit !== expectedSourceCommit) {
+    throw new SingularityFlowError(
+      'Configuration refresh state authority changed after its exact direct-ref observation.', {
+        code: 'CONFIGURATION_REFRESH_STATE_AUTHORITY_CHANGED',
+        details: {
+          ref: remoteRef,
+          expectedCommit: expectedSourceCommit,
+          observedCommit: EXACT_GIT_OID.test(fetchedCommit) ? fetchedCommit : null
+        }
+      }
+    );
+  }
+  installExactRefreshRef(root, remoteRef, fetchedCommit, {
+    env, expectedCommit: before.commit
+  });
+  return fetchedCommit;
 }
 
 async function desiredStateProjection(root, { env = process.env } = {}) {
@@ -1371,7 +1549,13 @@ async function prepareCandidate(repository, options, { env = process.env } = {})
   const { root } = cloned;
   const gitEnv = cloned.env;
   try {
-    const sourceCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root, env: gitEnv }).stdout.trim();
+    const sourceRef = observeExactRefreshRef(root, `refs/heads/${CONFIGURATION_BRANCH}`, {
+      env: gitEnv
+    });
+    if (sourceRef.status !== 'direct') {
+      throw refreshRefError(`refs/heads/${CONFIGURATION_BRANCH}`, sourceRef.status, 'read');
+    }
+    const sourceCommit = sourceRef.commit;
     const refresh = await refreshPackagedConfiguration(root, options);
     const desired = await desiredStateProjection(root, { env: gitEnv });
     const stateCommit = await fetchStateRefAsync(root, desired.stateConfig, { env: gitEnv });
@@ -1410,11 +1594,12 @@ async function prepareCachedCandidate(observation, cache, options, { env = isola
     // The cache supplies objects only. Reconstruct both the branch/index and every tracked byte from
     // the exact re-observed commit after replacing untrusted repository config. This clears hidden
     // assume-unchanged/skip-worktree state and refuses any untracked cache modification.
-    run('git', ['update-ref', `refs/heads/${CONFIGURATION_BRANCH}`, entry.configurationCommit], { cwd: root, env });
+    const configurationRef = `refs/heads/${CONFIGURATION_BRANCH}`;
+    installExactRefreshRef(root, configurationRef, entry.configurationCommit, { env });
     run('git', ['symbolic-ref', 'HEAD', `refs/heads/${CONFIGURATION_BRANCH}`], { cwd: root, env });
     run('git', ['reset', '--hard', entry.configurationCommit], { cwd: root, env });
     run('git', ['clean', '-ffdx'], { cwd: root, env });
-    const sourceCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root, env }).stdout.trim();
+    const sourceCommit = observeExactRefreshRef(root, configurationRef, { env }).commit;
     if (sourceCommit !== entry.configurationCommit) throw new Error('cached configuration commit changed');
     if (run('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: root, env }).stdout.trim()) {
       throw new Error('cached configuration checkout is not clean');
@@ -1424,9 +1609,8 @@ async function prepareCachedCandidate(observation, cache, options, { env = isola
         cwd: root, env, allowFailure: true
       });
       if (stateObject.status !== 0) throw new Error('cached state commit is unavailable');
-      run('git', [
-        'update-ref', `refs/remotes/origin/${entry.stateBranch}`, entry.stateCommit
-      ], { cwd: root, env });
+      installExactRefreshRef(root, `refs/remotes/origin/${entry.stateBranch}`,
+        entry.stateCommit, { env });
     }
     const transport = frozenRemoteTransport(observation.repository.remote, { push: true, env });
     // The claimed checkout is disposable. Store the private alias, not the operational URL, so
@@ -1531,16 +1715,15 @@ function proposalBranch(candidateCommit, sourceCommit, product) {
  * join the winner. A genuinely different remote update still takes the review-branch path.
  */
 async function identicalConcurrentConfiguration(root, candidateCommit, { env = process.env } = {}) {
-  const remoteRef = `refs/remotes/origin/${CONFIGURATION_BRANCH}`;
   const fetched = await runRemoteGitAsync([
-    'fetch', '--quiet', '--no-tags', '--force', 'origin',
-    `+refs/heads/${CONFIGURATION_BRANCH}:${remoteRef}`
+    'fetch', '--quiet', '--no-tags', '--refmap=', 'origin',
+    `refs/heads/${CONFIGURATION_BRANCH}`
   ], { cwd: root, operation: 'remote-configuration', env });
   if (fetched.status !== 0) return null;
-  const approvedCommit = run('git', ['rev-parse', '--verify', `${remoteRef}^{commit}`], {
+  const approvedCommit = run('git', ['rev-parse', '--verify', 'FETCH_HEAD^{commit}'], {
     cwd: root, env, allowFailure: true
   }).stdout.trim();
-  if (!/^[0-9a-f]{40,64}$/.test(approvedCommit)) return null;
+  if (!EXACT_GIT_OID.test(approvedCommit)) return null;
   const candidateTree = run('git', ['rev-parse', `${candidateCommit}^{tree}`], { cwd: root, env }).stdout.trim();
   const approvedTree = run('git', ['rev-parse', `${approvedCommit}^{tree}`], { cwd: root, env }).stdout.trim();
   return candidateTree === approvedTree ? approvedCommit : null;
@@ -1562,7 +1745,11 @@ async function publishCandidate(candidate) {
         '-c', `user.email=${actor.email || 'unknown@invalid'}`,
         'commit', '-m', `[configuration][product:${refresh.product.revision}] refresh packaged configuration`
       ], { cwd: root, env });
-      const candidateCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root, env }).stdout.trim();
+      const candidateRef = observeExactRefreshRef(root, `refs/heads/${CONFIGURATION_BRANCH}`, { env });
+      if (candidateRef.status !== 'direct') {
+        throw refreshRefError(`refs/heads/${CONFIGURATION_BRANCH}`, candidateRef.status, 'read');
+      }
+      const candidateCommit = candidateRef.commit;
       const pushed = await runRemoteGitAsync([
         'push', `--force-with-lease=refs/heads/${CONFIGURATION_BRANCH}:${sourceCommit}`,
         'origin', `HEAD:refs/heads/${CONFIGURATION_BRANCH}`
@@ -1673,8 +1860,13 @@ async function publishCandidate(candidate) {
     if (concurrentState.status !== 'current') throw error;
     state = { commit: concurrentState.stateCommit, changed: false, removed: [] };
   }
-  const stateRef = state.commit
-    ?? run('git', ['rev-parse', `refs/remotes/origin/${projection.stateConfig.branch}`], { cwd: root, env }).stdout.trim();
+  const stateTrackingRef = `refs/remotes/origin/${projection.stateConfig.branch}`;
+  const observedStateRef = state.commit == null
+    ? observeExactRefreshRef(root, stateTrackingRef, { env }) : null;
+  if (observedStateRef && observedStateRef.status !== 'direct') {
+    throw refreshRefError(stateTrackingRef, observedStateRef.status, 'verify');
+  }
+  const stateRef = state.commit ?? observedStateRef.commit;
   const verified = run('git', ['show', `${stateRef}:${STATE_CONFIGURATION_MANIFEST}`], { cwd: root, env });
   let verifiedManifest;
   try { verifiedManifest = JSON.parse(verified.stdout); }

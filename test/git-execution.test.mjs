@@ -47,6 +47,28 @@ test('one remote session reuses an exact observation and parses the advertised a
   assert.equal(calls.length, 2);
 });
 
+test('remote sessions refuse non-HEAD symbolic authority instead of accepting its target OID', () => {
+  const session = new GitRemoteSession({
+    runCommand() {
+      return {
+        status: 0,
+        stdout: [
+          'ref: refs/heads/main\trefs/heads/proposal',
+          `${'2'.repeat(40)}\trefs/heads/proposal`
+        ].join('\n'),
+        stderr: '', timedOut: false, failure: null
+      };
+    }
+  });
+
+  const observed = session.observe('https://example.com/acme/repository.git', {
+    refs: ['refs/heads/proposal'], includeHead: false
+  });
+  assert.equal(observed.ok, false);
+  assert.equal(observed.failure.code, 'REMOTE_SYMBOLIC_REF_UNSUPPORTED');
+  assert.equal(observed.failure.retryable, false);
+});
+
 test('local Git authorities retain a bounded configuration window instead of a network probe window', async () => {
   const env = {
     ...process.env,

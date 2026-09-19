@@ -3,11 +3,22 @@
   "kind": "gdp-companion-lock",
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
+  "lastReview": {
+    "reviewedAtCommit": "bd08c29a029f288d7b928cf3e762bf41cc3bef7e",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-09-19.md",
+    "companionIds": [
+      "migration-registry",
+      "publication-unit-of-work",
+      "smart-initialization-v1",
+      "workflow-configuration",
+      "world-model-v4"
+    ]
+  },
   "companions": [
     {
       "id": "workflow-configuration",
       "path": "templates/workflow.yml",
-      "sha256": "sha256:4805991b7ccdf22dd327e25923ee8158443b2eafb7d45a329efa057bed104e8f"
+      "sha256": "sha256:6d3aa787490db9b9db23d2b938018776634d2af57734df2c326350894d82db4d"
     },
     {
       "id": "sgos-portable-schema",
@@ -27,7 +38,7 @@
     {
       "id": "world-model-v4",
       "path": "docs/WORLD-MODEL-BUILDER-V4.md",
-      "sha256": "sha256:2a79b554d4243cf2aebc5f0307c26eeaa3319a03ebf6e918e168e33eb3c665ef"
+      "sha256": "sha256:badf17ea209193ed630f93ef42ce239284830586cefd28d8fb97ba486ecc6659"
     },
     {
       "id": "witnessed-engineering-loop",
@@ -82,7 +93,7 @@
     {
       "id": "publication-unit-of-work",
       "path": "src/publication-unit-of-work.mjs",
-      "sha256": "sha256:f44901e77621866bb764155f0ef7aef02b10ef1f5ccdd279e5c429df3d8f08cd"
+      "sha256": "sha256:e7431fb02ab8b74699d34f1c840f38f61b86466a1350164014b91fdc3a93316a"
     },
     {
       "id": "action-authorization",
@@ -92,12 +103,12 @@
     {
       "id": "migration-registry",
       "path": "src/schema-migrations.mjs",
-      "sha256": "sha256:6e39e94a36116761ca35151821ff4b7a3f394749626f89839b6a2424ee18ef0d"
+      "sha256": "sha256:5cd400375ac96899136649d149da7d7f104ac1d975b70597f40ed563eb102296"
     },
     {
       "id": "smart-initialization-v1",
       "path": "src/initialization/proposal.mjs",
-      "sha256": "sha256:cc9d695992ca5971fce6085cfa30e7075bcb8174c01da239eabc30e98c3a89da"
+      "sha256": "sha256:ba9b3bb95a0974a42bf42161c26f78f4389a3f2a43343bffb7091af9e868f3a6"
     }
   ]
 }

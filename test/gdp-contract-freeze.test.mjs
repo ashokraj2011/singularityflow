@@ -223,8 +223,26 @@ test('the GDP companion lock pins exact existing authorities and fails on unrevi
   const lock = await json(path.join(contractRoot, 'companion-lock.json'));
   assert.equal(lock.status, 'contract-only');
   assert.match(lock.baselineCommit, /^[a-f0-9]{40}$/);
+  assert.match(lock.lastReview.reviewedAtCommit, /^[a-f0-9]{40}$/);
+  assert.match(lock.lastReview.evidence, /^docs\/contracts\/gdp\/[A-Z0-9-]+\.md$/);
+  assert.deepEqual(
+    [...lock.lastReview.companionIds].sort(),
+    lock.lastReview.companionIds,
+    'reviewed companion IDs must be deterministic'
+  );
+  assert.equal(
+    new Set(lock.lastReview.companionIds).size,
+    lock.lastReview.companionIds.length,
+    'reviewed companion IDs must be unique'
+  );
+  const reviewEvidence = await readFile(path.join(root, lock.lastReview.evidence), 'utf8');
+  assert.match(reviewEvidence, new RegExp(`Review boundary:.*${lock.lastReview.reviewedAtCommit}`, 'u'));
   assert.ok(lock.companions.length >= 15);
-  assert.equal(new Set(lock.companions.map((entry) => entry.id)).size, lock.companions.length);
+  const companionIds = new Set(lock.companions.map((entry) => entry.id));
+  assert.equal(companionIds.size, lock.companions.length);
+  for (const reviewedId of lock.lastReview.companionIds) {
+    assert.ok(companionIds.has(reviewedId), `review references unknown companion ${reviewedId}`);
+  }
 
   for (const companion of lock.companions) {
     assert.match(companion.path, /^(?:docs|schemas|src|templates)\//);
@@ -232,6 +250,12 @@ test('the GDP companion lock pins exact existing authorities and fails on unrevi
     const bytes = await readFile(path.join(root, companion.path));
     const digest = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
     assert.equal(companion.sha256, digest, companion.id);
+    if (lock.lastReview.companionIds.includes(companion.id)) {
+      const reviewRow = reviewEvidence.split('\n')
+        .find((line) => line.startsWith(`| \`${companion.id}\` |`));
+      assert.ok(reviewRow, `${companion.id} is missing from the review evidence`);
+      assert.ok(reviewRow.includes(`\`${companion.sha256}\``), `${companion.id} accepted digest is missing`);
+    }
   }
 });
 

@@ -16,7 +16,7 @@ import {
 import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { LIFECYCLE_EVENT_TYPES } from './lifecycle-event.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
-import { runRemoteGitAsync } from './git-execution.mjs';
+import { GitRemoteSession, runRemoteGitAsync } from './git-execution.mjs';
 import {
   configuredRemoteAuthority, configuredRemoteIdentity, frozenRemoteTransport,
   safeGitDiagnosticReference
@@ -140,6 +140,59 @@ function requireDirectLocalStateRef(root, config, env = process.env) {
   return observed.commit;
 }
 
+function optionalDirectStateRef(root, config, ref, env = process.env) {
+  const observed = directRefObservation(root, ref, env);
+  if (observed.status === 'symbolic' || observed.status === 'unavailable') {
+    throw new SingularityFlowError(
+      `The ${config.branch} authority ref '${ref}' cannot be verified as a direct Git ref.`,
+      {
+        code: observed.status === 'symbolic' ? 'state_branch.ref_symbolic' : 'state_branch.ref_unavailable',
+        details: { branch: config.branch, ref }
+      }
+    );
+  }
+  return observed.commit;
+}
+
+function updateDirectLocalStateRef(root, config, commit, expectedCommit, env = process.env) {
+  const ref = localRef(config);
+  const before = directRefObservation(root, ref, env);
+  if (before.status === 'symbolic' || before.status === 'unavailable') {
+    throw new SingularityFlowError(
+      `The local ${config.branch} ref cannot be verified as a direct Git ref. The ledger did not advance it.`,
+      {
+        code: before.status === 'symbolic' ? 'state_branch.ref_symbolic' : 'state_branch.ref_unavailable',
+        details: { branch: config.branch }
+      }
+    );
+  }
+  if (before.commit === commit) return commit;
+  if (before.commit !== expectedCommit) {
+    throw localStateConcurrencyError(config, expectedCommit, before.commit);
+  }
+
+  const updated = git(root, [
+    'update-ref', '--no-deref', ref, commit, expectedCommit ?? '0'.repeat(commit.length)
+  ], { allowFailure: true, env });
+  const after = directRefObservation(root, ref, env);
+  // A lost process acknowledgement is safe only when the exact named direct ref contains the
+  // intended object. Never retry without the original lease and never follow a symbolic alias.
+  if (after.status === 'direct' && after.commit === commit) return commit;
+  if (after.status === 'symbolic' || after.status === 'unavailable') {
+    throw new SingularityFlowError(
+      `The local ${config.branch} ref could not be reconciled after its compare-and-swap.`,
+      {
+        code: after.status === 'symbolic' ? 'state_branch.ref_symbolic' : 'state_branch.ref_unavailable',
+        details: { branch: config.branch }
+      }
+    );
+  }
+  if (updated.status !== 0 || after.commit !== commit) {
+    throw localStateConcurrencyError(config, expectedCommit, after.commit);
+  }
+  return commit;
+}
+
 function synchronizeRemoteTrackingRefAfterPush(root, config, commit, expectedRemoteSha, env = process.env) {
   const ref = remoteRef(config);
   const observed = directRefObservation(root, ref, env);
@@ -253,9 +306,19 @@ function hasRemoteInEnvironment(root, remote, env = process.env) {
 }
 
 function ledgerHead(root, config, { env = process.env } = {}) {
-  const remote = remoteRef(config);
-  if (refExistsInEnvironment(root, remote, env)) return remote;
-  if (refExistsInEnvironment(root, localRef(config), env)) return localRef(config);
+  for (const ref of [remoteRef(config), localRef(config)]) {
+    const observed = directRefObservation(root, ref, env);
+    if (observed.status === 'direct') return ref;
+    if (observed.status === 'symbolic' || observed.status === 'unavailable') {
+      throw new SingularityFlowError(
+        `The ${config.branch} authority ref '${ref}' cannot be verified as a direct Git ref.`,
+        {
+          code: observed.status === 'symbolic' ? 'state_branch.ref_symbolic' : 'state_branch.ref_unavailable',
+          details: { branch: config.branch, ref }
+        }
+      );
+    }
+  }
   return null;
 }
 
@@ -311,15 +374,11 @@ export async function captureStateBranchPublicationAuthority(root, rawConfig, {
   if (refreshRemote) await ensureRemoteBranchFetchedAsync(root, config, { env });
   const trackedRemote = remoteRef(config);
   const remoteConfigured = hasRemoteInEnvironment(root, config.remote, env);
-  const remoteExists = refExistsInEnvironment(root, trackedRemote, env);
+  const remoteCommit = optionalDirectStateRef(root, config, trackedRemote, env);
   const base = ledgerHead(root, config, { env });
-  const baseRef = base
-    ? git(root, ['rev-parse', '--verify', `${base}^{commit}`], { env }).stdout.trim()
-    : undefined;
+  const baseRef = base ? optionalDirectStateRef(root, config, base, env) : undefined;
   const expectedRemoteSha = remoteConfigured
-    ? remoteExists
-      ? git(root, ['rev-parse', '--verify', `${trackedRemote}^{commit}`], { env }).stdout.trim()
-      : null
+    ? remoteCommit
     : undefined;
   return Object.freeze({
     ...(expectedRemoteSha !== undefined ? { expectedRemoteSha } : {}),
@@ -348,9 +407,10 @@ export async function materializeStateBranchPublicationAuthority(root, rawConfig
         details: { branch: config.branch, expectedRemoteSha }
       });
     }
-    return Object.freeze({ expectedRemoteSha: undefined, baseRef: refExistsInEnvironment(root, localRef(config), env)
-      ? git(root, ['rev-parse', '--verify', `${localRef(config)}^{commit}`], { env }).stdout.trim()
-      : undefined });
+    return Object.freeze({
+      expectedRemoteSha: undefined,
+      baseRef: optionalDirectStateRef(root, config, localRef(config), env) ?? undefined
+    });
   }
 
   const before = await observeRemoteBranch(root, config, { env, transportRemote });
@@ -376,9 +436,7 @@ export async function materializeStateBranchPublicationAuthority(root, rawConfig
   if (expectedRemoteSha !== null) {
     const fetched = await ensureRemoteBranchFetchedAsync(root, config, { env, transportRemote });
     const local = fetched === LEDGER_REMOTE_VIEW.REFRESHED
-      ? git(root, ['rev-parse', '--verify', `${remoteRef(config)}^{commit}`], {
-          allowFailure: true, env
-        }).stdout.trim()
+      ? optionalDirectStateRef(root, config, remoteRef(config), env)
       : null;
     if (local !== expectedRemoteSha) {
       throw new SingularityFlowError('The reviewed state publication base could not be materialized exactly.', {
@@ -403,9 +461,9 @@ export async function materializeStateBranchPublicationAuthority(root, rawConfig
     }
   }
 
-  const localBase = expectedRemoteSha ?? (refExistsInEnvironment(root, localRef(config), env)
-    ? git(root, ['rev-parse', '--verify', `${localRef(config)}^{commit}`], { env }).stdout.trim()
-    : undefined);
+  const localBase = expectedRemoteSha
+    ?? optionalDirectStateRef(root, config, localRef(config), env)
+    ?? undefined;
   return Object.freeze({ expectedRemoteSha, baseRef: localBase });
 }
 
@@ -429,6 +487,36 @@ export const LEDGER_REMOTE_VIEW = Object.freeze({
   TIMEOUT_CACHED: 'timeout-cached'
 });
 
+function ledgerFetchTransport(root, config, {
+  env = process.env, transportRemote = undefined
+} = {}) {
+  if (transportRemote !== undefined) return { remote: transportRemote, env };
+  const identity = configuredRemoteIdentity(root, config.remote, { direction: 'fetch' });
+  if (identity.ambiguous || (identity.configured && !identity.url)) {
+    throw new SingularityFlowError(
+      `State refresh remote '${config.remote}' does not resolve to one exact fetch endpoint.`, {
+        code: 'state_branch.remote_ambiguous', details: { remote: config.remote }
+      }
+    );
+  }
+  const configured = configuredRemoteAuthority(root, config.remote, {
+    direction: 'fetch', env
+  });
+  return configured.url ? { remote: configured.url, env } : null;
+}
+
+function stateTrackingConcurrencyError(config, expectedCommit, observedCommit) {
+  const error = new SingularityFlowError(
+    `Concurrent publication changed the cached ${config.branch} authority before it could be refreshed.`,
+    {
+      code: 'state_branch.concurrent_publication',
+      details: { branch: config.branch, expectedRemoteSha: expectedCommit, observedRemoteSha: observedCommit }
+    }
+  );
+  error.concurrent = true;
+  return error;
+}
+
 /**
  * Bring the ledger branch up to date, unless this is a read that promised not to.
  *
@@ -442,17 +530,68 @@ async function ensureRemoteBranchFetchedAsync(root, config, {
 } = {}) {
   if (!hasRemoteInEnvironment(root, config.remote, env)) return LEDGER_REMOTE_VIEW.NO_REMOTE;
   if (offline) return LEDGER_REMOTE_VIEW.NOT_CHECKED;
-  const frozen = transportRemote === undefined
-    ? null
-    : frozenRemoteTransport(transportRemote, { env });
+  const trackingRef = remoteRef(config);
+  const before = directRefObservation(root, trackingRef, env);
+  if (before.status === 'symbolic' || before.status === 'unavailable') {
+    throw new SingularityFlowError(
+      `The cached ${config.branch} authority ref cannot be verified as a direct Git ref.`, {
+        code: before.status === 'symbolic'
+          ? 'state_branch.ref_symbolic' : 'state_branch.ref_unavailable',
+        details: { branch: config.branch, ref: trackingRef }
+      }
+    );
+  }
+  const observed = await observeRemoteBranch(root, config, { env, transportRemote });
+  if (observed.status === 'symbolic') {
+    throw new SingularityFlowError(
+      `The remote ${config.branch} authority is symbolic. State operations require one exact direct branch ref.`, {
+        code: 'state_branch.remote_ref_symbolic',
+        details: { branch: config.branch, ref: `refs/heads/${config.branch}` }
+      }
+    );
+  }
+  if (observed.status !== 'observed' || !observed.commit) {
+    return observed.timedOut
+      ? LEDGER_REMOTE_VIEW.TIMEOUT_CACHED : LEDGER_REMOTE_VIEW.OFFLINE_CACHED;
+  }
+  // Fetch only into FETCH_HEAD. A configured refspec—or Git's ordinary destination handling—must
+  // not dereference and mutate the tracking ref before its exact old-value lease is checked.
+  const frozen = frozenRemoteTransport(observed.transport.remote, { env: observed.transport.env });
   const fetched = await runRemoteGitAsync([
-    'fetch', '--no-tags', frozen?.remote ?? config.remote,
-    `+refs/heads/${config.branch}:${remoteRef(config)}`
+    'fetch', '--no-tags', '--refmap=', frozen.remote,
+    `refs/heads/${config.branch}`
   ], {
-    cwd: root, operation: 'remote-configuration', env: frozen?.env ?? env
+    cwd: root, operation: 'remote-configuration', env: frozen.env
   });
-  if (fetched.status === 0) return LEDGER_REMOTE_VIEW.REFRESHED;
-  return fetched.timedOut ? LEDGER_REMOTE_VIEW.TIMEOUT_CACHED : LEDGER_REMOTE_VIEW.OFFLINE_CACHED;
+  if (fetched.status !== 0) {
+    return fetched.timedOut
+      ? LEDGER_REMOTE_VIEW.TIMEOUT_CACHED : LEDGER_REMOTE_VIEW.OFFLINE_CACHED;
+  }
+  const fetchedCommit = git(root, ['rev-parse', '--verify', 'FETCH_HEAD^{commit}'], {
+    allowFailure: true, env, maxBuffer: 1024, timeoutMs: 5_000
+  }).stdout.trim();
+  if (fetchedCommit !== observed.commit) {
+    throw stateTrackingConcurrencyError(config, observed.commit, fetchedCommit || null);
+  }
+  if (before.commit === fetchedCommit) return LEDGER_REMOTE_VIEW.REFRESHED;
+  git(root, [
+    'update-ref', '--no-deref', trackingRef, fetchedCommit,
+    before.commit ?? '0'.repeat(fetchedCommit.length)
+  ], { allowFailure: true, env });
+  const after = directRefObservation(root, trackingRef, env);
+  if (after.status === 'direct' && after.commit === fetchedCommit) {
+    return LEDGER_REMOTE_VIEW.REFRESHED;
+  }
+  if (after.status === 'symbolic' || after.status === 'unavailable') {
+    throw new SingularityFlowError(
+      `The cached ${config.branch} authority ref could not be reconciled after refresh.`, {
+        code: after.status === 'symbolic'
+          ? 'state_branch.ref_symbolic' : 'state_branch.ref_unavailable',
+        details: { branch: config.branch, ref: trackingRef }
+      }
+    );
+  }
+  throw stateTrackingConcurrencyError(config, before.commit, after.commit);
 }
 
 function installPinRefspec(root, config, { env = process.env } = {}) {
@@ -481,20 +620,16 @@ function pinRefspecStatus(root, config) {
 async function temporaryWorktree(root, ref, callback, { env = process.env } = {}) {
   const parent = await mkdtemp(path.join(os.tmpdir(), 'sflow-ledger-'));
   const worktree = path.join(parent, 'worktree');
-  const bootstrapBranch = '__sflow_ledger_bootstrap__';
   const bootstrap = !ref;
-  if (bootstrap && git(root, [
-    'show-ref', '--verify', '--quiet', `refs/heads/${bootstrapBranch}`
-  ], { allowFailure: true, env }).status === 0) {
-    await rm(parent, { recursive: true, force: true });
-    throw new SingularityFlowError(
-      'Unable to create the isolated ledger worktree. A previous ledger bootstrap branch still exists; run ledger doctor before retrying.',
-      { code: 'state_branch.worktree_unavailable' }
-    );
-  }
+  // Each initializer owns a private ref rather than sharing a fixed temporary branch. This avoids
+  // both cross-process collisions and a cleanup-time `branch -D` that could delete a ref another
+  // process replaced after our initial check.
+  const bootstrapRef = bootstrap
+    ? `refs/singularity-flow/ledger-bootstrap/${randomUUID()}`
+    : null;
   // `git worktree add --orphan` was introduced after the supported enterprise Git floor. Build the
   // same unborn, empty branch from plumbing available in older Git: attach a no-checkout worktree,
-  // point its worktree-local HEAD at the reserved unborn ref, and clear its index. No application
+  // point its worktree-local HEAD at its private unborn ref, and clear its index. No application
   // bytes are checked out and the first callback commit remains a true root commit.
   const args = bootstrap
     ? ['worktree', 'add', '--detach', '--no-checkout', worktree, 'HEAD']
@@ -509,17 +644,51 @@ async function temporaryWorktree(root, ref, callback, { env = process.env } = {}
       { code: 'state_branch.worktree_unavailable' }
     );
   }
+  let result;
+  let callbackFailure = null;
   try {
     if (bootstrap) {
-      git(worktree, ['symbolic-ref', 'HEAD', `refs/heads/${bootstrapBranch}`], { env });
+      git(worktree, ['symbolic-ref', 'HEAD', bootstrapRef], { env });
       git(worktree, ['read-tree', '--empty'], { env });
     }
-    return await callback(worktree);
-  } finally {
-    git(root, ['worktree', 'remove', '--force', worktree], { allowFailure: true, env });
-    if (bootstrap) git(root, ['branch', '-D', bootstrapBranch], { allowFailure: true, env });
-    await rm(parent, { recursive: true, force: true });
+    result = await callback(worktree);
+  } catch (error) {
+    callbackFailure = error;
   }
+
+  const removed = git(root, ['worktree', 'remove', '--force', worktree], {
+    allowFailure: true, env
+  });
+  const worktrees = git(root, ['worktree', 'list', '--porcelain', '-z'], {
+    allowFailure: true, env, maxBuffer: 1024 * 1024, timeoutMs: 5_000
+  });
+  const remainsRegistered = worktrees.status === 0 && worktrees.stdout.split('\0')
+    .some((field) => field.startsWith('worktree ')
+      && path.resolve(field.slice('worktree '.length)) === path.resolve(worktree));
+  if (removed.status !== 0 || worktrees.status !== 0 || remainsRegistered) {
+    // A locked or file-busy worktree is durable recovery state. Keep both its private bootstrap ref
+    // and directory; deleting either would strand common-dir metadata (especially on Windows).
+    throw new SingularityFlowError(
+      `The isolated ledger worktree could not be removed safely. Recovery state was retained at '${worktree}'.`, {
+        code: 'state_branch.worktree_cleanup_failed',
+        details: { worktree, bootstrapRef, callbackFailed: callbackFailure != null },
+        cause: callbackFailure ?? undefined
+      }
+    );
+  }
+  if (bootstrap) {
+    const retained = directRefObservation(root, bootstrapRef, env);
+    if (retained.status === 'direct') {
+      // Delete only the exact object this initializer left behind. A concurrent replacement or
+      // symbolic alias remains untouched for diagnosis instead of being followed or forced away.
+      git(root, ['update-ref', '--no-deref', '-d', bootstrapRef, retained.commit], {
+        allowFailure: true, env
+      });
+    }
+  }
+  await rm(parent, { recursive: true, force: true });
+  if (callbackFailure) throw callbackFailure;
+  return result;
 }
 
 /**
@@ -818,20 +987,40 @@ async function assertGuardedRemoteRefsCurrent(worktree, config, guards, phase, {
 async function observeRemoteBranch(worktree, config, {
   env = process.env, transportRemote = undefined
 } = {}) {
-  const frozen = transportRemote === undefined
-    ? null
-    : frozenRemoteTransport(transportRemote, { env });
-  const observed = await runRemoteGitAsync([
-    'ls-remote', '--heads', frozen?.remote ?? config.remote, `refs/heads/${config.branch}`
-  ], { cwd: worktree, operation: 'remote-probe', env: frozen?.env ?? env });
-  if (observed.status !== 0) {
+  const transport = ledgerFetchTransport(worktree, config, { env, transportRemote });
+  if (!transport) {
+    return { status: 'unavailable', commit: null, timedOut: false, transport: null };
+  }
+  const session = new GitRemoteSession({
+    env: transport.env,
+    runAsyncCommand: (args, options) => runRemoteGitAsync(args, {
+      ...options, cwd: worktree
+    })
+  });
+  const observed = await session.observeAsync(transport.remote, {
+    includeHead: false, refs: [`refs/heads/${config.branch}`], refresh: true
+  });
+  if (!observed.ok) {
+    if (observed.failure?.code === 'REMOTE_SYMBOLIC_REF_UNSUPPORTED') {
+      return {
+        status: 'symbolic', commit: null, timedOut: false, transport,
+        detail: 'The remote state authority is symbolic.'
+      };
+    }
     return {
       status: 'unavailable',
-      detail: safeGitDiagnosticReference(observed, 'State branch observation failed')
+      commit: null,
+      timedOut: observed.timedOut === true,
+      transport,
+      detail: safeGitDiagnosticReference(observed.result, 'State branch observation failed')
     };
   }
-  const line = observed.stdout.split(/\r?\n/).map((item) => item.trim()).find(Boolean);
-  return { status: 'observed', commit: line ? line.split(/\s+/)[0] : null };
+  return {
+    status: 'observed',
+    commit: observed.refs.get(`refs/heads/${config.branch}`) ?? null,
+    timedOut: false,
+    transport
+  };
 }
 
 export function isStateBranchConcurrencyFailure(detail) {
@@ -885,20 +1074,20 @@ export async function initializeLedger(root, rawConfig = {}, {
     // Keep the orphan root reachable locally before attempting the network operation.
     // If the first push fails, `ledger init` can be retried without losing the commit
     // when this temporary worktree is removed.
-    git(root, ['update-ref', localRef(config), sha], { env });
+    updateDirectLocalStateRef(root, config, sha, null, env);
     if (publish && hasRemoteInEnvironment(root, config.remote, env)) {
       // This is an orphan-root create, so bind it explicitly to an absent remote ref. A concurrent
       // initializer is joined after one recovery fetch; no force update can replace its state root.
       const pushed = await pushLedgerAsync(worktree, config, null, { env, transportRemote });
       if (pushed.status !== 0) {
         await ensureRemoteBranchFetchedAsync(root, config, { env, transportRemote });
-        const concurrent = refExistsInEnvironment(root, remoteRef(config), env) ? remoteRef(config) : null;
-        if (concurrent) {
-          const concurrentCommit = git(root, ['rev-parse', `${concurrent}^{commit}`], { env }).stdout.trim();
+        const concurrent = remoteRef(config);
+        const concurrentCommit = optionalDirectStateRef(root, config, concurrent, env);
+        if (concurrentCommit) {
           // The losing initializer created a local orphan before its absent-ref lease was refused.
           // Point that local convenience ref at the proven winner so direct `state:` reads cannot
           // observe the losing root while ledgerHead correctly prefers the remote-tracking ref.
-          git(root, ['update-ref', localRef(config), concurrentCommit], { env });
+          updateDirectLocalStateRef(root, config, concurrentCommit, sha, env);
           return {
             created: false, branch: config.branch, ref: concurrent,
             commit: concurrentCommit,
@@ -1437,9 +1626,7 @@ async function appendOnce(root, config, intent, publishedCommit, {
     });
     ref = ledgerHead(root, config, { env });
   }
-  const expectedRemoteSha = refExistsInEnvironment(root, remoteRef(config), env)
-    ? git(root, ['rev-parse', remoteRef(config)], { env }).stdout.trim()
-    : null;
+  const expectedRemoteSha = optionalDirectStateRef(root, config, remoteRef(config), env);
   return temporaryWorktree(root, ref, async (worktree) => {
     const duplicate = await eventAlreadyRecorded(worktree, idempotency.hash);
     if (duplicate) {
@@ -1506,10 +1693,8 @@ async function appendOnce(root, config, intent, publishedCommit, {
         throw error;
       }
     } else {
-      git(root, [
-        'update-ref', localRef(config), ledgerCommit,
-        git(root, ['rev-parse', ref], { env }).stdout.trim()
-      ], { env });
+      const expectedLocalSha = requireDirectLocalStateRef(root, config, env);
+      updateDirectLocalStateRef(root, config, ledgerCommit, expectedLocalSha, env);
     }
     return {
       duplicate: false,
@@ -1654,9 +1839,7 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
     ? suppliedExpectedRemoteSha === null && initializedCommit
       ? initializedCommit
       : suppliedExpectedRemoteSha
-    : refExistsInEnvironment(root, remoteRef(config), env)
-      ? git(root, ['rev-parse', remoteRef(config)], { env }).stdout.trim()
-      : null;
+    : optionalDirectStateRef(root, config, remoteRef(config), env);
   const publicationBase = suppliedBaseRef ?? ref;
   if (suppliedBaseRef && git(root, ['cat-file', '-e', `${suppliedBaseRef}^{commit}`], { allowFailure: true, env }).status !== 0) {
     throw new SingularityFlowError('The bound state-branch publication base is unavailable locally.', {

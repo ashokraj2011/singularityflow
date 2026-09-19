@@ -1035,6 +1035,94 @@ test('configuration refresh reconstructs a cached checkout without ignored injec
   }
 });
 
+test('configuration refresh discards a symbolic private cache ref before confirmed apply', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-cache-symbolic-ref-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { remote, registry } = await registeredRepositoryFixture(root, 'cache-symbolic-ref');
+
+  const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  assert.equal(preview.status, 'preview');
+  const checkout = await cachedConfigurationCheckout(registry, preview.planId);
+  run('git', [
+    'symbolic-ref', 'refs/heads/sflow-cache-state', 'refs/heads/sflow/config'
+  ], { cwd: checkout });
+
+  const configBefore = run('git', [
+    '--git-dir', remote, 'rev-parse', 'refs/heads/sflow/config'
+  ]).stdout.trim();
+  const applied = await refreshWorkspaceConfigurations({
+    registryFile: registry, confirmPlan: preview.planId
+  });
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
+  assert.notEqual(run('git', [
+    '--git-dir', remote, 'rev-parse', 'refs/heads/sflow/config'
+  ]).stdout.trim(), configBefore, 'the hardened cache should still publish the reviewed refresh');
+});
+
+test('configuration refresh refuses symbolic remote authority instead of dereferencing it', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-symbolic-authority-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { remote, registry } = await registeredRepositoryFixture(root, 'symbolic-authority');
+  const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  assert.equal(preview.status, 'preview');
+  const configBefore = run('git', [
+    '--git-dir', remote, 'rev-parse', 'refs/heads/sflow/config'
+  ]).stdout.trim();
+
+  run('git', [
+    '--git-dir', remote, 'symbolic-ref', 'refs/heads/state', 'refs/heads/main'
+  ]);
+  const applied = await refreshWorkspaceConfigurations({
+    registryFile: registry, confirmPlan: preview.planId
+  });
+
+  assert.equal(applied.status, 'blocked');
+  assert.equal(applied.results[0].status, 'failed');
+  assert.match(applied.results[0].error, /exact branch authority/i);
+  assert.equal(run('git', [
+    '--git-dir', remote, 'rev-parse', 'refs/heads/sflow/config'
+  ]).stdout.trim(), configBefore, 'ambiguous authority must not publish configuration changes');
+});
+
+test('configuration refresh cache-miss apply refuses a symbolic remote state source', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-symbolic-state-cache-miss-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { remote, registry } = await registeredRepositoryFixture(root, 'symbolic-state-cache-miss');
+  const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  assert.equal(preview.status, 'preview');
+  const configBefore = run('git', [
+    '--git-dir', remote, 'rev-parse', 'refs/heads/sflow/config'
+  ]).stdout.trim();
+  const mainBefore = run('git', [
+    '--git-dir', remote, 'rev-parse', 'refs/heads/main'
+  ]).stdout.trim();
+
+  // Force confirmed apply down the fresh-clone fallback where no cached state-branch name is
+  // available to the initial multi-head preflight.
+  await rm(path.join(path.dirname(registry), '.configuration-refresh-cache', preview.planId), {
+    recursive: true, force: true
+  });
+  run('git', [
+    '--git-dir', remote, 'symbolic-ref', 'refs/heads/state', 'refs/heads/main'
+  ]);
+
+  const applied = await refreshWorkspaceConfigurations({
+    registryFile: registry, confirmPlan: preview.planId
+  });
+  assert.equal(applied.status, 'blocked');
+  assert.equal(applied.results[0].status, 'failed');
+  assert.match(applied.results[0].error, /exact branch authority/i);
+  assert.equal(run('git', [
+    '--git-dir', remote, 'symbolic-ref', 'refs/heads/state'
+  ]).stdout.trim(), 'refs/heads/main');
+  assert.equal(run('git', [
+    '--git-dir', remote, 'rev-parse', 'refs/heads/main'
+  ]).stdout.trim(), mainBefore, 'the symbolic target must remain unchanged');
+  assert.equal(run('git', [
+    '--git-dir', remote, 'rev-parse', 'refs/heads/sflow/config'
+  ]).stdout.trim(), configBefore, 'no configuration publication may precede the refusal');
+});
+
 test('configuration refresh reclaims an old cache lock only after its owner is dead', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-cache-stale-lock-'));
   t.after(() => rm(root, { recursive: true, force: true }));

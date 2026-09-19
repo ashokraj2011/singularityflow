@@ -74,7 +74,7 @@
   ],
   "scripts": {
     "test": "npm run test:all",
-    "test:cli": "node scripts/run-test-suite.mjs cli",
+    "test:cli": "node scripts/run-test-aggregate.mjs cli",
     "test:vscode": "node scripts/run-test-suite.mjs vscode",
     "test:all": "node scripts/run-test-aggregate.mjs all",
     "test:all:single": "node scripts/run-test-suite.mjs all",

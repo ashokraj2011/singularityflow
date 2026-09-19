@@ -830,10 +830,10 @@
     },
     "src/ledger.mjs": {
       "counts": {
-        "command-git": 79,
+        "command-git": 70,
         "command-run": 2
       },
-      "digest": "c8eb18adca0bafb3523973aa85c273bad8052ca639a49d946249adaa14bf3a6e"
+      "digest": "06a249f763c17dfc9c55373b04f66208f26d0c4c8774c6ae55bea17e2656ebb6"
     },
     "src/local-identity.mjs": {
       "counts": {
@@ -1199,9 +1199,9 @@
     },
     "src/workspace-configuration-refresh.mjs": {
       "counts": {
-        "command-run": 31
+        "command-run": 26
       },
-      "digest": "69473003e5257b3386da169cd0e31241ddc166ab3d9be1c986c0fb2569748a97"
+      "digest": "391031fd032c12692686670f356ed0356495ed97357787c0265426ad574d738a"
     },
     "src/workspace-impact.mjs": {
       "counts": {
@@ -1279,7 +1279,7 @@
       "counts": {
         "package-script": 58
       },
-      "digest": "06216320a519d375a483d76fd22644d6db4fb66b1f6fcb65eba98045f9637a03"
+      "digest": "1bdbb6b8d379f22d17be0049f1a045ff60334a22d2f40734b27fa41ca16f9f7b"
     },
     "apps/vscode/package.json": {
       "counts": {

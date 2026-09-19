@@ -716,6 +716,12 @@ test('capability review commands use placeholders for shell-special lead paths',
   assert.doesNotMatch(JSON.stringify(powershellSplat), /@args/);
 });
 
+test('stale-proposal unknown-outcome guidance keeps symbolic refs visible', async () => {
+  const source = await readFile(new URL('../src/organisation.mjs', import.meta.url), 'utf8');
+  assert.match(source,
+    /args: \['ls-remote', '--symref', '--refs', assertCredentialFreeRemote\(remote\), targetRef\]/u);
+});
+
 test('repository inspection blocks duplicate onboarding while an exact mapping awaits review', async () => {
   const org = await remotes('platform', 'service');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
@@ -4521,17 +4527,88 @@ test('a same-history invalid proposal is visible and safely discardable by exact
     activateCapabilityProposal(org.platform, proposed.branch, { confirm: invalidCommit }),
     (error) => error?.code === 'CAPABILITY_PROPOSAL_FILES_INVALID'
   );
+  await assert.rejects(
+    discardStaleCapabilityProposal(org.platform, proposed.branch, {
+      confirm: invalidCommit,
+      reason: 'proposal contains a non-configuration file',
+      deleteRemoteCommand: async () => ({
+        status: 1,
+        stdout: '',
+        stderr: 'simulated refusal before mutation',
+        failure: { advice: 'Correct the simulated refusal.' }
+      })
+    }),
+    (error) => error?.code === 'CAPABILITY_PROPOSAL_DISCARD_FAILED'
+      && error?.details?.currentProposalCommit === invalidCommit
+  );
+  assert.equal(run('git', ['rev-parse', `refs/heads/${proposed.branch}`], {
+    cwd: org.platform
+  }).stdout.trim(), invalidCommit, 'a proven failed deletion preserves the exact proposal');
+
+  // Simulate receive-pack deleting the exact leased ref and its acknowledgement being lost. The
+  // deletion result must be reconciled from the exact remote ref instead of reported as failure.
   const discarded = await discardStaleCapabilityProposal(org.platform, proposed.branch, {
-    confirm: invalidCommit, reason: 'proposal contains a non-configuration file'
+    confirm: invalidCommit,
+    reason: 'proposal contains a non-configuration file',
+    deleteRemoteCommand: async (args, options) => {
+      const result = await runRemoteGitAsync(args, options);
+      assert.equal(result.status, 0, result.stderr);
+      return {
+        ...result,
+        status: 1,
+        failure: { advice: 'The simulated acknowledgement was lost.' }
+      };
+    }
   });
   assert.equal(discarded.discarded, true);
   assert.equal(discarded.proposalCommit, invalidCommit);
+  assert.equal(discarded.discardReconciled, true);
   assert.equal(run('git', ['rev-parse', 'sflow/config'], {
     cwd: org.platform
   }).stdout.trim(), approved, 'discard must leave approved configuration untouched');
   assert.equal(run('git', ['show-ref', '--verify', '--quiet', `refs/heads/${proposed.branch}`], {
     cwd: org.platform, allowFailure: true
   }).status, 1);
+});
+
+test('a symbolic capability proposal ref cannot delete either the alias or its target', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const proposed = await mapCapability(org.platform, {
+    capabilityId: 'symbolic-proposal', name: 'Symbolic proposal', kind: 'collection'
+  });
+  const checkout = await mkdtemp(path.join(os.tmpdir(), 'sflow-symbolic-proposal-'));
+  let invalidCommit;
+  try {
+    run('git', ['clone', '-q', '--branch', proposed.branch, org.platform, checkout]);
+    run('git', ['config', 'user.email', 'reviewer@example.com'], { cwd: checkout });
+    run('git', ['config', 'user.name', 'Review User'], { cwd: checkout });
+    await writeFile(path.join(checkout, 'NOT-CONFIG.txt'), 'must never enter approved configuration\n');
+    run('git', ['add', 'NOT-CONFIG.txt'], { cwd: checkout });
+    run('git', ['commit', '-qm', 'Introduce invalid proposal content'], { cwd: checkout });
+    invalidCommit = run('git', ['rev-parse', 'HEAD'], { cwd: checkout }).stdout.trim();
+    run('git', ['push', '-q', 'origin', `HEAD:${proposed.branch}`], { cwd: checkout });
+  } finally {
+    await rm(checkout, { recursive: true, force: true });
+  }
+
+  const proposalRef = `refs/heads/${proposed.branch}`;
+  const targetRef = 'refs/heads/sflow-symbolic-proposal-target';
+  run('git', ['update-ref', targetRef, invalidCommit], { cwd: org.platform });
+  run('git', ['symbolic-ref', proposalRef, targetRef], { cwd: org.platform });
+
+  await assert.rejects(
+    discardStaleCapabilityProposal(org.platform, proposed.branch, {
+      confirm: invalidCommit, reason: 'symbolic proposals are not exact disposable review refs'
+    }),
+    (error) => error?.code === 'REMOTE_SYMBOLIC_REF_UNSUPPORTED'
+  );
+  assert.equal(run('git', ['symbolic-ref', proposalRef], {
+    cwd: org.platform
+  }).stdout.trim(), targetRef, 'the symbolic proposal alias must remain');
+  assert.equal(run('git', ['rev-parse', targetRef], {
+    cwd: org.platform
+  }).stdout.trim(), invalidCommit, 'the symbolic proposal target must remain');
 });
 
 test('capability fsck detects machine workspace bindings absent from approved configuration', async () => {

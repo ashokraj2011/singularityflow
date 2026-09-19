@@ -794,7 +794,10 @@ test('the aggregate runner checkpoints exact shards and retries only incomplete 
   assert.match(aggregate, /sourceSha256: plan\.sourceSha256/);
   assert.match(aggregate, /Retry only incomplete shards/);
   assert.match(aggregate, /SINGULARITY_FLOW_TEST_CONCURRENCY_PER_SHARD/);
-  assert.equal(JSON.parse(manifest).scripts['test:all'], 'node scripts/run-test-aggregate.mjs all');
+  const scripts = JSON.parse(manifest).scripts;
+  assert.equal(scripts['test:all'], 'node scripts/run-test-aggregate.mjs all');
+  assert.equal(scripts['test:cli'], 'node scripts/run-test-aggregate.mjs cli',
+    'the CLI suite is too large for one wall-clock shard and must retain resumable full coverage');
 });
 
 test('configuration scratch clones avoid hidden blob fetches while workspace clone policy remains explicit', async () => {

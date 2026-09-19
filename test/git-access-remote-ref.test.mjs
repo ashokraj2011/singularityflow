@@ -107,6 +107,16 @@ test('GAL remoteRef refuses naked endpoints, malformed caller pins and invalid r
     fetch: true })).code, 'GAL_INPUT_INVALID');
 });
 
+test('GAL remoteRef refuses a symbolic remote authority instead of accepting its target', async (t) => {
+  const { bare, first, pin, invocation } = await fixture(t);
+  git(bare, ['symbolic-ref', 'refs/heads/alias', 'refs/heads/main']);
+
+  const result = await invocation.remoteRef({ pin, ref: 'refs/heads/alias' });
+  assert.equal(result.code, 'GAL_PROTOCOL_INVALID', JSON.stringify(result));
+  assert.equal(git(bare, ['rev-parse', 'refs/heads/main']), first,
+    'observing a symbolic authority must not alter its target');
+});
+
 test('GAL remoteRef reports continuity only; a caller-claimed revision is not approval proof',
   async (t) => {
     const { bare, first, invocation } = await fixture(t);

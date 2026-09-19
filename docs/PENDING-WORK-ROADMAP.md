@@ -441,7 +441,7 @@ matrix cell.
 | Git Access Layer | The requested caller migration, approved read cutovers, exact-ref/remote hardening, persistent-object hardening, and acceptance traceability are code-local complete at `fbdc7aea`. The clean macOS cell, 5,359-test aggregate, 943-test VS Code suite, 524-test Git-owner suite, and package checks are implementation evidence only | External release evidence: physical office Windows credentials/proxy/CA, cancellation and descendant cleanup, linked worktrees/filesystem behavior, provider rejection/lost-acknowledgement/partial-clone cases, installed npm/VSIX, supported Node/platform cells, and independent signed review. Optional G0/G2 inventory/barrier expansion remains future engineering | [Git Access Layer status](GIT-ACCESS-LAYER-STATUS.md) |
 | SGOS | Universal Candidate publication, portable authority transport, meta-tool review, replay/live-store SPIs, and advanced-orchestration slices are code-complete. The live mutable Process head uses the implementation-pinned `filesystem-live-v1` profile; exact old-format import, atomic self-hashed cutover, interruption recovery, verified mirror, forged-profile refusal, and the unchanged bounded Store conformance journey are implemented without moving Program or policy authority | Code-local live-store closeout is complete. Remaining release work is independently reviewed signed supported-platform/package evidence, real Secret Broker integration, consented telemetry, independent certification, and separately authorized adapters/protocols/packs | [SGOS pending work](SGOS-PENDING-WORK.md) |
 | World Model Builder v4 | Release receipt generation and enforcement exist; no reviewed six-cell supported-platform aggregate is recorded | `WMB-REL-001` | [WMB v4](WORLD-MODEL-BUILDER-V4.md) |
-| Persisted World-Model exact history | Governed identity, exact-key lookup, build-to-binding staging, owned saved-view materialization/publication, byte-only measurement, successor packet composition/replay, history inspection, and the opt-in current-plus-history single-CAS transaction exist. Existing WMB v3/v4 and Story operation remain live | Add lifecycle-owned exact history re-resolution, prove closure-to-authority-cut correlation, and immutably pin that cut before any Story/grounding activation. Add a tokenizer owner only if a future variant claims token measurement | [Persisted World-Model views](PERSISTED-WORLD-MODEL-VIEWS.md) |
+| Persisted World-Model exact history | Governed identity, exact-key lookup, build-to-binding staging, owned saved-view publication, byte-only packets, and automatic new-Story exact-history activation are implemented. Registered-v4 Story creation selects exact already-published model/view keys at one immutable authority cut before WFA; phase composition re-proves and replays that cut without hidden model/render/AST work | Collect physical-platform/fresh-clone/race evidence; add IDE/FWM exact-history consumers and portable handoff/adoption. Add a tokenizer owner only if a future variant claims token measurement | [Persisted World-Model views](PERSISTED-WORLD-MODEL-VIEWS.md) |
 | REV code/test loop | Private feedback attachment intake and internal journal/precheck/publication/check-planning foundations exist, including exact retained-Candidate compare and restore/discard head selection, but no user-facing mutating Revision Loop is activated. The read-only activation report distinguishes those foundations from unavailable Program, attempt, receipt, recovery, and public-UX authority. Classic Delivery continues to use its explicit reject-to-Code cycle | Install trusted editor observation and isolated execution, bind durable Code-check receipts, expose the guarded pilot and compare/discard/restore UX, and pass its closed cross-platform witness/release gate before enabling it | [REV delivery status](REV-DELIVERY-STATUS.md) |
 | Witnessed Engineering Loop | Exact-static local JUnit and bounded literal Jest/Vitest observations, immutable proposal binding, existing-approval review, migration, release-gated baseline/delta/Context-X-Ray/Story-start/recovery benchmark, cancellable Java parser boundary, isolated npm/VSIX proof, strict signed benchmark-report binding, a bounded platform-matrix command, and a privacy-safe real-repository JUnit/Surefire plus Jest/Vitest corpus runner are active; portable Linux matrices and package gates are green, process-private parser reuse is present, and `main@03825387` closes the remaining reproduced exact-publication/aggregate-interruption liveness defects; authenticated testcase claims and enforcement remain unavailable | Execute and independently review both corpus families through the new runner, sign the physical-host/office-network P0 gates, then satisfy Candidate/Program/attempt and authenticated-runner dependencies | [WEL pending work](WEL-PENDING-WORK.md) |
 | Code Assurance Bridge | CAB-R0 architecture and CAB-R1 observe pilot are active; enforcement remains unavailable | Independent CAB-R0 review plus authenticated CAB-R2 runner authority | [CAB roadmap](CAB-ROADMAP.md) |
@@ -459,10 +459,10 @@ new responsiveness defect belongs in the DXP track below, not in that closed rem
 - **Evidence-only release work:** GAL physical Windows/office and provider exercises, SGOS live-
   store physical-platform/package review, plus the shared signed platform/runtime and installed npm/VSIX
   receipts. This does not require reopening either completed code-local design.
-- **Next code-local product work:** WMP P0 lifecycle history re-resolution, closure-to-authority-cut
-  proof, and immutable Story selection/pinning. Saved-view materialization/publication and successor
-  byte composition/replay are implemented; v1 is deliberately byte-only, so tokenizer ownership is
-  required only if a future variant claims token measurement.
+- **Completed code-local activation boundary:** WMP P0 lifecycle history re-resolution,
+  closure-to-authority-cut proof, immutable Story selection/pinning, and exact phase replay are
+  implemented. Remaining WMP work is consumer expansion and release evidence; v1 is deliberately
+  byte-only, so tokenizer ownership is required only if a future variant claims token measurement.
 - **Guarded activation work:** REV remains disabled until its trusted-editor, isolated-execution,
   durable-receipt, UX, and cross-platform witness gates pass. Its available attachment intake is
   not an executable revision loop. WEL Candidate/Program/attempt correlation likewise waits for
@@ -480,9 +480,9 @@ The remaining portfolio work should be completed in this order:
 3. keep the completed GAL caller-migration boundary stable and collect its physical Windows/office,
    provider, supported-runtime, installed-package, and independent-review evidence without
    reopening authority design;
-4. complete WMP P0 lifecycle history re-resolution, closure-to-authority-cut proof, and immutable
-   Story selection/pinning before any automatic activation; introduce tokenizer authority only if a
-   future saved-view or grounding variant claims token measurement;
+4. qualify the completed WMP P0 activation boundary on physical supported platforms and fresh
+   clones, then add portable handoff/adoption and IDE/FWM consumers; introduce tokenizer authority
+   only if a future saved-view or grounding variant claims token measurement;
 5. independently run and sign the unchanged SGOS live-store physical-platform/package evidence without
    reopening the implemented Process-head cutover;
 6. complete the REV trusted-editor, isolated-executor, receipt, UX, and witness gates before
@@ -878,12 +878,15 @@ graph admission are implemented. The normal WMB service now has a
 strictly opt-in bridge that performs lookup-before-extraction, builds only on the typed exact miss,
 derives the view-only coverage overlay without re-reading source, and stages the compatible current
 projection plus immutable model history through one state-branch CAS and recovery envelope.
-Owned saved-view materialization/publication, explicit byte-only measurement, and successor packet
-composition/replay are implemented behind the opt-in service. Production Story/grounding activation
-remains inactive until a lifecycle owner re-resolves the exact history cut, proves the supplied
-closure belongs to that cut, and pins it immutably. A tokenizer owner is not applicable to byte-only
-v1 and is required only if a future variant claims token measurement. This pending activation work
-does not disable Story creation, phase progression, legacy-v3 builds, registered-v4
+Owned saved-view materialization/publication, explicit byte-only measurement, successor packet
+composition/replay, and the production new-Story activation owner are implemented. Before WFA
+capture, a registered-v4 Story derives exact Model/View Keys, reads one already-published authority
+cut, rechecks authority, and stores either a closed self-hashed active pin or a typed unavailable
+pin. Every eligible governed-agent phase re-resolves the exact closure, proves the pinned cut
+remains reachable, and
+injects the packet bytes exactly once. A tokenizer owner is not applicable to byte-only v1 and is
+required only if a future variant claims token measurement. This activation does not disable Story
+creation, phase progression, legacy-v3 builds, registered-v4
 builds/current projections, or their existing reuse mechanisms. The shipped `grounding: warn`
 policy records unavailable intelligence with zero World-Model bytes and lets ordinary repository
 work continue. `grounding: enforce` changes consumed-context integrity handling, not availability;
@@ -891,7 +894,7 @@ a separately required product may retain an independent explicit gate. The
 authoritative amended boundary is
 [Persisted World-Model views](PERSISTED-WORLD-MODEL-VIEWS.md).
 
-### Completed foundation — not automatic exact-history activation
+### Completed foundation and bounded automatic exact-history activation
 
 - [x] register frozen v1 semantic owners and strict validators for repository-domain,
   extraction-policy, extractor-registry, completeness-record, consumer-profile, output-budget,
@@ -906,8 +909,8 @@ authoritative amended boundary is
 - [x] provide explicit deterministic terminal-execution capture against exact installed extractor
   manifests and implementations for every selected source-snapshot path, including successful
   zero-fact extraction and explicit unsupported, partial, and failed states; ordinary registration
-  leaves this capture off until automatic WMP exact-history activation so large repositories do not retain an
-  unused extractor-by-path matrix;
+  leaves this capture off unless an explicit exact-history producer requests it, so large
+  repositories do not retain an unused extractor-by-path matrix merely because a Story starts;
 - [x] construct a frozen completeness record through a pure bridge that verifies selected path
   coverage/digests, exact extractor identity, global outcomes, and required subject outcomes,
   and emits excluded outcomes only from the owned pre-scope candidate roster; a sealed extraction
@@ -965,11 +968,13 @@ authoritative amended boundary is
   current-plus-history single-CAS publication behind an opt-in service boundary;
 - [x] retain frozen renderer/validator implementation owners and enforce exact persisted-view graph
   admission before staged authority can advance;
-- [~] wire the verified opt-in history result into public Story start and grounding preparation
-  without allowing a typed miss to trigger a hidden build. The default-off code-local Story
-  composition primitive now emits/replays only a fully supplied accepted closure, but explicitly
-  reports `authorityProven: false`; lifecycle history re-resolution, state-cut selection, closure-
-  to-cut proof, and immutable workflow pinning remain before public activation;
+- [x] wire the verified history result into public new-Story start and grounding preparation
+  without allowing a typed miss to trigger a hidden build. Story creation derives complete exact
+  keys, selects and rechecks one state-authority cut before WFA, and immutably pins either the
+  accepted closure or a typed unavailable result. Every eligible governed-agent phase re-resolves
+  the exact bytes selected for its phase/agent pair,
+  verifies closure-to-cut and repository authority, permits a reachable fast-forward, refuses
+  rewind/replacement/tampering, and only then reports `authorityProven: true`;
 - [x] add an owned saved-view materialization/publication service that preserves the implemented exact
   model/base/projection/selected-ledger, scope, candidate-digest, renderer/validator, receipt, and
   byte-budget admission across existing-plus-staged authority. V1 declares byte-only measurement
@@ -978,14 +983,15 @@ authoritative amended boundary is
   source, policy, renderer, or reports change, using a compatible successor to the structural v1
   preview that binds expansion handles, ordering/separators, and packet-composer identity. This
   proves packet bytes, not that a caller-supplied authority assertion owns the supplied closure;
-  exact lifecycle history re-resolution remains in the preceding open item.
+  only the completed lifecycle owner above can prove and activate that authority.
 
-Automatic WMP exact-history view emission and reuse stays inactive while the Story lifecycle pin is
-open. The explicit service can write the accepted base Model Binding and owned saved views with the
-current projection through one transaction, and the default-off composition primitive can
-create/replay a successor packet only from that accepted closure. It deliberately reports the
-authority cut as unproven until a lifecycle owner re-resolves the closure from exact history. This
-does not authorize automatic Story/grounding activation or token measurement.
+Automatic WMP exact-history **reuse** is active for newly created registered-v4 Stories, while
+automatic history **emission** remains prohibited. Story start never builds a missing model/view:
+absence becomes an immutable unavailable pin, later publication does not silently repin that Story,
+and there is no model, renderer, AST, cache, fetch, or publication fallback. The low-level
+composition primitive still reports a caller-supplied cut as unproven; the lifecycle owner alone
+may re-resolve the exact cut and report `authorityProven: true`. This does not authorize token
+measurement.
 Direct caller-supplied persisted facts are refused at the publication-service boundary. This restriction
 does not turn off the existing WMB v3/v4 services.
 Deferred grounding/handoff/adoption also require publication-receipt, admission-proof,
@@ -997,8 +1003,9 @@ may be satisfied with an unrelated registered record.
 - implement verified handoff and foreign Candidate adoption through their source/authority owners,
   including exact candidate-snapshot revision, authority-scope correlation, and an object-closure
   digest derived from verified transferred objects;
-- move CLI, phase preparation, prompt composition, gate/review, IDE/FWM, and recovery consumers to
-  the exact history service without stale worktree fallback;
+- move remaining gate/review, IDE/FWM, and recovery consumers to the exact history service without
+  stale worktree fallback; new-Story phase preparation and prompt composition already use the
+  lifecycle-pinned exact history service;
 - add the native VS Code persisted-model/view explorer over that same read-only service;
 - implement incremental parse/derivation reuse and prove identical output to a full rebuild.
 

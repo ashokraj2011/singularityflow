@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, symlink, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -21,7 +21,15 @@ import {
   evaluateTokenReductionShadow, tokenReductionShadowFailure
 } from '../src/token-reduction/shadow-evaluation.mjs';
 import { readJson, run } from '../src/util.mjs';
-import { recordSha256 } from '../src/world-model/canonicalize.mjs';
+import {
+  canonicalJson as canonicalWmpJson, recordSha256, sealRecord
+} from '../src/world-model/canonicalize.mjs';
+import { createWmpGroundingPacket } from '../src/world-model/history/contracts.mjs';
+import { PERSISTED_GROUNDING_COMPOSER_CONTRACT } from '../src/world-model/history/persisted-grounding-owner.mjs';
+import {
+  worldModelGroundingPacketPath,
+  worldModelGroundingPacketPayloadPath
+} from '../src/world-model/history/paths.mjs';
 
 async function fixtureRoot({ placeholder = true } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-inject-'));
@@ -97,6 +105,142 @@ function durableShadowPromptBudget(compiled) {
   delete value.text;
   if (value.tokenReduction?.record) delete value.tokenReduction.record.receipt;
   return value;
+}
+
+function wmpDigest(value) {
+  return `sha256:${createHash('sha256').update(value).digest('hex')}`;
+}
+
+function wmpObjectRef(role, family, mediaType, value) {
+  return {
+    role, family, mediaType, sha256: wmpDigest(value), bytes: Buffer.byteLength(value)
+  };
+}
+
+async function coordinatedPersistedGroundingFixture(workId, {
+  packetMutator = null, pinMutator = null, sealedPinMutator = null
+} = {}) {
+  const root = await fixtureRoot();
+  const rendered = await renderInjection(
+    root, definition([{ when: {}, include: ['architecture/*'] }]), { agent: 'architect' }
+  );
+  const repositoryDomainSha256 = `sha256:${'1'.repeat(64)}`;
+  const workflowInstanceId = `sha256:${'2'.repeat(64)}`;
+  const authorityCommit = '4'.repeat(40);
+  const authority = {
+    repositoryDomainSha256, stateRef: 'refs/heads/state', authorityCommit,
+    repositoryIdentitySha256: null
+  };
+  const payload = '# Persisted grounding\n\nExact historical context.\n\n---\n\n';
+  const model = {
+    modelKey: `sha256:${'6'.repeat(64)}`,
+    bindingRef: wmpObjectRef(
+      'model-binding', 'world-model-model-binding', 'application/json', '{"model":true}'
+    ),
+    modelPayloadSha256: `sha256:${'7'.repeat(64)}`
+  };
+  const renderedViews = [
+    `# Architecture\n\nPinned.\n- Expansion: wmp-view:sha256:${'5'.repeat(64)}\n`,
+    `# Development\n\nPinned.\n- Expansion: wmp-view:sha256:${'d'.repeat(64)}\n`
+  ];
+  const views = [
+    {
+      order: 0,
+      viewKey: `sha256:${'8'.repeat(64)}`,
+      bindingRef: wmpObjectRef(
+        'view-binding', 'world-model-view-binding', 'application/json', '{"view":1}'
+      ),
+      variant: 'brief', format: 'md',
+      renderedRef: wmpObjectRef('rendered-view', null, 'text/markdown', renderedViews[0]),
+      expansionHandle: `wmp-view:sha256:${'5'.repeat(64)}`
+    },
+    {
+      order: 1,
+      viewKey: `sha256:${'e'.repeat(64)}`,
+      bindingRef: wmpObjectRef(
+        'view-binding', 'world-model-view-binding', 'application/json', '{"view":2}'
+      ),
+      variant: 'full', format: 'md',
+      renderedRef: wmpObjectRef('rendered-view', null, 'text/markdown', renderedViews[1]),
+      expansionHandle: `wmp-view:sha256:${'d'.repeat(64)}`
+    }
+  ];
+  const pinCore = {
+    schemaVersion: currentSchemaVersion('story-world-model-history-pin'),
+    kind: 'story-world-model-history-pin', status: 'active', reasonCode: null,
+    repositoryDomainSha256, sourceRevision: '9'.repeat(40),
+    authority: {
+      stateRef: authority.stateRef, authorityCommit,
+      repositoryIdentitySha256: authority.repositoryIdentitySha256
+    },
+    historyDir: 'singularity/world-model-history', outputDir: 'singularity/world-model',
+    model: {
+      ...model,
+      bindingPath: 'models/model-binding.json',
+      bindingByteSha256: `sha256:${'a'.repeat(64)}`
+    },
+    views: views.map((view, index) => ({
+      reference: index === 0 ? 'architecture@1' : 'development@1',
+      variant: view.variant, format: view.format, viewKey: view.viewKey,
+      bindingPath: `views/view-${index + 1}-binding.json`,
+      bindingByteSha256: `sha256:${(index === 0 ? 'b' : 'f').repeat(64)}`,
+      bindingRef: view.bindingRef, renderedRef: view.renderedRef,
+      expansionHandle: view.expansionHandle
+    })),
+    phasePlans: [{
+      phase: 'design', agent: 'architect', orderedViewKeys: views.map(({ viewKey }) => viewKey)
+    }],
+    composition: { maximumBytes: 32768 },
+    closureSha256: `sha256:${'c'.repeat(64)}`
+  };
+  pinMutator?.(pinCore);
+  const pin = sealRecord(pinCore, 'pinSha256');
+  sealedPinMutator?.(pin);
+
+  const packetInput = {
+    subject: {
+      repositoryDomainSha256, workId, workflowInstanceId, phase: 'design', generation: 1
+    },
+    model: structuredClone(model), views: structuredClone(views),
+    composition: PERSISTED_GROUNDING_COMPOSER_CONTRACT,
+    renderedBlock: wmpObjectRef('rendered-grounding', null, 'text/markdown', payload),
+    budget: {
+      mode: 'bytes', maximum: 32768, measured: Buffer.byteLength(payload),
+      tokenizerSha256: null
+    },
+    authority
+  };
+  packetMutator?.(packetInput);
+  const packet = createWmpGroundingPacket(packetInput);
+  const packetText = canonicalWmpJson(packet);
+  const packetPath = worldModelGroundingPacketPath(workId, packet.groundingSha256);
+  const payloadPath = worldModelGroundingPacketPayloadPath(workId, packet.groundingSha256);
+  await mkdir(path.join(root, path.dirname(packetPath)), { recursive: true });
+  await writeFile(path.join(root, packetPath), packetText);
+  await writeFile(path.join(root, payloadPath), payload);
+  const receipt = {
+    activation: 'story', pinSha256: pin.pinSha256,
+    groundingSha256: packet.groundingSha256,
+    packetRef: wmpObjectRef(
+      'grounding-packet', 'world-model-grounding-packet', 'application/json', packetText
+    ),
+    renderedBlock: wmpObjectRef('rendered-grounding', null, 'text/markdown', payload),
+    authority,
+    files: [
+      { path: packetPath, bytes: Buffer.byteLength(packetText), sha256: wmpDigest(packetText) },
+      { path: payloadPath, bytes: Buffer.byteLength(payload), sha256: wmpDigest(payload) }
+    ]
+  };
+  return {
+    root, rendered, receipt, payload,
+    workflow: {
+      workItem: { id: workId },
+      workflowSnapshot: { snapshotHash: workflowInstanceId },
+      resolution: { worldModelHistoryPin: pin }
+    },
+    phase: { id: 'design', generation: 0 },
+    workDir: path.join(root, 'singularity/work-items', workId)
+  };
 }
 
 test('globToRegExp supports * and ** semantics', () => {
@@ -301,6 +445,252 @@ test('recordInjection writes an auditable generation context record', async () =
   assert.deepEqual(written.sourceComparison, { status: 'fresh', reasonCode: null });
   assert.deepEqual(written.executionContext, { mode: 'legacy-live' });
   assert.equal(written.tokenReduction, null);
+  assert.equal(written.persistedGrounding, null);
+});
+
+test('prompt injection binds one exact persisted Story grounding packet and detects payload tampering', async () => {
+  const root = await fixtureRoot();
+  const rendered = await renderInjection(
+    root, definition([{ when: {}, include: ['architecture/*'] }]), { agent: 'architect' }
+  );
+  const workId = 'ENG-WMP-PACKET';
+  const repositoryDomainSha256 = `sha256:${'1'.repeat(64)}`;
+  const workflowInstanceId = `sha256:${'2'.repeat(64)}`;
+  const authorityCommit = '4'.repeat(40);
+  const payload = '# Persisted grounding\n\nExact historical context.\n\n---\n\n';
+  const digest = (value) => `sha256:${createHash('sha256').update(value).digest('hex')}`;
+  const objectRef = (role, family, mediaType, value) => ({
+    role, family, mediaType, sha256: digest(value), bytes: Buffer.byteLength(value)
+  });
+  const renderedView = '# Architecture\n\nPinned.\n- Expansion: wmp-view:sha256:'
+    + `${'5'.repeat(64)}\n`;
+  const packet = createWmpGroundingPacket({
+    subject: {
+      repositoryDomainSha256, workId, workflowInstanceId, phase: 'design', generation: 1
+    },
+    model: {
+      modelKey: `sha256:${'6'.repeat(64)}`,
+      bindingRef: objectRef(
+        'model-binding', 'world-model-model-binding', 'application/json', '{"model":true}'
+      ),
+      modelPayloadSha256: `sha256:${'7'.repeat(64)}`
+    },
+    views: [{
+      order: 0,
+      viewKey: `sha256:${'8'.repeat(64)}`,
+      bindingRef: objectRef(
+        'view-binding', 'world-model-view-binding', 'application/json', '{"view":true}'
+      ),
+      variant: 'brief', format: 'md',
+      renderedRef: objectRef('rendered-view', null, 'text/markdown', renderedView),
+      expansionHandle: `wmp-view:sha256:${'5'.repeat(64)}`
+    }],
+    composition: PERSISTED_GROUNDING_COMPOSER_CONTRACT,
+    renderedBlock: objectRef('rendered-grounding', null, 'text/markdown', payload),
+    budget: {
+      mode: 'bytes', maximum: 32768, measured: Buffer.byteLength(payload),
+      tokenizerSha256: null
+    },
+    authority: {
+      repositoryDomainSha256, stateRef: 'refs/heads/state', authorityCommit,
+      repositoryIdentitySha256: null
+    }
+  });
+  const pin = sealRecord({
+    schemaVersion: currentSchemaVersion('story-world-model-history-pin'),
+    kind: 'story-world-model-history-pin',
+    status: 'active',
+    reasonCode: null,
+    repositoryDomainSha256,
+    sourceRevision: '9'.repeat(40),
+    authority: {
+      stateRef: 'refs/heads/state', authorityCommit, repositoryIdentitySha256: null
+    },
+    historyDir: 'singularity/world-model-history',
+    outputDir: 'singularity/world-model',
+    model: {
+      modelKey: packet.model.modelKey,
+      bindingPath: 'models/model-binding.json',
+      bindingByteSha256: `sha256:${'a'.repeat(64)}`,
+      bindingRef: packet.model.bindingRef,
+      modelPayloadSha256: packet.model.modelPayloadSha256
+    },
+    views: [{
+      reference: 'architecture@1',
+      variant: packet.views[0].variant,
+      format: packet.views[0].format,
+      viewKey: packet.views[0].viewKey,
+      bindingPath: 'views/architecture-binding.json',
+      bindingByteSha256: `sha256:${'b'.repeat(64)}`,
+      bindingRef: packet.views[0].bindingRef,
+      renderedRef: packet.views[0].renderedRef,
+      expansionHandle: packet.views[0].expansionHandle
+    }],
+    phasePlans: [{
+      phase: 'design', agent: 'architect', orderedViewKeys: [packet.views[0].viewKey]
+    }],
+    composition: { maximumBytes: 32768 },
+    closureSha256: `sha256:${'c'.repeat(64)}`
+  }, 'pinSha256');
+  const pinSha256 = pin.pinSha256;
+  const packetText = canonicalWmpJson(packet);
+  const packetPath = worldModelGroundingPacketPath(workId, packet.groundingSha256);
+  const payloadPath = worldModelGroundingPacketPayloadPath(workId, packet.groundingSha256);
+  await mkdir(path.join(root, path.dirname(packetPath)), { recursive: true });
+  await writeFile(path.join(root, packetPath), packetText);
+  await writeFile(path.join(root, payloadPath), payload);
+  const receipt = {
+    activation: 'story', pinSha256, groundingSha256: packet.groundingSha256,
+    packetRef: objectRef(
+      'grounding-packet', 'world-model-grounding-packet', 'application/json', packetText
+    ),
+    renderedBlock: objectRef('rendered-grounding', null, 'text/markdown', payload),
+    authority: packet.authority,
+    files: [
+      { path: packetPath, bytes: Buffer.byteLength(packetText), sha256: digest(packetText) },
+      { path: payloadPath, bytes: Buffer.byteLength(payload), sha256: digest(payload) }
+    ]
+  };
+  const workflow = {
+    workItem: { id: workId },
+    workflowSnapshot: { snapshotHash: workflowInstanceId },
+    resolution: {
+      worldModelHistoryPin: pin
+    }
+  };
+  const phase = { id: 'design', generation: 0 };
+  const workDir = path.join(root, 'singularity/work-items', workId);
+  const renderedText = `# Prompt\n\n${payload}Continue.\n`;
+  const recorded = await recordInjection(root, workflow, phase, {
+    ...rendered, agent: 'architect', renderedText, fresh: true,
+    sourceComparison: { status: 'fresh', reasonCode: null }, persistedGrounding: receipt
+  }, { workDir });
+  assert.deepEqual(recorded.record.persistedGrounding, receipt);
+  const replayed = await readPromptGeneration(root, workflow, phase, {
+    workDir, agent: 'architect'
+  });
+  assert.deepEqual(replayed.record.persistedGrounding, receipt);
+
+  const recordFile = path.join(root, recorded.file);
+  const originalRecordText = await readFile(recordFile, 'utf8');
+  const oversizedRecord = JSON.parse(originalRecordText);
+  oversizedRecord.persistedGrounding.files.find(({ path: file }) => file === payloadPath).bytes
+    = (32 * 1024 * 1024) + 1;
+  await writeFile(recordFile, JSON.stringify(oversizedRecord));
+  await assert.rejects(
+    () => readPromptGeneration(root, workflow, phase, { workDir, agent: 'architect' }),
+    (error) => error.code === 'PROMPT_SNAPSHOT_INTEGRITY_FAILED'
+      && /invalid payload identity/u.test(error.message)
+  );
+
+  const invalidUtf8 = Buffer.from(payload);
+  invalidUtf8[0] = 0xff;
+  const invalidUtf8Record = JSON.parse(originalRecordText);
+  invalidUtf8Record.persistedGrounding.files.find(({ path: file }) => file === payloadPath).sha256
+    = digest(invalidUtf8);
+  await writeFile(recordFile, JSON.stringify(invalidUtf8Record));
+  await writeFile(path.join(root, payloadPath), invalidUtf8);
+  await assert.rejects(
+    () => readPromptGeneration(root, workflow, phase, { workDir, agent: 'architect' }),
+    (error) => error.code === 'PROMPT_SNAPSHOT_INTEGRITY_FAILED'
+      && /payload is not valid UTF-8/u.test(error.message)
+  );
+
+  await writeFile(recordFile, originalRecordText);
+  await writeFile(path.join(root, payloadPath), payload);
+  if (process.platform !== 'win32') {
+    await unlink(path.join(root, payloadPath));
+    await symlink(
+      path.join(root, 'singularity/world-model/architecture/overview.md'),
+      path.join(root, payloadPath)
+    );
+    await assert.rejects(
+      () => readPromptGeneration(root, workflow, phase, { workDir, agent: 'architect' }),
+      (error) => error.code === 'PROMPT_SNAPSHOT_INTEGRITY_FAILED'
+        && /could not safely resolve its payload/u.test(error.message)
+    );
+    await unlink(path.join(root, payloadPath));
+    await writeFile(path.join(root, payloadPath), payload);
+  }
+
+  await writeFile(path.join(root, payloadPath), `${payload}tampered\n`);
+  await assert.rejects(
+    () => readPromptGeneration(root, workflow, phase, { workDir, agent: 'architect' }),
+    (error) => error.code === 'PROMPT_SNAPSHOT_INTEGRITY_FAILED'
+  );
+});
+
+test('persisted Story grounding refuses coordinated substitutions outside its sealed phase plan', async (t) => {
+  const cases = [
+    {
+      name: 'alternate model',
+      mutate: {
+        packetMutator(packet) {
+          packet.model = {
+            modelKey: `sha256:${'0'.repeat(64)}`,
+            bindingRef: wmpObjectRef(
+              'model-binding', 'world-model-model-binding', 'application/json',
+              '{"model":"substituted"}'
+            ),
+            modelPayloadSha256: `sha256:${'a'.repeat(64)}`
+          };
+        }
+      }
+    },
+    {
+      name: 'reordered view selection',
+      mutate: {
+        packetMutator(packet) {
+          packet.views = packet.views.toReversed().map((view, order) => ({ ...view, order }));
+        }
+      }
+    },
+    {
+      name: 'different phase-agent plan',
+      mutate: {
+        pinMutator(pin) {
+          pin.phasePlans[0].agent = 'developer';
+        }
+      }
+    },
+    {
+      name: 'different composition budget',
+      mutate: {
+        packetMutator(packet) {
+          packet.budget.maximum = 16384;
+        }
+      }
+    },
+    {
+      name: 'mutated sealed pin',
+      mutate: {
+        sealedPinMutator(pin) {
+          pin.composition.maximumBytes = 16384;
+        }
+      }
+    }
+  ];
+  for (const [index, entry] of cases.entries()) {
+    await t.test(entry.name, async () => {
+      const fixture = await coordinatedPersistedGroundingFixture(
+        `ENG-WMP-FORGE-${index + 1}`, entry.mutate
+      );
+      await assert.rejects(
+        () => recordInjection(
+          fixture.root, fixture.workflow, fixture.phase, {
+            ...fixture.rendered,
+            agent: 'architect',
+            renderedText: `# Prompt\n\n${fixture.payload}Continue.\n`,
+            fresh: true,
+            sourceComparison: { status: 'fresh', reasonCode: null },
+            persistedGrounding: fixture.receipt
+          },
+          { workDir: fixture.workDir }
+        ),
+        (error) => error?.code === 'PROMPT_SNAPSHOT_INTEGRITY_FAILED'
+      );
+    });
+  }
 });
 
 test('prompt injection persists and verifies the exact advisory TKR composition receipt', async () => {

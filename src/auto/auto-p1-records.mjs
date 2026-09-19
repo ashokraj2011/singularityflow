@@ -475,7 +475,9 @@ function validateWorldModelReference(value) {
     fail('World Model reference path must be repository-relative.', 'AUTO_RECORD_CORRUPT');
   }
   counter(reference.generation, 'World Model generation');
-  if (!/^[a-f0-9]{40}$/.test(String(reference.worldModelCommit ?? ''))) fail('World Model commit is invalid.', 'AUTO_RECORD_CORRUPT');
+  if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(String(reference.worldModelCommit ?? ''))) {
+    fail('World Model commit is invalid.', 'AUTO_RECORD_CORRUPT');
+  }
   for (const field of ['manifestSha256', 'renderedSha256', 'modelSourceTreeSha256', 'composedSourceTreeSha256']) {
     hash(reference[field], `World Model ${field}`);
   }

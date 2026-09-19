@@ -66,8 +66,9 @@ For deterministic registered facts, evidence-bound views, exact cache reuse, ato
 publication, and explicit v3 migration, see the
 [Governed World-Model Builder v4 guide](./docs/WORLD-MODEL-BUILDER-V4.md).
 The additive [persisted World-Model views roadmap](./docs/PERSISTED-WORLD-MODEL-VIEWS.md) tracks the
-new immutable exact-history binding service; its pending automatic activation does not disable
-existing Story lifecycles or WMB v3/v4 operation.
+immutable exact-history binding service and its bounded new-Story activation. Activation selects
+only exact already-published history and never turns absence into a hidden build; existing Story
+lifecycles and WMB v3/v4 operation remain compatible.
 For the additive, model-free structural read registry, provenance and coverage contracts, active
 view inventory, and deliberately deferred FWM stages, see
 [Future-proof world-model read contracts](./docs/FUTURE-PROOF-WORLD-MODEL.md).
@@ -2112,6 +2113,18 @@ composer, consumer, cache, and total-token controls. Use `sflow world-model plan
 v4 builder, and the gateway exposes read-only inspection rather than mutation. The complete command,
 migration, cache, IDE, and state-publication behavior is in the
 [Governed World-Model Builder v4 guide](./docs/WORLD-MODEL-BUILDER-V4.md).
+
+New Stories that accept `registered-v4` can reuse immutable persisted history without rebuilding
+it. Before WFA seals the Story policy, SFlow derives the complete phase/agent selection, plans exact
+Model/View Keys, reads them at one state-authority commit, rechecks authority, and stores a closed
+self-hashed pin in the Story. An exact miss is pinned as unavailable and does not block ordinary
+work or trigger extraction, rendering, a model, AST, cache writes, fetch, or publication. For an
+active pin, every eligible governed-agent phase re-resolves the exact bytes selected for its
+phase/agent pair and proves the complete pinned closure and cut; state
+fast-forward is accepted while the pinned commit remains an ancestor, while rewind, replacement,
+authority drift, missing/tampered bytes, or closure mismatch fail closed. The phase never falls back
+to a newer mutable projection. See
+[Persisted World-Model views](./docs/PERSISTED-WORLD-MODEL-VIEWS.md).
 
 For bounded structural references, `singularity-flow wm ast context --paths src --max-facts 50 --max-output-bytes 32768 --json` uses the
 same pinned scope and a selected-cone content binding. Java, Python, Kotlin, and Swift receive

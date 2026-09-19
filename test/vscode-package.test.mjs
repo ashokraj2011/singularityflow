@@ -145,6 +145,8 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
   await Promise.all([
     mkdir(path.join(repository, 'bin'), { recursive: true }),
     mkdir(path.join(repository, 'src'), { recursive: true }),
+    mkdir(path.join(repository, 'src', 'world-model', 'history'), { recursive: true }),
+    mkdir(path.join(repository, 'schemas'), { recursive: true }),
     mkdir(path.join(repository, 'plugin', 'skills', 'sflow-sgos'), { recursive: true }),
     mkdir(path.join(repository, 'toolchains', 'npm-pack'), { recursive: true }),
     mkdir(path.join(privateNpm, 'node_modules', 'npm', 'bin'), { recursive: true })
@@ -166,6 +168,12 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     writeFile(path.join(repository, 'src', 'safe-command-guidance.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'phase-preparation-guidance.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'gal-async-read.mjs'), '// fixture\n'),
+    writeFile(path.join(
+      repository, 'src', 'world-model', 'history', 'story-grounding-activation.mjs'
+    ), '// fixture\n'),
+    writeFile(path.join(
+      repository, 'schemas', 'story-world-model-history-pin.schema.json'
+    ), '{}\n'),
     writeFile(path.join(repository, 'plugin', 'skills', 'sflow-sgos', 'SKILL.md'), '# fixture\n'),
     writeFile(path.join(repository, 'package.json'), '{"name":"fixture","version":"1.0.0"}\n'),
     writeFile(path.join(repository, 'toolchains', 'npm-pack', 'package.json'), `${JSON.stringify({
@@ -194,6 +202,8 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
   runGit(['add', '.gitignore', 'bin/tool.mjs', 'src/build-info.mjs',
     'src/safe-command-guidance.mjs', 'src/phase-preparation-guidance.mjs',
     'src/gal-async-read.mjs',
+    'src/world-model/history/story-grounding-activation.mjs',
+    'schemas/story-world-model-history-pin.schema.json',
     'plugin/skills/sflow-sgos/SKILL.md', 'package.json',
     'package-lock.json', 'toolchains/npm-pack/package.json']);
   runGit(['commit', '-q', '-m', 'Fixture']);
@@ -298,10 +308,10 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
 
   // A newly authored runtime module that was not added to Git used to disappear from a dirty
   // developer VSIX and fail only when a user ran the installed CLI. Refuse at staging instead.
-  runGit(['rm', '--cached', 'src/safe-command-guidance.mjs']);
+  runGit(['rm', '--cached', 'src/world-model/history/story-grounding-activation.mjs']);
   await assert.rejects(
     stageCli({ rootDir: repository, extensionDir: path.join(repository, 'extension') }),
-    /Staged CLI is missing required runtime file: src\/safe-command-guidance\.mjs.*Add the file to the Git index/
+    /Staged CLI is missing required runtime file: src\/world-model\/history\/story-grounding-activation\.mjs.*Add the file to the Git index/
   );
   assert.equal(existsSync(path.join(repository, 'extension', 'cli')), false);
 });

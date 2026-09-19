@@ -146,7 +146,7 @@ test('story-workflow v6 migration repairs only the shipped Spec-Driven Release c
   };
   const result = readRecord('story-workflow', source);
   const migrated = result.record;
-  assert.deepEqual(result.migratedThrough, [{ from: 6, to: 7 }]);
+  assert.deepEqual(result.migratedThrough, [{ from: 6, to: 7 }, { from: 7, to: 8 }]);
   assert.equal(migrated.schemaVersion, currentSchemaVersion('story-workflow'));
   for (const release of [
     migrated.resolution.phases.find((phase) => phase.id === 'release'),
@@ -169,6 +169,40 @@ test('story-workflow v6 migration repairs only the shipped Spec-Driven Release c
   custom.resolution.phases.at(-1).template = 'custom/release.md';
   assert.deepEqual(readRecord('story-workflow', custom).record.resolution.phases.at(-1).inputs,
     [legacyVerification], 'a custom pinned profile acquired the packaged migration');
+});
+
+test('story-workflow v7 migration cannot acquire WMP authority from an open legacy field', () => {
+  const crafted = {
+    schemaVersion: 7,
+    resolution: {
+      worldModelHistoryPin: {
+        schemaVersion: 1,
+        kind: 'story-world-model-history-pin',
+        status: 'active',
+        pinSha256: `sha256:${'a'.repeat(64)}`
+      }
+    }
+  };
+  const result = readRecord('story-workflow', crafted);
+  assert.deepEqual(result.migratedThrough, [{ from: 7, to: 8 }]);
+  assert.equal(Object.hasOwn(result.record.resolution, 'worldModelHistoryPin'), false);
+  assert.notEqual(crafted.resolution.worldModelHistoryPin, null,
+    'read-side migration rewrote the historical source object');
+});
+
+test('prompt-injection v6 migration cannot acquire persisted grounding authority', () => {
+  const crafted = {
+    schemaVersion: 6,
+    persistedGrounding: {
+      authorityProven: true,
+      packetSha256: `sha256:${'b'.repeat(64)}`
+    }
+  };
+  const result = readRecord('prompt-injection', crafted);
+  assert.deepEqual(result.migratedThrough, [{ from: 6, to: 7 }]);
+  assert.equal(result.record.persistedGrounding, null);
+  assert.equal(crafted.persistedGrounding.authorityProven, true,
+    'read-side migration rewrote the historical source object');
 });
 
 test('generation-publication v1 migration preserves history with explicit null architecture bindings', () => {

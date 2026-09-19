@@ -247,12 +247,15 @@ async function downgradeOwningPublicationToLegacy(root, workId, phaseId = 'plann
   if (phase.generationIntent?.publication?.record) {
     phase.generationIntent.publication.record.sha256 = record.recordSha256;
   }
-  workflow.schemaVersion = 5;
+  // Keep the Story itself on the current schema. This fixture models only a historical v1
+  // generation-publication record; downgrading the enclosing Story after its immutable WFA policy
+  // was captured would fabricate a cross-era Story whose migrated policy correctly differs from
+  // its creation commit (not a state that the product could ever have published).
   for (const storedPhase of Object.values(workflow.phases)) {
-    delete storedPhase.submissionArchitectureDecision;
+    storedPhase.submissionArchitectureDecision ??= null;
     for (const storedPublication of storedPhase.generationPublications ?? []) {
-      delete storedPublication.architectureIntent;
-      delete storedPublication.architectureDecision;
+      storedPublication.architectureIntent = null;
+      storedPublication.architectureDecision = null;
     }
   }
   await writeFile(absoluteRecordPath, `${JSON.stringify(record, null, 2)}\n`);

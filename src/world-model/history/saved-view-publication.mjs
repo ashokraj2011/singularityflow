@@ -1,6 +1,7 @@
 import { currentSchemaVersion } from '../../schema-migrations.mjs';
 import { SingularityFlowError } from '../../util.mjs';
 import { canonicalJson, compareText, deepFreeze, sealRecord, sha256 } from '../canonicalize.mjs';
+import { deriveWmpViewKey } from './identity.mjs';
 import { createViewProjectionRegistration } from '../extract/view-projection.mjs';
 import { createWmpViewBinding, createWmpViewInputs } from './contracts.mjs';
 import { stageWorldModelHistoryPublication } from './publication.mjs';
@@ -117,6 +118,163 @@ function exactSelection(value = DEFAULT_SELECTION) {
   // createWmpViewInputs owns the full closed validation. Clone here so one caller cannot mutate
   // another view while fan-out is in progress.
   return structuredClone(value);
+}
+
+/**
+ * Derive the complete persisted-overview View Keys without rendering or staging any bytes.
+ *
+ * A View Key is not a lookup alias. It binds the accepted model payload, exact View Inputs,
+ * contract, consumer, selection, aggregate output budget, renderer, validator, format, and
+ * variant. Story activation uses this planner so it never scans history or guesses that the
+ * newest matching view is authoritative. Missing planned keys remain an explicit preparation
+ * outcome; this function performs zero rendering, model, AST, cache, Git, or publication work.
+ */
+export function planPersistedWorldModelViews(options = {}) {
+  if (options == null || typeof options !== 'object' || Array.isArray(options)) {
+    fail('Saved-view planning options must be a plain object.');
+  }
+  const {
+    model,
+    views,
+    variants = ['full'],
+    format = 'md',
+    selection = DEFAULT_SELECTION,
+    consumerProfile = createWorldModelConsumerProfile(),
+    outputBudget = null,
+    tokenizer = null,
+    ...unknown
+  } = options;
+  const unsupported = Object.keys(unknown).sort(compareText);
+  if (unsupported.length) {
+    fail(`Saved-view planning options contain unsupported field(s): ${unsupported.join(', ')}.`,
+      'WMP_VIEW_MATERIALIZATION_INVALID', { unsupported });
+  }
+  if (tokenizer !== null) {
+    fail(
+      'Persisted overview v1 is byte-measured; token-measured variants require a separately registered exact tokenizer owner.',
+      'WMP_TOKENIZER_OWNER_UNAVAILABLE'
+    );
+  }
+  if (!FORMATS.has(format)) fail(`Unsupported saved-view format '${format}'.`, 'WMP_VIEW_OUTPUT_FORMAT_INVALID');
+  if (!Array.isArray(variants) || !variants.length
+      || variants.some((variant) => !VARIANTS.has(variant))) {
+    fail('Saved-view variants must be a non-empty subset of brief and full.',
+      'WMP_VIEW_VARIANT_INVALID');
+  }
+  const accepted = normalizedModel(model);
+  const selectedViews = canonicalReferences(views);
+  const contracts = selectedViews.map((entry) => entry.contract);
+  const budget = outputBudget ?? createWorldModelOutputBudget(contracts);
+  const sourceSnapshot = oneRole(accepted, 'source-snapshot').record;
+  const scopeManifest = oneRole(accepted, 'scope-manifest').record;
+  const extractorRegistry = oneRole(accepted, 'extractor-registry').record;
+  const evidenceCatalog = oneRole(accepted, 'evidence-catalog').record;
+  const derivationCatalog = oneRole(accepted, 'derivation-catalog').record;
+  const sourceFactLedgerObject = oneRole(accepted, 'fact-ledger');
+  const consumerObject = retained(
+    consumerProfile, 'consumer-profile', 'world-model-consumer-profile'
+  );
+  const budgetObject = retained(budget, 'output-budget', 'world-model-output-budget');
+  const rendererObject = retained(
+    PERSISTED_OVERVIEW_RENDERER_CONTRACT,
+    'renderer-contract', 'world-model-renderer-contract'
+  );
+  const validatorObject = retained(
+    PERSISTED_OVERVIEW_VALIDATOR_CONTRACT,
+    'validator-contract', 'world-model-validator-contract'
+  );
+  const planned = [];
+  const uniqueVariants = [...new Set(variants)].sort(compareText);
+  for (const selected of selectedViews) {
+    const contract = selected.contract;
+    const projection = createViewProjectionRegistration({
+      sourceSnapshot,
+      scopeManifest,
+      extractorRegistry,
+      viewRegistry: WMP_OVERVIEW_VIEW_REGISTRY,
+      evidenceCatalog,
+      derivationCatalog,
+      factLedger: sourceFactLedgerObject.record,
+      viewContracts: [contract]
+    });
+    const projectedLedgerObject = retained(
+      projection.factLedger, 'projection-fact-ledger', 'world-model-fact-ledger'
+    );
+    const viewContractObject = retained(
+      contract, 'view-contract', 'world-model-view-contract'
+    );
+    for (const variant of uniqueVariants) {
+      const captures = [
+        {
+          role: 'fact-ledger', subject: 'accepted-model-source', status: 'available',
+          objectRef: sourceFactLedgerObject.ref, reason: null
+        },
+        {
+          role: 'model-binding', subject: 'accepted-model', status: 'available',
+          objectRef: accepted.bindingObject.ref, reason: null
+        },
+        {
+          role: 'output-budget', subject: contract.id, status: 'available',
+          objectRef: budgetObject.ref, reason: null
+        },
+        {
+          role: 'projection-fact-ledger', subject: contract.id, status: 'available',
+          objectRef: projectedLedgerObject.ref, reason: null
+        }
+      ].sort((left, right) => compareText(
+        `${left.role}\0${left.subject}`, `${right.role}\0${right.subject}`
+      ));
+      const exactViewSelection = exactSelection(selection);
+      const viewInputs = createWmpViewInputs({
+        modelPayloadSha256: accepted.binding.modelPayloadSha256,
+        captures,
+        viewContractRef: viewContractObject.ref,
+        consumerProfileRef: consumerObject.ref,
+        selection: exactViewSelection,
+        comparisonRef: null,
+        evidenceCutRef: null
+      });
+      const inputs = {
+        identityVersion: 1,
+        modelPayloadSha256: accepted.binding.modelPayloadSha256,
+        viewInputsSha256: viewInputs.inputManifestSha256,
+        viewId: contract.id,
+        viewVersion: contract.version,
+        viewContractSha256: contract.contractSha256,
+        rendererSha256: rendererObject.ref.sha256,
+        validatorSha256: validatorObject.ref.sha256,
+        consumerProfileSha256: consumerProfile.profileSha256,
+        selectionSha256: sha256(exactViewSelection),
+        outputBudgetSha256: budget.budgetSha256,
+        tokenizerSha256: null,
+        format,
+        variant
+      };
+      planned.push(deepFreeze({
+        reference: selected.reference,
+        variant,
+        format,
+        viewKey: deriveWmpViewKey(inputs),
+        inputs
+      }));
+    }
+  }
+  return deepFreeze({
+    status: 'planned',
+    measurementPolicy: 'exact-bytes-v1',
+    modelKey: accepted.binding.modelKey,
+    modelBinding: accepted.binding,
+    modelBindingRef: accepted.bindingObject.ref,
+    consumerProfile,
+    outputBudget: budget,
+    views: planned.sort((left, right) => compareText(
+      `${left.reference}\0${left.variant}\0${left.format}`,
+      `${right.reference}\0${right.variant}\0${right.format}`
+    )),
+    execution: {
+      renders: 0, modelCalls: 0, astCalls: 0, cacheWrites: 0, publications: 0
+    }
+  });
 }
 
 function receiptFor({ renderedObject, contract, selectedLedger, scopeManifest }) {

@@ -1,13 +1,15 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 
 import { buildVsCodeBundleBudgetReport } from '../src/vscode-bundle-budget.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const runFile = promisify(execFile);
 const policy = JSON.parse(await readFile(
   path.join(root, 'benchmarks', 'dx', 'vscode-bundle-budgets.json'), 'utf8'
 ));
@@ -51,4 +53,16 @@ test('the built VS Code CommonJS closure remains inside the reviewed budget', { 
   assert.deepEqual(Object.keys(report.entries).sort(), Object.keys(policy.entries).sort());
   assert.ok(report.totalJavaScriptBytes <= policy.totalJavaScriptBytes.maximum);
   assert.doesNotMatch(run.stdout, /\/Users\/|[A-Z]:\\|repositoryPath|workId|identity/);
+});
+
+test('concurrent bundle-budget builds use isolated output directories', { timeout: 120_000 }, async () => {
+  const runBudget = () => runFile(process.execPath, ['scripts/vscode-bundle-budget.mjs', '--json'], {
+    cwd: root, encoding: 'utf8', timeout: 120_000, maxBuffer: 4 * 1024 * 1024
+  });
+  const results = await Promise.all([runBudget(), runBudget()]);
+  for (const result of results) {
+    const report = JSON.parse(result.stdout);
+    assert.equal(report.status, 'passed');
+    assert.deepEqual(Object.keys(report.entries).sort(), Object.keys(policy.entries).sort());
+  }
 });

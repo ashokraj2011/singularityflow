@@ -1,5 +1,5 @@
-import { lstat, readdir, readFile, realpath } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { lstat, open, readdir, readFile, realpath } from 'node:fs/promises';
+import { constants as fsConstants, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -18,11 +18,21 @@ import { withSubjectLock } from './subject-lock.mjs';
 import { tokenEconomyDigest } from './token-economy.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { verifyTokenReductionShadow } from './token-reduction/shadow-record.mjs';
+import { validateWmpGroundingPacket } from './world-model/history/contracts.mjs';
+import {
+  worldModelGroundingPacketPath,
+  worldModelGroundingPacketPayloadPath
+} from './world-model/history/paths.mjs';
 
 const DEFAULT_INJECTION = { placeholder: '{{WORLD_MODEL}}', mode: 'append', maxBytes: 32768, rules: [] };
 const MODES = new Set(['replace', 'append', 'off']);
+// Persisted grounding is trusted only after its receipt, path and exact bytes have all been
+// verified. Bound admission before allocation or I/O so a crafted receipt cannot turn replay into
+// an unbounded memory read. Legitimate packets are normally measured in KiB, not MiB.
+const MAXIMUM_PERSISTED_GROUNDING_FILE_BYTES = 32 * 1024 * 1024;
 
 let tokenReductionCompositionRuntimePromise = null;
+let storyWorldModelHistoryRuntimePromise = null;
 
 async function tokenReductionCompositionRuntime() {
   // Keep the complete candidate composer out of every read-only VS Code worker bundle. The VSIX
@@ -33,6 +43,17 @@ async function tokenReductionCompositionRuntime() {
   )).href;
   tokenReductionCompositionRuntimePromise ??= import(runtimeUrl);
   return tokenReductionCompositionRuntimePromise;
+}
+
+async function storyWorldModelHistoryRuntime() {
+  // Keep Story activation and its configuration dependency graph out of read-only VS Code worker
+  // bundles. Loading the validator from the staged package also avoids the static
+  // config -> inject -> activation -> authority-cut -> config cycle.
+  const runtimeUrl = pathToFileURL(path.join(
+    PACKAGE_ROOT, 'src', 'world-model', 'history', 'story-grounding-activation.mjs'
+  )).href;
+  storyWorldModelHistoryRuntimePromise ??= import(runtimeUrl);
+  return storyWorldModelHistoryRuntimePromise;
 }
 
 function values(value) { return Array.isArray(value) ? value : [value]; }
@@ -336,6 +357,278 @@ function promptGenerationFailure(message, code, details = {}) {
   return new SingularityFlowError(message, { code, details });
 }
 
+function exactOwnKeys(value, keys) {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    && canonicalJson(Object.keys(value).sort()) === canonicalJson([...keys].sort());
+}
+
+function prefixedSha256(value) {
+  return `sha256:${promptSha256(value)}`;
+}
+
+function exactOccurrenceCount(text, exact) {
+  if (!exact) return 0;
+  let count = 0;
+  let offset = 0;
+  while ((offset = text.indexOf(exact, offset)) !== -1) {
+    count += 1;
+    offset += exact.length;
+  }
+  return count;
+}
+
+function promptWorkItemRoot(location, workId) {
+  const marker = `/${workId}/context/`;
+  const index = location.recordPath.lastIndexOf(marker);
+  if (index < 1) {
+    throw promptGenerationFailure(
+      `Prompt generation ${location.label} is outside its expected work-item context.`,
+      'PROMPT_SNAPSHOT_INTEGRITY_FAILED', { recordPath: location.recordPath }
+    );
+  }
+  return location.recordPath.slice(0, index);
+}
+
+async function exactPersistedGroundingFile(root, file, expectedPath, label, location) {
+  if (!exactOwnKeys(file, ['path', 'bytes', 'sha256'])) {
+    throw promptGenerationFailure(
+      `Prompt generation ${location.label} has malformed ${label} metadata.`,
+      'PROMPT_SNAPSHOT_INTEGRITY_FAILED', { expectedPath }
+    );
+  }
+  if (file.path !== expectedPath || !Number.isSafeInteger(file.bytes) || file.bytes < 1
+      || file.bytes > MAXIMUM_PERSISTED_GROUNDING_FILE_BYTES
+      || !/^sha256:[a-f0-9]{64}$/u.test(file.sha256 ?? '')) {
+    throw promptGenerationFailure(
+      `Prompt generation ${location.label} has invalid ${label} identity.`,
+      'PROMPT_SNAPSHOT_INTEGRITY_FAILED', { expectedPath, receivedPath: file.path ?? null }
+    );
+  }
+  const targetLabel = `Persisted Story grounding ${label}`;
+  let target;
+  try {
+    target = await secureRepositoryPath(root, file.path, {
+      label: targetLabel, mustExist: true, type: 'file'
+    });
+  } catch (error) {
+    throw promptGenerationFailure(
+      `Prompt generation ${location.label} could not safely resolve its ${label}.`,
+      'PROMPT_SNAPSHOT_INTEGRITY_FAILED', { path: file.path, cause: error?.code ?? null }
+    );
+  }
+  let handle;
+  try {
+    handle = await open(
+      target.absolute,
+      fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0)
+    );
+    const before = await handle.stat();
+    if (!before.isFile() || before.size !== file.bytes) {
+      throw promptGenerationFailure(
+        `Prompt generation ${location.label} ${label} does not match its declared regular-file size.`,
+        'PROMPT_SNAPSHOT_INTEGRITY_FAILED', {
+          path: file.path, expectedBytes: file.bytes, actualBytes: before.size
+        }
+      );
+    }
+
+    // FileHandle.readFile() follows the descriptor safely, but it has no byte ceiling. Read the
+    // already-admitted exact length instead, refusing an early EOF and checking for one extra byte.
+    const bytes = Buffer.allocUnsafe(file.bytes);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const { bytesRead } = await handle.read(bytes, offset, bytes.length - offset, offset);
+      if (bytesRead === 0) break;
+      offset += bytesRead;
+    }
+    const extra = Buffer.allocUnsafe(1);
+    const { bytesRead: extraBytes } = await handle.read(extra, 0, 1, file.bytes);
+    const after = await handle.stat();
+    const rebound = await secureRepositoryPath(root, file.path, {
+      label: targetLabel, mustExist: true, type: 'file'
+    });
+    const pathIdentityChanged = (before.ino !== 0 && rebound.entry?.ino !== before.ino)
+      || (before.dev !== 0 && rebound.entry?.dev !== before.dev);
+    if (offset !== file.bytes || extraBytes !== 0
+        || before.dev !== after.dev || before.ino !== after.ino
+        || before.size !== after.size || after.size !== file.bytes
+        || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs
+        || pathIdentityChanged) {
+      throw promptGenerationFailure(
+        `Prompt generation ${location.label} ${label} changed while it was being read.`,
+        'PROMPT_SNAPSHOT_INTEGRITY_FAILED', { path: file.path }
+      );
+    }
+
+    if (prefixedSha256(bytes) !== file.sha256) {
+      throw promptGenerationFailure(
+        `Prompt generation ${location.label} ${label} bytes differ from its receipt.`,
+        'PROMPT_SNAPSHOT_INTEGRITY_FAILED', { path: file.path }
+      );
+    }
+    try {
+      return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    } catch {
+      throw promptGenerationFailure(
+        `Prompt generation ${location.label} ${label} is not valid UTF-8.`,
+        'PROMPT_SNAPSHOT_INTEGRITY_FAILED', { path: file.path }
+      );
+    }
+  } catch (error) {
+    if (error?.code === 'PROMPT_SNAPSHOT_INTEGRITY_FAILED') throw error;
+    throw promptGenerationFailure(
+      `Prompt generation ${location.label} could not safely read its ${label}.`,
+      'PROMPT_SNAPSHOT_INTEGRITY_FAILED', { path: file.path, cause: error?.code ?? null }
+    );
+  } finally {
+    await handle?.close();
+  }
+}
+
+async function validatePersistedGroundingGenerationReceipt(
+  root, value, text, workflow, phase, location, agent
+) {
+  const suppliedPin = workflow?.resolution?.worldModelHistoryPin ?? null;
+  let pin = null;
+  if (suppliedPin != null) {
+    try {
+      const { validateStoryWorldModelHistoryPin } = await storyWorldModelHistoryRuntime();
+      pin = validateStoryWorldModelHistoryPin(suppliedPin);
+    } catch (error) {
+      throw promptGenerationFailure(
+        `Prompt generation ${location.label} has an invalid Story World-Model history pin.`,
+        'PROMPT_SNAPSHOT_INTEGRITY_FAILED', {
+          pinSha256: suppliedPin?.pinSha256 ?? null,
+          cause: error?.code ?? null
+        }
+      );
+    }
+  }
+  const phasePlans = pin?.status === 'active'
+    ? pin.phasePlans.filter((entry) => entry.phase === phase.id && entry.agent === agent)
+    : [];
+  if (phasePlans.length > 1) {
+    throw promptGenerationFailure(
+      `Prompt generation ${location.label} has more than one persisted grounding plan for agent '${agent ?? 'none'}'.`,
+      'PROMPT_SNAPSHOT_INTEGRITY_FAILED', {
+        phase: phase.id, agent: agent ?? null, matchingPlans: phasePlans.length
+      }
+    );
+  }
+  // An active Story pin governs only the exact phase/agent pairs captured in its plan roster.
+  // A pair with no plan records the established no-grounding receipt; it must not borrow another
+  // agent's plan, and it must not be forced to fabricate persisted grounding bytes.
+  const expected = phasePlans.length === 1;
+  if (value == null) {
+    if (!expected) return null;
+    throw promptGenerationFailure(
+      `Prompt generation ${location.label} is missing its persisted Story grounding receipt.`,
+      'PROMPT_SNAPSHOT_INTEGRITY_FAILED', { pinSha256: pin.pinSha256 ?? null }
+    );
+  }
+  if (!expected || !exactOwnKeys(value, [
+    'activation', 'pinSha256', 'groundingSha256', 'packetRef', 'renderedBlock',
+    'authority', 'files'
+  ]) || value.activation !== 'story' || value.pinSha256 !== pin.pinSha256
+      || !/^sha256:[a-f0-9]{64}$/u.test(value.pinSha256 ?? '')
+      || !/^sha256:[a-f0-9]{64}$/u.test(value.groundingSha256 ?? '')
+      || !Array.isArray(value.files) || value.files.length !== 2) {
+    throw promptGenerationFailure(
+      `Prompt generation ${location.label} has an unauthorized or malformed persisted grounding receipt.`,
+      'PROMPT_SNAPSHOT_INTEGRITY_FAILED'
+    );
+  }
+  const workItemRoot = promptWorkItemRoot(location, workflow.workItem.id);
+  const packetPath = worldModelGroundingPacketPath(
+    workflow.workItem.id, value.groundingSha256, { workItemRoot }
+  );
+  const payloadPath = worldModelGroundingPacketPayloadPath(
+    workflow.workItem.id, value.groundingSha256, { workItemRoot }
+  );
+  const files = new Map(value.files.map((file) => [file.path, file]));
+  if (files.size !== 2 || !files.has(packetPath) || !files.has(payloadPath)) {
+    throw promptGenerationFailure(
+      `Prompt generation ${location.label} persisted grounding files are not the canonical packet pair.`,
+      'PROMPT_SNAPSHOT_INTEGRITY_FAILED', { packetPath, payloadPath }
+    );
+  }
+  const [packetText, payloadText] = await Promise.all([
+    exactPersistedGroundingFile(root, files.get(packetPath), packetPath, 'packet', location),
+    exactPersistedGroundingFile(root, files.get(payloadPath), payloadPath, 'payload', location)
+  ]);
+  let packet;
+  try { packet = validateWmpGroundingPacket(JSON.parse(packetText)); }
+  catch (error) {
+    throw promptGenerationFailure(
+      `Prompt generation ${location.label} has an invalid persisted grounding packet: ${error.message}`,
+      'PROMPT_SNAPSHOT_INTEGRITY_FAILED', { path: packetPath }
+    );
+  }
+  const expectedSubject = {
+    repositoryDomainSha256: pin.repositoryDomainSha256,
+    workId: workflow.workItem.id,
+    workflowInstanceId: workflow.workflowSnapshot?.snapshotHash,
+    phase: phase.id,
+    generation: location.generation
+  };
+  const expectedAuthority = {
+    repositoryDomainSha256: pin.repositoryDomainSha256,
+    stateRef: pin.authority?.stateRef,
+    authorityCommit: pin.authority?.authorityCommit,
+    repositoryIdentitySha256: pin.authority?.repositoryIdentitySha256 ?? null
+  };
+  const packetRef = {
+    role: 'grounding-packet', family: 'world-model-grounding-packet',
+    mediaType: 'application/json', sha256: prefixedSha256(packetText),
+    bytes: Buffer.byteLength(packetText, 'utf8')
+  };
+  const renderedBlock = {
+    role: 'rendered-grounding', family: null, mediaType: 'text/markdown',
+    sha256: prefixedSha256(payloadText), bytes: Buffer.byteLength(payloadText, 'utf8')
+  };
+  const selectedPlan = phasePlans[0] ?? null;
+  const viewsByKey = expected
+    ? new Map(pin.views.map((entry) => [entry.viewKey, entry]))
+    : new Map();
+  const expectedModel = expected ? {
+    modelKey: pin.model.modelKey,
+    bindingRef: pin.model.bindingRef,
+    modelPayloadSha256: pin.model.modelPayloadSha256
+  } : null;
+  const expectedViews = selectedPlan?.orderedViewKeys.map((viewKey, order) => {
+    const view = viewsByKey.get(viewKey);
+    return {
+      order,
+      viewKey: view.viewKey,
+      bindingRef: view.bindingRef,
+      variant: view.variant,
+      format: view.format,
+      renderedRef: view.renderedRef,
+      expansionHandle: view.expansionHandle
+    };
+  }) ?? null;
+  if (packet.groundingSha256 !== value.groundingSha256
+      || canonicalJson(packet.subject) !== canonicalJson(expectedSubject)
+      || canonicalJson(packet.authority) !== canonicalJson(expectedAuthority)
+      || canonicalJson(value.authority) !== canonicalJson(expectedAuthority)
+      || canonicalJson(packet.model) !== canonicalJson(expectedModel)
+      || canonicalJson(packet.views) !== canonicalJson(expectedViews)
+      || packet.budget.maximum !== pin.composition.maximumBytes
+      || canonicalJson(value.packetRef) !== canonicalJson(packetRef)
+      || canonicalJson(value.renderedBlock) !== canonicalJson(renderedBlock)
+      || canonicalJson(packet.renderedBlock) !== canonicalJson(renderedBlock)
+      || exactOccurrenceCount(text, payloadText) !== 1) {
+    throw promptGenerationFailure(
+      `Prompt generation ${location.label} persisted grounding is not bound exactly once to this Story generation.`,
+      'PROMPT_SNAPSHOT_INTEGRITY_FAILED', {
+        groundingSha256: value.groundingSha256,
+        payloadOccurrences: exactOccurrenceCount(text, payloadText)
+      }
+    );
+  }
+  return structuredClone(value);
+}
+
 async function publishPromptHalfExclusively(file, value, location, half) {
   try {
     await writeAtomicExclusive(file, value);
@@ -637,6 +930,9 @@ export async function readPromptGeneration(root, workflow, phase, { workDir, ...
       }
     );
   }
+  const persistedGrounding = await validatePersistedGroundingGenerationReceipt(
+    root, record.persistedGrounding ?? null, text, workflow, phase, location, record.agent
+  );
   let tokenReductionVerification = { status: 'not-recorded', code: null };
   let verifiedTokenReduction = null;
   if (record.tokenReduction != null) {
@@ -663,6 +959,7 @@ export async function readPromptGeneration(root, workflow, phase, { workDir, ...
   }
   record = {
     ...record,
+    persistedGrounding,
     promptBudget: verifiedTokenReductionPromptBudget(
       record.promptBudget, verifiedTokenReduction, workflow, location
     )
@@ -684,7 +981,7 @@ export async function readPromptGeneration(root, workflow, phase, { workDir, ...
  * disagreement remains an integrity refusal.
  */
 async function repairInterruptedPromptGeneration(
-  root, workflow, phase, location, record, renderedText, workDir
+  root, workflow, phase, location, record, renderedText, workDir, beforePersist = null
 ) {
   const [recordTarget, promptTarget] = await Promise.all([
     secureRepositoryPath(root, location.recordPath, {
@@ -706,6 +1003,7 @@ async function repairInterruptedPromptGeneration(
         { recordPath: location.recordPath, promptPath: location.promptPath }
       );
     }
+    if (beforePersist) await beforePersist({ ...location, half: 'receipt', recovery: true });
     await publishPromptHalfExclusively(
       location.recordFile, `${JSON.stringify(record, null, 2)}\n`, location, 'receipt'
     );
@@ -759,6 +1057,7 @@ async function repairInterruptedPromptGeneration(
       { recordPath: location.recordPath, promptPath: location.promptPath }
     );
   }
+  if (beforePersist) await beforePersist({ ...location, half: 'snapshot', recovery: true });
   await publishPromptHalfExclusively(location.promptFile, renderedText, location, 'snapshot');
   const verified = await readPromptGeneration(root, workflow, phase, {
     workDir,
@@ -770,7 +1069,7 @@ async function repairInterruptedPromptGeneration(
 
 export async function recordInjection(root, workflow, phase, injection, {
   workDir, beforePersist = null
-}) {
+} = {}) {
   const groundingAvailability = durableGroundingAvailability(injection);
   const sourceComparison = durableSourceComparison(injection, groundingAvailability);
   const location = promptGenerationLocation(root, workflow, phase, workDir);
@@ -791,6 +1090,10 @@ export async function recordInjection(root, workflow, phase, injection, {
       { expectedSha256: injection.renderedSha256, actualSha256: renderedSha256 }
     );
   }
+  const persistedGrounding = await validatePersistedGroundingGenerationReceipt(
+    root, injection.persistedGrounding ?? null, renderedText, workflow, phase, location,
+    injection.agent ?? null
+  );
   let tokenReduction = null;
   if (injection.tokenReduction != null) {
     try {
@@ -842,6 +1145,7 @@ export async function recordInjection(root, workflow, phase, injection, {
     structuralContext: structuredClone(injection.structuralContext ?? null),
     workSource: structuredClone(injection.workSource ?? null),
     promptBudget,
+    persistedGrounding,
     tokenReduction,
     remoteSkills: structuredClone(injection.remoteSkills ?? []),
     // Omission on a snapshot-backed Story is not evidence that mutable live instructions were
@@ -869,7 +1173,7 @@ export async function recordInjection(root, workflow, phase, injection, {
   };
   return withSubjectLock(root, { kind: 'story', id: workflow.workItem.id }, async () => {
     const repaired = await repairInterruptedPromptGeneration(
-      root, workflow, phase, location, record, renderedText, workDir
+      root, workflow, phase, location, record, renderedText, workDir, beforePersist
     );
     if (repaired) return repaired;
     const existing = await readPromptGeneration(root, workflow, phase, {
@@ -920,7 +1224,7 @@ export async function recordInjection(root, workflow, phase, injection, {
     ]);
     if (finalTargets.some((target) => target.exists)) {
       const finalRepair = await repairInterruptedPromptGeneration(
-        root, workflow, phase, location, record, renderedText, workDir
+        root, workflow, phase, location, record, renderedText, workDir, beforePersist
       );
       if (finalRepair) return finalRepair;
       const finalExisting = await readPromptGeneration(root, workflow, phase, {
@@ -947,8 +1251,9 @@ export async function recordInjection(root, workflow, phase, injection, {
       }
       return finalExisting;
     }
-    if (beforePersist) await beforePersist({ ...location });
+    if (beforePersist) await beforePersist({ ...location, half: 'snapshot', recovery: false });
     await publishPromptHalfExclusively(location.promptFile, renderedText, location, 'snapshot');
+    if (beforePersist) await beforePersist({ ...location, half: 'receipt', recovery: false });
     await publishPromptHalfExclusively(
       location.recordFile, `${JSON.stringify(record, null, 2)}\n`, location, 'receipt'
     );

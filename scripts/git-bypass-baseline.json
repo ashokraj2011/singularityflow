@@ -288,7 +288,7 @@
         "process-import": 1,
         "process-launch": 1
       },
-      "digest": "e169e210ca9ef81f265cc4d3c106e9a6292fb2eb676228b625e687bdc0308d08"
+      "digest": "7e8507576051487eb60cd00a737554359f757cfec51dd21442203daf881cd26c"
     },
     "scripts/vscode-dev.mjs": {
       "counts": {

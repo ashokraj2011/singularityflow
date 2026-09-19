@@ -11,7 +11,7 @@ related:
   - agents-and-routing
   - model-independence
   - knowledge-and-remote-assets
-version: 23
+version: 24
 ---
 The world model provides repository-grounded views used during governed generation. In a monorepo, scope it to the capability's source and shared directories so unrelated products do not increase scan cost or invalidate evidence.
 
@@ -31,11 +31,11 @@ typed `unavailable` Fact through the model-free migration producer, using only c
 hashes. The regenerated view and exact migration receipt publish together in one state transaction.
 
 The exact cache/current-projection behavior in this section is the operational WMB v4 path. The
-newer WMP immutable per-key history service is additive: its contracts, guarded lookup, history
-inspection, and build-to-binding staging exist, but normal Story preparation does not yet activate
-that path or write its history records automatically. This does not disable WMB v4 or any Story
-lifecycle. See [Persisted World-Model views](../PERSISTED-WORLD-MODEL-VIEWS.md) for that rollout
-boundary.
+newer WMP immutable per-key history service is additive. For each newly created Story whose
+accepted configuration selects `registered-v4`, Story start derives exact phase/agent Model and
+View Keys, reads one already-published state-authority cut, rechecks authority, and pins that cut
+before WFA captures the Story policy. It does not write history automatically. See
+[Persisted World-Model views](../PERSISTED-WORLD-MODEL-VIEWS.md) for the exact-history boundary.
 
 ## Shared lifetime and regeneration
 
@@ -51,6 +51,17 @@ a read-only readiness check: it reports a missing or stale required view and ref
 That command refusal is not a lifecycle refusal; ordinary work records unavailable context and
 continues. Create or replace v4 bytes only through an explicit `wm build`, `wm regenerate`, or
 `wm migrate`; exact valid cache entries are reused without another model call.
+
+The same fail-open availability rule applies when a new Story enrolls in immutable exact history.
+An exact Model/View hit becomes an active self-hashed Story pin. A miss becomes a self-hashed
+`unavailable` exact-history pin; Story start performs no model, render, AST, cache, fetch, or
+publication work, and later history cannot silently repin the Story. Existing WMB current-
+projection grounding remains available under its existing policy, but it does not acquire immutable
+WMP authority. For an active pin,
+each phase re-reads the exact bytes at the pinned commit and proves the complete closure and current
+authority ancestry. State fast-forward is allowed while the cut remains reachable. Rewind,
+unrelated replacement, authority drift, missing or modified bytes, and closure mismatch fail closed
+instead of falling back to a newer mutable projection.
 
 All state-backed surfaces use the same approved authority: `ledger.remote`, then
 `worldModel.remote`, then `git.remote`. Read-only status, Help, gateway, and VS Code views never

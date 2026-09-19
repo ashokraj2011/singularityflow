@@ -23,6 +23,8 @@ export const VSIX_REQUIRED_CLI_RUNTIME = Object.freeze([
   'src/gal-async-read.mjs',
   'src/safe-command-guidance.mjs',
   'src/phase-preparation-guidance.mjs',
+  'src/world-model/history/story-grounding-activation.mjs',
+  'schemas/story-world-model-history-pin.schema.json',
   'plugin/skills/sflow-sgos/SKILL.md'
 ]);
 

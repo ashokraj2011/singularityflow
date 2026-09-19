@@ -105,9 +105,24 @@ function normalizeSections(inputSections) {
       });
     }
     seen.add(id);
-    const canonicalText = normalizePromptSection(section?.text);
+    // Persisted WMP grounding packets are already canonical, replay-verified byte strings. They
+    // must reach the model as that exact string: trimming their terminal packet separator would
+    // sever the prompt from the retained rendered-block identity. Exact delivery is deliberately
+    // opt-in; all existing callers retain the legacy whitespace-normalizing behavior.
+    const exact = section?.exact === true;
+    if (exact && section?.mandatory !== true) {
+      throw new SingularityFlowError(
+        `Exact prompt section '${id}' must be mandatory and cannot be budget-evicted.`, {
+          code: 'TKN_EXACT_SECTION_OPTIONAL', details: { id, index }
+        }
+      );
+    }
+    const canonicalText = exact
+      ? String(section?.text ?? '')
+      : normalizePromptSection(section?.text);
     return {
       id, canonicalText,
+      exact,
       mandatory: section?.mandatory === true,
       priority: Number.isFinite(section?.priority) ? section.priority : 100,
       expandHandles: expansionHandles(section ?? {}),

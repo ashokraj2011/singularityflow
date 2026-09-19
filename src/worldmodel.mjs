@@ -108,6 +108,13 @@ import { withSubjectLock } from './subject-lock.mjs';
 import {
   referenceRepositoryGroundingContext, storyReferenceRepositories
 } from './reference-repositories.mjs';
+import {
+  assertPinnedStoryWorldModelGroundingReplay,
+  assertPinnedStoryWorldModelHistoryAuthority,
+  persistPinnedStoryWorldModelGrounding,
+  persistedStoryWorldModelGroundingReceipt,
+  resolvePinnedStoryWorldModelGrounding
+} from './world-model/history/story-grounding-activation.mjs';
 import { resolveStoryExecutionContext } from './story-execution-context.mjs';
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
 import { tokenReductionShadowFailure } from './token-reduction/shadow-record.mjs';
@@ -4304,6 +4311,80 @@ function groundingSectionsText(selected, rulePaths) {
   ].join('\n');
 }
 
+function exactOccurrenceCount(text, exact) {
+  if (!exact) return 0;
+  let count = 0;
+  let offset = 0;
+  while ((offset = text.indexOf(exact, offset)) !== -1) {
+    count += 1;
+    offset += exact.length;
+  }
+  return count;
+}
+
+function storyGroundingLifecycleIdentity(workflow, phaseId) {
+  const phase = workflow?.phases?.[phaseId] ?? null;
+  return {
+    workId: workflow?.workItem?.id ?? null,
+    workflowSnapshotSha256: workflow?.workflowSnapshot?.snapshotHash ?? null,
+    currentPhase: workflow?.currentPhase ?? null,
+    phase: phase ? {
+      id: phase.id, generation: phase.generation, status: phase.status
+    } : null,
+    pinSha256: workflow?.resolution?.worldModelHistoryPin?.pinSha256 ?? null
+  };
+}
+
+async function assertStoryGroundingLifecycleUnchanged(root, expected) {
+  let accepted;
+  try { accepted = await loadAcceptedStoryExecution(root, expected.workId); }
+  catch (error) {
+    throw new SingularityFlowError(
+      'Accepted Story lifecycle could not be reloaded before grounding publication.', {
+        code: 'WMP_STORY_LIFECYCLE_CHANGED',
+        details: { expected, cause: error?.code ?? 'STORY_RELOAD_FAILED' },
+        cause: error
+      }
+    );
+  }
+  const actual = storyGroundingLifecycleIdentity(accepted.workflow, expected.phase?.id);
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new SingularityFlowError(
+      'Accepted Story lifecycle changed while its persisted grounding prompt was composed.', {
+        code: 'WMP_STORY_LIFECYCLE_CHANGED', details: { expected, actual }
+      }
+    );
+  }
+}
+
+/**
+ * Last-moment authority proof for any prompt bytes leaving the composer.
+ *
+ * Packet persistence and immutable prompt recording have their own transaction-boundary checks,
+ * but prompt-audit recording is asynchronous work after those checks. The configured state ref can
+ * move during that await. Keep one delivery boundary shared by fresh, reused, and render-only
+ * prompts so no caller receives bytes after the accepted history cut has stopped being admitted.
+ */
+async function assertStoryGroundingPromptDelivery(root, {
+  definition,
+  workflow,
+  phase,
+  expectedLifecycle,
+  beforeFinalAuthorityCheck = null
+}) {
+  // An active Story may intentionally have no persisted plan for this exact phase/agent. No
+  // history bytes are consumed in that case, so preserve the ordinary no-grounding delivery path.
+  // Planned pairs pass a lifecycle identity and must re-prove authority immediately before bytes
+  // leave the composer.
+  if (workflow?.resolution?.worldModelHistoryPin?.status !== 'active'
+      || expectedLifecycle == null) return;
+  // This dependency is deliberately outside CLI options. Focused race tests use it to move the
+  // authority at the exact async boundary; production callers never receive an authority bypass.
+  if (beforeFinalAuthorityCheck) await beforeFinalAuthorityCheck({ root, workflow, phase });
+  await assertStoryGroundingLifecycleUnchanged(root, expectedLifecycle);
+  await assertPinnedStoryWorldModelHistoryAuthority(root, { definition, workflow });
+}
+
 /**
  * The executable part of a composed phase prompt.
  *
@@ -4476,7 +4557,10 @@ async function recordCompositionPromptAudit(root, {
   return audit;
 }
 
-async function compose(root, options, { storyLockHeld = false } = {}) {
+async function compose(root, options, {
+  storyLockHeld = false,
+  beforeFinalAuthorityCheck = null
+} = {}) {
   const session = await loadSession(root, { required: false });
   const explicitAgent = optionString(options, 'agent');
   let agent = explicitAgent ?? session?.agent;
@@ -4498,7 +4582,7 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
     // still holding this Story's lock.
     const lockedOptions = workId ? options : { ...options, 'work-id': storyId };
     return withSubjectLock(root, { kind: 'story', id: storyId }, () => (
-      compose(root, lockedOptions, { storyLockHeld: true })
+      compose(root, lockedOptions, { storyLockHeld: true, beforeFinalAuthorityCheck })
     ));
   }
   // A terminal session can still name the actor that completed the previous phase. It is not
@@ -4572,6 +4656,34 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
       );
     }
     if (existing) {
+      const existingDeliveryLifecycle = workflow.resolution?.worldModelHistoryPin?.status === 'active'
+          && existing.record.persistedGrounding != null
+        ? storyGroundingLifecycleIdentity(workflow, phase.id)
+        : null;
+      if (workflow.resolution?.worldModelHistoryPin?.status === 'active') {
+        // Immutable prompt bytes remain reusable only after re-resolving the complete pinned
+        // Model/View closure. Receipt self-hashes alone cannot prove that a coordinated packet,
+        // payload and prompt replacement still describe the Story-selected keys.
+        const replay = await resolvePinnedStoryWorldModelGrounding(root, {
+          definition, workflow, phase, agent
+        });
+        if (replay.status === 'composed' && replay.authorityProven === true) {
+          assertPinnedStoryWorldModelGroundingReplay(replay, {
+            receipt: existing.record.persistedGrounding,
+            promptText: existing.text
+          });
+        } else if (existing.record.persistedGrounding != null
+            || existing.record.groundingAvailability?.status !== 'unavailable'
+            || existing.record.groundingAvailability?.reasonCode
+              !== 'WMP_VIEW_SELECTION_UNAVAILABLE') {
+          throw new SingularityFlowError(
+            'Recorded prompt substituted grounding for an unplanned Story phase/agent.', {
+              code: 'WMP_GROUNDING_REPLAY_MISMATCH',
+              details: { phase: phase.id, agent, reasonCode: replay.reasonCode ?? null }
+            }
+          );
+        }
+      }
       // A generation prompt is immutable. Reuse the exact bytes that were verified above instead
       // of re-reading World-Model authority or rebuilding large input sections. Prompt audit is
       // still completed idempotently below: it may have been enabled, or the prior process may have
@@ -4597,6 +4709,13 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
           executionContext: existing.record.executionContext ?? { mode: 'historical-unproven' }
         });
       }
+      await assertStoryGroundingPromptDelivery(root, {
+        definition,
+        workflow,
+        phase,
+        expectedLifecycle: existingDeliveryLifecycle,
+        beforeFinalAuthorityCheck
+      });
       const destination = optionString(options, 'out');
       if (destination) {
         await writeFile(path.resolve(root, destination), existing.text);
@@ -4605,6 +4724,7 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
       return existing.text;
     }
   }
+  let storyGroundingLifecycle = null;
   const registeredV4 = isWorldModelV4(config, options);
   let plan = registeredV4
     ? {
@@ -4615,7 +4735,13 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
         selections: []
       }
     : groundingPlan(config, options, signals.phase);
-  const worldModelEnabled = config.grounding !== 'off';
+  const storyWorldModelHistoryPin = workflow?.resolution?.worldModelHistoryPin ?? null;
+  // Only an active history pin changes the grounding owner. An unavailable enrollment remains
+  // immutable (it can never turn into exact-history authority), but legacy/current configured
+  // WMB grounding remains available for compatibility and is still non-authoritative.
+  const worldModelEnabled = config.grounding !== 'off'
+    || storyWorldModelHistoryPin?.status === 'active';
+  let persistedGrounding = null;
   let groundingAvailable = false;
   let groundingAvailability = {
     status: 'unavailable',
@@ -4629,7 +4755,59 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
     validatedModelFiles: [],
     freshness: { fresh: true, built: null, current: null }
   };
-  if (worldModelEnabled) {
+  if (storyWorldModelHistoryPin?.status === 'active') {
+    // This is the only automatic WMP activation path. The lifecycle owner re-resolves the exact
+    // retained closure at the Story's authority cut and proves the cut against current authority.
+    // Any active-pin error is an integrity failure: never fall back to a mutable projection.
+    persistedGrounding = await resolvePinnedStoryWorldModelGrounding(root, {
+      definition, workflow, phase, agent
+    });
+    if (persistedGrounding.status === 'composed'
+        && persistedGrounding.authorityProven === true) {
+      storyGroundingLifecycle = storyGroundingLifecycleIdentity(workflow, signals.phase);
+      groundingAvailable = true;
+      groundingAvailability = { status: 'available', reasonCode: null };
+      required = {
+        ...required,
+        located: {
+          source: 'persisted-history',
+          commit: persistedGrounding.packet.authority.authorityCommit
+        },
+        views: persistedGrounding.packet.views.map((view) => ({
+          viewId: view.viewKey,
+          reference: view.reference ?? null,
+          variant: view.variant
+        })),
+        freshness: {
+          fresh: true,
+          built: storyWorldModelHistoryPin.sourceRevision,
+          current: storyWorldModelHistoryPin.sourceRevision,
+          status: 'fresh',
+          source: {
+            status: 'fresh',
+            built: storyWorldModelHistoryPin.sourceRevision,
+            current: storyWorldModelHistoryPin.sourceRevision,
+            reason: null
+          }
+        }
+      };
+      plan = {
+        ...plan,
+        views: persistedGrounding.packet.views.map((view) => ({
+          view: view.viewKey, tier: view.variant
+        })),
+        selections: persistedGrounding.packet.views.map((view) => ({
+          kind: 'view', view: view.viewKey, tier: view.variant,
+          reason: 'pinned persisted Story grounding'
+        }))
+      };
+    } else {
+      groundingAvailability = {
+        status: 'unavailable',
+        reasonCode: persistedGrounding.reasonCode ?? 'WORLD_MODEL_GROUNDING_UNAVAILABLE'
+      };
+    }
+  } else if (worldModelEnabled) {
     try {
       const inspected = await inspectConfiguredGrounding(root, config, signals.phase, {
         options, plan, refreshRemote: true
@@ -4733,7 +4911,8 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
       // walks a mutable repository directory and would silently mix a second representation into
       // the same prompt, so it is disabled only for this format.
       disableWorldModelInjection: !groundingAvailable
-        || worldModelDisabledForWorkflow(workflow) || registeredV4,
+        || worldModelDisabledForWorkflow(workflow) || registeredV4
+        || persistedGrounding?.status === 'composed',
       modelDirectory: groundingAvailable ? required.directory : null,
       validatedModelFiles: groundingAvailable ? required.validatedModelFiles : null,
       validatedManifest: groundingAvailable ? required.manifest : null,
@@ -4780,7 +4959,12 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
     });
   }
   const rulePaths = new Set(injection.sections.map((section) => section.path));
-  const requiredText = groundingSectionsText(mandatory, rulePaths);
+  const requiredText = persistedGrounding?.status === 'composed'
+    ? persistedGrounding.content
+    : groundingSectionsText(mandatory, rulePaths);
+  const persistedGroundingReceipt = persistedGrounding?.status === 'composed'
+    ? persistedStoryWorldModelGroundingReceipt(persistedGrounding)
+    : null;
   const governed = await workflowPromptContext(
     root, definition, workflow, phase, workItemRoot, config.executionContext
   );
@@ -4933,7 +5117,11 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
     { id: 'mcp-policy', text: mcpPolicy, mandatory: true, priority: 0 },
     { id: 'design-sources', text: designSources.markdown, mandatory: true, priority: 5 },
     { id: 'world-model-status', text: groundingStatus, mandatory: true, priority: 0 },
-    { id: 'world-model-grounding', text: requiredText, mandatory: config.grounding === 'enforce', priority: 40 },
+    {
+      id: 'world-model-grounding', text: requiredText,
+      mandatory: persistedGrounding?.status === 'composed' || config.grounding === 'enforce',
+      exact: persistedGrounding?.status === 'composed', priority: 40
+    },
     // This is a small deterministic navigation overlay, not a second model build. Keep it mandatory
     // when present so token trimming cannot leave the authoring model unaware of the immutable
     // source boundary or accidentally treat a reference as a delivery repository.
@@ -4965,6 +5153,18 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
   });
   promptCompilation.warnings.forEach((warning) => console.error(`Token-economy warning: ${warning}`));
   const candidateText = promptCompilation.text;
+  if (persistedGroundingReceipt
+      && exactOccurrenceCount(candidateText, persistedGrounding.content) !== 1) {
+    throw new SingularityFlowError(
+      'Persisted Story grounding did not reach the composed prompt exactly once.', {
+        code: 'WMP_GROUNDING_REPLAY_MISMATCH',
+        details: {
+          groundingSha256: persistedGroundingReceipt.groundingSha256,
+          occurrences: exactOccurrenceCount(candidateText, persistedGrounding.content)
+        }
+      }
+    );
+  }
   const { text: _compiledPromptText, ...promptComposition } = promptCompilation;
   const tokenReductionReceipt = promptComposition.tokenReduction?.record?.receipt ?? null;
   if (promptComposition.tokenReduction?.record) {
@@ -5011,7 +5211,9 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
       }
     : null;
   remote.warnings.forEach((warning) => console.error(`Warning: ${warning}`));
-  const manifestInfo = groundingAvailable
+  const manifestInfo = persistedGroundingReceipt
+    ? { sha256: null }
+    : groundingAvailable
     ? registeredV4
       ? { sha256: required.manifestContentSha256 }
       : { sha256: required.manifestContentSha256 }
@@ -5036,6 +5238,15 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
   }
   const files = [
     ...mandatory,
+    ...(persistedGrounding?.status === 'composed'
+      ? persistedGrounding.files
+          .filter((file) => file.path.endsWith('.md'))
+          .map((file) => ({
+            path: file.path, sha256: file.sha256, bytes: file.bytes,
+            injectedBytes: file.bytes, truncated: false, level: null,
+            reason: 'pinned persisted Story grounding packet', category: 'required'
+          }))
+      : []),
     ...injection.sections.map((section) => ({ ...section, category: 'rule', level: null, reason: 'matched injection rule' })),
     ...capability.files.map((file) => ({
       ...file,
@@ -5109,6 +5320,7 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
     workSource: workSource.record,
     structuralContext: structural.record,
     referenceRepositories: referenceRepositories.repositories,
+    persistedGrounding: persistedGroundingReceipt,
     clarification: clarificationPolicy,
     files: files.map((file) => ({ path: file.path, sha256: file.sha256, injectedBytes: file.injectedBytes })),
     remoteSkills: remote.skills.map((skill) => ({ id: skill.id, sha256: skill.sha256 })),
@@ -5127,6 +5339,19 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
     changeRequests: openChangeRequests.map((request) => ({ id: request.id, clauseIds: request.clauseIds ?? [], comment: request.comment }))
   }, candidateText, { enabled: cacheEnabled });
   const composedText = cached.text;
+  if (persistedGroundingReceipt
+      && exactOccurrenceCount(composedText, persistedGrounding.content) !== 1) {
+    throw new SingularityFlowError(
+      'Composition cache did not return the persisted Story grounding exactly once.', {
+        code: 'WMP_GROUNDING_REPLAY_MISMATCH',
+        details: {
+          groundingSha256: persistedGroundingReceipt.groundingSha256,
+          occurrences: exactOccurrenceCount(composedText, persistedGrounding.content),
+          cacheKey: cached.key
+        }
+      }
+    );
+  }
   if (cacheEnabled) console.error(`Composition cache: ${cached.hit ? 'hit' : 'miss'} ${cached.key.slice(0, 12)}.`);
 
   if (dryRun) {
@@ -5138,6 +5363,15 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
 
   let persistedPromptRecord = null;
   if (workflow && !renderOnly) {
+    if (persistedGrounding?.status === 'composed') {
+      // Packet files are content addressed and create-if-absent-identical. Persist them only after
+      // the complete prompt has passed admission and exact-once verification, immediately before
+      // the immutable prompt receipt references them.
+      await assertStoryGroundingLifecycleUnchanged(root, storyGroundingLifecycle);
+      await persistPinnedStoryWorldModelGrounding(root, persistedGrounding, {
+        definition, workflow
+      });
+    }
     const renderedSha256 = createHash('sha256').update(composedText).digest('hex');
     const { file, record } = await recordInjection(root, workflow, phase, {
       ...injection, agent, sections: files, modelCommit,
@@ -5157,7 +5391,9 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
       } : null,
       remoteSkills: remote.skills.map((skill) => ({ id: skill.id, sha256: skill.sha256 })),
       manifestSha256: manifestInfo.sha256,
-      modelSourceTreeSha256: registeredV4 && groundingAvailable
+      modelSourceTreeSha256: persistedGroundingReceipt
+        ? null
+        : registeredV4 && groundingAvailable
         ? required.sourceManifestSha256
         : required.manifest?.source_tree_sha256 ?? null,
       composedSourceTreeSha256: required.freshness.source?.current ?? null,
@@ -5167,7 +5403,9 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
       groundingAvailability,
       sourceComparison,
       requiredViews: groundingAvailable
-        ? registeredV4
+        ? persistedGroundingReceipt
+          ? persistedGrounding.packet.views.map((view) => view.viewKey)
+          : registeredV4
           ? required.views.map((view) => view.viewId)
           : config.phases[signals.phase]?.views ?? []
         : plan.views.map((entry) => entry.view).filter(Boolean),
@@ -5182,9 +5420,29 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
       })),
       compositionCache: { key: cached.key, hit: cached.hit },
       promptBudget: promptComposition,
+      persistedGrounding: persistedGroundingReceipt,
       tokenReduction: tokenReductionReceipt,
       executionContext: executionIdentity
-    }, { workDir: path.join(root, workItemRoot, workflow.workItem.id) });
+    }, {
+      workDir: path.join(root, workItemRoot, workflow.workItem.id),
+      beforePersist: persistedGrounding?.status === 'composed'
+        ? async () => {
+            await assertStoryGroundingLifecycleUnchanged(root, storyGroundingLifecycle);
+            await assertPinnedStoryWorldModelHistoryAuthority(root, {
+              definition, workflow
+            });
+          }
+        : null
+    });
+    if (persistedGrounding?.status === 'composed') {
+      // If authority moved while the immutable pair was written, stop before the prompt can be
+      // returned to a model. The content-addressed pair remains non-authoritative evidence and a
+      // later reuse repeats this proof before returning bytes.
+      await assertStoryGroundingLifecycleUnchanged(root, storyGroundingLifecycle);
+      await assertPinnedStoryWorldModelHistoryAuthority(root, {
+        definition, workflow
+      });
+    }
     persistedPromptRecord = record;
     console.error(`Grounding composition recorded: ${file}`);
   }
@@ -5211,6 +5469,13 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
       executionContext: executionIdentity
     });
   }
+  await assertStoryGroundingPromptDelivery(root, {
+    definition,
+    workflow,
+    phase,
+    expectedLifecycle: storyGroundingLifecycle,
+    beforeFinalAuthorityCheck
+  });
   const destination = optionString(options, 'out');
   if (destination) {
     await writeFile(path.resolve(root, destination), composedText);
@@ -5225,14 +5490,20 @@ async function compose(root, options, { storyLockHeld = false } = {}) {
  * prompt to the caller instead of leaking it through stdout where a child process would have to
  * scrape presentation text.
  */
-export async function composePhasePrompt(root, { workId, phase, agent, task = null } = {}) {
+export async function composePhasePrompt(root, {
+  workId, phase, agent, task = null
+} = {}, {
+  beforeFinalAuthorityCheck = null,
+  renderOnly = false
+} = {}) {
   return compose(root, {
     'work-id': workId,
     phase,
     agent,
     ...(task ? { task } : {}),
+    ...(renderOnly ? { 'render-only': true } : {}),
     'return-only': true
-  });
+  }, { beforeFinalAuthorityCheck });
 }
 
 async function showPrompt(root, options) {

@@ -5,7 +5,7 @@
   "type": "object",
   "required": ["schemaVersion", "workItem", "status", "currentPhase", "phaseOrder", "phases", "history"],
   "properties": {
-    "schemaVersion": { "enum": [1, 2, 3, 4, 5, 6] },
+    "schemaVersion": { "enum": [1, 2, 3, 4, 5, 6, 7, 8] },
     "workflowSnapshot": {
       "anyOf": [
         { "type": "null" },
@@ -105,6 +105,12 @@
       "properties": {
         "inputsMode": { "enum": ["off", "record", "enforce"] },
         "worldModelGrounding": { "enum": ["off", "warn", "enforce"] },
+        "worldModelHistoryPin": {
+          "anyOf": [
+            { "type": "null" },
+            { "$ref": "story-world-model-history-pin.schema.json" }
+          ]
+        },
         "sequenceGates": { "type": "object", "additionalProperties": { "enum": ["hard", "soft"] } },
         "contextPolicy": {
           "type": "object",

@@ -112,6 +112,23 @@ test('section identity hashes the exact canonical bytes that are rendered', () =
   assert.equal(result.sections[0].sha256, createHash('sha256').update('exact text').digest('hex'));
 });
 
+test('an exact mandatory section preserves its terminal packet separator byte-for-byte', () => {
+  const packet = '# Historical grounding\n\nPinned bytes.\n\n---\n\n';
+  const result = compilePromptSections([
+    { id: 'before', text: 'before', mandatory: true },
+    { id: 'world-model-grounding', text: packet, mandatory: true, exact: true },
+    { id: 'after', text: 'after', mandatory: true }
+  ], policy('observe'));
+  assert.equal(result.text.split(packet).length - 1, 1);
+  assert.ok(result.text.includes(packet));
+  assert.throws(
+    () => compilePromptSections([
+      { id: 'world-model-grounding', text: packet, exact: true }
+    ], policy('observe')),
+    (error) => error.code === 'TKN_EXACT_SECTION_OPTIONAL'
+  );
+});
+
 test('section IDs are closed, unique, and reserve kernel-owned names', () => {
   assert.throws(() => compilePromptSections([{ id: '', text: 'x' }], policy('observe')),
     (error) => error.code === 'TKN_SECTION_ID_INVALID');

@@ -149,6 +149,9 @@ import {
   captureWorkflowSnapshot, finalizeDraftWorkflowSnapshot, verifyWorkflowSnapshot
 } from './workflow-snapshots.mjs';
 import {
+  prepareStoryWorldModelHistoryPin
+} from './world-model/history/story-grounding-activation.mjs';
+import {
   referenceRepositoryContextMarkdown, storyReferenceRepositories, verifyReferenceRepositories,
   writeReferenceRepositoryManifest
 } from './reference-repositories.mjs';
@@ -739,7 +742,8 @@ export async function createWorkflow(root, config, {
   capabilityMapSha256 = null,
   referenceRepositories = [],
   executionOrigin = null,
-  worldModelAuthorityRefreshes = {}
+  worldModelAuthorityRefreshes = {},
+  approvedConfigurationSnapshot = null
 } = {}) {
   validateId(config, id);
   // Prove the configured storage boundary before any capability materialization or generated
@@ -974,6 +978,16 @@ export async function createWorkflow(root, config, {
     template.path = posix(path.relative(root, destination)); delete template.cachePath;
     workflow.resolution.phases.find((phase) => phase.id === phaseId).templateSnapshot = { ...template };
   }
+  // Select one exact, already-published WMP history cut before WFA seals the Story policy. This is
+  // deliberately read-only: an absent model/view remains an explicit unavailable pin and never
+  // triggers extraction, rendering, model use, cache writes, or publication during Story start.
+  // Once captured below, every phase re-resolves these exact keys and proves the pinned commit is
+  // still admitted by the configured state authority; advancing the state tip cannot repin a Story.
+  workflow.resolution.worldModelHistoryPin = await prepareStoryWorldModelHistoryPin(root, {
+    definition: config,
+    workflow,
+    approvedConfigurationSnapshot
+  });
   // Capture before accepted Story state is written. This rewrites phase-template references to
   // immutable blobs and stamps the exact resulting effective-policy digest.
   workflow.workflowSnapshot = await captureWorkflowSnapshot(root, config, workflow);

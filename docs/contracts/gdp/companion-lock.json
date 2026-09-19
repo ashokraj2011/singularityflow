@@ -4,13 +4,14 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "bd08c29a029f288d7b928cf3e762bf41cc3bef7e",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-09-19.md",
+    "reviewedAtCommit": "b6d059cfd6ffceff90c36454a173cace32efd9fe",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-09-19-CLOSEOUT.md",
     "companionIds": [
+      "code-assurance-bridge",
       "migration-registry",
-      "publication-unit-of-work",
-      "smart-initialization-v1",
-      "workflow-configuration",
+      "sgos-contract",
+      "sgos-delivery-status",
+      "witnessed-engineering-delivery-status",
       "world-model-v4"
     ]
   },
@@ -28,17 +29,17 @@
     {
       "id": "sgos-contract",
       "path": "docs/SGOS.md",
-      "sha256": "sha256:d70606dc4c9a87d2776c8f64958178c53ac315f9056004e9496f9552aa35f880"
+      "sha256": "sha256:2ad0cb4a68fe523ec865ed694928d10f9c910186fcfcabbb9056c014583e9200"
     },
     {
       "id": "sgos-delivery-status",
       "path": "docs/SGOS-PENDING-WORK.md",
-      "sha256": "sha256:9276736321ccee3800d01428de1a87043c9d62448625ba502ff33be7f5a281e2"
+      "sha256": "sha256:a491940d51fece3f7096119555bec896d23b61ed8c24e1c8bfe856c2602be305"
     },
     {
       "id": "world-model-v4",
       "path": "docs/WORLD-MODEL-BUILDER-V4.md",
-      "sha256": "sha256:badf17ea209193ed630f93ef42ce239284830586cefd28d8fb97ba486ecc6659"
+      "sha256": "sha256:83bdf74bf9b836a46f10a2f49f3440e4927aa8c0cd47553009b050543d192b18"
     },
     {
       "id": "witnessed-engineering-loop",
@@ -48,12 +49,12 @@
     {
       "id": "witnessed-engineering-delivery-status",
       "path": "docs/WEL-PENDING-WORK.md",
-      "sha256": "sha256:bdc18dada515fceb72ac300e2413664371f05d1524299de08f68bc6fde7422a8"
+      "sha256": "sha256:bd67f0907e4d28636fa9a4c432eb48b4a12949dccd41686cbd2768578448cbe7"
     },
     {
       "id": "code-assurance-bridge",
       "path": "docs/CAB-ROADMAP.md",
-      "sha256": "sha256:2bde8058e87c4bb4ceadecb16ea60cec05927de0441f734a5eeb8f81af872235"
+      "sha256": "sha256:5fbbe8e7fef0bb5fb0c7cd4df9d1a7d0486e4a72fa63812c0612f4379e0fd1e6"
     },
     {
       "id": "code-assurance-bridge-v0-2",
@@ -103,7 +104,7 @@
     {
       "id": "migration-registry",
       "path": "src/schema-migrations.mjs",
-      "sha256": "sha256:5cd400375ac96899136649d149da7d7f104ac1d975b70597f40ed563eb102296"
+      "sha256": "sha256:b5eb6f0e78ed66c83e1e707987fa62bc6ad1dd1da5dc18fc0a2faa857cd8072f"
     },
     {
       "id": "smart-initialization-v1",

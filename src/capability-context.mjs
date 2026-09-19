@@ -649,8 +649,19 @@ export async function resolveLifecycleCapability(root, {
       }
     );
   }
+  // The approved configuration repository is the authority for the map, not the identity of the
+  // application repository delivered by the selected capability. A new Story can be created before
+  // any machine-local workspace membership exists, and its application branch need not carry the
+  // approved portfolio yet. In that boundary, derive the portable repository ID from the exact
+  // selected map whenever it names one unambiguous delivery repository. Never substitute the
+  // configuration authority URL as a repository ID (it is non-portable and names the wrong repo).
+  const mappedRepositoryIds = unique(capabilityDeliveries(definition, selected)
+    .flatMap((delivery) => delivery.repositories ?? []));
+  const mappedRepositoryId = mappedRepositoryIds.length === 1
+    ? mappedRepositoryIds[0]
+    : null;
   const resolvedRepositoryId = identityContext.repositoryId
-    ?? source.repositoryId ?? authorityProvenance.repository ?? path.basename(root);
+    ?? source.repositoryId ?? mappedRepositoryId ?? path.basename(root);
   const effectiveResolution = resolveExplicitCapability({
     mode,
     repositoryId: resolvedRepositoryId,

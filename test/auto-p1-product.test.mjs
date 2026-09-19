@@ -227,7 +227,7 @@ test('AUT v2 P1 readers reject correctly resealed timestamps and duplicate autho
   );
 });
 
-test('AUT v2 P1 builders recursively close every nested record vocabulary', () => {
+test('AUT v2 P1 builders recursively close every nested record vocabulary', async () => {
   const built = records();
   const rejected = [
     () => buildAutoPhaseRun({
@@ -315,6 +315,33 @@ test('AUT v2 P1 builders recursively close every nested record vocabulary', () =
     }
   });
   assert.equal(withComprehension.comprehensionReference.status, 'verified');
+
+  const withSha256Commit = buildAutoTokenEconomicsReceipt({
+    ...built.economics,
+    worldModelReference: { ...WORLD_MODEL_REFERENCE, worldModelCommit: 'b'.repeat(64) }
+  });
+  assert.equal(withSha256Commit.worldModelReference.worldModelCommit, 'b'.repeat(64));
+  const economicsSchema = JSON.parse(await readFile(new URL(
+    '../schemas/auto-token-economics-receipt.schema.json', import.meta.url
+  ), 'utf8'));
+  const commitPattern = new RegExp(
+    economicsSchema.$defs.worldModelReference.properties.worldModelCommit.pattern, 'u'
+  );
+  assert.match(withSha256Commit.worldModelReference.worldModelCommit, commitPattern,
+    'the durable receipt schema must accept the SHA-256 Git object ID emitted by Auto');
+  for (const invalidLength of [39, 41, 63, 65]) {
+    assert.throws(
+      () => buildAutoTokenEconomicsReceipt({
+        ...built.economics,
+        worldModelReference: {
+          ...WORLD_MODEL_REFERENCE, worldModelCommit: 'b'.repeat(invalidLength)
+        }
+      }),
+      (error) => error.code === 'AUTO_RECORD_CORRUPT'
+        && /World Model commit is invalid/.test(error.message),
+      `invalid Git object ID length ${invalidLength}`
+    );
+  }
 });
 
 test('AUT v2 private readers verify stored integrity and reject resealed unknown fields', async (t) => {

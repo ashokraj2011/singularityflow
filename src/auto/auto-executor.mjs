@@ -79,7 +79,23 @@ function tokenObservation(usage) {
 
 function autoWorldModelReference(grounding) {
   const record = grounding?.record;
-  if (!record?.worldModelCommit || !record?.manifestSha256) return null;
+  if (!record?.worldModelCommit) return null;
+  const persisted = record.persistedGrounding ?? null;
+  // Exact Story-pinned WMP does not use the mutable projection manifest/source-tree envelope.
+  // Preserve the existing Auto reference protocol by binding its three provenance slots to the
+  // corresponding exact-history owners: packet, accepted Story pin, and composed grounding.
+  // verifyGroundingRecord has already replayed these bytes and re-proved the authority cut before
+  // this adapter runs, so accepting them here does not create a second trust path.
+  const manifestSha256 = persisted
+    ? persisted.packetRef?.sha256 ?? null
+    : record.manifestSha256 ? `sha256:${record.manifestSha256}` : null;
+  const modelSourceTreeSha256 = persisted
+    ? persisted.pinSha256 ?? null
+    : record.modelSourceTreeSha256 ?? null;
+  const composedSourceTreeSha256 = persisted
+    ? persisted.groundingSha256 ?? null
+    : record.composedSourceTreeSha256 ?? null;
+  if (!manifestSha256 || !modelSourceTreeSha256 || !composedSourceTreeSha256) return null;
   return Object.freeze({
     protocol: 'auto-world-model-reference-v1',
     path: grounding.path,
@@ -88,10 +104,10 @@ function autoWorldModelReference(grounding) {
     generation: record.generation,
     agent: record.agent,
     worldModelCommit: record.worldModelCommit,
-    manifestSha256: `sha256:${record.manifestSha256}`,
+    manifestSha256,
     renderedSha256: `sha256:${record.renderedSha256}`,
-    modelSourceTreeSha256: record.modelSourceTreeSha256,
-    composedSourceTreeSha256: record.composedSourceTreeSha256,
+    modelSourceTreeSha256,
+    composedSourceTreeSha256,
     fresh: record.fresh === true && record.stale !== true
   });
 }

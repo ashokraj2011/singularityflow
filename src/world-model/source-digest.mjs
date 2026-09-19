@@ -67,8 +67,8 @@ function normalizedPackagePath(value, label) {
   return normalized;
 }
 
-function regularFile(packageRoot, relative, label) {
-  const absolute = path.join(packageRoot, ...relative.split('/'));
+function regularFile(implementationPackageDirectory, relative, label) {
+  const absolute = path.join(implementationPackageDirectory, ...relative.split('/'));
   let stats;
   try { stats = lstatSync(absolute); }
   catch (error) {
@@ -87,16 +87,17 @@ function regularFile(packageRoot, relative, label) {
  * closure discovery and requires exact equality with these lists; runtime code only verifies and
  * hashes the reviewed ordinary files, so production packages do not need a parser dependency.
  */
-export function reviewedImplementationSourceManifest({
-  packageRoot = PACKAGE_ROOT,
-  id = 'reviewed-implementation',
-  version = 1,
-  entries = [],
-  reviewedFiles = [],
-  reviewedBuiltins = [],
-  reviewedPackages = [],
-  resources = []
-} = {}) {
+export function reviewedImplementationSourceManifest(options = {}) {
+  const {
+    packageRoot: implementationPackageDirectory = PACKAGE_ROOT,
+    id = 'reviewed-implementation',
+    version = 1,
+    entries = [],
+    reviewedFiles = [],
+    reviewedBuiltins = [],
+    reviewedPackages = [],
+    resources = []
+  } = options;
   const normalizedEntries = [...new Set(entries.map((entry) => (
     normalizedPackagePath(entry, 'Implementation entry')
   )))].sort();
@@ -116,7 +117,9 @@ export function reviewedImplementationSourceManifest({
   const declaredPackages = [...new Set(reviewedPackages)].sort();
   const descriptions = new Map();
   for (const file of files) {
-    const absolute = regularFile(packageRoot, file, 'Reviewed implementation file');
+    const absolute = regularFile(
+      implementationPackageDirectory, file, 'Reviewed implementation file'
+    );
     const bytes = readFileSync(absolute);
     descriptions.set(file, Object.freeze({
       path: file,
@@ -128,7 +131,9 @@ export function reviewedImplementationSourceManifest({
   const resourceDescriptions = [...new Set(resources.map((entry) => (
     normalizedPackagePath(entry, 'Reviewed implementation resource')
   )))].sort().map((resource) => {
-    const bytes = readFileSync(regularFile(packageRoot, resource, 'Reviewed implementation resource'));
+    const bytes = readFileSync(regularFile(
+      implementationPackageDirectory, resource, 'Reviewed implementation resource'
+    ));
     return Object.freeze({
       path: resource,
       bytes: bytes.length,
@@ -151,10 +156,11 @@ export function reviewedImplementationSourceManifest({
     sourceSha256: implementationSourceSha256({
       files: [
         ...files.map((file) => ({
-        label: file, path: path.join(packageRoot, ...file.split('/'))
+        label: file, path: path.join(implementationPackageDirectory, ...file.split('/'))
         })),
         ...resourceDescriptions.map((resource) => ({
-          label: resource.path, path: path.join(packageRoot, ...resource.path.split('/'))
+          label: resource.path,
+          path: path.join(implementationPackageDirectory, ...resource.path.split('/'))
         }))
       ]
     }),

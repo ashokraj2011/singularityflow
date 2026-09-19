@@ -322,7 +322,7 @@ test('composition family and schema are frozen, closed, and pinned to v1', async
   assert.equal(schema.properties.kind.const, 'tkr/composition-receipt');
 });
 
-test('prompt-injection v6 migration keeps legacy bytes historical and marks TKR absent', () => {
+test('prompt-injection v7 migration keeps legacy bytes historical and marks TKR absent', () => {
   const legacy = {
     schemaVersion: 5,
     renderedSha256: HASH('1'),
@@ -331,8 +331,8 @@ test('prompt-injection v6 migration keeps legacy bytes historical and marks TKR 
   };
   const migrated = readRecord('prompt-injection', legacy);
   assert.equal(migrated.storedVersion, 5);
-  assert.deepEqual(migrated.migratedThrough, [{ from: 5, to: 6 }]);
-  assert.equal(migrated.record.schemaVersion, 6);
+  assert.deepEqual(migrated.migratedThrough, [{ from: 5, to: 6 }, { from: 6, to: 7 }]);
+  assert.equal(migrated.record.schemaVersion, 7);
   assert.equal(migrated.record.renderedSha256, legacy.renderedSha256);
   assert.equal(migrated.record.tokenReduction, null);
   assert.equal(Object.hasOwn(legacy, 'tokenReduction'), false);

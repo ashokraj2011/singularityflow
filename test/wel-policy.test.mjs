@@ -89,6 +89,7 @@ test('story-workflow v2 migration reaches the current schema without enrolling a
   assert.equal(migrated.storedVersion, 2);
   assert.equal(migrated.record.schemaVersion, currentSchemaVersion('story-workflow'));
   assert.deepEqual(migrated.record.resolution, legacy.resolution);
+  assert.equal(Object.hasOwn(migrated.record.resolution, 'worldModelHistoryPin'), false);
   assert.equal(Object.hasOwn(migrated.record.resolution, 'wel'), false);
   assert.deepEqual(legacy.resolution, {
     policySha256: 'sha256:' + 'c'.repeat(64), codeDelivery: { mode: 'enforce' }

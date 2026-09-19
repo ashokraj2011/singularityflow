@@ -1317,6 +1317,22 @@ function storyWorkflowV6ToV7(source) {
   return migrated;
 }
 
+function storyWorkflowV7ToV8(source) {
+  const migrated = clone(source);
+  migrated.schemaVersion = 8;
+  // A pre-v8 Story never pinned one exact, lifecycle-authoritative WMP history cut. Older Story
+  // schemas were open, so a same-named field may have been present as untrusted data. Always
+  // erase it during migration instead of allowing crafted historical bytes to acquire the new
+  // authority merely by being read under the v8 contract.
+  // Omit the optional v8 field entirely for legacy Stories. Adding an enumerable `null` would
+  // change their effective WFA policy projection even though no authority was acquired, causing
+  // an otherwise authentic v7 snapshot to fail its immutable-policy comparison after load/save.
+  // Deleting a crafted open-schema field both denies authority and preserves the exact legacy
+  // policy shape authenticated by the Story's creation snapshot.
+  if (plainObject(migrated.resolution)) delete migrated.resolution.worldModelHistoryPin;
+  return migrated;
+}
+
 function generationPublicationV1ToV2(source) {
   // v1 predates both architecture bindings. Reject records that merely relabel a v2-shaped
   // publication as v1; the migration is a compatibility reader, not a downgrade escape hatch.
@@ -1538,6 +1554,17 @@ function promptInjectionV5ToV6(source) {
     }
   }
   return migrated;
+}
+
+function promptInjectionV6ToV7(source) {
+  // Persisted WMP grounding is a new exact-byte authority claim. A historical open prompt receipt
+  // cannot prove that claim, even if it contains a same-named object, so migration records the
+  // absence explicitly and requires a new generation to bind a replayable packet.
+  return {
+    ...clone(source),
+    schemaVersion: 7,
+    persistedGrounding: null
+  };
 }
 
 function agentContextAuditV1ToV2(source) {
@@ -2594,14 +2621,15 @@ const families = [
     ]
   }),
   family({
-    id: 'story-workflow', currentVersion: 7,
+    id: 'story-workflow', currentVersion: 8,
     steps: [
       migration(1, 2, storyWorkflowV1ToV2),
       migration(2, 3, identity(3)),
       migration(3, 4, storyWorkflowV3ToV4),
       migration(4, 5, storyWorkflowV4ToV5),
       migration(5, 6, storyWorkflowV5ToV6),
-      migration(6, 7, storyWorkflowV6ToV7)
+      migration(6, 7, storyWorkflowV6ToV7),
+      migration(7, 8, storyWorkflowV7ToV8)
     ],
     paths: [/^(?:singularity|\.sdlc)\/work-items\/[^/]+\/workflow\.json$/], unversionedAs: 1
   }),
@@ -2817,6 +2845,12 @@ const families = [
     migrationPolicy: 'frozen-identity',
     paths: [/^singularity\/work-items\/[^/]+\/context\/grounding\/wmp\/[a-f0-9]{64}\.packet\.json$/]
   }),
+  // Embedded in the immutable Story resolution and independently schema-versioned so every
+  // lifecycle reader agrees on the exact accepted history cut. It has no standalone path.
+  family({
+    id: 'story-world-model-history-pin', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity'
+  }),
   family({
     id: 'world-model-handoff', currentVersion: 1, immutable: true,
     migrationPolicy: 'frozen-identity',
@@ -2955,13 +2989,14 @@ const families = [
   family({ id: 'work-item-telemetry', currentVersion: 1 }),
   family({ id: 'artifact-authorship', currentVersion: 1 }),
   family({
-    id: 'prompt-injection', currentVersion: 6,
+    id: 'prompt-injection', currentVersion: 7,
     steps: [
       migration(1, 2, promptInjectionV1ToV2),
       migration(2, 3, promptInjectionV2ToV3),
       migration(3, 4, promptInjectionV3ToV4),
       migration(4, 5, promptInjectionV4ToV5),
-      migration(5, 6, promptInjectionV5ToV6)
+      migration(5, 6, promptInjectionV5ToV6),
+      migration(6, 7, promptInjectionV6ToV7)
     ],
     paths: [/^singularity\/work-items\/[^/]+\/context\/(?!(?:agents-|remote-output-))[^/]+-gen\d+\.json$/]
   }),

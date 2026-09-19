@@ -732,6 +732,58 @@ function validateWorldModelContractSchema(schema, schemaFile) {
   }
 }
 
+/**
+ * The Story history pin is a discriminated union embedded in the lifecycle state rather than a
+ * standalone `world-model-*` record. Keep its two branches just as closed and version-bound as
+ * the persisted WMB records; otherwise the workflow schema could appear valid while accepting a
+ * pin shape that the runtime rejects (or silently ignoring an unvalidated authority field).
+ */
+function validateStoryWorldModelHistoryPinSchema(schema, schemaFile) {
+  if (schema.$schema !== 'https://json-schema.org/draft/2020-12/schema') {
+    fail(`${schemaFile}: must declare JSON Schema draft 2020-12`);
+  }
+  if (schema.$id !== 'https://example.invalid/singularity-flow/story-world-model-history-pin.schema.json') {
+    fail(`${schemaFile}: must retain the packaged Story history-pin schema identity`);
+  }
+  const expectedDefinitions = [
+    'active', 'authority', 'composition', 'git', 'hash', 'identifier', 'model', 'objectRef',
+    'path', 'phasePlan', 'reasonCode', 'unavailable', 'view'
+  ];
+  const definitions = Object.keys(schema.$defs ?? {}).sort();
+  if (JSON.stringify(definitions) !== JSON.stringify(expectedDefinitions)) {
+    fail(`${schemaFile}: must declare the exact reviewed Story history-pin definition set`);
+  }
+  const expectedUnion = [
+    { $ref: '#/$defs/active' },
+    { $ref: '#/$defs/unavailable' }
+  ];
+  if (JSON.stringify(schema.oneOf) !== JSON.stringify(expectedUnion)) {
+    fail(`${schemaFile}: oneOf must select the exact active and unavailable branches`);
+  }
+  for (const [name, definition] of Object.entries(schema.$defs ?? {})) {
+    if (definition?.type !== 'object') continue;
+    if (definition.additionalProperties !== false) {
+      fail(`${schemaFile}: $defs.${name} must be a closed object schema`);
+    }
+    const properties = Object.keys(definition.properties ?? {}).sort();
+    const required = [...(definition.required ?? [])].sort();
+    if (JSON.stringify(required) !== JSON.stringify(properties)) {
+      fail(`${schemaFile}: $defs.${name} must require every declared property exactly once`);
+    }
+  }
+  const current = currentSchemaVersion('story-world-model-history-pin');
+  for (const [name, status] of [['active', 'active'], ['unavailable', 'unavailable']]) {
+    const definition = schema.$defs?.[name];
+    if (definition?.properties?.schemaVersion?.const !== current
+        || definition?.properties?.kind?.const !== 'story-world-model-history-pin'
+        || definition?.properties?.status?.const !== status) {
+      fail(`${schemaFile}: $defs.${name} must bind the current version, kind, and status`);
+    }
+  }
+  validateLocalSchemaReferences(schema, schemaFile);
+  compileWorldModelSchemaGraph(schema, schemaFile);
+}
+
 const durableRecordFamilies = new Set(migrationRegistrySnapshot().map((entry) => entry.id));
 const migrationGoldens = JSON.parse(await readFile(
   path.join(root, 'test', 'fixtures', 'schema-migrations', 'goldens.json'), 'utf8'
@@ -786,6 +838,7 @@ function validateAutoDurableContractSchema(schema, schemaFile) {
 const baselineSchemaFiles = [
   'schemas/config.schema.json',
   'schemas/workflow.schema.json',
+  'schemas/story-world-model-history-pin.schema.json',
   'schemas/workflow-definition.schema.json',
   'schemas/agent-brief-record.schema.json',
   'schemas/fault-envelope.schema.json',
@@ -868,7 +921,31 @@ for (const schemaFile of [...new Set([...baselineSchemaFiles, ...worldModelSchem
   if (schemaFile.startsWith('schemas/world-model-')) {
     validateWorldModelContractSchema(schema, schemaFile);
   }
+  if (schemaFile === 'schemas/story-world-model-history-pin.schema.json') {
+    validateStoryWorldModelHistoryPinSchema(schema, schemaFile);
+  }
   checked.push(schemaFile);
+}
+
+// External `$ref`s are deliberately outside the local-pointer walker above. Assert this lifecycle
+// join explicitly so a ref typo cannot leave a new Story field effectively unconstrained. The
+// field stays optional for pre-v8 records; when present it is either null or the exact pin schema.
+{
+  const workflowSchemaPath = 'schemas/workflow.schema.json';
+  const workflowSchema = JSON.parse(await readFile(path.join(root, workflowSchemaPath), 'utf8'));
+  const historyPin = workflowSchema.properties?.resolution?.properties?.worldModelHistoryPin;
+  const expected = {
+    anyOf: [
+      { type: 'null' },
+      { $ref: 'story-world-model-history-pin.schema.json' }
+    ]
+  };
+  if (JSON.stringify(historyPin) !== JSON.stringify(expected)) {
+    fail(`${workflowSchemaPath}: resolution.worldModelHistoryPin must be the optional nullable exact Story history-pin reference`);
+  }
+  if (workflowSchema.properties?.resolution?.required?.includes('worldModelHistoryPin')) {
+    fail(`${workflowSchemaPath}: resolution.worldModelHistoryPin must remain optional for migrated Stories`);
+  }
 }
 
 const qualityExample = validateDefinition(YAML.parse(await readFile(path.join(root, 'examples', 'workflow-with-quality-gates.yml'), 'utf8')));

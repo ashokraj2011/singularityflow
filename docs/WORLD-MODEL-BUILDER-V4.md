@@ -18,9 +18,10 @@ does not rebuild an unchanged repository model.
 
 > **Compatibility boundary:** This operational current projection and cache reuse are distinct from
 > the newer WMP immutable exact-history binding service. WMP contracts, lookup, and staging are
-> implemented foundations, but automatic history emission/reuse is not yet connected to Story start
-> or this builder's normal publication transaction. That pending optimization does not disable the
-> v4 commands described here. See [Persisted World-Model views](PERSISTED-WORLD-MODEL-VIEWS.md).
+> implemented foundations. New `registered-v4` Stories automatically select and pin exact
+> already-published history for reuse before WFA captures their policy; Story start never emits or
+> builds missing history. The explicit history producer and this builder's operational current
+> projection remain separate. See [Persisted World-Model views](PERSISTED-WORLD-MODEL-VIEWS.md).
 
 ## Enable v4
 
@@ -319,6 +320,24 @@ calls, and still publishes through the exact state transaction. Stale, corrupt, 
 or intentionally removed authority is never auto-repaired. The unattended action carries the exact
 inspected state commit and manifest digest into the child build; an advance, deletion, or replacement
 before execution refuses prior to extraction or composition.
+
+For a newly accepted `registered-v4` Story, exact-history activation is stricter than mutable
+current-projection reuse. Story creation derives the complete phase/agent view selection, plans
+exact deterministic View Keys without rendering, reads those views and their Model Binding at one
+state-authority commit, rechecks repository/state authority, and stores the closed self-hashed pin
+inside `workflow.resolution` before WFA capture. If an exact model or view is absent, it stores a
+typed unavailable **exact-history** pin; it never builds, renders, invokes a model or AST, fills a
+cache, fetches, or publishes. That Story never silently gains exact-history authority if history
+appears later. Existing current-projection grounding remains governed by its pre-existing WMB
+policy, preserving compatibility without misrepresenting it as immutable WMP history.
+
+For an active pin, every eligible governed-agent phase re-resolves the exact Model/View bytes for
+its accepted phase/agent pair at the pinned cut, validates
+the complete closure, proves the cut is still reachable from the same configured authority, and
+includes the exact grounding packet once in the prompt receipt. A normal state-branch fast-forward
+is acceptable while the pinned commit remains an ancestor. Rewind, unrelated replacement,
+authority endpoint or repository-identity drift, missing/tampered bytes, and closure mismatch fail
+closed; the resolver never falls back to the mutable current projection.
 
 Grounding mode controls the integrity failure boundary. When the exact model is unavailable, every
 enabled mode continues with ordinary bounded repository access and writes a versioned

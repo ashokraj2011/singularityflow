@@ -1,0 +1,249 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/story-world-model-history-pin.schema.json",
+  "title": "Immutable Story World-Model history cut",
+  "oneOf": [
+    { "$ref": "#/$defs/active" },
+    { "$ref": "#/$defs/unavailable" }
+  ],
+  "$defs": {
+    "hash": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "git": {
+      "type": "string",
+      "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+    },
+    "reasonCode": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$",
+      "maxLength": 128
+    },
+    "objectRef": {
+      "type": "object",
+      "required": ["role", "family", "mediaType", "sha256", "bytes"],
+      "properties": {
+        "role": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+          "maxLength": 128
+        },
+        "family": {
+          "type": ["string", "null"],
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "maxLength": 128
+        },
+        "mediaType": {
+          "enum": ["application/json", "text/markdown"]
+        },
+        "sha256": { "$ref": "#/$defs/hash" },
+        "bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 33554432
+        }
+      },
+      "additionalProperties": false
+    },
+    "authority": {
+      "type": "object",
+      "required": ["stateRef", "authorityCommit", "repositoryIdentitySha256"],
+      "properties": {
+        "stateRef": {
+          "type": "string",
+          "pattern": "^refs/[A-Za-z0-9][A-Za-z0-9._/-]*$",
+          "maxLength": 512
+        },
+        "authorityCommit": { "$ref": "#/$defs/git" },
+        "repositoryIdentitySha256": {
+          "oneOf": [
+            { "$ref": "#/$defs/hash" },
+            { "type": "null" }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "model": {
+      "type": "object",
+      "required": [
+        "modelKey",
+        "bindingPath",
+        "bindingByteSha256",
+        "bindingRef",
+        "modelPayloadSha256"
+      ],
+      "properties": {
+        "modelKey": { "$ref": "#/$defs/hash" },
+        "bindingPath": { "$ref": "#/$defs/path" },
+        "bindingByteSha256": { "$ref": "#/$defs/hash" },
+        "bindingRef": { "$ref": "#/$defs/objectRef" },
+        "modelPayloadSha256": { "$ref": "#/$defs/hash" }
+      },
+      "additionalProperties": false
+    },
+    "view": {
+      "type": "object",
+      "required": [
+        "reference",
+        "variant",
+        "format",
+        "viewKey",
+        "bindingPath",
+        "bindingByteSha256",
+        "bindingRef",
+        "renderedRef",
+        "expansionHandle"
+      ],
+      "properties": {
+        "reference": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*@[1-9][0-9]*$",
+          "maxLength": 160
+        },
+        "variant": { "enum": ["brief", "full"] },
+        "format": { "const": "md" },
+        "viewKey": { "$ref": "#/$defs/hash" },
+        "bindingPath": { "$ref": "#/$defs/path" },
+        "bindingByteSha256": { "$ref": "#/$defs/hash" },
+        "bindingRef": { "$ref": "#/$defs/objectRef" },
+        "renderedRef": { "$ref": "#/$defs/objectRef" },
+        "expansionHandle": {
+          "type": "string",
+          "pattern": "^wmp-view:sha256:[a-f0-9]{64}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "phasePlan": {
+      "type": "object",
+      "required": ["phase", "agent", "orderedViewKeys"],
+      "properties": {
+        "phase": { "$ref": "#/$defs/identifier" },
+        "agent": { "$ref": "#/$defs/identifier" },
+        "orderedViewKeys": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/hash" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "composition": {
+      "type": "object",
+      "required": ["maximumBytes"],
+      "properties": {
+        "maximumBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 33554432
+        }
+      },
+      "additionalProperties": false
+    },
+    "active": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "kind",
+        "status",
+        "reasonCode",
+        "repositoryDomainSha256",
+        "sourceRevision",
+        "authority",
+        "historyDir",
+        "outputDir",
+        "model",
+        "views",
+        "phasePlans",
+        "composition",
+        "closureSha256",
+        "pinSha256"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "kind": { "const": "story-world-model-history-pin" },
+        "status": { "const": "active" },
+        "reasonCode": { "type": "null" },
+        "repositoryDomainSha256": { "$ref": "#/$defs/hash" },
+        "sourceRevision": { "$ref": "#/$defs/git" },
+        "authority": { "$ref": "#/$defs/authority" },
+        "historyDir": { "$ref": "#/$defs/path" },
+        "outputDir": { "$ref": "#/$defs/path" },
+        "model": { "$ref": "#/$defs/model" },
+        "views": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/view" }
+        },
+        "phasePlans": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1024,
+          "items": { "$ref": "#/$defs/phasePlan" }
+        },
+        "composition": { "$ref": "#/$defs/composition" },
+        "closureSha256": { "$ref": "#/$defs/hash" },
+        "pinSha256": { "$ref": "#/$defs/hash" }
+      },
+      "additionalProperties": false
+    },
+    "unavailable": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "kind",
+        "status",
+        "reasonCode",
+        "repositoryDomainSha256",
+        "sourceRevision",
+        "authority",
+        "historyDir",
+        "outputDir",
+        "model",
+        "views",
+        "phasePlans",
+        "composition",
+        "closureSha256",
+        "pinSha256"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "kind": { "const": "story-world-model-history-pin" },
+        "status": { "const": "unavailable" },
+        "reasonCode": { "$ref": "#/$defs/reasonCode" },
+        "repositoryDomainSha256": { "type": "null" },
+        "sourceRevision": { "type": "null" },
+        "authority": { "type": "null" },
+        "historyDir": { "$ref": "#/$defs/path" },
+        "outputDir": { "$ref": "#/$defs/path" },
+        "model": { "type": "null" },
+        "views": {
+          "type": "array",
+          "maxItems": 0
+        },
+        "phasePlans": {
+          "type": "array",
+          "maxItems": 0
+        },
+        "composition": { "$ref": "#/$defs/composition" },
+        "closureSha256": { "type": "null" },
+        "pinSha256": { "$ref": "#/$defs/hash" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -32,7 +32,7 @@ import {
   verifyPersistedOverviewCandidateV1
 } from '../src/world-model/history/persisted-overview-validator-v1.mjs';
 import {
-  materializePersistedWorldModelViews
+  materializePersistedWorldModelViews, planPersistedWorldModelViews
 } from '../src/world-model/history/saved-view-publication.mjs';
 import {
   preparePersistedStoryGrounding, replayPersistedStoryGrounding
@@ -339,6 +339,29 @@ test('owned saved-view service materializes full and brief views as one admitted
   assert.equal(Object.keys(result.stagedHistory.historyAdditions).filter((entry) => (
     entry.includes('/views/')
   )).length, 4);
+});
+
+test('saved-view planner derives the materializer exact keys without rendering or side effects', async (t) => {
+  const graph = await validViewGraph(t);
+  const options = {
+    model: graph.model,
+    views: ['development', 'repository.testing@1'],
+    variants: ['brief', 'full']
+  };
+  const planned = planPersistedWorldModelViews(options);
+  const materialized = materializePersistedWorldModelViews(options);
+
+  assert.equal(planned.status, 'planned');
+  assert.deepEqual(planned.views.map(({ reference, variant, format, viewKey }) => ({
+    reference, variant, format, viewKey
+  })), materialized.views.map(({ reference, variant, format, viewKey }) => ({
+    reference, variant, format, viewKey
+  })));
+  assert.deepEqual(planned.execution, {
+    renders: 0, modelCalls: 0, astCalls: 0, cacheWrites: 0, publications: 0
+  });
+  assert.equal(Object.hasOwn(planned, 'objects'), false);
+  assert.equal(Object.hasOwn(planned, 'historyAdditions'), false);
 });
 
 test('owned saved-view service fails closed for token measurement and caller-supplied bytes', async (t) => {

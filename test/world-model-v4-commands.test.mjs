@@ -7,9 +7,14 @@ import test, { after } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
+import { withApprovedConfigurationRead } from '../src/approved-configuration-reader.mjs';
 import { operationCatalog, resolveOperation } from '../src/command-registry.mjs';
 import { resolveCapabilityWorldModelCandidate } from '../src/capability-context.mjs';
 import { initializeDefinition, resolveWorkType } from '../src/config.mjs';
+import {
+  ensureConfigurationBranch, loadStoryConfigurationSnapshot, materializeConfigurationSnapshot,
+  resolveRemoteStoryConfigurationAuthority
+} from '../src/configuration-branch.mjs';
 import { composeContextBrief } from '../src/context-broker.mjs';
 import { compileEvidencePacket } from '../src/evidence-packet.mjs';
 import { gatewayRegistry } from '../src/gateway/operations.mjs';
@@ -20,7 +25,7 @@ import { composeInitiativeContext } from '../src/initiative-context.mjs';
 import { createInitiative } from '../src/initiative-state.mjs';
 import { createPlanningContext } from '../src/planning.mjs';
 import { listPromptAudits, setPromptAudit } from '../src/prompt-audit.mjs';
-import { setAgentSession } from '../src/session.mjs';
+import { selectAgent, setAgentSession } from '../src/session.mjs';
 import { createWorkflow, loadConfig } from '../src/state.mjs';
 import { run } from '../src/util.mjs';
 import {
@@ -38,6 +43,10 @@ import {
 } from '../src/world-model/commands.mjs';
 import { sealRecord, sha256 } from '../src/world-model/canonicalize.mjs';
 import { runDeterministicRegistration } from '../src/world-model/extract/runner.mjs';
+import {
+  resolveWorldModelRepositoryIdentityAuthority
+} from '../src/world-model/history/repository-identity-authority.mjs';
+import { buildAndPublishWorldModelV4 } from '../src/world-model/service.mjs';
 import { automaticMaterializationDecision } from '../src/world-model-materialization.mjs';
 
 const executable = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
@@ -452,6 +461,35 @@ async function registeredRepository(t, { staleness = 'warn' } = {}) {
   git(root, ['add', '.']);
   git(root, ['commit', '-q', '-m', 'initialize registered WMB v4 fixture']);
   return root;
+}
+
+async function publishPersistedRegisteredHistory(root, {
+  views = ['dev.impact'], savedViews = ['development']
+} = {}) {
+  const authorityOptions = {
+    preferAuthority: true, refreshAuthority: true, requireAuthorityRefresh: true
+  };
+  const approved = await withApprovedConfigurationRead(root, () => (
+    resolveWorldModelRepositoryIdentityAuthority(root, { capabilityId: 'application' })
+  ), authorityOptions);
+  return withApprovedConfigurationRead(root, () => buildAndPublishWorldModelV4(root, {
+    outputDir: 'singularity/world-model',
+    ledgerConfig: {
+      enabled: true, branch: 'state', remote: 'origin', behind: 'block',
+      enforcement: 'shadow', signing: 'off', trustTier: 'T0', maxRetries: 3
+    },
+    views, composer: 'deterministic',
+    capabilityId: approved.scopeManifest.capabilityId,
+    allowedPaths: approved.scopeManifest.allowedPaths,
+    sharedPaths: approved.scopeManifest.sharedPaths,
+    excludedPaths: approved.scopeManifest.excludedPaths,
+    allowedSubjects: approved.scopeManifest.allowedSubjects,
+    maximumTraversalDepth: approved.scopeManifest.maximumTraversalDepth,
+    policySnapshotSha256: approved.scopeManifest.policySourceSha256,
+    persistedHistory: {
+      savedViews: { views: savedViews, variants: ['brief', 'full'], format: 'md' }
+    }
+  }), authorityOptions);
 }
 
 test('explicit registered-v4 build remains readable after authority refresh under legacy defaults', async (t) => {
@@ -1865,6 +1903,278 @@ test('phase composition reads exact state-backed registered views and never rebu
   });
   assert.equal(git(root, ['rev-parse', 'state']), stateBefore);
   assert.equal(git(root, ['ls-tree', '-r', '--name-only', 'HEAD', 'singularity/world-model']).trim(), '');
+});
+
+test('an audited cross-phase agent session consumes only its exact pinned Story history plan', async (t) => {
+  const root = await registeredRepository(t);
+  const workflowPath = path.join(root, 'singularity', 'workflow.yml');
+  const configured = YAML.parse(await readFile(workflowPath, 'utf8'));
+  configured.worldModel.views = ['dev.impact', 'biz.rules'];
+  configured.worldModel.v4.totalMaximumOutputTokens = 2800;
+  // Make the agent selection observable: intake has no phase-owned view, so fallback selects the
+  // exact captured agent view. The architect is deliberately outside intake's declared roster.
+  configured.phases.intake.worldModel.views = [];
+  await writeFile(workflowPath, YAML.stringify(configured));
+  const architectPath = path.join(root, '.github/agents/architect.agent.md');
+  const architectAgent = await readFile(architectPath, 'utf8');
+  const architectWithDistinctView = architectAgent.replace(
+    'sflow-world-model-views: "dev.impact"',
+    'sflow-world-model-views: "biz.rules"'
+  );
+  assert.notEqual(architectWithDistinctView, architectAgent);
+  await writeFile(architectPath, architectWithDistinctView);
+  const transport = await mkdtemp(path.join(os.tmpdir(), 'sflow-wmp-agent-override-'));
+  t.after(() => rm(transport, { recursive: true, force: true }));
+  const remote = path.join(transport, 'application.git');
+  run('git', ['init', '--bare', '-q', '-b', 'main', remote]);
+  git(root, ['remote', 'add', 'origin', remote]);
+  await writeFile(path.join(root, 'singularity', 'portfolio.yml'), YAML.stringify({
+    version: 1,
+    repositories: {
+      application: { url: remote, defaultBranch: 'main' }
+    }
+  }));
+  await writeFile(path.join(root, 'singularity', 'capabilities.yml'), YAML.stringify({
+    version: 1,
+    capabilities: {
+      application: {
+        name: 'Application', kind: 'delivery', parent: null, repository: 'application',
+        sourceRoots: ['payments.mjs'], policy: { gitPublication: 'off' }
+      }
+    }
+  }));
+  git(root, ['add', '--',
+    'singularity/workflow.yml', '.github/agents/architect.agent.md',
+    'singularity/portfolio.yml', 'singularity/capabilities.yml'
+  ]);
+  git(root, ['commit', '-q', '-m', 'configure distinct governed override grounding plan']);
+  git(root, ['push', '-q', '-u', 'origin', 'main']);
+  await ensureConfigurationBranch(remote);
+  await withApprovedConfigurationRead(root, () => quiet(() => worldModelCommand(
+    root, ['wm', 'build'], {
+      format: 'registered-v4', views: 'dev.impact,biz.rules', capability: 'application'
+    }
+  )), {
+    preferAuthority: true, refreshAuthority: true, requireAuthorityRefresh: true
+  });
+  await publishPersistedRegisteredHistory(root, {
+    views: ['dev.impact', 'biz.rules'], savedViews: ['development', 'business']
+  });
+  git(root, ['switch', '-q', '-c', 'WMB-V4-AGENT-OVERRIDE']);
+  const approvedConfigurationAuthority =
+    await resolveRemoteStoryConfigurationAuthority(remote);
+  const approvedConfigurationSnapshot = await loadStoryConfigurationSnapshot(
+    approvedConfigurationAuthority
+  );
+  await materializeConfigurationSnapshot(root, {
+    authority: approvedConfigurationAuthority, snapshot: approvedConfigurationSnapshot
+  });
+  const config = await loadConfig(root);
+  config.git.publish = 'off';
+  const actor = { name: 'WMB Test', email: 'wmb@example.invalid', login: null };
+  await setAgentSession(root, config, actor, 'product-owner', 'WMB-V4-AGENT-OVERRIDE', {
+    phaseId: 'intake', source: 'phase-default'
+  });
+  const workflow = await createWorkflow(root, config, {
+    id: 'WMB-V4-AGENT-OVERRIDE', title: 'Consume an audited override plan',
+    source: {
+      type: 'manual', key: 'WMB-V4-AGENT-OVERRIDE',
+      title: 'Consume an audited override plan',
+      description: 'Select a governed agent outside the phase roster without changing its pinned grounding.',
+      acceptanceCriteria: [
+        'The selected architect receives its exact accepted packet and never the phase default packet.'
+      ]
+    },
+    baseBranch: 'main', workType: 'feature', agent: 'product-owner',
+    capabilityId: 'application',
+    resolved: resolveWorkType(config, 'feature'), approvedConfigurationSnapshot
+  });
+  const pin = workflow.resolution.worldModelHistoryPin;
+  assert.equal(pin.status, 'active', JSON.stringify(pin));
+  const architectPlan = pin.phasePlans.find((entry) => (
+    entry.phase === 'intake' && entry.agent === 'architect'
+  ));
+  const defaultPlan = pin.phasePlans.find((entry) => (
+    entry.phase === 'intake' && entry.agent === 'product-owner'
+  ));
+  assert.ok(architectPlan);
+  assert.ok(defaultPlan);
+  assert.notDeepEqual(architectPlan.orderedViewKeys, defaultPlan.orderedViewKeys,
+    'the fixture must detect fallback to the phase default agent plan');
+  const viewByKey = new Map(pin.views.map((entry) => [entry.viewKey, entry]));
+  assert.deepEqual(
+    architectPlan.orderedViewKeys.map((viewKey) => viewByKey.get(viewKey).reference),
+    ['repository.business@1']
+  );
+  assert.deepEqual(
+    defaultPlan.orderedViewKeys.map((viewKey) => viewByKey.get(viewKey).reference),
+    ['repository.development@1']
+  );
+  git(root, ['add', '-A']);
+  git(root, ['commit', '-q', '-m', 'accept agent-override Story closure']);
+
+  const selected = await selectAgent(root, config, actor, workflow.workItem.id, {
+    workflow, phaseId: 'intake', selection: 'architect'
+  });
+  assert.equal(selected.agent, 'architect');
+  assert.equal(selected.agentSource, 'explicit-override');
+  assert.deepEqual(selected.phaseCompatibilityOverride?.phase, 'intake');
+
+  // Omit an explicit agent on purpose. The product composer must honor the reviewed same-phase
+  // session override rather than silently restoring the phase default.
+  const prompt = await composePhasePrompt(root, {
+    workId: workflow.workItem.id, phase: 'intake'
+  });
+  const verified = await verifyGroundingRecord(
+    root, config, workflow, workflow.phases.intake,
+    { generation: 1, agent: 'architect' }
+  );
+  assert.deepEqual(verified.errors, []);
+  assert.deepEqual(verified.warnings, []);
+  assert.equal(verified.record.agent, 'architect');
+  assert.equal(verified.record.executionContext.mode, 'workflow-snapshot');
+  assert.equal(verified.record.executionContext.agentId, 'architect');
+  assert.equal(
+    verified.record.executionContext.agentBlobSha256,
+    `sha256:${selected.agentSha256}`
+  );
+  assert.deepEqual(verified.record.requiredViews, architectPlan.orderedViewKeys);
+  assert.notDeepEqual(verified.record.requiredViews, defaultPlan.orderedViewKeys);
+  assert.ok(verified.record.persistedGrounding);
+  const renderedGrounding = verified.record.persistedGrounding.files.find((entry) => (
+    entry.path.endsWith('.md')
+  ));
+  assert.ok(renderedGrounding);
+  const exactBlock = await readFile(path.join(root, renderedGrounding.path), 'utf8');
+  assert.equal(prompt.split(exactBlock).length - 1, 1,
+    'the exact architect packet must occur once in the delivered prompt');
+});
+
+test('active Story prompt delivery re-proves authority after audit for fresh, reused, and render-only prompts', async (t) => {
+  const root = await registeredRepository(t);
+  const transport = await mkdtemp(path.join(os.tmpdir(), 'sflow-wmp-delivery-race-'));
+  t.after(() => rm(transport, { recursive: true, force: true }));
+  const remote = path.join(transport, 'application.git');
+  run('git', ['init', '--bare', '-q', '-b', 'main', remote]);
+  git(root, ['remote', 'add', 'origin', remote]);
+  await writeFile(path.join(root, 'singularity', 'portfolio.yml'), YAML.stringify({
+    version: 1,
+    repositories: {
+      application: { url: remote, defaultBranch: 'main' }
+    }
+  }));
+  await writeFile(path.join(root, 'singularity', 'capabilities.yml'), YAML.stringify({
+    version: 1,
+    capabilities: {
+      application: {
+        name: 'Application', kind: 'delivery', parent: null, repository: 'application',
+        sourceRoots: ['payments.mjs'], policy: { gitPublication: 'off' }
+      }
+    }
+  }));
+  git(root, ['add', '--', 'singularity/portfolio.yml', 'singularity/capabilities.yml']);
+  git(root, ['commit', '-q', '-m', 'map governed application capability']);
+  git(root, ['push', '-q', '-u', 'origin', 'main']);
+  await ensureConfigurationBranch(remote);
+  await withApprovedConfigurationRead(root, () => quiet(() => worldModelCommand(
+    root, ['wm', 'build'], {
+      format: 'registered-v4', views: 'dev.impact', capability: 'application'
+    }
+  )), {
+    preferAuthority: true, refreshAuthority: true, requireAuthorityRefresh: true
+  });
+  await publishPersistedRegisteredHistory(root);
+  git(root, ['switch', '-q', '-c', 'WMB-V4-DELIVERY-RACE']);
+  const approvedConfigurationAuthority =
+    await resolveRemoteStoryConfigurationAuthority(remote);
+  const approvedConfigurationSnapshot = await loadStoryConfigurationSnapshot(
+    approvedConfigurationAuthority
+  );
+  await materializeConfigurationSnapshot(root, {
+    authority: approvedConfigurationAuthority, snapshot: approvedConfigurationSnapshot
+  });
+  const config = await loadConfig(root);
+  config.git.publish = 'off';
+  await setAgentSession(root, config, {
+    name: 'WMB Test', email: 'wmb@example.invalid', login: null
+  }, 'product-owner', 'WMB-V4-DELIVERY-RACE', { phaseId: 'intake', source: 'test' });
+  const workflow = await createWorkflow(root, config, {
+    id: 'WMB-V4-DELIVERY-RACE', title: 'Recheck authority at prompt delivery',
+    source: {
+      type: 'manual', key: 'WMB-V4-DELIVERY-RACE',
+      title: 'Recheck authority at prompt delivery',
+      description: 'Move the state authority after prompt audit and before prompt delivery.',
+      acceptanceCriteria: ['No fresh, reused, or preview prompt escapes after its cut is withdrawn.']
+    },
+    baseBranch: 'main', workType: 'feature', agent: 'product-owner',
+    capabilityId: 'application',
+    resolved: resolveWorkType(config, 'feature'), approvedConfigurationSnapshot
+  });
+  assert.equal(
+    workflow.resolution.worldModelHistoryPin.status,
+    'active',
+    JSON.stringify(workflow.resolution.worldModelHistoryPin)
+  );
+  git(root, ['add', '-A']);
+  git(root, ['commit', '-q', '-m', 'accept delivery-race Story']);
+  await setPromptAudit(root, true);
+
+  const authorityRef = workflow.resolution.worldModelHistoryPin.authority.stateRef;
+  const authorityTip = git(root, ['rev-parse', `${authorityRef}^{commit}`]);
+  const withdrawnTip = git(root, ['rev-parse', 'main^{commit}']);
+  let hooks = 0;
+  const raceAtDelivery = async ({ expectedAuditDelta = 1 } = {}) => {
+    const before = await listPromptAudits(root, { includePrompt: false });
+    return {
+      beforeFinalAuthorityCheck: async () => {
+        hooks += 1;
+        const after = await listPromptAudits(root, { includePrompt: false });
+        assert.equal(
+          after.count, before.count + expectedAuditDelta,
+          expectedAuditDelta
+            ? 'the fresh race hook must observe its newly recorded prompt audit'
+            : 'the reused or render-only race hook must preserve the expected audit count'
+        );
+        git(root, ['update-ref', authorityRef, withdrawnTip]);
+      }
+    };
+  };
+  const composeArgs = {
+    workId: 'WMB-V4-DELIVERY-RACE', phase: 'intake', agent: 'product-owner'
+  };
+  const expectWithdrawnAuthority = async (runtime) => {
+    try {
+      await assert.rejects(
+        () => composePhasePrompt(root, composeArgs, runtime),
+        (error) => error?.code === 'WMP_AUTHORITY_CUT_NOT_ADMITTED'
+      );
+    } finally {
+      git(root, ['update-ref', authorityRef, authorityTip]);
+    }
+  };
+
+  // Fresh durable composition records both immutable halves and its audit before the race hook;
+  // the final guard must still refuse to return those otherwise-valid bytes.
+  await expectWithdrawnAuthority(await raceAtDelivery());
+  const recordPath = path.join(
+    root, 'singularity/work-items/WMB-V4-DELIVERY-RACE/context/intake-gen1.json'
+  );
+  const recorded = JSON.parse(await readFile(recordPath, 'utf8'));
+  assert.ok(recorded.promptPath, 'fresh composition reached immutable prompt persistence');
+
+  // Reuse validates the saved pair first. Moving authority during the following idempotent audit
+  // must be caught by the same final delivery boundary.
+  await expectWithdrawnAuthority(await raceAtDelivery({ expectedAuditDelta: 0 }));
+
+  // Force a fresh preview. Render-only intentionally records neither half nor a new audit, but it
+  // must use the same last-moment authority boundary before returning prompt bytes to its caller.
+  await rm(path.join(root, recorded.promptPath));
+  await rm(recordPath);
+  await expectWithdrawnAuthority({
+    ...(await raceAtDelivery({ expectedAuditDelta: 0 })),
+    renderOnly: true
+  });
+  assert.equal(hooks, 3);
 });
 
 test('advisory composition labels a verified historical model when current source is unavailable', async (t) => {

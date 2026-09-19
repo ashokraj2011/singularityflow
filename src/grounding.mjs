@@ -3,6 +3,7 @@ import { lstat, mkdir, mkdtemp, readFile, readlink, readdir, realpath, rename, r
 import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { pathToFileURL } from 'node:url';
 import { head } from './git.mjs';
 import { authoredReferencePreview, resolveReference } from './harness-imports.mjs';
 import { exists, mapLimit, posix, run, secureRepositoryPath, SingularityFlowError, snapshot } from './util.mjs';
@@ -18,8 +19,28 @@ import { runRemoteGitAsync } from './git-execution.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import { isWorldModelAvailabilityError } from './world-model-availability.mjs';
+import { PACKAGE_ROOT } from './package-root.mjs';
 
 const GROUNDING_MODES = new Set(['off', 'warn', 'enforce']);
+let storyGroundingVerificationRuntimePromise = null;
+let promptGenerationVerificationRuntimePromise = null;
+
+async function storyGroundingVerificationRuntime() {
+  const runtimeUrl = pathToFileURL(path.join(
+    PACKAGE_ROOT, 'src', 'world-model', 'history', 'story-grounding-activation.mjs'
+  )).href;
+  storyGroundingVerificationRuntimePromise ??= import(runtimeUrl);
+  return storyGroundingVerificationRuntimePromise;
+}
+
+async function promptGenerationVerificationRuntime() {
+  // Read-only gateway workers need the verifier only for a Story that actually carries a
+  // persisted-history receipt. A computed packaged URL keeps prompt composition and its provider
+  // dependency graph out of every ordinary status/availability bundle.
+  const runtimeUrl = pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'inject.mjs')).href;
+  promptGenerationVerificationRuntimePromise ??= import(runtimeUrl);
+  return promptGenerationVerificationRuntimePromise;
+}
 
 // Open file descriptors while hashing a tree. Enough to keep the disk busy, few enough not to
 // exhaust the descriptor table on a large repository.
@@ -1281,8 +1302,116 @@ function currentGroundingPath(definition, workflow, file) {
   return relative;
 }
 
-export async function verifyGroundingRecord(root, definition, workflow, phase, { generation = phase.generation + 1, agent = null } = {}) {
-  const mode = groundingMode(definition, workflow);
+/**
+ * Verify the exact-history grounding contract at the lifecycle gate.
+ *
+ * Persisted Story grounding deliberately does not have a live projection manifest beneath
+ * `worldModel.outputDir`: its authoritative objects live at the Story-pinned state cut and its
+ * prompt block is materialized as a content-addressed packet pair in the work item. Reusing the
+ * legacy projection checks would therefore reject valid packets for having no manifest and for
+ * living outside the projection root. This verifier substitutes only those incompatible checks:
+ * the ordinary prompt receipt/snapshot verifier still proves exact bytes and packet identity, and
+ * the history owner re-proves today's repository, state-ref, and ancestor authority before a
+ * lifecycle mutation may consume the record.
+ */
+async function verifyPersistedStoryGrounding(
+  root, definition, workflow, phase, record, relative, generation, agent, authorityOptions = {}
+) {
+  const generationPhase = Number(phase.generation) + 1 === Number(generation)
+    ? phase
+    : { ...phase, generation: Number(generation) - 1 };
+  const workDir = path.join(
+    root, definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id
+  );
+  const { readPromptGeneration } = await promptGenerationVerificationRuntime();
+  const verified = await readPromptGeneration(root, workflow, generationPhase, {
+    workDir,
+    agent: agent ?? record.agent
+  });
+  if (!verified || verified.file !== relative || verified.record.persistedGrounding == null) {
+    throw new SingularityFlowError(
+      `Persisted Story grounding receipt is not the exact recorded generation: ${relative}.`,
+      { code: 'WORLD_MODEL_GROUNDING_INTEGRITY_FAILED' }
+    );
+  }
+
+  const {
+    assertPinnedStoryWorldModelGroundingReplay,
+    assertPinnedStoryWorldModelHistoryAuthority,
+    resolvePinnedStoryWorldModelGrounding
+  } = await storyGroundingVerificationRuntime();
+  const proofOptions = { definition, workflow };
+  for (const key of [
+    'resolveRepositoryAuthority', 'resolveCurrentAuthority', 'admitHistoryCut'
+  ]) {
+    if (typeof authorityOptions[key] === 'function') proofOptions[key] = authorityOptions[key];
+  }
+  const pin = await assertPinnedStoryWorldModelHistoryAuthority(root, proofOptions);
+  const plans = pin.phasePlans.filter((entry) => (
+    entry.phase === phase.id && entry.agent === verified.record.agent
+  ));
+  if (plans.length !== 1) {
+    throw new SingularityFlowError(
+      `Persisted Story grounding has no unique pinned plan for ${phase.id}/${verified.record.agent}.`,
+      { code: 'WORLD_MODEL_GROUNDING_INTEGRITY_FAILED' }
+    );
+  }
+  const views = new Map(pin.views.map((entry) => [entry.viewKey, entry]));
+  const expectedViews = plans[0].orderedViewKeys;
+  const recordedSelections = (verified.record.requiredSelections ?? []).map((entry) => ({
+    kind: entry?.kind, view: entry?.view, tier: entry?.tier
+  }));
+  const expectedSelections = expectedViews.map((viewKey) => ({
+    kind: 'view', view: viewKey, tier: views.get(viewKey)?.variant
+  }));
+  if (JSON.stringify(verified.record.requiredViews ?? []) !== JSON.stringify(expectedViews)
+      || JSON.stringify(recordedSelections) !== JSON.stringify(expectedSelections)
+      || verified.record.worldModelCommit
+        !== verified.record.persistedGrounding.authority.authorityCommit
+      || verified.record.manifestSha256 !== null
+      || verified.record.modelSourceTreeSha256 !== null) {
+    throw new SingularityFlowError(
+      `Persisted Story grounding envelope differs from its pinned phase plan: ${relative}.`,
+      { code: 'WORLD_MODEL_GROUNDING_INTEGRITY_FAILED' }
+    );
+  }
+  // Receipt, packet, payload, and prompt hashes can prove only that the recorded bytes agree with
+  // one another. Re-resolve the immutable Story cut and replay the registered model/view closure
+  // before granting lifecycle authority, so a coordinated replacement of every local byte cannot
+  // substitute prose that was never rendered by the pinned WMP owners.
+  const replay = await resolvePinnedStoryWorldModelGrounding(root, {
+    ...proofOptions,
+    phase: generationPhase,
+    agent: verified.record.agent
+  });
+  if (replay.status !== 'composed' || replay.authorityProven !== true) {
+    throw new SingularityFlowError(
+      `Persisted Story grounding could not be replayed from its pinned closure: ${relative}.`,
+      { code: 'WMP_GROUNDING_REPLAY_MISMATCH' }
+    );
+  }
+  assertPinnedStoryWorldModelGroundingReplay(replay, {
+    receipt: verified.record.persistedGrounding,
+    promptText: verified.text
+  });
+  return { record: verified.record, pin };
+}
+
+export async function verifyGroundingRecord(root, definition, workflow, phase, {
+  generation = phase.generation + 1,
+  agent = null,
+  resolveRepositoryAuthority = null,
+  resolveCurrentAuthority = null,
+  admitHistoryCut = null
+} = {}) {
+  const configuredMode = groundingMode(definition, workflow);
+  // An active Story pin is itself an accepted exact-history grounding contract. The composer
+  // consumes that packet even when the older projection-grounding switch is off, so publication
+  // must verify it rather than silently returning before the receipt boundary.
+  const mode = configuredMode === 'off'
+      && workflow.resolution?.worldModelHistoryPin?.status === 'active'
+    ? 'enforce'
+    : configuredMode;
   if (mode === 'off') return { mode, errors: [], warnings: [], passes: [], record: null, path: null };
   const relative = groundingRecordRelative(definition, workflow, phase, generation);
   const absolute = path.join(root, relative);
@@ -1300,11 +1429,66 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
   const problems = [];
   const stalenessProblems = [];
   const availabilityWarnings = [];
+  const persistedGrounding = record.persistedGrounding != null;
+  const suppliedHistoryPin = workflow.resolution?.worldModelHistoryPin ?? null;
+  let activeHistoryPlan = null;
+  let activeHistoryPinValid = false;
+  if (suppliedHistoryPin?.status === 'active') {
+    try {
+      const { validateStoryWorldModelHistoryPin } = await storyGroundingVerificationRuntime();
+      const pin = validateStoryWorldModelHistoryPin(suppliedHistoryPin);
+      const selectedAgent = agent ?? record.agent;
+      const plans = pin.phasePlans.filter((entry) => (
+        entry.phase === phase.id && entry.agent === selectedAgent
+      ));
+      if (plans.length > 1) {
+        throw new SingularityFlowError(
+          `Persisted Story grounding has multiple plans for ${phase.id}/${selectedAgent}.`,
+          { code: 'WORLD_MODEL_GROUNDING_INTEGRITY_FAILED' }
+        );
+      }
+      activeHistoryPinValid = true;
+      activeHistoryPlan = plans[0] ?? null;
+      if (activeHistoryPlan && !persistedGrounding) {
+        problems.push(
+          `active Story World-Model history plan requires a persisted grounding receipt for ${phase.id}/${selectedAgent}`
+        );
+      }
+    } catch (error) {
+      problems.push(`active Story World-Model history pin is invalid: ${error.message}`);
+    }
+  }
+  let persistedGroundingVerified = false;
+  if (persistedGrounding) {
+    try {
+      const verified = await verifyPersistedStoryGrounding(
+        root, definition, workflow, phase, record, relative, generation, agent, {
+          resolveRepositoryAuthority, resolveCurrentAuthority, admitHistoryCut
+        }
+      );
+      // Continue every compatible generic check against the same receipt bytes whose prompt and
+      // packet pair were just verified, rather than the earlier untrusted JSON read.
+      record = verified.record;
+      persistedGroundingVerified = true;
+    } catch (error) {
+      problems.push(
+        `persisted Story grounding verification failed: ${error.message}`
+      );
+    }
+  }
   const groundingAvailability = record.groundingAvailability ?? {
     status: 'legacy-unverified', reasonCode: null
   };
   const groundingStatus = groundingAvailability?.status;
   const groundingUnavailable = groundingStatus === 'unavailable';
+  if (activeHistoryPinValid && !activeHistoryPlan
+      && (!groundingUnavailable
+        || groundingAvailability.reasonCode !== 'WMP_VIEW_SELECTION_UNAVAILABLE')) {
+    problems.push(
+      `active Story has no persisted grounding plan for ${phase.id}/${agent ?? record.agent}; `
+      + 'the generation must retain the explicit no-grounding result'
+    );
+  }
   const sourceComparison = record.sourceComparison ?? {
     status: 'historical-unproven', reasonCode: null
   };
@@ -1336,10 +1520,11 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
     problems.push(`grounding composition has an unexpected source-comparison reason code: ${relative}`);
   }
   if (record.workId !== workflow.workItem.id || record.phase !== phase.id || record.generation !== generation) problems.push(`grounding composition identity mismatch: ${relative}`);
+  const acceptedAgents = workflow.resolution?.agents ?? definition.agents ?? {};
   if (!record.agent) problems.push(`grounding composition has no agent: ${relative}`);
-  else if (!definition.agents?.[record.agent]) problems.push(`grounding composition uses unknown agent '${record.agent}': ${relative}`);
+  else if (!acceptedAgents[record.agent]) problems.push(`grounding composition uses unknown agent '${record.agent}': ${relative}`);
   if (agent && record.agent !== agent) problems.push(`grounding composition agent '${record.agent}' differs from active agent '${agent}'`);
-  if (!groundingUnavailable) {
+  if (!groundingUnavailable && !persistedGrounding) {
     if (!/^[0-9a-f]{40}$/.test(record.worldModelCommit ?? '')) problems.push(`grounding composition has no committed world-model revision: ${relative}`);
     if (!/^[0-9a-f]{64}$/.test(record.manifestSha256 ?? '')) problems.push(`grounding composition has invalid manifestSha256: ${relative}`);
     if (!/^sha256:[0-9a-f]{64}$/.test(record.modelSourceTreeSha256 ?? '')) {
@@ -1365,6 +1550,8 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
     if (record.modelSourceTreeSha256 && record.composedSourceTreeSha256 && record.modelSourceTreeSha256 !== record.composedSourceTreeSha256) problems.push(`grounding composition source hash does not match its world model: ${relative}`);
     if (record.stale === true) stalenessProblems.push(`grounding composition is stale: ${relative}`);
     if (!Array.isArray(record.files) || !record.files.length) problems.push(`grounding composition contains no world-model files: ${relative}`);
+  } else if (!groundingUnavailable && !Array.isArray(record.files)) {
+    problems.push(`grounding composition has invalid file evidence: ${relative}`);
   }
   if (!/^[0-9a-f]{64}$/.test(record.renderedSha256 ?? '')) problems.push(`grounding composition has invalid renderedSha256: ${relative}`);
   if (!record.promptPath) problems.push(`grounding composition has no committed prompt snapshot: ${relative}`);
@@ -1415,7 +1602,10 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
   const requiredViews = registeredV4
     ? [...new Set(recordedV4Selections.map((entry) => entry.view))].sort()
     : plan.views.map((entry) => entry.view);
-  if (registeredV4) {
+  if (persistedGrounding) {
+    // Exact persisted view order and variants are verified against the Story pin above. Their
+    // content-addressed View Keys are intentionally not legacy projection IDs or manifest paths.
+  } else if (registeredV4) {
     const identities = recordedV4Selections.map((entry) => `${entry.view}@${entry.version ?? 'missing'}`);
     if (recordedV4Selections.some((entry) => (
       typeof entry.view !== 'string' || !entry.view
@@ -1453,24 +1643,37 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
   }
   const referencePolicy = workflow.resolution?.harnessImports ?? definition.harnessImports ?? {};
   const seen = new Set();
+  const persistedGroundingPaths = new Set(
+    (record.persistedGrounding?.files ?? []).map((entry) => safeGroundingPath(entry.path))
+      .filter(Boolean)
+  );
   if (groundingUnavailable && (record.files ?? []).some((file) => ['required', 'rule'].includes(file.category))) {
     problems.push(`grounding composition marked unavailable but contains repository world-model files: ${relative}`);
   }
   for (const file of record.files ?? []) {
     const recordedPath = currentGroundingPath(definition, workflow, file);
+    const persistedGroundingFile = persistedGrounding && recordedPath != null
+      && persistedGroundingPaths.has(recordedPath);
     const identity = `${file.category ?? 'unknown'}:${recordedPath ?? file.path}`;
     if (seen.has(identity)) problems.push(`grounding composition repeats ${file.path}`);
     seen.add(identity);
     if (!recordedPath) problems.push(`grounding composition has an unsafe or empty path: ${file.path}`);
-    if (!/^[0-9a-f]{64}$/.test(file.sha256 ?? '')) problems.push(`grounding composition has invalid hash for ${file.path}`);
+    const validFileDigest = persistedGroundingFile
+      ? /^sha256:[0-9a-f]{64}$/.test(file.sha256 ?? '')
+      : /^[0-9a-f]{64}$/.test(file.sha256 ?? '');
+    if (!validFileDigest) problems.push(`grounding composition has invalid hash for ${file.path}`);
     if (!GROUNDING_FILE_CATEGORIES.has(file.category)) problems.push(`grounding composition has invalid category for ${file.path}`);
     if (!Number.isInteger(file.bytes) || file.bytes < 0 || !Number.isInteger(file.injectedBytes) || file.injectedBytes < 0) problems.push(`grounding composition has invalid byte accounting for ${file.path}`);
     if (file.category === 'required' && (file.truncated || file.injectedBytes !== file.bytes)) problems.push(`required grounding was truncated for ${file.path}`);
     if (['required', 'rule'].includes(file.category)) {
-      if (!recordedPath || !withinGroundingRoot(recordedPath, modelRoot)) problems.push(`grounding composition references a file outside the repository world model: ${file.path}`);
+      if (!persistedGroundingFile
+          && (!recordedPath || !withinGroundingRoot(recordedPath, modelRoot))) {
+        problems.push(`grounding composition references a file outside the repository world model: ${file.path}`);
+      }
       if (file.injectedBytes > file.bytes) problems.push(`grounding composition has invalid byte accounting for ${file.path}`);
     }
-    if (['required', 'rule'].includes(file.category) && record.worldModelCommit && recordedPath && file.sha256) {
+    if (!persistedGroundingFile && ['required', 'rule'].includes(file.category)
+        && record.worldModelCommit && recordedPath && file.sha256) {
       const content = run('git', ['show', `${record.worldModelCommit}:${recordedPath}`], { cwd: root, allowFailure: true });
       if (content.status !== 0) problems.push(`world-model commit ${record.worldModelCommit.slice(0, 8)} does not contain ${file.path}`);
       else if (createHash('sha256').update(content.stdout).digest('hex') !== file.sha256) problems.push(`world-model commit hash differs for ${file.path}`);
@@ -1552,7 +1755,7 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
     }
   }
   let committedManifest = null;
-  if (record.worldModelCommit && record.manifestSha256) {
+  if (!persistedGrounding && record.worldModelCommit && record.manifestSha256) {
     const manifestPath = posix(path.join(definition.worldModel?.outputDir ?? 'singularity/world-model', 'manifest.json'));
     const content = run('git', ['show', `${record.worldModelCommit}:${manifestPath}`], { cwd: root, allowFailure: true });
     if (content.status !== 0) problems.push(`world-model commit ${record.worldModelCommit.slice(0, 8)} does not contain manifest.json`);
@@ -1633,9 +1836,17 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
     ...severity.warnings,
     ...(staleness.warns ? stalenessProblems : [])
   ];
+  const passes = errors.length || warnings.length
+    ? []
+    : [
+        `grounding composition: ${phase.id} generation ${generation} (${(record.files ?? []).length} files)`,
+        ...(persistedGroundingVerified
+          ? [`persisted Story grounding authority: ${record.persistedGrounding.groundingSha256}`]
+          : [])
+      ];
   return {
     mode, errors, warnings, staleness,
-    passes: errors.length || warnings.length ? [] : [`grounding composition: ${phase.id} generation ${generation} (${record.files.length} files)`],
+    passes,
     record, path: relative
   };
 }

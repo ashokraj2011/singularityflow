@@ -58,7 +58,7 @@
         "path": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?![A-Za-z]:[\\\\/])(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$)).+$" },
         "workId": { "$ref": "#/$defs/nonempty" }, "phase": { "$ref": "#/$defs/nonempty" },
         "generation": { "$ref": "#/$defs/counter" }, "agent": { "$ref": "#/$defs/nonempty" },
-        "worldModelCommit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+        "worldModelCommit": { "type": "string", "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$" },
         "manifestSha256": { "$ref": "#/$defs/hash" }, "renderedSha256": { "$ref": "#/$defs/hash" },
         "modelSourceTreeSha256": { "$ref": "#/$defs/hash" }, "composedSourceTreeSha256": { "$ref": "#/$defs/hash" },
         "fresh": { "type": "boolean" }
